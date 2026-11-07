@@ -701,6 +701,7 @@ export const id: Record<MessageKey, string> = {
   'files.search.label': 'Cari isi file',
   'files.search.placeholder': 'Cari di dalam file',
   'files.search.clear': 'Hapus pencarian',
+  'files.search.documents': 'Dokumen terkait',
   'files.search.scope': 'Baris yang berisi “{q}” di {folder}',
   'files.search.none': 'Tidak ada file yang bisa Anda buka yang berisi teks ini.',
   'files.search.line': 'Baris {n}',
