@@ -26,6 +26,8 @@ export function pushFailureText(f: PushFailure, t: ReturnType<typeof useT>, loca
     case 'service': return t((o.brave ?? isBrave()) ? 'push.serviceBrave' : 'push.service')
     case 'browserService': return t('push.browserService')
     case 'worker': return t('push.worker')
+    case 'storage': return t('push.storage')
+    case 'busy': return t('push.busy')
     case 'key': return t(o.admin ? 'push.keyAdmin' : 'push.keyMember')
     case 'denied': return t('push.denied')
     case 'dismissed': return t('push.dismissed')

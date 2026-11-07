@@ -5,7 +5,8 @@
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { badgeCountOf, makeNotifier, NOTIFY_PER_MINUTE, openPathOf, tagOf, TEST_WAIT_MS, type NoteLike } from '../../desktop/src/common/notify'
+import { badgeCountOf, makeNotifier, NOTIFY_PER_MINUTE, openPathOf, tagOf, TEST_PER_MINUTE, TEST_WAIT_MS, type NoteLike } from '../../desktop/src/common/notify'
+import { STRINGS } from '../../desktop/src/common/i18n'
 
 class FakeNote implements NoteLike {
   shown = false
@@ -178,12 +179,21 @@ describe('the test notification (Settings › Notifications)', () => {
     expect(TEST_WAIT_MS).toBe(5000)
   })
 
-  test('no notifications on this system: unsupported; in the same limit a minute as the others', async () => {
+  test('no notifications on this system: unsupported; a small budget of its own that never holds back a real one', async () => {
     expect(await setup({ supported: false }).test({ title: 't', body: 'b' })).toBe('unsupported')
     const s = setup({ testWaitMs: 1 })
+    // a busy minute of real notifications leaves the button working
     for (let i = 0; i < NOTIFY_PER_MINUTE; i++) s.notify({ title: 't', body: String(i), tag: `chat-${i}` })
-    expect(await s.test({ title: 't', body: 'b' })).toBe('limited')
-    expect(s.notes).toHaveLength(NOTIFY_PER_MINUTE)
+    expect(await s.test({ title: 't', body: 'b' })).toBe('unknown')
+    // and clicking the button over and over never uses up the real ones
+    const t = setup({ testWaitMs: 1 })
+    for (let i = 0; i < TEST_PER_MINUTE; i++) expect(await t.test({ title: 't', body: String(i) })).toBe('unknown')
+    expect(await t.test({ title: 't', body: 'more' })).toBe('limited')
+    expect(t.notes).toHaveLength(TEST_PER_MINUTE)
+    for (let i = 0; i < NOTIFY_PER_MINUTE; i++) expect(t.notify({ title: 't', body: String(i), tag: `chat-${i}` })).toBe(true)
+    t.tick(60_001)
+    expect(await t.test({ title: 't', body: 'a minute later' })).toBe('unknown')
+    expect(TEST_PER_MINUTE).toBe(3)
   })
 
   test('a newer test replaces the older one; only the first answer counts', async () => {
@@ -198,11 +208,17 @@ describe('the test notification (Settings › Notifications)', () => {
     expect(await first).toBe('shown')
   })
 
-  test('the main process answers only the team page, the preload hands the title and body as text', () => {
+  test('the main process answers only the team page and writes the words itself (the page sends none)', () => {
     const dir = path.join(import.meta.dir, '../../desktop/src')
     const main = fs.readFileSync(path.join(dir, 'main/main.ts'), 'utf8')
+    const win = fs.readFileSync(path.join(dir, 'main/app-window.ts'), 'utf8')
     const preload = fs.readFileSync(path.join(dir, 'preload/app.ts'), 'utf8')
-    expect(main).toContain("ipcMain.handle('bridge:notify-test', (e, n: { title?: unknown; body?: unknown }) => (fromApp(e) ? win!.testNotify({ title: String(n?.title ?? ''), body: String(n?.body ?? '') }) : 'unsupported'))")
-    expect(preload).toContain("testNotify: (n) => ipcRenderer.invoke('bridge:notify-test', { title: String(n?.title ?? ''), body: String(n?.body ?? '') })")
+    expect(main).toContain("ipcMain.handle('bridge:notify-test', (e) => (fromApp(e) ? win!.testNotify() : 'unsupported'))")
+    expect(preload).toContain("testNotify: () => ipcRenderer.invoke('bridge:notify-test'),")
+    expect(win).toContain("return this.notifier.test({ title: t(L, 'notify.test.title'), body: t(L, 'notify.test.body') })")
+    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+      expect(STRINGS[l]['notify.test.title']).toContain('{app}')
+      expect(STRINGS[l]['notify.test.body'].length).toBeGreaterThan(5)
+    }
   })
 })

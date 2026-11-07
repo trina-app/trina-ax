@@ -1,4 +1,4 @@
-import { ERROR_MESSAGES } from '@mycel/shared/api'
+import { ERROR_MESSAGES, PUSH_KEY_REASON } from '@mycel/shared/api'
 import { api, API, ApiError, isNetworkError } from './api'
 import { isDesktop } from './desktop'
 import { mobileApp } from './mobile'
@@ -66,7 +66,9 @@ export function vapidBytes(value: string): Uint8Array<ArrayBuffer> {
 
 /** Called from the explicit click: requestPermission runs before any await. */
 export async function enablePush(registration: ServiceWorkerRegistration, publicKey: string, existingId: string | null): Promise<void> {
-  if (!session || changing) throw new Error('push session unavailable')
+  if (!session) throw new Error('push session unavailable')
+  // another turn-on or turn-off is still running (the web ask's browser question may be open)
+  if (changing) throw new Error('push busy')
   const generation = epoch, key = vapidBytes(publicKey)
   const permission = Notification.permission === 'default' ? Notification.requestPermission() : Promise.resolve(Notification.permission)
   changing = true
@@ -99,7 +101,8 @@ export async function enablePush(registration: ServiceWorkerRegistration, public
 
 export async function disablePush(registration: ServiceWorkerRegistration | null): Promise<void> {
   const generation = epoch
-  if (!session || changing) throw new Error('push session unavailable')
+  if (!session) throw new Error('push session unavailable')
+  if (changing) throw new Error('push busy')
   changing = true
   try {
     try { await api.call(API.updatePushSettings, { body: { enabled: false } }) } catch (error) { throw new PushError('server', error) }
@@ -118,21 +121,23 @@ export async function disablePush(registration: ServiceWorkerRegistration | null
  *   available / error": Brave without "Use Google services for push messaging", a private window);
  * - browserService: the team server does not take this browser's push service (it delivers only through Google's,
  *   Mozilla's and Apple's);
- * - worker: the service worker did not start (in WORKER_WAIT_MS);
+ * - worker: the service worker did not start (in WORKER_WAIT_MS); storage: the browser refused to register it because
+ *   this site may not keep data (Firefox's SecurityError: site data blocked, or "never remember history");
  * - key: the team server has no usable Web Push key (an admin's matter);
  * - denied: notifications are blocked for this site; dismissed: the browser's question was closed without an answer;
  * - tooMany: the server keeps push for at most 10 devices of a person;
  * - server: the team server refused with an error it explains itself (`error`); network: it could not be reached;
+ * - busy: another turn-on or turn-off is still running (a browser question from the web ask is open);
  * - cancelled: the account changed meanwhile (nothing to say); unknown: anything else (logged to the console).
  */
-export type PushFailureKind = 'unsupported' | 'insecure' | 'service' | 'browserService' | 'worker' | 'key' | 'denied' | 'dismissed' | 'tooMany' | 'server' | 'network' | 'cancelled' | 'unknown'
+export type PushFailureKind = 'unsupported' | 'insecure' | 'service' | 'browserService' | 'worker' | 'storage' | 'key' | 'denied' | 'dismissed' | 'tooMany' | 'server' | 'network' | 'busy' | 'cancelled' | 'unknown'
 export interface PushFailure { kind: PushFailureKind; error?: ApiError }
 
 export function pushFailure(error: unknown, permission: NotificationPermission | null = notificationPermission()): PushFailure {
   const step = error instanceof PushError ? error.step : null
   const cause = error instanceof PushError ? error.cause : error
   if (step === 'server' || cause instanceof ApiError) return serverFailure(cause)
-  if (step === 'worker') return { kind: 'worker' }
+  if (step === 'worker') return { kind: (cause as { name?: unknown } | null)?.name === 'SecurityError' ? 'storage' : 'worker' }
   if (step === 'subscribe') {
     const name = (cause as { name?: unknown } | null)?.name
     // Chrome in a private window and Safari answer NotAllowedError; only a blocked site is the person's own "no"
@@ -147,6 +152,7 @@ export function pushFailure(error: unknown, permission: NotificationPermission |
     case 'push unsupported': return { kind: pushSupport() === 'insecure' ? 'insecure' : 'unsupported' }
     case 'push permission denied': return { kind: permission === 'denied' ? 'denied' : 'dismissed' }
     case 'invalid push key': return { kind: 'key' }
+    case 'push busy': return { kind: 'busy' }
     case 'push session unavailable': case 'push session changed': return { kind: 'cancelled' }
   }
   return { kind: 'unknown' }
@@ -154,9 +160,10 @@ export function pushFailure(error: unknown, permission: NotificationPermission |
 
 function serverFailure(cause: unknown): PushFailure {
   if (!(cause instanceof ApiError)) return { kind: isNetworkError(cause) ? 'network' : 'unknown' }
-  // no JSON body: the relay or a proxy answered (502/503/504 while the team server is away), not the team server
+  // the team server itself says it has no usable Web Push key; every other `unavailable` is passing: the relay (the team
+  // server offline, in maintenance, busy, timed out, its connection lost) or a proxy without the server's JSON
+  if (cause.code === 'unavailable') return { kind: cause.body.params?.reason === PUSH_KEY_REASON ? 'key' : 'network' }
   if (cause.body.params?.httpStatus !== undefined && cause.status >= 502 && cause.status <= 504) return { kind: 'network' }
-  if (cause.code === 'unavailable') return { kind: 'key' }
   if (cause.code === 'plan_limit') return { kind: 'tooMany' }
   // the browser's push address is not one the server delivers to (server/src/notifications/push-transport.ts HOSTS)
   if (cause.code === 'validation') return { kind: 'browserService' }
@@ -175,6 +182,15 @@ export function logPushFailure(error: unknown, failure: PushFailure = pushFailur
   const name = (cause as { name?: unknown } | null)?.name, message = (cause as { message?: unknown } | null)?.message
   const clean = (v: unknown) => String(v ?? '').replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, '<address>').slice(0, 200)
   console.warn(`[push] ${step}: ${failure.kind}`, clean(name), clean(message))
+}
+
+/** Microsoft Edge: its push service (Windows Notification Service) is not one the team server delivers through
+ * (server/src/notifications/push-transport.ts HOSTS), so the web ask leaves it out until that is decided; Settings says
+ * so when someone tries (browserService). */
+export function isEdge(): boolean {
+  if (typeof navigator === 'undefined') return false
+  const brands = (navigator as { userAgentData?: { brands?: { brand?: unknown }[] } }).userAgentData?.brands
+  return /\bEdg\//.test(navigator.userAgent ?? '') || (Array.isArray(brands) && brands.some((b) => b?.brand === 'Microsoft Edge'))
 }
 
 /** Brave (it hides push behind a setting of its own: "Use Google services for push messaging"). */

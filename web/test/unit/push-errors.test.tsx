@@ -4,11 +4,12 @@
 // server's key (an admin's matter), the server's own refusal, a blocked site, a closed question, no connection. "다시
 // 시도" only where trying again can help; an unexpected failure is logged (name and message, never an address).
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
+import { act } from 'react'
 import { MemoryRouter } from 'react-router-dom'
-import type { Me } from '@mycel/shared/api'
+import { API as CONTRACT, ApiClient, PUSH_KEY_REASON, type Me } from '@mycel/shared/api'
 import { ApiError } from '../../src/lib/api'
 import { translate, useLocaleStore, type MessageKey, type Params } from '../../src/i18n'
-import { logPushFailure, PushError, pushFailure, pushRetryHelps, pushSupport, setPushSession, type PushFailure } from '../../src/lib/push'
+import { enablePush, logPushFailure, PushError, pushFailure, pushRetryHelps, pushSupport, setPushSession, type PushFailure } from '../../src/lib/push'
 import { PushNotifications, pushFailureText } from '../../src/components/settings/PushNotifications'
 import { useSession } from '../../src/store/session'
 import { installDom, mount, removeDom } from './dom-host'
@@ -16,7 +17,9 @@ import { installDom, mount, removeDom } from './dom-host'
 const en = (k: MessageKey, p?: Params) => translate('en', k, p)
 const ko = (k: MessageKey, p?: Params) => translate('ko', k, p)
 const dom = (name: string, message = name) => new DOMException(message, name)
-const api = (status: number, code: string, o: { params?: Record<string, number> } = {}) => new ApiError(status, { code: code as never, message: `server says ${code}`, ...o })
+const api = (status: number, code: string, o: { params?: Record<string, number | string> } = {}) => new ApiError(status, { code: code as never, message: `server says ${code}`, ...o })
+/** the team server's own answer when it has no usable Web Push key */
+const noKey = () => api(503, 'unavailable', { params: { reason: PUSH_KEY_REASON } })
 const kind = (e: unknown, permission: NotificationPermission | null = 'granted') => pushFailure(e, permission).kind
 
 describe('why it failed', () => {
@@ -33,6 +36,11 @@ describe('why it failed', () => {
 
   test('this page: the worker, the key, the browser\'s question, the account changing', () => {
     expect(kind(new PushError('worker', new Error('push worker unavailable')))).toBe('worker')
+    // Firefox refuses the worker where the site may keep no data (site data blocked, "never remember history"):
+    // reloading would not help
+    expect(kind(new PushError('worker', dom('SecurityError', 'The operation is insecure.')))).toBe('storage')
+    // a turn-on or turn-off already running (the web ask's browser question is open)
+    expect(kind(new Error('push busy'))).toBe('busy')
     expect(kind(new PushError('worker', new TypeError('Failed to register a ServiceWorker')))).toBe('worker')
     expect(kind(new Error('invalid push key'))).toBe('key')
     expect(kind(new Error('push permission denied'), 'denied')).toBe('denied')
@@ -49,8 +57,11 @@ describe('why it failed', () => {
     expect(kind(new PushError('server', new TypeError('Failed to fetch')))).toBe('network')
     // a relay or proxy answered without the server's JSON: the server is away
     expect(kind(new PushError('server', api(502, 'unavailable', { params: { httpStatus: 502 } })))).toBe('network')
-    // the server itself: no usable Web Push key (or its secrets folder is unsafe)
-    expect(kind(new PushError('server', api(503, 'unavailable')))).toBe('key')
+    // the server itself says it has no usable Web Push key (or its secrets folder is unsafe)
+    expect(kind(new PushError('server', noKey()))).toBe('key')
+    // any other unavailable is passing: the relay's JSON (team server offline, maintenance, busy, timed out) and the like
+    expect(kind(new PushError('server', api(503, 'unavailable')))).toBe('network')
+    expect(kind(new PushError('server', api(503, 'unavailable', { params: { reason: 'team_offline' } })))).toBe('network')
     expect(kind(new PushError('server', api(409, 'plan_limit')))).toBe('tooMany')
     expect(kind(new PushError('server', api(400, 'validation')))).toBe('browserService')
     expect(kind(new PushError('server', api(401, 'unauthorized')))).toBe('server')
@@ -66,12 +77,27 @@ describe('why it failed', () => {
     expect(helps(new PushError('server', api(429, 'rate_limited')))).toBe(true)
     expect(helps(new PushError('server', api(500, 'internal')))).toBe(true)
     expect(helps(new PushError('server', api(401, 'unauthorized')))).toBe(false)
-    expect(helps(new PushError('server', api(503, 'unavailable')))).toBe(false)
+    expect(helps(new PushError('server', noKey()))).toBe(false)
+    expect(helps(new PushError('server', api(503, 'unavailable')))).toBe(true)
+    expect(helps(new PushError('worker', dom('SecurityError')))).toBe(false)
+    expect(helps(new Error('push busy'))).toBe(false)
     expect(helps(new PushError('subscribe', dom('AbortError')))).toBe(false)
     expect(helps(new PushError('worker', new Error('push worker unavailable')))).toBe(false)
     expect(helps(new Error('push permission denied'))).toBe(false)
     expect(helps(new Error('something else'))).toBe(false)
   })
+})
+
+test('the relay\'s answers while the team server is away are "no connection" with "다시 시도", never "the push key"', async () => {
+  const out: Record<string, string> = {}
+  for (const [status, reason, retryAfter] of [[503, 'team_offline', 5], [503, 'team_maintenance', 30], [503, 'team_busy', 5], [504, 'team_timeout', undefined], [502, 'team_connection_lost', undefined]] as const) {
+    // relay/src/relay.ts sendPage: { error: { code, message, reason, retryAfter? } }
+    const client = new ApiClient({ baseUrl: 'https://acme.example.test', fetch: (async () => Response.json({ error: { code: 'unavailable', message: '팀 서버가 꺼져 있어요', reason, ...(retryAfter ? { retryAfter } : {}) } }, { status })) as unknown as typeof fetch })
+    const error = await client.call(CONTRACT.subscribePush, { body: { consent: true, endpoint: 'https://fcm.googleapis.com/fcm/send/a', keys: { p256dh: 'p', auth: 'a' } } }).then(() => null, (e: unknown) => e)
+    const f = pushFailure(new PushError('server', error), 'granted')
+    out[reason] = `${f.kind} retry=${pushRetryHelps(f)}`
+  }
+  expect(Object.values(out)).toEqual(Array(5).fill('network retry=true'))
 })
 
 describe('what it says', () => {
@@ -81,6 +107,7 @@ describe('what it says', () => {
       ['unsupported', en('push.unsupported')], ['insecure', en('push.insecure')], ['service', en('push.service')],
       ['browserService', en('push.browserService')], ['worker', en('push.worker')], ['key', en('push.keyMember')],
       ['denied', en('push.denied')], ['dismissed', en('push.dismissed')], ['network', en('error.network')],
+      ['storage', en('push.storage')], ['busy', en('push.busy')],
       ['unknown', en('push.failedUnknown')], ['cancelled', null],
     ])
     for (const [k, line] of lines) {
@@ -90,6 +117,11 @@ describe('what it says', () => {
     expect(say({ kind: 'tooMany' })).toBe('Too many devices get push already. Use “Turn off push on all devices”, then turn it on here again.')
     expect(say({ kind: 'service' })).toContain('private window')
     expect(say({ kind: 'worker' })).toContain('Reload the page')
+    expect(say({ kind: 'storage' })).not.toContain('Reload')
+    expect(say({ kind: 'storage' }, { t: ko })).toContain("Firefox에서 '기록을 저장하지 않음'")
+    expect(say({ kind: 'busy' }, { t: ko })).toStartWith('이미 진행 중이에요.')
+    // Chrome's private window says "blocked" by itself: the line does not only send people to the site settings
+    expect(say({ kind: 'denied' }, { t: ko })).toContain('시크릿 창에서는 알림을 켤 수 없어요')
   })
 
   test('Brave: the setting that turns its push service on, in the person\'s language', () => {
@@ -114,7 +146,7 @@ describe('what it says', () => {
 
   test('every new line exists in all five languages', () => {
     for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
-      for (const k of ['push.insecure', 'push.service', 'push.serviceBrave', 'push.browserService', 'push.worker', 'push.keyAdmin', 'push.keyMember', 'push.dismissed', 'push.tooMany', 'push.failedUnknown'] as const) {
+      for (const k of ['push.insecure', 'push.service', 'push.serviceBrave', 'push.browserService', 'push.worker', 'push.storage', 'push.busy', 'push.keyAdmin', 'push.keyMember', 'push.dismissed', 'push.tooMany', 'push.failedUnknown', 'push.denied'] as const) {
         expect(translate(l, k)).not.toBe(k)
         if (l !== 'en') expect(translate(l, k)).not.toBe(translate('en', k))
       }
@@ -155,7 +187,8 @@ describe('the settings row in a browser', () => {
   let permission: NotificationPermission = 'default'
   let subscribe: () => Promise<unknown> = async () => { throw dom('AbortError', 'Registration failed - push service error') }
   let post: () => Response | Promise<Response> = () => Response.json({ id: 'sub-1' })
-  let subscribes = 0, warned = 0
+  let subscribes = 0, warned = 0, asked = 0
+  let answer: () => Promise<NotificationPermission> = async () => 'granted'
   const realWarn = console.warn
   const registration = {
     active: { postMessage() {} },
@@ -169,7 +202,7 @@ describe('the settings row in a browser', () => {
     useSession.setState({ status: { kind: 'signed-in', me } } as never)
     Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/130', platform: 'MacIntel', maxTouchPoints: 0, serviceWorker: { register: async () => registration, ready: Promise.resolve(registration), getRegistration: async () => registration, controller: null } } })
     g.PushManager = function PushManager() {}
-    Object.defineProperty(globalThis, 'Notification', { configurable: true, value: { get permission() { return permission }, requestPermission: async () => { permission = 'granted'; return permission } } })
+    Object.defineProperty(globalThis, 'Notification', { configurable: true, value: { get permission() { return permission }, requestPermission: () => { asked++; return answer().then((p) => (permission = p)) } } })
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const key = `${init?.method ?? 'GET'} ${String(input).split('?')[0]}`
       if (key === 'GET /api/push') return Response.json({ configured: true, enabled: false, publicKey, subscriptionId: null })
@@ -223,6 +256,36 @@ describe('the settings row in a browser', () => {
     await page.click(retry)
     await page.until(() => !page.find('push-failure'), 'the reason gone')
     expect(subscribes).toBe(before + 1)
+    await page.unmount()
+  })
+
+  test('the click asks the browser at once: its question comes before anything waits (Safari allows it only there)', async () => {
+    permission = 'default'
+    subscribe = async () => ({ toJSON: () => ({ endpoint: 'https://fcm.googleapis.com/fcm/send/synthetic', keys: { p256dh: 'p', auth: 'a' } }), unsubscribe: async () => true })
+    const { page, button } = await row()
+    const before = asked
+    let inTheClick = -1
+    // the click alone, then look before any promise or effect runs
+    act(() => { button.click(); inTheClick = asked - before })
+    expect(inTheClick).toBe(1)
+    await page.settle(30)
+    await page.unmount()
+  })
+
+  test('the web ask\'s browser question still open: Settings says it is already in progress, not nothing', async () => {
+    permission = 'default'
+    let release!: (p: NotificationPermission) => void
+    answer = () => new Promise((r) => { release = r })
+    const { page, button } = await row()
+    // the ask line's [알림 켜기]: its question is open
+    const ask = enablePush(registration as unknown as ServiceWorkerRegistration, publicKey, null)
+    await page.click(button)
+    const note = await page.until(() => page.find('push-failure'), 'the reason')
+    expect(note.getAttribute('data-kind')).toBe('busy')
+    expect(note.textContent).toContain('이미 진행 중이에요')
+    release('granted')
+    await ask
+    answer = async () => 'granted'
     await page.unmount()
   })
 

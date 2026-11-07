@@ -4,13 +4,16 @@
 // phone app, an https address, not an iPhone browser tab), the browser has not been asked yet (permission 'default'),
 // the team server offers Web Push with a valid key, the person is signed in and did not turn push off themselves, and
 // this device did not put the line away in the last 7 days ([나중에]) or block notifications from it (for good: Settings
-// › Notifications says how to undo that). [알림 켜기] runs enablePush right in the click (the browser's question needs
-// the click), so the server's settings and the service worker are made ready before the line shows.
+// › Notifications says how to undo that). Not in Microsoft Edge: the team server does not deliver through its push
+// service (lib/push.ts isEdge) until that is decided. [알림 켜기] runs enablePush right in the click (the browser's
+// question needs the click), so the server's settings and the service worker are made ready before the line shows.
+// Ready, it waits for the next move to another page (noteWebPushAskPath): appearing on the page in front of the person
+// would push it down (or up, on a phone) under their finger.
 import { create } from 'zustand'
 import type { z } from 'zod'
 import type { PushSettings } from '@mycel/shared/api'
 import { api, API } from './api'
-import { enablePush, logPushFailure, notificationPermission, pushFailure, pushRegistration, pushSupported, vapidBytes, type PushFailure } from './push'
+import { enablePush, isEdge, logPushFailure, notificationPermission, pushFailure, pushRegistration, pushSupported, vapidBytes, type PushFailure } from './push'
 import { pushNeedsInstall } from './pwa'
 
 type Settings = z.infer<typeof PushSettings>
@@ -23,6 +26,8 @@ const write = (key: string, value: string) => { try { localStorage.setItem(key, 
 export interface AskConditions {
   /** a web browser that can get Web Push here (lib/push.ts pushSupported, and not an iPhone browser tab) */
   supported: boolean
+  /** Microsoft Edge (its push service is refused by the team server) */
+  edge: boolean
   permission: NotificationPermission | null
   /** the server's push settings (null: not read) */
   settings: Pick<Settings, 'configured' | 'publicKey' | 'optedOut'> | null
@@ -35,7 +40,7 @@ export interface AskConditions {
 
 /** What this device decides alone: signed in, Web Push here, not asked yet, not put away or blocked from the line. */
 export function askAllowedHere(c: Omit<AskConditions, 'settings'>): boolean {
-  if (!c.signedIn || !c.supported || c.permission !== 'default' || c.blocked) return false
+  if (!c.signedIn || !c.supported || c.edge || c.permission !== 'default' || c.blocked) return false
   const at = Number(c.later)
   return !(c.later && Number.isFinite(at) && c.now - at < ASK_LATER_MS)
 }
@@ -50,27 +55,32 @@ export function webPushAskShows(c: AskConditions): boolean {
 
 /** What this device knows without the server. */
 const local = (now: number): Omit<AskConditions, 'settings'> => ({
-  supported: pushSupported() && !pushNeedsInstall(), permission: notificationPermission(), signedIn: true,
+  supported: pushSupported() && !pushNeedsInstall(), edge: isEdge(), permission: notificationPermission(), signedIn: true,
   later: read(ASK_LATER_KEY), blocked: read(ASK_BLOCKED_KEY) === '1', now,
 })
 
 interface AskState {
   /** the signed-in session the line was made ready for (user:session), or null */
   key: string | null
+  /** ready to show (see revealed) */
   show: boolean
+  /** shown: the person moved to another page since it was ready */
+  revealed: boolean
+  /** the page on screen when it became ready */
+  readyPath: string | null
   busy: boolean
   /** why [알림 켜기] did not work, said in the line with a link to Settings › Notifications */
   failure: PushFailure | null
   settings: Settings | null
   registration: ServiceWorkerRegistration | null
 }
-export const useWebPushAsk = create<AskState>(() => ({ key: null, show: false, busy: false, failure: null, settings: null, registration: null }))
+export const useWebPushAsk = create<AskState>(() => ({ key: null, show: false, revealed: false, readyPath: null, busy: false, failure: null, settings: null, registration: null }))
 
 /** Signed in as `key` (user:session; null: signed out): read the server's push settings once per session and get the
  * service worker ready, then show the line when it may. Quiet when anything is missing: no line. */
 export async function prepareWebPushAsk(key: string | null, now = Date.now()): Promise<void> {
   if (key === useWebPushAsk.getState().key) return
-  useWebPushAsk.setState({ key, show: false, busy: false, failure: null, settings: null, registration: null })
+  useWebPushAsk.setState({ key, show: false, revealed: false, readyPath: null, busy: false, failure: null, settings: null, registration: null })
   if (!key || !askAllowedHere(local(now))) return
   try {
     const settings = await api.call(API.getPushSettings)
@@ -79,6 +89,14 @@ export async function prepareWebPushAsk(key: string | null, now = Date.now()): P
     if (useWebPushAsk.getState().key !== key) return
     useWebPushAsk.setState({ show: true, settings, registration })
   } catch { /* no line */ }
+}
+
+/** The page on screen now (WebPushAsk, at every move): the line, once ready, shows from the next page on. */
+export function noteWebPushAskPath(path: string): void {
+  const s = useWebPushAsk.getState()
+  if (!s.show || s.revealed) return
+  if (s.readyPath === null) useWebPushAsk.setState({ readyPath: path })
+  else if (s.readyPath !== path) useWebPushAsk.setState({ revealed: true })
 }
 
 /** [알림 켜기]: enablePush in the click (its permission question comes before any wait). 'on': push is on (the line goes

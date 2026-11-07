@@ -115,9 +115,10 @@ export interface DesktopBridge {
    * (onOpen); desktop apps before this addition only focus the window. A team switch closes them. */
   notify(n: { title: string; body: string; tag?: string; open?: string }): void
   /** Settings › Notifications' "Test notification": one notification now, even while the window is focused (the person
-   * asked for it), within the same limit a minute; a newer test replaces the older one. Says how it went
-   * (DesktopNotifyTest). Optional: desktop apps before this addition do not have it (the page shows no button). */
-  testNotify?(n: { title: string; body: string }): Promise<DesktopNotifyTest>
+   * asked for it), in the desktop app's own words (the page gives none) and a small limit a minute of its own; a newer
+   * test replaces the older one. Says how it went (DesktopNotifyTest). Optional: desktop apps before this addition do
+   * not have it (the page shows no button). */
+  testNotify?(): Promise<DesktopNotifyTest>
   /** A notification's click asks the page to go to its address (an app path, checked by the desktop app). Optional:
    * desktop apps before session markers do not have it. */
   onOpen?(cb: (path: string) => void): () => void

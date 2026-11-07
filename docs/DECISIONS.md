@@ -11584,21 +11584,34 @@ push service (`pushManager.subscribe` always fails there).
   failed (`PushError`: worker, subscribe, server), and the reason is one of: no Web Push in this browser or no https; the
   browser's push service off or away (`AbortError`; in Brave the setting "푸시 메시지에 Google 서비스 사용", private
   windows); the server does not take this browser's push service (`validation`: the server delivers only through
-  Google's, Mozilla's and Apple's, so Edge's WNS addresses are refused); the service worker did not start; no usable
-  server key (`unavailable` from the server itself, or the browser refusing the key: an admin is told what to fix, a
-  member only to let an admin know); too many devices (`plan_limit`); a blocked site (also the row's status line); the
-  browser's question closed; the server unreachable (a network error, or a relay's 502/503/504 without the server's
-  JSON); the server's own refusal, in its words when the code is known. "다시 시도" only for no connection, 429 and 5xx.
+  Google's, Mozilla's and Apple's, so Edge's WNS addresses are refused); the service worker did not start; the browser
+  refused the worker because the site may keep no data (Firefox's `SecurityError`: blocked site data, "never remember
+  history"); no usable server key (`unavailable` with `params.reason: 'push_key'` (`PUSH_KEY_REASON`) from the team
+  server itself, or the browser refusing the key: an admin is told what to fix, a member only to let an admin know);
+  too many devices (`plan_limit`); a blocked site (also the row's status line; Chrome's private windows answer "blocked"
+  by themselves and cannot be told apart reliably, so the line also says a private window cannot turn notifications
+  on); the browser's question closed; another turn-on still waiting for the browser's question ("이미 진행 중이에요");
+  the server unreachable (a network error, or any other `unavailable`: the relay answers a team server that is
+  offline, in maintenance, busy or timed out with that code and JSON of its own); the server's own refusal, in its
+  words when the code is known. "다시 시도" only for no connection, 429 and 5xx.
 - **The console gets what support needs**: unknown, push-service and worker failures with the error's name and message,
   addresses cut out, never the endpoint or keys.
 - **The desktop app has no Web Push row.** It notifies through the computer while its window is not in front (Session
   markers), so Settings says that, and the optional bridge call `testNotify` sends one notification now, focused or not,
-  in the same limit a minute, and answers what the system said (Electron's `show` / `failed`, else `unknown` after 5 s).
+  with the desktop app's own words (the page sends none) and a budget of its own (3 a minute, so the button never holds
+  back a real notification), and answers what the system said (Electron's `show` / `failed`, else `unknown` after 5 s).
+  Owners and admins keep the phone push gateway line there.
   `failed` is read as "notifications are off for the app": the line names where to turn them on (macOS 시스템 설정 ›
   알림 › Trina AX, Windows 설정 › 시스템 › 알림 › Trina AX). An older desktop app shows the row without the button.
 - **A web ask, because browsers ask only after a click.** One line with a hairline, no box: at the top of the main column
   on a computer, above the tab bar on a phone browser (not in a room or an AI chat, not on Settings › Notifications).
   Only in a web browser with Web Push whose permission is still `default`, on a server with a valid key, signed in,
-  push not turned off by the person (`optedOut`), and not put away on this device in the last 7 days (나중에) or blocked
-  from the line (for good). The server's settings and the service worker are ready before it shows, so [알림 켜기] calls
-  `enablePush` in the click and the browser's question comes before any wait.
+  push not turned off by the person (`optedOut`), not Microsoft Edge (its push service is refused; the owner has not
+  decided on adding it), and not put away on this device in the last 7 days (나중에) or blocked from the line (for good).
+  The server's settings and the service worker are ready before it shows, so [알림 켜기] calls `enablePush` in the click
+  and the browser's question comes before any wait.
+- **No jump.** Ready while a page is on screen, the line waits for the next page: appearing there would push the page
+  (the composer) down by its height under the person's finger. A reload starts over, so it shows from the first move.
+  Its words are one live region that is always there (the reason replaces the question inside it); the buttons stay
+  focusable while it works (`aria-busy`, not disabled); when it goes away under the keyboard's focus, the focus moves
+  to `#main`.

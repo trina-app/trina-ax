@@ -3,6 +3,8 @@ import crypto from 'node:crypto'
 import { harness, withOwner, type Harness } from './a-lib'
 import { PushService, type PushOptions } from '../../server/src/notifications/push-service'
 import { notificationsOf } from '../../server/src/notifications/service'
+import { HttpError } from '../../server/src/http/errors'
+import { PUSH_KEY_REASON } from '@mycel/shared/api'
 const generateVAPIDKeys=()=>{const e=crypto.createECDH('prime256v1');e.generateKeys();return {publicKey:e.getPublicKey().toString('base64url'),privateKey:e.getPrivateKey().toString('base64url')}}
 let h: Harness, p: PushService
 const nowBase=Date.now(); let now=nowBase
@@ -131,4 +133,14 @@ test('an unexpired final-attempt lease stays sending while another tick checks t
     .run(item.id,sub.id,new Date(now).toISOString(),new Date(now+30000).toISOString(),new Date(now+60000).toISOString())
   await p.tick();expect(calls).toBe(0)
   expect(h.ctx.db.query('SELECT state,attempts FROM push_deliveries').get()).toEqual({state:'sending',attempts:3})
+})
+
+test('no usable Web Push key: unavailable with reason push_key, so the page tells an admin, not "try again"',async()=>{
+  const sid=await setup({config:()=>null})
+  let error: unknown
+  try{p.subscribe('olga',sid,input())}catch(e){error=e}
+  expect(error).toBeInstanceOf(HttpError)
+  expect((error as HttpError).code).toBe('unavailable')
+  expect((error as HttpError).body('ko').params).toEqual({reason:PUSH_KEY_REASON})
+  expect(PUSH_KEY_REASON).toBe('push_key')
 })

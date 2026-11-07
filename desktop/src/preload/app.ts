@@ -39,7 +39,7 @@ const bridge: DesktopBridge = {
     onChange: on('bridge:connection'),
   },
   notify: (n) => ipcRenderer.send('bridge:notify', { title: String(n?.title ?? ''), body: String(n?.body ?? ''), tag: n?.tag === undefined ? undefined : String(n.tag), open: n?.open === undefined ? undefined : String(n.open) }),
-  testNotify: (n) => ipcRenderer.invoke('bridge:notify-test', { title: String(n?.title ?? ''), body: String(n?.body ?? '') }),
+  testNotify: () => ipcRenderer.invoke('bridge:notify-test'),
   onOpen: on('bridge:open'),
   setBadgeCount: (n) => ipcRenderer.send('bridge:badge', Number(n)),
   focus: {

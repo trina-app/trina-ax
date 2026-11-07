@@ -1,14 +1,17 @@
 // The web ask (lib/push-ask.ts, components/WebPushAsk.tsx): "새 메시지 알림을 받으려면 [알림 켜기] · [나중에]" in a web
 // browser, only when every condition holds; [알림 켜기] runs enablePush in the click (the browser's question first); on
 // success the line goes and a toast says so; a failure says why in the line with the way to Settings › Notifications;
-// [나중에] puts it away for 7 days on this device; the browser's "block" puts it away for good.
+// [나중에] puts it away for 7 days on this device; the browser's "block" puts it away for good. Not in Microsoft Edge (the
+// team server refuses its push service). It first shows on the page after the one where it became ready (no jump under
+// the person's finger); its words are one live region; the focus goes to the page when the line goes from under it.
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
-import { MemoryRouter } from 'react-router-dom'
+import { act } from 'react'
+import { MemoryRouter, useNavigate } from 'react-router-dom'
 import type { Me } from '@mycel/shared/api'
 import { DESKTOP_BRIDGE_GLOBAL } from '@mycel/shared'
 import { translate, useLocaleStore } from '../../src/i18n'
-import { setPushSession } from '../../src/lib/push'
-import { ASK_BLOCKED_KEY, ASK_LATER_KEY, ASK_LATER_MS, askAllowedHere, prepareWebPushAsk, useWebPushAsk, webPushAskShows, type AskConditions } from '../../src/lib/push-ask'
+import { isEdge, setPushSession } from '../../src/lib/push'
+import { ASK_BLOCKED_KEY, ASK_LATER_KEY, ASK_LATER_MS, askAllowedHere, prepareWebPushAsk, turnOnWebPush, useWebPushAsk, webPushAskShows, type AskConditions } from '../../src/lib/push-ask'
 import { WebPushAsk } from '../../src/components/WebPushAsk'
 import { useSession } from '../../src/store/session'
 import { useUi } from '../../src/store/ui'
@@ -18,7 +21,7 @@ const publicKey = Buffer.from([4, ...new Uint8Array(64).fill(2)]).toString('base
 const NOW = Date.parse('2026-11-07T09:00:00Z')
 
 describe('when the line may show', () => {
-  const all: AskConditions = { supported: true, permission: 'default', settings: { configured: true, publicKey, optedOut: false }, signedIn: true, later: null, blocked: false, now: NOW }
+  const all: AskConditions = { supported: true, edge: false, permission: 'default', settings: { configured: true, publicKey, optedOut: false }, signedIn: true, later: null, blocked: false, now: NOW }
   test('all of them hold: shown', () => {
     expect(webPushAskShows(all)).toBe(true)
     expect(askAllowedHere(all)).toBe(true)
@@ -27,6 +30,7 @@ describe('when the line may show', () => {
     const off: [string, Partial<AskConditions>][] = [
       ['signed out', { signedIn: false }],
       ['no Web Push here (desktop app, phone app, http, an iPhone tab, an old browser)', { supported: false }],
+      ['Microsoft Edge (the team server refuses its push service)', { edge: true }],
       ['the browser was asked: allowed', { permission: 'granted' }],
       ['the browser was asked: blocked', { permission: 'denied' }],
       ['no Notification at all', { permission: null }],
@@ -47,11 +51,26 @@ describe('when the line may show', () => {
   })
 })
 
+test('Microsoft Edge: by its user agent or its brand', () => {
+  const realNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+  const as = (v: object) => Object.defineProperty(globalThis, 'navigator', { configurable: true, value: v })
+  try {
+    as({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0' })
+    expect(isEdge()).toBe(true)
+    as({ userAgent: 'Mozilla/5.0 Chrome/130', userAgentData: { brands: [{ brand: 'Chromium' }, { brand: 'Microsoft Edge' }] } })
+    expect(isEdge()).toBe(true)
+    as({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0.0.0 Safari/537.36', userAgentData: { brands: [{ brand: 'Google Chrome' }] } })
+    expect(isEdge()).toBe(false)
+  } finally { if (realNavigator) Object.defineProperty(globalThis, 'navigator', realNavigator) }
+})
+
 describe('in a browser', () => {
   const g = globalThis as Record<string, unknown>
   const realFetch = globalThis.fetch, realNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
   const status = useSession.getState().status, locale = useLocaleStore.getState().locale
   const ko = (k: Parameters<typeof translate>[1], p?: Parameters<typeof translate>[2]) => translate('ko', k, p)
+  const CHROME = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/130'
+  let userAgent = CHROME
   let permission: NotificationPermission = 'default'
   let answer: NotificationPermission = 'granted'
   let settings: Record<string, unknown> = {}
@@ -70,7 +89,7 @@ describe('in a browser', () => {
   beforeAll(() => {
     installDom()
     useLocaleStore.setState({ locale: 'ko' })
-    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/130', platform: 'MacIntel', maxTouchPoints: 0, serviceWorker: { register: async () => registration, ready: Promise.resolve(registration), getRegistration: async () => registration, controller: null } } })
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { get userAgent() { return userAgent }, platform: 'MacIntel', maxTouchPoints: 0, serviceWorker: { register: async () => registration, ready: Promise.resolve(registration), getRegistration: async () => registration, controller: null } } })
     g.PushManager = function PushManager() {}
     Object.defineProperty(globalThis, 'Notification', { configurable: true, value: { get permission() { return permission }, requestPermission: async () => { order.push('permission'); permission = answer; return permission } } })
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -82,7 +101,7 @@ describe('in a browser', () => {
     }) as typeof fetch
   })
   beforeEach(() => {
-    permission = 'default'; answer = 'granted'; settings = {}; order.length = 0
+    permission = 'default'; answer = 'granted'; settings = {}; order.length = 0; userAgent = CHROME
     subscribe = async () => subscription
     localStorage.clear()
     useUi.setState({ toasts: [] })
@@ -98,18 +117,43 @@ describe('in a browser', () => {
     useSession.setState({ status })
     useLocaleStore.setState({ locale })
   })
-  const page = (path = '/') => mount(<MemoryRouter initialEntries={[path]}><WebPushAsk at="top" /><WebPushAsk at="bottom" /></MemoryRouter>)
+  /** a link to another page, as the sidebar or the tab bar has */
+  function Go() {
+    const navigate = useNavigate()
+    return <><button type="button" data-testid="go-files" onClick={() => navigate('/files')}>files</button><button type="button" data-testid="go-home" onClick={() => navigate('/')}>home</button></>
+  }
+  const page = (path = '/') => mount(<MemoryRouter initialEntries={[path]}><main id="main" tabIndex={-1}><WebPushAsk at="top" /><WebPushAsk at="bottom" /></main><Go /></MemoryRouter>)
+  /** made ready on this page, then the person moves on: the line shows on the next page */
+  const shown = async (path = '/') => {
+    const p = await page(path)
+    await p.until(() => useWebPushAsk.getState().show, 'ready')
+    await p.settle()
+    expect(p.find('web-push-ask-top')).toBeNull()
+    await p.click('go-files')
+    return { p, top: await p.until(() => p.find('web-push-ask-top'), 'the line') }
+  }
 
-  test('shown at the top on a computer and above the tab bar on a phone: one line, a hairline, no box', async () => {
+  test('ready on the page in front of the person: not shown there (it would push the page under their finger); on the next page it is', async () => {
     signIn()
     const p = await page()
-    const top = await p.until(() => p.find('web-push-ask-top'), 'the line')
+    await p.until(() => useWebPushAsk.getState().show, 'ready')
+    await p.settle(50)
+    expect(p.find('web-push-ask-top')).toBeNull()
+    await p.click('go-files')
+    await p.until(() => p.find('web-push-ask-top'), 'the line on the next page')
+    await p.unmount()
+  })
+
+  test('shown at the top on a computer and above the tab bar on a phone: one line, a hairline, no box; its words a live region', async () => {
+    signIn()
+    const { p, top } = await shown()
     expect(top.textContent).toContain('새 메시지 알림을 받으려면')
     expect(top.textContent).toContain('알림 켜기')
     expect(top.textContent).toContain('나중에')
     expect(top.className).toContain('border-b')
     expect(top.className).toContain('max-md:hidden')
     expect(top.className).not.toMatch(/rounded|shadow/)
+    expect(top.querySelector('[data-testid="web-push-ask-text"]')!.getAttribute('role')).toBe('status')
     const bottom = p.get('web-push-ask-bottom')
     expect(bottom.className).toContain('border-t')
     expect(bottom.className).toContain('md:hidden')
@@ -118,27 +162,45 @@ describe('in a browser', () => {
     await p.unmount()
   })
 
-  test('[알림 켜기]: the browser\'s question in the click, then the subscription; the line goes and a toast says it is on', async () => {
+  test('turnOnWebPush asks the browser before anything waits', async () => {
     signIn()
-    const p = await page()
-    await p.until(() => p.find('web-push-ask-top'), 'the line')
+    const { p } = await shown()
     order.length = 0
-    await p.click(p.get('web-push-ask-top').querySelector('[data-testid="web-push-on"]')!)
-    await p.until(() => !p.find('web-push-ask-top'), 'the line gone')
-    // the question comes first, before anything waits
-    expect(order[0]).toBe('permission')
-    expect(order).toEqual(['permission', 'subscribe', 'POST /api/push/subscriptions'])
-    expect(useUi.getState().toasts.map((x) => [x.level, x.text])).toEqual([['success', ko('push.askOn')]])
+    const work = turnOnWebPush()
+    // not awaited yet: the browser's question must already be asked (Safari allows it only inside the click)
+    expect(order).toEqual(['permission'])
+    expect(await work).toBe('on')
     await p.unmount()
   })
 
-  test('[나중에]: gone, and away for 7 days on this device', async () => {
+  test('[알림 켜기]: the question in the click itself, then the subscription; the line goes, a toast says it is on, the focus goes to the page', async () => {
     signIn()
-    const p = await page()
-    await p.until(() => p.find('web-push-ask-top'), 'the line')
+    const { p, top } = await shown()
+    order.length = 0
+    const on = top.querySelector('[data-testid="web-push-on"]')!
+    on.focus()
+    let inTheClick: string[] = []
+    act(() => { on.click(); inTheClick = [...order] })
+    expect(inTheClick).toEqual(['permission'])
+    // busy: still focusable (aria-busy, not disabled)
+    expect(on.getAttribute('aria-busy')).toBe('true')
+    expect(on.hasAttribute('disabled')).toBe(false)
+    await p.until(() => !p.find('web-push-ask-top'), 'the line gone')
+    expect(order).toEqual(['permission', 'subscribe', 'POST /api/push/subscriptions'])
+    expect(useUi.getState().toasts.map((x) => [x.level, x.text])).toEqual([['success', ko('push.askOn')]])
+    expect((document.activeElement as unknown as { id?: string })?.id).toBe('main')
+    await p.unmount()
+  })
+
+  test('[나중에]: gone, the focus goes to the page, and away for 7 days on this device', async () => {
+    signIn()
+    const { p, top } = await shown()
     const before = Date.now()
-    await p.click(p.get('web-push-ask-top').querySelector('[data-testid="web-push-later"]')!)
+    const later = top.querySelector('[data-testid="web-push-later"]')!
+    later.focus()
+    await p.click(later)
     expect(p.find('web-push-ask-top')).toBeNull()
+    expect((document.activeElement as unknown as { id?: string })?.id).toBe('main')
     const at = Number(localStorage.getItem(ASK_LATER_KEY))
     expect(at).toBeGreaterThanOrEqual(before)
     expect(order).not.toContain('permission')
@@ -156,9 +218,8 @@ describe('in a browser', () => {
   test('the browser\'s "block": gone for good on this device; Settings says how to undo it', async () => {
     signIn()
     answer = 'denied'
-    const p = await page()
-    await p.until(() => p.find('web-push-ask-top'), 'the line')
-    await p.click(p.get('web-push-ask-top').querySelector('[data-testid="web-push-on"]')!)
+    const { p, top } = await shown()
+    await p.click(top.querySelector('[data-testid="web-push-on"]')!)
     await p.until(() => !p.find('web-push-ask-top'), 'the line gone')
     expect(localStorage.getItem(ASK_BLOCKED_KEY)).toBe('1')
     expect(order).not.toContain('subscribe')
@@ -170,31 +231,42 @@ describe('in a browser', () => {
     expect(useWebPushAsk.getState().show).toBe(false)
   })
 
-  test('a failure says why in the line, with the way to Settings › 알림 (the push service off)', async () => {
+  test('a failure says why in the same live region, with the way to Settings › 알림 (the push service off)', async () => {
     signIn()
     subscribe = async () => { throw new DOMException('Registration failed - push service error', 'AbortError') }
     const warn = console.warn
     console.warn = () => {}
     try {
-      const p = await page()
-      await p.until(() => p.find('web-push-ask-top'), 'the line')
-      await p.click(p.get('web-push-ask-top').querySelector('[data-testid="web-push-on"]')!)
-      const text = await p.until(() => p.get('web-push-ask-top').querySelector('[data-testid="web-push-ask-text"]')?.getAttribute('role') === 'alert' && p.get('web-push-ask-top').querySelector('[data-testid="web-push-ask-text"]'), 'the reason')
-      expect(text.textContent).toContain(ko('push.service'))
-      expect(text.textContent).toContain('설정 › 알림')
-      expect(text.querySelector('a')!.getAttribute('href')).toBe('/settings/notifications')
+      const { p, top } = await shown()
+      const region = top.querySelector('[data-testid="web-push-ask-text"]')!
+      await p.click(top.querySelector('[data-testid="web-push-on"]')!)
+      await p.until(() => region.getAttribute('data-reason') === 'service', 'the reason')
+      // the same element, still the live region: the reason replaces the question inside it
+      expect(p.get('web-push-ask-top').querySelector('[data-testid="web-push-ask-text"]')).toBe(region)
+      expect(region.getAttribute('role')).toBe('status')
+      expect(region.textContent).toContain(ko('push.service'))
+      expect(region.textContent).toContain('설정 › 알림')
+      expect(region.querySelector('a')!.getAttribute('href')).toBe('/settings/notifications')
       await p.unmount()
     } finally { console.warn = warn }
   })
 
-  test('hidden: the browser already asked, the server without Web Push or turned off by the person, the desktop app, signed out', async () => {
+  test('hidden: Edge, the browser already asked, the server without Web Push or turned off by the person, the desktop app, signed out', async () => {
     const hidden = async (why: string) => {
       const p = await page()
+      await p.settle(30)
+      await p.click('go-files')
       await p.settle(30)
       expect([why, p.find('web-push-ask-top'), p.find('web-push-ask-bottom')]).toEqual([why, null, null])
       expect(useWebPushAsk.getState().show).toBe(false)
       await p.unmount()
     }
+    userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0'
+    order.length = 0
+    signIn(); await hidden('Microsoft Edge')
+    // decided on this device: the server is not even asked
+    expect(order).toEqual([])
+    userAgent = CHROME
     permission = 'granted'; signIn(); await hidden('allowed before')
     permission = 'denied'; signIn(); await hidden('blocked before')
     permission = 'default'
@@ -210,8 +282,15 @@ describe('in a browser', () => {
 
   test('on a phone: not inside a room or an AI chat (the message box needs the bottom), nor on Settings › 알림', async () => {
     signIn()
-    const room = await page('/rooms/r1')
-    await room.until(() => room.find('web-push-ask-top'), 'the line')
+    const p = await page('/rooms/r1')
+    await p.until(() => useWebPushAsk.getState().show, 'ready')
+    await p.settle()
+    await p.click('go-home')
+    await p.until(() => p.find('web-push-ask-bottom'), 'the line above the tabs')
+    await p.unmount()
+    const room = await page('/rooms/r2')
+    await room.settle(30)
+    expect(room.find('web-push-ask-top')).not.toBeNull()
     expect(room.find('web-push-ask-bottom')).toBeNull()
     await room.unmount()
     const settingsPage = await page('/settings/notifications')

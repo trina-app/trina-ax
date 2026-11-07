@@ -29,6 +29,8 @@ export function badgeCountOf(v: unknown): number {
 
 /** how long a test notification waits for the system's answer (show / failed) before it says 'unknown' */
 export const TEST_WAIT_MS = 5000
+/** test notifications a minute: a budget of their own, so clicking the button never holds back a real notification */
+export const TEST_PER_MINUTE = 3
 /** the tag of the test notification: a newer test replaces the older one */
 export const TEST_TAG = 'notify-test'
 
@@ -57,9 +59,10 @@ export type TestOutcome = 'shown' | 'off' | 'unsupported' | 'limited' | 'unknown
 export interface Notifier {
   /** the bridge's notify: false when nothing was shown (focused, unsupported, too many) */
   notify(n: NotifyInput): boolean
-  /** the bridge's testNotify: one notification now, focused or not (the person asked for it), in the same limit a minute;
-   * a click only brings the window up. Resolves with what the system said (DesktopNotifyTest). */
-  test(n: { title: unknown; body: unknown }): Promise<TestOutcome>
+  /** the bridge's testNotify: one notification now, focused or not (the person asked for it), at most TEST_PER_MINUTE a
+   * minute apart from the others; the main process gives its words (never the page). A click only brings the window
+   * up. Resolves with what the system said (DesktopNotifyTest). */
+  test(n: { title: string; body: string }): Promise<TestOutcome>
   /** a team switch (or the team page closing): every notification it made goes, and a click on one that the system
    * still shows only brings the window up */
   closeAll(): void
@@ -77,14 +80,17 @@ export function makeNotifier(d: NotifierDeps): Notifier {
     live.delete(note)
     try { note.close() } catch { /* already gone */ }
   }
-  /** one more this minute, or false when the limit is reached */
-  const allowed = () => {
+  let testTimes: number[] = []
+  /** one more this minute in `list`, or false when its limit is reached (the list kept is returned through `set`) */
+  const take = (list: number[], limit: number, set: (l: number[]) => void) => {
     const at = now()
-    times = times.filter((x) => x > at - 60_000)
-    if (times.length >= NOTIFY_PER_MINUTE) return false
-    times.push(at)
+    const recent = list.filter((x) => x > at - 60_000)
+    set(recent)
+    if (recent.length >= limit) return false
+    recent.push(at)
     return true
   }
+  const allowed = () => take(times, NOTIFY_PER_MINUTE, (l) => { times = l })
   /** a system notification, one per tag; a click brings the window up and opens `open` (when the team is still the same) */
   const post = (n: { title: unknown; body: unknown }, tag: string | null, open: string | null, events?: (note: NoteLike) => void) => {
     const born = generation
@@ -117,7 +123,7 @@ export function makeNotifier(d: NotifierDeps): Notifier {
     },
     test(n) {
       if (!d.supported()) return Promise.resolve('unsupported')
-      if (!allowed()) return Promise.resolve('limited')
+      if (!take(testTimes, TEST_PER_MINUTE, (l) => { testTimes = l })) return Promise.resolve('limited')
       return new Promise<TestOutcome>((resolve) => {
         let timer: ReturnType<typeof setTimeout> | undefined
         const answer = (o: TestOutcome) => {
