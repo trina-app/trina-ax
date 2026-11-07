@@ -8687,6 +8687,10 @@ The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to T
   cannot use up a phone's budget for other teams), a 10-minute dedupe that is also the replay guard, generic text from
   code and locale only (App Review 4.5.4; room codes say "새 메시지가 있어요"), APNs token auth (production only unless
   `APNS_SANDBOX=on`: the owner's key is production-only) and FCM HTTP v1. Not deployed.
+  **Amended 2026-11-07 ("아이폰 알림의 이름"):** the gateway still never sees a name or any text, and team servers send
+  no new field. An APNs payload of a room code (`room.*`) is now mutable (`aps.mutable-content: 1`), so the iPhone app's
+  notification service extension (1.0.1) may replace the title with who and where, which it asks its own team server
+  for; the generic alert stays in the payload as the fallback (the 1.0.0 app, Android, a failed request).
 - **App Review screens**: a native "offline" / "cannot reach your team" screen with Try again and Change team address
   (Korean and English by the phone's language). Account deletion starts inside the app: Settings › Profile › 계정 삭제
   opens `/settings/account/delete` ("계정 삭제 요청"). Admins create accounts and (from 2026-11-06, see "Admins delete members") the owner and the admins delete them, so
@@ -8717,7 +8721,8 @@ The phone app (mobile/, Expo SDK 58 WebView of a team's HTTPS web app) goes to T
   rows (`kind 'native'`, current gateway address); the due delivery is taken across both sources with its device row's
   config key and sent by the row's kind. The room rules (one notice per unread run, mute, the "Room messages" switch,
   reading the room) decide whether a room notice exists or is still unread, so they hold for phones too; the gateway
-  shows its generic "새 메시지가 있어요" for both room codes.
+  shows its generic "새 메시지가 있어요" for both room codes (an iPhone with app 1.0.1 shows who and where instead:
+  "아이폰 알림의 이름").
 - **A tapped room push opens the room.** `room.dm` and `room.mention` resolve to `/rooms/<room id>` (ids only,
   `server/src/notifications/push-events.ts`), only while the person is still in that room and it is not archived;
   otherwise the app opens its start page. The room page checks membership again. Web Push keeps its own way (the room
@@ -12819,7 +12824,8 @@ reference; a product and privacy review cut the first plan down to this.
   code). The service worker already reads the notice signed in; that answer now carries `room.label` ("민준 · #마케팅 ›
   스레드", a DM "민준", in the person's language: `notifications/text.ts` `ROOM_WORDS`, the app's own words), and the worker
   shows it as the title (cleaned again, at most 120 characters) over the generic line; without one (an older server)
-  the product's name, as before. An older worker ignores the field. The phone app's own notices are not in this step.
+  the product's name, as before. An older worker ignores the field. The phone app's own notices are not in this step
+  (the iPhone's came next: "아이폰 알림의 이름").
 - **Older clients and servers.** Every new field of `InboxNotification.room` is optional and the event codes are the
   same. An older page shows the rows with the line it had; this page shows an older server's notices with that line.
 - **Independent review (2026-11-07) fixes.** Reading the room or a thread up to a point now leaves a notice unread when
@@ -13151,6 +13157,98 @@ covers wave 1 (no embeddings yet).
     - "감사" is a word again.
     - The Files search keeps every typed word.
 
+## 아이폰 알림의 이름 — who and where in a room push on the iPhone, never the text (feat/ios-notification-labels, 2026-11-07, product owner)
+넣을 곳: trina-ax `push-gateway/src/apns.ts`, `server/src/notifications/push-service.ts` (migration 263),
+`shared/src/api/push.ts`, `web/src/lib/mobile*.ts` and `mobile/` (`src/labels.ts`, `plugins/notification-service*`), 이유:
+the gateway, the team server, the page and the app each own one step, and the gateway must never see a name.
+
+A room push on an iPhone said "Trina AX / 새 메시지가 있어요": the gateway gets ids, a code and a locale only. A browser push
+already says "민준 · #마케팅 › 스레드" (DM: "민준") by reading the notice signed in ("알림함의 대화 알림"). The owner approved
+the same for the iPhone in the 1.0.1 store build: who and where, never the message's text; the gateway still never sees a
+name. Android stays generic in 1.0.1.
+
+- **The gateway marks room pushes mutable, nothing more.** For a room code the APNs payload gets `mutable-content: 1`;
+  the generic alert stays as it was. No request field is added, so an older team server keeps working, and the 1.0.0 app
+  (no extension) shows the alert as before.
+- **The iPhone asks its own team.** A notification service extension (`app.trina.ax.NotificationService`, Swift in
+  `mobile/plugins/notification-service/`, added to the Xcode project by a config plugin at prebuild: no new dependency, no
+  EAS, no CocoaPods target) acts only on a room code whose `device` is the device id the app registered with its current
+  team. It calls only the team address the app saved (https, no user, path, query or fragment; never anything from the
+  payload), `POST /api/push/devices/<device>/label { key, notificationId }`, with an ephemeral session: no cookies, no
+  cache, redirects refused, 5 s. It takes only a 200 JSON answer of at most 4 KB with a title, cleans the title again (the
+  `plainLabel` rule, 120 characters) and sets it, the body when there is one, and `threadIdentifier` = the room id (one
+  stack per room). Anything else, a timeout or `serviceExtensionTimeWillExpire`: what Apple delivered, unchanged.
+- **The endpoint (public, no session).** The answer is `{ title, body, roomId, threadId? }`: the title is the browser
+  push's (`roomNoticeOut` `label`, the person's language), the body the browser push's line (`TEXT[code]`), never the
+  message's text. Only for a room notice of the device's person that was sent to this device (`room_push_deliveries`,
+  tried at least once), within a push's day, unread, not suppressed or quiet, still wanted (`noticeWanted`: the room's
+  level, hidden, quiet hours) and still the person's to read (`roomNoticeOut`, the helper a browser push uses: a left or
+  hidden room, a deleted message, a message before they joined, a private preview give nothing; a change of the
+  visibility rule there applies here too). The device row must be native, on the current gateway address, its session
+  alive, its person active and not made to change the password, push on. Every failure, a thrown one too, answers 200
+  `{}` with `Cache-Control: no-store`; a malformed key or id gets the same. At most 30 answers a minute per device
+  (in memory), counted only for the right key, so nobody who merely knows a device id can use them up. Nothing is
+  logged. 400 (a body that is no JSON object) and 403 (no CSRF header) say nothing about any device.
+- **A label key the phone makes, separate from the removal key.** The app makes 32 random bytes for the team it is on and
+  keeps them for the extension; the `push-token` reply of an app offering `push-label-v1` (the iPhone app with the
+  extension only) carries `labelHash` (sha256 hex), the page registers it with the token (`POST /api/push/devices`
+  `labelHash`, kept as `push_subscriptions.label_hash`, migration 263; Android's is not kept). The key never crosses the
+  bridge or the page, and the same key is registered again at every page load, so a lost answer never leaves the phone
+  with a key the server replaced. A label key reads a room push's title and nothing else; it cannot remove the device,
+  and the removal key never leaves the app's own keychain group. Rejected: the server minting the key (it would rotate at
+  every page load and race the extension), reusing the removal key (the extension would hold a key that changes server
+  state, and the removal key lives on in the owed-removals list for 30 days), an HMAC over each request (the server
+  would have to keep the key itself, not its hash).
+- **The keychain.** One item, `{ v: 1, origin, key, deviceId? }` (expo-secure-store 58.0.2 `accessGroup`, service
+  `team-ax.push-label`, `AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY`: the extension runs while the phone is locked, after its
+  first unlock; never in a backup or on another phone), in the group `<team id>.app.trina.ax.notifications`. The app's
+  entitlements list its own group `<team id>.app.trina.ax` first, so the default group of its other keychain items (team
+  address, removal keys, reinstall id) stays the one they were always in and the extension cannot read them; the
+  extension's list only the shared group. The plugin stops the prebuild if expo-secure-store names its items differently,
+  and `scripts/ios-release.sh` refuses an export whose app or extension is signed with other groups, an extension without
+  its own profile, bundle id or the app's numbers, and an `APPLE_TEAM_ID` that is not the edition's.
+- **When the item goes.** A team change deletes it before anything else of the switch; a sign-out deletes it before the
+  page's session reset is answered (so the next sign-in's key is never deleted by it); a reinstall deletes it (the
+  keychain outlives the app); every launch deletes an item of another team or another device than the app has now. One
+  keychain operation at a time.
+- **Sign-out clears the notifications on screen** (they may name people; until now only a team change did). The page's
+  `session-reset` says `signedOut: true` when the status is signed out (a sign-out, an expired session, a cold start on the
+  sign-in page: told once, also when the bridge comes later) or when one person's session gave way to another's; not on
+  loading, an error screen, a sign-in or a reload. The app then dismisses delivered notifications and deletes the item.
+  An older app ignores the field; an older page never sends it (its server has no labels either).
+- **What shows where.** The lock screen, Notification Center, an Apple Watch, CarPlay and Siri's announcements now say
+  who and where for a room push, as a browser push already does: names are what members chose, and a group chat without
+  a name is named by up to three of its people. The person's control is iOS Settings › Notifications › Show Previews;
+  the message's text never reaches the phone's notification.
+- Known limits: a phone whose team server runs an older release shows the generic line (no endpoint, no `labelHash`);
+  a device registered before migration 263 gets its key at the next page load; a network or WAF in front of the team
+  server that refuses a request without a browser's cookies or headers leaves the generic line (the dev server through
+  its tunnel answered a CFNetwork request normally, 2026-11-07). The extension was built for the simulator and its logic
+  run in a macOS harness; keychain sharing and the request on a phone are a release check.
+- Security review of the design (2026-11-07, separate reviewer), taken: one exit with `{}` for every failure, a thrown
+  one too; the app's own keychain group first and the release script checking both targets' groups and the team id; the
+  phone-made key with only its hash registered (no rotation race, the key never in the page); the sign-out signal also
+  for an expired session, a cold start and a change of person, done before the reset is answered; the item deleted at
+  every launch that finds it stale; deliveries tried at least once. Not taken: a per-address limit for wrong keys (the
+  removal endpoint has none either; 256-bit keys), the room id from the payload's path for stacking when the request
+  fails (a failure shows exactly what Apple delivered).
+- Independent code review (2026-11-07), no high or critical finding; fixed: the page marks the sign-out as told only
+  once the app answered the reset (a dropped one is told again at the next bridge-ready); a registration answered after
+  the session changed no longer hands that device to the app (an older gap, now also the label item's device id); the
+  extension invalidates its session at once when the system ended it before the request started; the stand-in hash for
+  a device without a key is random; the release script says which signed entitlements it could not read; a launch whose
+  device record could not be read leaves the label item alone. Release checks it asked for: an archive from a clean
+  prebuild, keychain sharing on a real phone, and the request through each hosted team's WAF (a challenge page means
+  the generic line).
+- Tests: `tests/unit/push-label.test.ts` (titles and bodies equal a browser push's, languages, names made plain, never the
+  text, every failure `{}`, delivery and day bounds, level, hidden, left, deleted, private, stale device, the key's hash
+  and no rotation, the rate limit, a thrown failure, HTTP and the log), `push-gateway.test.ts` and
+  `push-gateway-server.test.ts` (mutable only for room codes, the alert unchanged, no name field),
+  `tests/unit/mobile-labels.test.ts` (the key, its hash, forgetting and tidying, one operation at a time, the bridge,
+  the sign-out signal, the edition, the plugin, the Swift source reading what the app writes, the release script),
+  `web/test/unit/mobile.test.ts` (the hash registered, never a key; when the app hears signedOut), and the security route
+  matrix.
+- Version impact: server **minor** (a public endpoint, an optional field, an additive migration); phone app **1.0.1**.
 ## The in-app AI keeps the team's folders tidy (feat/tidy-file-placement, 2026-11-07, product owner)
 
 넣을 곳: trina-ax `server/src/chat` (prompt.ts, file-placement.ts, tools.ts, turn.ts) and `server/src/mcp/protocol.ts`,

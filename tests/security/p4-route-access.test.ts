@@ -14,8 +14,8 @@ beforeAll(async () => {
 afterAll(async () => { await h?.close() })
 for (const key of Object.keys(P4_SPECS)) {
   const endpoint = (API as Record<string, { method: string; path: string; auth: string }>)[key]!
-  // public by contract (removePushDevice: the phone app leaves a team without that team's session): who calls does not
-  // change the answer
+  // public by contract (removePushDevice: the phone app leaves a team without that team's session; labelPushDevice: the
+  // iPhone's notification extension, with its label key): who calls does not change the answer
   if (endpoint.auth === 'public') test(`${key} is public by contract: anonymous and must-change-password callers get the same answer`, async () => {
     const url = endpoint.path.replace(/:id\b/, '00000000-0000-7000-8000-000000000000')
     const body = ['POST', 'PATCH'].includes(endpoint.method) ? {} : undefined

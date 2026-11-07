@@ -2,17 +2,18 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { z } from 'zod'
-import { PUSH_KEY_REASON, type PushDeviceInput, type PushDeviceRemoveInput, type PushSubscriptionInput, type PushEventType } from '@mycel/shared/api'
+import { plainLabel, PUSH_KEY_REASON, type PushDeviceInput, type PushDeviceLabel, type PushDeviceLabelInput, type PushDeviceRemoveInput, type PushSubscriptionInput, type PushEventType } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { HttpError } from '../http/errors'
 import { Vault } from '../credentials/vault'
 import { getUser } from '../auth/users'
 import { teamDefaultLocale } from '../admin/settings'
-import { pushMessages } from './text'
+import { pushMessages, TEXT } from './text'
 import { eventEnabled, getPreferences } from './preferences'
 import { onPushCancellation, cancelPushUser, pushPathOf } from './push-events'
 import { noticeWanted } from '../rooms/alerts'
+import { roomNoticeOut } from '../rooms/inbox'
 import { readPushConfig, pushConfigKey, type PushConfig } from './push-config'
 import { bounded, createPushTransport, pushFailure, validatePushSubscription, type PushSubscription, type PushTransport } from './push-transport'
 import { createNativeTransport, nativeConfigKey, readNativePushConfig, validNativeDevice, type NativeDevice, type NativePushConfig, type NativeTransport } from './push-native'
@@ -22,6 +23,13 @@ export interface PushOptions {config:()=>PushConfig|null;transport:PushTransport
 type Subscription={id:string;user_id:string;session_id:string;secret_enc:string;key_version:number;config_key:string;created_at:string;endpoint_hash:string;kind:'web'|'native'}
 type Delivery={notification_id:string;subscription_id:string;attempts:number;expires_at:string;config_key:string}
 const TTL_MS=86400_000,MAX_ATTEMPTS=3,MAX_SUBSCRIPTIONS=10
+/** A phone's notification extension asks for at most this many room push titles a minute (the gateway sends a phone at
+ * most 20 a minute per team); more get the empty answer. Counted only for the right key, so nobody else can use it up. */
+export const LABEL_PER_MINUTE=30
+const ID=/^[A-Za-z0-9_-]{1,100}$/,KEY=/^[A-Za-z0-9_-]{43}$/
+// compared against when a device has no label key, so the answer takes the same steps (random: no key matches it)
+const NO_HASH=crypto.randomBytes(32)
+const sha256=(s:string)=>crypto.createHash('sha256').update(s).digest()
 const services=new WeakMap<AppContext,PushService>()
 /** Where push notices come from: an inbox table and its deliveries table. notification_inbox (migration 208) and room
  * notices (a DM message or an @mention, migration 241: notification_inbox has a fixed event_type list), checked and sent
@@ -41,6 +49,8 @@ export class PushService {
   private work:Promise<void>|null=null
   private timer:ReturnType<typeof setInterval>|null=null
   private unlisten:()=>void
+  /** label requests with the right key per device this minute (in memory: a restart forgets it) */
+  private labelUse=new Map<string,{since:number;n:number}>()
   constructor(readonly ctx:AppContext,options:Partial<PushOptions>={}){
     this.o={config:()=>readPushConfig(ctx),transport:createPushTransport(),native:()=>readNativePushConfig(ctx),nativeTransport:createNativeTransport({dataDir:ctx.config.dataDir}),now:Date.now,...options}
     this.secrets=path.join(ctx.config.dataDir,'secrets','push');this.vault=new Vault(this.secrets)
@@ -106,24 +116,65 @@ export class PushService {
     const device=validNativeDevice(input);this.safeSecrets(true)
     const tokenHash=crypto.createHash('sha256').update(`native|${device.platform}|${device.token}`).digest('hex'),configKey=nativeConfigKey(config)
     const removeKey=crypto.randomBytes(32).toString('base64url'),removeHash=crypto.createHash('sha256').update(removeKey).digest('hex')
+    // a second key, only for an iPhone app that shows who and where (push-label-v1): the app made it and keeps it for its
+    // notification extension, and sends only its hash. It reads a room push's title and nothing else (it cannot remove the
+    // device); the same key again changes nothing, so a lost answer never leaves the phone with a key the server forgot
+    const labelHash=device.platform==='ios'&&input.labelHash&&/^[0-9a-f]{64}$/.test(input.labelHash)?input.labelHash:null
     const result=this.ctx.db.transaction(()=>{
       const other=this.ctx.db.query('SELECT * FROM push_subscriptions WHERE endpoint_hash=?').get(tokenHash) as Subscription|null
       if(other&&other.kind==='native'&&other.user_id===userId&&other.session_id===sessionId&&other.config_key===configKey){
         const old=this.vault.decrypt(`${userId}|${sessionId}|${other.id}`,'native-push',other.secret_enc,other.key_version) as NativeDevice
         // the same device again: a fresh removal key (the app keeps only the latest)
-        if(old.environment===device.environment){this.ctx.db.query('UPDATE push_subscriptions SET remove_hash=? WHERE id=?').run(removeHash,other.id);return{id:other.id,moved:null}}
+        if(old.environment===device.environment){this.ctx.db.query('UPDATE push_subscriptions SET remove_hash=?,label_hash=? WHERE id=?').run(removeHash,labelHash,other.id);return{id:other.id,moved:null}}
       }
       if(other)this.ctx.db.query('DELETE FROM push_subscriptions WHERE id=?').run(other.id)
       const count=this.ctx.db.query('SELECT COUNT(*) n FROM push_subscriptions WHERE user_id=? AND session_id<>?').get(userId,sessionId) as {n:number}
       if(count.n>=MAX_SUBSCRIPTIONS)throw new HttpError('plan_limit')
       this.ctx.db.query('DELETE FROM push_subscriptions WHERE session_id=?').run(sessionId)
       const id=newId(),encrypted=this.vault.encrypt(`${userId}|${sessionId}|${id}`,'native-push',device)
-      this.ctx.db.query("INSERT INTO push_subscriptions(id,user_id,session_id,endpoint_hash,secret_enc,key_version,config_key,created_at,kind,remove_hash) VALUES(?,?,?,?,?,?,?,?,'native',?)").run(id,userId,sessionId,tokenHash,encrypted.enc,encrypted.keyVersion,configKey,this.iso(),removeHash)
+      this.ctx.db.query("INSERT INTO push_subscriptions(id,user_id,session_id,endpoint_hash,secret_enc,key_version,config_key,created_at,kind,remove_hash,label_hash) VALUES(?,?,?,?,?,?,?,?,'native',?,?)").run(id,userId,sessionId,tokenHash,encrypted.enc,encrypted.keyVersion,configKey,this.iso(),removeHash,labelHash)
       this.ctx.db.query('INSERT INTO push_preferences(user_id,enabled,enabled_at) VALUES(?,1,?) ON CONFLICT(user_id) DO UPDATE SET enabled=1,enabled_at=CASE WHEN enabled=0 THEN excluded.enabled_at ELSE enabled_at END').run(userId,this.iso())
       return{id,moved:other&&other.user_id!==userId?other.user_id:null}
     })()
     if(result.moved)cancelPushUser(this.ctx,result.moved)
     return{id:result.id,removeKey}
+  }
+  /** The iPhone app's notification extension asks what a room push it received says (docs/DECISIONS.md "아이폰 알림의
+   * 이름"): who and where, the same title as a browser push (rooms/inbox.ts roomNoticeOut), in the person's language, and
+   * the generic line; never the message's text. No session: the label key from registration is the proof. Only for a
+   * notice of this device's person that was queued for this device, still unread, still wanted by the room's level and
+   * still the person's to read (the room left or hidden, the message deleted or a private preview: nothing). Every
+   * failure gets the same empty answer, and nothing is logged. */
+  label(id:string,input:z.infer<typeof PushDeviceLabelInput>):z.infer<typeof PushDeviceLabel>{
+    // one way out for every failure, a thrown one too (a busy database, a row gone meanwhile): the same {}
+    try{return this.labelOf(id,input)}catch{return{}}
+  }
+  private labelOf(id:string,input:z.infer<typeof PushDeviceLabelInput>):z.infer<typeof PushDeviceLabel>{
+    const none={},db=this.ctx.db,now=this.o.now()
+    const row=ID.test(id)?db.query("SELECT id,user_id,session_id,config_key,created_at,label_hash FROM push_subscriptions WHERE id=? AND kind='native'").get(id) as {id:string;user_id:string;session_id:string;config_key:string;created_at:string;label_hash:string|null}|null:null
+    const stored=row?.label_hash&&/^[0-9a-f]{64}$/.test(row.label_hash)?Buffer.from(row.label_hash,'hex'):NO_HASH
+    const right=crypto.timingSafeEqual(stored,sha256(input.key))
+    if(!row?.label_hash||!right||!KEY.test(input.key)||!ID.test(input.notificationId)||!this.admitLabel(row.id,now))return none
+    const native=this.o.native()
+    if(!native||row.config_key!==nativeConfigKey(native)||!this.session(row.user_id,row.session_id)||!this.enabled(row.user_id))return none
+    // sent (tried at least once) to this device, so only a notice this phone may have got, and within a push's day
+    const notice=db.query(`SELECT n.id,n.user_id,n.event_type,n.source_id FROM room_notices n WHERE n.id=? AND n.user_id=? AND n.read_at IS NULL AND n.suppressed=0 AND n.quiet=0
+      AND n.created_at>=? AND n.created_at>? AND EXISTS(SELECT 1 FROM room_push_deliveries d WHERE d.notification_id=n.id AND d.subscription_id=? AND d.attempts>0)`)
+      .get(input.notificationId,row.user_id,row.created_at,this.iso(now-TTL_MS),row.id) as {id:string;user_id:string;event_type:'room.dm'|'room.mention';source_id:string}|null
+    if(!notice||!eventEnabled(getPreferences(db,row.user_id),notice.event_type)||!noticeWanted(db,notice.id,now))return none
+    const locale=getUser(db,row.user_id)?.locale??teamDefaultLocale(db)
+    // the Inbox's and a browser push's rule of what the person may still see of the notice's message
+    const room=roomNoticeOut(db,notice,locale),title=room?.label?plainLabel(room.label,120):''
+    if(!room||!title||!ID.test(room.id))return none
+    return{title,body:TEXT[notice.event_type][locale],roomId:room.id,...(room.thread&&ID.test(room.thread)?{threadId:room.thread}:{})}
+  }
+  /** At most LABEL_PER_MINUTE label answers a minute for one device. */
+  private admitLabel(id:string,now:number){
+    if(this.labelUse.size>500)for(const [k,v] of this.labelUse)if(now-v.since>=60_000)this.labelUse.delete(k)
+    let use=this.labelUse.get(id)
+    if(!use||now-use.since>=60_000)use={since:now,n:0}
+    if(use.n>=LABEL_PER_MINUTE)return false
+    use.n++;this.labelUse.set(id,use);return true
   }
   /** The phone app leaves this team (team switch): no session, the removal key from registration is the proof. Says
    * nothing about whether the device existed. */
