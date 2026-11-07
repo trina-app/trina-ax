@@ -290,7 +290,7 @@ Windows 데스크톱 앱은 자기 팀 서버의 `/downloads/latest.yml`만 보�
 새 키트만 읽는다. 그보다 오래된 `mycel-ctl apply-plan`은 이 필드가 든 파일을 통째로 거절한다). 파일이 있으면 그 카드가 생긴다.
 
 리눅스에서는 요금제 파일이 없어도 서버의 보조 프로그램이 코어를 다 쓰지 않는다(ripgrep 2스레드, 받아쓰기 최대 4스레드,
-의미 검색 모델 2스레드, 32 MB 넘는 엑셀·한글 파일은 서버 안에서 읽지 않음). 대기열은 팀 max(10, 4×동시 실행), 한 사람 3개까지.
+의미 검색 모델은 질문에 2스레드·색인에 1스레드, 32 MB 넘는 엑셀·한글 파일은 서버 안에서 읽지 않음). 대기열은 팀 max(10, 4×동시 실행), 한 사람 3개까지.
 
 Voice input is off by default. In Admin › Team settings › Voice input, saving the team's OpenRouter API key turns it on
 (audio goes to OpenRouter; about $0.1 per hour of recording), or pick this server (whisper.cpp; on 2 vCPU a 2 s clip

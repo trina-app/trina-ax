@@ -1,9 +1,9 @@
 // "참고한 파일" under each answer (docs/DECISIONS.md "Sources under each answer"): the team files whose content went to
 // the model while it wrote the answer. The file tools note them on the turn's TurnFiles (files/service.ts), which every
 // agent of the turn shares, so a sub-agent's reads are in the list too, marked: read (the read tool, attachments
-// included), search (passages of search by meaning) and grep (matching lines of content mode). Names alone
-// (grep files_with_matches / count, list, glob) are not content and are left out. The three engines use the same tool
-// handlers, so they give the same list.
+// included), search (passages of knowledge_explore and of the lookup before the model) and grep (matching lines of
+// content mode). Names alone (grep files_with_matches / count, list, glob) are not content and are left out. The three
+// engines use the same tool handlers, so they give the same list.
 // At the end of the turn the list is saved with the answer (message_sources, migration 218); the rows go with the
 // message and the chat (ON DELETE CASCADE). Whenever someone opens the list, every file is checked again against the
 // viewer's access now (authorize + visiblePath, the file screen's own test, like team-file attachments,
