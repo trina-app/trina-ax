@@ -2,7 +2,7 @@
 // (GET /api/admin/access/people/:id, POST /api/admin/access/new-person; server/src/admin/access-explain.ts). Nothing
 // here decides access: every level and reason is the server's RuleSet.explain / listing, put into the admin's words.
 // No step names of the permission function (user / group / role / everyone, owner-admin, no-rule) reach the screen.
-import type { Access, AccessTreeNode, AccessTreeWho, FolderAccessResponse, PersonAccessResponse, PersonFolderAccess, Role } from '@mycel/shared/api'
+import type { Access, AccessTreeNode, AccessTreeWho, Folder, FolderAccessResponse, PersonAccessResponse, PersonFolderAccess, Role } from '@mycel/shared/api'
 import type { MessageKey, Params } from '../i18n'
 
 type T = (key: MessageKey, params?: Params) => string
@@ -261,16 +261,25 @@ function writers(who: readonly AccessTreeWho[]): AccessTreeWho[] {
 
 /** skills/ and its folders: "고칠 수 있는 사람: 팀장·관리자, 영업팀 3명, Bob 님", from the folder's people as the server
  * grouped them (the owner and admins always can; write there is "팀 스킬 관리"). The Team skills page's line and
- * Admin › Folder permissions say the same. `byFolder`: people who can edit only a folder in it (the Team skills page),
- * counted at the end ("폴더별 2명"); then it is never "only the owner and admins". */
-export function skillEditorsText(t: T, who: readonly AccessTreeWho[], members: number, byFolder = 0): string {
+ * Admin › Folder permissions say the same. `byFolder` (the Team skills page): how many folders inside skills/ have
+ * editors of their own, counted at the end ("폴더별로 맡긴 곳 2개"); then it is never "only the owner and admins", nor
+ * when it is not known (null): the owner and admins are named without "only". */
+export function skillEditorsText(t: T, who: readonly AccessTreeWho[], members: number, byFolder: number | null = 0): string {
   const ws = writers(who)
-  const tail = byFolder > 0 ? t('skillMgr.byFolderCount', { n: byFolder }) : null
-  if (!ws.length) return tail ? t('skillMgr.editors', { list: tail }) : t('skillMgr.editorsAdmins')
+  const tail = byFolder ? t('skillMgr.byFolderCount', { n: byFolder }) : null
+  if (!ws.length) return tail ? t('skillMgr.editors', { list: tail }) : t(byFolder === null ? 'skillMgr.editorsBase' : 'skillMgr.editorsAdmins')
   const parts = ws.slice(0, WHO_NAMED).map((w) => whoLabel(t, w, members))
   const rest = ws.slice(WHO_NAMED).reduce((n, w) => n + w.count, 0)
   const list = rest > 0 ? t('accessTree.who.more', { list: parts.join(', '), n: rest }) : parts.join(', ')
   return t('skillMgr.editors', { list: tail ? `${list}, ${tail}` : list })
+}
+
+/** The folders inside skills/ whose own rules let someone beyond the owner and admins write there: everyone, the old
+ * "members" row, a group, a person ("admins: write" changes nobody). From the rule rows Admin › Folder permissions
+ * lists (GET /api/admin/folders), folders on disk the tree shows. */
+export function skillFoldersWithEditors(rows: readonly Pick<Folder, 'path' | 'exists' | 'hidden' | 'rules'>[]): number {
+  const gives = (r: Folder['rules'][number]) => r.access === 'write' && !(r.subjectType === 'role' && r.subjectId !== 'member')
+  return rows.filter((f) => isSkillsPath(f.path) && f.path.includes('/') && f.exists && !f.hidden && f.rules.some(gives)).length
 }
 
 /** A person's or a group's own rule on skills/ (or a folder in it) decided: what the team skills dialog lists and
