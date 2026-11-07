@@ -412,9 +412,10 @@ test('previews: a room file comes as bytes the app draws, never a page of this o
   const html = await upload(dm.id, 'deck.html', page)
   const svg = await upload(dm.id, 'logo.svg', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
   const md = await upload(dm.id, 'notes.md', '# acme\n')
-  // XML documents a browser shows as pages, where an XHTML script would run (RSS, XSLT, MathML, XUL, WML)
+  // XML documents a browser shows as pages, where an XHTML script would run (RSS, XSLT, MathML, XUL, WML), and scripts
+  // under other names (ECMAScript): a page could load one as its own script
   const xml = '<rss xmlns:h="http://www.w3.org/1999/xhtml"><h:script>alert(1)</h:script></rss>'
-  const feeds = await Promise.all(['feed.rss', 'style.xsl', 'formula.mml', 'app.xul', 'card.wml'].map((n) => upload(dm.id, n, xml)))
+  const feeds = await Promise.all(['feed.rss', 'style.xsl', 'formula.mml', 'app.xul', 'card.wml', 'module.es', 'app.js'].map((n) => upload(dm.id, n, xml)))
   await mia.client.call('POST', `/api/rooms/${dm.id}/messages`, { body: '', fileIds: [html.id, svg.id, md.id, ...feeds.map((f) => f.id)], clientMessageId: cm() })
   const get = (c: Client, roomId: string, id: string, q = '', headers: Record<string, string> = {}) => h.fetch(`/api/rooms/${roomId}/files/${id}${q}`, { headers: { cookie: c.cookie!, ...headers } })
   // what the preview panel reads (fetch, inline): a page or a picture that can run is text, with the sandbox CSP and
@@ -447,9 +448,9 @@ test('previews: a room file comes as bytes the app draws, never a page of this o
   h.ctx.files.quarantine.add(held, 'pptx')
   const q = await upload(dm.id, 'held.pdf', held)
   await mia.client.call('POST', `/api/rooms/${dm.id}/messages`, { body: '', fileIds: [q.id], clientMessageId: cm() })
-  for (const headers of [{}, { 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty' }] as Record<string, string>[]) {
-    const r = await get(nora.client, dm.id, q.id, '', headers)
-    expect({ headers, status: r.status }).toEqual({ headers, status: 503 })
+  for (const [query, headers] of [['', {}], ['', { 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty' }], ...['image', 'iframe', 'video', 'object', 'script'].map((d) => ['?download=1', { 'sec-fetch-mode': 'no-cors', 'sec-fetch-dest': d }])] as [string, Record<string, string>][]) {
+    const r = await get(nora.client, dm.id, q.id, query, headers)
+    expect({ query, headers, status: r.status }).toEqual({ query, headers, status: 503 })
     expect((await r.json()).error.params.reason).toBe('quarantined')
   }
   // a held picture has no thumbnail made, and a small one is not sent as its own either

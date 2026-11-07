@@ -41,9 +41,10 @@ export function rangeStream(abs: string, start: number, end: number): ReadableSt
   })
 }
 
-/** Types a browser would run (scripts, active documents: HTML, every XML document, which can carry XHTML scripts, such as
- * RSS, Atom, XSLT, MathML, SMIL and XUL): served as text/plain when shown inline. */
-const ACTIVE = /^(text\/html|application\/xhtml|image\/svg|text\/xml|application\/xml|text\/xsl|text\/mathml|text\/vnd\.wap\.wml|text\/javascript|application\/javascript|application\/x-javascript|text\/x-javascript)|^[^;]*\+xml\b/i
+/** Types a browser would run (scripts of every name: JavaScript, ECMAScript, JScript, LiveScript; active documents: HTML,
+ * every XML document, which can carry XHTML scripts, such as RSS, Atom, XSLT, MathML, SMIL and XUL): served as
+ * text/plain when shown inline. */
+const ACTIVE = /^(text\/html|application\/xhtml|image\/svg|text\/xml|application\/xml|text\/xsl|text\/mathml|text\/vnd\.wap\.wml)|^[^;]*\+xml\b|^(text|application)\/(x-)?(java|ecma|j|live)script\b/i
 
 export function contentDisposition(kind: 'inline' | 'attachment', name: string): string {
   const ascii = name.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').normalize('NFC').replace(/[^\x20-\x7e]/g, '_').replace(/["\\;]/g, '_') || 'file'

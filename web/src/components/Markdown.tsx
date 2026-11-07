@@ -318,6 +318,14 @@ export function TeamImage({ path, alt, className }: { path: string; alt?: string
   )
 }
 
+/** A chat upload's thumbnail named in an answer. In text from outside the team folder (TeamImagesAsLinks) it is not
+ * loaded by itself either: only its words. */
+function AttachmentThumb({ url, alt }: { url: string; alt?: string }) {
+  const t = useT()
+  if (useContext(TeamImagesAsLinks)) return <span className="text-faint">[{alt || t('md.image')}]</span>
+  return <img src={url} alt={alt ?? ''} className="max-h-60 rounded-lg" />
+}
+
 /** An external image: not loaded (its URL could carry data out); the person opens it in a new tab if they want. */
 function ExternalImage({ href, host, alt }: { href: string; host: string; alt?: string }) {
   const t = useT()
@@ -359,7 +367,7 @@ const COMPONENTS: Components = {
   img: ({ src, alt }) => {
     const k = classifyImage(typeof src === 'string' ? src : undefined, origin())
     if (k.kind === 'team-file') return <TeamImage path={k.path} alt={alt} />
-    if (k.kind === 'attachment-thumb') return <img src={k.url} alt={alt ?? ''} className="max-h-60 rounded-lg" />
+    if (k.kind === 'attachment-thumb') return <AttachmentThumb url={k.url} alt={alt} />
     if (k.kind === 'inline-data') return <img src={k.src} alt={alt ?? ''} className="max-h-80 rounded-lg" />
     if (k.kind === 'external') return <ExternalImage href={k.href} host={k.host} alt={alt} />
     return <span className="text-faint">[{alt}]</span>

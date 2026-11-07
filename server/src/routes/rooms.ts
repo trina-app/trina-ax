@@ -79,10 +79,11 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.roomFile, ({ c, auth, params, query }) => {
       const f = files.open(auth.user.id, params.id, params.fileId, !!query.thumb)
       // a file on the safety check's download-only list (docs/SAFE-OPS-1A.md) goes only as a download (download=1): no
-      // thumbnail and no inline read, which is what the preview panel reads. Unlike a team file's download, a download
-      // fetched by the page is not refused: the phone app saves a download through fetch (lib/mobile.ts downloadToApp),
-      // and no app view reads a room file with download=1
-      if (f.quarantined && (query.thumb || !query.download)) fail('unavailable', SAFE_OPS_TEXT.quarantined[c.get('locale')], { params: { reason: 'quarantined' } })
+      // thumbnail and no inline read, which is what the preview panel reads, and never into a picture, a frame, a player
+      // or a script of a page (Fetch Metadata's destination). Unlike a team file's download, a fetch (destination empty)
+      // is not refused: the phone app saves a download through fetch (lib/mobile.ts downloadToApp)
+      const dest = c.req.raw.headers.get('sec-fetch-dest')
+      if (f.quarantined && (query.thumb || !query.download || (dest && dest !== 'document' && dest !== 'empty'))) fail('unavailable', SAFE_OPS_TEXT.quarantined[c.get('locale')], { params: { reason: 'quarantined' } })
       return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.download ? 'attachment' : 'inline' })
     })
   },

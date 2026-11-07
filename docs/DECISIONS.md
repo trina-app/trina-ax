@@ -12490,9 +12490,11 @@ The owner: "트리나가 말한 것들 복사하고 하는 기능 있잖아? 거
   into its page; a file picked on this computer the same). HEIC and Hangul files (the server's team-file conversions)
   and types without a viewer show the "이 형식은 미리 볼 수 없어요" notice with a download.
   - **Inline types that can run.** Shown inline (the room route and team files' `disposition=inline`), every XML
-    document type is sent as `text/plain` too, not only HTML, SVG, XML and scripts: `+xml` types (RSS, Atom, RDF, XSLT,
-    MathML, SMIL, XUL), `text/mathml` and WML, where an XHTML script would run (security review). The sandbox CSP stayed
-    on every such response before as well.
+    document type is sent as `text/plain` too, not only HTML, SVG, XML and JavaScript: `+xml` types (RSS, Atom, RDF,
+    XSLT, MathML, SMIL, XUL), `text/mathml` and WML, where an XHTML script would run, and scripts under other names
+    (`application/ecmascript` for `.es`, JScript, LiveScript), which a page could load as its own script (security
+    review). The sandbox CSP stayed on every such response before as well. Left as it was: with `download=1` (and a team
+    file's `disposition=attachment`) a script type keeps its type.
   - **More people reach the in-app viewers (accepted).** A click on a chip now sends a file from anyone in a DM or group
     chat through pdf.js, docx-preview, the PowerPoint and sheet viewers and Markdown (mermaid, KaTeX, highlighting) in
     the app's origin, where a team file reached them only from people who can write to a folder the viewer reads; in
@@ -12505,9 +12507,10 @@ The owner: "트리나가 말한 것들 복사하고 하는 기능 있잖아? 거
     `?download=1`; it has no "AI에게 묻기", "파일 화면에서 열기" or edit (not a team file). No other new button.
   - **Download-only files stay downloads.** A room file whose bytes are on safe operations' download-only list is sent
     only with `download=1`: no inline read, which is what the panel reads, and no thumbnail (a small picture was sent as
-    its own thumbnail before); 503 `quarantined`, and the panel says it can only be downloaded. Unlike a team file's
-    download, a `download=1` fetched by the page is not refused (Fetch Metadata): the phone app saves downloads through
-    `fetch` (`lib/mobile.ts downloadToApp`) and could save such a room file before; no app view reads a room file with
+    its own thumbnail before); 503 `quarantined`, and the panel says it can only be downloaded. A `download=1` going into
+    a page's picture, frame, player, object or script (Fetch Metadata's destination) is refused too, as a team file's
+    download; unlike that, a fetch (destination empty) is not: the phone app saves downloads through `fetch`
+    (`lib/mobile.ts downloadToApp`) and could save such a room file before; no app view reads a room file with
     `download=1`. The check is the stored hash: a photo uploaded before its bytes were listed was stored with its
     metadata cut out and does not match a later listing (team files listed by publication or inode cannot be attached:
     `authorize` refuses them).
