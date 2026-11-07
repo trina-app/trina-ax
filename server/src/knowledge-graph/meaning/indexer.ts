@@ -83,6 +83,8 @@ export interface VectorStore {
 /** The embedding process answered a request with an error: it works, the texts do not (anything else that fails a
  * request is a process failure). */
 export class EmbedRefusal extends Error {}
+/** the probe a process that has not embedded anything yet embeds before a piece it refused alone is marked */
+const PROBE_TEXT = 'probe'
 
 /** The embedding process as the indexer sees it (startEmbedChild; tests: a stand-in). */
 export interface EmbedChild {
@@ -174,7 +176,14 @@ export function cgroupRoomMiB(read: (file: string) => string = (f) => fs.readFil
       const max = read(path.posix.join(at, 'memory.max')).trim()
       if (/^\d+$/.test(max)) {
         const cur = read(path.posix.join(at, 'memory.current')).trim()
-        if (/^\d+$/.test(cur)) room = Math.min(room ?? Infinity, Math.max(0, Math.floor((Number(max) - Number(cur)) / MIB)))
+        if (/^\d+$/.test(cur)) {
+          // memory.current counts the page cache too, which fills up under a MemoryMax and is given back on demand:
+          // its reclaimable part (inactive_file, as MemAvailable leaves it out) is room (review of wave 3)
+          let cache = 0
+          try { cache = Number(/^inactive_file (\d+)$/m.exec(read(path.posix.join(at, 'memory.stat')))?.[1] ?? 0) } catch { cache = 0 }
+          const used = Math.max(0, Number(cur) - (Number.isFinite(cache) ? cache : 0))
+          room = Math.min(room ?? Infinity, Math.max(0, Math.floor((Number(max) - used) / MIB)))
+        }
       }
     } catch { /* "max", or not there (the root has no memory.max) */ }
     if (dir === '/' || !dir.startsWith('/')) break
@@ -314,6 +323,9 @@ export class MeaningIndexer {
   private again = false
   /** set after a refusal (memory, the model, too many stops): nothing until a kick with `retry` (the nightly check) */
   private waitRetry = false
+  /** the process that has embedded something: only its refusal of a piece alone marks that piece (a broken runtime
+   * that refuses everything must not mark every piece empty for good; review of wave 3) */
+  private okChild: EmbedChild | null = null
   /** process failures in a row, across runs; a batch the process answers ends the row */
   private broken = 0
   private closed = false
@@ -337,7 +349,7 @@ export class MeaningIndexer {
   /** There may be pieces to embed (documents indexed, or the nightly check: `retry` also ends a wait after a
    * refusal). Starts a run unless one goes on (then it looks again after it). */
   kick(x: { retry?: boolean } = {}) {
-    if (x.retry) this.waitRetry = false
+    if (x.retry) { this.waitRetry = false; this.broken = 0 }
     if (this.closed || this.waitRetry || !this.o.on()) return
     if (this.running) { this.again = true; return }
     this.running = this.run().catch((e) => this.o.log.warn('knowledge graph: search by meaning stopped', { err: errText(e) })).finally(() => {
@@ -408,8 +420,15 @@ export class MeaningIndexer {
         let refused = false
         try { vecs = await this.embedWithin(child, passages) } catch (e) { lastErr = errText(e); refused = e instanceof EmbedRefusal }
         if (this.closed) return
+        // a piece refused alone by a process that has not embedded anything yet: a short probe text first shows whether
+        // the process works (then the piece is the problem) or refuses everything (a process failure, nothing marked)
+        if (refused && batch.length === 1 && this.okChild !== child) {
+          try { await this.embedWithin(child, [PROBE_TEXT]); this.okChild = child } catch (e) { refused = false; lastErr = errText(e) }
+          if (this.closed) return
+        }
         const took = Date.now() - started
         if (vecs) {
+          this.okChild = child
           this.broken = 0
           if (!one) fails = 0
           done += store.writeVectors(batch.map((p, i) => ({ id: p.id, passage: passages[i]!, vec: vecs[i]! })))
@@ -417,8 +436,9 @@ export class MeaningIndexer {
             lastLog = Date.now()
             this.o.log.info('knowledge graph: search by meaning: progress', { done, pending: store.vectorCounts?.().pending, perSecond: rate(done, t0) })
           }
-        } else if (refused) {
-          // the process answered with an error: it works, a text does not. Which one: one at a time, the same process
+        } else if (refused && (batch.length > 1 || this.okChild === child)) {
+          // the process answered with an error and has embedded before: it works, a text does not. Which one: one at a
+          // time, the same process. (A refusal from a process that never embedded anything counts as a process failure.)
           this.broken = 0
           if (batch.length > 1) { fails = 0; alone = batch }
           else {

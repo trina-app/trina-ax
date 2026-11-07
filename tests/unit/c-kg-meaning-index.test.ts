@@ -471,14 +471,16 @@ describe('the indexing goes on past a bad piece or a stuck process, and rests', 
     d.destroy()
   })
 
-  test('one piece refused alone is left out at once: the process answered, so the piece is the problem', async () => {
+  test('one piece refused alone is marked once a short probe shows the process works (the piece is the problem)', async () => {
     const d = await docIndex('lonely', { 'bad.md': '# Bad\nA POISON piece.' })
     const { ix, children, lines } = indexer(d, { child: poisoned })
     ix.kick()
     await ix.whenIdle()
     expect(children.length).toBe(1)
-    expect(d.vectorCounts()).toEqual({ done: 1, pending: 0 })
+    // the bad piece, then the probe (the process had embedded nothing yet), then nothing more
+    expect((children[0] as unknown as Fake).calls).toEqual([[expect.stringContaining('POISON')], ['probe']])
     expect(vecs(d).find((r) => r.rel === 'bad.md')!.vec?.byteLength).toBe(0)
+    expect(d.vectorCounts()).toEqual({ done: 1, pending: 0 })
     expect(lines.filter((l) => l.level === 'warn').map((l) => l.msg)).toEqual(['knowledge graph: search by meaning: a piece could not be embedded and is left out'])
     // the next document is embedded as usual
     expect((await d.update('projects/acme', 'good.md', file(enc('# Good\nA fine piece.'), 50))).ok).toBe(true)
@@ -486,6 +488,17 @@ describe('the indexing goes on past a bad piece or a stuck process, and rests', 
     await ix.whenIdle()
     expect(d.vectorCounts()).toEqual({ done: 2, pending: 0 })
     expect(vecs(d).find((r) => r.rel === 'good.md')!.vec?.byteLength).toBe(MEANING_DIMS)
+    ix.close()
+    d.destroy()
+  })
+
+  test('a runtime that refuses everything marks nothing: it counts as a process failure and pauses until the nightly check', async () => {
+    const d = await docIndex('broken-runtime', Object.fromEntries(Array.from({ length: 5 }, (_, i) => [`b-${i}.md`, `# B ${i}\nPiece ${i} about the budget.`])))
+    const { ix, lines } = indexer(d, { child: () => fakeChild({ refuse: () => true }) })
+    ix.kick()
+    await ix.whenIdle()
+    expect(vecs(d).every((r) => r.vec === null)).toBe(true)
+    expect(lines.some((l) => l.msg.includes('paused until the nightly check'))).toBe(true)
     ix.close()
     d.destroy()
   })
@@ -737,6 +750,11 @@ describe('the free memory where the server has a cgroup memory limit', () => {
       [`${unit}/memory.max`]: `${1536 * MiB}\n`, [`${unit}/memory.current`]: `${900 * MiB}\n`,
       '/sys/fs/cgroup/system.slice/memory.max': 'max\n', '/sys/fs/cgroup/system.slice/memory.current': `${5000 * MiB}\n`,
     }))).toBe(636)
+    // the reclaimable page cache (memory.stat inactive_file) counts as room, as MemAvailable leaves it out
+    expect(cgroupRoomMiB(files({
+      '/proc/self/cgroup': '0::/a\n', '/sys/fs/cgroup/a/memory.max': `${1792 * MiB}`, '/sys/fs/cgroup/a/memory.current': `${1700 * MiB}`,
+      '/sys/fs/cgroup/a/memory.stat': `anon ${600 * MiB}\nfile ${1100 * MiB}\nactive_file ${200 * MiB}\ninactive_file ${900 * MiB}\n`,
+    }))).toBe(992)
     // its own cgroup's limit; whole MiB, rounded down
     expect(cgroupRoomMiB(files({ '/proc/self/cgroup': '0::/a\n', '/sys/fs/cgroup/a/memory.max': `${2048 * MiB}`, '/sys/fs/cgroup/a/memory.current': `${1000 * MiB + 512 * 1024}` }))).toBe(1047)
     // the tighter of two
