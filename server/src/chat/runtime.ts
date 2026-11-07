@@ -84,8 +84,9 @@ export interface RoomTurns {
   /** The turn ended in any way (answered, stopped, failed, or stopped while it still waited in the queue). */
   ended(turnId: string): void
   /** A card of the turn opened or closed: the room's "?" for the person who asked there (Room.aiWaits) may have
-   * changed (docs/DECISIONS.md "Session markers"). */
-  waiting?(o: { roomId: string; userId: string }): void
+   * changed (docs/DECISIONS.md "Session markers"); `opened`: a card opened (a room the person hid comes back:
+   * docs/DECISIONS.md "대화 숨기기"), not one closing. */
+  waiting?(o: { roomId: string; userId: string; opened?: boolean }): void
 }
 export interface RoomTurnContext {
   /** the <room_context> block */

@@ -16,6 +16,11 @@
 // nobody else is notified and no badge goes up for them. Reactions (react) take from the sending budget and notify
 // nobody. Nobody is told who read what: room.read goes to the reader's own windows only.
 //
+// Hiding (docs/DECISIONS.md "대화 숨기기"): a member hides a DM, a team room or the everyone room from their own lists
+// (setHidden; room_members.hidden_at). Nobody else is told and nothing is audited. It comes back by itself when something
+// for them arrives, decided here when the message is stored (notify → unhideFor), so every device agrees; a hidden room
+// that stays hidden makes no notice. Opening it again (the app, openDm) shows it again.
+//
 // The AI (rooms/ai.ts, docs/DECISIONS.md "대화방의 트리나"): send() is the one place a person's message is written,
 // and a message that calls the AI ("@트리나 …") starts its turn there, checked before the message is written. The
 // answer is the other writer of room_messages (author_kind 'ai', asked_by = who asked); a private preview (visibility
@@ -33,7 +38,7 @@ import { cancelPushUser } from '../notifications/push-events'
 import { teamTimeZone } from '../admin/settings'
 import { alertSettings, ownLevel, setOwnLevel } from './alerts'
 import {
-  canSee, groupName, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, SEE_SQL, seeArgs, setRoomPathCheck,
+  canSee, groupName, hideable, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, SEE_SQL, seeArgs, setRoomPathCheck,
   lastSeqFor, threadable, threadSummary, threadsUnread, TIMELINE_SQL, unreadCount,
   type EventData, type MemberRow, type MessageRow, type RoomRow,
 } from './store'
@@ -56,7 +61,7 @@ const HOUR_MS = 3_600_000
 
 export interface SendInput { body: string; replyToId?: string | null; threadRootId?: string | null; alsoInRoom?: boolean; mentions: string[]; fileIds: string[]; clientMessageId: string }
 /** Nobody: what everyone who sees a message without being in it or following anything sees (one copy for most members). */
-const NOBODY: MemberRow = { room_id: '', user_id: '', joined_at: '', last_read_seq: 0, visible_from_seq: 0, muted: 0, notify_level: null }
+const NOBODY: MemberRow = { room_id: '', user_id: '', joined_at: '', last_read_seq: 0, visible_from_seq: 0, muted: 0, notify_level: null, hidden_at: null }
 
 export class Rooms {
   private lastSync = 0
@@ -134,7 +139,7 @@ export class Rooms {
     // a new account (an invite, the team link) or a group change made outside the admin screens shows here first
     if (this.outOfStep(userId)) this.syncNow()
     else this.syncSoon()
-    const rows = this.db.query(`SELECT r.*, m.user_id, m.joined_at, m.last_read_seq, m.visible_from_seq, m.muted, m.notify_level FROM rooms r JOIN room_members m ON m.room_id = r.id
+    const rows = this.db.query(`SELECT r.*, m.user_id, m.joined_at, m.last_read_seq, m.visible_from_seq, m.muted, m.notify_level, m.hidden_at FROM rooms r JOIN room_members m ON m.room_id = r.id
       WHERE m.user_id = ? AND r.archived_at IS NULL`).all(userId) as (RoomRow & MemberRow)[]
     const prefs = getPreferences(this.db, userId)
     const out = rows.map((r) => roomOut(this.db, r, { ...r, room_id: r.id }, prefs))
@@ -174,6 +179,9 @@ export class Rooms {
     } else if (!memberRow(this.db, found.id, userId)) {
       // a DM keeps its two people for good; a row missing here is an inconsistency, not a room to join
       fail('not_found')
+    } else {
+      // opening a DM I hid: it is in my lists again
+      this.unhide(found.id, [userId])
     }
     return this.get(userId, found.id)
   }
@@ -229,6 +237,32 @@ export class Rooms {
 
   setMuted(userId: string, roomId: string, muted: boolean): Room {
     return this.update(userId, roomId, { muted })
+  }
+
+  /** Hide the room from my own lists, or show it again (docs/DECISIONS.md "대화 숨기기"). A DM, a team room or the
+   * everyone room: a group chat is left instead (403 to hide one; showing one is nothing to do). The same again changes
+   * nothing. Nobody else is told; my windows and devices get the room (room.updated). Not audited. */
+  setHidden(userId: string, roomId: string, hidden: boolean): Room {
+    const { room, me } = this.mine(userId, roomId)
+    if (hidden && !hideable(room.kind)) fail('forbidden')
+    if (hidden && !me.hidden_at) {
+      this.db.query('UPDATE room_members SET hidden_at = ? WHERE room_id = ? AND user_id = ? AND hidden_at IS NULL').run(nowIso(), roomId, userId)
+      this.roomEvent(roomId, 'updated', new Set([userId]))
+      // a push of this room that waits or is on its way is checked again: a hidden room pushes nothing (alerts.ts)
+      cancelPushUser(this.ctx, userId)
+    } else if (!hidden) this.unhide(roomId, [userId])
+    return this.get(userId, roomId)
+  }
+
+  /** These members' hidden mark goes (those who had one get the room in all their windows, unless `publish` is false:
+   * the caller sends it). Returns who had one. */
+  unhide(roomId: string, userIds: readonly string[], publish = true): Set<string> {
+    const back = new Set<string>()
+    if (!userIds.length) return back
+    const ids = [...new Set(userIds)]
+    for (const r of this.db.query(`UPDATE room_members SET hidden_at = NULL WHERE room_id = ? AND hidden_at IS NOT NULL AND user_id IN (${ids.map(() => '?').join(',')}) RETURNING user_id`).all(roomId, ...ids) as { user_id: string }[]) back.add(r.user_id)
+    if (publish && back.size) this.roomEvent(roomId, 'updated', back)
+    return back
   }
 
   /** '' or null: back to the server's name; a team room given its group's own name follows the group again. Team rooms
@@ -646,17 +680,43 @@ export class Rooms {
    * room.message goes out, and a failure here must not hold the message back from anyone (it is logged, nobody is
    * marked). */
   notify(row: MessageRow): Map<string, RoomNoticeEvent> {
+    // hidden rooms that come back with it, first: their windows get the room before the message
+    try { this.unhideFor(row) } catch (e) { this.ctx.log.warn('hidden rooms not shown again', { err: e }) }
     try { return this.recordNotices(row) } catch (e) {
       this.ctx.log.warn('room notices not recorded', { err: e })
       return new Map()
     }
+  }
+
+  /** Who gets a hidden room back with this new message (docs/DECISIONS.md "대화 숨기기"): its author (they write in it),
+   * the person who asked an AI answer (a private preview: RoomAi.ended), and each member who sees it and for whom it is something to read: a message of a
+   * DM's timeline (a group chat's too, should one be hidden), a mention of them, a reply in a thread they follow. Nothing
+   * else brings a team room or the everyone room back, at any level: a room still hidden makes no notice
+   * (recordNotices). Never an event line, a deleted or a private message. */
+  private unhideFor(row: MessageRow) {
+    if (row.visibility !== 'room' || row.deleted_at || row.event) return
+    const room = roomRow(this.db, row.room_id)
+    if (!room) return
+    // only the members who hid it (an everyone room may have hundreds of members, few of them hiding it)
+    const hidden = (this.db.query('SELECT * FROM room_members WHERE room_id = ? AND hidden_at IS NOT NULL').all(row.room_id) as MemberRow[]).filter((m) => canSee(row, m))
+    if (!hidden.length) return
+    const mentioned = new Set(JSON.parse(row.mentions) as string[])
+    const followers = row.thread_root_id ? new Set((this.db.query('SELECT user_id FROM room_thread_follows WHERE root_id = ?').all(row.thread_root_id) as { user_id: string }[]).map((r) => r.user_id)) : null
+    const direct = (room.kind === 'dm' || room.kind === 'group') && (!row.thread_root_id || !!row.also_in_room)
+    const back = hidden.filter((m) => {
+      const me = m.user_id
+      if (me === row.author_id || (row.author_kind === 'ai' && me === row.asked_by)) return true
+      return direct || mentioned.has(me) || !!followers?.has(me)
+    })
+    this.unhide(row.room_id, back.map((m) => m.user_id))
   }
   private recordNotices(row: MessageRow): Map<string, RoomNoticeEvent> {
     const out = new Map<string, RoomNoticeEvent>()
     if (row.visibility !== 'room' || row.deleted_at || row.event) return out
     const room = roomRow(this.db, row.room_id)
     if (!room) return out
-    const ms = members(this.db, row.room_id).filter((m) => m.user_id !== row.author_id && !(row.author_kind === 'ai' && m.user_id === row.asked_by) && canSee(row, m))
+    // a room I still hide (unhideFor did not bring it back) tells me nothing
+    const ms = members(this.db, row.room_id).filter((m) => m.user_id !== row.author_id && !(row.author_kind === 'ai' && m.user_id === row.asked_by) && canSee(row, m) && !m.hidden_at)
     if (!ms.length) return out
     const mentioned = new Set(JSON.parse(row.mentions) as string[])
     const followers = row.thread_root_id ? new Set((this.db.query('SELECT user_id FROM room_thread_follows WHERE root_id = ?').all(row.thread_root_id) as { user_id: string }[]).map((r) => r.user_id)) : null
