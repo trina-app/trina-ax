@@ -7,6 +7,7 @@
 // dark).
 import fs from 'node:fs'
 import path from 'node:path'
+import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
 import { routeRooms, type MockRoomSpec } from './rooms-mock'
@@ -144,6 +145,31 @@ test('the conversations page: "숨긴 대화 N" at the end, 다시 보이기; op
   await page.goto(`/rooms/${TEAM}`)
   await expect(page.getByTestId('room-title')).toHaveText('개발팀')
   await expect.poll(() => state.hidden.at(-1)).toEqual({ roomId: TEAM, hidden: false })
+})
+
+test('WCAG 2.2 AA (axe), light and dark: the conversations page with its hidden section and a row\'s menu, a room\'s header menu', async ({ page }) => {
+  await start(page)
+  const check = async (where: string) => {
+    const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).exclude('iframe').analyze()
+    const serious = r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')
+    expect(serious.map((v) => `${where}: ${v.id} — ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(', ')}`)).toEqual([])
+  }
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' })
+    await page.goto('/rooms')
+    const toggle = page.getByTestId('rooms-hidden-toggle')
+    if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click()
+    await expect(page.getByTestId('rooms-hidden-row')).toHaveCount(1)
+    await check(`${scheme} /rooms`)
+    await page.getByTestId('rooms-row').first().click({ button: 'right' })
+    await expect(page.getByRole('menu')).toBeVisible()
+    await check(`${scheme} /rooms row menu`)
+    await page.keyboard.press('Escape')
+    await page.goto(`/rooms/${GROUP}`)
+    await page.getByTestId('room-menu').click()
+    await expect(page.getByRole('menu')).toBeVisible()
+    await check(`${scheme} room header menu`)
+  }
 })
 
 test.describe('phone', () => {
