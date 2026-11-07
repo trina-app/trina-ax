@@ -32,7 +32,8 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   /** the company intro deck's time budget (intro-deck/tiers.ts): 5 minutes until an owner or admin picks another */
   introDeckTier: DEFAULT_DECK_TIER,
   /** voice input is off until an admin picks OpenRouter (with a key) or this server (docs/DECISIONS.md "Voice input
-   * through OpenRouter"); a hosted server with the hosting service's key starts on OpenRouter (getTeamSettings) */
+   * through OpenRouter"); with the hosting service's key or the team's own OpenRouter key and no choice, it reads
+   * OpenRouter (getTeamSettings) */
   speechProvider: 'off',
   speechModel: DEFAULT_SPEECH_MODEL,
   /** not chosen: the default follows the speech provider (shared mediaTranscriptsDefault) */
@@ -44,6 +45,10 @@ const FIELDS = Object.keys(TeamSettings.shape) as (keyof TeamSettingsT)[]
 /** The hosting service's speech-to-text key (credentials/speech-key.ts, set only by the control plane through mycel-ctl
  * hosted-speech-key-set). While it is here and no admin chose a speech provider, voice input defaults to OpenRouter. */
 export const HOSTED_SPEECH_KEY_SETTING = 'speech.hostedKey'
+/** The team's own OpenRouter key for speech-to-text (credentials/speech-key.ts, Admin › Team settings › Voice input).
+ * While it is here and no admin chose a speech provider, voice input uses OpenRouter: on a team's own server, saving
+ * the key is how voice input is turned on. */
+export const SPEECH_KEY_SETTING = 'speech.openrouterKey'
 /** this month's seconds of sound sent with that key (credentials/hosted-speech.ts) */
 export const HOSTED_SPEECH_USAGE_SETTING = 'speech.hostedUsage'
 /** The hosting service's trial AI credit (credentials/hosted-chat.ts, set only by the control plane through mycel-ctl
@@ -75,9 +80,10 @@ export function getTeamSettings(db: Database): TeamSettingsT {
     // Equal endpoints keep updates closed and let the admin read, replace or clear the setting.
     else if (r.key === 'updateWindow') out[r.key] = '00:00-00:00'
   }
-  // a hosted team that has not chosen gets voice input through the hosting service's key (10 free hours a month); an
-  // admin's choice, "off" too, always wins
-  if (!rows.some((r) => r.key === 'speechProvider') && db.query('SELECT 1 FROM settings WHERE key = ?').get(HOSTED_SPEECH_KEY_SETTING)) out.speechProvider = 'openrouter'
+  // not chosen: voice input goes through OpenRouter once there is a key for it, the hosting service's (a hosted team, 10
+  // free hours a month) or the team's own (a team's own server: saving the key turns it on, removing it turns it off).
+  // Nothing is stored for it, and an admin's choice, "off" too, always wins
+  if (!rows.some((r) => r.key === 'speechProvider') && db.query('SELECT 1 FROM settings WHERE key IN (?, ?)').get(HOSTED_SPEECH_KEY_SETTING, SPEECH_KEY_SETTING)) out.speechProvider = 'openrouter'
   return out as TeamSettingsT
 }
 

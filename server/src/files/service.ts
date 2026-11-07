@@ -41,7 +41,7 @@ import { normalizeForModel } from './vision'
 import { openChecked } from '../team-files/place'
 import { JobFailure } from '../jobs/service'
 import { FREE_USED, HOSTED_SPEECH_MODEL } from '../credentials/hosted-speech'
-import { converterInputName, modelReady, transcribeConfig, whisperFile, type TranscribeConfig } from '../jobs/transcribe'
+import { converterInputName, missingLocalTools, modelReady, transcribeConfig, whisperFile, type TranscribeConfig } from '../jobs/transcribe'
 import { openRouterAudio, openRouterServed, sendToOpenRouter, wavData, type OpenRouterAnswer } from '../jobs/openrouter-stt'
 import { keepLongRetry, LONG_PIECE_SEC, longRetryLanguage } from '../jobs/speech-language'
 import { pieceTurn, pieceWait } from '../jobs/whisper-turns'
@@ -578,10 +578,13 @@ export class FileService {
   mediaAudio(tools: media.MediaTools, work: string, name: string, stream: number, start: number, seconds: number, out: string, o: { signal?: AbortSignal; timeoutMs: number; inputBytes: number }) {
     return media.audioWav(tools, work, name, stream, start, seconds, out, o)
   }
-  /** How this server transcribes video and audio sound itself (GET /api/admin/speech-host: the settings switch). */
+  /** How this server transcribes video and audio sound itself (GET /api/admin/speech-host: the settings switch, and the
+   * tools Voice input lacks for "this server"). */
   speechHost(): SpeechHost {
     const speed = media.localSpeed(this.db, media.localModelName(this.speech.model), this.speech.threads)
-    return { cpuCores: cpuBudget(), localPieceSec: media.LOCAL_PIECE_SEC, localSecPerSec: speed.measured ? speed.secPerSec : null, hostedNewSec: currentPlan() !== null ? media.HOSTED_LOCAL_NEW_SEC : null }
+    return { cpuCores: cpuBudget(), localPieceSec: media.LOCAL_PIECE_SEC, localSecPerSec: speed.measured ? speed.secPerSec : null, hostedNewSec: currentPlan() !== null ? media.HOSTED_LOCAL_NEW_SEC : null,
+      // Team settings › Voice input: what 'local' lacks here (jobs/transcribe.ts)
+      localMissing: missingLocalTools(this.speech) }
   }
   /** A piece's WAV as OpenRouter gets it (jobs/openrouter-stt.ts openRouterAudio: quiet sound raised, FLAC), or the WAV
    * itself when this ffmpeg cannot make one. A run that replaced its work folder or left a link: media_damaged. */
