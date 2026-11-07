@@ -322,14 +322,13 @@ describe('rate limits (per account and per real client IP)', () => {
     expect(r.status).toBe(429)
     expect(await h.auth.verifyPassword('olga', OWNER_PW, { ip: null, via: 'test' })).toBe(true)
   })
-  test('admin-reauth (the team\'s AI steps) is limited per person like owner-reauth: wrong passwords count, then even the right one waits', async () => {
+  test('admin-reauth (the API engine) is limited per person like owner-reauth: wrong passwords count, then even the right one waits', async () => {
     h.advance(DEFAULT_LIMITS.windowMs + 1000)
     const adm = await addMember(h, owner, { username: 'adriana', role: 'admin', password: 'harbor lamp stone 55' })
-    const body = (password: string) => ({ kind: 'anthropic-api-key', label: 'x', sealed: SEALED, password })
-    for (let i = 0; i < DEFAULT_LIMITS.perReauth; i++) expect((await adm.client.try('POST', '/api/admin/credentials', body('wrong wrong'))).status).toBe(403)
-    // the right password is now refused too (429), and so is the owner-reauth path of the same person
-    expect((await adm.client.try('POST', '/api/admin/credentials', body('harbor lamp stone 55'))).status).toBe(429)
-    expect((await adm.client.try('PUT', '/api/admin/engines/api-config', { baseUrl: 'https://93.184.216.34/v1', model: 'm', password: 'harbor lamp stone 55' })).status).toBe(429)
+    const body = (password: string) => ({ baseUrl: 'https://93.184.216.34/v1', model: 'm', password })
+    for (let i = 0; i < DEFAULT_LIMITS.perReauth; i++) expect((await adm.client.try('PUT', '/api/admin/engines/api-config', body('wrong wrong'))).status).toBe(403)
+    // the right password is now refused too (429)
+    expect((await adm.client.try('PUT', '/api/admin/engines/api-config', body('harbor lamp stone 55'))).status).toBe(429)
     // other people are not affected
     expect(await h.auth.verifyPassword('olga', OWNER_PW, { ip: null, via: 'test' })).toBe(true)
   })

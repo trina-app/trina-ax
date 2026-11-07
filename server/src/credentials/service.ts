@@ -1,6 +1,6 @@
 // Making, changing and removing AI connections (Admin > AI connections, Settings > AI connections). Owner: A.
 // Rules (docs/DECISIONS.md "AI 연결"): only the owner adds, replaces, renames, orders, assigns, limits and removes team
-// connections (adding and replacing ask for the password again); admins see and re-check; a member manages only
+// connections (adding and replacing need no password: every kind has a fixed provider address); admins see and re-check; a member manages only
 // their own connections, and only while the team allows them. Secrets arrive sealed (seal.ts) and are checked
 // without spending tokens (validate.ts). Audit details hold kinds, labels, hints (last 4) and plans, never a secret.
 import type { Credential, CredentialAssignment, CredentialKind, DuplicateCredentialParams, Locale, SealPurpose, SpendLimit } from '@mycel/shared/api'

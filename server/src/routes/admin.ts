@@ -399,7 +399,7 @@ export const adminRoutes: RouteModule = {
     kit.handle(API.speechHost, () => ctx.files.speechHost())
     kit.handle(API.setSpeechKey, async ({ c, body, auth }) => {
       const locale = c.get('locale')
-      // the password again, like adding an AI connection (route.ts owner-reauth), but admins may do it too
+      // the password again (route.ts reauth), admins may do it too: audio goes to a third party
       if (!(await ctx.services.sessions.verifyPassword(auth.user.id, body.password, c.get('info')))) {
         fail('forbidden', msg('wrongPassword', locale), { fields: { 'body.password': 'wrong password' } })
       }

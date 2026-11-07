@@ -55,7 +55,7 @@ export function EndedRun({ roomId, run }: { roomId: string; run: RoomAiRun }) {
       <span className={failed ? 'min-w-0 flex-1 py-1 text-danger' : 'min-w-0 flex-1 py-1 text-muted'}>
         {failed ? `${t('rooms.aiFailed')}${run.error?.message ? ` ${run.error.message}` : ''}` : t('rooms.aiStopped')}
       </span>
-      <IconButton label={t('rooms.aiDismiss')} onClick={() => useRooms.getState().dismissAi(roomId, run.turnId)} className="p-1">
+      <IconButton tip label={t('rooms.aiDismiss')} onClick={() => useRooms.getState().dismissAi(roomId, run.turnId)} className="p-1">
         <X size={14} />
       </IconButton>
     </div>

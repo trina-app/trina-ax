@@ -2504,7 +2504,6 @@ export class MockServer {
     listCredentials: () => ({ items: this.credentials.map((c) => this.credentialView(c)), memberOwn: this.credMemberOwn, sharedSubscriptions: this.credSharedSubscriptions, allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], pricesAsOf: '2026-10-22' }),
     sealingKey: () => this.sealer.publicKey(),
     createCredential: async (c) => {
-      if (c.body.password !== this.passwords.get(c.user.username)) fail('forbidden', 403, '비밀번호가 맞지 않아요.', { 'body.password': 'wrong password' })
       return { status: 201, body: await this.addCredential(c.user, c.body, false) }
     },
     createMyCredential: async (c) => {
@@ -2522,7 +2521,6 @@ export class MockServer {
       return x
     },
     replaceCredentialSecret: async (c) => {
-      if (c.body.password !== this.passwords.get(c.user.username)) fail('forbidden', 403)
       const x = this.credentials.find((y) => y.id === c.params.id) ?? fail('not_found', 404)
       await this.sealer.unseal(c.body.sealed, 'credential.replace').catch(() => fail('validation', 400))
       x.state = 'ok'; x.detail = null
@@ -2552,7 +2550,6 @@ export class MockServer {
     myCredentials: (c) => ({ allowed: this.credMemberOwn, allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], items: this.credentials.filter((x) => x.owner?.id === c.user.id) }),
     startCredentialLogin: (c) => {
       if (!this.credSharedSubscriptions) fail('forbidden', 403)
-      if (c.body.password !== this.passwords.get(c.user.username)) fail('forbidden', 403) // the caller's own (owner or admin)
       return { status: 202, body: this.startLogin(c.user, c.body.label, false, c.body.reconnectId, c.body.kind) }
     },
     startMyCredentialLogin: (c) => {

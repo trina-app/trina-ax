@@ -9,6 +9,7 @@ import { useT } from '../i18n'
 import { useUi } from '../store/ui'
 import { writeRich } from '../lib/clipboard'
 import { edgeFade } from '../lib/edgeFade'
+import { Tooltip } from './Tooltip'
 
 /** A dialog goes into <body> through a portal; rendered to a string (no document, as in a unit test), it stays in place. */
 const inBody = (node: ReactNode, body: Element | null) => (body ? createPortal(node, body) : node)
@@ -55,12 +56,15 @@ export const noKeyRepeat = (e: React.KeyboardEvent) => {
 }
 
 /** danger: a destructive icon action (Delete) that turns red on hover. */
-export function IconButton({ label, danger, className, children, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; danger?: boolean }) {
-  return (
-    <button type="button" aria-label={label} title={label} {...props} className={clsx('inline-flex items-center justify-center rounded-md p-1.5 text-muted transition disabled:opacity-40 max-sm:p-2', danger ? 'hover:bg-danger-soft hover:text-danger' : 'hover:bg-hover hover:text-ink', className)}>
+/** An icon-only button: `label` is its name (aria-label). `tip`: its label as a tooltip on hover and keyboard focus
+ * (components/Tooltip.tsx) instead of the browser's own title. */
+export function IconButton({ label, danger, className, children, tip = false, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; danger?: boolean; tip?: boolean }) {
+  const button = (
+    <button type="button" aria-label={label} title={tip ? undefined : label} {...props} className={clsx('inline-flex items-center justify-center rounded-md p-1.5 text-muted transition disabled:opacity-40 max-sm:p-2', danger ? 'hover:bg-danger-soft hover:text-danger' : 'hover:bg-hover hover:text-ink', className)}>
       {children}
     </button>
   )
+  return tip ? <Tooltip label={label}>{button}</Tooltip> : button
 }
 
 export const inputCls =

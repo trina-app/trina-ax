@@ -239,12 +239,12 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `GET` | `/api/me/ai-access` | Signed in | Can I use AI now, which button fits me (connect for the team / connect my own / ask the owner), and did I already ask. |
 | `POST` | `/api/me/ai-access/request` | Signed in | Tell the owner(s) and admins I have no AI connection: one inbox notice per owner or admin, a second ask changes nothing. Not for the owner or an admin, nor for someone who can use AI. |
 | `GET` | `/api/admin/credentials` | Admin | AI connections of the team (and that members have their own), with state and this month's use. Never a secret. |
-| `POST` | `/api/admin/credentials` | Admin + password | Add a Claude subscription token or an API key (sealed in the browser); checked without spending tokens. Already connected: 409 saying where (DuplicateCredentialParams); with moveFrom, a member's personal copy moves to the team. |
+| `POST` | `/api/admin/credentials` | Admin | Add a Claude subscription token or an API key (sealed in the browser); checked without spending tokens. Already connected: 409 saying where (DuplicateCredentialParams); with moveFrom, a member's personal copy moves to the team. |
 | `PATCH` | `/api/admin/credentials/:id` | Admin | Rename, order, switch off, assign to groups / people, monthly limit. |
-| `POST` | `/api/admin/credentials/:id/secret` | Admin + password | Put a new token / key on an existing connection (same kind). |
+| `POST` | `/api/admin/credentials/:id/secret` | Admin | Put a new token / key on an existing connection (same kind). |
 | `DELETE` | `/api/admin/credentials/:id` | Admin | Remove a connection (usage history stays). |
 | `POST` | `/api/admin/credentials/:id/check` | Admin | Check a connection again now, without spending tokens. |
-| `POST` | `/api/admin/credential-logins` | Admin + password | Start a ChatGPT (device code) or Claude (setup-token) sign-in for the team; progress on WebSocket credential.login. |
+| `POST` | `/api/admin/credential-logins` | Admin | Start a ChatGPT (device code) or Claude (setup-token) sign-in for the team; progress on WebSocket credential.login. |
 | `GET` | `/api/admin/credential-logins/:id` | Admin | State of a sign-in this person started (the owner or an admin; no one else can read it). |
 | `DELETE` | `/api/admin/credential-logins/:id` | Admin | Stop a sign-in: the person who started it, or the owner or an admin for any (also a member's own, who is told). Only one runs at a time; a start while one runs answers 409 with LoginBusyParams. |
 | `POST` | `/api/admin/credential-logins/:id/code` | Admin | The code Claude showed after approval (sealed), for a Claude sign-in this person started. |
