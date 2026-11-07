@@ -13,6 +13,14 @@ import { clampPanel, fitPanel, keyWidth, panelLimits, readPanelFraction, settleP
 
 const DRAG_SLOP = 3
 
+/** Call `fn` when `el` changes size. No ResizeObserver (an old browser, a test without a DOM): nothing is watched. */
+function watch(el: Element, fn: () => void): ResizeObserver | undefined {
+  if (typeof globalThis.ResizeObserver === 'undefined') return undefined
+  const ro = new ResizeObserver(fn)
+  ro.observe(el)
+  return ro
+}
+
 /** `testId`, `overlayTestId`: the divider's test id and that of the cover laid over the panel while dragging. */
 export function PanelDivider({ sizing, label, testId = 'panel-divider', overlayTestId = 'panel-drag-overlay' }: { sizing: PanelSizing; label: string; testId?: string; overlayTestId?: string }) {
   const handle = useRef<HTMLDivElement>(null)
@@ -65,20 +73,18 @@ export function PanelDivider({ sizing, label, testId = 'panel-divider', overlayT
   useLayoutEffect(() => {
     fit()
     window.addEventListener('resize', fit)
-    const ro = new ResizeObserver(fit)
     const row = panel()?.parentElement
-    if (row) ro.observe(row)
+    const ro = row ? watch(row, fit) : undefined
     return () => {
       window.removeEventListener('resize', fit)
-      ro.disconnect()
+      ro?.disconnect()
       cancelAnimationFrame(raf.current)
     }
   }, [fit, panel])
   useEffect(() => {
-    const ro = new ResizeObserver(measure)
     const box = panel()
-    if (box) ro.observe(box)
-    return () => ro.disconnect()
+    const ro = box ? watch(box, measure) : undefined
+    return () => ro?.disconnect()
   }, [measure, panel])
 
   const widthAt = (clientX: number) => clampPanel((panel()?.getBoundingClientRect().right ?? 0) - clientX, avail(), sizing)
