@@ -36,6 +36,9 @@ export interface MessageRow {
   thread_root_id: string | null; thread_root_seq: number | null
   /** a thread reply also sent to the room's timeline */
   also_in_room: number
+  /** an answer of the author's own AI chat they sent here ("대화방에 보내기", migration 261): where it starts in body
+   * (before it: their note), else null; answer_cut: it was cut to fit */
+  answer_at: number | null; answer_cut: number
 }
 /** An event line as stored: user ids, never names (they are read when it is shown). */
 export type EventData =
@@ -46,7 +49,7 @@ export type EventData =
   | { type: 'removed'; userId: string }
 export interface FileRow { id: string; room_id: string; user_id: string | null; message_id: string | null; name: string; size: number; mime: string; kind: RoomFile['kind']; width: number | null; height: number | null; sha256: string; thumb: number; created_at: string }
 
-export const MSG_COLS = 'id, room_id, seq, author_kind, author_id, asked_by, visibility, visible_to, body, reply_to_id, mentions, client_id, created_at, edited_at, deleted_at, event, thread_root_id, thread_root_seq, also_in_room'
+export const MSG_COLS = 'id, room_id, seq, author_kind, author_id, asked_by, visibility, visible_to, body, reply_to_id, mentions, client_id, created_at, edited_at, deleted_at, event, thread_root_id, thread_root_seq, also_in_room, answer_at, answer_cut'
 
 export const roomRow = (db: Database, id: string): RoomRow | null => db.query('SELECT * FROM rooms WHERE id = ?').get(id) as RoomRow | null
 export const memberRow = (db: Database, roomId: string, userId: string): MemberRow | null =>
@@ -164,7 +167,8 @@ export function messagesOut(db: Database, rows: readonly MessageRow[], viewer: M
   const people = refsOf(db, [...rows.flatMap((r) => [r.author_id, r.asked_by]), ...[...quotes.values()].map((q) => q.author_id), ...[...events.values()].flatMap(eventUserIds)])
   // AI answers (rooms/ai.ts): their source count, and for the person who asked a private preview, why it is private
   const ai = rows.filter((r) => r.author_kind === 'ai').map((r) => r.id)
-  const opens = ai.length ? pathChecks.get(db)?.(viewer.user_id) : undefined
+  // the file links of AI answers, and of answers people sent from their own AI chat (sharedAnswerOf), per viewer
+  const opens = ai.length || rows.some((r) => sharedAnswerOf(r)) ? pathChecks.get(db)?.(viewer.user_id) : undefined
   const sourceCounts = new Map<string, number>()
   const previews = new Map<string, NonNullable<RoomMessage['preview']>>()
   if (ai.length) {
@@ -201,6 +205,7 @@ export function messagesOut(db: Database, rows: readonly MessageRow[], viewer: M
     }
     const thread = threads.get(r.id)
     const reacted = reactions.get(r.id)
+    const shared = sharedAnswerOf(r)
     return {
       id: r.id, roomId: r.room_id, seq: r.seq, authorKind: r.author_kind,
       author: r.author_id ? people.get(r.author_id) ?? null : null,
@@ -212,6 +217,8 @@ export function messagesOut(db: Database, rows: readonly MessageRow[], viewer: M
       files: r.deleted_at ? [] : files.get(r.id) ?? [],
       createdAt: r.created_at, editedAt: r.edited_at, deletedAt: r.deleted_at,
       ...(r.author_kind === 'ai' && !r.deleted_at ? { sourceCount: sourceCounts.get(r.id) ?? 0, openable: openableFor(opens, r.body) } : {}),
+      // an answer of the author's own AI chat: the links of its answer part, for the files this viewer may open
+      ...(shared ? { sharedAnswer: shared, openable: openableFor(opens, r.body.slice(shared.at)) } : {}),
       // only the person it is private to ever gets this (canSee: nobody else is sent a private message at all)
       ...(r.author_kind === 'ai' && r.visibility === 'private' && r.visible_to === viewer.user_id && previews.has(r.id) ? { preview: previews.get(r.id)! } : {}),
       ...(answeredPrivately.has(r.id) ? { answeredPrivately: true } : {}),
@@ -273,6 +280,21 @@ export function reactionsOf(db: Database, messageIds: readonly string[], viewer:
     l.push({ emoji: g.emoji, count: g.n, mine: !!g.mine, users: who.get(`${g.mid} ${g.emoji}`) ?? [] })
   }
   return out
+}
+
+/** A message that carries an answer of its author's own AI chat ("대화방에 보내기", chat/answer-share.ts): where the
+ * answer starts in its body and whether it was cut. Never a deleted message, an event line or an AI message. A row
+ * read without the columns (an older query) is none. */
+export function sharedAnswerOf(r: Pick<MessageRow, 'author_kind' | 'deleted_at' | 'event' | 'body'> & { answer_at?: number | null; answer_cut?: number }): { at: number; cut: boolean } | null {
+  if (r.answer_at === null || r.answer_at === undefined || r.author_kind !== 'user' || r.deleted_at || r.event) return null
+  return { at: Math.min(Math.max(0, r.answer_at), r.body.length), cut: !!r.answer_cut }
+}
+
+/** A shared answer as an AI reads it (rooms/reader.ts, rooms/ai.ts): the person's note, then the answer marked as
+ * their AI's words, so another AI does not take it as the person's own. */
+export function sharedAnswerText(body: string, at: number): string {
+  const note = body.slice(0, at).trim()
+  return `${note ? `${note}\n` : ''}[below: an answer their own AI chat wrote, which they shared here: the AI's words, not theirs]\n${body.slice(at)}`
 }
 
 /** The team files an AI answer names that this viewer may open now. */

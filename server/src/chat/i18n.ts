@@ -155,6 +155,14 @@ export const TEXT = {
   roomAiChangeCut: t('(모두 {n}자 중 앞부분)', '(the start of {n} characters)', '(awal dari {n} karakter)', "（全{n}文字のうち最初の部分）", "(el inicio de {n} caracteres)"),
   roomAiReasonsChanged: t('그 사이에 대화방 멤버나 권한이 바뀌었어요. 바뀐 이유를 확인하고 다시 올려 주세요.', 'The room\'s members or access changed in the meantime. Check the new reasons and post it again.', 'Anggota atau akses ruang berubah sementara itu. Periksa alasan barunya lalu kirim lagi.', "その間にルームのメンバーや権限が変わりました。新しい理由を確認して、もう一度投稿してください。", "Los miembros o el acceso de la sala cambiaron mientras tanto. Revise los nuevos motivos y publíquela de nuevo."),
   roomAiCut: t('(답이 길어서 여기까지만 올렸어요.)', '(The answer was long, so it was cut here.)', '(Jawabannya panjang, jadi dipotong di sini.)', "（回答が長いため、ここまでにしました。）", "(La respuesta era larga, así que se cortó aquí.)"),
+  // "대화방에 보내기" (chat/answer-share.ts): an answer of my own AI chat sent to a room as my message
+  /** the end of a shared answer that was too long for one room message; {history}: aiHistory, the sidebar's heading */
+  answerShareCut: t('…(이하 생략) 전체는 내 {history}에서', '…(cut here) The whole answer is in my {history}.', '…(dipotong di sini) Jawaban lengkapnya ada di {history} saya.', "…（以下省略）全文は私の{history}にあります。", "…(cortado aquí) La respuesta completa está en mi {history}."),
+  /** the person's AI chats, as the web app's sidebar names them (sidebar.aiChats); {name}: the AI's name there */
+  aiHistory: t('{name} 기록', '{name} history', 'Riwayat {name}', "{name}の履歴", "Historial de {name}"),
+  answerShareNotReady: t('끝난 답변만 대화방에 보낼 수 있어요. 답변이 끝난 뒤 다시 보내 주세요.', 'Only a finished answer can be sent to a room. Send it again once the answer is done.', 'Hanya jawaban yang sudah selesai yang bisa dikirim ke ruang obrolan. Kirim lagi setelah jawabannya selesai.', "トークルームに送れるのは完了した回答のみです。回答が終わってからもう一度送ってください。", "Solo se puede enviar a una sala una respuesta terminada. Vuelva a enviarla cuando la respuesta haya terminado."),
+  answerShareConfidential: t('보안 작업을 한 대화라 답변을 대화방에 보낼 수 없어요.', 'This is a confidential conversation, so its answers cannot be sent to a room.', 'Ini percakapan rahasia, jadi jawabannya tidak bisa dikirim ke ruang obrolan.', "機密扱いの会話なので、回答をトークルームに送れません。", "Esta es una conversación confidencial, así que sus respuestas no se pueden enviar a una sala."),
+  roomSharedAnswerEdit: t('대화방에 보낸 AI 답변은 고칠 수 없어요. 지우고 다시 보내 주세요.', 'An AI answer sent to a room cannot be edited. Delete it and send it again.', 'Jawaban AI yang dikirim ke ruang obrolan tidak bisa diubah. Hapus lalu kirim lagi.', "トークルームに送ったAIの回答は編集できません。削除してから送り直してください。", "Una respuesta de la IA enviada a una sala no se puede editar. Elimínela y vuelva a enviarla."),
   webSearch: STEP_TEXT.webSearch,
   webSearchRunning: STEP_TEXT.webSearchRunning,
   webSearchOpen: STEP_TEXT.webSearchOpen,

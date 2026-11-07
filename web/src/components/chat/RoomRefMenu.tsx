@@ -5,7 +5,7 @@
 // box, so Korean input, selection and spell check stay the box's own), Backspace takes it whole and the caret never
 // stops inside it. What is sent carries the room's id (toWire). Never in a room's own message box.
 import clsx from 'clsx'
-import { Fragment, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
+import { Fragment, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { PRODUCT_NAMED_AFTER_AI, roomRefParts, roomRefTitle, type Room } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { deleteToken, insertRoomRef, keepPicked, matchRooms, roomMenuWanted, roomRefAt, tokenRanges, toWire, type PickedRoom, type TokenRange } from '../../lib/roomRefs'
@@ -32,7 +32,6 @@ export function useRoomRefMenu({ text, setText, input, initial = [], enabled = t
   const wanted = roomMenuWanted({ enabled, at, closedFor, text })
   // the rooms are the sidebar's list; read once when "#" is typed before it ever loaded (a phone opens no sidebar)
   useEffect(() => { if (wanted && !rooms.length) void loadRooms().catch(() => {}) }, [wanted, rooms.length, loadRooms])
-  const label = (r: Room) => (r.kind === 'dm' ? t('composer.roomDm', { name: title(r) }) : title(r))
   const hits = useMemo(() => (wanted ? matchRooms(rooms, at!.query, title, 50) : []), [wanted, rooms, at, title])
   const open = hits.length > 0
   const ranges = useMemo(() => tokenRanges(text, picked), [text, picked])
@@ -141,13 +140,11 @@ export function useRoomRefMenu({ text, setText, input, initial = [], enabled = t
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => pick(r)}
               onMouseMove={() => i !== active && setActive(i)}
-              className={clsx('flex w-full items-center gap-2.5 rounded-xl px-2 py-1.5 text-left text-sm max-md:min-h-11', i === active && 'bg-accent-soft')}
+              className={clsx(ROOM_OPTION_CLS, i === active && 'bg-accent-soft')}
               data-testid="room-ref-option"
               data-room-id={r.id}
             >
-              <RoomIcon room={r} size={22} tile />
-              <span className="min-w-0 flex-1 truncate font-medium text-ink">{label(r)}</span>
-              {r.kind !== 'dm' && <span className="shrink-0 text-xs text-faint tabular-nums">{t('rooms.members', { n: r.memberCount })}</span>}
+              <RoomOptionLabel room={r} />
             </button>
           </li>
         ))}
@@ -168,6 +165,25 @@ export function useRoomRefMenu({ text, setText, input, initial = [], enabled = t
     /** call from onChange: the caret moved with the typing */
     track,
   }
+}
+
+/** A row of a list of my rooms to pick from (the "#" list, components/chat/ShareToRoom.tsx): the same size and padding
+ * in both; the picked or keyboard-active row adds its own ground. */
+export const ROOM_OPTION_CLS = 'flex w-full items-center gap-2.5 rounded-xl px-2 py-1.5 text-left text-sm max-md:min-h-11'
+
+/** What such a row shows: the room's mark, its name as the app shows it (a 1:1 chat as "<name> · 1:1"), the member
+ * count for the others. `end`: something after it (the picked room's check). */
+export function RoomOptionLabel({ room, end }: { room: Room; end?: ReactNode }) {
+  const t = useT()
+  const title = useRoomTitle()
+  return (
+    <>
+      <RoomIcon room={room} size={22} tile />
+      <span className="min-w-0 flex-1 truncate font-medium text-ink">{room.kind === 'dm' ? t('composer.roomDm', { name: title(room) }) : title(room)}</span>
+      {room.kind !== 'dm' && <span className="shrink-0 text-xs text-faint tabular-nums">{t('rooms.members', { n: room.memberCount })}</span>}
+      {end}
+    </>
+  )
 }
 
 /** The tokens as the box shows them: a layer behind the text box with the same text, the tokens marked (the box's own

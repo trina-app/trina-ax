@@ -38,7 +38,7 @@ import { cancelPushUser } from '../notifications/push-events'
 import { teamTimeZone } from '../admin/settings'
 import { alertSettings, ownLevel, setOwnLevel } from './alerts'
 import {
-  canSee, groupName, hideable, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, SEE_SQL, seeArgs, setRoomPathCheck,
+  canSee, groupName, hideable, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, SEE_SQL, seeArgs, setRoomPathCheck, sharedAnswerOf,
   lastSeqFor, threadable, threadSummary, threadsUnread, TIMELINE_SQL, unreadCount,
   type EventData, type MemberRow, type MessageRow, type RoomRow,
 } from './store'
@@ -60,6 +60,11 @@ export const GROUPS_PER_HOUR = 10
 const HOUR_MS = 3_600_000
 
 export interface SendInput { body: string; replyToId?: string | null; threadRootId?: string | null; alsoInRoom?: boolean; mentions: string[]; fileIds: string[]; clientMessageId: string }
+/** Rooms.send's `answer` (never from a request body): the message carries an answer of the sender's own AI chat
+ * ("대화방에 보내기", chat/answer-share.ts) that starts at `at` in the body; `cut`: it was cut to fit; `people`: the
+ * members who could not read what it used (the person said yes to sending anyway when more than 0), for the audit.
+ * The caller took the sending budget's token for the request already (before its check): send takes none more. */
+export interface SharedAnswerMark { at: number; cut: boolean; people: number }
 /** Nobody: what everyone who sees a message without being in it or following anything sees (one copy for most members). */
 const NOBODY: MemberRow = { room_id: '', user_id: '', joined_at: '', last_read_seq: 0, visible_from_seq: 0, muted: 0, notify_level: null, hidden_at: null }
 
@@ -411,15 +416,18 @@ export class Rooms {
 
   /** Send as `userId` (the author is always the signed-in person). Same clientMessageId again: the first message. A
    * message that calls the AI is checked for that first (rooms/ai.ts precheck: a refusal sends nothing), then asks it.
-   * With threadRootId it is a reply in that message's thread (see the top of this file). */
-  send(userId: string, roomId: string, b: SendInput, o: AskOptions = {}): RoomMessage {
-    const { me } = this.mine(userId, roomId)
+   * With threadRootId it is a reply in that message's thread (see the top of this file).
+   * `answer` (chat/answer-share.ts only, never a request's body): the message carries an answer of my own AI chat. It
+   * mentions nobody and never calls the room's AI, whatever its text says ("@트리나", "@Name" in the answer are the
+   * AI's words, not a call), and is neither a reply nor in a thread. */
+  send(userId: string, roomId: string, b: SendInput, o: AskOptions = {}, answer?: SharedAnswerMark): RoomMessage {
+    const { room, me } = this.mine(userId, roomId)
     const again = this.db.query(`SELECT ${MSG_COLS} FROM room_messages WHERE room_id = ? AND author_id = ? AND client_id = ?`).get(roomId, userId, b.clientMessageId) as MessageRow | null
     if (again) return messagesOut(this.db, [again], memberRow(this.db, roomId, userId)!)[0]!
     // a reply goes in a thread or quotes (an older app), never both; "also to the room" is a thread reply's
     if (b.threadRootId && b.replyToId) fail('validation', undefined, { fields: { 'body.replyToId': 'not with threadRootId' } })
     if (b.alsoInRoom && !b.threadRootId) fail('validation', undefined, { fields: { 'body.alsoInRoom': 'only with threadRootId' } })
-    this.takeSendToken(userId)
+    if (!answer) this.takeSendToken(userId)
     if (b.replyToId) {
       const q = messageRow(this.db, roomId, b.replyToId)
       // an event line is not a message to answer
@@ -431,7 +439,8 @@ export class Rooms {
       // the same answer whatever is wrong (not there, not one I see, an event line, a reply itself, deleted, private)
       if (!root || !canSee(root, me) || !threadable(root) || root.deleted_at) fail('validation', undefined, { fields: { 'body.threadRootId': 'not a message of this room to answer in a thread' } })
     }
-    const mentions = this.validMentions(roomId, userId, b.mentions)
+    if (answer && (b.threadRootId || b.replyToId || b.fileIds.length || answer.at < 0 || answer.at > b.body.length)) fail('validation')
+    const mentions = answer ? [] : this.validMentions(roomId, userId, b.mentions)
     const fileIds = [...new Set(b.fileIds)]
     if (fileIds.length) {
       const n = (this.db.query(`SELECT COUNT(*) n FROM room_files WHERE room_id = ? AND user_id = ? AND message_id IS NULL AND id IN (${fileIds.map(() => '?').join(',')})`).get(roomId, userId, ...fileIds) as { n: number }).n
@@ -439,15 +448,19 @@ export class Rooms {
     }
     // "@트리나 …" (a person picked from the list under the same name wins); anything that stops the question stops the send
     const people = mentions.length ? (this.db.query(`SELECT name FROM users WHERE id IN (${mentions.map(() => '?').join(',')})`).all(...mentions) as { name: string }[]).map((r) => r.name) : []
-    const ask = roomAiCalled(b.body, people) ? roomAiOf(this.ctx).precheck(userId, roomId, o) : null
+    const ask = !answer && roomAiCalled(b.body, people) ? roomAiOf(this.ctx).precheck(userId, roomId, o) : null
     const now = nowIso(), id = newId()
     // a reply that stays in its thread does not bring the room to the top of the list
     const inTimeline = !root || !!b.alsoInRoom
     let seq = 0
     this.db.transaction(() => {
       seq = (this.db.query(`UPDATE rooms SET last_seq = last_seq + 1${inTimeline ? ', activity_at = ?' : ''} WHERE id = ? RETURNING last_seq`).get(...(inTimeline ? [now, roomId] : [roomId])) as { last_seq: number }).last_seq
-      this.db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, reply_to_id, mentions, client_id, created_at, thread_root_id, thread_root_seq, also_in_room)
-        VALUES (?, ?, ?, 'user', ?, 'room', ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, roomId, seq, userId, b.body, b.replyToId ?? null, JSON.stringify(mentions), b.clientMessageId, now, root?.id ?? null, root?.seq ?? null, root && b.alsoInRoom ? 1 : 0)
+      this.db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, reply_to_id, mentions, client_id, created_at, thread_root_id, thread_root_seq, also_in_room, answer_at, answer_cut)
+        VALUES (?, ?, ?, 'user', ?, 'room', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, roomId, seq, userId, b.body, b.replyToId ?? null, JSON.stringify(mentions), b.clientMessageId, now, root?.id ?? null, root?.seq ?? null, root && b.alsoInRoom ? 1 : 0,
+        answer ? answer.at : null, answer?.cut ? 1 : 0)
+      // an answer of my own AI chat: audited without its content or anyone's name; a DM's or group chat's id would let
+      // admins see who talks to whom, so only its kind (store.ts roomAuditRef)
+      if (answer) audit(this.db, { actor: userId, action: 'room.answer_share', target: id, detail: { ...roomAuditRef(room), people: answer.people, confirmed: answer.people > 0, cut: answer.cut } })
       if (fileIds.length) this.db.query(`UPDATE room_files SET message_id = ? WHERE id IN (${fileIds.map(() => '?').join(',')})`).run(id, ...fileIds)
       // sending in the room means I have seen the room up to here (KakaoTalk): my read position moves to my message;
       // a reply moves my place in its thread instead (the room may be out of sight, on a phone it is)
@@ -492,9 +505,12 @@ export class Rooms {
     if (followers.size) this.roomEvent(root.room_id, 'updated', followers)
   }
 
-  edit(userId: string, roomId: string, messageId: string, b: { body: string; mentions: string[] }): RoomMessage {
+  /** A message that carries an answer of my own AI chat (sharedAnswer) is not edited: its answer part is the AI's
+   * words (409; the app offers no edit there). It can be deleted. */
+  edit(userId: string, roomId: string, messageId: string, b: { body: string; mentions: string[] }, locale: Locale = 'en'): RoomMessage {
     const { me } = this.mine(userId, roomId)
     const m = this.own(roomId, messageId, userId, me)
+    if (sharedAnswerOf(m)) fail('conflict', tr('roomSharedAnswerEdit', locale), { params: { reason: 'shared_answer' } })
     const mentions = this.validMentions(roomId, userId, b.mentions)
     // an edit notifies nobody (only a new message does), so a mention added later is quiet
     this.db.query('UPDATE room_messages SET body = ?, mentions = ?, edited_at = ? WHERE id = ?').run(b.body, JSON.stringify(mentions), nowIso(), m.id)
@@ -584,8 +600,9 @@ export class Rooms {
     return { reactions: reactionsOf(this.db, [m.id], me).get(m.id) ?? [] }
   }
 
-  /** One token per new message (a resend of the same clientMessageId above costs none) and per reaction change. */
-  private takeSendToken(userId: string) {
+  /** One token per new message (a resend of the same clientMessageId above costs none) and per reaction change; a
+   * shared answer's request takes its own before its check (chat/answer-share.ts). */
+  takeSendToken(userId: string) {
     const now = this.clock()
     const b = this.sendBudget.get(userId) ?? { tokens: SEND_BURST, at: now }
     b.tokens = Math.min(SEND_BURST, b.tokens + ((now - b.at) / 1000) * SEND_PER_SECOND)

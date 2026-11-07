@@ -174,6 +174,13 @@ export const SPECS: Record<string, Spec> = {
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} posted into alice's chat`) } },
   stop: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/stop`), scope: 'own-alice-chat' },
   messageSources: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/sources`), scope: 'own-alice-chat' },
+  // "대화방에 보내기": alice's answer to the DM she shares with erin. Only alice; her chat used her own project folder, so
+  // she is asked first ("confirm": how many, never who) and nothing is sent without confirm: true
+  shareAnswerToRoom: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/share-to-room`, { roomId: w.ids.dmRoom, clientMessageId: cm() }), scope: 'own-alice-chat',
+    check: (r, _w, who) => {
+      if (who !== 'memberIn' && r.status < 400) throw new Error(`${who} shared alice's answer`)
+      if (r.status < 300 && r.json?.status === 'confirm' && /erin|Erin/.test(r.text)) throw new Error(`the confirm answer names a member: ${r.text}`)
+    } },
   regenerate: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/regenerate`, { clientMessageId: cm() }), scope: 'own-alice-chat' },
   editMessage: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages/${w.ids.userMsg}/edit`, { clientMessageId: cm(), content: 'x' }), scope: 'own-alice-chat' },
   selectBranch: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/branch`, { messageId: w.ids.userMsg }), scope: 'own-alice-chat' },
