@@ -120,7 +120,7 @@ export async function disablePush(registration: ServiceWorkerRegistration | null
  * - service: the browser's push service is off or out of reach (pushManager.subscribe's AbortError "push service not
  *   available / error": Brave without "Use Google services for push messaging", a private window);
  * - browserService: the team server does not take this browser's push service (it delivers only through Google's,
- *   Mozilla's and Apple's);
+ *   Mozilla's, Apple's and Microsoft's: server/src/notifications/push-transport.ts);
  * - worker: the service worker did not start (in WORKER_WAIT_MS); storage: the browser refused to register it because
  *   this site may not keep data (Firefox's SecurityError: site data blocked, or "never remember history");
  * - key: the team server has no usable Web Push key (an admin's matter);
@@ -182,15 +182,6 @@ export function logPushFailure(error: unknown, failure: PushFailure = pushFailur
   const name = (cause as { name?: unknown } | null)?.name, message = (cause as { message?: unknown } | null)?.message
   const clean = (v: unknown) => String(v ?? '').replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, '<address>').slice(0, 200)
   console.warn(`[push] ${step}: ${failure.kind}`, clean(name), clean(message))
-}
-
-/** Microsoft Edge: its push service (Windows Notification Service) is not one the team server delivers through
- * (server/src/notifications/push-transport.ts HOSTS), so the web ask leaves it out until that is decided; Settings says
- * so when someone tries (browserService). */
-export function isEdge(): boolean {
-  if (typeof navigator === 'undefined') return false
-  const brands = (navigator as { userAgentData?: { brands?: { brand?: unknown }[] } }).userAgentData?.brands
-  return /\bEdg\//.test(navigator.userAgent ?? '') || (Array.isArray(brands) && brands.some((b) => b?.brand === 'Microsoft Edge'))
 }
 
 /** Brave (it hides push behind a setting of its own: "Use Google services for push messaging"). */
