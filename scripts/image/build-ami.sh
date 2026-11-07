@@ -253,10 +253,21 @@ for pair in "enroll:$ENROLL_BIN" "link:$LINK_BIN"; do
   fi
 done
 cp -a "$HERE/customize.sh" "$HERE/files" "$STAGE/"
-# the one list of packages and its reader (scripts/system): customize.sh and install-srt.sh read it
+# the one list of packages and its reader: the kit's app/<v>/root/packages.{json,sh} (what the installer in the image
+# reads), which must be this checkout's scripts/system/ (customize.sh and install-srt.sh read the staged copy). One list
+# per image: a kit and a checkout of different commits stop the build. A kitless dry run takes the checkout's.
+SYS_SRC="$REPO/scripts/system"
+if [[ $KIT_STATE == present ]]; then
+  for f in packages.json packages.sh; do
+    k="$STAGE/kit/app/$KIT_VERSION/root/$f"
+    [[ -f "$k" ]] || die "the kit has no app/$KIT_VERSION/root/$f (a kit from before the one list): build the kit from this checkout"
+    cmp -s "$k" "$SYS_SRC/$f" || die "the kit's root/$f differs from scripts/system/$f in this checkout: build the kit and the image from one commit"
+  done
+  SYS_SRC="$STAGE/kit/app/$KIT_VERSION/root"
+fi
 mkdir -p "$STAGE/system" "$STAGE/dev-env-srt/system"
-cp -p "$REPO/scripts/system/packages.sh" "$REPO/scripts/system/packages.json" "$STAGE/system/"
-cp -p "$REPO/scripts/system/packages.sh" "$REPO/scripts/system/packages.json" "$STAGE/dev-env-srt/system/"
+cp -p "$SYS_SRC/packages.sh" "$SYS_SRC/packages.json" "$STAGE/system/"
+cp -p "$SYS_SRC/packages.sh" "$SYS_SRC/packages.json" "$STAGE/dev-env-srt/system/"
 # the dev environment on srt, image part (customize.sh --srt, default <stage>/dev-env-srt): only the install files
 SRT_FILES=(install-srt.sh uninstall-srt.sh package.json package-lock.json run-wrap srt-full.mjs devenv.rules.in devenv.slice.in README.md)
 mkdir -p "$STAGE/dev-env-srt"

@@ -646,7 +646,10 @@ describe('every install path reads the list', () => {
       expect(`${f}: ${/^\s*\. "\$[A-Za-z_{}/.]*packages\.sh"$/m.test(s)}`).toBe(`${f}: true`)
       expect(`${f}: ${s.includes('pk_load ')}`).toBe(`${f}: true`)
     }
-    for (const f of STAGERS) expect(`${f}: ${/scripts\/system\/packages\.sh"? "?\$?[A-Za-z_{}/.]*packages\.json/.test(read(f)) || read(f).includes('$HERE/../system/packages.sh')}`).toBe(`${f}: true`)
+    // the stagers copy the list: test-customize.sh the checkout's, build.sh and build-ami.sh the kit's (the same bytes as
+    // the checkout's, or the build stops)
+    for (const f of STAGERS) expect(`${f}: ${/scripts\/system\/packages\.sh"? "?\$?[A-Za-z_{}/.]*packages\.json/.test(read(f)) || read(f).includes('$HERE/../system/packages.sh')
+      || read(f).includes('cp -p "$SYS_SRC/packages.sh" "$SYS_SRC/packages.json" "$STAGE/system/"')}`).toBe(`${f}: true`)
     // build-ami.sh and test-customize.sh also give the staged dev-env-srt folder its copy (install-srt.sh --image-mode, --boot)
     for (const f of ['scripts/image/build-ami.sh', 'scripts/image/test-customize.sh']) expect(read(f)).toContain('dev-env-srt/system')
   })
