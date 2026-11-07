@@ -11014,9 +11014,10 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
   with the icon row; it holds for any number of rooms and any number unread.
 - **Labeled rows, not icons** (the owner, 2026-11-07: "아이콘만 보이는 건 별로인 거 같음. 기존처럼 각각의 행으로 보이게
   해줘"). The icon row and its tooltips are gone; each item says its name. The rows take about 230 px more, so less of
-  트리나 기록 is in sight: with 60 rooms the e2e sees the five rooms, 트리나 기록's heading and 4 of its 5 chats at
-  1440×900, 2 at 1280×800 (one scroll down for the rest). Rejected: shrinking the rows below 36 px (the size of every
-  other row) or dropping the shortcut hints.
+  트리나 기록 is in sight without scrolling (14 or 60 rooms alike, the five rooms always in sight): a member sees 4 of its
+  5 chats at 1440×900 and 3 at 1280×800; an owner with 관리자 and the setup row (setup not finished) 4 and 1; with the
+  icon row all 5 were in sight at both sizes. Rejected for now: shrinking the rows below 36 px (the size of every other
+  row) or dropping the shortcut hints.
 - **The entries are always there** (the owner, 2026-11-07: "트리나 기록 왜 더보기가 없어?? 대화도 더보기가 없고?"). With
   short lists (five or fewer) 더 보기 and 모두 보기 did not show, so there was no way to the whole list from the sidebar.
   Now 대화 always ends with its row ("더 보기 (N)" or "모든 대화") and 트리나 기록 with "모두 보기"; neither shows while
