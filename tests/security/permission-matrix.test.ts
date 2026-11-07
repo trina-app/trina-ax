@@ -171,6 +171,14 @@ describe('shared project chat x every persona', () => {
   let chat = ''
   const CANARY = 'SEC-SHARED-MATRIX-6610'
   beforeAll(async () => {
+    // the matrix's allowed writes reset bob's password (resetPassword): his own one again, so he can sign in below
+    const { hashPassword } = await import('../../server/src/auth/passwords')
+    inst.ctx.db.query('UPDATE users SET password_hash = ?, must_change_password = 0, temp_password_expires_at = NULL, temp_password_failures = 0 WHERE id = ?').run(await hashPassword(PW.bob), 'bob')
+    inst.ctx.db.query("DELETE FROM login_attempts WHERE key LIKE '%bob%'").run()
+    // ...and the writes may have changed the finance group: bob reads projects/falcon by a rule of his own here
+    const falcon = inst.ctx.db.query("SELECT id FROM folders WHERE path = 'projects/falcon'").get() as { id: string }
+    if (!inst.ctx.db.query("SELECT 1 FROM folder_rules WHERE folder_id = ? AND subject_type = 'user' AND subject_id = 'bob'").get(falcon.id))
+      inst.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'user', 'bob', 'read')").run(crypto.randomUUID(), falcon.id)
     await W.as.memberIn.ok('PATCH', `/api/projects/${W.ids.projFalcon}`, { shareChats: true })
     chat = (await W.as.memberIn.ok('POST', '/api/chats', { projectId: W.ids.projFalcon })).id
     await W.as.memberIn.ok('PATCH', `/api/projects/${W.ids.projFalcon}`, { shareChats: false })
