@@ -277,7 +277,10 @@ export class RoomAi implements RoomTurns {
 
   /** A card of my question opened or closed: my rooms list follows (room.updated with the room as I see it, to me only). */
   waiting(o: { roomId: string; userId: string }) {
-    roomsOf(this.ctx).roomEvent(o.roomId, 'updated', new Set([o.userId]))
+    const rooms = roomsOf(this.ctx)
+    // a card that waits on me is for me: a room I hid comes back (docs/DECISIONS.md "대화 숨기기")
+    if (this.waitsFor(o.roomId, o.userId)) rooms.unhide(o.roomId, [o.userId], false)
+    rooms.roomEvent(o.roomId, 'updated', new Set([o.userId]))
   }
 
   /** The turn ended: an answer goes to the room or stays a private preview; anything else tells the person. */

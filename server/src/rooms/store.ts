@@ -23,8 +23,9 @@ const EXCERPT_QUOTE = 200
 const EXCERPT_LIST = 120
 
 export interface RoomRow { id: string; kind: RoomKind; group_id: string | null; dm_key: string | null; created_by: string | null; created_at: string; last_seq: number; activity_at: string; archived_at: string | null; name: string | null }
-/** muted / notify_level: my level for the room (rooms/alerts.ts ownLevel; notify_level is absent from rows made in code) */
-export interface MemberRow { room_id: string; user_id: string; joined_at: string; last_read_seq: number; visible_from_seq: number; muted: number; notify_level?: string | null }
+/** muted / notify_level: my level for the room (rooms/alerts.ts ownLevel; notify_level is absent from rows made in code).
+ * hidden_at: when I hid the room from my own lists (docs/DECISIONS.md "대화 숨기기"); null or absent: shown */
+export interface MemberRow { room_id: string; user_id: string; joined_at: string; last_read_seq: number; visible_from_seq: number; muted: number; notify_level?: string | null; hidden_at?: string | null }
 export interface MessageRow {
   id: string; room_id: string; seq: number; author_kind: 'user' | 'ai'; author_id: string | null; asked_by: string | null
   visibility: 'room' | 'private'; visible_to: string | null; body: string; reply_to_id: string | null; mentions: string
@@ -362,8 +363,13 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
     lastMessage: last, muted: !!viewer.muted, notify: roomNotifyOut(room.kind, viewer, prefs), createdAt: room.created_at,
     activityAt: last && last.createdAt > since ? last.createdAt : since,
     ...(aiWaiting.get(db)?.(room.id, viewer.user_id) ? { aiWaits: true as const } : {}),
+    ...(viewer.hidden_at ? { hidden: true as const } : {}),
   }
 }
+
+/** Can a member hide this kind of room (docs/DECISIONS.md "대화 숨기기"): a DM, a team room, the everyone room. A group
+ * chat is left instead. */
+export const hideable = (kind: RoomKind) => kind !== 'group'
 
 export function membersOut(db: Database, roomId: string): RoomMember[] {
   return (db.query(`SELECT u.id, u.name, m.joined_at FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? ORDER BY u.name, u.id`)
