@@ -59,6 +59,9 @@ import { canSee, clipMiddle, memberRow, parseMentions, roomAuditRef, members, me
 import { roomsOf } from './service'
 import { AI_SHOWN_SQL, attr, filesOf as messageFiles, namesOf, roomItem, ROOM_THREAD_CHARS, ROOM_THREAD_REPLIES_TOTAL, ROOM_THREAD_REPLY_CHARS, threadAttrs, threadsOf, whoseWords, type Speaker, type ThreadPeek } from './ai-context'
 
+/** How long deciding where an answer goes may spend working out waiting members' histories (rooms/history.ts); one still
+ * waiting after it keeps the answer unpostable */
+export const DECIDE_HISTORY_MS = 100
 /** room messages before the question that go in front of it, at most */
 export const ROOM_CONTEXT_MESSAGES = 30
 /** characters of them, at most (newest first; one message cut at ROOM_CONTEXT_MESSAGE_CHARS) */
@@ -530,7 +533,8 @@ export class RoomAi implements RoomTurns {
     // so it is decided on what they will see; one still waiting (a walk that failed) keeps it unpostable (below)
     const room = roomRow(db, roomId)
     const history = !!room && historyKinds(room.kind)
-    if (history) try { openHistories(this.ctx, { roomId }) } catch (e) { this.ctx.log.warn('room history not opened', { err: e }) }
+    // (for at most DECIDE_HISTORY_MS, in the turn's end: after an upgrade the everyone room may have many waiting)
+    if (history) try { openHistories(this.ctx, { roomId, budgetMs: DECIDE_HISTORY_MS, within: true }) } catch (e) { this.ctx.log.warn('room history not opened', { err: e }) }
     // an account that cannot be loaded (disabled, deleted, still listed) reads nothing: it fails every check
     const readers = this.readers(roomId, threadRoot)
     const people = readers.map((r) => r.who)
@@ -636,10 +640,10 @@ export class RoomAi implements RoomTurns {
         rooms.messageEvent('room.message.updated', m)
         return fail('conflict', tr('roomAiReasonsChanged', this.rt().userLocale(userId)), { params: { reason: 'room_ai_reasons_changed' } })
       }
-    } else if (!t?.decision || (historyKinds(room.kind) && db.query('SELECT 1 FROM room_hidden_answers WHERE room_id = ? LIMIT 1').get(roomId))) {
+    } else if (!t?.decision || historyKinds(room.kind)) {
       // nothing says what it used (no row, or a row without reasons): it cannot be checked, so it is not posted; nor a
-      // preview from before 246 in a room where old answers are hidden from someone (what it used cannot be judged
-      // against them)
+      // preview from before 246 in a team room or the everyone room: what it used cannot be judged against the old
+      // answers hidden from a later member, nor against one whose history is not worked out yet
       return fail('conflict', tr('roomAiAskAgain', this.rt().userLocale(userId)), { params: { reason: 'room_ai_ask_again' } })
     }
     // else a preview from before each question kept its own scope (migration 246): the session's scope now is a later

@@ -103,18 +103,20 @@ export function isHiddenFor(db: Database, m: Pick<SeeMessage, 'id' | 'room_id'> 
  * hidden old answers or in its thread)? */
 export function canSee(db: Database, m: SeeMessage, member: SeeMember): boolean {
   if (seenSeq(m) <= seesFrom(member)) return false
-  if (m.visibility !== 'room' && m.visible_to !== member.user_id) return false
+  // a private preview is its person's, and only from their join on: one of theirs from before they left and joined again
+  // was never judged for the room's history (rooms/history.ts walks what went to the room)
+  if (m.visibility !== 'room') return m.visible_to === member.user_id && seenSeq(m) > member.visible_from_seq
   return member.has_hidden === 0 || !isHiddenFor(db, m, member.user_id)
 }
 /** The same as SQL on room_messages `m`; its parameters are seeArgs(member). `m.seq > ?` first: a reply's seq is above
  * its root's, so it adds nothing to the rule and lets the (room_id, seq) index start where the member sees from. The
  * hidden answers: one primary-key probe per row (room_id, user_id, message_id), for the message and for its root,
  * skipped for a member none of whose old answers is hidden (has_hidden 0). */
-export const SEE_SQL = "m.seq > ? AND COALESCE(m.thread_root_seq, m.seq) > ? AND (m.visibility = 'room' OR m.visible_to = ?) AND (? = 0 OR NOT EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = ? AND h.message_id IN (m.id, m.thread_root_id)))"
+export const SEE_SQL = "m.seq > ? AND COALESCE(m.thread_root_seq, m.seq) > ? AND (m.visibility = 'room' OR (m.visible_to = ? AND COALESCE(m.thread_root_seq, m.seq) > ?)) AND (? = 0 OR NOT EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = ? AND h.message_id IN (m.id, m.thread_root_id)))"
 /** The timeline's and a thread's listings only (same parameters): a hidden answer itself stays in the list, where
  * messagesOut shows it as one line without its content; what is in its thread does not. */
-export const LIST_SQL = "m.seq > ? AND COALESCE(m.thread_root_seq, m.seq) > ? AND (m.visibility = 'room' OR m.visible_to = ?) AND (? = 0 OR NOT EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = ? AND h.message_id = m.thread_root_id))"
-export const seeArgs = (member: SeeMember) => [seesFrom(member), seesFrom(member), member.user_id, member.has_hidden === 0 ? 0 : 1, member.user_id] as const
+export const LIST_SQL = "m.seq > ? AND COALESCE(m.thread_root_seq, m.seq) > ? AND (m.visibility = 'room' OR (m.visible_to = ? AND COALESCE(m.thread_root_seq, m.seq) > ?)) AND (? = 0 OR NOT EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = ? AND h.message_id = m.thread_root_id))"
+export const seeArgs = (member: SeeMember) => [seesFrom(member), seesFrom(member), member.user_id, member.visible_from_seq, member.has_hidden === 0 ? 0 : 1, member.user_id] as const
 /** The room's timeline on room_messages `m`: no thread replies but those sent to the room too. */
 export const TIMELINE_SQL = '(m.thread_root_id IS NULL OR m.also_in_room = 1)'
 /** Can a thread hang under this message (or is one there): a message of the timeline, for the whole room, not an event
@@ -312,22 +314,24 @@ export function threadSummaries(db: Database, roomId: string, rootIds: readonly 
   const out = new Map<string, RoomThreadSummary>()
   if (!rootIds.length) return out
   const marks = rootIds.map(() => '?').join(',')
-  const see = "m.deleted_at IS NULL AND m.event IS NULL AND (m.visibility = 'room' OR m.visible_to = ?)"
+  // (a private reply of theirs only from their join on, as canSee)
+  const see = "m.deleted_at IS NULL AND m.event IS NULL AND (m.visibility = 'room' OR (m.visible_to = ? AND m.thread_root_seq > ?))"
+  const vfs = viewer.visible_from_seq
   const counts = db.query(`SELECT m.thread_root_id root, COUNT(*) n, MAX(m.created_at) last FROM room_messages m WHERE m.room_id = ? AND m.thread_root_id IN (${marks}) AND ${see} GROUP BY m.thread_root_id`)
-    .all(roomId, ...rootIds, viewer.user_id) as { root: string; n: number; last: string }[]
+    .all(roomId, ...rootIds, viewer.user_id, vfs) as { root: string; n: number; last: string }[]
   if (!counts.length) return out
   const roots = counts.map((c) => c.root)
   const rm = roots.map(() => '?').join(',')
   // the people who replied, the latest first (the AI has no author: it is not one of them)
   const by = db.query(`SELECT m.thread_root_id root, m.author_id uid, MAX(m.seq) s FROM room_messages m WHERE m.room_id = ? AND m.thread_root_id IN (${rm}) AND ${see}
-    AND m.author_kind = 'user' AND m.author_id IS NOT NULL GROUP BY m.thread_root_id, m.author_id`).all(roomId, ...roots, viewer.user_id) as { root: string; uid: string; s: number }[]
+    AND m.author_kind = 'user' AND m.author_id IS NOT NULL GROUP BY m.thread_root_id, m.author_id`).all(roomId, ...roots, viewer.user_id, vfs) as { root: string; uid: string; s: number }[]
   const repliers = new Map<string, { uid: string; s: number }[]>()
   for (const b of by) (repliers.get(b.root) ?? repliers.set(b.root, []).get(b.root)!).push(b)
   const top = new Map([...repliers].map(([root, l]) => [root, l.sort((a, b) => b.s - a.s).slice(0, 3).map((x) => x.uid)]))
   const people = refsOf(db, [...top.values()].flat())
   // (a reply sent to the room too is new in the timeline, not here: threadsUnread)
   const fresh = new Set((db.query(`SELECT f.root_id FROM room_thread_follows f WHERE f.user_id = ? AND f.root_id IN (${rm}) AND EXISTS (SELECT 1 FROM room_messages m
-    WHERE m.thread_root_id = f.root_id AND m.seq > f.last_read_seq AND m.also_in_room = 0 AND ${see} AND (m.author_id IS NULL OR m.author_id <> ?))`).all(viewer.user_id, ...roots, viewer.user_id, viewer.user_id) as { root_id: string }[]).map((r) => r.root_id))
+    WHERE m.thread_root_id = f.root_id AND m.seq > f.last_read_seq AND m.also_in_room = 0 AND ${see} AND (m.author_id IS NULL OR m.author_id <> ?))`).all(viewer.user_id, ...roots, viewer.user_id, vfs, viewer.user_id) as { root_id: string }[]).map((r) => r.root_id))
   for (const c of counts) {
     out.set(c.root, { replyCount: c.n, lastReplyAt: c.last, repliers: (top.get(c.root) ?? []).map((id) => people.get(id)).filter((x): x is UserRef => !!x), newReplies: fresh.has(c.root) })
   }

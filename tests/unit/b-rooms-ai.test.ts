@@ -1155,7 +1155,8 @@ describe("a room session's history is what the room holds", () => {
 
 describe('a preview from before each question kept its own scope', () => {
   test("is never decided from the session (a later question's scope): its reasons stand; without any, it is not posted", async () => {
-    const roomId = await room(['alice', 'erin'])
+    // a group chat: in a team room or the everyone room such a preview is never posted (b-rooms-history.test.ts)
+    const roomId = await groupChat('alice', ['erin', 'carol'])
     const one = await ask('alice', roomId, `@트리나 falcon\n${fake({ tool: 'read', args: { file_path: 'projects/falcon/plan.md' } }, { say: 'plan' })}`)
     const preview = (await answerTo('alice', roomId, one.q))!
     expect(preview.preview).toMatchObject({ folders: ['projects/falcon'] })

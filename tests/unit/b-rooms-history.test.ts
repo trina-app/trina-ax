@@ -504,3 +504,87 @@ describe('what an answer may not carry past a hidden answer', () => {
     expect(JSON.stringify(await timeline('bob', roomId))).not.toContain('H-SHARE-SECRET')
   })
 })
+
+// ---------------- found in the PR review (2026-11-07) ----------------
+describe('found in the PR review', () => {
+  test('deciding an answer spends a bounded time on members still waiting (an upgrade); one left waiting keeps it unpostable', async () => {
+    const { roomId } = await teamRoom(['alice', 'erin'])
+    const db = h.ctx.db, now = new Date().toISOString()
+    const ANSWERS = 3000, WAITING = 30
+    db.transaction(() => {
+      const ins = db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, asked_by, visibility, body, mentions, created_at, reply_to_id) VALUES (?, ?, ?, ?, ?, ?, 'room', ?, '[]', ?, ?)`)
+      const turn = db.query(`INSERT INTO room_ai_turns (turn_id, room_id, user_id, chat_id, question_id, status, answer_id, scope, created_at) VALUES (?, ?, 'alice', 'c', ?, 'posted', ?, ?, ?)`)
+      let seq = (db.query('SELECT last_seq FROM rooms WHERE id = ?').get(roomId) as { last_seq: number }).last_seq, q = ''
+      for (let i = 0; i < ANSWERS; i++) {
+        q = uuidv7(); ins.run(q, roomId, ++seq, 'user', 'alice', null, `q ${i}`, now, null)
+        const a = uuidv7(); ins.run(a, roomId, ++seq, 'ai', null, 'alice', `a ${i}`, now, q)
+        // every third used the web (hidden from later members), each one's context the room from 30 back
+        turn.run(uuidv7(), roomId, q, a, JSON.stringify({ sources: [{ type: 'room', id: roomId, fromSeq: Math.max(1, seq - 30) }], outside: i % 3 === 0 }), now)
+      }
+      db.query('UPDATE rooms SET last_seq = ? WHERE id = ?').run(seq, roomId)
+      // members as migration 264 leaves them: joined at the end, history not worked out
+      for (let i = 0; i < WAITING; i++) {
+        const u = `wait${i}`
+        db.query("INSERT OR IGNORE INTO users (id, username, name, role, status) VALUES (?, ?, ?, 'member', 'active')").run(u, u, `Waiting ${i}`)
+        db.query('INSERT INTO room_members (room_id, user_id, joined_at, last_read_seq, visible_from_seq) VALUES (?, ?, ?, ?, ?)').run(roomId, u, now, seq, seq)
+      }
+    })()
+    const last = (db.query('SELECT last_seq FROM rooms WHERE id = ?').get(roomId) as { last_seq: number }).last_seq
+    const chatId = uuidv7()
+    db.query('INSERT INTO chats (id, user_id, room_id) VALUES (?, ?, ?)').run(chatId, 'alice', roomId)
+    const ai = roomAiOf(h.ctx)
+    const scope = { sources: [{ type: 'room' as const, id: roomId, fromSeq: last - 10 }], outside: false }
+    const t = performance.now()
+    const d = ai.decide(roomId, chatId, scope, last + 1, undefined, last + 1)
+    const took = performance.now() - t
+    // the turn's end is held for about the budget, not for every waiting member's walk
+    expect(took).toBeLessThan(1500)
+    const still = (db.query('SELECT COUNT(*) n FROM room_members WHERE room_id = ? AND history_from_seq IS NULL').get(roomId) as { n: number }).n
+    expect(still).toBeGreaterThan(0)
+    expect(d).toMatchObject({ post: false, hidden: true })
+    // one member's walk over 3,000 old answers (most hidden, each built on the ones before): linear, well under a second
+    db.query("UPDATE room_members SET history_from_seq = NULL WHERE room_id = ? AND user_id = 'wait0'").run(roomId)
+    const w = performance.now()
+    openHistories(h.ctx, { roomId, userId: 'wait0' })
+    expect(performance.now() - w).toBeLessThan(1000)
+    expect(hiddenRows(roomId, 'wait0').length).toBeGreaterThan(ANSWERS * 0.9)
+    // the rest worked out (the background passes): decided on what they see, the answer may go to the room
+    openHistories(h.ctx, { roomId })
+    expect(ai.decide(roomId, chatId, { sources: [], outside: false }, last + 1, undefined, last + 1).post).toBe(true)
+    db.query("DELETE FROM room_members WHERE room_id = ? AND user_id LIKE 'wait%'").run(roomId)
+  })
+
+  test('a preview from before migration 246 (no scope kept) is never posted in a team room', async () => {
+    const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+    const db = h.ctx.db
+    aiAnswer(roomId, 'alice', 'H-OLD-SECRET', { sources: [folder('groups/marketing')] })
+    await setMembers(groupId, ['alice', 'erin', 'bob'])
+    // as after the upgrade: bob not worked out yet
+    db.query('UPDATE room_members SET history_from_seq = NULL WHERE room_id = ? AND user_id = ?').run(roomId, 'bob')
+    db.query('DELETE FROM room_hidden_answers WHERE room_id = ? AND user_id = ?').run(roomId, 'bob')
+    const next = () => (db.query('UPDATE rooms SET last_seq = last_seq + 1 WHERE id = ? RETURNING last_seq').get(roomId) as { last_seq: number }).last_seq
+    const qid = uuidv7(), pid = uuidv7(), now = new Date().toISOString()
+    db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, mentions, created_at) VALUES (?, ?, ?, 'user', 'alice', 'room', '@트리나 recap', '[]', ?)`).run(qid, roomId, next(), now)
+    db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, asked_by, visibility, visible_to, body, reply_to_id, mentions, created_at) VALUES (?, ?, ?, 'ai', NULL, 'alice', 'private', 'alice', 'RECAP: H-OLD-SECRET', ?, '[]', ?)`).run(pid, roomId, next(), qid, now)
+    db.query(`INSERT INTO room_ai_turns (turn_id, room_id, user_id, chat_id, question_id, status, answer_id, scope, decision, created_at, ended_at) VALUES (?, ?, 'alice', ?, ?, 'private', ?, NULL, ?, ?, ?)`)
+      .run(uuidv7(), roomId, uuidv7(), qid, pid, JSON.stringify({ folders: [], otherFolders: false, personal: false, outside: false, joinedLater: [] }), now, now)
+    const post = await h.req('alice', `/api/rooms/${roomId}/messages/${pid}/share`, { method: 'POST' })
+    expect(post.status).toBe(409)
+    expect(await post.text()).toContain('room_ai_ask_again')
+    expect(JSON.stringify(await timeline('bob', roomId))).not.toContain('H-OLD-SECRET')
+  })
+
+  test('my own private preview from before I left and joined again stays out of sight', async () => {
+    const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+    const db = h.ctx.db
+    const next = () => (db.query('UPDATE rooms SET last_seq = last_seq + 1 WHERE id = ? RETURNING last_seq').get(roomId) as { last_seq: number }).last_seq
+    const pid = uuidv7()
+    db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, asked_by, visibility, visible_to, body, mentions, created_at) VALUES (?, ?, ?, 'ai', NULL, 'erin', 'private', 'erin', 'OLD-PREVIEW-CANARY', '[]', ?)`).run(pid, roomId, next(), new Date().toISOString())
+    expect(JSON.stringify(await timeline('erin', roomId))).toContain('OLD-PREVIEW-CANARY')
+    await setMembers(groupId, ['alice'])
+    await setMembers(groupId, ['alice', 'erin'])
+    expect(JSON.stringify(await timeline('erin', roomId))).not.toContain('OLD-PREVIEW-CANARY')
+    expect(readRoom(db, 'erin', 'UTC', { room: roomId }).text).not.toContain('OLD-PREVIEW-CANARY')
+    expect((await h.req('erin', `/api/rooms/${roomId}/messages/${pid}/share`, { method: 'POST' })).status).toBe(404)
+  })
+})

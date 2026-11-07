@@ -901,7 +901,13 @@ export class Rooms {
     // a team room's or the everyone room's history opens to who joined it (rooms/history.ts), before they are told:
     // their first list already has it. Then anyone still waiting (an upgrade, a row an older build made), for a while
     let opened: { roomId: string; userId: string }[] = []
-    try { opened = openHistories(this.ctx, { budgetMs: HISTORY_BUDGET_MS }) } catch (e) { this.ctx.log.warn('room history not opened', { err: e }) }
+    try {
+      const r = openHistories(this.ctx, { budgetMs: HISTORY_BUDGET_MS })
+      opened = r.changed
+      // more than one pass's time (an upgrade with many later members): the rest in short passes a second apart, so
+      // the server answers in between
+      if (r.left) this.drainHistories()
+    } catch (e) { this.ctx.log.warn('room history not opened', { err: e }) }
     for (const [roomId, g] of groupOut) this.afterDrop(roomId, g.users, g.r)
     for (const [roomId, users] of removed) {
       for (const u of users) {
@@ -918,9 +924,31 @@ export class Rooms {
       const room = roomRow(db, roomId)
       if (room) this.fanout(roomId, (m) => (fresh.has(m.user_id) ? null : { type: 'room.updated', data: { roomId, change: 'members', room: roomOut(db, room, m) } }))
     }
-    // a history that opened (or showed more) for someone already in the room: their windows read its messages again
-    // ('members' is the change that makes an open room load its newest page and thread again)
-    for (const o of opened) if (!added.get(o.roomId)?.includes(o.userId)) this.roomEvent(o.roomId, 'members', new Set([o.userId]))
+    this.historiesOpened(opened, added)
+  }
+
+  /** A history that opened (or showed more) for someone already in the room: their windows read its messages again
+   * ('members' is the change that makes an open room load its newest page and thread again). */
+  private historiesOpened(opened: readonly { roomId: string; userId: string }[], added?: ReadonlyMap<string, string[]>) {
+    for (const o of opened) if (!added?.get(o.roomId)?.includes(o.userId)) this.roomEvent(o.roomId, 'members', new Set([o.userId]))
+  }
+
+  private drainTimer: ReturnType<typeof setTimeout> | null = null
+  private drainHooked = false
+  /** Members still waiting for a room's history after a pass: the next short pass in a second (HISTORY_BUDGET_MS each),
+   * until none is left. */
+  private drainHistories() {
+    if (this.drainTimer) return
+    if (!this.drainHooked) { this.drainHooked = true; this.ctx.onClose(() => { if (this.drainTimer) clearTimeout(this.drainTimer); this.drainTimer = null }) }
+    this.drainTimer = setTimeout(() => {
+      this.drainTimer = null
+      try {
+        const r = openHistories(this.ctx, { budgetMs: HISTORY_BUDGET_MS })
+        this.historiesOpened(r.changed)
+        if (r.left) this.drainHistories()
+      } catch (e) { this.ctx.log.warn('room history not opened', { err: e }) }
+    }, 1000)
+    ;(this.drainTimer as { unref?: () => void }).unref?.()
   }
 }
 

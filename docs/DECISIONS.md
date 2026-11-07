@@ -12828,9 +12828,13 @@ rooms and the everyone room; group chats and 1:1s keep it, as Slack's group DMs 
   sets `room_members.history_from_seq = 0` (they now see from the start). Until it commits, `history_from_seq` is NULL and
   they see the room from their join on: the safe state whatever fails. It runs in `Rooms.sync` (after its transaction,
   before the "added" events, so the first list already has the history; then any other member still waiting, 250 ms a
-  call: existing later members after the upgrade, rows an older build made), in `Rooms.list` and `syncFor` for the person
-  (no time limit), and in `Rooms.mine` for the room opened. A walk that cannot judge one answer hides that answer and
-  goes on; one that fails as a whole is tried again after 5 minutes. Snapshot semantics like the members who were there
+  pass, the rest in passes of 250 ms a second apart until none is left: existing later members after the upgrade, rows
+  an older build made), in `Rooms.list` and `syncFor` for the person (their own rooms), in `Rooms.mine` for the room
+  opened, and when an answer is decided or shared in the room (for at most 100 ms, `DECIDE_HISTORY_MS`, a walk cut off
+  there too: the turn's end never waits for a whole everyone room after an upgrade, and a member still waiting keeps the
+  answer unpostable). The walk is linear in the room's old answers (the hidden ones kept sorted by who-sees seq, each
+  person's row read once): 20,000 answers, nearly all hidden, 120–190 ms a member. A walk that cannot judge one answer
+  hides that answer and goes on; one that fails as a whole is tried again after 5 minutes. Snapshot semantics like the members who were there
   (they keep the answers they saw when their access narrows): after an access change (`afterAccessChange`: rules,
   groups, role) the people whose access changed and who have hidden rows are marked `history_recheck`, the next pass walks
   them again and keeps only what is hidden both before and now. So an account made by invite, which joins the everyone
@@ -12865,9 +12869,10 @@ rooms and the everyone room; group chats and 1:1s keep it, as Slack's group DMs 
   who read it (what reaches themselves widens nothing). A shared answer that would reach a member who misses a room it
   read only because of hidden answers (or whose history is not worked out) is refused, confirmed or not (409
   `answer_share_hidden`: the sender cannot see what is at stake for them, as for the room AI's preview). A private preview
-  from before 246 (reasons but no scope) is not posted in a team room or the everyone room where anything is hidden from
-  someone (409 `room_ai_ask_again`). Someone's own message hidden from them since they joined again may still be deleted
-  by them (not read or edited).
+  from before 246 (reasons but no scope) is never posted in a team room or the everyone room (409 `room_ai_ask_again`):
+  what it used cannot be judged against anyone's hidden answers. Someone's own message hidden from them since they
+  joined again may still be deleted by them (not read or edited). Their own private previews count only from their join
+  on (`canSee`, `SEE_SQL`: a preview is never walked, so one from before they left and joined again stays out of sight).
 - **Migration 264, additive (reader level stays 6; 263 is feat/ios-notification-labels').** `history_from_seq`,
   `history_recheck` on `room_members`, `room_messages.source_scope`, `room_hidden_answers(room_id, user_id, message_id,
   see_seq)` with an index on `(room_id, user_id, see_seq)`, and a partial index of the answers for the walk. Nothing is rewritten: existing later
@@ -12876,15 +12881,16 @@ rooms and the everyone room; group chats and 1:1s keep it, as Slack's group DMs 
   the new column it keeps showing from the join on.
 - **Existing later members see what was written before them**, including what people wrote while the old rule promised
   "from the join on" (the owner's decision: Slack's way, the whole history). The CHANGELOG says so.
-- **Measured** (a 100k-message room, 2,000 AI answers, this Mac): a member's walk 14–81 ms; ten members joining at once
-  with the sync 230–270 ms; a timeline page 0.05–0.35 ms; `canSee` under 0.1 µs without hidden rows; a count over 100k
+- **Measured** (a 100k-message room, 2,000 AI answers, this Mac): a member's walk 14–81 ms (20,000 answers: 120–190 ms;
+  deciding an answer with 99 members waiting: one walk, 120–245 ms); ten members joining at once with the sync 230–270 ms; a timeline page 0.05–0.35 ms; `canSee` under 0.1 µs without hidden rows; a count over 100k
   rows 22 → 24 ms without hidden rows (with them 68 ms: one primary-key probe a row).
 - **Known limits.** After a rollback to an older
   build and forward again, thread answers the older build posted in threads older than a later member's join (decided by
   `visible_from_seq`) are not judged again. Names a room session's instructions listed (skills, folders everyone in the
   room could read then) are not in an answer's scope. A hidden answer deleted later stays a line in an open window until
   it reloads (the member gets no event of a message they cannot see). A message an AI app sent before this version (no
-  `source_scope`) counts as its sender's own words. The wider-audience card when saving something read in a room to a
+  `source_scope`) counts as its sender's own words and shows in full to later members; accepted: `room_send` is in no
+  release yet, so only test servers have such messages. The wider-audience card when saving something read in a room to a
   folder still asks (the person decides, as before); it does not refuse past hidden answers.
 - **Independent review (design, 2026-11-07) fixes.** Answers in old threads judged by their thread's seq (a blocker:
   they were decided without the later member and would have shown); AI apps' `room_send` keeps what it had read;
@@ -12899,6 +12905,12 @@ rooms and the everyone room; group chats and 1:1s keep it, as Slack's group DMs 
   first, else unpostable); a shared answer could be confirmed past a hidden answer (now refused). Also: deleting one's own
   message hidden from oneself, old previews without scope in rooms with hidden answers, `mine()` retries through the
   back-off. Each has a test.
+- **PR review (2026-11-07) fixes.** The server could stop for a minute after the upgrade: the first answer or share in
+  the everyone room worked out every waiting member at once, and each walk was quadratic (a scan of the hidden list per
+  answer, a member-row query per answer): now budgeted (100 ms, cut inside a walk), linear, and the background passes
+  run a second apart. A preview from before 246 could be posted past a member whose history was not worked out: no such
+  preview is posted in a team room or the everyone room. Someone's own private preview from before they left and joined
+  again came back unchecked: previews keep the join floor.
 - **Tests.** `tests/unit/b-rooms-history.test.ts` (team-room history: messages, threads, reactions, quotes, files, no
   unread or notice; group chats and 1:1s unchanged; a hidden answer as one line and nothing else, its thread, sources,
   reactions and replies refused, shown to an admin who may read it; unknown scope and the web hidden; shared answers and

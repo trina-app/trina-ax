@@ -47,6 +47,7 @@ import { roomsOf } from '../rooms/service'
 import { groupName, messagesOut, MSG_COLS, roomRow, type MessageRow as RoomMessageRow } from '../rooms/store'
 import { missingReaders, nameSegs, readScope, sourceOf, viewersByHistory, type ReadSource } from './read-scope'
 import { historyKinds, openHistories } from '../rooms/history'
+import { DECIDE_HISTORY_MS } from '../rooms/ai'
 import { tr } from './i18n'
 import type { ChatRow, MessageRow } from './store'
 
@@ -87,7 +88,8 @@ export function answerAudience(ctx: AppContext, userId: string, roomId: string, 
   const db = ctx.db, rules = ctx.files.rules()
   // a team room or the everyone room: the members whose history is not worked out yet get it first (rooms/history.ts)
   const target = roomRow(db, roomId)
-  if (target && historyKinds(target.kind)) try { openHistories(ctx, { roomId }) } catch (e) { ctx.log.warn('room history not opened', { err: e }) }
+  // (for at most DECIDE_HISTORY_MS: one still waiting after it makes it unsendable, below)
+  if (target && historyKinds(target.kind)) try { openHistories(ctx, { roomId, budgetMs: DECIDE_HISTORY_MS, within: true }) } catch (e) { ctx.log.warn('room history not opened', { err: e }) }
   // a disabled or deleted account still in the room reads nothing now: it misses every source (missingReaders)
   const audience = (db.query('SELECT user_id FROM room_members WHERE room_id = ? AND user_id <> ?').all(roomId, userId) as { user_id: string }[]).map((r) => r.user_id)
   const places = new Map<string, AnswerSharePlace>()
