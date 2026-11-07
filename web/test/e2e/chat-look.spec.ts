@@ -31,7 +31,8 @@ async function chatWithTwoAnswers(page: Page, projectId?: string) {
 
 const NOTE = 'AI는 실수할 수 있어요. 중요한 내용은 확인해 주세요. 내 채팅은 나만 볼 수 있어요.'
 
-/** The box holds the text and the send key; attach, voice and the engine are in the row under it. */
+/** The box holds the text, the mic and the send key (the mic right before send, as in ChatGPT); attach and the engine
+ * are in the row under it. */
 async function expectBoxLikeClaude(page: Page) {
   const box = page.getByTestId('composer')
   const row = page.getByTestId('composer-controls')
@@ -39,7 +40,13 @@ async function expectBoxLikeClaude(page: Page) {
   await expect(box.getByTestId('send')).toBeVisible()
   await expect(box.getByTestId('attach-button')).toHaveCount(0)
   await expect(row.getByTestId('attach-button')).toBeVisible()
-  await expect(row.getByRole('button', { name: '음성 입력 (Space 길게)' })).toBeVisible()
+  const mic = box.getByRole('button', { name: '음성 입력 (Space 길게)' })
+  await expect(mic).toBeVisible()
+  await expect(row.getByTestId('voice-button')).toHaveCount(0)
+  // right of the text, right before send
+  const [m, s, t] = [(await mic.boundingBox())!, (await box.getByTestId('send').boundingBox())!, (await box.getByTestId('composer-input').boundingBox())!]
+  expect(m.x).toBeGreaterThan(t.x + t.width - 1)
+  expect(m.x + m.width).toBeLessThanOrEqual(s.x + 1)
   await expect(row.getByTestId('engine-picker')).toBeVisible()
   // one line until there is more to say
   expect((await box.getByTestId('composer-input').boundingBox())!.height).toBeLessThanOrEqual(50)
