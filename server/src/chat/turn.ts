@@ -1241,7 +1241,7 @@ export class TurnExec {
   /** web results, browser pages, files outside the person's own folder = content someone else wrote */
   noteTaint(tool: string, input: unknown) {
     // what the in-app browser showed (pages the person is signed in to) counts as seen by this person only (tab 7)
-    if (BROWSER_TOOL_NAMES.has(tool)) addSources(this.rt.db, this.spec.chatId, [{ type: 'user', id: this.spec.userId }])
+    if (BROWSER_TOOL_NAMES.has(tool)) addSources(this.rt.db, this.spec.chatId, [{ type: 'user', id: this.spec.userId, via: 'browser' }])
     if (tool === 'WebSearch' || tool === 'web_search' || tool === 'web_fetch' || BROWSER_TOOL_NAMES.has(tool)) return this.taint()
     if (['read', 'grep', 'glob', 'list'].includes(tool)) {
       const a = (input ?? {}) as Record<string, unknown>
@@ -1466,11 +1466,18 @@ export class TurnExec {
     const listed = this.room ? this.files.listedNames : null
     if (!paths.size && !names?.size && !listed?.size) return
     const rules = this.rt.files.rules()
-    const add: ReadSource[] = [...paths, ...(names ?? [])].map((p) => sourceOf(this.rt.db, rules, p))
+    // reads the answer's source list records (with their sha256: "대화방에 보내기" goes by those files) apart from the
+    // rest (make_file's inputs, search hits without a passage, more than the list holds, a file seen with two contents,
+    // skills/ and .system, which "대화방에 보내기" does not take from the list), which stay counted as they are
+    const log = this.files.sources
+    const inList = (p: string) => log.has(p) && !/^(skills|\.system)(\/|$)/.test(p)
+    const inLog = [...paths].filter(inList)
+    const add: ReadSource[] = [...[...paths].filter((p) => !inList(p)), ...(names ?? [])].map((p) => sourceOf(this.rt.db, rules, p))
     for (const p of listed ?? []) add.push({ type: 'name', path: p })
     paths.clear()
     names?.clear()
     listed?.clear()
+    addSources(this.rt.db, this.spec.chatId, inLog.map((p) => sourceOf(this.rt.db, rules, p)), { listed: true })
     addSources(this.rt.db, this.spec.chatId, add)
   }
 

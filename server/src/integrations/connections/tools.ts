@@ -117,7 +117,7 @@ function turnChat(ctx: AppContext, tc: TurnToolContext): string {
 /** The service answered: the chat now holds what this connection's people may see, and outside content. */
 function noteAnswer(ctx: AppContext, chat: string, row: Row) {
   ctx.db.transaction(() => {
-    addSources(ctx.db, chat, [row.scope === 'personal' ? { type: 'user', id: row.owner_user_id! } : { type: 'integration', id: row.id }])
+    addSources(ctx.db, chat, [row.scope === 'personal' ? { type: 'user', id: row.owner_user_id!, via: 'connection' } : { type: 'integration', id: row.id }])
     ctx.db.query('UPDATE chats SET session_tainted = 1 WHERE id = ?').run(chat)
   })()
 }

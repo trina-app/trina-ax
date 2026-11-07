@@ -23,7 +23,7 @@ function call(name: string, input: unknown, user: 'alice' | 'bob' = 'alice') {
 test('Drive read uses only own token and marks private read scope/taint', async () => {
   const c = call('drive_read', { fileId: 'alice-file' }), r = await c.result
   expect(r.isError).not.toBe(true); expect(r.text).toContain('Alice private content')
-  expect(readScope(a.ctx.db, c.chat)).toEqual([{ type: 'user', id: 'alice' }])
+  expect(readScope(a.ctx.db, c.chat)).toEqual([{ type: 'user', id: 'alice', via: 'connection' }])
   expect(widening(a.ctx.db, c.chat, ['shared'])?.narrower).toHaveLength(1)
   expect((a.ctx.db.query('SELECT session_tainted FROM chats WHERE id=?').get(c.chat) as any).session_tainted).toBe(1)
   const denied = await call('drive_read', { fileId: 'bob-file' }).result
