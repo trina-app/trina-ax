@@ -1,13 +1,17 @@
 // One tooltip for icon buttons (and anything else that needs a word on hover):
 //
 //   <Tooltip label="반응 추가"><button aria-label="반응 추가">…</button></Tooltip>
-//   <Tooltip label="⌘K" description><IconButton label="검색">…</IconButton></Tooltip>
+//   <Tooltip label="읽기 전용: 볼 수만 있어요" description><Lock aria-label="읽기 전용" /></Tooltip>
+//   <IconButton label="닫기">…</IconButton>   (IconButton brings its own; ui.tsx)
 //
 // - Wraps exactly one element that takes a ref and pointer / focus / key handlers (a <button>, IconButton, a link). Its
 //   own handlers still run.
-// - Shows after 300 ms of a mouse or pen resting on it, at once when it gets keyboard focus; hides on pointer leave, a
-//   click, blur, Esc (the Esc still reaches the page, e.g. to close a menu), any scroll, and while the element says it
-//   has a menu open (aria-expanded="true").
+// - Shows after 300 ms of a mouse or pen resting on it, at once when it gets keyboard focus (the browser's
+//   :focus-visible: not the focus a click gives, nor a dialog's first button focused after a click opened it); hides on
+//   pointer leave, a click, blur, Esc (the Esc still reaches the page, e.g. to close a menu), any scroll, and while the
+//   element says it has a menu open (aria-expanded="true").
+// - Not while the element shows the same words itself (a button whose words a narrow window hides: the tip shows only
+//   when they are hidden).
 // - Never on touch: not for a finger, and not at all on a device without a fine pointer (phones, tablets).
 // - A small dark label (light in dark mode: the ink and surface tokens swap), above the element; below it when there is
 //   no room above, kept inside the window. Rendered into <body> (a portal), so no scroll box clips it and nothing moves.
@@ -40,6 +44,17 @@ const finePointer = () => {
   try { return typeof window !== 'undefined' && !!window.matchMedia?.('(any-pointer: fine)').matches } catch { return false }
 }
 
+/** Focus the keyboard gave (or a script after a key): the browser's :focus-visible, where it knows it. */
+const keyboardFocus = (el: HTMLElement) => {
+  try { return typeof CSS === 'undefined' || !CSS.supports?.('selector(:focus-visible)') || el.matches(':focus-visible') } catch { return true }
+}
+
+/** The element shows these words already: a displayed part of it (not the screen-reader-only kind) says the label. */
+const saysIt = (el: HTMLElement | null, label: string) => {
+  if (!el?.querySelectorAll) return false
+  return [...el.querySelectorAll<HTMLElement>('span')].some((s) => s.textContent?.trim() === label.trim() && !s.closest('.sr-only') && (s.getClientRects?.().length ?? 0) > 0)
+}
+
 /** Where the tip goes: above the anchor, centred; below it when there is no room above; inside the window. */
 export function placeTip(anchor: { top: number; bottom: number; left: number; width: number }, tip: { width: number; height: number }, view: { width: number; height: number }): { top: number; left: number; below: boolean } {
   const below = anchor.top - GAP - tip.height < EDGE
@@ -70,6 +85,7 @@ export function Tooltip({ label, children, description = false, disabled = false
     if (disabled || !label || !finePointer()) return
     // a menu of its own is open: the menu is what the person looks at
     if (anchor.current?.getAttribute('aria-expanded') === 'true') return
+    if (!description && saysIt(anchor.current, label)) return
     setOpen(true)
   }
   useEffect(() => () => clear(), [])
@@ -128,7 +144,7 @@ export function Tooltip({ label, children, description = false, disabled = false
     onFocus: (e: FocusEvent<HTMLElement>) => {
       p.onFocus?.(e)
       // focus from the keyboard (a click focuses too, right after its pointerdown: no tip for that)
-      if (Date.now() - pointerAt.current > 500) { clear(); show() }
+      if (Date.now() - pointerAt.current > 500 && keyboardFocus(e.currentTarget)) { clear(); show() }
     },
     onBlur: (e: FocusEvent<HTMLElement>) => {
       p.onBlur?.(e)
