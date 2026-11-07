@@ -17,6 +17,7 @@ import { checkRegular, freeName, installFile } from '../team-files/place'
 import { mimeOf, type TeamFiles } from '../team-files/service'
 import { displaySize, makeThumbnail } from './image'
 import type { TeamFileRefs } from './team-refs'
+import { visibleSharedChat } from '../chat/shared'
 
 export const ATTACHMENTS_DIR = '.attachments'
 
@@ -44,8 +45,18 @@ export class Attachments {
 
   private thumbsDir() { return path.join(this.ctx.config.dataDir, 'thumbs') }
 
-  /** The chat must belong to the caller and not be deleted. */
+  /** The chat must belong to the caller and not be deleted. A shared project chat takes no computer upload (team files
+   * only, docs/DECISIONS.md "Shared project chats" D3): 409 for anyone who sees it, its creator too. */
   assertOwnChat(userId: string, chatId: string) {
+    if (visibleSharedChat(this.ctx.db, this.ctx.files, userId, chatId)) fileError('conflict', 'sharedChatUpload', undefined, { reason: 'shared_chat_upload' })
+    const c = this.ctx.db.query('SELECT id FROM chats WHERE id = ? AND user_id = ? AND deleted_at IS NULL AND shared_at IS NULL').get(chatId, userId)
+    if (!c) fileError('not_found', 'notChat')
+  }
+
+  /** Voice input for a chat (a recording becomes text in the message box, never an attachment): the caller's own chat,
+   * or a shared project chat they see. */
+  assertVoiceChat(userId: string, chatId: string) {
+    if (visibleSharedChat(this.ctx.db, this.ctx.files, userId, chatId)) return
     const c = this.ctx.db.query('SELECT id FROM chats WHERE id = ? AND user_id = ? AND deleted_at IS NULL').get(chatId, userId)
     if (!c) fileError('not_found', 'notChat')
   }

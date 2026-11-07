@@ -172,6 +172,28 @@ export const TEXT = {
   webSearchPlain: STEP_TEXT.webSearchPlain,
   webSearchRefused: STEP_TEXT.webSearchRefused,
   thinking: STEP_TEXT.thinking,
+  // shared project chats (chat/shared.ts, docs/DECISIONS.md "Shared project chats")
+  sharedChatBusy: t('{name}님의 질문에 답하는 중이에요. 끝나면 보낼 수 있어요.', "{name}'s question is being answered. You can send yours when it is done.", 'Pertanyaan {name} sedang dijawab. Anda bisa mengirim setelah selesai.', "{name}さんの質問に回答中です。終わったら送信できます。", "Se está respondiendo la pregunta de {name}. Podrá enviar la suya cuando termine."),
+  sharedChatSafeOps: t('안전 작업 모드라서 공유 채팅을 이어갈 수 없어요. 내 채팅에서 물어봐 주세요.', 'Safe operations mode is on, so shared chats cannot be continued. Ask in a chat of your own.', 'Mode operasi aman aktif, jadi obrolan bersama tidak bisa dilanjutkan. Tanyakan di obrolan Anda sendiri.', "安全作業モードのため、共有チャットは続けられません。自分のチャットで質問してください。", "El modo de operaciones seguras está activado, así que los chats compartidos no se pueden continuar. Pregunte en un chat propio."),
+  sharedChatUpload: t('공유 채팅에는 팀 파일만 붙일 수 있어요. 컴퓨터의 파일은 프로젝트 폴더에 올린 뒤 붙여 주세요.', 'A shared chat takes team files only. Upload a file from your computer to the project folder first, then attach it.', 'Obrolan bersama hanya menerima berkas tim. Unggah berkas dari komputer Anda ke folder proyek dulu, lalu lampirkan.', "共有チャットに添付できるのはチームのファイルだけです。パソコンのファイルはプロジェクトのフォルダーにアップロードしてから添付してください。", "Un chat compartido solo admite archivos del equipo. Suba primero el archivo de su computadora a la carpeta del proyecto y luego adjúntelo."),
+  sharedChatMove: t('공유 채팅은 다른 프로젝트로 옮길 수 없어요.', 'A shared chat cannot move to another project.', 'Obrolan bersama tidak bisa dipindahkan ke proyek lain.', "共有チャットは別のプロジェクトに移動できません。", "Un chat compartido no se puede mover a otro proyecto."),
+  sharedChatCreatorOnly: t('공유 채팅의 이름과 엔진은 만든 사람만 바꿀 수 있어요.', 'Only the person who made a shared chat can rename it or change its engine.', 'Hanya pembuat obrolan bersama yang bisa mengganti nama atau mesinnya.', "共有チャットの名前とエンジンを変更できるのは作成した人だけです。", "Solo quien creó un chat compartido puede cambiarle el nombre o el motor."),
+  sharedChatRunnerOnly: t('질문한 사람만 이 답변을 멈출 수 있어요.', 'Only the person who asked can stop this answer.', 'Hanya orang yang bertanya yang bisa menghentikan jawaban ini.', "この回答を停止できるのは質問した人だけです。", "Solo quien preguntó puede detener esta respuesta."),
+  sharedChatOwnMessages: t('공유 채팅에서는 내 메시지만 고치거나 다시 답하게 할 수 있어요.', 'In a shared chat you can edit, or get a new answer to, only your own messages.', 'Di obrolan bersama, Anda hanya bisa mengubah atau meminta jawaban baru untuk pesan Anda sendiri.', "共有チャットで編集や回答の再生成ができるのは、自分のメッセージだけです。", "En un chat compartido solo puede editar sus propios mensajes o pedir una nueva respuesta a ellos."),
+  sharedChatDeleteNo: t('공유 채팅은 만든 사람이나 프로젝트를 고칠 수 있는 사람만 지울 수 있어요.', 'Only the person who made a shared chat, or someone who can edit its project, can delete it.', 'Hanya pembuat obrolan bersama, atau orang yang bisa mengubah proyeknya, yang bisa menghapusnya.', "共有チャットを削除できるのは、作成した人かプロジェクトを編集できる人だけです。", "Solo quien creó un chat compartido, o quien puede editar su proyecto, puede eliminarlo."),
+  sharedProjectPersonal: t('개인 프로젝트의 채팅은 공유할 수 없어요.', 'Chats of a personal project cannot be shared.', 'Obrolan proyek pribadi tidak bisa dibagikan.', "個人プロジェクトのチャットは共有できません。", "Los chats de un proyecto personal no se pueden compartir."),
+  sharedProjectSafeOps: t('안전 작업 모드에서는 채팅을 공유할 수 없어요.', 'Chats cannot be shared while safe operations mode is on.', 'Obrolan tidak bisa dibagikan saat mode operasi aman aktif.', "安全作業モードではチャットを共有できません。", "No se pueden compartir chats mientras el modo de operaciones seguras está activado."),
+  sharedReadConfirm: t(
+    'AI가 {sources}을(를) 읽으려고 해요. 이 채팅을 보는 프로젝트 사람 {n}명 중 {m}명은 이곳을 볼 수 없어요. 읽으면 모두가 이 채팅에서 내용을 보게 돼요.',
+    'The AI wants to read {sources}. Of the {n, plural, one {# project person} other {# project people}} who see this chat, {m} cannot see this place. If it reads it, everyone sees the content in this chat.',
+    'AI ingin membaca {sources}. Dari {n} orang proyek yang melihat obrolan ini, {m} tidak bisa melihat tempat ini. Jika dibaca, semua orang melihat isinya di obrolan ini.',
+    "AIが{sources}を読もうとしています。このチャットを見るプロジェクトの{n}人のうち{m}人はこの場所を見られません。読むと、全員がこのチャットで内容を見ることになります。",
+    "La IA quiere leer {sources}. De las {n, plural, one {# persona} other {# personas}} del proyecto que ven este chat, {m} no pueden ver este lugar. Si lo lee, todos verán el contenido en este chat."),
+  sharedReadYes: t('읽고 공유하기', 'Read and share', 'Baca dan bagikan', "読んで共有する", "Leer y compartir"),
+  sharedReadNo: t('읽지 않기', "Don't read", 'Jangan baca', "読まない", "No leer"),
+  sharedReadSkipped: t('프로젝트 사람 모두가 볼 수는 없는 곳이라 읽지 않았어요', 'Not read: not everyone in the project can see that place', 'Tidak dibaca: tidak semua orang di proyek bisa melihat tempat itu', "プロジェクトの全員が見られる場所ではないため、読みませんでした", "No se leyó: no todas las personas del proyecto pueden ver ese lugar"),
+  sharedScopeOther: t('이 채팅에서 다른 사람이 연 곳', 'a place someone else opened in this chat', 'tempat yang dibuka orang lain di obrolan ini', "このチャットでほかの人が開いた場所", "un lugar que otra persona abrió en este chat"),
+  sharedAnswerFailed: t('답을 마치지 못했어요.', 'The answer did not finish.', 'Jawaban tidak selesai.', "回答を完了できませんでした。", "La respuesta no terminó."),
 } satisfies Record<string, T>
 
 /** How the person's AI is named on a card: 트리나 where the product is named after its AI (PRODUCT_NAMED_AFTER_AI),

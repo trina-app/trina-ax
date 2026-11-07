@@ -17,6 +17,8 @@ export interface ChatRow {
   room_id: string | null
   /** migration 252: when the person last had the chat on screen (POST /api/chats/:id/seen); null: never since made */
   seen_at: string | null
+  /** migration 265: made as a shared chat of its project (chat/shared.ts); null: one person's chat */
+  shared_at: string | null
 }
 export interface MessageRow {
   id: string; chat_id: string; parent_id: string | null; role: 'user' | 'assistant'; author_id: string | null; content: string
@@ -34,11 +36,13 @@ export interface ProjectRow {
   instructions_author: string | null; instructions_authored: string | null
   /** migration 332: the trash item that took its folder to the trash (null: in place); admins and the owner only then */
   trashed_with: string | null
+  /** migration 265: new chats in this project are shared with its people (chat/shared.ts) */
+  share_chats: number
 }
 
-export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source, room_id, seen_at'
+export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source, room_id, seen_at, shared_at'
 export const MESSAGE_COLS = 'id, chat_id, parent_id, role, author_id, content, attachments, steps, status, error, turn_id, engine, model, files, client_message_id, created_at, updated_at, stop_reason, history_trimmed'
-export const PROJECT_COLS = 'id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, trashed_with'
+export const PROJECT_COLS = 'id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, trashed_with, share_chats'
 
 /** SQLite timestamps ("2026-10-21T03:04:05.678Z" from strftime, or ISO from JS) -> ISO with offset. */
 export function iso(t: string | null | undefined): string {
@@ -63,16 +67,49 @@ export function parseError(s: string | null): ApiErrorBody | null {
 /** A team-file reference with everything about the file blanked (deleted, or not readable for the viewer). */
 export const blankTeamAttachment = (a: Pick<Attachment, 'id'>): Attachment => ({ id: a.id, name: '', path: '', size: 0, mime: 'application/octet-stream', kind: 'other', source: 'team', unavailable: true })
 
+/**
+ * Who looks at a message of a shared project chat (chat/shared.ts messageView): each viewer sees the transcript as
+ * their own access allows. A step label or a file summary names a path only for a viewer who may see that name; usage,
+ * a failed answer's reason and a running answer's live text stay with the person whose turn it is; team-file references
+ * are checked for the viewer (their name), a computer upload shows only to its sender.
+ */
+export interface MessageView {
+  viewer: string
+  /** may the viewer see this team path's name (it would show it in a listing) */
+  canList(rel: string): boolean
+  /** may the viewer read this team path (a skill a receipt names) */
+  canRead(rel: string): boolean
+  /** a failed answer as others see it: its reason is the runner's */
+  failed: string
+}
+
+/** A step of a shared chat as stored: `label` names no path, `sv` keeps the label the runner saw and the paths it names
+ * (server-only: stripped before any step leaves the server, ChatStore.viewSteps). */
+export interface SharedStepView { label: string; paths: string[] }
+export type StoredStep = Step & { sv?: SharedStepView }
+/** A step without the server-only part. */
+export const publicStep = (s: StoredStep): Step => { if (!s.sv) return s; const { sv: _sv, ...rest } = s; return rest }
+
 export class ChatStore {
   private names = new Map<string, string>()
   /** Team-file references as `userId` may see them now (component C, set by the runtime). Without it every reference
    * is blanked: a message never shows a referenced file's name to someone the server could not check. */
   viewAttachments: ((userId: string, atts: Attachment[]) => Attachment[]) | null = null
+  /** Team-file references of a shared chat's message as `viewer` may see them now, whoever attached them (their name
+   * for the viewer, never their content); computer uploads only for their sender (`author`). Set by the runtime;
+   * without it every reference is blanked. */
+  viewAttachmentsAs: ((viewer: string, author: string | null, atts: Attachment[]) => Attachment[]) | null = null
   constructor(readonly db: Database) {}
 
   /** A message's attachments for the chat's owner (the only person who sees its messages), team references re-checked. */
-  attachmentsOf(r: Pick<MessageRow, 'chat_id' | 'attachments'>): Attachment[] {
+  attachmentsOf(r: Pick<MessageRow, 'chat_id' | 'attachments'> & { author_id?: string | null }, viewer?: string): Attachment[] {
     const atts = json<Attachment[]>(r.attachments, [])
+    // a shared chat (chat/shared.ts): as this viewer may see them, whoever attached them
+    if (viewer !== undefined) {
+      const blank = (a: Attachment) => (a.source === 'team' ? blankTeamAttachment(a) : { ...blankTeamAttachment(a), source: a.source })
+      if (!this.viewAttachmentsAs) return atts.map((a) => (a.source !== 'team' && r.author_id === viewer ? a : blank(a)))
+      try { return this.viewAttachmentsAs(viewer, r.author_id ?? null, atts) } catch { return atts.map(blank) }
+    }
     if (!atts.some((a) => a.source === 'team')) return atts
     const owner = (this.db.query('SELECT user_id FROM chats WHERE id = ?').get(r.chat_id) as { user_id: string } | null)?.user_id
     if (!owner || !this.viewAttachments) return atts.map((a) => (a.source === 'team' ? blankTeamAttachment(a) : a))
@@ -81,9 +118,18 @@ export class ChatStore {
 
   /** The steps of an answer for the chat's owner: a step about an attached team file (id "attach-<reference id>",
    * TurnExec.attachmentsForTurn) loses its path once the owner can no longer open that file, like the attachment. */
-  viewSteps(r: Pick<MessageRow, 'chat_id'>, steps: Step[]): Step[] {
+  viewSteps(r: Pick<MessageRow, 'chat_id'>, stored: StoredStep[], view?: MessageView): Step[] {
+    // a shared chat: a label names its paths only for a viewer who may see every one of them (else the words alone)
+    const steps: Step[] = stored.map((s) => {
+      if (!s.sv) return s
+      const shows = !!view && s.sv.paths.every((p) => view.canList(p))
+      const out = publicStep(s)
+      if (shows) return { ...out, label: s.sv.label }
+      const { detail: _d, ...rest } = out
+      return rest
+    })
     if (!steps.some((s) => s.tool === 'attachment')) return steps
-    const owner = (this.db.query('SELECT user_id FROM chats WHERE id = ?').get(r.chat_id) as { user_id: string } | null)?.user_id
+    const owner = view?.viewer ?? (this.db.query('SELECT user_id FROM chats WHERE id = ?').get(r.chat_id) as { user_id: string } | null)?.user_id
     const gone = (s: Step): boolean => {
       if (!s.id.startsWith('attach-')) return !!s.label && s.label !== STEP_TEXT.attachUnavailable.en // an unknown attachment step: no path shown
       if (!owner || !this.viewAttachments) return true
@@ -118,13 +164,15 @@ export class ChatStore {
     return r
   }
   /** `waiting`: the runtime's word that the AI waits for the person here (ChatRuntime.waitsForPerson) */
-  toChat(r: ChatRow, runState: ChatRunState, waiting = false): Chat {
+  /** `answersOf`: whose answers the unseen marker and the last outcome come from (a shared chat: its creator's own
+   * turns, for its creator; null for anyone else: no marker); absent: every answer (a chat of one person). */
+  toChat(r: ChatRow, runState: ChatRunState, waiting = false, o: { answersOf?: string | null } = {}): Chat {
     return {
       id: r.id, projectId: r.project_id, title: r.title, engine: (r.engine === 'codex' || r.engine === 'api' ? r.engine : 'claude-code') as EngineId, model: r.model,
       createdAt: iso(r.created_at), updatedAt: iso(r.updated_at), deletedAt: r.deleted_at ? iso(r.deleted_at) : null, runState,
       ...(isConfidentialChat(this.db, r.id) ? { confidential: true as const } : {}),
       ...(waiting ? { waiting: true as const } : {}),
-      ...this.answerState(r),
+      ...(o.answersOf === null ? {} : this.answerState(r, o.answersOf)),
       ...(this.mergeWaiting(r.id) ? { mergeWaiting: true as const } : {}),
     }
   }
@@ -132,10 +180,13 @@ export class ChatStore {
    * the chat on screen (never since it was made: after it was made), and how it ended when not well (Chat.lastOutcome:
    * failed, a server stop included, or paused at the per-answer limit). An answer the person stopped is never unseen:
    * they stopped it, nothing waits for them there. Session markers: docs/DECISIONS.md. */
-  answerState(r: Pick<ChatRow, 'id' | 'seen_at' | 'created_at'>): Pick<Chat, 'unseen' | 'lastOutcome'> {
-    const row = this.db.query(`SELECT COALESCE(updated_at, created_at) AS t, status, stop_reason FROM messages
-      WHERE chat_id = ? AND role = 'assistant' AND status <> 'streaming' ORDER BY COALESCE(updated_at, created_at) DESC, rowid DESC LIMIT 1`)
-      .get(r.id) as { t: string; status: MessageStatus; stop_reason: string | null } | null
+  answerState(r: Pick<ChatRow, 'id' | 'seen_at' | 'created_at'>, answersOf?: string): Pick<Chat, 'unseen' | 'lastOutcome'> {
+    const row = (answersOf === undefined
+      ? this.db.query(`SELECT COALESCE(updated_at, created_at) AS t, status, stop_reason FROM messages
+      WHERE chat_id = ? AND role = 'assistant' AND status <> 'streaming' ORDER BY COALESCE(updated_at, created_at) DESC, rowid DESC LIMIT 1`).get(r.id)
+      : this.db.query(`SELECT COALESCE(m.updated_at, m.created_at) AS t, m.status, m.stop_reason FROM messages m JOIN turns t ON t.id = m.turn_id
+      WHERE m.chat_id = ? AND m.role = 'assistant' AND m.status <> 'streaming' AND t.user_id = ? ORDER BY COALESCE(m.updated_at, m.created_at) DESC, m.rowid DESC LIMIT 1`).get(r.id, answersOf)
+    ) as { t: string; status: MessageStatus; stop_reason: string | null } | null
     if (!row) return {}
     const lastOutcome = row.status === 'error' ? 'error' as const : row.status === 'done' && stopReasonOf(row.stop_reason) ? 'paused' as const : null
     const unseen = row.status !== 'stopped' && iso(row.t) > iso(r.seen_at ?? r.created_at)
@@ -193,14 +244,21 @@ export class ChatStore {
     }
     return cur
   }
-  toMessage(r: MessageRow, live?: { content: string; steps: Step[] }): Message {
+  /** `view`: a shared project chat's message as one viewer sees it (MessageView); absent: the chat's own person. */
+  toMessage(r: MessageRow, live?: { content: string; steps: StoredStep[] }, view?: MessageView): Message {
     const siblings = this.siblingIds(r)
-    const usage = r.role === 'assistant' && r.turn_id ? this.turnUsage(r.turn_id) : null
+    // a shared chat: the turn's person sees the answer as it is; anyone else not its live text, usage or failure reason
+    const runner = !view || (r.role === 'assistant' ? !!r.turn_id && this.turnUser(r.turn_id) === view.viewer : r.author_id === view.viewer)
+    const hideLive = !!view && !runner && r.status === 'streaming'
+    const usage = r.role === 'assistant' && r.turn_id && runner ? this.turnUsage(r.turn_id) : null
+    const error = parseError(r.error)
+    const files = json<FileChangeSummary | null>(r.files, null)
     return {
       id: r.id, chatId: r.chat_id, parentId: r.parent_id, role: r.role, author: r.role === 'user' ? this.userRef(r.author_id) : null,
-      content: live?.content ?? r.content, attachments: this.attachmentsOf(r), steps: this.viewSteps(r, live?.steps ?? json<Step[]>(r.steps, []).filter(isStep)),
-      status: r.status, error: parseError(r.error), turnId: r.turn_id, engine: (r.engine === 'codex' || r.engine === 'claude-code' || r.engine === 'api' ? r.engine : null) as EngineId | null,
-      model: r.model, files: json<FileChangeSummary | null>(r.files, null), usage, createdAt: iso(r.created_at),
+      content: hideLive ? '' : live?.content ?? r.content, attachments: this.attachmentsOf(r, view?.viewer),
+      steps: hideLive ? [] : this.viewSteps(r, live?.steps ?? json<StoredStep[]>(r.steps, []).filter(isStep), view),
+      status: r.status, error: error && view && !runner ? { code: error.code, message: view.failed } : error, turnId: r.turn_id, engine: (r.engine === 'codex' || r.engine === 'claude-code' || r.engine === 'api' ? r.engine : null) as EngineId | null,
+      model: r.model, files: files && view ? viewFiles(files, view) : files, usage, createdAt: iso(r.created_at),
       branch: { index: Math.max(0, siblings.indexOf(r.id)), count: Math.max(1, siblings.length), siblingIds: siblings },
       // only when it paused at a limit: every other message keeps its earlier shape
       ...(r.role === 'assistant' && stopReasonOf(r.stop_reason) ? { stopReason: stopReasonOf(r.stop_reason) } : {}),
@@ -208,8 +266,17 @@ export class ChatStore {
       // a finished answer's "참고한 파일" count; the list itself is checked for the viewer when it is opened
       ...(() => { const n = r.role === 'assistant' && r.status !== 'streaming' && !live ? sourceCount(this.db, r.id) : 0; return n ? { sourceCount: n } : {} })(),
       // a finished answer that ran a team skill: "팀 스킬 '할 일 정리' · 팀 파일 2개" (docs/DECISIONS.md "M — One meeting note")
-      ...(r.role === 'assistant' && r.status !== 'streaming' && !live && r.turn_id ? this.receiptOf(r) : {}),
+      ...(r.role === 'assistant' && r.status !== 'streaming' && !live && r.turn_id ? this.receiptFor(r, view) : {}),
     }
+  }
+  /** The receipt as `view` may see it: none when the viewer cannot read the skill it names. */
+  private receiptFor(r: MessageRow, view?: MessageView): ReturnType<ChatStore['receiptOf']> {
+    const out = this.receiptOf(r)
+    return out.receipt && view && !view.canRead(out.receipt.skill.path) ? {} : out
+  }
+  /** Who ran a turn (its person), or null. */
+  turnUser(turnId: string): string | null {
+    return (this.db.query('SELECT user_id FROM turns WHERE id = ?').get(turnId) as { user_id: string } | null)?.user_id ?? null
   }
   /** The skill a finished answer ran (a command first, else the skill tool's first) and how many team files went into
    * it: the question's team-file references and the files it read, outside personal folders and skills/. Counts only:
@@ -258,8 +325,9 @@ export class ChatStore {
 
   // ---------------- projects ----------------
   projectRow(id: string): ProjectRow | null { return this.db.query(`SELECT ${PROJECT_COLS} FROM projects WHERE id = ?`).get(id) as ProjectRow | null }
-  toProject(r: ProjectRow, canEdit: boolean): Project {
-    return { id: r.id, name: r.name, folderPath: r.folder_path, instructions: r.instructions, createdBy: this.userRef(r.created_by), createdAt: iso(r.created_at), canEdit, inTrash: r.trashed_with !== null }
+  /** `share`: its shared chats as the caller sees them (chat/shared.ts projectShare) */
+  toProject(r: ProjectRow, canEdit: boolean, share?: Pick<Project, 'shareChats' | 'audience' | 'sharedChats'>): Project {
+    return { id: r.id, name: r.name, folderPath: r.folder_path, instructions: r.instructions, createdBy: this.userRef(r.created_by), createdAt: iso(r.created_at), canEdit, inTrash: r.trashed_with !== null, ...(share ?? {}) }
   }
 
   // ---------------- memories ----------------
@@ -268,10 +336,20 @@ export class ChatStore {
   }
 }
 
+/** A file summary as `view` may see it: only the paths the viewer may see (no count of the others). */
+function viewFiles(f: FileChangeSummary, view: MessageView): FileChangeSummary | null {
+  const out: FileChangeSummary = {
+    saved: f.saved.filter((x) => view.canList(x.path)),
+    conflicts: f.conflicts.filter((x) => view.canList(x.path) && view.canList(x.copyPath)),
+    rejected: f.rejected.filter((x) => view.canList(x.path)),
+  }
+  return out.saved.length || out.conflicts.length || out.rejected.length ? out : null
+}
+
 /** messages.stop_reason / turns.stop_reason: a known per-answer limit, else null */
 export const stopReasonOf = (v: string | null | undefined): TurnStopReason | null => (v === 'tool_limit' || v === 'time_limit' ? v : null)
 
-function isStep(s: unknown): s is Step {
+function isStep(s: unknown): s is StoredStep {
   // stage-1 rows stored a list of tool names; only full step objects are shown
   return !!s && typeof s === 'object' && typeof (s as Step).id === 'string' && typeof (s as Step).label === 'string'
 }
