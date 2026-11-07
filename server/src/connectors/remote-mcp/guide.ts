@@ -12,13 +12,19 @@ const SKILLS = 'Skills are never written as files: a SKILL.md saved in an ordina
 const SECRETS = 'Never upload secrets: resident registration numbers, certificates, passwords, API keys, tokens or private keys.'
 const END = 'This connection ends when its authorizing team app session ends.'
 
-/** A folder name from the team's data, made safe to sit inside the instructions: one line, short, no quotes. */
-const safe = (s: string) => s.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029"\\]+/g, ' ').trim().slice(0, 60)
+/** A folder name from the team's data goes into the model's context only when it is plainly a name: letters, digits,
+ * space, dot, underscore, hyphen, at most 40 characters, no format characters (bidi, zero-width). Anything else is left
+ * out (the person can still `list`): an allowlist, so an admin-chosen name cannot carry instructions. */
+const NAME = /^[\p{L}\p{N} ._-]+$/u
+const plain = (s: string): string | null => {
+  const n = s.normalize('NFC')
+  return n.length <= 40 && !/\p{Cf}/u.test(n) && NAME.test(n) && n.trim() === n && !/ {2}/.test(n) && !/^[ ._-]+$/.test(n) ? n : null
+}
 
 function groupFolders(ctx: AppContext, userId: string): string[] {
   try {
     const roots = groupSkillRoots(ctx.db, ctx.files.principal(userId))
-    return roots.map((g) => safe(g.root.split('/')[1]!)).filter(Boolean).slice(0, GUIDE_GROUPS)
+    return roots.map((g) => plain(g.root.split('/')[1]!)).filter((x): x is string => x !== null).slice(0, GUIDE_GROUPS)
   } catch { return [] }
 }
 

@@ -64,7 +64,7 @@ export async function mcpRequest(ctx: AppContext, request: Request, ip: string |
     if (size > MCP_BODY_MAX && !(msg.method === 'tools/call' && (msg.params?.name === 'upload_file' || msg.params?.name === 'share_skills') && 'id' in msg)) return json({ error: 'invalid_request' }, 413)
     if (!('id' in msg)) return new Response(null, { status: 202, headers: noStore }) // notifications never execute tools
     const reply = (value: unknown) => json({ jsonrpc: '2.0', id: msg.id, result: value })
-    if (msg.method === 'initialize') return reply({ protocolVersion: PROTOCOLS.includes(msg.params?.protocolVersion) ? msg.params.protocolVersion : PROTOCOLS.at(-1), capabilities: { tools: {} }, serverInfo: { name: 'team-ax', version: ctx.version }, instructions: connectorInstructions(ctx, grant.user_id)})
+    if (msg.method === 'initialize') return reply({ protocolVersion: PROTOCOLS.includes(msg.params?.protocolVersion) ? msg.params.protocolVersion : PROTOCOLS.at(-1), capabilities: { tools: {} }, serverInfo: { name: 'team-ax', version: ctx.version }, instructions: connectorInstructions(ctx, grant.user_id) })
     if (msg.method === 'ping') return reply({})
     if (msg.method === 'tools/list') return reply({ tools: remoteToolsOf(ctx).list(grant) })
     if (msg.method === 'tools/call') {

@@ -59,18 +59,23 @@ export function skillWriteTarget(rel: string): boolean {
 /** What the AI is told when it tries to save a skill as a file: the real way is a proposal (share_skills) or the app. */
 export const SKILL_POINTER = 'Use share_skills (whole team, or add "group" for one group; the owner or an admin proposes, someone confirms it in the app), or ask the user to add the skill in the team app (팀 스킬).'
 const REAL_ROOT_REFUSAL = `Skill changes require confirmation inside the team app. ${SKILL_POINTER}`
-const MISPLACED_REFUSAL = `Not saved: skills are never written as files, and a SKILL.md or a "skills" folder outside the real skill folders is not a skill. ${SKILL_POINTER}`
+const MISPLACED_REFUSAL = `Not saved: skills are never written as files, and a SKILL.md or a skill file in a skills folder outside the real skill folders is not a skill. ${SKILL_POINTER}`
 
 /**
  * The refusal for a connector write to \`rel\`, or null when it is an ordinary file. A real skill root (skills/, a group's
- * skills/, users/<id>/skills/) keeps its refusal; a file named SKILL.md or anything below a folder named "skills" that
- * is not a real root is a skill saved in the wrong place (the AI could not know the way), refused with the pointer.
+ * skills/, users/<id>/skills/) keeps its refusal. Outside the real roots only what looks like a skill saved as a file
+ * is refused with the pointer: a file named SKILL.md, anything below .claude/skills, .codex/skills or .agents/skills,
+ * and a .md file at skills/<name>/<file>.md. Other files in a folder called "skills" (PDFs, sheets) are ordinary.
  */
 export function skillWriteRefusal(rel: string): string | null {
   if (skillWriteTarget(rel)) return REAL_ROOT_REFUSAL
   const segs = rel.replace(/\\/g, '/').split('/').filter((x) => x !== '' && x !== '.')
   if (segs.length && fold(segs[segs.length - 1]!) === 'skill.md') return MISPLACED_REFUSAL
-  if (segs.some((x) => fold(x) === 'skills')) return MISPLACED_REFUSAL
+  for (let i = 0; i < segs.length; i++) {
+    if (fold(segs[i]!) !== 'skills') continue
+    if (i > 0 && ['.claude', '.codex', '.agents'].includes(fold(segs[i - 1]!))) return MISPLACED_REFUSAL
+    if (i + 3 === segs.length && fold(segs[i + 2]!).endsWith('.md')) return MISPLACED_REFUSAL
+  }
   return null
 }
 
