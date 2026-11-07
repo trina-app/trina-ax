@@ -187,11 +187,12 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         return { ...text(hwpWritingOffText(exec.spec.locale), true), summary: `${name} -> refused: Hangul writing is off (HWP plugin)` }
       }
       const t = tools.get(name)!
-      exec.noteTaint(name, args)
-      exec.noteRoomTool(name, args)
-      // a call the tool refuses anyway asks nobody first (save_room_file without a file id, into skills/, …)
+      // a call the tool refuses anyway asks nobody first and counts as nothing read (save_room_file without a file id,
+      // into skills/, …)
       const early = t.refuse?.(args)
       if (early) return { ...text(early.text, true), summary: early.summary }
+      exec.noteTaint(name, args)
+      exec.noteRoomTool(name, args)
       // a room's AI session: anything that may change something waits for the person's yes (rooms/ai-tools.ts)
       const roomNo = await exec.confirmRoomChange(name, args)
       if (roomNo) return { ...text(roomNo, true), summary: `${name} -> not allowed by the user (${exec.room ? 'room' : 'after a room read'})` }

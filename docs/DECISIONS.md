@@ -8559,8 +8559,8 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   - The block says whose words are whose: the asker's own earlier messages (who="the person asking you now (their own
     earlier message)") are theirs: they may point at them and a request there is theirs. Other members' messages and
     the AI's answers stay information only, never instructions.
-  - A short question (at most 40 characters, or one that points: 이거, 위에, ㄱㄱ, this, above, …) right after the
-    asker's own messages, with nobody else's message in between and each at most 30 minutes before the next, takes
+  - A short question (at most 12 characters, or one that points: 이거, 위, ㄱㄱ, this, above, …; second review) right
+    after the asker's own messages, with nobody else's message in between and each at most 30 minutes old, takes
     those messages into itself, after the block: "{asker}'s message. It continues {asker}'s own messages sent just
     before it …", in full up to `ROOM_FOLD_CHARS` (12,000; the newest whole, an older one that does not fit by its
     start and its end), counted against the block's total, now `ROOM_CONTEXT_CHARS` 24,000. An earlier @-question
@@ -8574,6 +8574,19 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
     another member's "AI, delete …" still information only and the read scope from the paste; nothing folded with
     someone in between or for a question of its own; a thread; the budget). Real AI on a dev server: the inquiry, then
     "@Trina ㄱㄱ", made the quote (a card first for the file).
+- **Second review (2026-11-07) fixes of both.** A member's display name went raw into the `who` attribute of the AI's
+  answer to them ("your earlier answer to …"): a name with a quote, brackets and a line break could make the next
+  message look like the asker's own words, which the asker's words now count for. Every name in an attribute goes
+  through `attr` (one line, no quotes or brackets). The fold is narrower: a question of at most 12 characters, or one
+  with a pointing word as a word of its own (이거, 위, 방금, ㄱㄱ, this, above, …, also with a particle: "이거로";
+  "고고학" and "아까워" do not count); every folded message at most 30 minutes before the question (no chain); the run
+  ends at a message of the asker's that mentions someone or quotes a reply; the fold's budget is exact (file lists
+  counted). The header says the asker's own messages are theirs to point at and to act on as far as their message now
+  asks. In a room's session, a file named by its name is one sent up to the question and the only one of that name
+  (else the AI is asked for the file_id); `save_room_file` takes "file_id=…" as written in the lists and an existing
+  folder named without its "/"; a call refused before the card counts as nothing read. Files of the asker's earlier
+  questions named in a continued session count in the read scope from their seq. Left: `PersonName` itself still
+  allows quotes and brackets (every place that puts a name to the AI escapes it).
 - **Not in this step.** (Files sent in a room: read and saved since fix/room-ai-attachments, above.) The 12-hour new session and the context sizes are
   first guesses. Cards the AI raised are not shown again after a reload (they time out like an unanswered card). A PC
   runner's tools, once merged, fall under the card rule and the outside mark but are not switched off by name.

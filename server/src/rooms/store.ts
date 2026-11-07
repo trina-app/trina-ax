@@ -101,7 +101,8 @@ export function clipMiddle(s: string, max: number, head = 0.7): string {
   const a = Math.round(max * head), b = max - a
   return `${s.slice(0, a)}\n… [${s.length - max} of ${s.length} characters left out here] …\n${s.slice(s.length - b)}`
 }
-const parseMentions = (s: string): string[] => { try { const v = JSON.parse(s); return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [] } catch { return [] } }
+/** The people a stored message mentions (room_messages.mentions JSON). */
+export const parseMentions = (s: string): string[] => { try { const v = JSON.parse(s); return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [] } catch { return [] } }
 
 /** An event line's stored JSON, or null when it is none (or not one this build knows). */
 export function parseEvent(s: string | null): EventData | null {

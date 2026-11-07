@@ -37,6 +37,7 @@ import { inSkills } from '../skills/guard'
 import { componentC } from '../team-files/component'
 import { placeProduced } from '../tools/make-file'
 import { Denied, ToolError } from '../policy/errors'
+import { authorize } from '../policy/authorize'
 import type { ToolCtx } from '../files/service'
 import { z } from 'zod'
 
@@ -136,9 +137,9 @@ export function roomReadTools(exec: TurnExec): Tool[] {
 /** room_file: the file checked by RoomFiles.open (in the room now, its message visible to me, not deleted), its bytes
  * bound to that check, then as text (the extractors of a Drive file: the text layer only, no OCR) or as the model's
  * picture (the same switch, engine check and per-answer budget as a read). */
-async function readRoomFile(exec: TurnExec, files: TurnFiles, a: { room: string; file: string; offset?: number }, named: (name: string) => void, inRoom = false): Promise<{ content: McpContent[]; isError?: boolean; summary: string }> {
+async function readRoomFile(exec: TurnExec, files: TurnFiles, a: { room: string; file: string; offset?: number }, named: (name: string) => void, inRoom = false, o: { upToSeq?: number; uniqueName?: boolean } = {}): Promise<{ content: McpContent[]; isError?: boolean; summary: string }> {
   const { rt, spec } = exec
-  const found = findRoomFile(rt.db, spec.userId, a.room, a.file, rt.timeZone)
+  const found = findRoomFile(rt.db, spec.userId, a.room, a.file, rt.timeZone, o)
   if ('text' in found) return { ...text(found.text), summary: 'room_file -> not found' }
   const { file, message, room, title, author } = found
   // who sees the message it came with sees the file: a member who joined after it keeps an answer built on it private
@@ -210,6 +211,13 @@ export function roomSessionFileTools(exec: TurnExec): Tool[] {
   const { rt, spec } = exec
   const roomId = exec.room?.roomId
   if (!roomId) return []
+  /** a name names a file sent up to the question (one posted after it, by anyone, is never taken for it), and only one */
+  const lookup = (): { upToSeq?: number; uniqueName: true } => {
+    const asked = rt.store.messageRow(spec.userMessageId)
+    const qid = asked?.client_message_id?.startsWith('room-') ? asked.client_message_id.slice(5) : null
+    const q = qid ? rt.db.query('SELECT seq FROM room_messages WHERE id = ? AND room_id = ?').get(qid, roomId) as { seq: number } | null : null
+    return { ...(q ? { upToSeq: q.seq } : {}), uniqueName: true }
+  }
   const ready = (): string | null => {
     try { exec.livePrincipal() } catch { return 'Access denied: this account is disabled.' }
     // another member's file is outside content (remember protection; no memories are kept from a room anyway)
@@ -229,7 +237,7 @@ export function roomSessionFileTools(exec: TurnExec): Tool[] {
    * nothing to them), only for a file of this room they may see; the verb alone otherwise */
   const fileLabel = (tool: 'room_file' | 'save_room_file') => (args: unknown, locale: Locale) => {
     const a = (args && typeof args === 'object' ? args : {}) as { file?: unknown; save_as?: unknown }
-    const f = typeof a.file === 'string' ? findRoomFile(rt.db, spec.userId, roomId, a.file, rt.timeZone) : null
+    const f = typeof a.file === 'string' ? findRoomFile(rt.db, spec.userId, roomId, a.file, rt.timeZone, lookup()) : null
     const verb = FILE_STEP_VERB[tool]![locale]
     if (!f || 'text' in f) return verb
     const name = f.file.name.replace(/\s+/g, ' ').slice(0, 80)
@@ -244,7 +252,7 @@ export function roomSessionFileTools(exec: TurnExec): Tool[] {
         const no = ready()
         if (no) { label('room_file'); return { ...text(no, true), summary: 'room_file -> denied: account disabled' } }
         let named = ''
-        try { return await readRoomFile(exec, files, { room: roomId, ...a.data }, (n) => { named = n }, true) } finally { label('room_file', named) }
+        try { return await readRoomFile(exec, files, { room: roomId, ...a.data }, (n) => { named = n }, true, lookup()) } finally { label('room_file', named) }
       },
     },
     {
@@ -280,13 +288,17 @@ function saveTarget(exec: TurnExec, roomId: string, a: { file: string; save_as?:
   const { rt, spec } = exec
   // by its id only: the card names the file, and the yes is for that one file (two files may share a name, and one
   // posted while the card waits must not be the one copied)
-  if (!isUuid7(a.file.trim())) return { text: 'Give the file\'s file_id (from the <attachments> list or after a message in <room_context>), not its name: two files in a room may share a name.', summary: 'save_room_file -> refused: not a file id' }
-  const found = findRoomFile(rt.db, spec.userId, roomId, a.file.trim(), rt.timeZone)
+  const id = a.file.trim().replace(/^file_id=/, '')
+  if (!isUuid7(id)) return { text: 'Give the file\'s file_id (from the <attachments> list or after a message in <room_context>), not its name: two files in a room may share a name.', summary: 'save_room_file -> refused: not a file id' }
+  const found = findRoomFile(rt.db, spec.userId, roomId, id, rt.timeZone)
   if ('text' in found) return { text: found.text, summary: 'save_room_file -> not found' }
   const { file, message } = found
   if (rt.files.quarantine.hasHash(file.sha256)) return { text: 'This file is held by the team\'s safety check, so it cannot be saved.', summary: 'save_room_file -> held' }
   const wanted = (a.save_as ?? '').trim().replace(/^\/+/, '').normalize('NFC')
-  const folder = !wanted ? `users/${spec.userId}/downloads` : wanted.endsWith('/') ? wanted.replace(/\/+$/, '') : null
+  // a folder that is there, named without its "/" ("shared"), is a folder too
+  let isFolder = false
+  try { isFolder = !wanted.endsWith('/') && !!wanted && !!authorize(rt.files.fx, rt.files.rules(), exec.livePrincipal(), wanted, 'list').st?.isDirectory() } catch { /* not one this person sees */ }
+  const folder = !wanted ? `users/${spec.userId}/downloads` : wanted.endsWith('/') || isFolder ? wanted.replace(/\/+$/, '') : null
   const target = folder === null ? wanted : `${folder}/${file.name}`
   if (inSkills(target)) return { text: 'Files from a room cannot be saved under skills/ (team skills and rules); pick another folder.', summary: 'save_room_file -> refused: skills/' }
   // a skill, team rule or instruction file changes from a room only with all of its content on the card, which a copied
