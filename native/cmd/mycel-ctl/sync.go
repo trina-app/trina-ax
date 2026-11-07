@@ -378,7 +378,7 @@ func syncStatus(e *env, now time.Time) (string, *SyncState, bool) {
 	s := readSynced(e)
 	pending, why := syncPending(e, now, false)
 	switch {
-	case s == nil || s.List != sum:
+	case s == nil || s.List != sum || s.OS != osIdentity():
 		return "not synced to the list in root/ (" + why + "); the update timer syncs in the update window, now: sudo mycel-ctl update", s, pending
 	case s.Result == "ok":
 		b := ""

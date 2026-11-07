@@ -467,5 +467,9 @@ func TestSyncRecordNamesTheSystem(t *testing.T) {
 		if p, why := syncPending(e, time.Now(), false); p != c.pending || (p && !strings.Contains(why, "another system")) {
 			t.Fatalf("%q: %v %q", c.os, p, why)
 		}
+		// mycel-ctl status says the same
+		if line, _, _ := syncStatus(e, time.Now()); strings.HasPrefix(line, "not synced") != c.pending {
+			t.Fatalf("%q: status %q", c.os, line)
+		}
 	}
 }
