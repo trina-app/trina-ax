@@ -72,15 +72,15 @@ export const inputCls =
   'h-9 w-full rounded-lg border border-field-border bg-surface px-3 text-sm text-ink outline-none transition placeholder:text-faint focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-60 max-sm:min-h-10'
 
 /** The title of a sidebar section (대화, 트리나 기록), which folds its list. A step under the rows (12px, 13px on phones;
- * rows are 14 / 15px) but heavier and darker than them and than "더 보기" under a list (the owner, 2026-11-07: the quiet
- * grey titles ran the two lists together); a date heading inside a list stays lower (text-micro, 500, faint: smaller on
- * computers, the same 13px on phones, where weight and colour set it apart). The chevron stays quiet; hover fills the
- * button as the buttons beside it ("+", the filter), and its text stays in line with the rows (the negative margin takes
- * back the fill's padding). */
+ * rows are 14 / 15px) but heavier than them and than "더 보기" under a list, and in the main text colour (the owner,
+ * 2026-11-07: the quiet grey titles ran the two lists together; type and space only, no fill); a date heading inside a
+ * list stays lower (text-micro, 500, faint: smaller on computers, the same 13px on phones, where weight and colour set
+ * it apart). The chevron stays quiet; hover shifts the colour one step, as before. It never shrinks or wraps: a long
+ * filter label beside it is cut instead. */
 export function SidebarSectionTitle({ open, onToggle, controls, children, testId }: { open: boolean; onToggle: () => void; controls: string; children: ReactNode; testId: string }) {
   return (
-    <h2 className="text-xs font-semibold text-ink">
-      <button type="button" aria-expanded={open} aria-controls={controls} onClick={onToggle} className="-ml-1.5 flex items-center gap-1 rounded-md px-1.5 py-1 hover:bg-hover" data-testid={testId}>
+    <h2 className="shrink-0 text-xs font-semibold whitespace-nowrap text-ink">
+      <button type="button" aria-expanded={open} aria-controls={controls} onClick={onToggle} className="flex items-center gap-1 rounded py-1 hover:text-muted" data-testid={testId}>
         {children}
         <ChevronDown size={12} className={clsx('text-faint transition-transform', !open && '-rotate-90')} aria-hidden />
       </button>

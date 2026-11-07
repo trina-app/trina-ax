@@ -147,7 +147,32 @@ test('both groups fold and stay folded after a reload', async ({ page }) => {
   await expect(s.getByTestId('sidebar-room').first()).toBeVisible()
 })
 
-test('대화 and 트리나 기록 read as section titles (the owner, 2026-11-07): ink and semibold, AA in both looks, a step under the rows, above "더 보기", with room before 트리나 기록', async ({ page }) => {
+/** In the page, for each [selector, nth] under `root` (nth -1: the first one at rest, weight 400): the computed style of
+ * the element that holds its first text (the text node's parent), that colour's contrast on the sidebar, and the box of
+ * the text itself (not the padding around it). */
+function textStyles(root: Element, picks: [string, number][]) {
+  const rgb = (c: string) => c.match(/[\d.]+/g)!.slice(0, 3).map(Number)
+  const lum = (c: string) => { const [r, g, b] = rgb(c).map((v) => { const x = v / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4 }); return 0.2126 * r! + 0.7152 * g! + 0.0722 * b! }
+  const bg = getComputedStyle(root).backgroundColor
+  const contrast = (c: string) => { const [a, b] = [lum(c), lum(bg)].sort((x, y) => y - x); return (a! + 0.05) / (b! + 0.05) }
+  return picks.map(([sel, nth]) => {
+    const all = [...root.querySelectorAll(sel)]
+    const el = nth < 0 ? all.find((a) => getComputedStyle(a).fontWeight === '400') : all[nth]
+    if (!el) throw new Error(`no ${sel} #${nth}`)
+    const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+    let n = walk.nextNode()
+    while (n && !n.textContent!.trim()) n = walk.nextNode()
+    if (!n) throw new Error(`no text in ${sel}`)
+    const range = document.createRange()
+    range.selectNodeContents(n)
+    const box = range.getBoundingClientRect()
+    const st = getComputedStyle(n.parentElement!)
+    return { size: parseFloat(st.fontSize), weight: Number(st.fontWeight), contrast: contrast(st.color), top: box.top, bottom: box.bottom, height: box.height }
+  })
+}
+const id = (testId: string, nth = 0): [string, number] => [`[data-testid="${testId}"]`, nth]
+
+test('대화 and 트리나 기록 read as section titles (the owner, 2026-11-07): semibold in the main text colour, AA in both looks, a step under the rows, above "더 보기", with room before 트리나 기록', async ({ page }) => {
   await reset(page)
   await page.route('**/api/rooms', (r) => (r.request().method() === 'GET' ? r.fulfill({ json: { items: rooms(7) } }) : r.fallback()))
   await signIn(page)
@@ -158,30 +183,21 @@ test('대화 and 트리나 기록 read as section titles (the owner, 2026-11-07)
   for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme })
     await expect(page.locator('html')).toHaveClass(scheme === 'dark' ? /\bdark\b/ : /^(?!.*\bdark\b)/)
-    const m = await s.evaluate((nav) => {
-      const rgb = (c: string) => c.match(/[\d.]+/g)!.slice(0, 3).map(Number)
-      const lum = (c: string) => { const [r, g, b] = rgb(c).map((v) => { const x = v / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4 }); return 0.2126 * r! + 0.7152 * g! + 0.0722 * b! }
-      const bg = getComputedStyle(nav).backgroundColor
-      const contrast = (c: string) => { const [a, b] = [lum(c), lum(bg)].sort((x, y) => y - x); return (a! + 0.05) / (b! + 0.05) }
-      // the box of an element's first text, not its padding
-      const text = (el: Element) => { const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let n: Node | null; while ((n = w.nextNode())) if (n.textContent!.trim()) { const r = document.createRange(); r.selectNodeContents(n); return r.getBoundingClientRect() } throw new Error('no text') }
-      const of = (el: Element) => { const st = getComputedStyle(el); return { size: parseFloat(st.fontSize), weight: Number(st.fontWeight), contrast: contrast(st.color), box: text(el) } }
-      const q = (id: string) => nav.querySelector(`[data-testid="${id}"]`)!
-      const rows = [...nav.querySelectorAll('[data-testid="sidebar-room"]')].filter((a) => getComputedStyle(a).fontWeight === '400')
-      return { rooms: of(q('rooms-toggle').closest('h2')!), ai: of(q('recents-toggle').closest('h2')!), row: of(rows[0]!), next: of(rows[1]!), more: of(q('rooms-more')) }
-    })
-    for (const title of [m.rooms, m.ai]) {
+    // two rows next to each other (whatever their weight) for the gap; a row at rest (not unread) for the colour
+    const [roomsTitle, ai, more, first, second, row] = await s.evaluate(textStyles, [id('rooms-toggle'), id('recents-toggle'), id('rooms-more'), id('sidebar-room', 0), id('sidebar-room', 1), id('sidebar-room', -1)])
+    for (const title of [roomsTitle!, ai!]) {
       expect(title.weight, scheme).toBe(600)
       expect(title.contrast, scheme).toBeGreaterThanOrEqual(4.5)
-      // more than a row's text and than "더 보기" under the list, which share neither its weight nor its ink
-      expect(title.contrast, scheme).toBeGreaterThan(m.row.contrast)
-      expect(title.contrast, scheme).toBeGreaterThan(m.more.contrast)
-      expect(title.weight, scheme).toBeGreaterThan(m.more.weight)
-      // not one more row: a step smaller
-      expect(title.size, scheme).toBeLessThan(m.row.size)
+      // more than a row's text and than "더 보기" under the list, which share neither its weight nor its colour
+      expect(title.contrast, scheme).toBeGreaterThan(row!.contrast)
+      expect(title.contrast, scheme).toBeGreaterThan(more!.contrast)
+      expect(title.weight, scheme).toBeGreaterThan(more!.weight)
+      // not one more row: a step smaller, on one line
+      expect(title.size, scheme).toBeLessThan(row!.size)
+      expect(title.height, scheme).toBeLessThan(2 * title.size)
     }
     // the break before 트리나 기록 is at least 1.5 times the gap between two rows' text
-    expect(m.ai.box.top - m.more.box.bottom).toBeGreaterThanOrEqual(1.5 * (m.next.box.top - m.row.box.bottom))
+    expect(ai!.top - more!.bottom).toBeGreaterThanOrEqual(1.5 * (second!.top - first!.bottom))
   }
   // the fold and "+" still work from the title row
   await s.getByTestId('rooms-toggle').click()
@@ -190,6 +206,43 @@ test('대화 and 트리나 기록 read as section titles (the owner, 2026-11-07)
   await expect(s.getByTestId('sidebar-room').first()).toBeVisible()
   await s.getByTestId('rooms-new-dm').click()
   await expect(page.getByRole('dialog')).toBeVisible()
+})
+
+test('a long history filter beside 트리나 기록 is cut; the title stays on one line', async ({ page }) => {
+  await reset(page, { teamLocale: 'id', usersFollowTeam: true })
+  // "waiting" has the longest label (id: "Sedang menjawab atau menunggu Anda")
+  await page.addInitScript(() => localStorage.setItem('mycel.sidebar.recentsView', JSON.stringify({ status: 'waiting', activity: 'all', group: 'date', sort: 'updated' })))
+  await signIn(page)
+  const s = page.getByRole('navigation', { name: DICTS.id['sidebar.label'] })
+  await expect(s.getByTestId('recents-filter-label')).toContainText(DICTS.id['sidebar.filter.active'])
+  const [title] = await s.evaluate(textStyles, [id('recents-toggle')])
+  expect(title!.height).toBeLessThan(2 * title!.size)
+  // the label gives way: its text is cut with an ellipsis, not the title
+  expect(await s.getByTestId('recents-filter-label').locator('.truncate').evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true)
+})
+
+test.describe('a phone (390 px)', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+
+  test('in the drawer 트리나 기록 stands above the date heading under it ("오늘"): heavier and higher contrast, in both looks', async ({ page }) => {
+    await reset(page)
+    await signIn(page)
+    await someChats(page, 3)
+    await page.reload()
+    await page.getByTestId('menu-open').click()
+    const drawer = page.getByRole('dialog', { name: t['sidebar.label'] }).getByRole('navigation', { name: t['sidebar.label'] })
+    await expect(drawer.locator('[data-testid="recents-list"] h3').first()).toHaveText(t['sidebar.today'])
+    for (const scheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: scheme })
+      await expect(page.locator('html')).toHaveClass(scheme === 'dark' ? /\bdark\b/ : /^(?!.*\bdark\b)/)
+      const [title, day] = await drawer.evaluate(textStyles, [id('recents-toggle'), ['[data-testid="recents-list"] h3', 0] as [string, number]])
+      expect(title!.weight, scheme).toBeGreaterThan(day!.weight)
+      expect(title!.contrast, scheme).toBeGreaterThan(day!.contrast)
+      expect(title!.contrast, scheme).toBeGreaterThanOrEqual(4.5)
+      // the phone floor: 13px
+      expect(title!.size, scheme).toBeGreaterThanOrEqual(13)
+    }
+  })
 })
 
 for (const size of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }]) {

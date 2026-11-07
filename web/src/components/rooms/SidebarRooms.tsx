@@ -90,8 +90,8 @@ export function SidebarRooms({ onNavigate }: { onNavigate: () => void }) {
   // a hidden room whose AI waits on me: "?" leads the pill (session markers, docs/DECISIONS.md), amber like the room's
   const hiddenAsk = !all && rooms.some((r) => r.aiWaits && !capped.includes(r))
   return (
-    // 20px under the list, as much as above 대화: the break before the next section (트리나 기록, or the setup row) is
-    // about twice the gap between two rows' text (the owner, 2026-11-07)
+    // 20px (mb-5) after the list: about the same distance between texts as above 대화 (35px against 33px) and about
+    // twice the gap between two rows' text, before 트리나 기록 or the setup row (the owner, 2026-11-07)
     <div className="mb-5" data-testid="sidebar-rooms">
       <div className="flex items-center gap-1 pr-1 pl-3">
         <SidebarSectionTitle open={open} onToggle={toggle} controls={listId} testId="rooms-toggle">

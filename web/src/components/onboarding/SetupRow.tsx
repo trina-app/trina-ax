@@ -60,7 +60,8 @@ export function SetupRow({ onNavigate }: { onNavigate?: () => void }) {
   }
   const words = setupRowWords(t, progress, aiReady, computer)
   return (
-    // as far from 트리나 기록's title as 대화's list is from it (20px each side), so it reads as its own row, not the title's
+    // 20px (mb-5) before 트리나 기록's title, as after 대화's list (on a computer with rooms it then has 20px on both
+    // sides), so it reads as its own row, not part of the title
     <div className="group/setup mb-5 flex items-center gap-0.5 pr-1" data-testid="setup-row" data-state={state}>
       {state === 'ai' ? (
         <ConnectAiButton row={row} panel data-testid="setup-row-ai">
