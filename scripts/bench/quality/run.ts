@@ -4,10 +4,12 @@
 // - Builds a temporary DocumentIndex (the server's own class, its own extraction) from the made-up Acme documents and
 //   the downloaded Wikipedia distractors, in a fixed shuffled order, then copies it for the smaller sizes and takes the
 //   files that are not in them out again (so the pieces keep their order and their vectors).
-// - Asks every question through DocumentIndex.search the way the AI's lookup does (service.ts docPassages: the
-//   question's distinctive words, questionTerms, joined; limit 45; passages of 1,500 characters), in each mode:
-//   keyword-only, and combined (`meaning: true`; meaning.ts), which is skipped with the reason when the meaning code,
-//   the vectors or the model are missing.
+// - Combined mode first embeds every piece through the server's own indexing loop and embedding process (meaning.ts;
+//   more threads than the server's one, so it takes minutes).
+// - Asks every question through the real search worker (DocSearchWorker) the way the AI's lookup does (service.ts
+//   docPassages: the question's distinctive words, questionTerms, joined, for the keywords and for the meaning; limit
+//   45; passages of 1,500 characters), in each mode: keyword-only, and combined (`meaning: true`), with a deadline far
+//   enough never to cut the meaning part. Combined is skipped with the reason when the model cannot be had.
 // - Metrics per type and overall: Recall@8 by file (an expected file among the files of the first 8 hits), first place
 //   (the first hit's file is expected), MRR (1 / the rank of the first expected file among the distinct files, in hit
 //   order); the two modes compared question by question (exact McNemar test, paired bootstrap 95% intervals); a curve
@@ -16,15 +18,16 @@
 // - Writes results/<out>.json and .md: ids, file paths and numbers only, never a document's text.
 //
 //   bun scripts/bench/quality/run.ts [--modes keyword,combined] [--sizes 50,500,full] [--words message|search]
-//     [--out <name>] [--label <text>] [--max-distractors <n>] [--model-dir <dir>] [--embed-threads <n>]
-//     [--embed-batch <n>] [--keep <dir>]
+//     [--out <name>] [--label <text>] [--max-distractors <n>] [--model-dir <dir>] [--no-download]
+//     [--embed-threads <n>] [--embed-batch <n>] [--embed-max-rss <MiB>] [--due-ms <ms>] [--keep <dir>]
+import { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { DocumentIndex, questionTerms, type DocHit } from '../../../server/src/knowledge-graph/documents/index'
 import { CACHE, hashKey, loadQuestions, REPO, RESULTS, ROOT_ID, TARGET_PREFIX, targetFiles, TYPES, WIKI_DIR, WIKI_PREFIX, wikiArticles, type QType, type Question } from './lib'
-import { fillVectors, hasVecColumn, openMeaning, vectorCount, type MeaningIndexOptions, type MeaningSearchOptions } from './meaning'
-import type { Embedder } from '../../../server/src/knowledge-graph/meaning/vectors'
+import { embedAll, indexDirOf, linkModels, openWorker, readyModel, workerSearch, type EmbedResult } from './meaning'
+import type { SearchOptions } from '../../../server/src/knowledge-graph/documents/index'
 
 // ---------------------------------------------------------------- options
 const args = process.argv.slice(2)
@@ -37,7 +40,18 @@ const WORDS = opt('words', 'message') as 'message' | 'search'
 if (WORDS !== 'message' && WORDS !== 'search') throw new Error('--words is message or search')
 const MAX_DISTRACTORS = Number(opt('max-distractors', 'Infinity'))
 const MODEL_DIR = path.resolve(opt('model-dir', path.join(CACHE, 'models')))
-const EMBED_THREADS = Number(opt('embed-threads', String(Math.min(4, os.availableParallelism()))))
+const DOWNLOAD = !args.includes('--no-download')
+/** the server embeds with 1 thread and batches of 4 (meaning/indexer.ts); the test goes faster with the same model */
+const EMBED_THREADS = Number(opt('embed-threads', String(Math.min(6, os.availableParallelism()))))
+const EMBED_MAX_RSS = Number(opt('embed-max-rss', '4000'))
+/** normal (default) or background: the server's priority (below people's work), much slower on a Mac */
+const EMBED_PRIORITY = opt('embed-priority', 'normal')
+if (EMBED_PRIORITY !== 'normal' && EMBED_PRIORITY !== 'background') throw new Error('--embed-priority is normal or background')
+/** a search's deadline: far, because the deadline is about chat latency, not quality */
+const DUE_MS = Number(opt('due-ms', '120000'))
+/** an earlier run's full index (its documents folder) to reuse, and a sample of pieces to embed again for the pace */
+const REUSE = opt('reuse-index', '') ? path.resolve(opt('reuse-index', '')) : ''
+const EMBED_SAMPLE = Number(opt('embed-sample', '0'))
 const EMBED_BATCH = Number(opt('embed-batch', '16'))
 const KEEP = opt('keep', '')
 const LABEL = opt('label', '')
@@ -99,21 +113,34 @@ const machine = {
 }
 
 // ---------------------------------------------------------------- build the full index
+// laid out like a server's data folder: <base>/knowledge-graph/documents, and <base>/models for the search worker
 const tmp = KEEP ? path.resolve(KEEP) : fs.mkdtempSync(path.join(os.tmpdir(), 'kg-quality-'))
 fs.mkdirSync(tmp, { recursive: true })
-const fullDir = path.join(tmp, 'full')
-fs.rmSync(fullDir, { recursive: true, force: true })
+const fullBase = path.join(tmp, 'full')
+const fullDir = indexDirOf(fullBase)
+fs.rmSync(fullBase, { recursive: true, force: true })
 log(`${questions.length} questions; ${targets.length} target documents + ${wikiFiles.length} distractors (ko ${wikiFiles.filter((f) => f.lang === 'ko').length}, en ${wikiFiles.filter((f) => f.lang === 'en').length}); index in ${tmp}`)
 
 enter('index')
 const build = { files: 0, ok: 0, failed: [] as { rel: string; reason: string }[], chunks: 0, bytes: 0, ms: 0, diskBytes: 0 }
-{
-  const idx = DocumentIndex.open(fullDir)
+// --reuse-index: an index built (and embedded) by an earlier run (its <keep>/full/knowledge-graph/documents), so a
+// small machine can be timed on the full set without hours of embedding; it must hold exactly this run's files
+if (REUSE) { fs.mkdirSync(path.dirname(fullDir), { recursive: true }); fs.cpSync(REUSE, fullDir, { recursive: true }) }
+const fullIdx = DocumentIndex.open(fullDir)
+if (REUSE) {
+  const have = fullIdx.files(ROOT_ID)
+  const missing = allFiles.filter((f) => !have.has(f.rel))
+  if (missing.length || have.size !== allFiles.length) throw new Error(`--reuse-index holds ${have.size} files; ${missing.length} of this run's ${allFiles.length} are missing`)
+  const st = fullIdx.stats(ROOT_ID)
+  Object.assign(build, { files: allFiles.length, ok: st.documents, chunks: st.chunks, ms: NaN })
+  for (const f of st.failed) build.failed.push({ rel: f.relPath, reason: f.reason })
+  log(`reusing ${REUSE}: ${st.documents} files, ${st.chunks} pieces, ${fullIdx.vectorCounts().done} with a vector`)
+} else {
   const t = performance.now()
   for (const f of allFiles) {
     const bytes = new Uint8Array(fs.readFileSync(f.abs))
     const st = fs.statSync(f.abs)
-    const r = await idx.update(ROOT_ID, f.rel, { bytes, size: st.size, mtimeMs: st.mtimeMs })
+    const r = await fullIdx.update(ROOT_ID, f.rel, { bytes, size: st.size, mtimeMs: st.mtimeMs })
     build.files++
     sample()
     build.bytes += bytes.byteLength
@@ -121,44 +148,61 @@ const build = { files: 0, ok: 0, failed: [] as { rel: string; reason: string }[]
     if (build.files % 500 === 0) log(`indexed ${build.files}/${allFiles.length} files, ${build.chunks} pieces`)
   }
   build.ms = performance.now() - t
-  build.diskBytes = idx.diskBytes()
-  idx.close()
 }
 const targetFailed = build.failed.filter((f) => f.rel.startsWith(TARGET_PREFIX))
 if (targetFailed.length) throw new Error(`target documents failed to index: ${JSON.stringify(targetFailed)}`)
-log(`index built: ${build.ok} files, ${build.chunks} pieces in ${(build.ms / 1000).toFixed(1)} s (${Math.round(build.chunks / (build.ms / 1000))} pieces/s); ${build.failed.length} distractors failed`)
+if (!REUSE) log(`index built: ${build.ok} files, ${build.chunks} pieces in ${(build.ms / 1000).toFixed(1)} s (${Math.round(build.chunks / (build.ms / 1000))} pieces/s); ${build.failed.length} distractors failed`)
 
-// ---------------------------------------------------------------- meaning: the embedder and the vectors
-let embedder: Embedder | null = null
-const meaning: { asked: boolean; ready: boolean; skipped?: string; openMs?: number; embed?: { pieces: number; already: number; ms: number; perSecond: number; threads: number; batch: number }; ignored?: boolean } = { asked: MODES.includes('combined'), ready: false }
+// ---------------------------------------------------------------- meaning: the model and the vectors
+const meaning: { asked: boolean; ready: boolean; skipped?: string; modelDownloadMs?: number; embed?: Omit<EmbedResult, 'logs'>; embedSample?: Omit<EmbedResult, 'logs'>; ignored?: boolean; byMeaningHits?: number; workerWarnings?: string[]; warmMs?: number } = { asked: MODES.includes('combined'), ready: false }
 if (meaning.asked) {
-  enter('meaning-open')
-  const dbFile = path.join(fullDir, 'documents.db')
-  if (!hasVecColumn(dbFile)) meaning.skipped = 'documents.db has no chunks.vec column: the meaning index (wave 2) is not merged into this checkout yet'
-  else {
-    const m = await openMeaning({ modelDir: MODEL_DIR, sharedDir: process.env.MYCEL_MODELS_DIR ? path.join(process.env.MYCEL_MODELS_DIR, 'semantic') : null, threads: EMBED_THREADS })
-    if (!m.ok) meaning.skipped = `the embedder did not open: ${m.reason}`
-    else {
-      embedder = m.embedder
-      meaning.openMs = Math.round(m.ms)
-      log(`embedder open in ${(m.ms / 1000).toFixed(1)} s; embedding pieces (${EMBED_THREADS} threads, batches of ${EMBED_BATCH})`)
-      enter('embed')
-      let last = 0
-      const e = await fillVectors(dbFile, m.embedder, { batch: EMBED_BATCH, onProgress: (done, total) => { sample(); if (done - last >= 1000 || done === total) { last = done; log(`embedded ${done}/${total} pieces`) } } })
-      const vc = vectorCount(dbFile)
-      if (vc.withVec < vc.chunks) meaning.skipped = `only ${vc.withVec} of ${vc.chunks} pieces have a vector`
-      else {
-        meaning.ready = true
-        meaning.embed = { ...e, ms: Math.round(e.ms), perSecond: e.pieces ? Math.round(e.pieces / (e.ms / 1000) * 10) / 10 : 0, threads: EMBED_THREADS, batch: EMBED_BATCH }
-      }
+  enter('model')
+  try {
+    meaning.modelDownloadMs = (await readyModel(MODEL_DIR, DOWNLOAD)).downloadedMs
+    log(meaning.modelDownloadMs ? `model downloaded in ${(meaning.modelDownloadMs / 1000).toFixed(1)} s` : 'model files present and checked')
+    if (EMBED_SAMPLE > 0 && !REUSE) log('--embed-sample is for --reuse-index (the full embedding below measures the pace otherwise); ignored')
+    if (EMBED_SAMPLE > 0 && REUSE) {
+      // the pace on this machine, on a copy: EMBED_SAMPLE pieces spread over the index lose their vector and are
+      // embedded again through the same loop and process
+      enter('embed-sample')
+      const sBase = path.join(tmp, 'sample'), sDir = indexDirOf(sBase)
+      fs.rmSync(sBase, { recursive: true, force: true })
+      fs.cpSync(fullDir, sDir, { recursive: true })
+      const db = new Database(path.join(sDir, 'documents.db'))
+      const total = (db.query('SELECT count(*) AS n FROM chunks').get() as { n: number }).n
+      const every = Math.max(1, Math.floor(total / EMBED_SAMPLE))
+      db.run(`UPDATE chunks SET vec = NULL WHERE id IN (SELECT id FROM chunks WHERE id % ${every} = 0 ORDER BY id LIMIT ${EMBED_SAMPLE})`)
+      db.close()
+      const sIdx = DocumentIndex.open(sDir)
+      log(`embedding a sample of ${sIdx.vectorCounts().pending} pieces (${EMBED_THREADS} ONNX threads, batches of ${EMBED_BATCH}, ${EMBED_PRIORITY} priority)`)
+      try {
+        const e = await embedAll(sIdx, { modelDir: MODEL_DIR, threads: EMBED_THREADS, batch: EMBED_BATCH, maxRssMiB: EMBED_MAX_RSS, background: EMBED_PRIORITY === 'background', onProgress: (_done, pending) => { sample(); log(`sample: ${pending} to go`) } })
+        const { logs: _logs, ...rest } = e
+        meaning.embedSample = rest
+        log(`sample: ${e.pieces} pieces in ${(e.ms / 1000).toFixed(0)} s = ${e.perSecond} pieces/s; embedding process peak ${e.peakMiB} MiB`)
+      } finally { sIdx.close(); fs.rmSync(sBase, { recursive: true, force: true }) }
     }
+    enter('embed')
+    if (fullIdx.vectorCounts().pending) {
+      log(`embedding ${fullIdx.vectorCounts().pending} pieces through the server's indexing loop (${EMBED_THREADS} ONNX threads, batches of ${EMBED_BATCH}, ${EMBED_PRIORITY} priority; the server uses 1 thread, batches of 4, background priority)`)
+      const e = await embedAll(fullIdx, { modelDir: MODEL_DIR, threads: EMBED_THREADS, batch: EMBED_BATCH, maxRssMiB: EMBED_MAX_RSS, background: EMBED_PRIORITY === 'background', onProgress: (done, pending) => { sample(); log(`embedded ${done}, ${pending} to go`) } })
+      const { logs, ...rest } = e
+      meaning.embed = rest
+      log(`embedded ${e.pieces} pieces in ${(e.ms / 1000).toFixed(0)} s = ${e.perSecond} pieces/s; embedding process peak ${e.peakMiB} MiB (loading ${e.loadPeakMiB} MiB)`)
+      for (const l of logs.filter((x) => x.startsWith('WARN'))) log(l)
+    }
+    meaning.ready = true
+  } catch (err) {
+    meaning.skipped = String((err as Error)?.message ?? err).slice(0, 300)
   }
   if (meaning.skipped) log(`meaning mode SKIPPED: ${meaning.skipped}`)
 }
+build.diskBytes = fullIdx.diskBytes()
+fullIdx.close()
 const modes: Mode[] = MODES.filter((m) => m === 'keyword' || meaning.ready)
 
 // ---------------------------------------------------------------- ask
-interface Answer { rank: number | null; r8: boolean; top1: boolean; ms: number; hits: number; top: string[] }
+interface Answer { rank: number | null; r8: boolean; top1: boolean; ms: number; hits: number; byMeaning: number; top: string[] }
 const words = (q: string) => WORDS === 'message' ? questionTerms(q).join(' ') : q
 const expected = (q: Question) => new Set(q.expectFiles.map((f) => TARGET_PREFIX + f))
 
@@ -168,53 +212,65 @@ function score(q: Question, hits: DocHit[], ms: number): Answer {
   for (const h of hits) if (!files.includes(h.relPath)) files.push(h.relPath)
   const first8 = new Set(hits.slice(0, TOP).map((h) => h.relPath))
   const i = files.findIndex((f) => want.has(f))
-  return { rank: i >= 0 ? i + 1 : null, r8: [...first8].some((f) => want.has(f)), top1: !!files[0] && want.has(files[0]), ms, hits: hits.length, top: files.slice(0, TOP) }
+  return { rank: i >= 0 ? i + 1 : null, r8: [...first8].some((f) => want.has(f)), top1: !!files[0] && want.has(files[0]), ms, hits: hits.length, byMeaning: hits.filter((h) => h.byMeaning).length, top: files.slice(0, TOP) }
 }
 
 const results = new Map<number, Record<Mode, Map<string, Answer>>>()
 const sizeInfo: { files: number; chunks: number; prepMs: number }[] = []
+const warnings: string[] = []
 for (const n of sizes) {
   enter('prepare')
-  const dir = n === allFiles.length ? fullDir : path.join(tmp, `n${n}`)
+  const base = n === allFiles.length ? fullBase : path.join(tmp, `n${n}`)
+  const dir = indexDirOf(base)
   const t = performance.now()
-  if (dir !== fullDir) { fs.rmSync(dir, { recursive: true, force: true }); fs.cpSync(fullDir, dir, { recursive: true }) }
-  const o: MeaningIndexOptions = embedder ? { embedder } : {}
-  const idx = DocumentIndex.open(dir, o)
-  if (dir !== fullDir) { const keep = subsetOf(n); for (const f of allFiles) if (!keep.has(f.rel)) idx.remove(ROOT_ID, f.rel) }
-  const st = idx.stats(ROOT_ID)
+  if (base !== fullBase) {
+    fs.rmSync(base, { recursive: true, force: true })
+    fs.cpSync(fullDir, dir, { recursive: true })
+    const idx = DocumentIndex.open(dir)
+    const keep = subsetOf(n)
+    for (const f of allFiles) if (!keep.has(f.rel)) idx.remove(ROOT_ID, f.rel)
+    idx.close()
+  }
+  if (modes.includes('combined')) linkModels(base, MODEL_DIR)
+  const st = (() => { const idx = DocumentIndex.open(dir); try { return idx.stats(ROOT_ID) } finally { idx.close() } })()
   sizeInfo.push({ files: st.documents, chunks: st.chunks, prepMs: Math.round(performance.now() - t) })
   log(`size ${sizeName(n)}: ${st.documents} files, ${st.chunks} pieces`)
+  // the real search worker, as the server opens it (meaning on: it loads the vectors and the model at once)
+  const tOpen = performance.now()
+  const worker = openWorker(dir, modes.includes('combined'), warnings)
   const per = {} as Record<Mode, Map<string, Answer>>
-  for (const mode of modes) {
-    enter(`query-${mode}`)
-    const m = new Map<string, Answer>()
-    const so: MeaningSearchOptions = { rootIds: [ROOT_ID], limit: LIMIT, passage: LOOKUP_LONG_CHARS, ...(mode === 'combined' ? { meaning: true } : {}) }
-    // one search first, not counted: the first query opens statements and warms caches
-    await idx.search('warm up', so)
-    for (const q of questions) {
-      const w = words(q.q)
-      const t1 = performance.now()
-      // await: the combined search may answer with a promise (the question is embedded first)
-      const hits: DocHit[] = w ? await idx.search(w, so) : []
-      m.set(q.id, score(q, hits, performance.now() - t1))
-      sample()
+  try {
+    for (const mode of modes) {
+      enter(`query-${mode}`)
+      const m = new Map<string, Answer>()
+      const so: SearchOptions = { rootIds: [ROOT_ID], limit: LIMIT, passage: LOOKUP_LONG_CHARS }
+      // searches first, not counted: the worker's connection, and for combined the vectors and the query's model
+      for (let i = 0; i < 3; i++) await workerSearch(worker, 'warm up search', so, mode === 'combined', DUE_MS)
+      if (mode === 'combined' && n === allFiles.length) meaning.warmMs = Math.round(performance.now() - tOpen)
+      for (const q of questions) {
+        const w = words(q.q)
+        const t1 = performance.now()
+        const hits: DocHit[] = w ? await workerSearch(worker, w, so, mode === 'combined', DUE_MS) : []
+        m.set(q.id, score(q, hits, performance.now() - t1))
+        sample()
+      }
+      per[mode] = m
     }
-    per[mode] = m
-  }
+  } finally { worker.close() }
   results.set(n, per)
-  idx.close()
-  if (dir !== fullDir && !KEEP) fs.rmSync(dir, { recursive: true, force: true })
+  if (base !== fullBase && !KEEP) fs.rmSync(base, { recursive: true, force: true })
 }
 enter('report')
-await embedder?.dispose()
 clearInterval(sampler)
 if (!KEEP) fs.rmSync(tmp, { recursive: true, force: true })
+if (warnings.length) { meaning.workerWarnings = [...new Set(warnings)].slice(0, 10); for (const w of meaning.workerWarnings) log(`worker: ${w}`) }
 
-// combined results that never differ from keyword-only ones: the option was most likely ignored
+// combined results that never differ from keyword-only ones, or no hit found by meaning: the meaning part did not run
 if (modes.includes('combined')) {
   const full = results.get(allFiles.length)!
-  meaning.ignored = questions.every((q) => JSON.stringify(full.combined.get(q.id)!.top) === JSON.stringify(full.keyword?.get(q.id)?.top))
-  if (meaning.ignored) log('WARNING: combined results equal keyword-only results for every question: the meaning option was most likely ignored (see meaning.ts)')
+  meaning.byMeaningHits = questions.reduce((s, q) => s + full.combined.get(q.id)!.byMeaning, 0)
+  meaning.ignored = meaning.byMeaningHits === 0 || questions.every((q) => JSON.stringify(full.combined.get(q.id)!.top) === JSON.stringify(full.keyword?.get(q.id)?.top))
+  if (meaning.ignored) log('WARNING: combined results equal keyword-only results (or no hit came from meaning): the meaning part most likely did not run')
 }
 
 // ---------------------------------------------------------------- statistics
@@ -278,7 +334,7 @@ const queryCost = (n: number) => Object.fromEntries(modes.map((m) => { const ms 
 const full = allFiles.length
 const out = {
   label: LABEL || null, date: new Date().toISOString(), commit: gitCommit(), machine,
-  settings: { words: WORDS, limit: LIMIT, top: TOP, passage: LOOKUP_LONG_CHARS, sizes, modesAsked: MODES, modesRun: modes, bootstrap: BOOTSTRAP },
+  settings: { words: WORDS, limit: LIMIT, top: TOP, passage: LOOKUP_LONG_CHARS, sizes, modesAsked: MODES, modesRun: modes, bootstrap: BOOTSTRAP, dueMs: DUE_MS, embedThreads: EMBED_THREADS, embedBatch: EMBED_BATCH, embedPriority: EMBED_PRIORITY, searchedIn: 'DocSearchWorker' },
   corpus: { questions: questions.length, targets: targets.length, distractors: wikiFiles.length, distractorsKo: wikiFiles.filter((f) => f.lang === 'ko').length, distractorsEn: wikiFiles.filter((f) => f.lang === 'en').length, failedDistractors: build.failed.length, chunks: build.chunks, bytes: build.bytes },
   cost: {
     index: { files: build.files, pieces: build.chunks, seconds: round(build.ms / 1000, 1), piecesPerSecond: Math.round(build.chunks / (build.ms / 1000)), filesPerSecond: Math.round(build.files / (build.ms / 1000)), diskMb: mb(build.diskBytes) },
@@ -294,7 +350,7 @@ const out = {
     id: q.id, lang: q.lang, type: q.type, expectFiles: q.expectFiles, words: words(q.q),
     results: Object.fromEntries(sizes.map((n) => [sizeName(n), Object.fromEntries(modes.map((m) => {
       const a = results.get(n)![m].get(q.id)!
-      return [m, n === full ? { rank: a.rank, r8: a.r8, top1: a.top1, ms: round(a.ms, 2), hits: a.hits, top: a.top } : { rank: a.rank, r8: a.r8, top1: a.top1 }]
+      return [m, n === full ? { rank: a.rank, r8: a.r8, top1: a.top1, ms: round(a.ms, 2), hits: a.hits, byMeaning: a.byMeaning, top: a.top } : { rank: a.rank, r8: a.r8, top1: a.top1 }]
     }))])),
   })),
 }
@@ -315,7 +371,7 @@ function markdown(): string {
     (machine.cpuMax ? `; cgroup cpu.max ${machine.cpuMax}, memory.max ${machine.memoryMax}` : ''))
   L.push(`- Corpus: ${targets.length} made-up Acme documents + ${wikiFiles.length} Wikipedia articles (ko ${out.corpus.distractorsKo}, en ${out.corpus.distractorsEn}); ${build.chunks} pieces; ${build.failed.length} distractors not indexed`)
   L.push(`- Questions: ${questions.length} (${TYPES.map((t) => `${t} ${questions.filter((q) => q.type === t).length}`).join(', ')}); words: ${WORDS === 'message' ? "the AI's lookup (questionTerms)" : 'every word typed (queryTerms)'}; ${LIMIT} hits asked, Recall and first place over the first ${TOP} hits`)
-  L.push(`- Modes run: ${modes.join(', ')}` + (meaning.asked && !meaning.ready ? `. **Combined skipped:** ${meaning.skipped}` : '') + (meaning.ignored ? '. **Warning: combined results equal keyword-only for every question; the meaning option was most likely ignored.**' : ''))
+  L.push(`- Modes run: ${modes.join(', ')}` + (meaning.asked && !meaning.ready ? `. **Combined skipped:** ${meaning.skipped}` : '') + (meaning.ignored ? '. **Warning: combined results equal keyword-only (or no hit came from meaning); the meaning part most likely did not run.**' : ''))
   L.push('')
   L.push('## Results on the full set', '')
   L.push(`| Group | ${modes.map((m) => `${m}: Recall@8 | first | MRR`).join(' | ')} |`)
@@ -347,10 +403,13 @@ function markdown(): string {
   })
   L.push('')
   L.push('## Cost', '')
-  L.push(`- Indexing (keyword, one thread, text extraction included): ${build.files} files, ${build.chunks} pieces in ${out.cost.index.seconds} s = ${out.cost.index.piecesPerSecond} pieces/s; documents.db ${out.cost.index.diskMb} MB`)
-  if (meaning.embed) L.push(`- Embedding: ${meaning.embed.pieces} pieces in ${round(meaning.embed.ms / 1000, 1)} s = ${meaning.embed.perSecond} pieces/s (${meaning.embed.threads} threads, batches of ${meaning.embed.batch}); embedder opened in ${round((meaning.openMs ?? 0) / 1000, 1)} s`)
+  if (REUSE) L.push(`- Index reused from an earlier run (--reuse-index): ${build.files} files, ${build.chunks} pieces with their vectors; documents.db ${out.cost.index.diskMb} MB`)
+  else L.push(`- Indexing (keyword, one thread, text extraction included): ${build.files} files, ${build.chunks} pieces in ${out.cost.index.seconds} s = ${out.cost.index.piecesPerSecond} pieces/s; documents.db ${out.cost.index.diskMb} MB`)
+  if (meaning.embed) L.push(`- Embedding (the server's indexing loop and embedding process, ${meaning.embed.threads} ONNX threads, batches of ${meaning.embed.batch}, ${EMBED_PRIORITY} priority; the server runs 1 thread, batches of 4, below people's work, so it is slower by design): ${meaning.embed.pieces} pieces in ${round(meaning.embed.ms / 1000, 1)} s = ${meaning.embed.perSecond} pieces/s; embedding process peak ${meaning.embed.peakMiB} MiB (${meaning.embed.loadPeakMiB} MiB while loading)` + (meaning.modelDownloadMs ? `; model downloaded in ${round(meaning.modelDownloadMs / 1000, 1)} s` : ''))
+  if (meaning.embedSample) L.push(`- Embedding pace on a sample (the same loop and process, ${meaning.embedSample.threads} ONNX thread(s), batches of ${meaning.embedSample.batch}, ${EMBED_PRIORITY} priority): ${meaning.embedSample.pieces} pieces in ${round(meaning.embedSample.ms / 1000, 1)} s = ${meaning.embedSample.perSecond} pieces/s; embedding process peak ${meaning.embedSample.peakMiB} MiB` + (meaning.modelDownloadMs ? `; model downloaded in ${round(meaning.modelDownloadMs / 1000, 1)} s` : ''))
+  if (meaning.ready) L.push(`- Combined search: ${meaning.byMeaningHits} hits found by meaning only across the ${questions.length} questions on the full set; worker open to the first combined answer (vectors and the query's model loaded) ${round((meaning.warmMs ?? 0) / 1000, 1)} s` + (meaning.workerWarnings?.length ? `; worker warnings: ${meaning.workerWarnings.join(' | ')}` : ''))
   L.push(`- Peak RSS by phase (MB, sampled every 100 ms and after every file and question): ${Object.entries(out.cost.peakRssMb).map(([k, v]) => `${k} ${v}`).join(', ')}; process max ${out.cost.maxRssMb} MB`)
-  L.push(`- Query time (ms, one search, the server's own thread): ${sizes.map((n) => `${sizeName(n)}: ${modes.map((m) => `${m} p50 ${out.cost.query[sizeName(n)]![m]!.p50} / p95 ${out.cost.query[sizeName(n)]![m]!.p95}`).join(', ')}`).join('; ')}`)
+  L.push(`- Query time (ms, one search through the search worker, round trip included; combined includes the question's embedding): ${sizes.map((n) => `${sizeName(n)}: ${modes.map((m) => `${m} p50 ${out.cost.query[sizeName(n)]![m]!.p50} / p95 ${out.cost.query[sizeName(n)]![m]!.p95}`).join(', ')}`).join('; ')}`)
   L.push('')
   L.push('## Misses on the full set (ids)', '')
   for (const m of modes) {

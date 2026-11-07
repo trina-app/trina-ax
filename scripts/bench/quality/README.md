@@ -40,43 +40,55 @@ bun scripts/bench/quality/run.ts --modes keyword --out 2026-11-07-keyword-mac
 grep), every file in a fixed shuffled order (sha256 of its path): the full-text index takes the first few hundred matches
 of a word unranked, by row order, so targets must not all come first. It then copies the index for the smaller sizes
 (about 50 and 500 files: the 49 targets plus the first distractors in the same order) and takes the other files out
-again. Every question goes through `DocumentIndex.search` the way the AI's lookup sends it (`service.ts` docPassages:
-the question's distinctive words, `questionTerms`, joined; limit 45; passages of 1,500 characters). `--words search`
-sends every word instead, as the Files search box does.
+again. Every question goes through the real search worker (`DocSearchWorker`, `documents/search-worker.ts`) the way the
+AI's lookup sends it (`service.ts` docPassages: the question's distinctive words, `questionTerms`, joined, which is also
+the text the question is embedded from; limit 45; passages of 1,500 characters). `--words search` sends every word
+instead, as the Files search box does.
 
 Options: `--modes keyword,combined` (default both; combined is skipped with the reason when it cannot run),
-`--sizes 50,500,full`, `--max-distractors <n>`, `--out <name>`, `--label <text>`, `--keep <dir>` (keep the index),
+`--sizes 50,500,full`, `--max-distractors <n>`, `--out <name>`, `--label <text>`, `--keep <dir>` (keep the indexes),
 `--bootstrap <n>` (default 10,000).
 
-### Meaning mode, once wave 2 is merged
+### Combined mode (`meaning.ts`)
 
-`run.ts` runs combined mode when all of these are there, and says which is missing otherwise:
+Each index is laid out like a server's data folder: `<tmp>/<size>/knowledge-graph/documents`, and `<tmp>/<size>/models`
+linked to the model folder, where the search worker looks for the model (`meaningModelDirs`, no download there).
 
-1. `documents.db` has the `chunks.vec` column (the meaning index adds it when the index opens).
-2. `openEmbedder()` (`server/src/knowledge-graph/meaning/embedder.ts`) opens the model. It is downloaded on first use
-   into `--model-dir` (default `scripts/bench/quality/.cache/models`), or found in `$MYCEL_MODELS_DIR/semantic`.
-3. The runner embeds every piece without a vector as `passageText(file name, heading, text)` (`meaning/vectors.ts`),
-   `quantize`, `vecToBlob`, and an UPDATE of `chunks.vec`; `--embed-threads` (default min(4, cores)) and
-   `--embed-batch` (default 16). Use `--embed-threads 1` to measure what the server's one background worker would do.
-4. Each question is searched with `meaning: true` in the search options; the index is opened with `{ embedder }` so it
-   can embed the question. If the merged API takes the embedder or the option another way, change `meaning.ts` only.
-   When combined results equal keyword-only results for every question, the run says the option was most likely
-   ignored.
+1. The model: `ensureModel()` into `--model-dir` (default `scripts/bench/quality/.cache/models`, 129 MB), checked against
+   the pinned hashes; `--no-download` refuses to fetch it.
+2. The vectors: the server's own background loop, `MeaningIndexer` (`meaning/indexer.ts`: `pendingVectors`,
+   `passageText`, `writeVectors`), with the embedding process `embed-worker.ts`. Only the pace differs:
+   `--embed-threads` (default min(6, cores)), `--embed-batch` (default 16), `--embed-max-rss` (default 4000 MiB, the
+   loop's limit for the process), and `--embed-priority normal` (default) starts the same script without the
+   below-people's-work prefix. The server uses 1 thread, batches of 4 and background priority, which on an M-series Mac
+   keeps it to the efficiency cores (3.4 pieces/s with 6 threads): slower by design. `--embed-priority background`
+   reproduces it.
+3. The search: `meaning: true` in the worker, which embeds the question in its own thread and fuses by rank; a deadline
+   of `--due-ms` (default 120 s), because the deadline is about chat latency, not quality. Three searches warm the
+   worker first. Hits found only by meaning (`byMeaning`) are counted; when there are none, or combined equals
+   keyword-only for every question, the run says the meaning part did not run.
+4. `--reuse-index <dir>` takes an earlier run's full index with its vectors (`--keep <k>` leaves it in
+   `<k>/full/knowledge-graph/documents`), so a small machine can be timed on the full set without hours of embedding;
+   `--embed-sample <n>` then measures that machine's embedding pace on n pieces of a copy, through the same loop.
 
 ```bash
-bun scripts/bench/quality/run.ts --out 2026-11-xx-combined-mac          # both modes, paired comparison
+bun scripts/bench/quality/run.ts --out 2026-11-07-combined-mac --keep <scratch>/kg-keep
 ```
 
 ### A 2-core estimate
 
 ```bash
 scripts/bench/quality/docker.sh 2026-11-07-keyword-docker-2cpu --modes keyword
+QUALITY_REUSE=<scratch>/kg-keep/full/knowledge-graph/documents scripts/bench/quality/docker.sh \
+  2026-11-07-combined-docker-2cpu --reuse-index quality-reuse --embed-sample 400 --embed-threads 1 --embed-batch 4 \
+  --embed-priority background --sizes full
 ```
 
 Runs `run.ts` in `oven/bun:1.3.12` (the bun of CI and the release bundles) with `--cpus=2 --memory=4g`. The committed
-checkout (`git archive HEAD`) and `.cache/wiki` (and `.cache/models`, when present) go in on stdin, because colima does
-not mount `/private/tmp`; the results come back on stdout. Commit first. A Lightsail 2-core plan guarantees only about
-20% of each core, so this is the best case of such a server, not its average.
+checkout (`git archive HEAD`) and `.cache/wiki` go in on stdin, because colima does not mount `/private/tmp`; the
+results come back on stdout. The model is downloaded inside the container (`QUALITY_MODELS=1` pipes `.cache/models` in
+instead); `QUALITY_REUSE` pipes in an index with its vectors. Commit first. A Lightsail 2-core plan guarantees only
+about 20% of each core, so this is the best case of such a server, not its average.
 
 ## Results so far
 
@@ -84,8 +96,13 @@ not mount `/private/tmp`; the results come back on stdout. Commit first. A Light
 |---|---|---|---|---|---|---|
 | [keyword, this Mac](results/2026-11-07-keyword-mac.md) | 47.3% | 38.7% | 0.419 | 83% / 90% / 63% | 547 pieces/s | 15.6 / 32.8 ms |
 | [keyword, Docker 2 CPUs 4 GB](results/2026-11-07-keyword-docker-2cpu.md) | 47.3% | 38.7% | 0.419 | 83% / 90% / 63% | 465 pieces/s | 14.6 / 30.4 ms |
+| [combined, this Mac](results/2026-11-07-combined-mac.md) (keyword in the same run: as above) | 51.3% | 42.0% | 0.463 | 87% / 93% / 73% | 8.1 pieces/s embedded (6 threads) | 32.5 / 82.9 ms (keyword 20.3 / 64.1, worker) |
+| [combined, Docker 2 CPUs 4 GB](results/2026-11-07-combined-docker-2cpu.md) (the Mac's vectors) | 51.3% | 42.0% | 0.463 | 87% / 93% / 73% | 2.7 pieces/s embedded (server settings: 1 thread, batches of 4) | 35.5 / 87.5 ms (keyword 26.3 / 76.4, worker) |
 
-Paraphrase and cross are 0% for keyword-only, as built. Combined: not run yet (wave 2 not merged).
+Paraphrase and cross are 0% for keyword-only, as built; combined reaches 3.3% and 0% on the full set (70% and 13% at 50
+files). The model alone (no fusion) puts the expected file in its top 8 for paraphrase 4/30, cross 1/30, filename
+29/30, table 27/30 and exact 20/30, with the question embedded from its words joined or as typed alike: the fusion
+with keyword hits takes filename from 29 to 22.
 
 ## Metrics
 
@@ -105,6 +122,7 @@ Paraphrase and cross are 0% for keyword-only, as built. Combined: not run yet (w
   encyclopedia articles, not office files (the 2026-11-01 test used internal planning files, closer to the targets).
 - 30 questions per type: one question is 3.3 points, so per-type differences of one or two questions are noise; read
   the intervals.
-- `search` is measured, not the whole lookup: the lookup also drops hits that hold none of the question's words
-  (`matchStrength`), which would drop meaning-only hits unless wave 3 changes it.
+- The worker's `search` is measured, not the whole lookup: the lookup keeps meaning-only hits as weak (never pasted as
+  strong passages), drops keyword hits that hold none of the words as words, and checks each file for the person.
+- The question is embedded from its distinctive words joined (what the lookup sends), not from the sentence as typed.
 - Wikipedia changes; `distractors.json` pins the pages, not their revisions (it records the first revision seen).
