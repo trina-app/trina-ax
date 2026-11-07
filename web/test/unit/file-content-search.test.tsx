@@ -7,12 +7,12 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import type { FileContentHits, Locale } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { FileContentList, queryWords, wordParts } from '../../src/components/FileContentSearch'
-import { getSidePanel, setSidePanel } from '../../src/lib/sidePanel'
+import { closeSidePanel, getSidePanel } from '../../src/lib/sidePanel'
 import { installDom, mount, removeDom } from './dom-host'
 
 const setLocale = (l: Locale) => Object.assign(useLocaleStore.getInitialState(), { locale: l })
 const before = useLocaleStore.getInitialState().locale
-afterEach(() => { setLocale(before); setSidePanel(null) })
+afterEach(() => setLocale(before))
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;')
 
 const none = { truncated: false, timedOut: false, indexing: 0, notQueued: 0, retryLater: 0, longSkipped: 0 }
@@ -89,6 +89,8 @@ describe('document rows and line matches', () => {
 test('a click on a document row opens the file at its place; on a line, the file as before', async () => {
   setLocale('en')
   installDom()
+  // the side panel is a store other mounted screens listen to: opened and closed only while the test's DOM is there
+  closeSidePanel()
   const m = await mount(<FileContentList res={{ items: LINES, documents: [DOCS[0]!], ...none }} query="환불" folderLabel="shared" />)
   try {
     await m.click('content-doc')
@@ -98,6 +100,7 @@ test('a click on a document row opens the file at its place; on a line, the file
     expect(p).toMatchObject({ kind: 'file', file: { source: 'team', path: 'shared/notes/pricing.md' } })
     expect(p?.kind === 'file' && p.file.source === 'team' && p.file.at).toBeFalsy()
   } finally {
+    closeSidePanel()
     await m.unmount()
     removeDom()
   }
