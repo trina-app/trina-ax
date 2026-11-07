@@ -1,8 +1,9 @@
-// Who is signed in (GET /api/me), first-run setup state, and the person's language / theme.
+// Who is signed in (GET /api/me), first-run setup state, and the person's language / theme / text size.
 import { create } from 'zustand'
-import type { Locale, Me, Theme, UserPrefs } from '@mycel/shared/api'
+import type { Locale, Me, TextSize, Theme, UserPrefs } from '@mycel/shared/api'
 import { api, API, isApiError } from '../lib/api'
 import { applyTheme, storedTheme, storeTheme } from '../lib/theme'
+import { applyTextSize, storedTextSize, storeTextSize } from '../lib/textSize'
 import { pickLocale, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../i18n'
 import { recoveryLocale } from '../i18n/recovery-locale'
 import { forgetFileUploads } from '../lib/fileUploads'
@@ -34,6 +35,8 @@ interface SessionState {
   /** the person's language: one of their own, or null = follow the team default */
   setLocale: (l: Locale | null) => Promise<void>
   setTheme: (t: Theme) => Promise<void>
+  /** shown at once on this device; the account keeps it for the others */
+  setTextSize: (s: TextSize) => Promise<void>
 }
 
 function applyMe(me: Me) {
@@ -44,6 +47,10 @@ function applyMe(me: Me) {
   const theme = me.user.prefs.theme ?? storedTheme()
   storeTheme(theme)
   applyTheme(theme)
+  // the same way: the account's text size, else this device's (an account that never picked one keeps it)
+  const textSize = me.user.prefs.textSize ?? storedTextSize()
+  storeTextSize(textSize)
+  applyTextSize(textSize)
   // the team's logo as the tab icon (or the default mark again after an admin removed it)
   applyTeamIcon(me.team.iconVersion)
 }
@@ -177,6 +184,12 @@ export const useSession = create<SessionState>((set, get) => ({
     storeTheme(theme)
     applyTheme(theme)
     await get().updatePrefs({ theme })
+  },
+
+  async setTextSize(textSize) {
+    storeTextSize(textSize)
+    applyTextSize(textSize)
+    await get().updatePrefs({ textSize })
   },
 }))
 

@@ -11619,3 +11619,32 @@ URL, and any credential kind that would carry a custom address.
   server refusing these steps (now by name in `demo/guard.ts`, with its own message), and the speech key's password.
 - **Rejected:** keeping a lighter re-auth for official accounts (no gain, as above); dropping the password from the API
   engine (it sets where conversations go).
+
+## 글자 크기 — each person's text size (feat/text-size, 2026-11-07)
+
+넣을 곳: trina-ax web/src (lib/textSize.ts, pages/Settings.tsx) + shared/src/api, 이유: the product owner asked that each
+person can make the text larger, like a phone's Text Size setting; it is the web app's own look, so it belongs in the
+core next to the theme.
+
+- **One control, next to the theme.** Settings › Profile › 글자 크기: a native range slider from a small 가 to a large
+  가 (the letter follows the language: A, あ), five steps 작게 · 기본 · 크게 · 더 크게 · 아주 크게, and one sample line in
+  the reading size of chats. No reset button: 기본 is a step. Not in the account menu's Appearance (one place, lean UI).
+- **What it does: the root font size.** The step sets `font-size` on `<html>` (90%, none at 기본, 112.5%, 125%, 140%), a
+  percentage so a larger default font in the browser still counts. Tailwind's sizes and spacing and the app's own tokens
+  are rem, so text, rows, buttons and gaps grow together and nothing gets cut, unlike scaling only the text. The app's
+  tokens (`--text-reading` and the rest) and the few `text-[Npx]` classes became rem for this; icons (lucide, px) stay.
+  The desktop sidebar is `min(17.5rem, 40vw)` (280px at 기본) so its rows keep their words; reading columns
+  (`max-w-[780px]`) and caps of truncated names stay px. Breakpoints are not affected (media queries in rem use the
+  browser's initial size), so a 390px phone keeps its phone layout at every step.
+- **Largest step 140%.** At 390px and 1440px, light and dark, it leaves nothing sideways or cut on Home, chat, the
+  drawer, rooms, files, skills, projects, Settings and Admin (`web/test/e2e/text-size.spec.ts` checks the phone).
+  The phone composer's placeholder takes two lines there.
+- **Stored like the theme.** In the account's `users.prefs` JSON (`UserPrefs.textSize`, optional; no migration) so every
+  device the person signs in on gets it, and in `localStorage` (`mycel.textSize`) so the sign-in screens and the first
+  paint use it (`main.tsx` applies it before React renders, as the theme). On sign-in the account's value wins; an
+  account that never picked one keeps the device's. An older server ignores the field (zod strips it) and the device's
+  value still applies.
+- **When it applies.** A drag previews only the sample line; the app takes the size when the slider is let go (the
+  input's `change` event), because resizing the page mid-drag moved the slider under the pointer and made the value flip
+  at a step's edge. The keyboard and a tap apply at once. The account is saved 400 ms after the last change, one save
+  per drag; closing Settings sooner still saves it.
