@@ -425,11 +425,11 @@ test('migration 260 is additive (reader 1): one nullable column, an older build 
   expect(m.sql).not.toMatch(/DROP TABLE|DROP COLUMN|RENAME/i)
   const statements = m.sql.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n').split(';').map((s) => s.trim()).filter(Boolean)
   expect(statements).toEqual(['ALTER TABLE room_members ADD COLUMN hidden_at TEXT'])
-  // a database with 258 asks no more of its reader than one without it
+  // a database with 260 asks no more of its reader than one without it
   const before = Math.max(...readMigrations().filter((x) => x.version < 260).map((x) => x.minCompatibleReader))
   const dir = path.join(h.ctx.config.dataDir, 'with-hidden')
   fs.mkdirSync(dir, { recursive: true })
-  for (const x of readMigrations()) if (x.version <= 258) fs.writeFileSync(path.join(dir, x.name), x.sql)
+  for (const x of readMigrations()) if (x.version <= 260) fs.writeFileSync(path.join(dir, x.name), x.sql)
   const file = path.join(h.ctx.config.dataDir, 'hidden.db')
   for (const f of [file, `${file}-wal`, `${file}-shm`]) fs.rmSync(f, { force: true })
   // a bare file (openDb would apply every migration of this build)
