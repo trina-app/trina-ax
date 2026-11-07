@@ -16,7 +16,7 @@ import type { AccessTreeWho, FolderAccessResponse, SkillManagerGrant } from '@my
 import { api, API } from '../../lib/api'
 import { skillEditorsElsewhere, skillEditorsText } from '../../lib/access-view'
 import { useT } from '../../i18n'
-import { Badge, Button, ErrorNote, Modal, Skeleton, confirmDialog } from '../../components/ui'
+import { Button, ErrorNote, Modal, Skeleton, confirmDialog } from '../../components/ui'
 import { toast } from '../../store/ui'
 import { useAction, useActionOk, useLoad } from './common'
 import { AddNamed, type NamedOption } from './AddNamed'
@@ -81,7 +81,8 @@ type SkillsNode = { who: AccessTreeWho[]; members: number }
 
 /**
  * The Team skills page, owner and admins only: "고칠 수 있는 사람: 팀장·관리자, 영업팀 3명, Bob 님 [바꾸기]". Quiet: one
- * line of secondary text and one text button; nothing while it loads or when it cannot (the page works without it).
+ * line of secondary text and one text button. Its height is kept while it loads (nothing below jumps); nothing when it
+ * cannot load (the page works without it).
  */
 export function SkillEditorsLine({ className }: { className?: string }) {
   const t = useT()
@@ -90,7 +91,7 @@ export function SkillEditorsLine({ className }: { className?: string }) {
     return { who: r.self.who, members: r.members }
   })
   const [open, setOpen] = useState(false)
-  if (!node.data) return null
+  if (!node.data) return node.error ? null : <div className={clsx('h-5', className)} aria-hidden />
   return (
     <>
       <p className={clsx('text-xs leading-5 text-muted [overflow-wrap:anywhere]', className)} data-testid="skill-editors">
@@ -98,7 +99,7 @@ export function SkillEditorsLine({ className }: { className?: string }) {
         <button
           type="button"
           aria-haspopup="dialog"
-          className="rounded-sm font-medium whitespace-nowrap text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          className="-my-1 rounded-sm py-1 font-medium whitespace-nowrap text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           onClick={() => setOpen(true)}
           data-testid="skill-editors-change"
         >
@@ -128,6 +129,13 @@ export function SkillManagerDialog({ node, onClose, onChanged }: { node: SkillsN
   const search = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLUListElement>(null)
   const addId = useId()
+  const warnId = useId()
+  /** once someone is picked, the warning takes the focus: read first (a screen reader says it; a phone's keyboard goes
+   * and the step is in view), then Tab reaches Cancel and Turn on */
+  const warning = useRef<HTMLParagraphElement>(null)
+  useEffect(() => {
+    if (picked) warning.current?.focus()
+  }, [picked])
   /** after a removal, the focus goes to the remove button now at that place, else to the search */
   const focusAt = useRef<number | null>(null)
   useEffect(() => {
@@ -196,7 +204,7 @@ export function SkillManagerDialog({ node, onClose, onChanged }: { node: SkillsN
               <li className="flex min-h-11 items-center gap-2 py-2" data-testid="skill-editor-always">
                 <ShieldCheck size={15} className="shrink-0 text-faint" aria-hidden />
                 <span className="min-w-0 flex-1 text-sm font-medium text-ink">{t('skillMgr.ownerAdmins')}</span>
-                <Badge tone="accent">{t('skillMgr.always')}</Badge>
+                <span className="shrink-0 px-2.5 text-label text-muted">{t('skillMgr.always')}</span>
               </li>
               {grants.map((g, i) => {
                 const name = nameOf(g)
@@ -206,7 +214,8 @@ export function SkillManagerDialog({ node, onClose, onChanged }: { node: SkillsN
                     <Icon size={15} className="shrink-0 text-faint" aria-hidden />
                     <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-1.5">
                       <span className="min-w-0 text-sm font-medium [overflow-wrap:anywhere] text-ink">{name}</span>
-                      {g.subjectType === 'group' && <span className="text-xs text-faint">{t('accessEdit.kind.group', { n: groupOf(g.subjectId)?.memberIds.length ?? 0 })}</span>}
+                      {/* the kind only: a member count here would differ from the line's (people a group's rule decides for) */}
+                      {g.subjectType === 'group' && <span className="text-xs text-faint">{t('skillMgr.groupKind')}</span>}
                       {/* a folder of skills/ only (all of skills/ needs no folder named) */}
                       {g.path !== SKILLS && (
                         <span className="font-mono text-xs [overflow-wrap:anywhere] text-muted" data-testid="skill-editor-folder">
@@ -237,14 +246,14 @@ export function SkillManagerDialog({ node, onClose, onChanged }: { node: SkillsN
               {picked && (
                 <div className="mt-3 space-y-3" data-testid="skill-editor-pending">
                   <p className="text-sm text-ink [overflow-wrap:anywhere]">{t('skillMgr.pending', { name: picked.name })}</p>
-                  <p role="note" className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="skill-manager-warning">
+                  <p ref={warning} id={warnId} tabIndex={-1} role="note" className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn outline-none focus-visible:ring-2 focus-visible:ring-accent" data-testid="skill-manager-warning">
                     {t('skillMgr.warn')}
                   </p>
                   <div className="flex flex-wrap justify-end gap-2">
                     <Button variant="ghost" disabled={busy === 'add'} onClick={clearPick}>
                       {t('common.cancel')}
                     </Button>
-                    <Button variant="primary" busy={busy === 'add'} onClick={() => void turnOn()} data-testid="skill-manager-on">
+                    <Button variant="primary" busy={busy === 'add'} aria-describedby={warnId} onClick={() => void turnOn()} data-testid="skill-manager-on">
                       {t('skillMgr.turnOn')}
                     </Button>
                   </div>

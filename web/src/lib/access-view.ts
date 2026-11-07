@@ -245,7 +245,8 @@ export function whoSeesText(t: T, n: Pick<AccessTreeNode, 'who'>, members: numbe
 
 const subjectKey = (w: AccessTreeWho) => (w.subject ? `${w.subject.type}:${w.subject.id ?? ''}` : '')
 
-/** The people a rule lets write, merged by whom the rule names (a group deciding at two folders is one entry). */
+/** The people a rule lets write, merged by whom the rule names (a group deciding at two folders is one entry). Groups
+ * and people first, then everyone ("그 밖의 2명" reads as the rest only after the names). */
 function writers(who: readonly AccessTreeWho[]): AccessTreeWho[] {
   const by = new Map<string, AccessTreeWho>()
   for (const w of who) {
@@ -254,7 +255,8 @@ function writers(who: readonly AccessTreeWho[]): AccessTreeWho[] {
     const had = by.get(k)
     by.set(k, had ? { ...had, count: had.count + w.count } : w)
   }
-  return [...by.values()]
+  const named = (w: AccessTreeWho) => w.subject?.type === 'group' || w.subject?.type === 'user'
+  return [...by.values()].sort((x, y) => Number(named(y)) - Number(named(x)))
 }
 
 /** skills/ and its folders: "고칠 수 있는 사람: 팀장·관리자, 영업팀 3명, Bob 님", from the folder's people as the server

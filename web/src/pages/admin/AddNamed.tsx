@@ -2,7 +2,7 @@
 // skills page's "who can edit" dialog (SkillManagers.tsx).
 import clsx from 'clsx'
 import { Search, UserRound, UsersRound } from 'lucide-react'
-import { useEffect, useId, useMemo, useState, type KeyboardEvent, type MutableRefObject, type RefObject } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MutableRefObject, type RefObject } from 'react'
 import type { Group, User } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { Badge } from '../../components/ui'
@@ -15,8 +15,10 @@ export type ListControl = MutableRefObject<{ open: boolean; close: () => void }>
 /** One search for a person or a group (WAI-ARIA combobox with a list): arrows move, Enter adds, Esc closes the list.
  * What is already named is not offered. The list lies over what is below it: in the flow, its closing on blur moved
  * everything below it up under a click on its way (the click landed on something else). `inline`: in the flow after
- * all, for a dialog whose body scrolls (a list lying over its end would be cut off there). `saidOf`: what a screen
- * reader hears once one is picked (default: added with read access, as the edit panel adds them). */
+ * all, for a dialog whose body scrolls (a list lying over its end would be cut off there); then a pointer that leaves
+ * the field closes the list only once its click has landed (a centred dialog moves as a whole when the list closes),
+ * and Tab closes it at once. `saidOf`: what a screen reader hears once one is picked (default: added with read access,
+ * as the edit panel adds them). */
 export function AddNamed({ users, groups, taken, list, inputRef, onAdd, inline, saidOf }: {
   users: User[]
   groups: Group[]
@@ -35,6 +37,29 @@ export function AddNamed({ users, groups, taken, list, inputRef, onAdd, inline, 
   const [active, setActive] = useState(0)
   const [said, setSaid] = useState('')
   if (list) list.current = { open, close: () => setOpen(false) }
+  const box = useRef<HTMLDivElement>(null)
+  /** the last thing that moved the focus was a pointer (not a key) */
+  const byPointer = useRef(false)
+  useEffect(() => {
+    if (!inline) return
+    const pointer = () => { byPointer.current = true }
+    const key = () => { byPointer.current = false }
+    document.addEventListener('pointerdown', pointer, true)
+    document.addEventListener('keydown', key, true)
+    return () => {
+      document.removeEventListener('pointerdown', pointer, true)
+      document.removeEventListener('keydown', key, true)
+    }
+  }, [inline])
+  // inline: closed by a click outside the search and its list, after that click's own handler ran
+  useEffect(() => {
+    if (!inline || !open) return
+    const outside = (e: MouseEvent) => {
+      if (!(e.target instanceof Node) || !box.current?.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('click', outside)
+    return () => document.removeEventListener('click', outside)
+  }, [inline, open])
   const options = useMemo(() => {
     const s = q.trim().toLocaleLowerCase()
     const all: NamedOption[] = [
@@ -77,7 +102,7 @@ export function AddNamed({ users, groups, taken, list, inputRef, onAdd, inline, 
     }
   }
   return (
-    <div className="mt-2">
+    <div ref={box} className="mt-2">
       <label id={labelId} className="sr-only" htmlFor={`${listId}-input`}>
         {t('accessEdit.add')}
       </label>
@@ -102,7 +127,7 @@ export function AddNamed({ users, groups, taken, list, inputRef, onAdd, inline, 
             }}
             onFocus={() => setOpen(q !== '')}
             onClick={() => setOpen(true)}
-            onBlur={() => setOpen(false)}
+            onBlur={() => (!inline || !byPointer.current) && setOpen(false)}
             onKeyDown={onKey}
             className="h-9 w-full rounded-lg border border-field-border bg-surface pr-3 pl-8 text-sm text-ink outline-none transition placeholder:text-faint focus:border-accent focus:ring-1 focus:ring-accent max-sm:min-h-10"
             data-testid="edit-add"

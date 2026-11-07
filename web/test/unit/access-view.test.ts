@@ -346,6 +346,8 @@ describe('stage 6–7: who can edit team skills, in words', () => {
     expect(skillEditorsText(ko, [staff, w({ subject: sales, access: 'write', count: 2 }), w({ folder: 'skills/재무', subject: sales, access: 'write', count: 1 })], 12)).toBe('고칠 수 있는 사람: 팀장·관리자, 영업팀 3명')
     expect(skillEditorsText(ko, [staff, w({ subject: all, access: 'write', count: 12 })], 12)).toBe('고칠 수 있는 사람: 팀장·관리자, 모두')
     expect(skillEditorsText(ko, [staff, w({ subject: all, access: 'read', count: 12 })], 12)).toBe(ko('skillMgr.editorsAdmins'))
+    // groups and people first, everyone after them ("그 밖의 2명" is the rest)
+    expect(skillEditorsText(ko, [staff, w({ subject: all, access: 'write', count: 2 }), w({ subject: sales, access: 'write', count: 3 })], 12)).toBe('고칠 수 있는 사람: 팀장·관리자, 영업팀 3명, 그 밖의 2명')
   })
 
   test('a folder inside skills/ that shuts some of skills/\' managers out: who, person by person; nothing when none', () => {
