@@ -8,7 +8,7 @@
 --     turn after shared_at that is not checked (an older build ran it, without the gate) stops being shared.
 -- An older build ignores the columns: a shared chat is its creator's own chat there (nobody else reaches it, and the
 -- guard above unshares it when this build comes back).
--- Numbered 265: 263 is on dev (push device labels) and 264 is feat/room-history-for-later-members's.
+-- Numbered 265: 263 (push device labels) and 264 (room history) are on dev.
 ALTER TABLE projects ADD COLUMN share_chats INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE chats ADD COLUMN shared_at TEXT;
 ALTER TABLE turns ADD COLUMN shared_checked INTEGER NOT NULL DEFAULT 0;

@@ -88,7 +88,7 @@ areas, the security suite, `bun run test:web`, `bun run build:web`, the full web
 
 Built as planned, with these differences:
 
-- Migration number 265 (263 landed on dev, 264 is another open branch's).
+- Migration number 265 (263 and 264 landed on dev while this was built).
 - The engine folder is emptied before every turn of a shared chat, not only when the person changes: the independent
   security review found that a person sending again after their own failed turn skipped the clear. A session is also
   not resumed when the chat read something someone in today's audience cannot see.
