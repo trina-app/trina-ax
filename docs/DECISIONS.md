@@ -12310,3 +12310,15 @@ subscription was refused (`validation`) and the web ask left Edge out.
   them). `tests/unit/c-speech-hosted.test.ts` (hosted defaults unchanged; the team's key after the hosting key goes).
   `web/test/e2e/admin.spec.ts` (the missing line, the price line, the key alone turning voice input on and off with no
   settings write, removing the key keeping "Turn video sound into text"); the mock server models "not chosen".
+
+## The mic on the right (feat/mic-right, 2026-11-07, product owner)
+넣을 곳: trina-ax `web/src/components/chat/Composer.tsx` and `web/src/components/rooms/RoomComposer.tsx`, 이유: the owner
+asked for the mic on the right, as in ChatGPT ("마이크 버튼은 오른쪽에 놔두자 chatgpt처럼").
+
+- Every message box reads: the clip (or "+") on the left, the text, then the mic and send on the right, the mic right
+  before send. That is a room's box and a thread's reply box (RoomComposer) and the AI chat's box (Composer, also on the
+  new-chat page); the edit form has no mic. On a computer the AI chat's "+" and the engine picker stay in the row under
+  the box; on a phone "+" stays inside the box on the left.
+- Only the place changed: the same VoiceMic (size, a 44 px tap area on phones, the admin's hint while voice input is
+  off), the same recording bar (VoiceBar) and keys (Space held to talk, Esc to cancel).
+
