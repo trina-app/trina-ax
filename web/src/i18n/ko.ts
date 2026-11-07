@@ -474,6 +474,20 @@ export const ko = {
   'files.addedSome': '{n}개를 추가했고 {failed}개는 추가하지 못했어요.',
 
   'voice.start': '음성으로 입력',
+
+  'voice.startHold': '음성 입력 (Space 길게)',
+
+  'voice.holdSpace': 'Space를 떼면 끝나요 · Esc 취소',
+
+  'voice.holdTouch': '손을 떼면 끝나요 · 밀어서 취소',
+
+  'voice.tryHold': '다음엔 입력창에서 Space를 길게 눌러 보세요',
+
+  'voice.left': '{time} 남음',
+
+  'voice.liveTranscribing': '텍스트로 바꾸는 중',
+
+  'voice.liveInserted': '텍스트를 넣었어요',
   'voice.cancel': '녹음 취소',
   'voice.done': '녹음 끝내기',
   'voice.recording': '녹음 중',

@@ -157,6 +157,8 @@ export function useRoomRefMenu({ text, setText, input, initial = [], enabled = t
 
   return {
     list,
+    /** the list is shown */
+    open,
     onKeyDown,
     inputProps,
     ranges,

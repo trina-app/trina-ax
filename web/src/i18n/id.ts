@@ -475,6 +475,20 @@ export const id: Record<MessageKey, string> = {
   'files.addedSome': '{n} ditambahkan; {failed} tidak bisa ditambahkan.',
 
   'voice.start': 'Input suara',
+
+  'voice.startHold': 'Input suara (tahan Spasi)',
+
+  'voice.holdSpace': 'Lepas Spasi untuk selesai · Esc untuk batal',
+
+  'voice.holdTouch': 'Angkat jari untuk selesai · Geser untuk batal',
+
+  'voice.tryHold': 'Lain kali, tahan Spasi di kotak pesan',
+
+  'voice.left': '{time} lagi',
+
+  'voice.liveTranscribing': 'Mengubah ke teks',
+
+  'voice.liveInserted': 'Teks ditambahkan',
   'voice.cancel': 'Batalkan rekaman',
   'voice.done': 'Selesai merekam',
   'voice.recording': 'Merekam',
