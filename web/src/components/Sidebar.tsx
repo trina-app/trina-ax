@@ -17,6 +17,7 @@ import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, Fold
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { teamIconUrl } from '@mycel/shared'
 import type { Chat, Theme } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { dateBucket, formatRelative, type DateBucket } from '../lib/format'
@@ -179,7 +180,8 @@ export default function Sidebar() {
     <nav aria-label={t('sidebar.label')} className="flex h-full w-full flex-col bg-subtle">
       <div className="flex items-center gap-2 px-4 pt-3.5 pb-2">
         <Link to="/" onClick={close} className="flex items-center gap-2 text-[0.9375rem] font-semibold tracking-tight">
-          <img src="/favicon.svg" alt="" aria-hidden className="size-5 rounded-md" />
+          {/* the team's logo (Admin › Team settings) when one is set, else the product's mark; object-cover crops a non-square logo as the settings previews do */}
+          <img src={me.team.iconVersion ? teamIconUrl(me.team.iconVersion) : '/favicon.svg'} alt="" aria-hidden className="size-5 shrink-0 rounded-md object-cover" data-testid="sidebar-logo" />
           {/* the phone's drawer is the AI's history: the AI's one name there, as on its tab */}
           <span className="truncate max-md:hidden" data-testid="sidebar-team">{me.team.name}</span>
           <span className="md:hidden">{aiName(t)}</span>
