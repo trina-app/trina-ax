@@ -417,16 +417,16 @@ test('the AI chat\'s room list says which rooms the user hid (rooms/reader.ts li
   expect(line(mia.id, dm.id)).not.toContain('hidden')
 })
 
-test('migration 258 is additive (reader 1): one nullable column, an older build reads the database as before', async () => {
+test('migration 260 is additive (reader 1): one nullable column, an older build reads the database as before', async () => {
   h = await harness('b-rooms-hide-reader')
-  const m = readMigrations().find((x) => x.name === '258_b_room_hidden.sql')!
+  const m = readMigrations().find((x) => x.name === '260_b_room_hidden.sql')!
   expect(m.minCompatibleReader).toBe(1)
   expect(m.sql).toMatch(/^-- min_compatible_reader: 1$/m)
   expect(m.sql).not.toMatch(/DROP TABLE|DROP COLUMN|RENAME/i)
   const statements = m.sql.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n').split(';').map((s) => s.trim()).filter(Boolean)
   expect(statements).toEqual(['ALTER TABLE room_members ADD COLUMN hidden_at TEXT'])
   // a database with 258 asks no more of its reader than one without it
-  const before = Math.max(...readMigrations().filter((x) => x.version < 258).map((x) => x.minCompatibleReader))
+  const before = Math.max(...readMigrations().filter((x) => x.version < 260).map((x) => x.minCompatibleReader))
   const dir = path.join(h.ctx.config.dataDir, 'with-hidden')
   fs.mkdirSync(dir, { recursive: true })
   for (const x of readMigrations()) if (x.version <= 258) fs.writeFileSync(path.join(dir, x.name), x.sql)
