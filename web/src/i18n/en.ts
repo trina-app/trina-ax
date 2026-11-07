@@ -616,6 +616,7 @@ export const en: Record<MessageKey, string> = {
   'artifact.needsScripts': 'This artifact has to run scripts to show anything, and in confidential chats they run only in the desktop app. The Code tab shows what it contains.',
 
   'preview.panel': 'File preview',
+  'preview.resize': 'Resize the preview',
   'preview.notFound': "The file can't be found, or you don't have access to it.",
   'preview.tooLarge': 'This file is too large to preview ({size}). Download it to open it.',
   'hwp.disabled': "Hangul preview is not turned on for this team. You can still download the original and ask AI to read its text.",
@@ -1120,6 +1121,10 @@ export const en: Record<MessageKey, string> = {
   'push.deniedPhone': "Notifications for this app are off in the phone's Settings.",
   'push.openSettings': "Turn on in Settings",
   'push.phoneOffShort': "Notifications are off in the phone's Settings",
+  'push.badgeHint.mac': "If the Dock icon shows no number, turn on “Badge application icon” in System Settings › Notifications › {product}.",
+  'push.badgeHint.windows': "If the taskbar icon shows no number, turn on “Show badges on taskbar apps” in Settings › Personalization › Taskbar › Taskbar behaviors.",
+  'push.badgeHint.ios': "If the Home Screen icon shows no number, turn on Badges in Settings › Notifications › {product}.",
+  'push.badgeHint.other': "If the app icon shows no number, allow badges for {product} in the system's notification settings.",
   'push.insecure': "Push works only on an https address. This page is open on an address without a secure connection.",
   'push.dismissed': "The browser's question was closed. Click again and choose Allow.",
   'push.service': "The browser's push service is off or out of reach. In a private window, open a normal one instead.",

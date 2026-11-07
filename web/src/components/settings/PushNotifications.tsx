@@ -5,8 +5,9 @@ import type { Locale, PushSettings } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { disablePush, enablePush, isBrave, logPushFailure, notificationPermission, PushError, pushFailure, pushRegistration, pushRetryHelps, pushSupport, type PushFailure } from '../../lib/push'
 import { askLater, mobilePushApp, phonePushView, refreshPhonePush, registerMobilePush, usePhonePush } from '../../lib/mobile-push'
-import { canOpenAppSettings, openAppSettings } from '../../lib/mobile'
-import { pushNeedsInstall } from '../../lib/pwa'
+import { canOpenAppSettings, mobileApp, openAppSettings } from '../../lib/mobile'
+import { isStandalone, platform, pushNeedsInstall, type Platform } from '../../lib/pwa'
+import { isDesktop } from '../../lib/desktop'
 import { useRealPath } from '../../lib/realPath'
 import { useLocale, useT } from '../../i18n'
 import { isAdmin, useMe } from '../../store/session'
@@ -38,6 +39,18 @@ export function pushFailureText(f: PushFailure, t: ReturnType<typeof useT>, loca
   }
 }
 
+/** An installed web app (display-mode: standalone, or an iPhone's Home Screen) whose browser can put a number on its
+ * icon (the Badging API; store/sessionMarkers.ts sets it): where the system lets that number show, when it does not.
+ * Elsewhere (a tab, the desktop app with its own badge, the phone app, a browser without the API): null. */
+export function badgeHintKey(o: { installed: boolean; badging: boolean; app: boolean; p: Platform }): 'push.badgeHint.mac' | 'push.badgeHint.windows' | 'push.badgeHint.ios' | 'push.badgeHint.other' | null {
+  if (!o.installed || !o.badging || o.app) return null
+  return o.p === 'mac' ? 'push.badgeHint.mac' : o.p === 'windows' ? 'push.badgeHint.windows' : o.p === 'ios' ? 'push.badgeHint.ios' : 'push.badgeHint.other'
+}
+const badgeHintHere = () => badgeHintKey({
+  installed: isStandalone(), badging: typeof navigator !== 'undefined' && typeof (navigator as { setAppBadge?: unknown }).setAppBadge === 'function',
+  app: isDesktop() || !!mobileApp(), p: platform(),
+})
+
 export function PushNotifications() {
   const t = useT(), locale = useLocale()
   const [settings, setSettings] = useState<z.infer<typeof PushSettings> | null>(null)
@@ -48,7 +61,7 @@ export function PushNotifications() {
   const retry = useRef<(() => void) | null>(null)
   const [deviceReady, setDeviceReady] = useState(false)
   const life = useRef(0), revision = useRef(0)
-  const support = pushSupport(), supported = support === 'ok', needsInstall = pushNeedsInstall()
+  const support = pushSupport(), supported = support === 'ok', needsInstall = pushNeedsInstall(), badgeHint = badgeHintHere()
   // Inside the phone app: native push through the team's push gateway instead of Web Push.
   const app = mobilePushApp(), me = useMe()
   const phone = usePhonePush()
@@ -136,6 +149,8 @@ export function PushNotifications() {
       </div>
       {/* what push sends: about the browser's push service (the phone app's status line says what matters there) */}
       {!app && settings?.configured && <p className="mt-2 text-xs text-faint max-md:text-sm">{t('push.description')}</p>}
+      {/* an installed web app: where the system lets the count show on its icon (one quiet line) */}
+      {badgeHint && <p className="mt-2 text-xs text-faint max-md:text-sm" data-testid="push-badge-hint">{t(badgeHint)}</p>}
       {settings?.native && me && isAdmin(me) && <p className="mt-2 text-xs text-faint max-md:text-sm" data-testid="phone-push-gateway">{settings.native.gateway ? t('push.phoneGateway', { host: settings.native.gateway }) : t('push.phoneOff')}</p>}
       {/* "다시 시도" only where trying again can help: the team server could not be reached or had a passing fault */}
       {failureText && <div className="mt-2" data-testid="push-failure" data-kind={failure?.kind}><ErrorNote onRetry={!app && failure && pushRetryHelps(failure) ? () => retry.current?.() : undefined}>{failureText}</ErrorNote></div>}

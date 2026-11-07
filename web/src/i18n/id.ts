@@ -616,6 +616,7 @@ export const id: Record<MessageKey, string> = {
   'artifact.needsScripts': 'Artefak ini perlu menjalankan skrip agar bisa tampil, dan di chat rahasia skrip hanya berjalan di aplikasi desktop. Isinya bisa dilihat di tab Kode.',
 
   'preview.panel': 'Pratinjau file',
+  'preview.resize': 'Atur lebar pratinjau',
   'preview.notFound': 'File tidak ditemukan atau kamu tidak punya akses.',
   'preview.tooLarge': 'File terlalu besar untuk dipratinjau ({size}). Unduh untuk membukanya.',
   'hwp.disabled': "Pratinjau Hangul belum diaktifkan untuk tim ini. Anda tetap dapat mengunduh berkas asli dan meminta AI membaca teksnya.",
@@ -1120,6 +1121,10 @@ export const id: Record<MessageKey, string> = {
   'push.deniedPhone': "Notifikasi aplikasi ini dimatikan di Pengaturan ponsel.",
   'push.openSettings': "Aktifkan di Pengaturan",
   'push.phoneOffShort': "Notifikasi dimatikan di Pengaturan ponsel",
+  'push.badgeHint.mac': "Jika ikon Dock tidak menampilkan angka, aktifkan “Lencana ikon aplikasi” di Pengaturan Sistem › Pemberitahuan › {product}.",
+  'push.badgeHint.windows': "Jika ikon taskbar tidak menampilkan angka, aktifkan “Tampilkan lencana pada aplikasi taskbar” di Pengaturan › Personalisasi › Taskbar › Perilaku taskbar.",
+  'push.badgeHint.ios': "Jika ikon Layar Utama tidak menampilkan angka, aktifkan Lencana di Pengaturan › Notifikasi › {product}.",
+  'push.badgeHint.other': "Jika ikon aplikasi tidak menampilkan angka, izinkan lencana untuk {product} di pengaturan notifikasi sistem.",
   'push.insecure': "Push hanya berfungsi di alamat https. Halaman ini terbuka di alamat tanpa koneksi aman.",
   'push.dismissed': "Pertanyaan browser tertutup. Klik lagi lalu pilih Izinkan.",
   'push.service': "Layanan push browser mati atau tidak terjangkau. Jika ini jendela pribadi, buka di jendela biasa.",

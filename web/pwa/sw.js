@@ -115,9 +115,22 @@ async function pageSounds() {
   try { return await asked } finally { for (const port of ports) port.close() }
 }
 
+// An installed web app with no window open here: a dot on its icon (the Badging API, no number: the worker does not know
+// the count). The first window that opens sets the exact count, or clears it (web/src/store/sessionMarkers.ts). With a
+// window open the page keeps the count itself. Never fails a push: a browser without it, or one that refuses, is fine.
+async function badgeDot() {
+  try {
+    if (typeof self.navigator?.setAppBadge !== 'function') return
+    const windows = (await self.clients.matchAll({ type: 'window', includeUncontrolled: true })).filter(client => new URL(client.url).origin === self.location.origin)
+    if (!windows.length) await self.navigator.setAppBadge()
+  } catch { /* the badge is a nicety */ }
+}
+
 self.addEventListener('message', event => {
   if (event.data?.type !== 'push.invalidate' || !event.source?.url || new URL(event.source.url).origin !== self.location.origin) return
   pushEpoch++
+  // the account changed: its notices go, and so does a dot on the icon
+  try { void Promise.resolve(self.navigator?.clearAppBadge?.()).catch(() => {}) } catch { /* the badge is a nicety */ }
   event.waitUntil(self.registration.getNotifications().then(items => { for (const item of items) item.close() }))
 })
 
@@ -153,6 +166,8 @@ self.addEventListener('push', event => {
         for (const item of await self.registration.getNotifications({ tag })) item.close()
         return
       }
+      // shown, and no page made the sound (a silent notice means a window is open and counts for itself)
+      if (!silent) await badgeDot()
       await pushReceipt(tag, true)
     } catch { /* No content or transport errors are logged from a push delivery. */ }
     finally { clearTimeout(timer); pushPending.delete(tag) }
