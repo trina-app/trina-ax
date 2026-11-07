@@ -75,6 +75,11 @@ export interface DesktopBrowserSettings {
   teamAllowsAll: boolean
 }
 
+/** How a test notification went: 'shown' (the system took it), 'off' (the system refused it: notifications are off for
+ * the app, or the app may not post them), 'unsupported' (this system has no notifications), 'limited' (too many this
+ * minute), 'unknown' (handed over, but the system said nothing within a few seconds). */
+export type DesktopNotifyTest = 'shown' | 'off' | 'unsupported' | 'limited' | 'unknown'
+
 /** How setAccess ended. 'changed' for "all" only after the person confirmed the desktop app's own dialog. */
 export type DesktopAccessOutcome = 'changed' | 'unchanged' | 'cancelled' | 'not-allowed' | 'busy' | 'unavailable'
 
@@ -109,6 +114,10 @@ export interface DesktopBridge {
    * `open`: an address of the team page ("/c/<chatId>", "/rooms/<id>") the page goes to when the person clicks it
    * (onOpen); desktop apps before this addition only focus the window. A team switch closes them. */
   notify(n: { title: string; body: string; tag?: string; open?: string }): void
+  /** Settings › Notifications' "Test notification": one notification now, even while the window is focused (the person
+   * asked for it), within the same limit a minute; a newer test replaces the older one. Says how it went
+   * (DesktopNotifyTest). Optional: desktop apps before this addition do not have it (the page shows no button). */
+  testNotify?(n: { title: string; body: string }): Promise<DesktopNotifyTest>
   /** A notification's click asks the page to go to its address (an app path, checked by the desktop app). Optional:
    * desktop apps before session markers do not have it. */
   onOpen?(cb: (path: string) => void): () => void

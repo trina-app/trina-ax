@@ -9,6 +9,8 @@ import { accessChanged, notificationsChanged, reloadAsked } from '../../store/li
 import { Button, ErrorNote, Skeleton, Switch } from '../ui'
 import { changeRoomSound, useRoomSoundOn } from '../../store/roomSound'
 import { PushNotifications } from './PushNotifications'
+import { DesktopNotifications } from './DesktopNotifications'
+import { isDesktop } from '../../lib/desktop'
 import { deletionNoticeText } from './AccountDeletion'
 import { PrefRow, PrefSection } from './PrefRows'
 import { RoomNotifySettings } from './RoomNotifySettings'
@@ -156,11 +158,11 @@ export function Notifications() {
         control={<Switch id={`np-${key}`} external describedBy={`np-${key}-desc`} checked={preferences[key]} onChange={v => void update({ [key]: v })} label={t(`notifications.${key}`)} testId={`notification-pref-${key}`} />} />)}
     </PrefSection>}
     {/* this device's: the chime (store/roomSound.ts, kept in this browser, never waits for the server and shows even when
-        the server's choices could not be read) and push to this device */}
+        the server's choices could not be read) and push to this device (the desktop app: its own computer notifications) */}
     <PrefSection title={t('notifications.section.device')} testId="notifications-device">
       <PrefRow id="np-sound" title={t('notifications.sound')} desc={t('notifications.soundDesc')}
         control={<Switch id="np-sound" external describedBy="np-sound-desc" checked={sound} onChange={changeRoomSound} label={t('notifications.sound')} testId="notification-sound" />} />
-      <PushNotifications />
+      {isDesktop() ? <DesktopNotifications /> : <PushNotifications />}
     </PrefSection>
   </section>
 }
