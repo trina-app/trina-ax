@@ -350,8 +350,8 @@ describe('stage 6–7: who can edit team skills, in words', () => {
     // and admins"; not known (the rules did not load): the owner and admins named without "only"
     expect(skillEditorsText(ko, [staff], 12, 1)).toBe('고칠 수 있는 사람: 팀장·관리자, 폴더별로 맡긴 곳 1개')
     expect(skillEditorsText(ko, top, 12, 2)).toBe('고칠 수 있는 사람: 팀장·관리자, 영업팀 3명, Bob 님, 폴더별로 맡긴 곳 2개')
-    expect(skillEditorsText(en, [staff], 12, 1)).toBe('Who can edit: the owner and admins, 1 folder has its own editors')
-    expect(skillEditorsText(en, [staff], 12, 2)).toBe('Who can edit: the owner and admins, 2 folders have their own editors')
+    expect(skillEditorsText(en, [staff], 12, 1)).toBe('Who can edit: the owner and admins, 1 folder has write rules of its own')
+    expect(skillEditorsText(en, [staff], 12, 2)).toBe('Who can edit: the owner and admins, 2 folders have write rules of their own')
     expect(skillEditorsText(ko, [staff], 12, 0)).toBe(ko('skillMgr.editorsAdmins'))
     expect(skillEditorsText(ko, [staff], 12, null)).toBe('고칠 수 있는 사람: 팀장·관리자')
     expect(skillEditorsText(en, [staff], 12, null)).toBe('Who can edit: the owner and admins')
@@ -397,6 +397,10 @@ describe('stage 6–7: who can edit team skills, in words', () => {
       row('Skills/대소문자', [rule('user', 'bob', 'write')]), // the server serves Skills/ as skills/
     ])).toBe(5)
     expect(skillFoldersWithEditors([])).toBe(0)
+    // counted from the rule rows, not decided by tier as the server does: "everyone: write" with "members: none" on one
+    // folder gives no member write there, yet it counts as a folder with write rules of its own (it can overcount in such
+    // rare shapes, never undercount; the words say "rules", not "editors")
+    expect(skillFoldersWithEditors([row('skills/거부', [rule('everyone', null, 'write'), rule('role', 'member', 'none')])])).toBe(1)
   })
 
   test('the dialog: editors through a rule that is not a person\'s or group\'s own on skills/ (everyone, the team root)', () => {

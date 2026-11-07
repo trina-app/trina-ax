@@ -2412,7 +2412,7 @@ export const en: Record<MessageKey, string> = {
   'skillMgr.locked': "Can edit in skills but not here: {list}",
   'skillMgr.viaChange': "Change in Folder permissions",
   'skillMgr.offStillOn': "Only their own rule goes: a group's or everyone's rule still lets them edit.",
-  'skillMgr.byFolderCount': "{n, plural, one {# folder has its own editors} other {# folders have their own editors}}",
+  'skillMgr.byFolderCount': "{n, plural, one {# folder has write rules of its own} other {# folders have write rules of their own}}",
   'skillMgr.offStillOwn': "Their own rule on {path} still lets them edit.",
   'skillMgr.change': "Change",
   'skillMgr.ownerAdmins': "The owner and admins",

@@ -2412,7 +2412,7 @@ export const id: Record<MessageKey, string> = {
   'skillMgr.locked': "Bisa mengubah di skills tetapi tidak di sini: {list}",
   'skillMgr.viaChange': "Ubah di Izin folder",
   'skillMgr.offStillOn': "Hanya aturannya sendiri yang dicabut: aturan grup atau semua orang tetap mengizinkannya mengubah.",
-  'skillMgr.byFolderCount': "{n} folder punya editor sendiri",
+  'skillMgr.byFolderCount': "{n} folder punya aturan tulis sendiri",
   'skillMgr.offStillOwn': "Aturannya sendiri di {path} tetap mengizinkannya mengubah.",
   'skillMgr.change': "Ubah",
   'skillMgr.ownerAdmins': "Owner dan admin",

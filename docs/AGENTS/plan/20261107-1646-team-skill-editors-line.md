@@ -58,7 +58,9 @@ Built as planned:
 - `skillFoldersWithEditors` counts the folders inside `skills/` (in any letter case) that are on disk and shown in the
   tree, and whose rules give write to everyone, the old members row, a group or a person. "admins: write" changes nobody,
   so it does not count.
-- The count ends the line: "폴더별로 맡긴 곳 N개" / "N folders have their own editors".
+- The count ends the line: "폴더별로 맡긴 곳 N개" / "N folders have write rules of their own". The count comes from rule
+  rows, not from the server's per-tier decision. A shape like "everyone: write" plus "members: none" on one folder can
+  overcount, but it never undercounts, so the English, Spanish and Indonesian words say "rules", not "editors" (review).
 - If the folder rules fail, the line uses `skillMgr.editorsBase`, which has no "만" or "only".
 - If the `skills/` answer fails, the line shows "고칠 수 있는 사람을 불러오지 못했어요 · 다시 시도".
 - [바꾸기] reloads only the `skills/` answer. The dialog still loads its own three lists: grants, people and groups.

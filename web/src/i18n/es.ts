@@ -2375,7 +2375,7 @@ export const es: Record<MessageKey, string> = {
   'skillMgr.locked': "Pueden editar en skills pero no aquí: {list}",
   'skillMgr.viaChange': "Cambiar en Permisos de carpetas",
   'skillMgr.offStillOn': "Solo se quita su propia regla: la regla de un grupo o de todos le sigue dejando editar.",
-  'skillMgr.byFolderCount': "{n, plural, one {# carpeta con sus propios editores} other {# carpetas con sus propios editores}}",
+  'skillMgr.byFolderCount': "{n, plural, one {# carpeta con reglas de escritura propias} other {# carpetas con reglas de escritura propias}}",
   'skillMgr.offStillOwn': "Su propia regla en {path} le sigue dejando editar.",
   'skillMgr.change': "Cambiar",
   'skillMgr.ownerAdmins': "El propietario y los administradores",
