@@ -9,14 +9,15 @@
 #
 # --privileged: bwrap (user, mount and pid namespaces), nftables (CAP_NET_ADMIN in the container's network namespace),
 # cgroup delegation to the units, and loading the installer's AppArmor profile (the host kernel may restrict
-# unprivileged user namespaces, as Ubuntu 24.04 and colima's VM do).
+# unprivileged user namespaces, as Ubuntu 24.04 and colima's VM do). systemd-binfmt is masked: with --privileged it would
+# flush binfmt_misc of the shared kernel, and the Docker VM would lose its amd64 emulation.
 FROM debian:trixie
 ENV container=docker DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends systemd systemd-sysv dbus ca-certificates curl gnupg \
       file zstd util-linux procps iproute2 bubblewrap nftables apparmor poppler-utils \
       ffmpeg unzip rsync cron xz-utils \
  && rm -rf /var/lib/apt/lists/* \
- && systemctl mask getty.target console-getty.service systemd-firstboot.service systemd-logind.service >/dev/null 2>&1 || true
+ && systemctl mask getty.target console-getty.service systemd-firstboot.service systemd-logind.service systemd-binfmt.service >/dev/null 2>&1 || true
 COPY --from=oven/bun:1.3.12-debian /usr/local/bin/bun /usr/local/bin/bun
 STOPSIGNAL SIGRTMIN+3
 CMD ["/lib/systemd/systemd"]

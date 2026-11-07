@@ -6,6 +6,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { linuxList } from '../../scripts/system/packages'
 
 const REPO = path.resolve(import.meta.dir, '..', '..')
 const SCRIPT = path.join(REPO, 'scripts', 'image', 'build-ami.sh')
@@ -76,6 +77,12 @@ function setup() {
   fs.mkdirSync(kit)
   fs.writeFileSync(path.join(kit, 'VERSION'), '0.3.0\n')
   fs.writeFileSync(path.join(kit, 'install-linux.sh'), '#!/bin/bash\n')
+  // the kit's list is this checkout's (the build stops when they differ): packages.sh as it is, packages.json as the
+  // Linux copy build-bundle.ts writes (the build makes it with bun, so bun is on the stub PATH)
+  fs.mkdirSync(path.join(kit, 'app/0.3.0/root'), { recursive: true })
+  fs.copyFileSync(path.join(REPO, 'scripts/system/packages.sh'), path.join(kit, 'app/0.3.0/root/packages.sh'))
+  fs.writeFileSync(path.join(kit, 'app/0.3.0/root/packages.json'), linuxList(fs.readFileSync(path.join(REPO, 'scripts/system/packages.json'), 'utf8')))
+  fs.symlinkSync(process.execPath, path.join(bin, 'bun'))
   elf(path.join(dir, 'mycel-enroll'), 0x3e)
   elf(path.join(dir, 'mycel-link'), 0x3e)
   const out = path.join(dir, 'out')
@@ -252,5 +259,32 @@ describe('build-ami.sh', () => {
     expect(r.code).not.toBe(0)
     expect(r.out).toContain('--sign-key and --allow-missing-kit exclude each other')
     expect(r.calls).toEqual([])
+  })
+
+  test('one list per image: the kit\'s root/packages.json must be this checkout\'s; a kit without the list stops too', () => {
+    const s = setup()
+    const kl = path.join(s.kit, 'app/0.3.0/root/packages.json')
+    fs.appendFileSync(kl, '\n')
+    let r = run(s, [])
+    expect(r.code).not.toBe(0)
+    expect(r.out).toContain("the kit's root/packages.json differs from scripts/system/packages.json in this checkout")
+    expect(r.calls.filter((c) => /run-instances|create-volume|create-security-group/.test(c))).toEqual([])
+    fs.rmSync(kl)
+    r = run(s, [])
+    expect(r.code).not.toBe(0)
+    expect(r.out).toContain('the kit has no app/0.3.0/root/packages.json (a kit from before the one list)')
+    // build.sh (the qcow2 image) applies the same rule
+    const b = fs.readFileSync(path.join(REPO, 'scripts/image/build.sh'), 'utf8')
+    expect(b).toContain('SYS_SRC="$STAGE/kit/app/$KIT_VERSION/root"')
+    expect(b).toContain('cmp -s "$k" "$want" || die')
+    expect(b).toContain('bun "$SYS_SRC/packages.ts" linux "$SYS_SRC/packages.json" > "$want"')
+  })
+
+  test('the kit\'s root/packages.json is the Linux copy: the full list (with the darwin platforms) stops the build', () => {
+    const s = setup()
+    fs.copyFileSync(path.join(REPO, 'scripts/system/packages.json'), path.join(s.kit, 'app/0.3.0/root/packages.json'))
+    const r = run(s, [])
+    expect(r.code).not.toBe(0)
+    expect(r.out).toContain("the kit's root/packages.json differs from scripts/system/packages.json in this checkout")
   })
 })

@@ -47,9 +47,9 @@ const tesseract = (calls: string[][]) => calls.filter((c) => c.some((a) => base(
 const recognition = (calls: string[][]) => calls.filter((c) => c.some((a) => base(a) === 'mycel-ocr') && !c.some((a) => ['--layer', '--page', '--jpeg'].includes(a)))
 
 // the Linux T1 container holds no scripts/ or native/ (tests/linux/Dockerfile): checked where the checkout has them
-describe.skipIf(!fs.existsSync(path.join(ROOT, 'scripts/linux/deps.txt')))('the Linux installer and kit have no OCR', () => {
-  test('deps.txt and install-linux.sh install no tesseract; the kit and native build have no Linux mycel-ocr', () => {
-    expect(fs.readFileSync(path.join(ROOT, 'scripts/linux/deps.txt'), 'utf8')).not.toContain('tesseract')
+describe.skipIf(!fs.existsSync(path.join(ROOT, 'scripts/system/packages.json')))('the Linux installer and kit have no OCR', () => {
+  test('the list of system packages and install-linux.sh install no tesseract; the kit and native build have no Linux mycel-ocr', () => {
+    expect(fs.readFileSync(path.join(ROOT, 'scripts/system/packages.json'), 'utf8')).not.toContain('tesseract')
     expect(fs.readFileSync(path.join(ROOT, 'scripts/install-linux.sh'), 'utf8')).not.toContain('tesseract')
     // mycel-link: the ax-link agent of the EC2 image (scripts/image/README.md), not OCR
     expect(fs.readFileSync(path.join(ROOT, 'native/build.sh'), 'utf8')).toMatch(/LINUX_CMDS="mycel-enroll mycel-sandbox mycel-ctl mycel-boxd mycel-link"/)

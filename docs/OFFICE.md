@@ -92,7 +92,10 @@ rm ~/Downloads/team.example.com.tunnel-token ~/Downloads/claude-token.txt
 토큰은 `~/TeamAX/config/tunnel-token`(600)에 복사되므로 받은 파일은 지웁니다. 인터넷 주소 없이 설치하려면 두 옵션을
 빼면 됩니다(나중에 `teamax public-address set`).
 
-설치기가 하는 일: macOS·프로세서·Claude 로그인(구독 토큰이면 토큰 형식)·포트·토큰 확인 → `~/TeamAX/app`에 프로그램 복사 → 설정
+설치기가 하는 일: macOS·프로세서·Claude 로그인(구독 토큰이면 토큰 형식)·포트·토큰 확인 → `~/TeamAX/app`에 프로그램 복사 →
+HTML을 PDF로 바꾸는 헤드리스 브라우저(Chrome for Testing `chrome-headless-shell`, 약 105 MB, 번들의 목록
+`app/scripts/system/packages.json`이 고정한 버전과 SHA-256)를 서버를 멈추기 전에 `~/TeamAX/browser/`에 받아 실행해 보기(이 맥
+사용자 소유, 최대 8분. 받지 못하면 HTML→PDF 없이 계속하고, 설치 프로그램이 다음에 돌 때(다음 업데이트나 다시 설치) 다시 시도) → 설정
 `~/TeamAX/config/office.env` → LaunchAgent `app.team-ax.office` 시작 → 서버가 답할 때까지 기다림 → 인터넷 주소가 있으면
 두 번째 LaunchAgent `app.team-ax.office.tunnel`(번들의 `cloudflared`) 시작 → 주소·지문·링크 출력.
 `--check-only`를 붙이면 확인만 하고 아무것도 바꾸지 않습니다. 포트가 다른 프로그램에 잡혀 있으면 설치 전에 멈추고
@@ -280,7 +283,12 @@ Mac 데스크톱 DMG는 배포하지 않습니다. Windows 설치 파일은 GitH
    사흘 동안 미뤄지면 그다음 업데이트 시간에 최대 10분만 기다리고 설치합니다. `지금 업데이트`는 최대 10분 기다립니다. 서버가
    최근에 답변 수를 적지 않았으면(`status/status.json`이 2분보다 오래됨) 서버가 켜져 있는 동안 답변이 도는 것으로 봅니다.
 4. 새 zip의 설치 프로그램으로 설치합니다(`office-install.sh --update`: 서버와 cloudflared를 멈추고, 이전 프로그램은
-   `app.previous`, 새 프로그램을 `app`으로, 다시 시작).
+   `app.previous`, 새 프로그램을 `app`으로, 다시 시작). 새 zip의 패키지 목록(`app/scripts/system/packages.json`)이 HTML을
+   PDF로 바꾸는 헤드리스 브라우저(`chrome-headless-shell`)의 새 버전을 고정하면, 서버를 멈추기 **전에** 그 버전을 받아
+   SHA-256을 확인하고 한 번 실행해 봅니다(최대 4분: 업데이트는 설치 프로그램을 10분 뒤 멈추고 되돌리므로). 서버를 멈춘 뒤에는
+   내려받지 않고 `~/TeamAX/browser/chrome-headless-shell/current`만 옮기며, 바로 앞 버전은 다음 전환 때까지 남깁니다. 받지
+   못하거나 실행되지 않으면 경고만 하고 옛 브라우저로 계속합니다: 업데이트를 실패시키거나 되돌리지 않습니다. 같은 버전이면
+   아무것도 받지 않습니다.
 5. 새 버전이 `http://127.0.0.1:<앱 포트>/api/health`에 그 버전으로 답하고 15초 뒤에도 답해야 성공입니다. 2분 30초 안에
    답하지 않거나 곧 멈추면 **이전 버전으로 저절로 되돌립니다**(`app` → `app.failed`, `app.previous` → `app`, 다시 시작).
    되돌린 버전은 밤마다 다시 시도하지 않습니다(`teamax update now`로만).

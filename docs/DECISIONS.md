@@ -12803,6 +12803,163 @@ in the room, it knows what was said in the threads.
   cannot read; a thread question reading its own thread only; paging; tags neutralised; a planted instruction in a reply
   waiting for the asker's card; the instructions and the allowlists), `step-labels-tools`, `b-codex-rooms`.
 
+## One list of system packages (feat/one-package-list, 2026-11-07, product owner and infra engineer)
+
+Input: the hosted image (`scripts/image/*`) had srt, Chromium, CJK fonts, ffmpeg, python3 and build tools; a server made
+with `scripts/install-linux.sh` got the core packages only, the dev environment was a separate manual step, and an
+office Mac had no browser. One release behaved differently by install path (HTML to PDF needs a Chromium). The owner and
+the infra engineer agreed on one shared list, a CI check that fails when the scripts disagree, and pinned versions.
+
+- **One list.** `scripts/system/packages.json`: the supported systems (Debian 12, 13, Ubuntu 24.04; amd64, arm64), groups
+  of apt packages by purpose (core, documents, media: `always`; fonts, devenv, browser: `default`; image, srt, boxes:
+  `on-request`, only the script that names them), per-system names where releases differ (`on`: the t64 libraries of
+  Debian 13 and Ubuntu 24.04; Debian's chromium, a snap on Ubuntu), and the downloaded programs pinned exactly: a version,
+  and a url, sha256 and size for every platform (node, srt, chrome-headless-shell).
+- **One reader.** `scripts/system/packages.sh`, sourced by every install path and run by `mycel-ctl update`. It reads the
+  list with a bun the caller trusts (the kit's or the bundle's, from an empty folder with no environment) or with jq
+  (customize.sh installs jq when neither is there), into flat lines that awk reads. Bash 3.2, for the Mac.
+- **Self-hosted = hosted.** `install-linux.sh` installs the `always` and `default` groups, as the image does through the
+  same installer (`--image-mode`, no `--minimal`). `--minimal` installs the `always` groups only, which is what the
+  installer installed before; it is kept in `install.json` (`--no-minimal` turns it back). An `always` package that
+  cannot be installed or is below its floor stops the install, as before; a `default` one only warns (the server runs
+  without it; `repair` tries again).
+- **The dev environment: packages only.** Its tools (python3, git, build tools, Debian's chromium …) are installed by
+  default, because installing them changes no service, account or sandbox. Turning it on (polkit rule, slice, server
+  drop-in, node and srt in `/opt/trina`) stays `install-srt.sh`, an explicit choice; it reads its packages (groups core,
+  media, fonts, devenv) and the node and srt pins from the list.
+- **apt versions.** The distribution release is the pin: the installers accept only the list's systems, and apt installs
+  from that release's archive and its security updates. Each package may have a floor (`>=`) that is checked after the
+  install (the floors `scripts/linux/deps.txt` had; the file is gone). Exact versions are not pinned: Debian and Ubuntu
+  mirrors keep only the newest version of a package in a release, so an exact pin breaks the first install after a
+  security update and would hold that update back. For an image that must be rebuilt with the same versions,
+  `--apt-snapshot <time>` (`build.sh`, `build-ami.sh`, `customize.sh`) installs from snapshot.debian.org with apt's
+  `--snapshot` (apt 2.7+, Debian 13); not for self-hosted installs (slow, rate limited, and it freezes security fixes).
+- **The browser.** Chrome for Testing's `chrome-headless-shell` 157.0.8103.38 (Stable on 2026-11-07), with the sha256 of
+  the files as downloaded (Google publishes none): linux64, linux-arm64, mac-arm64, mac-x64. The plan named Debian's
+  `chromium-headless-shell` for Linux arm64 because Chrome for Testing had no such build; it has one now, so every
+  platform takes the same pinned program (Ubuntu 24.04 arm64 has no Debian package either). Linux:
+  `/opt/trina/chrome-headless-shell/<version>/<dir>`, root's, a `current` link, `MYCEL_HTML_PDF_BROWSER` in
+  `/etc/default/<id>` (the line is ours; every other line stays; uninstall removes it). Office Mac:
+  `<prefix>/browser/chrome-headless-shell/<version>`, the office account's, outside `app/` so an update downloads it only
+  for a new version; the supervisor sets `MYCEL_HTML_PDF_BROWSER` when it is there. Both are folders nobody else can
+  write (html-pdf.ts `trustedBrowser`). Its libraries are the browser group (from `ldd` on each system).
+- **Updates.** The list, its flat copy and its reader are root files of the bundle (`root/packages.json`,
+  `root/packages.flat`, `root/packages.sh`), so a changed list, a new browser version included, is a root change without
+  a rule of its own (publish-server.ts `rootManaged`, `rootSince`). After the root files and the app, `mycel-ctl update`
+  starts `packages.sh sync` and does not wait for it (below, "Out of the update command"), and the sync writes
+  `root/packages.synced` (the list's sha256, the system it ran on, and ok, incomplete or blocked). The flat copy lets root read the list with awk
+  alone: no bun, no jq.
+- **Catch-up after an older mycel-ctl (review, must-fix; second review S2).** A server whose update is done by an older
+  `mycel-ctl` gets the root files of a release with the list, including the new `mycel-ctl`, but that older binary never
+  syncs, and an app-only release never calls `mycel-ctl` at all. So the new binary checks `root/packages.synced` against
+  the list in `root/` on every run. A pending sync is not a reason for root to install a release: `rootJob` does not count
+  it (a release the app takes by itself stays the app's; two updaters switching versions garble `state.json`'s previous).
+  Instead, whenever the scheduled gate finds nothing for root to install now (no release, an app-only one, a staged
+  roll-out wait, a hold), it goes on with a sync-only run: nothing is downloaded, the sync reads the list's flat copy in
+  `root/`. The first update timer run of the new binary inside the update window does it; on a hosted VM, which has no
+  timer, the control plane's next `mycel-ctl update`. An incomplete sync is tried again by the timer after 6 hours. A
+  blocked one (an install from before the list or with `--skip-apt` may not run apt unattended; a full disk) waits: the
+  timer does not retry it, an administrator's own `mycel-ctl update` (or the control plane's) does, as does
+  `install-linux.sh repair`. A sync that ends without writing its record (stopped at the deadline, the script failing
+  early, a full disk) gets an incomplete record from `mycel-ctl`, so it is not run again at every check. `mycel-ctl status`
+  and Admin › System › Diagnostics ("System packages") show the state, with the record's time in the team's zone and who
+  does it next (the timer, an administrator when automatic updates are off, the hosting service). Other ways were weighed
+  and dropped: an `ExecStartPost=` in the update unit (the running job keeps its old definition), the firewall timer (wrong
+  layer), or a status call that changes the system.
+- **Out of the update command (PR #164 review, High 2).** The control plane gives `mycel-ctl update` 1800 s, and a timeout
+  is `app_rolled_back` and counts toward a roll-out halt; a sync inside the command (20 minutes, plus the 600 s turn wait)
+  could turn a healthy update into one. So on a server with systemd the update starts `mycel-ctl packages-sync` as the
+  transient unit `<id>-packages-sync.service` (`systemd-run --no-block --collect`, the proxy variables with `--setenv`,
+  `RuntimeMaxSec` as a safety net), adds a note, and returns. The unit name keeps one sync at a time (a running one stays;
+  the next check syncs a newer list); a unit that cannot start writes an "incomplete" record. The sync never takes the
+  update lock (an update meanwhile is not "busy", code 30) and runs a private copy of `root/packages.{sh,json,flat}`, so an
+  update that replaces `root/` meanwhile does not change a script bash is reading; the record names the list the copy had,
+  and the next check syncs the new one. It reads the flat copy: the update's bundle folder is gone by then. Without
+  systemd (a container) the sync stays inside the command, capped at 10 minutes.
+- **A record per system (PR #164 review, Medium 1).** `root/packages.synced` is on the data disk, which a reimage keeps.
+  The record has `os`: `<ID>-<VERSION_ID>/<machine-id>` (packages.sh `pk_os_identity`, mycel-ctl `osIdentity` and the
+  server's `osIdentity` read the same files the same way; `customize.sh` empties the machine-id, so each clone has a new
+  one). A record of another system, or one from before the field, is pending: every server syncs once after this change.
+  A hosted install (`"hosted": true` in install.json, not `skipApt: true`) may run apt unattended: the hosting service owns
+  the machine, and hosted VMs from before the list wrote no `skipApt`.
+- **Bounded, never in the way (review, must-fix; second review S1).** The sync has a 20-minute deadline (10 inside the
+  update command) in its own process group (`Setpgid`); at the deadline the group gets SIGTERM, which stops a download. apt does not run in
+  that group, nor in the update unit's cgroup: during a sync each `apt-get update` and `apt-get install` is a transient
+  systemd unit of its own (`systemd-run --wait --collect`, output appended to `/var/log/trina-packages-apt.log`). systemd
+  stops a unit's whole cgroup when it ends or hits `TimeoutStartSec`, so a `setsid` child (the first version) would have
+  been killed with the update job; a transient unit is not, and no pipe a dying caller could close carries its output.
+  Checked in a systemd container: killing the `systemd-run` client and stopping the service that started it both leave
+  the apt unit running, and the exit code comes back. Elsewhere (an administrator's installer, a chroot image build, where
+  `systemd-run` would reach the host's systemd) apt runs directly. apt waits up to 5 minutes for dpkg's lock
+  (`DPkg::Lock::Timeout=300`) and runs only after a free-space check (apt's own estimate plus 256 MB; too little is
+  "blocked": an administrator frees space). Downloads are bounded in packages.sh (20 s to connect, give up below 10 KB/s for
+  60 s, all tries within 8 minutes, and a watchdog that stops curl whatever it does). The proxy variables of the run are
+  passed through. The browser's libraries go in a transaction of their own, before the other groups. Only a bundle that
+  `VerifyDir` accepted lends its bun to root; otherwise the flat copy is read.
+- **The browser switch (review, must-fix; second review N1, S5).** A new version is downloaded into `.new.*`, checked, and
+  started once (`--version`) before it gets its version folder's name; `current` moves only to a version that starts (one
+  rename of a temporary link), and a version that does not start is kept as `.untested-<version>` and tested again next
+  time without a new download. The version a switch replaced is recorded in `.previous` and kept until the next switch,
+  whichever install id syncs in between, as a print may still use it. A version newer than the list's (another install's
+  newer kit, a repair from an older one) stays current and is never deleted. When nothing starts, `current` and the env
+  line go. One `flock` serializes every install on the machine; the folder and its parent are 755 whatever the umask;
+  `/etc/default/<id>` is written next to itself and renamed. The env line is written by the sync, after the app restarted,
+  so `findPdfBrowser` (server/src/files/html-pdf.ts) also looks at `/opt/trina/chrome-headless-shell/current/
+  chrome-headless-shell` when `MYCEL_HTML_PDF_BROWSER` is not set, through the same `trustedBrowser` check.
+- **Browser pin: staleness and roll-back (PR #164 review, High 1).** The pinned `chrome-headless-shell` prints untrusted
+  HTML with `--no-sandbox` and gets no security updates of its own, so the pin must follow Chrome for Testing Stable.
+  Owner of the bumps: the trina-ax maintainers. A bump changes `version` and, for every platform, `url`, `sha256` (of the
+  file as downloaded) and `size`; it is a root change like any change of the list. CI checks the pin in the main job
+  (`bun scripts/system/browser-staleness.ts`, step "Pinned browser against Chrome for Testing Stable", 2 minutes at most,
+  against `last-known-good-versions.json`). Policy: the pin at Stable is ok; behind Stable in the same major (a new build,
+  often security fixes) is a warning, and the maintainers bump it within 7 days; one major behind, or newer than Stable (a
+  Beta), is a warning; two or more majors behind (about four weeks or more without Stable's fixes) fails CI. A network
+  error only warns: CI never goes red because Chrome for Testing cannot be reached. `release.yml` publishes only when
+  `ci.yml` passes, so a release (a hotfix too) needs a pin at most one major behind Stable: the bump is a list edit in the
+  same release. A bad pin is rolled back with
+  `"revoked": ["<version>", …]` on the artifact: the list pins the good version again and names the bad one. Normally a
+  version newer than the pin stays (another install's newer kit); a revoked version does not: the sync switches back to
+  the pin and removes the revoked folder, never keeps it as the previous version, and, when the pin is not ready,
+  removes `current` (HTML to PDF off rather than a revoked browser). The list check refuses a `revoked` that names the
+  pin. Two install ids on one machine with kits on both sides of a revocation would switch back and forth until both
+  are updated; hosted VMs have one id.
+- **Office updates (review, must-fix).** `office-install.sh` downloads and tests the browser while the server still runs
+  (at most 4 minutes during an automatic update, which stops the installer after 10 minutes and rolls back), and only
+  switches `current` after the server has stopped. A failure only warns: it can neither fail nor roll back an update.
+- **Docker (second review S4).** The Docker image is another install path: `docker/Dockerfile` installs the list's always
+  groups and an on-request `docker` group from the kit's own list (its `packages.sh` and flat copy), and the entrypoint runs
+  the installer with `--minimal --skip-apt`, as the image carried the always groups only before. HTML to PDF in Docker is
+  a build argument (PR #164 review, question 4): `--build-arg TRINA_AX_PACKAGE_GROUPS="fonts browser"` adds the CJK fonts,
+  the browser group and the pinned browser in `/opt/trina/chrome-headless-shell`; the default image has none of them (a
+  smaller image, less to attack). The packages step runs in bash (`SHELL`): packages.sh is bash, and sh stopped the build.
+- **The CI check** (`tests/unit/system-packages.test.ts`, in `bun run test:unit`): the list is well formed; every
+  artifact has a version, url, sha256 and size for every platform it must have; bun and jq read the same lines as the
+  TS reader (jq is required in CI); packages.sh picks the same packages for every system and profile and refuses a name
+  that is not a package name; every shell script under `scripts/` and `docker/` and every Containerfile/Dockerfile is
+  scanned (comments out, continuation lines joined, options before the command, apt in a variable, dnf, yum, zypper, apk,
+  brew and pip too, and commands inside quotes unless the quotes are a message of echo, printf, die, warn or say), and none
+  names three packages on a line or installs a name, nor carries a sha256, a pinned download address or a version of its
+  own, except an allowlist with a reason, per command and not per file (PR #164 review, M5: a command is allowed by a
+  fragment it holds, the file's other commands are checked as usual, and a fragment no command holds any more fails as
+  stale; a test container that pins node must pin the list's); the image
+  installs the installer's default groups plus its own; install-linux.sh accepts exactly the list's systems; srt has one
+  version in the list, the server and the lockfile; the list is a root file and in the office zip; the browser switch,
+  the stalled download, the env file, the record and apt as a transient unit behave. The Go side:
+  `native/cmd/mycel-ctl/syncsystem_test.go`.
+- **One list per image (PR #164 review, M3).** `build.sh` and `build-ami.sh` stage the kit's `app/<v>/root/packages.{json,sh}`
+  and stop when they are missing (a kit from before the list) or differ from the checkout's `scripts/system/`; a kitless
+  dry run takes the checkout's. `ami-chroot.sh` prints the image's free disk in the build log and warns below 5 GiB
+  (question 2).
+- **A Linux copy of the list in the Linux bundle (PR #164 review, question 7, owner).** `build-bundle.ts` writes
+  `root/packages.json` as `packages.ts linuxList`: the list without the darwin platforms and with a fixed `_about`. A
+  Mac-only change leaves `root/` byte for byte the same, so it is no root release (each root release restarts the
+  launcher and loads the firewall again on every server). `build.sh` and `build-ami.sh` compare the kit's copy with the
+  checkout's Linux copy (`bun scripts/system/packages.ts linux`); the office zip keeps the full list.
+- **The dev environment's packages stay in the default groups (PR #164 review, M4, owner).** Every server installs them,
+  because the dev environment is on by default ("Dev environment: one queue, on by default", Dion); M4's "on request" is not done.
+- Left: Ubuntu 24.04 is in the list for the installer but not for `install-srt.sh` (AppArmor, spike S6). The office Mac
+  shows no sync state in Diagnostics (it has no root/; the browser is there or not).
+
 ## 알림함의 대화 알림 — who, where and why in the Inbox (feat/inbox-room-notices, 2026-11-07, product owner)
 넣을 곳: trina-ax `server/src/rooms/inbox.ts` (with `notifications/service.ts`, `notifications/text.ts`, migration 262),
 `shared/src/api/notifications.ts`, `web/src/components/settings/RoomNoticeRow.tsx` and `web/pwa/sw.js`, 이유: the

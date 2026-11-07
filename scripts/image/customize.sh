@@ -6,7 +6,8 @@
 #   customize.sh [--src DIR] [--kit DIR] [--enroll-bin FILE] [--link-bin FILE] [--template-version V]
 #                [--srt DIR] [--allow-missing-kit] [--no-cleanup]
 #
-#   --src DIR            folder holding files/ (default: this script's folder)
+#   --src DIR            folder holding files/ and system/ (default: this script's folder; system/ is then the
+#                        repository's scripts/system: the list of packages, packages.json, and its reader)
 #   --kit DIR            the W1 Linux kit (install-linux.sh + VERSION + app/<v>/…, linux-runtime.md §3.6.1)
 #                        (default: <src>/kit when it exists)
 #   --enroll-bin FILE    linux mycel-enroll binary (default: <src>/bin/mycel-enroll)
@@ -19,6 +20,8 @@
 #                        on a hosted server it writes dev-env.json from plan.json and runs install-srt.sh --boot.
 #                        Without the folder the image has no srt (build.sh, Proxmox)
 #   --template-version V written to /etc/ax-template.json (build.sh passes <kitVersion>-d13-<yyyymmdd>)
+#   --apt-snapshot TS    install every apt package from snapshot.debian.org at TS (YYYYMMDDTHHMMSSZ), so a rebuild gets
+#                        the same versions (scripts/system/packages.sh PK_APT_SNAPSHOT; apt 2.7+, Debian 13)
 #   --allow-missing-kit  pipeline dry run: everything except the kit; the image is marked "not for production"
 #   --no-cleanup         keep apt lists, machine-id, logs (debugging)
 #
@@ -46,9 +49,10 @@ while [[ $# -gt 0 ]]; do
     --link-bin) LINK_BIN="$2"; shift 2 ;;
     --srt) SRT="$2"; shift 2 ;;
     --template-version) TEMPLATE_VERSION="$2"; shift 2 ;;
+    --apt-snapshot) export PK_APT_SNAPSHOT="$2"; shift 2 ;;
     --allow-missing-kit) ALLOW_MISSING_KIT=1; shift ;;
     --no-cleanup) CLEANUP=0; shift ;;
-    -h|--help) sed -n '2,29p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
     *) echo "customize.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -66,9 +70,6 @@ KITDIR="$LIBDIR/kit"
 # render). If a later base image takes these ids too, ensure_account stops with "uid N is taken by ...".
 SERVER_UID=980
 AGENT_UID=981
-PACKAGES=(systemd systemd-sysv udev tzdata qemu-guest-agent chrony nftables bubblewrap systemd-zram-generator
-  unattended-upgrades needrestart ca-certificates e2fsprogs cloud-guest-utils util-linux procps perl-base)
-PURGE=(openssh-server openssh-sftp-server)
 MYCEL_UNITS=(mycel-firewall.service mycel-firewall.timer mycel-launcher.service mycel-server.service mycel-update.service mycel-update.timer)
 
 CHANGED=0
@@ -152,16 +153,36 @@ cleanup_policy() { [[ -f "$POLICY_RC.ax" ]] && rm -f "$POLICY_RC" "$POLICY_RC.ax
 trap cleanup_policy EXIT
 if [[ ! -e "$POLICY_RC" ]]; then printf '#!/bin/sh\nexit 101\n' > "$POLICY_RC"; chmod 755 "$POLICY_RC"; : > "$POLICY_RC.ax"; fi
 
+# The image group of the one list (scripts/system/packages.json, read by its packages.sh): the hosted VM's own packages
+# and the ones it removes. The kit's installer below installs the always and default groups, the same as a self-hosted
+# install without --minimal, and install-srt.sh the srt group. Read with the kit's bun, or jq (installed if missing).
+SYSTEM="$SRC/system"
+[[ -f "$SYSTEM/packages.sh" ]] || SYSTEM="$SRC/../system"
+[[ -f "$SYSTEM/packages.sh" && -f "$SYSTEM/packages.json" ]] || die "no system/packages.sh and packages.json under $SRC (the stage copies scripts/system)"
+# shellcheck source=../system/packages.sh
+. "$SYSTEM/packages.sh"
+if [[ -n "$KIT" && -f "$KIT/VERSION" ]]; then
+  kv="$(tr -d '[:space:]' < "$KIT/VERSION")"
+  # shellcheck disable=SC2034 # packages.sh reads it
+  [[ -x "$KIT/app/$kv/bin/bun" ]] && PK_BUN="$KIT/app/$kv/bin/bun"
+fi
+pk_need_reader || die "cannot read the list of packages"
+pk_load "$SYSTEM/packages.json" || die "cannot read $SYSTEM/packages.json"
+DISTRO="$(pk_distro)" || die "this system (${PRETTY_NAME:-unknown}) is not in the list of packages"
+ARCH="$(pk_arch)" || die "unknown machine $(uname -m)"
+read -r -a PACKAGES <<< "$(pk_packages "$DISTRO" "$ARCH" image | tr '\n' ' ')"
+read -r -a PURGE <<< "$(pk_removals image | tr '\n' ' ')"
+[[ ${#PACKAGES[@]} -gt 0 ]] || die "the list has no image packages for $DISTRO $ARCH"
+
 missing=()
 for p in "${PACKAGES[@]}"; do pkg_installed "$p" || missing+=("$p"); done
 if [[ ${#missing[@]} -gt 0 ]]; then
   say "installing: ${missing[*]}"
-  apt-get update -qq
-  apt-get install -y -qq --no-install-recommends -o Dpkg::Options::=--force-confold "${missing[@]}" >/dev/null
+  pk_apt_install -o Dpkg::Options::=--force-confold -- "${missing[@]}" || die "apt-get install failed"
   changed "packages ${missing[*]}"
 fi
 gone=()
-for p in "${PURGE[@]}"; do pkg_installed "$p" && gone+=("$p"); done
+for p in ${PURGE[@]+"${PURGE[@]}"}; do pkg_installed "$p" && gone+=("$p"); done
 if [[ ${#gone[@]} -gt 0 ]]; then
   apt-get purge -y -qq "${gone[@]}" >/dev/null
   apt-get autoremove -y -qq --purge >/dev/null || true

@@ -98,6 +98,8 @@ export function bundleManifest(o: { pandoc: boolean; desktop: boolean }): string
     ]),
     ...ENTRIES.map(([, out]) => `app/server/src/${out}`), 'app/server/migrations/', 'app/server/node_modules/@huggingface/transformers/',
     'app/scripts/macos/engine.sb', 'app/web/dist/index.html',
+    // the one list of packages and its reader: office-install.sh installs the pinned chrome-headless-shell from it
+    'app/scripts/system/packages.json', 'app/scripts/system/packages.sh',
   ]
 }
 
@@ -234,6 +236,8 @@ export async function buildOffice(o: {
   for (const f of fs.readdirSync(path.join(REPO, 'server', 'migrations'))) if (f.endsWith('.sql')) fs.copyFileSync(path.join(REPO, 'server', 'migrations', f), path.join(app, 'server', 'migrations', f))
   fs.mkdirSync(path.join(app, 'scripts', 'macos'), { recursive: true })
   fs.copyFileSync(path.join(REPO, 'scripts', 'macos', 'engine.sb'), path.join(app, 'scripts', 'macos', 'engine.sb'))
+  fs.mkdirSync(path.join(app, 'scripts', 'system'), { recursive: true })
+  for (const f of ['packages.json', 'packages.sh']) fs.copyFileSync(path.join(REPO, 'scripts', 'system', f), path.join(app, 'scripts', 'system', f))
   fs.cpSync(path.join(REPO, 'web', 'dist'), path.join(app, 'web', 'dist'), { recursive: true })
   fs.copyFileSync(path.join(REPO, 'versions.json'), path.join(app, 'versions.json'))
 

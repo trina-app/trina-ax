@@ -9,7 +9,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import {
-  _queueForTest, assetMime, browserArgs, BROWSER_SHELL, findPdfBrowser, HtmlPdfError, htmlPdfUnavailable, ORIGIN, PAGE_CSP, pdfPageCount,
+  _queueForTest, assetMime, browserArgs, BROWSER_SHELL, findPdfBrowser, HtmlPdfError, htmlPdfUnavailable, ORIGIN, PAGE_CSP, pdfPageCount, PINNED_BROWSER,
   QUEUE_MAX, renderHtmlPdf, RENDER_PARALLEL, renderParallel, renderSlot, serverFontDirs, teamPathOf, trustedBrowser, type HtmlPdfRequest,
 } from '../../server/src/files/html-pdf'
 import { makePagedPdf } from '../lib/pdf'
@@ -481,6 +481,28 @@ describe('parts', () => {
     // a real shell: what goes in on stdin comes out of fd 3, what is written to fd 4 comes out on stdout
     const r = Bun.spawnSync(['/bin/sh', '-c', BROWSER_SHELL, '/bin/sh', '-c', 'cat <&3 >&4; echo stdout-is-null'], { stdin: Buffer.from('ping\0') })
     expect(r.stdout.toString()).toBe('ping\0')
+  })
+
+  test('findPdfBrowser: the installers\' pinned browser on Linux while MYCEL_HTML_PDF_BROWSER is not set yet; trustedBrowser applies', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'hp-pinned-'))
+    try {
+      // /opt/trina/chrome-headless-shell as packages.sh lays it out: <version>/<dir>/chrome-headless-shell and current -> it
+      const top = path.join(d, 'chrome-headless-shell'), dir = path.join(top, '157.0.8103.38', 'chrome-headless-shell-linux64')
+      fs.mkdirSync(dir, { recursive: true, mode: 0o755 })
+      fs.writeFileSync(path.join(dir, 'chrome-headless-shell'), '#!/bin/sh\n', { mode: 0o755 })
+      fs.symlinkSync('157.0.8103.38/chrome-headless-shell-linux64', path.join(top, 'current'))
+      const pinned = path.join(top, 'current', 'chrome-headless-shell'), real = fs.realpathSync(pinned)
+      expect(findPdfBrowser({}, 'linux', '/nonexistent', pinned)).toBe(real)
+      // the variable still wins, and "none" still turns it off; not on a Mac (its office browser is named by the supervisor)
+      expect(findPdfBrowser({ MYCEL_HTML_PDF_BROWSER: 'none' }, 'linux', '/nonexistent', pinned)).toBeNull()
+      expect(findPdfBrowser({ MYCEL_HTML_PDF_BROWSER: path.join(d, 'other') }, 'linux', '/nonexistent', pinned)).toBeNull()
+      expect(findPdfBrowser({}, 'darwin', '/nonexistent', pinned)).toBeNull()
+      // a folder others can write is never trusted, pinned or not
+      fs.chmodSync(dir, 0o777)
+      expect(findPdfBrowser({}, 'linux', '/nonexistent', pinned)).toBeNull()
+      fs.chmodSync(dir, 0o755)
+      expect(PINNED_BROWSER).toBe('/opt/trina/chrome-headless-shell/current/chrome-headless-shell')
+    } finally { fs.rmSync(d, { recursive: true, force: true }) }
   })
 
   test('findPdfBrowser: an explicit browser, "none", the promo video\'s chrome-headless-shell; nothing otherwise', () => {

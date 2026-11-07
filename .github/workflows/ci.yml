@@ -84,6 +84,9 @@ jobs:
         run: bun run prepare:hwp
       - name: Unit tests
         run: bun run test:unit
+      - name: Pinned browser against Chrome for Testing Stable
+        timeout-minutes: 2
+        run: bun scripts/system/browser-staleness.ts
       - name: Fast fuzz (path fuzzer in-process and over the socket, ReDoS)
         run: bun run test:fuzz:fast
       - name: Web unit tests and build

@@ -2,9 +2,12 @@
 # Dev environment on srt (docs/research/srt-dev-env.md section 9) for an EXISTING Trina server (Debian 13). Run as root.
 # It adds:
 #   - the packages that the AI's commands use (python3, ffmpeg, chromium, build tools ...) and that srt needs
-#     (bubblewrap, socat, ripgrep), and polkitd;
-#   - node 22 in /opt/trina/node (Debian 13 has node 20; srt needs 22.12 or later, and NODE_USE_ENV_PROXY needs 22.21), from a pinned tarball;
-#   - srt in /opt/trina/srt/<version> from the pinned package-lock.json (npm ci --ignore-scripts), root-owned;
+#     (bubblewrap, socat, ripgrep), and polkitd: the groups core, media, fonts and devenv of the one list
+#     (scripts/system/packages.json; install-linux.sh installs them too, unless --minimal);
+#   - node 22 in /opt/trina/node (Debian 13 has node 20; srt needs 22.12 or later, and NODE_USE_ENV_PROXY needs 22.21), the
+#     tarball the list pins (version, sha256);
+#   - srt in /opt/trina/srt/<version> (the list's version) from the pinned package-lock.json (npm ci --ignore-scripts),
+#     root-owned;
 #   - /opt/trina/devenv/run-wrap, the polkit rule for the job scopes, the <ID>-devenv.slice with the plan caps;
 #   - a drop-in of the server unit: MYCEL_DEV_ENV=1, MYCEL_DEV_ENV_RUNNER=srt, ReadWritePaths=-<base>/devenv, and an
 #     ExecStartPre=+ that makes <base>/devenv, so a new data disk never stops the server.
@@ -37,11 +40,21 @@ die() { echo "install-srt: STOP: $*" >&2; exit 1; }
 say() { echo "install-srt: $*"; }
 [ "$IMAGE_MODE$BOOT" != 11 ] || die "--image-mode and --boot do not go together"
 
-SRT_VERSION=0.0.81
-NODE_VERSION=22.23.4
-# sha256 of https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-<arch>.tar.xz (SHASUMS256.txt of that release)
-NODE_SHA_x64=1805bcd35e6815559bd2eb97db438d3fdb0eb3a5e6a977b7c1badca76337e9ce
-NODE_SHA_arm64=6287aa46b6c375d816e63ae66d024fbbfd70404825aabdfdf898a970871d2f4b
+# The one list of packages and programs (scripts/system/packages.json): the packages of the groups core, media, fonts
+# and devenv, and the pinned node and srt (group srt). A staged copy of this folder has it in system/ (build-ami.sh, the
+# image's /usr/lib/mycel/dev-env/srt), a checkout in scripts/system. Read with jq, which a Trina server has from the
+# default groups; only --image-mode installs it when it is missing.
+SYSTEM=$HERE/system
+[ -f "$SYSTEM/packages.sh" ] || SYSTEM=$HERE/../../system
+[ -f "$SYSTEM/packages.sh" ] && [ -f "$SYSTEM/packages.json" ] || die "no system/packages.sh and packages.json for $HERE (scripts/system)"
+# shellcheck source=../../system/packages.sh
+. "$SYSTEM/packages.sh"
+if [ "$IMAGE_MODE" = 1 ]; then pk_need_reader || die "cannot read the list of packages"
+else command -v jq >/dev/null || die "jq is missing: apt-get install jq, then run this again"; fi
+pk_load "$SYSTEM/packages.json" || die "cannot read $SYSTEM/packages.json"
+SRT_VERSION=$(pk_art srt any version) || die "the list has no srt"
+[[ "$SRT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "the list's srt version $SRT_VERSION is not a version"
+PKG_GROUPS="core media fonts devenv"
 BASE=/var/lib/$ID
 SERVER_UNIT=$ID-server.service
 OPT=/opt/trina
@@ -73,6 +86,10 @@ case "$OS" in
   *) die "this script is for Debian 13 (found $OS)" ;;
 esac
 case "$(uname -m)" in x86_64) ARCH=x64 ;; aarch64) ARCH=arm64 ;; *) die "unknown machine $(uname -m)" ;; esac
+DISTRO=$(pk_distro) || die "$OS is not in the list of packages"
+PLATFORM=$(pk_platform) || die "unknown machine $(uname -m)"
+NODE_VERSION=$(pk_art node "$PLATFORM" version) || die "the list has no node for $PLATFORM"
+[[ "$NODE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "the list's node version $NODE_VERSION is not a version"
 for f in "$HERE/package.json" "$HERE/package-lock.json" "$HERE/run-wrap" "$HERE/srt-full.mjs" "$HERE/devenv.rules.in" "$HERE/devenv.slice.in"; do
   [ -f "$f" ] || die "$f is missing"
 done
@@ -83,7 +100,6 @@ SRV_USER=$(systemctl show -p User --value "$SERVER_UNIT")
 [ -n "$SRV_USER" ] && [ "$SRV_USER" != root ] || die "cannot read the server account of $SERVER_UNIT"
 [ -d "$BASE/root" ] && root_only "$BASE/root" || die "$BASE/root must belong to root, and only root may write to it"
 [ -f "$BASE/root/install.json" ] || die "no $BASE/root/install.json"
-command -v jq >/dev/null || die "jq is missing: apt-get install jq, then run this again"
 
 # The plan caps. A hosted team VM must have root/dev-env.json (one team per VM); the server reads the same file.
 HOSTED=0
@@ -105,18 +121,16 @@ TASKS_MAX=$(( PIDS * (2 * MAXRUN + 2) ))
 fi
 
 # ---- packages (no apt run when all are there: no network and no dpkg lock needed) ----
-PACKAGES="bubblewrap socat ripgrep polkitd jq git curl ca-certificates xz-utils python3 python3-venv python3-pip ffmpeg chromium build-essential fonts-noto-cjk"
-MISSING=
-for p in $PACKAGES; do
-  [ "$(dpkg-query -W -f '${db:Status-Status}' "$p" 2>/dev/null)" = installed ] || MISSING="$MISSING $p"
-done
-if [ -n "$MISSING" ]; then
-  [ "$BOOT" = 0 ] || die "packages missing:$MISSING (--boot downloads nothing; the image should have them)"
-  say "packages:$MISSING"
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get update -q
+# shellcheck disable=SC2086 # group and package names have no spaces
+PACKAGES=$(pk_packages "$DISTRO" "$(pk_arch)" $PKG_GROUPS | tr '\n' ' ')
+[ -n "${PACKAGES// /}" ] || die "the list has no packages for $DISTRO"
+# shellcheck disable=SC2086
+MISSING=$(pk_missing $PACKAGES | tr '\n' ' ')
+if [ -n "${MISSING// /}" ]; then
+  [ "$BOOT" = 0 ] || die "packages missing: $MISSING(--boot downloads nothing; the image should have them)"
+  say "packages: $MISSING"
   # shellcheck disable=SC2086
-  apt-get install -y -q --no-install-recommends $PACKAGES
+  pk_apt_install -- $PACKAGES || die "apt-get install failed"
 fi
 dpkg --compare-versions "$(dpkg-query -W -f '${Version}' bubblewrap)" ge 0.8.0 || die "bubblewrap is older than 0.8.0"
 
@@ -126,13 +140,14 @@ if [ ! -x "$NODE_DIR/bin/node" ]; then
   [ "$BOOT" = 0 ] || die "no node $NODE_VERSION in $NODE_DIR (--boot downloads nothing)"
   say "node $NODE_VERSION"
   TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
-  TAR=node-v$NODE_VERSION-linux-$ARCH.tar.xz
-  curl -fsSL -o "$TMP/$TAR" "https://nodejs.org/dist/v$NODE_VERSION/$TAR"
-  SHA_VAR=NODE_SHA_$ARCH
-  echo "${!SHA_VAR}  $TMP/$TAR" | sha256sum -c - >/dev/null || die "node tarball: wrong sha256"
+  NODE_TOP=$(pk_art node "$PLATFORM" dir) && [[ "$NODE_TOP" =~ ^node-v[0-9.]+-linux-[a-z0-9]+$ ]] || die "the list's node has no folder name for $PLATFORM"
+  # https only, the list's sha256 and size (a tarball of nodejs.org's SHASUMS256.txt)
+  pk_fetch "$(pk_art node "$PLATFORM" url)" "$(pk_art node "$PLATFORM" sha256)" "$(pk_art node "$PLATFORM" size)" "$TMP/node.tar.xz" \
+    || die "node tarball: not downloaded, or not the one the list pins"
   install -d -o root -g root -m 755 "$OPT"
-  tar -xJf "$TMP/$TAR" -C "$TMP"
-  rm -rf "$NODE_DIR"; mv "$TMP/node-v$NODE_VERSION-linux-$ARCH" "$NODE_DIR"
+  tar -xJf "$TMP/node.tar.xz" -C "$TMP"
+  [ -d "$TMP/$NODE_TOP" ] || die "node tarball: no $NODE_TOP in it"
+  rm -rf "$NODE_DIR"; mv "$TMP/$NODE_TOP" "$NODE_DIR"
   chown -R root:root "$NODE_DIR"; chmod -R go-w "$NODE_DIR"
 fi
 ln -sfn "$NODE_DIR" "$OPT/node"
