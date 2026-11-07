@@ -63,9 +63,11 @@ const HOUR_MS = 3_600_000
 export interface SendInput { body: string; replyToId?: string | null; threadRootId?: string | null; alsoInRoom?: boolean; mentions: string[]; mentionsAll?: boolean; fileIds: string[]; clientMessageId: string }
 /** Rooms.send's `answer` (never from a request body): the message carries an answer of the sender's own AI chat
  * ("대화방에 보내기", chat/answer-share.ts) that starts at `at` in the body; `cut`: it was cut to fit; `people`: the
- * members who could not read what it used (the person said yes to sending anyway when more than 0), for the audit.
- * The caller took the sending budget's token for the request already (before its check): send takes none more. */
-export interface SharedAnswerMark { at: number; cut: boolean; people: number }
+ * members who could not open a linked file or see some material it used; `confirmed`: the person said yes to a
+ * "confirm" first (default: people > 0); its files (fileIds) are linked files attached as copies. For the audit (the
+ * number of files, never their names). The caller took the sending budget's token for the request already (before its
+ * check): send takes none more. */
+export interface SharedAnswerMark { at: number; cut: boolean; people: number; confirmed?: boolean }
 /** Nobody: what everyone who sees a message without being in it or following anything sees (one copy for most members). */
 const NOBODY: MemberRow = { room_id: '', user_id: '', joined_at: '', last_read_seq: 0, visible_from_seq: 0, muted: 0, notify_level: null, hidden_at: null }
 
@@ -427,7 +429,7 @@ export class Rooms {
    * With threadRootId it is a reply in that message's thread (see the top of this file).
    * `answer` (chat/answer-share.ts only, never a request's body): the message carries an answer of my own AI chat. It
    * mentions nobody (nor "@전체") and never calls the room's AI, whatever its text says ("@트리나", "@Name" in the answer
-   * are the AI's words, not a call), and is neither a reply nor in a thread. */
+   * are the AI's words, not a call), and is neither a reply nor in a thread; its files are linked files attached. */
   send(userId: string, roomId: string, b: SendInput, o: AskOptions = {}, answer?: SharedAnswerMark): RoomMessage {
     const { room, me } = this.mine(userId, roomId)
     const again = this.db.query(`SELECT ${MSG_COLS} FROM room_messages WHERE room_id = ? AND author_id = ? AND client_id = ?`).get(roomId, userId, b.clientMessageId) as MessageRow | null
@@ -448,7 +450,7 @@ export class Rooms {
       // the same answer whatever is wrong (not there, not one I see, an event line, a reply itself, deleted, private)
       if (!root || !canSee(root, me) || !threadable(root) || root.deleted_at) fail('validation', undefined, { fields: { 'body.threadRootId': 'not a message of this room to answer in a thread' } })
     }
-    if (answer && (b.threadRootId || b.replyToId || b.fileIds.length || answer.at < 0 || answer.at > b.body.length)) fail('validation')
+    if (answer && (b.threadRootId || b.replyToId || answer.at < 0 || answer.at > b.body.length)) fail('validation')
     const mentions = answer ? [] : this.validMentions(roomId, userId, b.mentions)
     const fileIds = [...new Set(b.fileIds)]
     if (fileIds.length) {
@@ -469,7 +471,7 @@ export class Rooms {
         b.mentionsAll && !answer ? 1 : 0, answer ? answer.at : null, answer?.cut ? 1 : 0)
       // an answer of my own AI chat: audited without its content or anyone's name; a DM's or group chat's id would let
       // admins see who talks to whom, so only its kind (store.ts roomAuditRef)
-      if (answer) audit(this.db, { actor: userId, action: 'room.answer_share', target: id, detail: { ...roomAuditRef(room), people: answer.people, confirmed: answer.people > 0, cut: answer.cut } })
+      if (answer) audit(this.db, { actor: userId, action: 'room.answer_share', target: id, detail: { ...roomAuditRef(room), people: answer.people, confirmed: answer.confirmed ?? answer.people > 0, cut: answer.cut, files: fileIds.length } })
       if (fileIds.length) this.db.query(`UPDATE room_files SET message_id = ? WHERE id IN (${fileIds.map(() => '?').join(',')})`).run(id, ...fileIds)
       // sending in the room means I have seen the room up to here (KakaoTalk): my read position moves to my message;
       // a reply moves my place in its thread instead (the room may be out of sight, on a phone it is)
@@ -894,22 +896,27 @@ export function roomsOf(ctx: AppContext): Rooms {
     s = new Rooms(ctx)
     services.set(ctx, s)
     // an AI answer's file links: shown as links only to people who may open the file now (store.ts openableFor)
-    setRoomPathCheck(ctx.db, (userId) => {
-      const who = loadPrincipal(ctx.db, userId)
-      if (!who) return () => false
-      const rules = ctx.files.rules()
-      const seen = new Map<string, boolean>()
-      return (rel) => {
-        let ok = seen.get(rel)
-        if (ok === undefined) {
-          try { const a = authorize(ctx.files.fx, rules, who, rel, 'read'); ok = !a.st?.isDirectory() && !!visiblePath(ctx.files.fx, rules, who, a.rel) } catch { ok = false }
-          seen.set(rel, ok)
-        }
-        return ok
-      }
-    })
+    setRoomPathCheck(ctx.db, (userId) => fileOpener(ctx, userId))
   }
   return s
+}
+
+/** Whether `userId` may open a team file now, as a room message's links are checked for them (store.ts openableFor; the
+ * share dialog's rows, chat/answer-share.ts): read access, a single-link regular file that is not quarantined. A
+ * folder, a missing path and one they may not read are all false. Memoized per path for one check. */
+export function fileOpener(ctx: AppContext, userId: string): (rel: string) => boolean {
+  const who = loadPrincipal(ctx.db, userId)
+  if (!who) return () => false
+  const rules = ctx.files.rules()
+  const seen = new Map<string, boolean>()
+  return (rel) => {
+    let ok = seen.get(rel)
+    if (ok === undefined) {
+      try { const a = authorize(ctx.files.fx, rules, who, rel, 'read'); ok = !a.st?.isDirectory() && !!visiblePath(ctx.files.fx, rules, who, a.rel) } catch { ok = false }
+      seen.set(rel, ok)
+    }
+    return ok
+  }
 }
 
 /** After groups, roles or accounts changed (admin/folders.ts afterAccessChange): rooms follow at once. Never throws. */

@@ -1,20 +1,27 @@
 // "대화방에 보내기" (shared/src/api/chats.ts shareAnswerToRoom, server/src/chat/answer-share.ts): a finished answer of my
 // own AI chat goes to a room I am in as my message (my note, then the answer; RoomMessage.sharedAnswer). Covered: who
 // may (my own chat only; not a room's AI session, a deleted chat, another chat's message; a room I am not in answers like
-// one that does not exist), what may be sent (a finished answer only), "confirm" when some member could not read what it
-// used (how many, the places I may name myself, never who; the files of every answer on its branch, the paths it links
-// to, an answer the session's scope does not describe, a disabled member), confirm with that number sends (a larger
-// number of people asks again), a long answer cut with a line in my language, its file links per viewer, no mention and
-// no room AI whatever its text says, no edit, the same request again, a confidential conversation, the sending budget
-// (the check too), and the audit row. Chats, answers and their read scope are written straight into the
-// database (the fixture team: alice and erin in marketing, bob in finance, carol admin, dana owner).
+// one that does not exist), what may be sent (a finished answer only), "confirm" when something applies: a row per linked
+// file (how many cannot open it; a file I cannot open is never named) with what may be attached, and one provenance line
+// (how many cannot see material it used, the places I may name myself, never who; the files of every answer on its
+// branch, the scope's other sources, an answer the scope does not describe, a disabled member), the hash rule (a copy
+// every member can open, saved on this branch, still there with that hash), the confirmKey (a member swapped for another
+// is a new key) and attaching (my access checked again, 10 files, 50 MB), older clients' confirm = that number, a long
+// answer cut with a line in my language, its file links per viewer, no mention and no room AI whatever its text says, no
+// edit, the same request again, a confidential conversation, the sending budget (the check too), and the audit row.
+// Chats, answers, their read scope and their turns' saves are written straight into the database (the fixture team: alice
+// and erin in marketing, bob in finance, carol admin, dana owner).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
-import { API, ROOM_MESSAGE_MAX, uuidv7, type Room, type RoomMessage } from '@mycel/shared/api'
+import { createHash } from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
+import { API, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, uuidv7, type AnswerShareFile, type Room, type RoomMessage } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { roomsOf, SEND_BURST } from '../../server/src/rooms/service'
+import { roomFilesOf } from '../../server/src/rooms/files'
 import { answerCutLine } from '../../server/src/chat/answer-share'
 import { readMigrations } from '../../server/src/db'
-import type { ReadSource } from '../../server/src/chat/read-scope'
+import { addSources, sourceKey, type ReadSource } from '../../server/src/chat/read-scope'
 
 setDefaultTimeout(60_000)
 const cm = () => 'cm-' + crypto.randomUUID()
@@ -52,18 +59,46 @@ beforeAll(async () => {
 })
 afterAll(async () => { erinWs?.close(); await h.close() })
 
-/** An answer of `user`'s own chat, written straight into the database: the files it read, the chat's read scope. */
-function answer(user: string, content: string, o: { read?: string[]; scope?: ReadSource[]; status?: string; roomsSeen?: boolean; roomSession?: string; deleted?: boolean } = {}) {
+type Read = string | { path: string; sha256: string | null }
+const sha = (text: string | Buffer) => createHash('sha256').update(text).digest('hex')
+/** A team file, written on disk; its sha256. */
+function put(rel: string, text: string | Buffer): string {
+  const abs = path.join(h.ctx.files.fx.root, ...rel.split('/'))
+  fs.mkdirSync(path.dirname(abs), { recursive: true })
+  fs.writeFileSync(abs, text)
+  return sha(text)
+}
+/** The answer's own turn, with the team files it saved (file_events), as the file tools record them. */
+function saves(a: { chatId: string; answerId: string }, user: string, saved: { path: string; sha256: string; action?: string }[]) {
+  const db = h.ctx.db
+  const turnId = uuidv7()
+  db.query("INSERT INTO turns (id, chat_id, user_id, engine, status, message_id) VALUES (?, ?, ?, 'claude-code', 'done', ?)").run(turnId, a.chatId, user, a.answerId)
+  db.query('UPDATE messages SET turn_id = ? WHERE id = ?').run(turnId, a.answerId)
+  for (const f of saved) db.query('INSERT INTO file_events (turn_id, user_id, path, action, size, sha256) VALUES (?, ?, ?, ?, 1, ?)').run(turnId, user, f.path, f.action ?? 'create', f.sha256)
+}
+/** An answer of `user`'s own chat, written straight into the database: the files it read (with their sha256), the
+ * chat's read scope (`listed`: a scope this build started, whose file sources came from reads the lists record; else
+ * written as an older build did), what its turn saved. */
+function answer(user: string, content: string, o: { read?: Read[]; scope?: ReadSource[]; listed?: boolean; status?: string; roomsSeen?: boolean; roomSession?: string; deleted?: boolean; saved?: { path: string; sha256: string; action?: string }[] } = {}) {
   const db = h.ctx.db
   const chatId = uuidv7(), askId = uuidv7(), answerId = uuidv7()
   db.query('INSERT INTO chats (id, user_id, room_id, session_read_scope, rooms_seen, deleted_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(chatId, user, o.roomSession ?? null, o.scope ? JSON.stringify({ sources: o.scope }) : null, o.roomsSeen ? 1 : 0, o.deleted ? new Date().toISOString() : null)
+    .run(chatId, user, o.roomSession ?? null, o.scope && !o.listed ? JSON.stringify({ sources: o.scope }) : null, o.roomsSeen ? 1 : 0, o.deleted ? new Date().toISOString() : null)
+  if (o.scope && o.listed) addSources(db, chatId, o.scope, { listed: true })
   db.query("INSERT INTO messages (id, chat_id, role, content, status) VALUES (?, ?, 'user', '정리해 줘', 'done')").run(askId, chatId)
   db.query("INSERT INTO messages (id, chat_id, parent_id, role, content, status) VALUES (?, ?, ?, 'assistant', ?, ?)").run(answerId, chatId, askId, content, o.status ?? 'done')
   db.query('UPDATE chats SET active_leaf_id = ? WHERE id = ?').run(answerId, chatId)
-  ;(o.read ?? []).forEach((p, i) => db.query("INSERT INTO message_sources (message_id, ord, path, sha256, locs, via, by_main, by_subagent) VALUES (?, ?, ?, NULL, '[]', 'read', 1, 0)").run(answerId, i, p))
-  return { chatId, askId, answerId }
+  ;(o.read ?? []).forEach((r, i) => {
+    const f = typeof r === 'string' ? { path: r, sha256: null } : r
+    db.query("INSERT INTO message_sources (message_id, ord, path, sha256, locs, via, by_main, by_subagent) VALUES (?, ?, ?, ?, '[]', 'read', 1, 0)").run(answerId, i, f.path, f.sha256)
+  })
+  const a = { chatId, askId, answerId }
+  if (o.saved) saves(a, user, o.saved)
+  return a
 }
+const link = (p: string, label = p.split('/').pop()) => `[${label}](/files/view?path=${encodeURI(p)})`
+const audit = (messageId: string) => JSON.parse((h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'room.answer_share' AND target = ?").get(messageId) as { detail: string }).detail)
+const roomFileCount = (messageId: string) => (h.ctx.db.query('SELECT COUNT(*) n FROM room_files WHERE message_id = ?').get(messageId) as { n: number }).n
 async function share(user: string, a: { chatId: string; answerId: string }, body: Record<string, unknown>) {
   const r = await h.req(user, `/api/chats/${a.chatId}/messages/${a.answerId}/share-to-room`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clientMessageId: cm(), ...body }) })
   const text = await r.text()
@@ -123,7 +158,7 @@ describe('sent when everyone in the room may read what it used', () => {
     // audited: the room, how many could not read (none), not confirmed; no content, no names
     const row = h.ctx.db.query("SELECT actor_id, target, detail FROM audit_log WHERE action = 'room.answer_share' AND target = ?").get(m.id) as { actor_id: string; target: string; detail: string }
     expect(row.actor_id).toBe('alice')
-    expect(JSON.parse(row.detail)).toEqual({ roomId: rooms.marketing, people: 0, confirmed: false, cut: false })
+    expect(JSON.parse(row.detail)).toEqual({ roomId: rooms.marketing, people: 0, confirmed: false, cut: false, files: 0 })
   })
 
   test('a room the answer read whose members are all in the target room: no question', async () => {
@@ -140,8 +175,9 @@ describe('"confirm" first when some member could not read what it used', () => {
     const before = (await messagesAs('alice', rooms.all)).length
     const r = await share('alice', a, body)
     expect(r.status).toBe(200)
-    // bob (finance) cannot read groups/marketing; carol and dana (admin, owner) and erin may
-    expect(r.json).toEqual({ status: 'confirm', people: 1, places: [{ kind: 'folder', path: 'groups/marketing' }], otherPlaces: false })
+    // bob (finance) cannot read groups/marketing; carol and dana (admin, owner) and erin may. No linked file: no row
+    const marketing = { people: 1, places: [{ kind: 'folder', path: 'groups/marketing' }], otherPlaces: false }
+    expect(r.json).toEqual({ status: 'confirm', ...marketing, files: [], provenance: marketing, confirmKey: expect.any(String) })
     for (const n of NAMES) expect(r.text).not.toContain(n)
     expect((await messagesAs('alice', rooms.all)).length).toBe(before)
     // sent with the person's yes; audited as confirmed
@@ -149,40 +185,40 @@ describe('"confirm" first when some member could not read what it used', () => {
     expect(yes.json.status).toBe('sent')
     expect((await messagesAs('alice', rooms.all)).length).toBe(before + 1)
     const row = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'room.answer_share' AND target = ?").get(yes.json.message.id) as { detail: string }
-    expect(JSON.parse(row.detail)).toEqual({ roomId: rooms.all, people: 1, confirmed: true, cut: false })
+    expect(JSON.parse(row.detail)).toEqual({ roomId: rooms.all, people: 1, confirmed: true, cut: false, files: 0 })
   })
 
   test('my own folder is "mine"; a folder I cannot read myself is not named', async () => {
     const mine = await share('alice', answer('alice', '내 메모', { read: ['users/alice/notes.md'] }), { roomId: rooms.marketing })
-    expect(mine.json).toEqual({ status: 'confirm', people: 1, places: [{ kind: 'mine' }], otherPlaces: false })
+    expect(mine.json).toMatchObject({ status: 'confirm', people: 1, places: [{ kind: 'mine' }], otherPlaces: false, files: [], provenance: { people: 1, places: [{ kind: 'mine' }], otherPlaces: false } })
     // the session read finance's folder (a rule changed since): erin cannot read it, and neither can I now
     const fin = await share('alice', answer('alice', '예산', { scope: [{ type: 'folder', id: folderId('groups/finance') }] }), { roomId: rooms.all })
-    expect(fin.json).toEqual({ status: 'confirm', people: 1, places: [], otherPlaces: true })
+    expect(fin.json).toMatchObject({ status: 'confirm', people: 1, places: [], otherPlaces: true, provenance: { people: 1, places: [], otherPlaces: true } })
     expect(fin.text).not.toContain('finance')
   })
 
   test('a 1:1 or a group conversation, a team room, and an older chat that read rooms', async () => {
     // the group chat of alice, bob and erin, shared into the everyone room: carol and dana were not in it; never named
     const g = await share('alice', answer('alice', '그룹 대화 요약', { scope: [{ type: 'room', id: rooms.group }] }), { roomId: rooms.all })
-    expect(g.json).toEqual({ status: 'confirm', people: 2, places: [{ kind: 'conversation' }], otherPlaces: false })
+    expect(g.json).toMatchObject({ status: 'confirm', people: 2, places: [{ kind: 'conversation' }], otherPlaces: false, provenance: { people: 2, places: [{ kind: 'conversation' }] } })
     // the marketing room, shared into the DM with bob: by its group's name
     const t = await share('alice', answer('alice', '마케팅 방 요약', { scope: [{ type: 'room', id: rooms.marketing }] }), { roomId: rooms.dmAliceBob })
-    expect(t.json).toEqual({ status: 'confirm', people: 1, places: [{ kind: 'room', name: 'Marketing' }], otherPlaces: false })
+    expect(t.json).toMatchObject({ status: 'confirm', people: 1, places: [{ kind: 'room', name: 'Marketing' }], otherPlaces: false, provenance: { people: 1, places: [{ kind: 'room', name: 'Marketing' }] } })
     // the everyone room is '' (the DM's people are in it: shared there, no question)
     expect((await share('alice', answer('alice', '전체 방', { scope: [{ type: 'room', id: rooms.all }] }), { roomId: rooms.dmAliceBob })).json.status).toBe('sent')
     // rooms were read before they were kept in the scope: nobody else is taken to have seen them
     const old = await share('alice', answer('alice', '예전 대화', { roomsSeen: true, scope: [] }), { roomId: rooms.all })
-    expect(old.json).toEqual({ status: 'confirm', people: 4, places: [{ kind: 'conversation' }], otherPlaces: false })
+    expect(old.json).toMatchObject({ status: 'confirm', people: 4, places: [{ kind: 'conversation' }], otherPlaces: false, provenance: { people: 4, places: [{ kind: 'conversation' }] } })
     for (const r of [g, t, old]) for (const n of NAMES) expect(r.text).not.toContain(n)
   })
 
   test('a DM: the other person cannot read a marketing file', async () => {
     const r = await share('alice', answer('alice', '브리프', { read: [BRIEF] }), { roomId: rooms.dmAliceBob })
-    expect(r.json).toEqual({ status: 'confirm', people: 1, places: [{ kind: 'folder', path: 'groups/marketing' }], otherPlaces: false })
+    expect(r.json).toMatchObject({ status: 'confirm', people: 1, places: [{ kind: 'folder', path: 'groups/marketing' }], otherPlaces: false, provenance: { people: 1 } })
     const yes = await share('alice', answer('alice', '브리프', { read: [BRIEF] }), { roomId: rooms.dmAliceBob, confirm: 1 })
     // a DM is named in the audit log by its kind only
     const row = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'room.answer_share' AND target = ?").get(yes.json.message.id) as { detail: string }
-    expect(JSON.parse(row.detail)).toEqual({ kind: 'dm', people: 1, confirmed: true, cut: false })
+    expect(JSON.parse(row.detail)).toEqual({ kind: 'dm', people: 1, confirmed: true, cut: false, files: 0 })
   })
 })
 
@@ -201,15 +237,16 @@ describe('what the answer may carry', () => {
     return { chatId, old: { chatId, answerId: a1 }, now: { chatId, answerId: a2 }, q2, a2 }
   }
 
-  test('an answer of an earlier branch (the first message was edited): its scope is gone, so everyone else is asked about', async () => {
+  test('an answer of an earlier branch (the first message was edited): its scope is gone, so what it used is not all known', async () => {
     const c = edited('alice')
     const old = await share('alice', c.old, { roomId: rooms.marketing })
-    expect(old.json).toEqual({ status: 'confirm', people: 1, places: [], otherPlaces: true })
+    const unknown = { status: 'confirm', people: 1, places: [], otherPlaces: true, files: [], provenance: { people: 1, places: [], otherPlaces: true, unknown: true } }
+    expect(old.json).toMatchObject(unknown)
     // the new branch's answer is described by the scope (nothing read): sent
     expect((await share('alice', c.now, { roomId: rooms.marketing })).json.status).toBe('sent')
     // the old branch made active again (a branch switch): still not what the scope describes
     h.ctx.db.query('UPDATE chats SET active_leaf_id = ? WHERE id = ?').run(c.old.answerId, c.chatId)
-    expect((await share('alice', c.old, { roomId: rooms.marketing })).json).toEqual({ status: 'confirm', people: 1, places: [], otherPlaces: true })
+    expect((await share('alice', c.old, { roomId: rooms.marketing })).json).toMatchObject(unknown)
     // and the new branch's answer, now off the active branch, is not either
     expect((await share('alice', c.now, { roomId: rooms.marketing })).json.status).toBe('confirm')
   })
@@ -222,14 +259,14 @@ describe('what the answer may carry', () => {
     db.query("INSERT INTO messages (id, chat_id, parent_id, role, content, status) VALUES (?, ?, ?, 'assistant', '두 번째 답 (파일은 읽지 않음)', 'done')").run(a2, a.chatId, q2)
     db.query('UPDATE chats SET active_leaf_id = ? WHERE id = ?').run(a2, a.chatId)
     const r = await share('alice', { chatId: a.chatId, answerId: a2 }, { roomId: rooms.all })
-    expect(r.json).toEqual({ status: 'confirm', people: 1, places: [{ kind: 'folder', path: 'groups/marketing' }], otherPlaces: false })
+    expect(r.json).toMatchObject({ status: 'confirm', people: 1, places: [{ kind: 'folder', path: 'groups/marketing' }], otherPlaces: false, provenance: { people: 1 } })
   })
 
-  test('a path the answer links to that some member cannot list asks first', async () => {
-    // erin may list projects/falcon (its public/ part) but not plan.md in it
-    const link = '계획은 [plan](/files/view?path=projects/falcon/plan.md)에 있어요.'
-    const r = await share('alice', answer('alice', link), { roomId: rooms.marketing })
-    expect(r.json).toEqual({ status: 'confirm', people: 1, places: [{ kind: 'folder', path: 'projects/falcon' }], otherPlaces: false })
+  test('a file the answer links to that some member cannot open is a row of its own, not a place it came from', async () => {
+    // erin may list projects/falcon (its public/ part) but not open plan.md in it
+    const text = '계획은 [plan](/files/view?path=projects/falcon/plan.md)에 있어요.'
+    const r = await share('alice', answer('alice', text), { roomId: rooms.marketing })
+    expect(r.json).toMatchObject({ status: 'confirm', people: 1, files: [{ name: 'plan.md', path: 'projects/falcon/plan.md', missing: false, attach: 'yes', unable: 1 }], provenance: null })
     // a link to a place everyone may list: sent
     expect((await share('alice', answer('alice', '[용어집](/files/view?path=shared/glossary.md)'), { roomId: rooms.marketing })).json.status).toBe('sent')
   })
@@ -238,7 +275,7 @@ describe('what the answer may carry', () => {
     const a = answer('alice', '내 메모', { read: ['users/alice/notes.md'] })
     const body = { roomId: rooms.all, clientMessageId: cm() }
     // bob, carol, dana and erin
-    expect((await share('alice', a, body)).json).toEqual({ status: 'confirm', people: 4, places: [{ kind: 'mine' }], otherPlaces: false })
+    expect((await share('alice', a, body)).json).toMatchObject({ status: 'confirm', people: 4, places: [{ kind: 'mine' }], otherPlaces: false })
     expect((await share('alice', a, { ...body, confirm: 3 })).json).toMatchObject({ status: 'confirm', people: 4 })
     expect((await share('alice', a, { ...body, confirm: 4 })).json.status).toBe('sent')
   })
@@ -250,7 +287,7 @@ describe('what the answer may carry', () => {
     db.query("INSERT INTO rooms (id, kind, dm_key, created_by, created_at, activity_at) VALUES (?, 'dm', 'alice|gus', 'alice', ?, ?)").run(dm, now, now)
     for (const u of ['alice', 'gus']) db.query('INSERT INTO room_members (room_id, user_id, joined_at) VALUES (?, ?, ?)').run(dm, u, now)
     const r = await share('alice', answer('alice', '용어집 요약', { read: ['shared/glossary.md'] }), { roomId: dm })
-    expect(r.json).toEqual({ status: 'confirm', people: 1, places: [{ kind: 'folder', path: 'shared' }], otherPlaces: false })
+    expect(r.json).toMatchObject({ status: 'confirm', people: 1, places: [{ kind: 'folder', path: 'shared' }], otherPlaces: false, provenance: { people: 1 } })
     for (const n of ['gus', 'Gus']) expect(r.text).not.toContain(n)
     // an answer that used nothing: nothing to miss
     expect((await share('alice', answer('alice', '안녕하세요'), { roomId: dm })).json.status).toBe('sent')
@@ -264,6 +301,286 @@ describe('what the answer may carry', () => {
     expect(r.json.error.params.reason).toBe('confidential')
   })
 })
+
+describe('the false alarm: a quote of my own folder copied where the room reads it', () => {
+  /** The owner's case: the AI read a quote in my own folder, copied it and its paired file to shared/, and linked the
+   * copies. Its scope is one this build started: my own folder came from that read alone. */
+  function quoteAnswer(user: string, o: { client?: string; changeCopy?: boolean; listed?: boolean } = {}) {
+    const client = o.client ?? `acme-${crypto.randomUUID().slice(0, 8)}`
+    const quote = `견적서 ${client}: 단가 12,000원\n`, terms = `조건 ${client}: 30일\n`
+    const own = `users/${user}/quotes/${client}-quote.md`
+    const qs = put(own, quote), ts = put(`users/${user}/quotes/${client}-terms.md`, terms)
+    const copy = `shared/sales/quotes/${client}/${client}-quote.md`, pair = `shared/sales/quotes/${client}/${client}-terms.md`
+    put(copy, quote)
+    put(pair, terms)
+    const a = answer(user, `견적서를 공유 폴더에 복사했어요: ${link(copy)}, ${link(pair)}`, {
+      read: [{ path: own, sha256: qs }], scope: [{ type: 'user', id: user }], listed: o.listed ?? true,
+      saved: [{ path: copy, sha256: qs }, { path: pair, sha256: ts }],
+    })
+    return { a, own, copy, pair, qs }
+  }
+
+  test('sent at once, no question: the room gets copies every member can open', async () => {
+    const { a } = quoteAnswer('alice')
+    const r = await share('alice', a, { roomId: rooms.marketing, note: '견적 공유해요' })
+    expect(r.json.status).toBe('sent')
+    expect(r.json.message.openable).toHaveLength(2)
+    expect(audit(r.json.message.id)).toEqual({ roomId: rooms.marketing, people: 0, confirmed: false, cut: false, files: 0 })
+    // the everyone room too: the copies are in shared/, which everyone reads
+    expect((await share('alice', quoteAnswer('alice').a, { roomId: rooms.all })).json.status).toBe('sent')
+  })
+
+  test('a scope written before this build (its "my folder" may be the browser or a connection): counted as before', async () => {
+    const r = await share('alice', quoteAnswer('alice', { listed: false }).a, { roomId: rooms.marketing })
+    expect(r.json).toMatchObject({ status: 'confirm', files: [{ attach: 'no', unable: 0 }, { attach: 'no', unable: 0 }], provenance: { people: 1, places: [{ kind: 'mine' }], otherPlaces: false } })
+  })
+
+  test('the in-app browser and a personal connection stay "mine" whatever was copied', async () => {
+    for (const via of ['browser', 'connection'] as const) {
+      const { a } = quoteAnswer('alice')
+      addSources(h.ctx.db, a.chatId, [{ type: 'user', id: 'alice', via }])
+      const r = await share('alice', a, { roomId: rooms.marketing })
+      expect(r.json).toMatchObject({ status: 'confirm', provenance: { people: 1, places: [{ kind: 'mine' }] } })
+    }
+  })
+
+  test('an unlisted input of my own folder (an attachment, make_file\'s source) is not covered by the copy', async () => {
+    const { a } = quoteAnswer('alice')
+    addSources(h.ctx.db, a.chatId, [{ type: 'user', id: 'alice' }])
+    expect((await share('alice', a, { roomId: rooms.marketing })).json).toMatchObject({ status: 'confirm', provenance: { places: [{ kind: 'mine' }] } })
+  })
+})
+
+describe('the hash rule', () => {
+  /** an answer that read my note (with or without its hash) and whose turn saved `saved` */
+  function noted(o: { readSha?: boolean; saved?: (n: { text: string; sha: string; id: string }) => { path: string; text?: string }[] } = {}) {
+    const id = crypto.randomUUID().slice(0, 8)
+    const text = `메모 ${id}\n`, own = `users/alice/notes-${id}.md`
+    const s1 = put(own, text)
+    const copies = (o.saved?.({ text, sha: s1, id }) ?? []).map((c) => { put(c.path, c.text ?? text); return { path: c.path, sha256: s1 } })
+    return answer('alice', '정리했어요', { read: [{ path: own, sha256: o.readSha === false ? null : s1 }], scope: [{ type: 'user', id: 'alice' }], listed: true, saved: copies })
+  }
+
+  test('covered: the same content saved on this branch to a place every member can open, still there', async () => {
+    expect((await share('alice', noted({ saved: ({ id }) => [{ path: `shared/copies/${id}.md` }] }), { roomId: rooms.all })).json.status).toBe('sent')
+  })
+
+  test('a file read without a sha256 is never covered', async () => {
+    const r = await share('alice', noted({ readSha: false, saved: ({ id }) => [{ path: `shared/copies/${id}.md` }] }), { roomId: rooms.all })
+    expect(r.json).toMatchObject({ status: 'confirm', provenance: { people: 4, places: [{ kind: 'mine' }] } })
+  })
+
+  test('the copy must still be there with that hash', async () => {
+    let at = ''
+    const a = noted({ saved: ({ id }) => [{ path: (at = `shared/copies/${id}-changed.md`) }] })
+    put(at, '누가 고쳤어요\n')
+    expect((await share('alice', a, { roomId: rooms.all })).json.status).toBe('confirm')
+    const b = noted({ saved: ({ id }) => [{ path: (at = `shared/copies/${id}-gone.md`) }] })
+    fs.rmSync(path.join(h.ctx.files.fx.root, ...at.split('/')))
+    expect((await share('alice', b, { roomId: rooms.all })).json.status).toBe('confirm')
+  })
+
+  test('every member must be able to open the copy: groups/marketing is not enough for the everyone room', async () => {
+    const a = noted({ saved: ({ id }) => [{ path: `groups/marketing/copies/${id}.md` }] })
+    expect((await share('alice', a, { roomId: rooms.all })).json).toMatchObject({ status: 'confirm', provenance: { people: 4 } })
+    // the marketing room's members (erin) can: covered there
+    expect((await share('alice', a, { roomId: rooms.marketing })).json.status).toBe('sent')
+  })
+
+  test('the copy must be saved by a turn on this branch: a sibling answer\'s copy does not count', async () => {
+    const id = crypto.randomUUID().slice(0, 8)
+    const text = `메모 ${id}\n`, own = `users/alice/notes-${id}.md`, copy = `shared/copies/${id}-sibling.md`
+    const s1 = put(own, text)
+    put(copy, text)
+    const a = answer('alice', '정리했어요', { read: [{ path: own, sha256: s1 }], scope: [{ type: 'user', id: 'alice' }], listed: true })
+    // another answer to the same question (regenerated) saved the copy; the shared one did not
+    const db = h.ctx.db, other = uuidv7()
+    db.query("INSERT INTO messages (id, chat_id, parent_id, role, content, status) VALUES (?, ?, ?, 'assistant', '다른 답', 'done')").run(other, a.chatId, a.askId)
+    saves({ chatId: a.chatId, answerId: other }, 'alice', [{ path: copy, sha256: s1 }])
+    expect((await share('alice', a, { roomId: rooms.all })).json.status).toBe('confirm')
+  })
+})
+
+describe('linked files: a row each, the switch, attaching', () => {
+  test('a linked private file is a row: how many cannot open it, attach yes; never anyone\'s name', async () => {
+    put('users/alice/report.md', '# 보고서\n')
+    const r = await share('alice', answer('alice', `보고서: ${link('users/alice/report.md')}`), { roomId: rooms.all })
+    expect(r.json).toMatchObject({ status: 'confirm', people: 4, files: [{ name: 'report.md', path: 'users/alice/report.md', missing: false, attach: 'yes', unable: 4 }], provenance: null })
+    // (my own folder's path is mine to see)
+    for (const n of NAMES.filter((x) => x !== 'alice')) expect(r.text).not.toContain(n)
+  })
+
+  test('a file I cannot open now is never named, gone or not mine: the same row, everyone else counted', async () => {
+    const r = await share('alice', answer('alice', `${link('groups/finance/budget.md')} ${link('shared/no-such-file.md')} ${link('shared/glossary.md')}`), { roomId: rooms.marketing })
+    const hidden = { name: '', missing: true, attach: 'hidden', unable: 1 }
+    expect(r.json.files).toEqual([hidden, hidden, { name: 'glossary.md', path: 'shared/glossary.md', missing: false, attach: 'no', unable: 0 }])
+    expect(r.text).not.toContain('budget')
+    expect(r.text).not.toContain('no-such-file')
+  })
+
+  test('attached: the copy goes with the message, every member opens it in the room; the audit counts it', async () => {
+    const text = '# 기획안\n', at = 'users/alice/plan-attach.md'
+    put(at, text)
+    const a = answer('alice', `기획안: ${link(at)}`)
+    const body = { roomId: rooms.all, clientMessageId: cm() }
+    const ask = await share('alice', a, body)
+    expect(ask.json.files[0]).toMatchObject({ path: at, attach: 'yes', unable: 4 })
+    const sent = await share('alice', a, { ...body, confirmKey: ask.json.confirmKey, attach: [at] })
+    expect(sent.json.status).toBe('sent')
+    const m = sent.json.message as RoomMessage
+    expect(m.files.map((f) => f.name)).toEqual(['plan-attach.md'])
+    expect(audit(m.id)).toEqual({ roomId: rooms.all, people: 0, confirmed: true, cut: false, files: 1 })
+    // bob opens the room file; the team file itself stays closed to him
+    const f = await h.req('bob', `/api/rooms/${rooms.all}/files/${m.files[0]!.id}`)
+    expect(f.status).toBe(200)
+    expect(await f.text()).toBe(text)
+    expect((await h.req('bob', `/api/files/download?path=${encodeURIComponent(at)}`)).status).toBe(404)
+    // the switch off: link only, nothing attached, the people who cannot open it counted
+    const b = answer('alice', `기획안: ${link(at)}`)
+    const body2 = { roomId: rooms.all, clientMessageId: cm() }
+    const ask2 = await share('alice', b, body2)
+    const linkOnly = await share('alice', b, { ...body2, confirmKey: ask2.json.confirmKey, attach: [] })
+    expect(linkOnly.json.status).toBe('sent')
+    expect(linkOnly.json.message.files).toEqual([])
+    expect(audit(linkOnly.json.message.id)).toEqual({ roomId: rooms.all, people: 4, confirmed: true, cut: false, files: 0 })
+  })
+
+  test('an AI-made file in my folder is an ordinary row; attached, what its turn used counts too', async () => {
+    // made by an answer of another chat that read the marketing brief
+    const text = '# 요약본\n', at = 'users/alice/made-summary.md'
+    const made = answer('alice', '요약본을 만들었어요', { read: [BRIEF], scope: [], listed: true, saved: [{ path: at, sha256: put(at, text) }] })
+    void made
+    const a = answer('alice', `요약본: ${link(at)}`, { scope: [], listed: true })
+    const r = await share('alice', a, { roomId: rooms.all })
+    // the row says who more would see it (the switch's caption); the line: bob cannot read groups/marketing
+    expect(r.json).toMatchObject({ status: 'confirm', files: [{ name: 'made-summary.md', attach: 'yes', unable: 4 }], provenance: { people: 1, places: [{ kind: 'folder', path: 'groups/marketing' }] } })
+    // in the marketing room everyone reads the brief: only the row
+    expect((await share('alice', a, { roomId: rooms.marketing })).json).toMatchObject({ files: [{ attach: 'yes', unable: 1 }], provenance: null })
+  })
+
+  test('a linked file read by the answer and attached is left out of the line; link only, it counts', async () => {
+    const at = 'users/alice/read-and-linked.md'
+    const s1 = put(at, '# 읽은 파일\n')
+    const a = answer('alice', `이 파일을 읽었어요: ${link(at)}`, { read: [{ path: at, sha256: s1 }], scope: [{ type: 'user', id: 'alice' }], listed: true })
+    const body = { roomId: rooms.marketing, clientMessageId: cm() }
+    const r = await share('alice', a, body)
+    expect(r.json).toMatchObject({ status: 'confirm', files: [{ path: at, attach: 'yes', unable: 1 }], provenance: null })
+    // an older client cannot attach: it is told about both
+    expect(r.json.people).toBe(1)
+    expect(r.json.places).toEqual([])
+  })
+
+  test('only files of this answer that may go: anything else is refused, nothing sent', async () => {
+    put('users/alice/one.md', '1\n')
+    const a = answer('alice', link('users/alice/one.md'))
+    const body = { roomId: rooms.all, clientMessageId: cm() }
+    const ask = await share('alice', a, body)
+    for (const attach of [['users/alice/todo.md'], ['shared/glossary.md'], ['groups/finance/budget.md'], ['users/alice/one.md', 'users/alice/../bob/x.md']]) {
+      const r = await share('alice', a, { ...body, confirmKey: ask.json.confirmKey, attach })
+      expect(r.status).toBe(400)
+    }
+    expect(h.ctx.db.query('SELECT COUNT(*) n FROM room_messages WHERE client_id = ?').get(body.clientMessageId)).toEqual({ n: 0 })
+    // attach without a key (an older client's confirm): refused too
+    expect((await share('alice', a, { ...body, confirm: 4, attach: ['users/alice/one.md'] })).status).toBe(400)
+  })
+
+  test('at most 10 files, each at most 50 MB', async () => {
+    const paths = Array.from({ length: 11 }, (_, i) => { const p = `users/alice/many/f${i}.md`; put(p, `${i}\n`); return p })
+    const big = 'users/alice/many/big.bin'
+    put(big, '')
+    fs.truncateSync(path.join(h.ctx.files.fx.root, ...big.split('/')), SMALL_UPLOAD_MAX + 1)
+    const a = answer('alice', [...paths, big].map((p) => link(p)).join('\n'))
+    const body = { roomId: rooms.all, clientMessageId: cm() }
+    const ask = await share('alice', a, body)
+    const rows = ask.json.files as AnswerShareFile[]
+    expect(rows.map((f) => f.attach)).toEqual([...paths.map(() => 'yes'), 'too_big'])
+    // eleven at once: refused by the contract; the big one: not a file that may go
+    expect((await share('alice', a, { ...body, confirmKey: ask.json.confirmKey, attach: paths })).status).toBe(400)
+    expect((await share('alice', a, { ...body, confirmKey: ask.json.confirmKey, attach: [big] })).status).toBe(400)
+    const ten = await share('alice', a, { ...body, confirmKey: ask.json.confirmKey, attach: paths.slice(0, 10) })
+    expect(ten.json.status).toBe('sent')
+    expect(roomFileCount(ten.json.message.id)).toBe(10)
+    expect(audit(ten.json.message.id).files).toBe(10)
+    // RoomFiles itself refuses a file over 50 MB
+    await expect(roomFilesOf(h.ctx).fromTeamFile('alice', rooms.all, big)).rejects.toMatchObject({ code: 'payload_too_large' })
+  })
+
+  test('attaching checks my read access again: lost meanwhile, it is asked again with the file no longer named', async () => {
+    const db = h.ctx.db
+    put('projects/falcon/attach-me.md', '# Falcon\n')
+    const a = answer('alice', `팔콘: ${link('projects/falcon/attach-me.md')}`)
+    const body = { roomId: rooms.marketing, clientMessageId: cm() }
+    const ask = await share('alice', a, body)
+    expect(ask.json.files[0]).toMatchObject({ path: 'projects/falcon/attach-me.md', attach: 'yes', unable: 1 })
+    // alice loses projects/falcon (her rule goes)
+    const rule = db.query("SELECT r.* FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE f.path = 'projects/falcon' AND r.subject_type = 'user' AND r.subject_id = 'alice'").get() as Record<string, unknown>
+    db.query('DELETE FROM folder_rules WHERE id = ?').run(rule.id as string)
+    try {
+      const again = await share('alice', a, { ...body, confirmKey: ask.json.confirmKey, attach: ['projects/falcon/attach-me.md'] })
+      expect(again.json).toMatchObject({ status: 'confirm', files: [{ name: '', missing: true, attach: 'hidden' }] })
+      expect(again.text).not.toContain('attach-me')
+      expect(again.json.confirmKey).not.toBe(ask.json.confirmKey)
+      // with the new key the file still cannot go
+      expect((await share('alice', a, { ...body, confirmKey: again.json.confirmKey, attach: ['projects/falcon/attach-me.md'] })).status).toBe(400)
+      // and RoomFiles answers like a file that is not there
+      await expect(roomFilesOf(h.ctx).fromTeamFile('alice', rooms.marketing, 'projects/falcon/attach-me.md')).rejects.toMatchObject({ code: 'not_found' })
+      await expect(roomFilesOf(h.ctx).fromTeamFile('alice', rooms.marketing, 'projects/falcon/no-such.md')).rejects.toMatchObject({ code: 'not_found' })
+    } finally {
+      db.query('INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, ?, ?, ?)').run(rule.id as string, rule.folder_id as string, 'user', 'alice', rule.access as string)
+    }
+    expect(h.ctx.db.query('SELECT COUNT(*) n FROM room_files WHERE message_id IS NULL AND user_id = ?').get('alice')).toEqual({ n: 0 })
+  })
+
+  test('RoomFiles.fromTeamFile: a folder, a link, a file of a room I am not in: 404', async () => {
+    const files = roomFilesOf(h.ctx)
+    await expect(files.fromTeamFile('alice', rooms.marketing, 'shared')).rejects.toMatchObject({ code: 'not_found' })
+    await expect(files.fromTeamFile('alice', rooms.marketing, 'groups/marketing/budget-link.md')).rejects.toMatchObject({ code: 'not_found' })
+    await expect(files.fromTeamFile('alice', rooms.finance, 'shared/glossary.md')).rejects.toMatchObject({ code: 'not_found' })
+    await expect(files.fromTeamFile('bob', rooms.all, BRIEF)).rejects.toMatchObject({ code: 'not_found' })
+  })
+})
+
+describe('the confirm key', () => {
+  test('the same state gives the same key; one member swapped for another (the same count) is a new one, the old is refused', async () => {
+    const db = h.ctx.db
+    const g = (await h.api('alice').call(API.createRoom, { body: { kind: 'group', userIds: ['bob', 'erin'] } })).id
+    const a = answer('alice', '내 메모 요약', { read: ['users/alice/notes.md'] })
+    const body = { roomId: g, clientMessageId: cm() }
+    const one = await share('alice', a, body)
+    const two = await share('alice', a, body)
+    expect(one.json).toMatchObject({ status: 'confirm', people: 2, provenance: { people: 2 } })
+    expect(two.json.confirmKey).toBe(one.json.confirmKey)
+    // a keyed hash: nothing in it can be read back
+    expect(one.json.confirmKey).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    // erin leaves, carol joins: still two people who cannot see my folder
+    db.query("DELETE FROM room_members WHERE room_id = ? AND user_id = 'erin'").run(g)
+    db.query("INSERT INTO room_members (room_id, user_id, joined_at) VALUES (?, 'carol', ?)").run(g, new Date().toISOString())
+    const swapped = await share('alice', a, { ...body, confirmKey: one.json.confirmKey })
+    expect(swapped.json).toMatchObject({ status: 'confirm', people: 2 })
+    expect(swapped.json.confirmKey).not.toBe(one.json.confirmKey)
+    // an older client's count is the same, so it would go (its known limit); the new key sends
+    const sent = await share('alice', a, { ...body, confirmKey: swapped.json.confirmKey })
+    expect(sent.json.status).toBe('sent')
+    expect(audit(sent.json.message.id)).toEqual({ kind: 'group', people: 2, confirmed: true, cut: false, files: 0 })
+  })
+
+  test('a made-up key is refused like an old one', async () => {
+    const r = await share('alice', answer('alice', '내 메모', { read: ['users/alice/notes.md'] }), { roomId: rooms.marketing, confirmKey: 'x'.repeat(43) })
+    expect(r.json.status).toBe('confirm')
+  })
+
+  test('older clients: confirm = the number they were told still sends, nothing attached', async () => {
+    put('users/alice/old-client.md', 'old\n')
+    const a = answer('alice', `${link('users/alice/old-client.md')}`, { read: ['users/alice/notes.md'] })
+    const body = { roomId: rooms.all, clientMessageId: cm() }
+    const ask = await share('alice', a, body)
+    expect(ask.json.people).toBe(4)
+    const r = await share('alice', a, { ...body, confirm: ask.json.people })
+    expect(r.json.status).toBe('sent')
+    expect(r.json.message.files).toEqual([])
+  })
+})
+
 
 describe('what the room gets', () => {
   test('a long answer is cut to fit and ends with a line in my language', async () => {

@@ -266,8 +266,9 @@ export const chatsRoutes: RouteModule = {
       return viewSources(ctx.db, ctx.files.fx, () => ctx.files.rules(), auth.user.id, m.id)
     })
 
-    // "대화방에 보내기": a finished answer of my own chat to a room I am in, as my message; "confirm" first when some
-    // member could not read what it used (chat/answer-share.ts). Not from a room's AI session or a deleted chat (404).
+    // "대화방에 보내기": a finished answer of my own chat to a room I am in, as my message, with the linked files asked
+    // for attached; "confirm" first when some member cannot open a linked file or see material it used
+    // (chat/answer-share.ts). Not from a room's AI session or a deleted chat (404).
     kit.handle(API.shareAnswerToRoom, ({ c, params, body, auth }) => {
       const chat = ownChat(rt, auth, params.id)
       return shareAnswerToRoom(ctx, auth.user.id, chat, messageInChat(rt, chat.id, params.messageId), body, c.get('locale'))

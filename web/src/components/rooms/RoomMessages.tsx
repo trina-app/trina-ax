@@ -544,11 +544,14 @@ function Files({ roomId, files }: { roomId: string; files: RoomFile[] }) {
             </button>
           </Tooltip>
         ) : (
-          <button key={f.id} type="button" onClick={() => startDownload(url(f, { download: '1' }), f.name)} aria-label={t('rooms.download', { name: f.name })} className="inline-flex max-w-full items-center gap-2 rounded-xl border border-line bg-surface py-1.5 pr-2.5 pl-2.5 text-xs hover:bg-hover" data-testid="room-file">
+          // its name is what it shows (the name and size), then what it does: a screen reader and voice control hear the
+          // words on it (WCAG 2.5.3)
+          <button key={f.id} type="button" onClick={() => startDownload(url(f, { download: '1' }), f.name)} className="inline-flex max-w-full items-center gap-2 rounded-xl border border-line bg-surface py-1.5 pr-2.5 pl-2.5 text-xs hover:bg-hover" data-testid="room-file">
             <FileText size={15} className="shrink-0 text-muted" aria-hidden />
             <span className="max-w-[220px] truncate font-medium text-ink">{f.name}</span>
             <span className="shrink-0 text-faint">{formatSize(f.size, locale)}</span>
             <Download size={13} className="shrink-0 text-faint" aria-hidden />
+            <span className="sr-only">{t('common.download')}</span>
           </button>
         ),
       )}

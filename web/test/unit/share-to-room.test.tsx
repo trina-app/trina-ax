@@ -1,10 +1,13 @@
 // "대화방에 보내기" (components/chat/ShareToRoom.tsx, shared/src/api/chats.ts shareAnswerToRoom): the button under a
 // finished answer only; the picker's rooms as the "#" list shows them (a 1:1 chat as "<name> · 1:1", the member count for
 // the others), filtered as I type, the arrow keys and Enter; the note; the notice that a long answer is cut; the server's
-// "confirm" (how many cannot open it, the places by name) and the send again with that count and the same id, asked again
-// when more people cannot; never in a confidential chat; sent: a toast with 열기 and the message in the room once. In
-// the room (components/rooms/RoomMessages.tsx) such a message is my note, then the answer as a quote headed "<AI> 답변" in
-// Markdown, a team file only as a link where I may open it, and no edit.
+// "confirm": a row per linked file (everyone can open it, how many cannot, nobody else can; the files I cannot open only
+// counted), the 첨부 switches (on by default, their captions, at most 10), the provenance line, the primary button's words
+// and focus, the note shown; the send again with the same id, the confirmKey and the files switched on; asked again, said
+// so; 취소, ✕ and Esc back to the list with the room and the note; never in a confidential chat; sent: a toast with 열기
+// (and the number of files) and the message in the room once. In the room (components/rooms/RoomMessages.tsx) such a
+// message is my note, then the answer as a quote headed "<AI> 답변" in Markdown, a team file as a link where I may open it
+// and its name with a lock where I may not, and no edit.
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
 import { act } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -168,74 +171,189 @@ test('an answer too long for one room message is said to be cut before it is sen
   }
 })
 
-test('"confirm": how many cannot open it and the places by name; 그래도 보내기 sends that count with the same id, more people ask again', async () => {
+const files = {
+  open: { name: 'glossary.md', path: 'shared/glossary.md', missing: false, attach: 'no', unable: 0 },
+  some: { name: 'plan.md', path: 'acme/plan.md', missing: false, attach: 'yes', unable: 2 },
+  mine: { name: 'quote.xlsx', path: 'users/me/quote.xlsx', missing: false, attach: 'yes', unable: 5 },
+  big: { name: 'video.mov', path: 'users/me/video.mov', missing: false, attach: 'too_big', unable: 5 },
+  hidden: { name: '', missing: true, attach: 'hidden', unable: 5 },
+} as const
+const confirm = (o: Record<string, unknown> = {}) => ({ status: 'confirm', people: 5, places: [], otherPlaces: false, files: [], provenance: null, confirmKey: 'key-1', ...o })
+const rowTexts = (m: Awaited<ReturnType<typeof mount>>) => m.container.ownerDocument!.body.querySelectorAll('[data-testid="share-room-file"]').map((r) => r.textContent)
+const switches = (m: Awaited<ReturnType<typeof mount>>) => m.container.ownerDocument!.body.querySelectorAll('[data-testid="share-room-attach"]') as unknown as (FakeElement & { checked: boolean })[]
+/** a click on a checkbox turns it over before its handlers run (the browser's own step, which the fake DOM leaves out) */
+const tick = async (m: Awaited<ReturnType<typeof mount>>, box: FakeElement) => {
+  const checked = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(box), 'checked')!
+  checked.set!.call(box, !checked.get!.call(box))
+  await m.click(box)
+}
+/** the dialog with `team` (6 people: 5 others) picked and a note, sent once: the confirm step is on screen */
+async function toConfirm(onClose = () => {}) {
+  const m = await mount(<ShareToRoom chatId={CHAT} messageId={uuidv7()} answer="Here is the plan" onClose={onClose} />)
+  await m.click(m.container.ownerDocument!.body.querySelector(`[data-room-id="${team.id}"]`)!)
+  await m.type('share-room-note', 'For Monday')
+  await m.click('share-room-send')
+  await m.until(() => m.find('share-room-confirm'), 'the confirm step')
+  return m
+}
+
+test('"confirm": a row per linked file, the files I cannot open only counted, the switches on, the note shown, the primary button focused', async () => {
   serve()
   signIn()
-  const sent = sharedMessage()
+  answers = [{ body: confirm({ files: [files.open, files.some, files.mine, files.big, files.hidden, files.hidden] }) }]
+  useRooms.setState({ rooms: [team], loaded: true })
+  const m = await toConfirm()
+  try {
+    expect(m.get('share-room-to').textContent).toContain('Marketing')
+    expect(m.get('share-room-confirm-note').textContent).toBe('“For Monday”')
+    expect(m.find('share-room-again')).toBeNull()
+    expect(m.html()).toContain(en('shareRoom.filesHead'))
+    // everyone / some / nobody else; switched on: who more will see it; too big: why not; the hidden ones only counted
+    expect(rowTexts(m)).toEqual([
+      `glossary.md${en('shareRoom.fileAll')}`,
+      `plan.md${en('shareRoom.fileSome', { n: 2 })} · ${en('shareRoom.attachWiden', { n: 2 })}${en('shareRoom.attach')}`,
+      `quote.xlsx${en('shareRoom.fileNoOne')} · ${en('shareRoom.attachWiden', { n: 5 })}${en('shareRoom.attach')}`,
+      `video.mov${en('shareRoom.fileNoOne')} · ${en('shareRoom.tooBig')}`,
+    ])
+    expect(m.get('share-room-hidden').textContent).toBe(en('shareRoom.hidden', { n: 2 }))
+    expect(switches(m).map((x) => x.checked)).toEqual([true, true])
+    // the primary button says it attaches and has the focus; 취소 is the other one
+    expect(m.get('share-room-confirm-send').textContent).toBe(en('shareRoom.sendAttached'))
+    expect(m.container.ownerDocument!.activeElement).toBe(m.get('share-room-confirm-send'))
+    expect(m.get('share-room-back').textContent).toBe(en('common.cancel'))
+    expect(m.find('share-room-provenance')).toBeNull()
+    // one switch off: its caption says the link alone goes; both off: 보내기
+    await tick(m, switches(m)[0]!)
+    expect(rowTexts(m)[1]).toBe(`plan.md${en('shareRoom.fileSome', { n: 2 })} · ${en('shareRoom.linkOnly')}${en('shareRoom.attach')}`)
+    expect(m.get('share-room-confirm-send').textContent).toBe(en('shareRoom.sendAttached'))
+    await tick(m, switches(m)[1]!)
+    expect(m.get('share-room-confirm-send').textContent).toBe(en('shareRoom.send'))
+  } finally {
+    await m.unmount()
+  }
+})
+
+test('the provenance line alone: 보내기 is the focused default; places named, none named, or not all known', async () => {
+  serve()
+  signIn()
+  useRooms.setState({ rooms: [team], loaded: true })
+  const line = async (provenance: Record<string, unknown>) => {
+    answers = [{ body: confirm({ provenance }) }]
+    const m = await toConfirm()
+    try {
+      expect(m.find('share-room-files')).toBeNull()
+      expect(m.get('share-room-confirm-send').textContent).toBe(en('shareRoom.send'))
+      expect(m.container.ownerDocument!.activeElement).toBe(m.get('share-room-confirm-send'))
+      return m.get('share-room-provenance').textContent
+    } finally {
+      await m.unmount()
+    }
+  }
+  const places = [{ kind: 'folder', path: 'finance' }, { kind: 'folder', path: '' }, { kind: 'mine' }, { kind: 'service', name: 'Google Drive' }, { kind: 'room', name: 'Sales' }, { kind: 'room', name: '' }, { kind: 'conversation' }]
+  expect(await line({ people: 3, places, otherPlaces: true })).toBe(en('shareRoom.provenance', {
+    n: 3,
+    places: ['finance/', en('rooms.aiRootFolder'), en('shareRoom.placeMine'), 'Google Drive', en('shareRoom.placeRoom', { name: 'Sales' }), en('shareRoom.placeRoom', { name: en('rooms.all') }), en('shareRoom.placeConversation')].join(', '),
+  }))
+  expect(await line({ people: 2, places: [], otherPlaces: true })).toBe(en('shareRoom.provenanceNoPlace', { n: 2 }))
+  expect(await line({ people: 5, places: [], otherPlaces: true, unknown: true })).toBe(en('shareRoom.unknown'))
+})
+
+test('at most 10 files switched on: the first 10 start on, the others wait until one is turned off', async () => {
+  serve()
+  signIn()
+  const many = Array.from({ length: 12 }, (_, i) => ({ ...files.mine, name: `f${i}.md`, path: `users/me/f${i}.md` }))
+  answers = [{ body: confirm({ files: many }) }]
+  useRooms.setState({ rooms: [team], loaded: true })
+  const m = await toConfirm()
+  try {
+    expect(switches(m).map((x) => x.checked)).toEqual([...Array(10).fill(true), false, false])
+    expect(switches(m).map((x) => x.hasAttribute('disabled'))).toEqual([...Array(10).fill(false), true, true])
+    await tick(m, switches(m)[0]!)
+    expect(switches(m)[10]!.hasAttribute('disabled')).toBe(false)
+  } finally {
+    await m.unmount()
+  }
+})
+
+test('the send again carries the key and the files switched on, with the same id; asked again: said so, my choice kept', async () => {
+  serve()
+  signIn()
+  const sent = sharedMessage({ files: [{ id: uuidv7(), name: 'quote.xlsx', size: 10, mime: 'application/octet-stream', kind: 'other', thumb: false }] })
   answers = [
-    {
-      body: {
-        status: 'confirm', people: 2, otherPlaces: true,
-        places: [{ kind: 'folder', path: 'finance' }, { kind: 'folder', path: '' }, { kind: 'mine' }, { kind: 'service', name: 'Google Drive' }, { kind: 'room', name: 'Sales' }, { kind: 'room', name: '' }, { kind: 'conversation' }],
-      },
-    },
-    { body: { status: 'confirm', people: 2, otherPlaces: false, places: [{ kind: 'folder', path: 'finance' }] } },
-    // someone joined meanwhile: three people now, asked again
-    { body: { status: 'confirm', people: 3, otherPlaces: false, places: [{ kind: 'folder', path: 'finance' }] } },
+    { body: confirm({ files: [files.some, files.mine] }) },
+    // someone joined meanwhile: asked again with a new key
+    { body: confirm({ files: [files.some, { ...files.mine, unable: 6 }], confirmKey: 'key-2' }) },
     { body: { status: 'sent', message: sent, cut: false } },
   ]
-  // the room is open in this window: the message takes its place there once
-  useRooms.setState({ rooms: [team, dm], loaded: true, openRoomId: team.id, timeline: { roomId: team.id, messages: [], nextCursor: null, loading: false, error: null } })
+  useRooms.setState({ rooms: [team], loaded: true, openRoomId: team.id, timeline: { roomId: team.id, messages: [], nextCursor: null, loading: false, error: null } })
   const went: string[] = []
   setNavigator((to) => went.push(to))
   let closed = 0
-  const answerId = uuidv7()
-  const m = await mount(<ShareToRoom chatId={CHAT} messageId={answerId} answer="Here is the plan" onClose={() => closed++} />)
+  const m = await toConfirm(() => closed++)
   try {
-    await m.click(m.container.ownerDocument!.body.querySelector(`[data-room-id="${team.id}"]`)!)
-    await m.type('share-room-note', '  For\nMonday  ')
-    // Enter in the note sends
-    await key(m.get('share-room-note'), 'Enter')
-    await m.until(() => m.find('share-room-confirm'), 'the confirm step')
-    expect(shares()[0]!.path).toBe(`/api/chats/${CHAT}/messages/${answerId}/share-to-room`)
-    expect(shares()[0]!.body).toMatchObject({ roomId: team.id, note: 'For Monday' })
-    expect(shares()[0]!.body!.confirm).toBeUndefined()
-    expect(m.get('share-room-to').textContent).toContain('Marketing')
-    expect(m.get('share-room-people').textContent).toBe(en('shareRoom.confirm', { n: 2 }))
-    const places = [...m.container.ownerDocument!.body.querySelectorAll('[data-testid="share-room-place"]')].map((x) => x.textContent)
-    expect(places).toEqual([
-      'finance/', en('rooms.aiRootFolder'), en('shareRoom.placeMine'), 'Google Drive', en('shareRoom.placeRoom', { name: 'Sales' }),
-      en('shareRoom.placeRoom', { name: en('rooms.all') }), en('shareRoom.placeConversation'), en('shareRoom.placeOther'),
-    ])
-    // 취소 goes back to the list with the room and the note as they were
-    await m.click('share-room-back')
-    expect((m.get('share-room-note') as unknown as { value: string }).value).toBe('  For\nMonday  ')
-    expect(m.container.ownerDocument!.body.querySelector(`[data-room-id="${team.id}"]`)!.getAttribute('aria-selected')).toBe('true')
-    await m.click('share-room-send')
-    await m.until(() => m.find('share-room-confirm'), 'the confirm step again')
-    await m.click('share-room-anyway')
-    await m.until(() => m.find('share-room-people')?.textContent === en('shareRoom.confirm', { n: 3 }), 'the confirm step with three people')
-    expect(closed).toBe(0)
-    await m.click('share-room-anyway')
+    await tick(m, switches(m)[0]!)
+    await m.click('share-room-confirm-send')
+    await m.until(() => m.find('share-room-again'), 'asked again')
+    expect(m.get('share-room-again').textContent).toBe(en('shareRoom.askedAgain'))
+    // plan.md stays off as I left it
+    expect(switches(m).map((x) => x.checked)).toEqual([false, true])
+    expect(m.container.ownerDocument!.activeElement).toBe(m.get('share-room-confirm-send'))
+    await m.click('share-room-confirm-send')
     await m.until(() => closed === 1, 'the dialog closed')
-    const [first, second, third, fourth] = shares()
-    expect(second!.body!.confirm).toBeUndefined()
-    // the count I said yes to, each time
-    expect(third!.body).toMatchObject({ roomId: team.id, note: 'For Monday', confirm: 2 })
-    expect(fourth!.body).toMatchObject({ roomId: team.id, note: 'For Monday', confirm: 3 })
-    // one id for one room and note: the server gives back the first message if this one is sent again
-    for (const c of [second, third, fourth]) expect(c!.body!.clientMessageId).toBe(first!.body!.clientMessageId)
-    // the toast says where, and 열기 opens the room
+    const [first, second, third] = shares()
+    expect(first!.body!.confirmKey).toBeUndefined()
+    expect(first!.body!.attach).toBeUndefined()
+    expect(second!.body).toMatchObject({ roomId: team.id, note: 'For Monday', confirmKey: 'key-1', attach: ['users/me/quote.xlsx'] })
+    expect(third!.body).toMatchObject({ roomId: team.id, note: 'For Monday', confirmKey: 'key-2', attach: ['users/me/quote.xlsx'] })
+    for (const c of [second, third]) expect(c!.body!.clientMessageId).toBe(first!.body!.clientMessageId)
+    for (const c of [first, second, third]) expect(c!.body!.confirm).toBeUndefined()
+    // the toast says where and how many files went; 열기 opens the room
     const toast = useUi.getState().toasts.at(-1)!
-    expect(toast).toMatchObject({ level: 'success', text: en('shareRoom.sent', { room: 'Marketing' }) })
-    expect(toast.action!.label).toBe(en('shareRoom.open'))
+    expect(toast).toMatchObject({ level: 'success', text: en('shareRoom.sentFiles', { room: 'Marketing', n: 1 }) })
     toast.action!.run()
     expect(went).toEqual([`/rooms/${team.id}`])
     // in the room once, also when the server's room.message for it comes to this window too
     expect(useRooms.getState().timeline!.messages.map((x) => x.id)).toEqual([sent.id])
     await act(async () => useRooms.getState().handleEvent({ type: 'room.message', data: { roomId: team.id, message: sent } } as never))
     expect(useRooms.getState().timeline!.messages.map((x) => x.id)).toEqual([sent.id])
-    expect(useRooms.getState().rooms.find((r) => r.id === team.id)!.lastMessage!.id).toBe(sent.id)
+  } finally {
+    await m.unmount()
+  }
+})
+
+test('취소, ✕ and Esc all go back to the list with the room and the note; ✕ and Esc on the list close it', async () => {
+  serve()
+  signIn()
+  answers = [{ body: confirm({ files: [files.mine] }) }]
+  useRooms.setState({ rooms: [team, dm], loaded: true })
+  let closed = 0
+  const m = await toConfirm(() => closed++)
+  const body = () => m.container.ownerDocument!.body
+  /** the open dialog's ✕ (one dialog at a time) */
+  const closeButton = () => body().querySelectorAll('[aria-label="Close"]').find((b) => b.closest('[role="dialog"]'))!
+  const backAtList = async (what: string) => {
+    await m.until(() => m.find('share-room-list'), `the list after ${what}`)
+    expect(m.find('share-room-confirm')).toBeNull()
+    expect((m.get('share-room-note') as unknown as { value: string }).value).toBe('For Monday')
+    expect(body().querySelector(`[data-room-id="${team.id}"]`)!.getAttribute('aria-selected')).toBe('true')
+    expect(closed).toBe(0)
+  }
+  const again = async () => {
+    await m.click('share-room-send')
+    await m.until(() => m.find('share-room-confirm'), 'the confirm step again')
+  }
+  try {
+    await m.click('share-room-back')
+    await backAtList('취소')
+    await again()
+    await m.click(closeButton())
+    await backAtList('✕')
+    await again()
+    await act(async () => { m.container.ownerDocument!.activeElement!.dispatchEvent(new FakeEvent('keydown', { bubbles: true, cancelable: true, key: 'Escape' })) })
+    await backAtList('Esc')
+    // on the list, ✕ closes the dialog
+    await m.click(closeButton())
+    expect(closed).toBe(1)
   } finally {
     await m.unmount()
   }
@@ -259,17 +377,28 @@ test('a refusal (too many messages, a room I left) is a toast in my language; th
   }
 })
 
-test('in the room: my note, then the answer as a quote headed "<AI> 답변" in Markdown; a file I may not open is text', () => {
+test('in the room: my note, then the answer as a quote headed "<AI> 답변" in Markdown; a file I may not open has a lock', () => {
   const html = renderToStaticMarkup(<RoomMessages roomId={team.id} messages={[sharedMessage({ author: BEN })]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
   // the note first, as plain text, then the quote
   expect(html.indexOf('For Monday')).toBeLessThan(html.indexOf('data-testid="room-shared-answer"'))
   expect(html.replace(/&#x27;/g, "'")).toContain(`${en('shareRoom.quoteHead', { ai: aiName((k) => en(k)) })}</figcaption>`)
-  // Markdown: a list, a link to a file I may open; the other file's name only as text
+  // Markdown: a list, a link to a file I may open; the other file's name after a lock, and why for a screen reader
   expect(html).toMatch(/<ul>\s*<li>first step<\/li>/)
-  expect(html).toContain('data-testid="team-file-text">budget<')
+  expect(html).toMatch(/data-testid="team-file-text"><svg[^]*?data-testid="team-file-lock"[^]*?<\/svg>budget<span class="sr-only"> \(You don(&#x27;|')t have access\)<\/span><\/button>/)
   expect(html).not.toContain('finance%2Fbudget')
   // the note's text does not show the answer's Markdown, and the answer is not in the note's paragraph
   expect(html).not.toContain('- first step')
+})
+
+test('the lock says why on a tap or click (touch has no tooltip), and opens nothing', async () => {
+  const m = await mount(<MemoryRouter><RoomMessages roomId={team.id} messages={[sharedMessage({ author: BEN })]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} /></MemoryRouter>)
+  try {
+    expect(m.get('team-file-text').getAttribute('type')).toBe('button')
+    await m.click('team-file-text')
+    expect(useUi.getState().toasts.at(-1)).toMatchObject({ level: 'info', text: en('rooms.fileNoAccess') })
+  } finally {
+    await m.unmount()
+  }
 })
 
 test('my shared answer can be copied and deleted, never edited', async () => {

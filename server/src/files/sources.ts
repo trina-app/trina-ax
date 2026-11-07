@@ -50,6 +50,8 @@ export class SourceLog {
     }
   }
   get size() { return this.files.size }
+  /** is this path in the list (it will be saved with the answer) */
+  has(path: string): boolean { return this.files.has(path) }
   entries(): readonly Entry[] { return [...this.files.values()] }
 }
 
