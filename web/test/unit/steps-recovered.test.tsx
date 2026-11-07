@@ -33,6 +33,14 @@ describe('which failed steps the AI got past (stepsGotPast)', () => {
     expect([...stepsGotPast([found, guess])]).toEqual([])
   })
 
+  test('a failed save: only a later save that worked makes up for it, not an unrelated step', () => {
+    expect(stepsGotPast([save, found]).size).toBe(0)
+    expect([...stepsGotPast([save, step({ id: 'f2', tool: 'make_file', label: '파일 만들기 · shared/company/summary.docx' })])]).toEqual(['f1'])
+    const video = step({ id: 'v1', tool: 'generate_video', label: '홍보 영상 만들기', status: 'error' })
+    expect(stepsGotPast([video, found]).size).toBe(0)
+    expect([...stepsGotPast([video, { ...video, id: 'v2', status: 'ok' }])]).toEqual(['v1'])
+  })
+
   test('thinking and attached-file notes are no work done; a later failure is none either', () => {
     const think = step({ id: 't1', kind: 'thinking', tool: undefined, label: 'Thinking' })
     const note = step({ id: 'n1', tool: 'attachment', label: 'changed' })
@@ -49,6 +57,8 @@ describe('which failed steps the AI got past (stepsGotPast)', () => {
     expect(stepsGotPast([a1, kid('k1', 'A1', 'error'), kid('k2', 'A1')]).has('k1')).toBe(true)
     expect(stepsGotPast([a1, kid('k1', 'A1', 'error'), found]).has('k1')).toBe(true)
     expect(stepsGotPast([{ ...a1, status: 'ok' }, kid('k1', 'A1', 'error')]).has('k1')).toBe(true)
+    // a sub-agent's failed save: its finished sub-task does not make up for it
+    expect(stepsGotPast([{ ...a1, status: 'ok' }, { ...save, parentId: 'A1' }]).size).toBe(0)
     // the main AI's failure is not got past by a sub-agent's step alone
     expect(stepsGotPast([guess, a1, kid('k2', 'A1')]).has('g1')).toBe(false)
   })
@@ -64,8 +74,9 @@ describe('the mark (stepMark)', () => {
     expect(stepMark(save, ctx([save], { answerFailed: true }))).toBe('failed')
   })
 
-  test('a save that nothing got past is red, also in an answer that finished', () => {
+  test('a save that nothing made up for is red, also in an answer that finished or that the person stopped', () => {
     expect(stepMark(save, ctx([found, save]))).toBe('failed')
+    expect(stepMark(save, ctx([save, found]))).toBe('failed')
   })
 
   test('a failed look-up nothing got past: quiet under an answer that did not fail, red when the answer failed', () => {
@@ -128,7 +139,10 @@ describe('on screen', () => {
     setLocale('en')
     const sub = step({ id: 'A1', tool: 'agent', label: 'Sub-task: compare', status: 'error', subtask: { toolUses: 2 } })
     const kid = step({ id: 'k1', parentId: 'A1', label: 'read a.md' })
-    expect(renderToStaticMarkup(<Steps steps={[sub, kid, found]} streaming />)).toContain(`aria-label="Sub-task: compare · ${attr(translate('en', 'steps.retried', { ai: ai('en') }))} · Show the sub-task&#x27;s steps"`)
+    // a failed sub-task is made up for by a later sub-task that worked, not by a read
+    expect(renderToStaticMarkup(<Steps steps={[sub, kid, found]} streaming />)).toContain(`aria-label="Sub-task: compare · ${attr(translate('en', 'steps.retrying', { ai: ai('en') }))} · Show the sub-task&#x27;s steps"`)
+    const again = step({ id: 'A2', tool: 'agent', label: 'Sub-task: compare again', subtask: { toolUses: 1 } })
+    expect(renderToStaticMarkup(<Steps steps={[sub, kid, again]} streaming />)).toContain(`aria-label="Sub-task: compare · ${attr(translate('en', 'steps.retried', { ai: ai('en') }))} · Show the sub-task&#x27;s steps"`)
     expect(renderToStaticMarkup(<Steps steps={[{ ...sub, status: 'ok' }, kid]} streaming />)).toContain('aria-label="Sub-task: compare · Show the sub-task&#x27;s steps"')
     setLocale(before)
   })
@@ -162,7 +176,7 @@ describe('under an answer (AssistantMessage)', () => {
     })
   }
 
-  for (const status of ['done', 'error'] as const) {
+  for (const status of ['done', 'stopped', 'error'] as const) {
     test(`${status}: a save nothing got past stays red, on the row and on the folded list`, async () => {
       const m = await mount(answer(status, [found, save]))
       try {

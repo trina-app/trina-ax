@@ -13058,3 +13058,38 @@ person's folder and only said that everyone could see the amounts; the person ha
   for a subfolder, the own folder, an update, an edit, a rename in place, a folder moved to the top, a confidential
   chat, a move into a new subfolder after a README; a sub-agent's file noted on its own call).
 - Version impact: **minor** (the AI places files differently and says so; no API, setting or data change).
+
+## A failed step the AI got past is not red (fix/steps-recovered-errors, 2026-11-07, product owner)
+
+- **Why.** Every step with `status: 'error'` showed a red ⓘ under the answer, and the folded "작업 N단계" a red mark. Most
+  were the AI's own trial and error that it fixed in the same answer (a guessed file name, then the right file; a
+  failed call, then one that worked). The owner: "뭔가 오류 나니깐 우리 잘못 같아". Consumer AI apps do not alarm on that.
+- **The rule** (`web/src/components/chat/Steps.tsx` `stepMark`, `stepsGotPast`). A failed step (not cut off by the
+  limit or Stop: those stay paused / stopped) is quiet, a grey CircleMinus with the shared tooltip and name "안 됐지만
+  {ai}가 다른 방법으로 이어 갔어요", when the AI went on past it. A failed look-up: any later step of the same agent,
+  or of the main AI, ended ok, or its sub-agent finished the sub-task. A failed step that would have changed something
+  (a save, a send, a video): only a later call of the same kind ended ok (the save tools `write`, `edit`,
+  `edit_files`, `make_file`, `edit_hwp` count as one kind; browser steps as one), so a failed save and then an
+  unrelated read stays red. Thinking and attached-file notes do not count. That holds in a finished, a stopped and a
+  failed answer (the failed answer's red box says what failed). It is also quiet while the
+  answer runs ("…다른 방법을 찾고 있어요" until something after it works), and, under an answer that did not fail, when
+  it only looked something up (`READ_ONLY_TOOLS` in `shared/src/step-labels.ts`, the Explore helper's tools, which now
+  come from there; and web searches). **Red** (CircleAlert, "실패", and the folded list's mark): a failure nothing got
+  past (a save, a send or a change that stayed undone, also under a finished answer; the step a failing answer ended
+  on) and a dev environment command that did not run because the environment was full (`devEnvRun.state 'expired'`;
+  the line under it says so and the AI was told not to try again). A command the person cancelled gets a muted stop
+  mark. A row with nothing to open is a plain row, not a disabled button (that swallowed the pointer and with it the
+  tooltip); a sub-task row's name carries its mark's words.
+- **No reason code.** `Step` has none that says the person must act: a connection goes through its card, a usage limit
+  ends the answer as an error, and a confirmation the person declined is a plain error step: red when no later call
+  of the same kind worked, as before this change. A follow-up for the owner: the server marks a declined step (a
+  detail or a field set on the refusal in `server/src/chat/tools.ts`) so the list shows it neutral, as the person's
+  own no.
+- **Not changed.** Rooms show no step marks (`RoomAiStatus` says the current step in words, also in the thread panel;
+  room answers have no steps), and the phone uses the same list. A scheduled run's outcome
+  (`server/src/chat/schedule-outcome.ts`) still counts every failed step and refused tool call as "problems", so its
+  inbox line can say a step did not work while the result shows only the quiet mark: a follow-up for the owner.
+- Tests: `web/test/unit/steps-recovered.test.tsx` (the rule, got-past groups, the words in five languages, the answer
+  in each state, the detail), `steps-paused` and `steps-subtasks` updated, `web/test/e2e/chat.spec.ts` (mock
+  "wrong-guess" and "save-fails").
+- Version impact: **minor** (a visible UI change; no API, setting or data change).

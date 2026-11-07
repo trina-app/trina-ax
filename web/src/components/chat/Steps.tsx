@@ -47,9 +47,18 @@ export function subtaskStats(sub: Step['subtask'], t: TFunction): string {
   return parts.join(' · ')
 }
 
-/** Failed steps the AI went on past: a later step of the same agent, or of the main AI, ended well, or the sub-agent the
- * step belongs to finished its sub-task. Steps are kept in the order they started. Thinking and attached-file notes
- * are no work done. */
+/** A step that only looked something up (a read, a search, a web search): its failure changed nothing. */
+const lookedUp = (s: Step) => s.kind === 'web_search' || s.kind === 'thinking' || (s.kind === 'tool' && !!s.tool && READ_ONLY_TOOLS.has(s.tool))
+/** Tools that save a file: one that worked makes up for another that failed. */
+const SAVE_TOOLS = new Set(['write', 'edit', 'edit_files', 'make_file', 'edit_hwp'])
+/** What a later step must have done to make up for a failed one that changed something: the same tool (a save tool for a
+ * save, a browser step for a browser step). */
+const family = (s: Step) => (s.tool && SAVE_TOOLS.has(s.tool) ? 'save' : s.kind !== 'tool' ? `kind:${s.kind}` : `tool:${s.tool ?? ''}`)
+
+/** Failed steps the AI went on past. A failed look-up: any later step of the same agent, or of the main AI, ended well,
+ * or the sub-agent it belongs to finished its sub-task. A failed step that would have changed something (a save, a
+ * send, a video): only a later call of the same kind that ended well (a failed save, then an unrelated read, is not
+ * made up for). Steps are kept in the order they started. Thinking and attached-file notes are no work done. */
 export function stepsGotPast(steps: Step[]): Set<string> {
   const subtasks = new Map(steps.filter((s) => s.tool === 'agent').map((s) => [s.id, s]))
   const groupOf = (s: Step) => (s.parentId && subtasks.has(s.parentId) ? s.parentId : null)
@@ -57,14 +66,12 @@ export function stepsGotPast(steps: Step[]): Set<string> {
   steps.forEach((s, i) => {
     if (s.status !== 'error') return
     const group = groupOf(s)
-    if (group && subtasks.get(group)!.status === 'ok') past.add(s.id)
-    else if (steps.slice(i + 1).some((x) => x.status === 'ok' && x.kind !== 'thinking' && x.tool !== 'attachment' && (groupOf(x) === null || groupOf(x) === group))) past.add(s.id)
+    const look = lookedUp(s)
+    if (look && group && subtasks.get(group)!.status === 'ok') past.add(s.id)
+    else if (steps.slice(i + 1).some((x) => x.status === 'ok' && x.kind !== 'thinking' && x.tool !== 'attachment' && (groupOf(x) === null || groupOf(x) === group) && (look || family(x) === family(s)))) past.add(s.id)
   })
   return past
 }
-
-/** A step that only looked something up (a read, a search, a web search): its failure changed nothing. */
-const lookedUp = (s: Step) => s.kind === 'web_search' || s.kind === 'thinking' || (s.kind === 'tool' && !!s.tool && READ_ONLY_TOOLS.has(s.tool))
 
 /** What decides a failed step's mark: the answer still runs (`live`), the answer itself failed (`answerFailed`: status
  * 'error', an interrupted answer too), and the failed steps the AI went on past (stepsGotPast). */
@@ -72,8 +79,8 @@ export interface MarkContext { live: boolean; answerFailed: boolean; gotPast: Re
 
 /** What a step's mark shows (docs/DECISIONS.md "A failed step the AI got past is not red"). A step that ended in an
  * error is the AI's own trial and error, shown with a quiet mark and never an alarm, when the AI went on past it (a
- * file name it guessed wrong, then the right file; a call that failed, then one that worked), also in an answer that
- * failed later for another reason; while the answer still runs (it may still get past it); and, under an answer that
+ * file name it guessed wrong, then the right file; a call that failed, then one of the same kind that worked:
+ * stepsGotPast), also in an answer that failed later for another reason; while the answer still runs (it may still get past it); and, under an answer that
  * did not fail, when it only looked something up. Red: a failure nothing got past (a save, a send or a change that
  * stayed undone, a step the failing answer ended on), and a dev environment command that did not run because the
  * environment was full (the line under it says so, and the AI was told not to try again). A command the person
