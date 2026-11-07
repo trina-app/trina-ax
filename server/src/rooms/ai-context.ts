@@ -8,13 +8,15 @@
 //             tags (neutralizeTags), every name inside an attribute is one line without quotes or brackets (attr), and
 //             the room is never named by its own name (any member of a group chat may set it).
 //   which     for the whole room only (AI_SHOWN_SQL: a private AI preview, the asker's own too, never goes to the AI),
-//             not deleted, no event lines, and of those what the asker sees (SEE_SQL: from their join on, a thread by
-//             its root's seq). Only this room's: a thread is looked up by its id in the room the session belongs to.
+//             not deleted, no event lines, and of those what the asker sees (SEE_SQL: from where they see the room, a
+//             thread by its root's seq, never an old answer hidden from them nor its thread: docs/DECISIONS.md "지난
+//             대화"). Only this room's: a thread is looked up by its id in the room the session belongs to.
 //   threads   a message of the timeline that has a thread brings the latest of its replies, under it and marked as its
 //             replies, with how many there are and when the last was written (attributes the server writes: a body
 //             cannot fake them); room_thread reads one whole thread.
 //   who saw   the caller records the oldest seq given (seenSeq: a reply by its root's) in the question's read scope, so a
-//             member who joined after it keeps the answer private (rooms/ai.ts decide).
+//             member who joined after it, or to whom an old answer from there on is hidden, keeps the answer private
+//             (rooms/ai.ts decide).
 import type { Database } from 'bun:sqlite'
 import { isUuid7 } from '@mycel/shared/api'
 import { neutralizeTags } from '../chat/prompt'
@@ -147,7 +149,7 @@ export function readThread(db: Database, held: (sha256: string) => boolean, o: {
   // message written after the question or a deleted root is no thread to read here. The thread a question was asked in
   // stays readable if its first message was deleted since (its replies stay; the first message's words are gone)
   const deletedOwn = !!root?.deleted_at && !!o.only && root.id === o.only
-  if (!root || !threadable(root) || (root.deleted_at && !deletedOwn) || !canSee(root, me) || (o.upTo !== undefined && root.seq >= o.upTo)) return { ok: false, text: NO_THREAD(id), count: 0 }
+  if (!root || !threadable(root) || (root.deleted_at && !deletedOwn) || !canSee(db, root, me) || (o.upTo !== undefined && root.seq >= o.upTo)) return { ok: false, text: NO_THREAD(id), count: 0 }
   let upTo = o.upTo ?? Number.MAX_SAFE_INTEGER
   if (o.before !== undefined) {
     const b = isUuid7(o.before.trim()) ? messageRow(db, o.roomId, o.before.trim()) : null

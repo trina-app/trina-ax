@@ -38,11 +38,12 @@ import { cancelPushUser } from '../notifications/push-events'
 import { teamTimeZone } from '../admin/settings'
 import { alertSettings, ownLevel, setOwnLevel } from './alerts'
 import {
-  canSee, groupName, hideable, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, SEE_SQL, seeArgs, setRoomPathCheck, sharedAnswerOf,
+  canSee, groupName, LIST_SQL, hideable, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, seeArgs, setRoomPathCheck, sharedAnswerOf,
   lastSeqFor, MENTIONS_SQL, threadable, threadSummary, threadsUnread, TIMELINE_SQL, unreadCount,
   type EventData, type MemberRow, type MessageRow, type RoomRow,
 } from './store'
 import { roomFilesOf } from './files'
+import { historyKinds, openHistories, openHistory } from './history'
 import { countedUnreadIn } from './inbox'
 import { roomAiOf, type AskOptions } from './ai'
 import { tr } from '../chat/i18n'
@@ -59,15 +60,17 @@ export const SEND_PER_SECOND = 1
  * 99 people's lists, so a script cannot fill them. */
 export const GROUPS_PER_HOUR = 10
 const HOUR_MS = 3_600_000
+/** How long one sync works on members still waiting for a room's history (the rest on the next one) */
+const HISTORY_BUDGET_MS = 250
 
 export interface SendInput { body: string; replyToId?: string | null; threadRootId?: string | null; alsoInRoom?: boolean; mentions: string[]; mentionsAll?: boolean; fileIds: string[]; clientMessageId: string }
 /** Rooms.send's `answer` (never from a request body): the message carries an answer of the sender's own AI chat
  * ("대화방에 보내기", chat/answer-share.ts) that starts at `at` in the body; `cut`: it was cut to fit; `people`: the
  * members who could not read what it used (the person said yes to sending anyway when more than 0), for the audit.
  * The caller took the sending budget's token for the request already (before its check): send takes none more. */
-export interface SharedAnswerMark { at: number; cut: boolean; people: number }
+export interface SharedAnswerMark { at: number; cut: boolean; people: number; /** what it used, as checked (chat/answer-share.ts AnswerScopeKept JSON): kept with it for later members (rooms/history.ts) */ scope: string }
 /** Nobody: what everyone who sees a message without being in it or following anything sees (one copy for most members). */
-const NOBODY: MemberRow = { room_id: '', user_id: '', joined_at: '', last_read_seq: 0, visible_from_seq: 0, muted: 0, notify_level: null, hidden_at: null }
+const NOBODY: MemberRow = { room_id: '', user_id: '', joined_at: '', last_read_seq: 0, visible_from_seq: 0, history_from_seq: 0, muted: 0, notify_level: null, hidden_at: null }
 
 export class Rooms {
   private lastSync = 0
@@ -83,8 +86,14 @@ export class Rooms {
   /** The room and my member row, or 404 (not in it, archived, unknown: all the same). */
   mine(userId: string, roomId: string): { room: RoomRow; me: MemberRow } {
     const room = roomRow(this.db, roomId)
-    const me = room && !room.archived_at ? memberRow(this.db, roomId, userId) : null
+    let me = room && !room.archived_at ? memberRow(this.db, roomId, userId) : null
     if (!room || !me) return fail('not_found')
+    // a team room or the everyone room whose history is not open to me yet (rooms/history.ts): now, before anything is
+    // read; a failure leaves me seeing it from my join on
+    if ((me.history_from_seq === null || me.history_recheck) && historyKinds(room.kind)) {
+      try { openHistory(this.ctx, roomId, userId) } catch (e) { this.ctx.log.warn('room history not opened', { err: e }) }
+      me = memberRow(this.db, roomId, userId) ?? me
+    }
     return { room, me }
   }
 
@@ -101,7 +110,7 @@ export class Rooms {
    * tells what the Inbox and push tell, docs/DECISIONS.md "Session markers"). */
   messageEvent(type: 'room.message' | 'room.message.updated', row: MessageRow, notices?: ReadonlyMap<string, RoomNoticeEvent>) {
     this.fanout(row.room_id, (m) => {
-      if (!canSee(row, m)) return null
+      if (!canSee(this.db, row, m)) return null
       const message = messagesOut(this.db, [row], m)[0]!
       const notice = type === 'room.message' ? notices?.get(m.user_id) : undefined
       return type === 'room.message' ? { type, data: { roomId: row.room_id, message, ...(notice ? { notice } : {}) } } : { type, data: { roomId: row.room_id, message } }
@@ -118,7 +127,7 @@ export class Rooms {
     ])
     const base = threadSummary(db, root.room_id, root.id, { ...NOBODY, room_id: root.room_id })
     this.fanout(root.room_id, (m) => {
-      if (!canSee(root, m)) return null
+      if (!canSee(this.db, root, m)) return null
       const thread = own.has(m.user_id) ? threadSummary(db, root.room_id, root.id, m) : base
       return { type: 'room.thread', data: { roomId: root.room_id, rootId: root.id, thread } }
     }, ms)
@@ -128,7 +137,7 @@ export class Rooms {
     const base = reactionsOf(this.db, [m.id], NOBODY).get(m.id) ?? []
     const by = new Map<string, Set<string>>()
     for (const r of this.db.query('SELECT emoji, user_id FROM room_reactions WHERE message_id = ?').all(m.id) as { emoji: string; user_id: string }[]) (by.get(r.emoji) ?? by.set(r.emoji, new Set()).get(r.emoji)!).add(r.user_id)
-    this.fanout(m.room_id, (x) => canSee(m, x) ? { type: 'room.reactions', data: { roomId: m.room_id, messageId: m.id, reactions: base.map((r): RoomReaction => ({ ...r, mine: !!by.get(r.emoji)?.has(x.user_id) })) } } : null)
+    this.fanout(m.room_id, (x) => canSee(this.db, m, x) ? { type: 'room.reactions', data: { roomId: m.room_id, messageId: m.id, reactions: base.map((r): RoomReaction => ({ ...r, mine: !!by.get(r.emoji)?.has(x.user_id) })) } } : null)
   }
   /** room.updated to each member, with the room as they see it. */
   roomEvent(roomId: string, change: 'added' | 'updated' | 'members', only?: ReadonlySet<string>) {
@@ -145,7 +154,10 @@ export class Rooms {
     // a new account (an invite, the team link) or a group change made outside the admin screens shows here first
     if (this.outOfStep(userId)) this.syncNow()
     else this.syncSoon()
-    const rows = this.db.query(`SELECT r.*, m.user_id, m.joined_at, m.last_read_seq, m.visible_from_seq, m.muted, m.notify_level, m.hidden_at FROM rooms r JOIN room_members m ON m.room_id = r.id
+    // my team rooms and everyone room whose history is not open to me yet (rooms/history.ts)
+    this.openHistoriesOf(userId)
+    const rows = this.db.query(`SELECT r.*, m.user_id, m.joined_at, m.last_read_seq, m.visible_from_seq, m.history_from_seq, m.muted, m.notify_level, m.hidden_at,
+      EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = m.user_id) has_hidden FROM rooms r JOIN room_members m ON m.room_id = r.id
       WHERE m.user_id = ? AND r.archived_at IS NULL`).all(userId) as (RoomRow & MemberRow)[]
     const prefs = getPreferences(this.db, userId)
     const out = rows.map((r) => roomOut(this.db, r, { ...r, room_id: r.id }, prefs))
@@ -382,7 +394,8 @@ export class Rooms {
   private forgetMember(roomId: string, userId: string) {
     // their rows of the room leave the Inbox (rooms/inbox.ts): when one counted, the count is read again
     const counted = countedUnreadIn(this.db, userId, roomId)
-    for (const t of ['room_members', 'room_notices', 'room_thread_follows', 'room_reactions']) this.db.query(`DELETE FROM ${t} WHERE room_id = ? AND user_id = ?`).run(roomId, userId)
+    // (and the old answers hidden from them: joining again works them out again, rooms/history.ts)
+    for (const t of ['room_members', 'room_notices', 'room_thread_follows', 'room_reactions', 'room_hidden_answers']) this.db.query(`DELETE FROM ${t} WHERE room_id = ? AND user_id = ?`).run(roomId, userId)
     if (counted) this.notifySignal(userId)
   }
 
@@ -416,7 +429,8 @@ export class Rooms {
     if (o.cursor && (!cur || !/^\d+$/.test(cur.s))) fail('validation', undefined, { fields: { 'query.cursor': 'invalid cursor' } })
     const limit = Math.min(200, Math.max(1, o.limit ?? 50))
     // the timeline: replies that stay in their thread are not in it (listThread)
-    const rows = this.db.query(`SELECT ${MSG_COLS} FROM room_messages m WHERE m.room_id = ? AND ${SEE_SQL} AND ${TIMELINE_SQL} ${cur ? 'AND m.seq < ?' : ''} ORDER BY m.seq DESC LIMIT ?`)
+    // an old answer hidden from me is in it as one line (LIST_SQL, messagesOut), never what is in its thread
+    const rows = this.db.query(`SELECT ${MSG_COLS} FROM room_messages m WHERE m.room_id = ? AND ${LIST_SQL} AND ${TIMELINE_SQL} ${cur ? 'AND m.seq < ?' : ''} ORDER BY m.seq DESC LIMIT ?`)
       .all(...(cur ? [roomId, ...seeArgs(me), Number(cur.s), limit + 1] : [roomId, ...seeArgs(me), limit + 1])) as MessageRow[]
     const page = rows.slice(0, limit).reverse()
     return { items: messagesOut(this.db, page, me), nextCursor: rows.length > limit && page[0] ? encodeCursor({ s: String(page[0].seq) }) : null }
@@ -428,7 +442,7 @@ export class Rooms {
    * `answer` (chat/answer-share.ts only, never a request's body): the message carries an answer of my own AI chat. It
    * mentions nobody (nor "@전체") and never calls the room's AI, whatever its text says ("@트리나", "@Name" in the answer
    * are the AI's words, not a call), and is neither a reply nor in a thread. */
-  send(userId: string, roomId: string, b: SendInput, o: AskOptions = {}, answer?: SharedAnswerMark): RoomMessage {
+  send(userId: string, roomId: string, b: SendInput, o: AskOptions = {}, answer?: SharedAnswerMark, carried?: string | null): RoomMessage {
     const { room, me } = this.mine(userId, roomId)
     const again = this.db.query(`SELECT ${MSG_COLS} FROM room_messages WHERE room_id = ? AND author_id = ? AND client_id = ?`).get(roomId, userId, b.clientMessageId) as MessageRow | null
     if (again) return messagesOut(this.db, [again], memberRow(this.db, roomId, userId)!)[0]!
@@ -440,13 +454,13 @@ export class Rooms {
     if (b.replyToId) {
       const q = messageRow(this.db, roomId, b.replyToId)
       // an event line is not a message to answer
-      if (!q || !canSee(q, me) || q.event) fail('validation', undefined, { fields: { 'body.replyToId': 'not in this room' } })
+      if (!q || !canSee(this.db, q, me) || q.event) fail('validation', undefined, { fields: { 'body.replyToId': 'not in this room' } })
     }
     let root: MessageRow | null = null
     if (b.threadRootId) {
       root = messageRow(this.db, roomId, b.threadRootId)
       // the same answer whatever is wrong (not there, not one I see, an event line, a reply itself, deleted, private)
-      if (!root || !canSee(root, me) || !threadable(root) || root.deleted_at) fail('validation', undefined, { fields: { 'body.threadRootId': 'not a message of this room to answer in a thread' } })
+      if (!root || !canSee(this.db, root, me) || !threadable(root) || root.deleted_at) fail('validation', undefined, { fields: { 'body.threadRootId': 'not a message of this room to answer in a thread' } })
     }
     if (answer && (b.threadRootId || b.replyToId || b.fileIds.length || answer.at < 0 || answer.at > b.body.length)) fail('validation')
     const mentions = answer ? [] : this.validMentions(roomId, userId, b.mentions)
@@ -464,9 +478,11 @@ export class Rooms {
     let seq = 0
     this.db.transaction(() => {
       seq = (this.db.query(`UPDATE rooms SET last_seq = last_seq + 1${inTimeline ? ', activity_at = ?' : ''} WHERE id = ? RETURNING last_seq`).get(...(inTimeline ? [now, roomId] : [roomId])) as { last_seq: number }).last_seq
-      this.db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, reply_to_id, mentions, client_id, created_at, thread_root_id, thread_root_seq, also_in_room, mentions_all, answer_at, answer_cut)
-        VALUES (?, ?, ?, 'user', ?, 'room', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, roomId, seq, userId, b.body, b.replyToId ?? null, JSON.stringify(mentions), b.clientMessageId, now, root?.id ?? null, root?.seq ?? null, root && b.alsoInRoom ? 1 : 0,
-        b.mentionsAll && !answer ? 1 : 0, answer ? answer.at : null, answer?.cut ? 1 : 0)
+      // what it brought in from elsewhere (a shared answer's scope; what an AI app had read: `carried`), for those who
+      // join the room later (rooms/history.ts)
+      this.db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, reply_to_id, mentions, client_id, created_at, thread_root_id, thread_root_seq, also_in_room, mentions_all, answer_at, answer_cut, source_scope)
+        VALUES (?, ?, ?, 'user', ?, 'room', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, roomId, seq, userId, b.body, b.replyToId ?? null, JSON.stringify(mentions), b.clientMessageId, now, root?.id ?? null, root?.seq ?? null, root && b.alsoInRoom ? 1 : 0,
+        b.mentionsAll && !answer ? 1 : 0, answer ? answer.at : null, answer?.cut ? 1 : 0, answer ? answer.scope : carried ?? null)
       // an answer of my own AI chat: audited without its content or anyone's name; a DM's or group chat's id would let
       // admins see who talks to whom, so only its kind (store.ts roomAuditRef)
       if (answer) audit(this.db, { actor: userId, action: 'room.answer_share', target: id, detail: { ...roomAuditRef(room), people: answer.people, confirmed: answer.people > 0, cut: answer.cut } })
@@ -495,7 +511,7 @@ export class Rooms {
     const db = this.db, now = nowIso()
     const ms = new Map(members(db, root.room_id).map((m) => [m.user_id, m]))
     const add = db.query('INSERT OR IGNORE INTO room_thread_follows (root_id, user_id, room_id, last_read_seq, created_at) VALUES (?, ?, ?, ?, ?)')
-    const may = (u: string | null): u is string => !!u && !!ms.get(u) && canSee(root, ms.get(u)!)
+    const may = (u: string | null): u is string => !!u && !!ms.get(u) && canSee(this.db, root, ms.get(u)!)
     if (may(authorId)) {
       add.run(root.id, authorId, root.room_id, seq, now)
       db.query('UPDATE room_thread_follows SET last_read_seq = ? WHERE root_id = ? AND user_id = ? AND last_read_seq < ?').run(seq, root.id, authorId, seq)
@@ -564,7 +580,8 @@ export class Rooms {
       // that mentions them
       const next = this.db.query(`SELECT m.id FROM room_messages m WHERE m.room_id = ? AND m.thread_root_id IS ? AND m.seq > ? AND m.seq <= ?
         AND m.visibility = 'room' AND m.deleted_at IS NULL AND m.event IS NULL AND (m.author_id IS NULL OR m.author_id <> ?) AND (m.author_kind <> 'ai' OR m.asked_by IS NULL OR m.asked_by <> ?)
-        AND (? = 'room.dm' OR ${MENTIONS_SQL}) ORDER BY m.seq LIMIT 1`).get(m.room_id, m.thread_root_id, m.seq, n.last_seq, n.user_id, n.user_id, n.event_type, n.user_id, n.user_id) as { id: string } | null
+        AND NOT EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = ? AND h.message_id IN (m.id, m.thread_root_id))
+        AND (? = 'room.dm' OR ${MENTIONS_SQL}) ORDER BY m.seq LIMIT 1`).get(m.room_id, m.thread_root_id, m.seq, n.last_seq, n.user_id, n.user_id, n.user_id, n.event_type, n.user_id, n.user_id) as { id: string } | null
       if (next && this.db.query('UPDATE OR IGNORE room_notices SET source_id = ? WHERE id = ?').run(next.id, n.id).changes) moved.push(n.user_id)
     }
     return moved
@@ -575,7 +592,7 @@ export class Rooms {
    * replies stay readable). Anything else: 404, the same as a message that is not there. */
   private rootFor(roomId: string, rootId: string, me: MemberRow): MessageRow {
     const root = messageRow(this.db, roomId, rootId)
-    if (!root || !canSee(root, me) || !threadable(root)) return fail('not_found')
+    if (!root || !canSee(this.db, root, me) || !threadable(root)) return fail('not_found')
     return root
   }
 
@@ -586,7 +603,7 @@ export class Rooms {
     const cur = decodeCursor(o.cursor, ['s'])
     if (o.cursor && (!cur || !/^\d+$/.test(cur.s))) fail('validation', undefined, { fields: { 'query.cursor': 'invalid cursor' } })
     const limit = Math.min(200, Math.max(1, o.limit ?? 50))
-    const rows = this.db.query(`SELECT ${MSG_COLS} FROM room_messages m WHERE m.room_id = ? AND m.thread_root_id = ? AND ${SEE_SQL} ${cur ? 'AND m.seq < ?' : ''} ORDER BY m.seq DESC LIMIT ?`)
+    const rows = this.db.query(`SELECT ${MSG_COLS} FROM room_messages m WHERE m.room_id = ? AND m.thread_root_id = ? AND ${LIST_SQL} ${cur ? 'AND m.seq < ?' : ''} ORDER BY m.seq DESC LIMIT ?`)
       .all(...(cur ? [roomId, root.id, ...seeArgs(me), Number(cur.s), limit + 1] : [roomId, root.id, ...seeArgs(me), limit + 1])) as MessageRow[]
     const page = rows.slice(0, limit).reverse()
     return { root: messagesOut(this.db, [root], me)[0]!, items: messagesOut(this.db, page, me), nextCursor: rows.length > limit && page[0] ? encodeCursor({ s: String(page[0].seq) }) : null }
@@ -618,7 +635,7 @@ export class Rooms {
   react(userId: string, roomId: string, messageId: string, emoji: RoomReactionEmoji, on: boolean): { reactions: RoomReaction[] } {
     const { me } = this.mine(userId, roomId)
     const m = messageRow(this.db, roomId, messageId)
-    if (!m || !canSee(m, me)) return fail('not_found')
+    if (!m || !canSee(this.db, m, me)) return fail('not_found')
     if (m.event || m.deleted_at || m.visibility !== 'room') fail('validation', undefined, { fields: { 'params.messageId': 'not a message to react to' } })
     const has = !!this.db.query('SELECT 1 FROM room_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?').get(m.id, userId, emoji)
     if (has !== on) {
@@ -646,7 +663,7 @@ export class Rooms {
    * is how they put one away), or any AI answer they can see when they are an owner or admin in the room. */
   private removable(roomId: string, messageId: string, userId: string, me: MemberRow): MessageRow {
     const m = messageRow(this.db, roomId, messageId)
-    if (!m || !canSee(m, me)) return fail('not_found')
+    if (!m || !canSee(this.db, m, me)) return fail('not_found')
     if (m.author_kind !== 'ai') return this.own(roomId, messageId, userId, me)
     const role = (this.db.query('SELECT role FROM users WHERE id = ?').get(userId) as { role: string } | null)?.role
     if (m.asked_by !== userId && role !== 'owner' && role !== 'admin') return fail('forbidden')
@@ -654,11 +671,12 @@ export class Rooms {
     return m
   }
 
-  /** My own message, and one I can see now: after leaving and being invited back (or leaving a group and joining it
-   * again) the messages from before are out of sight, my own too, so not mine to edit or delete either. */
+  /** My own message, and one I can see now: after leaving a group chat and being invited back the messages from before
+   * are out of sight, my own too, so not mine to edit or delete either (joining a team room or the everyone room again
+   * shows its history, mine included: rooms/history.ts). */
   private own(roomId: string, messageId: string, userId: string, me: MemberRow): MessageRow {
     const m = messageRow(this.db, roomId, messageId)
-    if (!m || !canSee(m, me)) return fail('not_found')
+    if (!m || !canSee(this.db, m, me)) return fail('not_found')
     // an event line is nobody's message: its author did something, they did not write it
     if (m.author_kind !== 'user' || m.author_id !== userId || m.event) return fail('forbidden')
     if (m.deleted_at) return fail('conflict')
@@ -755,7 +773,7 @@ export class Rooms {
     const room = roomRow(this.db, row.room_id)
     if (!room) return
     // only the members who hid it (an everyone room may have hundreds of members, few of them hiding it)
-    const hidden = (this.db.query('SELECT * FROM room_members WHERE room_id = ? AND hidden_at IS NOT NULL').all(row.room_id) as MemberRow[]).filter((m) => canSee(row, m))
+    const hidden = (this.db.query('SELECT * FROM room_members WHERE room_id = ? AND hidden_at IS NOT NULL').all(row.room_id) as MemberRow[]).filter((m) => canSee(this.db, row, m))
     if (!hidden.length) return
     const mentioned = new Set(JSON.parse(row.mentions) as string[])
     const followers = row.thread_root_id ? new Set((this.db.query('SELECT user_id FROM room_thread_follows WHERE root_id = ?').all(row.thread_root_id) as { user_id: string }[]).map((r) => r.user_id)) : null
@@ -773,7 +791,7 @@ export class Rooms {
     const room = roomRow(this.db, row.room_id)
     if (!room) return out
     // a room I still hide (unhideFor did not bring it back) tells me nothing
-    const ms = members(this.db, row.room_id).filter((m) => m.user_id !== row.author_id && !(row.author_kind === 'ai' && m.user_id === row.asked_by) && canSee(row, m) && !m.hidden_at)
+    const ms = members(this.db, row.room_id).filter((m) => m.user_id !== row.author_id && !(row.author_kind === 'ai' && m.user_id === row.asked_by) && canSee(this.db, row, m) && !m.hidden_at)
     if (!ms.length) return out
     const mentioned = new Set(JSON.parse(row.mentions) as string[])
     const followers = row.thread_root_id ? new Set((this.db.query('SELECT user_id FROM room_thread_follows WHERE root_id = ?').all(row.thread_root_id) as { user_id: string }[]).map((r) => r.user_id)) : null
@@ -808,6 +826,11 @@ export class Rooms {
    * right first when they are out of step (a group left a moment ago is applied before anything is read). */
   syncFor(userId: string) {
     if (this.outOfStep(userId)) this.syncNow()
+    this.openHistoriesOf(userId)
+  }
+  /** This person's team rooms and everyone room whose history is not worked out yet (rooms/history.ts). Never throws. */
+  private openHistoriesOf(userId: string) {
+    try { openHistories(this.ctx, { userId }) } catch (e) { this.ctx.log.warn('room history not opened', { err: e }) }
   }
   /** Are this person's team rooms and everyone room not what their groups and account say? */
   private outOfStep(userId: string): boolean {
@@ -869,6 +892,10 @@ export class Rooms {
         audit(db, { actor: null, action: 'room.members', target: id, detail: { via: 'groups', added: added.get(id) ?? [], removed: removed.get(id) ?? [] } })
       }
     })()
+    // a team room's or the everyone room's history opens to who joined it (rooms/history.ts), before they are told:
+    // their first list already has it. Then anyone still waiting (an upgrade, a row an older build made), for a while
+    let opened: { roomId: string; userId: string }[] = []
+    try { opened = openHistories(this.ctx, { budgetMs: HISTORY_BUDGET_MS }) } catch (e) { this.ctx.log.warn('room history not opened', { err: e }) }
     for (const [roomId, g] of groupOut) this.afterDrop(roomId, g.users, g.r)
     for (const [roomId, users] of removed) {
       for (const u of users) {
@@ -885,6 +912,8 @@ export class Rooms {
       const room = roomRow(db, roomId)
       if (room) this.fanout(roomId, (m) => (fresh.has(m.user_id) ? null : { type: 'room.updated', data: { roomId, change: 'members', room: roomOut(db, room, m) } }))
     }
+    // a history that opened (or showed more) for someone already in the room: their windows read the room again
+    for (const o of opened) if (!added.get(o.roomId)?.includes(o.userId)) this.roomEvent(o.roomId, 'updated', new Set([o.userId]))
   }
 }
 

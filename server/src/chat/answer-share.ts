@@ -79,11 +79,10 @@ function scopeDescribes(db: Database, chat: Pick<ChatRow, 'id' | 'active_leaf_id
 
 /** Who of the room's members (not me) could not read what the answer used, and where it came from as the sender may
  * be told. `answer`: its text (the paths it links to). */
-export function answerAudience(ctx: AppContext, userId: string, roomId: string, chat: Pick<ChatRow, 'id' | 'active_leaf_id'>, messageId: string, answer: string): { people: number; places: AnswerSharePlace[]; otherPlaces: boolean } {
+export function answerAudience(ctx: AppContext, userId: string, roomId: string, chat: Pick<ChatRow, 'id' | 'active_leaf_id'>, messageId: string, answer: string): { people: number; places: AnswerSharePlace[]; otherPlaces: boolean; scope: AnswerScopeKept } {
   const db = ctx.db, rules = ctx.files.rules()
   // a disabled or deleted account still in the room reads nothing now: it misses every source (missingReaders)
   const audience = (db.query('SELECT user_id FROM room_members WHERE room_id = ? AND user_id <> ?').all(roomId, userId) as { user_id: string }[]).map((r) => r.user_id)
-  if (!audience.length) return { people: 0, places: [], otherPlaces: false }
   const places = new Map<string, AnswerSharePlace>()
   let otherPlaces = false
   const missing = new Set<string>()
@@ -99,7 +98,13 @@ export function answerAudience(ctx: AppContext, userId: string, roomId: string, 
   const paths = answers.length ? (db.query(`SELECT path FROM message_sources WHERE message_id IN (${answers.map(() => '?').join(',')}) ORDER BY message_id, ord`).all(...answers.map((a) => a.id)) as { path: string }[]).map((r) => r.path).filter((p) => !notCounted(p)) : []
   const scope = described ? readScope(db, chat.id) ?? [] : []
   const sources: ReadSource[] = [...scope, ...paths.map((p) => sourceOf(db, rules, p)), ...answerFilePaths(answer, 500).filter((p) => !notCounted(p)).map((path): ReadSource => ({ type: 'name', path }))]
-  for (const { source: s, missing: who } of missingReaders(db, rules, sources, audience)) {
+  // the chat read a room's messages, and the scope does not show which
+  const roomsSeen = !!(db.query('SELECT rooms_seen FROM chats WHERE id = ?').get(chat.id) as { rooms_seen: number } | null)?.rooms_seen
+  const roomsUnknown = roomsSeen && (!described || !scope.some((s) => s.type === 'room'))
+  // kept with the message for those who join the room later (rooms/history.ts): what it used, and whether that is all
+  const kept: AnswerScopeKept = { sources, unknown: !described || roomsUnknown }
+  if (!audience.length) return { people: 0, places: [], otherPlaces: false, scope: kept }
+  for (const { source: s, missing: who } of missingReaders(db, rules, sources, audience, userId)) {
     for (const id of who) missing.add(id)
     switch (s.type) {
       case 'root': folder(''); break
@@ -135,13 +140,17 @@ export function answerAudience(ctx: AppContext, userId: string, roomId: string, 
     otherPlaces = true
   }
   // the chat read a room's messages, and the scope does not show which: nobody else is taken to have seen them
-  const roomsSeen = !!(db.query('SELECT rooms_seen FROM chats WHERE id = ?').get(chat.id) as { rooms_seen: number } | null)?.rooms_seen
-  if (roomsSeen && (!described || !scope.some((s) => s.type === 'room'))) {
+  if (roomsUnknown) {
     for (const id of audience) missing.add(id)
     add({ kind: 'conversation' })
   }
-  return { people: missing.size, places: [...places.values()], otherPlaces }
+  return { people: missing.size, places: [...places.values()], otherPlaces, scope: kept }
 }
+
+/** What a shared answer used, as kept with its message (room_messages.answer_scope): the sources checked when it was
+ * sent, and `unknown` when they are not all (the chat's scope did not describe the answer, or it read rooms the scope
+ * does not name). A later member of the room sees it only when they may read every source and nothing is unknown. */
+export interface AnswerScopeKept { sources: ReadSource[]; unknown: boolean }
 
 export interface ShareAnswerInput { roomId: string; note?: string; confirm?: number; clientMessageId: string }
 
@@ -169,6 +178,6 @@ export function shareAnswerToRoom(ctx: AppContext, userId: string, chat: ChatRow
   if (who.people > 0 && !(b.confirm !== undefined && who.people <= b.confirm)) return { status: 'confirm', people: who.people, places: who.places, otherPlaces: who.otherPlaces }
   const { body, at, cut } = answerShareBody(b.note, content, answerCutLine(locale))
   // audited with the message (Rooms.send: room.answer_share)
-  const m = rooms.send(userId, room.id, { body, mentions: [], fileIds: [], clientMessageId: b.clientMessageId }, {}, { at, cut, people: who.people })
+  const m = rooms.send(userId, room.id, { body, mentions: [], fileIds: [], clientMessageId: b.clientMessageId }, {}, { at, cut, people: who.people, scope: JSON.stringify(who.scope) })
   return { status: 'sent', message: m, cut }
 }

@@ -48,6 +48,12 @@ async function roomOf(memberIds: string[]): Promise<{ roomId: string; groupId: s
   if (!r) throw new Error('no team room')
   return { roomId: r.id, groupId: g.id }
 }
+/** a group chat of `by` and `others` (at least two): a member invited later sees it from their join on, as before
+ * (team rooms show their history to later members: docs/DECISIONS.md "지난 대화") */
+async function groupChat(by: string, others: string[]): Promise<string> {
+  return (await h.api(by).call(API.createRoom, { body: { kind: 'group', userIds: others } })).id
+}
+const invite = (by: string, roomId: string, userIds: string[]) => h.api(by).call(API.inviteRoomMembers, { params: { id: roomId }, body: { userIds } })
 /** a message to the room; sending is rate limited per person (a burst of 20, then one a second), and the fake engine
  * answers faster than a person types: a 429 waits the seconds it names and sends again */
 const send = async (user: string, roomId: string, body: string): Promise<RoomMessage> => {
@@ -141,12 +147,15 @@ describe('the AI in a room', () => {
     h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('rooms-ai-bob-none', 'f_groups_marketing', 'user', 'bob', 'none')").run()
     try {
       await h.api('dana').call(API.updateGroup, { params: { id: g.id }, body: { memberIds: ['alice', 'erin', 'bob'] } })
-      // the members changed, so the conversation starts anew; the room's messages from before bob joined (and the fake
-      // engine following the first question's directive again) keep the answer private, saying why
+      // bob sees the room's history (a team room), but not the first answer: it used a folder he cannot open
+      // (docs/DECISIONS.md "지난 대화")
+      expect((await messages('bob', r2)).find((m) => m.authorKind === 'ai' && m.replyTo?.id === first.q.id)).toMatchObject({ withheld: true, body: '' })
+      // the members changed, so the conversation starts anew; the first answer hidden from bob in its context (and the
+      // fake engine following the first question's directive again) keep the answer private, saying why
       const second = await ask('alice', r2, `@트리나 and now?\n${fake({ say: 'second' })}`)
       expect(await answerTo('bob', r2, second.q)).toBeUndefined()
       expect(await answerTo('erin', r2, second.q)).toBeUndefined()
-      expect(await answerTo('alice', r2, second.q)).toMatchObject({ visibility: 'private', preview: { folders: ['groups/marketing'], joinedLater: ['Bob Lee'] } })
+      expect(await answerTo('alice', r2, second.q)).toMatchObject({ visibility: 'private', preview: { folders: ['groups/marketing'], joinedLater: [], hidden: true } })
     } finally { h.ctx.db.query("DELETE FROM folder_rules WHERE id = 'rooms-ai-bob-none'").run() }
   })
 
@@ -313,10 +322,10 @@ describe('what an answer may carry into the room', () => {
     expect(seen!.body).not.toContain('Project Falcon plan')
   })
 
-  test('messages from before a member joined make the answer private, saying who joined later', async () => {
-    const { roomId, groupId } = await roomOf(['alice', 'erin'])
+  test('messages from before a member joined (a group chat) make the answer private, saying who joined later', async () => {
+    const roomId = await groupChat('alice', ['erin', 'carol'])
     await send('erin', roomId, 'PREJOIN-SECRET salary list is 123')
-    await h.api('dana').call(API.updateGroup, { params: { id: groupId }, body: { memberIds: ['alice', 'erin', 'bob'] } })
+    await invite('alice', roomId, ['bob'])
     expect((await messages('bob', roomId)).some((m) => m.body.includes('PREJOIN-SECRET'))).toBe(false)
     const { q } = await ask('alice', roomId, `@트리나 recap\n${fake({ echo: 'message' })}`)
     expect(await answerTo('bob', roomId, q)).toBeUndefined()
@@ -519,13 +528,13 @@ describe('putting AI answers away', () => {
   })
 
   test('posting a preview decides again: new reasons are shown first, then it posts', async () => {
-    const { roomId, groupId } = await roomOf(['alice', 'erin'])
+    const roomId = await groupChat('alice', ['erin', 'carol'])
     await send('erin', roomId, 'what is the falcon plan?')
     const { q } = await ask('alice', roomId, `@트리나 falcon\n${fake({ tool: 'read', args: { file_path: 'projects/falcon/plan.md' } }, { say: 'plan' })}`)
     const preview = (await answerTo('alice', roomId, q))!
     expect(preview.preview).toMatchObject({ folders: ['projects/falcon'], joinedLater: [] })
-    // bob joins after the question: the room's messages given to the AI were written before he was there
-    await h.api('dana').call(API.updateGroup, { params: { id: groupId }, body: { memberIds: ['alice', 'erin', 'bob'] } })
+    // bob is invited after the question: the chat's messages given to the AI were written before he was there
+    await invite('alice', roomId, ['bob'])
     const r = await h.req('alice', `/api/rooms/${roomId}/messages/${preview.id}/share`, { method: 'POST' })
     expect(r.status).toBe(409)
     expect((await r.json()).error.params.reason).toBe('room_ai_reasons_changed')
