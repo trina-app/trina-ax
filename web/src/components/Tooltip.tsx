@@ -74,6 +74,13 @@ export function Tooltip({ label, children, description = false, disabled = false
   }
   useEffect(() => () => clear(), [])
   useEffect(() => { if (disabled) hide() }, [disabled, hide])
+  // the element's own ref, kept: one stable callback (a new one each render would detach and attach it every commit)
+  const childRef = isValidElement(children) ? (children as Child).props.ref : undefined
+  const setRef = useCallback((el: HTMLElement | null) => {
+    anchor.current = el
+    if (typeof childRef === 'function') childRef(el)
+    else if (childRef && typeof childRef === 'object') (childRef as { current: HTMLElement | null }).current = el
+  }, [childRef])
 
   // placed once it is drawn (its size is known), before it is painted
   useLayoutEffect(() => {
@@ -100,12 +107,6 @@ export function Tooltip({ label, children, description = false, disabled = false
   const child = children as Child
   const p = child.props
   const describes = !!label && (description || label !== p['aria-label'])
-  const setRef = (el: HTMLElement | null) => {
-    anchor.current = el
-    const r = p.ref
-    if (typeof r === 'function') r(el)
-    else if (r && typeof r === 'object') (r as { current: HTMLElement | null }).current = el
-  }
   const trigger = cloneElement(child, {
     ref: setRef,
     ...(describes && open ? { 'aria-describedby': [p['aria-describedby'], id].filter(Boolean).join(' ') } : {}),

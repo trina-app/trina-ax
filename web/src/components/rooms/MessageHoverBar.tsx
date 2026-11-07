@@ -27,8 +27,9 @@ export function MessageHoverBar({ roomId, m, below = false, reactOn, onThread, m
       aria-label={t('rooms.messageActions')}
       className={clsx(
         'absolute right-2 z-20 flex items-center gap-0.5 rounded-lg border border-line bg-surface p-0.5 shadow-md transition-opacity',
-        // hidden (and not in the pointer's way) until the message is hovered, has the keyboard's focus, or a menu of it is open
-        'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 has-[[aria-expanded=true]]:pointer-events-auto has-[[aria-expanded=true]]:opacity-100 motion-reduce:transition-none',
+        // hidden (and not in the pointer's way) until the message is hovered, has the keyboard's focus (not a click's: a
+        // clicked button keeps the focus after the mouse has gone), or a menu of it is open
+        'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-has-[:focus-visible]:pointer-events-auto group-has-[:focus-visible]:opacity-100 has-[[aria-expanded=true]]:pointer-events-auto has-[[aria-expanded=true]]:opacity-100 motion-reduce:transition-none',
         // computers only: phones and touch screens have the long-press sheet
         'max-md:hidden pointer-coarse:hidden',
         below ? '-bottom-5' : '-top-5',
@@ -48,7 +49,7 @@ export function MessageHoverBar({ roomId, m, below = false, reactOn, onThread, m
             </Tooltip>
           )
         })}
-      {reactOn && <ReactionPicker roomId={roomId} m={m} buttonClassName={clsx(BTN, 'p-0')} below={below} />}
+      {reactOn && <ReactionPicker roomId={roomId} m={m} buttonClassName={BTN} below={below} />}
       {onThread && (
         <Tooltip label={t('rooms.replyInThread')}>
           <button type="button" aria-label={t('rooms.replyInThread')} onClick={onThread} className={BTN} data-testid="message-thread">
@@ -56,7 +57,7 @@ export function MessageHoverBar({ roomId, m, below = false, reactOn, onThread, m
           </button>
         </Tooltip>
       )}
-      {more.length > 0 && <MenuButton label={t('common.more')} icon={<EllipsisVertical size={16} aria-hidden />} buttonClassName={clsx(BTN, 'p-0 max-sm:p-0')} testId="message-more" items={more} />}
+      {more.length > 0 && <MenuButton label={t('common.more')} icon={<EllipsisVertical size={16} aria-hidden />} buttonClassName={clsx(BTN, 'max-sm:p-0')} testId="message-more" items={more} />}
     </div>
   )
 }

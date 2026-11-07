@@ -53,6 +53,16 @@ export function ReactionPicker({ m, roomId, className, buttonClassName, below = 
     return () => document.removeEventListener('pointerdown', h)
   }, [open])
   const mine = (m.reactions ?? []).filter((r) => r.mine).map((r) => r.emoji)
+  // under the button when there is no room above it inside the list that scrolls (the list would cut the strip off)
+  const [down, setDown] = useState(below)
+  const toggle = () => {
+    if (!open) {
+      const b = button.current?.getBoundingClientRect()
+      const list = button.current?.closest('.overflow-y-auto')?.getBoundingClientRect()
+      setDown(below || (!!b && b.top - (list?.top ?? 0) < 56))
+    }
+    setOpen(!open)
+  }
   return (
     <div
       ref={box}
@@ -73,7 +83,7 @@ export function ReactionPicker({ m, roomId, className, buttonClassName, below = 
           aria-label={t('rooms.react')}
           aria-haspopup="true"
           aria-expanded={open}
-          onClick={() => setOpen(!open)}
+          onClick={toggle}
           className={clsx('inline-flex items-center justify-center rounded-md p-1.5 text-faint transition hover:bg-hover hover:text-ink', buttonClassName)}
           data-testid="message-react"
         >
@@ -81,7 +91,7 @@ export function ReactionPicker({ m, roomId, className, buttonClassName, below = 
         </button>
       </Tooltip>
       {open && (
-        <div className={clsx('absolute right-0 z-30 rounded-xl border border-line bg-surface p-1 shadow-lg', below ? 'top-full mt-1' : 'bottom-full mb-1')}>
+        <div className={clsx('absolute right-0 z-30 rounded-xl border border-line bg-surface p-1 shadow-lg', down ? 'top-full mt-1' : 'bottom-full mb-1')}>
           <ReactionStrip
             mine={mine}
             onPick={(e) => {

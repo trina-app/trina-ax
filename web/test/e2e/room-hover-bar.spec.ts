@@ -59,6 +59,9 @@ test('hover: the bar floats over the top-right edge, moves nothing, and every bu
   await expect(msg.getByTestId('reaction-chip')).toHaveCount(1)
   expect(room.reacted).toEqual([{ messageId: id(2), emoji: '✅', on: true }])
   await expect(bar.locator('[data-emoji="✅"]')).toHaveAttribute('aria-pressed', 'true')
+  // the clicked button keeps the focus, but a click is no keyboard: the bar goes with the mouse
+  await page.mouse.move(5, 5)
+  await expect.poll(() => opacity(bar)).toBe('0')
 
   // reply in thread opens the thread beside the room, its box ready
   await msg.hover()
