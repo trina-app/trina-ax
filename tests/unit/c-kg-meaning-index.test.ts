@@ -2,14 +2,17 @@
 // embedder (pinned model files, the e5 prefixes, normalization), the vectors in documents.db (the column on old indexes
 // too, the pieces still without one, writes that skip a piece that changed), the background indexing (memory check,
 // memory limit, the pause while someone waits for an answer, the CPU rest, a stuck batch, a piece that always fails,
-// the switch), Korean CP949 text, the embedding process and its place in the bundles. No test downloads or loads the real model: loaders, downloads and processes are stand-ins.
+// process failures that never mark a piece, a model that is never ready, the switch and hosting plans, the cgroup
+// memory limit), Korean CP949 text, the embedding process and its place in the bundles. No test downloads or loads the
+// real model: loaders, downloads and processes are stand-ins.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { DocumentIndex, headingOf } from '../../server/src/knowledge-graph/documents'
 import { ensureModel, MODEL_FILES, openEmbedder, wrapModel, type LoadedModel } from '../../server/src/knowledge-graph/meaning/embedder'
-import { MeaningIndexer, startEmbedChild, embedWorkerScript, processMemoryMiB, BATCH, BATCH_TRIES, MIN_FREE_MIB, MAX_RSS_MIB, REST_FACTOR, type EmbedChild, type MeaningIndexerOptions } from '../../server/src/knowledge-graph/meaning/indexer'
+import { MeaningIndexer, startEmbedChild, embedWorkerScript, processMemoryMiB, cgroupRoomMiB, freeMemoryMiB, EmbedRefusal, BATCH, BATCH_TRIES, MIN_FREE_MIB, MAX_RSS_MIB, READY_MS, REST_FACTOR, type EmbedChild, type MeaningIndexerOptions } from '../../server/src/knowledge-graph/meaning/indexer'
+import { Plan, setAvailableMemoryForTests, setLimitsPlatformForTests, setPlanForTests } from '../../server/src/system/limits'
 import { MeaningVectors } from '../../server/src/knowledge-graph/meaning/search'
 import { serveEmbed, type WorkerMessage } from '../../server/src/knowledge-graph/meaning/embed-worker'
 import { blobToVec, MEANING_DIMS, MEANING_MODEL, PASSAGE_HEADING_MAX, PASSAGE_MAX, passageText, quantize, vecToBlob, type Embedder } from '../../server/src/knowledge-graph/meaning/vectors'
@@ -38,8 +41,9 @@ function rawVec(text: string): Float32Array {
 }
 const norm = (v: Float32Array) => Math.sqrt(v.reduce((s, x) => s + x * x, 0))
 
-/** a stand-in embedding process around a stand-in model, with its calls and stops counted */
-function fakeChild(o: { rss?: () => number; fail?: (passages: string[]) => boolean; ready?: Promise<void> } = {}) {
+/** a stand-in embedding process around a stand-in model, with its calls and stops counted. `fail`: the process fails
+ * the batch (it ended); `refuse`: it answers the batch with an error (EmbedRefusal) */
+function fakeChild(o: { rss?: () => number; fail?: (passages: string[]) => boolean; refuse?: (passages: string[]) => boolean; ready?: Promise<void> } = {}) {
   const calls: string[][] = []
   const emb = wrapModel({ run: async (texts) => texts.map(rawVec), dispose() {} })
   const c = {
@@ -49,6 +53,7 @@ function fakeChild(o: { rss?: () => number; fail?: (passages: string[]) => boole
       calls.push(passages)
       if (o.fail?.(passages)) throw new Error('the embedding process ended (killed)')
       if (c.dead) throw new Error('the embedding process was stopped')
+      if (o.refuse?.(passages)) throw new EmbedRefusal('the model could not read this text')
       return (await emb.embed(passages, 'passage')).map((v) => new Uint8Array(vecToBlob(quantize(v))))
     },
     async rssMiB() { return o.rss?.() ?? 300 },
@@ -426,9 +431,10 @@ describe('the background indexing', () => {
 })
 
 describe('the indexing goes on past a bad piece or a stuck process, and rests', () => {
-  const poisoned = () => fakeChild({ fail: (p) => p.some((t) => t.includes('POISON')) })
+  // the process answers a batch with this piece with an error (it works; the text does not)
+  const poisoned = () => fakeChild({ refuse: (p) => p.some((t) => t.includes('POISON')) })
 
-  test('a piece that always fails is left out with an empty vector, one line, and the indexing goes on', async () => {
+  test('a piece the process refuses is left out with an empty vector, one line, and the indexing goes on', async () => {
     const d = await docIndex('poison', Object.fromEntries(Array.from({ length: 6 }, (_, i) => [`a-${i}.md`, `# A ${i}\nPiece ${i}${i === 4 ? ' POISON' : ''} about the budget.`])))
     const { ix, children, lines } = indexer(d, { child: poisoned })
     ix.kick()
@@ -442,10 +448,11 @@ describe('the indexing goes on past a bad piece or a stuck process, and rests', 
     expect(poison.vec!.byteLength).toBe(0)
     expect(blobToVec(poison.vec)).toBeNull()
     expect(rows.filter((r) => r.id !== poison.id).every((r) => r.vec?.byteLength === MEANING_DIMS)).toBe(true)
-    // newest first: its batch (a-5..a-2) failed BATCH_TRIES times, then a-5 worked alone, a-4 failed alone (a new
-    // process after it), a-3 and a-2 worked alone, then the last batch
-    expect(children.length).toBe(BATCH_TRIES + 2)
-    expect((children.at(-1) as unknown as Fake).calls.map((b) => b.length)).toEqual([1, 1, 2])
+    // newest first: its batch (a-5..a-2) was refused, then one piece at a time with the same process (it works): a-5,
+    // a-4 refused alone, a-3, a-2; then the last batch
+    expect(children.length).toBe(1)
+    expect((children[0] as unknown as Fake).calls.map((b) => b.length)).toEqual([4, 1, 1, 1, 1, 2])
+    expect((children[0] as unknown as Fake).killed).toBe(0)
     const warns = lines.filter((l) => l.level === 'warn')
     expect(warns).toHaveLength(1)
     expect(warns[0]!.msg).toContain('left out')
@@ -454,7 +461,8 @@ describe('the indexing goes on past a bad piece or a stuck process, and rests', 
     // never asked again
     ix.kick()
     await ix.whenIdle()
-    expect(children.length).toBe(BATCH_TRIES + 2)
+    expect(children.length).toBe(1)
+    expect((children[0] as unknown as Fake).calls.length).toBe(6)
     // the search holds no vector for it, and its document counts as fully embedded
     const v = new MeaningVectors((d as unknown as { db: Database }).db)
     await v.refresh()
@@ -463,23 +471,140 @@ describe('the indexing goes on past a bad piece or a stuck process, and rests', 
     d.destroy()
   })
 
-  test('one failing piece with nothing to compare it with: no pause, nothing written; with the next pieces it is left out', async () => {
+  test('one piece refused alone is left out at once: the process answered, so the piece is the problem', async () => {
     const d = await docIndex('lonely', { 'bad.md': '# Bad\nA POISON piece.' })
     const { ix, children, lines } = indexer(d, { child: poisoned })
     ix.kick()
     await ix.whenIdle()
-    expect(children.length).toBe(BATCH_TRIES + 1)
-    expect(d.vectorCounts()).toEqual({ done: 0, pending: 1 })
-    expect(lines.filter((l) => l.level === 'warn')).toHaveLength(0)
-    expect(lines.filter((l) => l.msg.includes('tried again with the next pieces'))).toHaveLength(1)
-    // a new document: no wait for the nightly check; it is embedded, the bad piece left out
+    expect(children.length).toBe(1)
+    expect(d.vectorCounts()).toEqual({ done: 1, pending: 0 })
+    expect(vecs(d).find((r) => r.rel === 'bad.md')!.vec?.byteLength).toBe(0)
+    expect(lines.filter((l) => l.level === 'warn').map((l) => l.msg)).toEqual(['knowledge graph: search by meaning: a piece could not be embedded and is left out'])
+    // the next document is embedded as usual
     expect((await d.update('projects/acme', 'good.md', file(enc('# Good\nA fine piece.'), 50))).ok).toBe(true)
     ix.kick()
     await ix.whenIdle()
     expect(d.vectorCounts()).toEqual({ done: 2, pending: 0 })
     expect(vecs(d).find((r) => r.rel === 'good.md')!.vec?.byteLength).toBe(MEANING_DIMS)
-    expect(vecs(d).find((r) => r.rel === 'bad.md')!.vec?.byteLength).toBe(0)
-    expect(lines.filter((l) => l.msg.includes('left out'))).toHaveLength(1)
+    ix.close()
+    d.destroy()
+  })
+
+  test('a process failure never marks a piece: one it fails on alone waits for the next run, and failures in a row pause until the nightly check', async () => {
+    // a piece that makes the process end (a crash, the out-of-memory killer), every time
+    const d = await docIndex('crash', Object.fromEntries(Array.from({ length: 6 }, (_, i) => [`a-${i}.md`, `# A ${i}\nPiece ${i}${i === 4 ? ' CRASH' : ''} about the budget.`])))
+    const crashing = () => fakeChild({ fail: (p) => p.some((t) => t.includes('CRASH')) })
+    const { ix, children, lines } = indexer(d, { child: crashing })
+    ix.kick()
+    await ix.whenIdle()
+    // its batch (a-5..a-2) failed BATCH_TRIES times, then one at a time: a-5 worked, a-4 failed alone (left for the
+    // next run), a-3 and a-2 worked with a new process, then the last batch
+    expect(children.length).toBe(BATCH_TRIES + 2)
+    expect((children.at(-1) as unknown as Fake).calls.map((b) => b.length)).toEqual([1, 1, 2])
+    expect(d.vectorCounts()).toEqual({ done: 5, pending: 1 })
+    const crash = () => vecs(d).find((r) => r.text.includes('CRASH'))!
+    expect(crash().vec).toBeNull()
+    expect(lines.filter((l) => l.level === 'warn')).toHaveLength(0)
+    expect(lines.find((l) => l.msg.includes('indexed'))?.x).toMatchObject({ pieces: 5, skipped: 0, later: 1 })
+    // the next runs try it again; it is never left out. Process failures in a row (BATCH_TRIES + 2) pause the indexing
+    ix.kick(); await ix.whenIdle()
+    ix.kick(); await ix.whenIdle()
+    const warns = lines.filter((l) => l.level === 'warn')
+    expect(warns.map((l) => l.msg)).toEqual(['knowledge graph: search by meaning paused until the nightly check'])
+    expect(lines.some((l) => l.msg.includes('left out'))).toBe(false)
+    expect(crash().vec).toBeNull()
+    expect(d.vectorCounts()).toEqual({ done: 5, pending: 1 })
+    const started = children.length
+    ix.kick(); await ix.whenIdle()
+    expect(children.length).toBe(started)
+    ix.close()
+    d.destroy()
+  })
+
+  test('a process stopped above its memory limit between batches is not asked again: the next piece gets a new one (review of wave 2)', async () => {
+    // the batch of four always ends the process; after one piece its memory stays above the limit
+    const d = await docIndex('dead-child', Object.fromEntries([1, 2, 3, 4].map((i) => [`f${i}.md`, `# F ${i}\nPiece ${i} about the expo booth budget.`])))
+    const sent: string[] = []
+    let deadCalls = 0, spawns = 0
+    const child = (): EmbedChild => {
+      const n = ++spawns
+      let ended = false, big = false
+      return {
+        ready: Promise.resolve(),
+        async embed(passages) {
+          if (ended) { deadCalls++; throw new Error('the embedding process was stopped') }
+          sent.push(`child${n}: ${passages.map((p) => p.split('\n')[0]).join(',')}`)
+          await Bun.sleep(20)
+          if (ended) throw new Error('the embedding process was stopped')
+          if (passages.length > 1) { ended = true; throw new Error('the embedding process ended (exit 1)') }
+          big = true
+          return passages.map(() => new Uint8Array(MEANING_DIMS))
+        },
+        async rssMiB() { return ended ? 0 : big ? MAX_RSS_MIB + 100 : 500 },
+        stop() { ended = true },
+      }
+    }
+    const { ix, lines } = indexer(d, { child, memPollMs: 5, restFactor: 10 })
+    ix.kick()
+    await ix.whenIdle()
+    expect(deadCalls).toBe(0)
+    expect(vecs(d).map((r) => r.vec?.byteLength)).toEqual([MEANING_DIMS, MEANING_DIMS, MEANING_DIMS, MEANING_DIMS])
+    expect(lines.some((l) => l.msg.includes('left out'))).toBe(false)
+    expect(lines.some((l) => l.msg.includes('above its memory limit'))).toBe(true)
+    // every piece alone, each sent to a process that was running
+    expect(sent.filter((x) => !x.includes(',')).length).toBe(4)
+    ix.close()
+    d.destroy()
+  })
+
+  test('a model never ready (a stalled first download): the process is stopped after READY_MS, and it waits for the nightly check', async () => {
+    expect(READY_MS).toBe(15 * 60_000)
+    const d = await docIndex('never-ready', { 'a.md': '# A\nSomething to embed.' })
+    let n = 0
+    const { ix, children, lines } = indexer(d, { readyMs: 80, child: () => (n++ === 0 ? fakeChild({ ready: new Promise<void>(() => {}) }) : fakeChild()) })
+    const t0 = performance.now()
+    ix.kick()
+    await ix.whenIdle()
+    expect(performance.now() - t0).toBeGreaterThanOrEqual(75)
+    expect(children.length).toBe(1)
+    expect((children[0] as unknown as Fake).killed).toBe(1)
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ level: 'warn' })
+    expect(String(lines[0]!.x?.err)).toContain('not ready')
+    // uploads meanwhile start nothing; the nightly check does
+    ix.kick(); await ix.whenIdle()
+    expect(children.length).toBe(1)
+    ix.kick({ retry: true }); await ix.whenIdle()
+    expect(children.length).toBe(2)
+    expect(d.vectorCounts().pending).toBe(0)
+    ix.close()
+    d.destroy()
+  })
+
+  test('a real stand-in process: an answered error marks the piece; a crash marks nothing, and the next batch starts a new process', async () => {
+    // the protocol of embed-worker.ts, without a model: REFUSE is answered with an error, CRASH ends the process
+    const script = path.join(tmp, 'stand-in-worker.ts')
+    fs.writeFileSync(script, `
+process.stdout.write(JSON.stringify({ ready: true }) + '\\n')
+let buf = ''
+for await (const chunk of Bun.stdin.stream()) {
+  buf += new TextDecoder().decode(chunk)
+  for (let i = buf.indexOf('\\n'); i >= 0; i = buf.indexOf('\\n')) {
+    const r = JSON.parse(buf.slice(0, i)); buf = buf.slice(i + 1)
+    if (r.texts.some((t) => t.includes('CRASH'))) process.exit(3)
+    if (r.texts.some((t) => t.includes('REFUSE'))) { process.stdout.write(JSON.stringify({ id: r.id, error: 'refused' }) + '\\n'); continue }
+    process.stdout.write(JSON.stringify({ id: r.id, vecs: r.texts.map(() => Buffer.alloc(${MEANING_DIMS}, 1).toString('base64')) }) + '\\n')
+  }
+}
+`)
+    const d = await docIndex('stand-in', Object.fromEntries(['a', 'b', 'c', 'd', 'e'].map((x) => [`${x}.md`, `# ${x.toUpperCase()}\nPiece ${x} about the budget${x === 'b' ? ' REFUSE' : x === 'c' ? ' CRASH' : ''}.`])))
+    const { ix, lines } = indexer(d, { startChild: () => startEmbedChild({ modelDir: path.join(tmp, 'stand-in-models'), sharedDir: null, threads: 1, download: false }, script) })
+    ix.kick()
+    await ix.whenIdle()
+    const byRel = Object.fromEntries(vecs(d).map((r) => [r.rel, r.vec === null ? null : r.vec.byteLength]))
+    expect(byRel).toEqual({ 'a.md': MEANING_DIMS, 'b.md': 0, 'c.md': null, 'd.md': MEANING_DIMS, 'e.md': MEANING_DIMS })
+    expect(lines.filter((l) => l.msg.includes('left out')).map((l) => l.x?.err)).toEqual(['refused'])
+    expect(lines.some((l) => l.msg.includes('paused'))).toBe(false)
     ix.close()
     d.destroy()
   })
@@ -599,6 +724,52 @@ describe('the embedding process', () => {
   })
 })
 
+describe('the free memory where the server has a cgroup memory limit', () => {
+  const MiB = 1024 * 1024
+  const files = (f: Record<string, string>) => (p: string) => { if (p in f) return f[p]!; throw new Error(`ENOENT: ${p}`) }
+  const unit = '/sys/fs/cgroup/system.slice/mycel-server.service'
+
+  test('memory.max − memory.current, the tightest of the cgroup and the ones above it; "max" or unreadable: no limit', () => {
+    // the server unit's MemoryMax is on its cgroup; the server runs in main below it (system/cgroups.ts)
+    expect(cgroupRoomMiB(files({
+      '/proc/self/cgroup': '0::/system.slice/mycel-server.service/main\n',
+      [`${unit}/main/memory.max`]: 'max\n', [`${unit}/main/memory.current`]: `${300 * MiB}\n`,
+      [`${unit}/memory.max`]: `${1536 * MiB}\n`, [`${unit}/memory.current`]: `${900 * MiB}\n`,
+      '/sys/fs/cgroup/system.slice/memory.max': 'max\n', '/sys/fs/cgroup/system.slice/memory.current': `${5000 * MiB}\n`,
+    }))).toBe(636)
+    // its own cgroup's limit; whole MiB, rounded down
+    expect(cgroupRoomMiB(files({ '/proc/self/cgroup': '0::/a\n', '/sys/fs/cgroup/a/memory.max': `${2048 * MiB}`, '/sys/fs/cgroup/a/memory.current': `${1000 * MiB + 512 * 1024}` }))).toBe(1047)
+    // the tighter of two
+    expect(cgroupRoomMiB(files({
+      '/proc/self/cgroup': '0::/a/b\n',
+      '/sys/fs/cgroup/a/b/memory.max': `${2000 * MiB}`, '/sys/fs/cgroup/a/b/memory.current': `${100 * MiB}`,
+      '/sys/fs/cgroup/a/memory.max': `${3000 * MiB}`, '/sys/fs/cgroup/a/memory.current': `${2500 * MiB}`,
+    }))).toBe(500)
+    // at or over its limit: no room
+    expect(cgroupRoomMiB(files({ '/proc/self/cgroup': '0::/a\n', '/sys/fs/cgroup/a/memory.max': `${1024 * MiB}`, '/sys/fs/cgroup/a/memory.current': `${1100 * MiB}` }))).toBe(0)
+    // the root of a container's own cgroup namespace
+    expect(cgroupRoomMiB(files({ '/proc/self/cgroup': '0::/\n', '/sys/fs/cgroup/memory.max': `${4096 * MiB}`, '/sys/fs/cgroup/memory.current': `${1024 * MiB}` }))).toBe(3072)
+    // no limit anywhere
+    expect(cgroupRoomMiB(files({ '/proc/self/cgroup': '0::/a\n', '/sys/fs/cgroup/a/memory.max': 'max', '/sys/fs/cgroup/a/memory.current': '1' }))).toBeNull()
+    // a limit whose memory.current cannot be read does not count
+    expect(cgroupRoomMiB(files({ '/proc/self/cgroup': '0::/a\n', '/sys/fs/cgroup/a/memory.max': `${1024 * MiB}` }))).toBeNull()
+    // cgroup v1 only, or /proc/self/cgroup unreadable (macOS)
+    expect(cgroupRoomMiB(files({ '/proc/self/cgroup': '4:memory:/a\n1:name=systemd:/a\n' }))).toBeNull()
+    expect(cgroupRoomMiB(files({}))).toBeNull()
+  })
+
+  test('the indexer\'s free memory: the smaller of MemAvailable and the cgroup\'s room', () => {
+    try {
+      setAvailableMemoryForTests(4000)
+      expect(freeMemoryMiB(() => 636)).toBe(636)
+      expect(freeMemoryMiB(() => 9000)).toBe(4000)
+      expect(freeMemoryMiB(() => null)).toBe(4000)
+      // a server with a plan: about 1.5 GB for the whole unit, most of it used, on a machine with gigabytes free
+      expect(freeMemoryMiB(() => 636)! < MIN_FREE_MIB).toBe(true)
+    } finally { setAvailableMemoryForTests(undefined) }
+  })
+})
+
 describe('the switch, as the service wires it', () => {
   let A: CApp
   let kg: KnowledgeGraph
@@ -619,17 +790,33 @@ describe('the switch, as the service wires it', () => {
   afterAll(async () => { await A?.close() })
   const indexer = () => (kg as unknown as { meaning: MeaningIndexer | null }).meaning
 
-  test('absent: on for a server, off in tests (no test starts the process); false turns it off', async () => {
+  test('absent: on for a server without a hosting plan (Linux too), off with a plan and in tests; true and false as set', async () => {
     expect(A.ctx.config.knowledgeGraph?.meaning).toBeUndefined()
     const env = process.env.NODE_ENV
+    const set = (meaning?: boolean) => { (A.ctx.config as { knowledgeGraph?: { meaning?: boolean } }).knowledgeGraph = meaning === undefined ? undefined : { meaning } }
     try {
       process.env.NODE_ENV = 'production'
+      // no plan: a self-hosted server, where the resource limits apply too (limitsActive on Linux)
+      setPlanForTests(null)
+      setLimitsPlatformForTests('linux')
       expect(kg.meaningOn()).toBe(true)
-      ;(A.ctx.config as { knowledgeGraph?: { meaning?: boolean } }).knowledgeGraph = { meaning: false }
+      set(false)
+      expect(kg.meaningOn()).toBe(false)
+      set(true)
+      expect(kg.meaningOn()).toBe(true)
+      // a hosting plan (mycel-ctl apply-plan limits the server unit's memory): off unless server.json says true
+      setPlanForTests(Plan.parse({ format: 1, plan: 'team', maxConcurrency: 3, memoryMiB: 4096, cpuCores: 2, diskGiB: 50 }))
+      set(undefined)
+      expect(kg.meaningOn()).toBe(false)
+      set(true)
+      expect(kg.meaningOn()).toBe(true)
+      set(false)
       expect(kg.meaningOn()).toBe(false)
     } finally {
       process.env.NODE_ENV = env
-      ;(A.ctx.config as { knowledgeGraph?: { meaning?: boolean } }).knowledgeGraph = undefined
+      set(undefined)
+      setPlanForTests(undefined)
+      setLimitsPlatformForTests(null)
     }
     expect(kg.meaningOn()).toBe(false)
   })

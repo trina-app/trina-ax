@@ -13,7 +13,7 @@ import path from 'node:path'
 import type { DocHit, DocumentIndex, SearchOptions } from '../../../server/src/knowledge-graph/documents/index'
 import { DocSearchWorker, docSearchWorkerScript } from '../../../server/src/knowledge-graph/documents/search-worker'
 import { ensureModel, modelFilesOk } from '../../../server/src/knowledge-graph/meaning/embedder'
-import { embedWorkerScript, MeaningIndexer, processMemoryMiB, startEmbedChild, type EmbedChild } from '../../../server/src/knowledge-graph/meaning/indexer'
+import { EmbedRefusal, embedWorkerScript, MeaningIndexer, processMemoryMiB, startEmbedChild, type EmbedChild } from '../../../server/src/knowledge-graph/meaning/indexer'
 import type { EmbedWorkerConfig, WorkerMessage } from '../../../server/src/knowledge-graph/meaning/embed-worker'
 import { MEANING_DIMS } from '../../../server/src/knowledge-graph/meaning/vectors'
 
@@ -113,7 +113,7 @@ export function startNormalChild(cfg: EmbedWorkerConfig): EmbedChild {
     const w = waiting.get(m.id)
     if (!w) return
     waiting.delete(m.id)
-    if ('error' in m) return w.fail(new Error(String(m.error)))
+    if ('error' in m) return w.fail(new EmbedRefusal(String(m.error)))
     const vecs = m.vecs.map((b) => new Uint8Array(Buffer.from(String(b), 'base64')))
     if (vecs.some((v) => v.byteLength !== MEANING_DIMS)) return w.fail(new Error('vectors of another size'))
     w.ok(vecs)
@@ -131,6 +131,7 @@ export function startNormalChild(cfg: EmbedWorkerConfig): EmbedChild {
   void p.exited.then((code) => end(`the embedding process ended (exit ${code})`))
   return {
     ready,
+    exited: p.exited,
     embed(passages) {
       if (ended) return Promise.reject(new Error(ended))
       const id = ++seq

@@ -273,16 +273,19 @@ export class KnowledgeGraph {
   /** anything to index */
   anyOn() { return this.enabled() || this.docsOn() }
   /**
-   * Search by meaning (wave 2): `knowledgeGraph.meaning: true` in server.json, and the documents part runs. Off unless
-   * set; off means no indexing and no meaning in the search (the combined search asks this). Nothing about it is in the
-   * admin screens.
+   * Search by meaning runs: the switch says so and the documents part runs. Off means no indexing and no meaning in the
+   * search (the combined search asks this). Nothing about it is in the admin screens. The switch,
+   * `knowledgeGraph.meaning` in server.json:
+   * - `true`: on; `false`: off.
+   * - absent: on where no hosting plan applies (currentPlan() null: a self-hosted server, Linux too; wave 3, the quality
+   *   test showed the combined search better overall and not worse on any type of question). Off on a server with a
+   *   plan: `mycel-ctl apply-plan` gives the whole server unit about 1.3–1.8 GB (MemoryMax, reserve plus converters),
+   *   with no room for the embedding process (600–800 MB) and the query model (150–300 MB) beside them.
+   * - absent in tests (NODE_ENV=test): off, so no test starts the embedding process or reaches for the model.
    */
-  /** Search by meaning: on unless server.json says knowledgeGraph.meaning false (wave 3: the quality test showed the
-   * combined search better overall and not worse on any type of question). Tests keep it off unless a test turns it on
-   * (meaning: true), so no test starts the embedding process or reaches for the model. */
   meaningOn() {
     const set = this.ctx.config.knowledgeGraph?.meaning
-    const on = set === undefined ? process.env.NODE_ENV !== 'test' : set
+    const on = set ?? (process.env.NODE_ENV !== 'test' && currentPlan() === null)
     return on && this.docsOn()
   }
 
