@@ -90,6 +90,11 @@ export function mediaStepKind(step: { tool?: string; label: string }): MediaKind
   return null
 }
 
+/** Tools that only look things up: the read-only Explore helper's tools (server/src/chat/subagents.ts EXPLORE_TOOLS).
+ * A failed call of one changed nothing, so the steps list under an answer that did not fail shows it with the quiet
+ * mark even when no later step worked (web/src/components/chat/Steps.tsx stepMark). */
+export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set(['list', 'glob', 'grep', 'read', 'search', 'knowledge_explore', 'skill', 'find_skills', 'drive_list', 'drive_read', 'drive_search', 'hwp_render', 'web_fetch'])
+
 export const BROWSER_STEP_FALLBACK: T = t('브라우저', 'Browser', 'Browser', "ブラウザー", "Navegador")
 
 /** Whole-label templates ({x} = what the AI touched, never translated). */

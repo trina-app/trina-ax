@@ -1,4 +1,5 @@
-// The tab icon: the team's logo (Admin › Team settings) or the default mark (shared/src/team-icon.ts). The server
+// The tab icon: the team's logo (Admin › Team settings) or the default mark (shared/src/team-icon.ts); the home-screen
+// icon is the logo only when it is also the app icon (GET /api/me team.appIcon: square, at least 512 px). The server
 // already writes the right links into index.html; after sign-in, and when an admin changes the logo (realtime notice
 // team_icon_changed → GET /api/me again), this keeps the open page's links in step.
 import { checkTeamIcon, iconLinks, isTeamIconType, TEAM_ICON_MAX_BYTES, type IconLink, type TeamIconProblem, type TeamIconType } from '@mycel/shared'
@@ -8,10 +9,10 @@ const SELECTOR = 'link[rel="icon"], link[rel="apple-touch-icon"]'
 const same = (a: IconLink, b: IconLink) => a.rel === b.rel && a.href === b.href && (a.type ?? '') === (b.type ?? '') && (a.sizes ?? '') === (b.sizes ?? '')
 
 /** The links the page should have for this version, or null when it has them already (nothing to touch). */
-export function nextIconLinks(current: IconLink[], version: string | null | undefined): IconLink[] | null {
+export function nextIconLinks(current: IconLink[], version: string | null | undefined, appIcon = false): IconLink[] | null {
   // an older server says nothing about the logo: leave what index.html came with
   if (version === undefined) return null
-  const want = iconLinks(version)
+  const want = iconLinks(version, appIcon)
   return current.length === want.length && current.every((l, i) => same(l, want[i]!)) ? null : want
 }
 
@@ -23,10 +24,10 @@ const linkOf = (el: HTMLLinkElement): IconLink => ({
 })
 
 /** Point the page's icon links at the logo (or back at the default mark). True when they changed. */
-export function applyTeamIcon(version: string | null | undefined, doc: Document | undefined = typeof document === 'undefined' ? undefined : document): boolean {
+export function applyTeamIcon(version: string | null | undefined, appIcon = false, doc: Document | undefined = typeof document === 'undefined' ? undefined : document): boolean {
   if (!doc?.head) return false
   const have = [...doc.head.querySelectorAll<HTMLLinkElement>(SELECTOR)]
-  const want = nextIconLinks(have.map(linkOf), version)
+  const want = nextIconLinks(have.map(linkOf), version, appIcon)
   if (!want) return false
   // new elements, not new hrefs on the old ones: browsers re-read the tab icon when the links are replaced
   const anchor = have[0] ?? doc.head.querySelector('link[rel="manifest"]')

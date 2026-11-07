@@ -63,7 +63,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `GET` | `/api/chats/:id/messages` | Signed in | Active branch of the conversation, paged backwards. |
 | `POST` | `/api/chats/:id/messages` | Signed in | Save the message, create the empty answer, queue the turn. Send the X-Mycel-Window header so browser tools reach this window. |
 | `POST` | `/api/chats/:id/stop` | Signed in | Stop the running or queued turn of this chat. |
-| `POST` | `/api/chats/:id/messages/:messageId/share-to-room` | Signed in | Post a finished answer of my own AI chat to a room I am in, as my message (my note, then the answer as a quote). When some members could not open what the answer used, it first answers "confirm" with how many and which places (never who); sent again with confirm = that number it posts. Rate-limited and notified like any message; audited. |
+| `POST` | `/api/chats/:id/messages/:messageId/share-to-room` | Signed in | Post a finished answer of my own AI chat to a room I am in, as my message (my note, then the answer as a quote). When some member cannot open a file it links to, or it carries content from material some cannot see, it first answers "confirm": a row per linked file and one provenance line, as counts and places I may look myself (never who), with a confirmKey; sent again with that key it posts, attaching the linked files asked for (attach). Older clients: confirm = the number of people. Rate-limited and notified like any message; audited. |
 | `GET` | `/api/chats/:id/messages/:messageId/sources` | Signed in | The files the AI read or saw passages of for this answer, each checked against the viewer's access now (no name or path for the others). |
 | `POST` | `/api/chats/:id/messages/:messageId/regenerate` | Signed in | New answer to the same user message (sibling of :messageId, an assistant message). |
 | `POST` | `/api/chats/:id/messages/:messageId/edit` | Signed in | Edited copy of user message :messageId as a new branch, then answer it. |
@@ -227,7 +227,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `DELETE` | `/api/admin/budgets/:id` | Admin | Delete a budget. |
 | `GET` | `/api/admin/settings` | Admin | Team settings. |
 | `PATCH` | `/api/admin/settings` | Admin | Change team settings (team name change also renames the relay address: owner only). |
-| `PUT` | `/api/admin/team-icon` | Admin | Set the team logo (tab icon, home-screen app icon): PNG, JPEG or WebP up to 1 MiB, 32–4096 px a side; audited. |
+| `PUT` | `/api/admin/team-icon` | Admin | Set the team logo (tab icon; also the app icon when square and at least 512 px): PNG, JPEG or WebP up to 1 MiB, 32–4096 px a side; audited. |
 | `DELETE` | `/api/admin/team-icon` | Admin | Remove the team logo: back to the default icon; audited. |
 | `GET` | `/api/admin/speech-host` | Admin | How this server turns video and audio sound into text itself: its cores, piece length, measured speed, and the tools voice input lacks here. |
 | `GET` | `/api/admin/speech-key` | Admin | Whether the OpenRouter key for voice input is set (last 4 characters only, never the key). |
