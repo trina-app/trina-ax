@@ -1,25 +1,26 @@
 // The desktop app's notifications for the team page (desktop/src/common/notify.ts, docs/DECISIONS.md "Session
 // markers"): only while the window is not focused, at most 10 a minute, one per tag, and a click shows the window AND
 // opens the chat the page named (before, it only focused the window); a team switch closes them all. The dock badge's
-// number.
+// number. Settings › Notifications' test notification: shown while focused too, and it says what the system answered.
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { badgeCountOf, makeNotifier, NOTIFY_PER_MINUTE, openPathOf, tagOf, type NoteLike } from '../../desktop/src/common/notify'
+import { badgeCountOf, makeNotifier, NOTIFY_PER_MINUTE, openPathOf, tagOf, TEST_PER_MINUTE, TEST_WAIT_MS, type NoteLike } from '../../desktop/src/common/notify'
+import { STRINGS } from '../../desktop/src/common/i18n'
 
 class FakeNote implements NoteLike {
   shown = false
   closed = false
-  private clicks: (() => void)[] = []
-  private closes: (() => void)[] = []
+  private handlers = new Map<string, (() => void)[]>()
   constructor(readonly n: { title: string; body: string }) {}
-  on(e: 'click' | 'close', f: () => void) { (e === 'click' ? this.clicks : this.closes).push(f) }
+  on(e: 'click' | 'close' | 'show' | 'failed', f: () => void) { this.handlers.set(e, [...(this.handlers.get(e) ?? []), f]) }
+  emit(e: 'click' | 'close' | 'show' | 'failed') { for (const f of this.handlers.get(e) ?? []) f() }
   show() { this.shown = true }
-  close() { this.closed = true; for (const f of this.closes) f() }
-  click() { for (const f of this.clicks) f() }
+  close() { this.closed = true; this.emit('close') }
+  click() { this.emit('click') }
 }
 
-function setup(o: { focused?: boolean; supported?: boolean } = {}) {
+function setup(o: { focused?: boolean; supported?: boolean; testWaitMs?: number } = {}) {
   const notes: FakeNote[] = []
   const opened: string[] = []
   let revealed = 0
@@ -32,8 +33,9 @@ function setup(o: { focused?: boolean; supported?: boolean } = {}) {
     reveal: () => { revealed++ },
     open: (p) => opened.push(p),
     now: () => clock,
+    testWaitMs: o.testWaitMs,
   })
-  return { notify: notifier.notify, closeAll: notifier.closeAll, notes, opened, revealed: () => revealed, focus: (v: boolean) => { focused = v }, tick: (ms: number) => { clock += ms } }
+  return { notify: notifier.notify, test: notifier.test, closeAll: notifier.closeAll, notes, opened, revealed: () => revealed, focus: (v: boolean) => { focused = v }, tick: (ms: number) => { clock += ms } }
 }
 
 const CHAT = '01a1b10f-4c39-7478-a2d8-f2d048b335df'
@@ -150,5 +152,73 @@ describe('a team switch', () => {
   test('the window closes them in disposeTeam, with the dock badge', () => {
     const win = fs.readFileSync(path.join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
     expect(win).toMatch(/private disposeTeam\(\) \{[\s\S]{0,400}this\.notifier\.closeAll\(\)[\s\S]{0,80}electronApp\.setBadgeCount\(0\)/)
+  })
+})
+
+describe('the test notification (Settings › Notifications)', () => {
+  test('shown while the window is focused (the person asked for it); the system took it: shown', async () => {
+    const s = setup({ focused: true })
+    const answer = s.test({ title: 'Trina AX test notification', body: 'New messages show up like this.' })
+    expect(s.notes).toHaveLength(1)
+    expect(s.notes[0]!.shown).toBe(true)
+    expect(s.notes[0]!.n).toEqual({ title: 'Trina AX test notification', body: 'New messages show up like this.' })
+    s.notes[0]!.emit('show')
+    expect(await answer).toBe('shown')
+    // a click only brings the window up
+    s.notes[0]!.click()
+    expect(s.revealed()).toBe(1)
+    expect(s.opened).toEqual([])
+  })
+
+  test('the system refused it (notifications off for the app): off; no answer at all: unknown', async () => {
+    const s = setup({ testWaitMs: 20 })
+    const refused = s.test({ title: 't', body: 'b' })
+    s.notes[0]!.emit('failed')
+    expect(await refused).toBe('off')
+    expect(await s.test({ title: 't', body: 'b' })).toBe('unknown')
+    expect(TEST_WAIT_MS).toBe(5000)
+  })
+
+  test('no notifications on this system: unsupported; a small budget of its own that never holds back a real one', async () => {
+    expect(await setup({ supported: false }).test({ title: 't', body: 'b' })).toBe('unsupported')
+    const s = setup({ testWaitMs: 1 })
+    // a busy minute of real notifications leaves the button working
+    for (let i = 0; i < NOTIFY_PER_MINUTE; i++) s.notify({ title: 't', body: String(i), tag: `chat-${i}` })
+    expect(await s.test({ title: 't', body: 'b' })).toBe('unknown')
+    // and clicking the button over and over never uses up the real ones
+    const t = setup({ testWaitMs: 1 })
+    for (let i = 0; i < TEST_PER_MINUTE; i++) expect(await t.test({ title: 't', body: String(i) })).toBe('unknown')
+    expect(await t.test({ title: 't', body: 'more' })).toBe('limited')
+    expect(t.notes).toHaveLength(TEST_PER_MINUTE)
+    for (let i = 0; i < NOTIFY_PER_MINUTE; i++) expect(t.notify({ title: 't', body: String(i), tag: `chat-${i}` })).toBe(true)
+    t.tick(60_001)
+    expect(await t.test({ title: 't', body: 'a minute later' })).toBe('unknown')
+    expect(TEST_PER_MINUTE).toBe(3)
+  })
+
+  test('a newer test replaces the older one; only the first answer counts', async () => {
+    const s = setup({ testWaitMs: 1000 })
+    const first = s.test({ title: 't', body: '1' })
+    const second = s.test({ title: 't', body: '2' })
+    expect(s.notes.map((n) => n.closed)).toEqual([true, false])
+    s.notes[1]!.emit('show')
+    s.notes[1]!.emit('failed')
+    expect(await second).toBe('shown')
+    s.notes[0]!.emit('show')
+    expect(await first).toBe('shown')
+  })
+
+  test('the main process answers only the team page and writes the words itself (the page sends none)', () => {
+    const dir = path.join(import.meta.dir, '../../desktop/src')
+    const main = fs.readFileSync(path.join(dir, 'main/main.ts'), 'utf8')
+    const win = fs.readFileSync(path.join(dir, 'main/app-window.ts'), 'utf8')
+    const preload = fs.readFileSync(path.join(dir, 'preload/app.ts'), 'utf8')
+    expect(main).toContain("ipcMain.handle('bridge:notify-test', (e) => (fromApp(e) ? win!.testNotify() : 'unsupported'))")
+    expect(preload).toContain("testNotify: () => ipcRenderer.invoke('bridge:notify-test'),")
+    expect(win).toContain("return this.notifier.test({ title: t(L, 'notify.test.title'), body: t(L, 'notify.test.body') })")
+    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+      expect(STRINGS[l]['notify.test.title']).toContain('{app}')
+      expect(STRINGS[l]['notify.test.body'].length).toBeGreaterThan(5)
+    }
   })
 })

@@ -10,6 +10,10 @@ export const PushSettings = z.object({ configured: z.boolean(), enabled: z.boole
   /** the person turned push off: the phone app does not register again by itself */
   optedOut: z.boolean().optional(),
 })
+/** params.reason of the team server's `unavailable` when it has no usable Web Push key (or its push secrets folder is
+ * unsafe): an admin's matter. Any other `unavailable` (the relay: the team server offline, in maintenance, busy, timed
+ * out) is passing, and worth trying again. */
+export const PUSH_KEY_REASON = 'push_key'
 export const PushSubscriptionInput = z.object({ consent: z.literal(true), endpoint: z.string().min(1).max(4096), keys: z.object({ p256dh: z.string().min(1).max(128), auth: z.string().min(1).max(64) }).strict() }).strict()
 /** The phone's own APNs (hex) / FCM token, as the app's bridge hands it to the signed-in page. */
 export const PushDeviceInput = z.object({ consent: z.literal(true), platform: z.enum(['ios', 'android']), environment: z.enum(['sandbox', 'production']), token: z.string().min(32).max(3000) }).strict()
