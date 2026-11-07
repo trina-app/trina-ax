@@ -2894,7 +2894,7 @@ export const ko = {
   "audit.act.integration_template.connect": "MCP 템플릿을 내 키로 연결",
   'audit.act.integration_request.decline': "MCP 연결 요청 거절",
   'teamIcon.title': '팀 로고',
-  'teamIcon.desc': '브라우저 탭, 사이드바, 로그인 화면, 홈 화면에 추가한 앱에 보여요.',
+  'teamIcon.desc': '브라우저 탭, 사이드바, 로그인 화면에 보여요. {n}px 이상인 정사각형이면 설치한 앱과 홈 화면 아이콘으로도 쓰여요.',
   'teamIcon.default': '지금은 기본 {product} 아이콘을 쓰고 있어요.',
   'teamIcon.custom': '팀 로고를 쓰고 있어요.',
   'teamIcon.upload': '로고 올리기',

@@ -244,7 +244,7 @@ export function TeamIconRow() {
   return (
     <div data-testid="team-icon" data-version={version ?? ''}>
       <SettingRow heading title={t('teamIcon.title')}
-        desc={<>{t('teamIcon.desc')} <span data-testid="team-icon-status">{version ? t('teamIcon.custom') : t('teamIcon.default')}</span></>}
+        desc={<>{t('teamIcon.desc', { n: TEAM_ICON_APP_PX })} <span data-testid="team-icon-status">{version ? t('teamIcon.custom') : t('teamIcon.default')}</span></>}
         more={t('teamIcon.hint', { n: TEAM_ICON_APP_PX })}
         control={
           <span className="inline-flex flex-wrap items-center gap-2">

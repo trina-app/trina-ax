@@ -1745,8 +1745,11 @@ set its own logo as the tab icon; without one it is the product's icon.
   stay the default. A logo that passes is the manifest's only icon, `purpose: any` at `/team-icon?v=<version>` (a new
   logo is a new address, so installed apps can pick it up), never next to the default maskable icon: Chrome on macOS
   prefers the maskable one and would hide the logo. Not maskable itself: a logo is not drawn for the safe circle.
-  `Me.team.appIcon: true` tells the open page and the settings preview. Still no resizing or padding on the server (no
-  image library). The hint in Admin › Team settings recommends a 512 × 512 square and says what a smaller one does.
+  `Me.team.appIcon: true` tells the open page, the settings preview and the install pictures in Settings › Apps. The
+  hint in Admin › Team settings recommends a 512 × 512 square and says what a smaller one does. What the rule fixes is
+  the blur: Chrome on macOS still draws an icon that is not maskable inset on a tile, so a logo that passes can look
+  smaller in the Dock than the product's maskable icon. Padding it into a maskable icon would need an image library on
+  the server (still none; out of scope).
 - Native desktop and phone app icons stay the product's.
 - The computer's sidebar header shows the logo next to the team name, at `/team-icon?v=<iconVersion>` cropped square with
   `object-cover`, and the default mark when none is set. The phone drawer's header names the AI, not the team, so it keeps

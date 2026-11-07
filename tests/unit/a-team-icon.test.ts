@@ -247,7 +247,7 @@ describe('the logo as the app icon (installed app, home screen): only square and
     const html = await (await get('/')).text()
     const block = html.slice(html.indexOf(ICON_LINKS_START), html.indexOf(ICON_LINKS_END))
     const manifest = (await (await get('/manifest.webmanifest')).json()) as { icons: { src: string; sizes?: string; type?: string; purpose?: string }[] }
-    return { me, block, manifest, apple: await bytesOf(await get('/apple-touch-icon.png')), ico: await bytesOf(await get('/favicon.ico')) }
+    return { me, block, manifest, apple: await bytesOf(await get('/apple-touch-icon.png')), precomposed: await bytesOf(await get('/apple-touch-icon-precomposed.png')), ico: await bytesOf(await get('/favicon.ico')) }
   }
   for (const [name, bytes, type] of [
     ['a 100 px logo', makePng(100, 100), 'image/png'],
@@ -263,6 +263,7 @@ describe('the logo as the app icon (installed app, home screen): only square and
       expect(s.block).toContain('<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />')
       expect(s.manifest.icons.map((i) => i.src)).toEqual(builtIcons)
       expect(s.apple).toEqual(appleDefault())
+      expect(s.precomposed).toEqual(appleDefault())
       expect(s.ico).toEqual(bytes)
     })
   }
@@ -275,6 +276,7 @@ describe('the logo as the app icon (installed app, home screen): only square and
     expect(s.block).toContain(`<link rel="apple-touch-icon" href="/team-icon?v=${info.version}" />`)
     expect(s.manifest.icons).toEqual([{ src: `/team-icon?v=${info.version}`, sizes: '512x512', type: 'image/png', purpose: 'any' }])
     expect(s.apple).toEqual(logo)
+    expect(s.precomposed).toEqual(logo)
     expect(s.ico).toEqual(logo)
     const r = await get('/manifest.webmanifest')
     expect(r.headers.get('content-type')).toBe('application/manifest+json')
@@ -292,6 +294,9 @@ describe('removing it brings the default back', () => {
     expect(r.status).toBe(204)
     expect(fs.existsSync(iconFile())).toBe(false)
     expect(await version(member)).toBeNull()
+    // the last logo was the app icon (a 1024 px square): that goes too
+    expect((await member.call('GET', '/api/me')).team.appIcon).toBeUndefined()
+    expect(await bytesOf(await get('/apple-touch-icon.png'))).toEqual(new Uint8Array(fs.readFileSync(path.join(DIST, 'icons', 'apple-touch-icon.png'))))
     const icon = await get('/team-icon')
     expectIconHeaders(icon, 'image/png')
     expect(await bytesOf(icon)).toEqual(new Uint8Array(fs.readFileSync(path.join(DIST, 'icons', 'icon-512.png'))))

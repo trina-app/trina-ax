@@ -30,6 +30,7 @@ In:
 - `GET /api/me` `team.appIcon: true` when the logo passes, so the open page and the settings preview know.
 - Admin › Team settings: the hint recommends a 512 × 512 square and says a smaller or non-square logo shows only in tabs
   and the sidebar; the 180 px home-screen preview shows what a phone will really get. Five languages.
+- Settings › Apps install pictures: the installed app's icon in them follows the same rule (added after review).
 - The web client's mock server follows (it uses the real `serveWeb()`); e2e expectations updated.
 
 Out: resizing or padding logos on the server (no image library, decided in "팀 로고"); native app icons; refreshing an
@@ -41,13 +42,17 @@ app someone already installed (browsers keep its icon until they re-read the man
    `TEAM_ICON_RECOMMENDED_PX = 180`); `iconLinks(version, appIcon)` and `manifestWithIcon` use it.
 2. `routes/web-static.ts`: manifest and apple-touch-icon addresses by the rule.
 3. `Me.team.appIcon` (shared schema, `auth/service.ts`, the mock server).
-4. Web: `lib/team-icon.ts` / `store/session.ts` pass it; `TeamSettings.tsx` preview and hint; i18n.
+4. Web: `lib/team-icon.ts` / `store/session.ts` pass it; `TeamSettings.tsx` preview and hint; `InstallPictures.tsx`;
+   i18n; the Korean team guide (`docs/guide/guide.html`) and the API reference summary.
 5. Tests, CHANGELOG, DECISIONS "팀 로고" amendment.
 
 ## Risks
 
 No migration. No permission change. The public `/team-icon` route is unchanged. Five languages for the hint. An older
 web page with a newer server (or the reverse) only shows the default apple-touch-icon link until the next load.
+A logo that passes is still `purpose: any`: Chrome on macOS draws such an icon inset on a tile, so it can still look
+smaller in the Dock than the product's maskable icon. This change fixes the blur; padding a logo into a maskable icon
+needs an image library (out of scope).
 
 ## Tests
 
