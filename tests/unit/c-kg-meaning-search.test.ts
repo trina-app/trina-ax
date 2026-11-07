@@ -449,4 +449,63 @@ serveDocSearch(parentPort, (dir, people) => openSearchReader(dir, people, fakeOp
       expect(await w.search('report september outage', { rootIds: ['shared'], passage: 1500 })).toEqual(writer.search('report september outage', o))
     } finally { w.close(); writer.close() }
   })
+
+  test('the real worker script with the embedder not built yet (the contract stub): keyword results, one warning line', async () => {
+    const { dir, writer } = await fixture('stub')
+    const SELF = path.join(import.meta.dir, '../../server/src/knowledge-graph/documents/search-worker.ts')
+    const said: string[] = []
+    const w = new DocSearchWorker(dir, SELF, (e) => said.push(e), { meaning: () => true })
+    try {
+      w.warm()
+      const o: SearchOptions = { rootIds: ['shared'], meaning: true, passage: 1500 }
+      expect(await w.search('report september outage', o)).toEqual(writer.search('report september outage', o))
+      for (let i = 0; i < 200 && !said.length; i++) await Bun.sleep(10)
+      expect(await w.search('refund', { ...o, due: Date.now() + 200 })).toEqual(writer.search('refund', o))
+      expect(said).toHaveLength(1)
+      expect(said[0]).toContain('keyword search only')
+    } finally { w.close(); writer.close() }
+  })
+})
+
+describe('the embedder in its own thread (threadEmbedder)', () => {
+  test('opens there, embeds, and ends with dispose; the search thread is not held while it opens', async () => {
+    const { threadEmbedder } = await import('../../server/src/knowledge-graph/documents/search-worker')
+    const SELF = path.join(import.meta.dir, '../../server/src/knowledge-graph/documents/search-worker.ts')
+    const script = path.join(tmp, 'embed-thread.ts')
+    // a thread that blocks for 400 ms while "opening" (as ONNX does), then serves the stand-in; "die" ends it
+    fs.writeFileSync(script, `import { parentPort } from 'node:worker_threads'
+import { serveEmbedder } from ${JSON.stringify(SELF)}
+import { fakeOpener } from ${JSON.stringify(path.join(tmp, 'fake-embedder.ts'))}
+const spin = (ms) => { const end = Date.now() + ms; while (Date.now() < end) {} }
+const open = fakeOpener()
+serveEmbedder({ on: (ev, f) => parentPort.on(ev, (m) => (m.texts[0] === 'die' ? process.exit(1) : f(m))), postMessage: (r) => parentPort.postMessage(r) }, async () => { spin(400); return open() })
+`)
+    let ticks = 0
+    const tick = setInterval(() => ticks++, 1)
+    const t0 = performance.now()
+    const emb = await threadEmbedder(script, { modelDir: tmp })
+    clearInterval(tick)
+    expect(performance.now() - t0).toBeGreaterThan(350)
+    expect(ticks).toBeGreaterThan(50)
+    const [v] = await emb.embed(['the September outage'], 'query')
+    expect(Array.from(v!)).toEqual(Array.from(fakeVec('the September outage')))
+    await emb.dispose()
+    await expect(emb.embed(['again'], 'query')).rejects.toThrow('embedder closed')
+
+    // a thread that dies: the waiting embedding is refused, and the meaning part drops it (keyword only, one line)
+    const dying = await threadEmbedder(script, { modelDir: tmp })
+    await expect(dying.embed(['die'], 'query')).rejects.toThrow()
+    const { QueryEmbedder } = await import('../../server/src/knowledge-graph/meaning/search')
+    const warnings: string[] = []
+    let opens = 0
+    const q = new QueryEmbedder(async () => { opens++; return threadEmbedder(script, { modelDir: tmp }) }, { warn: (m) => warnings.push(m) })
+    expect(await q.embed('die')).toBeNull()
+    expect(q.loaded()).toBe(false)
+    expect(warnings[0]).toContain('failed')
+    expect(await q.embed('outage')).toBeNull()
+    expect(opens).toBe(1)
+
+    // the real script with the stub: refused with its reason, the thread gone
+    await expect(threadEmbedder(SELF, { modelDir: tmp })).rejects.toThrow('not built yet')
+  })
 })

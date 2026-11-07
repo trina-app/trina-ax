@@ -13,8 +13,8 @@
 //   vector can name a piece deleted since: the fused search reads every piece only meaning found again, within the
 //   folders asked, so such a piece gives nothing. The loads yield between batches, so searches go on meanwhile.
 // - The query's embedding: the embedder opened when first needed (or when the worker starts with meaning on and
-//   vectors exist), with a few threads, tried again RETRY_MS after a failure. The model and the vectors leave memory
-//   after IDLE_MS without a meaning search.
+//   vectors exist), with a few threads, in a thread of its own (search-worker.ts threadEmbedder), tried again RETRY_MS
+//   after a failure. The model and the vectors leave memory after MEANING_IDLE_MS without a meaning search.
 // - Time: a search gives the closest pieces only when the vectors and the query's embedding are ready by its time;
 //   otherwise null, and the keyword result goes out alone.
 import type { Database } from 'bun:sqlite'
@@ -209,7 +209,16 @@ export class QueryEmbedder {
     try {
       const [v] = await m.embed([text], 'query')
       return v && v.length === MEANING_DIMS ? quantize(v) : null
+    } catch (e) {
+      // the model failed (its thread died): dropped, and opened again only after RETRY_MS
+      if (this.model === m) { this.unload(); this.failed(e) }
+      return null
     } finally { this.busy--; this.lastUse = this.now() }
+  }
+
+  private failed(e: unknown) {
+    this.failedAt = this.now()
+    this.o.warn?.(`search by meaning: the embedding model failed; keyword search only for ${RETRY_MS / 60_000} minutes: ${String((e as Error)?.message ?? e).slice(0, 200)}`)
   }
 
   /** unload when unused for `idleMs` (not while embedding) */
@@ -237,9 +246,8 @@ export class QueryEmbedder {
         return m
       },
       (e) => {
-        this.failedAt = this.now()
         if (this.ready === p) this.ready = null
-        this.o.warn?.(`search by meaning: the embedding model could not open; keyword search only for ${RETRY_MS / 60_000} minutes: ${String((e as Error)?.message ?? e).slice(0, 200)}`)
+        this.failed(e)
         return null
       })
     this.ready = p

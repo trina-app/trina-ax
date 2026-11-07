@@ -21,6 +21,10 @@
 //   when the index says meaning is on (DocSearchWorker's `meaning`), and leave memory after 15 minutes unused. The
 //   worker searches only the folders it is asked (rootIds, prefix), the vectors as well as the pieces; access is still
 //   decided for every hit on the main thread (service.ts).
+// - the model runs in a thread of its own, which this worker starts from this same script (threadEmbedder): opening it
+//   holds its thread for about a second (the ONNX session: 0.7–0.8 s in one stretch on an M1 Pro, more on 2 cores),
+//   which here would hold every search, keyword ones too, so a lookup in that time got nothing at all. Unloading it
+//   ends that thread, and the model's memory with it.
 //
 // The worker is this file: built next to main.js as doc-search-worker.js in the bundles (scripts/build-bundle.ts and
 // scripts/build-office.ts ENTRIES), run as TypeScript in a repository checkout.
@@ -28,10 +32,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { isMainThread, parentPort, workerData } from 'node:worker_threads'
 import { DocumentIndex, type DocHit, type RelatedDoc, type SearchOptions } from './index'
-import { openEmbedder } from '../meaning/embedder'
+import { openEmbedder, type EmbedderOptions } from '../meaning/embedder'
 import { MeaningSearch, type OpenEmbedder } from '../meaning/search'
+import type { Embedder } from '../meaning/vectors'
 
 const MARK = 'mycel-doc-search'
+/** this script started as the search worker's embedder thread */
+const EMBED_MARK = 'mycel-doc-embed'
 /** a request without its own deadline gets nothing after this long */
 export const DEFAULT_DEADLINE_MS = 5_000
 /** failures in a row (the worker died, or would not start) after which it is left off for PAUSE_MS */
@@ -126,17 +133,83 @@ export function serveDocSearch(port: { on(ev: 'message', f: (m: Req) => void): u
   })
 }
 
-// this file started as the worker (not imported by another worker script)
-const started = workerData as { kind?: string; script?: string } | null
-if (!isMainThread && parentPort && started?.kind === MARK && path.resolve(started.script ?? '') === path.resolve(import.meta.path)) {
+// ---------------------------------------------------------------- the embedder's thread
+type EmbedReq = { id: number; texts: string[]; kind: 'query' | 'passage' }
+type EmbedReply = { ready: true } | { id: number; vecs: Float32Array[] } | { id: number; error: string }
+
+/** The embedder thread's loop: opens the embedder, says ready (or why not, with id 0), then embeds one request after
+ * another. */
+export function serveEmbedder(port: { on(ev: 'message', f: (m: EmbedReq) => void): unknown; postMessage(r: EmbedReply): void }, open: OpenEmbedder) {
+  open().then((emb) => {
+    port.on('message', (m) => {
+      emb.embed(m.texts, m.kind).then((vecs) => port.postMessage({ id: m.id, vecs }), (e) => port.postMessage({ id: m.id, error: String((e as Error)?.message ?? e).slice(0, 300) }))
+    })
+    port.postMessage({ ready: true })
+  }, (e) => port.postMessage({ id: 0, error: String((e as Error)?.message ?? e).slice(0, 300) }))
+}
+
+/**
+ * The embedder in a thread of its own, started from `script` (this file, or its built doc-search-worker.js) with
+ * `o` for openEmbedder: resolves once the model is open there, rejects when it cannot open or the thread fails.
+ * The search worker's thread never waits on the model's opening (about a second of blocking work). dispose() ends the
+ * thread; an embedding asked after the thread failed is refused, and the caller opens a new one.
+ */
+export function threadEmbedder(script: string, o: EmbedderOptions): Promise<Embedder> {
+  return new Promise((resolve, reject) => {
+    let w: Worker
+    try { w = new Worker(script, { workerData: { kind: EMBED_MARK, script, o } } as WorkerOptions) } catch (e) { reject(e); return }
+    let seq = 0, gone: Error | null = null
+    const waiting = new Map<number, { ok: (v: Float32Array[]) => void; no: (e: Error) => void }>()
+    const end = (e: Error) => {
+      if (gone) return
+      gone = e
+      for (const x of waiting.values()) x.no(e)
+      waiting.clear()
+      reject(e)
+      try { w.terminate() } catch {}
+    }
+    const emb: Embedder = {
+      embed: (texts, kind) => new Promise((ok, no) => {
+        if (gone) return no(gone)
+        const id = ++seq
+        waiting.set(id, { ok, no })
+        w.postMessage({ id, texts, kind } satisfies EmbedReq)
+      }),
+      dispose: () => end(new Error('embedder closed')),
+    }
+    w.addEventListener('message', (e: MessageEvent<EmbedReply>) => {
+      const m = e.data
+      if ('ready' in m) return resolve(emb)
+      if (m.id === 0 && 'error' in m) return end(new Error(m.error))
+      const x = waiting.get(m.id)
+      if (!x) return
+      waiting.delete(m.id)
+      if ('error' in m) x.no(new Error(m.error))
+      else x.ok(m.vecs)
+    })
+    w.addEventListener('error', (e: ErrorEvent) => end(new Error(`embedder thread failed: ${String(e.message ?? e).slice(0, 200)}`)))
+    w.addEventListener('close', () => end(new Error('embedder thread ended')))
+    ;(w as Worker & { unref?: () => void }).unref?.()
+  })
+}
+
+// this file started as the worker, or as its embedder thread (not imported by another worker script)
+const started = workerData as { kind?: string; script?: string; o?: EmbedderOptions } | null
+if (!isMainThread && parentPort && started?.script && path.resolve(started.script) === path.resolve(import.meta.path)) {
   const port = parentPort
-  const warn = (msg: string) => port.postMessage({ id: 0, warn: msg } satisfies Reply)
-  serveDocSearch(port, (dir, people) => openSearchReader(dir, people, () => openEmbedder(meaningModelDirs(dir)), warn))
+  const script = started.script
+  if (started.kind === MARK) {
+    const warn = (msg: string) => port.postMessage({ id: 0, warn: msg } satisfies Reply)
+    serveDocSearch(port, (dir, people) => openSearchReader(dir, people, () => threadEmbedder(script, meaningModelDirs(dir)), warn))
+  } else if (started.kind === EMBED_MARK && started.o) {
+    const o = started.o
+    serveEmbedder(port, () => openEmbedder(o))
+  }
 }
 
 /** The embedder's folders for a document index in `dir` (<data>/knowledge-graph/documents, service.ts): the team's
  * own <data>/models, or the host's shared $MYCEL_MODELS_DIR/semantic when its files match (as the meaning index). */
-export function meaningModelDirs(dir: string) {
+export function meaningModelDirs(dir: string): EmbedderOptions {
   const shared = process.env.MYCEL_MODELS_DIR ? path.join(process.env.MYCEL_MODELS_DIR, 'semantic') : null
   return { modelDir: path.resolve(dir, '..', '..', 'models'), sharedDir: shared, threads: QUERY_THREADS }
 }
