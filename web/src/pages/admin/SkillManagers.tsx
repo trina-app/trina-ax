@@ -6,9 +6,9 @@
 // on skills/ and its folders (GET /api/admin/skill-managers) and removes one or adds one for all of skills/ (PUT
 // /api/admin/skill-managers: the same rule Folder permissions shows, the same audit). Adding warns first that every
 // teammate's AI follows what they change; a folder of its own is handed over in Folder permissions, and the line counts
-// the people who can edit only such a folder ("폴더별 2명"). The owner and admins are one "항상" row: an old rule of
-// someone made an admin later is not listed (the server refuses to remove it). Removing a person whom another rule still
-// lets write says so first, and which (the server's edit preview without their row).
+// the folders inside skills/ whose own rules give anyone write ("폴더별로 맡긴 곳 2개"). The owner and admins are one
+// "항상" row: an old rule of someone made an admin later is not listed (the server refuses to remove it). Removing a
+// person whom another rule still lets write says so first, and which (the server's edit preview without their row).
 // Group skills (groups/<folder>/skills/, docs/DECISIONS.md "Group skills") are their group's members': not here.
 import clsx from 'clsx'
 import { ShieldCheck, UserRound, UsersRound } from 'lucide-react'
@@ -16,7 +16,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { AccessTreeWho, FolderAccessResponse, SkillManagerGrant } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
-import { skillEditorsElsewhere, skillEditorsText } from '../../lib/access-view'
+import { skillEditorsElsewhere, skillEditorsText, skillFoldersWithEditors } from '../../lib/access-view'
 import { useT } from '../../i18n'
 import { Button, ErrorNote, Modal, Skeleton, confirmDialog } from '../../components/ui'
 import { toast } from '../../store/ui'
@@ -50,21 +50,6 @@ export function useFolderPeople(path: string | null, ...after: unknown[]) {
   return useLoad(async () => (path === null || after.some((x) => x == null) ? null : folderPeople(path)), [path, ...after])
 }
 
-/** The people a rule lets write at a folder (not the owner and admins, who always can). */
-const ruleWriters = (people: Map<string, FolderAccessResponse['people'][number]>) => new Set([...people.values()].filter((p) => p.access === 'write' && p.reason.kind === 'rule').map((p) => p.user.id))
-
-/** How many people can edit only a folder of skills/ (a person's or group's rule there, none for skills/ itself): the
- * server's answer for each of those folders, less those who write in skills/ anyway. 0 when no rule is on a folder. */
-async function folderOnlyEditors(grants: readonly SkillManagerGrant[]): Promise<number> {
-  const folders = [...new Set(grants.filter((g) => g.path !== SKILLS).map((g) => g.path))]
-  if (!folders.length) return 0
-  const [top, ...below] = await Promise.all([SKILLS, ...folders].map(folderPeople))
-  const all = ruleWriters(top!)
-  const only = new Set<string>()
-  for (const people of below) for (const id of ruleWriters(people)) if (!all.has(id)) only.add(id)
-  return only.size
-}
-
 /**
  * Would the person still write in skills/ without their own rules there? The server's preview (POST
  * /api/admin/access/edit-preview, nothing saved) of each of their topmost own folders with their row taken out: exact,
@@ -95,37 +80,56 @@ const shown = (p: string) => p + '/'
 const grantKey = (g: SkillManagerGrant) => `${g.subjectType}:${g.subjectId}:${g.path}`
 
 /** skills/ as Folder permissions shows it: who writes there, grouped by the rule that decided, and how many people
- * rules decide for; and how many more can edit only a folder in it. */
-type SkillsNode = { who: AccessTreeWho[]; members: number; byFolder: number }
+ * rules decide for. */
+type SkillsNode = { who: AccessTreeWho[]; members: number }
+
+/** A quiet text button inside a line of secondary text (a phone: 44 px to tap, a box around the word above and below
+ * it, while the line keeps its height). */
+const lineButton =
+  "relative rounded-sm font-medium whitespace-nowrap text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent max-sm:after:absolute max-sm:after:-inset-x-2 max-sm:after:-inset-y-3 max-sm:after:content-['']"
 
 /**
  * The Team skills page, owner and admins only: "고칠 수 있는 사람: 팀장·관리자, 영업팀 3명, Bob 님 [바꾸기]". Quiet: one
- * line of secondary text and one text button. Its height is kept while it loads (nothing below jumps); nothing when it
- * cannot load (the page works without it).
+ * line of secondary text and one text button. Two requests: the server's answer for skills/ (who writes there) and the
+ * folder rules (the folders inside skills/ with editors of their own, counted at the end: "폴더별로 맡긴 곳 2개"). When
+ * the rules cannot be read, the line names who it knows without "만"; when skills/' answer cannot, it says so with a
+ * retry. Its height is kept while it loads (nothing below jumps).
  */
 export function SkillEditorsLine({ className }: { className?: string }) {
   const t = useT()
   const textId = useId()
   const node = useLoad<SkillsNode>(async () => {
-    const [r, grants] = await Promise.all([api.call(API.explainAccessTree, { query: { path: SKILLS, limit: 1 } }), api.call(API.listSkillManagers)])
-    return { who: r.self.who, members: r.members, byFolder: await folderOnlyEditors(grants.items) }
+    const r = await api.call(API.explainAccessTree, { query: { path: SKILLS, limit: 1 } })
+    return { who: r.self.who, members: r.members }
   })
+  const folders = useLoad(async () => skillFoldersWithEditors((await api.call(API.listFolders)).items))
   const [open, setOpen] = useState(false)
-  if (!node.data) return node.error ? null : <div className={clsx('h-5', className)} aria-hidden />
+  if (node.error && !node.data)
+    return (
+      <p className={clsx('text-xs leading-5 text-muted', className)} data-testid="skill-editors-failed">
+        {t('skillMgr.loadFailed')} ·{' '}
+        <button type="button" className={lineButton} onClick={() => void node.reload()} data-testid="skill-editors-retry">
+          {t('common.retry')}
+        </button>
+      </p>
+    )
+  // both in (or the rules failed: then without "만"), so the line does not change its words once shown
+  if (!node.data || (folders.data === null && !folders.error)) return <div className={clsx('h-5', className)} aria-hidden />
   return (
     <>
       <p className={clsx('text-xs leading-5 text-muted [overflow-wrap:anywhere]', className)} data-testid="skill-editors">
         <span id={textId} data-testid="skill-editors-text">
-          {skillEditorsText(t, node.data.who, node.data.members, node.data.byFolder)}
+          {skillEditorsText(t, node.data.who, node.data.members, folders.data)}
         </span>{' '}
         {/* a phone: 44 px to tap (a box around the word, above and below it), the line keeps its height */}
         <button
           type="button"
           aria-haspopup="dialog"
           aria-describedby={textId}
-          className="relative rounded-sm font-medium whitespace-nowrap text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent max-sm:after:absolute max-sm:after:-inset-x-2 max-sm:after:-inset-y-3 max-sm:after:content-['']"
+          className={lineButton}
           onClick={() => {
-            // the dialog lists what the server says now: the line asks again with it
+            // the dialog loads its own lists; of the line's, it uses skills/' answer (who edits through other rules):
+            // that one is asked again with it, the folder rules are not
             void node.reload()
             setOpen(true)
           }}
@@ -134,7 +138,16 @@ export function SkillEditorsLine({ className }: { className?: string }) {
           {t('skillMgr.change')}
         </button>
       </p>
-      {open && <SkillManagerDialog node={node.data} onClose={() => setOpen(false)} onChanged={() => void node.reload()} />}
+      {open && (
+        <SkillManagerDialog
+          node={node.data}
+          onClose={() => setOpen(false)}
+          onChanged={() => {
+            void node.reload()
+            void folders.reload()
+          }}
+        />
+      )}
     </>
   )
 }
@@ -164,13 +177,14 @@ function SkillManagerDialog({ node, onClose, onChanged }: { node: SkillsNode; on
   useEffect(() => {
     if (picked) warning.current?.focus()
   }, [picked])
-  /** after a removal, once the list is asked again: the focus goes to the remove button now at that place, else to the
-   * search (the removed row's button is gone) */
+  /** after a removal: set with the fresh list (never while it is asked, never after a failed answer), used once it is on
+   * the screen. The focus goes to the remove button now at that place, else to the search (the removed row's button is
+   * gone); not when someone is typing in the search meanwhile. */
   const focusAt = useRef<number | null>(null)
   useEffect(() => {
     const i = focusAt.current
-    if (i === null) return
     focusAt.current = null
+    if (i === null || document.activeElement === search.current) return
     const buttons = list.current?.querySelectorAll<HTMLElement>('[data-testid="skill-editor-remove"]') ?? []
     ;(buttons[Math.min(i, buttons.length - 1)] ?? search.current)?.focus()
   }, [managers.data])
@@ -205,9 +219,12 @@ function SkillManagerDialog({ node, onClose, onChanged }: { node: SkillsNode; on
     setBusy(null)
     // a failure was toasted already: no "removed" over it
     if (ok) toast({ level: 'success', text: t('skillMgr.turnedOff') })
-    // the focus goes on once the list as it is now is on the screen (the effect runs when it comes)
-    focusAt.current = i
-    await managers.reload()
+    // the list as it is now; a failed answer was toasted and moves nothing
+    const fresh = await act(() => api.call(API.listSkillManagers))
+    if (fresh) {
+      focusAt.current = i
+      managers.setData(fresh)
+    }
     onChanged()
   }
   const turnOn = async () => {

@@ -76,7 +76,7 @@ test('"고칠 수 있는 사람" on Team skills: admins only; [바꾸기] adds a
   await dialog.getByTestId('edit-add').fill('')
   // remove Bob's own rule: the confirm says 빼기 like the row, and the group's rule still lets him edit
   await bobRow.getByRole('button', { name: 'Bob: skills/ 빼기' }).click()
-  const confirm = page.getByRole('dialog', { name: 'Bob(을)를 뺄까요?' })
+  const confirm = page.getByRole('dialog', { name: 'Bob: 고칠 수 있는 사람에서 뺄까요?' })
   await expect(confirm).toContainText('skills/에 대한 쓰기 권한이 빠져요')
   await expect(confirm).toContainText('그룹이나 모두에게 준 규칙으로 계속 고칠 수 있어요')
   await confirm.getByRole('button', { name: '빼기' }).click()
@@ -97,7 +97,7 @@ test('"고칠 수 있는 사람" on Team skills: admins only; [바꾸기] adds a
   await expect(dialog.getByTestId('skill-editors-by-folder')).toHaveAttribute('href', '/admin/folders?folder=skills')
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/skill-editors-dialog-1360.png` })
   await sub.getByTestId('skill-editor-remove').click()
-  await page.getByRole('dialog', { name: 'Bob(을)를 뺄까요?' }).getByRole('button', { name: '빼기' }).click()
+  await page.getByRole('dialog', { name: 'Bob: 고칠 수 있는 사람에서 뺄까요?' }).getByRole('button', { name: '빼기' }).click()
   await expect(sub).toHaveCount(0)
   await page.keyboard.press('Escape')
 
@@ -213,7 +213,7 @@ test('who can edit, in words (the tree, the panel, the Team skills line); throug
   dialog = await openEditors(page)
   const own = dialog.locator('[data-testid="skill-editor"][data-subject="user:bob"][data-path="skills"]')
   await own.getByTestId('skill-editor-remove').click()
-  const still = page.getByRole('dialog', { name: 'Bob(을)를 뺄까요?' })
+  const still = page.getByRole('dialog', { name: 'Bob: 고칠 수 있는 사람에서 뺄까요?' })
   await expect(still).toContainText('그룹이나 모두에게 준 규칙으로 계속 고칠 수 있어요')
   await still.getByRole('button', { name: '빼기' }).click()
   await expect(own).toHaveCount(0)
@@ -224,7 +224,7 @@ test('who can edit, in words (the tree, the panel, the Team skills line); throug
   await page.reload()
   dialog = await openEditors(page)
   await dialog.locator('[data-testid="skill-editor"][data-subject="user:bob"][data-path="skills/재무"]').getByTestId('skill-editor-remove').click()
-  const confirm = page.getByRole('dialog', { name: 'Bob(을)를 뺄까요?' })
+  const confirm = page.getByRole('dialog', { name: 'Bob: 고칠 수 있는 사람에서 뺄까요?' })
   await expect(confirm).toContainText('skills/재무/에 대한 쓰기 권한이 빠져요')
   await expect(confirm).not.toContainText('계속 고칠 수 있어요')
   await confirm.getByRole('button', { name: '취소' }).click()
@@ -232,25 +232,25 @@ test('who can edit, in words (the tree, the panel, the Team skills line); throug
   expect(realErrors(errors)).toEqual([])
 })
 
-test('the line counts who can edit only a folder; an admin\'s old rule is in "항상"; the note names their own rule; the focus after removing', async ({ page }) => {
+test('the line counts the folders with editors of their own; an admin\'s old rule is in "항상"; the note names their own rule; the focus after removing', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
   await signIn(page, OWNER)
   const H = { [CSRF_HEADER]: '1' }
   const grant = async (subjectId: string, path: string, enabled = true) =>
     expect((await page.request.put('/api/admin/skill-managers', { headers: H, data: { subjectType: 'user', subjectId, path, enabled } })).ok()).toBeTruthy()
-  // Bob can edit only skills/재무: the line is not "only the owner and admins"
+  // Bob can edit only skills/재무: the line counts that folder and is not "only the owner and admins"
   await grant('bob', 'skills/재무')
   await page.goto('/skills')
   const text = page.getByTestId('skill-editors-text')
-  await expect(text).toHaveText('고칠 수 있는 사람: 팀장·관리자, 폴더별 1명')
+  await expect(text).toHaveText('고칠 수 있는 사람: 팀장·관리자, 폴더별로 맡긴 곳 1개')
   // [바꾸기] is described by the line, and a phone taps 44 px around it while the line keeps its height
-  await expect(page.getByTestId('skill-editors-change')).toHaveAccessibleDescription('고칠 수 있는 사람: 팀장·관리자, 폴더별 1명')
+  await expect(page.getByTestId('skill-editors-change')).toHaveAccessibleDescription('고칠 수 있는 사람: 팀장·관리자, 폴더별로 맡긴 곳 1개')
   // Carol for all of skills/, named; Bob still counted by folder
   const carol = (await (await page.request.post('/api/admin/users', { headers: H, data: { username: 'carol', name: '최다은', role: 'member', groupIds: [] } })).json()).user
   await grant(carol.id, 'skills')
   await page.reload()
-  await expect(text).toHaveText('고칠 수 있는 사람: 팀장·관리자, 최다은 님, 폴더별 1명')
+  await expect(text).toHaveText('고칠 수 있는 사람: 팀장·관리자, 최다은 님, 폴더별로 맡긴 곳 1개')
 
   // her own rule on skills/ is what still lets her edit when her skills/재무/ rule goes: the note says that, not a group
   await grant(carol.id, 'skills/재무')
@@ -261,7 +261,7 @@ test('the line counts who can edit only a folder; an admin\'s old rule is in "�
   let dialog = await openEditors(page)
   const carolSub = dialog.locator(`[data-testid="skill-editor"][data-subject="user:${carol.id}"][data-path="skills/재무"]`)
   await carolSub.getByTestId('skill-editor-remove').click()
-  let confirm = page.getByRole('dialog', { name: '최다은을 뺄까요?' })
+  let confirm = page.getByRole('dialog', { name: '최다은: 고칠 수 있는 사람에서 뺄까요?' })
   await expect(confirm).toContainText('skills/에 준 본인 규칙으로 계속 고칠 수 있어요.')
   await expect(confirm).not.toContainText('그룹이나 모두에게')
   await confirm.getByRole('button', { name: '빼기' }).click()
@@ -270,13 +270,13 @@ test('the line counts who can edit only a folder; an admin\'s old rule is in "�
   const carolRow = dialog.locator(`[data-testid="skill-editor"][data-subject="user:${carol.id}"][data-path="skills"]`)
   const bobSub = dialog.locator('[data-testid="skill-editor"][data-subject="user:bob"][data-path="skills/재무"]')
   await carolRow.getByTestId('skill-editor-remove').click()
-  confirm = page.getByRole('dialog', { name: '최다은을 뺄까요?' })
+  confirm = page.getByRole('dialog', { name: '최다은: 고칠 수 있는 사람에서 뺄까요?' })
   await confirm.getByRole('button', { name: '빼기' }).click()
   await expect(carolRow).toHaveCount(0)
   await expect(bobSub.getByTestId('skill-editor-remove')).toBeFocused()
   // …and with no row left, to the search
   await page.keyboard.press('Enter')
-  await page.getByRole('dialog', { name: 'Bob(을)를 뺄까요?' }).getByRole('button', { name: '빼기' }).click()
+  await page.getByRole('dialog', { name: 'Bob: 고칠 수 있는 사람에서 뺄까요?' }).getByRole('button', { name: '빼기' }).click()
   await expect(dialog.getByTestId('skill-editor')).toHaveCount(0)
   await expect(dialog.getByTestId('edit-add')).toBeFocused()
   await expect(text).toHaveText('고칠 수 있는 사람: 팀장과 관리자만')
@@ -306,6 +306,45 @@ test('the line counts who can edit only a folder; an admin\'s old rule is in "�
   expect(tap.line).toBe(20)
   expect(tap.after).toBeGreaterThanOrEqual(44)
   expect(realErrors(errors)).toEqual([])
+})
+
+test('the folder count reads the rules once: everyone on a folder counts; a failed rules list keeps the line without "만"; a failed skills/ answer offers a retry', async ({ page }) => {
+  await reset(page)
+  await signIn(page, OWNER)
+  const H = { [CSRF_HEADER]: '1' }
+  // everyone may write in skills/재무 (no person or group rule anywhere): the line counts that folder
+  expect((await page.request.post('/api/admin/folders', { headers: H, data: { path: 'skills/재무', create: true, rules: [{ subjectType: 'everyone', subjectId: null, access: 'write' }] } })).ok()).toBeTruthy()
+  const calls: string[] = []
+  page.on('request', (r) => { const u = new URL(r.url()); if (u.pathname.startsWith('/api/admin/')) calls.push(u.pathname) })
+  await page.goto('/skills')
+  const text = page.getByTestId('skill-editors-text')
+  await expect(text).toHaveText('고칠 수 있는 사람: 팀장·관리자, 폴더별로 맡긴 곳 1개')
+  // two requests: skills/' answer and the rules, none per folder or per person
+  expect(calls.filter((c) => c === '/api/admin/access/folder')).toEqual([])
+  expect(calls.filter((c) => c === '/api/admin/folders')).toHaveLength(1)
+  // [바꾸기] asks skills/' answer again (the dialog uses it), not the rules
+  calls.length = 0
+  await openEditors(page)
+  await expect.poll(() => calls.filter((c) => c === '/api/admin/access/tree').length).toBe(1)
+  expect(calls.filter((c) => c === '/api/admin/folders')).toEqual([])
+  await page.keyboard.press('Escape')
+
+  // the rules cannot be read: the line names who it knows, without "만"
+  await page.route(/\/api\/admin\/folders(\?.*)?$/, (r) => r.fulfill({ status: 500, json: { error: { code: 'internal', message: 'x' } } }))
+  await page.reload()
+  await expect(text).toHaveText('고칠 수 있는 사람: 팀장·관리자')
+  await expect(page.getByTestId('skill-editors-change')).toBeVisible()
+  await page.unroute(/\/api\/admin\/folders(\?.*)?$/)
+
+  // skills/' answer cannot be read: said, with a retry that brings the line
+  await page.route(/\/api\/admin\/access\/tree(\?.*)?$/, (r) => r.fulfill({ status: 500, json: { error: { code: 'internal', message: 'x' } } }))
+  await page.reload()
+  const failed = page.getByTestId('skill-editors-failed')
+  await expect(failed).toContainText('고칠 수 있는 사람을 불러오지 못했어요')
+  await expect(text).toHaveCount(0)
+  await page.unroute(/\/api\/admin\/access\/tree(\?.*)?$/)
+  await failed.getByRole('button', { name: '다시 시도' }).click()
+  await expect(text).toHaveText('고칠 수 있는 사람: 팀장·관리자, 폴더별로 맡긴 곳 1개')
 })
 
 test('the AI saving under skills/: the server card with the diff; 저장 saves and the banner opens the version history', async ({ page }) => {
