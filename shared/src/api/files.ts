@@ -212,8 +212,20 @@ export const FileContentHit = z.object({
   snippet: z.string(),
 })
 export type FileContentHit = z.infer<typeof FileContentHit>
+/** One document the knowledge graph found for the query (docs/KNOWLEDGE-GRAPH.md): `snippet` is a short part of its best
+ * passage (plain text, not HTML), `loc` that passage's place (page, sheet, slide or heading; null when not known). */
+export const FileContentDocument = z.object({
+  path: z.string(),
+  name: z.string(),
+  loc: SourceLoc.nullable(),
+  snippet: z.string(),
+})
+export type FileContentDocument = z.infer<typeof FileContentDocument>
 export const FileContentHits = z.object({
   items: z.array(FileContentHit),
+  /** documents the knowledge graph found, one row per document, best first: only files the caller can open now, under
+   * the folder searched. Absent when the documents part of the knowledge graph is off (and from older servers). */
+  documents: z.array(FileContentDocument).optional(),
   /** more lines matched than the limit; the person should narrow the search */
   truncated: z.boolean(),
   /** the time limit stopped the search; the list can be incomplete */
@@ -267,7 +279,7 @@ export const FILES = {
   attachmentThumbnail: endpoint({ method: 'GET', path: '/api/uploads/:id/thumbnail', auth: 'user', owner: 'C', response: stream(false), summary: 'Small JPEG/PNG thumbnail of an image attachment (a team file: the image itself, up to 2 MB, while the caller can read it).' }),
   attachTeamFile: endpoint({ method: 'POST', path: '/api/attachments/team-file', auth: 'user', owner: 'C', status: 201, body: AttachTeamFileBody, response: Attachment, summary: 'Attach a team-folder file the caller can read to an own chat, as a reference (re-checked on every send and turn).' }),
   findFiles: endpoint({ method: 'GET', path: '/api/files/find', auth: 'user', owner: 'C', query: FindFilesQuery, response: FileList, summary: 'Files whose name contains q, among the files the caller can read (newest first).' }),
-  searchFileContents: endpoint({ method: 'GET', path: '/api/files/search', auth: 'user', owner: 'C', query: SearchFileContentsQuery, response: FileContentHits, summary: 'Lines that contain q (literal text, any case) in the files the caller can read, office documents through their text cache. Rate limited per person.' }),
+  searchFileContents: endpoint({ method: 'GET', path: '/api/files/search', auth: 'user', owner: 'C', query: SearchFileContentsQuery, response: FileContentHits, summary: 'Lines that contain q (literal text, any case) in the files the caller can read, office documents through their text cache; with the knowledge graph\'s documents part on, also the documents it finds (documents: one row each, its best passage and place). Rate limited per person.' }),
   recentFiles: endpoint({ method: 'GET', path: '/api/files/recent', auth: 'user', owner: 'C', query: RecentFilesQuery, response: FileList, summary: 'Recently changed files the caller can read (for the attach picker).' }),
   createUploadSession: endpoint({ method: 'POST', path: '/api/upload-sessions', auth: 'user', owner: 'C', status: 201, body: CreateUploadSessionBody, response: UploadSession, summary: `Start a chunked upload (${UPLOAD_CHUNK_SIZE / 1024 / 1024} MB chunks). Expires after 24 h.` }),
   uploadChunk: endpoint({ method: 'PUT', path: '/api/upload-sessions/:id/chunks/:n', auth: 'user', owner: 'C', body: binary(UPLOAD_CHUNK_SIZE), response: ChunkResult, summary: 'Store chunk n (0-based). Re-sending a stored chunk is a no-op.' }),
