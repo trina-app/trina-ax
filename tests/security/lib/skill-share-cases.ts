@@ -1,5 +1,8 @@
-// 내 스킬 가져오기 (docs/DECISIONS.md "SK"; server/src/skills/share.ts): share proposals are owners' and admins' (members
-// 403 from the endpoints' admin level), and each is its person's alone. Dana's proposal (made once, on the first case
+// 내 스킬 가져오기 (docs/DECISIONS.md "SK"; server/src/skills/share.ts): share proposals are made by owners and admins
+// (members 403 on create and on moving one), and each is its person's alone, but for one to a group, which that group's
+// members who may write its skills folder also review (docs/DECISIONS.md "Group skills"; tests/unit/
+// group-skill-shares.test.ts): reading, applying and dropping are user-level and the service answers 404 to anyone
+// else. Dana's proposal (made once, on the first case
 // that needs it) names a skill carrying a canary: the list of anyone else must not show it. Reading, applying or
 // dropping a proposal that is not the caller's is the same as one that does not exist (404), so those cases use an id
 // nobody has. The cross-admin 404 on a real proposal is in tests/unit/b-skill-share-apply.test.ts.
@@ -24,6 +27,8 @@ export const SKILL_SHARE_SPECS: Record<string, Spec> = {
   listSkillShares: { build: (c, w) => { danaShare(w); return c.get('/api/skill-shares') }, scope: 'byLevel',
     check: (r, _w, who) => { if (who !== 'owner' && r.text.includes(CANARY)) throw new Error(`${who} lists the owner's skill share`) } },
   getSkillShare: { build: (c) => c.get(`/api/skill-shares/${NONE}`), scope: 'nobody' },
+  // moving a share to the team or a group: its proposer's only (docs/DECISIONS.md "Group skills")
+  setSkillShareTarget: { build: (c) => c.patch(`/api/skill-shares/${NONE}`, { group: null }), scope: 'nobody' },
   applySkillShare: { build: (c) => c.post(`/api/skill-shares/${NONE}/apply`, { skills: [] }), scope: 'nobody' },
   dismissSkillShare: { build: (c) => c.post(`/api/skill-shares/${NONE}/dismiss`), scope: 'nobody' },
   // a merge chat is its person's: another chat (or none) is the same as none (404)

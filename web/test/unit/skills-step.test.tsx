@@ -627,12 +627,13 @@ describe('/skills/share/:id', () => {
       </MemoryRouter>,
     )
   }
-  test('a member goes Home; an admin sees the proposal under its own heading, and after sharing the primary opens the team skills', async () => {
+  test('a member stays (a proposal to their group is theirs to review); one not theirs reads as gone; an admin sees the proposal under its own heading, and after sharing the primary opens the team skills', async () => {
     ccItems = [shareOf({ id: CC_ID, source: 'claude_code', where: null, projects: 2 })]
-    const member = await page(CC_ID, 'member')
+    // the server answers 404 for a proposal the member may not review (docs/DECISIONS.md "Group skills")
+    const member = await page('01900000-0000-7000-8000-0000000005fe', 'member')
     try {
-      expect(text(member, 'where')).toBe('/')
-      expect(calls).toHaveLength(0)
+      await member.until(() => member.find('skill-share-gone'), 'the note')
+      expect(member.find('where')).toBeNull()
     } finally { await member.unmount() }
     const m = await page(CC_ID, 'admin')
     try {

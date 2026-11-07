@@ -12,6 +12,10 @@
 // of the setup ("합치기는 설정 끝나고 확인해요"; one Inbox notice then leads to the merge chat). The welcome step passes
 // the skills shared earlier in the setup (`earlier`: another folder, Claude Code or Codex), so what went in lists them
 // all, each once, not only this share's.
+// Group skills (docs/DECISIONS.md "Group skills"): on the share page (`pickTarget`) the proposer chooses where it goes,
+// the team or one of their groups (PATCH: the server checks it again for that target); a share to a group carries its
+// skills only (no team rule, no tools), its primary says the group, and a member of the group who reviews it reads
+// whose it is. The welcome step keeps the team.
 // One primary per screen; on phones the list loses its frame and keeps its hairlines.
 import clsx from 'clsx'
 import { ChevronDown, CircleAlert, CircleCheck, FileCode, FileQuestionMark, FolderOpen, GitMerge, KeyRound, Loader2, Package, Plug, Sparkles, Terminal, Users } from 'lucide-react'
@@ -102,9 +106,12 @@ export interface SkillShareReviewProps {
   /** the skills shared earlier in the welcome steps (the progress's `shared.skills`, in the order they went in): listed
    * above this share's in what went in, a skill of this share's never twice */
   earlier?: readonly { path: string; title: string }[]
+  /** the proposer may choose where it goes: the team or one of their groups (docs/DECISIONS.md "Group skills"; the
+   * share page). The welcome step keeps the team: no choice there. */
+  pickTarget?: boolean
 }
 
-export function SkillShareReview({ share: given, team, doneLabel, onDone, onApplied, onLater, onStopped, onOtherFolder, onMore, busy, inSetup = false, earlier }: SkillShareReviewProps) {
+export function SkillShareReview({ share: given, team, doneLabel, onDone, onApplied, onLater, onStopped, onOtherFolder, onMore, busy, inSetup = false, earlier, pickTarget = false }: SkillShareReviewProps) {
   const t = useT()
   const locale = useLocale()
   const phone = useMediaQuery('(max-width: 767.98px)')
@@ -162,10 +169,31 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
   // nothing recommended (no AI): the other rows open, so the list is not empty
   const folds = open ?? { other: recommended.length === 0, excluded: false }
   const chosen = share.candidates.filter((c) => c.group !== 'excluded' && ticked?.[c.name])
-  const rule = share.rule && share.rule.lines > 0 && share.rule.text.trim() ? share.rule : null
+  // a share to a group (docs/DECISIONS.md "Group skills") carries its skills only: a team rule and connection
+  // templates are the team's
+  const group = share.targetGroup ?? null
+  const rule = !group && share.rule && share.rule.lines > 0 && share.rule.text.trim() ? share.rule : null
   // the server checked each address again (https, no key, no query) for every source
-  const tools = share.tools
+  const tools = group ? [] : share.tools
   const anything = chosen.length > 0 || (ruleOn && !!rule) || (toolsOn && tools.length > 0)
+  // the proposer for the team; a member of the group who may write its skills for a group (absent: older server)
+  const canApply = share.canApply !== false && !(group && group.name === null)
+  const [moving, setMoving] = useState(false)
+  /** move the share to the team ('') or one of the proposer's groups; the server checks it again for that target */
+  const retarget = async (to: string) => {
+    setMoving(true)
+    setError(null)
+    try {
+      const s = await api.call(API.setSkillShareTarget, { params: { id: share.id }, body: { group: to || null } })
+      setShare(s)
+      // the defaults follow the new target (a same-name skill there merges by default)
+      setActions(Object.fromEntries(s.candidates.map((c) => [c.name, c.action])))
+    } catch (e) {
+      setError(errorText(e, locale, t('error.network')))
+    } finally {
+      setMoving(false)
+    }
+  }
 
   const stop = () => {
     // best effort: a proposal left behind expires by itself
@@ -306,7 +334,7 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
             ))}
           </ul>
         </div>
-        <DoneWho team={team} />
+        {group ? <p className="text-label text-muted" data-testid="skills-done-who">{t('skillShare.doneWhoGroup', { group: group.name ?? '' })}</p> : <DoneWho team={team} />}
         <div className={phone ? 'space-y-2' : 'flex items-center justify-between gap-3'}>
           <Button variant="primary" className={phone ? 'w-full' : undefined} onClick={onDone} disabled={busy} data-testid="skills-done-next">{doneLabel}</Button>
           {onMore && <Button variant="ghost" className={phone ? 'w-full' : undefined} onClick={onMore} disabled={busy} data-testid="skills-more">{t('welcome.skills.more')}</Button>}
@@ -368,13 +396,44 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
       <ChevronDown size={16} className={clsx('ml-auto shrink-0 text-faint transition', folds[key] && 'rotate-180')} aria-hidden />
     </button>
   )
-  const shareLabel = chosen.length > 0 ? t('welcome.skills.share', { n: chosen.length }) : t('welcome.skills.shareOnly')
+  const shareLabel = group?.name
+    ? chosen.length > 0 ? t('skillShare.shareGroup', { group: group.name, n: chosen.length }) : t('skillShare.shareGroupOnly', { group: group.name })
+    : chosen.length > 0 ? t('welcome.skills.share', { n: chosen.length }) : t('welcome.skills.shareOnly')
+  // where it goes: the proposer picks on the share page (the team or one of their groups); a reviewer reads whose it is
+  const choices = share.mine !== false && pickTarget ? share.targets ?? [] : []
+  let target: ReactNode = null
+  if (choices.length > 0) {
+    target = (
+      <label className="flex flex-wrap items-center gap-2 text-label text-muted" data-testid="skill-share-target-pick">
+        <span>{t('skillShare.target')}</span>
+        <select
+          value={group?.id ?? ''}
+          onChange={(e) => void retarget(e.target.value)}
+          disabled={applying || moving}
+          className="touch-hit h-8 min-w-0 rounded-md border border-field-border bg-surface px-2 text-label text-ink max-md:min-h-9"
+          data-testid="skill-share-target"
+        >
+          <option value="">{t('skillShare.targetTeam', { team })}</option>
+          {choices.map((g) => <option key={g.id} value={g.id}>{t('skillShare.targetGroup', { group: g.name })}</option>)}
+        </select>
+      </label>
+    )
+  } else if (group) {
+    target = (
+      <p className="text-label text-muted" data-testid="skill-share-target-line">
+        {group.name === null ? t('skillShare.groupGone')
+          : share.mine === false ? t('skillShare.forGroupBy', { who: share.proposer?.name ?? '', group: group.name })
+          : t('skillShare.forGroup', { group: group.name })}
+      </p>
+    )
+  }
 
   return (
-    <div className="space-y-4" data-testid="skill-review" data-status="ready">
+    <div className="space-y-4" data-testid="skill-review" data-status="ready" data-target={group?.id ?? 'team'}>
       <div className="space-y-1">
         {source}
         {noAi}
+        {target}
       </div>
       <fieldset className={clsx('min-w-0', frame)} disabled={applying}>
         <legend className="sr-only">{t('welcome.skills.listLabel')}</legend>
@@ -440,10 +499,11 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
           )}
         </div>
       )}
-      <p className="text-label text-muted" data-testid="skills-who">{t('welcome.skills.who', { team })}</p>
+      <p className="text-label text-muted" data-testid="skills-who">{group?.name ? t('skillShare.whoGroup', { group: group.name }) : t('welcome.skills.who', { team })}</p>
+      {!canApply && group?.name && <p className="text-label text-muted" data-testid="skills-cannot-apply">{t('skillShare.cannotApply')}</p>}
       {error && <ErrorNote onRetry={applying ? undefined : () => void apply()}>{error}</ErrorNote>}
       <div className={phone ? 'space-y-2' : 'flex items-center justify-between gap-3'}>
-        <Button variant="primary" className={phone ? 'w-full' : undefined} busy={applying} disabled={!anything || busy} onClick={() => void apply()} data-testid="skills-share">
+        <Button variant="primary" className={phone ? 'w-full' : undefined} busy={applying} disabled={!anything || busy || moving || !canApply} onClick={() => void apply()} data-testid="skills-share">
           {!applying && <Users size={15} aria-hidden />} {shareLabel}
         </Button>
         <Button variant="ghost" className={phone ? 'w-full' : undefined} onClick={onLater} disabled={applying || busy} data-testid="skills-later">{t('welcome.later')}</Button>

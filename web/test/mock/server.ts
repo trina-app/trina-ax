@@ -662,8 +662,17 @@ export class MockServer {
   }
   /** skills folders this person may change: owner / admin everything, others their own or their group's write rules */
   managed(u: User): string[] {
-    if (u.role === 'owner' || u.role === 'admin') return ['skills']
-    return this.skillManagers.filter((g) => (g.subjectType === 'user' && g.subjectId === u.id) || (g.subjectType === 'group' && u.groupIds.includes(g.subjectId))).map((g) => g.path)
+    // a member manages the skills of their groups (docs/DECISIONS.md "Group skills"; the groups Admin › Groups made)
+    const groups = this.groupSkillRoots(u).map((g) => g.root)
+    if (u.role === 'owner' || u.role === 'admin') return ['skills', ...groups]
+    return [...this.skillManagers.filter((g) => (g.subjectType === 'user' && g.subjectId === u.id) || (g.subjectType === 'group' && u.groupIds.includes(g.subjectId))).map((g) => g.path), ...groups]
+  }
+  /** the skills folders of the person's groups that have a folder of their own (made by Admin › Groups, "this group
+   * writes"): like server/src/chat/skills.ts writableGroupSkillRoots, by group name */
+  groupSkillRoots(u: User): { id: string; name: string; root: string }[] {
+    return this.groups.filter((g) => u.groupIds.includes(g.id) || g.memberIds.includes(u.id))
+      .flatMap((g) => { const f = this.folders.find((x) => x.groupId === g.id); return f ? [{ id: g.id, name: g.name, root: `${f.path}/skills` }] : [] })
+      .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()))
   }
   teamLinkSkillName(path: string): string | null {
     return this.teamLinkSkill(path)?.name ?? null
@@ -2229,6 +2238,12 @@ export class MockServer {
       suggestFolders: ['skills', 'skills/재무'],
       pendingReview: this.suggestions.filter((s) => s.status === 'pending' && this.manages(c.user, s.targetFolder)).length,
       myPending: this.suggestions.filter((s) => s.status === 'pending' && s.suggester.id === c.user.id).length,
+      // open share proposals others made to the person's groups (docs/DECISIONS.md "Group skills")
+      sharesToReview: (() => {
+        const st = (this as unknown as { skillShareState?: { gen: number; rows: { share: { status: string }; owner: string; group: string | null }[] } }).skillShareState
+        const mineGroups = new Set(this.groupSkillRoots(c.user).map((g) => g.id))
+        return st?.gen === this.generation ? st.rows.filter((r) => r.owner !== c.user.id && r.group !== null && mineGroups.has(r.group) && (r.share.status === 'checking' || r.share.status === 'ready')).length : 0
+      })(),
       ...(this.aiList ? { aiList: this.aiList } : {}),
     }),
     listSkillSuggestions: (c) => ({
@@ -2926,13 +2941,28 @@ export class MockServer {
     ...((): Partial<Record<ApiName, Handler>> => {
       type Share = import('@mycel/shared/api').SkillShare
       type Cand = import('@mycel/shared/api').ShareCandidate
-      type Row = { share: Share; owner: string; reads: number }
+      // group: the group it goes to (docs/DECISIONS.md "Group skills"), null for the team
+      type Row = { share: Share; owner: string; reads: number; group: string | null }
       const self = this as unknown as { skillShareState?: { gen: number; rows: Row[] } }
       const rows = (): Row[] => {
         if (self.skillShareState?.gen !== this.generation) self.skillShareState = { gen: this.generation, rows: [] }
         return self.skillShareState.rows
       }
-      const mine = (c: Ctx) => rows().find((r) => r.share.id === c.params.id && r.owner === c.user.id) ?? fail('not_found', 404)
+      /** a member of a group with a folder of its own (the groups Admin › Groups made): they write its skills */
+      const writes = (u: User, groupId: string) => this.groupSkillRoots(u).some((g) => g.id === groupId)
+      // the proposer's own; a share to a group also for its members who may write its skills (server: share.ts ownRow)
+      const mine = (c: Ctx) => rows().find((r) => r.share.id === c.params.id && (r.owner === c.user.id || (r.group !== null && writes(c.user, r.group)))) ?? fail('not_found', 404)
+      /** what the caller reads of a share: where it goes, who proposed it, whether they may apply it */
+      const forCaller = (r: Row, s: Share, u: User): Share => {
+        const g = r.group ? this.groups.find((x) => x.id === r.group) : null
+        const own = r.owner === u.id
+        const open = s.status === 'checking' || s.status === 'ready'
+        return {
+          ...s, targetGroup: r.group ? { id: r.group, name: g?.name ?? null } : null,
+          proposer: { id: r.owner, name: this.users.find((x) => x.id === r.owner)?.name ?? r.owner }, mine: own,
+          canApply: r.group ? writes(u, r.group) : own, targets: own && open ? this.groupSkillRoots(u).map((x) => ({ id: x.id, name: x.name })) : [],
+        }
+      }
       const cand = (name: string, title: string, group: Cand['group'], reason: Cand['reason'], o: Partial<Cand> = {}): Cand => ({
         name, title, description: `${title} — ${name}`, origin: 'user', project: null, group, reason, detail: null, personalPath: false,
         files: group === 'excluded' ? [] : [{ path: 'SKILL.md', bytes: 1200 }], scriptsDropped: 0, sameName: null, similar: null, action: 'add', applied: null, ...o,
@@ -2975,19 +3005,35 @@ export class MockServer {
             tools: cc ? [{ name: 'Notion', url: 'https://mcp.notion.com/mcp', auth: 'oauth', header: null, templateId: null, error: null }, { name: 'Linear', url: 'https://mcp.linear.app/mcp', auth: 'oauth', header: null, templateId: null, error: null }] : [],
             landing: null,
           }
-          const r: Row = { share, owner: c.user.id, reads: 0 }
+          const group = b.group ?? null
+          if (group && !writes(c.user, group)) fail('validation', 400, '이 그룹의 스킬 폴더에 넣을 수 있는 그룹 멤버만 할 수 있어요.')
+          const r: Row = { share, owner: c.user.id, reads: 0, group }
           rows().push(r)
-          return view(r)
+          return forCaller(r, view(r), c.user)
         },
         listSkillShares: (c) => ({
-          items: rows().filter((r) => r.owner === c.user.id && (!c.query.status || r.share.status === c.query.status) && (!c.query.source || r.share.source === c.query.source))
-            .slice().reverse().map(read),
+          items: rows().filter((r) => (c.query.scope === 'review'
+            ? r.owner !== c.user.id && r.group !== null && writes(c.user, r.group) && (r.share.status === 'checking' || r.share.status === 'ready')
+            : r.owner === c.user.id) && (!c.query.status || r.share.status === c.query.status) && (!c.query.source || r.share.source === c.query.source))
+            .slice().reverse().map((r) => forCaller(r, read(r), c.user)),
         }),
-        getSkillShare: (c) => read(mine(c)),
+        getSkillShare: (c) => { const r = mine(c); return forCaller(r, read(r), c.user) },
+        setSkillShareTarget: (c) => {
+          const r = rows().find((x) => x.share.id === c.params.id && x.owner === c.user.id) ?? fail('not_found', 404)
+          const to = (c.body as { group: string | null }).group
+          if (to && !writes(c.user, to)) fail('validation', 400, '이 그룹의 스킬 폴더에 넣을 수 있는 그룹 멤버만 할 수 있어요.')
+          if (r.share.candidates.some((x) => x.applied)) fail('conflict', 409, '이미 일부를 넣은 공유 제안은 보낼 곳을 바꿀 수 없어요.')
+          r.group = to
+          return forCaller(r, read(r), c.user)
+        },
         applySkillShare: (c) => {
           const r = mine(c)
           if (r.share.status !== 'ready') fail('conflict', 409, r.share.status === 'checking' ? '아직 확인하는 중이에요.' : '이 제안은 이미 끝났어요.')
-          const b = c.body as import('@mycel/shared/api').ApplySkillShare
+          if (r.group ? !writes(c.user, r.group) : r.owner !== c.user.id) fail('forbidden', 403)
+          // a share to a group writes into that group's skills folder, its skills only (no team rule, no tools)
+          const root = r.group ? this.groupSkillRoots(c.user).find((g) => g.id === r.group)!.root : 'skills'
+          const b0 = c.body as import('@mycel/shared/api').ApplySkillShare
+          const b = r.group ? { ...b0, rule: false, tools: [] } : b0
           const candidates = r.share.candidates.map((x) => ({ ...x }))
           const added: { path: string; title: string; recommended: boolean }[] = []
           for (const s of b.skills) {
@@ -3002,7 +3048,7 @@ export class MockServer {
               x.applied = { status: 'merge', path: target, chatId: chat.id, error: null }
             } else {
               const name = s.action === 'separate' ? s.as ?? `${x.name}-2` : x.name
-              const path = `skills/${name}/SKILL.md`
+              const path = `${root}/${name}/SKILL.md`
               put(path, skillText(name, title))
               x.applied = { status: 'added', path, chatId: null, error: null }
               added.push({ path, title, recommended: x.group === 'recommended' })
@@ -3011,16 +3057,17 @@ export class MockServer {
           const rule = r.share.rule && b.rule ? { ...r.share.rule, path: 'skills/일하는-방식.md' } : r.share.rule
           if (rule?.path && b.rule) put(rule.path, rule.text)
           const tools = r.share.tools.map((x) => (b.tools?.includes(x.name) ? { ...x, templateId: uuidv7() } : x))
-          const landing = (added.find((x) => x.recommended) ?? added[0])?.path ?? null
+          const landing = r.group ? null : (added.find((x) => x.recommended) ?? added[0])?.path ?? null
           r.share = { ...r.share, status: 'applied', candidates, rule, tools, landing, updatedAt: now() }
           // applying a share anywhere marks 내 스킬 done for the owner (server: onboarding/welcome.ts recordShared)
+          if (r.group) return forCaller(r, r.share, c.user)
           if (this.welcome && c.user.role === 'owner') {
             const w = { ...this.welcome, steps: { ...this.welcome.steps, skills: 'done' as const } }
             delete w.skillsLater
             if (added.length) w.shared = { at: this.welcome.shared?.at ?? now(), skills: [...(this.welcome.shared?.skills ?? []), ...added.map(({ path, title }) => ({ path, title }))], landing: this.welcome.shared?.landing ?? landing }
             this.welcome = this.welcomeSaved(w, now())
           }
-          return r.share
+          return forCaller(r, r.share, c.user)
         },
         dismissSkillShare: (c) => {
           const r = mine(c)

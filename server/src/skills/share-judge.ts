@@ -16,7 +16,7 @@ import type { AppContext } from '../context'
 import { HttpError } from '../http/errors'
 import { getTeamSettings, teamDefaultLocale } from '../admin/settings'
 import { historyBlock, LANGUAGE } from '../chat/prompt'
-import { listTeamSkills, sameSkillName } from '../chat/skills'
+import { listGroupSkills, listTeamSkills, sameSkillName } from '../chat/skills'
 import { answerJson } from '../onboarding/draft'
 import { profileFactLines, readCompanyProfile } from '../onboarding/profile'
 import { cleanRuleOutput, oneLine, readHeader, secretKind, type RuleInput, type TeamSkillRef } from './share-check'
@@ -54,9 +54,9 @@ const judged = (cands: readonly ShareCandidate[]) => cands.filter((c) => c.group
  * company profile) and the staged files.
  */
 export function shareJudgeOf(ctx: AppContext, chatId: string): ShareJudgeScope | null {
-  let r: { share_id: string; created_by: string; result: string } | null
+  let r: { share_id: string; created_by: string; result: string; target_group_id: string | null } | null
   try {
-    r = ctx.db.query('SELECT j.share_id, s.created_by, s.result FROM skill_share_judges j JOIN skill_shares s ON s.id = j.share_id WHERE j.chat_id = ?').get(chatId) as typeof r
+    r = ctx.db.query('SELECT j.share_id, s.created_by, s.result, s.target_group_id FROM skill_share_judges j JOIN skill_shares s ON s.id = j.share_id WHERE j.chat_id = ?').get(chatId) as typeof r
   } catch (e) {
     if (/no such table: skill_share/.test(String((e as Error)?.message ?? e))) return null
     throw e
@@ -66,7 +66,11 @@ export function shareJudgeOf(ctx: AppContext, chatId: string): ShareJudgeScope |
   const user = ctx.files.principal(r.created_by)
   const profile = readCompanyProfile(ctx.files, user)
   const company = profile ? profileFactLines(profile, PROFILE_BLOCK_MAX, getTeamSettings(ctx.db).teamName) : []
-  const team = listTeamSkills(ctx.files, user).slice(0, TEAM_SKILLS_MAX).map((s) => ({ name: s.name, title: skillTitle(s), description: oneLine(s.description, 200) }))
+  // a share to a group (docs/DECISIONS.md "Group skills"): the group's own skills first, then the team's it does not
+  // replace, so "similar" and "same name" point at what the group's members already have
+  const groupSkills = r.target_group_id ? listGroupSkills(ctx.files, user, r.target_group_id) : []
+  const team = [...groupSkills, ...listTeamSkills(ctx.files, user).filter((t) => !groupSkills.some((g) => sameSkillName(g.name, t.name)))]
+    .slice(0, TEAM_SKILLS_MAX).map((s) => ({ name: s.name, title: skillTitle(s), description: oneLine(s.description, 200) }))
   const kept = judged(result.candidates)
   const per = Math.max(400, Math.min(2000, Math.floor(CANDIDATES_CHARS / Math.max(1, kept.length))))
   const candidates = kept.map((c) => {

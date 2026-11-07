@@ -29,7 +29,7 @@ import { badSegment } from '../policy/names'
 import { notifySkillSuggestion } from '../notifications/service'
 import { groupOfSkillFolder, groupSkillFolders, isGroupSkillFolder, isSkillFolder, managedSkillFolders, managesSkillFolder, visibleSkillFolders } from './managers'
 import { st } from './text'
-import { checkSkill, listSkills, listTeamSkills, SKILL_NAME_MAX, type SkillProblem } from '../chat/skills'
+import { checkSkill, listSkills, listTeamSkills, SKILL_NAME_MAX, writableGroupSkillRoots, type SkillProblem } from '../chat/skills'
 import { checkShare, needsScripts, readHeader, writeSkillMd } from './share-check'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -151,11 +151,22 @@ export function skillsOverview(ctx: AppContext, userId: string): SkillsOverview 
   const skills = listSkills(ctx.files, p)
   const list = buildSkillList(skills, { order: descriptionOrder(skills, usageScores(ctx.db, userId, skills.map((s) => s.path))), tag: neutralizeTags })
   const teamRules = teamRuleFiles(ctx.files, p)
+  // open share proposals others made to a group whose skills folder this person may write (docs/DECISIONS.md "Group
+  // skills"): what they may apply, beside the suggestions
+  const writable = writableGroupSkillRoots(ctx.files, p).map((g) => g.id)
+  let sharesToReview = 0
+  if (writable.length) {
+    try {
+      sharesToReview = (ctx.db.query(`SELECT COUNT(*) AS n FROM skill_shares WHERE target_group_id IN (${writable.map(() => '?').join(',')}) AND created_by <> ? AND status IN ('checking','ready') AND expires_at > ?`)
+        .get(...writable, userId, new Date().toISOString()) as { n: number }).n
+    } catch { sharesToReview = 0 }
+  }
   return {
     managedFolders: managed,
     suggestFolders: suggest,
     pendingReview: pending.filter((r) => reviews(ctx, p, r, rules)).length,
     myPending: pending.filter((r) => r.suggester_id === userId).length,
+    sharesToReview,
     aiList: { skills: list.total, described: list.described, nameOnly: list.nameOnly, unlisted: list.unlisted, cut: list.cut, rules: teamRules.total, rulesFollowed: teamRules.followed },
   }
 }

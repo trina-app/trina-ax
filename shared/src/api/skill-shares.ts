@@ -6,7 +6,11 @@
 // one-line reason; the CLAUDE.md lines that fit the team become one team rule). Applying writes what the person
 // ticked as them (FileService.humanSave, like approving a suggestion: folder rules, versions, the skills/ change log,
 // 409 on a file that appeared meanwhile). A share belongs to the person who made it: only they see and apply it.
-// Members get 403 (their way stays "스킬로 제안"). Route module: server/src/routes/skill-shares.ts.
+// Members cannot make one (their way stays "스킬로 제안"). Route module: server/src/routes/skill-shares.ts.
+// Group skills (docs/DECISIONS.md "Group skills"): a share goes to the team (skills/) or to one of the proposer's groups
+// (groups/<folder>/skills/), stored with it (`targetGroup`) and chosen with the share_skills tool's `group` or on the
+// share page (PATCH). A share to a group is also seen, reviewed and applied by that group's members who may write its
+// skills folder (`canApply`); the checks and the AI's judgement compare it with the group's skills and the team's.
 import { z } from 'zod'
 import { empty, endpoint } from './endpoint'
 import { IsoTime } from './common'
@@ -129,6 +133,9 @@ export const CreateSkillShare = z.object({
   projects: z.number().int().min(0).max(100).optional(),
   /** Claude Code only: the names it would pick (the server judges again) */
   picked: z.array(z.string().max(100)).max(SKILL_SHARE_LIMITS.connectorSkills).optional(),
+  /** where it goes: the id of one of the proposer's groups whose skills folder they may write; absent or null: the
+   * team (skills/) */
+  group: z.string().min(1).max(100).nullable().optional(),
 }).strict()
 export type CreateSkillShare = z.infer<typeof CreateSkillShare>
 
@@ -227,8 +234,26 @@ export const SkillShare = z.object({
   /** after [팀에 공유]: the skill the invite opens (the first recommended skill added, else the first added); null when
    * nothing was added */
   landing: z.string().nullable(),
+  /** where it goes: one of the proposer's groups (its current name; null when the group is gone: nothing can be applied
+   * then), or null / absent for the team */
+  targetGroup: z.object({ id: z.string(), name: z.string().nullable() }).nullable().optional(),
+  /** who proposed it (absent from older servers: the caller) */
+  proposer: z.object({ id: z.string(), name: z.string() }).optional(),
+  /** the caller proposed it (absent: true) */
+  mine: z.boolean().optional(),
+  /** the caller may apply or drop it: the proposer for the team, a member of the target group who may write its skills
+   * folder for a group (absent: true) */
+  canApply: z.boolean().optional(),
+  /** the proposer's own open share only: the groups it may go to instead of the team (their groups whose skills
+   * folder they may write), by name; [] or absent: the team only */
+  targets: z.array(SkillGroupRef).optional(),
 })
 export type SkillShare = z.infer<typeof SkillShare>
+
+/** PATCH /api/skill-shares/:id: move one's own open share to the team (null) or to one of one's groups, before anything
+ * of it went in; the checks run again against that target's skills. */
+export const SetSkillShareTarget = z.object({ group: z.string().min(1).max(100).nullable() }).strict()
+export type SetSkillShareTarget = z.infer<typeof SetSkillShareTarget>
 
 export const ApplySkillShare = z.object({
   /** the ticked candidates by name; `as`: a new name for "separate" (default: a free "<name>-2") */
@@ -245,19 +270,23 @@ export type ApplySkillShare = z.infer<typeof ApplySkillShare>
 export const StartedSkillMerge = z.object({ started: z.boolean() })
 export type StartedSkillMerge = z.infer<typeof StartedSkillMerge>
 
-export const ListSkillSharesQuery = z.object({ status: SkillShareStatus.optional(), source: SkillShareSource.optional() })
+/** `scope`: mine (default: the caller's own) or review (the open proposals to the caller's groups that others made and
+ * the caller may apply) */
+export const ListSkillSharesQuery = z.object({ status: SkillShareStatus.optional(), source: SkillShareSource.optional(), scope: z.enum(['mine', 'review']).optional() })
 
 export const SKILL_SHARES = {
   createSkillShare: endpoint({ method: 'POST', path: '/api/skill-shares', auth: 'admin', owner: 'B', body: CreateSkillShare, response: SkillShare, status: 201,
-    summary: 'Bring my skills to the team (owners and admins): the candidates from a picked .claude folder are staged outside the team files, checked (shape, secrets, scripts, plugin, size, personal paths, same name) and judged by one AI turn without tools. Nothing reaches the team before apply.' }),
-  listSkillShares: endpoint({ method: 'GET', path: '/api/skill-shares', auth: 'admin', owner: 'B', query: ListSkillSharesQuery, response: z.object({ items: z.array(SkillShare) }),
-    summary: 'The caller\'s own share proposals, newest first (a Claude Code proposal shows up here as soon as it arrives).' }),
-  getSkillShare: endpoint({ method: 'GET', path: '/api/skill-shares/:id', auth: 'admin', owner: 'B', response: SkillShare,
-    summary: 'One share proposal of the caller\'s own: its candidates with their group and one-line reason, the CLAUDE.md team rule and the tools.' }),
-  applySkillShare: endpoint({ method: 'POST', path: '/api/skill-shares/:id/apply', auth: 'admin', owner: 'B', body: ApplySkillShare, response: SkillShare,
-    summary: 'Share the ticked skills with the team as the caller (their own save: folder rules, versions, the skill change log); a skill of the same name is merged through a chat with the confirmation card, the CLAUDE.md lines become a team rule, the tools become connection templates (no key). Idempotent per skill.' }),
-  dismissSkillShare: endpoint({ method: 'POST', path: '/api/skill-shares/:id/dismiss', auth: 'admin', owner: 'B', response: empty, status: 204,
-    summary: 'Drop a share proposal of the caller\'s own (나중에 하기): its staged files are deleted.' }),
+    summary: 'Bring my skills to the team or to one of my groups (owners and admins): the candidates from a picked .claude folder are staged outside the team files, checked (shape, secrets, scripts, plugin, size, personal paths, same name in the target) and judged by one AI turn without tools. Nothing reaches the team before apply.' }),
+  listSkillShares: endpoint({ method: 'GET', path: '/api/skill-shares', auth: 'user', owner: 'B', query: ListSkillSharesQuery, response: z.object({ items: z.array(SkillShare) }),
+    summary: 'The caller\'s own share proposals, newest first (a Claude Code proposal shows up here as soon as it arrives); scope=review: the open proposals to the caller\'s groups that they may apply.' }),
+  getSkillShare: endpoint({ method: 'GET', path: '/api/skill-shares/:id', auth: 'user', owner: 'B', response: SkillShare,
+    summary: 'One share proposal of the caller\'s own, or one to a group whose skills folder the caller may write: its candidates with their group and one-line reason, the CLAUDE.md team rule and the tools.' }),
+  setSkillShareTarget: endpoint({ method: 'PATCH', path: '/api/skill-shares/:id', auth: 'admin', owner: 'B', body: SetSkillShareTarget, response: SkillShare,
+    summary: 'Move one\'s own open share to the team or to one of one\'s groups before anything of it went in; the same-name checks run again against that target. The group\'s members who may write its skills folder are told.' }),
+  applySkillShare: endpoint({ method: 'POST', path: '/api/skill-shares/:id/apply', auth: 'user', owner: 'B', body: ApplySkillShare, response: SkillShare,
+    summary: 'Share the ticked skills with the team or the target group as the caller (their own save: folder rules, versions, the skill change log); a skill of the same name is merged through a chat with the confirmation card, the CLAUDE.md lines become a team rule and the tools connection templates (no key; the team only). Idempotent per skill.' }),
+  dismissSkillShare: endpoint({ method: 'POST', path: '/api/skill-shares/:id/dismiss', auth: 'user', owner: 'B', response: empty, status: 204,
+    summary: 'Drop a share proposal of the caller\'s own, or one to a group whose skills folder the caller may write (나중에 하기): its staged files are deleted.' }),
   startSkillMerge: endpoint({ method: 'POST', path: '/api/skill-shares/merge-chats/:id/start', auth: 'admin', owner: 'B', response: StartedSkillMerge,
     summary: 'Start the merge in a merge chat of the caller\'s own that waits for them (`Chat.mergeWaiting`, made at the end of the welcome steps): its one restricted turn is queued now, while they look at it. Once per chat: a second call starts nothing.' }),
 } as const

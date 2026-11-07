@@ -236,6 +236,9 @@ export const SkillsOverview = z.object({
   pendingReview: z.number().int().nonnegative(),
   /** the caller's own suggestions still waiting */
   myPending: z.number().int().nonnegative(),
+  /** open share proposals that others made to a group whose skills folder the caller may write (docs/DECISIONS.md
+   * "Group skills"): the caller may apply them (GET /api/skill-shares?scope=review). Absent from older servers: 0 */
+  sharesToReview: z.number().int().nonnegative().optional(),
   /** what the AI's instructions hold of the caller's skills (server/src/chat/skill-list.ts): every name while they
    * fit in the list's budget, descriptions while they fit; the rest the AI finds with find_skills. Team rules: how many
    * skills/*.md rule files there are and how many the AI follows (the first 10). Absent from older servers. */
