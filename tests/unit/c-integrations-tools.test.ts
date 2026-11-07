@@ -123,7 +123,7 @@ describe('tools made per person', () => {
       expect(a.tools.get('team_teamboard__search_tasks')!.description).toStartWith('[Team board, team connection]')
       // each name runs its own connection: the chat remembers whose answer it holds
       expect((await a.call('my_teamboard__search_tasks', { q: 'x' })).isError).toBe(false)
-      expect(readScope(A.ctx.db, a.chat)).toEqual([{ type: 'user', id: 'alice' }])
+      expect(readScope(A.ctx.db, a.chat)).toEqual([{ type: 'user', id: 'alice', via: 'connection' }])
       const b = turn('alice')
       expect((await b.call('team_teamboard__search_tasks', { q: 'x' })).isError).toBe(false)
       expect(readScope(A.ctx.db, b.chat)).toEqual([{ type: 'integration', id: team.id }])
@@ -161,7 +161,7 @@ describe('calls', () => {
     expect(r.text).toContain('search_tasks: {"q":"plan"}')
     expect(r.summary).toBe('my_tasks__search_tasks -> ok (26 chars)')
     expect(fake.calls.at(-1)).toMatchObject({ name: 'search_tasks', args: { q: 'plan' }, auth: `Bearer ${MCP_KEY}` })
-    expect(readScope(A.ctx.db, a.chat)).toEqual([{ type: 'user', id: 'alice' }])
+    expect(readScope(A.ctx.db, a.chat)).toEqual([{ type: 'user', id: 'alice', via: 'connection' }])
     expect(A.ctx.db.query('SELECT session_tainted AS t FROM chats WHERE id = ?').get(a.chat)).toEqual({ t: 1 })
     expect(r.text + r.summary).not.toContain(MCP_KEY)
     const last = A.ctx.db.query('SELECT last_used_at FROM integrations WHERE id = ?').get(tasks.id) as { last_used_at: string | null }
@@ -323,7 +323,7 @@ describe('calls', () => {
     // a personal connection's answer counts as the person's own folder
     const a = turn('alice')
     await a.call('my_tasks__search_tasks', {})
-    expect(widening(A.ctx.db, a.chat, ['shared', 'x.md'])?.narrower).toEqual([{ type: 'user', id: 'alice' }])
+    expect(widening(A.ctx.db, a.chat, ['shared', 'x.md'])?.narrower).toEqual([{ type: 'user', id: 'alice', via: 'connection' }])
   })
 
   test('answers are cut for the AI; event-stream replies that stay open; a forgotten session starts again', async () => {

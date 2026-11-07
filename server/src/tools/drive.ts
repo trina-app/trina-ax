@@ -65,7 +65,7 @@ export function registerDriveTools(ctx: AppContext, reg: ToolRegistry): boolean 
     const result = await svc.run(source.share ? `share:${source.share.id}` : t.user.id, t.signal, (signal) => fn(source, signal))
     source.fence(); turn(t)
     ctx.db.transaction(() => {
-      addSources(ctx.db, chat, [source.share ? { type: 'drive_share', id: source.share.id } : { type: 'user', id: t.user.id }])
+      addSources(ctx.db, chat, [source.share ? { type: 'drive_share', id: source.share.id } : { type: 'user', id: t.user.id, via: 'connection' }])
       ctx.db.query('UPDATE chats SET session_tainted=1 WHERE id=?').run(chat)
     })()
     const { mine, shares } = labels(t.user.id)
