@@ -22,9 +22,10 @@ In:
 1. Gateway: APNs payload of a room code (`room.*`) adds `mutable-content: 1`; the generic `aps.alert` stays as the
    fallback (the 1.0.0 app has no extension and shows it). No new request field; older team servers keep working.
 2. Server: `POST /api/push/devices/:id/label { key, notificationId }` (no session) answers `{ title, body?, roomId?,
-   threadId? }` or, for every failure, the same `{}`. A per-device label key, minted at registration only when the page
-   asks for it (`labels: true`, only an app offering `push-label-v1`), separate from the removal key, stored as sha256
-   (`push_subscriptions.label_hash`, migration 263). Checks: key (constant time), the device row (native, current
+   threadId? }` or, for every failure, the same `{}`. A per-device label key, separate from the removal key, made by the
+   iPhone app (only an app offering `push-label-v1`); the page registers only its sha256 with the token (`labelHash`,
+   kept as `push_subscriptions.label_hash`, migration 263), so it never crosses the bridge and never rotates per page
+   load (changed after the design review; the first draft had the server mint it). Checks: key (constant time), the device row (native, current
    gateway, session alive, user active, push on), a room notice of that user that was queued for this device, unread,
    not quiet, `noticeWanted`, and the Inbox's visibility (`roomNoticeOut`: left or hidden room, deleted message,
    private preview give nothing). Rate limited per device; nothing logged. Title = Web Push's title (`roomNoticeOut`
@@ -35,9 +36,10 @@ In:
    redirects, no cookies, 5 s), and on any failure shows what Apple delivered. Sets `threadIdentifier` to the room id.
    Shared keychain group `<team>.app.trina.ax.notifications` (both targets; the app lists its own group first so its
    other keychain items stay where they are), `AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY`; the app writes `{origin, deviceId,
-   key}` at every registration (expo-secure-store 58.0.2 `accessGroup`) and clears it on a team change, a sign-out and
-   a reinstall.
-4. Sign-out clears delivered notifications: the page's `session-reset` says `signedOut: true` when the session ends
+   key}` (the key at the token request, the device id at `push-registered`; expo-secure-store 58.0.2 `accessGroup`) and
+   deletes it on a team change, a sign-out, a reinstall and at a launch that finds it stale.
+4. Sign-out clears delivered notifications: the page's `session-reset` says `signedOut: true` when the status is
+   signed out (also an expired session and a cold start on the sign-in page) or another person's session replaced one
    (an older app ignores the field).
 5. Android unchanged (no `push-label-v1`, no label key).
 6. App version 1.0.1. `scripts/ios-release.sh` checks the extension's bundle id, profile and entitlements.
@@ -48,8 +50,8 @@ Out: Android labels; a label for non-room events; building or submitting the sto
 
 1. This plan; a security review of the design by a separate reviewer; fixes.
 2. Gateway `mutable-content` + tests.
-3. Migration 263, registration with a label key, the label endpoint, contract, docs page, tests.
-4. Web: `labels: true` and `labelKey` for apps with `push-label-v1`; `signedOut` on session reset; tests.
+3. Migration 263, registration with a label key's hash, the label endpoint, contract, docs page, tests.
+4. Web: `labelHash` from the token reply of apps with `push-label-v1`; `signedOut` on session reset; tests.
 5. App: protocol, label store, App wiring, plugin + Swift, version, release script; tests; simulator build.
 6. Second independent code review; fixes; CHANGELOG, DECISIONS (native push section), README/STORE-SUBMISSION.
 

@@ -129,7 +129,8 @@ final class NoRedirects: NSObject, URLSessionTaskDelegate {
   }
 }
 
-final class NotificationService: UNNotificationServiceExtension {
+/// Its state is behind the lock (the answer, the timeout guard and the system may finish at the same time).
+final class NotificationService: UNNotificationServiceExtension, @unchecked Sendable {
   private let lock = NSLock()
   private var handler: ((UNNotificationContent) -> Void)?
   private var original: UNNotificationContent?
