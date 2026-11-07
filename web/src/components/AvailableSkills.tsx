@@ -251,7 +251,7 @@ function SkillRow({ skill: s, folder, onRun }: { skill: Skill; folder: boolean; 
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-baseline gap-1.5 text-sm font-medium">
-            <span className={clsx('truncate', !title && 'font-mono')} data-testid="skill-name">{shown}</span>
+            <span className="truncate" data-testid="skill-name">{shown}</span>
             {title && <span className="shrink-0 font-mono text-xs font-normal text-faint" data-testid="skill-command">{command}</span>}
           </span>
           {shadow && <span className="mt-0.5 block truncate text-xs text-faint" data-testid="skill-shadow-note">{shadow}</span>}

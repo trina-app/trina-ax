@@ -94,6 +94,10 @@ test('Team skills: a team skill replaced by a group or personal skill of the sam
 
   // one name everywhere: what people type, hyphens kept; a title comes first with the command beside it
   await expect(team.locator('[data-path="skills/meeting-notes/SKILL.md"]').getByTestId('skill-name')).toHaveText('/meeting-notes')
+  // the same type as the "/" menu's name: the page's sans font at medium weight, not monospace
+  const nameStyle = await team.locator('[data-path="skills/meeting-notes/SKILL.md"]').getByTestId('skill-name').evaluate((el) => { const c = getComputedStyle(el); return { family: c.fontFamily, weight: c.fontWeight } })
+  expect(nameStyle.family).not.toMatch(/mono|menlo|courier/i)
+  expect(nameStyle.weight).toBe('500')
   const ad = team.locator('[data-path="skills/marketing/ad-copy/SKILL.md"]')
   await expect(ad.getByTestId('skill-name')).toHaveText('Ad copy')
   await expect(ad.getByTestId('skill-command')).toHaveText('/ad-copy')
