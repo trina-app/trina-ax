@@ -614,6 +614,20 @@ describe('every install path reads the list', () => {
   })
 
 
+  test('the Docker image: the list read in bash; the always and docker groups by default; fonts and the browser only by build argument', () => {
+    const d = read('docker/Dockerfile')
+    const shell = d.indexOf('SHELL ["/bin/bash", "-c"]'), source = d.indexOf('. "$root/packages.sh"')
+    expect(shell).toBeGreaterThan(0)
+    expect(shell).toBeLessThan(source) // sh (dash) cannot source packages.sh
+    expect(d).toContain('ARG TRINA_AX_PACKAGE_GROUPS=""')
+    expect(d).toContain('groups="minimal docker"; \\')
+    expect(d).toContain('case "$g" in fonts|browser) groups="$groups $g" ;; *) echo "TRINA_AX_PACKAGE_GROUPS: $g is not an optional group here')
+    expect(d).toContain('pk_browser_install /opt/trina/chrome-headless-shell "linux-$(pk_arch)"')
+    expect(read('docker/entrypoint.sh')).toContain('--skip-apt --no-auto-update --minimal')
+    // by default no browser group: what the always and docker groups install has no browser library of its own
+    expect(groupsFor(LIST, ['minimal', 'docker'])).not.toContain('browser')
+  })
+
   test('a test container that pins node pins the list\'s', () => {
     const t = read('tests/linux/Dockerfile.srt'), node = LIST.artifacts.node!
     for (const p of ['linux-amd64', 'linux-arm64']) expect(t).toContain(node.platforms[p]!.sha256)
