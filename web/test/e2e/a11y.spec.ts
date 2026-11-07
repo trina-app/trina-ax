@@ -325,8 +325,8 @@ test('external services have no serious accessibility problems at phone width', 
   await auditIntegrations(page, ' (phone)')
 })
 
-// The team logo (Admin › Team settings): a refused file's message, then a logo with its previews on light and dark
-// backgrounds and the remove button, in both themes and at phone width.
+// The team logo (Admin › Team settings): a refused file's message, then a logo with the remove button and its preview
+// (the sidebar header in the light and the dark look) open, in both themes and at phone width.
 async function auditTeamIcon(page: Page, where: string) {
   await page.goto('/admin/settings')
   await expect(page.getByTestId('team-icon')).toBeVisible()
@@ -336,6 +336,8 @@ async function auditTeamIcon(page: Page, where: string) {
   await audit(page, `team logo (refused)${where}`)
   await page.getByTestId('team-icon-input').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: Buffer.from(makePng(256, 256)) })
   await expect(page.getByTestId('team-icon-remove')).toBeVisible()
+  await page.getByTestId('team-icon-previews').click()
+  await expect(page.getByTestId('team-icon-preview-dark')).toBeVisible()
   await audit(page, `team logo (set)${where}`)
 }
 
@@ -403,7 +405,7 @@ for (const scheme of ['light', 'dark'] as const) {
   test(`team skills have no serious accessibility problems (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme })
     await reset(page)
-    await page.route('**/api/skills', (r) => r.fulfill({ json: { items: [
+    await page.route(/\/api\/skills(\?.*)?$/, (r) => r.fulfill({ json: { items: [
       { path: 'skills/proposal/SKILL.md', name: 'proposal', description: 'Writes a client proposal deck' },
       { path: 'skills/weekly.md', name: 'weekly', description: '' },
       { path: 'users/olga/skills/tone.md', name: 'tone', description: 'My mail tone', personal: true },

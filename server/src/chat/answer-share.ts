@@ -37,6 +37,10 @@
 // attached). Names the AI saw through list or glob in a person's own chat are not recorded (only a room's session keeps
 // them): a name it repeats without a link is not checked. Every request takes from the sending budget before anything is
 // checked (the check is no free probe of who may read what); the message then takes nothing more.
+// In a team room or the everyone room, a member who would see what it read there but for an old answer hidden from them
+// (docs/DECISIONS.md "지난 대화") is never sent it, confirmed or not (409 answer_share_hidden): the sender cannot see what
+// is at stake for them. What it used (and the files that go with it) is kept with the message (room_messages
+// .source_scope) for those who join later.
 // A confidential conversation (safe operations 1A) is never shared. Audited (room.answer_share) with the room as audit
 // rows name it, the number of people, whether it was confirmed, cut, and the number of files attached; no content, no
 // names.
@@ -60,8 +64,10 @@ import { confidentialChat } from '../safe-ops/confidential'
 import { fileOpener, roomsOf } from '../rooms/service'
 import { roomFilesOf } from '../rooms/files'
 import { groupName, messagesOut, MSG_COLS, roomRow, type MessageRow as RoomMessageRow } from '../rooms/store'
+import { historyKinds, openHistories } from '../rooms/history'
+import { DECIDE_HISTORY_MS } from '../rooms/ai'
 import { hashFile } from '../team-files/place'
-import { missingReaders, scopeWithListing, sourceKey, sourceOf, type ReadSource } from './read-scope'
+import { missingReaders, scopeWithListing, sourceKey, sourceOf, viewersByHistory, type ReadSource } from './read-scope'
 import { tr } from './i18n'
 import type { ChatRow, MessageRow } from './store'
 
@@ -131,8 +137,15 @@ function branchUse(db: Database, chatId: string, messageId: string): BranchUse {
 /** One linked file as the check sees it. `unable`: member ids who cannot open it now (everyone else when hidden). */
 interface Row { link: string; rel: string | null; name: string; size: number; unable: string[]; attach: AnswerShareFile['attach'] }
 
-/** Provenance for one choice of attached files, with what the key binds (`keys`). */
-interface Prov { missing: Set<string>; places: AnswerSharePlace[]; otherPlaces: boolean; unknown: boolean; keys: string[] }
+/** Provenance for one choice of attached files, with what the key binds (`keys`); `hidden`: a member would see a room
+ * it read but for old answers hidden from them (never sent); `kept`: what it used, for the message (later members). */
+interface Prov { missing: Set<string>; places: AnswerSharePlace[]; otherPlaces: boolean; unknown: boolean; keys: string[]; hidden: boolean; kept: AnswerScopeKept }
+
+/** What a shared answer used, as kept with its message (room_messages.source_scope): the sources checked when it was
+ * sent, the files that went with it and the paths it links to (as names), and `unknown` when not all of it is known
+ * (the chat's scope did not describe the answer, or it read rooms the scope does not name). A later member of the room
+ * sees it only when they may read every source and nothing is unknown (rooms/history.ts). */
+export interface AnswerScopeKept { sources: ReadSource[]; unknown: boolean }
 
 /** Per AppContext: the secret the confirm keys are made with (in memory: a restart asks again). */
 const secrets = new WeakMap<AppContext, Buffer>()
@@ -145,6 +158,10 @@ const secretOf = (ctx: AppContext) => secrets.get(ctx) ?? secrets.set(ctx, rando
  */
 export async function answerCheck(ctx: AppContext, userId: string, roomId: string, chatId: string, messageId: string, answerPart: string) {
   const db = ctx.db, rules = ctx.files.rules()
+  // a team room or the everyone room: the members whose history is not worked out yet get it first (rooms/history.ts),
+  // for at most DECIDE_HISTORY_MS; one still waiting makes it unsendable (`hidden` below)
+  const target = roomRow(db, roomId)
+  if (target && historyKinds(target.kind)) try { openHistories(ctx, { roomId, budgetMs: DECIDE_HISTORY_MS, within: true }) } catch (e) { ctx.log.warn('room history not opened', { err: e }) }
   // a disabled or deleted account still in the room reads nothing now: it misses every source and every file
   const audience = (db.query('SELECT user_id FROM room_members WHERE room_id = ? AND user_id <> ? ORDER BY user_id').all(roomId, userId) as { user_id: string }[]).map((r) => r.user_id)
   const me = loadPrincipal(db, userId)
@@ -305,7 +322,11 @@ export async function answerCheck(ctx: AppContext, userId: string, roomId: strin
         entry.files.push(f)
       }
     }
-    const missed = missingReaders(db, rules, [...candidates, ...[...fileRows.values()].map((e) => e.source)], audience)
+    const missed = missingReaders(db, rules, [...candidates, ...[...fileRows.values()].map((e) => e.source)], audience, userId)
+    // a member who misses a room it read only because of old answers hidden from them (or whose history is not worked
+    // out): never sent, whatever is confirmed
+    const audienceSet = new Set(audience)
+    let hidden = candidates.some((s) => s.type === 'room' && [...viewersByHistory(db, s.id, undefined, s.fromSeq, userId).hiddenFrom].some((id) => audienceSet.has(id)))
     const missing = new Set<string>()
     const places = new Map<string, AnswerSharePlace>()
     const keys: string[] = []
@@ -326,13 +347,24 @@ export async function answerCheck(ctx: AppContext, userId: string, roomId: strin
       if (p) places.set(JSON.stringify(p), p)
       else otherPlaces = true
     }
-    let unknown = false
+    let unknown = false, roomsUnseen = false
     for (const u of uses) {
       if (!u.known) unknown = true
-      if (u.roomsUnseen) { for (const id of audience) missing.add(id); places.set('{"kind":"conversation"}', { kind: 'conversation' }); keys.push('rooms_seen') }
+      if (u.roomsUnseen) { roomsUnseen = true; for (const id of audience) missing.add(id); places.set('{"kind":"conversation"}', { kind: 'conversation' }); keys.push('rooms_seen') }
     }
     if (unknown) { for (const id of audience) missing.add(id); otherPlaces = true; keys.push('unknown') }
-    return { missing, places: [...places.values()], otherPlaces, unknown, keys: keys.sort() }
+    // for the message: every source its uses had (covered files too: a later member is judged on what they may read),
+    // the files that go with it as their places, the paths it links to as names
+    const kept: AnswerScopeKept = {
+      sources: [...candidates, ...uses.flatMap((u) => u.files.map((f) => sourceOf(db, rules, f.path))), ...[...attached].map((rel) => sourceOf(db, rules, rel)),
+        ...rows.filter((r) => r.rel).map((r): ReadSource => ({ type: 'name', path: r.rel! }))],
+      unknown: unknown || roomsUnseen || rows.some((r) => r.rel === null),
+    }
+    // a chat that read rooms without saying which (this answer's, or the one that made an attached file): any room may be
+    // in it, so a member with old answers hidden from them anywhere, or whose history is not worked out yet, is never
+    // sent it either (a confirm would carry it past them)
+    if (!hidden && roomsUnseen) hidden = audience.some((id) => hiddenAnywhere(db, id))
+    return { missing, places: [...places.values()], otherPlaces, unknown, keys: keys.sort(), hidden, kept }
   }
 
   /** what an older client is told and sends back (`confirm`): nobody attached, so every row's people count */
@@ -342,6 +374,14 @@ export async function answerCheck(ctx: AppContext, userId: string, roomId: strin
 }
 
 type Check = Awaited<ReturnType<typeof answerCheck>>
+
+/** Has this person old answers hidden from them in some room, or a team room's or the everyone room's history not
+ * worked out yet (rooms/history.ts)? */
+function hiddenAnywhere(db: Database, userId: string): boolean {
+  return !!db.query('SELECT 1 FROM room_hidden_answers WHERE user_id = ? LIMIT 1').get(userId)
+    || !!db.query(`SELECT 1 FROM room_members m JOIN rooms r ON r.id = m.room_id WHERE m.user_id = ? AND r.kind IN ('team', 'all') AND r.archived_at IS NULL
+      AND m.history_from_seq IS NULL AND m.visible_from_seq > 0 LIMIT 1`).get(userId)
+}
 
 /** The members who cannot open a linked file that does not go with the message, or see some of that material. */
 const unablePeople = (c: { audience: readonly string[]; rows: readonly Row[] }, attached: ReadonlySet<string>, prov: Prov): number => {
@@ -389,6 +429,7 @@ export async function shareAnswerToRoom(ctx: AppContext, userId: string, chat: C
   const c = await answerCheck(ctx, userId, room.id, chat.id, message.id, body.slice(at))
   const offered = new Set(c.offered)
   const shown = await c.provenance(offered)
+  if (shown.hidden) fail('conflict', tr('answerShareHidden', locale), { params: { reason: 'answer_share_hidden' } })
   // (a room with nobody else in it: nobody to miss anything)
   const applies = c.audience.length > 0 && (c.rows.some((r) => r.unable.length > 0) || shown.missing.size > 0 || shown.unknown)
   const key = confirmKeyOf(ctx, userId, room.id, message.id, c, shown)
@@ -407,6 +448,7 @@ export async function shareAnswerToRoom(ctx: AppContext, userId: string, chat: C
       }
       const chosen = new Set(attach)
       const mine = await c.provenance(chosen)
+      if (mine.hidden) fail('conflict', tr('answerShareHidden', locale), { params: { reason: 'answer_share_hidden' } })
       const mineKey = confirmKeyOf(ctx, userId, room.id, message.id, c, mine)
       // the key is for the line as it reads with the files I chose (turning a switch off can bring a file's place into
       // it, an attached AI-made file what made it): the same state with another line is asked again for that choice
@@ -427,7 +469,8 @@ export async function shareAnswerToRoom(ctx: AppContext, userId: string, chat: C
   try {
     for (const rel of attach) fileIds.push((await files.fromTeamFile(userId, room.id, rel)).id)
     // audited with the message (Rooms.send: room.answer_share)
-    const m = rooms.send(userId, room.id, { body, mentions: [], fileIds, clientMessageId: b.clientMessageId }, {}, { at, cut, people, confirmed })
+    const kept = (await c.provenance(new Set(attach))).kept
+    const m = rooms.send(userId, room.id, { body, mentions: [], fileIds, clientMessageId: b.clientMessageId }, {}, { at, cut, people, confirmed, scope: JSON.stringify(kept) })
     return { status: 'sent', message: m, cut }
   } finally {
     // copies that did not go (a failure, or the same request sent twice at once): not left behind

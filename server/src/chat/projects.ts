@@ -23,6 +23,18 @@ export const parentFolder = (p: string) => (p.includes('/') ? p.slice(0, p.lastI
 
 const isAdminRole = (p: Principal) => p.role === 'owner' || p.role === 'admin'
 
+/** A personal project's folder (users/<id>/…): only its owner ever reaches it, so its chats are never shared. */
+export const isPersonalFolder = (folder: string) => folder === 'users' || folder.startsWith('users/')
+
+/**
+ * Who may edit a project (name, instructions, sharing its chats) and delete it or a shared chat in it: the creator and
+ * admins, and only while they can write the folder (design tabs 4 / 5 "지침 수정은 만든 사람과 admin 이상"). A personal
+ * project under users/<me>/ is only ever reachable by its owner.
+ */
+export function mayEditProject(files: FileService, p: Principal, r: { folder_path: string; created_by: string | null }): boolean {
+  return canWrite(files, p, r.folder_path) && (isAdminRole(p) || r.created_by === p.id)
+}
+
 /** What canSeeProject reads of a projects row. */
 export interface ProjectSight { folder_path: string; trashed_with: string | null }
 

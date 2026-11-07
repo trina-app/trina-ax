@@ -14,7 +14,7 @@ const LOCALES: Locale[] = ['ko', 'en', 'id', 'ja', 'es']
 const NONE = new Set<string>()
 // set_title has no step (the new title shows in the sidebar); connected services label their own tools; search is the
 // removed search by meaning tool, whose steps stay in older chats
-const TOOLS = [...Object.keys(FILE_TOOLS), ...C_TOOL_NAMES, ...FILE_MOVE_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES, ...DRIVE_TOOL_NAMES, ...ROOM_READ_TOOL_NAMES, 'save_room_file', 'room_thread', 'search', 'generate_video', 'promo_video', 'intro_deck', 'ask_user', 'remember', 'forget', 'skill', 'find_skills', 'find_tools', 'connect_service']
+const TOOLS = [...Object.keys(FILE_TOOLS), ...C_TOOL_NAMES, ...FILE_MOVE_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES, ...DRIVE_TOOL_NAMES, ...ROOM_READ_TOOL_NAMES, 'save_room_file', 'room_thread', 'project_chats', 'project_chat', 'search', 'generate_video', 'promo_video', 'intro_deck', 'ask_user', 'remember', 'forget', 'skill', 'find_skills', 'find_tools', 'connect_service']
 const INPUT: Record<string, Record<string, unknown>> = {
   hwp_render: { source: 'qa-hwp/report.hwpx', page: 2, format: 'png' },
   schedule_create: { title: 'Weekly digest', prompt: 'x', repeat: 'weekly', time: '09:00', weekday: 1 },

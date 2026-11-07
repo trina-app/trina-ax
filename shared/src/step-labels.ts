@@ -57,6 +57,10 @@ export const FILE_STEP_VERB: Record<string, T> = {
   save_room_file: t('대화방 파일 저장', 'Save conversation file', 'Simpan berkas ruang obrolan', "トークルームのファイルを保存", "Guardar archivo de sala de chat"),
   // a room's own AI session opens one of the room's threads (an id means nothing to the person: the verb alone)
   room_thread: t('스레드 읽기', 'Read thread', 'Baca utas', "スレッドを読む", "Leer hilo"),
+  // a room's own AI session finds and reads the shared project chats the asker may view (server/src/chat/room-project-chats.ts):
+  // a chat is named ("프로젝트 채팅 읽기 · 견적 회의") only when everyone in the room sees its project, else the words alone
+  project_chats: t('프로젝트 채팅 찾기', 'Find project chats', 'Cari obrolan proyek', "プロジェクトのチャットを探す", "Buscar chats del proyecto"),
+  project_chat: t('프로젝트 채팅 읽기', 'Read project chat', 'Baca obrolan proyek', "プロジェクトのチャットを読む", "Leer chat del proyecto"),
 }
 
 /** Verb of an in-app browser step: "<verb> · <url>". */

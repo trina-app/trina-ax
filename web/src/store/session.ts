@@ -11,7 +11,6 @@ import { forgetFolderUploads } from '../lib/folderRuns'
 import { forgetTeamAttach } from '../lib/teamAttach'
 import { forgetStarters } from '../lib/starter'
 import { forgetSkillList } from '../lib/skillTitles'
-import { applyTeamIcon } from '../lib/team-icon'
 
 export type AuthStatus =
   | { kind: 'loading' }
@@ -52,9 +51,6 @@ function applyMe(me: Me) {
   const textSize = unsavedTextSize() ?? me.user.prefs.textSize ?? storedTextSize()
   storeTextSize(textSize)
   applyTextSize(textSize)
-  // the team's logo as the tab icon, and as the home-screen icon when it is big enough (or the default mark again after
-  // an admin removed it)
-  applyTeamIcon(me.team.iconVersion, me.team.appIcon === true)
 }
 
 /**

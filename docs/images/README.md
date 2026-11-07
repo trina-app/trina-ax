@@ -33,3 +33,16 @@ Captured 2026-10-31 (Asia/Seoul) from a hosted Trina AX team (`potenlab.trina.ap
 | `readme/permission-answer.png` | Mina (Sales) asking for last quarter's revenue; the file sits in `shared/Finance`, which she cannot read. The full live answer from the 2026-11-01 demo take, with annotations: a red underline on "any file you have access to", a red box on "Financial reports may be in folders you don't have access to", and a side panel (who asked, her folder access, one-line explanation) |
 
 The deck template and skill are fictional sample material, not shipped examples. The video these frames come from is kept outside the repository.
+
+## README team conversation images (`readme/`, 2026-11-07)
+
+Captured 2026-11-07 from a local Bun development server built from `origin/dev` at `6418737c` (version 0.4 era), listening on loopback only, with a temporary dedicated data directory. Unlike the 2026-10-30 captures above, AI was on: **the answers are real AI answers**, run through the capturing developer Mac's own Claude Code sign-in. Nothing in the answers was edited or substituted.
+
+- Browser: English UI, light theme, London time zone (the times shown in the frames). Desktop viewport 1440×900, captured at 2×. Lossless PNG.
+- Data: the fictional company Dawnroute, made through the app's normal UI and API: synthetic accounts Alex (owner), Mina and Sam (Sales); the group and room Sales; the all-company room Everyone; a made-up price sheet in `shared/Sales/`, a revenue note in a Finance folder readable only by Alex, and a fictional team skill `skills/quote/SKILL.md`. Northwind Foods, Harbor Market and every number are made up.
+- Cropped: the browser chrome and the development server's warning bar above the app (it shows only on a development server). Nothing inside the app was altered.
+
+| File | Evidence and limits |
+|---|---|
+| `readme/room-quote.png` | Mina's screen in the Sales room (shown with a `#` icon), 2880×1800: Sam's note, Mina's `@Trina /quote Northwind Foods: 200 insulated boxes, delivery Nov 20`, the live answer posted in the room ("Asked by Mina", the quote summary, a link to the saved `Northwind Foods quote.xlsx`, "1 file referenced") and Alex's reply. Before the file was saved, Mina pressed Allow on the server's safety check; that card is not in this frame |
+| `readme/share-check.png` | The Everyone room at the same moment on two screens, 2320×1792: Alex's screen with the live answer marked "Only you can see this · Post" and its reason line "It read folders that some people in this room cannot open (Team folder, Finance).", and Mina's screen showing only "Answered to Alex only". Two crops of the room column (no sidebar) stacked; the two labels ("Alex's screen (can open Finance)", "Mina's screen, same moment (can't open Finance)") and the divider are annotations. Nobody pressed Post |

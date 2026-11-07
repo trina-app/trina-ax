@@ -211,9 +211,9 @@ describe('saving by id only', () => {
 })
 
 describe('earlier files', () => {
-  test('read by id or name when the asker sees their message; a later member cannot reach them; the answer goes by who sees it', async () => {
-    const g = await h.api('dana').call(API.createGroup, { body: { name: `ai-files-late-${++groups}`, memberIds: ['alice', 'erin'] } })
-    const roomId = (await h.api('alice').call(API.listRooms)).items.find((x) => x.kind === 'team' && x.groupId === g.id)!.id
+  test('read by id or name when the asker sees their message; a later member of a group chat cannot reach them; the answer goes by who sees it', async () => {
+    // a group chat: someone invited later sees it from their join on (a team room shows its history: b-rooms-history)
+    const roomId = (await h.api('alice').call(API.createRoom, { body: { kind: 'group', userIds: ['erin', 'carol'] } })).id
     const doc = await upload('erin', roomId, 'budget-2027.md', new TextEncoder().encode('# Budget 2027\nTotal: 4.2억\n'))
     await send('erin', roomId, '예산안 올려요', { fileIds: [doc.id] })
     // the context lists the earlier file with its id
@@ -223,8 +223,8 @@ describe('earlier files', () => {
     expect(a1.body).toContain(`budget-2027.md (file_id=${doc.id})`)
     expect(a1.body).toContain('Total: 4.2억')
     expect(a1.visibility).toBe('room')
-    // bob joins after it: the file is not his to reach, by id or by name, and says so like an unknown one
-    await h.api('dana').call(API.updateGroup, { params: { id: g.id }, body: { memberIds: ['alice', 'erin', 'bob'] } })
+    // bob is invited after it: the file is not his to reach, by id or by name, and says so like an unknown one
+    await h.api('alice').call(API.inviteRoomMembers, { params: { id: roomId }, body: { userIds: ['bob'] } })
     const q2 = await send('bob', roomId, `@트리나 예산안?\n${fake({ tool: 'room_file', args: { file: doc.id }, sayResult: true }, { say: ' | ' }, { tool: 'room_file', args: { file: 'budget-2027.md' }, sayResult: true }, { say: ' | ' }, { tool: 'save_room_file', args: { file: doc.id, save_as: 'users/bob/' }, sayResult: true })}`)
     // the save of a file he cannot see is refused before any card, exactly like one that does not exist
     const r2 = await done('bob', q2)

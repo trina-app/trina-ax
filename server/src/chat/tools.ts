@@ -32,9 +32,10 @@ import { recordSent } from '../tools/connection-urls'
 import { BOX_SHELL_TOOL, boxShellTool } from '../devenv/tool'
 import { connectService } from './connect-service'
 import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
-import { ROOM_TOOLS } from '../rooms/ai-tools'
+import { ROOM_TOOLS, SEARCH_TOOLS, SHARED_TOOLS } from '../rooms/ai-tools'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
 import { roomReadTools, roomSessionTools } from './room-tools'
+import { projectChatTools } from './room-project-chats'
 import { hideUrls } from '../tools/audit-url'
 import { SHARE_JUDGE_REFUSAL } from '../skills/share-judge'
 import { mergeTargets, SHARE_MERGE_REFUSAL } from '../skills/share-merge'
@@ -112,6 +113,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     if(confidential && !localTool(t.name)) return false
     // a team chat room's AI session (rooms/ai.ts): only the tools rooms/ai-tools.ts allows there
     if (exec.room && !ROOM_TOOLS.has(t.name)) return false
+    // a shared project chat (chat/shared.ts): the same allowlist without the room's own tools
+    if (exec.shared && !SHARED_TOOLS.has(t.name)) return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
     tools.set(t.name, t)
     if (t.label) labels.set(t.name, t.label.bind(t))
@@ -124,7 +127,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // nor in an approved scheduled template's run (its scope is fixed; it would refuse them anyway). A room's own session
   // gets its room's files instead (the asking message's and earlier ones: room_file, save_room_file) and its threads
   // (room_thread: one thread of that room)
-  if (!exec.templateRun) for (const t of exec.room ? roomSessionTools(exec) : roomReadTools(exec)) add(t)
+  if (!exec.templateRun && !exec.shared) for (const t of exec.room ? roomSessionTools(exec) : roomReadTools(exec)) add(t)
+  // a room's own session also finds and reads the shared project chats the asker may view (chat/room-project-chats.ts;
+  // ROOM_TOOLS lists them, SHARED_TOOLS does not, and a person's own chat never gets them)
+  if (!exec.templateRun && !exec.shared && exec.room) for (const t of projectChatTools(exec)) add(t)
   // edit_files is listed here so the engines and the model proxy allow it, but the MCP handler runs it
   // (mcp/protocol.ts editFiles): each file as its own edit call with the checks above. Never offered in confidential
   // chats (add() keeps to the local tools there). Reaching this call() means the handler did not: nothing is changed.
@@ -157,7 +163,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const prompt: string[] = []
   const context: string[] = []
   // no connection's tools in a room (rooms/ai-tools.ts ROOM_TOOLS), and so no "Connected services" section either
-  for (const p of confidential || exec.restricted || exec.room ? [] : exec.rt.ctx.services.turnToolProviders ?? []) {
+  for (const p of confidential || exec.restricted || exec.room || exec.shared ? [] : exec.rt.ctx.services.turnToolProviders ?? []) {
     let built: ReturnType<typeof p.build>
     try { built = p.build({ userId: exec.spec.userId, chatId: exec.spec.chatId, turnId: exec.spec.turnId, browser: exec.browser, scheduled: exec.spec.clientKind === 'schedule' }) }
     catch (e) { exec.rt.log.warn('turn tool provider failed', { provider: p.name, err: e }); continue }
@@ -192,6 +198,14 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // into skills/, …)
       const early = t.refuse?.(args)
       if (early) return { ...text(early.text, true), summary: early.summary }
+      // a shared project chat: a search without a path looks in the project folder; then what the call would read that
+      // some of the chat's people cannot read waits for the person's yes (chat/turn.ts confirmSharedRead)
+      if (exec.shared) {
+        args = exec.sharedArgs(name, args)
+        // the neutral step line only for the main AI's own call (a sub-agent's step is matched by its id, not here)
+        const sharedNo = await exec.confirmSharedRead(name, args, { step: files === exec.files })
+        if (sharedNo) return { ...text(sharedNo, true), summary: `${name} -> not read: not shared by the user (shared chat)` }
+      }
       exec.noteTaint(name, args)
       exec.noteRoomTool(name, args)
       // a room's AI session: anything that may change something waits for the person's yes (rooms/ai-tools.ts)
@@ -257,6 +271,14 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (exec.shareMerge && !mergeAllows(exec, name, args)) return { refusal: SHARE_MERGE_REFUSAL, summary: `${name} -> refused: skill share merge (only its team skills)` }
       const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
       if (refusal) return { refusal, summary: 'scheduled template scope refused' }
+      // a shared project chat: grep and glob without a path look in the project folder (the call's own arguments are
+      // changed: the file tool reads these); what the call would read that some of the chat's people cannot read waits
+      // for the person's yes (chat/turn.ts confirmSharedRead)
+      if (exec.shared) {
+        if (SEARCH_TOOLS.has(name) && args && typeof args === 'object') Object.assign(args, exec.sharedArgs(name, args))
+        const sharedNo = await exec.confirmSharedRead(name, args, { step: !caller || caller.files === exec.files })
+        if (sharedNo) return { refusal: sharedNo, summary: `${name} -> not read: not shared by the user (shared chat)` }
+      }
       recordSent(exec.rt.db, exec.spec.chatId, args)
       // a room's AI session: a write or edit waits for the person's yes on a card first (rooms/ai-tools.ts)
       const roomNo = await exec.confirmRoomChange(name, args)
@@ -360,6 +382,11 @@ function skillTools(exec: TurnExec): Tool[] {
         if (!hit && exec.roomReadable) { const any = resolveSkill(skills, a.data.name); if (any && !('ambiguous' in any)) hit = any }
         if (hit && 'ambiguous' in hit) {
           return { ...text(`Several skills this user can use are called "${neutralizeTags(clipName(a.data.name))}": ${hit.ambiguous.map((s) => s.path).join(', ')}. Call skill again with the path of the one you mean.`, true), summary: `skill -> ambiguous (${hit.ambiguous.length})` }
+        }
+        // a shared project chat: a skill some of its people cannot read is loaded only after the person's yes
+        if (hit && exec.shared) {
+          const no = await exec.confirmSharedRead('skill', { path: skillFolder(hit.skill.path) })
+          if (no) return { ...text(no, true), summary: 'skill -> not read: not shared by the user (shared chat)' }
         }
         // read again through the file checks (the same answer for a missing file and one the person cannot read)
         const skill = hit ? readSkill(rt.files, user, hit.skill.path) : null

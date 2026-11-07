@@ -3,6 +3,9 @@
 // dialog is components/ProjectForm.tsx, also opened from a folder on the Files page), project home: a box that
 // starts a chat in the project and the person's chats in it, with the dev environment, the instructions and the
 // folder's files as short lines beside them (like Claude's project page).
+// Shared project chats (docs/DECISIONS.md "Shared project chats"): the setting is in the edit dialog (ProjectForm), the
+// list is "채팅" (my chats there and every shared chat of the project I can see, those with the people icon and the
+// name of who made them), the box says who sees a new chat, and deleting the project says its shared chats go too.
 import { FileText, FolderKanban, Folder, Pencil, Plus, ScrollText, Share2, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -20,6 +23,7 @@ import { Markdown } from '../components/Markdown'
 import { DisclosureRow } from '../components/DisclosureRow'
 import { TitleMenu } from '../components/TitleMenu'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
+import { SharedIcon } from '../components/chat/SharedChat'
 import { ProjectForm } from '../components/ProjectForm'
 import { ProjectTrashNote } from '../components/ProjectTrashNote'
 import { Button, EmptyState, ErrorNote, PageHeader, Skeleton, StickyHeader, confirmDialog, pageColumn } from '../components/ui'
@@ -145,7 +149,14 @@ export function ProjectHome() {
   }, [projectId])
 
   const del = async () => {
-    if (!p || !(await confirmDialog({ title: t('projects.deleteTitle', { name: p.name }), body: t('projects.deleteBody'), confirm: t('common.delete'), danger: true }))) return
+    // its shared chats are deleted with it (for good): said in the dialog when it has any
+    const body = p?.sharedChats ? (
+      <>
+        {t('projects.deleteBodyShared')}
+        <span className="mt-2 block font-medium text-danger" data-testid="project-delete-shared">{t('projects.deleteShared', { n: p.sharedChats })}</span>
+      </>
+    ) : t('projects.deleteBody')
+    if (!p || !(await confirmDialog({ title: t('projects.deleteTitle', { name: p.name }), body, confirm: t('common.delete'), danger: true }))) return
     try {
       await api.call(API.deleteProject, { params: { id: p.id } })
       useProjects.getState().drop(p.id)
@@ -202,7 +213,7 @@ export function ProjectHome() {
         <div className="mt-6 grid gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[auto_1fr]">
           <div className="min-w-0 lg:col-start-1">
             {/* a project whose folder is in the trash (only admins see it) takes no chat: the line says why instead */}
-            {p.inTrash ? <ProjectTrashNote project={p} /> : <NewChatComposer projectId={p.id} placeholder={t('projects.newChat')} />}
+            {p.inTrash ? <ProjectTrashNote project={p} /> : <NewChatComposer projectId={p.id} project={p} placeholder={t('projects.newChat')} />}
           </div>
           <aside aria-label={t('projects.about')} className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1">
             <div className="divide-y divide-line">
@@ -261,9 +272,21 @@ export function ProjectHome() {
             <ul className="divide-y divide-line">
               {chats?.map((c) => (
                 <li key={c.id}>
-                  <Link to={`/c/${c.id}`} className="-mx-2 flex items-center gap-4 rounded-md px-2 py-3 text-sm hover:bg-hover">
-                    <span className="min-w-0 flex-1 truncate">{c.title || t('chat.untitled')}</span>
-                    <span className="shrink-0 text-xs text-faint">{formatRelative(c.updatedAt, locale)}</span>
+                  <Link to={`/c/${c.id}`} className="-mx-2 flex items-center gap-4 rounded-md px-2 py-3 text-sm hover:bg-hover" data-shared={c.shared ? 'true' : undefined}>
+                    <span className="flex min-w-0 flex-1 items-center gap-2">
+                      {c.shared && <SharedIcon className="text-faint" />}
+                      <span className="truncate">{c.title || t('chat.untitled')}</span>
+                    </span>
+                    {/* a shared chat: who made it, before when it last changed */}
+                    <span className="flex max-w-[45%] shrink-0 items-center gap-1.5 text-xs text-faint">
+                      {c.shared && (
+                        <>
+                          <span className="truncate" data-testid="project-chat-by">{c.shared.by.name}</span>
+                          <span aria-hidden>·</span>
+                        </>
+                      )}
+                      <span className="shrink-0">{formatRelative(c.updatedAt, locale)}</span>
+                    </span>
                   </Link>
                 </li>
               ))}

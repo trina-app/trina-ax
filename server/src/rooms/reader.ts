@@ -3,7 +3,8 @@
 //   which rooms   the rooms they are a member of now (not archived). Nothing else is looked at, so a room they are not
 //                 in, a room that does not exist and an id of either answer alike: there is no way to tell them apart.
 //                 Their role adds nothing (an owner or admin is a member like any other here).
-//   which lines   what store.ts lets them see: messages after their visible_from_seq, a thread's replies by its root's
+//   which lines   what store.ts lets them see: messages after where they see the room from (seesFrom: a team room's or
+//                 the everyone room's whole history but the old answers hidden from them), a thread's replies by its root's
 //                 seq (a thread follows its root), others' private AI previews never, their own marked as private.
 //                 Deleted messages are left out (a deleted root that still has replies shows only that it was there).
 //                 Event lines (a rename, who joined or left) are short plain notices. Thread replies stay in their
@@ -21,7 +22,7 @@ import type { Database } from 'bun:sqlite'
 import { isUuid7, ROOM_MENTIONS_MAX, ROOM_REF_RE, type Room, type RoomKind, type RoomMessage } from '@mycel/shared/api'
 import { neutralizeTags } from '../chat/prompt'
 import { zonedParts, zonedToUtc } from '../system/time-zone'
-import { canSee, clipMiddle, MSG_COLS, messageRow, messagesOut, roomOut, SEE_SQL, seeArgs, seenSeq, sharedAnswerText, threadable, TIMELINE_SQL, type FileRow, type MemberRow, type MessageRow, type RoomRow } from './store'
+import { canSee, clipMiddle, MSG_COLS, messageRow, messagesOut, roomOut, SEE_SQL, seeArgs, seenSeq, seesFrom, sharedAnswerText, threadable, TIMELINE_SQL, type FileRow, type MemberRow, type MessageRow, type RoomRow } from './store'
 
 /** messages one read gives at most, and by default */
 export const ROOM_READ_MAX = 200
@@ -79,11 +80,12 @@ const strip = (s: string) => {
 /** The rooms I am in now (not archived), the most recent activity first. */
 export function myRooms(db: Database, userId: string): Mine[] {
   const rows = db.query(`SELECT r.id, r.kind, r.group_id, r.dm_key, r.created_by, r.created_at, r.last_seq, r.activity_at, r.archived_at, r.name,
-      m.room_id, m.user_id, m.joined_at, m.last_read_seq, m.visible_from_seq, m.muted, m.hidden_at
+      m.room_id, m.user_id, m.joined_at, m.last_read_seq, m.visible_from_seq, m.history_from_seq, m.muted, m.hidden_at,
+      EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = m.user_id) has_hidden
     FROM rooms r JOIN room_members m ON m.room_id = r.id WHERE m.user_id = ? AND r.archived_at IS NULL ORDER BY r.activity_at DESC, r.id`).all(userId) as (RoomRow & MemberRow)[]
   return rows.map((r) => ({
     room: { id: r.id, kind: r.kind, group_id: r.group_id, dm_key: r.dm_key, created_by: r.created_by, created_at: r.created_at, last_seq: r.last_seq, activity_at: r.activity_at, archived_at: r.archived_at, name: r.name },
-    me: { room_id: r.room_id, user_id: r.user_id, joined_at: r.joined_at, last_read_seq: r.last_read_seq, visible_from_seq: r.visible_from_seq, muted: r.muted, hidden_at: r.hidden_at },
+    me: { room_id: r.room_id, user_id: r.user_id, joined_at: r.joined_at, last_read_seq: r.last_read_seq, visible_from_seq: r.visible_from_seq, history_from_seq: r.history_from_seq, has_hidden: r.has_hidden, muted: r.muted, hidden_at: r.hidden_at },
   }))
 }
 
@@ -296,7 +298,7 @@ export function searchRooms(db: Database, userId: string, tz: string, o: SearchO
   let skipped = 0, partly = 0
   if (authors === null || authors.length) {
     for (const mine of rooms) {
-      const held = Math.max(0, mine.room.last_seq - mine.me.visible_from_seq)
+      const held = Math.max(0, mine.room.last_seq - seesFrom(mine.me))
       const window = Math.min(held, ROOM_SEARCH_SCAN, budget)
       if (held > 0 && window <= 0) { skipped++; continue }
       if (window < Math.min(held, ROOM_SEARCH_SCAN)) partly++
@@ -389,7 +391,7 @@ export function readRoom(db: Database, userId: string, tz: string, o: ReadOption
     const id = o.thread.trim()
     root = isUuid7(id) ? messageRow(db, room.id, id) : null
     // a thread follows its root: one I cannot see (a later member, someone else's preview) is no thread to me
-    if (!root || !canSee(root, me) || !threadable(root)) return { text: `No thread "${attr(id)}" in that room that the user can see. Read the room to find a message with a thread.`, seen: [], ok: true, count: 0 }
+    if (!root || !canSee(db, root, me) || !threadable(root)) return { text: `No thread "${attr(id)}" in that room that the user can see. Read the room to find a message with a thread.`, seen: [], ok: true, count: 0 }
     rows = db.query(`SELECT ${MSG_COLS} FROM room_messages m WHERE m.room_id = ? AND m.thread_root_id = ? AND ${SEE_SQL} AND m.deleted_at IS NULL${time.map((x) => ` AND ${x}`).join('')} ORDER BY m.seq DESC LIMIT ?`)
       .all(room.id, root.id, ...seeArgs(me), ...timeArgs, limit + 1) as MessageRow[]
   } else {
@@ -461,7 +463,7 @@ export function findRoomFile(db: Database, userId: string, roomRef: string, file
   if (o.uniqueName && named.length > 1) return { text: `Several files in that room the user can see are called "${attr(fileRef)}": give the file_id of the one meant (from the list).` }
   const row = (byId ? db.query(`${sql} AND f.id = ?`).get(room.id, room.id, ...seeArgs(me), ref) : named[0] ?? null) as FileRow | null
   const message = row?.message_id ? messageRow(db, room.id, row.message_id) : null
-  if (!row || !message || message.deleted_at || !canSee(message, me)) return { text: `No file "${attr(fileRef)}" in that room that the user can see. Read the room for its files and their file_id.` }
+  if (!row || !message || message.deleted_at || !canSee(db, message, me)) return { text: `No file "${attr(fileRef)}" in that room that the user can see. Read the room for its files and their file_id.` }
   const author = message.author_id ? (db.query('SELECT name FROM users WHERE id = ?').get(message.author_id) as { name: string } | null)?.name ?? null : null
   return { file: row, message, room, title: titleOf(view), author }
 }

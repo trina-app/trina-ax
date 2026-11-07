@@ -207,13 +207,15 @@ export const RoomThreadSummary = z.object({
 })
 export type RoomThreadSummary = z.infer<typeof RoomThreadSummary>
 
-/** The quoted message under a reply: an excerpt (at most 200 characters), or nothing once it was deleted. */
+/** The quoted message under a reply: an excerpt (at most 200 characters), or nothing once it was deleted (or when the
+ * viewer does not see it). withheld: an old answer hidden from the viewer (RoomMessage.withheld). */
 export const RoomQuote = z.object({
   id: Uuid7,
   author: UserRef.nullable(),
   excerpt: z.string(),
   fileCount: z.number().int().nonnegative(),
   deleted: z.boolean(),
+  withheld: z.literal(true).optional(),
 })
 export type RoomQuote = z.infer<typeof RoomQuote>
 
@@ -269,7 +271,10 @@ export const RoomMessage = z.object({
     /** more such folders the person who asked cannot open themselves: never named to them */
     otherFolders: z.boolean().optional(), personal: z.boolean(), outside: z.boolean(),
     /** members who were not in the room yet when a message the AI was given was written (their names) */
-    joinedLater: z.array(z.string()).optional() }).optional(),
+    joinedLater: z.array(z.string()).optional(),
+    /** an old answer hidden from some member (one who joined a team room or the everyone room later and cannot open
+     * what it used) was among the messages the AI was given; never who */
+    hidden: z.literal(true).optional() }).optional(),
   /** an AI answer: the team files it links to or shows that the viewer may open now; the app shows the others as plain
    * text (no link, no picture loaded) */
   openable: z.array(z.string()).optional(),
@@ -296,6 +301,12 @@ export const RoomMessage = z.object({
    * AI's answer"; its team-file links are checked in `openable` like an AI message's). The author is still me. cut: the
    * answer was longer than fits and ends with a line that says so. Never on a deleted message */
   sharedAnswer: z.object({ at: z.number().int().nonnegative(), cut: z.boolean() }).optional(),
+  /** an old answer hidden from me (docs/DECISIONS.md "지난 대화"): I joined this team room or the everyone room after
+   * it, and it used something I cannot open (or what it used is not known). Shown as one line in its place: body is ''
+   * and nothing of it comes (no files, sources, links, reactions or thread); who asked it (askedBy) or shared it
+   * (author) and when stay. Nothing can be done on it (react, reply in its thread, quote: refused like a message I do
+   * not see) */
+  withheld: z.literal(true).optional(),
 })
 export type RoomMessage = z.infer<typeof RoomMessage>
 

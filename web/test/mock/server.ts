@@ -1,7 +1,8 @@
 // A mock team server for the web client's end-to-end tests: the REST API of shared/src/api (every response is
 // checked against the contract schema, every JSON body is validated like the real server does), the WebSocket
 // protocol of ws.ts (hello / seq / resume / reset), and the built web app served by the real serveWeb() of
-// server/src/routes/web.ts (same CSP and cache headers as production).
+// server/src/routes/web-static.ts (same CSP and cache headers as production; /sw.js gets no-op badge calls in front,
+// see withoutWorkerBadge).
 //
 // The AI is scripted by keywords in the message: "artifact", "react", "ask", "error", "slow", "files", "search",
 // "cap-tools" / "cap-time" (the answer pauses at the per-answer limit of tool calls / time: done with stopReason;
@@ -65,7 +66,7 @@ import { serveWeb } from '../../../server/src/routes/web-static'
 import { TEXT as TEAM_ICON_TEXT } from '../../../server/src/admin/team-icon'
 import { msg as serverMsg } from '../../../server/src/auth/messages'
 import { folderKeep, isParkedRow, isTeamDefaultFolder } from '../../../server/src/admin/folder-keep'
-import { checkTeamIcon, isAppIcon, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/shared'
+import { checkTeamIcon, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/shared'
 import { Sealer } from '../../../server/src/credentials/seal'
 import type { Credential, CredentialKind, CredentialLogin, MessageSourceFile, SealedSecret } from '@mycel/shared/api'
 import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationRequest, IntegrationTemplate, IntegrationTool } from '@mycel/shared/api'
@@ -269,7 +270,8 @@ export class MockServer {
   queuePositions = new Map<string, number>()
   queueRevision = 0
   settings: TeamSettings = defaultSettings()
-  /** the team logo (Admin > Team settings): served by the real serveWeb() at /team-icon, /favicon.ico, the manifest */
+  /** the team logo (Admin > Team settings): served by the real serveWeb() at /team-icon (the sidebar header); the tab
+   * and app icons stay the product's */
   teamIcon: TeamIconFile | null = null
   /** Admin › Team settings › Knowledge graph (server/src/knowledge-graph/): made-up folders; POST /__test/knowledge-graph
    * {available?: boolean} says whether CodeGraph is "installed" */
@@ -865,7 +867,7 @@ export class MockServer {
     return {
       user: { id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.localeChoice ?? this.settings.defaultLocale, localeChoice: u.localeChoice, mustChangePassword: u.mustChangePassword, prefs, canChooseEngine: choose },
       groups: this.groups.filter((g) => u.groupIds.includes(g.id)).map((g) => ({ id: g.id, name: g.name })),
-      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, iconVersion: this.teamIcon?.version ?? null, ...(this.teamIcon && isAppIcon(this.teamIcon) ? { appIcon: true as const } : {}), voiceInput: (this.speechNow() === 'local' && this.speechHost.localMissing.length === 0) || (this.speechNow() === 'openrouter' && this.speechKey.set), ...(this.speechNow() === 'openrouter' && this.speechKey.set ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: this.settings.chatTrashRetentionDays },
+      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, iconVersion: this.teamIcon?.version ?? null, voiceInput: (this.speechNow() === 'local' && this.speechHost.localMissing.length === 0) || (this.speechNow() === 'openrouter' && this.speechKey.set), ...(this.speechNow() === 'openrouter' && this.speechKey.set ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: this.settings.chatTrashRetentionDays },
       session: { id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(), tempLogin: u.mustChangePassword && this.tempLogins.has(u.id) },
       server: {
         version: this.serverVersion, dev: !this.cloud, deployment: this.cloud ? 'hosted' : 'self', timeZone: this.settings.timeZone,
@@ -3602,7 +3604,10 @@ export class MockServer {
     const url = new URL(req.url)
     const p = url.pathname
     if (p.startsWith('/__test/')) return this.testControl(p, req)
-    if (!p.startsWith('/api/')) return pageHeaders(serveWeb(req, { dist, dev: false, devPort: 0, teamIcon: () => this.teamIcon }) ?? new Response('no', { status: 404 }))
+    if (!p.startsWith('/api/')) {
+      const res = serveWeb(req, { dist, dev: false, devPort: 0, teamIcon: () => this.teamIcon }) ?? new Response('no', { status: 404 })
+      return pageHeaders(p === '/sw.js' && res.ok ? await withoutWorkerBadge(res) : res)
+    }
     this.log.push(`${req.method} ${p}`)
     // like the server's router: a path written out ("/api/intro-decks/builds") wins over one with a parameter there
     // ("/api/intro-decks/:id")
@@ -3763,6 +3768,372 @@ export class MockServer {
     return Response.json({ ok: true })
   }
 
+  // ---------------- shared project chats (docs/DECISIONS.md "Shared project chats") ----------------
+  // Like server/src/chat/shared.ts, short, as one layer over the handlers above (installSharedChats, run once when the
+  // mock is made). A project's setting (PATCH /api/projects/:id {shareChats}; 409 project_personal / safe_ops /
+  // project_in_trash), its audience (the active people who can read its folder) and its shared chats (not in the trash);
+  // a chat made in a project whose setting is on is a shared chat. Each viewer gets their own Chat.shared (who made it,
+  // the audience, `answering`: someone else's turn, `waiting` while its read card is open; `mine`: made it or wrote in it;
+  // `canDelete`: its creator or a project editor). GET /api/chats has the shared chats I wrote in; ?projectId= every shared
+  // chat of the project I can see. A turn there is a short scripted one of its sender: its deltas, steps, cards and end go
+  // to that person's windows only, chat.updated to everyone who sees the chat (each their own view). "readcard" in the
+  // message: the read card (읽고 공유하기 / 읽지 않기) for finance/2026/q3.csv before the answer; "hold": the answer waits
+  // until POST /__test/shared-release {chatId?}. The refusals: 409 shared_chat_busy / safe_ops / shared_chat_upload /
+  // shared_chat_move, 403 shared_chat_creator / shared_chat_runner / shared_chat_own_messages / shared_chat_manage.
+  sharedProjects = new Set<string>()
+  sharedChats = new Map<string, { by: { id: string; name: string }; projectId: string; runner: string | null; waiting: boolean }>()
+  sharedHolds = new Map<string, () => void>()
+  /** (the layer is in place; set while the mock is made, after the handlers above) */
+  readonly sharedInstalled = this.installSharedChats()
+
+  sharedAudience(p: Project): User[] {
+    return this.users.filter((u) => u.status === 'active' && this.access(p.folderPath, u) !== 'none')
+  }
+  /** like server/src/chat/projects.ts mayEditProject: its creator, or an admin who can write its folder */
+  sharedMayEdit(p: Project, u: User): boolean {
+    return p.createdBy?.id === u.id || (u.role !== 'member' && this.access(p.folderPath, u) === 'write')
+  }
+  sharedProjectOut(p: Project): Project {
+    const personal = p.folderPath.startsWith('users/')
+    return { ...p, shareChats: !personal && this.sharedProjects.has(p.id), audience: this.sharedAudience(p).length,
+      sharedChats: this.chats.filter((c) => c.projectId === p.id && !c.deletedAt && this.sharedChats.has(c.id)).length }
+  }
+  /** The chat as `viewer` sees it (null: they cannot see its project); a chat of one person as it is. */
+  sharedView(chat: Chat, viewer: User): Chat | null {
+    const s = this.sharedChats.get(chat.id)
+    if (!s) return chat
+    const p = this.projects.find((x) => x.id === s.projectId)
+    if (!p || this.access(p.folderPath, viewer) === 'none') return null
+    const { waiting: _w, unseen: _u, shared: _s, ...rest } = chat
+    const runner = s.runner && s.runner !== viewer.id ? this.users.find((u) => u.id === s.runner) : undefined
+    return {
+      ...rest,
+      ...(s.runner === viewer.id && s.waiting ? { waiting: true as const } : {}),
+      ...(chat.unseen && s.by.id === viewer.id ? { unseen: true as const } : {}),
+      shared: {
+        by: s.by,
+        audience: this.sharedAudience(p).length,
+        answering: runner ? { name: runner.name, ...(s.waiting ? { waiting: true as const } : {}) } : null,
+        mine: s.by.id === viewer.id || this.messages.some((m) => m.chatId === chat.id && m.role === 'user' && m.author?.id === viewer.id),
+        canDelete: s.by.id === viewer.id || this.sharedMayEdit(p, viewer),
+      },
+    }
+  }
+  /** One event per window, each made for that window's person (null: none for them); seq goes on as for any event. */
+  sharedSend(make: (userId: string) => ServerEventInput | null) {
+    for (const ws of this.sockets) {
+      const ev = make(ws.data.user)
+      if (!ev) continue
+      const full = { ...ev, seq: ++this.seq, at: Date.now() }
+      ServerEvent.parse(full)
+      ws.send(JSON.stringify(full))
+    }
+  }
+
+  private installSharedChats() {
+    const h = this.handlers
+    const over = (name: ApiName, fn: (c: Ctx, base: Handler) => unknown) => {
+      const base = h[name]!
+      h[name] = (c) => fn(c, base)
+    }
+    const shared = (id: string | undefined) => (id ? this.sharedChats.get(id) : undefined)
+    const chatOf = (id: string) => this.chats.find((x) => x.id === id) ?? fail('not_found', 404)
+    const view = (chat: Chat, u: User) => this.sharedView(chat, u) ?? fail('not_found', 404)
+    const nameOf = (id: string) => this.users.find((u) => u.id === id)?.name ?? ''
+    const project = (s: { projectId: string }) => this.projects.find((p) => p.id === s.projectId)
+
+    const baseReset = this.reset.bind(this)
+    this.reset = (o) => {
+      for (const release of this.sharedHolds.values()) release()
+      this.sharedProjects = new Set()
+      this.sharedChats = new Map()
+      this.sharedHolds = new Map()
+      baseReset(o)
+    }
+    // the events of a shared chat: chat.updated to everyone who sees it (their own view), the rest to the runner
+    const basePublish = this.publish.bind(this)
+    this.publish = (ev) => {
+      const chatId = (ev.data as { chatId?: unknown }).chatId
+      const s = typeof chatId === 'string' ? this.sharedChats.get(chatId) : undefined
+      if (!s) return basePublish(ev)
+      if (ev.type === 'chat.updated') {
+        const d = ev.data
+        const p = project(s)
+        return this.sharedSend((uid) => {
+          const u = this.users.find((x) => x.id === uid)
+          if (!u) return null
+          if (!d.chat) return p && this.access(p.folderPath, u) !== 'none' ? ev : null
+          const v = this.sharedView(d.chat, u)
+          return v ? ({ ...ev, data: { ...d, chat: v } } as ServerEventInput) : null
+        })
+      }
+      const to = s.runner ?? s.by.id
+      return this.sharedSend((uid) => (uid === to ? ev : null))
+    }
+    const baseControl = this.testControl.bind(this)
+    this.testControl = async (p, req) => {
+      if (p !== '/__test/shared-release') return baseControl(p, req)
+      const body = (await req.json().catch(() => ({}))) as { chatId?: string }
+      for (const [id, release] of [...this.sharedHolds]) if (!body.chatId || body.chatId === id) { this.sharedHolds.delete(id); release() }
+      return Response.json({ ok: true })
+    }
+
+    over('listProjects', (c, base) => ({ items: (base(c) as { items: Project[] }).items.map((p) => this.sharedProjectOut(p)) }))
+    over('getProject', (c, base) => this.sharedProjectOut(base(c) as Project))
+    over('updateProject', (c, base) => {
+      const p = this.projects.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      const { shareChats, ...rest } = c.body as { shareChats?: boolean }
+      if (shareChats !== undefined) {
+        if (p.folderPath.startsWith('users/')) fail('conflict', 409, '개인 프로젝트의 채팅은 공유할 수 없어요.', { 'body.shareChats': 'project_personal' }, { reason: 'project_personal' })
+        if (shareChats && this.allConfidential) fail('conflict', 409, '안전 작업 모드에서는 채팅을 공유할 수 없어요.', { 'body.shareChats': 'safe_ops' }, { reason: 'safe_ops' })
+        if (p.inTrash) fail('conflict', 409, '폴더가 휴지통에 있는 프로젝트예요.', { 'body.shareChats': 'project_in_trash' }, { reason: 'project_in_trash' })
+        if (shareChats) this.sharedProjects.add(p.id)
+        else this.sharedProjects.delete(p.id)
+      }
+      return this.sharedProjectOut(base({ ...c, body: rest }) as Project)
+    })
+    // its shared chats go with it, for good
+    over('deleteProject', (c, base) => {
+      const gone = this.chats.filter((x) => x.projectId === c.params.id && this.sharedChats.has(x.id))
+      for (const x of gone) this.publish({ type: 'chat.updated', data: { chatId: x.id, change: 'purged', chat: null } })
+      for (const x of gone) this.sharedChats.delete(x.id)
+      this.chats = this.chats.filter((x) => !gone.includes(x))
+      return base(c)
+    })
+
+    over('listChats', (c, base) => {
+      const out = base(c) as { items: Chat[]; nextCursor: string | null }
+      const items = out.items.flatMap((x) => {
+        if (!this.sharedChats.has(x.id)) return [x]
+        const v = this.sharedView(x, c.user)
+        if (!v) return []
+        if (x.deletedAt) return v.shared!.canDelete ? [v] : []
+        return c.query.projectId || v.shared!.mine ? [v] : []
+      })
+      return { ...out, items }
+    })
+    over('createChat', (c, base) => {
+      const out = base(c) as { status: number; body: Chat }
+      const p = c.body.projectId ? this.projects.find((x) => x.id === c.body.projectId) : undefined
+      if (!p || !this.sharedProjects.has(p.id) || p.folderPath.startsWith('users/') || p.inTrash || this.allConfidential) return out
+      this.sharedChats.set(out.body.id, { by: { id: c.user.id, name: c.user.name }, projectId: p.id, runner: null, waiting: false })
+      this.publish({ type: 'chat.updated', data: { chatId: out.body.id, change: 'created', chat: out.body } })
+      return { ...out, body: view(out.body, c.user) }
+    })
+    over('getChat', (c, base) => {
+      const x = base(c) as Chat
+      return this.sharedChats.has(x.id) ? view(x, c.user) : x
+    })
+    over('listMessages', (c, base) => {
+      if (shared(c.params.id)) view(chatOf(c.params.id!), c.user)
+      return base(c)
+    })
+    over('markChatSeen', (c, base) => {
+      const s = shared(c.params.id)
+      if (!s) return base(c)
+      const x = view(chatOf(c.params.id!), c.user)
+      return s.by.id === c.user.id ? view(base(c) as Chat, c.user) : x
+    })
+    over('updateChat', (c, base) => {
+      const s = shared(c.params.id)
+      if (!s) return base(c)
+      const chat = view(chatOf(c.params.id!), c.user)
+      if (s.by.id !== c.user.id) fail('forbidden', 403, '공유 채팅의 이름과 엔진은 만든 사람만 바꿀 수 있어요.', undefined, { reason: 'shared_chat_creator' })
+      if (c.body.projectId !== undefined && c.body.projectId !== chat.projectId) fail('conflict', 409, '공유 채팅은 다른 프로젝트로 옮길 수 없어요.', { 'body.projectId': 'shared_chat_move' }, { reason: 'shared_chat_move' })
+      const out = base(c) as Chat
+      this.publish({ type: 'chat.updated', data: { chatId: out.id, change: 'updated', chat: out } })
+      return view(out, c.user)
+    })
+    over('deleteChat', (c, base) => {
+      const s = shared(c.params.id)
+      if (!s) return base(c)
+      if (!view(chatOf(c.params.id!), c.user).shared!.canDelete) fail('forbidden', 403, '공유 채팅은 만든 사람이나 프로젝트를 고칠 수 있는 사람만 지울 수 있어요.', undefined, { reason: 'shared_chat_manage' })
+      const out = base(c)
+      this.publish({ type: 'chat.updated', data: { chatId: c.params.id!, change: 'deleted', chat: null } })
+      return out
+    })
+    over('restoreChat', (c, base) => {
+      const s = shared(c.params.id)
+      if (!s) return base(c)
+      if (!view(chatOf(c.params.id!), c.user).shared!.canDelete) fail('forbidden', 403, '공유 채팅은 만든 사람이나 프로젝트를 고칠 수 있는 사람만 지울 수 있어요.', undefined, { reason: 'shared_chat_manage' })
+      const out = base(c) as Chat
+      this.publish({ type: 'chat.updated', data: { chatId: out.id, change: 'restored', chat: out } })
+      return view(out, c.user)
+    })
+    over('listTurnRequests', (c, base) => {
+      const s = shared(c.params.id)
+      return s && s.runner !== c.user.id ? { items: [] } : base(c)
+    })
+    over('answerTurn', (c, base) => {
+      const open = this.openAsks.get(c.params.id!)
+      const s = open ? shared(open.chatId) : undefined
+      if (s && s.runner !== c.user.id) fail('forbidden', 403, '질문한 사람만 이 카드에 답할 수 있어요.')
+      return base(c)
+    })
+    // a shared chat takes team files only
+    over('uploadAttachment', (c, base) => {
+      if (shared((c.body as { chatId?: string }).chatId)) fail('conflict', 409, '공유 채팅에는 팀 파일만 붙일 수 있어요. 컴퓨터의 파일은 프로젝트 폴더에 올린 뒤 붙여 주세요.', undefined, { reason: 'shared_chat_upload' })
+      return base(c)
+    })
+    over('createUploadSession', (c, base) => {
+      const target = c.body.target as { kind: string; chatId?: string }
+      if (target.kind === 'attachment' && shared(target.chatId)) fail('conflict', 409, '공유 채팅에는 팀 파일만 붙일 수 있어요. 컴퓨터의 파일은 프로젝트 폴더에 올린 뒤 붙여 주세요.', undefined, { reason: 'shared_chat_upload' })
+      return base(c)
+    })
+
+    /** one turn at a time: someone else's (409 shared_chat_busy, naming them) or my own */
+    const notBusy = (s: { runner: string | null }, u: User) => {
+      if (s.runner && s.runner !== u.id) fail('conflict', 409, `${nameOf(s.runner)}님의 질문에 답하는 중이에요. 끝나면 보낼 수 있어요.`, undefined, { reason: 'shared_chat_busy' })
+      if (s.runner) fail('conflict', 409, '이 채팅은 아직 답하는 중이에요.')
+    }
+    const mayContinue = (u: User, chatId: string) => {
+      view(chatOf(chatId), u)
+      if (this.allConfidential) fail('conflict', 409, '안전 작업 모드라서 공유 채팅을 이어갈 수 없어요. 내 채팅에서 물어봐 주세요.', undefined, { reason: 'safe_ops' })
+    }
+    const teamOnly = (ids: string[]) => {
+      const atts = ids.map((id) => this.attachments.get(id)).filter((a): a is NonNullable<typeof a> => !!a)
+      if (atts.some((a) => a.source !== 'team')) fail('conflict', 409, '공유 채팅에는 팀 파일만 붙일 수 있어요. 컴퓨터의 파일은 프로젝트 폴더에 올린 뒤 붙여 주세요.', undefined, { reason: 'shared_chat_upload' })
+      return atts.map(({ data: _d, ...rest }) => rest)
+    }
+    const ownOnly = (m: Message | undefined, u: User) => {
+      if (m?.author?.id !== u.id) fail('forbidden', 403, '공유 채팅에서는 내 메시지만 고치거나 다시 답하게 할 수 있어요.', undefined, { reason: 'shared_chat_own_messages' })
+    }
+    const started = (user: Message | null, assistant: Message) => ({ status: 202, body: { userMessage: user ? this.view(user) : null, assistantMessage: this.view(assistant), turnId: assistant.turnId, queuePosition: 0, queueEpoch: this.epoch, queueRevision: this.queueRevision } })
+
+    over('sendMessage', (c, base) => {
+      const s = shared(c.params.id)
+      if (!s) return base(c)
+      const again = this.messages.find((m) => (m as Message & { cmid?: string }).cmid === c.body.clientMessageId)
+      if (again) fail('conflict', 409)
+      mayContinue(c.user, c.params.id!)
+      notBusy(s, c.user)
+      const chat = chatOf(c.params.id!)
+      const attachments = teamOnly(c.body.attachmentIds as string[])
+      const parentId = c.body.parentId ?? this.activeLeaf.get(chat.id) ?? null
+      const user = this.message({ chatId: chat.id, role: 'user', parentId, content: c.body.content, attachments, author: { id: c.user.id, name: c.user.name } })
+      ;(user as Message & { cmid?: string }).cmid = c.body.clientMessageId
+      return started(user, this.sharedTurn(chat, c.user, c.body.content, user.id))
+    })
+    over('regenerate', (c, base) => {
+      const s = shared(c.params.id)
+      if (!s) return base(c)
+      mayContinue(c.user, c.params.id!)
+      const old = this.messages.find((m) => m.id === c.params.messageId) ?? fail('not_found', 404)
+      const question = this.messages.find((m) => m.id === old.parentId)
+      ownOnly(question, c.user)
+      notBusy(s, c.user)
+      return started(null, this.sharedTurn(chatOf(c.params.id!), c.user, question!.content, question!.id))
+    })
+    over('editMessage', (c, base) => {
+      const s = shared(c.params.id)
+      if (!s) return base(c)
+      mayContinue(c.user, c.params.id!)
+      const old = this.messages.find((m) => m.id === c.params.messageId) ?? fail('not_found', 404)
+      ownOnly(old, c.user)
+      notBusy(s, c.user)
+      const attachments = teamOnly(c.body.attachmentIds as string[])
+      const user = this.message({ chatId: old.chatId, role: 'user', parentId: old.parentId, content: c.body.content, attachments, author: { id: c.user.id, name: c.user.name } })
+      return started(user, this.sharedTurn(chatOf(c.params.id!), c.user, c.body.content, user.id))
+    })
+    over('selectBranch', (c, base) => {
+      if (shared(c.params.id)) mayContinue(c.user, c.params.id!)
+      return base(c)
+    })
+    over('stop', (c, base) => {
+      const s = shared(c.params.id)
+      if (!s) return base(c)
+      view(chatOf(c.params.id!), c.user)
+      if (s.runner && s.runner !== c.user.id) fail('forbidden', 403, '질문한 사람만 이 답변을 멈출 수 있어요.', undefined, { reason: 'shared_chat_runner' })
+      const out = base(c)
+      this.sharedHolds.get(c.params.id!)?.()
+      this.sharedHolds.delete(c.params.id!)
+      return out
+    })
+    return true
+  }
+
+  /** A turn of `user` in a shared chat: the scripted answer (see above), its events to `user` only. */
+  sharedTurn(chat: Chat, user: User, prompt: string, parentId: string): Message {
+    const s = this.sharedChats.get(chat.id)!
+    const turnId = uuidv7()
+    const assistant = this.message({ chatId: chat.id, role: 'assistant', parentId, status: 'streaming', turnId, engine: chat.engine })
+    this.activeLeaf.set(chat.id, assistant.id)
+    s.runner = user.id
+    chat.runState = 'running'
+    chat.updatedAt = now()
+    if (!chat.title) chat.title = prompt.slice(0, 30)
+    this.queueRevision++
+    this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
+    const gen = this.generation
+    this.runSharedTurn(chat, user, prompt, assistant).catch((e) => { if (gen === this.generation) console.error('mock shared turn failed', e) })
+    return assistant
+  }
+
+  async runSharedTurn(chat: Chat, user: User, prompt: string, assistant: Message) {
+    const s = this.sharedChats.get(chat.id)!
+    const chatId = chat.id
+    const turnId = assistant.turnId!
+    const gen = this.generation
+    const pub = (ev: ServerEventInput) => {
+      if (gen !== this.generation) throw new Error('mock was reset')
+      this.publish(ev)
+    }
+    const put = (st: Step) => {
+      assistant.steps = [...assistant.steps.filter((x) => x.id !== st.id), st]
+      pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: st } })
+    }
+    await sleep(60)
+    pub({ type: 'queue.position', data: { chatId, messageId: assistant.id, turnId, position: 0, epoch: this.epoch, revision: ++this.queueRevision } })
+    let text = '네, 정리했어요.\n\n- 출시는 다음 주 화요일이에요.\n- 안내 문구는 마케팅 폴더의 계획을 따라요.'
+    if (/readcard/i.test(prompt)) {
+      // like chat/turn.ts confirmSharedRead: a place some of the chat's people cannot read waits for the sender's yes
+      const read: Step = { id: 'r1', kind: 'tool', tool: 'read', label: '파일 읽기 · finance/2026/q3.csv', status: 'running', startedAt: now(), endedAt: null }
+      put(read)
+      const people = this.sharedAudience(this.projects.find((p) => p.id === s.projectId)!)
+      const blind = people.filter((u) => this.access('finance/2026/q3.csv', u) === 'none').length
+      const requestId = `shared-read-${turnId}`
+      const request: TurnRequest = {
+        kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false,
+        question: `AI가 finance/2026/q3.csv을(를) 읽으려고 해요. 이 채팅을 보는 프로젝트 사람 ${people.length}명 중 ${blind}명은 이곳을 볼 수 없어요. 읽으면 모두가 이 채팅에서 내용을 보게 돼요.`,
+        options: [{ label: '읽고 공유하기', value: 'share' }, { label: '읽지 않기', value: 'skip' }],
+        expiresAt: new Date(Date.now() + 600_000).toISOString(),
+      }
+      this.openAsks.set(turnId, { turnId, chatId, messageId: assistant.id, request })
+      s.waiting = true
+      pub({ type: 'turn.request', data: { turnId, chatId, messageId: assistant.id, request } })
+      pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat, notify: 'card' } })
+      const answer = await new Promise((r) => this.pendingAsk.set(turnId, r))
+      if (gen !== this.generation) return
+      this.openAsks.delete(turnId)
+      s.waiting = false
+      // (no chatId in it: to the runner here)
+      this.sharedSend((uid) => (uid === user.id ? { type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } } : null))
+      pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat } })
+      const yes = answer === 'share' || (Array.isArray(answer) && answer[0] === 'share')
+      put({ ...read, status: 'ok', endedAt: now(), ...(yes ? {} : { label: '프로젝트 사람 모두가 볼 수는 없는 곳이라 읽지 않았어요' }) })
+      text = yes ? '3분기 금액은 100이에요 (finance/2026/q3.csv).' : '그 파일은 읽지 않았어요. 프로젝트 사람 모두가 볼 수 있는 자료로만 답할게요.'
+    }
+    if (/hold/i.test(prompt) && !this.stopped.has(turnId)) await new Promise<void>((r) => this.sharedHolds.set(chatId, r))
+    if (gen !== this.generation) return
+    if (!this.stopped.has(turnId)) {
+      const half = Math.ceil(text.length / 2)
+      pub({ type: 'message.delta', data: { chatId, messageId: assistant.id, offset: 0, text: text.slice(0, half) } })
+      await sleep(30)
+      pub({ type: 'message.delta', data: { chatId, messageId: assistant.id, offset: half, text: text.slice(half) } })
+      assistant.content = text
+    }
+    assistant.status = this.stopped.has(turnId) ? 'stopped' : 'done'
+    assistant.usage = { inputTokens: 100, outputTokens: 50, costUsd: 0.001 }
+    assistant.model = 'claude-sonnet'
+    assistant.engine = 'claude-code'
+    pub({ type: 'message.done', data: { chatId, messageId: assistant.id, status: assistant.status, message: this.view(assistant) } })
+    s.runner = null
+    chat.runState = 'idle'
+    chat.updatedAt = now()
+    this.queueRevision++
+    pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat } })
+  }
+
   serve(port: number, dist: string) {
     const self = this
     return Bun.serve<WsData, never>({
@@ -3839,6 +4210,17 @@ function pageHeaders(res: Response): Response {
   h.set('X-Frame-Options', 'DENY')
   h.set('Cross-Origin-Opener-Policy', 'same-origin')
   return new Response(res.body, { status: res.status, headers: h })
+}
+
+/** Playwright's Chromium (its headless shell) kills the page's renderer as soon as a service worker calls the Badging
+ * API; Chrome, full Chromium and Electron do not. web/pwa/sw.js clears the icon badge whenever the account changes
+ * (`push.invalidate`, sent at every sign-out), so the worker served here gets no-op setAppBadge / clearAppBadge in
+ * front of it and is otherwise the built file. Its badge logic is tested in test/unit/push-worker.test.ts. */
+const NO_WORKER_BADGE = "for (const k of ['setAppBadge', 'clearAppBadge']) if (typeof self.navigator?.[k] === 'function') Object.defineProperty(self.navigator, k, { configurable: true, value: async () => {} });\n"
+async function withoutWorkerBadge(res: Response): Promise<Response> {
+  const h = new Headers(res.headers)
+  h.delete('content-length')
+  return new Response(NO_WORKER_BADGE + (await res.text()), { status: res.status, headers: h })
 }
 
 /** pandoc's docx with an altChunk (an HTML part docx-preview would draw in an unsandboxed srcdoc iframe). */

@@ -22,6 +22,7 @@ import { shownSegs } from './access-rows'
 import { rulesHash } from './access-edit'
 import { resetEngineSessions as resetChatSessions } from '../chat/runtime'
 import { syncRoomsNow } from '../rooms/service'
+import { recheckHistories } from '../rooms/history'
 import { checkDriveShareOwners } from '../integrations/google-drive/shares'
 
 export interface FolderRow { id: string; path: string; created_at: string }
@@ -299,7 +300,10 @@ export function resetEngineSessions(ctx: AppContext, userId: string): number {
 }
 
 export function chatsWithEngineSession(db: Database, userId: string): number {
-  return (db.query('SELECT COUNT(*) AS n FROM chats WHERE user_id = ? AND engine_session_id IS NOT NULL').get(userId) as { n: number }).n
+  // as chat/runtime.ts resetEngineSessions resets them: their own chats and the shared chats whose session they wrote
+  return (db.query(`SELECT COUNT(*) AS n FROM (SELECT id FROM chats WHERE user_id = ? AND engine_session_id IS NOT NULL
+    UNION SELECT c.id FROM chats c JOIN messages m ON m.id = c.engine_session_leaf_id JOIN turns t ON t.id = m.turn_id
+    WHERE t.user_id = ? AND c.engine_session_id IS NOT NULL)`).get(userId, userId) as { n: number }).n
 }
 
 /**
@@ -328,17 +332,21 @@ export function afterAccessChange(ctx: AppContext, before: AccessState, by: { ac
   // in a folder they were just removed from (security round 2, realtime #1).
   const beforeIds = new Set(before.principals.map((p) => p.id))
   for (const pa of after.principals) if (!beforeIds.has(pa.id)) ctx.services.realtime.forgetReplay(pa.id)
+  // whose access changed: the old answers hidden from them in team rooms and the everyone room are checked again on
+  // the rooms' next pass (rooms/history.ts: only fewer, never more)
+  const accessChanged: string[] = []
   for (const pb of before.principals) {
     const pa = after.principals.find((p) => p.id === pb.id)
     if (!pa) { ctx.services.realtime.forgetReplay(pb.id); continue }
     const changed = paths.filter((p) => before.rules.access(pb, segsOf(p)) !== after.rules.access(pa, segsOf(p)))
-    if (changed.length) ctx.services.realtime.forgetReplay(pb.id)
+    if (changed.length) { ctx.services.realtime.forgetReplay(pb.id); accessChanged.push(pb.id) }
     const named = changed.filter((p) => noticeMayName(p, pb, pa, before, after, created, onDisk))
     if (named.length) ctx.services.realtime.publish(pb.id, { type: 'notice', data: { level: 'info', code: 'access_changed', message: named.map((p) => p || '/').join(', ') } })
   }
   // every narrowing is audited, whatever caused it (rules, group membership, role, group deletion); admins only read it
   if (out.length) audit(ctx.db, { actor: by.actor, action: 'folder.access_lost', target: by.target, detail: { losing: out, ...(by.via ? { via: by.via } : {}) } })
   // team rooms and the everyone room follow groups and accounts (rooms/service.ts sync; it never throws)
+  recheckHistories(ctx, accessChanged)
   syncRoomsNow(ctx)
   // a Drive shared with the team stops when its admin is disabled, deleted or no longer an admin
   checkDriveShareOwners(ctx)

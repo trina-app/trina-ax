@@ -143,7 +143,8 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
         return
       }
       if (ev.data.code === 'team_icon_changed') {
-        // an admin set or removed the team logo: the tab icon follows (GET /api/me carries its version)
+        // an admin set or removed the team logo: the sidebar header follows (GET /api/me carries its version); the tab
+        // icon stays the product's
         void useSession.getState().refreshMe()
         return
       }
