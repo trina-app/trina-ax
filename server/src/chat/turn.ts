@@ -127,20 +127,25 @@ export async function lookupBeforeModel(kg: Pick<KnowledgeGraph, 'lookup'>, user
   } finally { clearTimeout(timer) }
 }
 
-/** passages a chat's Claude session was given in <document_matches> blocks, so a resumed session is not given them
- * again (its history holds them). In memory only, at most DOCS_GIVEN_CHATS chats of DOCS_GIVEN_KEYS passages each:
- * after a restart a passage may come once more. Codex and fresh Claude sessions start without the earlier messages'
- * blocks (their history is the chat's messages), so they get the whole block. */
-const DOCS_GIVEN_CHATS = 500
-const DOCS_GIVEN_KEYS = 400
-const docsGiven = new Map<string, { session: string; keys: Set<string> }>()
-function docsGivenIn(chatId: string, session: string, resumed: boolean): Set<string> {
-  let g = docsGiven.get(chatId)
-  if (!g || g.session !== session || !resumed) g = { session, keys: new Set() }
-  docsGiven.delete(chatId)
-  docsGiven.set(chatId, g)
-  for (const k of docsGiven.keys()) { if (docsGiven.size <= DOCS_GIVEN_CHATS) break; docsGiven.delete(k) }
-  return g.keys
+/** What this server knows about a chat's current Claude session (the one a later turn may resume), in memory only, for
+ * at most CLAUDE_SESSIONS_MAX chats; after a restart nothing is known and the turn gives everything once more:
+ * - `rule`: its first instructions held KNOWLEDGE_RULE (prompt.ts), so its turn context leaves the rule out
+ * - `given`: the passages of <document_matches> blocks in the messages it saved (at most SESSION_GIVEN_MAX), so a resumed
+ *   session is not given them again. Codex and fresh Claude sessions have no earlier blocks in their history (it is the
+ *   chat's messages), so they get the whole block. */
+const CLAUDE_SESSIONS_MAX = 500
+const SESSION_GIVEN_MAX = 400
+const claudeSessions = new Map<string, { session: string; rule: boolean; given: Set<string> }>()
+/** the record of this chat's session `session`, if it is the one known; `start`: a new record for it (a fresh session) */
+function claudeSession(chatId: string, session: string, start = false): { session: string; rule: boolean; given: Set<string> } | null {
+  let r = claudeSessions.get(chatId) ?? null
+  if (r && r.session !== session) r = null
+  if (!r && !start) return null
+  if (!r) r = { session, rule: false, given: new Set() }
+  claudeSessions.delete(chatId)
+  claudeSessions.set(chatId, r)
+  for (const k of claudeSessions.keys()) { if (claudeSessions.size <= CLAUDE_SESSIONS_MAX) break; claudeSessions.delete(k) }
+  return r
 }
 const passageKey = (p: LookupPassage) => `${p.path}\u0000${p.loc ? locKey(p.loc) : ''}`
 
@@ -516,7 +521,7 @@ export class TurnExec {
       // personal memories are not part of a room (docs/DECISIONS.md "대화방의 트리나")
       memories: this.room ? [] : rt.memoriesForPrompt(spec.userId), project, browser: this.browser, tools: extraTools,
       history: fresh ? rt.history(userMsg.parent_id, !!this.room) : null, connected: toolSet.prompt.join('\n\n') || null, subagents, skillList,
-      room: roomCtx?.prompt ?? null, roomReadable: this.roomReadable,
+      room: roomCtx?.prompt ?? null, roomReadable: this.roomReadable, templateRun: this.templateScope,
     })
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
     const turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]
@@ -544,6 +549,8 @@ export class TurnExec {
       // a skill share's merge: its own instructions, the candidates inside them as data (skills/share-merge.ts)
       if (this.shareMerge) return shareMergeSystemPrompt(this.shareMerge, { history: input.history })
       if (fresh && sessionId) { try { recordListed(rt.db, spec.chatId, skills, sessionId) } catch (e) { rt.log.warn('skill list record failed', { err: e, turn: this.id }) } }
+      // a fresh Claude session: what its first instructions hold, for the turns that resume it
+      if (fresh && sessionId) claudeSession(spec.chatId, sessionId, true)!.rule = extraTools.includes('knowledge_explore')
       return buildTurnPrompt(rt.files, input)
     }
     // "/<skill name> …": that skill goes in front of the message for this turn (skills.ts); its folder joins the read
@@ -575,11 +582,15 @@ export class TurnExec {
     // the team's documents that match the message, looked up with the person's access before the engine starts, at most
     // LOOKUP_BEFORE_MODEL_MS (docs/AGENTS/plan/20261107-0819-knowledge-graph-fast-answers.md step 4). Claude Code and
     // Codex only (not the API engine, nor trial-credit turns on it), only with knowledge_explore in the turn, and never
-    // in a confidential chat (local tools only), a draft, judge or merge chat (no team content), an approved template
-    // run (its scope is fixed) or a demo replay. Not in a team chat room either: the room decides who may see an answer
-    // by the folders it used, and a search counts every folder it looked in (noteRoomTool), so a lookup on every
-    // question would keep answers that touched no file from the room
-    const lookup = !replay && (claude || codex) && !this.restricted && !this.room && !this.templateScope && !confidential && toolSet.has('knowledge_explore')
+    // in a confidential chat (local tools only), a draft, judge or merge chat (no team content) or a demo replay.
+    // - Not in a scheduled run (approved template runs included, their scope is fixed): what a strong block names joins
+    //   the read scope, and a save somewhere wider then needs a yes that nobody is there to give, so the task would fail
+    //   on a file it never asked for (review of wave 1). A question from Slack can wait for a card (the app shows it and
+    //   Slack is told once), so it gets the lookup.
+    // - Not in a team chat room: the room decides who may see an answer by the folders it used, and a search counts
+    //   every folder it looked in (noteRoomTool), so a lookup on every question would keep answers that touched no file
+    //   from the room
+    const lookup = !replay && (claude || codex) && !this.restricted && !this.room && spec.clientKind !== 'schedule' && !confidential && toolSet.has('knowledge_explore')
       ? await this.lookupDocuments(invoked ? skillInput : asSent.content) : null
     if (this.stopReason) return
     const head = (roomCtx ? `${roomCtx.block}\n\n` : '') + scheduled + continued + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '')
@@ -602,7 +613,8 @@ export class TurnExec {
       if (!resumed || this.restricted) return m
       const before = listedFor(rt.db, spec.chatId, sessionId, spec.userId)
       const changes = skillChangesText(before === 'stale' ? 'stale' : skillChanges(before, skills), neutralizeTags)
-      return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: changes })}\n\n${m}`
+      const knowledgeRuleKnown = claudeSession(spec.chatId, sessionId)?.rule === true
+      return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: changes, knowledgeRuleKnown })}\n\n${m}`
     }
     // the API engine always answers with the owner's one model: the turn records it (usage by model), never empty; a
     // trial answer is the API engine's on the trial model (turns.engine api: no images, Usage by engine), and Admin ›
@@ -698,6 +710,9 @@ export class TurnExec {
         const { exit, stderr } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
         this.closeThinking()
         if (exit?.session?.b64) this.stashSession(sid, exit.session.b64)
+        // the passages of this attempt's block count as given to the session once it is saved with them: an attempt
+        // that ended before the engine answered anything (a crash) may hand back the session it started from
+        if (exit?.session?.b64 && (parser.result || this.attemptHadOutput)) this.docsGivenTo(sid)
         if (this.stopReason) break
         if (this.stoppedAtLimit(exit)) break
         if (managed && this.switchCredential('claude-code', exclude)) {
@@ -1536,26 +1551,46 @@ export class TurnExec {
     return lookupBeforeModel(knowledgeGraphOf(this.rt.ctx), me, text, this.rt.log, { turn: this.id })
   }
 
+  /** the passages each Claude session of this turn was given in a block, by session id: they count as given once the
+   * session is saved by an attempt that got an answer from the engine (docsGivenTo), not when the block was sent */
+  private docsSent = new Map<string, LookupPassage[]>()
+
   /**
    * The <document_matches> block of this turn (prompt.ts documentMatches). `session`: the Claude session the message
-   * starts or continues; a resumed one is not given passages it was given before (docsGivenIn). What the block names
-   * joins the chat's read scope and the answer's sources as after a knowledge_explore call (knowledge-graph/tool.ts),
-   * and marks the session as having seen outside content like a read of that file (noteTaint).
+   * starts or continues; a resumed one is not given passages it was given before (claudeSession). What the block names
+   * is recorded as what it showed (review of wave 1):
+   * - strong: file text went to the model, so the files join the chat's read scope and the answer's sources and mark
+   *   outside content, as after a knowledge_explore call (knowledge-graph/tool.ts) and a read (noteTaint)
+   * - weak: names and places only, recorded as the names a list or glob showed (TurnFiles.namePaths, the folder of each
+   *   file): not read, not a source, no outside mark. A weak match is common (one ordinary word), and recording it as
+   *   read widened the read scope, so a save to a wider folder asked about files the model was told to ignore
    */
   private documentsBlock(r: LookupResult, session: { id: string; resumed: boolean } | null): string {
-    const given = session ? docsGivenIn(this.spec.chatId, session.id, session.resumed) : null
+    const given = session?.resumed ? claudeSession(this.spec.chatId, session.id)?.given ?? null : null
     const { block, shown } = documentMatches(given ? { strength: r.strength, passages: r.passages.filter((p) => !given.has(passageKey(p))) } : r, this.spec.locale)
     if (!block) return ''
+    if (session) this.docsSent.set(session.id, [...(this.docsSent.get(session.id) ?? []), ...shown])
+    if (r.strength !== 'strong') {
+      for (const p of shown) this.files.namePaths.add(p.path.includes('/') ? p.path.slice(0, p.path.lastIndexOf('/')) : '')
+      return block
+    }
     for (const p of shown) {
-      given?.add(passageKey(p))
       this.files.readPaths.add(p.path)
       this.files.sources.note(p.path, 'search', { agent: null, locs: [p.loc] })
       this.noteTaint('read', { file_path: p.path })
     }
-    if (given) for (const k of given) { if (given.size <= DOCS_GIVEN_KEYS) break; given.delete(k) }
     // in the chat's read scope now, before any tool runs (a save asks against it)
     this.noteReads()
     return block
+  }
+
+  /** The session `sid` was saved with this turn's message: the passages its block held count as given to it. */
+  private docsGivenTo(sid: string) {
+    const sent = this.docsSent.get(sid)
+    if (!sent?.length) return
+    const r = claudeSession(this.spec.chatId, sid, true)!
+    for (const p of sent) r.given.add(passageKey(p))
+    for (const k of r.given) { if (r.given.size <= SESSION_GIVEN_MAX) break; r.given.delete(k) }
   }
 
   // ---------------- read scope (tab 7 "공용 폴더를 거친 유출") ----------------
