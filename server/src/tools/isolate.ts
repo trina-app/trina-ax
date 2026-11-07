@@ -201,7 +201,7 @@ function bwrapArgs(o: { cmd: string; workDir: string; readPaths: string[]; moder
 }
 
 /** Converters started inside background work: the text cache's re-extraction (files/search.ts OfficeCache.update with
- * `background`: what a search left to the background queue, upgradeOld, the semantic re-index). `low` is asked when
+ * `background`: what a search left to the background queue, upgradeOld). `low` is asked when
  * each converter starts, so one that starts after a person's grep joined the job runs at normal priority. `behind` is
  * asked where converters wait for their turn (files/extract.ts officeWorkerSlot): the last try of a stopped file runs
  * at normal priority, yet nobody asked for it, so it still waits behind people's work. */

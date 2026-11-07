@@ -96,7 +96,7 @@ const check = (name: string, ok: boolean, detail = '') => { checks.push({ name, 
 
 // Inspect the actual request sent by the real CLI, including deferred tool definitions.
 // A successful answer alone cannot prove that a catalog/feature change kept exec or patch disabled.
-const teamTools = new Set([...Object.keys(FILE_TOOLS), ...Object.keys(OTHER_TOOLS), ...SCHEDULE_TOOL_NAMES, 'search'])
+const teamTools = new Set([...Object.keys(FILE_TOOLS), ...Object.keys(OTHER_TOOLS), ...SCHEDULE_TOOL_NAMES])
 const builtinTools = new Set(['list_mcp_resources', 'list_mcp_resource_templates', 'read_mcp_resource', 'request_user_input'])
 function lockedTools(body: any): boolean {
   const offered = [...(body?.tools ?? []), ...(body?.input ?? []).filter((i: any) => Array.isArray(i?.tools)).flatMap((i: any) => i.tools)]

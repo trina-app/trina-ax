@@ -20,7 +20,7 @@ The engine's own shell and file tools are turned off. Its only path to the team'
 | Kind | Tools |
 |---|---|
 | Files | `list`, `glob`, `grep`, `read`, `write`, `edit`, plus `move_files`, `copy_files`, `rename_file`, `share_file` |
-| Search and web | `search`, `web_fetch`, `save_url` |
+| Search and web | `knowledge_explore`, `web_fetch`, `save_url` |
 | Documents | `make_file`, `edit_hwp`, `hwp_render`, `artifact` |
 | Skills and memory | `skill`, `find_skills`, `remember` |
 | People | `ask_user` (a card the person answers) |

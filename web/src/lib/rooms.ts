@@ -344,7 +344,7 @@ export const runActive = (r: Pick<RoomAiRun, 'state'>) => r.state === 'queued' |
 /** What my question's answer is doing now, in plain words (the room shows no search patterns or paths): finding files,
  * reading a document (its name without folders or extension), looking at the web, or working. */
 export type RoomStepWords = { kind: 'find' } | { kind: 'read'; name: string } | { kind: 'web' } | { kind: 'work' }
-const FIND_TOOLS = new Set(['glob', 'grep', 'list', 'search', 'find_skills'])
+const FIND_TOOLS = new Set(['glob', 'grep', 'list', 'find_skills'])
 export function roomStepWords(step: Pick<Step, 'kind' | 'tool' | 'label'>): RoomStepWords {
   if (step.kind === 'web_search' || step.tool === 'web_fetch' || step.tool === 'save_url') return { kind: 'web' }
   if (step.tool && FIND_TOOLS.has(step.tool)) return { kind: 'find' }

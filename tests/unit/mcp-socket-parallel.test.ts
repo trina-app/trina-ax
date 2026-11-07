@@ -94,10 +94,11 @@ const rejected = (turnId: string) => env.db.query("SELECT summary FROM tool_even
 const settle = () => Bun.sleep(60)
 
 describe('which calls run side by side', () => {
-  test('only calls of the read-only file and search tools; everything else, unknown tools included, runs alone', () => {
+  test('only calls of the read-only file tools and knowledge_explore; everything else, unknown tools included, runs alone', () => {
     const call = (name: unknown) => ({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: {} } })
-    for (const t of ['read', 'list', 'glob', 'grep', 'search', 'knowledge_explore']) expect(parallelCall(call(t))).toBe(true)
-    for (const t of ['write', 'edit', 'edit_files', 'make_file', 'share_file', 'remember', 'ask_user', 'artifact', 'web_fetch', 'room_file', 'room_thread',
+    for (const t of ['read', 'list', 'glob', 'grep', 'knowledge_explore']) expect(parallelCall(call(t))).toBe(true)
+    // search: the removed search by meaning tool; a call by that name now runs alone like any unknown tool
+    for (const t of ['search', 'write', 'edit', 'edit_files', 'make_file', 'share_file', 'remember', 'ask_user', 'artifact', 'web_fetch', 'room_file', 'room_thread',
       'skill', 'hwp_render', 'mcp__other__read', 'Read', 'unknown_tool', '', undefined, 42])
       expect(parallelCall(call(t))).toBe(false)
     for (const m of [{ jsonrpc: '2.0', id: 1, method: 'initialize' }, { jsonrpc: '2.0', id: 2, method: 'tools/list' }, { jsonrpc: '2.0', method: 'notifications/initialized' },
@@ -105,7 +106,7 @@ describe('which calls run side by side', () => {
       expect(parallelCall(m)).toBe(false)
   })
   test('the list is read-only tools only, and none of them patches its step (TurnExec.patchToolStep is FIFO per tool)', () => {
-    expect([...PARALLEL_READ_TOOLS].sort()).toEqual(['glob', 'grep', 'knowledge_explore', 'list', 'read', 'search'])
+    expect([...PARALLEL_READ_TOOLS].sort()).toEqual(['glob', 'grep', 'knowledge_explore', 'list', 'read'])
     for (const t of PARALLEL_READ_TOOLS) {
       expect(ROOM_READ_ONLY_TOOLS.has(t)).toBe(true)
       expect(EXPLORE_TOOLS.has(t)).toBe(true)

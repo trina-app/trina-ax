@@ -164,7 +164,7 @@ hold for document passages, related documents and code:
   changes, in the part hidden from them.
 - Every file named joins the chat's read scope (`TurnFiles.readPaths`), like a read, so saving that content somewhere
   wider asks first. The matches are the answer's sources.
-- In a team chat room the tool is read-only, and the folders it searched count as read, like `grep` and `search`. Rooms
+- In a team chat room the tool is read-only, and the folders it searched count as read, like `grep` and `glob`. Rooms
   get no lookup before the model: it would count folders as read on every question and keep answers private that used
   no file.
 - The Files search checks each document row again with grep's own check (`visiblePath`), so it never shows a file that

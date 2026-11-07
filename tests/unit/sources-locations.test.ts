@@ -21,6 +21,8 @@ import { sha256 } from '../../server/src/files/store'
 import os from 'node:os'
 import type { SourceLoc } from '@mycel/shared/api'
 import { checkpoints, LineReader, makePlaceIndex, PLACE_INDEX_MIN, placesOfLines } from '../../server/src/files/place-index'
+import { upgradeStartMs } from '../../server/src/team-files/component'
+import { setLimitsPlatformForTests, setPlanForTests } from '../../server/src/system/limits'
 
 setDefaultTimeout(60_000)
 const pandoc = which('pandoc')
@@ -355,6 +357,21 @@ describe('the text cache of the previous format (0.2.16) is kept and made again 
     await cache.update(rel, { background: true, upgrade: true })
     expect(fs.readFileSync(dst, 'utf8')).toBe('')
     fs.rmSync(W, { recursive: true, force: true })
+  })
+  test('upgradeOld starts 20 s after a start; where the limits apply 10 to 15 minutes, the same each time for one install', () => {
+    try {
+      setLimitsPlatformForTests('darwin')
+      setPlanForTests(null)
+      expect(upgradeStartMs('a')).toBe(20_000)
+      setLimitsPlatformForTests('linux')
+      const a = upgradeStartMs('install-a')
+      expect(a).toBeGreaterThanOrEqual(600_000)
+      expect(a).toBeLessThan(900_000)
+      expect(upgradeStartMs('install-a')).toBe(a)
+    } finally {
+      setLimitsPlatformForTests(null)
+      setPlanForTests(undefined)
+    }
   })
 })
 

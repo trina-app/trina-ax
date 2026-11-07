@@ -159,8 +159,8 @@ export function teamTimeZone(db: Database): string {
 }
 
 /** The install's id: MYCEL_INSTALL_ID (the hosted cloud: the control plane's tenant id), else a random id made on first
- * use and kept in the settings table. Spreads the nightly backup, update roll-outs and the first search indexing of
- * the teams on one host (system/ops.ts, system/update-job.ts, tools/search.ts). */
+ * use and kept in the settings table. Spreads the nightly backup, update roll-outs and the first remake of older
+ * document text of the teams on one host (system/ops.ts, system/update-job.ts, team-files/component.ts). */
 export function installId(db: Database, env: Record<string, string | undefined> = process.env): string {
   const have = existingInstallId(db, env)
   if (have) return have

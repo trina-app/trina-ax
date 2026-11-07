@@ -216,8 +216,8 @@ export interface OfficeRefreshOpts {
 export class OfficeCache {
   private inflight = new Map<string, { job: Promise<void>; ticket: ExtractTicket }>()
   private marked = false
-  /** extraction slots in use, and the jobs that wait for one: a foreground job (the AI grep, an upload, the semantic
-   * index) gets a free slot before a background job, until that job's turn (extract.ts BackgroundTurn) */
+  /** extraction slots in use, and the jobs that wait for one: a foreground job (the AI grep, an upload) gets a free
+   * slot before a background job, until that job's turn (extract.ts BackgroundTurn) */
   private active = 0
   private waitingHigh: (() => void)[] = []
   private waitingLow: (() => void)[] = []
@@ -332,11 +332,6 @@ export class OfficeCache {
     if (!this.waitingLow.length) this.turn.restart(false)
     // a free slot: the job checks again at once; else it waits with the foreground jobs
     if (this.active < OFFICE_EXTRACT_PARALLEL) wake(); else this.waitingHigh.push(wake)
-  }
-  /** a person waits for this file: its job, if it has one, moves up as when they join it */
-  hurry(rel: string) {
-    const job = this.inflight.get(rel)
-    if (job) this.raise(job.ticket)
   }
   private write(rel: string, text: string, st: fs.Stats, source = '') {
     const dst = this.cachePath(rel)
