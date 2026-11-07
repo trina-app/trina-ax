@@ -240,6 +240,11 @@ export const RoomFileHereInput = z.strictObject({
   file: z.string().min(1).max(300).describe('The file\'s id (file_id=… in the <attachments> list or after a message in <room_context>), or its exact name.'),
   offset: z.number().int().min(0).optional().describe('Characters of the text to skip (to read on after a cut result).'),
 })
+/** room_thread in a room's own AI session (rooms/ai.ts): one whole thread of this room, nothing else */
+export const RoomThreadHereInput = z.strictObject({
+  thread: z.string().min(1).max(100).describe('The id of the thread\'s first message: id="…" of a message in <room_context> that has thread_replies, or thread_reply_of="…" of a reply (in a thread: thread_id).'),
+  before: z.string().min(1).max(100).optional().describe('To read further back in a long thread: the reply id an earlier result named ("before=…").'),
+})
 /** save_room_file: a copy of a file sent in this room put into the team folder (a room's own AI session) */
 export const SaveRoomFileInput = z.strictObject({
   file: z.string().min(1).max(300).describe('The file\'s id (file_id=… in the <attachments> list or after a message in <room_context>); a name is not taken, as two files may share one.'),
@@ -283,6 +288,7 @@ export const OTHER_TOOLS = {
   room_read: { input: RoomReadInput, output: TextOutput },
   room_file: { input: RoomFileInput, output: TextOutput },
   save_room_file: { input: SaveRoomFileInput, output: TextOutput },
+  room_thread: { input: RoomThreadHereInput, output: TextOutput },
 } as const
 
 /** Exactly what the engine may have, in addition to mcp__team__<file tool>. Lockdown test asserts this. */

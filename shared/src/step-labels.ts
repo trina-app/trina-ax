@@ -54,6 +54,8 @@ export const FILE_STEP_VERB: Record<string, T> = {
   room_read: t('대화방 읽기', 'Read conversation', 'Baca ruang obrolan', "トークルームを読む", "Leer sala de chat"),
   room_file: t('대화방 파일 읽기', 'Read conversation file', 'Baca berkas ruang obrolan', "トークルームのファイルを読む", "Leer archivo de sala de chat"),
   save_room_file: t('대화방 파일 저장', 'Save conversation file', 'Simpan berkas ruang obrolan', "トークルームのファイルを保存", "Guardar archivo de sala de chat"),
+  // a room's own AI session opens one of the room's threads (an id means nothing to the person: the verb alone)
+  room_thread: t('스레드 읽기', 'Read thread', 'Baca utas', "スレッドを読む", "Leer hilo"),
 }
 
 /** Verb of an in-app browser step: "<verb> · <url>". */

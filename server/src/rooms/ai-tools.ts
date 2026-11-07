@@ -12,8 +12,15 @@ import { FILE_TOOLS } from '@mycel/shared'
 export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
   ...Object.keys(FILE_TOOLS), 'edit_files', 'search', 'knowledge_explore', 'skill', 'find_skills', 'ask_user', 'agent',
   'make_file', 'edit_hwp', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact',
-  // this room's own files (chat/room-tools.ts roomSessionFileTools): what they read joins the read scope as the room
+  // this room's own files (chat/room-tools.ts roomSessionTools): what they read joins the read scope as the room
   'room_file', 'save_room_file',
+  // one thread of this room (chat/room-tools.ts, rooms/ai-context.ts readThread). Its result is this room's own messages
+  // and nothing else: for the whole room only (no private preview, the asker's own included), not deleted, as the
+  // asker sees them (from their join on, a thread by its root's seq), never another room's. What it showed joins the
+  // read scope as the room from the root's seq, exactly like the <room_context> block, so decide() keeps the answer
+  // private for any member who cannot see that thread ("들어오기 전 대화"). Nothing in it comes from outside the team:
+  // it keeps an answer "team files only" as the block does (docs/DECISIONS.md "대화방의 트리나가 스레드도 본다")
+  'room_thread',
 ])
 
 /**
@@ -28,6 +35,8 @@ export const ROOM_TOOLS: ReadonlySet<string> = new Set([
   'make_file', 'edit_hwp', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact', 'web_fetch', 'save_url',
   // this room's files: the asking message's attachments and earlier ones the person sees (read, or a copy saved)
   'room_file', 'save_room_file',
+  // one whole thread of this room (read-only; in a thread question that thread only)
+  'room_thread',
 ])
 
 /**
@@ -38,7 +47,7 @@ export const ROOM_TOOLS: ReadonlySet<string> = new Set([
  */
 export const ROOM_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   'list', 'glob', 'grep', 'read', 'search', 'knowledge_explore', 'skill', 'find_skills', 'ask_user', 'hwp_render', 'share_file', 'artifact', 'web_fetch',
-  'room_file',
+  'room_file', 'room_thread',
 ])
 
 /** The arguments of our tools that name a team path (a room session counts each as a name read, chat/turn.ts). */
