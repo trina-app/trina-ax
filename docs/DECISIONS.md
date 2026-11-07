@@ -12462,6 +12462,40 @@ The owner: "트리나가 말한 것들 복사하고 하는 기능 있잖아? 거
     "권한이 없어 열 수 없어요", and so does a tap (a toast: touch has no tooltip). Nothing of the file is loaded. An AI
     answer in a room uses the same. An attached file's download button is named by what it shows (name, size) and then
     "내려받기" (WCAG 2.5.3). The toast after sending says "{room}에 보냈어요 · 파일 {n}개 첨부".
+  - **Links follow the attachment; files open (feat/room-files-open, 2026-11-07, product owner).** The owner: "다운받는
+    것도 있으면 좋긴 한데, 그냥 열어주면 안되는거야? 그리고 필요하면 다운받고? 링크도 그냥 유지하면 안되니? 지금은 링크가
+    you don't have access라 떠서.. 어차피 첨부한거라면 말이지?"
+    - A link in the answer to a team file that went with the message opens the **team file** for a member who may open
+      it now (`openable`, as before), else the **attached copy** (no lock, the same link; its tip says "첨부된 파일을
+      열어요"), and shows the lock only when there is neither. Pictures the same way (a link to the copy; its thumbnail
+      is under the message).
+    - Which copy a link stands for is kept when the message is sent, in the message's existing `source_scope` JSON
+      (`attached: [{ file, path, links }]`: the room file, the team path it was copied from, and every link of the answer
+      part that resolved to that path, e.g. `a/./b.html` and `a/b.html`). No migration: the column is migration 264's,
+      and `rooms/history.ts` reads only `sources` and `unknown` from it. The client gets `RoomMessage.attachedLinks`
+      (`[{ path, fileId }]`) computed per viewer in `messagesOut`: only for a message they see (a withheld or deleted one
+      gets none), only links the answer part has (by `answerFilePaths`, the text the body already carries) and only
+      files of that message. The stored team path never leaves the server, so a link written another way than the path
+      tells nobody the path. An answer shared before this keeps its locks (no `attached`).
+    - Rejected: matching a copy to a link by its file name (two files of one name), and storing the mapping on
+      `room_files` (no JSON column there; it would need a migration for the same result).
+- **Room files open in the preview panel (feat/room-files-open, 2026-11-07).** Every file under a room message, uploads
+  and attached copies alike, opens on a click in the side panel (`FilePanel`, a full-screen sheet below 768 px) with
+  the source `{ source: 'room', roomId, fileId, name }`: the bytes come from `GET /api/rooms/:id/files/:fileId` (the
+  member check on every read; a page or script type inline as `text/plain` with the sandbox CSP and nosniff) bounded by
+  `previewLimit`, and are drawn by the viewers team files use. HTML and SVG run only in the sandbox frame
+  (`/sandbox/frame`, `sandbox="allow-scripts"`, opaque origin, its CSP) or the static frame, never srcdoc or a blob:
+  page of the app; a room file is in no team folder, so a page pulls in no team images. HEIC and Hangul files (the
+  server's team-file conversions) and types without a viewer show the "이 형식은 미리 볼 수 없어요" notice with a download.
+  - **The chip.** Its name and size open the panel; a small download icon at its end downloads (a tooltip "내려받기",
+    named "{name} 내려받기"; 44 px wide on phones so its tap area stays off the name). A file the panel cannot show (no
+    viewer, a server conversion, past the viewer's size limit; text is cut, so any size opens) stays one download
+    button, as before. Photos keep their thumbnails, which open the same panel. The panel's download is the room file's
+    `?download=1`; it has no "AI에게 묻기", "파일 화면에서 열기" or edit (not a team file). No other new button.
+  - **Download-only files stay downloads.** A room file whose bytes are on safe operations' download-only list is sent
+    only with `download=1` to a download the person started (Fetch Metadata, as a team file's download): no inline read,
+    no thumbnail (a small picture was sent as its own thumbnail before) and no bytes a page fetches (503
+    `quarantined`; the panel then says it can only be downloaded).
   - **Audited** as `room.answer_share`: the room as audit rows name it, the number of people (who cannot open a linked
     file that did not go, or see material it used), confirmed, cut and the number of files attached; no content, no names.
   - **Not done: "이미 보냄"** in the room picker. A room message does not record which answer it came from (migration 261
