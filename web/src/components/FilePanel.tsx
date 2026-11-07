@@ -3,7 +3,8 @@
 // CSP on the server side) and are drawn here; HTML/SVG only run in the sandbox frame (SandboxFrame, /sandbox/frame),
 // never as srcdoc or a blob: page of this origin. A file sent in a team chat room comes the same way from
 // /api/rooms/:id/files/:fileId (its members only; a page or script type as text with the sandbox CSP) and is drawn by
-// the same viewers; it is not in a team folder, so a page pulls in no team images, and it has only the download.
+// the same viewers; it is not in a team folder, so a page pulls in no team images (HTML and SVG resolve none, Markdown
+// shows a team picture as a link to open), and it has only the download.
 // Text files the person may write can be fixed in place (tab 5 "텍스트 파일 고치기"): the editor keeps the sha256 it
 // loaded and saves with it as baseSha256 (PUT /api/files/content); when someone changed the file in between, the
 // server keeps their version and saves this one as a conflict copy, which the panel then opens.
@@ -398,7 +399,8 @@ function TextKinds({ kind, blob, name, path }: { kind: PreviewKind; blob: Blob; 
             ))}
           </dl>
         )}
-        <Markdown text={md} />
+        {/* a room file or one from this computer is not in the team folder: a team picture it names is a link, not loaded */}
+        <Markdown text={md} teamImagesAsLinks={path === null} />
         {cut}
       </div>
     )

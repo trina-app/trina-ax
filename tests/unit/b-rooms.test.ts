@@ -412,11 +412,14 @@ test('previews: a room file comes as bytes the app draws, never a page of this o
   const html = await upload(dm.id, 'deck.html', page)
   const svg = await upload(dm.id, 'logo.svg', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
   const md = await upload(dm.id, 'notes.md', '# acme\n')
-  await mia.client.call('POST', `/api/rooms/${dm.id}/messages`, { body: '', fileIds: [html.id, svg.id, md.id], clientMessageId: cm() })
+  // XML documents a browser shows as pages, where an XHTML script would run (RSS, XSLT, MathML, XUL, WML)
+  const xml = '<rss xmlns:h="http://www.w3.org/1999/xhtml"><h:script>alert(1)</h:script></rss>'
+  const feeds = await Promise.all(['feed.rss', 'style.xsl', 'formula.mml', 'app.xul', 'card.wml'].map((n) => upload(dm.id, n, xml)))
+  await mia.client.call('POST', `/api/rooms/${dm.id}/messages`, { body: '', fileIds: [html.id, svg.id, md.id, ...feeds.map((f) => f.id)], clientMessageId: cm() })
   const get = (c: Client, roomId: string, id: string, q = '', headers: Record<string, string> = {}) => h.fetch(`/api/rooms/${roomId}/files/${id}${q}`, { headers: { cookie: c.cookie!, ...headers } })
   // what the preview panel reads (fetch, inline): a page or a picture that can run is text, with the sandbox CSP and
   // nosniff, so even opened as an address it is never a page of this origin; the bytes are the file's
-  for (const f of [html, svg]) {
+  for (const f of [html, svg, ...feeds]) {
     const r = await get(nora.client, dm.id, f.id, '', { 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty' })
     expect(r.status).toBe(200)
     expect(r.headers.get('content-type')).toBe('text/plain; charset=utf-8')
@@ -437,15 +440,16 @@ test('previews: a room file comes as bytes the app draws, never a page of this o
   expect((await get(otto.client, dm.id, html.id, '?download=1')).status).toBe(404)
   expect((await get(mia.client, team.id, html.id)).status).toBe(404)
   expect((await get(nora.client, team.id, html.id)).status).toBe(404)
-  // a file on the safety check's download-only list: a download the person starts, never inline, a thumbnail or bytes
-  // a page fetches (the preview panel then says it can only be downloaded)
+  // a file on the safety check's download-only list: only a download, never inline or a thumbnail (what the preview
+  // panel reads: it then says the file can only be downloaded). The phone app saves a download through fetch, so a
+  // download a page fetched still goes
   const held = new TextEncoder().encode('held deck bytes')
   h.ctx.files.quarantine.add(held, 'pptx')
   const q = await upload(dm.id, 'held.pdf', held)
   await mia.client.call('POST', `/api/rooms/${dm.id}/messages`, { body: '', fileIds: [q.id], clientMessageId: cm() })
-  for (const [query, headers] of [['', {}], ['?download=1', { 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty' }], ['?download=1', { 'sec-fetch-dest': 'iframe' }]] as const) {
-    const r = await get(nora.client, dm.id, q.id, query, headers)
-    expect({ query, headers, status: r.status }).toEqual({ query, headers, status: 503 })
+  for (const headers of [{}, { 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty' }] as Record<string, string>[]) {
+    const r = await get(nora.client, dm.id, q.id, '', headers)
+    expect({ headers, status: r.status }).toEqual({ headers, status: 503 })
     expect((await r.json()).error.params.reason).toBe('quarantined')
   }
   // a held picture has no thumbnail made, and a small one is not sent as its own either
@@ -455,7 +459,7 @@ test('previews: a room file comes as bytes the app draws, never a page of this o
   expect(p).toMatchObject({ kind: 'image', thumb: false })
   await mia.client.call('POST', `/api/rooms/${dm.id}/messages`, { body: '', fileIds: [p.id], clientMessageId: cm() })
   expect((await get(nora.client, dm.id, p.id, '?thumb=1')).status).toBe(503)
-  for (const headers of [{}, { 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' }] as Record<string, string>[]) {
+  for (const headers of [{}, { 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' }, { 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty' }] as Record<string, string>[]) {
     const r = await get(nora.client, dm.id, q.id, '?download=1', headers)
     expect(r.status).toBe(200)
     expect(await r.text()).toBe('held deck bytes')

@@ -8,7 +8,6 @@ import type { RouteModule } from './module'
 import { fail } from '../http/errors'
 import { assertStorageRoom } from '../system/storage'
 import { streamFile } from '../team-files/download'
-import { fetchedByPage } from '../safe-ops/quarantine'
 import { SAFE_OPS_TEXT } from '../safe-ops/strings'
 import { hashFile, writeTemp } from '../team-files/place'
 import { roomsOf } from '../rooms/service'
@@ -79,9 +78,11 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.roomMessageSources, ({ c, auth, params }) => { c.header('Cache-Control', 'no-store'); return ai.sources(auth.user.id, params.id, params.messageId) })
     kit.handle(API.roomFile, ({ c, auth, params, query }) => {
       const f = files.open(auth.user.id, params.id, params.fileId, !!query.thumb)
-      // a file on the safety check's download-only list (docs/SAFE-OPS-1A.md) goes only as a download the person asked
-      // for: no thumbnail, no inline read and no bytes a page fetches (the preview panel), as a team file's download
-      if (f.quarantined && (query.thumb || !query.download || fetchedByPage(c.req.raw.headers))) fail('unavailable', SAFE_OPS_TEXT.quarantined[c.get('locale')], { params: { reason: 'quarantined' } })
+      // a file on the safety check's download-only list (docs/SAFE-OPS-1A.md) goes only as a download (download=1): no
+      // thumbnail and no inline read, which is what the preview panel reads. Unlike a team file's download, a download
+      // fetched by the page is not refused: the phone app saves a download through fetch (lib/mobile.ts downloadToApp),
+      // and no app view reads a room file with download=1
+      if (f.quarantined && (query.thumb || !query.download)) fail('unavailable', SAFE_OPS_TEXT.quarantined[c.get('locale')], { params: { reason: 'quarantined' } })
       return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.download ? 'attachment' : 'inline' })
     })
   },

@@ -115,3 +115,15 @@ test('a chip opens the file in the panel and has its own download icon; a file t
     await page.unmount()
   }
 })
+
+test("a room file's Markdown preview never loads the viewer's team pictures: each is a link to open", async () => {
+  const { Markdown } = await import('../../src/components/Markdown')
+  const md = 'Look: ![our logo](/api/files/download?path=users/ada/private-photo.png) and [the plan](/files/view?path=acme/plan.md)'
+  const inTeam = renderToStaticMarkup(<MemoryRouter><Markdown text={md} /></MemoryRouter>)
+  expect(inTeam).toContain('<img')
+  const fromRoom = renderToStaticMarkup(<MemoryRouter><Markdown text={md} teamImagesAsLinks /></MemoryRouter>)
+  expect(fromRoom).not.toContain('<img')
+  expect(fromRoom).not.toContain('/api/files/download')
+  expect(fromRoom.split('data-testid="team-file-chip"').length - 1).toBe(2)
+  expect(fromRoom).toContain('our logo</button>')
+})

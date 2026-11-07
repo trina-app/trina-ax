@@ -7,7 +7,7 @@
 // the message the file was sent with. It sends them like a team file's download (team-files/download.ts streamFile:
 // nosniff, a sandbox CSP, a page or script type inline as text/plain); the app's preview panel reads those bytes and
 // draws them (an HTML page only in its sandbox frame), never as a page of this origin. A file whose bytes are on the
-// team's download-only list goes only as a download the person started. The upload path and its limits are the chat attachments' (multipart ≤ 50 MB, the
+// team's download-only list goes only as a download (no inline read, no thumbnail). The upload path and its limits are the chat attachments' (multipart ≤ 50 MB, the
 // storage check, the temp file and its sha256, the image size and thumbnail helpers, the quarantine list).
 // reconcile() runs at every start: after a restore the database and the folder may be from different moments; a file
 // without its row is set aside in .system/rooms-orphans/ for 30 days, a row without its file is only counted.

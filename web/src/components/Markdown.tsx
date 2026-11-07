@@ -240,6 +240,9 @@ const OpenableFiles = createContext<ReadonlySet<string> | null>(null)
 /** The copies that went with the text (an answer shared with its files attached: RoomMessage.attachedLinks), by the link
  * as the text writes it: a link the viewer may not open as a team file opens its copy instead of showing a lock. */
 const AttachedCopies = createContext<ReadonlyMap<string, PreviewFile> | null>(null)
+/** Text from outside the team folder (a room file, a file picked on this computer): a team picture it names is a link to
+ * open, never loaded by itself, so another person's file cannot put the viewer's own pictures into its page. */
+const TeamImagesAsLinks = createContext(false)
 const useLinkTarget = (path: string) => teamLinkTarget(path, useContext(OpenableFiles), useContext(AttachedCopies))
 
 /** A file the AI made or mentioned: a link in the sentence, with a small file icon at the text's height, that opens the
@@ -296,8 +299,10 @@ export function TeamImage({ path, alt, className }: { path: string; alt?: string
   const t = useT()
   const [failed, setFailed] = useState(false)
   const target = useLinkTarget(path)
+  const asLink = useContext(TeamImagesAsLinks)
   if (target.kind === 'locked') return <LockedFile>{alt || baseName(path) || t('md.image')}</LockedFile>
   if (target.kind === 'copy') return <TeamFileLink path={path}>{alt || target.copy.name}</TeamFileLink>
+  if (asLink) return <TeamFileLink path={path}>{alt || baseName(path) || t('md.image')}</TeamFileLink>
   if (!isDisplayableImagePath(path) || failed)
     return (
       <button type="button" className="not-prose inline-flex items-center gap-1.5 rounded-lg border border-line px-2 py-1 text-xs text-muted" onClick={() => openTeamFile(path)}>
@@ -459,13 +464,16 @@ const SIZES = {
 }
 
 /** `copyQuotes`: an assistant answer in the chat, where each top-level quote copies on its own (ad options, drafts).
- * `openable` / `attached`: in a room, the team files this viewer may open and the copies that went with the message. */
-export const Markdown = memo(function Markdown({ text, streaming, className, size = 'answer', copyQuotes, openable, attached }: { text: string; streaming?: boolean; className?: string; size?: keyof typeof SIZES; copyQuotes?: boolean; openable?: ReadonlySet<string>; attached?: ReadonlyMap<string, PreviewFile> }) {
-  if (openable || attached)
+ * `openable` / `attached`: in a room, the team files this viewer may open and the copies that went with the message.
+ * `teamImagesAsLinks`: text from outside the team folder, whose team pictures are links, not loaded. */
+export const Markdown = memo(function Markdown({ text, streaming, className, size = 'answer', copyQuotes, openable, attached, teamImagesAsLinks }: { text: string; streaming?: boolean; className?: string; size?: keyof typeof SIZES; copyQuotes?: boolean; openable?: ReadonlySet<string>; attached?: ReadonlyMap<string, PreviewFile>; teamImagesAsLinks?: boolean }) {
+  if (openable || attached || teamImagesAsLinks)
     return (
       <OpenableFiles.Provider value={openable ?? null}>
         <AttachedCopies.Provider value={attached ?? null}>
-          <Markdown text={text} streaming={streaming} className={className} size={size} copyQuotes={copyQuotes} />
+          <TeamImagesAsLinks.Provider value={!!teamImagesAsLinks}>
+            <Markdown text={text} streaming={streaming} className={className} size={size} copyQuotes={copyQuotes} />
+          </TeamImagesAsLinks.Provider>
         </AttachedCopies.Provider>
       </OpenableFiles.Provider>
     )
