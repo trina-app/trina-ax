@@ -1764,10 +1764,11 @@ set its own logo as the tab icon; without one it is the product's icon.
   `-precomposed`) and `/manifest.webmanifest`. index.html is served as built (its icon links are never rewritten; the
   `<!-- icons -->` markers and `iconLinks` / `withIconLinks` are gone), the well-known addresses and the manifest are the
   build's files, and the web app no longer swaps the page's links after sign-in or after the `team_icon_changed`
-  notice (`applyTeamIcon` removed). The 512 px rule above has no purpose left and is removed with it (`isAppIcon`,
-  `TEAM_ICON_APP_PX`, `manifestWithIcon`, `Me.team.appIcon`); `appIcon` was optional and never in a release, so a page
-  still open from before reads its absence as "not the app icon" (it may keep the logo in its own tab until it
-  reloads). Kept: the upload rules, `PUT` / `DELETE /api/admin/team-icon`, the audit entries, the realtime notice (the
+  notice (`applyTeamIcon` removed). Released versions (up to 0.4.0-beta.10) made a logo of any size the tab icon, the
+  home-screen icon and the manifest's only icon; the 512 px rule above reached dev only and is removed with the rest
+  (`isAppIcon`, `TEAM_ICON_APP_PX`, `manifestWithIcon`, `Me.team.appIcon`). `appIcon` was optional and never in a
+  release, so a page still open from before reads its absence as "not the app icon" (it may keep the logo in its own
+  tab until it reloads). Kept: the upload rules, `PUT` / `DELETE /api/admin/team-icon`, the audit entries, the realtime notice (the
   sidebar follows it through `GET /api/me`) and the public `GET /team-icon`, now the sidebar's image (the sign-in page
   has no logo of its own any more: it showed it only as the tab icon). Admin › Team settings previews the sidebar header
   in the light and the dark look instead of the tab and home-screen sizes; the install pictures in Settings › Apps show

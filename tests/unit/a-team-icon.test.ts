@@ -160,7 +160,7 @@ describe('a logo set by an admin', () => {
     expect(e!.detail).toMatchObject({ version: v, type: 'image/png', width: 256, height: 256, before: null })
   })
   test('GET /team-icon serves those bytes to anyone, with the image-only headers; long cache only at its version', async () => {
-    const r = await get(`/team-icon?v=${v}`) // no session: the sign-in page shows it too
+    const r = await get(`/team-icon?v=${v}`) // no session: public, the image only (the sidebar header's <img>)
     expect(r.status).toBe(200)
     expectIconHeaders(r, 'image/png')
     expect(r.headers.get('cache-control')).toBe('public, max-age=31536000, immutable')
