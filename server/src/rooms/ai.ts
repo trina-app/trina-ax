@@ -484,6 +484,7 @@ export class RoomAi implements RoomTurns {
       db.query('UPDATE room_ai_turns SET status = ?, answer_id = ?, decision = ?, scope = ?, ended_at = ? WHERE turn_id = ?')
         .run(d.post ? 'posted' : 'private', id, d.post ? null : decisionJson(d), JSON.stringify(scope), now, turnId)
     })()
+    this.auditSharedChats(turnId, t.user_id, room, id, d)
     const row = messageRow(db, t.room_id, id)!
     const rooms = roomsOf(this.ctx)
     // a private preview is the asker's only: it brings a room they hid back for them (a posted answer does so in
@@ -496,6 +497,26 @@ export class RoomAi implements RoomTurns {
     // a private preview: the others who see the question learn that it was answered to the asker only (the question
     // already names them), never what or why: the question now says so (store.ts messagesOut)
     if (!d.post && q && !q.deleted_at) rooms.messageEvent('room.message.updated', q)
+  }
+
+  /**
+   * An answer that used the shared project chats (chat/room-project-chats.ts) is audited room.ai_shared_chats: how many
+   * listings and how many chats they showed, how many chats were read, and where the answer went ('room' or 'private').
+   * Never a chat, project, title or word: the counts come from the tool lines of the turn, which name none either. The
+   * room as the other room audits name it (roomAuditRef: a DM's or group chat's kind only). Never throws.
+   */
+  private auditSharedChats(turnId: string, userId: string, room: RoomRow, answerId: string, d: Decision) {
+    try {
+      const used = this.db.query("SELECT tool, summary FROM tool_events WHERE turn_id = ? AND tool IN ('project_chats', 'project_chat')").all(turnId) as { tool: string; summary: string }[]
+      if (!used.length) return
+      let lists = 0, shown = 0, reads = 0
+      for (const u of used) {
+        const n = u.tool === 'project_chats' ? /^project_chats -> (?:list|search), (\d+) shown$/.exec(u.summary) : null
+        if (n) { lists++; shown += Number(n[1]) }
+        if (u.tool === 'project_chat' && u.summary.startsWith('project_chat -> read')) reads++
+      }
+      audit(this.db, { actor: userId, action: 'room.ai_shared_chats', target: answerId, detail: { ...roomAuditRef(room), lists, shown, reads, decision: d.post ? 'room' : 'private' } })
+    } catch (e) { this.ctx.log.warn('room shared chat audit failed', { err: e }) }
   }
 
   private close(t: TurnRow, status: 'stopped' | 'error', error: ApiErrorBody | null) {

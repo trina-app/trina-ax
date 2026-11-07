@@ -3612,6 +3612,7 @@ export const id: Record<MessageKey, string> = {
   "audit.act.room.archive": "Mengarsipkan ruang obrolan",
   "audit.act.room.rename": "Mengganti nama ruang obrolan",
   "audit.act.room.ai_share": "Mengirim jawaban AI ke ruang obrolan",
+  "audit.act.room.ai_shared_chats": "AI membaca obrolan proyek bersama di ruang obrolan",
   "audit.act.room.answer_share": "Mengirim jawaban AI dari obrolannya ke ruang obrolan",
   "audit.act.room.ai_delete": "Menghapus jawaban AI di ruang obrolan",
   "slack.state.off": "Mati",

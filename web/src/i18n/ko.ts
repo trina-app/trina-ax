@@ -3611,6 +3611,7 @@ export const ko = {
   "audit.act.room.archive": "대화방 보관",
   "audit.act.room.rename": "대화방 이름 변경",
   "audit.act.room.ai_share": "트리나 답을 대화방에 올림",
+  "audit.act.room.ai_shared_chats": "트리나가 대화방에서 공유 프로젝트 채팅을 읽음",
   "audit.act.room.answer_share": "대화방에 AI 답변 보냄",
   "audit.act.room.ai_delete": "트리나 답 삭제",
   "slack.state.off": "꺼짐",

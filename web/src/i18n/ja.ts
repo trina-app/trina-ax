@@ -3572,6 +3572,7 @@ export const ja: Record<MessageKey, string> = {
   "audit.act.room.archive": "トークルームをアーカイブ",
   "audit.act.room.rename": "トークルーム名を変更",
   "audit.act.room.ai_share": "AIの回答をトークルームに投稿",
+  "audit.act.room.ai_shared_chats": "AIがトークルームで共有プロジェクトのチャットを読んだ",
   "audit.act.room.answer_share": "自分のチャットのAIの回答をトークルームに送信",
   "audit.act.room.ai_delete": "ルームのAIの回答を削除",
   "slack.state.off": "オフ",

@@ -3572,6 +3572,7 @@ export const es: Record<MessageKey, string> = {
   "audit.act.room.archive": "Archivó una sala de chat",
   "audit.act.room.rename": "Cambió el nombre de una sala de chat",
   "audit.act.room.ai_share": "Publicó una respuesta de la IA en una sala",
+  "audit.act.room.ai_shared_chats": "La IA leyó chats compartidos de proyecto en una sala",
   "audit.act.room.answer_share": "Envió una respuesta de la IA de su chat a una sala",
   "audit.act.room.ai_delete": "Eliminó una respuesta de la IA en una sala",
   "slack.state.off": "Desactivado",
