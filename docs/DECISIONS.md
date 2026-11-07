@@ -12273,3 +12273,26 @@ subscription was refused (`validation`) and the web ask left Edge out.
   them). `tests/unit/c-speech-hosted.test.ts` (hosted defaults unchanged; the team's key after the hosting key goes).
   `web/test/e2e/admin.spec.ts` (the missing line, the price line, the key alone turning voice input on and off with no
   settings write, removing the key keeping "Turn video sound into text"); the mock server models "not chosen".
+
+## The installed web app's icon badge (feat/pwa-badge, 2026-11-07)
+
+The owner installed Trina AX as a web app (PWA) on a MacBook: a notification came, but the Dock icon showed no number.
+Only the desktop app set one (`setBadgeCount` over its bridge); the web app never used the Badging API.
+
+- **One count everywhere.** The page sets `navigator.setAppBadge(n)` with the same n as the tab title and the desktop
+  app's Dock (store/sessionMarkers.ts `currentCount`: chats and rooms that want me, each once; a hidden room never), and
+  `clearAppBadge()` at 0 (`setAppBadge(0)` where only that exists). Once when n changes, a burst of changes waiting
+  `WEB_BADGE_MS` (250 ms); at once when the window starts; cleared when it stops (signing out). Every call is caught: a
+  refusal (not installed, notifications off, a browser that only half has it) changes nothing on the page. A normal tab
+  ignores it, so no "installed?" check is needed for the count itself.
+- **Not in the desktop app** (its own badge over the bridge) **nor the phone app** (native badge); an iPhone Home Screen
+  web app (iOS 16.4+, notifications allowed) takes the same code.
+- **No window open: a dot.** The service worker cannot know the count, so a push it shows while no window of this origin
+  is open sets `self.navigator.setAppBadge()` with no number; the first window that opens sets the exact count (or
+  clears it). Not for a push that is not shown, nor for a silent one (a page is open and played the sound: it counts
+  itself). The account changing (`push.invalidate`) clears it with the notices. Never fails a push.
+- **Settings › 알림 says where the system lets it show**, one quiet line under the push row, only on an installed web app
+  (`display-mode: standalone`, or an iPhone's Home Screen) whose browser has the API: macOS 시스템 설정 › 알림 › Trina AX
+  › "앱 아이콘에 배지 표시"; Windows 설정 › 개인 설정 › 작업 표시줄 › 작업 표시줄 동작 › "작업 표시줄 앱에 배지 표시";
+  iPhone 설정 › 알림 › Trina AX › 배지; elsewhere the system's notification settings. Five languages, no box.
+
