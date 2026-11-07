@@ -506,6 +506,8 @@ export const en: Record<MessageKey, string> = {
   'devEnvQueue.full': 'The dev environment is full. Try again later.',
   'devEnvQueue.cancelled': 'Cancelled. It did not run.',
   'steps.failed': 'Failed',
+  'steps.retried': "Didn't work, but {ai} went on another way",
+  'steps.retrying': "Didn't work; {ai} is trying another way",
   'steps.paused': 'Paused here',
   'steps.stopped': 'Stopped here',
   'steps.someFailed': 'Some steps failed',

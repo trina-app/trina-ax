@@ -62,10 +62,15 @@ describe('sub-task steps', () => {
     expect(html.match(/data-testid="subtask-latest"/g)).toHaveLength(1)
   })
 
-  test('folded after the answer: counts the answer\'s own steps; a failed child marks the list', () => {
+  test('folded after the answer: counts the answer\'s own steps; a failed child marks the list unless it was made up for', () => {
     setLocale('en')
-    const html = renderToStaticMarkup(<Steps steps={steps.map((s) => ({ ...s, status: s.status === 'running' ? 'ok' : s.status, endedAt: at }))} streaming={false} />)
+    const done = steps.map((s) => ({ ...s, status: s.status === 'running' ? 'ok' as const : s.status, endedAt: at }))
+    const html = renderToStaticMarkup(<Steps steps={done} streaming={false} failed />)
     expect(html).toContain(translate('en', 'steps.summary', { n: 4 }))
+    // the sub-agent's save failed and no later save worked (its sub-task ending is no save): red
     expect(html).toContain(translate('en', 'steps.someFailed'))
+    // its next save worked: made up for, no red mark (steps-recovered.test.tsx)
+    const saved = [...done, step({ id: 'd2', tool: 'write', label: 'Save · users/alice/draft-2.md', parentId: 'B1' })]
+    expect(renderToStaticMarkup(<Steps steps={saved} streaming={false} />)).not.toContain(translate('en', 'steps.someFailed'))
   })
 })
