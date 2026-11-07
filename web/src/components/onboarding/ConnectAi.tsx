@@ -6,7 +6,7 @@
 // The setup row and the end screen of the welcome steps (`panel`) open a dialog titled "AI 연결" with the same three
 // ways as the welcome step (the walk of PR #100: the row said "AI 연결하기" and opened "계정 추가" on Claude alone).
 // Each opens Admin › AI connections' own AddCredential dialog in its simple form (the whole team, named after the kind,
-// the provider's terms in one line, the password again for a team connection; one's own as in Settings). No connection
+// the provider's terms in one line; no password). No connection
 // logic here. When the dialog is done, GET /api/me/ai-access is asked again: every "no AI" place reads that store, so
 // they all move on together; a connection saved that cannot answer yet says so.
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'

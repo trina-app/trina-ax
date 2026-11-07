@@ -190,12 +190,12 @@ describe('with MYCEL_DEMO on a development server', () => {
     expect((await owner.call('GET', API.me.path)).user.role).toBe('owner')
   })
 
-  test('the password re-checks of the team\'s AI (admin-reauth: an admin\'s or the owner\'s own) are off in a demo too, before the password is looked at', async () => {
+  test('the team\'s AI steps (no password now) and the API engine (admin-reauth) are off in a demo too, before any password is looked at', async () => {
     const admin = await addMember(h, owner, { username: 'demoadmin', role: 'admin', password: 'admin demo words 77' })
     const probes: [string, string, object][] = [
-      ['POST', API.createCredential.path, { kind: 'anthropic-api-key', label: 'x', sealed: SEALED, password: 'admin demo words 77' }],
-      ['POST', API.startCredentialLogin.path, { kind: 'anthropic-oauth', label: 'x', assignments: [], priority: 1, acknowledgedPlanNotice: true, password: 'admin demo words 77' }],
-      ['POST', API.replaceCredentialSecret.path.replace(':id', '00000000-0000-7000-8000-000000000000'), { sealed: SEALED, password: 'admin demo words 77' }],
+      ['POST', API.createCredential.path, { kind: 'anthropic-api-key', label: 'x', sealed: SEALED }],
+      ['POST', API.startCredentialLogin.path, { kind: 'anthropic-oauth', label: 'x', assignments: [], priority: 1, acknowledgedPlanNotice: true }],
+      ['POST', API.replaceCredentialSecret.path.replace(':id', '00000000-0000-7000-8000-000000000000'), { sealed: SEALED }],
       ['PUT', API.putApiEngine.path, { baseUrl: 'https://93.184.216.34/v1', model: 'm', password: 'admin demo words 77' }],
     ]
     for (const [m, path, body] of probes) {

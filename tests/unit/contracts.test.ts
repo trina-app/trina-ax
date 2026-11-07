@@ -67,6 +67,13 @@ describe('endpoint registry', () => {
       if (ep.status === 202) expect(['sendMessage', 'regenerate', 'editMessage', 'transcribe', 'startUpdate', 'startBackup', 'startRestore', 'startExport', 'startCredentialLogin', 'startMyCredentialLogin', 'renderPromoVideo', 'rebuildKnowledgeGraph']).toContain(name)
     }
   })
+  test('the team\'s official AI accounts ask for no password; the API engine, where the caller sets the address, still does', () => {
+    for (const name of ['createCredential', 'replaceCredentialSecret', 'startCredentialLogin'] as const) {
+      expect(API[name].auth, name).toBe('admin')
+      expect(Object.keys((API[name].body as z.ZodObject<any>).shape), name).not.toContain('password')
+    }
+    expect(API.putApiEngine.auth).toBe('admin-reauth')
+  })
   test('owner-reauth and admin-reauth endpoints carry a password field', () => {
     for (const { name, ep } of all.filter((x) => x.ep.auth === 'owner-reauth' || x.ep.auth === 'admin-reauth')) {
       expect(isSchema(ep.body), name).toBe(true)
