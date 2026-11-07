@@ -1,13 +1,13 @@
 // Admin > AI connections against the mock server (docs/DECISIONS.md "AI 연결" 3.13): a Claude subscription signed in
 // from the browser (one button, the approval link in a new tab, the code pasted back; the plan notice that must be
-// confirmed, the password again) with the terminal paste folded underneath, an API key, a ChatGPT sign-in with its
+// confirmed, no password) with the terminal paste folded underneath, an API key, a ChatGPT sign-in with its
 // address and code, the order, a member's own connections in Settings (a Claude token pasted through the terminal
 // fallback), and the https-only note where the browser cannot seal.
 // The mock opens the sealed values with the server's real sealing code, so a value sealed wrongly fails here.
 import { expect, test } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { DICTS } from '../../src/i18n'
-import { OWNER, realErrors, reset, signIn, watchConsole } from './helpers'
+import { realErrors, reset, signIn, watchConsole } from './helpers'
 
 const TOKEN = 'sk-ant-oat01-' + 'e2e'.repeat(15)
 const KEY = 'sk-ant-api03-' + 'k'.repeat(40) + 'WXYZ'
@@ -49,7 +49,7 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
   await expect(sharing).toBeChecked()
   await page.goto('/admin/providers')
 
-  // Claude subscription: one button signs in from the browser; the plan notice must be ticked, the password again
+  // Claude subscription: one button signs in from the browser; the plan notice must be ticked, no password field
   await page.getByTestId('provider-add-claude').click()
   const dialog = page.getByRole('dialog')
   // Claude Code's Add account offers only Claude's kinds, API key first
@@ -62,7 +62,7 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
   await expect(page.getByTestId('setup-token-steps')).toBeHidden()
   await expect(page.getByTestId('credential-secret')).toBeHidden()
   await page.getByTestId('credential-label').fill('대표 Max')
-  await page.getByTestId('credential-password').fill(OWNER.password)
+  await expect(page.getByTestId('credential-password')).toHaveCount(0)
   await expect(page.getByTestId('credential-submit')).toHaveText('Claude 구독 연결')
   await expect(page.getByTestId('credential-submit')).toBeDisabled()
   await expect(page.getByTestId('plan-notice')).toContainText('제공사 약관에 따라 목적에 맞는 사용을 허용하는지 확인하세요. 트리나가 그 허가를 줄 수는 없어요.')
@@ -110,7 +110,7 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
   await expect(page.getByTestId('plan-notice')).toHaveCount(0)
   await page.getByTestId('credential-label').fill('회사 키')
   await page.getByTestId('credential-secret').fill(KEY)
-  await page.getByTestId('credential-password').fill(OWNER.password)
+  await expect(page.getByTestId('credential-password')).toHaveCount(0)
   await page.getByTestId('credential-submit').click()
   await expect(page.getByTestId('credentials-claude').getByTestId('credential-row')).toHaveCount(2)
   await expect(page.getByTestId('credentials-claude')).toContainText('…WXYZ')
@@ -126,7 +126,7 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
   await page.getByTestId('kind-chatgpt').check()
   await page.getByTestId('credential-label').fill('팀 ChatGPT')
   await page.getByTestId('plan-notice-ack').check()
-  await page.getByTestId('credential-password').fill(OWNER.password)
+  await expect(page.getByTestId('credential-password')).toHaveCount(0)
   await page.getByTestId('credential-submit').click()
   await expect(page.getByTestId('chatgpt-user-code')).toHaveText('WXYZ-12AB3')
   await expect(page.getByTestId('chatgpt-code')).toContainText('https://auth.openai.com/codex/device')
@@ -160,7 +160,7 @@ test('personal connections are available by default, prefer subscriptions, and p
   expect(kinds).toEqual(['kind-anthropic-oauth', 'kind-anthropic-api-key'])
   await expect(page.getByTestId('kind-anthropic-oauth')).toBeEnabled()
   await page.getByTestId('kind-anthropic-api-key').check()
-  await expect(page.getByTestId('credential-password')).toHaveCount(0) // one's own: no password again
+  await expect(page.getByTestId('credential-password')).toHaveCount(0) // no password field for anyone
   await page.getByTestId('credential-label').fill('내 키')
   await page.getByTestId('credential-secret').fill(KEY.replace('WXYZ', 'MINE'))
   await page.getByTestId('credential-submit').click()
@@ -222,8 +222,8 @@ test('where the browser cannot seal (no crypto.subtle: http on a LAN address), a
 })
 
 // An admin who is not the owner connects the team's AI like the owner does (docs/DECISIONS.md "Admins connect the team's
-// AI too"): the same Add account, the menu (switch off, remove) and the API engine form, with their own password again.
-test('an admin sees and uses the Providers buttons: adds a key with their own password, switches it off, removes it, saves the API engine', async ({ page }) => {
+// AI too"): the same Add account, the menu (switch off, remove) and the API engine form, (the API engine form still asks for their own password).
+test('an admin sees and uses the Providers buttons: adds a key with no password, switches it off, removes it, saves the API engine with their password', async ({ page }) => {
   await reset(page)
   await signIn(page)
   expect((await page.request.patch('/api/admin/users/bob', { headers: { [CSRF_HEADER]: '1' }, data: { role: 'admin' } })).ok()).toBe(true)
@@ -235,21 +235,17 @@ test('an admin sees and uses the Providers buttons: adds a key with their own pa
   await expect(page.getByTestId('provider-add-claude')).toBeVisible()
   await expect(page.getByTestId('provider-add-codex')).toBeVisible()
 
-  // the owner's password is not the admin's: the server says so; their own works
+  // no password field: the key is added at once
   await page.getByTestId('provider-add-claude').click()
   await page.getByTestId('kind-anthropic-api-key').check()
   await page.getByTestId('credential-label').fill('관리자 키')
   await page.getByTestId('credential-secret').fill(KEY)
-  await page.getByTestId('credential-password').fill(OWNER.password)
-  const refused = page.waitForResponse((r) => r.url().endsWith('/api/admin/credentials') && r.request().method() === 'POST')
-  await page.getByTestId('credential-submit').click()
-  expect((await refused).status()).toBe(403)
-  await expect(page.getByRole('dialog')).toBeVisible()
-  await expect(page.getByTestId('credentials-claude')).toHaveCount(0)
+  await expect(page.getByTestId('credential-password')).toHaveCount(0)
   const added = page.waitForRequest((r) => r.url().endsWith('/api/admin/credentials') && r.method() === 'POST')
-  await page.getByTestId('credential-password').fill(BOB.password)
   await page.getByTestId('credential-submit').click()
-  expect((await added).postDataJSON()).toMatchObject({ label: '관리자 키', password: BOB.password })
+  const sent = (await added).postDataJSON()
+  expect(sent).toMatchObject({ label: '관리자 키' })
+  expect(sent).not.toHaveProperty('password')
   const rows = page.getByTestId('credentials-claude').getByTestId('credential-row')
   await expect(rows).toHaveCount(1)
   await expect(page.getByTestId('credentials-claude')).toContainText('…WXYZ')
@@ -287,13 +283,12 @@ test('a sign-in in the way: the dialog says whose it is, Stop it ends it, and th
   const call = (method: 'patch' | 'post', url: string, data: object) => page.request[method](url, { headers: { [CSRF_HEADER]: '1' }, data })
   expect((await call('patch', '/api/admin/credential-settings', { sharedSubscriptions: true, acknowledgedSharedSubscriptionRisk: true })).ok()).toBe(true)
   // someone's sign-in is running (here the owner's own, started elsewhere)
-  const running = await call('post', '/api/admin/credential-logins', { kind: 'anthropic-oauth', label: 'Elsewhere', assignments: [], priority: 100, acknowledgedPlanNotice: true, password: OWNER.password })
+  const running = await call('post', '/api/admin/credential-logins', { kind: 'anthropic-oauth', label: 'Elsewhere', assignments: [], priority: 100, acknowledgedPlanNotice: true })
   expect(running.status()).toBe(202)
   await page.goto('/admin/providers')
   await page.getByTestId('provider-add-claude').click()
   await page.getByTestId('kind-anthropic-oauth').check()
   await page.getByTestId('credential-label').fill('Mine')
-  await page.getByTestId('credential-password').fill(OWNER.password)
   await page.getByTestId('plan-notice-ack').check()
   await page.getByTestId('credential-submit').click()
   const busy = page.getByTestId('login-busy')

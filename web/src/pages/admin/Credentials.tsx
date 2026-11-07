@@ -2,7 +2,7 @@
 // ChatGPT sign-ins — shown inside each provider's row in Admin › AI providers (pages/admin/Engines.tsx; it was a page of
 // its own, Admin > AI connections, and /admin/credentials leads there): their state, who uses them, this month's use and
 // the order they are tried in. The owner and admins alike add, replace, order, assign, limit,
-// switch off, remove and re-check them (adding and replacing ask for the person's own password again). Tokens and keys are sealed in the browser
+// switch off, remove and re-check them (adding and replacing need no password: every kind has a fixed provider address). Tokens and keys are sealed in the browser
 // before they are sent (lib/seal.ts) and never shown again. Settings › AI providers (MyCredentials) is a member's own
 // accounts by provider, when the team allows it. A Claude subscription and a ChatGPT plan connect with a sign-in in
 // the browser (one button; docs/DECISIONS.md "Claude 구독 연결: 브라우저에서"); the old terminal paste for Claude stays
@@ -248,8 +248,8 @@ function TargetPicker({ value, onChange, groups, users }: { value: CredentialAss
  * ChatGPT plan or the Claude subscription in again (replace of a subscription connection). Subscriptions connect with
  * a sign-in in the browser; a Claude token made in a terminal can still be pasted (the folded "in a terminal" part).
  * `simple` is the form "AI 연결" opens outside Admin (components/onboarding/ConnectAi.tsx): for the whole team (no
- * target), named after the kind (no name field), the provider's terms in one line; the password again stays for a
- * team connection (the server checks it on every add, owner-reauth), and one's own needs none, as before.
+ * target), named after the kind (no name field), the provider's terms in one line. No password field anywhere
+ * here: every kind goes to its provider's fixed address (docs/DECISIONS.md "No password for the team's official AI accounts").
  */
 export function AddCredential({ allowedKinds, family, gateway, groups, users, replace, personal, sharedSubscriptions = false, initialKind, onlyKinds, simple, onClose, onDone }: {
   allowedKinds: CredentialKind[]; /** this provider's kinds only (Add account in its row) */ family?: Family; gateway?: Gateway; groups: Group[]; users: User[]; replace?: Credential; personal?: boolean; sharedSubscriptions?: boolean
@@ -267,7 +267,6 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
   const [secret, setSecret] = useState('')
   const [assignments, setAssignments] = useState<CredentialAssignment[]>([])
   const [ack, setAck] = useState(false)
-  const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   /** a sign-in is already running (one at a time): whose, so the owner or an admin can stop it from here */
@@ -287,11 +286,10 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
   const secure = canSeal()
   const subscription = kind !== null && SUBSCRIPTION.has(kind)
   const sharingBlocked = subscription && !personal && !sharedSubscriptions
-  const needsPassword = !personal
   /** a subscription signed in from the browser (ChatGPT always, Claude unless the terminal paste is open) */
   const signIn = kind === 'chatgpt' || (kind === 'anthropic-oauth' && !manual)
   const name = simple && kind && !replace ? simpleLabel(kind, gateway) : label.trim()
-  const ready = kind !== null && !sharingBlocked && (replace || name.length > 0) && (signIn || formatOk(kind, secret.trim(), gateway)) && (!subscription || replace || ack) && (!needsPassword || password.length > 0)
+  const ready = kind !== null && !sharingBlocked && (replace || name.length > 0) && (signIn || formatOk(kind, secret.trim(), gateway)) && (!subscription || replace || ack)
 
   // sign-in progress: the WebSocket event, and a poll in case the socket is down
   useEffect(() => {
@@ -311,19 +309,19 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
         const loginKind = kind as CredentialLoginKind
         const common = { kind: loginKind, label: name || replace?.label || (loginKind === 'chatgpt' ? 'ChatGPT' : 'Claude'), acknowledgedPlanNotice: true as const, ...(replace ? { reconnectId: replace.id } : {}) }
         setLoginCode('')
-        setLogin(personal ? await api.call(API.startMyCredentialLogin, { body: common }) : await api.call(API.startCredentialLogin, { body: { ...common, assignments, password } }))
+        setLogin(personal ? await api.call(API.startMyCredentialLogin, { body: common }) : await api.call(API.startCredentialLogin, { body: { ...common, assignments } }))
         return
       }
       const key = await api.call(API.sealingKey)
       if (replace) {
         const sealed = await sealSecret(key, secret.trim(), 'credential.replace')
-        await api.call(API.replaceCredentialSecret, { params: { id: replace.id }, body: { sealed, password } })
+        await api.call(API.replaceCredentialSecret, { params: { id: replace.id }, body: { sealed } })
         toast({ level: 'success', text: t('credentials.connected') })
       } else {
         const sealed = await sealSecret(key, secret.trim(), 'credential.create')
         const body = { kind: kind as Exclude<CredentialKind, 'chatgpt'>, label: name, sealed, ...(subscription ? { acknowledgedPlanNotice: ack } : {}) }
         const c = personal ? await api.call(API.createMyCredential, { body })
-          : await api.call(API.createCredential, { body: { ...body, assignments, password, ...(move?.credentialId ? { moveFrom: move.credentialId } : {}) } })
+          : await api.call(API.createCredential, { body: { ...body, assignments, ...(move?.credentialId ? { moveFrom: move.credentialId } : {}) } })
         toast({ level: 'success', text: move ? t('credentials.moved') : c.state === 'unverified' ? t('credentials.unverifiedSaved') : t('credentials.connected') })
       }
       setSecret('')
@@ -331,11 +329,10 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
       if (isApiError(e, 'busy')) { const b = LoginBusyParams.safeParse(e.body.params); setBusyLogin(b.success ? b.data : null) }
-      // already a personal connection: offer "Move it to the team", with the password typed again for it (another
-      // answer to a move, such as a wrong password, keeps the offer)
+      // already a personal connection: offer "Move it to the team" (the sealed secret typed again is the proof)
       if (isApiError(e, 'conflict')) {
         const dup = !personal && !replace ? DuplicateCredentialParams.safeParse(e.body.params) : null
-        if (dup?.success && dup.data.movable && dup.data.credentialId) { setMove(dup.data); setPassword('') } else setMove(null)
+        if (dup?.success && dup.data.movable && dup.data.credentialId) { setMove(dup.data) } else setMove(null)
       }
     } finally { setBusy(false) }
   }
@@ -472,11 +469,6 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
                 <p className="mt-1 text-muted">{move.where === 'own' ? t('credentials.moveOwnHint', { label: move.label ?? '' }) : t('credentials.moveHint', { name: move.ownerName ?? '', label: move.label ?? '' })}</p>
                 {leftOut && <p className="mt-1 text-warn" data-testid="credential-move-left-out">{t('credentials.moveLeftOut', { name: move.ownerName ?? '' })}</p>}
               </div>
-            )}
-            {kind && needsPassword && (
-              <Field label={move ? t('credentials.moveReauth') : t('credentials.reauth')} hint={simple && !move ? t('aiConnect.password') : undefined}>
-                <input className={inputCls} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} data-testid="credential-password" />
-              </Field>
             )}
             {kind === 'anthropic-oauth' && (
               // the fallback: a token made with `claude setup-token` on any computer, pasted (folded: the sign-in is the way)

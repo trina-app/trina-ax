@@ -366,21 +366,19 @@ describe('Claude sign-in started by an admin', () => {
   afterAll(() => carol?.close())
   const adminToken = 'sk-ant-oat01-' + 'carolAdminToken'.repeat(6)
   const json = { 'content-type': 'application/json' }
-  const startOver = (user: string, password: string, label = 'Carol Claude') => h.req(user, '/api/admin/credential-logins', { method: 'POST', headers: json, body: JSON.stringify({ kind: 'anthropic-oauth', label, assignments: [], priority: 100, acknowledgedPlanNotice: true, password }) })
+  const startOver = (user: string, label = 'Carol Claude') => h.req(user, '/api/admin/credential-logins', { method: 'POST', headers: json, body: JSON.stringify({ kind: 'anthropic-oauth', label, assignments: [], priority: 100, acknowledgedPlanNotice: true }) })
   const setRole = (id: string, role: string) => h.ctx.db.query('UPDATE users SET role = ? WHERE id = ?').run(role, id)
 
-  test('end to end over HTTP with the admin\'s own password: the address and the state go to the admin who started it, not to the owner; the owner is told', async () => {
+  test('end to end over HTTP, an admin with no password: the address and the state go to the admin who started it, not to the owner; the owner is told', async () => {
     setFake({ FAKE_CLAUDE_TOKEN: adminToken })
     try {
       const ownerFramesBefore = dana.frames.length
-      // the password again is the admin's own: none, a wrong one and the owner's typed by her are refused; a member is refused anyway
-      expect((await startOver('carol', 'not-her-password')).status).toBe(403)
-      expect((await startOver('carol', PW('dana'))).status).toBe(403)
-      expect((await startOver('alice', PW('alice'))).status).toBe(403)
-      const none = await h.req('carol', '/api/admin/credential-logins', { method: 'POST', headers: json, body: JSON.stringify({ kind: 'anthropic-oauth', label: 'x', assignments: [], priority: 100, acknowledgedPlanNotice: true }) })
-      expect(none.status).toBe(400)
+      // no password is asked: a member is refused by role, before anything starts
+      expect((await startOver('alice')).status).toBe(403)
+      const noNotice = await h.req('carol', '/api/admin/credential-logins', { method: 'POST', headers: json, body: JSON.stringify({ kind: 'anthropic-oauth', label: 'x', assignments: [], priority: 100 }) })
+      expect(noNotice.status).toBe(400)
       expect(leftovers()).toEqual([])
-      const started = await startOver('carol', PW('carol'))
+      const started = await startOver('carol')
       expect(started.status).toBe(202)
       const s = (await started.json()) as CredentialLogin
       const w = await waiting(carol, s.loginId)
@@ -417,7 +415,7 @@ describe('Claude sign-in started by an admin', () => {
     const s = await team('Forgotten', { userId: 'carol' })
     await waiting(carol, s.loginId)
     // one at a time: the owner starting hears whose it is, its kind and how to stop it; a member hears only that it is busy
-    const busy = await startOver('dana', PW('dana'), 'Owner wants it')
+    const busy = await startOver('dana', 'Owner wants it')
     expect(busy.status).toBe(409)
     expect(((await busy.json()) as { error: { code: string; params?: unknown } }).error).toMatchObject({ code: 'busy', params: { reason: 'login_busy', loginId: s.loginId, personal: false, starter: 'Carol Park' } })
     const own409 = await h.req('alice', '/api/me/credential-logins', { method: 'POST', headers: json, body: JSON.stringify({ kind: 'anthropic-oauth', label: 'mine', acknowledgedPlanNotice: true }) })
@@ -432,7 +430,7 @@ describe('Claude sign-in started by an admin', () => {
     // a member's own sign-in that is in the way: an admin hears it is a personal one and whose, and may stop it; the member is told
     const own = await h.api('alice').call(API.startMyCredentialLogin, { body: { kind: 'anthropic-oauth', label: 'mine', acknowledgedPlanNotice: true } })
     await waiting(alice, own.loginId)
-    const busy2 = await startOver('carol', PW('carol'), 'Carol wants it')
+    const busy2 = await startOver('carol', 'Carol wants it')
     expect(((await busy2.json()) as { error: { params?: unknown } }).error.params).toMatchObject({ reason: 'login_busy', loginId: own.loginId, personal: true, starter: 'Alice Kim' })
     expect((await h.req('bob', `/api/me/credential-logins/${own.loginId}`, { method: 'DELETE' })).status).toBe(404)
     expect((await h.req('carol', `/api/admin/credential-logins/${own.loginId}`, { method: 'DELETE' })).status).toBe(204)
