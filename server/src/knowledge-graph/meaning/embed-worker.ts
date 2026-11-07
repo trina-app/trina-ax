@@ -80,7 +80,8 @@ if (import.meta.main) {
   let cfg: EmbedWorkerConfig
   try { cfg = JSON.parse(process.argv[2] ?? '') } catch { process.stdout.write(JSON.stringify({ error: 'no settings' }) + '\n'); process.exit(2) }
   const idleMs = cfg.idleMs && cfg.idleMs > 0 ? cfg.idleMs : 10 * 60_000
-  // the idle timer starts once the model is loaded (serveEmbed calls awake): a first download may take longer
+  // the idle timer starts once the model is loaded (serveEmbed calls awake): a first download may take longer. The
+  // indexer stops a process that is not ready after its READY_MS (meaning/indexer.ts), so a stalled download ends too
   let idle: ReturnType<typeof setTimeout> | undefined
   const awake = () => { clearTimeout(idle); idle = setTimeout(() => process.exit(0), idleMs) }
   await serveEmbed(stdinLines(), (m) => { process.stdout.write(JSON.stringify(m) + '\n') }, async () => {

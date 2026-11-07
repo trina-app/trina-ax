@@ -285,7 +285,8 @@ export class MeaningSearch {
   readonly embedder: QueryEmbedder
   private lastUse: number
   private timer: ReturnType<typeof setInterval> | null = null
-  /** how long the last top-k took: one that would end past a search's time is not started */
+  /** how long the last top-k took (one that missed its time: at least how long it ran): one that would end past a
+   * search's time is not started. Forgotten with the vectors (checkIdle). */
   private topKMs = 0
   private closed = false
 
@@ -330,7 +331,10 @@ export class MeaningSearch {
     if (!q || Date.now() + this.topKMs >= at) return null
     const t0 = performance.now()
     const top = await this.vectors.topK(q, { rootIds: o.rootIds, prefix: o.prefix, k: this.o.k ?? MEANING_K, at })
-    if (top) this.topKMs = performance.now() - t0
+    // how long it took, or, when it missed its time, at least how long it ran: a later search with less time left skips
+    // the scan at once instead of running it and throwing it away
+    const took = performance.now() - t0
+    this.topKMs = top ? took : Math.max(this.topKMs, took)
     return top
   }
 
@@ -349,6 +353,7 @@ export class MeaningSearch {
     const was = this.embedder.loaded() || this.vectors.ready
     this.embedder.idle(0)
     this.vectors.clear()
+    this.topKMs = 0
     return was
   }
 

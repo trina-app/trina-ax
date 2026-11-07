@@ -83,12 +83,16 @@ export async function startDev(o: { keepData?: boolean } = {}): Promise<State> {
     fs.rmSync(STATE_FILE, { force: true })
   }
   fs.mkdirSync(DEV_HOME, { recursive: true })
+  // the run's own server.json, with search by meaning off: every run starts on a fresh data folder, so the server would
+  // download the model again and embed the uploads in the background (a developer's .dev/server.json does not apply)
+  const config = path.join(DEV_HOME, 'server.json')
+  fs.writeFileSync(config, JSON.stringify({ knowledgeGraph: { meaning: false } }, null, 2) + '\n')
   const log = fs.openSync(DEV_LOG, 'w')
   const child = spawn('bun', ['run', 'scripts/dev.ts'], {
     cwd: REPO,
     detached: true, // own process group: teardown stops server + relay together
     stdio: ['ignore', log, log],
-    env: { ...process.env, TEAM_AX_DEV_DIR: DEV_HOME, NO_COLOR: '1' },
+    env: { ...process.env, TEAM_AX_DEV_DIR: DEV_HOME, MYCEL_CONFIG: config, NO_COLOR: '1' },
   })
   child.unref()
   if (o.keepData) {

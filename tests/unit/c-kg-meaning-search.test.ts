@@ -508,6 +508,32 @@ describe('the meaning part over time (MeaningSearch)', () => {
     } finally { m.close(); reader.close(); writer.close() }
   })
 
+  test('a scan that missed its time is remembered: a later search with less time left skips the scan at once (review of wave 2)', async () => {
+    const { dir, writer } = await fixture('scan-miss')
+    const reader = DocumentIndex.openReader(dir)
+    const m = new MeaningSearch(reader.readerDb(), { open: fakeOpener(), now: () => 1 })
+    const vectors = m.vectors as { topK: MeaningVectors['topK'] }
+    const real = vectors.topK.bind(m.vectors)
+    try {
+      await m.warm()
+      expect(m.embedder.loaded()).toBe(true)
+      // a scan slower than the time left: it runs to its deadline and gives nothing
+      let scans = 0
+      vectors.topK = async (_q, o) => { scans++; await Bun.sleep(Math.max(0, (o.at ?? 0) - Date.now()) + 2); return null }
+      expect(await m.topK('outage', { rootIds: ['shared'], at: Date.now() + 400 })).toBeNull()
+      expect(scans).toBe(1)
+      // less time left than that scan ran: no scan, null at once (the keyword result goes out alone)
+      const t0 = performance.now()
+      expect(await m.topK('outage', { rootIds: ['shared'], at: Date.now() + 150 })).toBeNull()
+      expect(scans).toBe(1)
+      expect(performance.now() - t0).toBeLessThan(100)
+      // more time left: it scans again; a scan that ends in time sets the estimate to what it took
+      vectors.topK = real
+      expect((await m.topK('outage', { rootIds: ['shared'], at: Date.now() + 2000 }))!.length).toBeGreaterThan(0)
+      expect((await m.topK('outage', { rootIds: ['shared'], at: Date.now() + 300 }))!.length).toBeGreaterThan(0)
+    } finally { m.close(); reader.close(); writer.close() }
+  })
+
   test('warm: the vectors, then the model when there are any; none: the model stays closed', async () => {
     const empty = await fixture('warm-empty', { vectors: false })
     const er = DocumentIndex.openReader(empty.dir)
