@@ -1,4 +1,4 @@
-import { APPEARANCE_CAPABILITY, base64Size, MAX_FILE_BYTES, parseMessage, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, sameTeam, TRANSFER_IDLE_MS, validPushToken, type FileMessage, type MobileConfig, type MobileReply, type PushPermission, type PushToken } from './protocol'
+import { APPEARANCE_CAPABILITY, base64Size, MAX_FILE_BYTES, parseMessage, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, sameTeam, TRANSFER_IDLE_MS, validPushToken, type FileMessage, type MobileConfig, type MobileReply, type PushPermission, type PushToken } from './protocol'
 export interface TransferIO {
   create(id: string, name: string, mime: string): Promise<void>
   append(id: string, b64: string): Promise<void>
@@ -105,10 +105,13 @@ export function onceEvery(ms: number, now: () => number = Date.now): () => boole
 /** The only push failures the web page learns: the person said no, or this build/device cannot receive push. */
 export class PushRefused extends Error { constructor(readonly code: 'push_denied' | 'push_unavailable') { super(code) } }
 /** token: ask the OS (permission prompt) for the device token; registered: the page registered it with its team;
- * permission: what the OS says so far, never a prompt; openSettings: this app's page in the phone's Settings. */
+ * permission: what the OS says so far, never a prompt; openSettings: this app's page in the phone's Settings; labelHash
+ * (push-label-v1): the hash of the label key the notification extension asks this team with; signedOut: no one is
+ * signed in any more (notifications on screen and the label key go, before the reset is answered). */
 export interface PushBridge {
   token(): Promise<PushToken>; registered(device: { deviceId: string; removeKey: string }): Promise<void>
   permission?(): Promise<PushPermission>; openSettings?(): Promise<void>
+  labelHash?(): Promise<string | null>; signedOut?(): Promise<void>
 }
 
 /** Native side: source URL plus a top-frame-only capability nonce bind requests to this WebView document. */
@@ -125,6 +128,9 @@ export class MobileReceiver {
     if (m.type === 'session-reset') {
       // Fence old work synchronously, before the first await.
       this.config = { ...current, generation: current.generation + 1 }
+      // the session ended: names must not stay on the lock screen, and the extension must not ask for more; done before
+      // the answer, so the next sign-in's key is never deleted by this
+      if (m.signedOut === true) await this.push?.signedOut?.().catch(() => {})
       await this.files.clear()
       return this.enabled && this.config.nonce === current.nonce ? { ...reply, nextGeneration: this.config.generation } : null
     }
@@ -136,6 +142,11 @@ export class MobileReceiver {
         const token = await this.push.token()
         if (!validPushToken(token)) throw new PushRefused('push_unavailable')
         reply.push = { platform: token.platform, token: token.token, environment: token.environment }
+        // push-label-v1: the page registers the label key's hash with the token (the key stays in the keychain)
+        if (token.platform === 'ios' && this.push.labelHash && current.capabilities.includes(PUSH_LABEL_CAPABILITY)) {
+          const labelHash = await this.push.labelHash().catch(() => null)
+          if (labelHash && /^[0-9a-f]{64}$/.test(labelHash)) reply.labelHash = labelHash
+        }
       } else if (m.type === 'push-registered') {
         if (!this.push || !current.capabilities.includes(PUSH_REGISTERED_CAPABILITY)) throw new PushRefused('push_unavailable')
         await this.push.registered({ deviceId: m.deviceId, removeKey: m.removeKey })
