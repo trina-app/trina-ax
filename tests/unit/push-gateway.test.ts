@@ -369,8 +369,9 @@ describe('push gateway: APNs', () => {
     })
     expect(sandbox!.headers.get('apns-expiration')).toBe('0')
     // only aps and body at the top level: expo-notifications reads the data from userInfo["body"] on iOS
+    // a room notice is mutable (the app's extension may put who and where in the title); the generic alert stays
     expect(JSON.parse(prod!.body)).toEqual({
-      aps: { alert: { title: 'Trina AX', body: '새 메시지가 있어요' }, sound: 'default' },
+      aps: { alert: { title: 'Trina AX', body: '새 메시지가 있어요' }, sound: 'default', 'mutable-content': 1 },
       body: { notificationId: 'n1', code: 'room.message', path: '/rooms/abc123', device: 'dev_42' },
     })
     expect(JSON.parse(sandbox!.body)).toEqual({
@@ -386,6 +387,23 @@ describe('push gateway: APNs', () => {
     expect(verifyEs256(jwt, apnsKey.publicKey)).toBe(true)
     expect(verifyEs256(jwt, generateKeyPairSync('ec', { namedCurve: 'P-256' }).publicKey)).toBe(false)
     expect(sandbox!.headers.get('authorization')).toBe(auth) // the token is reused
+  })
+
+  test('only room notices are mutable; the generic alert is the fallback and no name or new field reaches APNs', async () => {
+    const h = harness()
+    for (const [i, code] of ['room.dm', 'room.mention', 'schedule.success', 'connection.reconnect', 'chat.reply', 'roomx.dm'].entries()) await expectOk(await h.send(body({ notificationId: `m${i}`, code, locale: 'en', tag: 'dev_7' })))
+    const sent = h.apnsCalls().map(c => JSON.parse(c.body) as { aps: Record<string, unknown>; body: Record<string, string> })
+    expect(sent.map(p => p.aps['mutable-content'] ?? null)).toEqual([1, 1, null, null, null, null])
+    // what the phone shows when the extension gets no answer (or the app has none): today's words, unchanged
+    expect(sent[0]!.aps.alert).toEqual({ title: 'Trina AX', body: 'You have a new message' })
+    expect(sent[1]!.aps.alert).toEqual({ title: 'Trina AX', body: 'You have a new message' })
+    for (const p of sent) {
+      expect(Object.keys(p).sort()).toEqual(['aps', 'body'])
+      expect(Object.keys(p.aps).filter(k => k !== 'mutable-content').sort()).toEqual(['alert', 'sound'])
+      expect(Object.keys(p.body).sort()).toEqual(['code', 'device', 'notificationId'])
+    }
+    // the contract has no field for a name: a team server cannot send one
+    await expectError(await h.send(body({ notificationId: 'm9', code: 'room.dm', title: '민준 · #마케팅' })), 'invalid_body')
   })
 
   test('the provider token is reused for at most 50 minutes; long ids collapse by their hash; APP_TITLE', async () => {
