@@ -1,7 +1,7 @@
 // Shared building blocks. Every icon-only button takes an aria-label (translated); modals trap focus and give it
 // back to where it was (tab 5 "접근성").
 import clsx from 'clsx'
-import { Check, CircleAlert, Copy, Loader2, X } from 'lucide-react'
+import { Check, ChevronDown, CircleAlert, Copy, Loader2, X } from 'lucide-react'
 import { cloneElement, createContext, isValidElement, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { create } from 'zustand'
@@ -70,6 +70,22 @@ export function IconButton({ label, danger, className, children, tip = true, ...
 
 export const inputCls =
   'h-9 w-full rounded-lg border border-field-border bg-surface px-3 text-sm text-ink outline-none transition placeholder:text-faint focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-60 max-sm:min-h-10'
+
+/** The title of a sidebar section (대화, 트리나 기록), which folds its list. A step under the rows (12px, 13px on phones;
+ * rows are 14 / 15px) but heavier and darker than them and than "더 보기" under a list (the owner, 2026-11-07: the quiet
+ * grey titles ran the two lists together); a date heading inside a list stays a step lower (text-micro, faint). The
+ * chevron stays quiet; hover fills the button as the "+" beside it, and its text stays in line with the rows (the negative
+ * margin takes back the fill's padding). */
+export function SidebarSectionTitle({ open, onToggle, controls, children, testId }: { open: boolean; onToggle: () => void; controls: string; children: ReactNode; testId: string }) {
+  return (
+    <h2 className="text-xs font-semibold text-ink">
+      <button type="button" aria-expanded={open} aria-controls={controls} onClick={onToggle} className="-ml-1.5 flex items-center gap-1 rounded-md px-1.5 py-1 hover:bg-hover" data-testid={testId}>
+        {children}
+        <ChevronDown size={12} className={clsx('text-faint transition-transform', !open && '-rotate-90')} aria-hidden />
+      </button>
+    </h2>
+  )
+}
 
 /** A labelled field. The hint / error sit outside the <label> (so they are not part of the field's name) and are
  * tied to the control with aria-describedby. */

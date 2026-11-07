@@ -147,6 +147,51 @@ test('both groups fold and stay folded after a reload', async ({ page }) => {
   await expect(s.getByTestId('sidebar-room').first()).toBeVisible()
 })
 
+test('대화 and 트리나 기록 read as section titles (the owner, 2026-11-07): ink and semibold, AA in both looks, a step under the rows, above "더 보기", with room before 트리나 기록', async ({ page }) => {
+  await reset(page)
+  await page.route('**/api/rooms', (r) => (r.request().method() === 'GET' ? r.fulfill({ json: { items: rooms(7) } }) : r.fallback()))
+  await signIn(page)
+  await someChats(page, 3)
+  await page.reload()
+  const s = side(page)
+  await expect(s.getByTestId('rooms-more')).toBeVisible()
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme })
+    await expect(page.locator('html')).toHaveClass(scheme === 'dark' ? /\bdark\b/ : /^(?!.*\bdark\b)/)
+    const m = await s.evaluate((nav) => {
+      const rgb = (c: string) => c.match(/[\d.]+/g)!.slice(0, 3).map(Number)
+      const lum = (c: string) => { const [r, g, b] = rgb(c).map((v) => { const x = v / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4 }); return 0.2126 * r! + 0.7152 * g! + 0.0722 * b! }
+      const bg = getComputedStyle(nav).backgroundColor
+      const contrast = (c: string) => { const [a, b] = [lum(c), lum(bg)].sort((x, y) => y - x); return (a! + 0.05) / (b! + 0.05) }
+      // the box of an element's first text, not its padding
+      const text = (el: Element) => { const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let n: Node | null; while ((n = w.nextNode())) if (n.textContent!.trim()) { const r = document.createRange(); r.selectNodeContents(n); return r.getBoundingClientRect() } throw new Error('no text') }
+      const of = (el: Element) => { const st = getComputedStyle(el); return { size: parseFloat(st.fontSize), weight: Number(st.fontWeight), contrast: contrast(st.color), box: text(el) } }
+      const q = (id: string) => nav.querySelector(`[data-testid="${id}"]`)!
+      const rows = [...nav.querySelectorAll('[data-testid="sidebar-room"]')].filter((a) => getComputedStyle(a).fontWeight === '400')
+      return { rooms: of(q('rooms-toggle').closest('h2')!), ai: of(q('recents-toggle').closest('h2')!), row: of(rows[0]!), next: of(rows[1]!), more: of(q('rooms-more')) }
+    })
+    for (const title of [m.rooms, m.ai]) {
+      expect(title.weight, scheme).toBe(600)
+      expect(title.contrast, scheme).toBeGreaterThanOrEqual(4.5)
+      // more than a row's text and than "더 보기" under the list, which share neither its weight nor its ink
+      expect(title.contrast, scheme).toBeGreaterThan(m.row.contrast)
+      expect(title.contrast, scheme).toBeGreaterThan(m.more.contrast)
+      expect(title.weight, scheme).toBeGreaterThan(m.more.weight)
+      // not one more row: a step smaller
+      expect(title.size, scheme).toBeLessThan(m.row.size)
+    }
+    // the break before 트리나 기록 is at least 1.5 times the gap between two rows' text
+    expect(m.ai.box.top - m.more.box.bottom).toBeGreaterThanOrEqual(1.5 * (m.next.box.top - m.row.box.bottom))
+  }
+  // the fold and "+" still work from the title row
+  await s.getByTestId('rooms-toggle').click()
+  await expect(s.getByTestId('sidebar-rooms-list')).toBeHidden()
+  await s.getByTestId('rooms-toggle').click()
+  await expect(s.getByTestId('sidebar-room').first()).toBeVisible()
+  await s.getByTestId('rooms-new-dm').click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+})
+
 for (const size of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }]) {
   test(`60 rooms at ${size.width}: one scroll; 대화 shows strictly the five latest and the room on screen, "더 보기 (N)" the rest with what is unread there, remembered; 트리나 기록 in sight`, async ({ page }) => {
     await page.setViewportSize(size)
