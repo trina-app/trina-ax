@@ -21,6 +21,7 @@ import Sidebar from './Sidebar'
 import { BottomTabs } from './BottomTabs'
 import { PhoneTopBar } from './PhoneTopBar'
 import { PhonePushAsk } from './settings/PushNotifications'
+import { WebPushAsk } from './WebPushAsk'
 import { useRoomsSync } from './rooms/useRoomsSync'
 import { ChunkErrorBoundary } from './ChunkErrorBoundary'
 import { DemoBar, useDemoInfo } from './demo/Demo'
@@ -133,6 +134,8 @@ export default function Layout() {
           </div>
         )}
         <main id="main" tabIndex={-1} className="flex min-w-0 flex-1 flex-col">
+          {/* a web browser not asked about notifications yet: one line, here on a computer (components/WebPushAsk.tsx) */}
+          <WebPushAsk at="top" />
           {/* phones: where you are and one action at most (components/PhoneTopBar.tsx); not in a room or an AI chat */}
           <PhoneTopBar />
           <div className="min-h-0 flex-1">
@@ -141,8 +144,10 @@ export default function Layout() {
               <Outlet />
             </ChunkErrorBoundary>
           </div>
-          {/* the phone app's own question before the OS prompt (only while the OS has not been asked) */}
+          {/* the phone app's own question before the OS prompt (only while the OS has not been asked); a phone browser's
+              line, above the tab bar */}
           <PhonePushAsk />
+          <WebPushAsk at="bottom" />
           {/* phones: 트리나 · 대화 · 파일 · 나 (gone inside a room or an AI chat, whose message box needs the bottom) */}
           <BottomTabs />
         </main>
