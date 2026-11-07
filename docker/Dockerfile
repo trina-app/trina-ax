@@ -40,13 +40,16 @@ FROM kit-${TRINA_AX_KIT} AS kit
 
 # ---- the runtime image ----
 FROM ${DEBIAN_IMAGE}
-# The packages scripts/install-linux.sh installs on a Linux server (its PKGS list), so it can run with --skip-apt;
-# No init program is needed: mycel-ctl supervise is PID 1 and reaps orphans itself.
-RUN apt-get update -qq \
- && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
-      bubblewrap nftables poppler-utils ffmpeg libheif-examples ca-certificates curl gnupg file zstd util-linux \
-      procps passwd python3 >/dev/null \
- && rm -rf /var/lib/apt/lists/*
+COPY --from=kit /kit /opt/trina-ax/kit
+# The packages of the one list (the kit's root/packages.json, scripts/system/packages.json in the repository): its always
+# groups, which scripts/install-linux.sh --minimal checks (the entrypoint runs it with --skip-apt), and the docker group.
+# Read with the kit's packages.sh and its flat copy (no jq or bun needed here). No init program is needed: mycel-ctl
+# supervise is PID 1 and reaps orphans itself.
+RUN set -eu; root=$(echo /opt/trina-ax/kit/app/*/root); \
+    test -f "$root/packages.sh" || { echo "this Dockerfile needs a kit with root/packages.json (the one list of packages)" >&2; exit 1; }; \
+    . "$root/packages.sh"; pk_load "$root/packages.json"; \
+    pk_apt_install -- $(pk_packages "$(pk_distro)" "$(pk_arch)" minimal docker); \
+    rm -rf /var/lib/apt/lists/*
 # Fixed ids: the files in the volume belong to these numbers, so every image version must use the same ones (the same
 # numbers as the hosted tenant image). System range, no login shell, locked password: install-linux.sh checks all three.
 RUN groupadd --system --gid 980 axserver \
@@ -56,7 +59,6 @@ RUN groupadd --system --gid 980 axserver \
  && useradd --system --uid 981 --gid 981 --home-dir /var/lib/mycel/agent/home --shell /usr/sbin/nologin --no-create-home \
       --comment "Trina AX AI engine (mycel)" axagent \
  && passwd -l axserver >/dev/null && passwd -l axagent >/dev/null
-COPY --from=kit /kit /opt/trina-ax/kit
 COPY entrypoint.sh /usr/local/bin/trina-ax-entrypoint
 COPY setup-link.sh /usr/local/bin/trina-ax-setup-link
 RUN chown -R root:root /opt/trina-ax && chmod -R go-w /opt/trina-ax \

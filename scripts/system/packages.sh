@@ -178,19 +178,23 @@ pk_groups() {
     }')
   printf '%s\n' "$out" | sed '/^$/d'
 }
-# pk_packages DISTRO ARCH PROFILE|GROUP...: the apt packages for that system, each once, in list order
-# shellcheck disable=SC2086,SC2116
+# pk__words: lines -> " a b c " (a group set for awk's index())
+pk__words() { printf ' %s ' "$(printf '%s\n' "$1" | tr '\n' ' ')"; }
+# pk_packages DISTRO ARCH PROFILE|GROUP...: the apt packages for that system, each once, in list order. A name that is
+# not a Debian package name (a leading -, a glob character, a space) stops it: callers pass the names word by word.
 pk_packages() {
   local d=$1 a=$2 g r=0; shift 2
   g=$(pk_groups "$@") || return 1
   pk__userns_restricted && r=1
-  pk__lines | awk -F'\t' -v gs=" $(echo $g) " -v d="$d" -v a="$a" -v r="$r" '
+  pk__lines | awk -F'\t' -v gs="$(pk__words "$g")" -v d="$d" -v a="$a" -v r="$r" '
     $1 == "P" && index(gs, " " $2 " ") {
       if ($5 != "-") { n = split($5, on, ","); ok = 0; for (i = 1; i <= n; i++) if (on[i] == d || on[i] == d "/" a) ok = 1; if (!ok) next }
       if ($6 == "userns-restricted" && r != 1) next
       if ($6 != "-" && $6 != "userns-restricted") next
+      if ($3 !~ /^[a-z0-9][a-z0-9.+-]*$/) { print "packages: not a package name in the list: " $3 > "/dev/stderr"; bad = 1; exit 1 }
       if (!seen[$3]++) print $3
-    }'
+    }
+    END { exit bad }'
 }
 # pk_floors DISTRO ARCH PROFILE|GROUP...: "package floor" for the packages that have one
 pk_floors() {
@@ -199,16 +203,16 @@ pk_floors() {
   pk__lines | awk -F'\t' -v ps="$p" '$1 == "P" && $4 != "-" && index(ps, " " $3 " ") && !seen[$3]++ { print $3, $4 }'
 }
 # pk_removals GROUP...: packages the groups remove (the image: no SSH server)
-# shellcheck disable=SC2086,SC2116
 pk_removals() {
   local g; g=$(pk_groups "$@") || return 1
-  pk__lines | awk -F'\t' -v gs=" $(echo $g) " '$1 == "R" && index(gs, " " $2 " ") && !seen[$3]++ { print $3 }'
+  pk__lines | awk -F'\t' -v gs="$(pk__words "$g")" '$1 == "R" && index(gs, " " $2 " ") && !seen[$3]++ {
+    if ($3 !~ /^[a-z0-9][a-z0-9.+-]*$/) { print "packages: not a package name in the list: " $3 > "/dev/stderr"; exit 1 }
+    print $3 }'
 }
 # pk_artifacts PROFILE|GROUP...: the downloaded programs of the groups
-# shellcheck disable=SC2086,SC2116
 pk_artifacts() {
   local g; g=$(pk_groups "$@") || return 1
-  pk__lines | awk -F'\t' -v gs=" $(echo $g) " '$1 == "GA" && index(gs, " " $2 " ") && !seen[$3]++ { print $3 }'
+  pk__lines | awk -F'\t' -v gs="$(pk__words "$g")" '$1 == "GA" && index(gs, " " $2 " ") && !seen[$3]++ { print $3 }'
 }
 # pk_art NAME PLATFORM FIELD: version | url | sha256 | size | dir of an artifact (nothing and 1 when the list has none)
 pk_art() {
@@ -244,13 +248,32 @@ pk_apt_space() {
     [ "${u#* }" -ge $((add + 131072)) ] || { echo "not enough space in /usr: $(( add / 1024 )) MB to add, $(( ${u#* } / 1024 )) MB free"; return 1; }
   fi
 }
+# PK_APT_UNIT=1 (set by sync: mycel-ctl runs it inside the update unit): apt runs as a transient systemd unit of its own
+# (systemd-run --wait --collect), outside the update unit's cgroup. Neither mycel-ctl's deadline, nor the end of the
+# update unit, nor its TimeoutStartSec can stop it mid-transaction (systemd stops a unit's whole cgroup; a setsid child
+# would go with it), and its output goes to PK_APT_LOG, never through a pipe a dying caller could close. Elsewhere (an
+# administrator's installer, a chroot image build: systemd-run would reach the host's systemd there) apt runs directly.
+PK_APT_LOG=${PK_APT_LOG:-/var/log/trina-packages-apt.log}
+PK_SYSTEMD_DIR=${PK_SYSTEMD_DIR:-/run/systemd/system}
+pk__apt() {  # apt-get ARG...
+  local env=(-E DEBIAN_FRONTEND=noninteractive -E LC_ALL=C) k
+  if [ "${PK_APT_UNIT:-}" = 1 ] && [ -d "$PK_SYSTEMD_DIR" ] && command -v systemd-run >/dev/null 2>&1; then
+    for k in http_proxy https_proxy no_proxy all_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY ALL_PROXY; do
+      [ -z "${!k:-}" ] || env+=(-E "$k=${!k}")
+    done
+    printf '%s apt-get %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "$PK_APT_LOG" 2>/dev/null || true
+    systemd-run --quiet --wait --collect --unit="trina-packages-apt-$$-${RANDOM}" -p "StandardOutput=append:$PK_APT_LOG" \
+      -p "StandardError=append:$PK_APT_LOG" "${env[@]}" apt-get "$@"
+  else
+    DEBIAN_FRONTEND=noninteractive apt-get "$@" >/dev/null
+  fi
+}
 # pk_apt_install [APT-OPTION...] -- PACKAGE...: apt-get update (once per run), a free-space check, and install without
-# recommends. Both wait up to 5 minutes for dpkg's lock (unattended-upgrades). apt and dpkg run in a session of their own
-# (setsid -w), so a caller that stops this script (mycel-ctl's deadline) never interrupts a dpkg transaction.
+# recommends. Both wait up to 5 minutes for dpkg's lock (unattended-upgrades). Exit 3: not enough disk space.
 # PK_APT_SNAPSHOT=<YYYYMMDDTHHMMSSZ> installs from that snapshot of the archive (apt 2.7+; used on Debian 13, the image's
 # system; needs ca-certificates), for an image that must be rebuilt with the same package versions.
 pk_apt_install() {
-  local opts=() snap=() run=() why
+  local opts=() snap=() why
   while [ $# -gt 0 ] && [ "$1" != -- ]; do opts+=("$1"); shift; done
   [ "${1:-}" = -- ] && shift
   [ $# -gt 0 ] || return 0
@@ -259,15 +282,14 @@ pk_apt_install() {
     # (the Release files of a snapshot older than their week have expired: their signature is still checked)
     snap=(--snapshot "$PK_APT_SNAPSHOT" -o Acquire::Check-Valid-Until=false)
   fi
-  if command -v setsid >/dev/null 2>&1 && setsid --help 2>&1 | grep -q -- '--wait'; then run=(setsid -w); fi
   export DEBIAN_FRONTEND=noninteractive
   if [ -z "${PK_APT_UPDATED:-}" ]; then
-    ${run[@]+"${run[@]}"} apt-get update -qq -o DPkg::Lock::Timeout=300 ${snap[@]+"${snap[@]}"} >/dev/null || { pk_err "apt-get update failed"; return 1; }
+    pk__apt update -qq -o DPkg::Lock::Timeout=300 ${snap[@]+"${snap[@]}"} || { pk_err "apt-get update failed"; return 1; }
     PK_APT_UPDATED=1
   fi
   if ! why=$(pk_apt_space ${snap[@]+"${snap[@]}"} "$@"); then pk_err "$why; nothing installed"; return 3; fi
-  ${run[@]+"${run[@]}"} apt-get install -y -qq --no-install-recommends -o DPkg::Lock::Timeout=300 ${snap[@]+"${snap[@]}"} ${opts[@]+"${opts[@]}"} "$@" >/dev/null \
-    || { pk_err "apt-get install failed: $*"; return 1; }
+  pk__apt install -y -qq --no-install-recommends -o DPkg::Lock::Timeout=300 ${snap[@]+"${snap[@]}"} ${opts[@]+"${opts[@]}"} "$@" \
+    || { pk_err "apt-get install failed: $*$([ "${PK_APT_UNIT:-}" != 1 ] || echo " (log: $PK_APT_LOG)")"; return 1; }
 }
 # pk_check_floors DISTRO ARCH PROFILE|GROUP...: prints each package that is missing or below its floor; 1 if any
 pk_check_floors() {
@@ -434,13 +456,18 @@ pk_browser_switch() {
   return $rc
 }
 pk__browser_switch_locked() {
-  local dest=$1 cv prev="" keep v
+  local dest=$1 cv prev keep v switched=0
   cv=$(pk__current_version "$dest")
+  # the version a switch replaced: kept until the next switch, whoever runs the sync in between (another install id)
+  prev=""
+  [ ! -f "$dest/.previous" ] || prev=$(tr -cd 'A-Za-z0-9._-' < "$dest/.previous")
   if pk__newer_current "$dest"; then
     echo "packages: $PK_BROWSER $cv stays: it is newer than this list's $PK_V (another install put it there)" >&2
   elif pk_browser_check "$dest/$PK_V/$PK_DIR/$PK_BROWSER"; then
     if [ "$(readlink "$dest/current" 2>/dev/null || true)" != "$PK_V/$PK_DIR" ]; then
       pk__swap_link "$PK_V/$PK_DIR" "$dest/current" || return 1
+      switched=1
+      prev=""
       [ -z "$cv" ] || [ "$cv" = "$PK_V" ] || prev=$cv
     fi
   elif pk_browser_check "$dest/current/$PK_BROWSER"; then
@@ -451,15 +478,19 @@ pk__browser_switch_locked() {
     pk_err "no $PK_BROWSER runs in $dest"
     return 1
   fi
-  # what stays: current's version, and the one it replaced now (until the next switch: a print may use it)
   cv=$(pk__current_version "$dest")
-  if [ -n "$prev" ]; then printf '%s\n' "$prev" > "$dest/.previous"; else rm -f "$dest/.previous"; fi
+  [ "$prev" != "$cv" ] || prev=""
+  if [ "$switched" = 1 ]; then
+    if [ -n "$prev" ]; then printf '%s\n' "$prev" > "$dest/.previous"; else rm -f "$dest/.previous"; fi
+  fi
+  # what stays: current's version and the previous one; every other version and leftover goes
   for keep in "$dest"/*; do
     [ -d "$keep" ] && [ ! -L "$keep" ] || continue
     v=${keep##*/}
     case "$v" in "$cv"|"$prev") continue ;; esac
     rm -rf "$keep"
   done
+  [ -n "$prev" ] && [ -d "$dest/$prev" ] || rm -f "$dest/.previous"
   for keep in "$dest"/.untested-*; do
     [ -e "$keep" ] || continue
     [ "${keep##*/.untested-}" = "$PK_V" ] || rm -rf "$keep"
@@ -495,7 +526,7 @@ pk_set_env() {
 # administrator's step; tried again when the list changes)
 pk_write_synced() {
   local f=$1 sum=$2 res=$3 detail browser t
-  detail=$(printf '%s' "$4" | tr -d '"\\' | tr '\t\r\n' '   ' | cut -c1-600)
+  detail=$(printf '%s' "$4" | tr '\t\r\n' '   ' | tr -d '"\\\000-\037\177' | cut -c1-600)
   browser=$(printf '%s' "${5:-}" | tr -cd 'A-Za-z0-9._-')
   t=$(mktemp "$(dirname "$f")/.packages.synced.XXXXXX") || return 1
   printf '{"format":1,"list":"%s","result":"%s","at":"%s","browser":"%s","detail":"%s"}\n' "$sum" "$res" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$browser" "$detail" > "$t"
@@ -508,8 +539,12 @@ pk_write_synced() {
 # before the list wrote no skipApt (unknown: the administrator may manage packages by hand), and --skip-apt says true.
 pk__apt_allowed() { grep -Eq '"skipApt"[[:space:]]*:[[:space:]]*false' "$1" 2>/dev/null; }
 
+# pk_worse A B: the worse of two results (ok < incomplete < blocked)
+pk_worse() { case "$1:$2" in blocked:*|*:blocked) echo blocked ;; incomplete:*|*:incomplete) echo incomplete ;; *) echo ok ;; esac; }
+
 pk__sync() {
-  local id='' base='' distro arch profile=default pkgs browser_pkgs rest missing why path res=ok detail='' sum ij v batch p
+  local id='' base='' distro arch profile=default why path res=ok detail='' sum ij v rc p
+  local pkgs=() browser_pkgs=() missing=() first=() rest=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --id) id=${2:-}; shift 2 || shift ;;
@@ -520,6 +555,8 @@ pk__sync() {
   done
   [[ "$id" =~ ^[a-z][a-z0-9-]{1,30}$ ]] && [ -n "$base" ] || { pk_err "sync: needs --id and --base"; return 2; }
   [ "$(id -u)" = 0 ] || { pk_err "sync: run as root"; return 2; }
+  # apt as a transient unit of its own (pk__apt): this script runs inside mycel-ctl's update unit
+  PK_APT_UNIT=1
   ij=$base/root/install.json
   pk_load "$PK_HERE/packages.json" || return 0
   sum=$(pk_sha256 "$PK_LIST")
@@ -528,37 +565,47 @@ pk__sync() {
   if grep -Eq '"minimal"[[:space:]]*:[[:space:]]*true' "$ij" 2>/dev/null; then profile=minimal; fi
   distro=$(pk_distro) || { note "this system is not in the list; nothing installed"; pk_write_synced "$base/root/packages.synced" "$sum" blocked "$detail" "" || true; return 0; }
   arch=$(pk_arch) || return 0
-  pkgs=$(pk_packages "$distro" "$arch" "$profile" | tr '\n' ' ')
-  browser_pkgs=""
-  if pk_groups "$profile" | grep -qx browser; then browser_pkgs=$(pk_packages "$distro" "$arch" browser | tr '\n' ' '); fi
-  # shellcheck disable=SC2086 # package names have no spaces (the list's names are checked)
-  missing=$(pk_missing $pkgs | tr '\n' ' ')
-  if [ -n "${missing// /}" ]; then
+  while IFS= read -r p; do [ -z "$p" ] || pkgs+=("$p"); done <<EOF
+$(pk_packages "$distro" "$arch" "$profile")
+EOF
+  if pk_groups "$profile" | grep -qx browser; then
+    while IFS= read -r p; do [ -z "$p" ] || browser_pkgs+=("$p"); done <<EOF
+$(pk_packages "$distro" "$arch" browser)
+EOF
+  fi
+  while IFS= read -r p; do [ -z "$p" ] || missing+=("$p"); done <<EOF
+$(pk_missing ${pkgs[@]+"${pkgs[@]}"})
+EOF
+  if [ ${#missing[@]} -gt 0 ]; then
     if ! pk__apt_allowed "$ij"; then
-      note "missing: $missing(not installed unattended: this install was made with --skip-apt or before the list; sudo install-linux.sh repair installs them)"
+      note "missing: ${missing[*]} (not installed unattended: this install was made with --skip-apt or before the list; sudo install-linux.sh repair installs them)"
       res=blocked
     else
       # the browser's libraries first, in a transaction of their own: one package of another group that cannot be
       # installed must not keep the browser from working
-      # shellcheck disable=SC2086
-      rest=""
-      for p in $missing; do case " $browser_pkgs " in *" $p "*) ;; *) rest="${rest:+$rest }$p" ;; esac; done
-      # shellcheck disable=SC2086
-      for batch in "$(pk_missing $browser_pkgs | tr '\n' ' ')" "$rest"; do
-        [ -n "${batch// /}" ] || continue
-        # shellcheck disable=SC2086
-        if why=$(pk_apt_install -- $batch 2>&1); then note "installed $batch"
-        else note "could not install $batch: $(printf '%s' "$why" | tail -n 1)"; res=incomplete; fi
+      for p in "${missing[@]}"; do
+        case " ${browser_pkgs[*]:-} " in *" $p "*) first+=("$p") ;; *) rest+=("$p") ;; esac
+      done
+      for v in first rest; do
+        if [ "$v" = first ]; then set -- ${first[@]+"${first[@]}"}; else set -- ${rest[@]+"${rest[@]}"}; fi
+        [ $# -gt 0 ] || continue
+        if why=$(pk_apt_install -- "$@" 2>&1); then note "installed $*"
+        else
+          rc=$?
+          note "could not install $*: $(printf '%s' "$why" | tail -n 1)"
+          # a full disk needs an administrator; anything else is tried again later
+          if [ "$rc" = 3 ]; then res=$(pk_worse "$res" blocked); else res=$(pk_worse "$res" incomplete); fi
+        fi
       done
     fi
   fi
   if ! why=$(pk_check_floors "$distro" "$arch" "$profile" | tr '\n' ';'); then
     note "${why%;}"
-    [ "$res" = blocked ] || res=incomplete
+    res=$(pk_worse "$res" incomplete)
   fi
   v=""
   if pk_artifacts "$profile" | grep -qx "$PK_BROWSER"; then
-    pk_browser_prepare "$PK_OPT/$PK_BROWSER" "linux-$arch" || { [ "$res" = blocked ] || res=incomplete; }
+    pk_browser_prepare "$PK_OPT/$PK_BROWSER" "linux-$arch" || res=$(pk_worse "$res" incomplete)
     if path=$(pk_browser_switch "$PK_OPT/$PK_BROWSER" "linux-$arch"); then
       pk_set_env "/etc/default/$id" "$PK_ENV_KEY" "$path" || true
       v=$(pk__current_version "$PK_OPT/$PK_BROWSER")
@@ -566,7 +613,7 @@ pk__sync() {
     else
       pk_set_env "/etc/default/$id" "$PK_ENV_KEY" "" || true
       note "no $PK_BROWSER runs here; HTML to PDF stays off"
-      [ "$res" = blocked ] || res=incomplete
+      res=$(pk_worse "$res" incomplete)
     fi
   else
     pk_set_env "/etc/default/$id" "$PK_ENV_KEY" "" || true

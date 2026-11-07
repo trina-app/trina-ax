@@ -123,19 +123,25 @@ function hyperframesBrowser(home: string): string | null {
   return null
 }
 
+/** The pinned headless browser the installers put on a Linux server (scripts/system/packages.json, packages.sh: root's,
+ * one per machine; MYCEL_HTML_PDF_BROWSER names the same path). */
+export const PINNED_BROWSER = '/opt/trina/chrome-headless-shell/current/chrome-headless-shell'
+
 /**
  * The Chromium that prints HTML, or null. In this order: MYCEL_HTML_PDF_BROWSER (an admin's or a test's choice;
- * "none" turns it off), HYPERFRAMES_BROWSER_PATH (the promo video's chrome-headless-shell, DECISIONS "V"), the one the
- * HyperFrames CLI fetched on a development Mac, Debian's chromium (the real binary, not the /usr/bin/chromium shell
- * wrapper). Only one in a folder of its own that nobody else can change (trustedBrowser). Read on every call: an
- * install shows without a restart.
+ * "none" turns it off), on Linux the pinned browser of the installers (PINNED_BROWSER: also while the variable is not set
+ * yet, as after an update that restarted the server before its sync wrote the line), HYPERFRAMES_BROWSER_PATH (the promo
+ * video's chrome-headless-shell, DECISIONS "V"), the one the HyperFrames CLI fetched on a development Mac, Debian's
+ * chromium (the real binary, not the /usr/bin/chromium shell wrapper). Only one in a folder of its own that nobody else
+ * can change (trustedBrowser). Read on every call: an install shows without a restart.
  */
-export function findPdfBrowser(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform, home = os.homedir()): string | null {
+export function findPdfBrowser(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform, home = os.homedir(), pinned = PINNED_BROWSER): string | null {
   // the real path, the one trustedBrowser looked at: printIn runs exactly that file
   const ok = (p: string | undefined | null): string | null => (isExe(p) && trustedBrowser(p) ? fs.realpathSync(p) : null)
   const explicit = env.MYCEL_HTML_PDF_BROWSER
   if (explicit === 'none') return null
   if (explicit) return ok(explicit)
+  if (platform === 'linux') { const r = ok(pinned); if (r) return r }
   const hyper = ok(env.HYPERFRAMES_BROWSER_PATH) ?? ok(hyperframesBrowser(home))
   if (hyper) return hyper
   // Linux: Debian's packages, the real binaries (not the /usr/bin shell wrappers). Not Google Chrome on a Mac: it

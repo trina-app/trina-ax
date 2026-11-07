@@ -552,13 +552,16 @@ if [ "$LIST_OK" = 1 ]; then
   if [ "$SKIP_APT" = 0 ]; then
     say "installing packages: ${PKGS[*]}"
     pk_apt_install -- "${PKGS[@]}" || die "apt-get install failed (see above)"
-    for batch in "${BPKGS[*]:-}" "${EXTRA[*]:-}"; do
-      [ -n "$batch" ] || continue
-      say "installing default packages (--minimal leaves them out): $batch"
-      # shellcheck disable=SC2086 # package names have no spaces
-      if ! pk_apt_install -- $batch; then
-        warn "these default packages did not install (see above); the server runs without them, and \`sudo $0 repair\` tries again: $batch"
-        SYNC_RESULT=incomplete SYNC_DETAIL="${SYNC_DETAIL:+$SYNC_DETAIL; }not installed: $batch"
+    for batch in browser rest; do
+      if [ "$batch" = browser ]; then B=(${BPKGS[@]+"${BPKGS[@]}"}); else B=(${EXTRA[@]+"${EXTRA[@]}"}); fi
+      [ ${#B[@]} -gt 0 ] || continue
+      say "installing default packages (--minimal leaves them out): ${B[*]}"
+      rc=0; pk_apt_install -- "${B[@]}" || rc=$?
+      if [ "$rc" != 0 ]; then
+        warn "these default packages did not install (see above); the server runs without them, and \`sudo $0 repair\` tries again: ${B[*]}"
+        # not enough disk space (3) needs an administrator; anything else is tried again later
+        if [ "$rc" = 3 ]; then SYNC_RESULT=$(pk_worse "$SYNC_RESULT" blocked); else SYNC_RESULT=$(pk_worse "$SYNC_RESULT" incomplete); fi
+        SYNC_DETAIL="${SYNC_DETAIL:+$SYNC_DETAIL; }not installed: ${B[*]}"
       fi
     done
   fi
@@ -566,8 +569,7 @@ if [ "$LIST_OK" = 1 ]; then
   if [ "$PROFILE" != minimal ] && ! FLOORS=$(pk_check_floors "$DISTRO" "$ARCH" "$PROFILE"); then warn "${FLOORS//$'\n'/; }"; fi
   if MISS=$(pk_missing ${BPKGS[@]+"${BPKGS[@]}"} ${EXTRA[@]+"${EXTRA[@]}"} | tr '\n' ' ') && [ -n "$MISS" ]; then
     warn "not installed (default groups): $MISS"
-    SYNC_RESULT=incomplete
-    [ "$SKIP_APT" = 0 ] || SYNC_RESULT=blocked
+    if [ "$SKIP_APT" = 0 ]; then SYNC_RESULT=$(pk_worse "$SYNC_RESULT" incomplete); else SYNC_RESULT=$(pk_worse "$SYNC_RESULT" blocked); fi
     SYNC_DETAIL="${SYNC_DETAIL:+$SYNC_DETAIL; }missing: $MISS"
   fi
 else
@@ -845,7 +847,7 @@ install -o root -g root -m 644 "$ITMP/firewall.conf.json" "$BASE/root/firewall.c
 if [ "$LIST_OK" = 1 ]; then
   BROWSER_V=""
   if pk_artifacts "$PROFILE" | grep -qx chrome-headless-shell; then
-    pk_browser_prepare "$PK_OPT/chrome-headless-shell" "linux-$ARCH" || { warn "the pinned headless browser was not installed (see above)"; SYNC_RESULT=incomplete; }
+    pk_browser_prepare "$PK_OPT/chrome-headless-shell" "linux-$ARCH" || { warn "the pinned headless browser was not installed (see above)"; SYNC_RESULT=$(pk_worse "$SYNC_RESULT" incomplete); }
     if BROWSER=$(pk_browser_switch "$PK_OPT/chrome-headless-shell" "linux-$ARCH"); then
       pk_set_env "/etc/default/$ID" MYCEL_HTML_PDF_BROWSER "$BROWSER" || die "writing /etc/default/$ID failed"
       BROWSER_V=$(pk__current_version "$PK_OPT/chrome-headless-shell")
@@ -853,7 +855,7 @@ if [ "$LIST_OK" = 1 ]; then
     else
       pk_set_env "/etc/default/$ID" MYCEL_HTML_PDF_BROWSER "" || die "writing /etc/default/$ID failed"
       warn "no headless browser runs here, so HTML to PDF stays off (see above); \`sudo $0 repair\` tries again"
-      SYNC_RESULT=incomplete SYNC_DETAIL="${SYNC_DETAIL:+$SYNC_DETAIL; }no chrome-headless-shell runs"
+      SYNC_RESULT=$(pk_worse "$SYNC_RESULT" incomplete) SYNC_DETAIL="${SYNC_DETAIL:+$SYNC_DETAIL; }no chrome-headless-shell runs"
     fi
   else
     pk_set_env "/etc/default/$ID" MYCEL_HTML_PDF_BROWSER "" || die "writing /etc/default/$ID failed"

@@ -150,6 +150,46 @@ func TestUpdateSyncDeadlineStopsTheGroup(t *testing.T) {
 		syscall.Kill(pid, syscall.SIGKILL)
 		t.Fatalf("the sync's child %d still runs", pid)
 	}
+	// it wrote no record, so mycel-ctl did: "incomplete" (tried again after syncRetry, not at every check)
+	if s := readSynced(&env{base: tb.base}); s == nil || s.Result != "incomplete" || s.List != listSum(&env{base: tb.base}) || !strings.Contains(s.Detail, "did not finish in 1.5s") {
+		t.Fatalf("record after a stopped sync: %+v", s)
+	}
+}
+
+// A sync that ends without a record (the script failed before it wrote one, a full disk) gets "incomplete" from
+// mycel-ctl; one that wrote its record keeps it.
+func TestUpdateSyncWithoutARecord(t *testing.T) {
+	tb := syncTestBase(t)
+	_, arch, k := listBundle(t, "new launcher", "echo 'packages: cannot read the list' >&2\nexit 0\n")
+	if code, r := tb.update(t, "--bundle", arch, "--pubkey", k); code != 0 || r.Result != "ok" {
+		t.Fatalf("%d %+v", code, r)
+	}
+	e := &env{base: tb.base}
+	if s := readSynced(e); s == nil || s.Result != "incomplete" || s.Detail != "packages.sh sync ended without a result" {
+		t.Fatalf("%+v", s)
+	}
+	tb2 := syncTestBase(t)
+	script := "printf '{\"format\":1,\"list\":\"x\",\"result\":\"blocked\",\"at\":\"2026-11-07T00:00:00Z\",\"detail\":\"missing: socat\"}\\n' > \"$5/root/packages.synced\"\n"
+	_, arch, k = listBundle(t, "new launcher", script)
+	if code, r := tb2.update(t, "--bundle", arch, "--pubkey", k); code != 0 || r.Result != "ok" {
+		t.Fatalf("%d %+v", code, r)
+	}
+	if s := readSynced(&env{base: tb2.base}); s == nil || s.Result != "blocked" || s.Detail != "missing: socat" {
+		t.Fatalf("the script's own record was replaced: %+v", s)
+	}
+}
+
+// Only a bundle that verified lends root its bun: after a verify failure the sync reads the list's flat copy.
+func TestUnverifiedBundleLendsNoBun(t *testing.T) {
+	tb := syncTestBase(t)
+	marker, _ := listRoot(t, tb, "")
+	_, arch, _ := listBundle(t, "new launcher", "")
+	other, _, _ := ed25519.GenerateKey(rand.Reader)
+	code, r := tb.update(t, "--bundle", arch, "--pubkey", base64.StdEncoding.EncodeToString(other))
+	got := calls(marker)
+	if code == 0 || r.Result != "verify_failed" || len(got) != 1 || strings.Contains(got[0], "--bun") {
+		t.Fatalf("%d %+v calls %q", code, r, got)
+	}
 }
 
 // apt and curl get this run's proxy settings, and nothing else of its environment.
@@ -202,7 +242,7 @@ func TestPendingSyncWithNothingToInstall(t *testing.T) {
 		{"never synced", "", true},
 		{"another list synced", `{"format":1,"list":"abc","result":"ok","at":"2026-11-01T00:00:00Z"}`, true},
 		{"this list synced", `{"format":1,"list":"SUM","result":"ok","at":"2026-11-01T00:00:00Z"}`, false},
-		{"blocked: an administrator's step", `{"format":1,"list":"SUM","result":"blocked","at":"2026-11-01T00:00:00Z"}`, false},
+		{"blocked: an administrator's own run tries again", `{"format":1,"list":"SUM","result":"blocked","at":"2026-11-01T00:00:00Z"}`, true},
 		{"incomplete an hour ago", `{"format":1,"list":"SUM","result":"incomplete","at":"` + recent + `"}`, false},
 		{"incomplete 7 hours ago", `{"format":1,"list":"SUM","result":"incomplete","at":"` + old + `"}`, true},
 	} {
@@ -245,10 +285,31 @@ func TestScheduledRunSyncsAPendingList(t *testing.T) {
 	}
 }
 
-func TestRootJobCountsAPendingSync(t *testing.T) {
-	f := &ReleaseFeed{Version: "0.4.0", RootSince: "0.3.0"}
-	if rootJob(f, "0.4.0", "0.4.0", false) || !rootJob(f, "0.4.0", "0.4.0", true) {
-		t.Fatal("a pending sync is root's work")
+// A pending sync never makes root take a release the app takes by itself (review S2: two updaters switching versions
+// garble state.json's previous): the timer leaves an app-only release to the app and syncs beside it, without a
+// download. A blocked record waits for an administrator: the timer does not retry it.
+func TestScheduledSyncLeavesAppReleasesToTheApp(t *testing.T) {
+	f := newFeedServer(t)
+	f.channel("0.2.19", false) // app-only, newer than the 0.2.18 that runs
+	tb := schedBase(t, f)
+	marker, _ := listRoot(t, tb, "")
+	r := &schedRun{clock: at("2026-11-01T18:10:00Z"), window: "03:00-05:00", zone: "Asia/Seoul"}
+	scheduledHooks(t, tb, r)
+	code, res := tb.scheduled(t, f)
+	if code != 0 || res.Result != "ok" || !res.Skipped || res.Detail != "release 0.2.19 does not change root files" || res.AppUpdated || res.RootUpdated ||
+		r.switched != "" || f.downloaded() != 0 || len(calls(marker)) != 1 {
+		t.Fatalf("%d %+v switched %q downloads %d calls %q", code, res, r.switched, f.downloaded(), calls(marker))
+	}
+	f = newFeedServer(t)
+	f.channel("0.2.18", true)
+	tb = schedBase(t, f)
+	marker, _ = listRoot(t, tb, `{"format":1,"list":"SUM","result":"blocked","at":"2026-11-01T00:00:00Z"}`)
+	scheduledHooks(t, tb, &schedRun{clock: at("2026-11-01T18:10:00Z"), window: "03:00-05:00", zone: "Asia/Seoul"})
+	if code, res := tb.scheduled(t, f); code != 0 || !res.Skipped || len(calls(marker)) != 0 {
+		t.Fatalf("blocked: %d %+v calls %q", code, res, calls(marker))
+	}
+	if rootJob(&ReleaseFeed{Version: "0.4.0", RootSince: "0.3.0"}, "0.4.0", "0.4.0") {
+		t.Fatal("rootJob")
 	}
 }
 

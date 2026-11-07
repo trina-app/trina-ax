@@ -78,8 +78,10 @@ func listSum(e *env) string {
 	return hex.EncodeToString(h[:])
 }
 
-// syncPending: is a sync root's work now, and why. Only with the list and its reader in root/.
-func syncPending(e *env, now time.Time) (bool, string) {
+// syncPending: is a sync root's work now, and why. Only with the list and its reader in root/. explicit: an
+// administrator's (or the control plane's) own `mycel-ctl update`, which also tries a blocked sync again (the step it
+// waited for may be done); the timer does not.
+func syncPending(e *env, now time.Time, explicit bool) (bool, string) {
 	sum := listSum(e)
 	if sum == "" || !fileExists(e.root(packagesSh)) {
 		return false, ""
@@ -95,6 +97,8 @@ func syncPending(e *env, now time.Time) (bool, string) {
 		if err != nil || now.Sub(at) >= syncRetry {
 			return true, "the last sync (" + s.At + ") was incomplete: " + s.Detail
 		}
+	case s.Result == "blocked" && explicit:
+		return true, "the last sync (" + s.At + ") needed an administrator: " + s.Detail
 	}
 	return false, ""
 }
@@ -110,24 +114,40 @@ func short(s string) string {
 }
 
 // syncAfter (run's last step): sync when this run put root files in, or when one is pending anyway.
-func (u *updater) syncAfter(dir string) {
-	if pending, _ := syncPending(u.e, u.e.now()); u.rootIn || pending {
-		u.syncSystem(dir)
+func (u *updater) syncAfter() {
+	if pending, _ := syncPending(u.e, u.e.now(), !u.scheduled); u.rootIn || pending {
+		u.syncSystem(u.verified)
 	}
 }
 
-// syncSystem runs root/packages.sh sync, with the verified bundle's bun when the run has one (else the list's flat
-// copy). It is bounded: at syncTimeout its process group gets SIGTERM (a download stops; apt and dpkg, in a session of
-// their own, finish), and nothing of it fails the update: its lines and any failure are notes.
-func (u *updater) syncSystem(dir string) {
+// syncOnly ends the scheduled gate when root has no release to install now (why): with a pending sync the run goes on,
+// installs nothing and syncs (run's syncOnlyRun, then syncAfter); else it is a skip. So a pending sync never makes root
+// take a release the app takes by itself, and a staged roll-out or a hold does not delay the catch-up.
+func (u *updater) syncOnly(why string) bool {
+	u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, why
+	if pending, reason := syncPending(u.e, u.e.now(), false); pending {
+		u.syncOnlyRun = true
+		u.res.Notes = append(u.res.Notes, "system packages: "+reason)
+		return true
+	}
+	return false
+}
+
+// syncSystem runs root/packages.sh sync, with the bun of a bundle VerifyDir accepted when the run has one (verified;
+// else the list's flat copy). It is bounded: at syncTimeout its process group gets SIGTERM (a download stops; apt runs
+// as a transient unit of its own, systemd-run, and finishes), and nothing of it fails the update: its lines and any
+// failure are notes. A sync that ends without writing root/packages.synced (stopped, or the script failed early) gets an
+// "incomplete" record here, so the timer tries again after syncRetry, not at every check.
+func (u *updater) syncSystem(verified string) {
 	sh := u.e.root(packagesSh)
 	if !fileExists(sh) || !fileExists(u.e.root(packagesList)) {
 		return
 	}
 	args := []string{sh, "sync", "--id", u.in.ID, "--base", u.e.base}
-	if bun := filepath.Join(dir, "bin", "bun"); dir != "" && fileExists(bun) {
+	if bun := filepath.Join(verified, "bin", "bun"); verified != "" && fileExists(bun) {
 		args = append(args, "--bun", bun)
 	}
+	before, _ := readRootFile(u.e.root(packagesSynced), 64<<10)
 	ctx, cancel := context.WithTimeout(context.Background(), syncTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bashPath, args...)
@@ -142,11 +162,33 @@ func (u *updater) syncSystem(dir string) {
 			u.res.Notes = append(u.res.Notes, l)
 		}
 	}
+	why := ""
 	switch {
 	case ctx.Err() == context.DeadlineExceeded:
-		u.res.Notes = append(u.res.Notes, fmt.Sprintf("system packages: %s sync did not finish in %v and was stopped (an apt run it started finishes by itself); the next run tries again", packagesSh, syncTimeout))
+		why = fmt.Sprintf("%s sync did not finish in %v and was stopped (an apt run it started finishes by itself)", packagesSh, syncTimeout)
 	case err != nil:
-		u.res.Notes = append(u.res.Notes, "system packages: "+packagesSh+" sync: "+err.Error())
+		why = packagesSh + " sync: " + err.Error()
+	}
+	if why != "" {
+		u.res.Notes = append(u.res.Notes, "system packages: "+why)
+	}
+	if after, _ := readRootFile(u.e.root(packagesSynced), 64<<10); string(after) == string(before) {
+		if why == "" {
+			why = packagesSh + " sync ended without a result"
+		}
+		u.noteSync("incomplete", why)
+	}
+}
+
+// noteSync writes root/packages.synced for the list in root/ (when packages.sh could not).
+func (u *updater) noteSync(result, detail string) {
+	sum := listSum(u.e)
+	if sum == "" {
+		return
+	}
+	b, _ := json.Marshal(SyncState{Format: 1, List: sum, Result: result, At: u.e.now().UTC().Format(time.RFC3339), Detail: detail})
+	if err := writeRootFile(u.e.root(packagesSynced), append(b, '\n'), 0o644); err != nil {
+		u.res.Notes = append(u.res.Notes, "system packages: cannot write "+packagesSynced+": "+err.Error())
 	}
 }
 
@@ -168,7 +210,7 @@ func syncStatus(e *env, now time.Time) (string, *SyncState, bool) {
 		return "", nil, false
 	}
 	s := readSynced(e)
-	pending, why := syncPending(e, now)
+	pending, why := syncPending(e, now, false)
 	switch {
 	case s == nil || s.List != sum:
 		return "not synced to the list in root/ (" + why + "); the update timer syncs in the update window, now: sudo mycel-ctl update", s, pending

@@ -159,6 +159,15 @@
         "iproute2": ""
       }
     },
+    "docker": {
+      "install": "on-request",
+      "for": "the Docker image (docker/Dockerfile, with the always groups): ps for mycel-ctl supervise, useradd, python3",
+      "packages": {
+        "procps": "",
+        "passwd": "",
+        "python3": ""
+      }
+    },
     "test-vm": {
       "install": "on-request",
       "for": "the dev environment's test VM (scripts/dev-env/vm-setup.sh, with the boxes group): vm-tests.sh measures with time and bc",

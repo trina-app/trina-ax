@@ -612,8 +612,19 @@ export class OpsService {
       }
     }
     // the one list of system packages (Linux, root/packages.synced against root/packages.json; system/system-packages.ts)
-    const sp = systemPackagesDiagnostic(this.layout.rootDir)
-    if (sp) add('system_packages', 'update', t(SYSTEM_PACKAGES_TEXT.label), sp.status, t(sp.text))
+    if (this.layout.rootDir) {
+      const rs = host === 'hosted' || this.platform() !== 'linux' ? null : this.rootUpdateSettings()
+      const by = host === 'hosted' ? 'hosted' : !rs || (rs.autoUpdate && rs.timerEnabled !== false) ? 'timer' : 'admin'
+      const tz = teamTimeZone(this.ctx.db), z = (n: number) => String(n).padStart(2, '0')
+      const when = (iso: string) => {
+        const d = new Date(iso)
+        if (Number.isNaN(d.getTime())) return iso
+        const p = zonedParts(d, tz)
+        return `${p.y}-${z(p.m)}-${z(p.d)} ${z(p.h)}:${z(p.min)} (${tz})`
+      }
+      const sp = systemPackagesDiagnostic(this.layout.rootDir, { by, when })
+      if (sp) add('system_packages', 'update', t(SYSTEM_PACKAGES_TEXT.label), sp.status, t(sp.text))
+    }
 
     return {
       version: this.ctx.version,

@@ -12701,43 +12701,66 @@ the infra engineer agreed on one shared list, a CI check that fails when the scr
   the root files and the app (a deferred step of `run`: apt or a download never holds up the app), and the sync writes
   `root/packages.synced` (the list's sha256 and ok, incomplete or blocked). The flat copy lets root read the list with awk
   alone: no bun, no jq.
-- **Catch-up after an older mycel-ctl (review, must-fix).** A server whose update is done by an older `mycel-ctl` gets the
-  root files of a release with the list, including the new `mycel-ctl`, but that older binary never syncs, and an app-only
-  release never calls `mycel-ctl` at all. So the new binary treats a `root/packages.synced` that is not of the list in
-  `root/` as root's work: `rootJob` and the scheduled gate count it, and `run` syncs from the files in place even when the
-  feed's release is installed (nothing is downloaded). The first update timer run of the new binary inside the update
-  window does it; on a hosted VM, which has no timer, the control plane's next `mycel-ctl update`. An incomplete sync is
-  tried again after 6 hours; a blocked one (an install from before the list or with `--skip-apt` may not run apt
-  unattended; a full disk) waits for the list to change or `install-linux.sh repair`. `mycel-ctl status` and Admin ›
-  System › Diagnostics ("System packages") show the state. Other ways were weighed and dropped: an `ExecStartPost=` in
-  the update unit (the running job keeps its old definition), the firewall timer (wrong layer), or a status call that
-  changes the system.
-- **Bounded, never in the way (review, must-fix).** The sync runs with a 20-minute deadline in its own process group
-  (`Setpgid`); at the deadline the group gets SIGTERM, which stops a download. apt and dpkg run in a session of their own
-  (`setsid -w`), so they are never signalled mid-transaction; they wait up to 5 minutes for dpkg's lock
-  (`DPkg::Lock::Timeout=300`) and run only after a free-space check (apt's own estimate plus 256 MB). Downloads are bounded
-  in packages.sh (20 s to connect, give up below 10 KB/s for 60 s, all tries within 8 minutes, and a watchdog that stops
-  curl whatever it does). The proxy variables of the run are passed through. The browser's libraries go in a
-  transaction of their own, before the other groups.
-- **The browser switch (review, must-fix).** A new version is downloaded into `.new.*`, checked, and started once
-  (`--version`) before it gets its version folder's name; `current` moves only to a version that starts (one rename of a
-  temporary link), and a version that does not start is kept as `.untested-<version>` and tested again next time without
-  a new download. The version `current` pointed to stays until the next switch, as a print may still use it. A version
-  newer than the list's (another install's newer kit, a repair from an older one) stays current and is never deleted.
-  When nothing starts, `current` and the env line go. One `flock` serializes every install on the machine; the folder
-  and its parent are 755 whatever the umask; `/etc/default/<id>` is written next to itself and renamed.
+- **Catch-up after an older mycel-ctl (review, must-fix; second review S2).** A server whose update is done by an older
+  `mycel-ctl` gets the root files of a release with the list, including the new `mycel-ctl`, but that older binary never
+  syncs, and an app-only release never calls `mycel-ctl` at all. So the new binary checks `root/packages.synced` against
+  the list in `root/` on every run. A pending sync is not a reason for root to install a release: `rootJob` does not count
+  it (a release the app takes by itself stays the app's; two updaters switching versions garble `state.json`'s previous).
+  Instead, whenever the scheduled gate finds nothing for root to install now (no release, an app-only one, a staged
+  roll-out wait, a hold), it goes on with a sync-only run: nothing is downloaded, the sync reads the list's flat copy in
+  `root/`. The first update timer run of the new binary inside the update window does it; on a hosted VM, which has no
+  timer, the control plane's next `mycel-ctl update`. An incomplete sync is tried again by the timer after 6 hours. A
+  blocked one (an install from before the list or with `--skip-apt` may not run apt unattended; a full disk) waits: the
+  timer does not retry it, an administrator's own `mycel-ctl update` (or the control plane's) does, as does
+  `install-linux.sh repair`. A sync that ends without writing its record (stopped at the deadline, the script failing
+  early, a full disk) gets an incomplete record from `mycel-ctl`, so it is not run again at every check. `mycel-ctl status`
+  and Admin › System › Diagnostics ("System packages") show the state, with the record's time in the team's zone and who
+  does it next (the timer, an administrator when automatic updates are off, the hosting service). Other ways were weighed
+  and dropped: an `ExecStartPost=` in the update unit (the running job keeps its old definition), the firewall timer (wrong
+  layer), or a status call that changes the system.
+- **Bounded, never in the way (review, must-fix; second review S1).** The sync runs after the app with a 20-minute deadline
+  in its own process group (`Setpgid`); at the deadline the group gets SIGTERM, which stops a download. apt does not run in
+  that group, nor in the update unit's cgroup: during a sync each `apt-get update` and `apt-get install` is a transient
+  systemd unit of its own (`systemd-run --wait --collect`, output appended to `/var/log/trina-packages-apt.log`). systemd
+  stops a unit's whole cgroup when it ends or hits `TimeoutStartSec`, so a `setsid` child (the first version) would have
+  been killed with the update job; a transient unit is not, and no pipe a dying caller could close carries its output.
+  Checked in a systemd container: killing the `systemd-run` client and stopping the service that started it both leave
+  the apt unit running, and the exit code comes back. Elsewhere (an administrator's installer, a chroot image build, where
+  `systemd-run` would reach the host's systemd) apt runs directly. apt waits up to 5 minutes for dpkg's lock
+  (`DPkg::Lock::Timeout=300`) and runs only after a free-space check (apt's own estimate plus 256 MB; too little is
+  "blocked": an administrator frees space). Downloads are bounded in packages.sh (20 s to connect, give up below 10 KB/s for
+  60 s, all tries within 8 minutes, and a watchdog that stops curl whatever it does). The proxy variables of the run are
+  passed through. The browser's libraries go in a transaction of their own, before the other groups. Only a bundle that
+  `VerifyDir` accepted lends its bun to root; otherwise the flat copy is read.
+- **The browser switch (review, must-fix; second review N1, S5).** A new version is downloaded into `.new.*`, checked, and
+  started once (`--version`) before it gets its version folder's name; `current` moves only to a version that starts (one
+  rename of a temporary link), and a version that does not start is kept as `.untested-<version>` and tested again next
+  time without a new download. The version a switch replaced is recorded in `.previous` and kept until the next switch,
+  whichever install id syncs in between, as a print may still use it. A version newer than the list's (another install's
+  newer kit, a repair from an older one) stays current and is never deleted. When nothing starts, `current` and the env
+  line go. One `flock` serializes every install on the machine; the folder and its parent are 755 whatever the umask;
+  `/etc/default/<id>` is written next to itself and renamed. The env line is written by the sync, after the app restarted,
+  so `findPdfBrowser` (server/src/files/html-pdf.ts) also looks at `/opt/trina/chrome-headless-shell/current/
+  chrome-headless-shell` when `MYCEL_HTML_PDF_BROWSER` is not set, through the same `trustedBrowser` check.
 - **Office updates (review, must-fix).** `office-install.sh` downloads and tests the browser while the server still runs
   (at most 4 minutes during an automatic update, which stops the installer after 10 minutes and rolls back), and only
   switches `current` after the server has stopped. A failure only warns: it can neither fail nor roll back an update.
+- **Docker (second review S4).** The Docker image is another install path: `docker/Dockerfile` installs the list's always
+  groups and an on-request `docker` group from the kit's own list (its `packages.sh` and flat copy), and the entrypoint runs
+  the installer with `--minimal --skip-apt`, as the image carried the always groups only before. HTML to PDF in Docker
+  (the browser group and the pinned browser in the image) is left for a decision.
 - **The CI check** (`tests/unit/system-packages.test.ts`, in `bun run test:unit`): the list is well formed; every
   artifact has a version, url, sha256 and size for every platform it must have; bun and jq read the same lines as the
-  TS reader (jq is required in CI); packages.sh picks the same packages for every system and profile; every shell script
-  under `scripts/` and every Containerfile/Dockerfile is scanned (comments out, continuation lines joined, apt options
-  before `install` too), and none names three packages on a line or apt-installs a name, except an allowlist of build and
-  test files with a reason each; the installers carry no hash, version or download url of their own; the image installs
-  the installer's default groups plus its own; install-linux.sh accepts exactly the list's systems; srt has one version
-  in the list, the server and the lockfile; the list is a root file and in the office zip; the browser switch, the
-  stalled download and the env file behave. The Go side: `native/cmd/mycel-ctl/syncsystem_test.go`.
+  TS reader (jq is required in CI); packages.sh picks the same packages for every system and profile and refuses a name
+  that is not a package name; every shell script under `scripts/` and `docker/` and every Containerfile/Dockerfile is
+  scanned (comments out, continuation lines joined, options before the command, apt in a variable, dnf, yum, zypper, apk,
+  brew and pip too, and commands inside quotes unless the quotes are a message of echo, printf, die, warn or say), and none
+  names three packages on a line or installs a name, nor carries a sha256, a pinned download address or a version of its
+  own, except an allowlist with a reason for each file (a test container that pins node must pin the list's); the image
+  installs the installer's default groups plus its own; install-linux.sh accepts exactly the list's systems; srt has one
+  version in the list, the server and the lockfile; the list is a root file and in the office zip; the browser switch,
+  the stalled download, the env file, the record and apt as a transient unit behave. The Go side:
+  `native/cmd/mycel-ctl/syncsystem_test.go`.
 - Left: Ubuntu 24.04 is in the list for the installer but not for `install-srt.sh` (AppArmor, spike S6). The private
   AMI build reads `scripts/image/*` and the staged `system/` folder. The office Mac shows no sync state in Diagnostics
   (it has no root/; the browser is there or not).

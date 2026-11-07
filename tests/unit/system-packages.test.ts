@@ -14,7 +14,7 @@ import { rootManaged } from '../../scripts/release/publish-server'
 import { SRT_VERSION } from '../../server/src/devenv/srt/config'
 import { officeBrowserEnv } from '../../server/src/office/cli'
 import { officePaths } from '../../server/src/office/settings'
-import { SYSTEM_PACKAGES_TEXT, systemPackagesDiagnostic } from '../../server/src/system/system-packages'
+import { SYSTEM_PACKAGES_TEXT, systemPackagesDiagnostic, type SyncBy } from '../../server/src/system/system-packages'
 
 // several tests start bash and bun many times: generous under a loaded CI machine
 setDefaultTimeout(30_000)
@@ -185,10 +185,21 @@ pk_artifacts default; pk_artifacts minimal; pk_artifacts srt`, { PK_BUN: process
     expect(fs.readlinkSync(path.join(b.dest, 'current'))).toBe(`${PIN}/${b.dir}`)
     // 150 (current before) stays for a print that may still run; 149 and the leftover go; the swap left no temp link
     expect(names_(b.dest)).toEqual(['.previous', '150.0.1.2', 'current', PIN].sort())
-    // the next sync: nothing to switch, so the previous version goes
+    // another sync with nothing to switch (another install id's, say): the previous version stays
     r = lib(`pk_load; pk_browser_install "${b.dest}" linux-amd64 >/dev/null`, b.env)
     expect(r.code).toBe(0)
-    expect(names_(b.dest)).toEqual(['current', PIN].sort())
+    expect(names_(b.dest)).toEqual(['.previous', '150.0.1.2', 'current', PIN].sort())
+    // the next switch (a list that pins a newer version): the version it replaces is the previous one now, 150 goes
+    const next = '158.0.0.1'
+    fs.mkdirSync(path.join(b.dest, next, b.dir), { recursive: true })
+    fs.writeFileSync(path.join(b.dest, next, b.dir, 'chrome-headless-shell'), fakeBrowser(true), { mode: 0o755 })
+    const l = clone(); l.artifacts['chrome-headless-shell']!.version = next
+    fs.writeFileSync(path.join(b.d, 'next.json'), JSON.stringify(l))
+    r = lib(`pk_load "${b.d}/next.json"; pk_browser_switch "${b.dest}" linux-amd64 >/dev/null`, b.env)
+    expect(r.code).toBe(0)
+    expect(fs.readlinkSync(path.join(b.dest, 'current'))).toBe(`${next}/${b.dir}`)
+    expect(names_(b.dest)).toEqual(['.previous', 'current', next, PIN].sort())
+    expect(fs.readFileSync(path.join(b.dest, '.previous'), 'utf8').trim()).toBe(PIN)
     fs.rmSync(b.d, { recursive: true, force: true })
   })
 
@@ -325,12 +336,66 @@ pk_fetch https://example.com/x "" "" "${d}/x" || echo no-hash-refused`, { PK_BUN
       fs.writeFileSync(path.join(d, 'install.json'), json)
       expect(`${json}: ${lib(`pk__apt_allowed "${d}/install.json" && echo yes || echo no`).out.trim()}`).toBe(`${json}: ${allowed ? 'yes' : 'no'}`)
     }
-    // apt waits for dpkg's lock, runs in a session of its own, checks free space first; the browser's libraries first
+    // apt checks free space first; the browser's libraries go first, in a transaction of their own
     const s = read('scripts/system/packages.sh')
-    expect(s.match(/apt-get (update|install) [^\n]*-o DPkg::Lock::Timeout=300/g)?.length).toBeGreaterThanOrEqual(2)
-    expect(s).toContain('run=(setsid -w)')
     expect(s).toContain('if ! why=$(pk_apt_space')
-    expect(s).toMatch(/for batch in "\$\(pk_missing \$browser_pkgs/)
+    expect(s).toContain('case " ${browser_pkgs[*]:-} " in *" $p "*) first+=("$p") ;; *) rest+=("$p") ;; esac')
+    fs.rmSync(d, { recursive: true, force: true })
+  })
+
+  test('during a sync apt is a transient unit of its own (systemd-run), waits for dpkg\'s lock, logs to a file', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-unit-'))
+    const bin = path.join(d, 'bin'); fs.mkdirSync(bin)
+    fs.mkdirSync(path.join(d, 'systemd'))
+    // systemd-run records how it is called; apt-get answers the free-space check with nothing to download
+    fs.writeFileSync(path.join(bin, 'systemd-run'), `#!/bin/sh\nfor a in "$@"; do printf '%s\\n' "$a"; done >> "${d}/calls"; echo --- >> "${d}/calls"\n`, { mode: 0o755 })
+    fs.writeFileSync(path.join(bin, 'apt-get'), `#!/bin/sh\necho "apt-get $*" >> "${d}/direct"\n`, { mode: 0o755 })
+    const env = { PATH: `${bin}:${PATH}`, PK_SYSTEMD_DIR: path.join(d, 'systemd'), PK_APT_LOG: path.join(d, 'apt.log'), https_proxy: 'http://proxy:3128' }
+    expect(lib('PK_APT_UNIT=1 pk_apt_install -- unzip libnss3', env).code).toBe(0)
+    const calls = fs.readFileSync(path.join(d, 'calls'), 'utf8').split('---\n').filter(Boolean).map((c) => c.trim().split('\n'))
+    expect(calls.length).toBe(2) // apt-get update, apt-get install
+    for (const c of calls) {
+      for (const a of ['--wait', '--collect', '--quiet', `StandardOutput=append:${d}/apt.log`, `StandardError=append:${d}/apt.log`, 'DEBIAN_FRONTEND=noninteractive', 'https_proxy=http://proxy:3128', '-o', 'DPkg::Lock::Timeout=300'])
+        expect(`${c.join(' ')}: ${c.includes(a)}`).toBe(`${c.join(' ')}: true`)
+      expect(c.find((a) => a.startsWith('--unit='))).toMatch(/^--unit=trina-packages-apt-\d+-\d+$/)
+    }
+    expect(calls[0]!.slice(calls[0]!.indexOf('apt-get'))).toEqual(['apt-get', 'update', '-qq', '-o', 'DPkg::Lock::Timeout=300'])
+    expect(calls[1]!.slice(calls[1]!.indexOf('apt-get'))).toEqual(['apt-get', 'install', '-y', '-qq', '--no-install-recommends', '-o', 'DPkg::Lock::Timeout=300', 'unzip', 'libnss3'])
+    // only the free-space check (no transaction) ran apt-get directly
+    expect(fs.readFileSync(path.join(d, 'direct'), 'utf8').trim().split('\n').every((l) => l.includes('--assume-no'))).toBe(true)
+    // the sync sets it; an installer an administrator runs does not (a chroot build would reach the host's systemd)
+    expect(read('scripts/system/packages.sh')).toMatch(/pk__sync\(\) \{[\s\S]*?\n {2}PK_APT_UNIT=1\n/)
+    fs.rmSync(d, { recursive: true, force: true })
+  })
+
+  test('results: a full disk and an administrator\'s step are blocked, a failed download incomplete, the worse wins', () => {
+    const r = lib(['ok ok', 'ok incomplete', 'incomplete ok', 'incomplete blocked', 'blocked incomplete', 'blocked ok'].map((x) => `pk_worse ${x}`).join('\n'))
+    expect(r.out.trim().split('\n')).toEqual(['ok', 'incomplete', 'incomplete', 'blocked', 'blocked', 'blocked'])
+    const s = read('scripts/system/packages.sh'), inst = read('scripts/install-linux.sh')
+    expect(s).toContain('if [ "$rc" = 3 ]; then res=$(pk_worse "$res" blocked); else res=$(pk_worse "$res" incomplete); fi')
+    expect(inst).not.toMatch(/\bSYNC_RESULT=(incomplete|blocked)\b/) // every change goes through pk_worse
+  })
+
+  test('the sync record is always JSON: control characters, quotes and backslashes are taken out', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-rec-'))
+    const r = lib(`pk_write_synced "${d}/packages.synced" abc incomplete "$(printf 'line one\\nline\\ttwo \\001\\033[31m "quoted" back\\\\slash')" "157.0.8103.38;rm"`)
+    expect(r.code).toBe(0)
+    const j = JSON.parse(fs.readFileSync(path.join(d, 'packages.synced'), 'utf8'))
+    expect(j).toMatchObject({ format: 1, list: 'abc', result: 'incomplete', browser: '157.0.8103.38rm' })
+    expect(j.detail).toBe('line one line two [31m quoted backslash')
+    expect(fs.readdirSync(d)).toEqual(['packages.synced'])
+    fs.rmSync(d, { recursive: true, force: true })
+  })
+
+  test('a name in the list that is not a package name stops pk_packages (no option, no glob reaches apt)', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-name-'))
+    for (const bad of ['-oAPT::Get::Hack=1', 'lib*', 'a b']) {
+      const l = clone(); (l.groups.core!.packages as Record<string, string>)[bad] = ''
+      fs.writeFileSync(path.join(d, 'l.json'), JSON.stringify(l))
+      const r = lib(`pk_load "${d}/l.json"; pk_packages debian-13 amd64 minimal >/dev/null || echo refused`, { PK_BUN: process.execPath })
+      expect(`${bad}: ${r.out.trim()}`).toBe(`${bad}: refused`)
+      expect(r.err).toContain('not a package name in the list')
+    }
     fs.rmSync(d, { recursive: true, force: true })
   })
 
@@ -356,8 +421,8 @@ describe('every install path reads the list', () => {
   const names = new Set(Object.values(LIST.groups).flatMap((g) => [...Object.keys(g.packages ?? {}), ...(g.remove ?? [])]))
   const word = (n: string) => new RegExp(`(?<![A-Za-z0-9.+_/-])${n.replace(/[.+]/g, '\\$&')}(?![A-Za-z0-9.+_/-])`)
 
-  // every shell script under scripts/ and every Containerfile/Dockerfile of the repository is scanned; these may name
-  // packages, each for a reason (none of them installs the product's system)
+  // Every shell script under scripts/ and docker/, and every Containerfile/Dockerfile of the repository, is scanned. These
+  // may name packages, each for a reason (none of them installs the product's system):
   const ALLOWED: Record<string, string> = {
     'scripts/linux/build-whisper.sh': 'the build machine\'s compiler for whisper-cli, not a server',
     'scripts/dev-env/srt/vm-check.sh': 'a throwaway test VM of the srt spike',
@@ -366,19 +431,35 @@ describe('every install path reads the list', () => {
     'tests/linux/Dockerfile': 'the Linux test container',
     'tests/linux/Dockerfile.srt': 'the srt attack test container',
     'tests/linux/Dockerfile.safe-ops': 'the safe operations test container',
-    'tests/install/linux/Dockerfile': 'the install test\'s systemd container (what an installer fetches, cached)',
     'tests/linux/Dockerfile.html-pdf': 'the HTML to PDF test container',
+    'tests/install/linux/Dockerfile': 'the install test\'s systemd container (what an installer fetches, cached)',
+  }
+  // and these may carry a sha256 or a download address of their own, each for a reason
+  const PINS_ALLOWED: Record<string, string> = {
+    'docker/Dockerfile': 'checks the release kit against the release\'s SHA256SUMS (a pattern, not a pin)',
+    'scripts/linux/build-whisper.sh': 'the whisper.cpp source the build compiles, pinned there with its build',
+    'scripts/dev-env/srt/spike-vm.sh': 'the srt design spike\'s VM',
+    'scripts/dev-env/srt/vm-check.sh': 'a throwaway test VM of the srt spike',
+    'scripts/dev-env/Containerfile': 'the inside of a dev environment box (podman image), not the server',
+    'tests/linux/Dockerfile.html-pdf': 'the HTML to PDF test container',
+    'tests/linux/Dockerfile': 'the Linux test container (its pandoc for the tests)',
+    'tests/linux/Dockerfile.srt': 'the srt attack test container: its node is the list\'s (checked below)',
+    'scripts/vm/macos-vm.sh': 'the digest of the macOS test VM image',
+  }
+  // and these may install a few named packages, each for a reason
+  const NAMES_ALLOWED: Record<string, { names: string[]; why: string }> = {
+    'docker/Dockerfile': { names: ['ca-certificates', 'curl'], why: 'the stage that downloads the kit, before the list exists; not part of the image' },
   }
   const scanned = () => {
     const out: string[] = []
     const walk = (dir: string) => {
       for (const e of fs.readdirSync(path.join(REPO, dir), { withFileTypes: true })) {
         const rel = `${dir}/${e.name}`
-        if (e.isDirectory()) { if (!['node_modules', '.work'].includes(e.name)) walk(rel) }
-        else if ((dir.startsWith('scripts') && e.name.endsWith('.sh')) || /^(Containerfile|Dockerfile)/.test(e.name)) out.push(rel)
+        if (e.isDirectory()) { if (!['node_modules', '.work', 'kit-local'].includes(e.name)) walk(rel) }
+        else if ((!dir.startsWith('tests') && e.name.endsWith('.sh')) || /^(Containerfile|Dockerfile)/.test(e.name)) out.push(rel)
       }
     }
-    walk('scripts'); walk('tests')
+    walk('scripts'); walk('docker'); walk('tests')
     return out.sort()
   }
   /** a file's commands: comments out, continuation lines joined, each with the number of its first line */
@@ -393,44 +474,90 @@ describe('every install path reads the list', () => {
     })
     return out
   }
-  // apt-get or apt, options before the command too (`apt-get -y -o X=Y install`), then what it installs
-  const APT = /\bapt(?:-get)?((?:\s+(?:-o\s+\S+|-\S+))*)\s+install\b/g
-  const aptByName = (line: string): string[] => {
+  /** where the quoted string that holds index i opens (-1: i is not inside quotes) */
+  const openQuote = (line: string, i: number) => {
+    let q = '', at = -1
+    for (let k = 0; k < i; k++) {
+      const c = line[k]!
+      if (q) { if (c === q && (q === "'" || line[k - 1] !== '\\')) q = '' }
+      else if (c === '"' || c === "'") { q = c; at = k }
+    }
+    return q ? at : -1
+  }
+  // a quoted string that is only a message (`die "… apt-get install jq …"`); `sh -c "apt-get install …"` is not
+  const MESSAGE = /(?:^|[;&|({]\s*|\s)(?:echo|printf|die|warn|say|pk_err|note|err)(?:\s+-\S+)*\s+$/
+  // package managers, with options before the command too (`apt-get -y -o X=Y install`, `$APT install`, `python3 -m pip install`)
+  const INSTALL = /(?:\bapt(?:-get)?|\$\{?APT\}?|\b(?:dnf|yum|microdnf|zypper))((?:\s+(?:-o\s+\S+|-\S+))*)\s+install\b|\bapk((?:\s+-\S+)*)\s+add\b|\bbrew((?:\s+-\S+)*)\s+install\b|\b(?:pip3?|python3?\s+-m\s+pip)((?:\s+-\S+)*)\s+install\b/g
+  const installsByName = (line: string): string[] => {
     const bad: string[] = []
-    for (const m of line.matchAll(APT)) {
-      if ((line.slice(0, m.index).match(/"/g) ?? []).length % 2) continue // inside a message
+    for (const m of line.matchAll(INSTALL)) {
+      const q = openQuote(line, m.index!)
+      if (q >= 0 && MESSAGE.test(line.slice(0, q))) continue
       const args = line.slice(m.index! + m[0].length).split(/\s*(?:\d?>|\|\||&&|;|\)|\|)/)[0]!.trim().split(/\s+/).filter(Boolean)
       for (let i = 0; i < args.length; i++) {
         const a = args[i]!
         if (a === '-o') { i++; continue }
         if (a.startsWith('-') || a.startsWith('$') || a.startsWith('"$') || a.startsWith('${')) continue
-        bad.push(a)
+        const n = a.replace(/["']/g, '')
+        if (n) bad.push(n)
       }
     }
     return bad
   }
 
-  test('the scanner sees through options, continuation lines and quotes', () => {
-    expect(aptByName('apt-get -y -q -o Dpkg::Options::=--force-confold install podman crun')).toEqual(['podman', 'crun'])
-    expect(aptByName('DEBIAN_FRONTEND=noninteractive apt install -y --no-install-recommends "$@" jq')).toEqual(['jq'])
-    expect(aptByName('die "jq is missing: apt-get install jq, then run this again"')).toEqual([])
-    expect(aptByName('pk_apt_install -- "${PKGS[@]}" || apt-get install -y "${X[@]}"')).toEqual([])
-    expect(aptByName('apt-get install --assume-no -o DPkg::Lock::Timeout=300 "$@" 2>/dev/null')).toEqual([])
+  test('the scanner sees through options, continuation lines, other package managers and commands in quotes', () => {
+    expect(installsByName('apt-get -y -q -o Dpkg::Options::=--force-confold install podman crun')).toEqual(['podman', 'crun'])
+    expect(installsByName('DEBIAN_FRONTEND=noninteractive apt install -y --no-install-recommends "$@" jq')).toEqual(['jq'])
+    expect(installsByName('pk_apt_install -- "${PKGS[@]}" || apt-get install -y "${X[@]}"')).toEqual([])
+    expect(installsByName('apt-get install --assume-no -o DPkg::Lock::Timeout=300 "$@" 2>/dev/null')).toEqual([])
+    // messages may name a package; a command handed to another program may not
+    expect(installsByName('die "jq is missing: apt-get install jq, then run this again"')).toEqual([])
+    expect(installsByName('say "missing $t (apt-get install libguestfs-tools qemu-utils curl)"')).toEqual([])
+    expect(installsByName('sh -c "apt-get install -y podman"')).toEqual(['podman'])
+    expect(installsByName("virt-customize -a disk --run-command 'apt-get update && apt-get install -y jq'")).toEqual(['jq'])
+    // other package managers and an apt in a variable
+    expect(installsByName('$APT install curl')).toEqual(['curl'])
+    expect(installsByName('${APT} -y install curl')).toEqual(['curl'])
+    expect(installsByName('dnf -y install chromium')).toEqual(['chromium'])
+    expect(installsByName('apk add --no-cache bash')).toEqual(['bash'])
+    expect(installsByName('brew install jq')).toEqual(['jq'])
+    expect(installsByName('python3 -m pip install --user httpie')).toEqual(['httpie'])
+    expect(installsByName('pip3 install -r requirements.txt')).toEqual(['requirements.txt'])
     const c = commands('# apt-get install nothing\nRUN apt-get update && apt-get install -y \\\n    podman \\\n    crun\necho done\n')
-    expect(c.map(([n, l]) => [n, aptByName(l)])).toEqual([[2, ['podman', 'crun']], [5, []], [6, []]])
+    expect(c.map(([n, l]) => [n, installsByName(l)])).toEqual([[2, ['podman', 'crun']], [5, []], [6, []]])
   })
 
   test('no script or container file keeps a package list of its own (except the allowed few, with a reason)', () => {
     const files = scanned()
-    for (const f of [...INSTALLERS, ...STAGERS, 'scripts/dev-env/vm-setup.sh', 'scripts/dev-env/Containerfile']) expect(files).toContain(f)
-    for (const f of Object.keys(ALLOWED)) expect(`${f}: ${files.includes(f)}`).toBe(`${f}: true`) // no stale entry
+    for (const f of [...INSTALLERS, ...STAGERS, 'scripts/dev-env/vm-setup.sh', 'scripts/dev-env/Containerfile', 'docker/Dockerfile', 'docker/entrypoint.sh']) expect(files).toContain(f)
+    for (const f of [...Object.keys(ALLOWED), ...Object.keys(PINS_ALLOWED)]) expect(`${f}: ${files.includes(f)}`).toBe(`${f}: true`) // no stale entry
     const found: string[] = []
     for (const f of files) {
       if (ALLOWED[f]) continue
       for (const [n, l] of commands(read(f))) {
         const hits = [...names].filter((p) => word(p).test(l))
         if (hits.length >= 3) found.push(`${f}:${n}: ${hits.join(' ')}`)
-        for (const a of aptByName(l)) found.push(`${f}:${n}: apt installs "${a}" by name`)
+        for (const a of installsByName(l)) if (!NAMES_ALLOWED[f]?.names.includes(a)) found.push(`${f}:${n}: installs "${a}" by name`)
+      }
+    }
+    expect(found).toEqual([])
+  })
+
+  test('a test container that pins node pins the list\'s', () => {
+    const t = read('tests/linux/Dockerfile.srt'), node = LIST.artifacts.node!
+    for (const p of ['linux-amd64', 'linux-arm64']) expect(t).toContain(node.platforms[p]!.sha256)
+    expect(t).toContain(`v${node.version}`)
+  })
+
+  test('no script or container file pins a download of its own (except the allowed few, with a reason)', () => {
+    const found: string[] = []
+    for (const f of scanned()) {
+      if (PINS_ALLOWED[f]) continue
+      for (const [n, l] of commands(read(f))) {
+        const h = l.match(/(?<![0-9A-Za-z])[0-9a-f]{64}(?![0-9A-Za-z])/)
+        if (h) found.push(`${f}:${n}: sha256 ${h[0].slice(0, 12)}…`)
+        for (const u of ['nodejs.org/dist', 'chrome-for-testing', 'registry.npmjs.org']) if (l.includes(u)) found.push(`${f}:${n}: ${u}`)
+        if (/\b(NODE|SRT|BROWSER|CHROME)_VERSION=[0-9]/.test(l)) found.push(`${f}:${n}: a version of its own`)
       }
     }
     expect(found).toEqual([])
@@ -516,7 +643,7 @@ describe('updates carry the list', () => {
     for (const f of ['root/packages.json', 'root/packages.sh', 'root/packages.flat']) expect(rootManaged(f)).toBe(true)
     // mycel-ctl update syncs after the root files and the app, and whenever root/packages.synced is not of the list in
     // root/ (native/cmd/mycel-ctl/sync.go, syncsystem_test.go); install-linux.sh writes the record and the root files
-    expect(read('native/cmd/mycel-ctl/update.go')).toContain('defer u.syncAfter(dir)')
+    expect(read('native/cmd/mycel-ctl/update.go')).toContain('defer u.syncAfter()')
     const inst = read('scripts/install-linux.sh')
     expect(inst).toContain('for f in packages.json packages.flat packages.sh; do [ ! -f "$KROOT/$f" ] || rootfile 644 "$f"; done')
     expect(inst).toContain('pk_write_synced "$BASE/root/packages.synced"')
@@ -551,20 +678,31 @@ describe('updates carry the list', () => {
     fs.rmSync(home, { recursive: true, force: true })
   })
 
-  test('Admin › System › Diagnostics says where the sync of the list in root/ stands', () => {
+  test('Admin › System › Diagnostics says where the sync of the list in root/ stands, and who does it next', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-diag-'))
-    expect(systemPackagesDiagnostic(null)).toBeNull()
-    expect(systemPackagesDiagnostic(root)).toBeNull() // a server from before the list
+    const when = (iso: string) => `[${iso}]`
+    const o = { by: 'timer' as const, when }
+    expect(systemPackagesDiagnostic(null, o)).toBeNull()
+    expect(systemPackagesDiagnostic(root, o)).toBeNull() // a server from before the list
     const list = '{"format":1}'
     fs.writeFileSync(path.join(root, 'packages.json'), list)
     const sum = new Bun.CryptoHasher('sha256').update(list).digest('hex')
-    const at = (r: Record<string, string>) => { fs.writeFileSync(path.join(root, 'packages.synced'), JSON.stringify({ format: 1, list: sum, at: '2026-11-07T03:12:00Z', ...r })); return systemPackagesDiagnostic(root)! }
-    expect(systemPackagesDiagnostic(root)).toEqual({ status: 'warn', text: SYSTEM_PACKAGES_TEXT.pending }) // never synced
-    expect(at({ result: 'ok', browser: '157.0.8103.38' })).toEqual({ status: 'ok', text: SYSTEM_PACKAGES_TEXT.ok('2026-11-07T03:12:00Z', '157.0.8103.38') })
-    expect(at({ result: 'ok', list: 'other' }).text).toEqual(SYSTEM_PACKAGES_TEXT.pending)
+    const at = (r: Record<string, string>, by: SyncBy = 'timer') => { fs.writeFileSync(path.join(root, 'packages.synced'), JSON.stringify({ format: 1, list: sum, at: '2026-11-07T03:12:00Z', ...r })); return systemPackagesDiagnostic(root, { by, when })! }
+    expect(systemPackagesDiagnostic(root, o)).toEqual({ status: 'warn', text: SYSTEM_PACKAGES_TEXT.pending('timer') }) // never synced
+    expect(at({ result: 'ok', browser: '157.0.8103.38' })).toEqual({ status: 'ok', text: SYSTEM_PACKAGES_TEXT.ok('[2026-11-07T03:12:00Z]', '157.0.8103.38') })
+    expect(at({ result: 'ok', list: 'other' }).text).toEqual(SYSTEM_PACKAGES_TEXT.pending('timer'))
     expect(at({ result: 'blocked', detail: 'missing: socat' })).toEqual({ status: 'warn', text: SYSTEM_PACKAGES_TEXT.blocked('missing: socat') })
-    expect(at({ result: 'incomplete', detail: 'download' }).text.en).toContain('did not finish: download')
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(SYSTEM_PACKAGES_TEXT.ok('t', 'v')[l]).toContain('v')
+    expect(at({ result: 'incomplete', detail: 'download' }).text.en).toBe('The try at [2026-11-07T03:12:00Z] did not finish: download. The update timer tries again after some hours; now: sudo mycel-ctl update')
+    // no "the update timer does it" where there is no timer: automatic updates off, a hosted team VM
+    expect(at({ result: 'ok', list: 'other' }, 'admin').text.en).toBe('Not yet brought to this version\'s list. Automatic updates are off, so nothing does it by itself: sudo mycel-ctl update')
+    expect(at({ result: 'ok', list: 'other' }, 'hosted').text.en).toBe('Not yet brought to this version\'s list. The hosting service\'s next update does it.')
+    expect(at({ result: 'incomplete', detail: 'download' }, 'hosted').text.en).not.toContain('timer')
+    for (const by of ['timer', 'admin', 'hosted'] as const) for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+      expect(SYSTEM_PACKAGES_TEXT.pending(by)[l].length).toBeGreaterThan(10)
+      expect(SYSTEM_PACKAGES_TEXT.ok('t', 'v')[l]).toContain('v')
+    }
+    // ops.ts formats the record's time in the team's zone, never the raw ISO
+    expect(read('server/src/system/ops.ts')).toContain('const sp = systemPackagesDiagnostic(this.layout.rootDir, { by, when })')
     fs.rmSync(root, { recursive: true, force: true })
   })
 })
