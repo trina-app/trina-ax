@@ -1,7 +1,8 @@
 // Voice input in the browser (lib/useVoiceInput.ts, components/VoiceBar.tsx): the mic and a transcription job into the
 // box; the chat a recording names and the confidential note; holding Space (a computer: this Chromium hovers with a fine
 // pointer) in the AI chat's box and a room's, a short tap typing a space, Esc, the job's own label while it runs, a
-// click in a room (with the hint to hold Space next time). Words go into the box and are never sent by themselves.
+// click in a room (with the hint to hold Space next time), no mic while "this server" lacks its tools. Words go into the
+// box and are never sent by themselves.
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
 import { ROOM_ID, routeRoom } from './rooms-mock'
@@ -294,6 +295,35 @@ test.describe('rooms', () => {
     await expect(thread.getByRole('button', { name: MIC })).toBeDisabled()
     await roomBox.getByTestId('voice-cancel').click()
     await expect(thread.getByRole('button', { name: MIC })).toBeEnabled()
+  })
+
+  // docs/DECISIONS.md "Voice input on a team's own server: the key turns it on": "this server" without ffmpeg (an office
+  // Mac) turns voice input off, so the mic no longer shows and then fails every recording, in the AI chat and in rooms
+  test('"this server" without ffmpeg: the owner gets the hint to the setting; a member has no mic and Space stays a Space', async ({ page }) => {
+    await reset(page)
+    await speech(page, 'local')
+    expect((await page.request.post('/__test/speech-host', { data: { localMissing: ['ffmpeg'] } })).ok()).toBeTruthy()
+    await routeRoom(page, { members: [{ id: 'sora', name: '소라님' }], messages: [ROOT] })
+    await signIn(page)
+    await expect(page.getByTestId('voice-off-hint')).toBeVisible()
+    await expect(page.getByRole('button', { name: MIC })).toHaveCount(0)
+    await page.goto(`/rooms/${ROOM_ID}`)
+    await expect(page.getByTestId('room-composer').getByTestId('voice-off-hint')).toBeVisible()
+    await page.context().clearCookies()
+    await signIn(page, { username: 'bob', password: 'bob password 1' })
+    for (const [where, box] of [['/', 'composer-input'], [`/rooms/${ROOM_ID}`, 'room-input']] as const) {
+      if (where !== '/') await page.goto(where)
+      await expect(page.getByTestId(box)).toBeVisible()
+      await expect(page.getByRole('button', { name: MIC })).toHaveCount(0)
+      await expect(page.getByTestId('voice-off-hint')).toHaveCount(0)
+      await page.getByTestId(box).click()
+      await page.keyboard.down('Space')
+      await page.waitForTimeout(700)
+      await page.keyboard.up('Space')
+      await expect(page.getByTestId('voice-bar')).toHaveCount(0)
+      await expect(page.getByTestId(box)).toHaveValue(' ')
+    }
+    expect(await transcribeChats(page)).toEqual([])
   })
 
   test('every chat confidential and voice input through OpenRouter: a room says why instead of recording', async ({ page }) => {
