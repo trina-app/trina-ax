@@ -3413,6 +3413,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.alsoSent": "Juga dikirim ke ruang obrolan",
   "rooms.threadReplyMark": "Balasan di utas",
   "rooms.closeThread": "Tutup utas",
+  "rooms.threadResize": "Atur lebar utas",
   "rooms.threadNotFound": "Anda tidak bisa melihat utas ini. Mungkin sudah dihapus, atau dimulai dari pesan yang tidak bisa Anda lihat.",
   "rooms.react": "Tambah reaksi",
   "rooms.reaction": "{emoji} {n}: {names}",

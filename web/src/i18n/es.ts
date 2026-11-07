@@ -3373,6 +3373,7 @@ export const es: Record<MessageKey, string> = {
   "rooms.alsoSent": "También enviado a la sala",
   "rooms.threadReplyMark": "Respuesta en un hilo",
   "rooms.closeThread": "Cerrar el hilo",
+  "rooms.threadResize": "Ajustar el ancho del hilo",
   "rooms.threadNotFound": "No puede ver este hilo. Puede que se haya eliminado o que empezara en un mensaje que usted no puede ver.",
   "rooms.react": "Añadir reacción",
   "rooms.reaction": "{emoji} {n}: {names}",

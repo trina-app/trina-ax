@@ -3412,6 +3412,7 @@ export const ko = {
   "rooms.alsoSent": "대화방에도 보냄",
   "rooms.threadReplyMark": "스레드 답글",
   "rooms.closeThread": "스레드 닫기",
+  "rooms.threadResize": "스레드 너비 조절",
   "rooms.threadNotFound": "이 스레드를 볼 수 없어요. 지워졌거나, 볼 수 없는 메시지에서 시작된 스레드일 수 있어요.",
   "rooms.react": "반응 추가",
   "rooms.reaction": "{emoji} {n}명: {names}",

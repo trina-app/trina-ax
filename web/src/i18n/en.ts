@@ -3413,6 +3413,7 @@ export const en: Record<MessageKey, string> = {
   "rooms.alsoSent": "Also sent to the room",
   "rooms.threadReplyMark": "Replied in a thread",
   "rooms.closeThread": "Close thread",
+  "rooms.threadResize": "Resize the thread",
   "rooms.threadNotFound": "You can't see this thread. It may have been deleted, or it started from a message you can't see.",
   "rooms.react": "Add reaction",
   "rooms.reaction": "{emoji} {n}: {names}",
