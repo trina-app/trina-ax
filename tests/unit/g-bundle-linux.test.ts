@@ -41,7 +41,8 @@ describe('build-bundle.ts arguments', () => {
   test('the version folder file list (spec 3.6.1)', () => {
     const files = linuxBundleFiles({ arch: 'amd64', codexVersion: '0.163.0', whisper: true, systemd: ['launcher.service.in'] })
     for (const f of ['bin/bun', 'bin/rg', 'bin/pandoc', 'bin/typst', 'bin/whisper-cli', 'bin/whisper-cli-v2', 'native/mycel-gate', 'native/mycel-bridge', 'native/mycel-safeops',
-      'server/src/main.js', 'server/src/admin.js', 'server/src/account.js', 'server/src/office-worker.js', 'root/mycel-bootstrap', 'root/mycel-launcher', 'root/mycel-sandbox', 'root/mycel-ctl', 'root/mycel-boxd',
+      'server/src/main.js', 'server/src/admin.js', 'server/src/account.js', 'server/src/office-worker.js', 'server/src/deck-worker.js',
+      'server/src/hwp-preflight.js', 'server/src/doc-search-worker.js', 'root/mycel-bootstrap', 'root/mycel-launcher', 'root/mycel-sandbox', 'root/mycel-ctl', 'root/mycel-boxd',
       'root/mycel-account', 'root/set-claude-token', 'root/safe-fs.sh', 'root/apparmor-bwrap.in', 'root/systemd/launcher.service.in', 'engines.lock.json',
       'engines/codex-0.163.0.model_catalog.json', 'deps.txt']) expect(files).toContain(f)
     expect(linuxBundleFiles({ arch: 'arm64', codexVersion: '0.163.0', whisper: true, systemd: [] })).not.toContain('bin/whisper-cli-v2')
