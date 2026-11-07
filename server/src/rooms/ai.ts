@@ -56,7 +56,7 @@ import { confidentialChat } from '../safe-ops/confidential'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { canSee, clipMiddle, memberRow, parseMentions, roomAuditRef, members, messageRow, messagesOut, MSG_COLS, roomRow, SEE_SQL, setRoomAiWaiting, seeArgs, seenSeq, TIMELINE_SQL, type MemberRow, type MessageRow, type RoomRow } from './store'
 import { roomsOf } from './service'
-import { AI_SHOWN_SQL, attr, filesOf as messageFiles, namesOf, roomItem, ROOM_THREAD_CHARS, ROOM_THREAD_REPLIES_TOTAL, ROOM_THREAD_REPLY_CHARS, threadLine, threadsOf, whoseWords, type Speaker, type ThreadPeek } from './ai-context'
+import { AI_SHOWN_SQL, attr, filesOf as messageFiles, namesOf, roomItem, ROOM_THREAD_CHARS, ROOM_THREAD_REPLIES_TOTAL, ROOM_THREAD_REPLY_CHARS, threadAttrs, threadsOf, whoseWords, type Speaker, type ThreadPeek } from './ai-context'
 
 /** room messages before the question that go in front of it, at most */
 export const ROOM_CONTEXT_MESSAGES = 30
@@ -279,19 +279,26 @@ export class RoomAi implements RoomTurns {
     // its history without their attachment lists): still named, so "the picture I sent before" can be found
     const earlierFiles: string[] = []
     for (const m of rows) {
-      if (foldedIds.has(m.id)) continue
-      if (o.continues && m.author_kind === 'user' && m.author_id === o.userId && own.has(m.id)) {
+      const t = threads.get(m.id)
+      // given elsewhere, so left out here: a folded message (after the block, in full) and, in a continued session, the
+      // asker's own questions here and the answers to them (in the conversation already). One that has a thread (people
+      // answering the AI's answer in a thread, Slack's way) still comes, as a short stand-in with its thread under it
+      const isFolded = foldedIds.has(m.id)
+      const ownQuestion = !isFolded && o.continues && m.author_kind === 'user' && m.author_id === o.userId && own.has(m.id)
+      const inSession = ownQuestion || (o.continues && m.author_kind === 'ai' && m.asked_by === o.userId && (m.thread_root_id ?? null) === (root?.id ?? null))
+      if (ownQuestion) {
         const files = filesOf(m.id)
         // named to the AI: who joined after that question never saw them (the answer stays private for them)
         if (files.length) { earlierFiles.push(...files); const seen = seenSeq(m); if (fromSeq === null || seen < fromSeq) fromSeq = seen }
-        continue
       }
-      if (o.continues && m.author_kind === 'ai' && m.asked_by === o.userId && (m.thread_root_id ?? null) === (root?.id ?? null)) continue
-      const files = filesOf(m.id)
+      const standIn = isFolded ? '(given in full after this block, as part of the message that called you)'
+        : inSession ? (m.author_kind === 'ai' ? '(your answer, in the conversation above)' : '(this question, in the conversation above)') : null
+      if (standIn !== null && !t) continue
+      const files = standIn !== null ? [] : filesOf(m.id)
       // a thread's first message (in a thread) carries its id for room_thread; a reply also sent to the room stands in
-      // the timeline marked as its thread's. Server-made values only: ids and "yes"
+      // the timeline marked as its thread's. Server-made values only (ids, numbers, times, "yes"): a body never opens a
+      // tag of its own (neutralizeTags), so it cannot fake any of them
       const attrs = m.id === root?.id ? ` thread_start="yes" id="${m.id}"` : !root && m.thread_root_id ? ` thread_reply_of="${m.thread_root_id}" also_in_room="yes"` : ''
-      const t = threads.get(m.id)
       // the thread's latest replies, newest first, as many as the caps leave: per thread (ROOM_THREAD_REPLIES, in
       // threadsOf), in all (ROOM_THREAD_REPLIES_TOTAL) and their characters (ROOM_THREAD_CHARS)
       const chosen: { item: string; row: MessageRow }[] = []
@@ -305,7 +312,10 @@ export class RoomAi implements RoomTurns {
           chosenChars += item.length
         }
       }
-      const itemOf = (shown: number) => roomItem(m, speaker, { max: ROOM_CONTEXT_MESSAGE_CHARS, files, attrs: t ? `${attrs} id="${m.id}"` : attrs, ...(t ? { note: threadLine(m.id, t.count, t.last, shown) } : {}) })
+      const shownAs = standIn !== null ? { ...m, body: standIn } : m
+      // its thread in attributes: how many replies, when the last came, how many of them the block holds (under it, or a
+      // reply also sent to the room in the timeline)
+      const itemOf = (shown: number) => roomItem(shownAs, speaker, { max: ROOM_CONTEXT_MESSAGE_CHARS, files, attrs: t ? `${attrs} ${threadAttrs(m.id, t, shown)}` : attrs })
       let item = itemOf(chosen.length)
       // the message and its replies fit the block together: the oldest of the replies chosen go first
       while (chosen.length && total + item.length + chosenChars + chosen.length > ROOM_CONTEXT_CHARS) {
@@ -330,6 +340,8 @@ export class RoomAi implements RoomTurns {
       for (const x of [m, ...chosen.map((c) => c.row)]) {
         const seen = seenSeq(x)
         if (fromSeq === null || seen < fromSeq) fromSeq = seen
+        // a stand-in says nothing of anyone's (its words are given elsewhere)
+        if (x === m && standIn !== null) continue
         if (x.author_kind === 'ai' || x.author_id !== o.userId) others = true
       }
     }
@@ -351,16 +363,16 @@ export class RoomAi implements RoomTurns {
     // whose words are whose: the asker's own messages are theirs (a request there is theirs, "this" may point at them);
     // other members' messages and the AI's answers are information only
     const whose = whoseWords(asker)
-    const threadsSaid = anyThread ? ` A message that has a thread says so ([thread: …]) and the latest replies of that thread follow it, marked thread_reply_of; read a whole thread with room_thread.` : ''
+    const threadsSaid = anyThread ? ` A message that has a thread carries thread_replies (how many replies it has), thread_last_reply_at and thread_replies_shown (how many of them this block holds); those replies follow it, marked thread_reply_of (a reply also sent to the room stands in the room's place, marked also_in_room). When thread_replies_shown is less than thread_replies, read the whole thread with room_thread and the message's id.` : ''
     const block = [
-      `<room_context room="${attr(label)}"${root ? ' thread="yes"' : ''}>`,
+      // in a thread: its first message's id, and whether older replies were left out (server-made, as attributes)
+      `<room_context room="${attr(label)}"${root ? ` thread="yes" thread_id="${root.id}"${threadCut ? ' older_replies_left_out="yes"' : ''}` : ''}>`,
       parts.length
         ? root
-          ? `${a} is replying in a thread of this room: the thread's first message and its replies before ${a}'s message, oldest first (the room's other messages are not part of it). ${whose}`
+          ? `${a} is replying in a thread of this room: the thread's first message and its replies before ${a}'s message, oldest first (the room's other messages are not part of it).${threadCut ? ' Older replies are left out here: read the whole thread with room_thread and the thread_id above.' : ''} ${whose}`
           : `The latest messages of this room before ${a}'s message, oldest first.${threadsSaid} ${whose}`
         : root ? `No earlier messages of this thread that ${a} can see${folded.length ? ' besides the ones of theirs below' : ''}.` : `No earlier messages of this room that ${a} can see${folded.length ? ' besides the ones of theirs below' : ''}.`,
       ...parts,
-      ...(root && threadCut ? [`[Older replies of this thread are not shown here: read the whole thread with room_thread thread="${root.id}".]`] : []),
       ...(earlierFiles.length ? [`[files ${a} sent with their earlier questions here: ${neutralizeTags(earlierFiles.slice(0, MESSAGE_ATTACHMENTS_MAX).join(', '))}]`] : []),
       '</room_context>',
       ...(folded.length

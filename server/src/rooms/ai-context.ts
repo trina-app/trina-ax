@@ -10,7 +10,8 @@
 //             not deleted, no event lines, and of those what the asker sees (SEE_SQL: from their join on, a thread by
 //             its root's seq). Only this room's: a thread is looked up by its id in the room the session belongs to.
 //   threads   a message of the timeline that has a thread brings the latest of its replies, under it and marked as its
-//             replies, with how many there are and when the last was written; room_thread reads one whole thread.
+//             replies, with how many there are and when the last was written (attributes the server writes: a body
+//             cannot fake them); room_thread reads one whole thread.
 //   who saw   the caller records the oldest seq given (seenSeq: a reply by its root's) in the question's read scope, so a
 //             member who joined after it keeps the answer private (rooms/ai.ts decide).
 import type { Database } from 'bun:sqlite'
@@ -64,9 +65,8 @@ export function filesOf(db: Database, held: (sha256: string) => boolean, message
 /** Who reads the messages: the asker (their id and name) and the names of everyone the messages name. */
 export interface Speaker { userId: string; asker: string; names: Map<string, string> }
 
-/** One message as the AI reads it. `attrs`: more attributes, made by the server only (ids, "yes"); `note`: a line the
- * server adds after the message (a thread's size), never anyone's words. */
-export function roomItem(m: MessageRow, s: Speaker, o: { max: number; files: string[]; attrs?: string; note?: string }): string {
+/** One message as the AI reads it. `attrs`: more attributes, made by the server only (ids, numbers, times, "yes"). */
+export function roomItem(m: MessageRow, s: Speaker, o: { max: number; files: string[]; attrs?: string }): string {
   const from = m.author_kind === 'ai' ? 'AI' : m.author_id ? s.names.get(m.author_id) ?? '?' : '?'
   // the asker's own earlier messages are their words (they may point at them); everyone else's are information. A name
   // is anyone's own to set: inside an attribute it is one line without quotes or brackets (attr), so no name can open a
@@ -74,13 +74,14 @@ export function roomItem(m: MessageRow, s: Speaker, o: { max: number; files: str
   const mine = m.author_kind === 'user' && m.author_id === s.userId
   const who = m.author_kind === 'ai' ? `your earlier answer to ${attr(m.asked_by === s.userId ? s.asker : m.asked_by ? s.names.get(m.asked_by) ?? 'someone' : 'someone')}`
     : mine ? 'the person asking you now (their own earlier message)' : 'another member'
-  const text = neutralizeTags(clipMiddle(m.body, o.max)) + (o.files.length ? `\n[files sent: ${neutralizeTags(o.files.join(', '))}]` : '') + (o.note ? `\n${o.note}` : '')
+  const text = neutralizeTags(clipMiddle(m.body, o.max)) + (o.files.length ? `\n[files sent: ${neutralizeTags(o.files.join(', '))}]` : '')
   return `<room_message from="${attr(from)}" who="${who}"${o.attrs ?? ''} at="${m.created_at}">\n${text}\n</room_message>`
 }
 
 /** A timeline message's thread as the asker sees it before the question: how many replies, when the last was written,
- * and the latest ROOM_THREAD_REPLIES of them (newest first). */
-export interface ThreadPeek { count: number; last: string; latest: MessageRow[] }
+ * how many of them were also sent to the room (they stand in the timeline, so not again under it), and the latest
+ * ROOM_THREAD_REPLIES of the others (newest first). */
+export interface ThreadPeek { count: number; last: string; inTimeline: number; latest: MessageRow[] }
 
 /** The threads of these timeline messages (`roots`) as `me` sees them, replies before `before` only (seq). */
 export function threadsOf(db: Database, roomId: string, roots: readonly MessageRow[], me: MemberRow, before: number): Map<string, ThreadPeek> {
@@ -88,24 +89,26 @@ export function threadsOf(db: Database, roomId: string, roots: readonly MessageR
   const ids = roots.filter((m) => threadable(m)).map((m) => m.id)
   for (let i = 0; i < ids.length; i += 500) {
     const part = ids.slice(i, i + 500)
-    const stats = db.query(`SELECT m.thread_root_id id, COUNT(*) n, MAX(m.created_at) last FROM room_messages m
+    const stats = db.query(`SELECT m.thread_root_id id, COUNT(*) n, MAX(m.created_at) last, SUM(m.also_in_room) a FROM room_messages m
       WHERE m.room_id = ? AND m.thread_root_id IN (${part.map(() => '?').join(',')}) AND m.seq < ? AND ${SEE_SQL} AND ${AI_SHOWN_SQL} GROUP BY m.thread_root_id`)
-      .all(roomId, ...part, before, ...seeArgs(me)) as { id: string; n: number; last: string }[]
+      .all(roomId, ...part, before, ...seeArgs(me)) as { id: string; n: number; last: string; a: number | null }[]
     for (const s of stats) {
       if (!s.n) continue
-      const latest = db.query(`SELECT ${MSG_COLS} FROM room_messages m WHERE m.room_id = ? AND m.thread_root_id = ? AND m.seq < ? AND ${SEE_SQL} AND ${AI_SHOWN_SQL} ORDER BY m.seq DESC LIMIT ?`)
+      // a reply also sent to the room is a message of the timeline: newer than its root, so in the block whenever the
+      // root is (rows are the newest, and the block fills newest first); it is not listed a second time here
+      const latest = db.query(`SELECT ${MSG_COLS} FROM room_messages m WHERE m.room_id = ? AND m.thread_root_id = ? AND m.seq < ? AND ${SEE_SQL} AND ${AI_SHOWN_SQL} AND m.also_in_room = 0 ORDER BY m.seq DESC LIMIT ?`)
         .all(roomId, s.id, before, ...seeArgs(me), ROOM_THREAD_REPLIES) as MessageRow[]
-      out.set(s.id, { count: s.n, last: s.last, latest })
+      out.set(s.id, { count: s.n, last: s.last, inTimeline: s.a ?? 0, latest })
     }
   }
   return out
 }
 
-/** The line under a timeline message that has a thread: its size, how many of its replies follow, and how to read all. */
-export function threadLine(rootId: string, count: number, last: string, shown: number): string {
-  const all = shown >= count
-  const which = all ? (count === 1 ? 'it follows below' : 'all of them follow below') : shown ? `the latest ${shown} follow below` : 'none of them are shown here'
-  return `[thread: ${count} ${count === 1 ? 'reply' : 'replies'}, the last at ${last}; ${which}${all ? '' : `; read the whole thread with room_thread thread="${rootId}"`}]`
+/** The attributes of a timeline message that has a thread: its id (room_thread's argument), how many replies, when the
+ * last came, and how many of them the block holds (`below` under it, and the ones also sent to the room in the
+ * timeline). Attributes, not a line in the message: a body cannot fake them. */
+export function threadAttrs(rootId: string, t: Pick<ThreadPeek, 'count' | 'last' | 'inTimeline'>, below: number): string {
+  return `id="${rootId}" thread_replies="${t.count}" thread_last_reply_at="${attr(t.last)}" thread_replies_shown="${Math.min(t.count, below + t.inTimeline)}"`
 }
 
 // ---------------- room_thread: one whole thread of this room ----------------
@@ -120,7 +123,7 @@ export interface ThreadRead {
 
 /** The answer for any thread that is not one the asker can read here: the same whatever the reason (no such message,
  * another room's, a reply, a private preview, deleted, from before they joined), so it tells nothing. */
-const NO_THREAD = (id: string) => `No thread "${attr(id).slice(0, 100)}" in this room that the user can see. A thread's id is the id="…" of a message in <room_context> that says [thread: …], or thread_reply_of="…" of a reply.`
+const NO_THREAD = (id: string) => `No thread "${attr(id).slice(0, 100)}" in this room that the user can see. A thread's id is the id="…" of a message in <room_context> that has thread_replies, or thread_reply_of="…" of a reply.`
 
 /**
  * room_thread in a room's own AI session: one thread of THIS room (`roomId`, the session's room; never another), its
@@ -136,9 +139,11 @@ export function readThread(db: Database, held: (sha256: string) => boolean, o: {
   if (!room || !me) return { ok: false, text: NO_THREAD(id), count: 0 }
   if (o.only && id !== o.only) return { ok: false, text: `You are answering in a thread: only that thread can be read here (room_thread thread="${o.only}").`, count: 0 }
   const root = isUuid7(id) ? messageRow(db, o.roomId, id) : null
-  // a thread follows its root: a root the asker cannot see (a later member), a reply, a private preview, an event line or
-  // a deleted root is no thread to read here
-  if (!root || !threadable(root) || root.deleted_at || !canSee(root, me)) return { ok: false, text: NO_THREAD(id), count: 0 }
+  // a thread follows its root: a root the asker cannot see (a later member), a reply, a private preview, an event line, a
+  // message written after the question or a deleted root is no thread to read here. The thread a question was asked in
+  // stays readable if its first message was deleted since (its replies stay; the first message's words are gone)
+  const deletedOwn = !!root?.deleted_at && !!o.only && root.id === o.only
+  if (!root || !threadable(root) || (root.deleted_at && !deletedOwn) || !canSee(root, me) || (o.upTo !== undefined && root.seq >= o.upTo)) return { ok: false, text: NO_THREAD(id), count: 0 }
   let upTo = o.upTo ?? Number.MAX_SAFE_INTEGER
   if (o.before !== undefined) {
     const b = isUuid7(o.before.trim()) ? messageRow(db, o.roomId, o.before.trim()) : null
@@ -151,7 +156,7 @@ export function readThread(db: Database, held: (sha256: string) => boolean, o: {
   const rows = db.query(`SELECT ${MSG_COLS} FROM room_messages m WHERE ${where} AND m.seq < ? ORDER BY m.seq DESC LIMIT ?`).all(...args, upTo, ROOM_THREAD_READ_MAX + 1) as MessageRow[]
   const names = namesOf(db, [o.userId, ...[root, ...rows].flatMap((m) => [m.author_id, m.asked_by])])
   const s: Speaker = { userId: o.userId, asker: names.get(o.userId) ?? o.userId, names }
-  const head = roomItem(root, s, { max: ROOM_THREAD_READ_MESSAGE_CHARS, files: filesOf(db, held, root.id), attrs: ` thread_start="yes" id="${root.id}"` })
+  const head = roomItem(deletedOwn ? { ...root, body: '(this first message was deleted; its replies stay)' } : root, s, { max: ROOM_THREAD_READ_MESSAGE_CHARS, files: deletedOwn ? [] : filesOf(db, held, root.id), attrs: ` thread_start="yes" id="${root.id}"` })
   // the newest first until the result is full (the first message always: it says what the thread is about)
   const parts: string[] = []
   let total = head.length, more = rows.length > ROOM_THREAD_READ_MAX
