@@ -1,7 +1,7 @@
 // mycel-ocr: macOS helper (PDFKit, ImageIO, Apple Vision; on-device, no network) reading stdin. Runs inside the
 // converter sandbox (tools/isolate.ts).
 //   mycel-ocr [--max-pages N]  < file
-//       text of a scanned PDF for the search index (grep text cache, semantic search; server/src/files/extract.ts):
+//       text of a scanned PDF for the search index (grep text cache; server/src/files/extract.ts):
 //       Apple's Vision text recognizer (Korean + English). PDF pages that have a text layer keep it; only pages
 //       without one are rendered and recognized. Output: UTF-8 text, each page after the first starting with a form
 //       feed like pdftotext's (files/locations.ts tells the page of a line by them). An AI read

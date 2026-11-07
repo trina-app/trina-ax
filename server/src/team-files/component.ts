@@ -3,6 +3,7 @@
 //   componentC(ctx).attachments.byIds(...)    B: attachments of a message being sent
 //   componentC(ctx).files.remove(...)         anyone who needs the trash
 import { sweepMedia } from '../integrations/connections/media'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import { HwpPreviews } from '../files/hwp-preview'
 import { pluginsOf } from '../plugins/manager'
@@ -16,7 +17,7 @@ import { SPEECH_CONFIDENTIAL, SPEECH_NO_KEY, SPEECH_OFF, transcribeOpenRouter } 
 import { confidentialDictation } from '../safe-ops/confidential'
 import { HttpError } from '../http/errors'
 import { getTeamSettings, installId, teamDefaultLocale } from '../admin/settings'
-import { firstRefreshMs } from '../tools/search'
+import { limitsActive } from '../system/limits'
 import { credentialsOf } from '../credentials/store'
 import { readHostedSpeechKey, readSpeechKey, speechKeySource } from '../credentials/speech-key'
 import { HOSTED_SPEECH_MODEL, hostedSpeechLeft, hostedSpeechMeter } from '../credentials/hosted-speech'
@@ -51,6 +52,14 @@ export interface ComponentC {
 
 const instances = new WeakMap<AppContext, ComponentC>()
 export const SWEEP_EVERY_MS = 3600_000
+
+/** When the background remake of older document text (OfficeCache.upgradeOld) starts after a start: 20 s; where the
+ * limits apply (Linux, a plan: many teams on one host restart together after an update) 10 minutes plus 0–5 minutes
+ * from the install id, so the teams of a host do not all start at once. */
+export function upgradeStartMs(id: string): number {
+  if (!limitsActive()) return 20_000
+  return 10 * 60_000 + (createHash('sha256').update(id).digest().readUInt16BE(0) % 300) * 1000
+}
 
 export function componentC(ctx: AppContext): ComponentC {
   const have = instances.get(ctx)
@@ -193,14 +202,14 @@ export function startComponentC(ctx: AppContext): ComponentC {
   const timer = setInterval(() => c.sweep(), SWEEP_EVERY_MS)
   first.unref?.(); timer.unref?.()
   // the text of documents kept from the previous cache format is made again in the background (files/search.ts
-  // OfficeCache.upgradeOld; grep uses the old text meanwhile), starting when the semantic index would
+  // OfficeCache.upgradeOld; grep uses the old text meanwhile), starting after upgradeStartMs
   const stopUpgrade = new AbortController()
   const upgrade = process.env.NODE_ENV === 'test' ? null : setTimeout(() => {
     const t0 = Date.now()
     void ctx.files.office.upgradeOld({ signal: stopUpgrade.signal })
       .then((n) => { if (n) ctx.log.info('document text made again in the new format', { files: n, ms: Date.now() - t0 }) })
       .catch((e) => ctx.log.warn('document text upgrade stopped', { err: String(e) }))
-  }, firstRefreshMs(installId(ctx.db)))
+  }, upgradeStartMs(installId(ctx.db)))
   upgrade?.unref?.()
   ctx.onClose(async () => { clearTimeout(first); clearInterval(timer); if (upgrade) clearTimeout(upgrade); stopUpgrade.abort(); await c.jobs.close() })
   return c

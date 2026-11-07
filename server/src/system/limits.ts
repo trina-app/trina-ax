@@ -174,10 +174,6 @@ export function whisperThreads(): number {
   const cores = cpuBudget()
   return cores >= 2 ? Math.max(2, Math.min(4, cores - 1)) : 1
 }
-/** ONNX runtime threads of the embedding model (null = library default) */
-export function onnxThreads(): { intraOpNumThreads: number; interOpNumThreads: number } | null {
-  return limitsActive() ? { intraOpNumThreads: Math.min(2, cpuBudget()), interOpNumThreads: 1 } : null
-}
 /** typst compile --jobs: only the Linux bundle's typst (0.15.1) is known to take it */
 export function typstJobs(): number | null { return (platformOverride ?? process.platform) === 'linux' ? 2 : null }
 /** the read tool's size limit in bytes (plan readMaxMiB, else 200 MiB as before) */

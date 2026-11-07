@@ -122,7 +122,7 @@ export async function lookupBeforeModel(kg: Pick<KnowledgeGraph, 'lookup'>, user
   try {
     const late = new Promise<'late'>((res) => { timer = setTimeout(() => res('late'), ms) })
     // a lookup that fails after the time is up has nobody waiting for it: its error is logged here, never unhandled
-    const found = Promise.resolve().then(() => kg.lookup(user, [q], { deadlineMs: ms })).catch((e: unknown) => {
+    const found = Promise.resolve().then(() => kg.lookup(user, [q], { deadlineMs: ms, meaningOnly: false })).catch((e: unknown) => {
       log.debug('document lookup failed', { ...fields, err: String(e).slice(0, 200), queryLength: q.length })
       return null
     })
@@ -1457,7 +1457,7 @@ export class TurnExec {
     // read, so even "no match" says something about each of them: those folders count as read too
     // (the person's own folder is left to what the search found there: it is theirs, not a folder of the room)
     // (the engine's own start of a call comes without its input: only the server's call, chat/tools.ts, counts here)
-    if (input !== undefined && (tool === 'grep' || tool === 'glob' || tool === 'search' || tool === 'knowledge_explore')) {
+    if (input !== undefined && (tool === 'grep' || tool === 'glob' || tool === 'knowledge_explore')) {
       // compared in one form (NFC, and without case on a case-insensitive disk): the start as typed and as found on disk
       // against each ruled folder as its rule names it
       const fold = (p: string) => { const n = p.normalize('NFC'); return this.rt.files.fx.caseInsensitive ? n.toLowerCase() : n }

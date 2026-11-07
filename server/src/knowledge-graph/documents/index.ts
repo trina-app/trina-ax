@@ -22,6 +22,8 @@ import type { SourceLoc } from '@mycel/shared/api'
 import { chunkDoc, type Piece } from '../../files/locations'
 import { ConverterStopped, extractText, TOO_BIG_IN_PROCESS } from '../../files/extract'
 import { inBackground } from '../../tools/isolate'
+import { MEANING_DIMS, passageText, rrf } from '../meaning/vectors'
+import type { PendingPiece, PieceVector } from '../docs-port'
 import { Matcher } from './matcher'
 import { acceptsName, docLinks, extOf, htmlText, mentionNames, nameIn, norm, queryTerms, snippetOf, stripKo, titleOf, topTerms, usableName } from './text'
 
@@ -52,8 +54,9 @@ export interface DocumentIndexOptions {
 export interface IndexedFile { size: number; mtimeMs: number; failed: string | null }
 export type UpdateResult = { ok: true; chunks: number } | { ok: false; reason: DocFailure | 'aborted' }
 /** `snippet`: about 300 characters around the match, on one line. `passage` (when the search asked for one): up to
- * that many characters of the piece around the match, its line breaks kept (tables, lists), to answer from. */
-export interface DocHit { rootId: string; relPath: string; loc: SourceLoc | null; snippet: string; passage?: string; score: number }
+ * that many characters of the piece around the match, its line breaks kept (tables, lists), to answer from.
+ * `byMeaning`: found by meaning only, not by the keyword search (combined search): its strength is at most weak. */
+export interface DocHit { rootId: string; relPath: string; loc: SourceLoc | null; snippet: string; passage?: string; score: number; byMeaning?: true }
 export interface SearchOptions {
   /** the folders the person may search (the caller still checks each file) */
   rootIds: readonly string[]
@@ -62,7 +65,19 @@ export interface SearchOptions {
   passage?: number
   /** only files under this folder of the root (a path relative to it), when the folders asked are one */
   prefix?: string
+  /** combined with search by meaning when vectors exist (the search worker does it, search-worker.ts; search() here
+   * is the keyword search alone and ignores it) */
+  meaning?: boolean
 }
+/** a piece found by meaning (meaning/search.ts), best first: its chunk id and closeness (about -1 to 1) */
+export interface MeaningHit { id: number; score: number }
+interface Scored { r: { id: number; loc: string | null; text: string; root_id: string; rel: string }; hit: string[]; score: number; byMeaning?: true }
+/** the keyword search's pieces, best first, before the per-file limit (DocumentIndex.rankKeywords) */
+export interface KeywordRanking { terms: string[]; scored: Scored[] }
+/** the k of reciprocal rank fusion (meaning/vectors.ts rrf) */
+const RRF_K = 60
+/** fused scores are scaled so that a piece first in both lists gets 15, the top of the keyword score's range */
+const FUSED_SCALE = 15 * (RRF_K + 1) / 2
 export type RelatedKind = 'folder' | 'mention' | 'link' | 'terms' | 'people' | 'code'
 export interface RelatedReason { kind: RelatedKind; detail: string }
 export interface RelatedDoc { rootId: string; relPath: string; reason: RelatedReason; reasons: RelatedReason[] }
@@ -136,6 +151,7 @@ function openDb(file: string): Database {
       if (v?.v !== FORMAT) throw new Error('document index: another format')
     }
     db.exec(SCHEMA)
+    addVectorColumn(db)
     db.run("INSERT OR REPLACE INTO meta(k, v) VALUES ('format', ?)", [FORMAT])
     db.query('SELECT count(*) FROM docs').get()
   } catch (e) { db.close(); throw e }
@@ -143,10 +159,33 @@ function openDb(file: string): Database {
   return db
 }
 
+/**
+ * Search by meaning (meaning/vectors.ts): each piece's int8 vector in chunks.vec, NULL until the background indexing
+ * (meaning/indexer.ts) has embedded it, empty when it could not. Added to an index made before it on open (no server migration: the index is the
+ * knowledge graph's own file, and an older server ignores the column). A piece made again (its document changed) is a
+ * new row with no vector, so its vector is made again. chunks_novec lists the pieces still without one, newest first.
+ */
+function addVectorColumn(db: Database) {
+  if (!(db.query('PRAGMA table_info(chunks)').all() as { name: string }[]).some((c) => c.name === 'vec')) db.run('ALTER TABLE chunks ADD COLUMN vec BLOB')
+  db.run('CREATE INDEX IF NOT EXISTS chunks_novec ON chunks(id) WHERE vec IS NULL')
+}
+
+/** The heading a piece is embedded with (meaning/vectors.ts passageText): a section's heading or a sheet's name; a
+ * page or slide number says nothing about its meaning. */
+export function headingOf(loc: SourceLoc | null): string | null {
+  if (loc?.kind === 'heading') return loc.heading || null
+  if (loc?.kind === 'sheet') return loc.sheet || null
+  return null
+}
+const parseLoc = (s: string | null): SourceLoc | null => { if (!s) return null; try { return JSON.parse(s) as SourceLoc } catch { return null } }
+
 function removeDbFiles(dir: string) {
   for (const f of [DB_FILE, DB_FILE + '-wal', DB_FILE + '-shm', DB_FILE + '-journal']) fs.rmSync(path.join(dir, f), { force: true })
 }
 
+/** The converters of the file tools. Plain text and CSV are decoded as read and grep decode them (files/extract.ts
+ * decodeText: UTF-8, else Korean CP949 when the bytes are clearly Korean, the shared cp949Text rule), so a Korean Excel
+ * CSV is indexed, and embedded, as its Korean text, not as replacement characters. */
 const defaultExtract: Extract = (rel, bytes, signal) =>
   extractText(rel, bytes, { pandoc: Bun.which('pandoc'), pdftotext: Bun.which('pdftotext'), stoppedPartFails: true }, signal)
 
@@ -185,7 +224,10 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, M
 const chars = (s: string) => [...s].length
 const IN_SCOPE = 'd.root_id IN (SELECT value FROM json_each(?))'
 /** a relative folder path: plain names, no empty, "." or ".." part */
-const plainPrefix = (p: string) => p.length <= 4096 && !p.split('/').some((s) => s === '' || s === '.' || s === '..')
+export const plainPrefix = (p: string) => p.length <= 4096 && !p.split('/').some((s) => s === '' || s === '.' || s === '..')
+/** only files under a folder of the root: its relative paths sort between "<prefix>/" and "<prefix>0" ('0' follows '/');
+ * a prefix that is not a plain path narrows nothing */
+const withinPrefix = (p: string | undefined) => p && plainPrefix(p) ? { sql: ' AND d.rel >= ? AND d.rel < ?', args: [p + '/', p + '0'] } : { sql: '', args: [] as string[] }
 
 /** Cut `s` to at most `n` characters (UTF-16 units) without splitting a surrogate pair. */
 export function cutText(s: string, n: number, mark = ' …'): string {
@@ -274,6 +316,13 @@ export class DocumentIndex {
     const idx = new DocumentIndex(dir, db, async () => { throw new Error('a reader does not index') }, o.people ?? null, DOC_LIMITS)
     idx.reader = true
     return idx
+  }
+
+  /** A reader's connection (openReader), for the vectors of search by meaning in the same worker (meaning/search.ts),
+   * which only read. */
+  readerDb(): Database {
+    if (!this.reader || this.closed) throw new Error('document index: not an open reader')
+    return this.db
   }
 
   /** what is indexed in one folder: each file's size and mtime as given to update (size -1: try again), and why it
@@ -390,6 +439,48 @@ export class DocumentIndex {
     return { documents: c.ok ?? 0, chunks: c.chunks ?? 0, failed, failedCount: c.bad ?? 0, lastUpdatedAt: c.at ? new Date(c.at).toISOString() : null }
   }
 
+  // ---- search by meaning: the vectors of the pieces (meaning/indexer.ts writes them, the search reads them) ----
+
+  /** Up to `limit` pieces that have no vector yet, the most recently indexed first (what people just saved is what
+   * they ask about), with what their vector is made from: the file name, the heading and the text. */
+  pendingVectors(limit: number): PendingPiece[] {
+    if (this.closed) return []
+    const rows = this.db.query(`SELECT c.id, c.loc, c.text, d.rel FROM chunks c INDEXED BY chunks_novec JOIN docs d ON d.id = c.doc_id
+      WHERE c.vec IS NULL AND d.failed IS NULL ORDER BY c.id DESC LIMIT ?`).all(clamp(limit, 1, 1000)) as { id: number; loc: string | null; text: string; rel: string }[]
+    return rows.map((r) => ({ id: r.id, name: path.posix.basename(r.rel), heading: headingOf(parseLoc(r.loc)), text: r.text }))
+  }
+
+  /**
+   * Write pieces' vectors in one transaction. A piece is written only while it still has no vector and is still what
+   * its vector was made from (the passage text of its file name, heading and text as they are now): a piece removed
+   * meanwhile, or whose row id a new piece took, keeps NULL and is embedded again. An empty vec marks a piece that
+   * could not be embedded (meaning/indexer.ts): not pending any more, and no vector in the search. Returns how many
+   * were written.
+   */
+  writeVectors(rows: readonly PieceVector[]): number {
+    if (this.closed || !rows.length) return 0
+    let n = 0
+    const cur = this.db.prepare('SELECT c.loc, c.text, d.rel FROM chunks c JOIN docs d ON d.id = c.doc_id WHERE c.id = ? AND c.vec IS NULL')
+    const set = this.db.prepare('UPDATE chunks SET vec = ? WHERE id = ? AND vec IS NULL')
+    this.db.transaction(() => {
+      for (const r of rows) {
+        if (r.vec.byteLength !== MEANING_DIMS && r.vec.byteLength !== 0) continue
+        const c = cur.get(r.id) as { loc: string | null; text: string; rel: string } | null
+        if (!c || passageText(path.posix.basename(c.rel), headingOf(parseLoc(c.loc)), c.text) !== r.passage) continue
+        n += set.run(r.vec, r.id).changes
+      }
+    })()
+    return n
+  }
+
+  /** pieces with a vector and pieces still without one, from the two indexes (no pass over the text) */
+  vectorCounts(): { done: number; pending: number } {
+    if (this.closed) return { done: 0, pending: 0 }
+    const all = (this.db.query('SELECT count(*) AS n FROM chunks INDEXED BY chunks_doc').get() as { n: number }).n
+    const pending = (this.db.query('SELECT count(*) AS n FROM chunks INDEXED BY chunks_novec WHERE vec IS NULL').get() as { n: number }).n
+    return { done: all - pending, pending }
+  }
+
   /**
    * The pieces of documents that answer a question, best first, in the folders given (the ones the person may search;
    * the caller still checks each file). At most 3 pieces per file. `score` is about 0 to 15: 10 for holding every word
@@ -404,14 +495,17 @@ export class DocumentIndex {
    * exact text).
    */
   search(query: string, o: SearchOptions): DocHit[] {
-    if (this.closed || !o.rootIds.length) return []
+    return this.hits(this.rankKeywords(query, o), o)
+  }
+
+  /** The keyword part of search(): every piece found, scored and best first, before the per-file limit. */
+  rankKeywords(query: string, o: SearchOptions): KeywordRanking {
+    const none: KeywordRanking = { terms: [], scored: [] }
+    if (this.closed || !o.rootIds.length) return none
     const terms = queryTerms(query)
-    if (!terms.length) return []
-    const limit = clamp(o.limit ?? 20, 1, 100)
+    if (!terms.length) return none
     const scope = JSON.stringify([...new Set(o.rootIds)])
-    // a folder inside the root: its relative paths sort between "<prefix>/" and "<prefix>0" ('0' follows '/')
-    const prefix = o.prefix && plainPrefix(o.prefix) ? o.prefix : null
-    const within = prefix ? { sql: ' AND d.rel >= ? AND d.rel < ?', args: [prefix + '/', prefix + '0'] } : { sql: '', args: [] }
+    const within = withinPrefix(o.prefix)
     const cand = new Set<number>()
     const add = (rows: { id: number }[]) => { for (const r of rows) cand.add(r.id); return rows.length }
     const short = terms.filter((t) => chars(t) < 3)
@@ -427,11 +521,11 @@ export class DocumentIndex {
       // were few, so the prefix query stays small
       if (add(this.firstMatches('fts_uni', wordForms(t), scope, PER_WORD, within)) < PER_WORD / 3) add(this.firstMatches('fts_uni', phrase(t) + '*', scope, PER_WORD, within))
     }
-    if (!cand.size) return []
+    if (!cand.size) return { terms, scored: [] }
     const rows = this.db.query('SELECT c.id, c.loc, c.text, d.root_id, d.rel FROM chunks c JOIN docs d ON d.id = c.doc_id WHERE c.id IN (SELECT value FROM json_each(?))')
-      .all(JSON.stringify([...cand])) as { id: number; loc: string | null; text: string; root_id: string; rel: string }[]
+      .all(JSON.stringify([...cand])) as Scored['r'][]
     const whole = terms.length > 1 ? norm(query).replace(/\s+/g, ' ').trim() : ''
-    const scored: { r: (typeof rows)[number]; hit: string[]; score: number }[] = []
+    const scored: Scored[] = []
     for (const r of rows) {
       const low = norm(r.text)
       const hit = terms.filter((t) => low.includes(t))
@@ -443,20 +537,55 @@ export class DocumentIndex {
       scored.push({ r, hit, score: Math.round(((hit.length / terms.length) * 10 + phraseHit * 3 + (often / (terms.length * 4)) * 2) * 1000) / 1000 })
     }
     scored.sort((a, b) => b.score - a.score || a.r.rel.localeCompare(b.r.rel))
+    return { terms, scored }
+  }
+
+  /**
+   * The hits of a keyword ranking (rankKeywords): at most 3 pieces per file, each with its snippet and passage. With
+   * `meaning` (the closest pieces by meaning, best first, from the search worker's vectors), the two lists are fused by
+   * rank (reciprocal rank fusion, meaning/vectors.ts rrf) first; without it, or when it is empty, the hits are exactly
+   * search()'s. Fused scores keep search()'s range (0 to 15) and follow the fused order; on a tie the piece the keyword
+   * search found comes first. A piece only meaning found is marked `byMeaning` and is read again here within the same
+   * folders and prefix, so a vector held for a piece that was deleted or moved since gives nothing.
+   */
+  hits(k: KeywordRanking, o: SearchOptions, meaning?: readonly MeaningHit[] | null): DocHit[] {
+    if (this.closed || !o.rootIds.length) return []
+    const list = meaning?.length ? this.fuse(k, meaning, o) : k.scored
+    const limit = clamp(o.limit ?? 20, 1, 100)
     const perFile = new Map<string, number>()
     const out: DocHit[] = []
     const width = clamp(o.passage ?? 0, 0, 20_000)
-    for (const { r, hit, score } of scored) {
-      const k = r.root_id + '\0' + r.rel
-      const n = perFile.get(k) ?? 0
+    for (const { r, hit, score, byMeaning } of list) {
+      const key = r.root_id + '\0' + r.rel
+      const n = perFile.get(key) ?? 0
       if (n >= 3) continue
-      perFile.set(k, n + 1)
+      perFile.set(key, n + 1)
       let loc: SourceLoc | null = null
       try { loc = r.loc ? JSON.parse(r.loc) as SourceLoc : null } catch {}
-      out.push({ rootId: r.root_id, relPath: r.rel, loc, snippet: snippetOf(r.text, hit), ...(width ? { passage: passageOf(r.text, hit, width) } : {}), score })
+      out.push({ rootId: r.root_id, relPath: r.rel, loc, snippet: snippetOf(r.text, hit), ...(width ? { passage: passageOf(r.text, hit, width) } : {}), score, ...(byMeaning ? { byMeaning } : {}) })
       if (out.length >= limit) break
     }
     return out
+  }
+
+  private fuse(k: KeywordRanking, meaning: readonly MeaningHit[], o: SearchOptions): Scored[] {
+    const found = new Map(k.scored.map((s) => [s.r.id, s]))
+    const only = [...new Set(meaning.map((m) => m.id))].filter((id) => !found.has(id))
+    if (only.length) {
+      const within = withinPrefix(o.prefix)
+      const rows = this.db.query(`SELECT c.id, c.loc, c.text, d.root_id, d.rel FROM chunks c JOIN docs d ON d.id = c.doc_id WHERE c.id IN (SELECT value FROM json_each(?)) AND d.failed IS NULL AND ${IN_SCOPE}${within.sql}`)
+        .all(JSON.stringify(only), JSON.stringify([...new Set(o.rootIds)]), ...within.args) as Scored['r'][]
+      for (const r of rows) {
+        const low = norm(r.text)
+        found.set(r.id, { r, hit: k.terms.filter((t) => low.includes(t)), score: 0, byMeaning: true })
+      }
+    }
+    const out: Scored[] = []
+    for (const [id, f] of rrf([k.scored.map((s) => s.r.id), meaning.map((m) => m.id)], RRF_K)) {
+      const s = found.get(id)
+      if (s) out.push({ ...s, score: Math.round(f * FUSED_SCALE * 1000) / 1000 })
+    }
+    return out.sort((a, b) => b.score - a.score || Number(!!a.byMeaning) - Number(!!b.byMeaning) || a.r.rel.localeCompare(b.r.rel) || a.r.id - b.r.id)
   }
 
   /**

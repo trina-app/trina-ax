@@ -1,0 +1,10 @@
+asset_tag,type,model,assigned_team,purchase_date,price_krw,status
+IT-0412,Laptop,MacBook Pro 14 M3,Engineering,2025-03-11,2890000,in use
+IT-0413,Laptop,MacBook Pro 14 M3,Engineering,2025-03-11,2890000,in use
+IT-0450,Laptop,ThinkPad X1 Carbon Gen 11,Sales,2025-07-02,2350000,in use
+IT-0471,Monitor,Dell U2723QE,Design,2025-09-18,780000,in use
+IT-0502,Laptop,MacBook Air 13 M3,Marketing,2026-01-20,1690000,in use
+IT-0518,Printer,Brother HL-L8360CDW,Office,2026-02-05,640000,in use
+IT-0533,Phone,iPhone 16,Support,2026-04-14,1250000,repair
+IT-0547,Tablet,iPad 10th gen,Office (reception),2026-06-01,560000,in use
+IT-0561,Laptop,ThinkPad T14 Gen 5,Support,2026-08-22,1780000,in stock
