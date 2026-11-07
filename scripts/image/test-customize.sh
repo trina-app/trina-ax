@@ -101,6 +101,10 @@ echo "$run1" | tail -n 25
 run2="$(docker exec "$NAME" bash /w/src/customize.sh --src /w/src --template-version 0.3.0-fake-d13-test 2>&1)" || { echo "$run2"; echo "test-customize: SECOND RUN FAILED"; exit 1; }
 echo "--- second run:"; echo "$run2" | tail -n 5
 echo "$run2" | grep -q 'changed=0$' || { echo "test-customize: FAIL: second run changed something (not idempotent)"; exit 1; }
+# the disk (PR #164 review, question 2): in a container df shows the host's file system, so the sizes of what the
+# template adds are the numbers to record; ami-chroot.sh prints the real image's df in the AMI build log
+echo "--- disk:"
+docker exec "$NAME" bash -c 'df -h /; du -sxh /usr /opt/trina /var/lib/mycel /usr/lib/mycel 2>/dev/null || true'
 
 echo "--- seed / mount point:"
 docker exec "$NAME" bash -c 'ls -ln /usr/lib/mycel/seed-base /usr/lib/mycel/seed-base/root; echo "BASE entries: $(ls -A /var/lib/mycel | wc -l)"; cat /etc/ax-template.json'

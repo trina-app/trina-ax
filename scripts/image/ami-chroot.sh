@@ -113,6 +113,11 @@ rm -f "$MNT/root/.bash_history"
 [[ -z "$(find "$MNT/var/lib/cloud" -mindepth 1 -maxdepth 1 2>/dev/null)" ]] || die "/var/lib/cloud is not empty: a new instance would not run cloud-init as a first boot"
 [[ ! -s "$MNT/etc/machine-id" ]] || die "/etc/machine-id is not empty"
 ! ls "$MNT"/etc/ssh/ssh_host_* >/dev/null 2>&1 || die "SSH host keys left in the image"
+# the disk the image leaves (PR #164 review, question 2): recorded in the build log; below 5 GiB free, grow the root
+# volume (build-ami.sh --root-gb) before the image goes out
+say "root file system of the image: $(df -h "$MNT" | awk 'NR == 2 { print $2 " size, " $3 " used, " $4 " free" }')"
+free_kb=$(df -Pk "$MNT" | awk 'NR == 2 { print $4 }')
+[[ "${free_kb:-0}" -ge $((5 * 1024 * 1024)) ]] || say "WARNING: less than 5 GiB free on the image's root file system: grow the root volume"
 
 cleanup
 trap - EXIT
