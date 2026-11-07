@@ -40,7 +40,7 @@ import { useChatActions } from './chat/chatActions'
 import { isUnused, SessionMarker, useChatMarker } from './chat/ChatState'
 import { SidebarRooms } from './rooms/SidebarRooms'
 import { SetupRow } from './onboarding/SetupRow'
-import { useMediaQuery } from './ui'
+import { SidebarSectionTitle, useMediaQuery } from './ui'
 import { settingsOpenedFrom } from './settings/SettingsDialog'
 import { Tooltip } from './Tooltip'
 
@@ -235,12 +235,9 @@ export default function Sidebar() {
         {/* the owner's way back to the welcome steps (onboarding/SetupRow.tsx): its own row between the sections */}
         <SetupRow onNavigate={close} />
         <div className="group/recents flex items-center gap-1 pr-1 pl-3" data-testid="recents-head">
-          <h2 className="text-xs font-medium text-faint">
-            <button type="button" aria-expanded={recentsOpen} aria-controls={listId} onClick={toggleRecents} className="flex items-center gap-1 rounded py-1 hover:text-muted" data-testid="recents-toggle">
-              {t('sidebar.aiChats', { name: aiName(t) })}
-              <ChevronDown size={12} className={clsx('transition-transform', !recentsOpen && '-rotate-90')} aria-hidden />
-            </button>
-          </h2>
+          <SidebarSectionTitle open={recentsOpen} onToggle={toggleRecents} controls={listId} testId="recents-toggle">
+            {t('sidebar.aiChats', { name: aiName(t) })}
+          </SidebarSectionTitle>
           {changed.length > 0 && (
             <span className="flex min-w-0 items-center gap-0.5 text-xs text-faint" data-testid="recents-filter-label">
               <span aria-hidden>·</span>

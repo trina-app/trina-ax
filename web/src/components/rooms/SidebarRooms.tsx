@@ -13,7 +13,7 @@
 // focus, in the pill's place, and on a right-click.
 // Gone on a server without rooms (the list could not be read).
 import clsx from 'clsx'
-import { BellOff, ChevronDown, Plus } from 'lucide-react'
+import { BellOff, Plus } from 'lucide-react'
 import { useId, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import type { Room } from '@mycel/shared/api'
@@ -24,6 +24,7 @@ import { PeoplePicker } from './PeoplePicker'
 import { RoomIcon, useRoomTitle } from './RoomIcon'
 import { RoomMenu, useRowMenu } from './RoomMenu'
 import { Tooltip } from '../Tooltip'
+import { SidebarSectionTitle } from '../ui'
 
 const OPEN_KEY = 'mycel.sidebar.rooms'
 /** the whole list opened ("더 보기"), remembered in this browser like the fold */
@@ -89,14 +90,13 @@ export function SidebarRooms({ onNavigate }: { onNavigate: () => void }) {
   // a hidden room whose AI waits on me: "?" leads the pill (session markers, docs/DECISIONS.md), amber like the room's
   const hiddenAsk = !all && rooms.some((r) => r.aiWaits && !capped.includes(r))
   return (
-    <div className="mb-3" data-testid="sidebar-rooms">
+    // 20px (mb-5) after the list: about the same distance between texts as above 대화 (35px against 33px) and about
+    // twice the gap between two rows' text, before 트리나 기록 or the setup row (the owner, 2026-11-07)
+    <div className="mb-5" data-testid="sidebar-rooms">
       <div className="flex items-center gap-1 pr-1 pl-3">
-        <h2 className="text-xs font-medium text-faint">
-          <button type="button" aria-expanded={open} aria-controls={listId} onClick={toggle} className="flex items-center gap-1 rounded py-1 hover:text-muted" data-testid="rooms-toggle">
-            {t('rooms.title')}
-            <ChevronDown size={12} className={clsx('transition-transform', !open && '-rotate-90')} aria-hidden />
-          </button>
-        </h2>
+        <SidebarSectionTitle open={open} onToggle={toggle} controls={listId} testId="rooms-toggle">
+          {t('rooms.title')}
+        </SidebarSectionTitle>
         <Tooltip label={t('rooms.newChat')}>
           <button type="button" onClick={() => setPicking(true)} aria-label={t('rooms.newChat')} className="ml-auto flex size-7 items-center justify-center rounded-md text-faint hover:bg-hover hover:text-ink" data-testid="rooms-new-dm">
             <Plus size={15} aria-hidden />
