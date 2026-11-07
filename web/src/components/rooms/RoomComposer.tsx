@@ -62,8 +62,11 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const [voiceError, setVoiceError] = useState<string | null>(null)
   const latest = useRef(text)
   latest.current = text
+  const root = useRef<HTMLDivElement>(null)
   const voice = useVoiceInput({
     input,
+    root,
+    room: true,
     text,
     replace: mention.inputProps.onTextChange,
     append: (said) => {
@@ -74,6 +77,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     enabled: mic === 'on',
     menuOpen: mention.open,
     onError: setVoiceError,
+    afterFocus: mention.inputProps.onSelect,
   })
   // the draft keeps its mentions too
   useEffect(() => {
@@ -159,7 +163,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   }
 
   return (
-    <div className="shrink-0 pb-[max(0.75rem,var(--safe-bottom))] max-sm:border-t max-sm:border-line max-sm:pt-1 sm:px-4" data-bottom-bar>
+    <div ref={root} className="shrink-0 pb-[max(0.75rem,var(--safe-bottom))] max-sm:border-t max-sm:border-line max-sm:pt-1 sm:px-4" data-bottom-bar>
       <VoiceLive voice={voice} />
       <div
         className={clsx('mx-auto max-w-[780px] transition sm:rounded-2xl sm:border sm:bg-surface', drag ? 'sm:border-accent sm:ring-2 sm:ring-accent/30' : 'sm:border-field-border sm:focus-within:border-faint')}
@@ -178,7 +182,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
         }}
         data-testid="room-composer"
       >
-        {mention.list}
+        {!voice.recording && mention.list}
         {files.length > 0 && (
           <ul className="flex flex-wrap gap-2 px-3 pt-2" aria-label={t('composer.attachments')}>
             {files.map((f) => (

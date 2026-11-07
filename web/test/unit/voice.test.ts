@@ -5,7 +5,7 @@
 // question; the transcription job's own label.
 import { describe, expect, test } from 'bun:test'
 import { micState, SPEECH_SETTINGS_PATH, voiceBlockedHere, voiceBlockedInRoom } from '../../src/lib/voice'
-import { CAP_MS, DRAG_CANCEL_PX, HOLD_MS, jobLabel, VoiceInput, WARN_MS, type KeyLike, type VoiceDeps, type VoiceNote } from '../../src/lib/voiceInput'
+import { CAP_MS, DRAG_CANCEL_PX, HOLD_MS, jobLabel, MIN_HOLD_RECORDING_MS, VoiceInput, WARN_MS, type KeyLike, type VoiceDeps, type VoiceNote } from '../../src/lib/voiceInput'
 
 const me = (role: 'owner' | 'admin' | 'member', voiceInput?: boolean) => ({ user: { role }, team: { name: 'T', defaultLocale: 'en' as const, ...(voiceInput === undefined ? {} : { voiceInput }) } })
 
@@ -90,6 +90,7 @@ function rig(o: { blocked?: boolean; granted?: boolean; slowStart?: boolean; fai
       return id
     },
     clearTimeout: (h) => void timers.delete(h as number),
+    now: () => now,
     changed: () => {},
   }
   const v = new VoiceInput(deps)
@@ -217,6 +218,7 @@ describe('hold Space', () => {
     const rep = key(' ', { repeat: true })
     r.v.windowKeyDown(rep)
     expect(rep.prevented).toBe(true)
+    await r.advance(1500)
     r.v.windowKeyUp(key(' '))
     await r.flush()
     expect(r.v.phase).toBe('transcribing')
@@ -279,7 +281,7 @@ describe('hold Space', () => {
   test('the window losing the focus or the tab hidden while Space is held transcribes; a clicked recording goes on', async () => {
     const r = rig()
     r.v.boxKeyDown(key(' '), empty, hold)
-    await r.advance(HOLD_MS)
+    await r.advance(HOLD_MS + 2000)
     r.v.away()
     await r.flush()
     expect(r.log).toContain('transcribe')
@@ -308,7 +310,7 @@ describe('hold Space', () => {
     expect(r.log).toContain('append:긴 회의 메모')
   })
 
-  test('Space let go while the browser asks for the microphone: it records on until ✓; already allowed: it stops once it is on', async () => {
+  test('Space let go while the browser asks for the microphone: it records on until ✓; already allowed: it stops (nothing was said)', async () => {
     const asked = rig({ granted: false, slowStart: true })
     asked.v.boxKeyDown(key(' '), empty, hold)
     await asked.advance(HOLD_MS)
@@ -320,7 +322,7 @@ describe('hold Space', () => {
     expect(asked.v.mode).toBe('toggle')
     // in a toggle recording a Space on a button still works there
     const onButton = key(' ')
-    asked.v.windowKeyDown(onButton, true)
+    asked.v.windowKeyDown(onButton, { onControl: true })
     expect(onButton.prevented).toBe(false)
 
     const allowed = rig({ granted: true, slowStart: true })
@@ -329,7 +331,83 @@ describe('hold Space', () => {
     allowed.v.windowKeyUp(key(' '))
     allowed.open()
     await allowed.flush()
-    expect(allowed.log).toEqual(['start', 'holdUsed', 'stop', 'transcribe'])
+    expect(allowed.log).toEqual(['start', 'holdUsed', 'cancel'])
+    expect(allowed.v.phase).toBe('idle')
+    expect(allowed.notes.filter(Boolean)).toEqual([])
+  })
+
+  test('a hold let go right after the recording started is dropped: no job, no note', async () => {
+    const r = rig()
+    r.v.boxKeyDown(key(' '), empty, hold)
+    await r.advance(HOLD_MS + MIN_HOLD_RECORDING_MS - 50)
+    r.v.windowKeyUp(key(' '))
+    await r.flush()
+    expect(r.log).toEqual(['start', 'holdUsed', 'cancel'])
+    expect(r.notes.filter(Boolean)).toEqual([])
+    // a clicked recording is never dropped for being short
+    r.v.click()
+    await r.flush()
+    void r.v.finish()
+    await r.flush()
+    expect(r.log.at(-1)).toBe('transcribe')
+  })
+
+  test('Esc aimed at a menu, a list, a dialog or another box leaves the recording alone; in a Space hold it cancels from anywhere', async () => {
+    const r = rig()
+    r.v.click()
+    await r.flush()
+    const elsewhere = key('Escape')
+    r.v.windowKeyDown(elsewhere, { ours: false })
+    expect(elsewhere.prevented).toBe(false)
+    expect(r.v.phase).toBe('recording')
+    r.v.windowKeyDown(key('Escape'), { ours: true })
+    expect(r.v.phase).toBe('idle')
+
+    const h = rig()
+    h.v.boxKeyDown(key(' '), empty, hold)
+    await h.advance(HOLD_MS)
+    h.v.windowKeyDown(key('Escape'), { ours: false })
+    expect(h.v.phase).toBe('idle')
+    expect(h.log).toEqual(['start', 'holdUsed', 'cancel'])
+  })
+
+  test('the box goes away (another chat or room) while starting, recording or transcribing: nothing goes on', async () => {
+    const starting = rig({ slowStart: true })
+    starting.v.click()
+    starting.v.dispose()
+    starting.open()
+    await starting.flush()
+    expect(starting.log).toEqual(['start', 'cancel'])
+    expect(starting.v.phase).toBe('idle')
+
+    const recording = rig()
+    recording.v.click()
+    await recording.flush()
+    recording.v.dispose()
+    expect(recording.log).toEqual(['start', 'cancel'])
+    await recording.advance(CAP_MS)
+    expect(recording.log).toEqual(['start', 'cancel'])
+
+    const transcribing = rig()
+    transcribing.v.click()
+    await transcribing.flush()
+    void transcribing.v.finish()
+    await transcribing.flush()
+    transcribing.v.dispose()
+    expect(transcribing.jobs[0]!.signal.aborted).toBe(true)
+    transcribing.jobs[0]!.resolve('late words')
+    await transcribing.flush()
+    expect(transcribing.log.some((x) => x.startsWith('append:'))).toBe(false)
+  })
+
+  test('a start that fails turns the microphone off; after Esc it says nothing', async () => {
+    const r = rig({ slowStart: true })
+    r.v.click()
+    r.v.windowKeyDown(key('Escape'))
+    r.refuse(new Error('denied'))
+    await r.flush()
+    expect(r.log).toEqual(['start', 'cancel'])
+    expect(r.notes.filter(Boolean)).toEqual([])
   })
 
   test('a confidential place: the note instead of a recording, and the held Space types nothing until let go', async () => {
@@ -357,6 +435,7 @@ describe('hold Space', () => {
     await r.flush()
     expect(r.v.phase).toBe('idle')
     expect(r.notes.at(-1)).toEqual({ kind: 'error', error: denied })
+    expect(r.log).toEqual(['start', 'cancel'])
   })
 })
 

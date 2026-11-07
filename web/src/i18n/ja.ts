@@ -480,6 +480,7 @@ export const ja: Record<MessageKey, string> = {
   'voice.empty': "音声を認識できませんでした。もう一度録音してください。",
   'voice.offAdmin': "音声入力はオフです。「管理 › チーム設定」でオンにしてください。",
   'voice.confidential': "機密チャットでは録音を外部の音声サービス（OpenRouter）に送らないため、音声入力は使えません。文字で入力してください。",
+  'voice.confidentialRoom': "すべてのチャットが機密扱いの間は、録音を外部の音声サービス（OpenRouter）に送らないため、ルームでは音声入力を使えません。文字で入力してください。",
   'steps.label': "作業手順",
   'steps.summary': "{n, plural, one {#ステップ} other {#ステップ}}",
   'steps.earlier': "{n, plural, one {以前の#ステップ} other {以前の#ステップ}}",

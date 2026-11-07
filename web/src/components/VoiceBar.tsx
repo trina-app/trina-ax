@@ -11,6 +11,7 @@
 // Ping and level movement only without reduced motion.
 import clsx from 'clsx'
 import { Check, Loader2, Mic, MicOff, X } from 'lucide-react'
+import { useEffect, useRef } from 'react'
 import { useT } from '../i18n'
 import { fmtDuration } from '../lib/format'
 import { navigateTo } from '../lib/nav'
@@ -21,8 +22,15 @@ import { IconButton } from './ui'
 /** `className`: the bar's padding where the box has other padding (default px-3 py-3) */
 export function VoiceBar({ voice, className }: { voice: VoiceInputState; className?: string }) {
   const t = useT()
+  const done = useRef<HTMLButtonElement>(null)
+  // a recording that ends with ✓ (started with the mic, from the keyboard too): the focus waits on ✓, not on the page
+  const toggle = voice.mode === 'toggle' && voice.via !== 'touch'
+  useEffect(() => {
+    if (toggle) done.current?.focus({ preventScroll: true })
+  }, [toggle])
   return (
-    <div className={clsx('flex min-w-0 items-center gap-3', className ?? 'px-3 py-3')} role="group" aria-label={t('voice.recording')} data-testid="voice-bar" data-mode={voice.mode ?? undefined}>
+    // nothing in it is selected or opens a callout under a finger held where the mic was
+    <div className={clsx('flex min-w-0 items-center gap-3 select-none [-webkit-touch-callout:none]', className ?? 'px-3 py-3')} role="group" aria-label={t('voice.recording')} data-testid="voice-bar" data-mode={voice.mode ?? undefined}>
       <IconButton label={t('voice.cancel')} onClick={voice.cancel} className="touch-hit shrink-0" data-testid="voice-cancel">
         <X size={18} />
       </IconButton>
@@ -43,7 +51,7 @@ export function VoiceBar({ voice, className }: { voice: VoiceInputState; classNa
       <span className={clsx('shrink-0 text-sm tabular-nums', voice.left !== null ? 'font-medium text-danger' : 'text-muted')} data-testid="voice-time">
         {voice.left !== null ? t('voice.left', { time: fmtDuration(voice.left) }) : fmtDuration(voice.seconds)}
       </span>
-      <button type="button" onClick={voice.finish} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent text-accent-ink hover:bg-accent-hover sm:h-9 sm:w-9" aria-label={t('voice.done')} data-testid="voice-done">
+      <button ref={done} type="button" onClick={voice.finish} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent text-accent-ink hover:bg-accent-hover sm:h-9 sm:w-9" aria-label={t('voice.done')} data-testid="voice-done">
         <Check size={18} />
       </button>
     </div>
@@ -67,10 +75,11 @@ export function VoiceMic({ voice, mic, disabled = false, tip = false, className 
       onClick={voice.mic.onClick}
       onPointerDown={voice.mic.onPointerDown}
       onContextMenu={voice.mic.onContextMenu}
-      // not while the microphone starts: a finger on it must keep its events
-      disabled={disabled || voice.recording || voice.transcribing}
+      // while recording only marked: a finger held on it (a tablet keeps the mic in sight) must keep its events
+      disabled={disabled || voice.transcribing || voice.busyElsewhere}
+      aria-disabled={voice.recording || undefined}
       aria-busy={voice.transcribing || undefined}
-      className={clsx('touch-hit touch-none select-none [-webkit-touch-callout:none]', className)}
+      className={clsx('touch-hit touch-none select-none [-webkit-touch-callout:none] aria-disabled:opacity-40 aria-disabled:hover:bg-transparent', className)}
       data-testid="voice-button"
     >
       {voice.transcribing ? <Loader2 size={18} className="animate-spin" aria-hidden /> : <Mic size={18} aria-hidden />}

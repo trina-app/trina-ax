@@ -480,6 +480,7 @@ export const es: Record<MessageKey, string> = {
   'voice.empty': "No se reconoció nada. Vuelva a grabar.",
   'voice.offAdmin': "La entrada de voz está desactivada. Actívela en Administración › Configuración del equipo.",
   'voice.confidential': "La entrada de voz no está disponible en los chats confidenciales: las grabaciones no se envían al servicio de voz externo (OpenRouter). Escriba el mensaje.",
+  'voice.confidentialRoom': "La entrada de voz no está disponible en las salas mientras todos los chats son confidenciales: las grabaciones no se envían al servicio de voz externo (OpenRouter). Escriba el mensaje.",
   'steps.label': "Pasos",
   'steps.summary': "{n, plural, one {# paso} other {# pasos}}",
   'steps.earlier': "{n, plural, one {# paso anterior} other {# pasos anteriores}}",

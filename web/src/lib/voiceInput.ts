@@ -23,6 +23,8 @@ export const CAP_MS = 5 * 60_000
 export const WARN_MS = 30_000
 /** a finger this far from where it pressed the mic cancels */
 export const DRAG_CANCEL_PX = 64
+/** a hold let go sooner after the recording started has nothing to say: dropped, no job */
+export const MIN_HOLD_RECORDING_MS = 300
 
 export type VoicePhase = 'idle' | 'waiting' | 'starting' | 'recording' | 'transcribing'
 export type VoiceMode = 'hold' | 'toggle' | 'press'
@@ -78,6 +80,7 @@ export interface VoiceDeps {
   holdUsed(): void
   setTimeout(fn: () => void, ms: number): unknown
   clearTimeout(h: unknown): void
+  now(): number
   /** something shown changed */
   changed(): void
 }
@@ -105,6 +108,7 @@ export class VoiceInput {
   /** asked while the microphone was still starting: what happens once it is on */
   private after: 'stop' | 'cancel' | null = null
   private grantedAtStart = false
+  private recordingSince = 0
   private press: { x: number; y: number } | null = null
   private pressTimer: unknown = null
   private cap: unknown = null
@@ -135,8 +139,11 @@ export class VoiceInput {
   }
 
   /** Any key going down in the window (capture: before the box's own handler). `onControl`: it is aimed at a button or
-   * field of the page (where Space does what it does there). */
-  windowKeyDown(e: KeyLike, onControl = false) {
+   * field of the page (where Space does what it does there). `ours`: it is aimed at this box, its bar or the page itself
+   * (not another box, a menu, a list or a dialog, where Esc closes that); Esc cancels only then, or during a Space hold. */
+  windowKeyDown(e: KeyLike, at: { onControl?: boolean; ours?: boolean } = {}) {
+    const onControl = at.onControl ?? false
+    const escape = e.key === 'Escape' && (at.ours !== false || this.holdingSpace)
     switch (this.phase) {
       case 'waiting':
         // its repeats are held back; any other key ends the wait first (a held-back Space goes in before it)
@@ -145,12 +152,12 @@ export class VoiceInput {
         return
       case 'starting':
       case 'recording':
-        if (e.key === 'Escape') return this.escape(e)
+        if (escape) return this.escape(e)
         // a held Space never types or scrolls the page; in a toggle recording it still works on a button
         if (e.key === ' ' && (this.holdingSpace || this.mode !== 'toggle' || !onControl)) e.preventDefault()
         return
       case 'transcribing':
-        if (e.key === 'Escape') return this.escape(e)
+        if (escape) return this.escape(e)
         if (e.key === ' ' && this.holdingSpace) e.preventDefault()
         return
       case 'idle':
@@ -226,6 +233,8 @@ export class VoiceInput {
       return
     }
     if (this.phase !== 'recording') return
+    // a hold let go at once (Space held just past HOLD_MS): nothing was said, no job for it
+    if (this.mode === 'hold' && this.d.now() - this.recordingSince < MIN_HOLD_RECORDING_MS) return this.cancel()
     this.clearRecording()
     const run = this.run
     const abort = new AbortController()
@@ -363,15 +372,19 @@ export class VoiceInput {
           return
         }
         if (via === 'space') this.d.holdUsed()
+        this.recordingSince = this.d.now()
         this.cap = this.d.setTimeout(() => void this.finish(), CAP_MS)
         this.set('recording')
         if (after === 'stop') void this.finish()
       },
       (e) => {
         if (run !== this.run) return
+        // cancelled while the browser asked: no note; and a microphone half on (a recorder that failed after it) goes off
+        const cancelled = this.after === 'cancel'
         this.clearPress()
+        this.d.cancel()
         this.reset()
-        this.d.note({ kind: 'error', error: e })
+        if (!cancelled) this.d.note({ kind: 'error', error: e })
         if (via !== 'touch') this.d.focusBox(this.caret)
       },
     )

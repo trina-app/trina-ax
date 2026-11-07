@@ -189,6 +189,26 @@ test('Esc cancels a held recording, and a transcription on its way', async ({ pa
   await expect(box).toHaveValue('메모')
 })
 
+test('Esc for a menu opened during a clicked recording closes the menu and leaves the recording on', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.getByRole('button', { name: MIC }).click()
+  const bar = page.getByRole('group', { name: '녹음 중' })
+  await expect(bar).toBeVisible()
+  // the recording that ends with ✓ waits there with the focus (a keyboard start too)
+  await expect(bar.getByRole('button', { name: '녹음 끝내기' })).toBeFocused()
+  await page.getByTestId('attach-button').click()
+  await expect(page.getByRole('menu')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await expect(bar).toBeVisible()
+  // Esc aimed at the bar cancels it
+  await bar.getByRole('button', { name: '녹음 끝내기' }).focus()
+  await page.keyboard.press('Escape')
+  await expect(bar).toHaveCount(0)
+  expect(await transcribeChats(page)).toEqual([])
+})
+
 test('while the job runs its own label shows (a first recording downloads the speech model), the box read-only and focused', async ({ page }) => {
   await reset(page)
   await page.request.post('/__test/transcribe-progress', { data: { message: '음성 인식 모델 내려받는 중 (488 MB, 처음 한 번만)', progress: 0.25, ms: 2500 } })
@@ -267,6 +287,13 @@ test.describe('rooms', () => {
     await thread.getByTestId('room-input').click()
     await holdSpace(page)
     await expect(thread.getByTestId('room-input')).toHaveValue('받아쓴 문장입니다')
+    // one recording at a time: while the room's box records, the thread's mic (on screen beside it) waits
+    const roomBox = page.getByTestId('room-composer').first()
+    await roomBox.getByRole('button', { name: MIC }).click()
+    await expect(roomBox.getByTestId('voice-bar')).toBeVisible()
+    await expect(thread.getByRole('button', { name: MIC })).toBeDisabled()
+    await roomBox.getByTestId('voice-cancel').click()
+    await expect(thread.getByRole('button', { name: MIC })).toBeEnabled()
   })
 
   test('every chat confidential and voice input through OpenRouter: a room says why instead of recording', async ({ page }) => {

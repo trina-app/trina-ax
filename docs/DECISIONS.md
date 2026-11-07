@@ -12014,16 +12014,19 @@ subscription was refused (`validation`) and the web ask left Edge out.
 - **Rooms and the server.** A room's recording names no chat. The server already treats that as a new chat
   (`confidentialDictation(null)` = `safeOpsEnabled()`, tested in `c-speech-confidential`), so rooms need no server change
   and no migration. The box says so first: `voiceBlockedInRoom(me)` = `me.server.allChatsConfidential &&
-  me.team.voiceInputOutside` shows the confidential note instead of recording.
+  me.team.voiceInputOutside` shows a note for rooms (`voice.confidentialRoom`) instead of recording.
 - **Hold Space** (computers only: `(hover: hover) and (pointer: fine)`; never on touch, where a long Space moves the
   caret on an iPhone). Only from the box's own key handler, after its "/", "#" or "@" list (each now says `open`), while
   the mic shows. A plain Space (no repeat, no `isComposing` or keyCode 229, no modifier, no selection) waits 400 ms. Empty
   box: the Space is held back; box with text: the first Space types and its repeats are held back, and at 400 ms that one
   space is taken back (as Claude Code does). Any other key, letting go, or the window losing the focus before 400 ms ends
   the wait and a held-back Space is typed (through `execCommand('insertText')`, so the caret, undo and the mention layer
-  follow; a plain value change when the browser has none), so typing is unchanged. Letting go transcribes; Esc cancels,
-  while transcribing too (the upload and the wait are aborted and the job is cancelled); the window losing the focus or
-  the tab hidden while held transcribes. Keys are read on `window` (capture) because the bar replaces the box; a held
+  follow; a plain value change when the browser has none), so typing is unchanged. The space taken back may be a
+  Japanese IME's full-width one. Letting go transcribes (a hold let go within 300 ms of the recording starting is
+  dropped: nothing was said, no job); Esc cancels, while transcribing too (the upload and the wait are aborted and the
+  job is cancelled), when it is aimed at the page, this box or its bar, never at a menu, a list, a dialog, a button
+  with its menu open or another box (Esc closes those), except during a Space hold; the window losing the focus or the
+  tab hidden while held transcribes. Keys are read on `window` (capture) because the bar replaces the box; a held
   Space never scrolls the page. Space let go while the browser asks for the microphone (`navigator.permissions` says it
   is not granted yet) keeps it recording until ✓; when it was already allowed, the recording ends as soon as it is on.
 - **The mic.** A click toggles, as before. On touch screens a finger on the mic records at once: let go within 400 ms (a
@@ -12031,6 +12034,8 @@ subscription was refused (`validation`) and the web ask left Edge out.
   browser asks keeps it recording. The mic gives way to the bar under the finger, so its pointer events are read on the
   mic itself (WebKit keeps sending them to the removed element) and on `window`, once each, and the click the tap makes
   is swallowed for 600 ms so it never lands on ✕ or ✓. `touch-action: none`, no callout, no context menu on the mic.
+  One recording at a time: while one box records or transcribes, the other boxes on screen (a room's and its thread's)
+  keep their mic disabled and Space a Space.
 - **Cap.** 5 minutes per recording; the time left shows in the last 30 s; at the cap what was recorded is transcribed.
 - **On screen.** The bar as before (✕, red dot, level, timer, ✓) with one short line: "Space를 떼면 끝나요 · Esc 취소" in a
   Space hold, "손을 떼면 끝나요 · 밀어서 취소" in a finger hold, and in a clicked recording on a computer "다음엔 입력창에서
@@ -12042,8 +12047,11 @@ subscription was refused (`validation`) and the web ask left Edge out.
   server that downloads its whisper model for the first recording; without one, "받아쓰는 중…" as before.
 - **Accessibility.** A polite live region (always in the page) says 녹음 중, 텍스트로 바꾸는 중 and 텍스트를 넣었어요;
   errors stay in the `role="alert"` line under the box, which a screen reader reads at once. The bar is a labelled group
-  (its old `role="status"` on a div read the timer and had its label on the div). The focus goes back to the box after a
-  recording (to where the caret was after a cancel), except after a finger's cancel on a phone (no keyboard popping up).
+  (its old `role="status"` on a div read the timer and had its label on the div). A recording that ends with ✓ puts the
+  focus on ✓ (a keyboard start has somewhere to go). The focus goes back to the box after a recording (to where the
+  caret was after a cancel), except after a finger's cancel on a phone (no keyboard popping up), and never away from
+  another field the person went on typing in while the words were on their way. While recording the mic is only
+  `aria-disabled` (a tablet keeps it in sight under the finger, which must keep its events).
   Ping and level movement only with `motion-safe:`.
 - Tests: `web/test/unit/voice.test.ts` (the room block; the hold: 400 ms, repeats, IME 229 and composing, modifiers, an
   open list, a selection, empty against non-empty box, letting go early, another key, Esc while recording and

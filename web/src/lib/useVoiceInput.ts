@@ -5,7 +5,7 @@
 // server that still downloads its speech model says so, with how far it is), else "받아쓰는 중…".
 // The host renders components/VoiceBar.tsx (the bar, the mic, the live region) with what this returns and calls
 // onKeyDown from the box's own key handler after its "/", "#" or "@" list had its turn.
-import { useEffect, useLayoutEffect, useReducer, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
 import { SMALL_UPLOAD_MAX, type TranscribeResult } from '@mycel/shared/api'
 import { api, API, errorText } from './api'
 import { markBusy } from './busy'
@@ -23,6 +23,11 @@ export const HOLD_QUERY = '(hover: hover) and (pointer: fine)'
 
 export interface VoiceInputOptions {
   input: RefObject<HTMLTextAreaElement | null>
+  /** the whole message box (the box, its bar, its mic): Esc there cancels, and the focus comes back to the box only from
+   * there or from nowhere (never away from another field the person went on typing in) */
+  root: RefObject<HTMLElement | null>
+  /** a room's or a thread's box: its "not here" note says it for rooms */
+  room?: boolean
   /** the box's text now */
   text: string
   /** set the box's text: an edit the browser's own editing could not make */
@@ -38,6 +43,8 @@ export interface VoiceInputOptions {
   /** a "/", "#" or "@" list is open (Space is for it) */
   menuOpen: boolean
   onError: (message: string | null) => void
+  /** the caret was put back in the box (a list that follows the caret reads it again) */
+  afterFocus?: () => void
 }
 
 const storage = () => {
@@ -47,12 +54,29 @@ const storage = () => {
     return null
   }
 }
+/** this browser has held Space once (every box on the page stops its hint at once) */
+let holdUsedNow: boolean | null = null
+const holdWatchers = new Set<() => void>()
 const holdUsedBefore = () => {
-  try {
-    return storage()?.getItem(HOLD_USED_KEY) === '1'
-  } catch {
-    return false
+  if (holdUsedNow === null) {
+    try {
+      holdUsedNow = storage()?.getItem(HOLD_USED_KEY) === '1'
+    } catch {
+      holdUsedNow = false
+    }
   }
+  return holdUsedNow
+}
+const watchHoldUsed = (f: () => void) => {
+  holdWatchers.add(f)
+  return () => void holdWatchers.delete(f)
+}
+const markHoldUsed = () => {
+  try {
+    storage()?.setItem(HOLD_USED_KEY, '1')
+  } catch { /* storage blocked: the hint shows again after a reload */ }
+  holdUsedNow = true
+  holdWatchers.forEach((f) => f())
 }
 
 function useMatch(query: string) {
@@ -75,6 +99,23 @@ function useMatch(query: string) {
   return matches
 }
 
+/** The one voice input that records or transcribes now: a room's box and its thread's box are on screen together, and
+ * only one may use the microphone. The others' mics wait. */
+let owner: VoiceInput | null = null
+const ownerWatchers = new Set<() => void>()
+const setOwner = (v: VoiceInput | null) => {
+  if (owner === v) return
+  owner = v
+  ownerWatchers.forEach((f) => f())
+}
+const watchOwner = (f: () => void) => {
+  ownerWatchers.add(f)
+  return () => void ownerWatchers.delete(f)
+}
+
+/** inside a menu, a list or a dialog, or on a button whose menu is open (the attach button): Esc there is for that */
+const inPopup = (t: EventTarget | null) => !!(t as Element | null)?.closest?.('[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"],[aria-expanded="true"]')
+
 /** a key aimed at a control of the page, where Space does that control's thing */
 const onControl = (t: EventTarget | null) => {
   const el = t as { tagName?: string; isContentEditable?: boolean } | null
@@ -94,13 +135,16 @@ export function useVoiceInput(o: VoiceInputOptions) {
   words.current = { t, locale }
   const permission = useRef<PermissionState | null>(null)
   const focusWanted = useRef<{ at: number | null } | null>(null)
-  const [holdUsed, setHoldUsed] = useState(holdUsedBefore)
+  const holdUsed = useSyncExternalStore(watchHoldUsed, holdUsedBefore, () => true)
   const [jobId, setJobId] = useState<string | null>(null)
   const holdCapable = useMatch(HOLD_QUERY)
+  const self = useRef<VoiceInput | null>(null)
+  /** another box records or transcribes now */
+  const elsewhere = () => owner !== null && owner !== self.current
 
   const noteText = (n: VoiceNote): string => {
     const { t, locale } = words.current
-    if (n.kind === 'blocked') return t('voice.confidential')
+    if (n.kind === 'blocked') return t(opts.current.room ? 'voice.confidentialRoom' : 'voice.confidential')
     if (n.kind === 'empty') return t('voice.empty')
     if (n.error instanceof RecorderError) return t(n.error.code === 'denied' ? 'voice.denied' : 'voice.unsupported')
     return errorText(n.error, locale, t('error.network'))
@@ -142,7 +186,8 @@ export function useVoiceInput(o: VoiceInputOptions) {
         },
         removeSpace: (at) => {
           const el = opts.current.input.current
-          if (!el || el.value[at] !== ' ') return
+          // (a Japanese IME types a full-width space)
+          if (!el || !/\s/.test(el.value[at] ?? '')) return
           const next = el.value.slice(0, at) + el.value.slice(at + 1)
           try {
             if (document.activeElement === el) {
@@ -158,17 +203,20 @@ export function useVoiceInput(o: VoiceInputOptions) {
         note: (n) => opts.current.onError(n ? noteText(n) : null),
         blocked: () => opts.current.blocked,
         granted: () => permission.current === 'granted',
-        holdUsed: () => {
-          try {
-            storage()?.setItem(HOLD_USED_KEY, '1')
-          } catch { /* storage blocked: the hint shows again next time */ }
-          setHoldUsed(true)
-        },
+        holdUsed: markHoldUsed,
         setTimeout: (fn, ms) => setTimeout(fn, ms),
         clearTimeout: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
-        changed: render,
+        now: () => Date.now(),
+        changed: () => {
+          const v = self.current
+          if (v?.busy) setOwner(v)
+          else if (v && owner === v) setOwner(null)
+          render()
+        },
       }),
   )
+  self.current = voice
+  const busyElsewhere = useSyncExternalStore(watchOwner, elsewhere, () => false)
 
   // whether the browser would ask for the microphone (a Space let go during that question keeps it recording)
   useEffect(() => {
@@ -197,7 +245,14 @@ export function useVoiceInput(o: VoiceInputOptions) {
   // the keys while Space waits, while recording (the bar stands where the box was) and while transcribing; a hold
   // never stays on when the window loses the focus or the tab is hidden
   useEffect(() => {
-    const down = (e: KeyboardEvent) => voice.windowKeyDown(e, onControl(e.target))
+    // Esc is this box's when it is aimed at the page itself or at this box and its bar, never at a menu, a list or a
+    // dialog (Esc closes those) or at another box
+    const ours = (t: EventTarget | null) => {
+      if (inPopup(t)) return false
+      const root = opts.current.root.current
+      return !t || t === document.body || t === document.documentElement || !!root?.contains(t as Node)
+    }
+    const down = (e: KeyboardEvent) => voice.windowKeyDown(e, { onControl: onControl(e.target), ours: ours(e.target) })
     const up = (e: KeyboardEvent) => voice.windowKeyUp(e)
     const away = () => voice.away()
     const hidden = () => document.visibilityState === 'hidden' && voice.away()
@@ -211,6 +266,7 @@ export function useVoiceInput(o: VoiceInputOptions) {
       window.removeEventListener('blur', away)
       document.removeEventListener('visibilitychange', hidden)
       voice.dispose()
+      if (owner === voice) setOwner(null)
     }
   }, [voice])
 
@@ -228,15 +284,19 @@ export function useVoiceInput(o: VoiceInputOptions) {
     }
   }, [phase])
 
-  // the focus goes back to the box once it is shown again
+  // the focus goes back to the box once it is shown again: from the box's own parts or from nowhere, never away from a
+  // field the person went on typing in while the words were on their way
   useLayoutEffect(() => {
     const want = focusWanted.current
     const el = o.input.current
     if (!want || !el) return
     focusWanted.current = null
+    const active = document.activeElement
+    if (active && active !== document.body && active !== el && !o.root.current?.contains(active)) return
     el.focus()
     const at = want.at === null ? el.value.length : Math.min(want.at, el.value.length)
     el.setSelectionRange(at, at)
+    o.afterFocus?.()
   })
 
   const job = useJobs((s) => (jobId ? s.jobs[jobId] : undefined))
@@ -266,6 +326,8 @@ export function useVoiceInput(o: VoiceInputOptions) {
     left: phase === 'recording' && leftMs <= WARN_MS ? Math.max(0, Math.ceil(leftMs / 1000)) : null,
     hint,
     holdCapable,
+    /** another box (the room's, the thread's) records or transcribes now: this mic waits */
+    busyElsewhere,
     /** the live region's words */
     live: voice.live === 'recording' ? t('voice.recording') : voice.live === 'transcribing' ? t('voice.liveTranscribing') : voice.live === 'inserted' ? t('voice.liveInserted') : '',
     progressText,
@@ -277,16 +339,16 @@ export function useVoiceInput(o: VoiceInputOptions) {
       return voice.boxKeyDown(
         { key: e.key, repeat: e.repeat, isComposing: e.nativeEvent.isComposing, keyCode: e.keyCode, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, altKey: e.altKey, metaKey: e.metaKey, preventDefault: () => e.preventDefault() },
         { value: el.value, selectionStart: el.selectionStart ?? el.value.length, selectionEnd: el.selectionEnd ?? el.value.length },
-        { hold: holdCapable && opts.current.enabled && !el.readOnly, menuOpen: opts.current.menuOpen },
+        { hold: holdCapable && opts.current.enabled && !el.readOnly && !elsewhere(), menuOpen: opts.current.menuOpen },
       )
     },
     /** the mic button's handlers: a click toggles; a finger pressed and held talks */
     mic: {
       onClick: () => {
-        if (opts.current.enabled) voice.click()
+        if (opts.current.enabled && !elsewhere()) voice.click()
       },
       onPointerDown: (e: ReactPointerEvent<HTMLElement>) => {
-        if (e.pointerType !== 'touch' || !opts.current.enabled) return
+        if (e.pointerType !== 'touch' || !opts.current.enabled || elsewhere()) return
         const el = e.currentTarget
         const id = e.pointerId
         if (!voice.pressStart(e.clientX, e.clientY)) return
@@ -300,6 +362,8 @@ export function useVoiceInput(o: VoiceInputOptions) {
           last = ev
           voice.pressMove(p.clientX, p.clientY)
         }
+        // a long press over the bar opens no menu or selection (the browser would take the touch away)
+        const noMenu = (ev: Event) => ev.preventDefault()
         const end = (ev: Event) => {
           const p = ev as PointerEvent
           if (p.pointerId !== id || ev === last) return
@@ -309,6 +373,7 @@ export function useVoiceInput(o: VoiceInputOptions) {
             x.removeEventListener('pointerup', end)
             x.removeEventListener('pointercancel', end)
           }
+          window.removeEventListener('contextmenu', noMenu, true)
           voice.pressEnd()
           // the click the browser makes of the tap must not reach the bar's ✕ or ✓ under the finger, or the mic
           const swallow = (c: Event) => {
@@ -323,6 +388,7 @@ export function useVoiceInput(o: VoiceInputOptions) {
           x.addEventListener('pointerup', end)
           x.addEventListener('pointercancel', end)
         }
+        window.addEventListener('contextmenu', noMenu, true)
       },
       // a long press opens no menu and selects nothing
       onContextMenu: (e: { preventDefault(): void }) => e.preventDefault(),

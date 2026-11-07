@@ -175,8 +175,10 @@ export default function Composer({
   const attachMenuRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const camRef = useRef<HTMLInputElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
   const voice = useVoiceInput({
     input: taRef,
+    root: rootRef,
     text,
     replace: (next) => {
       setText(next)
@@ -188,6 +190,7 @@ export default function Composer({
     enabled: mic === 'on' && !sending,
     menuOpen: skillMenu.open || roomMenu.open,
     onError: setError,
+    afterFocus: roomMenu.track,
   })
   const transcribing = voice.transcribing
   const answeringId = useId()
@@ -522,7 +525,7 @@ export default function Composer({
   )
 
   return (
-    <div>
+    <div ref={rootRef}>
       <VoiceLive voice={voice} />
       {secret.held && (
         <SecretWarning
