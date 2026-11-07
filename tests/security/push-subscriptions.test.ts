@@ -21,7 +21,7 @@ test('endpoint allowlist refuses private/IP/credentials/redirect-shaped/noncanon
 const WNS='https://wns2-par02p.notify.windows.com/w/?token='
 const TOKEN='BQYAAABkR1f%2bgYm7ZDQoX9Kq4e6Jd8a%2fcJx0R2Jm3nYw%3d%3d'
 test('Microsoft Edge (WNS): exactly https://<one label>.notify.windows.com/w/?token=<token>, nothing looser',()=>{
-  for(const endpoint of [WNS+TOKEN,'https://db5p.notify.windows.com/w/?token=AAAAAAAAAAAAAAAAAAAA','https://wns2-bn3p.notify.windows.com/w/?token=BQYAAAA+gYm7/ZDQ=X9Kq4e6Jd8a_c-x.0~R'])expect(validatePushEndpoint(endpoint).href).toBe(endpoint)
+  for(const endpoint of [WNS+TOKEN,'https://db5p.notify.windows.com/w/?token=AAAAAAAAAAAAAAAAAAAA','https://wns2-bn3p.notify.windows.com/w/?token=BQYAAAA+gYm7/ZDQ=X9Kq4e6Jd8a_c-x0R%2F%2b'])expect(validatePushEndpoint(endpoint).href).toBe(endpoint)
   for(const endpoint of [
     'https://notify.windows.com.evil.example/w/?token='+TOKEN,            // lookalike suffix
     'https://xnotify.windows.com/w/?token='+TOKEN,                         // no label boundary
@@ -44,6 +44,11 @@ test('Microsoft Edge (WNS): exactly https://<one label>.notify.windows.com/w/?to
     'http://wns2-par02p.notify.windows.com/w/?token='+TOKEN,               // not https
     'https://user@wns2-par02p.notify.windows.com/w/?token='+TOKEN,
     WNS+TOKEN+'#x',                                                        // a fragment
+    WNS+TOKEN+'#',                                                         // an empty one
+    'https://fcm.googleapis.com/fcm/send/x#',
+    'https://wns2-par02p.notify.windows.com./w/?token='+TOKEN,             // a trailing dot
+    WNS+TOKEN+'%00', WNS+TOKEN+'%0d%0a', WNS+TOKEN+'%23%20', WNS+'%E2%82%AC'+TOKEN, // escapes base64 never needs
+    WNS+TOKEN+'.~',                                                        // letters outside base64
     'https://20.42.65.84/w/?token='+TOKEN,                                 // an IP literal
     'https://[2603:1030::1]/w/?token='+TOKEN,
     'https://WNS2-PAR02P.notify.windows.com/w/?token='+TOKEN,              // not canonical

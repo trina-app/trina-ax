@@ -14,9 +14,9 @@ const HOSTS=new Set(['fcm.googleapis.com','updates.push.services.mozilla.com','w
 /** Microsoft Edge subscribes through the Windows Push Notification Service: one DNS label under notify.windows.com
  * (wns2-xxxx.notify.windows.com), never an IP literal, a deeper name or a lookalike suffix. */
 export const WNS_HOST=/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.notify\.windows\.com$/
-/** WNS's only address shape: /w/ and a single `token`, base64 letters and well-formed percent escapes (no `&`, no
- * second parameter, no fragment). */
-export const WNS_SEARCH=/^\?token=(?:[A-Za-z0-9_.~+\/=-]|%[0-9A-Fa-f]{2}){16,4000}$/
+/** WNS's only address shape: /w/ and a single `token`: base64 (and base64url) letters, and only the escapes base64
+ * needs in a query (%2B %2F %3D), never an escaped control or other byte; no `&`, second parameter or fragment. */
+export const WNS_SEARCH=/^\?token=(?:[A-Za-z0-9_+\/=-]|%2[BbFf]|%3[Dd]){16,4000}$/
 /** A push service address the server sends to: https on the default port, no user, password or fragment, canonical as
  * the browser gave it, at most 4096 characters; Google's, Mozilla's and Apple's hosts with no query, or WNS with exactly
  * /w/?token=… (the only query any of them may carry; the transport sends it as given). Every address is still resolved
@@ -24,7 +24,8 @@ export const WNS_SEARCH=/^\?token=(?:[A-Za-z0-9_.~+\/=-]|%[0-9A-Fa-f]{2}){16,400
 export function validatePushEndpoint(raw:string):URL {
   let u:URL
   try {u=new URL(raw)}catch{throw new HttpError('validation')}
-  if(raw!==u.href||/[\x00-\x20]/.test(raw)||u.protocol!=='https:'||u.port||u.username||u.password||u.hash||raw.length>4096)throw new HttpError('validation')
+  // `#` anywhere: an empty fragment leaves u.hash '' but is still a fragment
+  if(raw!==u.href||/[\x00-\x20#]/.test(raw)||u.protocol!=='https:'||u.port||u.username||u.password||u.hash||raw.length>4096)throw new HttpError('validation')
   if(WNS_HOST.test(u.hostname)){
     if(u.pathname!=='/w/'||!WNS_SEARCH.test(u.search)||[...u.searchParams.keys()].join()!=='token')throw new HttpError('validation')
     return u

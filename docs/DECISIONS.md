@@ -11816,11 +11816,13 @@ address with a query. Before, `validatePushEndpoint` took three exact hosts and 
 subscription was refused (`validation`) and the web ask left Edge out.
 
 - **Narrow allowlist, not a pattern for everyone.** WNS is taken only as https on the default port, no user, password or
-  fragment, the canonical form the browser gave, at most 4096 characters, the host one DNS label (1–63 letters, digits
-  and inner hyphens) under `notify.windows.com` (`WNS_HOST`: no IP literal, deeper name or lookalike suffix such as
-  `notify.windows.com.evil.example` or `xnotify.windows.com`), the path exactly `/w/` and the query exactly one `token`
-  of base64 letters and well-formed percent escapes, 16–4000 long (`WNS_SEARCH`). Google's, Mozilla's and Apple's rules
-  are unchanged and they still take no query.
+  fragment (not even an empty `#`), the canonical form the browser gave, at most 4096 characters, the host one DNS label
+  (1–63 letters, digits and inner hyphens) under `notify.windows.com` (`WNS_HOST`: no IP literal, deeper name, trailing
+  dot or lookalike suffix such as `notify.windows.com.evil.example` or `xnotify.windows.com`), the path exactly `/w/` and
+  the query exactly one `token` of base64/base64url letters and only the escapes base64 needs in a query (`%2B %2F
+  %3D`; no escaped control or other byte), 16–4000 long (`WNS_SEARCH`). Google's, Mozilla's and Apple's rules are
+  unchanged and they still take no query. An independent review (feat/edge-push) found no way past the allowlist or the
+  address checks; its nits (an empty `#`, a wider token alphabet than needed) are closed.
 - **The transport sends to the full address.** `postPinned` now writes `pathname + search` (it dropped the query before;
   the other providers and the phone gateway have none, the gateway's address is still refused with one). DNS, the
   public-address check of every resolved address, the pinned socket per checked address, the IPv4-first order, the
