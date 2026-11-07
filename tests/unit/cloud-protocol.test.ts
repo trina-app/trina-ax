@@ -186,8 +186,12 @@ describe('cloud-protocol: files and release', () => {
     const p = PlanFile.parse(w1)
     expect(p.maxActiveMembers).toBeNull()
     expect(p.display).toBeNull()
+    expect(p.speechFreeHours).toBeNull()
     expect(PlanFile.parse(V.enroll.plan).maxActiveMembers).toBe(12)
     expect(PlanFile.safeParse({ ...w1, maxConcurrency: 17 }).success).toBe(false)
+    // the hosting service's free speech-to-text hours a month: whole hours, the Go reader's range 1-1000
+    expect(PlanFile.parse({ ...w1, speechFreeHours: 200 }).speechFreeHours).toBe(200)
+    for (const h of [0, 1001, 1.5]) expect(PlanFile.safeParse({ ...w1, speechFreeHours: h }).success).toBe(false)
   })
   test('notices: at most 10, unique ids', () => {
     const n = { id: 'n1', level: 'info', audience: 'owner', text: { ko: '가', en: 'a', id: 'a' }, link: null, until: null }

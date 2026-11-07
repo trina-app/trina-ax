@@ -285,7 +285,8 @@ Windows 데스크톱 앱은 자기 팀 서버의 `/downloads/latest.yml`만 보�
 `sudo mycel-ctl apply-plan < plan.json`(root 소유 `/var/lib/mycel/root/plan.json`, 서버 계정은 읽기만). 바로 반영되고
 재시작이 필요 없다. 동시 실행 = min(관리자 설정, `maxConcurrency`), 인원(활성 계정) = `maxActiveMembers`까지(넘으면 409
 `plan_limit`), 로컬 백업 보존일 = `localBackupRetentionDays`. 스키마는 `shared/src/cloud-protocol/files.ts`의 `PlanFile` 하나다
-(Trina AX Cloud가 더 쓰는 `display`·`links`는 관리자 › 시스템 › 요금제 카드에 보인다). 파일이 있으면 그 카드가 생긴다.
+(Trina AX Cloud가 더 쓰는 `display`·`links`는 관리자 › 시스템 › 요금제 카드에 보인다. `speechFreeHours`는 호스팅 받아쓰기의 한 달
+무료 시간이고, 호스팅 서비스의 받아쓰기 키가 있을 때만 쓰인다. 없으면 10시간). 파일이 있으면 그 카드가 생긴다.
 
 리눅스에서는 요금제 파일이 없어도 서버의 보조 프로그램이 코어를 다 쓰지 않는다(ripgrep 2스레드, 받아쓰기 최대 4스레드,
 의미 검색 모델 2스레드, 32 MB 넘는 엑셀·한글 파일은 서버 안에서 읽지 않음). 대기열은 팀 max(10, 4×동시 실행), 한 사람 3개까지.
