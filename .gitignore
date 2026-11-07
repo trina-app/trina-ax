@@ -18,3 +18,6 @@ AuthKey_*.p8
 
 # the 트리나 demo content lives in the private trina-ax-core (editions/trina/demo); never commit a copy here
 /editions/trina/demo/
+
+# search quality test: downloaded Wikipedia articles and models (never commit them)
+/scripts/bench/quality/.cache/
