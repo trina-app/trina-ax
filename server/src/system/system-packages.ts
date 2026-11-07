@@ -62,13 +62,22 @@ const join = (a: T, b: T): T => ({ ko: `${a.ko} ${b.ko}`, en: `${a.en} ${b.en}`,
 
 export const SYSTEM_PACKAGES_TEXT = {
   label: { ko: '시스템 패키지', en: 'System packages', id: 'Paket sistem', ja: 'システムパッケージ', es: 'Paquetes del sistema' } as T,
-  ok: (when: string, browser: string): T => ({
-    ko: `이 버전의 목록대로예요(${when}).${browser ? ` HTML→PDF 브라우저 ${browser}.` : ''}`,
-    en: `As this version's list says (${when}).${browser ? ` Headless browser for HTML to PDF: ${browser}.` : ''}`,
-    id: `Sesuai daftar versi ini (${when}).${browser ? ` Browser untuk HTML ke PDF: ${browser}.` : ''}`,
-    ja: `このバージョンのリストどおりです(${when})。${browser ? `HTML→PDF のブラウザ: ${browser}。` : ''}`,
-    es: `Como dice la lista de esta versión (${when}).${browser ? ` Navegador para HTML a PDF: ${browser}.` : ''}`,
-  }),
+  ok: (when: string, browser: string): T => {
+    const done: T = {
+      ko: `이 버전의 목록대로예요(${when}).`,
+      en: `As this version's list says (${when}).`,
+      id: `Sesuai daftar versi ini (${when}).`,
+      ja: `このバージョンのリストどおりです(${when})。`,
+      es: `Como dice la lista de esta versión (${when}).`,
+    }
+    return browser ? join(done, {
+      ko: `HTML→PDF 브라우저 ${browser}.`,
+      en: `Headless browser for HTML to PDF: ${browser}.`,
+      id: `Browser untuk HTML ke PDF: ${browser}.`,
+      ja: `HTML→PDF のブラウザ: ${browser}。`,
+      es: `Navegador para HTML a PDF: ${browser}.`,
+    }) : done
+  },
   pending: (by: SyncBy): T => join({
     ko: '아직 이 버전의 목록대로 맞추지 않았어요.',
     en: 'Not yet brought to this version\'s list.',
