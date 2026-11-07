@@ -30,8 +30,8 @@ export const KNOWLEDGE_GRAPH_SPECS: Record<string, Spec> = {
 /** the canaries that are the text of a team file (world.ts: users/alice/todo.md, users/alice/skills/mine.md,
  * users/bob/notes.md, the finance budget, the finance group's skill, the marketing salaries, the marketing brief, the
  * falcon plan), and two that are a file's NAME (in users/alice/ and the finance folder) */
-const FILE_TEXT = [C.aliceFile, C.aliceSkill, C.bobFile, C.finFile, C.finSkill, C.salary, C.mktBrief, C.falconPlan]
-const FILE_NAME = [C.aliceFileName, C.finName]
+const FILE_TEXT: readonly string[] = [C.aliceFile, C.aliceSkill, C.bobFile, C.finFile, C.finSkill, C.salary, C.mktBrief, C.falconPlan]
+const FILE_NAME: readonly string[] = [C.aliceFileName, C.finName]
 
 export interface LookupCase {
   who: Who
