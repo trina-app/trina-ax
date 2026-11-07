@@ -619,7 +619,22 @@ describe('the switch, as the service wires it', () => {
   afterAll(async () => { await A?.close() })
   const indexer = () => (kg as unknown as { meaning: MeaningIndexer | null }).meaning
 
-  test('off unless server.json says true: documents are indexed, nothing is embedded, no process starts', async () => {
+  test('absent: on for a server, off in tests (no test starts the process); false turns it off', async () => {
+    expect(A.ctx.config.knowledgeGraph?.meaning).toBeUndefined()
+    const env = process.env.NODE_ENV
+    try {
+      process.env.NODE_ENV = 'production'
+      expect(kg.meaningOn()).toBe(true)
+      ;(A.ctx.config as { knowledgeGraph?: { meaning?: boolean } }).knowledgeGraph = { meaning: false }
+      expect(kg.meaningOn()).toBe(false)
+    } finally {
+      process.env.NODE_ENV = env
+      ;(A.ctx.config as { knowledgeGraph?: { meaning?: boolean } }).knowledgeGraph = undefined
+    }
+    expect(kg.meaningOn()).toBe(false)
+  })
+
+  test('off in tests unless a test says true: documents are indexed, nothing is embedded, no process starts', async () => {
     expect(A.ctx.config.knowledgeGraph?.meaning).toBeUndefined()
     expect(kg.meaningOn()).toBe(false)
     kg.checkAll()

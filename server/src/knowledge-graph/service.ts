@@ -277,7 +277,14 @@ export class KnowledgeGraph {
    * set; off means no indexing and no meaning in the search (the combined search asks this). Nothing about it is in the
    * admin screens.
    */
-  meaningOn() { return this.ctx.config.knowledgeGraph?.meaning === true && this.docsOn() }
+  /** Search by meaning: on unless server.json says knowledgeGraph.meaning false (wave 3: the quality test showed the
+   * combined search better overall and not worse on any type of question). Tests keep it off unless a test turns it on
+   * (meaning: true), so no test starts the embedding process or reaches for the model. */
+  meaningOn() {
+    const set = this.ctx.config.knowledgeGraph?.meaning
+    const on = set === undefined ? process.env.NODE_ENV !== 'test' : set
+    return on && this.docsOn()
+  }
 
   /** the background indexing of search by meaning, made when first needed while it is on */
   private meaningIndexer(): MeaningIndexer | null {

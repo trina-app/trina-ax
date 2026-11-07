@@ -192,7 +192,8 @@ export const AppConfigFile = z.object({
   deployment: z.enum(['self', 'hosted']).optional(),
   /** the knowledge graph (server/src/knowledge-graph/, docs/KNOWLEDGE-GRAPH.md): `codegraph` is the CodeGraph command
    * to use (a path; relative to this file's folder), '' never to use one. Absent: `codegraph` on the PATH, if any.
-   * `meaning`: search by meaning in the document index (the model runs on this server); off unless true. */
+   * `meaning`: search by meaning in the document index (the model runs on this server); on unless false (wave 3 of
+   * docs/AGENTS/plan/20261107-0819-knowledge-graph-fast-answers.md: the quality test passed). */
   knowledgeGraph: z.object({ codegraph: z.string().max(1000).optional(), meaning: z.boolean().optional() }).strict().optional(),
 })
 export type AppConfigFile = z.infer<typeof AppConfigFile>
@@ -244,7 +245,7 @@ export interface AppConfig {
   /** demo mode (MYCEL_DEMO, `bun run demo:company`): the fictional company's demo people. Only ever set on a development
    * server (readDemoFile); absent everywhere else, and then the demo endpoints answer 404. */
   demo?: DemoFile
-  /** see AppConfigFile.knowledgeGraph: codegraph absent = look on the PATH, '' = none; meaning true = search by meaning */
+  /** see AppConfigFile.knowledgeGraph: codegraph absent = look on the PATH, '' = none; meaning false = no search by meaning */
   knowledgeGraph?: { codegraph?: string; meaning?: boolean }
 }
 
