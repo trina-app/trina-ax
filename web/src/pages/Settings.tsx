@@ -27,7 +27,7 @@ import { ChangePasswordForm } from './Auth'
 import { MyCredentials } from './admin/Credentials'
 import { BrowserSettings } from './BrowserSettings'
 import { browserSettingsBridge, storeApp } from '../lib/desktop'
-import { applyTextSize, currentTextSize, storeTextSize, TEXT_SIZE_PERCENT, TEXT_SIZES } from '../lib/textSize'
+import { pickTextSize, TEXT_SIZE_PERCENT, TEXT_SIZES, useTextSize } from '../lib/textSize'
 import { Badge, Button, EmptyState, ErrorNote, Field, IconButton, Skeleton, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../components/ui'
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
 import { Avatar } from '../components/Avatar'
@@ -268,17 +268,16 @@ function TextSizeSetting() {
   const t = useT()
   const locale = useLocale()
   const setTextSize = useSession((s) => s.setTextSize)
-  // what the slider shows, and what the app uses
-  const [size, setSize] = useState<TextSize>(currentTextSize)
-  const [applied, setApplied] = useState<TextSize>(currentTextSize)
+  // what the app uses (also when the account's size arrives while this is open), and what the slider points at
+  const applied = useTextSize()
+  const [size, setSize] = useState<TextSize>(applied)
+  useEffect(() => setSize(applied), [applied])
   const input = useRef<HTMLInputElement>(null)
   const pending = useRef<{ size: TextSize; timer: ReturnType<typeof setTimeout> } | null>(null)
   const save = (s: TextSize) => void setTextSize(s).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))
   const commit = (s: TextSize) => {
     setSize(s)
-    setApplied(s)
-    storeTextSize(s)
-    applyTextSize(s)
+    pickTextSize(s)
     if (pending.current) clearTimeout(pending.current.timer)
     pending.current = { size: s, timer: setTimeout(() => { pending.current = null; save(s) }, 400) }
   }
@@ -312,6 +311,8 @@ function TextSizeSetting() {
           step={1}
           value={TEXT_SIZES.indexOf(size)}
           onChange={(e) => setSize(TEXT_SIZES[Number(e.target.value)] ?? 'default')}
+          // a touch that turned into a scroll ends with no change event: the slider goes back to the size in use
+          onPointerCancel={() => setSize(applied)}
           list={ticks}
           aria-label={t('settings.textSize')}
           aria-valuetext={t(`settings.textSize.${size}`)}

@@ -3,7 +3,7 @@ import { create } from 'zustand'
 import type { Locale, Me, TextSize, Theme, UserPrefs } from '@mycel/shared/api'
 import { api, API, isApiError } from '../lib/api'
 import { applyTheme, storedTheme, storeTheme } from '../lib/theme'
-import { applyTextSize, storedTextSize, storeTextSize } from '../lib/textSize'
+import { applyTextSize, pickTextSize, storedTextSize, storeTextSize, textSizeSettled, unsavedTextSize } from '../lib/textSize'
 import { pickLocale, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../i18n'
 import { recoveryLocale } from '../i18n/recovery-locale'
 import { forgetFileUploads } from '../lib/fileUploads'
@@ -47,8 +47,9 @@ function applyMe(me: Me) {
   const theme = me.user.prefs.theme ?? storedTheme()
   storeTheme(theme)
   applyTheme(theme)
-  // the same way: the account's text size, else this device's (an account that never picked one keeps it)
-  const textSize = me.user.prefs.textSize ?? storedTextSize()
+  // the same way: the account's text size, else this device's (an account that never picked one keeps it); one the
+  // person just picked and is still saving wins over an answer that left the server before it
+  const textSize = unsavedTextSize() ?? me.user.prefs.textSize ?? storedTextSize()
   storeTextSize(textSize)
   applyTextSize(textSize)
   // the team's logo as the tab icon (or the default mark again after an admin removed it)
@@ -157,7 +158,9 @@ export const useSession = create<SessionState>((set, get) => ({
   async updatePrefs(prefs) {
     const st = get().status
     if (st.kind !== 'signed-in') return
-    const me = await api.call(API.updateMe, { body: { prefs: { ...st.me.user.prefs, ...prefs } } })
+    // only what changed: the server merges it into the rest (routes/auth.ts), so two saves close together (the text
+    // size and then the theme) never put back each other's old value
+    const me = await api.call(API.updateMe, { body: { prefs } })
     set({ status: { kind: 'signed-in', me } })
   },
 
@@ -187,9 +190,12 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   async setTextSize(textSize) {
-    storeTextSize(textSize)
-    applyTextSize(textSize)
-    await get().updatePrefs({ textSize })
+    pickTextSize(textSize)
+    try {
+      await get().updatePrefs({ textSize })
+    } finally {
+      textSizeSettled(textSize)
+    }
   },
 }))
 

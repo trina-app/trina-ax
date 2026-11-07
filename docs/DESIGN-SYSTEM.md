@@ -152,7 +152,7 @@ No pair in use is below its floor. `web/test/unit/design-contrast.test.ts` (with
 | greeting | 28px / 1.5 | 26px / 1.5 | 600 -0.025em | `text-[1.625rem] sm:text-[1.75rem] font-semibold tracking-tight` | The home greeting (26px below 640px, 28px from sm), centred. |
 | page-title | 20px / 28px | 20px / 28px | 600 -0.025em | `text-xl font-semibold tracking-tight` | PageHeader h1 (text-xl font-semibold tracking-tight); the product name above the sign-in card. |
 | auth-title | 18px / 28px | 18px / 28px | 600 | `text-lg font-semibold` | The sign-in card title (text-lg font-semibold). |
-| brand | 17px / 1.5 | 17px / 1.5 | 600 -0.025em | `text-[17px] font-semibold tracking-tight` | The product name beside the 24px mark at the top of the sidebar (text-[17px] font-semibold tracking-tight). |
+| brand | 15px / 1.5 | 15px / 1.5 | 600 -0.025em | `text-[0.9375rem] font-semibold tracking-tight` | The team's name beside the 20px mark at the top of the sidebar (the AI's name in the phone's drawer). |
 | dialog-title | 16px / 24px | 16px / 24px | 600 | `font-semibold` | Modal title (font-semibold at the inherited 1rem). |
 | list-name | 16px / 24px | 17px / 24px | 500 | `text-base font-medium` | Names in the 대화 list and the room header (a DM's header has the person's title under the name in `text-xs text-muted`, as the people list). |
 | section-title | 14px / 20px | 15px / 22px | 600 | `text-sm font-semibold` | Admin Card title, ask-card header, home cards (text-sm font-semibold). |

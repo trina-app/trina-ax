@@ -11,8 +11,9 @@ export type UserRef = z.infer<typeof UserRef>
 
 export const UserPrefs = z.object({
   theme: Theme.optional(),
-  /** the person's text size on every device they sign in on (Settings > Profile); absent = default */
-  textSize: TextSize.optional(),
+  /** the person's text size on every device they sign in on (Settings > Profile); absent = default. A stored value this
+   * version does not know (a later version's step) reads as absent instead of hiding the other preferences. */
+  textSize: TextSize.optional().catch(undefined),
   /** language for AI answers if different from the UI language */
   answerLocale: Locale.optional(),
   /** own default engine/model for new chats ("내 기본 엔진/모델"; only for people who may pick the engine) */

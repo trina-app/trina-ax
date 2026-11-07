@@ -11643,7 +11643,14 @@ core next to the theme.
   device the person signs in on gets it, and in `localStorage` (`mycel.textSize`) so the sign-in screens and the first
   paint use it (`main.tsx` applies it before React renders, as the theme). On sign-in the account's value wins; an
   account that never picked one keeps the device's. An older server ignores the field (zod strips it) and the device's
-  value still applies.
+  value still applies. A stored step this version does not know reads as none (`.catch`), so it never hides the theme or
+  the engine; PATCH still refuses one.
+- **Saves send only what changed.** `updatePrefs` used to send the whole last-known prefs, so a theme save right after a
+  text size save (or the other way round) could put the other's old value back; the server already merges, so the web
+  now sends only the changed keys. While a picked size is being saved, an account read that left the server earlier (a
+  reconnect's `GET /api/me`) does not put the old size back (`unsavedTextSize`).
+- **What measures itself in px follows.** The two message boxes set their height in px from `scrollHeight`; they measure
+  again when the size changes (`useTextSize`), also while Settings is open over them.
 - **When it applies.** A drag previews only the sample line; the app takes the size when the slider is let go (the
   input's `change` event), because resizing the page mid-drag moved the slider under the pointer and made the value flip
   at a step's edge. The keyboard and a tap apply at once. The account is saved 400 ms after the last change, one save

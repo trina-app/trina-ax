@@ -165,6 +165,10 @@ describe('sign-in and sessions', () => {
     me = await c.call('PATCH', '/api/me', { prefs: { theme: 'dark' } })
     expect(me.user.prefs.textSize).toBe('largest')
     expect((await c.call('GET', '/api/me')).user.prefs.textSize).toBe('largest')
+    // a step this version does not know (stored by a later one) reads as none and hides nothing else
+    const id = (await c.call('GET', '/api/me')).user.id
+    h.ctx.db.query('UPDATE users SET prefs = ? WHERE id = ?').run(JSON.stringify({ theme: 'dark', textSize: 'huge' }), id)
+    expect((await c.call('GET', '/api/me')).user.prefs).toEqual({ theme: 'dark' })
   })
 })
 

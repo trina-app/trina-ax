@@ -120,8 +120,26 @@ describe('on the page and in the account', () => {
     expect(root()).toBe('140%')
     expect(storedTextSize()).toBe('largest')
     await saving
-    expect(patches).toEqual([{ prefs: { answerLocale: 'ko', textSize: 'largest' } }])
+    // only what changed: the server merges it, so a save of the theme close by cannot put an old size back
+    expect(patches).toEqual([{ prefs: { textSize: 'largest' } }])
     const st = useSession.getState().status
     expect(st.kind === 'signed-in' && st.me.user.prefs.textSize).toBe('largest')
+  })
+
+  test('an account read that left the server before the save does not undo the size being saved', async () => {
+    useSession.getState().signedIn(me('small'))
+    let answer!: (r: Response) => void
+    globalThis.fetch = (() => new Promise<Response>((r) => { answer = r })) as unknown as typeof fetch
+    const saving = useSession.getState().setTextSize('largest')
+    expect(root()).toBe('140%')
+    // a reconnect's GET /api/me, answered with the old size while the save is on its way
+    useSession.getState().signedIn(me('small'))
+    expect(root()).toBe('140%')
+    expect(storedTextSize()).toBe('largest')
+    answer(Response.json(me('largest')))
+    await saving
+    // saved: the account's size counts again
+    useSession.getState().signedIn(me('large'))
+    expect(root()).toBe('112.5%')
   })
 })

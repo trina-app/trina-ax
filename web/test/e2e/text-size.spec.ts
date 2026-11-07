@@ -28,10 +28,12 @@ test('the largest step grows the whole page, stays after a reload and in the acc
   await expect.poll(() => rootSize(page)).toBe('22.4px')
   expect((await largest).ok()).toBe(true)
 
-  // the page around it follows (rem sizes), not only Settings
+  // the page around it follows (rem sizes), not only Settings; the message box under the dialog measured itself again,
+  // so its placeholder is not cut
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('new-chat')).toBeVisible()
   expect(await page.getByTestId('new-chat').evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeCloseTo(sidebarText * 1.4, 1)
+  expect(await page.getByTestId('composer-input').evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1)
 
   await page.reload()
   await expect(page.getByTestId('composer-input')).toBeVisible()
@@ -59,6 +61,31 @@ test('the largest step grows the whole page, stays after a reload and in the acc
   // the control itself passes the accessibility check
   const r = await new AxeBuilder({ page }).include('[data-testid="text-size"]').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
   expect(r.violations.map((v) => v.id)).toEqual([])
+})
+
+test('a drag shows the size in the line under the slider, and the page takes it when the slider is let go', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await page.goto('/settings/profile')
+  const slider = page.getByTestId('text-size')
+  await slider.scrollIntoViewIfNeeded()
+  const sample = page.getByTestId('text-size-sample')
+  const sampleSize = () => sample.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))
+  const before = await sampleSize()
+  const box = (await slider.boundingBox())!
+  const y = box.y + box.height / 2
+  // the thumb of 기본 (the second of five steps), dragged to the end
+  await page.mouse.move(box.x + box.width / 4, y)
+  await page.mouse.down()
+  for (let i = 1; i <= 10; i++) await page.mouse.move(box.x + box.width / 4 + (box.width * 3 / 4) * i / 10, y)
+  await expect(sample).toContainText(ko['settings.textSize.largest'])
+  expect(await rootSize(page)).toBe('16px')
+  expect(await sampleSize()).toBeCloseTo(before * 1.4, 0)
+  const save = saved(page, 'largest')
+  await page.mouse.up()
+  await expect.poll(() => rootSize(page)).toBe('22.4px')
+  expect(await sampleSize()).toBeCloseTo(before * 1.4, 0)
+  expect((await save).ok()).toBe(true)
 })
 
 test('the sign-in screen shows this browser\'s size before the first paint', async ({ page }) => {
