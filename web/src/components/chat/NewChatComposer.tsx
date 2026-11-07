@@ -1,10 +1,14 @@
 // The box that starts a chat: on the new-chat page (pages/Home.tsx) and on a project's page (pages/Projects.tsx). The
 // first message creates the chat, in the project when there is one, and opens it. A draft and its attachments are kept
 // per place ("new", "project:<id>"), so a project's page and "/?project=<id>" share one.
+// In a project that shares its chats (docs/DECISIONS.md "Shared project chats") the new chat is a shared chat: the line
+// under the box says how many people will see it, and only team files can be attached.
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { Attachment } from '@mycel/shared/api'
+import type { Attachment, Project } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
+import { sharesNewChats } from '../../lib/sharedChat'
+import { useT } from '../../i18n'
 import { draftChat, draftChatIfAny, forgetDraftChat, rememberChat } from '../../lib/teamAttach'
 import { useChats } from '../../store/chats'
 import { useEngines } from '../../store/engines'
@@ -12,8 +16,10 @@ import { canChooseEngine, useMeStrict } from '../../store/session'
 import AiAccessBanner from './AiAccessBanner'
 import Composer, { type EngineChoice } from './Composer'
 
-export function NewChatComposer({ projectId, initialText, resetKey = 0, autoFocus, placeholder, onSent, skill, aiLine = true }: {
+export function NewChatComposer({ projectId, project, initialText, resetKey = 0, autoFocus, placeholder, onSent, skill, aiLine = true }: {
   projectId: string | null
+  /** the project, when known: whether its new chats are shared, and with how many people */
+  project?: Project | null
   initialText?: string
   /** a new value starts the box again with `initialText` (a chosen example or question) */
   resetKey?: number
@@ -27,7 +33,10 @@ export function NewChatComposer({ projectId, initialText, resetKey = 0, autoFocu
   aiLine?: boolean
 }) {
   const me = useMeStrict()
+  const t = useT()
   const navigate = useNavigate()
+  const shared = !!project && project.id === projectId && sharesNewChats(project, !!me.server?.allChatsConfidential)
+  const sharedLine = shared ? t('projects.sharedNewChat', { n: project.audience ?? 0 }) : undefined
   const send = useChats((s) => s.send)
   const upsertChat = useChats((s) => s.upsertChat)
   const models = useEngines((s) => s.models)
@@ -84,6 +93,9 @@ export function NewChatComposer({ projectId, initialText, resetKey = 0, autoFocu
       skill={skill}
       autoFocus={autoFocus}
       placeholder={placeholder}
+      footer={sharedLine}
+      phoneFooter={sharedLine}
+      teamFilesOnly={shared ? t('chat.sharedTeamFiles') : undefined}
     />
     </>
   )

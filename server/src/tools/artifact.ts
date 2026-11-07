@@ -8,6 +8,7 @@ import type { z } from 'zod'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { HttpError } from '../http/errors'
+import { visibleSharedChat } from '../chat/shared'
 import { ToolError } from '../policy/errors'
 import { normIso } from '../team-files/service'
 
@@ -72,8 +73,11 @@ export class Artifacts {
     return s
   }
 
+  /** The caller's own chat (a shared one only while they still see its project), or a shared project chat they see
+   * (chat/shared.ts): a shared chat's artifacts are part of its transcript. */
   private ownChat(userId: string, chatId: string) {
-    const c = this.ctx.db.query('SELECT id FROM chats WHERE id = ? AND user_id = ?').get(chatId, userId)
+    if (visibleSharedChat(this.ctx.db, this.ctx.files, userId, chatId)) return
+    const c = this.ctx.db.query('SELECT id FROM chats WHERE id = ? AND user_id = ? AND shared_at IS NULL').get(chatId, userId)
     if (!c) throw new HttpError('not_found')
   }
 
@@ -89,10 +93,11 @@ export class Artifacts {
     return { items }
   }
 
-  /** GET /api/artifacts/:id — own chats only. */
+  /** GET /api/artifacts/:id — own chats, and shared project chats the caller sees. */
   get(userId: string, id: string): Artifact {
-    const r = this.ctx.db.query(`SELECT a.${COLS.split(', ').join(', a.')} FROM artifacts a JOIN chats c ON c.id = a.chat_id WHERE a.id = ? AND c.user_id = ?`).get(id, userId) as Row | null
+    const r = this.ctx.db.query(`SELECT a.${COLS.split(', ').join(', a.')} FROM artifacts a WHERE a.id = ?`).get(id) as Row | null
     if (!r) throw new HttpError('not_found')
+    this.ownChat(userId, r.chat_id)
     return full(r)
   }
 }

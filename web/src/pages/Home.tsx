@@ -121,6 +121,7 @@ export default function Home() {
             {extras && (starter ? <StarterLine starter={starter} /> : notes && !projectId && <NotesLine notes={notes} />)}
             <NewChatComposer
               projectId={projectId}
+              project={project}
               initialText={preset?.text}
               resetKey={preset?.n ?? 0}
               // Only in-app PUSH navigation or a chosen preset requests focus; a document load keeps the skip link first.
