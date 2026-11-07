@@ -11620,6 +11620,43 @@ URL, and any credential kind that would carry a custom address.
 - **Rejected:** keeping a lighter re-auth for official accounts (no gain, as above); dropping the password from the API
   engine (it sets where conversations go).
 
+## Reads reach every window and device (fix/read-sync, 2026-11-07)
+
+The owner: "다른 곳(앱, 다른 웹)에서는 읽었는데 여기서는 또 안 읽었다고 알림도 울리고 계속 1 떠 있네". Placement: Team AX
+core (web app); no server or contract change.
+
+- **What was wrong.** The server already tells all of a person's windows and devices about a read (`room.read` with their
+  position and badge; a thread read as their room in `room.updated` and the thread's summary in `room.thread`), and
+  the web store applies them (`tests/unit/b-rooms-read-sync.test.ts` now checks this over real sockets, a phone's
+  bearer session and a resumed window included). Two web windows of one person stayed in step in Chromium, also after
+  going offline and back. What failed was the phone app: the room page and the thread marked a read only when
+  `document.hasFocus()` was true, and a WKWebView reports no focus until the person touches the page (WebKit bug
+  226025). A phone-app page on the dev server (the bridge stubbed, no focus, as before a touch) showed exactly the
+  owner's report: the room open on it sent no read, and the computer's window kept "@ 1" and rang. Opening a room from a notice and reading it marked nothing read, so the server, every other window and the
+  badge kept it unread, and the computer's tab rang for it.
+- **Looking at the page** (`web/src/lib/attention.ts` `lookingAt`): on a computer (a browser or the desktop app) on
+  screen and focused; on a phone (the phone app, or a browser whose only pointer is a finger, `(pointer: coarse)`, as
+  the room sound counts a phone) on screen. iOS Chrome, Firefox and Edge are WKWebViews too and had the same gap. A
+  phone page in the background is hidden and reads nothing; a thread over the timeline on a phone leaves the timeline
+  with no height, so it reads nothing either. Reading a room (`pages/Room.tsx`), a thread
+  (`components/rooms/ThreadPanel.tsx`) and the sound's own "the room this window shows" all use it.
+- **The sound waits 1.5 s** (`SETTLE_MS`, `store/roomSound.ts`) before it rings, and then rings only if the message is
+  still unread here: a timeline message by my read position, a reply that stays in its thread by my room's thread
+  count (the server sends a follower their room right after each reply; a followed thread read elsewhere clears it).
+  A phone that shows the room marks it read, and on the dev server the read reached the computer's window within that
+  (a phone-app page and a computer window: the computer stayed quiet), so the computer next to the phone stays quiet;
+  on a slow phone network the read can come later than 1.5 s and the computer still rings. Also quiet when, meanwhile, this
+  window opened the room, the room was muted or left, the switch went off, the audio can no longer play or the person
+  signed out; the device's 3 s slot is taken only after the wait. The desktop app's notice already waited 3 s and
+  looked again.
+- **An event the page cannot read** any more (a server updated under a page that stayed open) is no longer lost
+  silently: when its name is one the page knows, the page reads its state again over REST (`resync`), 2 s after the
+  first such event and then at most once a minute (a page left on an old version would otherwise reload everything
+  during each streamed answer); a reset or resync the server asks for covers one still waiting. An unknown name is
+  still ignored.
+- **Not changed.** A push notice is sent when the message arrives, before anyone reads it (as Slack); reading it on
+  one device marks the notices read on the server. A window that was away gets the read in its replay, or the rooms
+  again from the server after a reset or resync.
 ## 글자 크기 — each person's text size (feat/text-size, 2026-11-07)
 
 넣을 곳: trina-ax web/src (lib/textSize.ts, pages/Settings.tsx) + shared/src/api, 이유: the product owner asked that each

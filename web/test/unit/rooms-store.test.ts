@@ -6,6 +6,7 @@ import { uuidv7, type Me } from '@mycel/shared/api'
 import { setNavigator } from '../../src/lib/nav'
 import { mergeMessages, placeKey, toggledReactions, withAiRun, withMessage, withReactions, withReadState, withThreadSummary, withUpdatedMessage, useRooms, type RoomsData } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
+import { roomBadge, roomUnread, totalUnread } from '../../src/lib/rooms'
 import { at, BEN, CY, ME, message, room } from './rooms-fixtures'
 
 const data = (o: Partial<RoomsData> = {}): RoomsData => ({ rooms: [], openRoomId: null, timeline: null, threadView: null, ...o })
@@ -302,6 +303,51 @@ describe('handleEvent', () => {
     await tick()
     expect(calls).toEqual([`GET /api/rooms/${r.id}`])
     expect(useRooms.getState().rooms[0]).toMatchObject({ id: r.id, unreadCount: 1 })
+  })
+
+  test('what I read on my phone or in another window reaches this one: the count, the "@", a followed thread, the 대화 tab total', () => {
+    const root = uuidv7()
+    const a = room({ name: 'acme-a', unreadCount: 2, mentioned: true, lastSeq: 4, lastReadSeq: 2, threadsUnread: 1, nextThreadId: root })
+    const b = room({ name: 'acme-b', unreadCount: 1, lastSeq: 1 })
+    useRooms.setState({ rooms: [a, b], loaded: true })
+    const get = () => useRooms.getState().rooms.find((r) => r.id === a.id)!
+    expect(totalUnread(useRooms.getState().rooms)).toBe(4)
+    // the room read there: its messages; the "@" stays while the followed thread that mentions me has news (the server says so)
+    useRooms.getState().handleEvent({ type: 'room.read', seq: 1, at: Date.now(), data: { roomId: a.id, lastReadSeq: 4, unreadCount: 0, mentioned: true } })
+    expect(get()).toMatchObject({ unreadCount: 0, lastReadSeq: 4, mentioned: true, threadsUnread: 1 })
+    expect(roomBadge(get())).toBe('@')
+    expect(totalUnread(useRooms.getState().rooms)).toBe(2)
+    // then the thread read there: my room as the server sees it now, and the thread's summary
+    useRooms.getState().handleEvent({ type: 'room.updated', seq: 2, at: Date.now(), data: { roomId: a.id, change: 'updated', room: { ...get(), threadsUnread: 0, nextThreadId: null, mentioned: false } } })
+    useRooms.getState().handleEvent({ type: 'room.thread', seq: 3, at: Date.now(), data: { roomId: a.id, rootId: root, thread: { replyCount: 1, lastReplyAt: at(3), repliers: [BEN], newReplies: false } } })
+    expect(get()).toMatchObject({ unreadCount: 0, threadsUnread: 0, mentioned: false })
+    expect(roomUnread(get())).toBe(0)
+    expect(totalUnread(useRooms.getState().rooms)).toBe(1)
+    // the other room is untouched
+    expect(useRooms.getState().rooms.find((r) => r.id === b.id)!.unreadCount).toBe(1)
+  })
+
+  test('my place is the newest message I can see (others\' private previews are not mine): read to it elsewhere, nothing is left; an older read never moves it back', async () => {
+    const r = room({ unreadCount: 1, lastSeq: 5, lastReadSeq: 3 })
+    useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id) })
+    // (the server holds a read to the newest message the person can see: 5, though the room's own counter is past it)
+    useRooms.getState().handleEvent({ type: 'room.read', seq: 1, at: Date.now(), data: { roomId: r.id, lastReadSeq: 5, unreadCount: 0, mentioned: false } })
+    useRooms.getState().handleEvent({ type: 'room.read', seq: 2, at: Date.now(), data: { roomId: r.id, lastReadSeq: 4, unreadCount: 0, mentioned: false } })
+    expect(useRooms.getState().rooms[0]).toMatchObject({ lastReadSeq: 5, unreadCount: 0 })
+    // leaving the room: nothing unread here, so the server is not asked again
+    useRooms.getState().close(r.id)
+    await tick()
+    expect(calls).toEqual([])
+  })
+
+  test('back after a lost connection: the rooms come from the server again, and a badge read elsewhere meanwhile goes', async () => {
+    const a = room({ name: 'acme-a', unreadCount: 3, mentioned: true, lastSeq: 9, lastReadSeq: 6, threadsUnread: 1 })
+    useRooms.setState({ rooms: [a], loaded: true })
+    routes['/api/rooms'] = { items: [{ ...a, unreadCount: 0, mentioned: false, lastReadSeq: 9, threadsUnread: 0 }] }
+    await useRooms.getState().resync()
+    expect(calls).toEqual(['GET /api/rooms'])
+    expect(useRooms.getState().rooms[0]).toMatchObject({ unreadCount: 0, mentioned: false, lastReadSeq: 9, threadsUnread: 0 })
+    expect(totalUnread(useRooms.getState().rooms)).toBe(0)
   })
 })
 
