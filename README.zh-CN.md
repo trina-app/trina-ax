@@ -8,7 +8,7 @@
 
 Claude Code 和 Codex 跑在公司的服务器上，用的是公司文件和团队技能。团队成员在浏览器里使用：可以在自己的聊天里提问，从 0.4 版起也可以在团队对话里 @Trina。
 
-[官网](https://ax.trina.app) · [10 分钟上手](#10-分钟上手) · [自托管](docs/for-admins.md) · [文档](docs/README.md)
+[官网](https://ax.trina.app) · [10 分钟上手](#10-分钟上手) · [自托管](docs/for-admins.md) · [文档](docs/README.md) · [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax)
 
 [English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · 简体中文
 
@@ -20,7 +20,7 @@ Claude Code 和 Codex 跑在公司的服务器上，用的是公司文件和团�
 
 - **一次设好，大家都照这个做法干活。** 公司文件放进 `shared/`；负责人写报价单的方法写进 `skills/quote/SKILL.md`。新同事入职第一天就能照着用。
 - **在对话里 @Trina，结果直接发到对话里。** 在团队对话中提问：团队技能用你能打开的文件来处理，回答连同文件会发到这个对话里。
-- **同事做到一半的事，谁都能接着做**（即将推出）。同一个项目的成员将能接着同事的 AI 聊天继续做，每条消息都以发送者本人的身份运行。
+- **同事做到一半的事，谁都能接着做**（下一个 0.4 测试版推出）。同一个项目的任何成员都能接着一个共享项目聊天继续做，每条消息都以发送者本人的身份运行。
 
 放进真实的公司文件也没关系，每个人只能看到自己有权看的内容。[原理](#底层原理)
 
@@ -197,11 +197,13 @@ https://github.com/user-attachments/assets/61f3469b-358d-4b3a-9233-c6b23b5db835
 
 ## 接下来
 
-- **接着同事的 AI 聊天做。** 共享项目聊天：项目里的任何人都能接着一个 AI 聊天继续，每条消息都以发送者本人的身份运行。已完成设计，尚未开发。
+- **接着同事的 AI 聊天做。** 共享项目聊天将在下一个 0.4 测试版推出：项目里的任何人都能接着一个共享项目聊天继续，每条消息都以发送者本人的身份运行。对话里的 @Trina 也能读取提问者能看到的共享项目聊天。
 - **Android 应用。** 正在 Google Play 审核中。
 - **Trina 托管上的 0.4。** 托管跟随稳定版通道，0.4 成为稳定版后就会有团队对话。自托管服务器现在就可以运行 0.4 版本。
 
 ## 社区与贡献
+
+提问和交流请来 [Discord](https://discord.gg/zUVfSR8MVk)（“Trina AX”服务器），最新动态请关注 [X](https://x.com/trina_ax)。
 
 [最新版本与校验和](https://github.com/trina-app/trina-ax/releases/latest) · [更新日志](CHANGELOG.md) · [获取支持](SUPPORT.md) · [参与贡献](CONTRIBUTING.md) · [报告安全问题](SECURITY.md) · [开发](docs/DEVELOPMENT.md) · [配置](docs/CONFIGURATION.md) · [机器可读索引](llms.txt)
 
