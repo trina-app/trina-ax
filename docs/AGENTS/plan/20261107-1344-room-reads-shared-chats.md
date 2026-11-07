@@ -73,4 +73,8 @@ Built as planned. Differences and notes:
 - The e2e mock does not run the room's AI (rooms are page.route fixtures), so no e2e spec; unit and security tests
   cover it, and a real-engine run checked both outcomes.
 
-PR: (link added when opened)
+- After the independent security review a listing looks, by default, only in the projects everyone in the room sees
+  (`include_all` for the asker's other projects, which then count whatever matched), so the owner's rule still answers
+  in the room; reading one chat counts its project only.
+
+PR: https://github.com/trina-app/trina-ax/pull/174
