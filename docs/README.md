@@ -27,6 +27,7 @@ Markdown is the canonical operating guide. Printable PDFs are optional generated
 - [MCP / HTTP integrations](INTEGRATIONS.md), [Google Drive](GOOGLE-DRIVE.md), [Slack](SLACK.md)
 - [Developer and agent docs](site/index.md): the documentation site (intro, guides, HTTP API, CLI, agent docs); `bun run docs:build` builds it with `llms.txt`
 - [Development and tests](DEVELOPMENT.md), [contributing](../CONTRIBUTING.md), [conduct](../CODE_OF_CONDUCT.md)
+- [Plans before work](AGENTS/README.md): every feature or fix starts with a plan in `AGENTS/plan/`
 - [Design system](DESIGN-SYSTEM.md): colours, type, layout, components, copy and accessibility rules for every Trina screen
 - [Changelog](../CHANGELOG.md), [release CI](RELEASE-CI.md), [release channels](EDITION-RELEASE.md)
 - [Source offer](SOURCE-OFFER.md), [third-party notices](THIRD-PARTY-NOTICES.md), [release notices](RELEASE-NOTICES.md)

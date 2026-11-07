@@ -1,5 +1,6 @@
 # Trina AX
 
+- [계획 먼저 / Plan first](docs/AGENTS/README.md): 기능·수정 작업 전에 `docs/AGENTS/plan/<timestamp>-<feature>.md`에 계획을 쓰고 브랜치의 첫 커밋으로 올린다. Write the plan before any code.
 - [저장소 규칙](docs/REPOSITORY-RULES.md)
 - [코어 동기화 기록](docs/UPSTREAM.md)
 - [공개 준비 상태](docs/PUBLICATION.md)

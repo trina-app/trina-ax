@@ -17,6 +17,10 @@ Instructions for coding agents that work in this repository.
 ## Branches and the dev server
 
 - Work on a feature branch. Open the PR into `dev`, not `main`.
+- Plan first. Before you write code for a feature or a fix, write a plan in `docs/AGENTS/plan/` named
+  `<timestamp>-<feature>.md` (`date -u +%Y%m%d-%H%M`, e.g. `20261107-0830-room-message-links.md`) and commit it as the
+  first commit on the branch. Format and template: [docs/AGENTS/README.md](docs/AGENTS/README.md). Link the plan in
+  the PR.
 - `dev` takes merges without waiting for full CI. Before you merge, run `bun run typecheck`, `bun run check:i18n`
   and the unit tests for the area you changed.
 - Keep PRs small. Before you add a migration, check the highest number in `server/migrations/` on `dev`: two files
