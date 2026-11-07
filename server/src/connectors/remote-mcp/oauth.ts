@@ -4,7 +4,7 @@ import type { AppConfig } from '../../app-config'
 import type { AppContext } from '../../context'
 import type { AuthInfo } from '../../services'
 import { audit } from '../../admin/audit'
-import { ACCESS_MS, ADMIN_SCOPE, CODE_MS, GRANT_MS, MCP_PATH, OAuthError, OPTIONAL_SCOPES, REQUEST_MS, SCOPES, challenge, hash, redirectAllowed, redirectMatches, resourceMatches, scopes, secret, validOrigin } from './policy'
+import { ACCESS_MS, ADMIN_SCOPE, CODE_MS, ROOMS_SCOPE, ROOMS_WRITE_SCOPE, GRANT_MS, MCP_PATH, OAuthError, OPTIONAL_SCOPES, REQUEST_MS, SCOPES, challenge, hash, redirectAllowed, redirectMatches, resourceMatches, scopes, secret, validOrigin } from './policy'
 
 type Client = { id: string; name: string; redirects: string }
 type Pending = { id: string; client_id: string; redirect_uri: string; challenge: string; state: string | null; scopes: string; resource: string; user_id: string | null; session_id: string | null; expires_at: number }
@@ -50,7 +50,10 @@ export class RemoteOAuth {
   resource() { return this.enabled() + MCP_PATH }
   metadata() {
     const issuer = this.enabled()
-    return { issuer, authorization_endpoint: issuer + '/oauth/authorize', token_endpoint: issuer + '/oauth/token', registration_endpoint: issuer + '/oauth/register', revocation_endpoint: issuer + '/oauth/revoke', response_types_supported: ['code'], grant_types_supported: ['authorization_code', 'refresh_token'], token_endpoint_auth_methods_supported: ['none'], code_challenge_methods_supported: ['S256'], scopes_supported: [...SCOPES] }
+    return { issuer, authorization_endpoint: issuer + '/oauth/authorize', token_endpoint: issuer + '/oauth/token', registration_endpoint: issuer + '/oauth/register', revocation_endpoint: issuer + '/oauth/revoke', response_types_supported: ['code'], grant_types_supported: ['authorization_code', 'refresh_token'], token_endpoint_auth_methods_supported: ['none'], code_challenge_methods_supported: ['S256'], scopes_supported: [...SCOPES],
+      // decide() puts iss in every authorization response (allowed or denied); saying so lets Codex use its plain
+      // loopback /callback and ChatGPT its stable callback (RFC 9207; MCP 2026-07-28 requires it when iss is sent)
+      authorization_response_iss_parameter_supported: true }
   }
   protectedMetadata() { return { resource: this.resource(), authorization_servers: [this.enabled()], scopes_supported: [...SCOPES], bearer_methods_supported: ['header'], resource_name: `${PRODUCT.displayName} files` } }
   /** Durable hashed identities, bounded by both a global bucket and per-transport/client buckets. */
@@ -79,7 +82,7 @@ export class RemoteOAuth {
     if (body.grant_types !== undefined && (!Array.isArray(body.grant_types) || body.grant_types.some(v => !['authorization_code', 'refresh_token'].includes(v)))) throw new OAuthError('invalid_client_metadata')
     if (body.response_types !== undefined && (!Array.isArray(body.response_types) || body.response_types.some(v => v !== 'code'))) throw new OAuthError('invalid_client_metadata')
     if ((this.db.query('SELECT count(*) AS n FROM remote_mcp_clients').get() as { n: number }).n >= 2000) throw new OAuthError('temporarily_unavailable', 503)
-    const name = body.client_name === undefined ? 'Claude connector' : string(body.client_name, 80)
+    const name = body.client_name === undefined ? 'MCP app' : string(body.client_name, 80)
     if (/[\x00-\x1f\x7f<>]/.test(name)) throw new OAuthError('invalid_client_metadata')
     const id = secret('tax_client_'), unique = [...new Set(redirects as string[])]
     this.db.query('INSERT INTO remote_mcp_clients VALUES(?,?,?,?,?)').run(id, name, JSON.stringify(unique), this.now(), this.now())
@@ -132,12 +135,14 @@ export class RemoteOAuth {
     return { id, clientName: c.name, redirectOrigin: new URL(r.redirect_uri).origin, scopes: this.offered(JSON.parse(r.scopes), auth.user.id), optional: [...OPTIONAL_SCOPES] as string[], admin: isTeamAdmin(this.db, auth.user.id), resource: r.resource, expiresAt: iso(r.expires_at) }
   }
   /**
-   * The grant: mcp:read, plus mcp:write when `write` (left out: when the app asked for it), plus mcp:admin when the
-   * person is an active owner or admin at this moment (no box, and nothing the page sends changes it), plus
-   * offline_access when the app asked for it. It may hold a scope the app did not ask for; the token answer's `scope`
-   * names exactly what was granted (RFC 6749 3.3), and a refresh can only narrow it.
+   * The grant: mcp:read, plus mcp:write when `write` (left out: when the app asked for it), plus mcp:rooms when
+   * `rooms` and mcp:rooms.write when `rooms` and `roomsWrite` (left out: no, whatever the app asked: a page that shows
+   * no rooms box grants no rooms), plus mcp:admin when the person is an active owner or admin at this moment (no box,
+   * and nothing the page sends changes it), plus offline_access when the app asked for it. It may hold a scope the app
+   * did not ask for; the token answer's `scope` names exactly what was granted (RFC 6749 3.3), and a refresh can only
+   * narrow it.
    */
-  decide(id: string, auth: AuthInfo, allow: boolean, o: { write?: boolean } = {}) {
+  decide(id: string, auth: AuthInfo, allow: boolean, o: { write?: boolean; rooms?: boolean; roomsWrite?: boolean } = {}) {
     return this.db.transaction(() => {
       const r = this.pending(id, auth), url = new URL(r.redirect_uri)
       this.db.query('DELETE FROM remote_mcp_requests WHERE id=?').run(id)
@@ -150,6 +155,8 @@ export class RemoteOAuth {
       const grant = secret('tax_grant_'), code = secret('tax_code_'), end = Math.min(this.now() + GRANT_MS, this.browser(auth))
       const asked = JSON.parse(r.scopes) as string[], chosen = new Set<string>(['mcp:read'])
       if (o.write ?? asked.includes('mcp:write')) chosen.add('mcp:write')
+      if (o.rooms === true) chosen.add(ROOMS_SCOPE)
+      if (o.rooms === true && o.roomsWrite === true) chosen.add(ROOMS_WRITE_SCOPE)
       if (isTeamAdmin(this.db, auth.user.id)) chosen.add(ADMIN_SCOPE)
       if (asked.includes('offline_access')) chosen.add('offline_access')
       const selected = SCOPES.filter(s => chosen.has(s))
@@ -207,8 +214,10 @@ export class RemoteOAuth {
         if (g.client_id !== c.id) throw invalid()
         if (row.used_at !== null) { this.revokeGrant(g.id); return invalid() }
         if (row.expires_at <= this.now()) throw invalid()
-        const original = JSON.parse(g.scopes) as string[], selected = body.scope === undefined ? original : scopes(body.scope)
-        if (selected.some(s => !original.includes(s))) throw new OAuthError('invalid_scope')
+        const original = JSON.parse(g.scopes) as string[], asked = body.scope === undefined ? original : scopes(body.scope)
+        if (asked.some(s => !original.includes(s))) throw new OAuthError('invalid_scope')
+        // writing in conversations goes only with reading them (decide): narrowed away with it
+        const selected = asked.filter(s => s !== ROOMS_WRITE_SCOPE || asked.includes(ROOMS_SCOPE))
         const count = this.db.query('SELECT count(*) AS n FROM remote_mcp_tokens WHERE grant_id=?').get(g.id) as { n: number }
         if (count.n >= 4096) { this.revokeGrant(g.id); return invalid() }
         // Narrowing persists for this grant and all future refreshes, never quietly expands again.
