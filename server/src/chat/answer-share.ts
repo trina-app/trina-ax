@@ -115,7 +115,10 @@ function branchUse(db: Database, chatId: string, messageId: string): BranchUse {
     .filter((r) => !notCounted(r.path)) : []
   const known = !!chat && scopeDescribes(db, chat, messageId, answers)
   const scope = known ? scopeWithListing(db, chatId) : null
-  const other = (scope?.sources ?? []).filter((s) => !scope!.listed(s))
+  // a turn of the branch that never ended (the server stopped mid-answer) saved no source list: its reads are known only
+  // as the scope's places, which then all count
+  const unended = ids.length > 0 && !!db.query(`SELECT 1 FROM turns WHERE message_id IN (${ids.map(() => '?').join(',')}) AND status IN ('queued','running','interrupted') LIMIT 1`).get(...ids)
+  const other = (scope?.sources ?? []).filter((s) => unended || !scope!.listed(s))
   // the chat read a room's messages and the scope does not show which: nobody else is taken to have seen them
   const roomsUnseen = !!chat?.rooms_seen && (!known || !(scope?.sources ?? []).some((s) => s.type === 'room'))
   return { answers: ids, files, other, known, roomsUnseen }

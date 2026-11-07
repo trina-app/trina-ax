@@ -344,6 +344,12 @@ describe('the false alarm: a quote of my own folder copied where the room reads 
     }
   })
 
+  test('a turn of the branch that never ended saved no source list: the scope\'s places count as they are', async () => {
+    const { a } = quoteAnswer('alice')
+    h.ctx.db.query("UPDATE turns SET status = 'interrupted' WHERE message_id = ?").run(a.answerId)
+    expect((await share('alice', a, { roomId: rooms.marketing })).json).toMatchObject({ status: 'confirm', provenance: { places: [{ kind: 'mine' }] } })
+  })
+
   test('an unlisted input of my own folder (an attachment, make_file\'s source) is not covered by the copy', async () => {
     const { a } = quoteAnswer('alice')
     addSources(h.ctx.db, a.chatId, [{ type: 'user', id: 'alice' }])
