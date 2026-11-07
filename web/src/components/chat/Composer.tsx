@@ -414,7 +414,8 @@ export default function Composer({
   const attachControls = (
     <>
       <div
-        className="relative"
+        // flex: the button itself is what a phone's slot centres (not a line box around it)
+        className="relative flex"
         ref={attachMenuRef}
         onBlur={(e) => {
           // focus moving out of the button and its menu (Tab, Shift+Tab) closes the menu; no new target (Safari
@@ -668,7 +669,7 @@ export default function Composer({
               {/* the "#" tokens are drawn by a layer behind the box (its own text is transparent then): the native
                   text box keeps Korean input, selection and spell check */}
               <div className="relative min-w-0 flex-1">
-                {tokens && <TokenLayer text={text} ranges={roomMenu.ranges} scrollTop={scrollTop} className={clsx('pb-2 text-reading leading-reading', phone ? 'pl-1' : 'pl-5', answering ? 'pt-1.5' : 'pt-3')} />}
+                {tokens && <TokenLayer text={text} ranges={roomMenu.ranges} scrollTop={scrollTop} className={clsx('pb-2 text-reading leading-reading', phone ? 'pl-1' : 'pl-5', answering ? 'pt-2' : 'pt-3')} />}
                 <textarea
                   ref={taRef}
                   rows={1}
@@ -703,7 +704,7 @@ export default function Composer({
                   // not disabled: the focus stays in the box while the words are on their way
                   readOnly={voice.busy}
                   aria-busy={transcribing || undefined}
-                  className={clsx('relative block max-h-[240px] w-full min-w-0 resize-none bg-transparent pb-2 text-reading leading-reading outline-none placeholder:text-faint', phone ? 'pl-1' : 'pl-5', answering ? 'pt-1.5' : 'pt-3', tokens && 'room-ref-field [scrollbar-gutter:stable]')}
+                  className={clsx('relative block max-h-[240px] w-full min-w-0 resize-none bg-transparent pb-2 text-reading leading-reading outline-none placeholder:text-faint', phone ? 'pl-1' : 'pl-5', answering ? 'pt-2' : 'pt-3', tokens && 'room-ref-field [scrollbar-gutter:stable]')}
                   data-testid="composer-input"
                 />
               </div>

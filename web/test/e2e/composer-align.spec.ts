@@ -3,8 +3,8 @@
 // more lines the buttons stay at the bottom, centred on the last line, as in ChatGPT and Slack. Each control sits in a
 // slot as tall as one text line's box (index.css --spacing-composer-line). Measured on a computer (1440 px), in a narrow
 // window (700 px: the phone's text sizes with a computer's buttons) and on a phone (390 px, touch: the phone app's box),
-// at the default and the largest text size. The recording bar is as tall as the row it stands in for, with ✕ and ✓ on
-// the same centre.
+// at the default and the largest text size, also while an answer runs (stop, "send when done"). The recording bar is as
+// tall as the row it stands in for, with ✕ and ✓ on the same centre.
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
@@ -15,6 +15,8 @@ test.use({ serviceWorkers: 'block', launchOptions: { args: ['--use-fake-device-f
 
 const ROOT = { id: '019a5f00-0000-7000-8000-000000000001', author: { id: 'sora', name: '소라님' }, body: '시안 봤어요' }
 const FOUR = 'one\ntwo\nthree\nfour'
+// the mock answers this slowly (send-queue.spec.ts)
+const SLOW = 'slow answer please, slow slow slow slow slow slow slow slow slow slow'
 
 interface Box {
   name: string
@@ -76,8 +78,12 @@ function measure(box: Locator, input: string, ids: string[]) {
   )
 }
 
-async function expectLinedUp(page: Page, b: Box, phone: boolean, where: string) {
+/** The page's root font size, the person's text size (lib/textSize.ts): 16px by default, 22.4px at the largest. */
+const rootSize = (page: Page) => page.evaluate(() => getComputedStyle(document.documentElement).fontSize)
+
+async function expectLinedUp(page: Page, b: Box, phone: boolean, where: string, root = '16px') {
   const box = await b.open(page)
+  await expect.poll(() => rootSize(page), `${where}: the text size`).toBe(root)
   const input = box.getByTestId(b.input)
   await expect(input).toBeVisible()
   const ids = b.controls(phone)
@@ -143,7 +149,30 @@ for (const v of [
       for (const b of [ROOM, THREAD, AI]) await expectLinedUp(page, b, v.phone, v.where)
       // the person's largest text size (lib/textSize.ts): the slots grow with the line
       await largestText(page)
-      for (const b of [ROOM, AI]) await expectLinedUp(page, b, v.phone, `${v.where} (largest text)`)
+      for (const b of [ROOM, AI]) await expectLinedUp(page, b, v.phone, `${v.where} (largest text)`, '22.4px')
+    })
+
+    test('while an answer runs, stop and "send when done" sit on the line too', async ({ page }) => {
+      await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+      await signIn(page)
+      const box = page.getByTestId('composer')
+      const input = box.getByTestId('composer-input')
+      await input.fill(SLOW)
+      await box.getByTestId('send').click()
+      await expect(page).toHaveURL(/\/c\/[0-9a-f-]{36}$/)
+      await expect(page.getByTestId('assistant-message').last()).toHaveAttribute('data-status', 'streaming')
+      const ids = [...(v.phone ? ['attach-button'] : []), 'voice-button', 'send-later', 'stop']
+      await input.fill('Hello')
+      for (const id of ids) await expect(box.getByTestId(id)).toBeVisible()
+      let m = await measure(box, 'composer-input', ids)
+      expect(m.lines).toBe(1)
+      for (const id of ids) expect(Math.abs(m.controls[id]! - m.first), `${v.where} running, one line: ${id}`).toBeLessThanOrEqual(1)
+      await input.fill(FOUR)
+      await expect.poll(async () => (await measure(box, 'composer-input', ids)).lines).toBe(4)
+      m = await measure(box, 'composer-input', ids)
+      for (const id of ids) expect(Math.abs(m.controls[id]! - m.last), `${v.where} running, four lines: ${id}`).toBeLessThanOrEqual(1)
+      await input.fill('')
+      await box.getByTestId('stop').click()
     })
 
     test('the recording bar is as tall as the row, ✕ and ✓ on its centre', async ({ page }) => {
