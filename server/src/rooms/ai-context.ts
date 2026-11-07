@@ -3,7 +3,8 @@
 // question (rooms/ai.ts prepare) and in a thread the AI opens itself (room_thread, chat/room-tools.ts).
 //
 //   whose     the asker's own messages are their words (who="the person asking you now (their own earlier message)");
-//             every other member's, and the AI's answers, are information only. Bodies and file names lose our block
+//             every other member's, and the AI's answers, are information only. A message that shares an answer of
+//             its author's own AI chat ("대화방에 보내기") says so, and the answer is marked as that AI's words. Bodies and file names lose our block
 //             tags (neutralizeTags), every name inside an attribute is one line without quotes or brackets (attr), and
 //             the room is never named by its own name (any member of a group chat may set it).
 //   which     for the whole room only (AI_SHOWN_SQL: a private AI preview, the asker's own too, never goes to the AI),
@@ -17,7 +18,7 @@
 import type { Database } from 'bun:sqlite'
 import { isUuid7 } from '@mycel/shared/api'
 import { neutralizeTags } from '../chat/prompt'
-import { canSee, clipMiddle, memberRow, messageRow, MSG_COLS, roomRow, SEE_SQL, seeArgs, seenSeq, threadable, type MemberRow, type MessageRow } from './store'
+import { canSee, clipMiddle, memberRow, messageRow, MSG_COLS, roomRow, SEE_SQL, seeArgs, seenSeq, sharedAnswerOf, sharedAnswerText, threadable, type MemberRow, type MessageRow } from './store'
 
 /** a timeline message in the block whose thread has replies brings the latest of them (oldest first, under it): at
  * most this many a thread */
@@ -72,9 +73,12 @@ export function roomItem(m: MessageRow, s: Speaker, o: { max: number; files: str
   // is anyone's own to set: inside an attribute it is one line without quotes or brackets (attr), so no name can open a
   // message of its own or pass for the asker's
   const mine = m.author_kind === 'user' && m.author_id === s.userId
+  // a person's message that shares an answer of their own AI chat: their note, then the answer marked as their AI's
+  // words (rooms/store.ts sharedAnswerText), in the timeline and in a thread alike
+  const shared = sharedAnswerOf(m)
   const who = m.author_kind === 'ai' ? `your earlier answer to ${attr(m.asked_by === s.userId ? s.asker : m.asked_by ? s.names.get(m.asked_by) ?? 'someone' : 'someone')}`
-    : mine ? 'the person asking you now (their own earlier message)' : 'another member'
-  const text = neutralizeTags(clipMiddle(m.body, o.max)) + (o.files.length ? `\n[files sent: ${neutralizeTags(o.files.join(', '))}]` : '')
+    : (mine ? 'the person asking you now (their own earlier message)' : 'another member') + (shared ? ', sharing an answer of their own AI chat' : '')
+  const text = neutralizeTags(clipMiddle(shared ? sharedAnswerText(m.body, shared.at) : m.body, o.max)) + (o.files.length ? `\n[files sent: ${neutralizeTags(o.files.join(', '))}]` : '')
   return `<room_message from="${attr(from)}" who="${who}"${o.attrs ?? ''} at="${m.created_at}">\n${text}\n</room_message>`
 }
 

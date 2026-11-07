@@ -12,7 +12,7 @@ import { tr } from '../chat/i18n'
 import { newId } from '../db'
 import { audit } from '../admin/audit'
 import { decodeCursor, encodeCursor } from '../chat/store'
-import { listSkills, skillInfo, skillIssues } from '../chat/skills'
+import { scanSkillsWithShadowed, skillInfo, skillIssues } from '../chat/skills'
 import { teamRuleFiles } from '../chat/prompt'
 import { popularSkills } from '../skills/popular'
 import { createFromTemplate, SCHEDULE_TEMPLATES } from '../chat/schedule-templates'
@@ -129,13 +129,15 @@ export const memoriesRoutes: RouteModule = {
     kit.handle(API.getScheduleReview, ({ c, params, auth }) => reviewCard(ctx, rt, auth.user.id, params.id, c.get('locale')))
     kit.handle(API.confirmScheduleReview, ({ c, params, body, auth }) => scheduleOut(confirmReview(ctx, rt, auth.user.id, params.id, body, c.get('locale'))))
     kit.handle(API.listSchedulesAwaitingReview, () => awaitingReview(ctx))
-    kit.handle(API.listSkills, ({ auth }) => {
+    kit.handle(API.listSkills, ({ auth, query }) => {
       let p
       try { p = ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }
-      const items = listSkills(ctx.files, p)
+      const { skills: items, shadowed, replaces } = scanSkillsWithShadowed(ctx.files, p)
+      const lost = query?.shadowed ? shadowed : []
       // a skill a member suggested keeps their name ("민준 님이 제안", docs/DECISIONS.md "MC")
-      const by = suggestersOf(ctx.db, items.filter((s) => !s.path.startsWith('users/')).map((s) => s.path))
-      return { items: items.map((s) => { const i = skillInfo(s); const who = by.get(s.path); return who ? { ...i, suggestedBy: who } : i }) }
+      const by = suggestersOf(ctx.db, [...items, ...lost.map((l) => l.skill)].map((s) => s.path).filter((x) => !x.startsWith('users/')))
+      const one = (s: (typeof items)[number], extra: object = {}) => { const i = skillInfo(s); const who = by.get(s.path); const r = replaces.get(s.path); return { ...i, ...(who ? { suggestedBy: who } : {}), ...(r ? { replaces: r } : {}), ...extra } }
+      return { items: [...items.map((s) => one(s)), ...lost.map((l) => one(l.skill, { shadowedBy: l.by.tier === 'personal' ? { tier: 'personal' } : { tier: 'group', group: { id: l.by.group.id, name: l.by.group.name } } }))] }
     })
     // R2-SKILL-03: the entries that do not load, so the skills and files screens can warn (readable entries only)
     kit.handle(API.listSkillIssues, ({ auth }) => {

@@ -1,14 +1,15 @@
 // One message of the visible branch. User messages: bubble, attachments (image thumbnails), edit, "‹ 2/3 ›",
 // "sending" / "not sent [send again]". Answers: steps, queue position, Markdown, artifact cards, ask_user cards,
 // file summary, end state (error / stopped / paused at the per-answer limit with "continue"), the note that a long
-// conversation reached the AI only in part, the files the AI looked at ("참고한 파일"), copy, regenerate, branch switch.
+// conversation reached the AI only in part, the files the AI looked at ("참고한 파일"), copy, "대화방에 보내기" (a finished
+// answer to a room: ShareToRoom.tsx), regenerate, branch switch.
 // Like Claude: an answer is plain text in the column, with no picture beside it; its actions stay under the newest
 // answer and show on older ones when the pointer or focus is on them. A phone has no hover: there a message's actions
 // (copy, edit, retry) show once the message is tapped, the newest answer's always; until then they are hidden from
 // sight only (screen readers and a keyboard still reach them), and the branch switch ("‹ 1 / 2 ›") always shows.
 // A file sent with a message is a small card above the bubble: its name, its type and its size.
 import clsx from 'clsx'
-import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, History, Loader2, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
+import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, History, Loader2, MessageSquareShare, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, isDefaultErrorMessage, skillLabel, type Attachment, type EngineId, type Step } from '@mycel/shared/api'
@@ -36,6 +37,7 @@ import AskCard from './AskCard'
 import ConnectCard from './ConnectCard'
 import { SecretWarning, useSecretHold } from './SecretWarning'
 import SuggestSkillDialog from '../SuggestSkillDialog'
+import ShareToRoom from './ShareToRoom'
 import FileSummary from './FileSummary'
 import SourcesList from './SourcesList'
 import Steps from './Steps'
@@ -455,6 +457,7 @@ export function AssistantMessage({
   onSelectBranch,
   onAskOwnFolder,
   onContinue,
+  shareable = false,
 }: {
   m: ViewMessage
   chatId: string
@@ -468,6 +471,9 @@ export function AssistantMessage({
   retryWith?: { engines: EngineId[]; models: Partial<Record<EngineId, { id: string; label: string }[]>> }
   onSelectBranch: (id: string) => void
   onAskOwnFolder: (path: string) => void
+  /** its answers may go to a room ("대화방에 보내기"): a chat known not to be confidential (Safe operations 1A keeps
+   * those to themselves; the server refuses them) */
+  shareable?: boolean
 }) {
   const t = useT()
   const locale = useLocale()
@@ -493,6 +499,7 @@ export function AssistantMessage({
       : m.error.params?.reason === undefined && known && isDefaultErrorMessage(m.error.code, m.error.message) ? known[locale] : m.error.message
     : null
   const [suggesting, setSuggesting] = useState(false)
+  const [sharing, setSharing] = useState(false)
   // phones: an older answer's actions show once it is tapped
   const [tapped, setTapped] = useState(false)
   const untilTap = !isLast && !tapped
@@ -582,6 +589,12 @@ export function AssistantMessage({
           <div className={clsx('mt-1.5 -ml-1.5 flex flex-wrap items-center gap-1 max-md:gap-3', !isLast && ON_HOVER, untilTap && !branched && UNTIL_TAP)} data-testid="answer-actions">
             <span className={clsx('flex items-center gap-1 max-md:gap-3 md:contents', untilTap && UNTIL_TAP)} data-testid="answer-actions-tap">
               {m.content && <CopyButton text={m.content} html={() => answerHtml(m.content)} label={t('chat.copyAnswer')} className="touch-hit" />}
+              {/* send to a room: a finished answer to a room I am in, as my message (ShareToRoom) */}
+              {shareable && m.content && m.status === 'done' && (
+                <IconButton label={t('chat.shareToRoom')} onClick={() => setSharing(true)} className="touch-hit" data-testid="share-to-room">
+                  <MessageSquareShare size={13} />
+                </IconButton>
+              )}
               {/* the newest failed answer has "Try again" in its error box: one control for one action */}
               {!(m.status === 'error' && isLast) && (
                 <IconButton label={t('chat.regenerate')} disabled={busy} onClick={() => onRegenerate(m)} className="touch-hit" data-testid="regenerate">
@@ -601,6 +614,7 @@ export function AssistantMessage({
         {suggesting && (
           <SuggestSkillDialog source={{ kind: 'message', chatId, messageId: m.id }} initialContent={m.content} onClose={() => setSuggesting(false)} />
         )}
+        {sharing && <ShareToRoom chatId={chatId} messageId={m.id} answer={m.content} onClose={() => setSharing(false)} />}
       </div>
     </div>
   )

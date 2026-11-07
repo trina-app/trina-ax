@@ -123,6 +123,8 @@ export function useSkillMenu(text: string, setText: (s: string) => void) {
                 {s.personal && <span className="shrink-0 rounded-full bg-hover px-1.5 text-micro font-normal text-muted" data-testid="skill-personal">{t('skills.personal')}</span>}
                 {/* a skill of one of the person's groups: the group's name (only its members see it) */}
                 {s.group && <span className="max-w-[10rem] shrink-0 truncate rounded-full bg-hover px-1.5 text-micro font-normal text-muted" title={t('skills.groupBadge', { group: s.group.name })} data-testid="skill-group">{s.group.name}</span>}
+                {/* it runs instead of a team (or group) skill of the same name: that one is not in this list */}
+                {s.replaces && <span className="shrink-0 text-micro font-normal text-faint" data-testid="skill-replaces">{t(s.replaces === 'team' ? 'skills.replacesTeam' : 'skills.replacesGroup')}</span>}
               </span>
               <span className="truncate text-xs text-muted">{skillSummary(s) || s.path}</span>
             </button>

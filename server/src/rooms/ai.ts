@@ -54,7 +54,7 @@ import { atLeast, loadPrincipal, type Principal, type RuleSet } from '../policy/
 import { authorize, visiblePath } from '../policy/authorize'
 import { confidentialChat } from '../safe-ops/confidential'
 import { safeOpsEnabled } from '../safe-ops/runner'
-import { canSee, clipMiddle, memberRow, parseMentions, roomAuditRef, members, messageRow, messagesOut, MSG_COLS, roomRow, SEE_SQL, setRoomAiWaiting, seeArgs, seenSeq, TIMELINE_SQL, type MemberRow, type MessageRow, type RoomRow } from './store'
+import { canSee, clipMiddle, memberRow, parseMentions, roomAuditRef, members, messageRow, messagesOut, MSG_COLS, roomRow, SEE_SQL, setRoomAiWaiting, seeArgs, seenSeq, sharedAnswerOf, TIMELINE_SQL, type MemberRow, type MessageRow, type RoomRow } from './store'
 import { roomsOf } from './service'
 import { AI_SHOWN_SQL, attr, filesOf as messageFiles, namesOf, roomItem, ROOM_THREAD_CHARS, ROOM_THREAD_REPLIES_TOTAL, ROOM_THREAD_REPLY_CHARS, threadAttrs, threadsOf, whoseWords, type Speaker, type ThreadPeek } from './ai-context'
 
@@ -250,7 +250,8 @@ export class RoomAi implements RoomTurns {
       for (const m of rows) {
         if (m.author_kind !== 'user' || m.author_id !== o.userId || questions.has(m.id)) break
         if (askedAt - Date.parse(m.created_at) > ROOM_FOLD_WINDOW_MS) break
-        if (m.reply_to_id || parseMentions(m.mentions).length || m.mentions_all) break
+        // an answer of their own AI chat they shared is the AI's words, not theirs: it stays in the block below, marked
+        if (m.reply_to_id || parseMentions(m.mentions).length || m.mentions_all || sharedAnswerOf(m)) break
         fold.push(m)
       }
     }
@@ -312,7 +313,8 @@ export class RoomAi implements RoomTurns {
           chosenChars += item.length
         }
       }
-      const shownAs = standIn !== null ? { ...m, body: standIn } : m
+      // (a stand-in is never read as a shared answer: its words are ours, not the message's)
+      const shownAs = standIn !== null ? { ...m, body: standIn, answer_at: null } : m
       // its thread in attributes: how many replies, when the last came, how many of them the block holds (under it, or a
       // reply also sent to the room in the timeline)
       const itemOf = (shown: number) => roomItem(shownAs, speaker, { max: ROOM_CONTEXT_MESSAGE_CHARS, files, attrs: t ? `${attrs} ${threadAttrs(m.id, t, shown)}` : attrs })

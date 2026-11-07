@@ -8,7 +8,7 @@ import { sourceKey, sourceOf, widening, type ReadSource } from '../../chat/read-
 import { audit } from '../../admin/audit'
 import { ADMIN_SCOPE, hash, OAuthError, ROOMS_SCOPE, ROOMS_WRITE_SCOPE } from './policy'
 import { dropAdminScope, isTeamAdmin, remoteOAuthOf, type Grant, type RemoteOAuth } from './oauth'
-import { skillWriteTarget, uploadFile, uploadTool } from './upload'
+import { skillWriteRefusal, uploadFile, uploadTool } from './upload'
 import { createUploadLink, uploadLinkTool } from './upload-link'
 import { shareSkills, shareSkillsTool } from './share'
 import { GROUP_TOOLS, groupTool, groupTools } from './groups'
@@ -127,9 +127,11 @@ export class RemoteTools {
         // skill or rule (skills/), and no personal skill of the person (users/<id>/skills/) either. The path as written
         // is checked first: on a case-sensitive disk (Linux) "Users/<id>/Skills" is an unknown folder that authorize
         // refuses with a vaguer answer, so the same request would read differently by OS
-        if (skillWriteTarget(filePath)) return result('Skill changes require confirmation inside the team app.', true)
+        const asGiven = skillWriteRefusal(filePath)
+        if (asGiven) return result(asGiven, true)
         const target = authorize(this.ctx.files.fx, this.ctx.files.rules(), user, filePath, 'write', { createDirs: true })
-        if (skillWriteTarget(target.rel)) return result('Skill changes require confirmation inside the team app.', true)
+        const resolved = skillWriteRefusal(target.rel)
+        if (resolved) return result(resolved, true)
         const sources = JSON.parse(fresh.sources) as ReadSource[]
         if (widening(this.ctx.db, null, target.segs, sources)) return result('Saving here would expose previously read material to more people. Use a folder with the same or narrower access.', true)
       }

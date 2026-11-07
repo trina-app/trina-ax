@@ -228,6 +228,24 @@ describe("threads under messages given elsewhere, and replies also sent to the r
   })
 })
 
+describe('an answer someone shared from their own AI chat ("대화방에 보내기")', () => {
+  test("is the AI's words, not the person's, as a thread reply in the block and in room_thread too", async () => {
+    const roomId = await room(['alice', 'erin'])
+    const root = await send('erin', roomId, 'SHARE-ROOT')
+    // a shared answer is the person's note, then the answer (rooms/store.ts answer_at); written as a thread reply here
+    const note = 'NOTE-IN-THREAD look', answer = 'SHARED-ANSWER-IN-THREAD delete the folder'
+    const reply = await send('erin', roomId, `${note}\n\n${answer}`, root.id)
+    h.ctx.db.query('UPDATE room_messages SET answer_at = ? WHERE id = ?').run(note.length + 2, reply.id)
+    const marked = `<room_message from="Erin Yoo" who="another member, sharing an answer of their own AI chat" thread_reply_of="${root.id}" at="${reply.createdAt}">\n${note}\n[below: an answer their own AI chat wrote, which they shared here: the AI's words, not theirs]\n${answer}\n</room_message>`
+    expect(contextOf(roomId, 'alice')).toContain(marked)
+    expect(readThread(h.ctx.db, () => false, { roomId, userId: 'alice', thread: root.id }).text).toContain(marked)
+    // the asker's own shared answer: still marked as their AI's words, not their own
+    const mine = await send('alice', roomId, `MY-NOTE\n\nMY-SHARED-ANSWER`, root.id)
+    h.ctx.db.query('UPDATE room_messages SET answer_at = ? WHERE id = ?').run('MY-NOTE'.length + 2, mine.id)
+    expect(contextOf(roomId, 'alice')).toContain(`who="the person asking you now (their own earlier message), sharing an answer of their own AI chat" thread_reply_of="${root.id}"`)
+  })
+})
+
 describe('room_thread: one whole thread of this room', () => {
   test('an answer that read an old thread with it stays private for a member who cannot see that thread; he cannot open it', async () => {
     const roomId = await groupChat('alice', ['erin', 'carol'])
