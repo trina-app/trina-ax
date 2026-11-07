@@ -165,7 +165,7 @@ export function Tooltip({ label, children, description = false, disabled = false
             id={id}
             role="tooltip"
             className={clsx(
-              'pointer-events-none fixed z-[200] max-w-64 rounded-md bg-ink px-2 py-1 text-xs leading-snug font-medium break-words text-surface shadow-md transition-opacity duration-100 motion-reduce:transition-none',
+              'pointer-events-none fixed z-[200] max-w-64 rounded-md bg-ink px-2 py-1 text-xs leading-snug font-medium break-words break-keep text-surface shadow-md transition-opacity duration-100 motion-reduce:transition-none',
               pos ? 'opacity-100' : 'opacity-0',
             )}
             style={pos ? { top: pos.top, left: pos.left } : { top: 0, left: 0 }}
