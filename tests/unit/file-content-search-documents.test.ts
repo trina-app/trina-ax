@@ -203,7 +203,7 @@ describe('off, failing, slow', () => {
 
   test(`a lookup that is not back in time: the line matches do not wait for it (about ${CONTENT_SEARCH_DOCS_DEADLINE_MS * 2} ms at most)`, async () => {
     const real = kg.lookup.bind(kg)
-    let asked: { base?: string; long?: number; short?: number; deadlineMs?: number } | undefined
+    let asked: { base?: string; long?: number; short?: number; deadlineMs?: number; words?: string } | undefined
     kg.lookup = (_u, _q, o) => { asked = o; return new Promise<LookupResult>(() => {}) }
     try {
       const t0 = performance.now()
@@ -211,8 +211,8 @@ describe('off, failing, slow', () => {
       expect(performance.now() - t0).toBeLessThan(CONTENT_SEARCH_DOCS_DEADLINE_MS * 2 + 1500)
       expect(r.documents).toEqual([])
       expect(lines(r)).toEqual(['shared/notes/pricing.md'])
-      // asked for short rows only, under the folder searched, with the deadline
-      expect(asked).toEqual({ base: 'shared', long: 0, short: 20, deadlineMs: CONTENT_SEARCH_DOCS_DEADLINE_MS })
+      // asked for short rows only, under the folder searched, with the deadline, every word typed counting
+      expect(asked).toEqual({ base: 'shared', long: 0, short: 20, deadlineMs: CONTENT_SEARCH_DOCS_DEADLINE_MS, words: 'search' })
     } finally { kg.lookup = real }
   })
 

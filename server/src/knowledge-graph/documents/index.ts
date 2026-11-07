@@ -62,6 +62,9 @@ export interface SearchOptions {
   passage?: number
   /** only files under this folder of the root (a path relative to it), when the folders asked are one */
   prefix?: string
+  /** also look for a word of one or two characters inside longer words by reading the text (a full scan, about 200 ms
+   * on a large index): for the AI's tool, never for the lookup before the model starts or the Files search */
+  scan?: boolean
 }
 export type RelatedKind = 'folder' | 'mention' | 'link' | 'terms' | 'people' | 'code'
 export interface RelatedReason { kind: RelatedKind; detail: string }
@@ -76,7 +79,19 @@ const FORMAT = '1'
 const PIECE_MAX = 1600
 /** failures that stay until the file changes; the others (timeout, no_converter) are tried again */
 const PERMANENT = new Set(['too_big', 'unreadable', 'unsupported', 'empty'])
-const CANDIDATES = 300
+/** pieces taken per word of a question, and pieces holding every word, as the full-text index lists them (unranked:
+ * ranking every match of a common word by bm25 took 130–250 ms on a 36,000-piece index, the first few hundred under 15) */
+const PER_WORD = 300
+const ALL_WORDS = 300
+/** pieces read by a full scan for a word of one or two characters inside a longer one (only when asked: `scan`) */
+const SCAN_MAX = 300
+/** the particles and endings a short Korean word is looked up with as whole words ("환불" → "환불은", "환불을"): a
+ * prefix query ("환불"*) gathers every word that starts so before it can stop, which for a common word took 20–250 ms */
+const KO_FORMS = ['은', '는', '이', '가', '을', '를', '의', '에', '로', '와', '과', '도', '만', '에서', '으로', '에게', '까지', '부터', '이나', '이다',
+  '이고', '처럼', '보다', '하고', '하는', '하기', '해서', '했다', '합니다', '입니다', '됩니다', '에서는', '으로는', '에서도', '이라는', '라는']
+const HANGUL_WORD = /^[가-힣]+$/
+/** one word of a question in the word index (unicode61): itself as a whole word, a Korean word also with its particles */
+const wordForms = (t: string) => HANGUL_WORD.test(t) ? '(' + [t, ...KO_FORMS.map((f) => t + f)].map(phrase).join(' OR ') + ')' : phrase(t)
 const FAILED_SHOWN = 100
 const LINK_TEXT_EXT = new Set(['md', 'markdown', 'txt', 'text', 'html', 'htm'])
 const MATCH_TEXT_MAX = 1024 * 1024
@@ -225,6 +240,8 @@ export class DocumentIndex {
   private closed = false
   /** changes since open: a cached name matcher of an older version is made again */
   private version = 0
+  /** a reader (openReader): changes come from the writer's connection, seen through PRAGMA data_version */
+  private reader = false
   private names: { key: string; m: Matcher; owners: { id: number; shown: string }[][] } | null = null
   private peopleCache: { key: string; m: Matcher; names: string[] } | null = null
 
@@ -242,6 +259,26 @@ export class DocumentIndex {
     let db: Database
     try { db = openDb(file) } catch { removeDbFiles(dir); db = openDb(file) }
     return new DocumentIndex(dir, db, o.extract ?? defaultExtract, o.people ?? null, { ...DOC_LIMITS, ...o.limits })
+  }
+
+  /**
+   * A second connection to an index another connection writes (open), for its searches only (search-worker.ts): never
+   * makes, changes or removes anything. The writer keeps the database in WAL mode (openDb), so this connection reads
+   * the last committed state while the writer writes, and the writer never waits for it. Opened read-write with
+   * query_only on, not read-only: a read-only connection cannot open a WAL database whose -shm file is not there yet
+   * (SQLITE_CANTOPEN).
+   */
+  static openReader(dir: string, o: { people?: () => readonly string[] } = {}): DocumentIndex {
+    const db = new Database(path.join(dir, DB_FILE), { readwrite: true, create: false })
+    try {
+      db.run('PRAGMA query_only=ON')
+      db.run('PRAGMA busy_timeout=5000')
+      const v = db.query("SELECT v FROM meta WHERE k = 'format'").get() as { v: string } | null
+      if (v?.v !== FORMAT) throw new Error('document index: another format')
+    } catch (e) { db.close(); throw e }
+    const idx = new DocumentIndex(dir, db, async () => { throw new Error('a reader does not index') }, o.people ?? null, DOC_LIMITS)
+    idx.reader = true
+    return idx
   }
 
   /** what is indexed in one folder: each file's size and mtime as given to update (size -1: try again), and why it
@@ -361,8 +398,14 @@ export class DocumentIndex {
   /**
    * The pieces of documents that answer a question, best first, in the folders given (the ones the person may search;
    * the caller still checks each file). At most 3 pieces per file. `score` is about 0 to 15: 10 for holding every word
-   * of the question, 3 more for the whole phrase, up to 2 for the full-text rank. `passage`: each hit also brings up to
-   * that many characters of its piece around the match. `prefix`: only files under that folder of the root.
+   * of the question, 3 more for the whole phrase, up to 2 for how often the words are in it. `passage`: each hit also
+   * brings up to that many characters of its piece around the match. `prefix`: only files under that folder of the root.
+   *
+   * Bounded: the pieces looked at are the first PER_WORD the full-text index lists for each word and the first ALL_WORDS
+   * holding every word, unranked, so a common word costs about what a rare one does (one that is in thousands of pieces
+   * gives an arbitrary few hundred of them, which no single common word answers well anyway). A word of three characters
+   * or more is found inside longer words (trigram); a shorter one at the start of a word ("환불" in "환불은"), and inside
+   * a longer word only with `scan`.
    */
   search(query: string, o: SearchOptions): DocHit[] {
     if (this.closed || !o.rootIds.length) return []
@@ -373,18 +416,27 @@ export class DocumentIndex {
     // a folder inside the root: its relative paths sort between "<prefix>/" and "<prefix>0" ('0' follows '/')
     const prefix = o.prefix && plainPrefix(o.prefix) ? o.prefix : null
     const within = prefix ? { sql: ' AND d.rel >= ? AND d.rel < ?', args: [prefix + '/', prefix + '0'] } : { sql: '', args: [] }
-    const cand = new Map<number, number>()
-    const add = (rows: { id: number }[]) => rows.forEach((r, i) => { const b = 1 - i / rows.length; if ((cand.get(r.id) ?? -1) < b) cand.set(r.id, b) })
-    const long = terms.filter((t) => chars(t) >= 3)
-    if (long.length) add(this.match('fts_tri', long.map(phrase).join(' OR '), scope, CANDIDATES, 'c.id AS id', within))
-    add(this.match('fts_uni', terms.map((t) => phrase(t) + '*').join(' OR '), scope, CANDIDATES, 'c.id AS id', within))
+    const cand = new Set<number>()
+    const add = (rows: { id: number }[]) => { for (const r of rows) cand.add(r.id); return rows.length }
     const short = terms.filter((t) => chars(t) < 3)
-    if (short.length && cand.size < limit * 3) {
-      for (const t of short.slice(0, 3)) add(this.db.query(`SELECT c.id AS id FROM chunks c JOIN docs d ON d.id = c.doc_id WHERE ${IN_SCOPE}${within.sql} AND c.text LIKE ? ESCAPE '\\' LIMIT ?`).all(scope, ...within.args, '%' + likeEscape(t) + '%', CANDIDATES) as { id: number }[])
+    // pieces holding every word: in the trigram index when every word has three characters or more, else as whole words
+    if (terms.length > 1) {
+      add(short.length ? this.firstMatches('fts_uni', terms.map(wordForms).join(' AND '), scope, ALL_WORDS, within)
+        : this.firstMatches('fts_tri', terms.map(phrase).join(' AND '), scope, ALL_WORDS, within))
+    }
+    for (const t of terms) {
+      // three characters or more: anywhere, also inside longer words (trigram)
+      if (chars(t) >= 3) { add(this.firstMatches('fts_tri', phrase(t), scope, PER_WORD, within)); continue }
+      // shorter: as a whole word (with Korean particles); words that start with it ("회의록" for "회의") only when those
+      // were few, so the prefix query stays small
+      if (add(this.firstMatches('fts_uni', wordForms(t), scope, PER_WORD, within)) < PER_WORD / 3) add(this.firstMatches('fts_uni', phrase(t) + '*', scope, PER_WORD, within))
+    }
+    if (o.scan && short.length && cand.size < limit * 3) {
+      for (const t of short.slice(0, 3)) add(this.db.query(`SELECT c.id AS id FROM chunks c JOIN docs d ON d.id = c.doc_id WHERE d.failed IS NULL AND ${IN_SCOPE}${within.sql} AND c.text LIKE ? ESCAPE '\\' LIMIT ?`).all(scope, ...within.args, '%' + likeEscape(t) + '%', SCAN_MAX) as { id: number }[])
     }
     if (!cand.size) return []
     const rows = this.db.query('SELECT c.id, c.loc, c.text, d.root_id, d.rel FROM chunks c JOIN docs d ON d.id = c.doc_id WHERE c.id IN (SELECT value FROM json_each(?))')
-      .all(JSON.stringify([...cand.keys()])) as { id: number; loc: string | null; text: string; root_id: string; rel: string }[]
+      .all(JSON.stringify([...cand])) as { id: number; loc: string | null; text: string; root_id: string; rel: string }[]
     const whole = terms.length > 1 ? norm(query).replace(/\s+/g, ' ').trim() : ''
     const scored: { r: (typeof rows)[number]; hit: string[]; score: number }[] = []
     for (const r of rows) {
@@ -392,7 +444,10 @@ export class DocumentIndex {
       const hit = terms.filter((t) => low.includes(t))
       if (!hit.length) continue
       const phraseHit = whole.length >= 3 && low.replace(/\s+/g, ' ').includes(whole) ? 1 : 0
-      scored.push({ r, hit, score: Math.round(((hit.length / terms.length) * 10 + phraseHit * 3 + (cand.get(r.id) ?? 0) * 2) * 1000) / 1000 })
+      // how often the words are in it (each counted up to 4 times): the tie-break the full-text rank used to be
+      let often = 0
+      for (const t of hit) for (let i = low.indexOf(t), n = 0; i >= 0 && n < 4; i = low.indexOf(t, i + t.length), n++) often++
+      scored.push({ r, hit, score: Math.round(((hit.length / terms.length) * 10 + phraseHit * 3 + (often / (terms.length * 4)) * 2) * 1000) / 1000 })
     }
     scored.sort((a, b) => b.score - a.score || a.r.rel.localeCompare(b.r.rel))
     const perFile = new Map<string, number>()
@@ -518,6 +573,12 @@ export class DocumentIndex {
 
   // ---- inside ----
 
+  /** a number that changes whenever the index does (a reader sees the writer's commits through data_version) */
+  private changes(): string {
+    if (!this.reader) return String(this.version)
+    return String((this.db.query('PRAGMA data_version').get() as { data_version: number }).data_version)
+  }
+
   private doc(rootId: string, relPath: string): DocRow | null {
     return this.db.query('SELECT * FROM docs WHERE root_id = ? AND rel = ?').get(rootId, relPath) as DocRow | null
   }
@@ -549,9 +610,16 @@ export class DocumentIndex {
     return { ok: false, reason }
   }
 
-  private match(table: 'fts_tri' | 'fts_uni', expr: string, scope: string, n: number, cols = 'c.id AS id', within: { sql: string; args: string[] } = { sql: '', args: [] }): any[] {
+  private match(table: 'fts_tri' | 'fts_uni', expr: string, scope: string, n: number, cols = 'c.id AS id'): any[] {
     try {
-      return this.db.query(`SELECT ${cols} FROM ${table} JOIN chunks c ON c.id = ${table}.rowid JOIN docs d ON d.id = c.doc_id WHERE ${table} MATCH ? AND d.failed IS NULL AND ${IN_SCOPE}${within.sql} ORDER BY bm25(${table}) LIMIT ?`).all(expr, scope, ...within.args, n)
+      return this.db.query(`SELECT ${cols} FROM ${table} JOIN chunks c ON c.id = ${table}.rowid JOIN docs d ON d.id = c.doc_id WHERE ${table} MATCH ? AND d.failed IS NULL AND ${IN_SCOPE} ORDER BY bm25(${table}) LIMIT ?`).all(expr, scope, n)
+    } catch { return [] }
+  }
+
+  /** the first `n` pieces in scope that match, as the full-text index lists them (no ranking: it stops after `n`) */
+  private firstMatches(table: 'fts_tri' | 'fts_uni', expr: string, scope: string, n: number, within: { sql: string; args: string[] }): { id: number }[] {
+    try {
+      return this.db.query(`SELECT c.id AS id FROM ${table} JOIN chunks c ON c.id = ${table}.rowid JOIN docs d ON d.id = c.doc_id WHERE ${table} MATCH ? AND d.failed IS NULL AND ${IN_SCOPE}${within.sql} LIMIT ?`).all(expr, scope, ...within.args, n) as { id: number }[]
     } catch { return [] }
   }
 
@@ -567,7 +635,7 @@ export class DocumentIndex {
 
   /** the names the documents in these folders can be mentioned by, as one matcher (made again after a change) */
   private nameMatcher(scope: string) {
-    const key = `${this.version}\0${scope}`
+    const key = `${this.changes()}\0${scope}`
     if (this.names?.key === key) return this.names
     const byKey = new Map<string, { id: number; shown: string }[]>()
     for (const d of this.db.query(`SELECT d.id, d.rel, d.title FROM docs d WHERE d.failed IS NULL AND ${IN_SCOPE} LIMIT 50000`).all(scope) as { id: number; rel: string; title: string | null }[]) {
@@ -621,7 +689,8 @@ const ASK_EN = new Set(('hi hello hey hiya thanks thank thx ty cheers ok okay ye
 /** two-letter English words that never say what a question is about ("HR", "QA", "Q4" do) */
 const SHORT_EN = new Set('am an as at be by do go he hi if in is it me my no of oh ok on or so to up us we ya yo ah eh hm uh um re vs pl'.split(' '))
 /** Korean words that say what to do or how to ask (after a particle is taken off), not what about */
-const ASK_KO = new Set(('안녕 안녕하세요 안녕하십니까 감사 감사합니다 감사해요 고마워 고마워요 고맙습니다 수고 수고하셨습니다 수고했어 수고하세요 ' +
+// (greetings and thanks as whole phrases only: "감사" alone is also "audit", as in "감사 보고서")
+const ASK_KO = new Set(('안녕 안녕하세요 안녕하십니까 감사합니다 감사해요 감사드립니다 감사드려요 고마워 고마워요 고맙습니다 수고하셨습니다 수고했어 수고하세요 ' +
   '네네 아니 아니요 좋아 좋아요 오케이 부탁 부탁해 부탁해요 부탁드립니다 부탁드려요 ' +
   '우리 저희 당신 이거 그거 저거 이것 그것 저것 여기 거기 저기 이번 저번 지난번 그냥 조금 혹시 아까 지금 오늘 내일 어제 이제 다시 먼저 ' +
   '빨리 간단히 간단하게 자세히 자세하게 모든 전부 한번 같이 ' +

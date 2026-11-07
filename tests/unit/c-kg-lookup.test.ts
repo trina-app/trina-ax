@@ -3,8 +3,9 @@
 // - access exactly as in explore: another person's personal folder, a hidden sub-folder, a rule taken away between two
 //   calls, `base`, a quarantined file, links (also when the index answers more than it was asked)
 // - strength: ordinary chat messages are none or weak, document questions strong
-// - two wordings merged, one entry per (path, place); long and short sizes; the deadline
-// - the tool's answer: passages first, its size cap, alt_query
+// - two wordings merged, one entry per (path, place); long and short sizes; the deadline (also with one wording)
+// - the search worker: a blocking search inside it never holds the caller past the deadline nor the event loop
+// - the tool's answer: passages first, its size in tokens, alt_query
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -12,7 +13,10 @@ import { makeCApp, type CApp } from '../lib/c-app'
 import { cutText, matchStrength, passageOf, questionTerms, STRONG_NEAR } from '../../server/src/knowledge-graph/documents'
 import type { DocHit, DocIndexOptions, DocIndexPort, DocLink, DocSearchOptions } from '../../server/src/knowledge-graph/docs-port'
 import { knowledgeGraphOf, LOOKUP_LONG, LOOKUP_LONG_CHARS, LOOKUP_SHORT, LOOKUP_SHORT_CHARS, openDocumentIndex, setKnowledgeGraphForTests, type KnowledgeGraph, type LookupResult } from '../../server/src/knowledge-graph/service'
-import { exploreText, TOOL_TEXT_MAX } from '../../server/src/knowledge-graph/tool'
+import { exploreText, LONG_TOKENS, TOOL_TOKENS_MAX } from '../../server/src/knowledge-graph/tool'
+import { estimateTokens } from '../../server/src/knowledge-graph/tokens'
+import { DocSearchWorker } from '../../server/src/knowledge-graph/documents/search-worker'
+import os from 'node:os'
 import { toolRegistry } from '../../server/src/tools/registry'
 
 setDefaultTimeout(60_000)
@@ -35,6 +39,9 @@ describe('the words of a question (questionTerms)', () => {
     expect(questionTerms('주간 회의록을 찾아줘, Q3-plan.xlsx!')).toEqual(['주간', '회의록', 'q3-plan.xlsx'])
     // a noun ending like a question ("분야") stays a noun
     expect(questionTerms('분야별 예산 알려주세요')).toEqual(['분야별', '예산'])
+    // "감사" alone is "audit": only the thanks phrases are left out
+    expect(questionTerms('감사 보고서 어디 있어?')).toEqual(['감사', '보고서'])
+    expect(questionTerms('감사합니다! 고마워')).toEqual([])
   })
   test('a long message keeps its subject, not its first words', () => {
     expect(questionTerms('Hello Trina, could you please help me find out where we wrote down the refund policy for enterprise customers'))
@@ -271,7 +278,7 @@ describe('the tool', () => {
     expect(r.text).toContain('link: [')
     const many = await call('alice', { query: 'refund policy customers' })
     expect(many.text).toContain('More matches:')
-    expect(many.text.length).toBeLessThanOrEqual(TOOL_TEXT_MAX)
+    expect(estimateTokens(many.text)).toBeLessThanOrEqual(TOOL_TOKENS_MAX)
   })
   test('alt_query is 2 to 300 characters', async () => {
     expect((await call('alice', { query: 'refund policy', alt_query: 'x' })).isError).toBe(true)
@@ -287,7 +294,7 @@ describe('the tool', () => {
       pending: 2,
     }
     const out = exploreText(r, 'en')
-    expect(out.text.length).toBeLessThanOrEqual(TOOL_TEXT_MAX)
+    expect(estimateTokens(out.text)).toBeLessThanOrEqual(TOOL_TOKENS_MAX)
     expect(out.passages).toHaveLength(15)
     expect(out.related).toHaveLength(8)
     expect(out.hits.length).toBeGreaterThan(0)
@@ -295,6 +302,19 @@ describe('the tool', () => {
     expect(out.text).toContain('More matches were left out')
     expect(out.text).toContain('2 folders are still being indexed')
     expect(exploreText({ passages: [], related: [], hits: [], pending: 0 }, 'en').text).toBe('Nothing in the indexed documents or code matches, or nothing is indexed there yet. Use grep and read.')
+  })
+  test('Korean passages are budgeted in tokens: shorter, and the whole answer still within the cap', () => {
+    const ko = (i: number, long: boolean) => ({ path: `shared/회의록-${i}.md`, loc: null, text: '환불 정책은 칠일 이내로 정했습니다. '.repeat(long ? 80 : 20).slice(0, long ? LOOKUP_LONG_CHARS : LOOKUP_SHORT_CHARS), score: 10 - i / 100, long })
+    const out = exploreText({ passages: [...[0, 1, 2].map((i) => ko(i, true)), ...Array.from({ length: 12 }, (_, i) => ko(3 + i, false))], related: [], hits: [], pending: 0 }, 'ko')
+    expect(estimateTokens(out.text)).toBeLessThanOrEqual(TOOL_TOKENS_MAX)
+    expect(out.passages.length).toBeGreaterThanOrEqual(3)
+    // each long Korean passage was cut to its token budget (1,500 Korean characters are about 1,200 tokens)
+    const first = out.text.split('\n\n')[0]!
+    expect(estimateTokens(first)).toBeLessThanOrEqual(LONG_TOKENS + 100)
+    expect(first).toContain(' …')
+    // English passages of the same length stay whole
+    const en = exploreText({ passages: [{ path: 'shared/a.md', loc: null, text: 'refund policy text '.repeat(80).slice(0, LOOKUP_LONG_CHARS), score: 1, long: true }], related: [], hits: [], pending: 0 }, 'en')
+    expect(en.text).not.toContain(' …')
   })
 })
 
@@ -385,7 +405,7 @@ describe('with a stand-in index', () => {
     expect(fake.asked.at(-1)!.prefix).toBeUndefined()
   })
 
-  test('the deadline: the first wording always answers; a second one that is not ready in time is left out', async () => {
+  test('the deadline: what is back in time; a wording that is not is left out, also when it is the only one', async () => {
     fake.slow.ms = 300
     try {
       let t0 = Date.now()
@@ -394,12 +414,113 @@ describe('with a stand-in index', () => {
       expect(paths(quick)).toContain('groups/marketing/launch-notes.md')
       expect(paths(quick)).not.toContain('shared/notes/refunds.md')
       t0 = Date.now()
-      const first = await bLook('alice', ['slowword refund'], { deadlineMs: 20 })
-      expect(Date.now() - t0).toBeGreaterThanOrEqual(280)
-      expect(paths(first)).toContain('shared/notes/refunds.md')
+      const only = await bLook('alice', ['slowword refund'], { deadlineMs: 40 })
+      expect(Date.now() - t0).toBeLessThan(250)
+      expect(only).toEqual({ passages: [], strength: 'none', files: new Set() })
       // no deadline: both wordings
       const both = await bLook('alice', ['launch banner', 'slowword refund'])
       expect(paths(both)).toEqual(expect.arrayContaining(['groups/marketing/launch-notes.md', 'shared/notes/refunds.md']))
     } finally { fake.slow.ms = 0 }
+  })
+
+  test("words: 'search' keeps every word typed (the Files search box); a chat message drops requests and fillers", async () => {
+    put(B, 'shared/notes/audit.md', '검토 의견: review notes for the audit.\n')
+    k.checkAll()
+    await k.whenIdle()
+    expect((await bLook('alice', ['검토'])).passages).toEqual([])
+    expect(paths(await bLook('alice', ['검토'], { words: 'search', long: 0, short: 20 }))).toContain('shared/notes/audit.md')
+    expect(paths(await bLook('alice', ['review'], { words: 'search' }))).toContain('shared/notes/audit.md')
+    expect(fake.asked.at(-1)!.due).toBeUndefined()
+    await bLook('alice', ['review notes'], { deadlineMs: 500 })
+    expect(fake.asked.at(-1)!.due).toBeGreaterThan(Date.now())
+  })
+})
+
+// ---------------------------------------------------------------- the search worker, with a blocking stand-in search
+describe('the search worker', () => {
+  const SELF = path.join(import.meta.dir, '../../server/src/knowledge-graph/documents/search-worker.ts')
+  let dir: string
+  let script: string
+  beforeAll(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kg-search-worker-'))
+    script = path.join(dir, 'blocking-worker.ts')
+    // the worker's own loop (serveDocSearch) with a search that holds its thread: "block<ms>" spins that long, "crash"
+    // ends the worker with an error it does not catch
+    fs.writeFileSync(script, `import { parentPort } from 'node:worker_threads'
+import { serveDocSearch } from ${JSON.stringify(SELF)}
+const spin = (ms) => { const end = Date.now() + ms; while (Date.now() < end) {} }
+serveDocSearch(parentPort, (d) => ({
+  dir: d,
+  search(q) {
+    if (q === 'crash') setTimeout(() => { throw new Error('crash') })
+    spin(Number(/block(\\d+)/.exec(q)?.[1] ?? 0))
+    return [{ rootId: 'shared', relPath: q + '.md', loc: null, snippet: q, score: 1 }]
+  },
+  related() { return [] },
+  close() {},
+}))
+`)
+  })
+  afterAll(() => { fs.rmSync(dir, { recursive: true, force: true }) })
+
+  test('a search that holds the worker for 600 ms: the caller gets nothing at its deadline and the event loop keeps turning', async () => {
+    const w = new DocSearchWorker(dir, script)
+    try {
+      expect(await w.search('warm', { rootIds: ['shared'] })).toHaveLength(1)
+      let ticks = 0
+      const tick = setInterval(() => ticks++, 0)
+      const t0 = performance.now()
+      const r = await w.search('block600', { rootIds: ['shared'], due: Date.now() + 100 })
+      const took = performance.now() - t0
+      clearInterval(tick)
+      expect(r).toEqual([])
+      expect(took).toBeLessThan(300)
+      expect(ticks).toBeGreaterThan(20)
+    } finally { w.close() }
+  })
+
+  test('a request still queued when its deadline has passed is not run; one in time is', async () => {
+    const w = new DocSearchWorker(dir, script)
+    try {
+      const slow = w.search('block400', { rootIds: ['shared'] })
+      const late = w.search('late-one', { rootIds: ['shared'], due: Date.now() + 50 })
+      const fine = w.search('in-time', { rootIds: ['shared'], due: Date.now() + 5000 })
+      expect(await late).toEqual([])
+      expect((await slow).map((h) => h.relPath)).toEqual(['block400.md'])
+      expect((await fine).map((h) => h.relPath)).toEqual(['in-time.md'])
+    } finally { w.close() }
+  })
+
+  test('a worker that dies starts again at the next search; close ends it and answers those waiting', async () => {
+    const errors: string[] = []
+    const w = new DocSearchWorker(dir, script, (e) => errors.push(e))
+    try {
+      await w.search('crash', { rootIds: ['shared'] })
+      for (let i = 0; i < 50 && w.running; i++) await Bun.sleep(20)
+      expect(w.running).toBe(false)
+      expect(errors.length).toBeGreaterThan(0)
+      expect((await w.search('again', { rootIds: ['shared'] })).map((h) => h.relPath)).toEqual(['again.md'])
+      const waiting = w.search('block300', { rootIds: ['shared'] })
+      w.close()
+      expect(await waiting).toEqual([])
+      expect(w.running).toBe(false)
+      expect(await w.search('after-close', { rootIds: ['shared'] })).toEqual([])
+    } finally { w.close() }
+  })
+
+  test('the real index through the worker: a reader sees what the writer commits; a request past its deadline is not sent', async () => {
+    const real = path.join(dir, 'real')
+    const { DocumentIndex } = await import('../../server/src/knowledge-graph/documents')
+    const writer = DocumentIndex.open(real, { extract: async (_n, b) => new TextDecoder().decode(b) })
+    const w = new DocSearchWorker(real, SELF)
+    try {
+      const enc = (s: string) => new TextEncoder().encode(s)
+      await writer.update('shared', 'a.md', { bytes: enc('The refund policy gives 14 days.'), size: 32, mtimeMs: 1 })
+      expect((await w.search('refund policy', { rootIds: ['shared'] })).map((h) => h.relPath)).toEqual(['a.md'])
+      await writer.update('shared', 'b.md', { bytes: enc('Another refund policy note.'), size: 27, mtimeMs: 1 })
+      expect((await w.search('refund policy', { rootIds: ['shared'] })).map((h) => h.relPath).sort()).toEqual(['a.md', 'b.md'])
+      expect(await w.search('refund', { rootIds: ['shared'], due: Date.now() - 1 })).toEqual([])
+      expect(writer.search('refund', { rootIds: ['shared'] })).toHaveLength(2)
+    } finally { w.close(); writer.close() }
   })
 })
