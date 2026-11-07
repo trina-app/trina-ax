@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-07 16:46
 - Branch: `fix/team-skill-editors-line`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`web/src/pages/admin/SkillManagers.tsx`, `web/src/lib/access-view.ts`, i18n). Why: follow-up to
   PR #176 (team skills are core; see docs/REPOSITORY-RULES.md)
 - Version impact: patch. It fixes the wording of the Team skills line; no API or rule change.
@@ -49,4 +49,20 @@ None for permissions: the change is read-only. The five app languages need the n
 
 ## Result
 
-Filled in at the end.
+Built as planned:
+- The line loads two things:
+  - the server's answer for `skills/` (`GET /api/admin/access/tree?path=skills`, as before);
+  - the folder rules (`GET /api/admin/folders`).
+- `skillFoldersWithEditors` counts the folders inside `skills/` (in any letter case) that are on disk and shown in the
+  tree, and whose rules give write to everyone, the old members row, a group or a person. "admins: write" changes nobody,
+  so it does not count.
+- The count ends the line: "폴더별로 맡긴 곳 N개" / "N folders have their own editors".
+- If the folder rules fail, the line uses `skillMgr.editorsBase`, which has no "만" or "only".
+- If the `skills/` answer fails, the line shows "고칠 수 있는 사람을 불러오지 못했어요 · 다시 시도".
+- [바꾸기] reloads only the `skills/` answer. The dialog still loads its own three lists: grants, people and groups.
+- After a removal, the dialog fetches the grant list directly. The focus target is set only when that list arrives, it
+  is cleared in the effect that uses it, and it is skipped while the search box has focus.
+- ko `offTitle` is "{name}: 고칠 수 있는 사람에서 뺄까요?". The other four languages already read naturally.
+
+Different from the plan: the line shows nothing until both requests have answered (or the rules have failed). Otherwise
+it would read "고칠 수 있는 사람: 팀장·관리자" first and then change its words.
