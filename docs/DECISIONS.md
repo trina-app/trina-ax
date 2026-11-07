@@ -13402,3 +13402,8 @@ entries. Their tool is removed.
     pieces for good, a stuck download, missed scans repeating, and the web e2e downloading the model. All fixed.
 - **Removed:** the `search` tool, `server/src/search/semantic.ts` and `MYCEL_SEMANTIC`. Their `<data>/semantic.db` is
   deleted on start. The model files and the bundled runtime stay, because the new embedder uses them.
+- **AI benchmark with meaning on** (`scripts/bench/`, 30 questions, all pieces embedded first; the server indexed 94
+  pieces in 71 s at 609 MB):
+  - Claude Code 8.6 s median, 81,572 tokens, 30/30.
+  - Codex 8.5 s, 59,328 tokens, 30/30. The cross-language miss of wave 1 (en-08) is found in one call.
+  - Tokens and tool calls are unchanged from wave 1.

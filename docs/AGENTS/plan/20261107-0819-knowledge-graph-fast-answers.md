@@ -237,4 +237,10 @@ Waves 2 and 3 (built 2026-11-07, branch `feat/knowledge-graph-meaning`, stacked 
 - **Two reviews:** three must-fix items (meaning asked for before the model, uncapped passages, hosting-plan memory)
   and the should-fix items, all fixed.
 - **The old `search` tool and `MYCEL_SEMANTIC` are removed;** `semantic.db` is deleted on start.
-- PR: to be linked.
+- **AI benchmark with meaning on** (same Mac and questions, all 94 pieces embedded first, one pass each):
+  - Claude Code: 8.6 s median, 81,572 input tokens, 1 tool call, 30/30 correct.
+  - Codex: 8.5 s, 59,328 tokens, 1 tool call, 30/30 correct (wave 1: 29/30; the cross-language miss en-08 is now
+    found in one call).
+  - Tokens and tool calls stay at wave 1's level, because the lookup before the model does not use meaning.
+  - Times vary by 1–2 s between single passes on this shared Mac.
+- PR: https://github.com/trina-app/trina-ax/pull/175 (stacked on #165)
