@@ -167,7 +167,8 @@ let testOptions: KgOptions | undefined
 export function setKnowledgeGraphForTests(o: KgOptions | undefined) { testOptions = o }
 /** The document index (knowledge-graph/documents/) behind the port: its writes on this thread's connection, its reads
  * (search, related) in the search worker (documents/search-worker.ts), so a search never holds the server. Without the
- * worker's script (a bundle built without it) the reads run here, with the slow full scan left out. */
+ * worker's script (a bundle built without it), or for a while after the worker failed several times in a row
+ * (DocSearchWorker.usable), the reads run here: bounded, a few hundred pieces per word. */
 export function openDocumentIndex(dir: string, o: DocIndexOptions): DocIndexPort {
   const idx = DocumentIndex.open(dir, o)
   const script = docSearchWorkerScript()
@@ -181,8 +182,8 @@ export function openDocumentIndex(dir: string, o: DocIndexOptions): DocIndexPort
     update: (r, rel, f, x) => idx.update(r, rel, f, { ...x, background: true }),
     remove: (r, rel) => idx.remove(r, rel),
     dropRoot: (r) => idx.dropRoot(r),
-    search: (q, x) => reader ? reader.search(q, x) : idx.search(q, { ...x, scan: false }),
-    related: (r, rel, x) => reader ? reader.related(r, rel, x, people()) : idx.related(r, rel, x),
+    search: (q, x) => reader?.usable ? reader.search(q, x) : idx.search(q, x),
+    related: (r, rel, x) => reader?.usable ? reader.related(r, rel, x, people()) : idx.related(r, rel, x),
     stats: (r) => idx.stats(r),
     diskBytes: () => idx.diskBytes(),
     close: () => { reader?.close(); idx.close() },
@@ -726,10 +727,10 @@ export class KnowledgeGraph {
    * LOOKUP_SHORT_CHARS. Strength (matchStrength): the best of each wording's first LOOKUP_LONG passages.
    *
    * Time: the searches run in the search worker, never on this thread, all wordings at once; what is not back by `due`
-   * is left out (the worker does not even start a request whose deadline has passed). `scan` (the AI's tool): also the
-   * slow full scan for short words.
+   * is left out (the worker does not even start a request whose deadline has passed); without a deadline (the AI's
+   * tool), the worker's own (search-worker.ts DEFAULT_DEADLINE_MS).
    */
-  private async docPassages(a: Access, queries: readonly string[], o: { long: number; short: number; due: number; words?: LookupOptions['words']; scan?: boolean }): Promise<{ passages: LookupPassage[]; strength: LookupResult['strength'] }> {
+  private async docPassages(a: Access, queries: readonly string[], o: { long: number; short: number; due: number; words?: LookupOptions['words'] }): Promise<{ passages: LookupPassage[]; strength: LookupResult['strength'] }> {
     const long = clampInt(o.long, 0, 10), short = clampInt(o.short, 0, 50)
     const none = { passages: [] as LookupPassage[], strength: 'none' as const }
     if ((!long && !short) || !a.idx || !a.docRoots.length) return none
@@ -746,7 +747,7 @@ export class KnowledgeGraph {
     const asked = wordings.map((q) => {
       const terms = o.words === 'search' ? queryTerms(q) : questionTerms(q)
       if (!terms.length) return { terms, hits: Promise.resolve(null as DocHit[] | null) }
-      const run = Promise.resolve().then(() => idx.search(terms.join(' '), { rootIds: a.docRoots, limit, passage: LOOKUP_LONG_CHARS, ...(prefix ? { prefix } : {}), ...(o.scan ? { scan: true } : {}), ...(due !== undefined ? { due } : {}) }))
+      const run = Promise.resolve().then(() => idx.search(terms.join(' '), { rootIds: a.docRoots, limit, passage: LOOKUP_LONG_CHARS, ...(prefix ? { prefix } : {}), ...(due !== undefined ? { due } : {}) }))
       return { terms, hits: beforeDue(run, o.due).catch((e) => { this.ctx.log.warn('knowledge graph: document search failed', { err: String(e).slice(0, 200) }); return null }) }
     })
     for (const { terms, hits: pending } of asked) {
@@ -788,7 +789,7 @@ export class KnowledgeGraph {
     const { readable, visible, mine, idx, docRoots, inDocRoot } = acc
     const files = new Set<string>()
     // ---- documents
-    const { passages, strength } = await this.docPassages(acc, [query, o.alt ?? ''], { long: LOOKUP_LONG, short: LOOKUP_SHORT, due: Infinity, scan: true })
+    const { passages, strength } = await this.docPassages(acc, [query, o.alt ?? ''], { long: LOOKUP_LONG, short: LOOKUP_SHORT, due: Infinity })
     const related: ExploreRelated[] = []
     if (idx && docRoots.length) {
       // the documents linked to the first few, each named only when the person may read it too
@@ -891,7 +892,7 @@ export class KnowledgeGraph {
    *   requests and question words do not count as words, so "hi", "thanks" or "write me an email" are none or weak.
    * - `deadlineMs`: it answers by then with what is ready: a search not back in time is left out, and with one wording
    *   that means nothing (none). The searches run in the search worker (documents/search-worker.ts), so the server is
-   *   never held while they run; the search is bounded too (no full scan, a few hundred pieces per word).
+   *   never held while they run; the search is bounded too (a few hundred pieces per word).
    * - `words: 'search'` (the Files search box): every word typed counts, not only a chat message's distinctive ones.
    */
   async lookup(user: Principal, queries: readonly string[], o: LookupOptions = {}): Promise<LookupResult> {

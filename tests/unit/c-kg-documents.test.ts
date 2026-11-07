@@ -102,10 +102,12 @@ describe('document types', () => {
 })
 
 describe('search', () => {
-  test('Korean finds parts of words (trigram) and short words', () => {
+  test('Korean finds parts of words (trigram) and short words at the start of a word, never in the middle of one', () => {
     expect(idx.search('회의록', { rootIds: ['projects/acme'] })[0]?.relPath).toBe('notes/plan.md')
     expect(idx.search('회의', { rootIds: ['projects/acme'] })[0]?.relPath).toBe('notes/plan.md')
     expect(idx.search('마케팅 예산을', { rootIds: ['projects/acme'] })[0]?.relPath).toBe('notes/plan.md')
+    // "의록" is inside "회의록": finding it took a full scan of the text, which held the one search worker (grep finds it)
+    expect(idx.search('의록', { rootIds: ['projects/acme'] })).toEqual([])
   })
   test('English, any case; snippet around the words', () => {
     const h = idx.search('QUARTERLY Budget', { rootIds: ['projects/acme'] })[0]!
