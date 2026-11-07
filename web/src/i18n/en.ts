@@ -2895,7 +2895,7 @@ export const en: Record<MessageKey, string> = {
   "audit.act.integration_template.connect": "Connected an MCP template with their own key",
   'audit.act.integration_request.decline': "Declined an MCP connection request",
   'teamIcon.title': 'Team logo',
-  'teamIcon.desc': 'Shown on browser tabs, the sign-in page and the app added to a home screen.',
+  'teamIcon.desc': 'Shown on browser tabs, the sidebar, the sign-in page and the app added to a home screen.',
   'teamIcon.default': 'The default {product} icon is in use.',
   'teamIcon.custom': 'Your team logo is in use.',
   'teamIcon.upload': 'Upload logo',

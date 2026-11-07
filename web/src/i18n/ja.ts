@@ -2855,7 +2855,7 @@ export const ja: Record<MessageKey, string> = {
   "audit.act.integration_template.connect": "MCPテンプレートを自分のキーで接続",
   'audit.act.integration_request.decline': "MCPの接続依頼を辞退",
   'teamIcon.title': "チームのロゴ",
-  'teamIcon.desc': "ブラウザーのタブ、ログインページ、ホーム画面に追加したアプリに表示されます。",
+  'teamIcon.desc': "ブラウザーのタブ、サイドバー、ログインページ、ホーム画面に追加したアプリに表示されます。",
   'teamIcon.default': "既定の{product}アイコンを使用中です。",
   'teamIcon.custom': "チームのロゴを使用中です。",
   'teamIcon.upload': "ロゴをアップロード",
