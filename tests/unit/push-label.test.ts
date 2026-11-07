@@ -71,12 +71,12 @@ test('a DM, a mention and a thread reply: the browser push\'s title and body, in
   // a reply in a thread nora follows (she wrote its root); in English for an English account
   const root = await w.send(w.nora.client, w.team.id, 'nora asks')
   setUserLocale(h.ctx.db, w.nora.id, 'en')
-  const reply = await w.send(w.mia.client, w.team.id, 'the answer is 42', { threadRootId: root.id })
+  const reply = await w.send(w.mia.client, w.team.id, 'the answer is QZXWV-SECRET', { threadRootId: root.id })
   const replyNotice = await w.pushed(reply.id)
   const r = w.ask(replyNotice)
   expect(r).toEqual({ title: 'MIA · #design › Thread', body: TEXT['room.dm'].en, roomId: w.team.id, threadId: root.id })
   expect(r.title).toBe(n.get(w.nora.id, replyNotice).room!.label!)
-  expect(JSON.stringify(r)).not.toContain('42')
+  expect(JSON.stringify(r)).not.toContain('QZXWV')
 })
 
 test('names are one plain line: no bidirectional or zero-width characters, no line breaks, at most 120 characters', async () => {
