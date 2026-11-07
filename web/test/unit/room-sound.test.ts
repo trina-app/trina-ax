@@ -245,6 +245,37 @@ describe('one sound per device', () => {
     expect(await t.s.message(ROOM, msg(), dm, ME.id, false)).toBe(false)
     expect(t.s.handles(true)).toBe(false)
   })
+
+  test('it waits a moment first: read meanwhile on another device or window, it stays quiet and leaves the slot free', async () => {
+    const dev = device()
+    const read = new Set<string>()
+    const waits: number[] = []
+    const t = tab(dev, { settle: { ms: 1500, read: (_r, m) => read.has(m.id), wait: async (ms) => { waits.push(ms); read.add(first.id) } } })
+    const first = msg({ seq: 1 })
+    expect(await t.s.message(ROOM, first, dm, ME.id, false)).toBe(false)
+    expect(waits).toEqual([1500])
+    // still unread after the wait: it rings, at once (the slot was not taken by the one read elsewhere)
+    expect(await t.s.message(ROOM, msg({ seq: 2 }), dm, ME.id, false)).toBe(true)
+    expect(t.audio.played).toBe(1)
+  })
+
+  test('meanwhile this window opened the room, the switch went off, the audio stopped being able to play or the person signed out: quiet', async () => {
+    const dev = device()
+    const focus = { on: false, room: null as string | null }
+    const opens = tab(dev, { focus, settle: { ms: 1, read: () => false, wait: async () => { focus.on = true; focus.room = ROOM } } })
+    expect(await opens.s.message(ROOM, msg(), dm, ME.id, false)).toBe(false)
+    const audio = new FakeAudio()
+    const lost = tab(dev, { audio, settle: { ms: 1, read: () => false, wait: async () => { audio.isReady = false } } })
+    expect(await lost.s.message(ROOM, msg({ seq: 2 }), dm, ME.id, false)).toBe(false)
+    const out = tab(dev, { settle: { ms: 1, read: () => false, wait: async () => out.s.stop() } })
+    expect(await out.s.message(ROOM, msg({ seq: 3 }), dm, ME.id, false)).toBe(false)
+    const off = tab(dev, { settle: { ms: 1, read: () => false, wait: async () => { setRoomSoundOn(false, dev.storage) } } })
+    expect(await off.s.message(ROOM, msg({ seq: 4 }), dm, ME.id, false)).toBe(false)
+    expect(opens.audio.played + audio.played + out.audio.played + off.audio.played).toBe(0)
+    // (the slot stayed free: with the switch on again, a tab whose sound can play still rings)
+    setRoomSoundOn(true, dev.storage)
+    expect(await tab(dev).s.message(ROOM, msg({ seq: 5 }), dm, ME.id, false)).toBe(true)
+  })
 })
 
 describe('the room a focused tab shows', () => {
@@ -430,7 +461,8 @@ describe('in the app', () => {
     audio = new FakeAudio()
     useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id } } as Me } })
     useRooms.setState({ rooms: [room({ id: ROOM, kind: 'dm', name: null, groupId: null })], loaded: true })
-    startRoomSound({ audio })
+    // (the wait for a read elsewhere: one turn here; its own tests below)
+    startRoomSound({ audio, settleMs: 0 })
   })
   afterEach(() => {
     stopRoomSound()
@@ -441,6 +473,7 @@ describe('in the app', () => {
   })
   const ev = (seq: number, m = msg({ seq })): ServerEvent => ({ type: 'room.message', seq, at: Date.now(), data: { roomId: ROOM, message: m } })
   const settle = () => new Promise((r) => setTimeout(r, 0))
+  const threadNews = (threadsUnread: number, seq = 9): ServerEvent => ({ type: 'room.updated', seq, at: Date.now(), data: { roomId: ROOM, change: 'updated', room: { ...useRooms.getState().rooms[0]!, threadsUnread, mentioned: false } } })
 
   test('a replay and an edit do not ring; a new DM message does', async () => {
     dispatch(ev(1), { replay: true })
@@ -463,6 +496,8 @@ describe('in the app', () => {
     await settle()
     expect(audio.played).toBe(0)
     dispatch(ev(3, msg({ seq: 3, threadRootId: root.id, following: true })))
+    // (the server tells a follower their room right after: the thread's news counts in its badge)
+    dispatch(threadNews(1))
     await settle()
     expect(audio.played).toBe(1)
   })
@@ -479,5 +514,70 @@ describe('in the app', () => {
     await settle()
     expect(audio.played).toBe(0)
     expect(localStorage.getItem(SOUND_KEY)).toBe('off')
+  })
+})
+
+// ---------------- in the app: read elsewhere before it rings ----------------
+
+describe('read on another device or window before it rings', () => {
+  const rooms0 = useRooms.getState(), session0 = useSession.getState()
+  let audio: FakeAudio
+  const team = room({ id: ROOM, kind: 'team' })
+  beforeEach(() => {
+    installDom()
+    ;(document as unknown as { visibilityState: string }).visibilityState = 'visible'
+    ;(document as unknown as { hasFocus: () => boolean }).hasFocus = () => false
+    audio = new FakeAudio()
+    useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id } } as Me } })
+    useRooms.setState({ rooms: [team], loaded: true })
+    startRoomSound({ audio, settleMs: 30 })
+  })
+  afterEach(() => {
+    stopRoomSound()
+    removeDom()
+    useRooms.setState(rooms0, true)
+    useSession.setState(session0, true)
+  })
+  const later = () => new Promise((r) => setTimeout(r, 80))
+  const ev = (seq: number, m: ReturnType<typeof msg>): ServerEvent => ({ type: 'room.message', seq, at: Date.now(), data: { roomId: ROOM, message: m } })
+  const roomNow = (o: Partial<ReturnType<typeof room>>, seq: number): ServerEvent => ({ type: 'room.updated', seq, at: Date.now(), data: { roomId: ROOM, change: 'updated', room: { ...useRooms.getState().rooms[0]!, ...o } } })
+
+  test('a mention I read on my phone a moment later does not ring here; one I did not read does', async () => {
+    dispatch(ev(1, msg({ seq: 1, mentions: [ME.id] })))
+    expect(useRooms.getState().rooms[0]).toMatchObject({ unreadCount: 1, mentioned: true })
+    // the phone shows the room: the server tells all my windows (room.read)
+    dispatch({ type: 'room.read', seq: 2, at: Date.now(), data: { roomId: ROOM, lastReadSeq: 1, unreadCount: 0, mentioned: false } })
+    await later()
+    expect(audio.played).toBe(0)
+    expect(useRooms.getState().rooms[0]).toMatchObject({ unreadCount: 0, mentioned: false, lastReadSeq: 1 })
+    dispatch(ev(3, msg({ seq: 2, mentions: [ME.id] })))
+    await later()
+    expect(audio.played).toBe(1)
+  })
+
+  test('a reply in a thread I follow, read in that thread elsewhere: quiet; a read of the room only does not cover it', async () => {
+    const root = msg({ seq: 1, author: ME })
+    dispatch(ev(1, msg({ seq: 2, threadRootId: root.id, following: true })))
+    dispatch(roomNow({ threadsUnread: 1, nextThreadId: root.id }, 2))
+    // read in the thread on another device: the room comes again with no thread news
+    dispatch(roomNow({ threadsUnread: 0, nextThreadId: null }, 3))
+    await later()
+    expect(audio.played).toBe(0)
+    dispatch(ev(4, msg({ seq: 3, threadRootId: root.id, following: true })))
+    dispatch(roomNow({ threadsUnread: 1, nextThreadId: root.id }, 5))
+    // reading the room elsewhere moves the room's position, not the thread's
+    dispatch({ type: 'room.read', seq: 6, at: Date.now(), data: { roomId: ROOM, lastReadSeq: 3, unreadCount: 0, mentioned: false } })
+    await later()
+    expect(audio.played).toBe(1)
+  })
+
+  test('the room muted on another device meanwhile, or signed out here: quiet', async () => {
+    dispatch(ev(1, msg({ seq: 1, mentions: [ME.id] })))
+    dispatch(roomNow({ muted: true }, 2))
+    await later()
+    dispatch(ev(3, msg({ seq: 2, mentions: [ME.id] })))
+    stopRoomSound()
+    await later()
+    expect(audio.played).toBe(0)
   })
 })

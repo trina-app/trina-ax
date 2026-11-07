@@ -116,7 +116,7 @@ export default function Home() {
                 · {t('home.inProject')}
               </p>
             )}
-            {demo && !projectId ? <DemoIntro persona={demo.persona} /> : <h1 className="mb-6 text-center text-[26px] font-semibold tracking-tight text-balance sm:text-[28px]">{t('home.greeting', { name: me.user.name })}</h1>}
+            {demo && !projectId ? <DemoIntro persona={demo.persona} /> : <h1 className="mb-6 text-center text-[1.625rem] font-semibold tracking-tight text-balance sm:text-[1.75rem]">{t('home.greeting', { name: me.user.name })}</h1>}
             {extras && (starter ? <StarterLine starter={starter} /> : notes && !projectId && <NotesLine notes={notes} />)}
             <NewChatComposer
               projectId={projectId}

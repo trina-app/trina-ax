@@ -388,7 +388,7 @@ function Connection({ canChange = true }: { canChange?: boolean }) {
               )}
             </Rows>
             <p className="mt-2 text-xs text-faint">{c.direct.enabled ? t('system.directOn', { port: c.direct.port }) : t('system.directOff')}</p>
-            {c.direct.fingerprintSha256 && <p className="font-mono text-[11px] break-all text-faint">SHA-256 {c.direct.fingerprintSha256}</p>}
+            {c.direct.fingerprintSha256 && <p className="font-mono text-[0.6875rem] break-all text-faint">SHA-256 {c.direct.fingerprintSha256}</p>}
           </>
         )}
       </Loadable>

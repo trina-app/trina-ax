@@ -235,6 +235,17 @@ export const RoomFileInput = z.strictObject({
   offset: z.number().int().min(0).optional().describe('Characters of the text to skip (to read on after a cut result).'),
 })
 
+/** room_file in a room's own AI session (rooms/ai.ts): a file of this room, nothing else */
+export const RoomFileHereInput = z.strictObject({
+  file: z.string().min(1).max(300).describe('The file\'s id (file_id=… in the <attachments> list or after a message in <room_context>), or its exact name.'),
+  offset: z.number().int().min(0).optional().describe('Characters of the text to skip (to read on after a cut result).'),
+})
+/** save_room_file: a copy of a file sent in this room put into the team folder (a room's own AI session) */
+export const SaveRoomFileInput = z.strictObject({
+  file: z.string().min(1).max(300).describe('The file\'s id (file_id=… in the <attachments> list or after a message in <room_context>); a name is not taken, as two files may share one.'),
+  save_as: z.string().max(300).optional().describe('Team path to save to, e.g. "shared/photos/receipt.jpg"; a path ending in "/" keeps the file\'s own name ("shared/"). Default: users/<you>/downloads/.'),
+})
+
 export const ToolError = z.object({ error: z.object({ code: z.string(), message: z.string() }) })
 /** File tools return plain text (like Claude Code's built-ins). */
 export const TextOutput = z.object({ text: z.string() })
@@ -271,6 +282,7 @@ export const OTHER_TOOLS = {
   rooms: { input: RoomsInput, output: TextOutput },
   room_read: { input: RoomReadInput, output: TextOutput },
   room_file: { input: RoomFileInput, output: TextOutput },
+  save_room_file: { input: SaveRoomFileInput, output: TextOutput },
 } as const
 
 /** Exactly what the engine may have, in addition to mcp__team__<file tool>. Lockdown test asserts this. */

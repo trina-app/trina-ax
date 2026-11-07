@@ -80,6 +80,15 @@ test('410 from the gateway deletes the device, its 404 does not; 5xx retries wit
   expect(h.ctx.db.query("SELECT state,attempts FROM push_deliveries WHERE state<>'cancelled'").all()).toEqual([{ state: 'failed', attempts: 3 }])
 })
 
+test('406 (WNS\'s throttle for Web Push) is not retried for a phone device: the gateway never means that by it', async () => {
+  let calls = 0
+  const sid = await setup({ nativeTransport: async () => { calls++; return { statusCode: 406 } } })
+  p.registerDevice('olga', sid, device()); now += 10; event('not-acceptable'); await p.tick()
+  now += 31_000; await p.tick(); now += 121_000; await p.tick()
+  expect(calls).toBe(1)
+  expect(h.ctx.db.query("SELECT state,attempts FROM push_deliveries WHERE state<>'cancelled'").all()).toEqual([{ state: 'failed', attempts: 1 }])
+})
+
 test('logout (session revoked) during gateway preparation sends nothing and removes the device', async () => {
   let admitted = 0, finish!: () => void
   const sid = await setup({ nativeTransport: async i => { await new Promise<void>(r => finish = r); if (i.beforeSend()) admitted++; return { statusCode: 200 } } })

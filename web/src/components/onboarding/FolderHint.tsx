@@ -17,7 +17,7 @@ export function osOf(): Os {
 }
 
 export function Kbd({ children }: { children: ReactNode }) {
-  return <kbd className="mx-px inline-block min-w-5 rounded-[5px] border border-b-2 border-line-strong bg-surface px-1 text-center font-mono text-xs leading-[17px] text-ink">{children}</kbd>
+  return <kbd className="mx-px inline-block min-w-5 rounded-[5px] border border-b-2 border-line-strong bg-surface px-1 text-center font-mono text-xs leading-[1.0625rem] text-ink">{children}</kbd>
 }
 
 /**
