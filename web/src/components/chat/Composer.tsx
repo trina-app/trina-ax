@@ -10,10 +10,11 @@
 // files also arrive from the file screen / preview ("Ask AI about this", "Add to current chat", drag from the preview).
 // "/" at the start lists the team skills (SkillMenu); "#" lists my team chat rooms and puts the one picked in the message
 // as a token that carries its id (RoomRefMenu, docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기").
-// Below 768px the box is a room's box (rooms/RoomComposer.tsx): attach and voice inside it on the left, a round send on
-// the right; the row under it keeps only the engine picker, for people who may choose one.
-// Voice input (lib/useVoiceInput.ts, components/VoiceBar.tsx): the mic, holding Space in the box on a computer, or a
-// finger held on the mic; the words go to the end of the box, never sent by themselves.
+// Below 768px the box is a room's box (rooms/RoomComposer.tsx): attach inside it on the left, the mic and a round send
+// on the right; the row under it keeps only the engine picker, for people who may choose one.
+// Voice input (lib/useVoiceInput.ts, components/VoiceBar.tsx): the mic in the box right before send (as in ChatGPT's
+// box), holding Space in the box on a computer, or a finger held on the mic; the words go to the end of the box, never
+// sent by themselves.
 // Text that looks like a key or password waits for "Send anyway" (SecretWarning): a message goes to the AI provider
 // and stays in the chat; a service's key belongs in the connect card the AI shows.
 import clsx from 'clsx'
@@ -521,7 +522,6 @@ export default function Composer({
           e.target.value = ''
         }}
       />
-      <VoiceMic voice={voice} mic={mic} disabled={sending} />
     </>
   )
 
@@ -704,6 +704,8 @@ export default function Composer({
                 />
               </div>
               <div className={clsx('flex shrink-0 items-center gap-1', phone && !running && !answering ? 'pb-1' : 'pb-2')}>
+                {/* the mic right before send, as in ChatGPT's box ("+" and the engine stay where they are) */}
+                <VoiceMic voice={voice} mic={mic} disabled={sending} />
                 {answering
                   ? canSend && (
                       // the AI's question: also how phones (Enter makes a new line there) answer from the box
@@ -752,8 +754,9 @@ export default function Composer({
           </>
         )}
       </div>
-      {/* under the box, like Claude's: attach and voice on the left, the engine on the right, the note between. Phones:
-          attach and voice sit inside the box, as in a room's box, and this row is only there for the engine. */}
+      {/* under the box, like Claude's: attach on the left, the engine on the right, the note between (the mic is in the
+          box, before send). Phones: attach sits inside the box, as in a room's box, and this row is only there for the
+          engine. */}
       {(!phone || onEngine) && (
       <div className="flex items-center gap-2 px-1 pt-1.5 max-md:pt-1" data-testid="composer-controls">
         <div className="flex flex-1 basis-0 items-center gap-0.5">

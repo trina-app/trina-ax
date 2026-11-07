@@ -615,6 +615,7 @@ export const ko = {
   'artifact.needsScripts': '이 아티팩트는 스크립트를 실행해야 보이는데, 기밀 채팅에서는 데스크톱 앱에서만 실행돼요. 내용은 코드 탭에서 볼 수 있어요.',
 
   'preview.panel': '파일 미리보기',
+  'preview.resize': '미리보기 너비 조절',
   'preview.notFound': '파일을 찾을 수 없거나 볼 권한이 없어요.',
   'preview.tooLarge': '파일이 커서({size}) 미리 볼 수 없어요. 내려받아서 열어 주세요.',
   'hwp.disabled': "이 팀에서는 한글 미리보기가 켜져 있지 않아요. 원본 다운로드와 AI의 글자 읽기는 계속 쓸 수 있어요.",
