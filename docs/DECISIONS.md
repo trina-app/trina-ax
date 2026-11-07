@@ -8250,7 +8250,8 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   20, then one a second, all rooms together; 429 with the seconds to wait; a resend of the same clientMessageId is
   free). They live in `room_notices` (notification_inbox has a fixed event_type
   list and is never rebuilt) and are part of the one inbox; the inbox entry names the room and who wrote it, never the
-  text. Push: `room.dm` and `room.mention` joined `PushEventType`, and the push service sends from two sources,
+  text (amended 2026-11-07: the Inbox's list shows the first line of a message the person may read, never a push or a
+  lock screen, see "알림함의 대화 알림"). Push: `room.dm` and `room.mention` joined `PushEventType`, and the push service sends from two sources,
   `notification_inbox`/`push_deliveries` and `room_notices`/`room_push_deliveries`, with the same checks (payload: the
   notice id, the subscription id and the event code; the lock screen text is generic). One switch, "Room messages"
   (`roomMessages`), turns both off; per room there is mute (amended 2026-11-06: a default of three, thread replies,
@@ -8275,7 +8276,8 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   a room and inside an AI chat there is no tab bar (their message box needs the bottom), and inside a room the room's
   header with its back arrow replaces the phone top bar. Rows are separated by hairlines, no cards near the edge. The
   desktop sidebar keeps the AI chats where they were.
-- **Notices on a device.** The service worker shows a room push with the generic text, and a click opens `/rooms/<id>`
+- **Notices on a device.** The service worker shows a room push with the generic text (amended 2026-11-07: its title
+  says who and where, never the text, see "알림함의 대화 알림"), and a click opens `/rooms/<id>`
   with the room id taken from the signed-in fetch of the notice at show time, never from the payload (the room page
   checks membership again); other pushes still open Settings › Notifications.
 
@@ -8313,7 +8315,8 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   were the session's, cumulative, and only this reset cleared them; now every question starts with both empty.)
 - **Context: other people's words, labelled.** In front of the question (never in the stored user message) goes
   `<room_context>` with up to 30 messages / 12,000 characters before the question that the asker may see (from their
-  join on; private ones only their own), each a `<room_message from=… who="another member" | "the person asking you
+  join on; private ones only their own; since feat/room-ai-threads also the latest replies of their threads, below
+  "대화방의 트리나가 스레드도 본다"), each a `<room_message from=… who="another member" | "the person asking you
   now" | "your earlier answer to …">`, file names only. When the session already holds the asker's own earlier
   questions and answers (a continued session or its history), those are left out. Tags inside are neutralised. Because
   the block is not in the stored message, the URL gate does not count links in it as typed by the person. Words of
@@ -8431,7 +8434,9 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
     one 더 보기 row. The room's one setting is the bell in its header (no menu of one item).
   - The pinned AI row is "트리나" (rooms.aiName) where the product is named after its AI (`PRODUCT_NAMED_AFTER_AI`); the
     core edition keeps the product's name. Room DMs and mentions still push and still count on the 대화 tab but are not
-    listed or counted in the Inbox (`room_notices` stay out of its list; a push opens its notice by id). The profile no
+    listed or counted in the Inbox (`room_notices` stay out of its list; a push opens its notice by id; amended
+    2026-11-07: mentions and replies in threads I follow are listed and counted again, one row per place, see "알림함의
+    대화 알림"). The profile no
     longer shows or asks for the one-line status (the column stays). Letter avatars are on a neutral tile; an AI answer
     is one plain line in the rooms list; a muted room's badge is grey and not in the tab's count; a mention shows "@"
     alone; an AI answer's unread number sits by its time.
@@ -10741,7 +10746,8 @@ a later member sees a room from their join on (`visible_from_seq`), threads incl
   with a dot that opens the newest one (the room may be long: the badge must lead somewhere). A reply's own author has
   read the thread up to it.
 - **@트리나 in a thread answers in the thread.** Its context is the thread (the root, always kept, and the replies
-  before the question the asker can see, for the whole room), never the room's other messages; the block says so
+  before the question the asker can see, for the whole room), never the room's other messages (a question in the
+  timeline sees the threads of its messages since feat/room-ai-threads: "대화방의 트리나가 스레드도 본다"); the block says so
   (`thread="yes"`, the instructions' room section too). Its conversation is that thread's: the session's earlier
   questions in the same thread (`RoomAi.lastAnswerHere`: each place, the timeline and every thread, keeps its own branch
   of the person's room session), so the timeline's history never comes into a thread and the reverse. What the answer
@@ -11344,7 +11350,7 @@ the settings do too. Naming (the owner's rule): the people's side is **대화** 
   device's: the server decides the pushes and the people of one team share one clock. `inQuietHours(q, tz, now)` is the
   one function; an unknown zone reads as UTC; start = end is refused (400). Inside them: the notice is kept
   (`room_notices.quiet = 1`; the room's badge and the notice by id as before; room notices are not listed in the Inbox,
-  "대화방의 트리나") but never queued for a push, and the web app does not ring. One quiet notice per unread run; once
+  "대화방의 트리나"; since 2026-11-07 a quiet mention or reply is a row like any, "알림함의 대화 알림") but never queued for a push, and the web app does not ring. One quiet notice per unread run; once
   the quiet hours are over, the next message makes a new notice that pushes, even while the quiet one is unread (it no
   longer holds the run back). Nothing that waited is pushed when they end (Slack does the same). Only room alerts are
   quiet: a scheduled task's result or a connection that needs a sign-in still pushes at night (they are rare and the
@@ -12574,3 +12580,147 @@ middle of a word on a phone.
   always opens, and a message still being sent (no menu) opens on any press.
 - **Not in this change:** link previews (an unfurl needs the server to fetch the page, with SSRF rules), links in the
   room list's last-message line (the row is one link already), Markdown in people's messages.
+## 대화방의 트리나가 스레드도 본다 — the room's AI sees threads (feat/room-ai-threads, 2026-11-07, product owner)
+
+넣을 곳: trina-ax `server/src/rooms` (ai.ts, ai-context.ts, ai-tools.ts), `server/src/chat` (room-tools.ts, prompt.ts,
+subagents.ts) and `shared/src` (tools.ts, step-labels.ts), 이유: in a room someone asked "@Trina Can you also see the
+threads messages too?" and the AI answered that thread replies were not sent to it; the owner wants Slack's way: asked
+in the room, it knows what was said in the threads.
+
+- **A question in the timeline sees the threads of its messages.** Under each timeline message of `<room_context>` that
+  has a thread come the latest replies of that thread (`threadsOf`, `rooms/ai-context.ts`), oldest first, each a
+  `<room_message … thread_reply_of="<root id>">`. The message itself carries attributes the server writes: `id`,
+  `thread_replies` (N: the replies the asker may be given before the question), `thread_last_reply_at` and
+  `thread_replies_shown` (how many of them the block holds), so the AI knows when it saw only part and reads the rest
+  with room_thread. Caps: 5 a thread
+  (`ROOM_THREAD_REPLIES`), 30 in all (`ROOM_THREAD_REPLIES_TOTAL`), 8,000 characters in all (`ROOM_THREAD_CHARS`), one
+  reply's start and end in 1,000 (`ROOM_THREAD_REPLY_CHARS`), all inside the block's 24,000 (`ROOM_CONTEXT_CHARS`): the
+  newest messages' threads first, and a message and its replies fit the block together (the oldest replies chosen go
+  first). A reply also sent to the room stands in the timeline, marked `thread_reply_of` and `also_in_room="yes"`, and is
+  not listed again under its first message (it counts in `thread_replies_shown`). A message given elsewhere (in a
+  continued session the asker's own earlier questions here and the answers to them, which the conversation holds; a
+  message folded into the question) is left out as before, but when it has a thread it comes as a short stand-in
+  ("(your answer, in the conversation above)") with its thread under it: people answering the AI's answer in a thread
+  is Slack's way. The numbers are first guesses, like the block's others.
+- **room_thread** (`chat/room-tools.ts roomSessionTools`, `readThread`): one whole thread of the session's room by its
+  first message's id: that message and the newest 100 replies before the question (`ROOM_THREAD_READ_MAX`; `before`
+  with a reply's id reads further back), at most 40,000 characters (one message 4,000), oldest first. Only this room:
+  the room is the session's, and the id is looked up in it alone. A first message the asker cannot see (they joined
+  after it), a reply, a private preview, an event line, a deleted message, another room's message and an id that does
+  not exist all get the same "No thread …" (no oracle). In a thread question only that thread: its context is the
+  thread, and nothing wider is offered (the root's neighbourhood in the timeline is not readable from a thread today, so
+  this does not add it). Read-only, no card; the main AI only (`PARENT_ONLY_TOOLS`); never in a person's own chat (they
+  have `room_read`). Its step is "스레드 읽기" alone and its audit line `room_thread -> N replies`: no room, thread or words.
+  A first message written after the question is no thread to it either. The thread a question was asked in stays
+  readable when its first message was deleted since (its replies, the first message as "(this first message was
+  deleted; its replies stay)"); from the timeline a deleted first message is no thread.
+- **The block's rules for both.** Messages for the whole room only (`AI_SHOWN_SQL`: never a private preview, the
+  asker's own included), not deleted, no event lines, and of those what the asker sees (`SEE_SQL`: from their join on, a
+  thread by its first message's seq), before the question. One renderer (`roomItem`): bodies and file names through
+  `neutralizeTags`, names in attributes through `attr` (now also without U+2028 and U+2029), the asker's own messages as
+  their words and everyone else's as information. The room is never named by its own name ("this room"). A message that
+  shares an answer of its author's own AI chat ("대화방에 보내기" above) is labelled and marked there too
+  (`sharedAnswerOf` / `sharedAnswerText`), so a shared answer posted as a thread reply, or read with room_thread, is
+  the AI's words and never the person's; a stand-in never is one.
+- **Where the answer goes.** A reply is seen by whoever sees its thread's first message, so what the AI saw of a thread
+  counts in the question's read scope from that message's seq (`{type:'room', fromSeq}`): in the block (the first message
+  is always given with its replies) and through room_thread (recorded at the call, whatever the block held). `decide`
+  then keeps the answer private for any member now in the room who joined at or after it ("○○ 님이 들어오기 전 대화를
+  참고했어요"), as for a timeline message from before they joined; posting the preview decides again on the question's
+  stored scope. Private previews and deleted messages are never given, so nothing else can differ between members.
+- **Why room_thread is one of `ROOM_FILE_TOOLS`** (an answer that used it can still be "team files only" and go to the
+  room): what it returns is this room's own messages and nothing else, the same kind as the block. Nothing comes from
+  the web, a connection, another room or a person's own folder, and what it showed is recorded as this room from the
+  thread's first message, which `decide` already judges member by member. An answer built on a thread is then exactly
+  as postable as one built on the block, no more.
+- **The instructions** (`roomSection`): in the timeline "You see thread replies too: … When a thread matters and not all
+  of it is shown, read the whole thread with room_thread. Never say that thread replies are hidden from you."; in a
+  thread, that room_thread reads all of this thread. A thread question's block gives the first message's id
+  (`<room_context … thread_id="…">`, and `older_replies_left_out="yes"` when replies did not fit).
+- **Independent review (2026-11-07) fixes.** No leak or other-room read was found; five low findings, all fixed: the
+  thread's size was a line inside the first message's element, right after its author's words, which a message could
+  imitate ("[thread: 12 replies …; all of them follow below]") to make the AI think it had seen a whole thread: it is
+  attributes now, which a body cannot write (tags in bodies are neutralised). room_thread showed a first message
+  written after the question (not a leak: its seq is recorded; but the block's rule is "before the question"). In a
+  continued session a thread under the asker's own earlier question or under the AI's answer to it was dropped with
+  the message (now the stand-in above; folded messages too). A reply also sent to the room was listed twice. A thread
+  question whose first message was deleted since was told to use room_thread, which refused it.
+- Tests: `tests/unit/b-rooms-ai-threads.test.ts` (the block's replies, size attributes and order; previews, the asker's
+  own too, and deleted replies left out; the caps; a thread under the AI's earlier answer in a continued session and
+  under a folded message; a reply also sent to the room listed once; a first message after the question or deleted; a thread from before a member joined keeping the answer private, in the
+  block and through room_thread, with the stored scope; the tool reading only this room and answering alike for what it
+  cannot read; a thread question reading its own thread only; paging; tags neutralised; a planted instruction in a reply
+  waiting for the asker's card; the instructions and the allowlists), `step-labels-tools`, `b-codex-rooms`.
+
+## 알림함의 대화 알림 — who, where and why in the Inbox (feat/inbox-room-notices, 2026-11-07, product owner)
+넣을 곳: trina-ax `server/src/rooms/inbox.ts` (with `notifications/service.ts`, `notifications/text.ts`, migration 262),
+`shared/src/api/notifications.ts`, `web/src/components/settings/RoomNoticeRow.tsx` and `web/pwa/sw.js`, 이유: the
+Inbox and pushes are core, and one rule has to serve the Inbox's rows, its count and a push's title.
+
+The owner: "쓰레드에 글을 누가 보낸게 어디에 보냈는지 안보여." A reply in a thread pushed the generic "새 메시지가 왔어요",
+and the Inbox listed no room notice at all (2026-11-05, "대화방의 트리나": one place for unread). Slack's Activity is the
+reference; a product and privacy review cut the first plan down to this.
+
+- **What the Inbox lists and counts (amends 2026-11-05).** Mentions (picked by name, "@전체") and replies in threads I
+  follow. A message of a DM, a group chat or a room at 모든 메시지 still makes its notice and its push exactly as before,
+  but no row: the 대화 tab counts it. The rule is in one place (`rooms/inbox.ts` `LISTED_SQL`, `COUNTED_SQL`): listing
+  DMs too is `OR n.event_type = 'room.dm'` there, and they would be listed, not counted. A room I hid has no rows and
+  counts nothing (they come back with the room).
+- **A row is a place.** One room's timeline or one thread, and what is unread there for me: a mention and a reply in one
+  thread, a run split by quiet hours, two people's mentions in a timeline are one row (one notice per unread run and kind
+  stays as it was). The newest notice's id is the row's; reading the row (`POST /api/notifications/:id/read`, the click)
+  reads every notice in it at one time, and notices read together (one `read_at`) stay one row. The count is rows, not
+  messages.
+- **What a row says.** The newest writer's photo (the AI's mark for an AI answer); "민준 외 2명 · #마케팅 › 스레드" (a DM
+  "1:1", the everyone room by its word, a group chat by its name or, without one, its people as the rooms list names
+  it); the time of its newest message; that message's first line, after a small "@" when the row mentions me or everyone;
+  while unread the count's pill, as on the 대화 list. No "새 메시지" or "스레드 답글" label: "› 스레드" says it. Counted: in
+  a thread I follow every reply by someone else after my place in it; elsewhere what mentions me after my place in the
+  room (both from the row's first notice on); once read, what its notices stood for. For that a notice now keeps the
+  newest message it held back (`room_notices.last_seq`, `last_at`; migration 262, additive, reader level stays 6; an
+  older build ignores them and a row there is its own message). The row sits in the Inbox where its newest message is
+  (the list merges the rooms' rows into the other notices' order; its cursor is that time and the id).
+- **The click** opens the thread (`/rooms/<id>/t/<root>`) or the room at my first unread message (`?m=<message>`: the
+  room or thread scrolls it to the middle and marks it for a moment when it is among the messages loaded; no new API
+  that loads around a message) and reads the row. The older line (a server from before this) opens a reply's thread now
+  too.
+- **The message's text, in the Inbox's list only (reverses "never the text" of "대화방 v1" for the Inbox).** The first
+  line of the newest message, at most 200 characters, for a member who may read it in the room anyway. Never in
+  `GET /api/notifications/:id` (what a push opens), never in a push's payload or on a lock screen.
+- **Nothing of a message I may no longer read.** A notice is a row only while I am in the room, it is not archived or
+  hidden by me, and its message is there and mine to see (after my join, not someone else's private preview); otherwise
+  it is no row at all and not counted (leaving or being taken out already deleted my notices, a deleted message its
+  own). A deleted message that started a run moves the run's notice to the next message of it I may read (for a mention:
+  the next that mentions me), so the rest keeps its row.
+- **Names are people's words.** A person's or a room's name and the line are one plain line (shared `plainLabel`: no
+  control or format characters, so no bidirectional overrides or isolates and no zero-width spaces, the emoji joiner
+  kept; no line breaks; capped) and the app shows them inside `<bdi>`. The desktop app's room notice title is cleaned the
+  same way.
+- **A browser push's title (the owner approved who and where, never the text).** The payload is unchanged (ids and the
+  code). The service worker already reads the notice signed in; that answer now carries `room.label` ("민준 · #마케팅 ›
+  스레드", a DM "민준", in the person's language: `notifications/text.ts` `ROOM_WORDS`, the app's own words), and the worker
+  shows it as the title (cleaned again, at most 120 characters) over the generic line; without one (an older server)
+  the product's name, as before. An older worker ignores the field. The phone app's own notices are not in this step.
+- **Older clients and servers.** Every new field of `InboxNotification.room` is optional and the event codes are the
+  same. An older page shows the rows with the line it had; this page shows an older server's notices with that line.
+- **Independent review (2026-11-07) fixes.** Reading the room or a thread up to a point now leaves a notice unread when
+  its run goes on past that point (`last_seq`; `markNoticesRead`, `markThreadNoticesRead`): a read request still on its
+  way when the next mention came marked the run read, and what came after had no notice and vanished from the count.
+  Hiding a room, showing it again and leaving or being taken out tell the person's windows to read the Inbox's count
+  again (`notifications.changed`). A row counts within its run only (from the first notice to the newest it held back)
+  and at most `COUNT_MAX` (100; the pill says 99+), with its first and newest message found by one indexed step each:
+  a run under 50,000 later messages cost 18 ms a list before. `last_seq` is written only for the kinds the Inbox lists,
+  and reading a notice works out its row only for a room notice. The Inbox page reads its rows again as rooms change
+  (once quiet for a second, at most 5 seconds apart) keeping the pages already shown. A linked message older than the
+  newest page is looked for in older pages (at most 10: 500 messages). The reason comes from the counted messages (a
+  mention edited away is no "@"), and an AI answer's or a shared answer's line has its Markdown marks taken off (a
+  shared answer: the person's note first). The notice a push opens has no room while its room is hidden.
+- Rejected: a new event code for replies (the enum is shared with older apps); grouping only by notice (a mention and a
+  reply in one thread were two rows); listing every message notice (the 대화 tab already has them; the owner decides).
+- Tests: `tests/unit/b-rooms-inbox.test.ts` (what is listed and counted, pushes untouched, hidden rooms, what a row says,
+  no text and the title in the notice a push opens, one row per place and reading it, quiet hours, leaving, archived and
+  deleted messages, a later member, an AI answer, names made plain), `b-rooms.test.ts`, `b-rooms-threads.test.ts` and
+  `b-rooms-group.test.ts` updated, `web/test/unit/inbox-rooms.test.tsx` (the words of every kind and reason, the link,
+  older servers, the rows in the Inbox and the click), `web/test/unit/push-worker.test.ts` (the title), and the e2e
+  `inbox-rooms.spec.ts` (the rows, and a click that opens the thread at the first unread reply in sight).
+- Version impact: **minor** (the Inbox lists conversation notices, new optional fields, an additive migration).

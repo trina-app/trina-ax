@@ -20,7 +20,7 @@
 // in it only as a link for those who may open it). It cannot be edited (copy and delete stay).
 import clsx from 'clsx'
 import { Copy, Download, FileText, Lock, MessageSquareText, Pencil, Sparkles, Trash2 } from 'lucide-react'
-import { Fragment, useId, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { ROOM_QUOTE_EXCERPT_MAX, type Locale, type RoomAiRun, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
 import { api, API, errorText, readBounded, startDownload } from '../../lib/api'
@@ -97,9 +97,14 @@ function RoomThumb({ f, src }: { f: RoomFile; src: string }) {
 /** Where the list is: the room's timeline, or the thread panel's root, or its replies. */
 export type ListVariant = 'timeline' | 'root' | 'reply'
 
+/** How long a message picked out by a link (an Inbox row) stays marked. */
+export const HIGHLIGHT_MS = 2400
+
 /** `threadRootId`: the thread of a 'reply' list (my questions asked there that ended without an answer show under it).
- * `dayBefore`: the time of what is shown above the list (a thread's root): no second date line for that same day. */
-export function RoomMessages({ roomId, messages, pending, meId, members, onThread, variant = 'timeline', threadRootId = null, dayBefore = null }: { roomId: string; messages: RoomMessage[]; pending: PendingSend[]; meId: string | null; members: UserRef[]; onThread?: (rootId: string, focus?: boolean) => void; variant?: ListVariant; threadRootId?: string | null; dayBefore?: string | null }) {
+ * `dayBefore`: the time of what is shown above the list (a thread's root): no second date line for that same day.
+ * `highlight`: a message a link points at (an Inbox row: pages/Room.tsx ?m=): once it is on the list it is scrolled to
+ * the middle and marked for a moment, once. */
+export function RoomMessages({ roomId, messages, pending, meId, members, onThread, variant = 'timeline', threadRootId = null, dayBefore = null, highlight = null }: { roomId: string; messages: RoomMessage[]; pending: PendingSend[]; meId: string | null; members: UserRef[]; onThread?: (rootId: string, focus?: boolean) => void; variant?: ListVariant; threadRootId?: string | null; dayBefore?: string | null; highlight?: string | null }) {
   const t = useT()
   const locale = useLocale()
   const runs = useMemo(() => groupRuns(messages), [messages])
@@ -121,6 +126,18 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
     setFlash(id)
     setTimeout(() => setFlash((f) => (f === id ? null : f)), 1600)
   }
+  // the message a link points at, inside this list (the same message can be in the timeline and in its thread, a reply
+  // sent to the room too): after the list has gone to its bottom (the page's layout effect), once
+  const list = useRef<HTMLDivElement>(null)
+  const [lit, setLit] = useState<string | null>(null)
+  const shown = useRef<string | null>(null)
+  useEffect(() => {
+    if (!highlight || shown.current === highlight || !loaded.has(highlight)) return
+    shown.current = highlight
+    list.current?.querySelector<HTMLElement>(`[id="${messageDomId(highlight)}"]`)?.scrollIntoView({ block: 'center' })
+    setLit(highlight)
+    setTimeout(() => setLit((x) => (x === highlight ? null : x)), HIGHLIGHT_MS)
+  }, [highlight, loaded])
   const lastMine = runs.at(-1)?.messages[0]?.author?.id === meId && meId !== null && !runs.at(-1)?.messages[0]?.event
   // what the AI did with a question, under that question: my answer that stopped or failed, someone else's answer that
   // stayed theirs only (the question says so, also after a reload)
@@ -136,7 +153,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
   const repeats = useMemo(() => sameTimeAsAbove(runs, (iso) => timeOf(iso, locale)), [runs, locale])
 
   return (
-    <div data-testid="room-messages">
+    <div ref={list} data-testid="room-messages">
       {runs.map((run, i) => {
         const first = run.messages[0]!
         return (
@@ -168,7 +185,8 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
                       members={members}
                       meId={meId}
                       editing={editing === m.id}
-                      flash={flash === m.id}
+                      flash={flash === m.id || lit === m.id}
+                      highlighted={lit === m.id}
                       onEdit={() => setEditing(m.id)}
                       onEditDone={() => setEditing(null)}
                       onThread={onThread}
@@ -251,7 +269,7 @@ function ReplierFace({ user }: { user: UserRef }) {
   return u ? <Avatar user={u} size={18} /> : <span className="size-[18px] rounded-full bg-hover" />
 }
 
-function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onEdit, onEditDone, onThread, variant, onJump, barBelow = false }: { roomId: string; m: RoomMessage; mine: boolean; names: Map<string, string>; members: UserRef[]; meId: string | null; editing: boolean; flash: boolean; onEdit: () => void; onEditDone: () => void; onThread?: (rootId: string, focus?: boolean) => void; variant: ListVariant; onJump?: () => void; barBelow?: boolean }) {
+function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, highlighted = false, onEdit, onEditDone, onThread, variant, onJump, barBelow = false }: { roomId: string; m: RoomMessage; mine: boolean; names: Map<string, string>; members: UserRef[]; meId: string | null; editing: boolean; flash: boolean; highlighted?: boolean; onEdit: () => void; onEditDone: () => void; onThread?: (rootId: string, focus?: boolean) => void; variant: ListVariant; onJump?: () => void; barBelow?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const deleted = !!m.deletedAt
@@ -306,6 +324,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, onE
       id={messageDomId(m.id)}
       className={clsx('group relative -mx-2 rounded-lg px-2 py-0.5 transition pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]', flash ? 'bg-accent-soft' : 'hover:bg-subtle has-[[role=menu]]:bg-subtle has-[[aria-expanded=true]]:bg-subtle has-[:focus-visible]:bg-subtle')}
       data-testid="room-message"
+      data-highlight={highlighted ? '' : undefined}
       data-ai={ai ? '' : undefined}
       data-visibility={m.visibility}
       {...(menuOn ? longPress : {})}

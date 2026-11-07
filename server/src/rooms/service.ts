@@ -39,10 +39,11 @@ import { teamTimeZone } from '../admin/settings'
 import { alertSettings, ownLevel, setOwnLevel } from './alerts'
 import {
   canSee, groupName, hideable, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, SEE_SQL, seeArgs, setRoomPathCheck, sharedAnswerOf,
-  lastSeqFor, threadable, threadSummary, threadsUnread, TIMELINE_SQL, unreadCount,
+  lastSeqFor, MENTIONS_SQL, threadable, threadSummary, threadsUnread, TIMELINE_SQL, unreadCount,
   type EventData, type MemberRow, type MessageRow, type RoomRow,
 } from './store'
 import { roomFilesOf } from './files'
+import { countedUnreadIn } from './inbox'
 import { roomAiOf, type AskOptions } from './ai'
 import { tr } from '../chat/i18n'
 import { roomAiCalled, roomMentionAllIn } from '@mycel/shared/api'
@@ -255,6 +256,8 @@ export class Rooms {
       this.roomEvent(roomId, 'updated', new Set([userId]))
       // a push of this room that waits or is on its way is checked again: a hidden room pushes nothing (alerts.ts)
       cancelPushUser(this.ctx, userId)
+      // its rows leave the Inbox (rooms/inbox.ts): when one counted, the count is read again
+      if (countedUnreadIn(this.db, userId, roomId)) this.notifySignal(userId)
     } else if (!hidden) this.unhide(roomId, [userId])
     return this.get(userId, roomId)
   }
@@ -267,6 +270,8 @@ export class Rooms {
     const ids = [...new Set(userIds)]
     for (const r of this.db.query(`UPDATE room_members SET hidden_at = NULL WHERE room_id = ? AND hidden_at IS NOT NULL AND user_id IN (${ids.map(() => '?').join(',')}) RETURNING user_id`).all(roomId, ...ids) as { user_id: string }[]) back.add(r.user_id)
     if (publish && back.size) this.roomEvent(roomId, 'updated', back)
+    // its rows are in the Inbox again (rooms/inbox.ts): when one counts, the count is read again
+    for (const u of back) if (countedUnreadIn(this.db, u, roomId)) this.notifySignal(u)
     return back
   }
 
@@ -375,7 +380,10 @@ export class Rooms {
 
   /** Someone is out of a room: their member row, notices, the threads they followed and their reactions there go. */
   private forgetMember(roomId: string, userId: string) {
+    // their rows of the room leave the Inbox (rooms/inbox.ts): when one counted, the count is read again
+    const counted = countedUnreadIn(this.db, userId, roomId)
     for (const t of ['room_members', 'room_notices', 'room_thread_follows', 'room_reactions']) this.db.query(`DELETE FROM ${t} WHERE room_id = ? AND user_id = ?`).run(roomId, userId)
+    if (counted) this.notifySignal(userId)
   }
 
   /** Only active accounts of this team; one that is not (disabled, deleted, unknown) refuses the whole request without
@@ -534,7 +542,7 @@ export class Rooms {
       this.db.query('DELETE FROM room_message_sources WHERE message_id = ?').run(m.id)
       this.db.query('DELETE FROM room_reactions WHERE message_id = ?').run(m.id)
       if (m.author_kind === 'ai' && m.asked_by !== userId) audit(this.db, { actor: userId, action: 'room.ai_delete', target: m.id, detail: roomAuditRef(roomRow(this.db, roomId)!) })
-      return (this.db.query('DELETE FROM room_notices WHERE source_id = ? AND room_id = ? RETURNING user_id').all(m.id, roomId) as { user_id: string }[]).map((r) => r.user_id)
+      return [...this.moveRuns(m), ...(this.db.query('DELETE FROM room_notices WHERE source_id = ? AND room_id = ? RETURNING user_id').all(m.id, roomId) as { user_id: string }[]).map((r) => r.user_id)]
     })()
     roomFilesOf(this.ctx).removeForMessage(m.id)
     for (const u of new Set(noticed)) this.notifySignal(u)
@@ -542,6 +550,24 @@ export class Rooms {
     // a reply that goes: its thread has one fewer (the root's summary, the followers' badges)
     const root = m.thread_root_id ? messageRow(this.db, roomId, m.thread_root_id) : null
     if (root) this.afterReply(root)
+  }
+
+  /** A deleted message's notices that stand for a run (they held later messages back: rooms/inbox.ts) move to the next
+   * message of the run their person may read, so the Inbox keeps the row for the rest; a notice with nothing after it
+   * goes with the message (remove). Inside remove's transaction. Returns whose notices moved. */
+  private moveRuns(m: MessageRow): string[] {
+    const runs = this.db.query('SELECT id, user_id, event_type, last_seq FROM room_notices WHERE source_id = ? AND room_id = ? AND last_seq > ?').all(m.id, m.room_id, m.seq) as { id: string; user_id: string; event_type: string; last_seq: number }[]
+    const moved: string[] = []
+    for (const n of runs) {
+      if (!memberRow(this.db, m.room_id, n.user_id)) continue
+      // the next message of the run in the same place: by someone else, for the whole room, and for a mention notice one
+      // that mentions them
+      const next = this.db.query(`SELECT m.id FROM room_messages m WHERE m.room_id = ? AND m.thread_root_id IS ? AND m.seq > ? AND m.seq <= ?
+        AND m.visibility = 'room' AND m.deleted_at IS NULL AND m.event IS NULL AND (m.author_id IS NULL OR m.author_id <> ?) AND (m.author_kind <> 'ai' OR m.asked_by IS NULL OR m.asked_by <> ?)
+        AND (? = 'room.dm' OR ${MENTIONS_SQL}) ORDER BY m.seq LIMIT 1`).get(m.room_id, m.thread_root_id, m.seq, n.last_seq, n.user_id, n.user_id, n.event_type, n.user_id, n.user_id) as { id: string } | null
+      if (next && this.db.query('UPDATE OR IGNORE room_notices SET source_id = ? WHERE id = ?').run(next.id, n.id).changes) moved.push(n.user_id)
+    }
+    return moved
   }
 
   // ---------------- threads ----------------
@@ -685,14 +711,16 @@ export class Rooms {
   /** My notices of this room's timeline up to `seq` count as read (the inbox and a pending push follow); a thread's
    * own replies are read in the thread (markThreadNoticesRead). */
   markNoticesRead(userId: string, roomId: string, seq: number) {
-    const r = this.db.query(`UPDATE room_notices SET read_at = ? WHERE user_id = ? AND room_id = ? AND read_at IS NULL
-      AND source_id IN (SELECT m.id FROM room_messages m WHERE m.room_id = ? AND m.seq <= ? AND ${TIMELINE_SQL})`).run(nowIso(), userId, roomId, roomId, seq)
+    // a notice whose run goes on past seq (it held a later message back: last_seq) stays unread: what came after is not
+    // read yet, and no other notice stands for it (rooms/inbox.ts)
+    const r = this.db.query(`UPDATE room_notices SET read_at = ? WHERE user_id = ? AND room_id = ? AND read_at IS NULL AND (last_seq IS NULL OR last_seq <= ?)
+      AND source_id IN (SELECT m.id FROM room_messages m WHERE m.room_id = ? AND m.seq <= ? AND ${TIMELINE_SQL})`).run(nowIso(), userId, roomId, seq, roomId, seq)
     if (r.changes) this.notifySignal(userId)
   }
   /** My notices of the replies in this thread up to `seq` count as read. */
   markThreadNoticesRead(userId: string, roomId: string, rootId: string, seq: number) {
-    const r = this.db.query(`UPDATE room_notices SET read_at = ? WHERE user_id = ? AND room_id = ? AND read_at IS NULL
-      AND source_id IN (SELECT id FROM room_messages WHERE room_id = ? AND thread_root_id = ? AND seq <= ?)`).run(nowIso(), userId, roomId, roomId, rootId, seq)
+    const r = this.db.query(`UPDATE room_notices SET read_at = ? WHERE user_id = ? AND room_id = ? AND read_at IS NULL AND (last_seq IS NULL OR last_seq <= ?)
+      AND source_id IN (SELECT id FROM room_messages WHERE room_id = ? AND thread_root_id = ? AND seq <= ?)`).run(nowIso(), userId, roomId, seq, roomId, rootId, seq)
     if (r.changes) this.notifySignal(userId)
   }
 
@@ -760,7 +788,7 @@ export class Rooms {
       })
       if (!alert) continue
       const event: RoomNoticeEvent = alert === 'mention' ? 'room.mention' : 'room.dm'
-      try { if (n.roomNotice(m.user_id, event, row.id, row.room_id, row.created_at, row.thread_root_id, inQuietHours(p.quietHours, tz, at))) out.set(m.user_id, event) }
+      try { if (n.roomNotice(m.user_id, event, row.id, row.room_id, row.created_at, row.thread_root_id, inQuietHours(p.quietHours, tz, at), row.seq)) out.set(m.user_id, event) }
       catch (e) { this.ctx.log.warn('room notice not recorded', { err: e }) }
     }
     return out
