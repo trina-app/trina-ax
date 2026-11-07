@@ -12,7 +12,8 @@
 // - A small dark label (light in dark mode: the ink and surface tokens swap), above the element; below it when there is
 //   no room above, kept inside the window. Rendered into <body> (a portal), so no scroll box clips it and nothing moves.
 // - role="tooltip". The element is described by it (aria-describedby) only when the tip says something its own name
-//   does not: by default when `label` differs from the element's aria-label, or always with `description`.
+//   does not: by default when the element's aria-label does not already hold `label` (a row's "가나 더 보기" with the tip
+//   "더 보기" is not read twice), or always with `description`.
 // - No animation beyond a short fade, none with reduced motion.
 import clsx from 'clsx'
 import { cloneElement, isValidElement, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type PointerEvent, type ReactElement, type Ref } from 'react'
@@ -106,7 +107,7 @@ export function Tooltip({ label, children, description = false, disabled = false
   if (!isValidElement(children)) return children
   const child = children as Child
   const p = child.props
-  const describes = !!label && (description || label !== p['aria-label'])
+  const describes = !!label && (description || !p['aria-label']?.includes(label))
   const trigger = cloneElement(child, {
     ref: setRef,
     ...(describes && open ? { 'aria-describedby': [p['aria-describedby'], id].filter(Boolean).join(' ') } : {}),

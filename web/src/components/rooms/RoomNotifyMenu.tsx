@@ -19,7 +19,7 @@ export function roomNotify(room: Pick<Room, 'kind' | 'muted' | 'notify'>): NonNu
   return { own, byDefault, level: own ?? byDefault }
 }
 
-export function RoomNotifyMenu({ room, openRequest = 0, bare = false, className }: { room: Room; openRequest?: number; bare?: boolean; className?: string }) {
+export function RoomNotifyMenu({ room, openRequest = 0, bare = false, className, focusBack }: { room: Room; openRequest?: number; bare?: boolean; className?: string; focusBack?: () => void }) {
   const t = useT(), locale = useLocale()
   const n = roomNotify(room)
   const choose = async (level: RoomNotifyLevel | null) => {
@@ -37,6 +37,7 @@ export function RoomNotifyMenu({ room, openRequest = 0, bare = false, className 
       className={className ?? 'shrink-0'}
       buttonClassName={bare ? 'hidden!' : 'touch-hit'}
       openRequest={openRequest}
+      focusBack={focusBack}
       testId={bare ? 'room-notify-row' : 'room-notify'}
       items={[
         { label: t('rooms.notify.default'), hint: `· ${word(n.byDefault)}`, checked: n.own === null, onSelect: () => void choose(null), testId: 'room-notify-default' },

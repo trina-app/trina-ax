@@ -12,7 +12,7 @@
 import { ChevronLeft, Loader2, MessagesSquare } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useNavigationType, useParams, type NavigationType } from 'react-router-dom'
 import { isUuid7, type RoomMember, type RoomMessage } from '@mycel/shared/api'
 import { errorText, isApiError } from '../lib/api'
 import { newestSeq, threadClosing, threadOpening } from '../lib/rooms'
@@ -32,6 +32,18 @@ import { RoomMenu } from '../components/rooms/RoomMenu'
 import { RoomNotifyMenu } from '../components/rooms/RoomNotifyMenu'
 import { ThreadPanel } from '../components/rooms/ThreadPanel'
 import { EmptyState, ErrorNote, IconButton, Skeleton } from '../components/ui'
+
+/** Was the room opened by a choice (a tap, a link, a notice: a room I hid is shown again), not by the history's back or
+ * forward inside the app or by the page reloading itself (an update, a refresh: docs/DECISIONS.md "대화 숨기기")?
+ * `firstEntry`: the page's first address (react-router's key "default"); `documentLoad`: how the page itself was
+ * loaded (PerformanceNavigationTiming.type). Going back to the page's first entry reads as the link that opened it. */
+export function openedByChoice(navType: `${NavigationType}`, firstEntry: boolean, documentLoad: string | undefined): boolean {
+  if (navType !== 'POP') return true
+  return firstEntry && documentLoad !== 'reload' && documentLoad !== 'back_forward'
+}
+const documentLoad = () => {
+  try { return (performance.getEntriesByType?.('navigation')[0] as PerformanceNavigationTiming | undefined)?.type } catch { return undefined }
+}
 
 const NO_MESSAGES: RoomMessage[] = []
 const NO_PENDING: PendingSend[] = []
@@ -99,14 +111,18 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // the "⋯"'s 알림 설정 opens the bell's own menu
   const [notifyRequest, setNotifyRequest] = useState(0)
   usePeopleList()
-  // opened while I hid it (a link, a notice, the full list): it is in my lists again. Only as it opens: hiding it from
-  // here leaves the room (store/rooms.ts setHidden), and another device hiding it while it is on screen keeps it hidden
+  // opened while I hid it (a link, a notice, the full list): it is in my lists again. Only as it opens, and only when
+  // that was a choice (openedByChoice): hiding it from here leaves the room in place of this entry (store/rooms.ts
+  // setHidden), another device hiding it while it is on screen keeps it hidden, and Back or a reload does not bring it
+  // back either
+  const navType = useNavigationType()
+  const [byChoice] = useState(() => openedByChoice(navType, location.key === 'default', documentLoad()))
   const shownOnOpen = useRef(false)
   useEffect(() => {
     if (!room || shownOnOpen.current) return
     shownOnOpen.current = true
-    if (room.hidden) void useRooms.getState().setHidden(room.id, false).catch(() => {})
-  }, [room])
+    if (room.hidden && byChoice) void useRooms.getState().setHidden(room.id, false).catch(() => {})
+  }, [room, byChoice])
 
   useEffect(() => {
     useRooms.getState().open(roomId)

@@ -16,6 +16,7 @@ import { hiddenUnread, SidebarRooms } from '../../src/components/rooms/SidebarRo
 import { shownInLists, roomWantsMe, totalUnread } from '../../src/lib/rooms'
 import { attentionCount } from '../../src/lib/sessionMarkers'
 import { shouldRing } from '../../src/lib/roomSound'
+import { openedByChoice } from '../../src/pages/Room'
 import RoomsPage from '../../src/pages/Rooms'
 import { useRooms, withHidden } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
@@ -133,6 +134,52 @@ describe('the menu by kind', () => {
   })
 })
 
+describe('opening a hidden room shows it again only when it was a choice', () => {
+  test('a tap, a link or a notice: yes; Back or Forward in the app, or the page reloading: no', () => {
+    // in the app: a tap on a row, a notice's click (navigateTo), a redirect
+    expect(openedByChoice('PUSH', false, 'navigate')).toBe(true)
+    expect(openedByChoice('REPLACE', false, 'reload')).toBe(true)
+    // the page opened on the room (a link, a push notice): the router's first entry, loaded by navigation
+    expect(openedByChoice('POP', true, 'navigate')).toBe(true)
+    expect(openedByChoice('POP', true, undefined)).toBe(true)
+    // Back or Forward inside the app
+    expect(openedByChoice('POP', false, 'navigate')).toBe(false)
+    // a refresh, the app reloading itself after an update, the browser's back into the page
+    expect(openedByChoice('POP', true, 'reload')).toBe(false)
+    expect(openedByChoice('POP', true, 'back_forward')).toBe(false)
+  })
+})
+
+describe('a row\'s 알림 설정 and its sheet', () => {
+  test('Esc in a row\'s level menu gives the keyboard back to the row\'s "⋯"; a finger held on an item is no new long press', async () => {
+    useSession.setState({ status: { kind: 'signed-in', me } } as never)
+    const r = room({ kind: 'team', notify: { own: null, byDefault: 'mentions', level: 'mentions' } })
+    useRooms.setState({ rooms: [r], loaded: true })
+    let pressed = 0
+    const m = await mount(<MemoryRouter><ul><li onPointerDown={() => pressed++}><RoomMenu room={r} title="t" /></li></ul></MemoryRouter>)
+    try {
+      const more = m.get('room-menu')
+      // a bare level menu has no button on screen: the fake document has no layout, so the "⋯" counts as shown and the
+      // bare one's as not (offsetParent)
+      Object.defineProperty(more, 'offsetParent', { get: () => m.container })
+      await m.click('room-menu')
+      await m.click('room-menu-notify')
+      await m.until(() => body(m).querySelectorAll('[role="menuitemradio"]').length === 4, 'the levels')
+      const item = body(m).querySelector('[role="menuitemradio"]')!
+      // a finger on the item: the row under it hears nothing
+      item.dispatchEvent(Object.assign(new FakeEvent('pointerdown', { bubbles: true, cancelable: true }), { pointerType: 'touch', clientX: 1, clientY: 1 }))
+      expect(pressed).toBe(0)
+      await m.settle(0)
+      // the keyboard is in the level menu (its chosen one)
+      expect(m.container.ownerDocument!.activeElement).toBe(item)
+      const esc = Object.assign(new FakeEvent('keydown', { bubbles: true, cancelable: true }), { key: 'Escape' })
+      item.dispatchEvent(esc)
+      await m.until(() => body(m).querySelectorAll('[role="menuitemradio"]').length === 0, 'the levels closed')
+      expect(m.container.ownerDocument!.activeElement).toBe(more)
+    } finally { await m.unmount() }
+  })
+})
+
 describe('hidden rooms count nowhere', () => {
   const hiddenDm = room({ kind: 'dm', name: null, peers: [CY], unreadCount: 4, mentioned: true, hidden: true, aiWaits: true, notify: { own: null, byDefault: 'all', level: 'all' } })
   const shown = room({ kind: 'dm', name: null, peers: [BEN], unreadCount: 2, notify: { own: null, byDefault: 'all', level: 'all' } })
@@ -148,7 +195,7 @@ describe('hidden rooms count nowhere', () => {
     expect(shownInLists([hiddenDm, shown], hiddenDm.id)).toHaveLength(2)
     const msg = message({ roomId: hiddenDm.id, seq: 9, author: CY })
     expect(shouldRing({ roomId: hiddenDm.id, room: hiddenDm, message: msg, meId: ME.id, replay: false, seen: false, viewing: null })).toBe(false)
-    expect(shouldRing({ roomId: shown.id, room: shown, message: { ...msg, roomId: shown.id }, meId: ME.id, replay: false, seen: false, viewing: null })).toBe(true)
+    expect(shouldRing({ roomId: shown.id, room: shown, message: msg, meId: ME.id, replay: false, seen: false, viewing: null })).toBe(true)
   })
 
   test('the 대화 tab on a phone: its count and its "?" leave the hidden room out', async () => {

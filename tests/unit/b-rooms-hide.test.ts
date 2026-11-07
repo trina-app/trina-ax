@@ -327,7 +327,7 @@ test('my own message brings my hidden room back (the timeline or a thread), room
   }
 })
 
-test('an AI answer brings the room back for the person who asked; a private preview does not', async () => {
+test('a posted AI answer brings the room back for the person who asked; notify() leaves a private one alone (RoomAi.ended shows it to the asker: b-rooms-ai)', async () => {
   const { nora, otto, hide, hidden, hiddenAt, team } = await setup()
   const put = (visibility: 'room' | 'private') => {
     const id = newId()
@@ -357,12 +357,16 @@ test('a card of my question to the AI opening brings the room back (rooms/ai.ts 
     await hide(nora.client, team.id)
     ai.waitsFor = () => false
     hub.clear()
-    ai.waiting({ roomId: team.id, userId: nora.id })
+    ai.waiting({ roomId: team.id, userId: nora.id, opened: true })
     expect(await hidden(nora.client, team.id)).toBe(true)
     expect(hub.events.map((e) => [e.target, (e.data as any).type])).toEqual([[nora.id, 'room.updated']])
+    // a card closing while another of hers still waits brings nothing
     ai.waitsFor = () => true
     hub.clear()
-    ai.waiting({ roomId: team.id, userId: nora.id })
+    ai.waiting({ roomId: team.id, userId: nora.id, opened: false })
+    expect(await hidden(nora.client, team.id)).toBe(true)
+    hub.clear()
+    ai.waiting({ roomId: team.id, userId: nora.id, opened: true })
     expect(await hidden(nora.client, team.id)).toBe(false)
     // one room.updated, to her only, with the room shown and waiting
     expect(hub.events.map((e) => [e.target, (e.data as any).type])).toEqual([[nora.id, 'room.updated']])

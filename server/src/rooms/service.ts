@@ -689,7 +689,7 @@ export class Rooms {
   }
 
   /** Who gets a hidden room back with this new message (docs/DECISIONS.md "대화 숨기기"): its author (they write in it),
-   * the person who asked an AI answer, and each member who sees it and for whom it is something to read: a message of a
+   * the person who asked an AI answer (a private preview: RoomAi.ended), and each member who sees it and for whom it is something to read: a message of a
    * DM's timeline (a group chat's too, should one be hidden), a mention of them, a reply in a thread they follow. Nothing
    * else brings a team room or the everyone room back, at any level: a room still hidden makes no notice
    * (recordNotices). Never an event line, a deleted or a private message. */
@@ -697,7 +697,8 @@ export class Rooms {
     if (row.visibility !== 'room' || row.deleted_at || row.event) return
     const room = roomRow(this.db, row.room_id)
     if (!room) return
-    const hidden = members(this.db, row.room_id).filter((m) => m.hidden_at && canSee(row, m))
+    // only the members who hid it (an everyone room may have hundreds of members, few of them hiding it)
+    const hidden = (this.db.query('SELECT * FROM room_members WHERE room_id = ? AND hidden_at IS NOT NULL').all(row.room_id) as MemberRow[]).filter((m) => canSee(row, m))
     if (!hidden.length) return
     const mentioned = new Set(JSON.parse(row.mentions) as string[])
     const followers = row.thread_root_id ? new Set((this.db.query('SELECT user_id FROM room_thread_follows WHERE root_id = ?').all(row.thread_root_id) as { user_id: string }[]).map((r) => r.user_id)) : null

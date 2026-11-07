@@ -70,6 +70,7 @@ export function useRoomMenuItems(room: Room, onNotify: () => void): MenuItem[] {
 export function RoomMenu({ room, onNotify, openSignal, openRequest, label, title, className, buttonClassName, testId = 'room-menu' }: { room: Room; onNotify?: () => void; openSignal?: number; openRequest?: number; label?: string; title?: string; className?: string; buttonClassName?: string; testId?: string }) {
   const t = useT()
   const [notify, setNotify] = useState(0)
+  const more = useRef<HTMLButtonElement>(null)
   const items = useRoomMenuItems(room, onNotify ?? (() => setNotify((n) => n + 1)))
   return (
     <>
@@ -84,9 +85,10 @@ export function RoomMenu({ room, onNotify, openSignal, openRequest, label, title
         openRequest={openRequest}
         testId={testId}
         sheetTitle={title}
+        buttonRef={more}
       />
       {/* a row's own level menu, where its "⋯" opens (the button is the row's "⋯": this one has none) */}
-      {!onNotify && <RoomNotifyMenu room={room} bare openRequest={notify} className="absolute right-1.5 bottom-0" />}
+      {!onNotify && <RoomNotifyMenu room={room} bare openRequest={notify} className="absolute right-1.5 bottom-0" focusBack={() => more.current?.focus()} />}
     </>
   )
 }
@@ -109,8 +111,9 @@ export function useRowMenu() {
       ...longPress,
       onContextMenu: (e: MouseEvent) => {
         longPress.onContextMenu(e)
-        // a finger's long press opened it already (and kept the phone's own menu away)
-        if (e.defaultPrevented) return
+        // a finger's long press opened it already (and kept the phone's own menu away); Shift keeps the browser's own
+        // menu (open in a new tab, copy the address)
+        if (e.defaultPrevented || e.shiftKey) return
         e.preventDefault()
         setRequest((n) => n + 1)
       },

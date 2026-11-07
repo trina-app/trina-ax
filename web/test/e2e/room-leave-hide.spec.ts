@@ -113,6 +113,11 @@ test('the room header\'s "⋯" by kind; 알림 설정 opens the bell\'s levels; 
   await page.getByTestId('room-menu-hide').click()
   await expect(page).toHaveURL(/\/rooms$/)
   await expect.poll(() => state.hidden).toEqual([{ roomId: DM, hidden: true }])
+  // the list took the room's place: Back does not open it again (which would show it again)
+  await page.goBack()
+  await expect(page).not.toHaveURL(new RegExp(DM))
+  await page.waitForTimeout(300)
+  expect(state.hidden).toEqual([{ roomId: DM, hidden: true }])
   // a team room and the everyone room: hide (they follow the groups: no leave)
   for (const id of [TEAM, ALL]) {
     await page.goto(`/rooms/${id}`)
@@ -170,6 +175,36 @@ test('WCAG 2.2 AA (axe), light and dark: the conversations page with its hidden 
     await expect(page.getByRole('menu')).toBeVisible()
     await check(`${scheme} room header menu`)
   }
+})
+
+test('a room hidden elsewhere while it is on screen stays hidden when the page reloads (a refresh, an update)', async ({ page }) => {
+  const state = await start(page)
+  await page.goto(`/rooms/${TEAM}`)
+  await expect(page.getByTestId('room-title')).toHaveText('개발팀')
+  // another device hides it (the same server answer)
+  await page.evaluate((id) => fetch(`/api/rooms/${id}/hidden`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ hidden: true }) }), TEAM)
+  await page.reload()
+  await expect(page.getByTestId('room-title')).toHaveText('개발팀')
+  await page.waitForTimeout(500)
+  expect(state.hidden).toEqual([{ roomId: TEAM, hidden: true }])
+  // the room on screen still shows in the sidebar; another room's row leaves it out
+  await page.getByTestId('sidebar-room').filter({ hasText: '김소라' }).click()
+  await expect(page.getByTestId('sidebar-room').filter({ hasText: '개발팀' })).toHaveCount(0)
+})
+
+test('the conversations page: a row\'s "⋯" over its end, the preview stopping before it', async ({ page }) => {
+  await start(page)
+  await page.goto('/rooms')
+  const row = page.getByTestId('rooms-row').filter({ hasText: '개발팀' })
+  const pad = () => row.evaluate((e) => getComputedStyle(e).paddingRight)
+  const before = await pad()
+  await row.hover()
+  await expect.poll(pad).toBe('56px')
+  const menu = page.getByTestId('rooms-row-menu').nth(2)
+  await expect.poll(() => menu.evaluate((e) => getComputedStyle(e).opacity)).toBe('1')
+  const preview = (await row.locator('span.truncate.text-sm').boundingBox())!
+  expect(preview.x + preview.width).toBeLessThanOrEqual((await menu.boundingBox())!.x)
+  expect(before).not.toBe('56px')
 })
 
 test.describe('phone', () => {

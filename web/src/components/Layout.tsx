@@ -44,7 +44,7 @@ export default function Layout() {
 
   // banners raised by the server (e.g. a changed team skill) open app addresses through the router
   useEffect(() => {
-    setNavigator((to) => navigate(to))
+    setNavigator((to, o) => navigate(to, o))
     return () => setNavigator(null)
   }, [navigate])
 

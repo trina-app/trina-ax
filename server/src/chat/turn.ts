@@ -1599,7 +1599,7 @@ export class TurnExec {
    * The cards finish() closes send nothing: the end of the turn sends the chat once. */
   private cardsChanged(window: string | null, opened: boolean) {
     try {
-      if (this.room) { this.rt.rooms?.waiting?.({ roomId: this.room.roomId, userId: this.spec.userId }); return }
+      if (this.room) { this.rt.rooms?.waiting?.({ roomId: this.room.roomId, userId: this.spec.userId, opened }); return }
       if (this.finishing) return
       const notify = opened && this.tells ? { notify: 'card' as const } : {}
       if (!window) this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated', notify)

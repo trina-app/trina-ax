@@ -276,10 +276,11 @@ export class RoomAi implements RoomTurns {
   }
 
   /** A card of my question opened or closed: my rooms list follows (room.updated with the room as I see it, to me only). */
-  waiting(o: { roomId: string; userId: string }) {
+  waiting(o: { roomId: string; userId: string; opened?: boolean }) {
     const rooms = roomsOf(this.ctx)
-    // a card that waits on me is for me: a room I hid comes back (docs/DECISIONS.md "대화 숨기기")
-    if (this.waitsFor(o.roomId, o.userId)) rooms.unhide(o.roomId, [o.userId], false)
+    // a card that opens and waits on me is for me: a room I hid comes back (docs/DECISIONS.md "대화 숨기기"); one
+    // closing (answered elsewhere, expired) while another still waits brings nothing
+    if (o.opened && this.waitsFor(o.roomId, o.userId)) rooms.unhide(o.roomId, [o.userId], false)
     rooms.roomEvent(o.roomId, 'updated', new Set([o.userId]))
   }
 
@@ -318,6 +319,9 @@ export class RoomAi implements RoomTurns {
     })()
     const row = messageRow(db, t.room_id, id)!
     const rooms = roomsOf(this.ctx)
+    // a private preview is the asker's only: it brings a room they hid back for them (a posted answer does so in
+    // notify), before the message reaches their windows (docs/DECISIONS.md "대화 숨기기")
+    if (!d.post) rooms.unhide(t.room_id, [t.user_id])
     rooms.messageEvent('room.message', row, d.post ? rooms.notify(row) : undefined)
     if (root) rooms.afterReply(root)
     this.publishRun(this.turnRow(turnId)!)

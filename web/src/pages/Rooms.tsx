@@ -8,7 +8,7 @@
 // "숨긴 대화 N" at its end opens them, each with 다시 보이기 (opening one shows it again too).
 import clsx from 'clsx'
 import { BellOff, ChevronDown, Plus } from 'lucide-react'
-import { useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI, type Locale, type Room } from '@mycel/shared/api'
@@ -104,18 +104,24 @@ function HiddenRooms({ rooms }: { rooms: Room[] }) {
   const title = useRoomTitle()
   const locale = useLocale()
   const [open, setOpen] = useState(rememberedOpen)
+  const listId = useId()
+  const toggleRef = useRef<HTMLButtonElement>(null)
   const toggle = () => setOpen((v) => { try { localStorage.setItem(HIDDEN_KEY, v ? 'closed' : 'open') } catch { /* not kept */ } return !v })
-  const show = (id: string) => void useRooms.getState().setHidden(id, false).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))
+  const show = (id: string) => {
+    // its row goes from here: the keyboard stays in the section (on its heading) while others are left in it
+    if (rooms.length > 1) toggleRef.current?.focus()
+    void useRooms.getState().setHidden(id, false).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))
+  }
   return (
     <section className="pt-4 pb-8" data-testid="rooms-hidden">
       <h2>
-        <button type="button" aria-expanded={open} onClick={toggle} className="flex min-h-11 w-full items-center gap-1 px-4 text-sm text-muted hover:text-ink sm:px-6 md:min-h-9 md:text-xs" data-testid="rooms-hidden-toggle">
+        <button ref={toggleRef} type="button" aria-expanded={open} aria-controls={listId} onClick={toggle} className="flex min-h-11 w-full items-center gap-1 px-4 text-sm text-muted hover:text-ink sm:px-6 md:min-h-9 md:text-xs" data-testid="rooms-hidden-toggle">
           {t('rooms.hidden.title', { n: rooms.length })}
           <ChevronDown size={14} className={clsx('transition-transform motion-reduce:transition-none', !open && '-rotate-90')} aria-hidden />
         </button>
       </h2>
       {open && (
-        <ul>
+        <ul id={listId}>
           {rooms.map((r) => (
             <li key={r.id} className="flex items-center gap-3 px-4 hover:bg-hover sm:px-6" data-testid="rooms-hidden-row">
               <Link to={`/rooms/${r.id}`} className="flex min-h-12 min-w-0 flex-1 items-center gap-3 text-muted hover:text-ink md:min-h-11">
@@ -150,7 +156,9 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
   const menu = useRowMenu()
   return (
     <li className="group relative" {...menu.row}>
-    <Link to={`/rooms/${room.id}`} onClick={menu.guard} className={clsx(className, 'pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] group-has-[[aria-expanded=true]]:bg-hover')} data-testid="rooms-row">
+    <Link to={`/rooms/${room.id}`} onClick={menu.guard} className={clsx(className, 'pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] group-has-[[aria-expanded=true]]:bg-hover',
+      // while the "⋯" shows over the row's end, the preview stops before it (the time and the count give way)
+      'pointer-fine:group-hover:pr-14 group-has-[:focus-visible]:pr-14 pointer-fine:group-has-[[aria-expanded=true]]:pr-14')} data-testid="rooms-row">
       <RoomIcon room={room} size={40} tile />
       {/* the time on the name's line and the count on the preview's, so the preview has the whole width */}
       <span className="min-w-0 flex-1">

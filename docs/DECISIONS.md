@@ -11630,9 +11630,14 @@ and DMs, team rooms and the everyone room had no way out at all. Rooms follow Sl
 - **One "⋯" per conversation, wherever it shows** (`RoomMenu`, the tooltip "더 보기"): in the room's header beside the bell
   (on a phone that header is the top bar); on each row of the sidebar's 대화 and of the conversations page (/rooms) on hover
   or keyboard focus, in the place of the row's pill and time (they give way, as a chat row's marker does), and with a
-  right-click (or the keyboard's menu key) anywhere on the row; on a touch screen a long press on a row opens it, a sheet
+  right-click (or the keyboard's menu key) anywhere on the row (Shift + right-click keeps the browser's own menu: open in
+  a new tab, copy the address); on a touch screen a long press on a row opens it, a sheet
   from the bottom on a phone with the room's name on top (the row is under the scrim; the finger lifting opens no room).
-  No new boxes: the "⋯" exists only while it is wanted, and the sheet is MenuButton's.
+  No new boxes: the "⋯" exists only while it is wanted, and the sheet is MenuButton's. A row's 알림 설정 gives the
+  keyboard back to the row's "⋯" when it closes; a finger held on a sheet's item is no new long press of the row (the
+  menu keeps its pointer events, for a message's sheet too). The tooltip "더 보기" is not read a second time where the
+  button's name holds it ("개발팀 더 보기"; `Tooltip` describes only what the name does not say). Screen reader users on a
+  phone reach a room's menu from its header (a row's "⋯" is not on touch screens).
 - **Items by kind.** 알림 설정 (opens the bell's own four levels: the header's bell, or a row's bare copy of it) and 링크
   복사 (`<origin>/rooms/<id>`: anyone else gets "not found"), then: a group chat **대화방 나가기** (the existing leave with
   its confirm; the others see the existing event line); a DM **대화 숨기기**; a team room and the everyone room **숨기기**
@@ -11648,8 +11653,9 @@ and DMs, team rooms and the everyone room had no way out at all. Rooms follow Sl
 - **It comes back by itself when something for me arrives**, decided on the server when the message is stored
   (`Rooms.notify` → `unhideFor`, before the notices and before the `room.message` goes out, so every device agrees and my
   windows get the room first): a message of a DM's timeline from the other person (Slack's "close conversation"); in any
-  room a mention of me or a reply in a thread I follow; my own message there; the AI's answer to my question; a card of my
-  question to the AI opening (`RoomAi.waiting`). Nothing else: a plain message in a hidden team room or the everyone room
+  room a mention of me or a reply in a thread I follow; my own message there; the AI's answer to my question (a posted
+  one through `notify`, a private preview in `RoomAi.ended`: it is the asker's only); a card of my question to the AI
+  opening (`RoomAi.waiting` with `opened`: one closing while another still waits brings nothing). Nothing else: a plain message in a hidden team room or the everyone room
   does not bring it back, **even when my level for it is 모든 메시지**, and a room still hidden makes no notice for me at
   all (no Inbox row, push or desktop notification; a push that was waiting is dropped: `cancelPushUser` on hide and
   `noticeWanted` refuses a hidden room). Rejected: bringing it back whenever a message alerts me by my level (a person
@@ -11657,7 +11663,10 @@ and DMs, team rooms and the everyone room had no way out at all. Rooms follow Sl
   notices of a room that stays hidden (a push for a room that is in no list). Event lines, deleted and private messages
   never bring one back. Opening a hidden room directly (a link, a push, the full list, the people list) works as always and shows
   it again (the room page sends `{hidden: false}` once, as it opens; `POST /api/rooms` for an existing DM does it on the
-  server).
+  server). Only an open that was a choice (`openedByChoice`): not Back or Forward inside the app, and not the page
+  reloading (a refresh, or the app reloading itself after a server update while the room is on screen, which would undo
+  a hide made on another device); going back to the page's first address reads as the link that opened it. Hiding or
+  leaving the room on screen goes to the conversations page in place of the room's entry, so Back does not open it.
 - **Where hidden rooms are.** Not in the sidebar's five, not in "더 보기 (N)" or its pill (the room on screen still shows);
   not in the 대화 tab's count or its "?", the one count n (tab title, Dock badge), the desktop app's room notifications or
   the room sound (`totalUnread`, `roomWantsMe`, `shouldRing`). The conversations page (/rooms, "모든 대화") ends with a
@@ -11669,9 +11678,17 @@ and DMs, team rooms and the everyone room had no way out at all. Rooms follow Sl
   contributions' (checked on origin/dev and every local and remote branch before committing).
 - **Not in this step.** Hiding a group chat (it is left); "mark as read" in the menu; hiding several at once; a separate
   mute-and-hide. The phone app's own notifications follow the server's notices, so they need no change.
+- **Independent review (2026-11-07) fixes.** `bun run typecheck` failed on a test; Back after hiding the room on screen
+  and the app's reload after an update brought a hidden room back (replace navigation, `openedByChoice`); a row's level
+  menu dropped the keyboard on Esc; the CHANGELOG over-claimed the counts (room notices are not in the Inbox's count, as
+  before); the ⋯ drew over a row's preview on the conversations page (the preview stops before it); a card closing
+  brought a room back; a private preview did not; the tooltip was read twice; a right-click inside an open menu opened
+  the row's too; the hidden section's heading names its list (`aria-controls`) and keeps the keyboard when a row goes;
+  `unhideFor` reads only the members who hid the room.
 - **Tests.** `tests/unit/b-rooms-hide.test.ts` (hide and show per kind, the strict body, members only, realtime to my
   windows only, what brings a room back and what does not, room.updated before room.message, no notice or push while
-  hidden, the AI's answer and card, openDm, the AI chat's room list, migration 258), the permission matrix
+  hidden, the AI's answer and card, openDm, the AI chat's room list, migration 258), `b-rooms-ai.test.ts` (a private
+  preview brings the asker's hidden room back, not the other person's), the permission matrix
   (`setRoomHidden`), `web/test/unit/room-hide.test.tsx` (the menu by kind, 알림 설정, hiding sent and put back on a
   refusal, the counts, the sidebar, the hidden section, a right-click and a long press) and
   `web/test/e2e/room-leave-hide.spec.ts` (rooms-mock.ts `routeRooms`: header menus by kind, a sidebar row on hover,

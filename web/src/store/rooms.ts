@@ -606,7 +606,8 @@ export const useRooms = create<RoomsState>((set, get) => {
       leaving.add(roomId)
       try {
         await api.call(API.leaveRoom, { params: { id: roomId } })
-        if (get().openRoomId === roomId) navigateTo('/rooms')
+        // in place of the room I left: Back leads to where I was before it
+        if (get().openRoomId === roomId) navigateTo('/rooms', { replace: true })
         set((s) => ({ ...withoutRoom(s, roomId), members: omit(s.members, roomId), pending: omit(s.pending, roomId), ...(s.openRoomId === roomId ? { openRoomId: null } : {}) }))
       } finally {
         setTimeout(() => leaving.delete(roomId), 5000)
@@ -617,7 +618,8 @@ export const useRooms = create<RoomsState>((set, get) => {
       const was = get().rooms.find((r) => r.id === roomId)
       if (!was) return
       set((s) => withHidden(s, roomId, hidden))
-      if (hidden && get().openRoomId === roomId) navigateTo('/rooms')
+      // in place of the room: Back does not open it again (which would show it again)
+      if (hidden && get().openRoomId === roomId) navigateTo('/rooms', { replace: true })
       try {
         const room = await api.call(API.setRoomHidden, { params: { id: roomId }, body: { hidden } })
         set((s) => withRoom(s, room))

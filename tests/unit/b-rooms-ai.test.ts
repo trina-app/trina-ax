@@ -212,6 +212,18 @@ describe('the AI in a room', () => {
     expect((await h.api('alice').call(API.shareRoomMessage, { params: { id: dm.id, messageId: preview.id } })).seq).toBe(shared.seq)
   })
 
+  test('a private preview brings a room its asker hid back, for them only (docs/DECISIONS.md "대화 숨기기")', async () => {
+    const dm = await h.api('alice').call(API.createRoom, { body: { kind: 'dm', userId: 'bob' } })
+    const q = await send('alice', dm.id, `@트리나 my todo, slowly\n${fake({ sleep: 1500 }, { tool: 'read', args: { file_path: 'users/alice/todo.md' } }, { say: 'Your todo has two items.' })}`)
+    // alice hides the DM while the AI answers; bob hid it too
+    for (const who of ['alice', 'bob']) expect((await h.api(who).call(API.setRoomHidden, { params: { id: dm.id }, body: { hidden: true } })).hidden).toBe(true)
+    await ws.alice!.next('room.ai.run', (x) => x.data.run.questionId === q.id && ['done', 'stopped', 'error'].includes(x.data.run.state), 30_000)
+    expect((await answerTo('alice', dm.id, q))!.visibility).toBe('private')
+    expect((await h.api('alice').call(API.getRoom, { params: { id: dm.id } })).hidden).toBeUndefined()
+    // the preview is alice's only: bob's DM stays hidden
+    expect((await h.api('bob').call(API.getRoom, { params: { id: dm.id } })).hidden).toBe(true)
+  })
+
   test('only the person who asked sees the steps and may stop it; the others see only that the AI is answering', async () => {
     const roomId = await room(['alice', 'erin'])
     ws.erin!.frames = []
