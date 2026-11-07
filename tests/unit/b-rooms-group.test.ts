@@ -366,7 +366,7 @@ test('reader level: a database with group chats is refused by an older build (re
 })
 
 // ---------------- second review (2026-11-06) ----------------
-test('after leaving and being invited back, my messages from before are out of sight: not mine to edit or delete (also in a team room)', async () => {
+test('after leaving a group chat and being invited back, my messages from before are out of sight: not mine to edit or delete; a team room shows them again (its history)', async () => {
   const { owner, mia, nora, otto, group, rooms, send, makeGroup } = await setup()
   const g = await makeGroup(mia.client, [nora.id, otto.id])
   const old = await send(nora.client, g.id, 'NORA-BEFORE-LEAVING')
@@ -380,13 +380,14 @@ test('after leaving and being invited back, my messages from before are out of s
   // her new messages are hers as before
   const fresh = await send(nora.client, g.id, 'after')
   expect((await nora.client.try('PATCH', `/api/rooms/${g.id}/messages/${fresh.id}`, { body: 'after (fixed)' })).status).toBe(200)
-  // a team room: out of the group and back in
+  // a team room: out of the group and back in: its history is hers again (docs/DECISIONS.md "지난 대화"), her own
+  // messages in it too
   const team = (await rooms(nora.client)).find((r) => r.kind === 'team' && r.groupId === group.id)
   const teamOld = await send(nora.client, team.id, 'TEAM-BEFORE')
   await owner.call('PATCH', `/api/admin/groups/${group.id}`, { memberIds: [mia.id] })
   await owner.call('PATCH', `/api/admin/groups/${group.id}`, { memberIds: [mia.id, nora.id] })
-  expect((await nora.client.try('PATCH', `/api/rooms/${team.id}/messages/${teamOld.id}`, { body: 'x' })).status).toBe(404)
-  expect((await nora.client.try('DELETE', `/api/rooms/${team.id}/messages/${teamOld.id}`)).status).toBe(404)
+  expect((await nora.client.try('PATCH', `/api/rooms/${team.id}/messages/${teamOld.id}`, { body: 'TEAM-BEFORE (fixed)' })).status).toBe(200)
+  expect((await nora.client.try('DELETE', `/api/rooms/${team.id}/messages/${teamOld.id}`)).status).toBe(204)
 })
 
 test('names that show nothing are refused: invisible letters, format characters, combining marks alone', async () => {

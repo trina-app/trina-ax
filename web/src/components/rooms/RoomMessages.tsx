@@ -18,6 +18,9 @@
 // An answer someone sent here from their own AI chat ("대화방에 보내기", RoomMessage.sharedAnswer) is their message: their
 // note as plain text, then the answer as a quote headed "<AI> 답변", in Markdown like the AI's own answers (a team file
 // in it only as a link for those who may open it). It cannot be edited (copy and delete stay).
+// An old answer hidden from me (RoomMessage.withheld: I joined a team room or the everyone room after it, and it used
+// something I cannot open) is one faint line in its place ("볼 수 없는 자료를 참고한 답이라 가려졌어요"): who asked it (or
+// whose message it is) and when, nothing else: no hover row, menu, reaction, thread or sources.
 import clsx from 'clsx'
 import { Copy, Download, FileText, Lock, MessageSquareText, Pencil, Sparkles, Trash2 } from 'lucide-react'
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
@@ -175,7 +178,9 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
                     {timeOf(first.createdAt, locale)}
                   </time>
                 </p>
-                {run.messages.map((m) => (
+                {run.messages.map((m) => m.withheld ? (
+                  <WithheldRow key={m.id} roomId={roomId} m={m} flash={flash === m.id || lit === m.id} onJump={m.replyTo && loaded.has(m.replyTo.id) ? () => jump(m.replyTo!.id) : undefined} />
+                ) : (
                   <Fragment key={m.id}>
                     <MessageRow
                       roomId={roomId}
@@ -405,6 +410,18 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
   )
 }
 
+/** An old answer hidden from me: who asked it (an AI answer, a click goes to the question) and one faint line; a
+ * person's message (an answer they shared, a message an AI app sent for them) by its author's name above it. */
+function WithheldRow({ roomId, m, flash, onJump }: { roomId: string; m: RoomMessage; flash: boolean; onJump?: () => void }) {
+  const t = useT()
+  return (
+    <div id={messageDomId(m.id)} className={clsx('-mx-2 rounded-lg px-2 py-0.5 transition', flash && 'bg-accent-soft')} data-testid="room-message" data-withheld="">
+      {m.authorKind === 'ai' && <AskedBy roomId={roomId} m={m} onJump={onJump} />}
+      <p className="text-reading leading-reading text-faint" data-testid="room-withheld">{t(m.authorKind === 'ai' ? 'rooms.withheldAnswer' : 'rooms.withheldMessage')}</p>
+    </div>
+  )
+}
+
 /** An answer someone sent from their own AI chat, under their note: a quiet quote headed "<AI> 답변", in Markdown like
  * the AI's answers here (`openable`: the team files in it this viewer may open; the others are plain text). */
 function SharedAnswer({ text, openable }: { text: string; openable?: ReadonlySet<string> }) {
@@ -460,6 +477,8 @@ export function previewWhy(p: RoomMessage['preview'], t: ReturnType<typeof useT>
   else if (p.folders.length || p.otherFolders) why.push(t(dm ? 'rooms.aiWhySomeFoldersDm' : 'rooms.aiWhySomeFolders'))
   if (p.personal) why.push(t('rooms.aiWhyMine'))
   if (p.joinedLater?.length) why.push(t('rooms.aiWhyJoined', { names: p.joinedLater.join(', ') }))
+  // not postable: the person cannot see what is at stake for the others (the server refuses it too)
+  if (p.hidden) why.push(t('rooms.aiWhyHidden'))
   if (p.outside) why.push(t('rooms.aiWhyOutside'))
   return why.length ? why.join(' ') : t(dm ? 'rooms.aiPrivateAllDm' : 'rooms.aiPrivateAll')
 }
@@ -494,10 +513,15 @@ function PreviewLine({ roomId, m }: { roomId: string; m: RoomMessage }) {
       <p className="flex flex-wrap items-center gap-x-1" data-testid="room-ai-private">
         <Lock size={12} className="shrink-0" aria-hidden />
         {t('rooms.aiPrivate')}
-        <span aria-hidden>·</span>
-        <button type="button" disabled={busy} onClick={() => void share()} className="touch-hit rounded font-medium text-accent-text hover:underline disabled:opacity-50" data-testid="room-ai-share">
-          {t('rooms.aiPost')}
-        </button>
+        {/* it used an old answer hidden from someone here: not postable (docs/DECISIONS.md "지난 대화") */}
+        {!m.preview?.hidden && (
+          <>
+            <span aria-hidden>·</span>
+            <button type="button" disabled={busy} onClick={() => void share()} className="touch-hit rounded font-medium text-accent-text hover:underline disabled:opacity-50" data-testid="room-ai-share">
+              {t('rooms.aiPost')}
+            </button>
+          </>
+        )}
       </p>
       <p className="mt-0.5" data-testid="room-ai-preview">{previewWhy(m.preview, t, dm)}</p>
     </div>
@@ -507,7 +531,7 @@ function PreviewLine({ roomId, m }: { roomId: string; m: RoomMessage }) {
 function Quote({ q, onJump }: { q: RoomQuote; onJump?: () => void }) {
   const t = useT()
   const nameOf = useNameOf()
-  const what = q.deleted ? t('rooms.deleted') : q.excerpt || (q.fileCount ? t('rooms.lastFiles', { n: q.fileCount }) : '')
+  const what = q.withheld ? t('rooms.withheldMessage') : q.deleted ? t('rooms.deleted') : q.excerpt || (q.fileCount ? t('rooms.lastFiles', { n: q.fileCount }) : '')
   const ids = useId()
   // the jump is a button over the whole quote, and the links in the excerpt sit above it (a link inside a button is no
   // link); an excerpt the server cut with "…" at its length leaves an address cut there as text
