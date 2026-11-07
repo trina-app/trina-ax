@@ -1086,7 +1086,7 @@ export const es: Record<MessageKey, string> = {
   'push.dismissed': "Se cerró la pregunta del navegador. Vuelva a pulsar y elija Permitir.",
   'push.service': "El servicio push del navegador está desactivado o no responde. Si es una ventana privada, ábrala en una ventana normal.",
   'push.serviceBrave': "En Brave, las notificaciones push necesitan «Usar los servicios de Google para la mensajería push» activado en Configuración › Privacidad y seguridad.",
-  'push.browserService': "El servidor del equipo no admite el servicio push de este navegador. Actívelas en Chrome, Firefox o Safari.",
+  'push.browserService': "El servidor del equipo no admite el servicio push de este navegador. Actívelas en Chrome, Edge, Firefox o Safari.",
   'push.worker': "El navegador no terminó de preparar las notificaciones. Recargue la página y vuelva a activarlas.",
   'push.storage': "El navegador impide que este sitio guarde datos, así que no se pueden preparar las notificaciones. Permita las cookies y los datos de este sitio. En Firefox, cambie «No recordar nunca el historial» si está activado.",
   'push.busy': "Ya está en curso. Responda primero a la pregunta de notificaciones abierta del navegador.",

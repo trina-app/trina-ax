@@ -1110,7 +1110,7 @@ export const en: Record<MessageKey, string> = {
   'push.dismissed': "The browser's question was closed. Click again and choose Allow.",
   'push.service': "The browser's push service is off or out of reach. In a private window, open a normal one instead.",
   'push.serviceBrave': "In Brave, push needs “Use Google services for push messaging” on in Settings › Privacy and security.",
-  'push.browserService': "The team server does not support this browser's push service. Turn push on in Chrome, Firefox or Safari.",
+  'push.browserService': "The team server does not support this browser's push service. Turn push on in Chrome, Edge, Firefox or Safari.",
   'push.worker': "The browser did not finish getting notifications ready. Reload the page and turn them on again.",
   'push.storage': "The browser keeps this site from storing data, so notifications cannot be set up. Allow cookies and site data for this site. In Firefox, change “Never remember history” if it is set.",
   'push.busy': "Already in progress. Answer the browser's open notification question first.",

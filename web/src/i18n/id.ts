@@ -1110,7 +1110,7 @@ export const id: Record<MessageKey, string> = {
   'push.dismissed': "Pertanyaan browser tertutup. Klik lagi lalu pilih Izinkan.",
   'push.service': "Layanan push browser mati atau tidak terjangkau. Jika ini jendela pribadi, buka di jendela biasa.",
   'push.serviceBrave': "Di Brave, push memerlukan “Gunakan layanan Google untuk pesan push” aktif di Setelan › Privasi dan keamanan.",
-  'push.browserService': "Server tim tidak mendukung layanan push browser ini. Aktifkan push di Chrome, Firefox, atau Safari.",
+  'push.browserService': "Server tim tidak mendukung layanan push browser ini. Aktifkan push di Chrome, Edge, Firefox, atau Safari.",
   'push.worker': "Browser belum selesai menyiapkan notifikasi. Muat ulang halaman lalu aktifkan lagi.",
   'push.storage': "Browser mencegah situs ini menyimpan data, jadi notifikasi tidak bisa disiapkan. Izinkan cookie dan data situs untuk situs ini. Di Firefox, ubah “Jangan pernah mengingat riwayat” jika dipakai.",
   'push.busy': "Sedang diproses. Jawab dulu pertanyaan notifikasi browser yang terbuka.",
