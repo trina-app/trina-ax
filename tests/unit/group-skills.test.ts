@@ -14,7 +14,7 @@ import { API } from '@mycel/shared/api'
 import { makeEnv } from '../lib/env'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { TurnFiles } from '../../server/src/files/service'
-import { groupSkillRoots, invokedSkill, listGroupSkills, listSkills, readSkill, skillInfo, skillIssues, type Skill } from '../../server/src/chat/skills'
+import { groupSkillRoots, invokedSkill, listGroupSkills, listSkills, readSkill, scanSkillsWithShadowed, skillInfo, skillIssues, type Skill } from '../../server/src/chat/skills'
 import { buildSkillList, descriptionOrder, resolveSkill, SKILL_LIST_BUDGET } from '../../server/src/chat/skill-list'
 import { skillBlock, skillsSection } from '../../server/src/chat/prompt'
 import { recordSkillUse } from '../../server/src/admin/skill-usage'
@@ -94,6 +94,24 @@ describe('discovery and precedence (real folder rules)', () => {
     // the team's own list (for name checks before adding a team skill) is unchanged; a group's own list too
     expect(listGroupSkills(e.files, who('alice'), 'marketing').map((s) => s.name).sort()).toEqual(['Brief', 'Weekly', 'quote'])
     expect(listGroupSkills(e.files, who('bob'), 'marketing')).toEqual([])
+  })
+
+  test('shadowed skills: what a better tier replaced is reported (page only), which one runs is unchanged', () => {
+    const alice = scanSkillsWithShadowed(e.files, who('alice'))
+    // the lists are exactly listSkills'
+    expect(alice.skills.map((s) => s.path)).toEqual(list('alice').map((s) => s.path))
+    const lost = Object.fromEntries(alice.shadowed.map((x) => [x.skill.path, x.by]))
+    // Weekly: the team's lost to the marketing group's; Brief: the group's lost to alice's own
+    expect(lost['skills/weekly.md']).toEqual({ tier: 'group', group: { id: 'marketing', name: 'Marketing' } })
+    expect(lost['groups/marketing/skills/brief.md']).toEqual({ tier: 'personal' })
+    expect(alice.shadowed).toHaveLength(2)
+    // the running skills say what they replaced (the "/" menu's hint)
+    expect(alice.replaces.get('groups/marketing/skills/weekly.md')).toBe('team')
+    expect(alice.replaces.get('users/alice/skills/brief.md')).toBe('group')
+    // bob has no replacement: nothing shadowed
+    const bob = scanSkillsWithShadowed(e.files, who('bob'))
+    expect(bob.shadowed).toEqual([])
+    expect(bob.replaces.size).toBe(0)
   })
 
   test('two groups with one name: both listed, by path; "/name" picks the group whose name comes first', () => {
@@ -265,6 +283,21 @@ describe('in the app: GET /api/skills, rename, delete, the AI\'s card, skills_li
     expect(alice.find((s) => s.path === 'groups/marketing/skills/quote/SKILL.md')?.group).toEqual({ id: 'marketing', name: 'Marketing' })
     expect(JSON.stringify((await h.api('bob').call(API.listSkills)).items)).not.toContain(MKT_QUOTE)
     expect(JSON.stringify((await h.api('dana').call(API.listSkills)).items)).not.toContain(MKT_QUOTE)
+  })
+
+  test('GET /api/skills?shadowed=1: the losers come with shadowedBy, the plain list never has them', async () => {
+    const plain = (await h.api('alice').call(API.listSkills)).items
+    expect(plain.some((s) => s.shadowedBy)).toBe(false)
+    expect(plain.find((s) => s.path === 'groups/marketing/skills/weekly.md')?.replaces).toBe('team')
+    expect(plain.some((s) => s.path === 'skills/weekly.md')).toBe(false)
+    const all = (await h.api('alice').call(API.listSkills, { query: { shadowed: '1' } })).items
+    expect(all.find((s) => s.path === 'skills/weekly.md')?.shadowedBy).toEqual({ tier: 'group', group: { id: 'marketing', name: 'Marketing' } })
+    expect(all.find((s) => s.path === 'groups/marketing/skills/brief.md')?.shadowedBy).toEqual({ tier: 'personal' })
+    expect(all.filter((s) => s.shadowedBy)).toHaveLength(2)
+    // the running ones are the same as in the plain list
+    expect(all.filter((s) => !s.shadowedBy).map((s) => s.path)).toEqual(plain.map((s) => s.path))
+    // bob never sees marketing's skills, so nothing of theirs shadows his team skill
+    expect((await h.api('bob').call(API.listSkills, { query: { shadowed: '1' } })).items.some((s) => s.shadowedBy)).toBe(false)
   })
 
   test('a rename: the group\'s new name at once (the folder stays)', async () => {

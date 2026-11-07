@@ -2301,6 +2301,12 @@ export const id: Record<MessageKey, string> = {
   'skills.fromTeam': 'Dari tim Anda',
   'skills.fromGroup': 'Dari grup {group}',
   'skills.groupBadge': 'Skill grup {group}: hanya anggotanya yang melihat dan memakainya',
+  'skills.shadowedTitle': "Skill yang digantikan skill bernama sama",
+  'skills.shadowedByGroup': "Skill grup {group} dengan nama yang sama dipakai sebagai gantinya",
+  'skills.shadowedByPersonal': "Skill pribadi Anda dengan nama yang sama dipakai sebagai gantinya",
+  'skills.replacesTeam': "menggantikan skill tim",
+  'skills.replacesGroup': "menggantikan skill grup",
+  'skills.pathLine': "Path: {path}",
   'skills.search': 'Cari skill',
   'skills.uses': '{uses} kali',
   'skills.usesHint': '30 hari terakhir',
@@ -3962,6 +3968,8 @@ export const id: Record<MessageKey, string> = {
   "welcome.skills.gone": "Usulan berbagi ini sudah tidak ada · Sudah lewat 7 hari atau sudah diurus",
   "skillShare.page.title": "Skill untuk dibagikan ke tim",
   "skillShare.page.desc": "Hanya yang Anda pilih yang masuk ke tim · Tidak ada yang berubah sebelum Anda menekan Bagikan ke tim",
+  "skillShare.page.titleGroup": "Skill untuk dibagikan ke {group}",
+  "skillShare.page.descGroup": "Hanya yang Anda pilih yang masuk ke {group} · Tidak ada yang berubah sebelum Anda menekan Bagikan ke {group}",
   "skillShare.page.toSkills": "Lihat skill tim",
   // ── K end: 내 스킬 가져오기 step ──
   // ── W5: 내 스킬 exits, invite, skill form (web-o3) ──

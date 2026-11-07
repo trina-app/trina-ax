@@ -743,13 +743,13 @@ export class MockServer {
   }
   /** like server/src/chat/skills.ts listSkills: skills/**.md and the caller's own users/<id>/skills/ with a name header,
    * only where the caller can read */
-  skillsFor(u: User): { path: string; name: string; description: string; title?: string; inputs?: SkillInput[]; personal?: true; group?: { id: string; name: string } }[] {
+  skillsFor(u: User, shadowed = false): { path: string; name: string; description: string; title?: string; inputs?: SkillInput[]; personal?: true; group?: { id: string; name: string }; shadowedBy?: { tier: 'personal' | 'group'; group?: { id: string; name: string } }; replaces?: 'team' | 'group' }[] {
     const mine = `users/${u.id}/skills/`
     // the skills of the person's groups (docs/DECISIONS.md "Group skills"): groups/<folder>/skills/, the group's folder
     // row (its path stays when the group is renamed), else groups/<name>
     const groupRoots = this.groups.filter((g) => u.groupIds.includes(g.id) || g.memberIds.includes(u.id))
       .map((g) => ({ g, root: `${this.folders.find((f) => f.groupId === g.id)?.path ?? `groups/${g.name}`}/skills/` }))
-    const out: { path: string; name: string; description: string; title?: string; inputs?: SkillInput[]; personal?: true; group?: { id: string; name: string } }[] = []
+    const out: { path: string; name: string; description: string; title?: string; inputs?: SkillInput[]; personal?: true; group?: { id: string; name: string }; shadowedBy?: { tier: 'personal' | 'group'; group?: { id: string; name: string } }; replaces?: 'team' | 'group' }[] = []
     for (const [p, n] of this.files) {
       const inGroup = groupRoots.find((r) => p.startsWith(r.root))
       if (n.type !== 'file' || !p.endsWith('.md') || !(p.startsWith('skills/') || p.startsWith(mine) || inGroup) || this.access(p, u) === 'none') continue
@@ -768,7 +768,19 @@ export class MockServer {
     const tier = (s: (typeof out)[number]) => (s.personal ? 0 : s.group ? 1 : 2)
     const best = new Map<string, number>()
     for (const s of out) best.set(s.name.toLowerCase(), Math.min(best.get(s.name.toLowerCase()) ?? 3, tier(s)))
-    return out.filter((s) => tier(s) === best.get(s.name.toLowerCase())).sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
+    const byName = (a: (typeof out)[number], b: (typeof out)[number]) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path)
+    const key = (s: (typeof out)[number]) => s.name.toLowerCase()
+    const kept = out.filter((s) => tier(s) === best.get(key(s))).sort(byName)
+    // what a better tier replaced: `replaces` on the one that runs ("/" menu hint), the loser itself with ?shadowed=1
+    const lost = out.filter((s) => tier(s) !== best.get(key(s))).sort(byName)
+    const replaces = new Map<string, 'team' | 'group'>()
+    const losers = lost.map((l) => {
+      const winners = kept.filter((w) => key(w) === key(l))
+      for (const w of winners) if (replaces.get(w.path) !== 'team') replaces.set(w.path, tier(l) === 2 ? 'team' : 'group')
+      const w = winners[0]!
+      return { ...l, shadowedBy: w.personal ? { tier: 'personal' as const } : { tier: 'group' as const, group: w.group } }
+    })
+    return [...kept.map((s) => (replaces.has(s.path) ? { ...s, replaces: replaces.get(s.path) } : s)), ...(shadowed ? losers : [])]
   }
   manages(u: User, folder: string) {
     return this.managed(u).some((m) => folder === m || folder.startsWith(m + '/'))
@@ -1325,7 +1337,7 @@ export class MockServer {
     listSkillIssues: () => ({ items: [] }),
     // the "/" menu, the Skills page and the owner's checklist on the home screen: like the server, the skills the caller
     // can read (none in the seed; POST /__test/skills adds some)
-    listSkills: (c) => ({ items: this.skillsFor(c.user) }),
+    listSkills: (c) => ({ items: this.skillsFor(c.user, c.query.shadowed === '1') }),
     health: () => ({ ok: true, version: this.serverVersion, schema: { applied: 2, readerLevel: 1 }, uptimeSec: 1, time: now() }),
     setupStatus: () => ({ needed: this.setupNeeded, teamName: this.setupNeeded ? null : this.settings.teamName, defaultLocale: this.settings.defaultLocale }),
     setup: (c) => {

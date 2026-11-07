@@ -22,7 +22,7 @@ import clsx from 'clsx'
 import { ChevronDown, Play } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { SKILL_INPUT_TEXT_MAX, SKILL_INPUT_VALUE_MAX, isChoice, skillExample, skillLabel, skillSummary, type SkillInfo, type SkillInput } from '@mycel/shared/api'
+import { SKILL_INPUT_TEXT_MAX, SKILL_INPUT_VALUE_MAX, isChoice, skillExample, skillSummary, type SkillInfo, type SkillInput } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { composeSkillMessage, initialValues, loadPrefill, missingRequired, skillRunBy, withPrefill } from '../../lib/skillForm'
 import { clearMadeBy, heldMadeBy } from '../../lib/starter'
@@ -274,8 +274,8 @@ function ChoiceField({ id, input, label, value, error, onChange }: { id: string;
 }
 
 /** The form in a dialog (Team skills page, /skills?run=, "/" menu). The title names the skill as people read it (its
- * title, else its folder name as words: skillLabel, as the invite and the goal card name it, "quote maker 실행", never
- * "quote-maker 실행"): from `skill` or the person's list once it loaded; until then nothing more than "스킬 실행" for a
+ * title, else the command people type: "/quote-maker 실행", as the Team skills row and the "/" menu name it, never
+ * the folder name as words): from `skill` or the person's list once it loaded; until then nothing more than "스킬 실행" for a
  * bare path (a link after joining), so the folder name ("ad-copy") never flashes first. */
 export function SkillFormDialog({ path, skill, onClose, onCompose }: { path: string; skill?: SkillInfo; onClose: () => void; onCompose?: (message: string) => void }) {
   const t = useT()
@@ -287,7 +287,7 @@ export function SkillFormDialog({ path, skill, onClose, onCompose }: { path: str
   // only the skill of this path (a dialog kept open while its path changes never shows the one before)
   const shown = (loaded?.path === path ? loaded : null) ?? skill
   return (
-    <Modal open onClose={onClose} width={560} title={shown ? t('skillForm.title', { name: skillLabel(shown) }) : t('skillForm.titlePlain')}>
+    <Modal open onClose={onClose} width={560} title={shown ? t('skillForm.title', { name: shown.title?.trim() && shown.title.trim() !== shown.name ? shown.title.trim() : `/${shown.name}` }) : t('skillForm.titlePlain')}>
       <SkillForm path={path} skill={skill} onSkill={setLoaded} onCompose={onCompose ? (m) => { onCompose(m); onClose() } : undefined} by={by} />
     </Modal>
   )

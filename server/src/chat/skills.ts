@@ -483,6 +483,18 @@ export const sameSkillName = (a: string, b: string) => nameKey(a) === nameKey(b)
  * users/<id>/skills). One name: a personal skill hides a group's and the team's, a group's hides the team's (each only
  * for this person); skills of one tier with the same name all stay (two groups': both, told apart by their paths). */
 export function scanSkills(files: FileService, user: Principal): { skills: Skill[]; capped: string[] } {
+  const { skills, capped } = scanSkillsWithShadowed(files, user)
+  return { skills, capped }
+}
+
+/** A skill another of the same name replaced for this person: `by` is the tier that runs instead (a personal skill, or
+ * a group's: the first of its tier by path, so one is named when two groups' skills share the name). */
+export interface ShadowedSkill { skill: Skill; by: { tier: 'personal' } | { tier: 'group'; group: SkillGroup } }
+
+/** scanSkills plus what it dropped: `shadowed` (the skills a better tier replaced, for the Team skills page, which
+ * shows them with a note: docs/DECISIONS.md "Group skills") and `replaces` (path of each running skill -> the lowest
+ * tier it replaced, 'team' before 'group': the "/" menu's hint). Which skill runs is `skills`, as before. */
+export function scanSkillsWithShadowed(files: FileService, user: Principal): { skills: Skill[]; capped: string[]; shadowed: ShadowedSkill[]; replaces: Map<string, 'team' | 'group'> } {
   const out: Skill[] = []
   const capped = walkSkillEntries(files, user, (rel, scan) => {
     const skill = readSkillIn(files, user, rel, scan)
@@ -490,9 +502,17 @@ export function scanSkills(files: FileService, user: Principal): { skills: Skill
   })
   const best = new Map<string, number>()
   for (const s of out) best.set(nameKey(s.name), Math.min(best.get(nameKey(s.name)) ?? 3, skillTier(s)))
-  const skills = out.filter((s) => skillTier(s) === best.get(nameKey(s.name)))
-    .sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
-  return { skills, capped }
+  const byPath = (a: Skill, b: Skill) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path)
+  const skills = out.filter((s) => skillTier(s) === best.get(nameKey(s.name))).sort(byPath)
+  const shadowed: ShadowedSkill[] = []
+  const replaces = new Map<string, 'team' | 'group'>()
+  for (const s of out.filter((x) => skillTier(x) !== best.get(nameKey(x.name))).sort(byPath)) {
+    const winners = skills.filter((w) => sameSkillName(w.name, s.name))
+    const w = winners[0]!
+    shadowed.push({ skill: s, by: skillTier(w) === 0 ? { tier: 'personal' } : { tier: 'group', group: w.group ?? { id: '', name: '' } } })
+    for (const x of winners) if (replaces.get(x.path) !== 'team') replaces.set(x.path, skillTier(s) === 2 ? 'team' : 'group')
+  }
+  return { skills, capped, shadowed, replaces }
 }
 
 /** Skill managers (docs/DECISIONS.md "팀 스킬 관리"): write on skills/ or on one of its folders. The topmost such
