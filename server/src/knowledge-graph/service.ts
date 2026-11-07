@@ -175,7 +175,7 @@ export function openDocumentIndex(dir: string, o: DocIndexOptions): DocIndexPort
   const idx = DocumentIndex.open(dir, o)
   const script = docSearchWorkerScript()
   if (!script) o.warn?.('knowledge graph: the document search worker is missing; searches run on the main thread')
-  const reader = script ? new DocSearchWorker(dir, script, (err) => o.warn?.('knowledge graph: ' + err)) : null
+  const reader = script ? new DocSearchWorker(dir, script, (err) => o.warn?.('knowledge graph: ' + err), { meaning: o.meaning }) : null
   reader?.warm()
   const people = () => { try { return o.people() } catch { return [] } }
   return {
@@ -343,8 +343,14 @@ export class KnowledgeGraph {
       extract: (name, bytes, signal) => inBackground(() => true, () => extractText(name, bytes, tools, signal)),
       people: () => (this.ctx.db.query("SELECT name FROM users WHERE status = 'active'").all() as { name: string }[]).map((r) => r.name).filter((n) => n && n.length >= 2),
       warn: (msg, x) => this.ctx.log.warn(msg, x),
+      meaning: () => this.meaningSearch(),
     })
     return this.docs
+  }
+
+  /** Searches use meaning too: KnowledgeGraph.meaningOn(), which the meaning index adds (the switch; off until then). */
+  private meaningSearch(): boolean {
+    try { return !!(this as unknown as { meaningOn?: () => boolean }).meaningOn?.() } catch { return false }
   }
 
   // ---------------------------------------------------------------- changes and the queue
@@ -745,11 +751,12 @@ export class KnowledgeGraph {
     let strength: LookupResult['strength'] = 'none'
     const best = new Map<string, { path: string; loc: SourceLoc | null; score: number; long: string; short: string }>()
     const due = Number.isFinite(o.due) ? o.due : undefined
+    const meaning = this.meaningSearch()
     // every wording at once; each one's answer only if it is back by the deadline (the worker drops a late one too)
     const asked = wordings.map((q) => {
       const terms = o.words === 'search' ? queryTerms(q) : questionTerms(q)
       if (!terms.length) return { terms, hits: Promise.resolve(null as DocHit[] | null) }
-      const run = Promise.resolve().then(() => idx.search(terms.join(' '), { rootIds: a.docRoots, limit, passage: LOOKUP_LONG_CHARS, ...(prefix ? { prefix } : {}), ...(due !== undefined ? { due } : {}) }))
+      const run = Promise.resolve().then(() => idx.search(terms.join(' '), { rootIds: a.docRoots, limit, passage: LOOKUP_LONG_CHARS, ...(prefix ? { prefix } : {}), ...(due !== undefined ? { due } : {}), ...(meaning ? { meaning } : {}) }))
       return { terms, hits: beforeDue(run, o.due).catch((e) => { this.ctx.log.warn('knowledge graph: document search failed', { err: String(e).slice(0, 200) }); return null }) }
     })
     for (const { terms, hits: pending } of asked) {
@@ -763,7 +770,9 @@ export class KnowledgeGraph {
         const tp = a.inDocRoot(h.rootId, h.relPath)
         if (!tp || !a.visible(tp)) continue
         const text = String(h.passage || h.snippet || '')
-        const s = matchStrength(terms, text)
+        // found by meaning only: kept even without the words (a Korean document for an English question) but never
+        // strong, so the lookup before the model names its file instead of pasting its text; strong stays the keyword rule
+        const s = h.byMeaning ? 'weak' : matchStrength(terms, text)
         if (s === 'none') continue
         if (shown++ < LOOKUP_LONG && STRENGTH_RANK[s] > STRENGTH_RANK[strength]) strength = s
         const loc = h.loc ?? null

@@ -7,8 +7,9 @@ import type { SourceLoc } from '@mycel/shared/api'
 
 export interface DocFileState { size: number; mtimeMs: number; failed: string | null }
 /** snippet: about 300 characters around the match, on one line. passage: when the search asked for one, up to that many
- * characters of the piece around the match with its line breaks, to answer from (an index without it: the snippet). */
-export interface DocHit { rootId: string; relPath: string; loc: SourceLoc | null; snippet: string; passage?: string; score: number }
+ * characters of the piece around the match with its line breaks, to answer from (an index without it: the snippet).
+ * byMeaning: found by meaning only, not by the keyword search; its strength is at most weak (service.ts docPassages). */
+export interface DocHit { rootId: string; relPath: string; loc: SourceLoc | null; snippet: string; passage?: string; score: number; byMeaning?: boolean }
 export interface DocSearchOptions {
   rootIds: string[]
   limit: number
@@ -20,6 +21,10 @@ export interface DocSearchOptions {
   /** a Date.now() time: an answer not ready by then is not waited for ([] instead), and one not started is not run
    * (none: the search worker's DEFAULT_DEADLINE_MS) */
   due?: number
+  /** search by meaning too, when the index holds vectors for these folders: its closest pieces are fused with the
+   * keyword pieces by rank, and left out when not ready before `due` (documents/search-worker.ts). Without it, or
+   * without vectors, the keyword search alone, exactly as before. */
+  meaning?: boolean
 }
 /** why two documents are linked: kind is folder · mention · link · terms · people · code; detail is made only from the
  * two documents' own names and text */
@@ -54,5 +59,7 @@ export interface DocIndexOptions {
   people: () => string[]
   /** a problem worth a log line (the search worker died, or could not start) */
   warn?: (msg: string, x?: Record<string, unknown>) => void
+  /** search by meaning is on: the search worker loads its vectors and model as soon as it starts */
+  meaning?: () => boolean
 }
 export type OpenDocIndex = (dir: string, o: DocIndexOptions) => DocIndexPort
