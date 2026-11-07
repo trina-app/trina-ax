@@ -22,7 +22,7 @@ import clsx from 'clsx'
 import { Copy, Download, FileText, Lock, MessageSquareText, Pencil, Sparkles, Trash2 } from 'lucide-react'
 import { Fragment, useId, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import type { Locale, RoomAiRun, RoomFile, RoomMessage, RoomQuote, UserRef } from '@mycel/shared/api'
+import { ROOM_QUOTE_EXCERPT_MAX, type Locale, type RoomAiRun, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
 import { api, API, errorText, readBounded, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize, intlTag } from '../../lib/format'
 import { aiMentionNames, ALL_MENTION_ID, allMentionNames, eventText, groupRuns, lineBreaks, localDayKey, mentionParts, runActive, type MessageRun } from '../../lib/rooms'
@@ -491,13 +491,13 @@ function Quote({ q, onJump }: { q: RoomQuote; onJump?: () => void }) {
   const what = q.deleted ? t('rooms.deleted') : q.excerpt || (q.fileCount ? t('rooms.lastFiles', { n: q.fileCount }) : '')
   const ids = useId()
   // the jump is a button over the whole quote, and the links in the excerpt sit above it (a link inside a button is no
-  // link); the server cut the excerpt with "…" at its length, an address cut there stays text
+  // link); an excerpt the server cut with "…" at its length leaves an address cut there as text
   return (
     <div className={clsx('mt-0.5 mb-1 block max-w-full border-l-2 border-line-strong pl-2 text-left text-xs', onJump && 'relative hover:border-ink')} data-testid="message-quote">
       {onJump && <button type="button" onClick={onJump} aria-labelledby={`${ids}n ${ids}t`} className="absolute inset-0 -left-0.5 rounded-sm" data-testid="message-quote-jump" />}
       <span id={`${ids}n`} className="block truncate font-medium text-muted">{nameOf(q.author) ?? t('rooms.goneUser')}</span>
       <span id={`${ids}t`} className="block truncate text-faint [&_a]:relative">
-        {q.deleted || !q.excerpt ? what : <LinkedText text={q.excerpt} cut oneLine />}
+        {q.deleted || !q.excerpt ? what : <LinkedText text={q.excerpt} cut={q.excerpt.length >= ROOM_QUOTE_EXCERPT_MAX} oneLine />}
       </span>
     </div>
   )
@@ -610,7 +610,7 @@ function PendingRow({ roomId, p }: { roomId: string; p: PendingSend }) {
     <div className="py-0.5" data-testid="room-pending-message" data-state={p.state}>
       {p.body && (
         <p className="text-reading leading-reading break-words whitespace-pre-wrap text-muted">
-          <LinkedText text={p.body} />
+          <LinkedText text={p.body} menu={false} />
         </p>
       )}
       {p.files.length > 0 && <p className="truncate text-xs text-muted">{p.files.map((f) => f.name).join(', ')}</p>}

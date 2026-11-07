@@ -105,6 +105,42 @@ test('HTML in the text is never an address and stays text', () => {
   expect(links('<img src=x onerror=alert(1)>')).toEqual([])
 })
 
+test('a pasted Markdown link, a bracket closed in the middle, two addresses stuck together: each address on its own', () => {
+  const md = '[https://example.com/p](https://example.com/p)'
+  expect(linkParts(md)).toEqual([{ text: '[' }, { text: 'https://example.com/p', href: 'https://example.com/p' }, { text: '](' }, { text: 'https://example.com/p', href: 'https://example.com/p' }, { text: ')' }])
+  expect(links('(https://example.com/p)next')).toEqual(['https://example.com/p'])
+  expect(links('https://example.com/a_(b)_c/d')).toEqual(['https://example.com/a_(b)_c/d'])
+  expect(links('https://a.examplehttps://b.example/x')).toEqual(['https://a.example', 'https://b.example/x'])
+  expect(links('https://a.example,https://b.example')).toEqual(['https://a.example', 'https://b.example'])
+  expect(links('https://a.example/x;https://b.example')).toEqual(['https://a.example/x', 'https://b.example'])
+})
+
+test('a host or query the text leaves unclear stays text: no link to the wrong page', () => {
+  // a full-width or ideographic dot, or an invisible character, inside the host
+  expect(links('https://evil\uff0ecom/a')).toEqual([])
+  expect(links('https://evil\u3002com')).toEqual([])
+  expect(links('https://go\u200bod.example')).toEqual([])
+  expect(links('https://go\u00adod.example')).toEqual([])
+  expect(links('http://www.')).toEqual([])
+  // the same characters after a whole host end the sentence: the address is a link
+  expect(links('https://example.com\u3002次へ')).toEqual(['https://example.com'])
+  expect(links('https://example.com\u3002')).toEqual(['https://example.com'])
+  // a query or fragment that goes on in Hangul or CJK
+  expect(links('https://example.com/search?q=한국')).toEqual([])
+  expect(links('https://example.com/a#한국')).toEqual([])
+  expect(links('https://example.com/s?q=1&lang=日本')).toEqual([])
+  // Hangul right after a path (a particle, or a Hangul path: the stated cost) links what comes before it
+  expect(links('https://example.com/wiki/서울')).toEqual(['https://example.com/wiki/'])
+})
+
+test('a rejected address is read once: no second link inside it, and a long run stays fast', () => {
+  expect(links('https://user@a.example/?r=https://good.example')).toEqual([])
+  const long = 'https://u@x='.repeat(1000)
+  const t0 = performance.now()
+  expect(links(long)).toEqual([])
+  expect(performance.now() - t0).toBeLessThan(50)
+})
+
 test('a quote cut short with "…": the address that runs into it stays text, the ones before it are links', () => {
   expect(links('see https://example.com/very/long/addre…', { cut: true })).toEqual([])
   expect(links('see https://example.com/a and then more words…', { cut: true })).toEqual(['https://example.com/a'])

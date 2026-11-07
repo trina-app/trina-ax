@@ -15,6 +15,7 @@ import { openTeamFile } from '../../lib/sidePanel'
 import { addressPieces, linkParts } from '../../lib/textLinks'
 import { useT } from '../../i18n'
 import { toast } from '../../store/ui'
+import { useCopy } from '../ui'
 
 const LINK = 'rounded-sm text-accent-text underline decoration-accent-text/40 underline-offset-2 [overflow-wrap:anywhere] hover:decoration-accent-text'
 /** a touch held this long opened the message's menu (MenuButton useLongPress): the finger lifting is no click */
@@ -25,21 +26,25 @@ const origin = () => (typeof location === 'undefined' ? 'http://localhost' : loc
 const ownClick = (e: MouseEvent) => e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey
 
 /** The words of `text`, its addresses as links. `cut`: the text ends in the "…" of an excerpt; an address cut by it
- * stays text. `oneLine`: the text is one line cut with "…" (a quote): no break inside an address. */
-export function LinkedText({ text, cut, oneLine }: { text: string; cut?: boolean; oneLine?: boolean }) {
+ * stays text. `oneLine`: the text is one line cut with "…" (a quote): no break inside an address. `menu`: a long press
+ * here opens the message's menu (false: a message being sent, which has none). */
+export function LinkedText({ text, cut, oneLine, menu = true }: { text: string; cut?: boolean; oneLine?: boolean; menu?: boolean }) {
   const parts = useMemo(() => linkParts(text, { cut }), [text, cut])
   return (
     <>
-      {parts.map((p, i) => (p.href ? <RoomLink key={i} href={p.href} text={p.text} oneLine={oneLine} /> : <Fragment key={i}>{p.text}</Fragment>))}
+      {parts.map((p, i) => (p.href ? <RoomLink key={i} href={p.href} text={p.text} oneLine={oneLine} menu={menu} /> : <Fragment key={i}>{p.text}</Fragment>))}
     </>
   )
 }
 
-function RoomLink({ href, text, oneLine }: { href: string; text: string; oneLine?: boolean }) {
+function RoomLink({ href, text, oneLine, menu }: { href: string; text: string; oneLine?: boolean; menu: boolean }) {
   const t = useT()
-  const touchedAt = useRef(0)
+  const { copy } = useCopy()
+  // the last touch on it: when it went down, and whether it was held long enough to open the message's menu
+  const press = useRef({ down: 0, long: false })
   const l = classifyLink(href, origin())
-  if (l.kind === 'blocked') return <>{text}</>
+  // (classifyLink gives no path that starts with "//": the router would open that as another site, in this tab)
+  if (l.kind === 'blocked' || (l.kind === 'app' && !/^\/(?![/\\])/.test(l.href))) return <>{text}</>
   // (a <wbr> breaks a line even where white-space is nowrap)
   const words: ReactNode = oneLine ? text : addressPieces(text).map((piece, i) => (
     <Fragment key={i}>
@@ -51,12 +56,22 @@ function RoomLink({ href, text, oneLine }: { href: string; text: string; oneLine
     className: LINK,
     'data-testid': 'room-link',
     onPointerDown: (e: PointerEvent) => {
-      touchedAt.current = e.pointerType === 'touch' ? Date.now() : 0
+      press.current = { down: e.pointerType === 'touch' ? Date.now() : 0, long: false }
+    },
+    onPointerUp: () => {
+      const p = press.current
+      press.current = { down: 0, long: p.down > 0 && Date.now() - p.down >= LONG_PRESS_MS }
+    },
+    onPointerCancel: () => {
+      press.current = { down: 0, long: false }
     },
   }
-  /** the finger lifting after a long press (the message's menu is open): nothing to open */
+  /** the finger lifting after a long press (the message's menu is open): nothing to open. A click from the keyboard or
+   * a screen reader (detail 0) always opens. */
   const held = (e: MouseEvent) => {
-    if (!touchedAt.current || Date.now() - touchedAt.current < LONG_PRESS_MS) return false
+    const long = press.current.long
+    press.current.long = false
+    if (!menu || !long || e.detail === 0) return false
     e.preventDefault()
     return true
   }
@@ -90,10 +105,11 @@ function RoomLink({ href, text, oneLine }: { href: string; text: string; oneLine
       onClick={(e) => {
         if (held(e) || !l.href.startsWith('http:') || !mobileApp()) return
         e.preventDefault()
-        void navigator.clipboard
-          .writeText(l.href)
-          .then(() => toast({ level: 'info', text: t('rooms.linkHttpCopied') }))
-          .catch(() => toast({ level: 'warn', text: t('rooms.linkHttpApp') }))
+        // (useCopy falls back to a hidden text field where the async clipboard is missing or refused)
+        void copy(l.href).then(
+          () => toast({ level: 'info', text: t('rooms.linkHttpCopied') }),
+          () => toast({ level: 'warn', text: t('rooms.linkHttpApp') }),
+        )
       }}
     >
       {words}

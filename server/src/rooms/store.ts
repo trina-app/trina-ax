@@ -16,10 +16,10 @@
 import type { Database } from 'bun:sqlite'
 import { getPreferences, type Preferences } from '../notifications/preferences'
 import { roomNotifyOut } from './alerts'
-import { answerFilePaths, RoomEventLine, ROOM_REACTION_NAMES, type Room, type RoomFile, type RoomKind, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomReactionEmoji, type RoomThreadSummary, type UserRef } from '@mycel/shared/api'
+import { answerFilePaths, RoomEventLine, ROOM_QUOTE_EXCERPT_MAX, ROOM_REACTION_NAMES, type Room, type RoomFile, type RoomKind, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomReactionEmoji, type RoomThreadSummary, type UserRef } from '@mycel/shared/api'
 
 export const MAX_UNREAD = 999
-const EXCERPT_QUOTE = 200
+const EXCERPT_QUOTE = ROOM_QUOTE_EXCERPT_MAX
 const EXCERPT_LIST = 120
 
 export interface RoomRow { id: string; kind: RoomKind; group_id: string | null; dm_key: string | null; created_by: string | null; created_at: string; last_seq: number; activity_at: string; archived_at: string | null; name: string | null }

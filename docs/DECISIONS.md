@@ -12534,22 +12534,34 @@ middle of a word on a phone.
   file:, mailto:, an app's own), no address with a user name or password ("https://bank.example@evil.example"), no
   e-mail address (the phone app and the desktop app open http(s) only, so a mailto link would do nothing there). The
   @mentions are found first, as before; addresses only in the words between them.
-- **Where an address ends** is what people mean in a chat: white space, a quote mark, a backslash, Korean, Japanese,
-  Chinese or full-width text right after it ("https://x.y/a에서", "https://x.y/a。"), an emoji or symbol. Then the
-  sentence's punctuation comes off its end (". , : ; ! ? ' * _ ~"), and a closing bracket the address never opened
-  ("(see https://x.y/a)"); one it opened stays ("…/wiki/Bun_(software)"). The cost: an address with Hangul in its
-  path ("https://ko.wikipedia.org/wiki/서울") links up to the Hangul; a browser copies such an address percent-encoded,
-  so this is rare. A quote's excerpt the server cut with "…" leaves an address cut there as text (it would open the
-  wrong page).
+- **Where an address ends** is what people mean in a chat: white space, a double or curly quote mark, a backslash,
+  Korean, Japanese, Chinese or full-width text right after it ("https://x.y/a에서", "https://x.y/a。"), an emoji, an
+  arrow or ✅ (other signs such as © or € stay in it, as browsers keep them), a closing bracket it never opened
+  ("(see https://x.y/a)", a pasted "[https://x.y](https://x.y)"), another "http(s)://" stuck to it after a letter,
+  digit, comma or semicolon. Then the sentence's punctuation comes off its end (". , : ; ! ? ' * _ ~" and an unclosed
+  opening bracket); a bracket the address opened stays ("…/wiki/Bun_(software)").
+- **No link rather than a wrong one.** A host that a dot-like or invisible character splits ("https://evil．com",
+  a zero-width space or soft hyphen inside it) and a query or fragment that goes on in Hangul or CJK
+  ("https://x.y/?q=한국") stay text. The cost that remains: Hangul right after a slash ("https://ko.wikipedia.org/wiki/
+  서울") links up to the slash, since "https://x.y/에서" is the commoner case; a browser copies such an address
+  percent-encoded, so it is rare. A quote's excerpt that the server cut with "…" (it is ROOM_QUOTE_EXCERPT_MAX long,
+  now shared with the server) leaves an address cut there as text; a shorter excerpt's "…" is the author's own.
 - **How it opens** is how an AI answer's links open (lib/markdown.ts classifyLink, one rule for both): another site in
   a new tab with `rel="noopener noreferrer nofollow"` and no referrer (the desktop app hands a new window to the
-  system browser, the phone app to its browser sheet); a same-origin address that is a page of the app (/rooms/…,
-  /chats/…) through the app's router, without a reload; a team file (/files/view?path=…, /api/files/download?path=…)
-  in the preview panel, the server checking the viewer's access; any other same-origin /api/ address stays text (a
-  click on it would be a request made with the viewer's session).
+  system browser, the phone app to its browser sheet); an address on this exact origin that is a page of the app
+  (/rooms/…, /chats/…) through the app's router, without a reload; a team file (/files/view?path=…,
+  /api/files/download?path=…) in the preview panel, the server checking the viewer's access; any other /api/ address
+  on this exact origin stays text (a click on it would be a request made with the viewer's session). The same host
+  over http or with a trailing dot is another origin to the browser and opens as another site.
+- **"//" after this server's host is no link (also in AI answers).** The independent review found that
+  "https://<this server>//evil.example/login" (or "/.//…") was taken as a page of the app, and the router reads a path
+  that starts with "//" as another site: it opened in the app's own tab, a ready-made fake sign-in page under the
+  team's address. classifyLink now gives no link for such a path; this closes it for AI answers too, where it was
+  already possible.
 - **The phone app opens https only** (mobile/src/protocol.ts navigationDecision): an http link there would do
-  nothing. The page copies the address and says so ("앱에서는 https 주소만 열 수 있어서 이 주소를 복사했어요…"). The
-  phone app itself is unchanged. An AI answer's http links have the same gap; not changed here.
+  nothing. The page copies the address (with the app's copy fallback) and says so ("앱에서는 https 주소만 열 수 있어서
+  이 주소를 복사했어요…"). The phone app itself is unchanged. An AI answer's http links have the same gap; not changed
+  here.
 - **Look.** The accent text colour with a light underline that turns solid on hover (a mention is the same colour
   without one; an AI answer's links are underlined too), the app's focus ring. A long address may break after its
   slashes and before ? # & (`<wbr>`), and anywhere (`overflow-wrap: anywhere`, on the link only) when one piece is still
@@ -12558,6 +12570,7 @@ middle of a word on a phone.
   The jump is now a button over the whole quote, named by the quote's author and text, with the excerpt's links above
   it.
 - **A long press is no click.** On a touch screen a long press on a message opens its menu; the finger lifting on a
-  link then opens nothing.
+  link then opens nothing (a touch held 500 ms, as the menu's own timer). A click from the keyboard or a screen reader
+  always opens, and a message still being sent (no menu) opens on any press.
 - **Not in this change:** link previews (an unfurl needs the server to fetch the page, with SSRF rules), links in the
   room list's last-message line (the row is one link already), Markdown in people's messages.
