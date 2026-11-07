@@ -16,15 +16,20 @@
 // - search by meaning (wave 2) lives here too: a search asked with `meaning` and vectors in its folders is the combined
 //   search (combinedSearch): the query's embedding starts, the keyword search runs meanwhile, and the closest pieces
 //   (meaning/search.ts) are fused with its pieces by rank. What is not ready MEANING_MARGIN_MS before the deadline is
-//   left out, so the keyword result goes out alone and in time. Without `meaning`, or without vectors, the search is
-//   the keyword search exactly. The model and the vectors are loaded when first needed, or as soon as the worker starts
-//   when the index says meaning is on (DocSearchWorker's `meaning`), and leave memory after 15 minutes unused. The
+//   left out, so the keyword result goes out alone and in time; a model or vectors not in memory yet are never waited
+//   for: their loading starts and that search is the keyword search, at once. Without `meaning`, or without vectors,
+//   the search is the keyword search exactly. The model and the vectors are loaded when first needed, or as soon as
+//   the worker starts when the index says meaning is on (DocSearchWorker's `meaning`), and leave memory after 15
+//   minutes unused. The top-k scan yields while it runs, so a lookup queued behind it gets its turn. The
 //   worker searches only the folders it is asked (rootIds, prefix), the vectors as well as the pieces; access is still
 //   decided for every hit on the main thread (service.ts).
 // - the model runs in a thread of its own, which this worker starts from this same script (threadEmbedder): opening it
 //   holds its thread for about a second (the ONNX session: 0.7–0.8 s in one stretch on an M1 Pro, more on 2 cores),
 //   which here would hold every search, keyword ones too, so a lookup in that time got nothing at all. Unloading it
-//   ends that thread, and the model's memory with it.
+//   frees the model inside that thread (the pipeline's dispose, after the embeddings still running), then ends the
+//   thread. Measured with the real model on an M-series Mac: after the unload about 300 MB stays resident as free
+//   memory the system allocator keeps for reuse (vmmap: MALLOC_LARGE empty), the next load reuses it, and three load
+//   and unload cycles do not add to it.
 //
 // The worker is this file: built next to main.js as doc-search-worker.js in the bundles (scripts/build-bundle.ts and
 // scripts/build-office.ts ENTRIES), run as TypeScript in a repository checkout.
@@ -62,8 +67,9 @@ export interface DocReader {
   readonly dir: string
   search(query: string, o: SearchOptions, due?: number | null): DocHit[] | Promise<DocHit[]>
   related(rootId: string, relPath: string, o: { rootIds: readonly string[]; limit?: number }): RelatedDoc[]
-  /** the worker started with meaning on: load the vectors and, when there are any, the model now */
-  warm?(meaning: boolean): void
+  /** the worker started with meaning on: load the vectors and, when there are any, the model now (resolves once
+   * loaded; the worker does not wait) */
+  warm?(meaning: boolean): void | Promise<void>
   close(): void
 }
 
@@ -80,7 +86,7 @@ export function openSearchReader(dir: string, people: () => readonly string[], o
     dir,
     search: (query, o, due) => o.meaning && open ? combinedSearch(idx, meaningPart(open), query, o, due ?? null) : idx.search(query, o),
     related: (rootId, relPath, o) => idx.related(rootId, relPath, o),
-    warm: (on) => { if (on && open) meaningPart(open).warm() },
+    warm: (on) => (on && open ? meaningPart(open).warm() : undefined),
     close: () => { meaning?.close(); meaning = null; idx.close() },
   }
 }
@@ -88,8 +94,9 @@ export function openSearchReader(dir: string, people: () => readonly string[], o
 /**
  * Keyword and meaning together: the query's embedding starts first (meaning/search.ts topK), the keyword search runs
  * while it does, and the closest pieces in the same folders are fused with the keyword pieces by rank
- * (documents/index.ts hits). The meaning part counts only when ready MEANING_MARGIN_MS before `due`; otherwise, or
- * without vectors in these folders, the hits are the keyword search's exactly.
+ * (documents/index.ts hits). The meaning part counts only when ready MEANING_MARGIN_MS before `due`; otherwise, with
+ * the model or the vectors not in memory yet (their loading starts, never waited for), or without vectors in these
+ * folders, the hits are the keyword search's exactly.
  */
 export async function combinedSearch(idx: DocumentIndex, meaning: MeaningSearch, query: string, o: SearchOptions, due: number | null): Promise<DocHit[]> {
   const at = due === null ? Infinity : due - MEANING_MARGIN_MS
@@ -99,7 +106,8 @@ export async function combinedSearch(idx: DocumentIndex, meaning: MeaningSearch,
 }
 
 /** The worker's loop: one request at a time, in order (a combined search answers when its meaning part is in, and the
- * next requests run meanwhile); a request whose deadline has passed is answered "late" without running. */
+ * next requests run meanwhile, also between the steps of its top-k scan); a request whose deadline has passed is
+ * answered "late" without running. */
 export function serveDocSearch(port: { on(ev: 'message', f: (m: Req) => void): unknown; postMessage(r: Reply): void }, open: (dir: string, people: () => readonly string[]) => DocReader) {
   let idx: DocReader | null = null
   let people: string[] = []
@@ -115,7 +123,7 @@ export function serveDocSearch(port: { on(ev: 'message', f: (m: Req) => void): u
     else {
       try {
         if (!idx || idx.dir !== m.dir) { idx?.close(); idx = open(m.dir, () => people) }
-        if (m.op === 'open') { if (m.meaning) idx.warm?.(true); reply = { id: m.id, value: true } }
+        if (m.op === 'open') { if (m.meaning) void idx.warm?.(true); reply = { id: m.id, value: true } }
         else if (m.op === 'search') {
           const v = idx.search(m.query, m.o, m.due)
           if (v instanceof Promise) {
@@ -134,15 +142,27 @@ export function serveDocSearch(port: { on(ev: 'message', f: (m: Req) => void): u
 }
 
 // ---------------------------------------------------------------- the embedder's thread
-type EmbedReq = { id: number; texts: string[]; kind: 'query' | 'passage' }
-type EmbedReply = { ready: true } | { id: number; vecs: Float32Array[] } | { id: number; error: string }
+type EmbedReq = { id: number; texts: string[]; kind: 'query' | 'passage' } | { dispose: true }
+type EmbedReply = { ready: true } | { disposed: true } | { id: number; vecs: Float32Array[] } | { id: number; error: string }
+/** a thread that does not say it freed its model by then is ended anyway */
+const DISPOSE_WAIT_MS = 5_000
 
 /** The embedder thread's loop: opens the embedder, says ready (or why not, with id 0), then embeds one request after
- * another. */
+ * another. `dispose`: the embeddings still running end first, then the model is freed here, in its own thread, and it
+ * says so; the caller then ends the thread. */
 export function serveEmbedder(port: { on(ev: 'message', f: (m: EmbedReq) => void): unknown; postMessage(r: EmbedReply): void }, open: OpenEmbedder) {
   open().then((emb) => {
+    const running = new Set<Promise<unknown>>()
     port.on('message', (m) => {
-      emb.embed(m.texts, m.kind).then((vecs) => port.postMessage({ id: m.id, vecs }), (e) => port.postMessage({ id: m.id, error: String((e as Error)?.message ?? e).slice(0, 300) }))
+      if ('dispose' in m) {
+        void Promise.allSettled([...running]).then(() => emb.dispose()).catch(() => {}).then(() => port.postMessage({ disposed: true }))
+        return
+      }
+      const p = emb.embed(m.texts, m.kind)
+        .then((vecs) => port.postMessage({ id: m.id, vecs }), (e) => port.postMessage({ id: m.id, error: String((e as Error)?.message ?? e).slice(0, 300) }))
+        .catch(() => {})
+      running.add(p)
+      void p.then(() => running.delete(p))
     })
     port.postMessage({ ready: true })
   }, (e) => port.postMessage({ id: 0, error: String((e as Error)?.message ?? e).slice(0, 300) }))
@@ -151,14 +171,15 @@ export function serveEmbedder(port: { on(ev: 'message', f: (m: EmbedReq) => void
 /**
  * The embedder in a thread of its own, started from `script` (this file, or its built doc-search-worker.js) with
  * `o` for openEmbedder: resolves once the model is open there, rejects when it cannot open or the thread fails.
- * The search worker's thread never waits on the model's opening (about a second of blocking work). dispose() ends the
- * thread; an embedding asked after the thread failed is refused, and the caller opens a new one.
+ * The search worker's thread never waits on the model's opening (about a second of blocking work). dispose() has the
+ * thread free the model, then ends it (after DISPOSE_WAIT_MS at the latest); an embedding asked after dispose, or
+ * after the thread failed, is refused, and the caller opens a new one.
  */
 export function threadEmbedder(script: string, o: EmbedderOptions): Promise<Embedder> {
   return new Promise((resolve, reject) => {
     let w: Worker
     try { w = new Worker(script, { workerData: { kind: EMBED_MARK, script, o } } as WorkerOptions) } catch (e) { reject(e); return }
-    let seq = 0, gone: Error | null = null
+    let seq = 0, gone: Error | null = null, disposing: Promise<void> | null = null, freed = () => {}
     const waiting = new Map<number, { ok: (v: Float32Array[]) => void; no: (e: Error) => void }>()
     const end = (e: Error) => {
       if (gone) return
@@ -167,19 +188,27 @@ export function threadEmbedder(script: string, o: EmbedderOptions): Promise<Embe
       waiting.clear()
       reject(e)
       try { w.terminate() } catch {}
+      freed()
     }
     const emb: Embedder = {
       embed: (texts, kind) => new Promise((ok, no) => {
-        if (gone) return no(gone)
+        if (gone || disposing) return no(gone ?? new Error('embedder closed'))
         const id = ++seq
         waiting.set(id, { ok, no })
         w.postMessage({ id, texts, kind } satisfies EmbedReq)
       }),
-      dispose: () => end(new Error('embedder closed')),
+      dispose: () => disposing ??= new Promise<void>((done) => {
+        if (gone) return done()
+        const t = setTimeout(() => end(new Error('embedder closed')), DISPOSE_WAIT_MS)
+        ;(t as { unref?: () => void }).unref?.()
+        freed = () => { clearTimeout(t); done() }
+        try { w.postMessage({ dispose: true } satisfies EmbedReq) } catch { end(new Error('embedder closed')) }
+      }),
     }
     w.addEventListener('message', (e: MessageEvent<EmbedReply>) => {
       const m = e.data
       if ('ready' in m) return resolve(emb)
+      if ('disposed' in m) return end(new Error('embedder closed'))
       if (m.id === 0 && 'error' in m) return end(new Error(m.error))
       const x = waiting.get(m.id)
       if (!x) return

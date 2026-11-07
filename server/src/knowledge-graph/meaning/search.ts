@@ -4,8 +4,9 @@
 // (documents/index.ts hits); meaning results are never used alone in a way that pretends confidence. Contract:
 // meaning/vectors.ts.
 //
-// - Vectors: chunks.vec (int8, 384 bytes, NULL until embedded) of the pieces of documents not failed, about 38 MB per
-//   100,000 pieces, grouped by folder (root) and document. A database without the column yet holds none.
+// - Vectors: chunks.vec (int8, 384 bytes, NULL until embedded, empty for a piece that could not be) of the pieces of
+//   documents not failed, about 38 MB per 100,000 pieces, grouped by folder (root) and document. A database without
+//   the column yet holds none.
 // - Kept current per document, not per search: a look happens before a meaning search when the index changed since
 //   the last one (PRAGMA data_version) and the last one is at least REFRESH_MS old. It reads the docs table (one row per
 //   document) and loads again only the documents that are new, changed (updated_at, hash, pieces: a document indexed
@@ -15,8 +16,13 @@
 // - The query's embedding: the embedder opened when first needed (or when the worker starts with meaning on and
 //   vectors exist), with a few threads, in a thread of its own (search-worker.ts threadEmbedder), tried again RETRY_MS
 //   after a failure. The model and the vectors leave memory after MEANING_IDLE_MS without a meaning search.
-// - Time: a search gives the closest pieces only when the vectors and the query's embedding are ready by its time;
+// - Never a wait on a cold model: a search that finds the vectors or the model not in memory starts loading them and
+//   gives null at once, so the keyword result goes out alone without waiting (the model takes 1–2 s to open, a lookup
+//   has 200 ms and the Files search 500 ms). Searches after the load fuse. Only a search without any deadline waits.
+// - Time: a search gives the closest pieces only when the query's embedding and the scan are done by its time;
 //   otherwise null, and the keyword result goes out alone.
+// - The scan yields every SCAN_YIELD vectors (about 40–45 ms per 100,000 on an M-series Mac, several times that on a
+//   2-vCPU server), so a lookup queued in the worker meanwhile runs, and stops at the search's deadline.
 import type { Database } from 'bun:sqlite'
 import { plainPrefix } from '../documents/index'
 import { blobToVec, dot8, MEANING_DIMS, quantize, type Embedder } from './vectors'
@@ -31,6 +37,9 @@ export const MEANING_REFRESH_MS = 10_000
 const RETRY_MS = 10 * 60_000
 /** documents loaded between two yields */
 const BATCH_DOCS = 200
+/** vectors compared between two yields of a top-k scan: about 9 ms on an M-series Mac (several times that on a 2-vCPU
+ * server), so a lookup queued in the worker waits at most that long behind a scan, not the whole scan */
+export const SCAN_YIELD = 20_000
 const FULL = 127 * 127
 
 export type OpenEmbedder = () => Promise<Embedder>
@@ -86,28 +95,33 @@ export class MeaningVectors {
   }
 
   /** The `k` pieces closest to `q` in these folders (and under `prefix` of the root, as in documents/index.ts), best
-   * first: chunk id and closeness (dot8 / 127², about the cosine). */
-  topK(q: Int8Array, o: { rootIds: readonly string[]; prefix?: string; k: number }): { id: number; score: number }[] {
+   * first: chunk id and closeness (dot8 / 127², about the cosine). Yields every SCAN_YIELD vectors; null once `at` (a
+   * Date.now() time) has passed. */
+  async topK(q: Int8Array, o: { rootIds: readonly string[]; prefix?: string; k: number; at?: number }): Promise<{ id: number; score: number }[] | null> {
     const k = Math.max(1, Math.floor(o.k))
+    const at = o.at ?? Infinity
     const prefix = o.prefix && plainPrefix(o.prefix) ? o.prefix : null
     const lo = prefix ? prefix + '/' : null, hi = prefix ? prefix + '0' : null
+    // the documents to scan, taken now: a load or a clear during the yields does not change this scan
+    const docs: DocVecs[] = []
+    for (const root of new Set(o.rootIds)) for (const d of this.roots.get(root)?.values() ?? []) if (lo === null || (d.rel >= lo && d.rel < hi!)) docs.push(d)
     const best: { id: number; s: number }[] = []
-    let floor = -Infinity
-    for (const root of new Set(o.rootIds)) {
-      const docs = this.roots.get(root)
-      if (!docs) continue
-      for (const d of docs.values()) {
-        if (lo !== null && !(d.rel >= lo && d.rel < hi!)) continue
-        for (let i = 0; i < d.vecs.length; i++) {
-          const s = dot8(q, d.vecs[i]!)
-          const id = d.ids[i]!
-          if (best.length >= k && (s < floor || (s === floor && id > best[best.length - 1]!.id))) continue
-          let at = best.length
-          while (at > 0 && (best[at - 1]!.s < s || (best[at - 1]!.s === s && best[at - 1]!.id > id))) at--
-          best.splice(at, 0, { id, s })
-          if (best.length > k) best.pop()
-          if (best.length >= k) floor = best[best.length - 1]!.s
+    let floor = -Infinity, since = 0
+    for (const d of docs) {
+      for (let i = 0; i < d.vecs.length; i++) {
+        if (++since >= SCAN_YIELD) {
+          since = 0
+          await yieldNow()
+          if (Date.now() >= at) return null
         }
+        const s = dot8(q, d.vecs[i]!)
+        const id = d.ids[i]!
+        if (best.length >= k && (s < floor || (s === floor && id > best[best.length - 1]!.id))) continue
+        let pos = best.length
+        while (pos > 0 && (best[pos - 1]!.s < s || (best[pos - 1]!.s === s && best[pos - 1]!.id > id))) pos--
+        best.splice(pos, 0, { id, s })
+        if (best.length > k) best.pop()
+        if (best.length >= k) floor = best[best.length - 1]!.s
       }
     }
     return best.map((x) => ({ id: x.id, score: x.s / FULL }))
@@ -158,7 +172,8 @@ export class MeaningVectors {
         ids.push(g.id)
         vecs.push(buf.subarray(at, at + MEANING_DIMS))
       }
-      this.put(t.id, { root: t.root, rel: t.rel, key: t.key, ids, vecs, complete: got.length === t.chunks && ids.length === got.length })
+      // every piece has its vec (an empty one: a piece that could not be embedded, meaning/indexer.ts)
+      this.put(t.id, { root: t.root, rel: t.rel, key: t.key, ids, vecs, complete: got.length === t.chunks })
     }
     if (gen === this.gen) this.ready = true
   }
@@ -196,8 +211,8 @@ export class QueryEmbedder {
   private now() { return (this.o.now ?? Date.now)() }
   /** the model is in memory */
   loaded() { return this.model !== null }
-  /** start opening it now (not waited for) */
-  warm() { void this.get() }
+  /** start opening it now; resolves once it is open or could not be (callers need not wait) */
+  warm(): Promise<void> { return this.get().then(() => {}) }
 
   /** the query's vector, as int8; null when the model cannot open. A loaded model starts at once (no await before
    * it), so the caller's keyword search runs while it does. */
@@ -272,6 +287,7 @@ export class MeaningSearch {
   private timer: ReturnType<typeof setInterval> | null = null
   /** how long the last top-k took: one that would end past a search's time is not started */
   private topKMs = 0
+  private closed = false
 
   constructor(db: Database, private o: MeaningOptions) {
     this.vectors = new MeaningVectors(db, { refreshMs: o.refreshMs, now: o.now })
@@ -286,30 +302,45 @@ export class MeaningSearch {
   private now() { return (this.o.now ?? Date.now)() }
   private get idleMs() { return this.o.idleMs ?? MEANING_IDLE_MS }
 
-  /** The vectors loaded now, then the model when there are any (the worker started with meaning on). */
-  warm() {
+  /** The vectors loaded now, then the model when there are any (the worker started with meaning on). Resolves once
+   * both are in memory, or could not be (callers need not wait). */
+  warm(): Promise<void> {
     this.lastUse = this.now()
-    void this.vectors.refresh().then(() => { if (this.vectors.size) this.embedder.warm() }, () => {})
+    return this.vectors.refresh().then(() => (this.vectors.size ? this.embedder.warm() : undefined)).catch(() => {})
   }
 
   /**
    * The pieces closest in meaning to `query` in these folders (and under `prefix`), best first; null when there are
-   * no vectors there, or when the vectors or the query's embedding are not ready by `at` (a Date.now() time; the
-   * keyword result then goes out alone). The embedding starts at once, so the caller can run the keyword search while
-   * it runs.
+   * no vectors there, or when the query's embedding and the scan are not done by `at` (a Date.now() time; the keyword
+   * result then goes out alone). Vectors or a model not in memory: their loading starts and the answer is null at
+   * once, never a wait (a search without any deadline waits). A loaded model starts embedding at once, so the caller
+   * runs the keyword search meanwhile.
    */
   async topK(query: string, o: { rootIds: readonly string[]; prefix?: string; at?: number }): Promise<{ id: number; score: number }[] | null> {
     this.lastUse = this.now()
     const at = o.at ?? Infinity
-    if (!this.vectors.ready) await until(this.vectors.refresh().catch(() => {}), at)
-    else this.vectors.maybeRefresh()
+    const wait = at === Infinity
+    if (!this.vectors.ready) {
+      if (!wait) { this.loadLater(o.rootIds); return null }
+      await this.vectors.refresh().catch(() => {})
+    } else this.vectors.maybeRefresh()
     if (!this.vectors.ready || !this.vectors.has(o.rootIds)) return null
+    if (!wait && !this.embedder.loaded()) { void this.embedder.warm(); return null }
     const q = await until(this.embedder.embed(query), at)
     if (!q || Date.now() + this.topKMs >= at) return null
     const t0 = performance.now()
-    const top = this.vectors.topK(q, { rootIds: o.rootIds, prefix: o.prefix, k: this.o.k ?? MEANING_K })
-    this.topKMs = performance.now() - t0
+    const top = await this.vectors.topK(q, { rootIds: o.rootIds, prefix: o.prefix, k: this.o.k ?? MEANING_K, at })
+    if (top) this.topKMs = performance.now() - t0
     return top
+  }
+
+  /** the vectors, then the model when these folders have vectors, loaded after the current search has answered (its
+   * keyword part runs first) */
+  private loadLater(rootIds: readonly string[]) {
+    setImmediate(() => {
+      if (this.closed) return
+      void this.vectors.refresh().then(() => (this.vectors.has(rootIds) ? this.embedder.warm() : undefined)).catch(() => {})
+    })
   }
 
   /** The model and the vectors out of memory after the idle time without a meaning search. */
@@ -322,6 +353,7 @@ export class MeaningSearch {
   }
 
   close() {
+    this.closed = true
     if (this.timer) clearInterval(this.timer)
     this.timer = null
     this.embedder.unload()
