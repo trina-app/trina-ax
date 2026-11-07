@@ -12,9 +12,9 @@ Claude Code 和 Codex 跑在公司的服务器上，用的是公司文件和团�
 
 [English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · 简体中文
 
-<img src="docs/images/readme/room-quote.png" width="100%" alt="在 #sales 对话里，Mina 写下“@Trina /quote Northwind Foods: 200 insulated boxes, delivery Nov 20”。Trina 把报价摘要和一个 .xlsx 文件发到对话里，Alex 回复“Matches our price sheet. Send it.”">
+<img src="docs/images/readme/room-quote.png" width="100%" alt="在带 # 图标的 Sales 对话里，Mina 写下“@Trina /quote Northwind Foods: 200 insulated boxes, delivery Nov 20”。Trina 把报价摘要和文件链接“Northwind Foods quote.xlsx”发到对话里，Alex 回复“Matches our price sheet. Send it.”">
 
-<sub>0.4 版的团队对话（英文界面）。公司是虚构的。</sub>
+<sub>真实应用 0.4 版的 Sales 对话（英文界面）。公司是虚构的。</sub>
 
 </div>
 
@@ -70,9 +70,9 @@ bun run demo        # → http://127.0.0.1:19760 · 用 alice / teamax-demo-1 �
 
 **同一个对话，两块屏幕。** 只有用对话里每个人都能看到的资料做出的回答，才会直接发到对话里。否则，先只给提问的人看。
 
-<img src="docs/images/readme/share-check.png" width="100%" alt="同一时刻 Everyone 对话的两块屏幕。Alex 看到一份基于 Finance 文件夹、只有他自己能看到的预览，带一个 Post 按钮；Mina 只看到“Answered to Alex only”。">
+<img src="docs/images/readme/share-check.png" width="100%" alt="同一时刻 Everyone 对话的两块屏幕。Alex 看到 Trina 的回答上方写着“Only you can see this · Post”，以及原因“It read folders that some people in this room cannot open (Team folder, Finance).”；Mina 只看到“Answered to Alex only”。">
 
-<sub>Alex 的回答用到了 Mina 打不开的 <code>shared/Finance</code>。Alex 仍然可以自己决定发出去；在那之前，Mina 只能看到他收到了回答。公司是虚构的。</sub>
+<sub>Alex 的回答用到了 Mina 打不开的 <code>shared/Finance</code>。Alex 仍然可以自己决定发出去；在那之前，Mina 只能看到他收到了回答。真实应用，0.4 版。公司是虚构的。</sub>
 
 ## 功能一览
 

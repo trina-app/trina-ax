@@ -12,9 +12,9 @@ Claude Code and Codex on your company's server, with your company files and your
 
 English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
-<img src="docs/images/readme/room-quote.png" width="100%" alt="In the #sales conversation, Mina writes '@Trina /quote Northwind Foods: 200 insulated boxes, delivery Nov 20'. Trina posts a quote summary and an .xlsx file in the room, and Alex replies 'Matches our price sheet. Send it.'">
+<img src="docs/images/readme/room-quote.png" width="100%" alt="In the Sales conversation (shown with a # icon), Mina writes '@Trina /quote Northwind Foods: 200 insulated boxes, delivery Nov 20'. Trina posts a quote summary in the room with a link to the file 'Northwind Foods quote.xlsx', and Alex replies 'Matches our price sheet. Send it.'">
 
-<sub>A team conversation in version 0.4. Fictional company.</sub>
+<sub>The real app, version 0.4: the Sales conversation. Fictional company.</sub>
 
 </div>
 
@@ -70,9 +70,9 @@ To try team conversations and @Trina, use the [Docker install](docs/INSTALL-DOCK
 
 **Same room, two screens.** Only answers built from what everyone in the room can see go straight to the room. Otherwise, the person who asked sees it first.
 
-<img src="docs/images/readme/share-check.png" width="100%" alt="The Everyone conversation at the same moment on two screens. Alex sees a private preview built from the Finance folder, with a Post button. Mina sees only 'Answered to Alex only'.">
+<img src="docs/images/readme/share-check.png" width="100%" alt="The Everyone conversation at the same moment on two screens. Alex sees Trina's answer marked 'Only you can see this · Post', with the reason line 'It read folders that some people in this room cannot open (Team folder, Finance).' Mina sees only 'Answered to Alex only'.">
 
-<sub>Alex's answer used <code>shared/Finance</code>, which Mina can't open. Alex can still choose to post it; until then, Mina sees only that he got an answer. Fictional company.</sub>
+<sub>Alex's answer used <code>shared/Finance</code>, which Mina can't open. Alex can still choose to post it; until then, Mina sees only that he got an answer. The real app, version 0.4. Fictional company.</sub>
 
 ## What you get
 

@@ -12,9 +12,9 @@
 
 [English](README.md) · [한국어](README.ko.md) · 日本語 · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
-<img src="docs/images/readme/room-quote.png" width="100%" alt="#sales のトークで Mina が「@Trina /quote Northwind Foods: 200 insulated boxes, delivery Nov 20」と書きます。Trina が見積もりの要約と .xlsx ファイルをトークに投稿し、Alex が「Matches our price sheet. Send it.」と返します。">
+<img src="docs/images/readme/room-quote.png" width="100%" alt="# アイコン付きの Sales トークで Mina が「@Trina /quote Northwind Foods: 200 insulated boxes, delivery Nov 20」と書きます。Trina が見積もりの要約と「Northwind Foods quote.xlsx」ファイルへのリンクをトークに投稿し、Alex が「Matches our price sheet. Send it.」と返します。">
 
-<sub>バージョン 0.4 のチームのトーク（英語画面）。会社は架空です。</sub>
+<sub>実際のアプリ（バージョン 0.4）の Sales トーク（英語画面）。会社は架空です。</sub>
 
 </div>
 
@@ -70,9 +70,9 @@ bun run demo        # → http://127.0.0.1:19760 · alice / teamax-demo-1 でロ
 
 **同じトーク、2つの画面。** トークにそのまま投稿されるのは、トークの全員が見られる資料だけで作った回答です。そうでない回答は、まず質問した本人にだけ表示されます。
 
-<img src="docs/images/readme/share-check.png" width="100%" alt="同じ瞬間の Everyone トークを2つの画面で。Alex には Finance フォルダーをもとにした本人だけのプレビューと Post ボタンが表示されます。Mina には「Answered to Alex only」だけが表示されます。">
+<img src="docs/images/readme/share-check.png" width="100%" alt="同じ瞬間の Everyone トークを2つの画面で。Alex には Trina の回答の上に「Only you can see this · Post」と、理由「It read folders that some people in this room cannot open (Team folder, Finance).」が表示されます。Mina には「Answered to Alex only」だけが表示されます。">
 
-<sub>Alex の回答には、Mina が開けない <code>shared/Finance</code> が使われました。Alex は自分の判断で投稿できます。それまで Mina に見えるのは、Alex が回答を受け取ったことだけです（日本語の画面では「Alexさんにだけ回答しました」）。会社は架空です。</sub>
+<sub>Alex の回答には、Mina が開けない <code>shared/Finance</code> が使われました。Alex は自分の判断で投稿できます。それまで Mina に見えるのは、Alex が回答を受け取ったことだけです（日本語の画面では「Alexさんにだけ回答しました」）。実際のアプリ（バージョン 0.4）です。会社は架空です。</sub>
 
 ## できること
 

@@ -12,9 +12,9 @@ Claude Code y Codex en el servidor de tu empresa, con los archivos de la empresa
 
 [English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · Español · [简体中文](README.zh-CN.md)
 
-<img src="docs/images/readme/room-quote.png" width="100%" alt="En la conversación #sales, Mina escribe “@Trina /quote Northwind Foods: 200 insulated boxes, delivery Nov 20”. Trina publica en la conversación un resumen del presupuesto y un archivo .xlsx, y Alex responde “Matches our price sheet. Send it.”">
+<img src="docs/images/readme/room-quote.png" width="100%" alt="En la conversación Sales (con un icono #), Mina escribe “@Trina /quote Northwind Foods: 200 insulated boxes, delivery Nov 20”. Trina publica en la conversación un resumen del presupuesto con un enlace al archivo “Northwind Foods quote.xlsx”, y Alex responde “Matches our price sheet. Send it.”">
 
-<sub>Una conversación del equipo en la versión 0.4 (interfaz en inglés). Empresa ficticia.</sub>
+<sub>La app real, versión 0.4: la conversación Sales (interfaz en inglés). Empresa ficticia.</sub>
 
 </div>
 
@@ -70,9 +70,9 @@ Para probar las conversaciones del equipo y @Trina, usa la [instalación con Doc
 
 **La misma conversación, dos pantallas.** Solo las respuestas hechas con lo que todos en la conversación pueden ver se publican directamente en ella. Si no, primero las ve quien preguntó.
 
-<img src="docs/images/readme/share-check.png" width="100%" alt="La conversación Everyone en el mismo momento, en dos pantallas. Alex ve una vista previa privada hecha con la carpeta Finance, con un botón Post. Mina solo ve “Answered to Alex only”.">
+<img src="docs/images/readme/share-check.png" width="100%" alt="La conversación Everyone en el mismo momento, en dos pantallas. Alex ve la respuesta de Trina marcada “Only you can see this · Post”, con el motivo “It read folders that some people in this room cannot open (Team folder, Finance).” Mina solo ve “Answered to Alex only”.">
 
-<sub>La respuesta de Alex usó <code>shared/Finance</code>, que Mina no puede abrir. Alex aún puede decidir publicarla; hasta entonces, Mina solo ve que él recibió una respuesta (en la interfaz en español: «Respondió solo a Alex»). Empresa ficticia.</sub>
+<sub>La respuesta de Alex usó <code>shared/Finance</code>, que Mina no puede abrir. Alex aún puede decidir publicarla; hasta entonces, Mina solo ve que él recibió una respuesta (en la interfaz en español: «Respondió solo a Alex»). La app real, versión 0.4. Empresa ficticia.</sub>
 
 ## Qué incluye
 

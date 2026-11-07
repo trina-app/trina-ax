@@ -12,9 +12,9 @@
 
 [English](README.md) · 한국어 · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
-<img src="docs/images/readme/room-quote.png" width="100%" alt="#sales 대화방에서 Mina가 '@Trina /quote Northwind Foods: 200 insulated boxes, delivery Nov 20'이라고 써요. 트리나가 견적 요약과 .xlsx 파일을 방에 올리고, Alex가 'Matches our price sheet. Send it.'이라고 답해요.">
+<img src="docs/images/readme/room-quote.png" width="100%" alt="# 아이콘이 붙은 Sales 대화방에서 Mina가 '@Trina /quote Northwind Foods: 200 insulated boxes, delivery Nov 20'이라고 써요. 트리나가 견적 요약과 'Northwind Foods quote.xlsx' 파일 링크를 방에 올리고, Alex가 'Matches our price sheet. Send it.'이라고 답해요.">
 
-<sub>0.4의 팀 대화방이에요(영어 화면). 회사는 가상이에요.</sub>
+<sub>실제 앱 0.4 버전의 Sales 대화방이에요(영어 화면). 회사는 가상이에요.</sub>
 
 </div>
 
@@ -70,9 +70,9 @@ bun run demo --locale ko   # → http://127.0.0.1:19760 · alice / teamax-demo-1
 
 **같은 방, 두 화면.** 방에 바로 올라가는 답은 방 사람 모두가 볼 수 있는 자료로 만든 답뿐이에요. 아니면 물은 사람에게만 먼저 보여요.
 
-<img src="docs/images/readme/share-check.png" width="100%" alt="같은 순간 Everyone 대화방의 두 화면. Alex에게는 Finance 폴더로 만든, 본인만 보는 미리보기와 Post 버튼이 보여요. Mina에게는 'Answered to Alex only'만 보여요.">
+<img src="docs/images/readme/share-check.png" width="100%" alt="같은 순간 Everyone 대화방의 두 화면. Alex에게는 트리나의 답 위에 'Only you can see this · Post'와 이유 'It read folders that some people in this room cannot open (Team folder, Finance).'가 보여요. Mina에게는 'Answered to Alex only'만 보여요.">
 
-<sub>Alex의 답에는 Mina가 열 수 없는 <code>shared/Finance</code>가 쓰였어요. Alex가 직접 올릴 수는 있고, 그 전까지 Mina에게는 Alex가 답을 받았다는 것만 보여요(한국어 화면에서는 'Alex 님에게만 답했어요'). 회사는 가상이에요.</sub>
+<sub>Alex의 답에는 Mina가 열 수 없는 <code>shared/Finance</code>가 쓰였어요. Alex가 직접 올릴 수는 있고, 그 전까지 Mina에게는 Alex가 답을 받았다는 것만 보여요(한국어 화면에서는 'Alex 님에게만 답했어요'). 실제 앱 0.4 버전이에요. 회사는 가상이에요.</sub>
 
 ## 이런 걸 할 수 있어요
 
