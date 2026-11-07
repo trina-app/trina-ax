@@ -22,7 +22,7 @@ test('own repeated questions fill the composer without sending; empty history ha
 
 test('accessible skill ranking goes first and fills its slash command without triggering a turn', async ({ page }) => {
   await reset(page)
-  await page.route('**/api/skills', r => r.fulfill({ json: { items: [
+  await page.route(/\/api\/skills(\?.*)?$/, r => r.fulfill({ json: { items: [
     { path: 'skills/proposal.md', name: 'proposal', description: 'Client proposal' },
     { path: 'skills/weekly-report/SKILL.md', name: 'weekly-report', description: 'Weekly report' },
   ] } }))
@@ -32,8 +32,8 @@ test('accessible skill ranking goes first and fills its slash command without tr
   await signIn(page)
   await page.goto('/skills')
   const row = page.getByTestId('skill-row').first()
-  // a skill without a title reads as its readable name on the row (the slash command keeps the name below)
-  await expect(row).toContainText('weekly report')
+  // a skill without a title reads as the name people type
+  await expect(row).toContainText('/weekly-report')
   await expect(row).toContainText('4회')
   await row.getByTestId('skill-use').click()
   await expect(page.getByTestId('composer-input')).toHaveValue('/weekly-report ')

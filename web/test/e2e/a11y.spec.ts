@@ -403,7 +403,7 @@ for (const scheme of ['light', 'dark'] as const) {
   test(`team skills have no serious accessibility problems (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme })
     await reset(page)
-    await page.route('**/api/skills', (r) => r.fulfill({ json: { items: [
+    await page.route(/\/api\/skills(\?.*)?$/, (r) => r.fulfill({ json: { items: [
       { path: 'skills/proposal/SKILL.md', name: 'proposal', description: 'Writes a client proposal deck' },
       { path: 'skills/weekly.md', name: 'weekly', description: '' },
       { path: 'users/olga/skills/tone.md', name: 'tone', description: 'My mail tone', personal: true },
