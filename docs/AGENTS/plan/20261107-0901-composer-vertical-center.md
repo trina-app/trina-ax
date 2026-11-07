@@ -74,3 +74,4 @@ Out:
   6 px from the box's top and bottom (the room box's send has 8 px), and the AI chat's "#" token layer can differ from
   the text box's font size where the reading size is under 16 px on a touch screen (older than this change).
 - Differs from the plan: VoiceBar.tsx itself did not change (its callers pass the slot classes).
+- PR: https://github.com/trina-app/trina-ax/pull/158
