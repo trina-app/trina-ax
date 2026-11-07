@@ -11737,7 +11737,7 @@ URL, and any credential kind that would carry a custom address.
 
 ## 대화 숨기기 — a "⋯" on every conversation, leaving and hiding (feat/room-leave-hide, 2026-11-07)
 
-넣을 곳: Team AX core (`server/src/rooms`, migration 260, `shared/src/api/rooms.ts`, `web/src/components/rooms/RoomMenu.tsx`,
+넣을 곳: Team AX core (`server/src/rooms`, migration 258, `shared/src/api/rooms.ts`, `web/src/components/rooms/RoomMenu.tsx`,
 the sidebar, the conversations page, the room header), 이유: rooms are core, and the owner asked ("대화 나가기 같은 게 있어야
 할 것 같은데??"). Group chats could already be left, but only from the room's info (tap the title), which nobody found,
 and DMs, team rooms and the everyone room had no way out at all. Rooms follow Slack almost entirely.
@@ -11759,7 +11759,7 @@ and DMs, team rooms and the everyone room had no way out at all. Rooms follow Sl
   (membership follows the group, which also gives folder permissions, so they cannot be left). A hidden room has **다시
   보이기** there. Hiding says where it went and how it comes back in a toast with 실행 취소; hiding the room on screen goes to
   the conversations page.
-- **Hiding is mine only** (`PUT /api/rooms/:id/hidden {hidden}`, strict; `room_members.hidden_at`, migration 260). A DM, a
+- **Hiding is mine only** (`PUT /api/rooms/:id/hidden {hidden}`, strict; `room_members.hidden_at`, migration 258). A DM, a
   team room, the everyone room; hiding a group chat is 403 (it is left instead), showing one is nothing to do. The same
   again changes nothing. Members only (404 for anyone else, admins and the owner included, as every room route). Nobody
   else is told; my windows and devices get the room (`room.updated` to me). Not audited. `Room.hidden: true` (absent =
@@ -11788,7 +11788,7 @@ and DMs, team rooms and the everyone room had no way out at all. Rooms follow Sl
   quiet fold "숨긴 대화 N" (closed by default, remembered in this browser): one row per room, its name opening it and 다시
   보이기 at its end; no preview or count there. "모든 대화" in the sidebar shows while nothing is behind "더 보기", and also
   under an opened "더 보기" while some rooms are hidden (else nothing in the sidebar would lead to them).
-- **Rollback: reader 1.** Migration 260 adds one nullable column; an older build ignores it and lists every room as before
+- **Rollback: reader 1.** Migration 258 adds one nullable column; an older build ignores it and lists every room as before
   (nothing hidden, nothing exposed). `SCHEMA_READER_LEVEL` stays. Numbered 258: 256 is skipped and 257 is the member skill
   contributions' (checked on origin/dev and every local and remote branch before committing).
 - **Not in this step.** Hiding a group chat (it is left); "mark as read" in the menu; hiding several at once; a separate
@@ -11802,7 +11802,7 @@ and DMs, team rooms and the everyone room had no way out at all. Rooms follow Sl
   `unhideFor` reads only the members who hid the room.
 - **Tests.** `tests/unit/b-rooms-hide.test.ts` (hide and show per kind, the strict body, members only, realtime to my
   windows only, what brings a room back and what does not, room.updated before room.message, no notice or push while
-  hidden, the AI's answer and card, openDm, the AI chat's room list, migration 260), `b-rooms-ai.test.ts` (a private
+  hidden, the AI's answer and card, openDm, the AI chat's room list, migration 258), `b-rooms-ai.test.ts` (a private
   preview brings the asker's hidden room back, not the other person's), the permission matrix
   (`setRoomHidden`), `web/test/unit/room-hide.test.tsx` (the menu by kind, 알림 설정, hiding sent and put back on a
   refusal, the counts, the sidebar, the hidden section, a right-click and a long press) and
