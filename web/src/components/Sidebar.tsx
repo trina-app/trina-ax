@@ -1,4 +1,4 @@
-// Left sidebar, sized like Claude's (280 px, 14 px rows of 36 px, 16 px icons), people first (docs/DECISIONS.md "Desktop
+// Left sidebar, sized like Claude's (280 px, 14 px rows of 36 px, 16 px icons; all but the icons grow with the text size), people first (docs/DECISIONS.md "Desktop
 // sidebar: rooms first"): the team's name on top, then one labeled row each (the owner, 2026-11-07: no icon row):
 // "트리나에게 묻기" (a new AI chat, ⇧⌘O), 검색 (⌘K), 프로젝트, 예약 작업, 알림함 (its count on the row), 파일, 팀 스킬, and
 // 관리자 for owners and admins; then one scroll with two strictly capped sections: "대화" (rooms/SidebarRooms.tsx: the
@@ -175,7 +175,7 @@ export default function Sidebar() {
   return (
     <nav aria-label={t('sidebar.label')} className="flex h-full w-full flex-col bg-subtle">
       <div className="flex items-center gap-2 px-4 pt-3.5 pb-2">
-        <Link to="/" onClick={close} className="flex items-center gap-2 text-[15px] font-semibold tracking-tight">
+        <Link to="/" onClick={close} className="flex items-center gap-2 text-[0.9375rem] font-semibold tracking-tight">
           <img src="/favicon.svg" alt="" aria-hidden className="size-5 rounded-md" />
           {/* the phone's drawer is the AI's history: the AI's one name there, as on its tab */}
           <span className="truncate max-md:hidden" data-testid="sidebar-team">{me.team.name}</span>
