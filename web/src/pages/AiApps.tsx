@@ -44,7 +44,8 @@ export default function AiApps() {
     catch (e) { if (generation === life.current) setError(errorText(e, locale, t('error.network'))) }
     finally { writing.current = false; if (generation === life.current) setBusy(null) }
   }
-  const label = (scope: string) => scope === 'mcp:write' ? t('connectors.write') : scope === 'offline_access' ? t('connectors.offline') : scope === 'mcp:admin' ? t('connectors.admin') : t('connectors.read')
+  const label = (scope: string) => scope === 'mcp:write' ? t('connectors.write') : scope === 'offline_access' ? t('connectors.offline') : scope === 'mcp:admin' ? t('connectors.admin')
+    : scope === 'mcp:rooms' ? t('connectors.roomsOptIn') : scope === 'mcp:rooms.write' ? t('connectors.roomsWriteOptIn') : t('connectors.read')
   const on = configured && !!resource
   const isAdmin = me.user.role === 'owner' || me.user.role === 'admin'
   const [openApp, setOpenApp] = useState<AiApp | null>(null)
@@ -67,7 +68,10 @@ export default function AiApps() {
               <p className="mt-0.5 text-xs text-faint">{t('connectors.expires', { date: formatDateTime(item.expiresAt, locale) })}{item.currentSession ? ` · ${t('connectors.currentSession')}` : ''}</p>
               {/* an owner's or admin's connection made before group management came, or while they were a member: it
                   never gains it (a refresh only narrows), so a new connection gets it */}
-              {isAdmin && !item.scopes.includes('mcp:admin') && <p className="mt-0.5 text-xs text-muted" data-testid="connector-reconnect-groups">{t('aiApps.reconnectForGroups')}</p>}
+              {/* a connection made before conversations came to AI apps (or with the box unticked) never gains them;
+                  one line, also when it lacks group management too */}
+              {!item.scopes.includes('mcp:rooms') && <p className="mt-0.5 text-xs text-muted" data-testid="connector-reconnect-rooms">{t(isAdmin && !item.scopes.includes('mcp:admin') ? 'aiApps.reconnectForRoomsAndGroups' : 'aiApps.reconnectForRooms')}</p>}
+              {isAdmin && !item.scopes.includes('mcp:admin') && item.scopes.includes('mcp:rooms') && <p className="mt-0.5 text-xs text-muted" data-testid="connector-reconnect-groups">{t('aiApps.reconnectForGroups')}</p>}
             </div>
             <Button variant="danger" size="sm" disabled={busy !== null} busy={busy === item.id} onClick={() => void disconnect(item.id)}>{t('connectors.disconnect')}</Button>
           </li>)}</ul>

@@ -44,7 +44,7 @@ test('three AI apps, each with a logo and Connect; Claude opens three steps with
   expect(realErrors(errors)).toEqual([])
 })
 
-test('Claude Code: the exact command to copy, then /mcp; other apps: the address and what cannot connect yet', async ({ page }) => {
+test('Claude Code: the exact command to copy, then /mcp; other apps: the address and what is not confirmed yet', async ({ page }) => {
   await reset(page)
   await connector(page)
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
@@ -89,20 +89,37 @@ test('the dialog says Connected when the app appears, and the list then shows it
 test('an owner\'s connection without group management says to connect again once; one with it, or a member\'s, does not', async ({ page }) => {
   await reset(page)
   const state = await connector(page)
-  state.items = [app, { ...app, id: 'synthetic-grant-2', clientName: 'Synthetic Claude Code', scopes: ['mcp:read', 'mcp:admin', 'offline_access'] }]
+  state.items = [{ ...app, scopes: [...app.scopes, 'mcp:rooms'] }, { ...app, id: 'synthetic-grant-2', clientName: 'Synthetic Claude Code', scopes: ['mcp:read', 'mcp:rooms', 'mcp:admin', 'offline_access'] }, { ...app, id: 'synthetic-grant-3', clientName: 'Synthetic Codex' }]
   await signIn(page)
   await page.goto('/settings/ai-apps')
   const rows = page.getByTestId('connected-apps').getByTestId('connector-item')
-  await expect(rows).toHaveCount(2)
+  await expect(rows).toHaveCount(3)
   await expect(rows.nth(0).getByTestId('connector-reconnect-groups')).toHaveText('그룹 관리를 쓰려면 한 번 다시 연결해 주세요.')
   await expect(rows.nth(1).getByTestId('connector-reconnect-groups')).toHaveCount(0)
+  // without conversations either: one line for both
+  await expect(rows.nth(2).getByTestId('connector-reconnect-groups')).toHaveCount(0)
+  await expect(rows.nth(2).getByTestId('connector-reconnect-rooms')).toHaveText('대화와 그룹 관리를 쓰려면 다시 연결하세요.')
   await expect(rows.nth(1)).toContainText('팀 그룹 관리')
   // a member: never
   await page.context().clearCookies()
   await signIn(page, BOB)
   await page.goto('/settings/ai-apps')
-  await expect(page.getByTestId('connected-apps').getByTestId('connector-item')).toHaveCount(2)
+  await expect(page.getByTestId('connected-apps').getByTestId('connector-item')).toHaveCount(3)
   await expect(page.getByTestId('connector-reconnect-groups')).toHaveCount(0)
+  await expect(page.getByTestId('connector-reconnect-rooms')).toHaveText('대화를 쓰려면 다시 연결하세요.')
+})
+
+test('a connection without conversations says to connect again; one with them does not', async ({ page }) => {
+  await reset(page)
+  const state = await connector(page)
+  state.items = [app, { ...app, id: 'synthetic-grant-2', clientName: 'Synthetic Claude Code', scopes: ['mcp:read', 'mcp:rooms', 'mcp:rooms.write', 'mcp:admin', 'offline_access'] }]
+  await signIn(page, BOB)
+  await page.goto('/settings/ai-apps')
+  const rows = page.getByTestId('connected-apps').getByTestId('connector-item')
+  await expect(rows).toHaveCount(2)
+  await expect(rows.nth(0).getByTestId('connector-reconnect-rooms')).toHaveText('대화를 쓰려면 다시 연결하세요.')
+  await expect(rows.nth(1).getByTestId('connector-reconnect-rooms')).toHaveCount(0)
+  await expect(rows.nth(1)).toContainText('대화 읽기 · 대화 쓰기')
 })
 
 test('connector off: a member sees one line and no Connect; an owner gets the setup with Copy and the guide', async ({ page }) => {
