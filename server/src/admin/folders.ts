@@ -300,7 +300,10 @@ export function resetEngineSessions(ctx: AppContext, userId: string): number {
 }
 
 export function chatsWithEngineSession(db: Database, userId: string): number {
-  return (db.query('SELECT COUNT(*) AS n FROM chats WHERE user_id = ? AND engine_session_id IS NOT NULL').get(userId) as { n: number }).n
+  // as chat/runtime.ts resetEngineSessions resets them: their own chats and the shared chats whose session they wrote
+  return (db.query(`SELECT COUNT(*) AS n FROM (SELECT id FROM chats WHERE user_id = ? AND engine_session_id IS NOT NULL
+    UNION SELECT c.id FROM chats c JOIN messages m ON m.id = c.engine_session_leaf_id JOIN turns t ON t.id = m.turn_id
+    WHERE t.user_id = ? AND c.engine_session_id IS NOT NULL)`).get(userId, userId) as { n: number }).n
 }
 
 /**
