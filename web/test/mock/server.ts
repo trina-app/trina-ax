@@ -1,7 +1,8 @@
 // A mock team server for the web client's end-to-end tests: the REST API of shared/src/api (every response is
 // checked against the contract schema, every JSON body is validated like the real server does), the WebSocket
 // protocol of ws.ts (hello / seq / resume / reset), and the built web app served by the real serveWeb() of
-// server/src/routes/web.ts (same CSP and cache headers as production).
+// server/src/routes/web-static.ts (same CSP and cache headers as production; /sw.js gets no-op badge calls in front,
+// see withoutWorkerBadge).
 //
 // The AI is scripted by keywords in the message: "artifact", "react", "ask", "error", "slow", "files", "search",
 // "cap-tools" / "cap-time" (the answer pauses at the per-answer limit of tool calls / time: done with stopReason;
@@ -65,7 +66,7 @@ import { serveWeb } from '../../../server/src/routes/web-static'
 import { TEXT as TEAM_ICON_TEXT } from '../../../server/src/admin/team-icon'
 import { msg as serverMsg } from '../../../server/src/auth/messages'
 import { folderKeep, isParkedRow, isTeamDefaultFolder } from '../../../server/src/admin/folder-keep'
-import { checkTeamIcon, isAppIcon, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/shared'
+import { checkTeamIcon, TEAM_ICON_MAX_BYTES, type TeamIconFile } from '@mycel/shared'
 import { Sealer } from '../../../server/src/credentials/seal'
 import type { Credential, CredentialKind, CredentialLogin, MessageSourceFile, SealedSecret } from '@mycel/shared/api'
 import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationPatch, IntegrationRequest, IntegrationTemplate, IntegrationTool } from '@mycel/shared/api'
@@ -269,7 +270,8 @@ export class MockServer {
   queuePositions = new Map<string, number>()
   queueRevision = 0
   settings: TeamSettings = defaultSettings()
-  /** the team logo (Admin > Team settings): served by the real serveWeb() at /team-icon, /favicon.ico, the manifest */
+  /** the team logo (Admin > Team settings): served by the real serveWeb() at /team-icon (the sidebar header); the tab
+   * and app icons stay the product's */
   teamIcon: TeamIconFile | null = null
   /** Admin › Team settings › Knowledge graph (server/src/knowledge-graph/): made-up folders; POST /__test/knowledge-graph
    * {available?: boolean} says whether CodeGraph is "installed" */
@@ -841,7 +843,7 @@ export class MockServer {
     return {
       user: { id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.localeChoice ?? this.settings.defaultLocale, localeChoice: u.localeChoice, mustChangePassword: u.mustChangePassword, prefs, canChooseEngine: choose },
       groups: this.groups.filter((g) => u.groupIds.includes(g.id)).map((g) => ({ id: g.id, name: g.name })),
-      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, iconVersion: this.teamIcon?.version ?? null, ...(this.teamIcon && isAppIcon(this.teamIcon) ? { appIcon: true as const } : {}), voiceInput: (this.speechNow() === 'local' && this.speechHost.localMissing.length === 0) || (this.speechNow() === 'openrouter' && this.speechKey.set), ...(this.speechNow() === 'openrouter' && this.speechKey.set ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: this.settings.chatTrashRetentionDays },
+      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, iconVersion: this.teamIcon?.version ?? null, voiceInput: (this.speechNow() === 'local' && this.speechHost.localMissing.length === 0) || (this.speechNow() === 'openrouter' && this.speechKey.set), ...(this.speechNow() === 'openrouter' && this.speechKey.set ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: this.settings.chatTrashRetentionDays },
       session: { id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(), tempLogin: u.mustChangePassword && this.tempLogins.has(u.id) },
       server: {
         version: this.serverVersion, dev: !this.cloud, deployment: this.cloud ? 'hosted' : 'self', timeZone: this.settings.timeZone,
@@ -3549,7 +3551,10 @@ export class MockServer {
     const url = new URL(req.url)
     const p = url.pathname
     if (p.startsWith('/__test/')) return this.testControl(p, req)
-    if (!p.startsWith('/api/')) return pageHeaders(serveWeb(req, { dist, dev: false, devPort: 0, teamIcon: () => this.teamIcon }) ?? new Response('no', { status: 404 }))
+    if (!p.startsWith('/api/')) {
+      const res = serveWeb(req, { dist, dev: false, devPort: 0, teamIcon: () => this.teamIcon }) ?? new Response('no', { status: 404 })
+      return pageHeaders(p === '/sw.js' && res.ok ? await withoutWorkerBadge(res) : res)
+    }
     this.log.push(`${req.method} ${p}`)
     // like the server's router: a path written out ("/api/intro-decks/builds") wins over one with a parameter there
     // ("/api/intro-decks/:id")
@@ -3786,6 +3791,17 @@ function pageHeaders(res: Response): Response {
   h.set('X-Frame-Options', 'DENY')
   h.set('Cross-Origin-Opener-Policy', 'same-origin')
   return new Response(res.body, { status: res.status, headers: h })
+}
+
+/** Playwright's Chromium (its headless shell) kills the page's renderer as soon as a service worker calls the Badging
+ * API; Chrome, full Chromium and Electron do not. web/pwa/sw.js clears the icon badge whenever the account changes
+ * (`push.invalidate`, sent at every sign-out), so the worker served here gets no-op setAppBadge / clearAppBadge in
+ * front of it and is otherwise the built file. Its badge logic is tested in test/unit/push-worker.test.ts. */
+const NO_WORKER_BADGE = "for (const k of ['setAppBadge', 'clearAppBadge']) if (typeof self.navigator?.[k] === 'function') Object.defineProperty(self.navigator, k, { configurable: true, value: async () => {} });\n"
+async function withoutWorkerBadge(res: Response): Promise<Response> {
+  const h = new Headers(res.headers)
+  h.delete('content-length')
+  return new Response(NO_WORKER_BADGE + (await res.text()), { status: res.status, headers: h })
 }
 
 /** pandoc's docx with an altChunk (an HTML part docx-preview would draw in an unsandboxed srcdoc iframe). */
