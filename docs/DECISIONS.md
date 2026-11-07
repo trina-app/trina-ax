@@ -11671,7 +11671,7 @@ push service (`pushManager.subscribe` always fails there).
   failed (`PushError`: worker, subscribe, server), and the reason is one of: no Web Push in this browser or no https; the
   browser's push service off or away (`AbortError`; in Brave the setting "푸시 메시지에 Google 서비스 사용", private
   windows); the server does not take this browser's push service (`validation`: the server delivers only through
-  Google's, Mozilla's and Apple's, so Edge's WNS addresses are refused); the service worker did not start; the browser
+  Google's, Mozilla's, Apple's and, since feat/edge-push, Microsoft's); the service worker did not start; the browser
   refused the worker because the site may keep no data (Firefox's `SecurityError`: blocked site data, "never remember
   history"); no usable server key (`unavailable` with `params.reason: 'push_key'` (`PUSH_KEY_REASON`) from the team
   server itself, or the browser refusing the key: an admin is told what to fix, a member only to let an admin know);
@@ -11693,8 +11693,8 @@ push service (`pushManager.subscribe` always fails there).
 - **A web ask, because browsers ask only after a click.** One line with a hairline, no box: at the top of the main column
   on a computer, above the tab bar on a phone browser (not in a room or an AI chat, not on Settings › Notifications).
   Only in a web browser with Web Push whose permission is still `default`, on a server with a valid key, signed in,
-  push not turned off by the person (`optedOut`), not Microsoft Edge (its push service is refused; the owner has not
-  decided on adding it), and not put away on this device in the last 7 days (나중에) or blocked from the line (for good).
+  push not turned off by the person (`optedOut`), and not put away on this device in the last 7 days (나중에) or blocked
+  from the line (for good). (Microsoft Edge was left out until the server took its push service: feat/edge-push.)
   The server's settings and the service worker are ready before it shows, so [알림 켜기] calls `enablePush` in the click
   and the browser's question comes before any wait.
 - **No jump.** Ready while a page is on screen, the line waits for the next page: appearing there would push the page
@@ -11882,3 +11882,31 @@ core next to the theme.
   input's `change` event), because resizing the page mid-drag moved the slider under the pointer and made the value flip
   at a step's edge. The keyboard and a tap apply at once. The account is saved 400 ms after the last change, one save
   per drag; closing Settings sooner still saves it.
+
+## Microsoft Edge push through WNS (feat/edge-push, 2026-11-07)
+
+The owner approved Edge ("Edge 브라우저 푸시 ㄱㄱ"). Edge (Chromium) subscribes through the Windows Push Notification
+Service: its endpoint is `https://<label>.notify.windows.com/w/?token=<token>` (e.g. `wns2-par02p`), the only provider
+address with a query. Before, `validatePushEndpoint` took three exact hosts and refused any query, so Edge's
+subscription was refused (`validation`) and the web ask left Edge out.
+
+- **Narrow allowlist, not a pattern for everyone.** WNS is taken only as https on the default port, no user, password or
+  fragment (not even an empty `#`), the canonical form the browser gave, at most 4096 characters, the host one DNS label
+  (1–63 letters, digits and inner hyphens) under `notify.windows.com` (`WNS_HOST`: no IP literal, deeper name, trailing
+  dot or lookalike suffix such as `notify.windows.com.evil.example` or `xnotify.windows.com`), the path exactly `/w/` and
+  the query exactly one `token` of base64/base64url letters and only the escapes base64 needs in a query (`%2B %2F
+  %3D`; no escaped control or other byte), 16–4000 long (`WNS_SEARCH`). Google's, Mozilla's and Apple's rules are
+  unchanged and they still take no query. An independent review (feat/edge-push) found no way past the allowlist or the
+  address checks; its nits (an empty `#`, a wider token alphabet than needed) are closed.
+- **The transport sends to the full address.** `postPinned` now writes `pathname + search` (it dropped the query before;
+  the other providers and the phone gateway have none, the gateway's address is still refused with one). DNS, the
+  public-address check of every resolved address, the pinned socket per checked address, the IPv4-first order, the
+  connect timeout and the no-redirect rule apply to WNS hosts as to the others. Nothing logs the endpoint: the delivery
+  log keeps the status or the transport code only, and the subscription row stores the endpoint encrypted and a hash.
+- **Same encryption.** Edge takes standard Web Push: VAPID (RFC 8292) and `aes128gcm` (RFC 8291), which the transport
+  already sends. WNS's answers: 201 sent; 404 (the channel is not known) and 410 (expired) remove the subscription like
+  any Web Push 404/410; 406 is WNS's throttle ("too many for now", no published limit) and is now tried again later like
+  429 (Web Push rows only); 400/401/403 and 413 fail the delivery as before.
+- **Web.** The ask line shows in Edge like in any browser (`isEdge` is gone). The `browserService` reason stays for a
+  push service the server still does not take, and names Edge among the browsers to use.
+

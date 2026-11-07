@@ -1,8 +1,8 @@
 // The web ask (lib/push-ask.ts, components/WebPushAsk.tsx): "새 메시지 알림을 받으려면 [알림 켜기] · [나중에]" in a web
 // browser, only when every condition holds; [알림 켜기] runs enablePush in the click (the browser's question first); on
 // success the line goes and a toast says so; a failure says why in the line with the way to Settings › Notifications;
-// [나중에] puts it away for 7 days on this device; the browser's "block" puts it away for good. Not in Microsoft Edge (the
-// team server refuses its push service). It first shows on the page after the one where it became ready (no jump under
+// [나중에] puts it away for 7 days on this device; the browser's "block" puts it away for good. In Microsoft Edge too (the
+// team server delivers through its push service, WNS). It first shows on the page after the one where it became ready (no jump under
 // the person's finger); its words are one live region; the focus goes to the page when the line goes from under it.
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { act } from 'react'
@@ -10,7 +10,7 @@ import { MemoryRouter, useNavigate } from 'react-router-dom'
 import type { Me } from '@mycel/shared/api'
 import { DESKTOP_BRIDGE_GLOBAL } from '@mycel/shared'
 import { translate, useLocaleStore } from '../../src/i18n'
-import { isEdge, setPushSession } from '../../src/lib/push'
+import { setPushSession } from '../../src/lib/push'
 import { ASK_BLOCKED_KEY, ASK_LATER_KEY, ASK_LATER_MS, askAllowedHere, prepareWebPushAsk, turnOnWebPush, useWebPushAsk, webPushAskShows, type AskConditions } from '../../src/lib/push-ask'
 import { WebPushAsk } from '../../src/components/WebPushAsk'
 import { useSession } from '../../src/store/session'
@@ -21,7 +21,7 @@ const publicKey = Buffer.from([4, ...new Uint8Array(64).fill(2)]).toString('base
 const NOW = Date.parse('2026-11-07T09:00:00Z')
 
 describe('when the line may show', () => {
-  const all: AskConditions = { supported: true, edge: false, permission: 'default', settings: { configured: true, publicKey, optedOut: false }, signedIn: true, later: null, blocked: false, now: NOW }
+  const all: AskConditions = { supported: true, permission: 'default', settings: { configured: true, publicKey, optedOut: false }, signedIn: true, later: null, blocked: false, now: NOW }
   test('all of them hold: shown', () => {
     expect(webPushAskShows(all)).toBe(true)
     expect(askAllowedHere(all)).toBe(true)
@@ -30,7 +30,6 @@ describe('when the line may show', () => {
     const off: [string, Partial<AskConditions>][] = [
       ['signed out', { signedIn: false }],
       ['no Web Push here (desktop app, phone app, http, an iPhone tab, an old browser)', { supported: false }],
-      ['Microsoft Edge (the team server refuses its push service)', { edge: true }],
       ['the browser was asked: allowed', { permission: 'granted' }],
       ['the browser was asked: blocked', { permission: 'denied' }],
       ['no Notification at all', { permission: null }],
@@ -51,25 +50,13 @@ describe('when the line may show', () => {
   })
 })
 
-test('Microsoft Edge: by its user agent or its brand', () => {
-  const realNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
-  const as = (v: object) => Object.defineProperty(globalThis, 'navigator', { configurable: true, value: v })
-  try {
-    as({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0' })
-    expect(isEdge()).toBe(true)
-    as({ userAgent: 'Mozilla/5.0 Chrome/130', userAgentData: { brands: [{ brand: 'Chromium' }, { brand: 'Microsoft Edge' }] } })
-    expect(isEdge()).toBe(true)
-    as({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0.0.0 Safari/537.36', userAgentData: { brands: [{ brand: 'Google Chrome' }] } })
-    expect(isEdge()).toBe(false)
-  } finally { if (realNavigator) Object.defineProperty(globalThis, 'navigator', realNavigator) }
-})
-
 describe('in a browser', () => {
   const g = globalThis as Record<string, unknown>
   const realFetch = globalThis.fetch, realNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
   const status = useSession.getState().status, locale = useLocaleStore.getState().locale
   const ko = (k: Parameters<typeof translate>[1], p?: Parameters<typeof translate>[2]) => translate('ko', k, p)
   const CHROME = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/130'
+  const EDGE = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0'
   let userAgent = CHROME
   let permission: NotificationPermission = 'default'
   let answer: NotificationPermission = 'granted'
@@ -251,7 +238,19 @@ describe('in a browser', () => {
     } finally { console.warn = warn }
   })
 
-  test('hidden: Edge, the browser already asked, the server without Web Push or turned off by the person, the desktop app, signed out', async () => {
+  test('Microsoft Edge: shown like in any browser, and [알림 켜기] turns push on (the server takes its push service)', async () => {
+    userAgent = EDGE
+    signIn()
+    const { p, top } = await shown()
+    order.length = 0
+    await p.click(top.querySelector('[data-testid="web-push-on"]')!)
+    await p.until(() => !p.find('web-push-ask-top'), 'the line gone')
+    expect(order).toEqual(['permission', 'subscribe', 'POST /api/push/subscriptions'])
+    expect(useUi.getState().toasts.map((x) => x.text)).toEqual([ko('push.askOn')])
+    await p.unmount()
+  })
+
+  test('hidden: the browser already asked, the server without Web Push or turned off by the person, the desktop app, signed out', async () => {
     const hidden = async (why: string) => {
       const p = await page()
       await p.settle(30)
@@ -261,12 +260,6 @@ describe('in a browser', () => {
       expect(useWebPushAsk.getState().show).toBe(false)
       await p.unmount()
     }
-    userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0'
-    order.length = 0
-    signIn(); await hidden('Microsoft Edge')
-    // decided on this device: the server is not even asked
-    expect(order).toEqual([])
-    userAgent = CHROME
     permission = 'granted'; signIn(); await hidden('allowed before')
     permission = 'denied'; signIn(); await hidden('blocked before')
     permission = 'default'
