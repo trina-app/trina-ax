@@ -216,6 +216,17 @@ async function main() {
     ij?.minimal === false && notInstalled.length === 0 && bv.code === 0 && bv.out.includes(list.artifacts['chrome-headless-shell']!.version)
     && new RegExp(`^MYCEL_HTML_PDF_BROWSER=${browser}$`, 'm').test(defaults()) && statOf('/opt/trina/chrome-headless-shell') === 'root:root 755',
     `${distro} missing ${notInstalled} ${bv.out.trim()} ${JSON.stringify(defaults())}`)
+  // one real page printed by the pinned browser with the installed fonts (PR #164 review, question 6: --version alone
+  // does not show that the PDF path works on this architecture): Korean text, a PDF with an embedded CJK font
+  const page = '/tmp/t2-print.html', pdf = '/tmp/t2-print.pdf'
+  fs.writeFileSync(page, '<!doctype html><meta charset="utf-8"><title>t2</title><h1>견적서 Quote</h1><p>한국어 인쇄 시험입니다.</p>')
+  fs.rmSync(pdf, { force: true })
+  const pr = sh(['timeout', '120', browser, '--headless', '--no-sandbox', '--no-zygote', '--disable-gpu', '--disable-dev-shm-usage',
+    '--user-data-dir=/tmp/t2-print-profile', '--no-pdf-header-footer', `--print-to-pdf=${pdf}`, `file://${page}`])
+  const fonts = fs.existsSync(pdf) ? sh(['pdffonts', pdf]).out : ''
+  check('the pinned browser prints a Korean page to a PDF with a CJK font embedded',
+    fs.existsSync(pdf) && fs.readFileSync(pdf).subarray(0, 5).toString() === '%PDF-' && /CJK|Noto Sans KR|NanumGothic/i.test(fonts),
+    `${tail(pr, 4)} ${fonts.trim().split('\n').slice(2).join('; ')}`)
   const synced = readJson(`${BASE}/root/packages.synced`)
   check('root/packages.synced: the installer recorded the list it installed (ok)', synced?.result === 'ok' && synced?.list === new Bun.CryptoHasher('sha256').update(fs.readFileSync(`${BASE}/root/packages.json`)).digest('hex')
     && fs.existsSync(`${BASE}/root/packages.flat`) && fs.existsSync(`${BASE}/root/packages.sh`), JSON.stringify(synced))
@@ -379,8 +390,21 @@ socket.once('connect', () => {
   const cj = lastJson(cu.out)
   const h4 = await healthIs(V(4))
   check('mycel-ctl update --bundle: verified, switched, healthy', cu.code === 0 && cj?.result === 'ok' && h4?.version === V(4), `${tail(cu)} ${JSON.stringify(h4)}`)
-  // the list's root/packages.sh sync ran once the root files were in place: nothing missing, the browser already pinned
-  check('mycel-ctl update runs packages.sh sync: the browser is at the pinned version', (cj?.notes ?? []).some((n: string) => /^packages: chrome-headless-shell [0-9.]+ \(/.test(n)), JSON.stringify(cj?.notes))
+  // the list's root/packages.sh sync runs after the update, in a unit of its own (never inside the update command's
+  // time: PR #164 review, High 2); it ends with a record of the list in root/: nothing missing, the browser pinned
+  const syncUnit = `${ID}-packages-sync.service`
+  let syncState = ''
+  for (let i = 0; i < 300; i++) {
+    syncState = sh(['systemctl', 'is-active', syncUnit]).out.trim()
+    if (!['active', 'activating'].includes(syncState)) break
+    await Bun.sleep(1000)
+  }
+  const syncRec = readJson(`${BASE}/root/packages.synced`)
+  check('mycel-ctl update starts packages.sh sync as its own unit; it ends ok with the pinned browser',
+    (cj?.notes ?? []).some((n: string) => n.includes(`the sync runs in ${ID}-packages-sync.service`)) && syncRec?.result === 'ok'
+    && syncRec?.browser === readList().artifacts['chrome-headless-shell']!.version
+    && syncRec?.list === new Bun.CryptoHasher('sha256').update(fs.readFileSync(`${BASE}/root/packages.json`)).digest('hex'),
+    `${syncState} ${JSON.stringify(cj?.notes)} ${JSON.stringify(syncRec)}`)
   // an update switches app/current under the running launcher: the next turn must get the new version's bridge
   const tb4 = turn('c_t2d', 'stat', '{BRIDGE}')
   check('after an update the engine still reaches the bridge (the launcher resolves it per turn)', tb4.code === 0, JSON.stringify(tb4))
