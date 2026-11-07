@@ -13604,7 +13604,9 @@ the project's audience, the answer goes to the room; otherwise it stays private 
   project has one showed (should-fix: every team project the asker sees counts); the result's note about a cut message
   never showed (it says so now when a kept message was shortened); the file, group and record separators break lines
   too. The listing's default to the projects everyone in the room sees came with the round-2 fix, so that the owner's
-  rule still answers in the room. Not leaking, per the review: the refusal (one text for every reason), step labels, frames and notices, the
+  rule still answers in the room. Round 3 (on the default): no leak found (its output is the same whatever the hidden
+  projects hold); its wording now names the scope, not the asker, and an empty result does not say "there are none" (a
+  member whose account cannot be checked empties the default set). Not leaking, per the review: the refusal (one text for every reason), step labels, frames and notices, the
   session's history, threads, the readers of the source against the audience, the allowlists, the injection attempts.
 - **Not here.** Paging further back in a long chat (the newest 40,000 characters, like a fresh session's transcript);
   these tools in personal or shared chats; a card before reading. The e2e mock does not run the room's AI (rooms are
