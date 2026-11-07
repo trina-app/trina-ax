@@ -2,9 +2,9 @@
 
 - Date (UTC): 2026-11-07 09:01
 - Branch: `fix/composer-vertical-center`
-- Status: in progress
-- Where: trina-ax `web/src/components/` (the message boxes: rooms/RoomComposer.tsx, chat/Composer.tsx, VoiceBar.tsx).
-  Why: a layout fix in the web app's own components (see docs/REPOSITORY-RULES.md).
+- Status: done
+- Where: trina-ax `web/src/` (the message boxes: components/rooms/RoomComposer.tsx, components/chat/Composer.tsx;
+  one size in index.css). Why: a layout fix in the web app's own components (see docs/REPOSITORY-RULES.md).
 - Version impact: patch. A visual fix; no new feature, no API or data change.
 
 ## Goal
@@ -59,4 +59,18 @@ Out:
 
 ## Result
 
-Filled in at the end.
+- `--spacing-composer-line` (`calc(var(--leading-reading) + 1rem)`) in `web/src/index.css`; the room and thread box
+  and the AI chat box put every control beside the text in an `h-composer-line` slot, centred; the rows stay
+  `items-end`. The AI chat's text box has `pb-2` and its row `pb-1` (the box keeps its height); an answer to the AI's
+  question uses `pt-2` (it rendered so with the slot). Both recording bars are `box-content min-h-composer-line` with
+  the row's padding, so they are exactly as tall as the row.
+- Measured before (e2e and screenshots): room and thread 3 px off on computers, 2–4 px on phones and in a narrow
+  window; the AI chat's "+" 1.5 px off on phones; the AI chat's box 12 px (14 px on phones) taller while recording.
+  After: within 0.5 px everywhere, also at the largest text size and while an answer runs. The AI chat box on a
+  computer is pixel-identical to before.
+- `web/test/e2e/composer-align.spec.ts`: 9 tests (computer 1440, narrow window 700, phone 390 with touch).
+- An independent review (screenshots and CSS) found nothing that must be fixed; its should-fix (check that the
+  largest text size took effect) and three nits were applied. Left as is: the ✓ in the AI chat's recording bar is
+  6 px from the box's top and bottom (the room box's send has 8 px), and the AI chat's "#" token layer can differ from
+  the text box's font size where the reading size is under 16 px on a touch screen (older than this change).
+- Differs from the plan: VoiceBar.tsx itself did not change (its callers pass the slot classes).
