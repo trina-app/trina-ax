@@ -1,15 +1,16 @@
 // Search by meaning, the index side (docs/AGENTS/plan/20261107-0819-knowledge-graph-fast-answers.md, wave 2): the
 // embedder (pinned model files, the e5 prefixes, normalization), the vectors in documents.db (the column on old indexes
 // too, the pieces still without one, writes that skip a piece that changed), the background indexing (memory check,
-// memory limit, the pause while someone waits for an answer, the switch), Korean CP949 text, the embedding process and
-// its place in the bundles. No test downloads or loads the real model: loaders, downloads and processes are stand-ins.
+// memory limit, the pause while someone waits for an answer, the CPU rest, a stuck batch, a piece that always fails,
+// the switch), Korean CP949 text, the embedding process and its place in the bundles. No test downloads or loads the real model: loaders, downloads and processes are stand-ins.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { DocumentIndex, headingOf } from '../../server/src/knowledge-graph/documents'
 import { ensureModel, MODEL_FILES, openEmbedder, wrapModel, type LoadedModel } from '../../server/src/knowledge-graph/meaning/embedder'
-import { MeaningIndexer, startEmbedChild, embedWorkerScript, processMemoryMiB, BATCH, MIN_FREE_MIB, MAX_RSS_MIB, RESTARTS_MAX, type EmbedChild, type MeaningIndexerOptions } from '../../server/src/knowledge-graph/meaning/indexer'
+import { MeaningIndexer, startEmbedChild, embedWorkerScript, processMemoryMiB, BATCH, BATCH_TRIES, MIN_FREE_MIB, MAX_RSS_MIB, REST_FACTOR, type EmbedChild, type MeaningIndexerOptions } from '../../server/src/knowledge-graph/meaning/indexer'
+import { MeaningVectors } from '../../server/src/knowledge-graph/meaning/search'
 import { serveEmbed, type WorkerMessage } from '../../server/src/knowledge-graph/meaning/embed-worker'
 import { blobToVec, MEANING_DIMS, MEANING_MODEL, PASSAGE_HEADING_MAX, PASSAGE_MAX, passageText, quantize, vecToBlob, type Embedder } from '../../server/src/knowledge-graph/meaning/vectors'
 import { TEXT_CHARS_MAX } from '../../server/src/knowledge-graph/meaning/embed-worker'
@@ -38,7 +39,7 @@ function rawVec(text: string): Float32Array {
 const norm = (v: Float32Array) => Math.sqrt(v.reduce((s, x) => s + x * x, 0))
 
 /** a stand-in embedding process around a stand-in model, with its calls and stops counted */
-function fakeChild(o: { rss?: () => number; fail?: () => boolean; ready?: Promise<void> } = {}) {
+function fakeChild(o: { rss?: () => number; fail?: (passages: string[]) => boolean; ready?: Promise<void> } = {}) {
   const calls: string[][] = []
   const emb = wrapModel({ run: async (texts) => texts.map(rawVec), dispose() {} })
   const c = {
@@ -46,7 +47,7 @@ function fakeChild(o: { rss?: () => number; fail?: () => boolean; ready?: Promis
     ready: o.ready ?? Promise.resolve(),
     async embed(passages: string[]) {
       calls.push(passages)
-      if (o.fail?.()) throw new Error('the embedding process ended (killed)')
+      if (o.fail?.(passages)) throw new Error('the embedding process ended (killed)')
       if (c.dead) throw new Error('the embedding process was stopped')
       return (await emb.embed(passages, 'passage')).map((v) => new Uint8Array(vecToBlob(quantize(v))))
     },
@@ -77,7 +78,7 @@ function indexer(d: DocumentIndex | null, o: Partial<MeaningIndexerOptions> & { 
   const ix = new MeaningIndexer({
     store: () => d, on: () => true, peopleWaiting: () => false, log: l.log,
     startChild: () => { const c = o.child ? o.child() : fakeChild(); children.push(c); return c },
-    freeMemoryMiB: () => 8000, idleMs: 50, pausePollMs: 10, memPollMs: 10,
+    freeMemoryMiB: () => 8000, idleMs: 50, pausePollMs: 10, memPollMs: 10, restFactor: 0,
     ...o,
   })
   return { ix, children, lines: l.lines }
@@ -127,6 +128,13 @@ describe('the embedder', () => {
     await expect(openEmbedder({ modelDir: own, load, fetchFn: wrongBytes })).rejects.toThrow(/SHA-256/)
     expect(fs.readFileSync(cfg, 'utf8')).toBe('{"tampered":true}')
     expect(loaded).toEqual([])
+    // the download goes to a new file of its own (created exclusively), never through a link planted next to the target
+    const outside = path.join(tmp, 'outside-target')
+    fs.writeFileSync(outside, 'keep me')
+    fs.symlinkSync(outside, `${cfg}.part`)
+    await expect(ensureModel(own, wrongBytes)).rejects.toThrow(/SHA-256/)
+    expect(fs.readFileSync(outside, 'utf8')).toBe('keep me')
+    expect(fs.readdirSync(path.dirname(cfg)).filter((f) => f.endsWith('.part'))).toEqual(['config.json.part'])
   })
 })
 
@@ -312,18 +320,28 @@ describe('the background indexing', () => {
     expect(ix.peak()).toBe(MAX_RSS_MIB + 100)
     ix.close()
 
-    // a process that keeps failing: RESTARTS_MAX tries, then one line and nothing until the nightly check
+    // a process that fails everything: the batch BATCH_TRIES times, then each piece alone; when none works alone the
+    // process is the problem, not the pieces: one line, nothing written, nothing until the nightly check
     await d.update('projects/acme', 'm-0.md', file(enc('# M 0\nChanged.'), 900))
+    await d.update('projects/acme', 'm-1.md', file(enc('# M 1\nChanged too.'), 901))
     const bad = indexer(d, { child: () => fakeChild({ fail: () => true }) })
     bad.ix.kick()
     await bad.ix.whenIdle()
-    expect(bad.children.length).toBe(RESTARTS_MAX)
+    expect(bad.children.length).toBe(BATCH_TRIES + 2)
     expect(bad.lines.filter((l) => l.level === 'warn').length).toBe(1)
     expect(bad.lines[0]!.msg).toContain('nightly check')
+    expect(d.vectorCounts().pending).toBe(2)
     bad.ix.kick()
     await bad.ix.whenIdle()
-    expect(bad.children.length).toBe(RESTARTS_MAX)
+    expect(bad.children.length).toBe(BATCH_TRIES + 2)
     bad.ix.close()
+    // the nightly check, with a process that works: nothing was lost
+    const good = indexer(d)
+    good.ix.kick({ retry: true })
+    await good.ix.whenIdle()
+    expect(d.vectorCounts()).toEqual({ done: 6, pending: 0 })
+    expect(vecs(d).every((r) => r.vec?.byteLength === MEANING_DIMS)).toBe(true)
+    good.ix.close()
     d.destroy()
   })
 
@@ -407,6 +425,112 @@ describe('the background indexing', () => {
   })
 })
 
+describe('the indexing goes on past a bad piece or a stuck process, and rests', () => {
+  const poisoned = () => fakeChild({ fail: (p) => p.some((t) => t.includes('POISON')) })
+
+  test('a piece that always fails is left out with an empty vector, one line, and the indexing goes on', async () => {
+    const d = await docIndex('poison', Object.fromEntries(Array.from({ length: 6 }, (_, i) => [`a-${i}.md`, `# A ${i}\nPiece ${i}${i === 4 ? ' POISON' : ''} about the budget.`])))
+    const { ix, children, lines } = indexer(d, { child: poisoned })
+    ix.kick()
+    await ix.whenIdle()
+    expect(d.vectorCounts()).toEqual({ done: 6, pending: 0 })
+    expect(d.pendingVectors(10)).toEqual([])
+    const rows = vecs(d)
+    const poison = rows.find((r) => r.text.includes('POISON'))!
+    // an empty blob, not NULL: not pending any more, and no vector
+    expect(poison.vec).not.toBeNull()
+    expect(poison.vec!.byteLength).toBe(0)
+    expect(blobToVec(poison.vec)).toBeNull()
+    expect(rows.filter((r) => r.id !== poison.id).every((r) => r.vec?.byteLength === MEANING_DIMS)).toBe(true)
+    // newest first: its batch (a-5..a-2) failed BATCH_TRIES times, then a-5 worked alone, a-4 failed alone (a new
+    // process after it), a-3 and a-2 worked alone, then the last batch
+    expect(children.length).toBe(BATCH_TRIES + 2)
+    expect((children.at(-1) as unknown as Fake).calls.map((b) => b.length)).toEqual([1, 1, 2])
+    const warns = lines.filter((l) => l.level === 'warn')
+    expect(warns).toHaveLength(1)
+    expect(warns[0]!.msg).toContain('left out')
+    expect(warns[0]!.x?.piece).toBe(poison.id)
+    expect(lines.find((l) => l.msg.includes('indexed'))?.x).toMatchObject({ pieces: 5, skipped: 1 })
+    // never asked again
+    ix.kick()
+    await ix.whenIdle()
+    expect(children.length).toBe(BATCH_TRIES + 2)
+    // the search holds no vector for it, and its document counts as fully embedded
+    const v = new MeaningVectors((d as unknown as { db: Database }).db)
+    await v.refresh()
+    expect(v.size).toBe(5)
+    ix.close()
+    d.destroy()
+  })
+
+  test('one failing piece with nothing to compare it with: no pause, nothing written; with the next pieces it is left out', async () => {
+    const d = await docIndex('lonely', { 'bad.md': '# Bad\nA POISON piece.' })
+    const { ix, children, lines } = indexer(d, { child: poisoned })
+    ix.kick()
+    await ix.whenIdle()
+    expect(children.length).toBe(BATCH_TRIES + 1)
+    expect(d.vectorCounts()).toEqual({ done: 0, pending: 1 })
+    expect(lines.filter((l) => l.level === 'warn')).toHaveLength(0)
+    expect(lines.filter((l) => l.msg.includes('tried again with the next pieces'))).toHaveLength(1)
+    // a new document: no wait for the nightly check; it is embedded, the bad piece left out
+    expect((await d.update('projects/acme', 'good.md', file(enc('# Good\nA fine piece.'), 50))).ok).toBe(true)
+    ix.kick()
+    await ix.whenIdle()
+    expect(d.vectorCounts()).toEqual({ done: 2, pending: 0 })
+    expect(vecs(d).find((r) => r.rel === 'good.md')!.vec?.byteLength).toBe(MEANING_DIMS)
+    expect(vecs(d).find((r) => r.rel === 'bad.md')!.vec?.byteLength).toBe(0)
+    expect(lines.filter((l) => l.msg.includes('left out'))).toHaveLength(1)
+    ix.close()
+    d.destroy()
+  })
+
+  test('a batch with no answer in time fails: the stuck process is stopped and a new one does the batch', async () => {
+    const d = await docIndex('stuck', { 'a.md': '# A\nFirst piece.', 'b.md': '# B\nSecond piece.' })
+    let n = 0
+    const { ix, children } = indexer(d, {
+      batchTimeoutMs: 80,
+      child: () => { const c = fakeChild(); if (n++ === 0) c.embed = () => new Promise<Uint8Array<ArrayBuffer>[]>(() => {}); return c },
+    })
+    const t0 = performance.now()
+    ix.kick()
+    await ix.whenIdle()
+    expect(performance.now() - t0).toBeGreaterThanOrEqual(75)
+    expect(children.length).toBe(2)
+    expect((children[0] as unknown as Fake).killed).toBe(1)
+    expect((children[1] as unknown as Fake).killed).toBe(0)
+    expect(d.vectorCounts()).toEqual({ done: 2, pending: 0 })
+    ix.close()
+    d.destroy()
+  })
+
+  test('the CPU rest: after each batch, REST_FACTOR times as long as the batch took', async () => {
+    // at most about a quarter of one core
+    expect(REST_FACTOR).toBe(3)
+    const d = await docIndex('cpu-rest', { 'a.md': '# A\nThe first piece.', 'b.md': '# B\nThe second piece.', 'c.md': '# C\nThe third piece.' })
+    const spans: [number, number][] = []
+    const { ix } = indexer(d, {
+      batch: 1, restFactor: REST_FACTOR,
+      child: () => {
+        const c = fakeChild()
+        const embed = c.embed.bind(c)
+        c.embed = async (p: string[]) => { const t = performance.now(); await Bun.sleep(40); const r = await embed(p); spans.push([t, performance.now()]); return r }
+        return c
+      },
+    })
+    ix.kick()
+    await ix.whenIdle()
+    expect(spans.length).toBe(3)
+    for (let i = 1; i < spans.length; i++) {
+      const took = spans[i - 1]![1] - spans[i - 1]![0]
+      // (the indexer times the batch in whole milliseconds)
+      expect(spans[i]![0] - spans[i - 1]![1]).toBeGreaterThanOrEqual(took * REST_FACTOR - 5)
+    }
+    expect(d.vectorCounts().pending).toBe(0)
+    ix.close()
+    d.destroy()
+  })
+})
+
 describe('the embedding process', () => {
   test('its loop: ready first, int8 vectors as base64 in order, a bad request answered, a failed start said once', async () => {
     const sent: WorkerMessage[] = []
@@ -432,6 +556,12 @@ describe('the embedding process', () => {
     const failed: WorkerMessage[] = []
     await serveEmbed(lines(), (m) => failed.push(m), async () => { throw new Error('model file config.json: SHA-256 abc, expected def') })
     expect(failed).toEqual([{ error: 'model file config.json: SHA-256 abc, expected def' }])
+    // the idle timer (awake) starts once the model is open, not while it opens (a first download on a slow link),
+    // and is reset by every request
+    const events: string[] = []
+    await serveEmbed(lines(), (m) => events.push('ready' in m ? 'ready' : 'answer'), async () => { await Bun.sleep(30); events.push('opened'); return wrapModel({ run: async (t) => t.map(rawVec), dispose() {} }) }, () => events.push('awake'))
+    expect(events.slice(0, 3)).toEqual(['opened', 'awake', 'ready'])
+    expect(events.filter((e) => e === 'awake')).toHaveLength(1 + 4)
   })
 
   test('the real process starts below people\'s work and refuses model files that do not match (nothing downloaded)', async () => {

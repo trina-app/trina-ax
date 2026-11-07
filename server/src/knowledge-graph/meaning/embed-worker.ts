@@ -6,7 +6,8 @@
 //   the process ends. On stdin, {"id":n,"texts":[…]} (passage texts, meaning/vectors.ts passageText); the answer is
 //   {"id":n,"vecs":[…]} with each vector as base64 of its int8 bytes (quantize), or {"id":n,"error":…}.
 // - One request at a time, in order. stdin closed (the server ended it, or the server itself is gone): the model is
-//   unloaded and the process ends. As a safety it also ends after `idleMs` without a request.
+//   unloaded and the process ends. As a safety it also ends after `idleMs` without a request, counted from when the
+//   model is loaded: the first download on a slow link is not idle time.
 // - Only protocol lines go to stdout: the libraries' console output goes to stderr.
 // - Its settings come as one JSON argument (EmbedWorkerConfig), never from the environment.
 //
@@ -35,15 +36,17 @@ export const TEXT_CHARS_MAX = 8000
 const errText = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 300)
 
 /** The worker's loop over request lines: the embedder opened first (its failure is the one message), then each
- * request answered in order. Ends when the lines end. */
-export async function serveEmbed(lines: AsyncIterable<string>, send: (m: WorkerMessage) => void, open: () => Promise<Embedder>, onRequest: () => void = () => {}): Promise<void> {
+ * request answered in order. Ends when the lines end. `awake`: once the embedder is open, and at every request (the
+ * idle timer; the opening, which may download the model, does not count as idle). */
+export async function serveEmbed(lines: AsyncIterable<string>, send: (m: WorkerMessage) => void, open: () => Promise<Embedder>, awake: () => void = () => {}): Promise<void> {
   let emb: Embedder
   try { emb = await open() } catch (e) { send({ error: errText(e) }); return }
+  awake()
   send({ ready: true })
   try {
     for await (const line of lines) {
       if (!line.trim()) continue
-      onRequest()
+      awake()
       let req: WorkerRequest
       try { req = JSON.parse(line) } catch { continue }
       const id = Number(req?.id)
@@ -77,9 +80,9 @@ if (import.meta.main) {
   let cfg: EmbedWorkerConfig
   try { cfg = JSON.parse(process.argv[2] ?? '') } catch { process.stdout.write(JSON.stringify({ error: 'no settings' }) + '\n'); process.exit(2) }
   const idleMs = cfg.idleMs && cfg.idleMs > 0 ? cfg.idleMs : 10 * 60_000
+  // the idle timer starts once the model is loaded (serveEmbed calls awake): a first download may take longer
   let idle: ReturnType<typeof setTimeout> | undefined
   const awake = () => { clearTimeout(idle); idle = setTimeout(() => process.exit(0), idleMs) }
-  awake()
   await serveEmbed(stdinLines(), (m) => { process.stdout.write(JSON.stringify(m) + '\n') }, async () => {
     const e = await openEmbedder({ modelDir: cfg.modelDir, sharedDir: cfg.sharedDir, threads: cfg.threads, download: cfg.download !== false })
     // loading parses the tokenizer (a 250,000-word vocabulary) and reads the model file into memory: that garbage goes

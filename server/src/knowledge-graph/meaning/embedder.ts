@@ -67,13 +67,18 @@ export async function ensureModel(modelDir: string, fetchFn: typeof fetch = fetc
     if (fs.existsSync(dst) && fs.lstatSync(dst).isFile() && await sha256File(dst) === want) continue
     const res = await fetchFn(`https://huggingface.co/${MEANING_MODEL}/resolve/${MODEL_REVISION}/${rel}`)
     if (!res.ok) throw new Error(`model download ${rel}: HTTP ${res.status}`)
-    const tmp = `${dst}.part`
+    const bytes = new Uint8Array(await res.arrayBuffer())
     fs.mkdirSync(path.dirname(dst), { recursive: true, mode: 0o700 })
-    // bytes, not Bun.write(tmp, res): writing the redirected (CDN) response straight to a file hung at 100% CPU
-    fs.writeFileSync(tmp, new Uint8Array(await res.arrayBuffer()), { mode: 0o600 })
-    const got = await sha256File(tmp)
-    if (got !== want) { fs.rmSync(tmp, { force: true }); throw new Error(`model file ${rel}: SHA-256 ${got}, expected ${want}`) }
-    fs.renameSync(tmp, dst)
+    // a new file of a name of its own next to the target, created exclusively ('wx': never a file or link already
+    // there, never another download's), checked, then renamed over the target
+    const tmp = path.join(path.dirname(dst), `.${path.basename(dst)}.${process.pid}.${crypto.randomUUID()}.part`)
+    try {
+      // bytes, not Bun.write(tmp, res): writing the redirected (CDN) response straight to a file hung at 100% CPU
+      fs.writeFileSync(tmp, bytes, { mode: 0o600, flag: 'wx' })
+      const got = await sha256File(tmp)
+      if (got !== want) throw new Error(`model file ${rel}: SHA-256 ${got}, expected ${want}`)
+      fs.renameSync(tmp, dst)
+    } finally { fs.rmSync(tmp, { force: true }) }
   }
 }
 
