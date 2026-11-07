@@ -3436,6 +3436,7 @@ export const id: Record<MessageKey, string> = {
   "tabs.back": "Kembali",
   "sidebar.aiChats": "Riwayat {name}",
   "sidebar.showMore": "Lihat lainnya ({n})",
+  "sidebar.allRooms": "Semua percakapan",
   "sidebar.moreUnread": "{n} belum dibaca",
   "sidebar.needsYou": "{n} perlu kamu",
   "marker.card": "Menunggu jawabanmu",

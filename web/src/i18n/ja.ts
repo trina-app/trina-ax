@@ -3396,6 +3396,7 @@ export const ja: Record<MessageKey, string> = {
   "tabs.back": "戻る",
   "sidebar.aiChats": "{name}の履歴",
   "sidebar.showMore": "もっと見る ({n})",
+  "sidebar.allRooms": "すべてのトーク",
   "sidebar.moreUnread": "未読 {n}",
   "sidebar.needsYou": "{n, plural, one {要対応 #} other {要対応 #}}",
   "marker.card": "あなたの回答を待っています",
