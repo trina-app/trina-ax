@@ -28,8 +28,12 @@ const realFetch = globalThis.fetch
 let sent: { mentions: string[]; body: string }[] = []
 /** what is mounted and not unmounted yet */
 const live = new Set<Mounted>()
-/** a wait: well inside bun's 5 s per test */
-const WAIT = 2000
+/** a wait for something the page does (never a fixed time): long enough for a slow, busy machine, and still well inside
+ * each test's own time (DOM_TEST_MS), so a failing wait ends inside its test and cleans up */
+const WAIT = 4000
+/** each test's time here: a full suite on a loaded CI machine renders slowly, and bun's default (5 s) is no budget for
+ * the waits above */
+const DOM_TEST_MS = 20_000
 
 beforeAll(() => { installDom() })
 beforeEach(() => { useLocaleStore.setState({ locale: 'ko' }) })
@@ -128,6 +132,19 @@ async function composition(box: Box, type: 'compositionstart' | 'compositionend'
 const tokens = (m: Mounted) => m.get('token-layer').querySelectorAll('[data-token]').map((el) => `${el.getAttribute('data-token')}:${el.textContent}`)
 const layerText = (m: Mounted) => m.get('token-layer').textContent.replace(/​$/, '')
 
+/** A message's edit form, opened as a mouse does it: its ⋯ menu (the hover bar's), then 수정. Each step waits for what
+ * the page shows, never for time: no long press (its 500 ms timer and the menu's 400 ms guard against the finger
+ * lifting made a fixed wait miss under load), and the box is used once React has put the message's text in it. */
+async function openEdit(m: Mounted, text: string): Promise<Box> {
+  await m.click('message-more')
+  await m.until(() => m.find('message-edit'), 'the message menu', WAIT)
+  await m.click('message-edit')
+  const box = (await m.until(() => m.find('room-edit-input'), 'the edit form', WAIT)) as Box
+  await focus(box)
+  await m.until(() => box.value === text && layerText(m) === text, 'the message text in the edit box', WAIT)
+  return box
+}
+
 async function pick(m: Mounted, box: Box, query: string) {
   await typeText(box, '@' + query)
   await m.until(() => m.find('mention-menu'), 'the @ list', WAIT)
@@ -164,7 +181,7 @@ test('a name picked from the list is a token at once; what is sent mentions exac
   } finally {
     await m.unmount()
   }
-})
+}, DOM_TEST_MS)
 
 test('Backspace at the end of a token takes all of it, and the list does not open on it', async () => {
   const { m, box } = await open()
@@ -185,7 +202,7 @@ test('Backspace at the end of a token takes all of it, and the list does not ope
   } finally {
     await m.unmount()
   }
-})
+}, DOM_TEST_MS)
 
 test("a phone keyboard's deletion into a token (an edit, no key) takes all of it, also while its IME holds the word", async () => {
   const { m, box } = await open()
@@ -207,7 +224,7 @@ test("a phone keyboard's deletion into a token (an edit, no key) takes all of it
   } finally {
     await m.unmount()
   }
-})
+}, DOM_TEST_MS)
 
 test('a keyboard that answers Backspace with a deletion of its own (one letter, or the one before) still takes the token', async () => {
   const { m, box } = await open()
@@ -231,7 +248,7 @@ test('a keyboard that answers Backspace with a deletion of its own (one letter, 
   } finally {
     await m.unmount()
   }
-})
+}, DOM_TEST_MS)
 
 test('a letter of a token replaced through a selection makes it plain text, and no mention', async () => {
   const { m, box } = await open()
@@ -247,7 +264,7 @@ test('a letter of a token replaced through a selection makes it plain text, and 
   } finally {
     await m.unmount()
   }
-})
+}, DOM_TEST_MS)
 
 test('a pasted "@name" is text, not a mention; "@트리나" pasted calls the AI as the server will, and stands out', async () => {
   const { m, box } = await open()
@@ -261,7 +278,7 @@ test('a pasted "@name" is text, not a mention; "@트리나" pasted calls the AI 
   } finally {
     await m.unmount()
   }
-})
+}, DOM_TEST_MS)
 
 test('typing right before a token, or pasting right after it, keeps it whole and in its place', async () => {
   const { m, box } = await open()
@@ -279,7 +296,7 @@ test('typing right before a token, or pasting right after it, keeps it whole and
   } finally {
     await m.unmount()
   }
-})
+}, DOM_TEST_MS)
 
 test('a Korean IME writing next to a token: no caret moves, no deletion of the token, the layer shows each syllable', async () => {
   const { m, box } = await open()
@@ -320,7 +337,7 @@ test('a Korean IME writing next to a token: no caret moves, no deletion of the t
   } finally {
     await m.unmount()
   }
-})
+}, DOM_TEST_MS)
 
 test("a Japanese IME taking back its own kana is the IME's, even where it spells an AI name", async () => {
   const { m, box } = await open()
@@ -336,7 +353,7 @@ test("a Japanese IME taking back its own kana is the IME's, even where it spells
   } finally {
     await m.unmount()
   }
-})
+}, DOM_TEST_MS)
 
 test('a draft keeps its mentions when the box comes back', async () => {
   const first = await open()
@@ -356,7 +373,7 @@ test('a draft keeps its mentions when the box comes back', async () => {
   } finally {
     await m.unmount()
   }
-})
+}, DOM_TEST_MS)
 
 test('the edit form: the mentions a message has stand out as on the message, and stay mentions while whole', async () => {
   useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name } } as unknown as Me } })
@@ -374,23 +391,20 @@ test('the edit form: the mentions a message has stand out as on the message, and
   }) as typeof fetch
   const m = await mount(<RoomMessages roomId={r.id} messages={[mine]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
   try {
-    // a long press opens the message's menu (as on a phone): 수정
-    // the message's ⋯ menu (the hover bar's), then 수정
-    await m.click('message-more')
-    await m.click('message-edit')
-    const box = m.get('room-edit-input') as Box
-    await focus(box)
+    const box = await openEdit(m, '@Cy Park 확인 부탁해요 @Ben')
     Object.assign(box, { selectionStart: box.value.length, selectionEnd: box.value.length })
     // "@Ben" was typed, not picked: it is not a mention there and is none here
     expect(tokens(m)).toEqual(['person:@Cy Park'])
     await typeText(box, ' 고마워요')
+    // saved once the form has the new text (its state, which the layer draws)
+    await m.until(() => layerText(m) === '@Cy Park 확인 부탁해요 @Ben 고마워요', 'the typed text in the form', WAIT)
     await m.click('room-edit-save')
     await m.until(() => patches.length > 0, 'the edit', WAIT)
     expect(patches[0]).toEqual({ body: '@Cy Park 확인 부탁해요 @Ben 고마워요', mentions: [CY.id] })
   } finally {
     await m.unmount()
   }
-})
+}, DOM_TEST_MS)
 
 test('the edit form: a message with "\\r\\n" line breaks (another app) keeps its mentions through an edit', async () => {
   useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name } } as unknown as Me } })
@@ -408,16 +422,12 @@ test('the edit form: a message with "\\r\\n" line breaks (another app) keeps its
   }) as typeof fetch
   const m = await mount(<RoomMessages roomId={r.id} messages={[mine]} pending={[]} meId={ME.id} members={[ME, BEN, CY]} onThread={() => {}} />)
   try {
-    // the message's ⋯ menu (the hover bar's), then 수정
-    await m.click('message-more')
-    await m.click('message-edit')
-    const box = m.get('room-edit-input') as Box
-    await focus(box)
     // the text area hands back "\n"
-    expect(box.value).toBe('안녕\n@Cy Park 확인')
+    const box = await openEdit(m, '안녕\n@Cy Park 확인')
     expect(tokens(m)).toEqual(['person:@Cy Park'])
     Object.assign(box, { selectionStart: box.value.length, selectionEnd: box.value.length })
     await typeText(box, '!')
+    await m.until(() => layerText(m) === '안녕\n@Cy Park 확인!', 'the typed text in the form', WAIT)
     expect(tokens(m)).toEqual(['person:@Cy Park'])
     await m.click('room-edit-save')
     await m.until(() => patches.length > 0, 'the edit', WAIT)
@@ -425,4 +435,4 @@ test('the edit form: a message with "\\r\\n" line breaks (another app) keeps its
   } finally {
     await m.unmount()
   }
-})
+}, DOM_TEST_MS)
