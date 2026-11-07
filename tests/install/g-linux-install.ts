@@ -405,6 +405,10 @@ socket.once('connect', () => {
     && syncRec?.browser === readList().artifacts['chrome-headless-shell']!.version
     && syncRec?.list === new Bun.CryptoHasher('sha256').update(fs.readFileSync(`${BASE}/root/packages.json`)).digest('hex'),
     `${syncState} ${JSON.stringify(cj?.notes)} ${JSON.stringify(syncRec)}`)
+  // the record's system is this system for mycel-ctl too (packages.sh and mycel-ctl read os-release and the machine-id the
+  // same way): nothing pending, so the timer does not sync again at every check
+  const stSync = lastJson(sh([CTL, 'status', '--json', '--base', BASE]).out)?.systemPackages
+  check('mycel-ctl status: the sync record is of this system and this list (nothing pending)', stSync?.pending === false && /^synced /.test(stSync?.summary ?? ''), JSON.stringify(stSync))
   // an update switches app/current under the running launcher: the next turn must get the new version's bridge
   const tb4 = turn('c_t2d', 'stat', '{BRIDGE}')
   check('after an update the engine still reaches the bridge (the launcher resolves it per turn)', tb4.code === 0, JSON.stringify(tb4))

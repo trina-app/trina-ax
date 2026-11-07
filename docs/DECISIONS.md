@@ -12887,7 +12887,9 @@ the infra engineer agreed on one shared list, a CI check that fails when the scr
   against `last-known-good-versions.json`). Policy: the pin at Stable is ok; behind Stable in the same major (a new build,
   often security fixes) is a warning, and the maintainers bump it within 7 days; one major behind, or newer than Stable (a
   Beta), is a warning; two or more majors behind (about four weeks or more without Stable's fixes) fails CI. A network
-  error only warns: CI never goes red because Chrome for Testing cannot be reached. A bad pin is rolled back with
+  error only warns: CI never goes red because Chrome for Testing cannot be reached. `release.yml` publishes only when
+  `ci.yml` passes, so a release (a hotfix too) needs a pin at most one major behind Stable: the bump is a list edit in the
+  same release. A bad pin is rolled back with
   `"revoked": ["<version>", …]` on the artifact: the list pins the good version again and names the bad one. Normally a
   version newer than the pin stays (another install's newer kit); a revoked version does not: the sync switches back to
   the pin and removes the revoked folder, never keeps it as the previous version, and, when the pin is not ready,
