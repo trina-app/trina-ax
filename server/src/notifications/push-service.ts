@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { z } from 'zod'
-import type { PushDeviceInput, PushDeviceRemoveInput, PushSubscriptionInput, PushEventType } from '@mycel/shared/api'
+import { PUSH_KEY_REASON, type PushDeviceInput, type PushDeviceRemoveInput, type PushSubscriptionInput, type PushEventType } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { HttpError } from '../http/errors'
@@ -65,18 +65,20 @@ export class PushService {
     return{configured:!!c,enabled:this.enabled(userId),publicKey:c?.publicKey??null,subscriptionId:c&&sub?.config_key===pushConfigKey(c)?sub.id:null,messages:pushMessages(locale),
       native:{available:!!n,deviceId:n&&device?.config_key===nativeConfigKey(n)?device.id:null,gateway:n?new URL(n.url).host:null},optedOut}
   }
+  /** No usable Web Push key, or an unsafe folder for push secrets: an admin's matter, said apart from a passing outage. */
+  private keyMissing(){return new HttpError('unavailable',undefined,{params:{reason:PUSH_KEY_REASON}})}
   private safeSecrets(create=false){
     const realData=fs.realpathSync(this.ctx.config.dataDir),team=fs.realpathSync(this.ctx.config.teamRoot)
-    if(realData===team||realData.startsWith(team+path.sep))throw new HttpError('unavailable')
+    if(realData===team||realData.startsWith(team+path.sep))throw this.keyMissing()
     for(const dir of [this.ctx.config.dataDir,path.dirname(this.secrets),this.secrets]){
       if(create&&!fs.existsSync(dir))fs.mkdirSync(dir,{mode:0o700})
       const st=fs.lstatSync(dir)
-      if(st.isSymbolicLink()||!st.isDirectory()||(st.mode&0o077)||(process.getuid&&st.uid!==process.getuid()))throw new HttpError('unavailable')
+      if(st.isSymbolicLink()||!st.isDirectory()||(st.mode&0o077)||(process.getuid&&st.uid!==process.getuid()))throw this.keyMissing()
     }
   }
   subscribe(userId:string,sessionId:string,input:z.infer<typeof PushSubscriptionInput>){
     this.requireSession(userId,sessionId);if(input.consent!==true)throw new HttpError('validation')
-    const config=this.o.config();if(!config)throw new HttpError('unavailable')
+    const config=this.o.config();if(!config)throw this.keyMissing()
     validatePushSubscription(input);this.safeSecrets(true)
     const endpointHash=crypto.createHash('sha256').update(input.endpoint).digest('hex'),configKey=pushConfigKey(config)
     return this.ctx.db.transaction(()=>{

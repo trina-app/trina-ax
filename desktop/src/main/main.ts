@@ -222,6 +222,10 @@ function registerIpc() {
   ipcMain.handle('bridge:pane-state', (e) => (fromApp(e) ? (win!.pane?.state() ?? null) : null))
   ipcMain.handle('bridge:connection', (e) => (fromApp(e) ? win!.connection() : null))
   ipcMain.on('bridge:notify', (e, n: { title?: string; body?: string; tag?: unknown; open?: unknown }) => fromApp(e) && win!.notify({ title: String(n?.title ?? ''), body: String(n?.body ?? ''), tag: n?.tag, open: n?.open }))
+  // Settings › Notifications' "Test notification": shown while focused too, with the app's own words (the page gives
+  // none), a few a minute apart from the others; the answer says whether the system took it ('off': notifications are
+  // off for the app in the system's settings)
+  ipcMain.handle('bridge:notify-test', (e) => (fromApp(e) ? win!.testNotify() : 'unsupported'))
   // session markers (docs/DECISIONS.md): the dock shows how many chats and rooms want the person (macOS; Windows has
   // no count)
   ipcMain.on('bridge:badge', (e, n: unknown) => {

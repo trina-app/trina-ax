@@ -7,6 +7,7 @@ import type { Group, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { Button, Field, Modal, confirmDialog, inputCls } from '../../components/ui'
+import { useMeStrict } from '../../store/session'
 import { AdminPageHeader, CountBadge, Loadable, SearchBox, matches, useAction, useActionOk, useFocusAfterRemove, useLoad } from './common'
 import { SkillManagerCell, useSkillManagers } from './SkillManagers'
 import { MemberMenu } from './RowMenu'
@@ -124,6 +125,9 @@ function GroupForm({ group, users, onClose, onSaved }: { group: Group | null; us
   const [description, setDescription] = useState(group?.description ?? '')
   const [memberIds, setMemberIds] = useState<string[]>(group?.memberIds ?? [])
   const [busy, setBusy] = useState(false)
+  // you first, so adding yourself is the first tick; the rest keep the team's order (by when they joined)
+  const meId = useMeStrict().user.id
+  const people = [...users].sort((a, b) => Number(b.id === meId) - Number(a.id === meId))
   const save = async () => {
     setBusy(true)
     const body = { name: name.trim(), description: description.trim() || null, memberIds }
@@ -157,10 +161,11 @@ function GroupForm({ group, users, onClose, onSaved }: { group: Group | null; us
         <fieldset>
           <legend className="mb-1.5 text-label font-medium">{t('groups.members')}</legend>
           <div className="max-h-60 space-y-1 overflow-y-auto rounded-lg border border-line p-2">
-            {users.map((u) => (
-              <label key={u.id} className="flex items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-hover">
+            {people.map((u) => (
+              <label key={u.id} className="flex items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-hover" data-testid="group-member">
                 <input type="checkbox" checked={memberIds.includes(u.id)} onChange={(e) => setMemberIds(e.target.checked ? [...memberIds, u.id] : memberIds.filter((x) => x !== u.id))} />
                 {u.name} <span className="text-xs text-faint">{u.username}</span>
+                {u.id === meId && <span className="text-xs text-faint">· {t('groups.you')}</span>}
               </label>
             ))}
           </div>

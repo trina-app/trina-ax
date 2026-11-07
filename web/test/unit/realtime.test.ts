@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { uuidv7, WsClose, type ServerEvent } from '@mycel/shared/api'
-import { backoffMs, OUTBOX_MAX_BYTES, OUTBOX_MAX_FRAMES, RealtimeClient, type ConnState, type Timers, type WsLike } from '../../src/lib/realtime'
+import { backoffMs, OUTBOX_MAX_BYTES, OUTBOX_MAX_FRAMES, RealtimeClient, UNREADABLE_RESYNC_EVERY_MS, UNREADABLE_RESYNC_MS, type ConnState, type Timers, type WsLike } from '../../src/lib/realtime'
 
 class FakeSocket implements WsLike {
   readyState = 0
@@ -117,6 +117,50 @@ describe('RealtimeClient', () => {
     s.recv({ type: 'future.event', seq: 2, at: 0, data: {} })
     s.recv(delta(2, 3, 'lo'))
     expect(r.events.map((e) => e.seq)).toEqual([1, 2])
+  })
+
+  test('an event this page knows by name but cannot read (the server was updated under it): a reload of the state, at most one a minute', () => {
+    const r = setup()
+    r.client.start()
+    const s = r.sockets[0]!
+    s.open()
+    s.recv(hello('E1', 0))
+    // (the server already asked for a reload on this connection)
+    s.recv({ type: 'resync', epoch: 'E1', seq: 0, reason: 'buffer_overflow' })
+    expect(r.reloads).toEqual(['resync'])
+    // a room read on my phone in a shape this page does not know: lost, so its badge would stay
+    s.recv({ type: 'room.read', seq: 1, at: 0, data: { roomId: uuidv7(), lastReadSeq: 'four' } })
+    s.recv({ type: 'room.updated', seq: 2, at: 0, data: { roomId: uuidv7(), change: 'sideways' } })
+    expect(r.reloads).toEqual(['resync'])
+    r.timers.advance(UNREADABLE_RESYNC_MS)
+    expect(r.reloads).toEqual(['resync', 'resync'])
+    // the events after them still arrive; one this page has never heard of reloads nothing
+    s.recv(delta(3, 0, 'ok'))
+    s.recv({ type: 'future.event', seq: 4, at: 0, data: {} })
+    r.timers.advance(UNREADABLE_RESYNC_MS * 2)
+    expect(r.events.map((e) => e.seq)).toEqual([3])
+    expect(r.reloads).toHaveLength(2)
+    // more unreadable ones (an answer streaming to a page left on an old version): the next reload a minute after the last
+    for (let i = 5; i < 25; i++) s.recv({ type: 'message.delta', seq: i, at: 0, data: {} })
+    r.timers.advance(UNREADABLE_RESYNC_MS)
+    expect(r.reloads).toHaveLength(2)
+    r.timers.advance(UNREADABLE_RESYNC_EVERY_MS)
+    expect(r.reloads).toHaveLength(3)
+    // a reload the server asks for (here: a new connection the server could not resume) covers a pending one
+    s.recv({ type: 'room.read', seq: 25, at: 0, data: {} })
+    s.drop(1006)
+    r.timers.advance(500)
+    const s2 = r.sockets[1]!
+    s2.open()
+    s2.recv(hello('E2', 0))
+    expect(r.reloads).toEqual(['resync', 'resync', 'resync', 'reset'])
+    r.timers.advance(UNREADABLE_RESYNC_EVERY_MS * 2)
+    expect(r.reloads).toHaveLength(4)
+    // none once stopped
+    s2.recv({ type: 'room.read', seq: 1, at: 0, data: {} })
+    r.client.stop()
+    r.timers.advance(UNREADABLE_RESYNC_EVERY_MS * 2)
+    expect(r.reloads).toHaveLength(4)
   })
 
   test('a resumed connection marks what the server replays (up to its hello seq) as a replay, nothing after it', () => {

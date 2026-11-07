@@ -5,11 +5,23 @@ import type { RoomMessage } from '@mycel/shared/api'
 import { Chime, RoomSound, roomSoundOn, setRoomSoundOn, SOUND_KEY, VIEW_EVERY_MS, type AudioLike, type LocksLike } from '../lib/roomSound'
 import { isDesktop } from '../lib/desktop'
 import { mobileApp } from '../lib/mobile'
+import { lookingAt } from '../lib/attention'
 import { useRooms } from './rooms'
 import { useSession } from './session'
 import { useUi } from './ui'
 
 const chime = new Chime()
+/** how long a new message waits before it rings: what another device of mine reads meanwhile does not ring here */
+export const SETTLE_MS = 1500
+/** Has this window learnt that the message is read (a room.read or my room from another device or window)? A message of
+ * the timeline by my read position; a reply that stays in its thread when no thread I follow there has news left. Also
+ * yes when there is nothing to ring for any more: the room muted meanwhile, or gone from my list. */
+export function readHere(roomId: string, m: Pick<RoomMessage, 'seq' | 'threadRootId' | 'alsoInRoom'>): boolean {
+  const r = useRooms.getState().rooms.find((x) => x.id === roomId)
+  if (!r || r.muted) return true
+  if (!m.threadRootId || m.alsoInRoom) return r.lastReadSeq >= m.seq
+  return r.threadsUnread === 0
+}
 let sound: RoomSound | null = null
 let stop: (() => void) | null = null
 
@@ -20,13 +32,13 @@ const tabId = () => (typeof crypto !== 'undefined' && typeof crypto.randomUUID =
 
 /** Start listening (signed in): gestures unlock the audio; focus, visibility and the open room are told to the other
  * tabs; the service worker may ask whether this page takes care of a room notice's sound. */
-export function startRoomSound(o: { audio?: AudioLike } = {}) {
+export function startRoomSound(o: { audio?: AudioLike; settleMs?: number } = {}) {
   if (stop || typeof window === 'undefined' || typeof document === 'undefined') return
   const visible = () => document.visibilityState === 'visible'
   // a phone: the phone app, or a browser whose only pointer is a finger
   const phone = !!mobileApp() || !!window.matchMedia?.('(pointer: coarse)')?.matches
-  // the phone app's page has no other window to lose focus to: on screen is looking at it
-  const focused = () => visible() && (!!mobileApp() || document.hasFocus())
+  // looking at this page (the phone app: on screen; lib/attention.ts)
+  const focused = lookingAt
   // back on screen: what waited meanwhile arrives first, and the phone's notification already sounded for it
   let shownAt = 0
   const BACK_QUIET_MS = 1500
@@ -36,6 +48,7 @@ export function startRoomSound(o: { audio?: AudioLike } = {}) {
     quiet: () => phone && (!visible() || Date.now() - shownAt < BACK_QUIET_MS),
     openRoom: () => useRooms.getState().openRoomId,
     audio: o.audio ?? chime,
+    settle: { ms: o.settleMs ?? SETTLE_MS, read: readHere },
   })
   sound = s
   const prime = () => { if (roomSoundOn() && !chime.ready()) void chime.prime() }
@@ -81,6 +94,7 @@ export function startRoomSound(o: { audio?: AudioLike } = {}) {
 export function stopRoomSound() {
   stop?.()
   stop = null
+  sound?.stop()
   sound = null
 }
 

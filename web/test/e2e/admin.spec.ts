@@ -136,6 +136,22 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   expect(realErrors(errors).filter((e) => /status of (400|409)/.test(e)).length).toBe(2)
 })
 
+test('groups: in a group\'s member list you come first, marked as you; the others keep the team order', async ({ page }) => {
+  await reset(page, { withAdmin: true })
+  await signIn(page, { username: 'dana', password: 'dana password 1' })
+  await page.goto('/admin/groups')
+  await page.getByTestId('group-new').click()
+  const rows = page.getByRole('dialog').getByTestId('group-member')
+  // Dana joined after Olga and Bob, yet is listed first
+  await expect(rows).toHaveText([/^Dana\s*dana\s*· 나$/, /^Olga\s*olga$/, /^Bob\s*bob$/, /^Eve\s*eve$/])
+  // the same in an existing group, ticked or not
+  await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
+  await page.getByTestId('group-list').getByRole('listitem').filter({ hasText: '재무팀' }).getByTestId('member-more').click()
+  await page.getByTestId('group-edit').click()
+  await expect(rows.first()).toContainText('Dana')
+  await expect(rows.nth(1).getByRole('checkbox')).toBeChecked()
+})
+
 test('members: a one-time password reset link to copy (no email); the owner has none', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)

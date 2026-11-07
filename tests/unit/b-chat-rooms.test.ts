@@ -94,9 +94,11 @@ describe('where the room tools are', () => {
     const own = await turn('alice', chat, fake({ echo: 'tools' }))
     for (const t of ['rooms', 'room_read', 'room_file']) {
       expect(own.done.content.split(',')).toContain(t)
-      expect(ROOM_TOOLS.has(t)).toBe(false)
+      // a room's session has its own room_file, for that room's files only (b-rooms-ai-files.test.ts)
+      expect(ROOM_TOOLS.has(t)).toBe(t === 'room_file')
       expect(PARENT_ONLY_TOOLS.has(t)).toBe(true)
     }
+    expect(own.done.content.split(',')).not.toContain('save_room_file')
     // a confidential chat (safe operations' 1A material) keeps to its local tools
     const secret = await newChat('alice')
     h.ctx.db.query('INSERT INTO safe_ops_chats (chat_id, material) VALUES (?, 1)').run(secret)
@@ -261,7 +263,9 @@ describe('limits and search', () => {
     for (let i = 0; i < 40; i++) put(big, 'erin', `long ${i} ` + 'x'.repeat(9_000))
     const long = readAs('alice', big)
     expect(long.text.length).toBeLessThan(ROOM_READ_CHARS + 5_000)
-    expect(long.text).toContain('(cut: 9008 characters in all)')
+    // each long message keeps its start and its end (a request at the end of a long paste stays in)
+    expect(long.text).toContain('… [5008 of 9008 characters left out here] …')
+    expect(long.text).toMatch(/left out here\] …\nx+\n<\/room_message>/)
     expect(long.text).toContain('Older messages are not shown')
     expect(long.count).toBeLessThan(40)
   })

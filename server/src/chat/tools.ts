@@ -34,7 +34,7 @@ import { connectService } from './connect-service'
 import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
 import { ROOM_TOOLS } from '../rooms/ai-tools'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
-import { roomReadTools } from './room-tools'
+import { roomReadTools, roomSessionFileTools } from './room-tools'
 import { hideUrls } from '../tools/audit-url'
 import { SHARE_JUDGE_REFUSAL } from '../skills/share-judge'
 import { mergeTargets, SHARE_MERGE_REFUSAL } from '../skills/share-merge'
@@ -43,6 +43,10 @@ export interface Tool {
   name: string
   description: string
   inputSchema: Record<string, unknown>
+  /** the step label (and the room card's words) of a call, when the shared words do not say enough */
+  label?(args: unknown, locale: Locale): string
+  /** a call the tool will refuse whatever the person says, refused before any card is raised (null: go on) */
+  refuse?(args: unknown): { text: string; summary: string } | null
   /** `files`: the calling agent's turn state (the main AI's, or a sub-agent's: TurnFiles.forAgent) */
   call(args: unknown, files: TurnFiles): Promise<{ content: McpContent[]; isError?: boolean; summary?: string }>
 }
@@ -96,6 +100,7 @@ function boxShellQueueStep(exec: TurnExec): (run: NonNullable<Step['devEnvRun']>
 export function buildToolSet(exec: TurnExec): ChatToolSet {
   const confidential=confidentialChat(exec.rt.db,exec.spec.chatId)
   const tools = new Map<string, Tool>()
+  const labels = new Map<string, (args: unknown, locale: Locale) => string>()
   const templateWrites = new Set<string>()
   const add = (t: Tool): boolean => {
     // a company profile draft (onboarding/draft.ts): web_fetch is its only tool besides the refused file tools, and a
@@ -109,14 +114,16 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     if (exec.room && !ROOM_TOOLS.has(t.name)) return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
     tools.set(t.name, t)
+    if (t.label) labels.set(t.name, t.label.bind(t))
     return true
   }
   for (const t of bTools(exec)) add(t)
   for (const t of skillTools(exec)) add(t)
   // the person's own team chat rooms (chat/room-tools.ts): not in a room's session (ROOM_TOOLS does not list them), nor
   // in a confidential or draft chat (add() above keeps those to their own tools)
-  // nor in an approved scheduled template's run (its scope is fixed; it would refuse them anyway)
-  if (!exec.templateRun) for (const t of roomReadTools(exec)) add(t)
+  // nor in an approved scheduled template's run (its scope is fixed; it would refuse them anyway). A room's own session
+  // gets its room's files instead (the asking message's and earlier ones: room_file, save_room_file)
+  if (!exec.templateRun) for (const t of exec.room ? roomSessionFileTools(exec) : roomReadTools(exec)) add(t)
   // edit_files is listed here so the engines and the model proxy allow it, but the MCP handler runs it
   // (mcp/protocol.ts editFiles): each file as its own edit call with the checks above. Never offered in confidential
   // chats (add() keeps to the local tools there). Reaching this call() means the handler did not: nothing is changed.
@@ -148,7 +155,6 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // per-person tools (external-service connections), built from saved data at the start of the turn
   const prompt: string[] = []
   const context: string[] = []
-  const labels = new Map<string, (args: unknown, locale: Locale) => string>()
   // no connection's tools in a room (rooms/ai-tools.ts ROOM_TOOLS), and so no "Connected services" section either
   for (const p of confidential || exec.restricted || exec.room ? [] : exec.rt.ctx.services.turnToolProviders ?? []) {
     let built: ReturnType<typeof p.build>
@@ -181,6 +187,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         return { ...text(hwpWritingOffText(exec.spec.locale), true), summary: `${name} -> refused: Hangul writing is off (HWP plugin)` }
       }
       const t = tools.get(name)!
+      // a call the tool refuses anyway asks nobody first and counts as nothing read (save_room_file without a file id,
+      // into skills/, …)
+      const early = t.refuse?.(args)
+      if (early) return { ...text(early.text, true), summary: early.summary }
       exec.noteTaint(name, args)
       exec.noteRoomTool(name, args)
       // a room's AI session: anything that may change something waits for the person's yes (rooms/ai-tools.ts)

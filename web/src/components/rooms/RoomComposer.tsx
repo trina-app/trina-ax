@@ -18,6 +18,7 @@ import { TokenTextarea } from '../TokenTextarea'
 import { IconButton } from '../ui'
 import { Tooltip } from '../Tooltip'
 import { useMentionMenu } from './useMentionMenu'
+import { useTextSize } from '../../lib/textSize'
 
 interface Upload {
   key: number
@@ -64,12 +65,14 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [back])
 
+  // the box grows with its text, and is measured again when the person's text size changes
+  const textSize = useTextSize()
   useLayoutEffect(() => {
     const ta = input.current
     if (!ta) return
     ta.style.height = 'auto'
     ta.style.height = Math.min(ta.scrollHeight, 200) + 'px'
-  }, [text])
+  }, [text, textSize])
   // a thread just opened (from "reply in thread"): the box is where the person types next
   useEffect(() => {
     if (autoFocus) input.current?.focus({ preventScroll: true })

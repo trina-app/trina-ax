@@ -15,6 +15,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Link, useLocation, useNavigate, useNavigationType, useParams, type NavigationType } from 'react-router-dom'
 import { isUuid7, type RoomMember, type RoomMessage } from '@mycel/shared/api'
 import { errorText, isApiError } from '../lib/api'
+import { lookingAt } from '../lib/attention'
 import { newestSeq, threadClosing, threadOpening } from '../lib/rooms'
 import { useBackLink } from '../lib/back'
 import { stickToBottom } from '../lib/stickToBottom'
@@ -167,7 +168,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     if (!el || !r || !th || th.roomId !== roomId || !th.messages.length) return
     // the timeline out of sight (a phone shows the thread over it): nothing in it is read
     if (!el.clientHeight) return
-    if (document.visibilityState !== 'visible' || !document.hasFocus()) return
+    // on screen and looked at (the phone app: on screen; lib/attention.ts)
+    if (!lookingAt()) return
     if (el.scrollHeight - el.scrollTop - el.clientHeight > 80) return
     const seq = newestSeq(th.messages)
     if (seq > r.lastReadSeq) void s.markRead(roomId, seq)

@@ -41,7 +41,7 @@ export const LAST_KEY = 'mycel.roomSound.last'
 export const VIEW_KEY = 'mycel.roomSound.view'
 const LOCK_NAME = 'mycel.roomSound'
 
-export type RingMessage = Pick<RoomMessage, 'id' | 'authorKind' | 'author' | 'askedBy' | 'visibility' | 'mentions' | 'createdAt' | 'deletedAt'> & Partial<Pick<RoomMessage, 'threadRootId' | 'alsoInRoom' | 'following'>> & { event?: unknown }
+export type RingMessage = Pick<RoomMessage, 'id' | 'seq' | 'authorKind' | 'author' | 'askedBy' | 'visibility' | 'mentions' | 'createdAt' | 'deletedAt'> & Partial<Pick<RoomMessage, 'threadRootId' | 'alsoInRoom' | 'following'>> & { event?: unknown }
 
 export interface RingInput {
   roomId: string
@@ -139,13 +139,22 @@ export interface SoundDeps {
   /** the room this window shows (store/rooms.ts openRoomId) */
   openRoom: () => string | null
   audio: AudioLike
+  /** wait this long before ringing, and then ring only if the message is still unread here: the same person may be
+   * reading that room on another device or window, which marks it read within moments (room.read reaches this window
+   * then). `read` also says yes when there is nothing to ring for any more (the room muted or gone meanwhile). Without
+   * it (tests): at once */
+  settle?: { ms: number; read: (roomId: string, message: RingMessage) => boolean; wait?: (ms: number) => Promise<void> }
 }
 
 /** One tab's part of the device's sound: what it saw, what its focused window shows, and taking the slot. */
 export class RoomSound {
   private seen = new Set<string>()
   private lastHere = 0
+  private stopped = false
   constructor(private d: SoundDeps) {}
+
+  /** Signed out or stopped: a sound still waiting (settle) stays quiet. */
+  stop() { this.stopped = true }
 
   /** The room this device shows in a visible, focused window: this one's, or the one another tab said it shows. */
   viewing(): string | null {
@@ -175,6 +184,12 @@ export class RoomSound {
     if (!shouldRing({ roomId, message, room, alerts, now: this.d.now(), meId, replay, seen, viewing: this.viewing() })) return false
     // a tab whose audio cannot play leaves the slot to one that can
     if (!this.d.audio.ready()) return false
+    // read meanwhile on another device or window (or this window opened the room): no sound for what was read
+    const settle = this.d.settle
+    if (settle) {
+      await (settle.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms))))(settle.ms)
+      if (this.stopped || settle.read(roomId, message) || this.viewing() === roomId || !roomSoundOn(this.d.storage) || this.d.quiet() || !this.d.audio.ready()) return false
+    }
     if (!(await this.claim())) return false
     try { this.d.audio.play() } catch { /* no sound, no error */ }
     return true

@@ -1,6 +1,6 @@
 // Preload of the team page (sandboxed, contextIsolation). Exposes window.mycelDesktop (shared/src/desktop-bridge.ts)
 // and nothing else: browser relay functions, pane open/close/state, connection state, notifications (a click opens the
-// address the page named), the dock badge, the window's focus, team list, and
+// address the page named; Settings › Notifications' test notification), the dock badge, the window's focus, team list, and
 // Settings > Browser (read the site setting, back to asking, remove / clear always-allowed sites; "all" only asks the
 // main process, which shows its own confirmation dialog).
 // The main process re-checks every call: top frame only, team origin only (main/main.ts, common/trust.ts).
@@ -39,6 +39,7 @@ const bridge: DesktopBridge = {
     onChange: on('bridge:connection'),
   },
   notify: (n) => ipcRenderer.send('bridge:notify', { title: String(n?.title ?? ''), body: String(n?.body ?? ''), tag: n?.tag === undefined ? undefined : String(n.tag), open: n?.open === undefined ? undefined : String(n.open) }),
+  testNotify: () => ipcRenderer.invoke('bridge:notify-test'),
   onOpen: on('bridge:open'),
   setBadgeCount: (n) => ipcRenderer.send('bridge:badge', Number(n)),
   focus: {

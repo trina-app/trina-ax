@@ -12,6 +12,8 @@ import { FILE_TOOLS } from '@mycel/shared'
 export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
   ...Object.keys(FILE_TOOLS), 'edit_files', 'search', 'knowledge_explore', 'skill', 'find_skills', 'ask_user', 'agent',
   'make_file', 'edit_hwp', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact',
+  // this room's own files (chat/room-tools.ts roomSessionFileTools): what they read joins the read scope as the room
+  'room_file', 'save_room_file',
 ])
 
 /**
@@ -24,6 +26,8 @@ export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
 export const ROOM_TOOLS: ReadonlySet<string> = new Set([
   ...Object.keys(FILE_TOOLS), 'edit_files', 'search', 'knowledge_explore', 'skill', 'find_skills', 'ask_user',
   'make_file', 'edit_hwp', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact', 'web_fetch', 'save_url',
+  // this room's files: the asking message's attachments and earlier ones the person sees (read, or a copy saved)
+  'room_file', 'save_room_file',
 ])
 
 /**
@@ -34,10 +38,11 @@ export const ROOM_TOOLS: ReadonlySet<string> = new Set([
  */
 export const ROOM_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   'list', 'glob', 'grep', 'read', 'search', 'knowledge_explore', 'skill', 'find_skills', 'ask_user', 'hwp_render', 'share_file', 'artifact', 'web_fetch',
+  'room_file',
 ])
 
 /** The arguments of our tools that name a team path (a room session counts each as a name read, chat/turn.ts). */
-export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'output', 'template', 'from', 'to', 'to_folder', 'destination', 'file_paths', 'paths', 'sources', 'images']
+export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'output', 'template', 'from', 'to', 'to_folder', 'destination', 'file_paths', 'paths', 'sources', 'images', 'save_as']
 
 /**
  * A person's own AI chat that has read their team chat rooms (chats.rooms_seen, chat/room-tools.ts; docs/DECISIONS.md

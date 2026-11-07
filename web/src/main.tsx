@@ -4,6 +4,7 @@ import App from './App'
 import { initPwa } from './lib/pwa'
 import { followVisualViewport } from './lib/viewport'
 import { applyTheme, storedTheme, watchSystemTheme } from './lib/theme'
+import { applyTextSize, storedTextSize } from './lib/textSize'
 import { useLocaleStore, t } from './i18n'
 import { initMobile, MobileFileTooLarge, setMobileSession } from './lib/mobile'
 import { useSession } from './store/session'
@@ -14,6 +15,7 @@ import './index.css'
 import './theme.edition.css'
 
 applyTheme(storedTheme())
+applyTextSize(storedTextSize())
 watchSystemTheme()
 document.documentElement.lang = useLocaleStore.getState().locale
 initMobile(error => toast({ level: 'error', text: t(error instanceof MobileFileTooLarge ? 'mobile.fileTooLarge' : 'mobile.saveFailed') }))
