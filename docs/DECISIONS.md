@@ -1737,6 +1737,9 @@ set its own logo as the tab icon; without one it is the product's icon.
   `/apple-touch-icon.png` and `/manifest.webmanifest` (installed PWA) follow it; index.html's links are rewritten on the
   server so the first load is right, `Me.team.iconVersion` keeps an open page right.
 - Native desktop and phone app icons stay the product's.
+- The computer's sidebar header shows the logo next to the team name, at `/team-icon?v=<iconVersion>` cropped square with
+  `object-cover`, and the default mark when none is set. The phone drawer's header names the AI, not the team, so it keeps
+  the product's mark (fix/sidebar-team-logo-main-focus, 2026-11-07).
 - Tests: `tests/unit/a-team-icon.test.ts`, `web/test/unit/team-icon.test.ts`, `web/test/e2e/team-icon.spec.ts`, the
   a11y audit, `tests/security/lib/team-icon-cases.ts`.
 
@@ -8250,7 +8253,8 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   20, then one a second, all rooms together; 429 with the seconds to wait; a resend of the same clientMessageId is
   free). They live in `room_notices` (notification_inbox has a fixed event_type
   list and is never rebuilt) and are part of the one inbox; the inbox entry names the room and who wrote it, never the
-  text. Push: `room.dm` and `room.mention` joined `PushEventType`, and the push service sends from two sources,
+  text (amended 2026-11-07: the Inbox's list shows the first line of a message the person may read, never a push or a
+  lock screen, see "알림함의 대화 알림"). Push: `room.dm` and `room.mention` joined `PushEventType`, and the push service sends from two sources,
   `notification_inbox`/`push_deliveries` and `room_notices`/`room_push_deliveries`, with the same checks (payload: the
   notice id, the subscription id and the event code; the lock screen text is generic). One switch, "Room messages"
   (`roomMessages`), turns both off; per room there is mute (amended 2026-11-06: a default of three, thread replies,
@@ -8275,7 +8279,8 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   a room and inside an AI chat there is no tab bar (their message box needs the bottom), and inside a room the room's
   header with its back arrow replaces the phone top bar. Rows are separated by hairlines, no cards near the edge. The
   desktop sidebar keeps the AI chats where they were.
-- **Notices on a device.** The service worker shows a room push with the generic text, and a click opens `/rooms/<id>`
+- **Notices on a device.** The service worker shows a room push with the generic text (amended 2026-11-07: its title
+  says who and where, never the text, see "알림함의 대화 알림"), and a click opens `/rooms/<id>`
   with the room id taken from the signed-in fetch of the notice at show time, never from the payload (the room page
   checks membership again); other pushes still open Settings › Notifications.
 
@@ -8432,7 +8437,9 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
     one 더 보기 row. The room's one setting is the bell in its header (no menu of one item).
   - The pinned AI row is "트리나" (rooms.aiName) where the product is named after its AI (`PRODUCT_NAMED_AFTER_AI`); the
     core edition keeps the product's name. Room DMs and mentions still push and still count on the 대화 tab but are not
-    listed or counted in the Inbox (`room_notices` stay out of its list; a push opens its notice by id). The profile no
+    listed or counted in the Inbox (`room_notices` stay out of its list; a push opens its notice by id; amended
+    2026-11-07: mentions and replies in threads I follow are listed and counted again, one row per place, see "알림함의
+    대화 알림"). The profile no
     longer shows or asks for the one-line status (the column stays). Letter avatars are on a neutral tile; an AI answer
     is one plain line in the rooms list; a muted room's badge is grey and not in the tab's count; a mention shows "@"
     alone; an AI answer's unread number sits by its time.
@@ -11346,7 +11353,7 @@ the settings do too. Naming (the owner's rule): the people's side is **대화** 
   device's: the server decides the pushes and the people of one team share one clock. `inQuietHours(q, tz, now)` is the
   one function; an unknown zone reads as UTC; start = end is refused (400). Inside them: the notice is kept
   (`room_notices.quiet = 1`; the room's badge and the notice by id as before; room notices are not listed in the Inbox,
-  "대화방의 트리나") but never queued for a push, and the web app does not ring. One quiet notice per unread run; once
+  "대화방의 트리나"; since 2026-11-07 a quiet mention or reply is a row like any, "알림함의 대화 알림") but never queued for a push, and the web app does not ring. One quiet notice per unread run; once
   the quiet hours are over, the next message makes a new notice that pushes, even while the quiet one is unread (it no
   longer holds the run back). Nothing that waited is pushed when they end (Slack does the same). Only room alerts are
   quiet: a scheduled task's result or a connection that needs a sign-in still pushes at night (they are rare and the
@@ -12526,6 +12533,56 @@ files belong or that skills are not files, so skills landed as dead `SKILL.md` f
 - **share_skills.** Its description now says it is the only way to add skills from the connector. The owner/admin-only
   rule, the group choice, the secret rules and the confirmation in the app are unchanged.
 
+## 대화방 메시지의 링크 — web addresses in people's room messages (feat/room-message-links, 2026-11-07, product owner)
+넣을 곳: trina-ax `web/src/lib/textLinks.ts` and `web/src/components/rooms/MessageText.tsx`, 이유: the owner saw a
+teammate's "https://…" in a room as plain text ("i guess link must be clickable right?"), and the address broke in the
+middle of a word on a phone.
+
+- **What is a link.** In a person's words in a room (a message, its thread, the quote of one, my message being sent):
+  "http://…", "https://…" and "www.…" (opened as https). Nothing else ever is: no other scheme (javascript:, data:,
+  file:, mailto:, an app's own), no address with a user name or password ("https://bank.example@evil.example"), no
+  e-mail address (the phone app and the desktop app open http(s) only, so a mailto link would do nothing there). The
+  @mentions are found first, as before; addresses only in the words between them.
+- **Where an address ends** is what people mean in a chat: white space, a double or curly quote mark, a backslash,
+  Korean, Japanese, Chinese or full-width text right after it ("https://x.y/a에서", "https://x.y/a。"), an emoji, an
+  arrow or ✅ (other signs such as © or € stay in it, as browsers keep them), a closing bracket it never opened
+  ("(see https://x.y/a)", a pasted "[https://x.y](https://x.y)"), another "http(s)://" stuck to it after a letter,
+  digit, comma or semicolon. Then the sentence's punctuation comes off its end (". , : ; ! ? ' * _ ~" and an unclosed
+  opening bracket); a bracket the address opened stays ("…/wiki/Bun_(software)").
+- **No link rather than a wrong one.** A host that a dot-like or invisible character splits ("https://evil．com",
+  a zero-width space or soft hyphen inside it) and a query or fragment that goes on in Hangul or CJK
+  ("https://x.y/?q=한국") stay text. The cost that remains: Hangul right after a slash ("https://ko.wikipedia.org/wiki/
+  서울") links up to the slash, since "https://x.y/에서" is the commoner case; a browser copies such an address
+  percent-encoded, so it is rare. A quote's excerpt that the server cut with "…" (it is ROOM_QUOTE_EXCERPT_MAX long,
+  now shared with the server) leaves an address cut there as text; a shorter excerpt's "…" is the author's own.
+- **How it opens** is how an AI answer's links open (lib/markdown.ts classifyLink, one rule for both): another site in
+  a new tab with `rel="noopener noreferrer nofollow"` and no referrer (the desktop app hands a new window to the
+  system browser, the phone app to its browser sheet); an address on this exact origin that is a page of the app
+  (/rooms/…, /chats/…) through the app's router, without a reload; a team file (/files/view?path=…,
+  /api/files/download?path=…) in the preview panel, the server checking the viewer's access; any other /api/ address
+  on this exact origin stays text (a click on it would be a request made with the viewer's session). The same host
+  over http or with a trailing dot is another origin to the browser and opens as another site.
+- **"//" after this server's host is no link (also in AI answers).** The independent review found that
+  "https://<this server>//evil.example/login" (or "/.//…") was taken as a page of the app, and the router reads a path
+  that starts with "//" as another site: it opened in the app's own tab, a ready-made fake sign-in page under the
+  team's address. classifyLink now gives no link for such a path; this closes it for AI answers too, where it was
+  already possible.
+- **The phone app opens https only** (mobile/src/protocol.ts navigationDecision): an http link there would do
+  nothing. The page copies the address (with the app's copy fallback) and says so ("앱에서는 https 주소만 열 수 있어서
+  이 주소를 복사했어요…"). The phone app itself is unchanged. An AI answer's http links have the same gap; not changed
+  here.
+- **Look.** The accent text colour with a light underline that turns solid on hover (a mention is the same colour
+  without one; an AI answer's links are underlined too), the app's focus ring. A long address may break after its
+  slashes and before ? # & (`<wbr>`), and anywhere (`overflow-wrap: anywhere`, on the link only) when one piece is still
+  wider than the line. A quote stays one line with "…": no break in its address.
+- **The quote's jump.** A quote was one button (a click goes to the quoted message); a link inside a button is no link.
+  The jump is now a button over the whole quote, named by the quote's author and text, with the excerpt's links above
+  it.
+- **A long press is no click.** On a touch screen a long press on a message opens its menu; the finger lifting on a
+  link then opens nothing (a touch held 500 ms, as the menu's own timer). A click from the keyboard or a screen reader
+  always opens, and a message still being sent (no menu) opens on any press.
+- **Not in this change:** link previews (an unfurl needs the server to fetch the page, with SSRF rules), links in the
+  room list's last-message line (the row is one link already), Markdown in people's messages.
 ## 대화방의 트리나가 스레드도 본다 — the room's AI sees threads (feat/room-ai-threads, 2026-11-07, product owner)
 
 넣을 곳: trina-ax `server/src/rooms` (ai.ts, ai-context.ts, ai-tools.ts), `server/src/chat` (room-tools.ts, prompt.ts,
@@ -12654,3 +12711,283 @@ the infra engineer agreed on one shared list, a CI check that fails when the scr
   `native/cmd/mycel-ctl/syncsystem_test.go`.
 - Left: Ubuntu 24.04 is in the list for the installer but not for `install-srt.sh` (AppArmor, spike S6). The private
   AMI build reads `scripts/image/*` and the staged `system/` folder.
+
+## 알림함의 대화 알림 — who, where and why in the Inbox (feat/inbox-room-notices, 2026-11-07, product owner)
+넣을 곳: trina-ax `server/src/rooms/inbox.ts` (with `notifications/service.ts`, `notifications/text.ts`, migration 262),
+`shared/src/api/notifications.ts`, `web/src/components/settings/RoomNoticeRow.tsx` and `web/pwa/sw.js`, 이유: the
+Inbox and pushes are core, and one rule has to serve the Inbox's rows, its count and a push's title.
+
+The owner: "쓰레드에 글을 누가 보낸게 어디에 보냈는지 안보여." A reply in a thread pushed the generic "새 메시지가 왔어요",
+and the Inbox listed no room notice at all (2026-11-05, "대화방의 트리나": one place for unread). Slack's Activity is the
+reference; a product and privacy review cut the first plan down to this.
+
+- **What the Inbox lists and counts (amends 2026-11-05).** Mentions (picked by name, "@전체") and replies in threads I
+  follow. A message of a DM, a group chat or a room at 모든 메시지 still makes its notice and its push exactly as before,
+  but no row: the 대화 tab counts it. The rule is in one place (`rooms/inbox.ts` `LISTED_SQL`, `COUNTED_SQL`): listing
+  DMs too is `OR n.event_type = 'room.dm'` there, and they would be listed, not counted. A room I hid has no rows and
+  counts nothing (they come back with the room).
+- **A row is a place.** One room's timeline or one thread, and what is unread there for me: a mention and a reply in one
+  thread, a run split by quiet hours, two people's mentions in a timeline are one row (one notice per unread run and kind
+  stays as it was). The newest notice's id is the row's; reading the row (`POST /api/notifications/:id/read`, the click)
+  reads every notice in it at one time, and notices read together (one `read_at`) stay one row. The count is rows, not
+  messages.
+- **What a row says.** The newest writer's photo (the AI's mark for an AI answer); "민준 외 2명 · #마케팅 › 스레드" (a DM
+  "1:1", the everyone room by its word, a group chat by its name or, without one, its people as the rooms list names
+  it); the time of its newest message; that message's first line, after a small "@" when the row mentions me or everyone;
+  while unread the count's pill, as on the 대화 list. No "새 메시지" or "스레드 답글" label: "› 스레드" says it. Counted: in
+  a thread I follow every reply by someone else after my place in it; elsewhere what mentions me after my place in the
+  room (both from the row's first notice on); once read, what its notices stood for. For that a notice now keeps the
+  newest message it held back (`room_notices.last_seq`, `last_at`; migration 262, additive, reader level stays 6; an
+  older build ignores them and a row there is its own message). The row sits in the Inbox where its newest message is
+  (the list merges the rooms' rows into the other notices' order; its cursor is that time and the id).
+- **The click** opens the thread (`/rooms/<id>/t/<root>`) or the room at my first unread message (`?m=<message>`: the
+  room or thread scrolls it to the middle and marks it for a moment when it is among the messages loaded; no new API
+  that loads around a message) and reads the row. The older line (a server from before this) opens a reply's thread now
+  too.
+- **The message's text, in the Inbox's list only (reverses "never the text" of "대화방 v1" for the Inbox).** The first
+  line of the newest message, at most 200 characters, for a member who may read it in the room anyway. Never in
+  `GET /api/notifications/:id` (what a push opens), never in a push's payload or on a lock screen.
+- **Nothing of a message I may no longer read.** A notice is a row only while I am in the room, it is not archived or
+  hidden by me, and its message is there and mine to see (after my join, not someone else's private preview); otherwise
+  it is no row at all and not counted (leaving or being taken out already deleted my notices, a deleted message its
+  own). A deleted message that started a run moves the run's notice to the next message of it I may read (for a mention:
+  the next that mentions me), so the rest keeps its row.
+- **Names are people's words.** A person's or a room's name and the line are one plain line (shared `plainLabel`: no
+  control or format characters, so no bidirectional overrides or isolates and no zero-width spaces, the emoji joiner
+  kept; no line breaks; capped) and the app shows them inside `<bdi>`. The desktop app's room notice title is cleaned the
+  same way.
+- **A browser push's title (the owner approved who and where, never the text).** The payload is unchanged (ids and the
+  code). The service worker already reads the notice signed in; that answer now carries `room.label` ("민준 · #마케팅 ›
+  스레드", a DM "민준", in the person's language: `notifications/text.ts` `ROOM_WORDS`, the app's own words), and the worker
+  shows it as the title (cleaned again, at most 120 characters) over the generic line; without one (an older server)
+  the product's name, as before. An older worker ignores the field. The phone app's own notices are not in this step.
+- **Older clients and servers.** Every new field of `InboxNotification.room` is optional and the event codes are the
+  same. An older page shows the rows with the line it had; this page shows an older server's notices with that line.
+- **Independent review (2026-11-07) fixes.** Reading the room or a thread up to a point now leaves a notice unread when
+  its run goes on past that point (`last_seq`; `markNoticesRead`, `markThreadNoticesRead`): a read request still on its
+  way when the next mention came marked the run read, and what came after had no notice and vanished from the count.
+  Hiding a room, showing it again and leaving or being taken out tell the person's windows to read the Inbox's count
+  again (`notifications.changed`). A row counts within its run only (from the first notice to the newest it held back)
+  and at most `COUNT_MAX` (100; the pill says 99+), with its first and newest message found by one indexed step each:
+  a run under 50,000 later messages cost 18 ms a list before. `last_seq` is written only for the kinds the Inbox lists,
+  and reading a notice works out its row only for a room notice. The Inbox page reads its rows again as rooms change
+  (once quiet for a second, at most 5 seconds apart) keeping the pages already shown. A linked message older than the
+  newest page is looked for in older pages (at most 10: 500 messages). The reason comes from the counted messages (a
+  mention edited away is no "@"), and an AI answer's or a shared answer's line has its Markdown marks taken off (a
+  shared answer: the person's note first). The notice a push opens has no room while its room is hidden.
+- Rejected: a new event code for replies (the enum is shared with older apps); grouping only by notice (a mention and a
+  reply in one thread were two rows); listing every message notice (the 대화 tab already has them; the owner decides).
+- Tests: `tests/unit/b-rooms-inbox.test.ts` (what is listed and counted, pushes untouched, hidden rooms, what a row says,
+  no text and the title in the notice a push opens, one row per place and reading it, quiet hours, leaving, archived and
+  deleted messages, a later member, an AI answer, names made plain), `b-rooms.test.ts`, `b-rooms-threads.test.ts` and
+  `b-rooms-group.test.ts` updated, `web/test/unit/inbox-rooms.test.tsx` (the words of every kind and reason, the link,
+  older servers, the rows in the Inbox and the click), `web/test/unit/push-worker.test.ts` (the title), and the e2e
+  `inbox-rooms.spec.ts` (the rows, and a click that opens the thread at the first unread reply in sight).
+- Version impact: **minor** (the Inbox lists conversation notices, new optional fields, an additive migration).
+
+## HTML to PDF: make_file prints a page, and the preview's "PDF로 저장" (feat/html-to-pdf, 2026-11-07, product owner)
+
+A person asked the AI to turn `견적서_….html` into a PDF. make_file took only Markdown, so the AI rewrote the page as
+Markdown tables (the navy headers, the highlights, the merged cells and the A4 layout were gone), said it had no tool
+that renders HTML like a browser, and told the person to print it from Chrome. The owner: the AI and the person make a
+PDF that looks like the HTML, directly. Placement: Team AX core (make_file in `server/src/tools`, the renderer in
+`server/src/files/html-pdf.ts`, the file preview).
+
+### The renderer: a Chromium the server already has, in the converter isolation
+- **What exists (checked before building).** The promo video's MP4 uses the HyperFrames CLI's `chrome-headless-shell`
+  on a macOS development server only, outside the converter isolation (a process group, "V"). The intro deck's PDF is
+  typst ("D2" rejected HTML → PDF with Chrome: no Chrome on hosted Linux). The in-app browser is Electron on the
+  person's computer, not the server. The srt dev environment installs Debian's `chromium` and `fonts-noto-cjk` on the
+  host (`install-srt.sh`, also `--image-mode` in the hosted image build); it cannot start under srt (seccomp blocks
+  AF_UNIX) but starts in the converters' bwrap, which has no seccomp filter. So no browser exists on every deployment:
+  hosted servers built with the dev environment and Linux servers that installed it have Debian's chromium, a
+  development Mac has HyperFrames' headless shell, an office Mac and a plain self-hosted Linux server have none.
+- **Decision: find, do not ship** (`findPdfBrowser`): `MYCEL_HTML_PDF_BROWSER` (a path, or `none`),
+  `HYPERFRAMES_BROWSER_PATH` (the promo video's Linux handoff), the headless shell HyperFrames fetched
+  (`~/.cache/hyperframes/chrome`), then Debian's `/usr/lib/chromium/chromium-headless-shell` and `/usr/lib/chromium/chromium`
+  (the real binaries, not the `/usr/bin` shell wrappers). Read on every call. Without one, or without the isolation,
+  nothing offers it: make_file's description says the server cannot print HTML, `Me.server.htmlPdf` is absent and the
+  preview shows no button. Google Chrome on a Mac is not used: it needs a Unix socket of its own (ProcessSingleton),
+  which the isolation's `(deny network*)` refuses, and it stops.
+- **The isolation is the converters'** (`tools/isolate.ts`, refactored into `isolatedCommand` so the browser can be
+  spawned by `Bun.spawn` with its own pipes). The DevTools pipes are the browser's fd 3 and 4: `/bin/sh` in front of it
+  maps its stdin and stdout to them and then becomes the browser (`BROWSER_SHELL`), so the server uses the plain
+  stdin/stdout pipes every converter uses. Not node:child_process's extra pipes: under Bun 1.3 (the bundled runtime)
+  each has two owners (the subprocess closes the descriptor when the child exits, the socket over it closes it again
+  when collected), and a later print whose pipe had taken that number lost it (its browser quit, the next spawn failed
+  with EBADF); found in the Debian container, where a print allocating 60 MB set off the collector. macOS: the same
+  profile with `helpersIn` = the browser's own folder (it may fork and exec files there) and `execAlso` = the one shell
+  `/bin/sh` starts (`/private/var/select/sh`); still no network, writes only in the empty work folder, the team folder,
+  the data folder and the homes unreadable; `MAC_CHROMIUM_TMPDIR` points
+  Chromium's temp files (the PDF stream) into the work folder. Linux: bwrap as before (`--unshare-all`: an empty
+  network namespace; `--disable-userns`, `--cap-drop ALL`; the converter cgroup in production), so Chromium runs with
+  `--no-sandbox --no-zygote` (it cannot make namespaces of its own inside), fontconfig from a file in the work folder.
+  The server account, never root: a server running as root does not print (only this repository's container check runs
+  it as root, with `NODE_ENV=test` and `MYCEL_HTML_PDF_TEST_AS_ROOT=1`), and without the isolation nothing prints, not
+  even in development. Only a browser whose binary and own folder are owned by root or the server account, writable by
+  nobody else and not a shared folder such as `/usr/bin` (`trustedBrowser`: the macOS profile lets it exec every file of
+  that folder). The process group and every process under it are killed by id at the end, on the time limit, on the
+  memory and disk limits and on an abort (`system/kill-tree.ts`, moved out of the promo video's render).
+
+### The print (`files/html-pdf.ts`)
+- DevTools protocol over the pipes (`--remote-debugging-pipe`; no port). The page is served from `https://html-pdf.invalid`
+  (a reserved name) through Fetch interception at the request stage: the server answers every request. The page's own
+  address gives the page; a path under it gives a team file only for a picture, a stylesheet or a font (by extension and
+  by resource type), through the caller's `asset()` = the person's normal `authorize` read path. The URL parser stops
+  `..` at the origin's root, so a climbing path names a team path that authorize decides; an encoded `%2F` or a control
+  character names nothing. Everything else fails (other origins, localhost, the server's API, a frame of another page);
+  a refused picture gets the preview's grey placeholder, a refused document is aborted (no error page is printed).
+- Layers under the interception: the page's CSP (only the made-up origin, `data:` and `blob:`; `script-src 'none'`,
+  `connect-src 'none'`, `object-src 'none'`, `base-uri 'none'`, `form-action 'none'`; pictures may name any address so
+  that they reach the interception and get the placeholder); `--host-resolver-rules=MAP * ~NOTFOUND`, `--no-proxy-server`,
+  `--dns-prefetch-disable`, no background networking; site isolation off (every frame in the page's target, so the
+  interception sees it); downloads denied.
+- **JavaScript is off** (`--blink-settings=scriptEnabled=false`, `Emulation.setScriptExecutionDisabled`, CSP). A quote or a
+  report is HTML and CSS; V8 is the browser's largest attack surface; a script could only add content the server cannot
+  check, and with the network gone nothing it fetched would arrive anyway. The cost: a part a script draws (a chart) is
+  missing; the AI is told when the page has scripts, and the tool description says to write pages for PDF without them.
+  The file preview runs inline scripts, so such a page can differ from its preview.
+- `Page.printToPDF` with `printBackground`, `preferCSSPageSize` (the page's `@page` size and margins win), A4 as the
+  paper when the page names none, Chromium's default margins otherwise, no header or footer; laid out as print from the
+  start (`Emulation.setEmulatedMedia`), printed after `load` and the network going quiet (at most 5 s more). `pageRanges`
+  asks for one page more than the limit, so a longer page is refused, never cut; the PDF is read as a stream, 1 MiB at
+  a time, and refused past its size limit (one message holding the whole PDF would cost several times its size in
+  server memory); pages are counted in its page tree.
+- Limits (`HTML_PDF_LIMITS`): 60 s for the whole print, 2 GiB of the browser's processes' resident memory added up, 200
+  pages, 50 MB of PDF, a 10 MB page, make_file's image limits for its files (200, 20 MB each, 100 MB together). One print
+  per person (`renderSlot`) and as many on the server as the print cgroup holds (below; two where there is none); up to
+  10 wait (2 minutes), more are told the server is busy.
+- **Its own cgroup on a Linux server** (`system/cgroups.ts` S/print, beside S/conv, never inside it; review round 3).
+  In S/conv (pids.max 128, 512–1536 MiB shared by every converter) one print took about 120 pids and two could run:
+  LibreOffice and whisper conversions of other people starved, and the smallest budget was too small. S/print gets
+  `printBudgetMiB` = a quarter of the plan's (or machine's) memory, at most two prints; each print runs in a leaf of its
+  own (S/print/p-…: memory.max `PRINT_ONE_MIB` 768 MiB, pids.max `PRINT_ONE_PIDS` 192, swap 0, memory.oom.group 1,
+  started by the same `mycel-sandbox cgexec` with oom_score_adj 900, so under pressure in the server's cgroup the browser
+  goes before the converters (500) and the server). One print fits from 3 GB (a 4 GB plan: one at a time), two from
+  6 GB; under 3 GB (a 2 GB plan) there is no S/print, `Me.server.htmlPdf` is absent and make_file says the server's
+  memory is too small. The leaf is killed whole (`cgroup.kill`) and removed after each print; leaves an earlier server
+  left are removed at start. Measured in the leaf (memory.peak, pids.peak; Debian 13 arm64, kernel 6.8, real cgexec):
+  chromium 156 — a one-page quote 240 MiB / 123 tasks, 18 pages with twelve 5 MB photos 285 MiB / 121, 190 pages with a
+  photo and a table each 487 MiB / 122; chromium-headless-shell 156 — 87, 180 and 283 MiB, 72–74 tasks. The limits are
+  about 1.5 times the worst. (The first estimate, 960 MiB, added up each process's resident memory, which counts the
+  shared pages once per process.) **Not changed:** the server unit's MemoryMax (reserve + converters, set by
+  `mycel-ctl apply-plan`) does not include the print budget, so a print shares the unit's memory with the server and the
+  converters; the OOM order above decides who goes. Adding the print budget to the unit is a hosting decision.
+- Korean: on Linux the browser's fontconfig adds the fonts the server ships for its PDFs (the bundle's `fonts/` with Noto
+  Sans CJK and Pretendard, the repository's Pretendard), so "Pretendard" by name and Hangul without a named face both
+  print; a Mac uses its own fonts (Apple SD Gothic Neo), as its typst PDFs do.
+
+### make_file: `source` = the .html page, format pdf
+- An option of make_file, not a new tool: the AI already reaches for make_file for a PDF; the output path, write access,
+  conflict copy (an existing file the AI did not read in the turn), the turn's write limits, the file event, the tool
+  event, the read scope and the wider-audience card are the same code (`placeProduced`, `confirmSources`). The page and
+  every file the print used are the PDF's sources: a picture from a narrower folder in a page saved to a wider one asks
+  the person first; a picture the person cannot read is never loaded. `content` stays Markdown: a page to print must be
+  a team file, so its relative files resolve and the person can open what was printed. Another format or a template with
+  an .html source is refused.
+- The description (where the server prints) says to use it for every HTML page, never to rewrite HTML as Markdown for a
+  PDF and never to send the person to a browser's print; where it does not, it says so and that a Markdown version loses
+  the design. The system prompt's make_file rule says the same where it prints. The result names the pages, what was not
+  loaded and whether scripts were skipped.
+
+### The file preview: "PDF로 저장"
+- In an `.html` team file's preview header (a phone: the ⋯ menu), only when `Me.server.htmlPdf`. `POST /api/files/html-pdf`
+  prints with the person's access and the preview's own rule for the page's files (`team-files/embed.ts`: only files
+  everyone who can read the page can read), saves `<name>.pdf` next to the page as an upload does (`<name> (2).pdf` when
+  taken, never over a file; file event `create` with `via: html_pdf` and the page), after the disk check. A read-only
+  folder is refused (403) before printing, and the panel then downloads the same PDF (`GET /api/files/html-pdf`, nothing
+  saved). The notice has 열기, which opens the PDF in the panel. Words in five locales. The preview's split and resize
+  are not touched.
+
+### Measured and checked
+- This Mac (HyperFrames' chrome-headless-shell 152, sandbox-exec): a two-page quote 0.8–1.3 s. A Debian 13 container
+  (bubblewrap 0.12, chromium 156 and chromium-headless-shell 156, fonts-noto-cjk): 0.7–1.4 s; the same tests pass with
+  both binaries, Pretendard printed through fontconfig. In colima's VM bwrap could not set up its loopback as a plain
+  account (Ubuntu's AppArmor limit on unprivileged user namespaces, which `install-linux.sh` handles with its bwrap
+  profile), so the container ran it as root; not yet run on a real hosted VM.
+- Tests: `tests/unit/html-pdf.test.ts` (the sample quote: two A4 pages, its text, navy and yellow pixels where the colspan
+  and rowspan cells are; `@page` A5 and Letter landscape; A4 by default; UTF-8; the server's fonts; the page's own files
+  through `asset()`; an external picture, `fetch`/beacon/script, iframes to localhost and this machine's address,
+  stylesheets/fonts/@import/preconnect/prefetch/meta refresh, `file:///etc/passwd` and a local file, climbing paths,
+  the page served once, one picture under many addresses, a title that says "/Count 150", page/size/HTML limits, time
+  and memory limits, an abort; the CSP, the command line, the macOS profile, the browser search and its trust check,
+  root, the queue), `tests/unit/c-make-file-html-pdf.test.ts` (make_file and the route through real turns and requests:
+  the audit lines, the conflict copy, a page the person cannot read, a narrower picture asking first, scripts, the
+  preview's rule, read-only and download, the description and the prompt), the permission matrix's two routes,
+  `web/test/e2e/html-pdf.spec.ts` (the button only where the server prints, saving, 열기, " (2)", the download in a
+  read-only folder, the phone menu).
+
+### Independent review (security first), fixed
+- **Must-fix: one picture under many addresses.** `big.png?0` … `?199` was answered with a fresh base64 copy each time,
+  written to the pipe without backpressure: a 2 MB picture took the server process to 2.8 GB. Now each team file is read
+  and encoded once, every byte handed to the browser counts against one budget per print (200 MB, repeats included),
+  requests are capped (2,000), and the answers go out one at a time, each after the pipe has taken the one before (a
+  first fix that refused a print with more than 64 MB unsent also refused a page of a dozen 5 MB photos; round 2).
+- The page count was searched in the file's text, and the page's own `<title>` is written into it: now it is read through
+  `startxref`, the cross-reference table, the trailer's `/Root` and the catalog's `/Pages` (strings left out, so a `lang`
+  of "ko /Pages 9 0 R" names nothing; round 2), which must be the root `/Pages` node.
+- One person could fill the wait list: one waiting print per person now.
+- Root and an undocumented switch that dropped the isolation: refused / removed (above). The `helpersIn` folder is checked
+  (`trustedBrowser`; round 2: every folder above it too, and more shared folders such as `/usr/libexec`).
+- Round 2 also: a protocol message over its size ends the print at once; the file event records how many team files went
+  in (`fileCount`) besides the first 50.
+- Smaller: a failure before the browser started left its work folder; the request handler could throw outside a promise;
+  the work folder had no size limit (256 MB now); the file event now names the team files in the PDF (`files`); the test's
+  work folder is its own per run (two runs at once removed each other's, which showed as "Read failed").
+- The page is served once per print (a meta refresh to itself or a frame of itself gets nothing).
+- Held: the browser holds the pipe open, so it ends within seconds when the server process ends (checked by the reviewer
+  after an exit and after SIGKILL); no shutdown hook like the promo video's.
+
+### Review round 3 (merge after should-fix), fixed
+- The print's own cgroup on Linux (above, "Its own cgroup").
+- **The process group is always killed** at the end of a print, whether its first process is still there or not: a
+  helper that outlived the browser on macOS kept the pipes (and the server's reader) open. Then the tree under the first
+  process, and on Linux the leaf's `cgroup.kill` (a process that left the group too).
+- **A message from the browser may be twice the page limit and 4 MiB more** (24 MiB): its events carry the page's
+  addresses, a `data:` picture inside the page included, and an 8 MiB cap refused a 9.3 MB page with a 7 MB picture as
+  "PDF too large". Over the cap: its own error (`protocol`), at once.
+- **The macOS profile of the print is tighter** (`browserProfile`, `browserProfileRules`; only the print uses it, every
+  other converter's profile is as before): `(deny mach-lookup)` with one exception, the browser's own rendezvous service
+  (`org.chromium.<name>.MachPortRendezvousServer.<pid>`, as a pattern), then `(deny lsopen)` and
+  `(deny appleevent-send)`. Found by printing with every lookup denied: without the rendezvous service the helpers quit
+  ("bootstrap_look_up … Permission denied"); with only it, the sample quote printed byte for byte the same PDF as with
+  every service allowed (CoreText reads the font files itself). Denied with it: LaunchServices (opening an app, a
+  document or a URL), the window server, the pasteboard, the keychain, notifications, DNS configuration and power events
+  (the browser logs that it cannot watch them, and prints).
+- **The download is this app's only** (`GET /api/files/html-pdf`): a browser's `Sec-Fetch-Site` other than
+  `same-origin` is refused (403, reason `cross_site`) before anything runs, so another team's page on a sibling address
+  cannot start a minute of printing with an `<img>`. A client without Fetch Metadata (the phone app's download) passes.
+- **Only a read-only folder falls back to the download** (`reason: read_only`); the wider-audience refusal now has its own
+  words ("이 페이지에 들어가는 파일 중 이 폴더를 보는 사람 모두가 볼 수는 없는 파일이 있어서 여기에 저장하지 않았어요", reason
+  `wider_audience`) and downloads nothing.
+- **The browser that runs is the one checked**: `findPdfBrowser` returns the real path `trustedBrowser` looked at, the
+  print resolves and checks it again and runs that path, and `trustedBrowser` checks every folder from the binary up
+  (an app bundle's Contents and Contents/MacOS included).
+- An HTML file over the page limit gets the print's own message (413, reason `html_too_large`), checked before the
+  browser's availability.
+- Tests added for each guard: fake browsers (endless output without a message end → `protocol`; half a message and an
+  exit → "stopped (3)"; not JSON, an answer to nothing, a forged error; never answering → time limit; a helper that
+  outlives the browser → nothing left; a browser in a writable folder → never run), the 9 MB `data:` page, the page CSP
+  (`base-uri 'none'` keeps a `<base>` from moving where the page's files are read), `findPdfBrowser` refusing a writable
+  folder, `printTeamHtml` waiting in the queue, the "nothing is sent" cases again with `MYCEL_ISOLATION=none` (the
+  interception alone; `tests/lib/html-pdf-interception.ts` in a process of its own), the macOS rules, the S/print
+  setup and leaves (`tests/unit/g-cgroups.test.ts`), the cross-site download and the wider-audience notice (e2e).
+- **Linux, checked in a container** (`tests/linux/Dockerfile.html-pdf`, `tests/linux/html-pdf.sh`: privileged, its own
+  cgroup namespace, root): the unit tests with both Debian browsers under Bun 1.3.12, and `tests/linux/html-pdf-cgroup.ts`
+  with the server's own `setupServerCgroups` and the real linux `mycel-sandbox cgexec`: S/print beside S/conv with the
+  limits above on 4 and 8 GB, none on 2 GB, the browser's processes only in print leaves, the peaks above under the
+  leaf's limits, no leaf left, nothing in the converters' cgroup, the child of a fake browser killed with its leaf.
+  **Not verified there:** systemd's delegation itself (the container's cgroup stands in for the unit's S), the unit's
+  MemoryMax around it, and a run as the server account (as a plain account bwrap cannot make its network namespace in
+  this VM).
+
+### Open (for the owner)
+- **No browser on an office Mac and on a self-hosted Linux server without the dev environment.** Smallest options: on
+  Debian, `apt-get install chromium-headless-shell` (about 210 MB plus `chromium-common` 84 MB; security updates from
+  Debian) as an optional step of `install-linux.sh`; Ubuntu 24.04 has no Chromium deb (snap only), so there the bundle
+  would carry Chrome for Testing's `chrome-headless-shell` (x64; arm64 only from Playwright's builds); on an office Mac
+  the office installer would fetch `chrome-headless-shell` for macOS into the app's folder. Each adds a browser to keep
+  updated; not done without the owner's OK.
+- Whether Debian 12 has `chromium-headless-shell` was not checked (Debian 13 has it).
+- The print budget is not in the server unit's MemoryMax (above): `mycel-ctl apply-plan` could add `printBudgetMiB` to
+  it (a hosting decision).

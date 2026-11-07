@@ -279,6 +279,9 @@ export const threadClosing = (roomId: string, fromRoom: boolean): -1 | { path: s
 
 /** "99+" past 99, like the Inbox count. */
 export const badgeText = (n: number) => (n > 99 ? '99+' : String(n))
+/** How many older pages a linked message (an Inbox row's ?m=) is looked for in a room or a thread: pages of 50, so its
+ * last 500 messages. */
+export const TARGET_PAGES = 10
 
 // ---------------- the AI in a room (docs/DECISIONS.md "대화방의 트리나") ----------------
 /** The AI's entry in the "@" list fits the query when one of its names starts with it ("" too: it comes first). */

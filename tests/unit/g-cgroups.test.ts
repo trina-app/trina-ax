@@ -3,7 +3,10 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { _resetCgroupsForTest, cgexecPrefix, convBudgetMiB, converterCgroup, setupServerCgroups } from '../../server/src/system/cgroups'
+import {
+  _resetCgroupsForTest, cgexecPrefix, convBudgetMiB, converterCgroup, killPrintLeaf, makePrintLeaf, PRINT_ONE_MIB, PRINT_ONE_PIDS, printBudgetMiB,
+  printCgroup, printCgroupState, setupServerCgroups,
+} from '../../server/src/system/cgroups'
 
 function fakeCgroupFs(o: { controllers?: string; procs?: string[] } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mycel-cgfs-'))
@@ -77,5 +80,60 @@ describe('server converter cgroup (spec 3.8.2)', () => {
     fs.writeFileSync(f, JSON.stringify({ format: 1, memoryMiB: 4096, convMemoryMaxMiB: 700 }))
     expect(convBudgetMiB(f)).toBe(700)
     expect(convBudgetMiB(path.join(dir, 'missing.json'), 3000)).toBe(750)
+  })
+})
+
+describe('HTML printing cgroup S/print (files/html-pdf.ts)', () => {
+  const setup = (machineMiB: number) => {
+    const fx = fakeCgroupFs()
+    const r = setupServerCgroups({ mode: 'prod', platform: 'linux', cgroupFs: fx.root, selfCgroup: '0::/system.slice/mycel-server.service\n',
+      pid: 101, ppid: 100, uid: process.getuid!(), helper: fx.helper, machineMiB, cpus: 4 })
+    return { ...fx, r }
+  }
+
+  test('beside S/conv, never inside it: its own memory, pids and CPU, one print on 4 GB, two on 8 GB', () => {
+    const one = setup(4096)
+    const p1 = printCgroup()!
+    expect(p1.dir).toBe(path.join(one.s, 'print'))
+    expect(p1.parallel).toBe(1)
+    expect(fs.readFileSync(path.join(p1.dir, 'memory.max'), 'utf8')).toBe(String(PRINT_ONE_MIB * 1048576))
+    expect(fs.readFileSync(path.join(p1.dir, 'pids.max'), 'utf8')).toBe(String(PRINT_ONE_PIDS))
+    expect(fs.readFileSync(path.join(p1.dir, 'cpu.max'), 'utf8')).toBe('200000 100000')
+    // the converters keep theirs
+    expect(fs.readFileSync(path.join(one.s, 'conv', 'pids.max'), 'utf8')).toBe('128')
+    expect(printCgroupState()).toBe('ok')
+    _resetCgroupsForTest()
+    const two = setup(8192)
+    expect(printCgroup()!.parallel).toBe(2)
+    expect(fs.readFileSync(path.join(two.s, 'print', 'memory.max'), 'utf8')).toBe(String(2 * PRINT_ONE_MIB * 1048576))
+    expect(fs.readFileSync(path.join(two.s, 'print', 'pids.max'), 'utf8')).toBe(String(2 * PRINT_ONE_PIDS))
+  })
+
+  test('a machine that cannot hold one print: no S/print, and HTML printing is not offered', () => {
+    setup(2048)
+    expect(printCgroup()).toBeNull()
+    expect(printCgroupState()).toBe('too_small')
+    expect(makePrintLeaf()).toBeNull()
+    for (const [mem, want] of [[2048, 512], [3072, 768], [4096, 1024], [8192, 1536], [16384, 1536]] as const) expect(printBudgetMiB(undefined, mem)).toBe(want)
+  })
+
+  test('off Linux production: free (no cgroup), no leaf', () => {
+    setupServerCgroups({ mode: 'dev', platform: 'linux' })
+    expect(printCgroupState()).toBe('free')
+    expect(makePrintLeaf()).toBeNull()
+  })
+
+  test('a print leaf: its own limits, the whole leaf killed together; cgexec into it with the print\'s OOM score', async () => {
+    const { s, helper } = setup(4096)
+    const leaf = makePrintLeaf()!
+    expect(path.dirname(leaf)).toBe(path.join(s, 'print'))
+    expect(fs.readFileSync(path.join(leaf, 'memory.max'), 'utf8')).toBe(String(PRINT_ONE_MIB * 1048576))
+    expect(fs.readFileSync(path.join(leaf, 'pids.max'), 'utf8')).toBe(String(PRINT_ONE_PIDS))
+    expect(fs.readFileSync(path.join(leaf, 'memory.oom.group'), 'utf8')).toBe('1')
+    expect(cgexecPrefix(60_000, 2, { dir: leaf, oomScoreAdj: 900 })).toEqual([helper, 'cgexec', '--cgroup', leaf, '--oom-score-adj', '900', '--rlimit-cpu', '125',
+      '--rlimit-fsize', String(1024 ** 3), '--rlimit-nofile', '1024', '--'])
+    // the fake folder holds files, so it is not removed here; the kill is written (the kernel's cgroup.kill)
+    await killPrintLeaf(leaf)
+    expect(fs.readFileSync(path.join(leaf, 'cgroup.kill'), 'utf8')).toBe('1')
   })
 })

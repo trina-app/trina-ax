@@ -1063,9 +1063,10 @@ export class TeamFiles {
   // ---------------- uploads (small and chunked end here) ----------------
   /**
    * Put an uploaded file (already on disk at `src`, server-owned) into `folder/name`. onExists: fail -> conflict,
-   * replace -> the current file becomes a version, rename -> "name (2).ext".
+   * replace -> the current file becomes a version, rename -> "name (2).ext". `event`: how the file event is recorded
+   * when the server made the file for the person (the preview's "PDF로 저장": action create, where it came from).
    */
-  async placeUpload(userId: string, folder: string, name: string, src: string, onExists: 'fail' | 'replace' | 'rename', sha: string): Promise<FileEntry> {
+  async placeUpload(userId: string, folder: string, name: string, src: string, onExists: 'fail' | 'replace' | 'rename', sha: string, event?: { action: 'create'; detail: Record<string, unknown> }): Promise<FileEntry> {
     const user = this.principal(userId)
     const rules = this.rules()
     const bad = name.includes('/') ? 'names cannot contain "/"' : badSegment(name.normalize('NFC'))
@@ -1084,7 +1085,7 @@ export class TeamFiles {
     }
     const size = fs.statSync(src).size
     installFile(this.root, r.segs, src)
-    fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: 'upload', size, sha256: sha, detail: { replaced: action === 'update' } })
+    fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: event?.action ?? 'upload', size, sha256: sha, detail: { replaced: action === 'update', ...event?.detail } })
     this.extractText(r.rel)
     this.publish([{ path: r.rel, action, by: this.by(userId), turnId: null }])
     return this.entry(user, rules, r.segs)
