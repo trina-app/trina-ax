@@ -11572,3 +11572,33 @@ An independent review found one hole and several gaps. What changed, and why:
   saving its token (409) is neither recorded nor told.
 - **No notice for a save that changes nothing** (the same address, model, name, and no new key).
 
+
+## Push: say why, the desktop app's own row, and the web ask (fix/push-errors, 2026-11-07)
+
+The owner clicked "이 기기에서 알림 받기" and got "푸시 설정을 저장하지 못했어요. 연결 상태를 확인하고 다시 시도해
+주세요." ("왜 이렇게 다시 시도해 달라 하는 거지?"); the server saw no push request at all. Every failure except a
+browser "denied" became that one line, and the desktop app offered the same Web Push button although Electron has no
+push service (`pushManager.subscribe` always fails there).
+
+- **A failure says its reason** (lib/push.ts `pushFailure`, PushNotifications.tsx `pushFailureText`). The steps tag what
+  failed (`PushError`: worker, subscribe, server), and the reason is one of: no Web Push in this browser or no https; the
+  browser's push service off or away (`AbortError`; in Brave the setting "푸시 메시지에 Google 서비스 사용", private
+  windows); the server does not take this browser's push service (`validation`: the server delivers only through
+  Google's, Mozilla's and Apple's, so Edge's WNS addresses are refused); the service worker did not start; no usable
+  server key (`unavailable` from the server itself, or the browser refusing the key: an admin is told what to fix, a
+  member only to let an admin know); too many devices (`plan_limit`); a blocked site (also the row's status line); the
+  browser's question closed; the server unreachable (a network error, or a relay's 502/503/504 without the server's
+  JSON); the server's own refusal, in its words when the code is known. "다시 시도" only for no connection, 429 and 5xx.
+- **The console gets what support needs**: unknown, push-service and worker failures with the error's name and message,
+  addresses cut out, never the endpoint or keys.
+- **The desktop app has no Web Push row.** It notifies through the computer while its window is not in front (Session
+  markers), so Settings says that, and the optional bridge call `testNotify` sends one notification now, focused or not,
+  in the same limit a minute, and answers what the system said (Electron's `show` / `failed`, else `unknown` after 5 s).
+  `failed` is read as "notifications are off for the app": the line names where to turn them on (macOS 시스템 설정 ›
+  알림 › Trina AX, Windows 설정 › 시스템 › 알림 › Trina AX). An older desktop app shows the row without the button.
+- **A web ask, because browsers ask only after a click.** One line with a hairline, no box: at the top of the main column
+  on a computer, above the tab bar on a phone browser (not in a room or an AI chat, not on Settings › Notifications).
+  Only in a web browser with Web Push whose permission is still `default`, on a server with a valid key, signed in,
+  push not turned off by the person (`optedOut`), and not put away on this device in the last 7 days (나중에) or blocked
+  from the line (for good). The server's settings and the service worker are ready before it shows, so [알림 켜기] calls
+  `enablePush` in the click and the browser's question comes before any wait.
