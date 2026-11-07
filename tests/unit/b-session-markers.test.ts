@@ -243,7 +243,9 @@ describe('notify: what is worth telling', () => {
     expect(mine.data.chat!.waiting).toBeUndefined()
     expect((await listed(chat.id))?.waiting).toBeUndefined()
     expect(await waiting).toBeNull() // timed out
-    expect(updates(other, chat.id, fromOther).length).toBe(0)
+    // the other window may hear unrelated updates of this chat meanwhile (its title, the run state): only the card
+    // must never reach it, neither as a notify nor as Chat.waiting
+    expect(updates(other, chat.id, fromOther).filter((f) => f.data.notify === 'card' || f.data.chat?.waiting === true)).toEqual([])
     await main.next('message.done', (f) => f.data.messageId === s.assistantMessage.id, 20_000)
   })
 })

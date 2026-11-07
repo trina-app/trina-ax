@@ -119,7 +119,7 @@ function PersonaSheet({ info, onClose }: { info: DemoInfo; onClose: () => void }
 /** Home's heading for a demo person: who you are here, in one line. */
 export function DemoIntro({ persona }: { persona: DemoPersona }) {
   return (
-    <h1 className="mb-6 text-center text-[22px] font-semibold tracking-tight sm:text-[26px]" data-testid="demo-intro">
+    <h1 className="mb-6 text-center text-[1.375rem] font-semibold tracking-tight sm:text-[1.625rem]" data-testid="demo-intro">
       {persona.intro}
     </h1>
   )

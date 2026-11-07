@@ -120,8 +120,9 @@ export default function Layout() {
       <ManagedNoticesBanner />
       <ScheduleReviewBanner />
       <div className="flex min-h-0 flex-1">
-        {/* sidebar: fixed column on wide screens, drawer below md */}
-        <div className="hidden w-[280px] shrink-0 border-r border-line md:block">
+        {/* sidebar: fixed column on wide screens, drawer below md. 280px at the default text size; it grows with a larger
+            one (Settings > Profile > 글자 크기) so its rows keep their words, up to 40% of a narrow window */}
+        <div className="hidden w-[min(17.5rem,40vw)] shrink-0 border-r border-line md:block">
           <Sidebar />
         </div>
         {drawer && (
