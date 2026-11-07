@@ -636,7 +636,8 @@ export default function Composer({
         )}
 
         {voice.recording ? (
-          <VoiceBar voice={voice} />
+          // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where "+" (phones) and send were
+          <VoiceBar voice={voice} className={clsx('box-content min-h-composer-line py-1 pr-2', phone ? 'pl-1.5' : 'pl-3')} />
         ) : (
           <>
             {skillMenu.menu}
@@ -659,12 +660,15 @@ export default function Composer({
               </div>
             )}
             <VoiceProgress voice={voice} text={text} className={clsx('pt-3', phone ? 'px-3' : 'px-5')} />
-            <div className={clsx('flex items-end gap-1 pr-2', phone && 'pl-1.5')}>
-              {phone && <div className="flex shrink-0 items-center pb-1.5">{attachControls}</div>}
+            {/* bottom-aligned; each control centred in a slot as tall as one text line's box (index.css
+                --spacing-composer-line: the text box's 8px bottom padding, its line and 8px above): one line, one
+                centre; more lines, the buttons stay on the last. The rest of the space under the text is the row's. */}
+            <div className={clsx('flex items-end gap-1 pr-2 pb-1', phone && 'pl-1.5')}>
+              {phone && <div className="flex h-composer-line shrink-0 items-center">{attachControls}</div>}
               {/* the "#" tokens are drawn by a layer behind the box (its own text is transparent then): the native
                   text box keeps Korean input, selection and spell check */}
               <div className="relative min-w-0 flex-1">
-                {tokens && <TokenLayer text={text} ranges={roomMenu.ranges} scrollTop={scrollTop} className={clsx('pb-3 text-reading leading-reading', phone ? 'pl-1' : 'pl-5', answering ? 'pt-1.5' : 'pt-3')} />}
+                {tokens && <TokenLayer text={text} ranges={roomMenu.ranges} scrollTop={scrollTop} className={clsx('pb-2 text-reading leading-reading', phone ? 'pl-1' : 'pl-5', answering ? 'pt-1.5' : 'pt-3')} />}
                 <textarea
                   ref={taRef}
                   rows={1}
@@ -699,11 +703,11 @@ export default function Composer({
                   // not disabled: the focus stays in the box while the words are on their way
                   readOnly={voice.busy}
                   aria-busy={transcribing || undefined}
-                  className={clsx('relative block max-h-[240px] w-full min-w-0 resize-none bg-transparent pb-3 text-reading leading-reading outline-none placeholder:text-faint', phone ? 'pl-1' : 'pl-5', answering ? 'pt-1.5' : 'pt-3', tokens && 'room-ref-field [scrollbar-gutter:stable]')}
+                  className={clsx('relative block max-h-[240px] w-full min-w-0 resize-none bg-transparent pb-2 text-reading leading-reading outline-none placeholder:text-faint', phone ? 'pl-1' : 'pl-5', answering ? 'pt-1.5' : 'pt-3', tokens && 'room-ref-field [scrollbar-gutter:stable]')}
                   data-testid="composer-input"
                 />
               </div>
-              <div className={clsx('flex shrink-0 items-center gap-1', phone && !running && !answering ? 'pb-1' : 'pb-2')}>
+              <div className="flex h-composer-line shrink-0 items-center gap-1">
                 {/* the mic right before send, as in ChatGPT's box ("+" and the engine stay where they are) */}
                 <VoiceMic voice={voice} mic={mic} disabled={sending} />
                 {answering
