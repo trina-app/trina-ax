@@ -14,12 +14,16 @@
 //    for the room, quiet hours, one per unread run) and the room's "?" (its AI waits on me), after the same wait and only
 //    while the room still wants me. One per room (tag "room-<id>"), its click opens the room. The sound stays the rooms'
 //    own (store/roomSound.ts); only the room's "?" gets a toast.
-//  - the dock badge (desktop app, macOS) follows the one count n.
+//  - the dock badge (desktop app, macOS) follows the one count n; so does an installed web app's icon (the Badging API:
+//    the Dock or taskbar of a computer, an iPhone's Home Screen): the exact n, cleared at 0 (the service worker's dot
+//    from a push while no window was open turns into it). A normal tab: the browser ignores it. The phone app has its
+//    own (native) badge.
 import { create } from 'zustand'
 import { useMemo } from 'react'
 import { API, type Chat, type Room, type ServerEvent } from '@mycel/shared/api'
 import { api } from '../lib/api'
 import { desktop } from '../lib/desktop'
+import { mobileApp } from '../lib/mobile'
 import { slideUrl } from '../lib/deckProgress'
 import { navigateTo } from '../lib/nav'
 import { roomTitle, roomWantsMe } from '../lib/rooms'
@@ -205,6 +209,24 @@ export function roomUpdated(ev: Extract<ServerEvent, { type: 'room.updated' }>, 
 }
 
 // ---------------- the window ----------------
+/** The Badging API (an installed web app): navigator.setAppBadge / clearAppBadge, where the browser has them. */
+type BadgeNavigator = { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> }
+const badgeApi = (): BadgeNavigator | null => {
+  if (typeof navigator === 'undefined' || desktop() || mobileApp()) return null
+  const nav = navigator as unknown as BadgeNavigator
+  return typeof nav.setAppBadge === 'function' ? nav : null
+}
+/** n on an installed web app's icon (0 clears it). Never throws: a refusal (not installed, notifications off, a browser
+ * that only half has it) changes nothing on the page. */
+function setWebBadge(nav: BadgeNavigator, n: number) {
+  try {
+    const done = n > 0 ? nav.setAppBadge!(n) : typeof nav.clearAppBadge === 'function' ? nav.clearAppBadge() : nav.setAppBadge!(0)
+    void Promise.resolve(done).catch(() => {})
+  } catch { /* the badge is a nicety */ }
+}
+/** a burst of changes (a resync, many rooms at once) sets the web badge once */
+export const WEB_BADGE_MS = 250
+let webBadge: BadgeNavigator | null = null
 let started = false
 const offs: (() => void)[] = []
 /** visibility, the desktop app's focus and notification clicks, /seen when the list changes, the dock badge
@@ -241,6 +263,20 @@ export function startSessionMarkers() {
     offs.push(useChats.subscribe(badge), useRooms.subscribe(badge), useSessionMarkers.subscribe(badge))
     badge()
   }
+  // an installed web app: the same n on its icon, set once when it changes (a burst waits WEB_BADGE_MS), and at once now
+  // (the worker's dot from a push while no window was open becomes the exact count)
+  const nav = (webBadge = badgeApi())
+  if (nav) {
+    let shown = -1, timer: ReturnType<typeof setTimeout> | undefined
+    const apply = () => {
+      timer = undefined
+      const { n } = currentCount()
+      if (n !== shown) { shown = n; setWebBadge(nav, n) }
+    }
+    const later = () => { if (timer === undefined) timer = setTimeout(apply, WEB_BADGE_MS) }
+    offs.push(useChats.subscribe(later), useRooms.subscribe(later), useSessionMarkers.subscribe(later), () => clearTimeout(timer))
+    apply()
+  }
 }
 
 export function stopSessionMarkers() {
@@ -252,6 +288,9 @@ export function stopSessionMarkers() {
   asked.clear()
   appFocused = null
   if (started) desktop()?.setBadgeCount?.(0)
+  // signed out (or the page closing its live state): no count of this person stays on the icon
+  if (started && webBadge) setWebBadge(webBadge, 0)
+  webBadge = null
   started = false
 }
 

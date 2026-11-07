@@ -11118,6 +11118,10 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
 - **Removed:** the product's name on top, the team name in the account line, 팀
   스킬's own count (the Inbox has the suggestion), the old cap of eight rooms that let every unread one through, the AI
   chats' date groups and filter in the default view (behind "모두 보기").
+- **A hairline at the top of the scroll while it is scrolled** (the owner, 2026-11-07: "스크롤 가능한 영역 위에 뭔가 선이라도
+  있어야 예상이 가능할 듯"). `border-line`, the same as the line above the account row, at the scroll's top edge only
+  when `scrollTop > 0` (the scroll handler it already had); none at the very top. The 1 px is always reserved
+  (transparent), so nothing moves; no animation. The phone's drawer has the same scroll and the same line.
 - The phone's drawer keeps its own layout ("Phone navigation: four tabs"); it gets the same dots.
 - Tests: `web/test/unit/sidebar.test.tsx`, `web/test/e2e/sidebar.spec.ts`, `tests/unit/b-chat-seen.test.ts`, a matrix
   case for the new route.
@@ -12310,6 +12314,38 @@ subscription was refused (`validation`) and the web ask left Edge out.
   them). `tests/unit/c-speech-hosted.test.ts` (hosted defaults unchanged; the team's key after the hosting key goes).
   `web/test/e2e/admin.spec.ts` (the missing line, the price line, the key alone turning voice input on and off with no
   settings write, removing the key keeping "Turn video sound into text"); the mock server models "not chosen".
+
+## The installed web app's icon badge (feat/pwa-badge, 2026-11-07)
+
+The owner installed Trina AX as a web app (PWA) on a MacBook: a notification came, but the Dock icon showed no number.
+Only the desktop app set one (`setBadgeCount` over its bridge); the web app never used the Badging API.
+
+- **One count everywhere.** The page sets `navigator.setAppBadge(n)` with the same n as the tab title and the desktop
+  app's Dock (store/sessionMarkers.ts `currentCount`: chats and rooms that want me, each once; a hidden room never), and
+  `clearAppBadge()` at 0 (`setAppBadge(0)` where only that exists). Once when n changes, a burst of changes waiting
+  `WEB_BADGE_MS` (250 ms); at once when the window starts; cleared when it stops (signing out). Every call is caught: a
+  refusal (not installed, notifications off, a browser that only half has it) changes nothing on the page. A normal tab
+  ignores it, so no "installed?" check is needed for the count itself.
+- **Not in the desktop app** (its own badge over the bridge) **nor the phone app** (native badge); an iPhone Home Screen
+  web app (iOS 16.4+, notifications allowed) takes the same code.
+- **No window open: a dot.** The service worker cannot know the count, so a push it shows while no window of this origin
+  is open sets `self.navigator.setAppBadge()` with no number; the first window that opens sets the exact count (or
+  clears it). Not for a push that is not shown, nor for a silent one (a page is open and played the sound: it counts
+  itself). The account changing (`push.invalidate`) clears it with the notices. Never fails a push.
+- **Settings › 알림 says where the system lets it show**, one quiet line under the push row, only on an installed web app
+  (`display-mode: standalone`, or an iPhone's Home Screen) whose browser has the API: macOS 시스템 설정 › 알림 › Trina AX
+  › "앱 아이콘에 배지 표시"; Windows 설정 › 개인 설정 › 작업 표시줄 › 작업 표시줄 동작 › "작업 표시줄 앱에 배지 표시";
+  iPhone 설정 › 알림 › Trina AX › 배지; elsewhere the system's notification settings. Five languages, no box.
+## The mic on the right (feat/mic-right, 2026-11-07, product owner)
+넣을 곳: trina-ax `web/src/components/chat/Composer.tsx` and `web/src/components/rooms/RoomComposer.tsx`, 이유: the owner
+asked for the mic on the right, as in ChatGPT ("마이크 버튼은 오른쪽에 놔두자 chatgpt처럼").
+
+- Every message box reads: the clip (or "+") on the left, the text, then the mic and send on the right, the mic right
+  before send. That is a room's box and a thread's reply box (RoomComposer) and the AI chat's box (Composer, also on the
+  new-chat page); the edit form has no mic. On a computer the AI chat's "+" and the engine picker stay in the row under
+  the box; on a phone "+" stays inside the box on the left.
+- Only the place changed: the same VoiceMic (size, a 44 px tap area on phones, the admin's hint while voice input is
+  off), the same recording bar (VoiceBar) and keys (Space held to talk, Esc to cancel).
 
 
 ## AI 앱에서 대화 읽고 쓰기 — AI apps read and write my conversations (feat/mcp-rooms, 2026-11-07, product owner)

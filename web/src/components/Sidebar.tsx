@@ -168,6 +168,8 @@ export default function Sidebar() {
   const toggleRecents = () => setRecentsOpen((v) => (remember(OPEN_KEY, v ? 'closed' : 'open'), !v))
 
   const close = () => setDrawer(false)
+  // the list below the rows is scrolled away from its top (its hairline shows)
+  const [scrolled, setScrolled] = useState(false)
   // unread inbox notifications: a count next to "Inbox" (the list itself is in Settings > Notifications)
   const unread = useInboxUnread()
   const nav = 'flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm text-ink hover:bg-hover max-md:h-11'
@@ -203,8 +205,18 @@ export default function Sidebar() {
         </div>
       )}
 
-      {/* one scroll, like Slack's: 대화 (a computer) and 트리나 기록, each capped at five with the rest behind its button */}
-      <div className="scroll-thin mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2" onScroll={peek.hide} data-testid="sidebar-scroll">
+      {/* one scroll, like Slack's: 대화 (a computer) and 트리나 기록, each capped at five with the rest behind its button. A
+          hairline at its top edge while it is scrolled, like the one above the account row, says the content runs under
+          the rows above (the owner, 2026-11-07); the 1 px is always there (transparent at the top), so nothing moves */}
+      <div
+        className={clsx('scroll-thin mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain border-t px-2 pb-2', scrolled ? 'border-line' : 'border-transparent')}
+        onScroll={(e) => {
+          peek.hide()
+          setScrolled(e.currentTarget.scrollTop > 0)
+        }}
+        data-scrolled={scrolled ? '' : undefined}
+        data-testid="sidebar-scroll"
+      >
         {wide && <SidebarRooms onNavigate={close} />}
         {/* the owner's way back to the welcome steps (onboarding/SetupRow.tsx): its own row between the sections */}
         <SetupRow onNavigate={close} />
