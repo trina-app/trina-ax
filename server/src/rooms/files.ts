@@ -8,17 +8,22 @@
 // storage check, the temp file and its sha256, the image size and thumbnail helpers, the quarantine list).
 // reconcile() runs at every start: after a restore the database and the folder may be from different moments; a file
 // without its row is set aside in .system/rooms-orphans/ for 30 days, a row without its file is only counted.
-import { createHash } from 'node:crypto'
+// fromTeamFile() makes a room upload from a team file the sender may read now ("대화방에 보내기" attaching the files an
+// answer links to, chat/answer-share.ts): the same limits (≤ 50 MB, the storage check), then create().
+import { createHash, randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
-import type { RoomFile } from '@mycel/shared/api'
+import { SMALL_UPLOAD_MAX, type RoomFile } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
 import { ext } from '../files/extract'
 import { fail } from '../http/errors'
+import { loadPrincipal } from '../policy/access'
+import { authorize, visiblePath } from '../policy/authorize'
 import { badSegment } from '../policy/names'
-import { checkRegular } from '../team-files/place'
+import { assertStorageRoom } from '../system/storage'
+import { checkRegular, openChecked } from '../team-files/place'
 import { mimeOf } from '../team-files/service'
 import { attachmentKind } from '../uploads/attachments'
 import { displaySize, makeThumbnail } from '../uploads/image'
@@ -106,6 +111,65 @@ export class RoomFiles {
     this.ctx.db.query(`INSERT INTO room_files (id, room_id, user_id, name, size, mime, kind, width, height, sha256, thumb, created_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, roomId, userId, clean, size, mimeOf(clean) ?? 'application/octet-stream', kind, dims?.width ?? null, dims?.height ?? null, stored, thumb ? 1 : 0, nowIso())
     return fileOut(this.ctx.db.query('SELECT * FROM room_files WHERE id = ?').get(id) as FileRow)
+  }
+
+  /**
+   * A copy of the team file `rel` as `userId`'s upload in this room, not sent yet (Rooms.send takes its id). Checked now,
+   * with their access today: they are in the room, may read the file (a folder, a link, a hard-linked or quarantined file
+   * and one they may not read all answer 404, the same as a missing one), it is at most 50 MB (413) and the team disk has
+   * room (507). The bytes are read from one open file (no swap between the check and the copy), hashed on the way to a
+   * temp file, then kept like an upload (create: the metadata of a photo is cut out, a quarantined hash gets no preview).
+   */
+  async fromTeamFile(userId: string, roomId: string, rel: string): Promise<RoomFile> {
+    this.member(userId, roomId)
+    const who = loadPrincipal(this.ctx.db, userId) ?? fail('not_found')
+    const fx = this.ctx.files.fx, rules = this.ctx.files.rules()
+    let abs: string, name: string
+    try {
+      const a = authorize(fx, rules, who, rel, 'read', { mustExist: true })
+      if (!a.st?.isFile() || !visiblePath(fx, rules, who, a.rel)) throw new Error('not a file I may open')
+      checkRegular(a.abs)
+      abs = a.abs
+      name = a.segs[a.segs.length - 1]!
+    } catch { return fail('not_found') }
+    let opened: { fd: number; st: fs.Stats }
+    try { opened = openChecked(abs) } catch { return fail('not_found') }
+    const tmpDir = path.join(this.ctx.config.dataDir, 'uploads', 'tmp')
+    const tmp = path.join(tmpDir, `${PRODUCT.tmpPrefix}room-${randomBytes(8).toString('hex')}`)
+    let sha: string
+    try {
+      if (opened.st.size > SMALL_UPLOAD_MAX) fail('payload_too_large')
+      assertStorageRoom(opened.st.size)
+      fs.mkdirSync(tmpDir, { recursive: true, mode: 0o700 })
+      const out = fs.openSync(tmp, 'wx', 0o600)
+      const h = createHash('sha256')
+      try {
+        const buf = Buffer.allocUnsafe(1024 * 1024)
+        let pos = 0
+        for (;;) {
+          const n = fs.readSync(opened.fd, buf, 0, buf.length, pos)
+          if (!n) break
+          pos += n
+          // it grew past the limit while being read
+          if (pos > SMALL_UPLOAD_MAX) fail('payload_too_large')
+          h.update(buf.subarray(0, n))
+          fs.writeSync(out, buf, 0, n)
+        }
+      } finally { fs.closeSync(out) }
+      sha = h.digest('hex')
+    } catch (e) {
+      fs.rmSync(tmp, { force: true })
+      throw e
+    } finally { fs.closeSync(opened.fd) }
+    try { return await this.create(userId, roomId, name, tmp, sha) } finally { fs.rmSync(tmp, { force: true }) }
+  }
+
+  /** Uploads of `userId` in this room not sent with a message: removed (a shared answer that did not go after all). */
+  discardUnsent(userId: string, roomId: string, fileIds: readonly string[]) {
+    if (!fileIds.length) return
+    const rows = this.ctx.db.query(`DELETE FROM room_files WHERE room_id = ? AND user_id = ? AND message_id IS NULL AND id IN (${fileIds.map(() => '?').join(',')}) RETURNING id, room_id`)
+      .all(roomId, userId, ...fileIds) as Pick<FileRow, 'id' | 'room_id'>[]
+    for (const f of rows) { fs.rmSync(this.abs(f), { force: true }); fs.rmSync(this.thumbAbs(f), { force: true }) }
   }
 
   /**

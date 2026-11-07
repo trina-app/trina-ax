@@ -520,7 +520,7 @@ export function AssistantMessage({
             {t('chat.queued', { n: queuePos })} <span className="text-faint">{t('chat.queueHint')}</span>
           </p>
         )}
-        {deck ? <DeckProgress build={build} steps={m.steps} streaming={streaming} start={Date.parse(m.createdAt)} chatId={chatId} /> : <Steps steps={m.steps} streaming={streaming} receipt={m.receipt} />}
+        {deck ? <DeckProgress build={build} steps={m.steps} streaming={streaming} start={Date.parse(m.createdAt)} chatId={chatId} /> : <Steps steps={m.steps} streaming={streaming} failed={m.status === 'error'} receipt={m.receipt} />}
         {thinking && (queuePos === undefined || queuePos === 0) && (
           <div className="flex h-7 items-center gap-1" aria-label={t('chat.thinking')} role="status">
             <span className="dot h-1.5 w-1.5 rounded-full bg-faint" />

@@ -2,12 +2,14 @@
 // click: a phone's home screen (iPhone, Android) and a computer (Chrome or Edge from the address bar, Safari on a Mac
 // from File → Add to Dock). The pictures are drawn with HTML so their words follow the five languages and their colours
 // follow the theme; they repeat what the caption says, so screen readers skip them. They show this team's own address
-// and icon. iOS 26: Safari's default layout has no share button in sight, it is in the ⋯ menu next to the address bar
+// and icon: the logo in the browser's tab and page, and as the installed app's icon only when it is also the app icon
+// (GET /api/me team.appIcon: square, at least 512 px; shared/src/team-icon.ts isAppIcon), as the real one is. iOS 26: Safari's default layout has no share button in sight, it is in the ⋯ menu next to the address bar
 // (older systems and the other Safari layouts show it in the toolbar: the caption says so).
 import { ChevronLeft, ChevronRight, Minus, MonitorDown, MoreHorizontal, MoreVertical, Share, Square, SquarePlus, X } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { PRODUCT } from '@mycel/shared'
+import { PRODUCT, teamIconUrl } from '@mycel/shared'
 import { useT, type MessageKey } from '../../i18n'
+import { useMe } from '../../store/session'
 
 type Translate = ReturnType<typeof useT>
 
@@ -23,7 +25,15 @@ function Phone({ children }: { children: ReactNode }) {
   )
 }
 
+/** the tab icon: the team's logo at any size, or the default mark (what /team-icon serves) */
 const TeamIcon = ({ className }: { className: string }) => <img src="/team-icon" alt="" className={className} />
+/** the default icon of the installed app (web/public/icons; also what /team-icon serves without a logo) */
+const DEFAULT_APP_ICON = '/icons/icon-512.png'
+/** the installed app's icon (install sheets, home screen, Dock, its window): the logo only when it is also the app icon */
+function AppIcon({ className }: { className: string }) {
+  const team = useMe()?.team
+  return <img src={team?.iconVersion && team.appIcon ? teamIconUrl(team.iconVersion) : DEFAULT_APP_ICON} alt="" className={className} data-testid="install-app-icon" />
+}
 const host = () => (typeof location === 'undefined' ? '' : location.host)
 
 /** the team page, as a calm outline */
@@ -124,7 +134,7 @@ function IosAdd({ t }: { t: Translate }) {
             <span className={`rounded-md px-2 py-1 ${TARGET}`}>{t('apps.mockAdd')}</span>
           </span>
           <span className="flex items-center gap-1.5 rounded-lg bg-subtle p-1.5">
-            <TeamIcon className="size-7 shrink-0 rounded-md" />
+            <AppIcon className="size-7 shrink-0 rounded-md" />
             <span className="min-w-0">
               <span className="block truncate font-semibold">{PRODUCT.displayName}</span>
               <span className="block truncate text-[9px] text-muted">{host()}</span>
@@ -182,7 +192,7 @@ function AndroidInstall({ t }: { t: Translate }) {
         <div className="flex flex-col gap-2.5 rounded-t-xl bg-surface p-2">
           <span className="flex items-center justify-between text-muted"><span className="min-w-0 truncate font-semibold text-ink">{t('apps.mockInstallApp')}</span><X size={11} className="shrink-0" /></span>
           <span className="flex items-center gap-1.5">
-            <TeamIcon className="size-7 shrink-0 rounded-full" />
+            <AppIcon className="size-7 shrink-0 rounded-full" />
             <span className="min-w-0">
               <span className="block truncate font-semibold">{PRODUCT.displayName}</span>
               <span className="block truncate text-[9px] text-muted">{host()}</span>
@@ -210,7 +220,7 @@ function HomeScreen({ round }: { round?: boolean }) {
           </span>
         ))}
         <span className={`-m-1 flex min-w-0 flex-col items-center gap-1 rounded-lg p-1 ${TARGET}`}>
-          <TeamIcon className={`aspect-square w-full ${shape}`} />
+          <AppIcon className={`aspect-square w-full ${shape}`} />
           <span className="max-w-full truncate text-[9px]">{PRODUCT.displayName}</span>
         </span>
       </div>
@@ -303,7 +313,7 @@ function ChromeInstall({ t }: { t: Translate }) {
       <div className="absolute top-[42%] right-2 flex w-[64%] flex-col gap-1.5 rounded-lg border border-line bg-surface p-1.5 shadow-md">
         <span className="font-semibold">{t('apps.mockInstallApp')}</span>
         <span className="flex items-center gap-1.5">
-          <TeamIcon className="size-5 shrink-0 rounded" />
+          <AppIcon className="size-5 shrink-0 rounded" />
           <span className="min-w-0">
             <span className="block truncate font-semibold">{PRODUCT.displayName}</span>
             <span className="block truncate text-[8px] text-muted">{host()}</span>
@@ -325,7 +335,7 @@ function AppWindow({ os }: { os: ComputerOs }) {
   const icons = (
     <>
       {Array.from({ length: 3 }, (_, i) => <span key={i} className="size-3.5 rounded bg-line" />)}
-      <span className={`flex rounded p-0.5 ${TARGET}`}><TeamIcon className="size-3.5 rounded" /></span>
+      <span className={`flex rounded p-0.5 ${TARGET}`}><AppIcon className="size-3.5 rounded" /></span>
     </>
   )
   return (
@@ -333,7 +343,7 @@ function AppWindow({ os }: { os: ComputerOs }) {
       <div className={`mx-[9%] mt-[5%] flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-line bg-canvas shadow-sm ${os === 'other' ? 'mb-[5%]' : ''}`}>
         <span className="flex items-center gap-1 border-b border-line bg-surface px-1.5 py-1">
           {os === 'mac' && <span className="flex shrink-0 gap-0.5">{['bg-danger/70', 'bg-warn/70', 'bg-ok/70'].map((c) => <span key={c} className={`size-1.5 rounded-full ${c}`} />)}</span>}
-          <TeamIcon className="size-2.5 shrink-0 rounded-sm" />
+          <AppIcon className="size-2.5 shrink-0 rounded-sm" />
           <span className="min-w-0 flex-1 truncate">{PRODUCT.displayName}</span>
           {os === 'windows' && <span className="flex shrink-0 items-center gap-1 text-muted"><Minus size={8} /><Square size={7} /><X size={8} /></span>}
         </span>
@@ -376,7 +386,7 @@ function SafariAdd({ t }: { t: Translate }) {
       <div className="flex min-h-0 flex-1 flex-col opacity-30"><Page /></div>
       <div className="absolute inset-x-[16%] top-[22%] flex flex-col gap-1.5 rounded-lg border border-line bg-surface p-1.5 shadow-md">
         <span className="flex items-center gap-1.5">
-          <TeamIcon className="size-6 shrink-0 rounded-md" />
+          <AppIcon className="size-6 shrink-0 rounded-md" />
           <span className="min-w-0 flex-1">
             <span className="block truncate rounded border border-line px-1 py-0.5">{PRODUCT.displayName}</span>
             <span className="mt-0.5 block truncate text-[8px] text-muted">{host()}</span>

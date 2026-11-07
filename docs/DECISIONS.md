@@ -1736,6 +1736,20 @@ set its own logo as the tab icon; without one it is the product's icon.
   `default-src 'none'; sandbox`, `inline`, cached for good only at `?v=<version>`. `/favicon.ico`,
   `/apple-touch-icon.png` and `/manifest.webmanifest` (installed PWA) follow it; index.html's links are rewritten on the
   server so the first load is right, `Me.team.iconVersion` keeps an open page right.
+- Amended (fix/pwa-icon-team-logo-size, 2026-11-07): the logo is the app icon only when it is square and at least
+  512 × 512 px (`isAppIcon`, `TEAM_ICON_APP_PX`). The owner's installed app looked small in the Mac's Dock: it still had
+  the pre-11-06 icon (installed apps keep theirs), but a fresh install was worse, because the manifest's only icon was
+  the logo as uploaded (e.g. 100 × 100, `purpose: any`): blurred at the Dock's 256 px and put small on a tile by Chrome
+  on macOS. Now a smaller or non-square logo is the tab icon only (`rel=icon`, `/favicon.ico`, the sidebar); the
+  manifest stays as built (icon-192, icon-512, icon-maskable-512), and the home-screen link and `/apple-touch-icon.png`
+  stay the default. A logo that passes is the manifest's only icon, `purpose: any` at `/team-icon?v=<version>` (a new
+  logo is a new address, so installed apps can pick it up), never next to the default maskable icon: Chrome on macOS
+  prefers the maskable one and would hide the logo. Not maskable itself: a logo is not drawn for the safe circle.
+  `Me.team.appIcon: true` tells the open page, the settings preview and the install pictures in Settings › Apps. The
+  hint in Admin › Team settings recommends a 512 × 512 square and says what a smaller one does. What the rule fixes is
+  the blur: Chrome on macOS still draws an icon that is not maskable inset on a tile, so a logo that passes can look
+  smaller in the Dock than the product's maskable icon. Padding it into a maskable icon would need an image library on
+  the server (still none; out of scope).
 - Native desktop and phone app icons stay the product's.
 - The computer's sidebar header shows the logo next to the team name, at `/team-icon?v=<iconVersion>` cropped square with
   `object-cover`, and the default mark when none is set. The phone drawer's header names the AI, not the team, so it keeps
@@ -12350,30 +12364,83 @@ The owner: "트리나가 말한 것들 복사하고 하는 기능 있잖아? 거
 - **Too long.** One room message holds 10,000 characters. A longer answer is cut at a line's end (an open code fence
   is closed) and ends with "…(이하 생략) 전체는 내 트리나 기록에서" in the sender's language; the picker says so before
   sending (`answerShareCut`, the same rule as the server's `answerShareBody`).
-- **Who may see what it used.** Before posting, the server takes what the answer may carry, conservatively: the
-  chat's session read scope (the sources of the "more people can see this" card: folders, my folder and what only I
-  saw, team connections, shared Drives, rooms), the files of every answer on the way from the chat's first message to
-  this one (`message_sources`: an answer may repeat what an earlier one read; skills and `.system` left out, my folder
-  kept), and the team paths the answer itself links to or shows (as names: who may list them). The session scope
-  describes only the chat's current branch since its first message: an answer off that branch (an edited or retried
-  first message started a new session), or a chat that read rooms with no room in its scope (`rooms_seen`), counts
-  everyone else as unable. Each source's readers come from the same rules as that card (`read-scope.ts
-  missingReaders`, over `viewersOf`). Every member of the room but me counts, a disabled account as unable (it would
-  read the message once enabled again). When some of them could not read one of the sources, nothing is sent: the
-  answer is `confirm` with how many people and where it came from, and the picker asks "방 사람 중 N명은 이 답에 쓰인
-  파일을 열 수 없어요. 그래도 보낼까요?" with the places. Places are named only where I may look myself (a folder I may
-  read now, my own folder, a team connection or shared Drive by its name, a team room by its group's name, the
-  everyone room); the rest is "열 수 없는 다른 곳". Never who: no person's name or id, and a 1:1 or group conversation
-  is never named (its name is people's names). In a 1:1 conversation the number is 1 and says that the other person
-  cannot open the place, as the room AI's private preview already says there. The person decides: sent again with
-  `confirm` = the number they said yes to, it goes, unless more people could not read it by then (asked again). The
-  confirm step takes one of the person's room sends (the 429 budget), so it is no free probe of who may read what.
-  Audited as `room.answer_share` (the room as audit rows name it, the number of people, confirmed, cut; no content,
-  no names).
+- **Two questions, asked apart (phase 1, feat/share-to-room-files, 2026-11-07, product owner: "ㄱㄱ 그렇게 하자").**
+  The first version counted every file read on the answer's branch plus the whole session's read scope and asked "방 사람
+  중 N명은 이 답에 쓰인 파일을 열 수 없어요. 그래도 보낼까요?" with a list of places. That was a false alarm when the room
+  could open everything it got (the AI read a quote in the person's own folder, copied it and a paired file to a shared
+  folder everyone in the room reads, linked the copies), and it mixed two questions, named no file, offered no fix and
+  defaulted to "그래도 보내기". Now the check runs on 보내기 over what the room gets (the answer part of the message, after
+  a cut), and when nothing applies the answer goes at once.
+  - **A. Access.** One row per file the answer links to or shows (`answerFilePaths`), with how many members (not me)
+    cannot open it now, by the same check as a room message's links (`rooms/service.ts fileOpener`: read access, a
+    single-link regular file, not quarantined): ✓ "모두 열 수 있어요", "{n}명은 못 열어요", or "다른 사람은 못 열어요"
+    when nobody else can. A file I cannot open now is never named and its count is everyone else ("missing": gone and not
+    mine read the same, `attach: 'hidden'`); the app shows them as "내가 열 수 없는 파일 {n}개". A row some cannot open
+    gets a **첨부** switch, on by default ("첨부하면 {n}명이 더 보게 돼요"; off: "링크만 가요"; over 50 MB: "50MB가 넘어
+    첨부할 수 없어요"); at most 10 are on. A folder link (the app opens it on the files screen) is a row of who may list
+    it, never attached. At most 100 rows: past them the rest of the links is one more row nothing is told about
+    (everyone else counted), so no link goes unasked. A member's check is the rules on the path I resolved (the file on
+    disk is the same for everyone), not a walk per member. Attached, `RoomFiles.fromTeamFile` copies the file as my room upload, with my
+    read access checked again at that moment (a folder, a link, a hard-linked or quarantined file and one I may not read
+    all answer 404 like a missing one), through the upload's own `create()` path and limits (50 MB, the storage check,
+    photo metadata cut out), before `Rooms.send`; copies that do not go are removed. Only rows of this answer that may go
+    can be attached (400 otherwise): nothing else of the team folder rides along, and room files are readable by the
+    room's members only.
+  - **B. Provenance.** One line, only when it applies: "이 답에는 방 사람 {n}명이 볼 수 없는 자료의 내용이 들어 있어요:
+    {places}", places named only where I may look myself (a folder I may read now, my own folder, a team connection or
+    shared Drive by its name, a team room by its group's name, the everyone room); none named: the sentence without them.
+    Sources: the files every answer on the branch read (`message_sources`, each with the sha256 it had), the session
+    scope's rooms, connections, shared Drives, in-app browser and every file-type source the source lists do not record
+    (below), and for an attached AI-made file what the turn that made it used (its branch's files and its chat's scope;
+    the newest content event of the file with its current hash names the turn), only when that turn is in one of my own
+    chats: another person's chat is never read (what it used would tell me who they talk to; review), and my own
+    confidential chat counts as not known. Left out: material every member can read;
+    **the hash rule**: a file whose identical content (the same sha256) a turn on this branch saved to a place every
+    member can open now, where that copy is still there with that hash (a file read without a sha256 is never left out;
+    a file moved on the branch, whose move records no hash, is looked at by its hash now; a copy I cannot open myself is
+    not looked at);
+    and linked files being attached (their row says who more will see them). An answer the scope does not describe
+    (another branch, an earlier session) gives "이 답이 참고한 자료를 다 알 수 없어요" instead of a count of everyone. A chat
+    that read rooms with no room in its scope (`rooms_seen`) still counts everyone else.
+  - **The read scope tells its sources apart (JSON only, no migration).** `{type:'user'}` gets `via: 'browser' |
+    'connection'` (the in-app browser; a personal connection or personal Drive), so own-folder files are told from
+    them; a card names all three "my folder" once. A scope started by this build is stored as `{sources, v: 2,
+    unlisted}`: `unlisted` keeps the file-type sources (folder, top, own folder) that came at least once from something
+    other than a read the answer's source list records (an attachment, project instructions, a skill, make_file's inputs,
+    search hits without a passage, more files than the list holds, a file seen with two contents in one turn, whose list
+    keeps the last hash only, and reads under skills/ and .system, which the check does not take from the list). Only the listed ones are replaced by their files'
+    rows (and so by the hash rule); unlisted ones count as they are. An older scope (no `v`) counts every source as
+    before, the safe side: its "my folder" may have been the browser or a connection.
+  - **The buttons and exits.** "첨부해서 보내기" when a switch is on, else "보내기": the focused default, also when only the
+    line shows; 취소 is secondary. 취소, ✕ and Esc all go back to the room list with the room and the note kept; the step
+    shows the note. Removed: "그래도 보내기", the list of places, "열 수 없는 다른 곳" and the one vague sentence.
+  - **The approval key.** The "confirm" answer carries `files`, `provenance` and an opaque `confirmKey`: an HMAC
+    (SHA-256) with a random secret of this server process over the room, the answer, the members, each source with who
+    misses it, the rows with who cannot open each and what each may attach. Sent back with the request, it goes; any
+    change (a member swapped for another with the same count, someone lost access, a file moved, the server restarted)
+    is a new key and the person is asked again ("그 사이 못 여는 사람이 늘었어요", `reason: 'changed'`). No id is in it. The
+    key is for the line as it reads with the files the person chose: turning a switch off can bring that file's place
+    into the line (and an attached AI-made file brings what made it), so the same state with another line is asked again
+    for that choice (`reason: 'choice'`, no "changed" line), then it goes. Older clients keep `people`/`places`/
+    `otherPlaces` (for nothing attached) and `confirm` = that number (nothing attached), with its known limit: one person
+    leaving and another joining between the question and the yes keeps the number.
+  - **Never who, nothing about existence, no free probe.** Counts only, never a person's name or id; a 1:1 or group
+    conversation is never named. A file is named only when I can open it now. Every request, the check too, takes one of
+    my room sends first (the 429 budget), and one more for every ten linked files past the first (a row per file is a
+    count per file: an answer made to link many paths costs as many sends). A confidential conversation is never
+    shared.
+  - **In the room.** A linked file a member cannot open shows its name after a lock; hover or keyboard focus says
+    "권한이 없어 열 수 없어요", and so does a tap (a toast: touch has no tooltip). Nothing of the file is loaded. An AI
+    answer in a room uses the same. An attached file's download button is named by what it shows (name, size) and then
+    "내려받기" (WCAG 2.5.3). The toast after sending says "{room}에 보냈어요 · 파일 {n}개 첨부".
+  - **Audited** as `room.answer_share`: the room as audit rows name it, the number of people (who cannot open a linked
+    file that did not go, or see material it used), confirmed, cut and the number of files attached; no content, no names.
+  - **Not done: "이미 보냄"** in the room picker. A room message does not record which answer it came from (migration 261
+    stored only where the answer starts), so it needs a column; left for later.
 - **Known limits.** Names the AI saw only in a listing (list, glob) in a personal chat are not recorded anywhere (only
   room sessions keep names), so an answer that writes such a name without a link is not caught; its own links are.
-  The confirmation is by number, not by who: one such person leaving and another joining between the question and the
-  yes keeps the number and is not asked again.
+  A turn of the branch that never ended (the server stopped mid-answer) saved no source list, so then every place of
+  the scope counts as it is.
 - **Confidential chats (Safe operations 1A)** are refused, as for skill drafts and the room AI, and have no button.
 - **Not blocked:** sending to a room the answer itself read (members who joined after those messages count as
   unable).
@@ -13190,3 +13257,38 @@ person's folder and only said that everyone could see the amounts; the person ha
   for a subfolder, the own folder, an update, an edit, a rename in place, a folder moved to the top, a confidential
   chat, a move into a new subfolder after a README; a sub-agent's file noted on its own call).
 - Version impact: **minor** (the AI places files differently and says so; no API, setting or data change).
+
+## A failed step the AI got past is not red (fix/steps-recovered-errors, 2026-11-07, product owner)
+
+- **Why.** Every step with `status: 'error'` showed a red ⓘ under the answer, and the folded "작업 N단계" a red mark. Most
+  were the AI's own trial and error that it fixed in the same answer (a guessed file name, then the right file; a
+  failed call, then one that worked). The owner: "뭔가 오류 나니깐 우리 잘못 같아". Consumer AI apps do not alarm on that.
+- **The rule** (`web/src/components/chat/Steps.tsx` `stepMark`, `stepsGotPast`). A failed step (not cut off by the
+  limit or Stop: those stay paused / stopped) is quiet, a grey CircleMinus with the shared tooltip and name "안 됐지만
+  {ai}가 다른 방법으로 이어 갔어요", when the AI went on past it. A failed look-up: any later step of the same agent,
+  or of the main AI, ended ok, or its sub-agent finished the sub-task. A failed step that would have changed something
+  (a save, a send, a video): only a later call of the same kind ended ok (the save tools `write`, `edit`,
+  `edit_files`, `make_file`, `edit_hwp` count as one kind; browser steps as one), so a failed save and then an
+  unrelated read stays red. Thinking and attached-file notes do not count. That holds in a finished, a stopped and a
+  failed answer (the failed answer's red box says what failed). It is also quiet while the
+  answer runs ("…다른 방법을 찾고 있어요" until something after it works), and, under an answer that did not fail, when
+  it only looked something up (`READ_ONLY_TOOLS` in `shared/src/step-labels.ts`, the Explore helper's tools, which now
+  come from there; and web searches). **Red** (CircleAlert, "실패", and the folded list's mark): a failure nothing got
+  past (a save, a send or a change that stayed undone, also under a finished answer; the step a failing answer ended
+  on) and a dev environment command that did not run because the environment was full (`devEnvRun.state 'expired'`;
+  the line under it says so and the AI was told not to try again). A command the person cancelled gets a muted stop
+  mark. A row with nothing to open is a plain row, not a disabled button (that swallowed the pointer and with it the
+  tooltip); a sub-task row's name carries its mark's words.
+- **No reason code.** `Step` has none that says the person must act: a connection goes through its card, a usage limit
+  ends the answer as an error, and a confirmation the person declined is a plain error step: red when no later call
+  of the same kind worked, as before this change. A follow-up for the owner: the server marks a declined step (a
+  detail or a field set on the refusal in `server/src/chat/tools.ts`) so the list shows it neutral, as the person's
+  own no.
+- **Not changed.** Rooms show no step marks (`RoomAiStatus` says the current step in words, also in the thread panel;
+  room answers have no steps), and the phone uses the same list. A scheduled run's outcome
+  (`server/src/chat/schedule-outcome.ts`) still counts every failed step and refused tool call as "problems", so its
+  inbox line can say a step did not work while the result shows only the quiet mark: a follow-up for the owner.
+- Tests: `web/test/unit/steps-recovered.test.tsx` (the rule, got-past groups, the words in five languages, the answer
+  in each state, the detail), `steps-paused` and `steps-subtasks` updated, `web/test/e2e/chat.spec.ts` (mock
+  "wrong-guess" and "save-fails").
+- Version impact: **minor** (a visible UI change; no API, setting or data change).
