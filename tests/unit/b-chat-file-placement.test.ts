@@ -203,7 +203,7 @@ describe('the note in a chat turn', () => {
 
   test('a sub-agent\'s loose file: the note goes with the sub-agent\'s own call (the main AI\'s next call has none)', async () => {
     const r = await ask(h, socks.alice!, 'alice', await chat('alice'), fake(
-      { agents: [{ id: 'toolu_FP1', type: 'general-purpose', description: 'Save a draft', steps: [{ tool: 'write', args: { file_path: 'shared/sub-loose.md', content: 'x\n' }, sayResult: true }] }] },
+      { agents: [{ id: 'toolu_FP1', type: 'general-purpose', description: 'Save a draft', steps: [{ tool: 'write', args: { file_path: 'shared/sub-loose.md', content: 'x\n' }, sayChildResult: true }] }] },
       { say: '\n--main--\n' }, { tool: 'list', args: { path: 'users/alice' }, sayResult: true }))
     expect(r.done.status).toBe('done')
     expect(has('shared/sub-loose.md')).toBe(true)

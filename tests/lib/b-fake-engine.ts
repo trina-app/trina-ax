@@ -60,8 +60,9 @@
 //                                            carry parent_tool_use_id; task_started / task_progress / task_notification
 //                                            and the Agent result (AgentOutput, or a plain string when "fail") follow.
 //                                            Child calls do not count against --max-turns (like Claude Code).
-//                                            A child tool step with "sayResult": true: after the children, the main
-//                                            session says that call's result (a test reading what the child got).
+//                                            A child tool step with "sayChildResult": true: after the children, the main
+//                                            session says that call's result (a test reading what the child got; a
+//                                            child step's "sayResult" stays ignored, as before).
 //                                            "lateAgentLine": ms (next to "agents"): the Agent line comes that late.
 //                                            A child step {"webSearch": {"query", "hits", "wrote", "textLinks"}}: a WebSearch
 //                                            with its structured result (tool_use_result) like Claude Code's.
@@ -427,7 +428,7 @@ async function runAgents(agents: any[], lateAgentLine = 0) {
         uses++
         out({ type: 'system', subtype: 'task_progress', tool_use_id: a.id, usage: { total_tokens: 100 * uses, tool_uses: uses, duration_ms: Date.now() - t0 }, last_tool_name: `mcp__team__${st.tool}` })
         const r = await childTool(a.id, st)
-        if (st.sayResult) childSaid.push(r.text)
+        if (st.sayChildResult) childSaid.push(r.text)
       } else if (st.webSearch) {
         // Claude Code's WebSearch in a child: the server's hits only in the structured result (tool_use_result), the
         // search model's own text as a string next to them; the result text may carry other links (never sources)
