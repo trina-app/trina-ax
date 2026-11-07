@@ -326,7 +326,7 @@ export async function answerCheck(ctx: AppContext, userId: string, roomId: strin
     // a member who misses a room it read only because of old answers hidden from them (or whose history is not worked
     // out): never sent, whatever is confirmed
     const audienceSet = new Set(audience)
-    const hidden = candidates.some((s) => s.type === 'room' && [...viewersByHistory(db, s.id, undefined, s.fromSeq, userId).hiddenFrom].some((id) => audienceSet.has(id)))
+    let hidden = candidates.some((s) => s.type === 'room' && [...viewersByHistory(db, s.id, undefined, s.fromSeq, userId).hiddenFrom].some((id) => audienceSet.has(id)))
     const missing = new Set<string>()
     const places = new Map<string, AnswerSharePlace>()
     const keys: string[] = []
@@ -360,6 +360,10 @@ export async function answerCheck(ctx: AppContext, userId: string, roomId: strin
         ...rows.filter((r) => r.rel).map((r): ReadSource => ({ type: 'name', path: r.rel! }))],
       unknown: unknown || roomsUnseen || rows.some((r) => r.rel === null),
     }
+    // a chat that read rooms without saying which (this answer's, or the one that made an attached file): any room may be
+    // in it, so a member with old answers hidden from them anywhere, or whose history is not worked out yet, is never
+    // sent it either (a confirm would carry it past them)
+    if (!hidden && roomsUnseen) hidden = audience.some((id) => hiddenAnywhere(db, id))
     return { missing, places: [...places.values()], otherPlaces, unknown, keys: keys.sort(), hidden, kept }
   }
 
@@ -370,6 +374,14 @@ export async function answerCheck(ctx: AppContext, userId: string, roomId: strin
 }
 
 type Check = Awaited<ReturnType<typeof answerCheck>>
+
+/** Has this person old answers hidden from them in some room, or a team room's or the everyone room's history not
+ * worked out yet (rooms/history.ts)? */
+function hiddenAnywhere(db: Database, userId: string): boolean {
+  return !!db.query('SELECT 1 FROM room_hidden_answers WHERE user_id = ? LIMIT 1').get(userId)
+    || !!db.query(`SELECT 1 FROM room_members m JOIN rooms r ON r.id = m.room_id WHERE m.user_id = ? AND r.kind IN ('team', 'all') AND r.archived_at IS NULL
+      AND m.history_from_seq IS NULL AND m.visible_from_seq > 0 LIMIT 1`).get(userId)
+}
 
 /** The members who cannot open a linked file that does not go with the message, or see some of that material. */
 const unablePeople = (c: { audience: readonly string[]; rows: readonly Row[] }, attached: ReadonlySet<string>, prov: Prov): number => {

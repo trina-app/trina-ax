@@ -588,3 +588,66 @@ describe('found in the PR review', () => {
     expect((await h.req('erin', `/api/rooms/${roomId}/messages/${pid}/share`, { method: 'POST' })).status).toBe(404)
   })
 })
+
+describe('found in the second PR review', () => {
+  /** an answer of alice's own chat that read rooms without its scope saying which (an older chat) */
+  function roomsReadChat(content: string, o: { saved?: { path: string; sha256: string } } = {}) {
+    const db = h.ctx.db
+    const chatId = uuidv7(), askId = uuidv7(), answerId = uuidv7()
+    db.query('INSERT INTO chats (id, user_id, session_read_scope, rooms_seen) VALUES (?, ?, NULL, 1)').run(chatId, 'alice')
+    db.query("INSERT INTO messages (id, chat_id, role, content, status) VALUES (?, ?, 'user', 'what did they say', 'done')").run(askId, chatId)
+    db.query("INSERT INTO messages (id, chat_id, parent_id, role, content, status) VALUES (?, ?, ?, 'assistant', ?, 'done')").run(answerId, chatId, askId, content)
+    db.query('UPDATE chats SET active_leaf_id = ? WHERE id = ?').run(answerId, chatId)
+    if (o.saved) {
+      const turnId = uuidv7()
+      db.query("INSERT INTO turns (id, chat_id, user_id, engine, status, message_id) VALUES (?, ?, 'alice', 'claude-code', 'done', ?)").run(turnId, chatId, answerId)
+      db.query('UPDATE messages SET turn_id = ? WHERE id = ?').run(turnId, answerId)
+      db.query("INSERT INTO file_events (turn_id, user_id, path, action, size, sha256) VALUES (?, 'alice', ?, 'create', 1, ?)").run(turnId, o.saved.path, o.saved.sha256)
+    }
+    return { chatId, answerId }
+  }
+  const shareIt = (a: { chatId: string; answerId: string }, body: Record<string, unknown>) =>
+    h.req('alice', `/api/chats/${a.chatId}/messages/${a.answerId}/share-to-room`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clientMessageId: cm(), ...body }) })
+
+  test('an answer of a chat that read rooms without saying which is not sent past a member with hidden answers, confirmed or not', async () => {
+    const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+    aiAnswer(roomId, 'alice', 'H3-SECRET', { sources: [folder('groups/marketing')] })
+    await setMembers(groupId, ['alice', 'erin', 'bob'])
+    const a = roomsReadChat('RESTATES H3-SECRET')
+    for (const confirm of [undefined, 5]) {
+      const r = await shareIt(a, { roomId, ...(confirm !== undefined ? { confirm } : {}) })
+      expect(r.status).toBe(409)
+      expect(await r.text()).toContain('answer_share_hidden')
+    }
+    expect(JSON.stringify(await timeline('bob', roomId))).not.toContain('H3-SECRET')
+    // where nobody else has anything hidden anywhere (dana was there from the start), the same chat is asked about as
+    // before: a confirm (erin, who has hidden answers since joining a room again in an earlier test, would block it too)
+    expect(h.ctx.db.query("SELECT COUNT(*) n FROM room_hidden_answers WHERE user_id = 'dana'").get()).toEqual({ n: 0 })
+    const { roomId: plain } = await teamRoom(['alice', 'dana'])
+    const ask = await shareIt(a, { roomId: plain })
+    expect(ask.status).toBe(200)
+    expect((await ask.json() as { status: string }).status).toBe('confirm')
+  })
+
+  test('nor an AI-made file attached from such a chat', async () => {
+    const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+    aiAnswer(roomId, 'alice', 'H4-SECRET', { sources: [folder('groups/marketing')] })
+    await setMembers(groupId, ['alice', 'erin', 'bob'])
+    const rel = 'users/alice/restated-h4.md', text = 'RESTATES H4-SECRET\n'
+    const abs = path.join(h.ctx.files.fx.root, ...rel.split('/'))
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, text)
+    roomsReadChat('made the file', { saved: { path: rel, sha256: createHash('sha256').update(text).digest('hex') } })
+    // another chat of alice's (its own scope known, nothing read) links the file: it would go as a copy
+    const db = h.ctx.db
+    const chatId = uuidv7(), askId = uuidv7(), answerId = uuidv7()
+    db.query('INSERT INTO chats (id, user_id) VALUES (?, ?)').run(chatId, 'alice')
+    db.query("INSERT INTO messages (id, chat_id, role, content, status) VALUES (?, ?, 'user', 'share it', 'done')").run(askId, chatId)
+    db.query("INSERT INTO messages (id, chat_id, parent_id, role, content, status) VALUES (?, ?, ?, 'assistant', ?, 'done')").run(answerId, chatId, askId, `the file: [restated-h4.md](/files/view?path=${rel})`)
+    db.query('UPDATE chats SET active_leaf_id = ? WHERE id = ?').run(answerId, chatId)
+    const r = await shareIt({ chatId, answerId }, { roomId })
+    expect(r.status).toBe(409)
+    expect(await r.text()).toContain('answer_share_hidden')
+    expect(db.query('SELECT COUNT(*) n FROM room_files WHERE room_id = ? AND name = ?').get(roomId, 'restated-h4.md')).toEqual({ n: 0 })
+  })
+})

@@ -27,4 +27,6 @@ CREATE TABLE room_hidden_answers (
   PRIMARY KEY (room_id, user_id, message_id)
 ) WITHOUT ROWID;
 CREATE INDEX room_hidden_answers_see ON room_hidden_answers(room_id, user_id, see_seq);
+-- by person (has anything been hidden from them anywhere; an account deleted takes its rows)
+CREATE INDEX room_hidden_answers_user ON room_hidden_answers(user_id);
 CREATE INDEX room_messages_answers ON room_messages(room_id, seq) WHERE author_kind = 'ai' OR answer_at IS NOT NULL OR source_scope IS NOT NULL;

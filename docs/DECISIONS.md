@@ -12935,14 +12935,17 @@ rooms and the everyone room; group chats and 1:1s keep it, as Slack's group DMs 
   app's `room_send`) leave out every member with a hidden answer from the source's position on, but never the person
   who read it (what reaches themselves widens nothing). A shared answer that would reach a member who misses a room it
   read only because of hidden answers (or whose history is not worked out) is refused, confirmed or not (409
-  `answer_share_hidden`: the sender cannot see what is at stake for them, as for the room AI's preview). A private preview
+  `answer_share_hidden`: the sender cannot see what is at stake for them, as for the room AI's preview); so is one whose
+  chat (or the chat that made a file going with it) read rooms without its scope saying which, while any member has old
+  answers hidden from them anywhere or a history not worked out yet (any room may be in it). A private preview
   from before 246 (reasons but no scope) is never posted in a team room or the everyone room (409 `room_ai_ask_again`):
   what it used cannot be judged against anyone's hidden answers. Someone's own message hidden from them since they
   joined again may still be deleted by them (not read or edited). Their own private previews count only from their join
   on (`canSee`, `SEE_SQL`: a preview is never walked, so one from before they left and joined again stays out of sight).
 - **Migration 264, additive (reader level stays 6; 263 is feat/ios-notification-labels').** `history_from_seq`,
   `history_recheck` on `room_members`, `room_messages.source_scope`, `room_hidden_answers(room_id, user_id, message_id,
-  see_seq)` with an index on `(room_id, user_id, see_seq)`, and a partial index of the answers for the walk. Nothing is rewritten: existing later
+  see_seq)` with indexes on `(room_id, user_id, see_seq)` and `(user_id)`, and a partial index of the answers for the
+  walk. Nothing is rewritten: existing later
   members get the history at the first start of this version, through the same walk. Rejected: setting
   `visible_from_seq` to 0 with reader level 7: an older build after a rollback would then show every hidden answer; with
   the new column it keeps showing from the join on.
@@ -12977,7 +12980,8 @@ rooms and the everyone room; group chats and 1:1s keep it, as Slack's group DMs 
   answer, a member-row query per answer): now budgeted (100 ms, cut inside a walk), linear, and the background passes
   run a second apart. A preview from before 246 could be posted past a member whose history was not worked out: no such
   preview is posted in a team room or the everyone room. Someone's own private preview from before they left and joined
-  again came back unchecked: previews keep the join floor.
+  again came back unchecked: previews keep the join floor. A share from a chat that read rooms without saying which was a
+  confirm past members with hidden answers (also for an attached file made by such a chat): refused now.
 - **Tests.** `tests/unit/b-rooms-history.test.ts` (team-room history: messages, threads, reactions, quotes, files, no
   unread or notice; group chats and 1:1s unchanged; a hidden answer as one line and nothing else, its thread, sources,
   reactions and replies refused, shown to an admin who may read it; unknown scope and the web hidden; shared answers and
