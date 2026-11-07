@@ -465,7 +465,7 @@ export class Rooms {
     const mentions = this.validMentions(roomId, userId, b.mentions)
     // "@전체" may be kept or taken out; it is added only by a send, which notifies (an edit notifies nobody)
     if (b.mentionsAll && !m.mentions_all) fail('validation', undefined, { fields: { 'body.mentionsAll': 'only a new message can mention everyone' } })
-    if (b.mentionsAll && !roomMentionAllIn(b.body)) fail('validation', undefined, { fields: { 'body.mentionsAll': 'no @전체 in the text' } })
+    if (b.mentionsAll && !roomMentionAllIn(b.body)) fail('validation', undefined, { fields: { 'body.mentionsAll': 'no @everyone mention in the text' } })
     // an edit notifies nobody (only a new message does), so a mention added later is quiet
     this.db.query('UPDATE room_messages SET body = ?, mentions = ?, mentions_all = ?, edited_at = ? WHERE id = ?').run(b.body, JSON.stringify(mentions), b.mentionsAll ? 1 : 0, nowIso(), m.id)
     const row = messageRow(this.db, roomId, messageId)!
@@ -593,7 +593,7 @@ export class Rooms {
    * start): what notifies is what the message shows. */
   private mayMentionAll(room: RoomRow, userId: string, body: string, locale?: Locale) {
     if (room.kind === 'all' && !isOwnerOrAdmin(this.db, userId)) fail('forbidden', tr('roomMentionAll', locale ?? DEFAULT_LOCALE), { params: { reason: 'room_mention_all' } })
-    if (!roomMentionAllIn(body)) fail('validation', undefined, { fields: { 'body.mentionsAll': 'no @전체 in the text' } })
+    if (!roomMentionAllIn(body)) fail('validation', undefined, { fields: { 'body.mentionsAll': 'no @everyone mention in the text' } })
   }
 
   /** The people picked as mentions, kept only when they are in the room (never myself), in the order given. */

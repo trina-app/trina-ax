@@ -65,7 +65,15 @@ export function roomAiMentions(body: string, taken: readonly string[] = []): { s
  * The web app's "@" list writes the person's language's word (its rooms.mentionAll, one of these); the server takes a
  * message's mentionsAll only when one of them stands in its text where a mention may start, so what notifies is what
  * the text shows. */
-export const ROOM_MENTION_ALL_WORDS: readonly string[] = ['전체', 'everyone', '全員', 'todos', 'semua']
+/** the everyone room's own word in each language, which "@<word>" means everyone in the room */
+const ROOM_MENTION_ALL_WORD = {
+  ko: '전체',
+  en: 'everyone',
+  ja: '全員',
+  es: 'todos',
+  id: 'semua',
+} as const
+export const ROOM_MENTION_ALL_WORDS: readonly string[] = Object.values(ROOM_MENTION_ALL_WORD)
 /** Does "@<one of ROOM_MENTION_ALL_WORDS>" stand in the text where a mention may start (the start, a space or an opening
  * mark before it)? Without regard to case. */
 export function roomMentionAllIn(body: string): boolean {
@@ -431,7 +439,7 @@ export const ROOMS = {
   getRoom: endpoint({ method: 'GET', path: '/api/rooms/:id', auth: 'user', owner: 'B', response: Room, summary: 'One room I am in (404 for anyone else, admins included).' }),
   updateRoom: endpoint({ method: 'PATCH', path: '/api/rooms/:id', auth: 'user', owner: 'B', body: UpdateRoomBody, response: Room, summary: 'Set my notification level for a room (all, mentions, off, or my default), or rename it (group chats: any member; team and everyone rooms: owner or admin members; never a DM).' }),
   listRoomMessages: endpoint({ method: 'GET', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomMessagesPage, summary: 'The timeline of a room I am in from my join on (thread replies only when sent to the room too), newest page first, oldest first within it.' }),
-  sendRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', status: 201, body: SendRoomMessageBody, response: RoomMessage, summary: 'Send a message as myself (never another author), or a reply in a thread, with @mentions (or @전체 for everyone: mentionsAll; in the everyone room owners and admins only) and files; DMs, group chats, mentions and followed threads notify.' }),
+  sendRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', status: 201, body: SendRoomMessageBody, response: RoomMessage, summary: 'Send a message as myself (never another author), or a reply in a thread, with @mentions (or @everyone, written as the everyone room word of each language: mentionsAll; in the everyone room owners and admins only) and files; DMs, group chats, mentions and followed threads notify.' }),
   listRoomThread: endpoint({ method: 'GET', path: '/api/rooms/:id/messages/:messageId/thread', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomThreadPage, summary: 'A thread in a room I am in: its root and the replies I can see (none of it when I cannot see the root).' }),
   markRoomThreadRead: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/thread/read', auth: 'user', owner: 'B', body: MarkRoomReadBody, response: RoomThreadReadState, summary: 'Move my read position in a thread I follow forward to seq; its notices count as read.' }),
   reactRoomMessage: endpoint({ method: 'PUT', path: '/api/rooms/:id/messages/:messageId/reactions', auth: 'user', owner: 'B', body: ReactRoomMessageBody, response: RoomReactions, summary: 'Put one of the fixed reactions on a message I can see, or take mine off. Never notifies.' }),
