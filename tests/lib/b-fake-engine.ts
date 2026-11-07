@@ -60,6 +60,8 @@
 //                                            carry parent_tool_use_id; task_started / task_progress / task_notification
 //                                            and the Agent result (AgentOutput, or a plain string when "fail") follow.
 //                                            Child calls do not count against --max-turns (like Claude Code).
+//                                            A child tool step with "sayResult": true: after the children, the main
+//                                            session says that call's result (a test reading what the child got).
 //                                            "lateAgentLine": ms (next to "agents"): the Agent line comes that late.
 //                                            A child step {"webSearch": {"query", "hits", "wrote", "textLinks"}}: a WebSearch
 //                                            with its structured result (tool_use_result) like Claude Code's.
@@ -392,7 +394,7 @@ function secretsVisible(): string {
 }
 
 // ---------------- sub-agents (Claude Code's Agent tool) ----------------
-async function childTool(parent: string, step: any): Promise<{ ok: boolean }> {
+async function childTool(parent: string, step: any): Promise<{ ok: boolean; text: string }> {
   await startBridge()
   const id = `toolu_${++toolN}`
   const line = () => out({ type: 'assistant', parent_tool_use_id: parent, message: { content: [{ type: 'tool_use', id, name: `mcp__team__${step.tool}`, input: step.args ?? {} }] } })
@@ -403,13 +405,14 @@ async function childTool(parent: string, step: any): Promise<{ ok: boolean }> {
   const content = r.result?.content ?? [{ type: 'text', text: JSON.stringify(r.error ?? r) }]
   const isError = !!r.result?.isError || !!r.error
   out({ type: 'user', parent_tool_use_id: parent, message: { content: [{ type: 'tool_result', tool_use_id: id, content, is_error: isError }] } })
-  return { ok: !isError }
+  return { ok: !isError, text: content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n') }
 }
 async function runAgents(agents: any[], lateAgentLine = 0) {
   if (maxTurns > 0 && turnsUsed >= maxTurns) { finish({ maxTurns: true }); return }
   turnsUsed++ // the Agent calls are one round of the main session; the children's rounds are their own
   closeBlock()
   const t0 = Date.now()
+  const childSaid: string[] = []
   const agentLine = () => out({ type: 'assistant', message: { content: agents.map((a) => ({ type: 'tool_use', id: a.id, name: 'Agent', input: { description: a.description ?? 'part', prompt: a.prompt ?? 'do it', ...(a.type ? { subagent_type: a.type } : {}) } })) } })
   // lateAgentLine: the main AI's Agent line reaches the server that long after the children started (a slow stream)
   if (lateAgentLine) setTimeout(agentLine, lateAgentLine)
@@ -423,7 +426,8 @@ async function runAgents(agents: any[], lateAgentLine = 0) {
       if (st.tool) {
         uses++
         out({ type: 'system', subtype: 'task_progress', tool_use_id: a.id, usage: { total_tokens: 100 * uses, tool_uses: uses, duration_ms: Date.now() - t0 }, last_tool_name: `mcp__team__${st.tool}` })
-        await childTool(a.id, st)
+        const r = await childTool(a.id, st)
+        if (st.sayResult) childSaid.push(r.text)
       } else if (st.webSearch) {
         // Claude Code's WebSearch in a child: the server's hits only in the structured result (tool_use_result), the
         // search model's own text as a string next to them; the result text may carry other links (never sources)
@@ -451,6 +455,7 @@ async function runAgents(agents: any[], lateAgentLine = 0) {
         message: { content: [{ type: 'tool_result', tool_use_id: a.id, content: [{ type: 'text', text: `[Subagent hand-back] ${a.report ?? `report of ${a.id}`}` }] }] } })
     }
   }))
+  for (const t of childSaid) if (!stopped) await say(t)
 }
 
 // ---------------- run the directives ----------------

@@ -196,11 +196,14 @@ describe('the note in a chat turn', () => {
 
   test('a sub-agent\'s loose file: the note goes with the sub-agent\'s own call (the main AI\'s next call has none)', async () => {
     const r = await ask(h, socks.alice!, 'alice', await chat('alice'), fake(
-      { agents: [{ id: 'toolu_FP1', type: 'general-purpose', description: 'Save a draft', steps: [{ tool: 'write', args: { file_path: 'shared/sub-loose.md', content: 'x\n' } }] }] },
-      { tool: 'list', args: { path: 'users/alice' }, sayResult: true }))
+      { agents: [{ id: 'toolu_FP1', type: 'general-purpose', description: 'Save a draft', steps: [{ tool: 'write', args: { file_path: 'shared/sub-loose.md', content: 'x\n' }, sayResult: true }] }] },
+      { say: '\n--main--\n' }, { tool: 'list', args: { path: 'users/alice' }, sayResult: true }))
     expect(r.done.status).toBe('done')
     expect(has('shared/sub-loose.md')).toBe(true)
-    expect(r.done.content).not.toContain(NOTE)
+    const [child, main] = r.done.content.split('--main--')
+    expect(child).toContain('Created shared/sub-loose.md')
+    expect(child).toContain(`${NOTE} "shared/sub-loose.md" was saved directly in "shared/"`)
+    expect(main).not.toContain(NOTE)
   })
 
   test('none for a folder moved to the top, none in a confidential chat (it cannot move files)', async () => {
