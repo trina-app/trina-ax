@@ -198,7 +198,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // some of the chat's people cannot read waits for the person's yes (chat/turn.ts confirmSharedRead)
       if (exec.shared) {
         args = exec.sharedArgs(name, args)
-        const sharedNo = await exec.confirmSharedRead(name, args)
+        // the neutral step line only for the main AI's own call (a sub-agent's step is matched by its id, not here)
+        const sharedNo = await exec.confirmSharedRead(name, args, { step: files === exec.files })
         if (sharedNo) return { ...text(sharedNo, true), summary: `${name} -> not read: not shared by the user (shared chat)` }
       }
       exec.noteTaint(name, args)
@@ -271,7 +272,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // for the person's yes (chat/turn.ts confirmSharedRead)
       if (exec.shared) {
         if (SEARCH_TOOLS.has(name) && args && typeof args === 'object') Object.assign(args, exec.sharedArgs(name, args))
-        const sharedNo = await exec.confirmSharedRead(name, args)
+        const sharedNo = await exec.confirmSharedRead(name, args, { step: !caller || caller.files === exec.files })
         if (sharedNo) return { refusal: sharedNo, summary: `${name} -> not read: not shared by the user (shared chat)` }
       }
       recordSent(exec.rt.db, exec.spec.chatId, args)

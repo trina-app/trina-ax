@@ -38,7 +38,7 @@ const J = (body: unknown): RequestInit => ({ method: 'POST', headers: { 'content
 const PATCH = (body: unknown): RequestInit => ({ ...J(body), method: 'PATCH' })
 /** one request as `who`: its status and body text */
 async function hit(who: Who, p: string, init?: RequestInit): Promise<{ status: number; text: string }> {
-  const r = await h.req(who, p, init)
+  const r = await h.req(who, p, init as Parameters<Harness["req"]>[2])
   return { status: r.status, text: await r.text() }
 }
 /** wait until the chat has no turn, so the next send is not refused as busy */
