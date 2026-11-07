@@ -52,7 +52,7 @@ test('an owner or admin gets mcp:admin without asking or ticking; what the body 
   expect(f.oauth.metadata().scopes_supported).toContain('mcp:admin')
   // the app asked for read only (what claude.ai and Claude Code ask): the owner's connection manages groups anyway
   const plain = await f.connect(f.owner.cookie!, 'mcp:read', {})
-  expect(plain).toMatchObject({ asked: ['mcp:read'], optional: ['mcp:write'], admin: true, scope: 'mcp:read mcp:admin' })
+  expect(plain).toMatchObject({ asked: ['mcp:read'], optional: ['mcp:write', 'mcp:rooms', 'mcp:rooms.write'], admin: true, scope: 'mcp:read mcp:admin' })
   // `admin: false` from the page (or a forged body) changes nothing
   const off = await f.connect(f.owner.cookie!, ALL, { admin: false })
   expect(off.scope).toBe('mcp:read mcp:write mcp:admin offline_access')
@@ -60,7 +60,7 @@ test('an owner or admin gets mcp:admin without asking or ticking; what the body 
   expect(on.scope).toBe('mcp:read mcp:write mcp:admin offline_access')
   // an admin too, with write unticked
   const admin = await f.connect(f.helper.client.cookie!, 'mcp:read', { write: false })
-  expect(admin).toMatchObject({ optional: ['mcp:write'], admin: true, scope: 'mcp:read mcp:admin' })
+  expect(admin).toMatchObject({ optional: ['mcp:write', 'mcp:rooms', 'mcp:rooms.write'], admin: true, scope: 'mcp:read mcp:admin' })
   expect(f.names(admin.token)).toEqual(['list', 'glob', 'grep', 'read', 'skills_list', ...GROUP])
   expect(f.audits('remote_mcp.connected').map(a => a.detail)).toEqual([
     { scopes: ['mcp:read', 'mcp:admin'], asked: ['mcp:read'] },
@@ -95,11 +95,11 @@ test('a member never gets mcp:admin, whatever the app asked or the body says, an
   const f = await setup('member')
   // the app asked for it and the body says admin: true: ignored
   const m = await f.connect(f.reader.client.cookie!, ALL, { admin: true })
-  expect(m).toMatchObject({ asked: ['mcp:read', 'mcp:write', 'offline_access'], optional: ['mcp:write'], admin: false })
+  expect(m).toMatchObject({ asked: ['mcp:read', 'mcp:write', 'offline_access'], optional: ['mcp:write', 'mcp:rooms', 'mcp:rooms.write'], admin: false })
   expect(m.scope).toBe('mcp:read mcp:write offline_access')
   // asked for read only: the member may still tick write, never group management
   const r1 = await f.connect(f.reader.client.cookie!, 'mcp:read', { write: true, admin: true })
-  expect(r1.optional).toEqual(['mcp:write'])
+  expect(r1.optional).toEqual(['mcp:write', 'mcp:rooms', 'mcp:rooms.write'])
   expect(r1.scope).toBe('mcp:read mcp:write')
   expect(f.names(m.token).filter(n => GROUP.includes(n))).toEqual([])
   for (const name of GROUP) {
