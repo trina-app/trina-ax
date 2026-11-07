@@ -5,8 +5,10 @@
 // rule of their own, everyone, a rule on the whole team folder. The dialog lists the people's and groups' own write rules
 // on skills/ and its folders (GET /api/admin/skill-managers) and removes one or adds one for all of skills/ (PUT
 // /api/admin/skill-managers: the same rule Folder permissions shows, the same audit). Adding warns first that every
-// teammate's AI follows what they change; a folder of its own is handed over in Folder permissions. Removing a person
-// whom a group's or everyone's rule still lets write says so first (the server's edit preview without their row).
+// teammate's AI follows what they change; a folder of its own is handed over in Folder permissions, and the line counts
+// the people who can edit only such a folder ("폴더별 2명"). The owner and admins are one "항상" row: an old rule of
+// someone made an admin later is not listed (the server refuses to remove it). Removing a person whom another rule still
+// lets write says so first, and which (the server's edit preview without their row).
 // Group skills (groups/<folder>/skills/, docs/DECISIONS.md "Group skills") are their group's members': not here.
 import clsx from 'clsx'
 import { ShieldCheck, UserRound, UsersRound } from 'lucide-react'
@@ -23,27 +25,44 @@ import { AddNamed, type NamedOption } from './AddNamed'
 
 const SKILLS = 'skills'
 /** Admin › 폴더 권한 with skills/ chosen: where a folder of skills/ is handed over, and other rules are changed. */
-export const SKILLS_FOLDER_LINK = '/admin/folders?folder=skills'
+const SKILLS_FOLDER_LINK = '/admin/folders?folder=skills'
 
-export function useSkillManagers() {
+function useSkillManagers() {
   return useLoad(async () => api.call(API.listSkillManagers))
 }
 
 /** Every active person's access at a team folder and the step that decided it, by person id (GET
- * /api/admin/access/folder, the permission function's own answer, all pages). Null while `path` is null or a value it
- * follows (`after`) is not in yet; asked again when one of them changes. */
+ * /api/admin/access/folder, the permission function's own answer, all pages). */
+async function folderPeople(path: string) {
+  const people = new Map<string, FolderAccessResponse['people'][number]>()
+  let cursor: string | undefined
+  do {
+    const r = await api.call(API.explainFolderAccess, { query: { path, limit: 2000, ...(cursor ? { cursor } : {}) } })
+    for (const p of r.people) people.set(p.user.id, p)
+    cursor = r.nextCursor ?? undefined
+  } while (cursor)
+  return people
+}
+
+/** folderPeople as a hook: null while `path` is null or a value it follows (`after`) is not in yet; asked again when one
+ * of them changes. */
 export function useFolderPeople(path: string | null, ...after: unknown[]) {
-  return useLoad(async () => {
-    if (path === null || after.some((x) => x == null)) return null
-    const people = new Map<string, FolderAccessResponse['people'][number]>()
-    let cursor: string | undefined
-    do {
-      const r = await api.call(API.explainFolderAccess, { query: { path, limit: 2000, ...(cursor ? { cursor } : {}) } })
-      for (const p of r.people) people.set(p.user.id, p)
-      cursor = r.nextCursor ?? undefined
-    } while (cursor)
-    return people
-  }, [path, ...after])
+  return useLoad(async () => (path === null || after.some((x) => x == null) ? null : folderPeople(path)), [path, ...after])
+}
+
+/** The people a rule lets write at a folder (not the owner and admins, who always can). */
+const ruleWriters = (people: Map<string, FolderAccessResponse['people'][number]>) => new Set([...people.values()].filter((p) => p.access === 'write' && p.reason.kind === 'rule').map((p) => p.user.id))
+
+/** How many people can edit only a folder of skills/ (a person's or group's rule there, none for skills/ itself): the
+ * server's answer for each of those folders, less those who write in skills/ anyway. 0 when no rule is on a folder. */
+async function folderOnlyEditors(grants: readonly SkillManagerGrant[]): Promise<number> {
+  const folders = [...new Set(grants.filter((g) => g.path !== SKILLS).map((g) => g.path))]
+  if (!folders.length) return 0
+  const [top, ...below] = await Promise.all([SKILLS, ...folders].map(folderPeople))
+  const all = ruleWriters(top!)
+  const only = new Set<string>()
+  for (const people of below) for (const id of ruleWriters(people)) if (!all.has(id)) only.add(id)
+  return only.size
 }
 
 /**
@@ -76,8 +95,8 @@ const shown = (p: string) => p + '/'
 const grantKey = (g: SkillManagerGrant) => `${g.subjectType}:${g.subjectId}:${g.path}`
 
 /** skills/ as Folder permissions shows it: who writes there, grouped by the rule that decided, and how many people
- * rules decide for. */
-type SkillsNode = { who: AccessTreeWho[]; members: number }
+ * rules decide for; and how many more can edit only a folder in it. */
+type SkillsNode = { who: AccessTreeWho[]; members: number; byFolder: number }
 
 /**
  * The Team skills page, owner and admins only: "고칠 수 있는 사람: 팀장·관리자, 영업팀 3명, Bob 님 [바꾸기]". Quiet: one
@@ -86,21 +105,30 @@ type SkillsNode = { who: AccessTreeWho[]; members: number }
  */
 export function SkillEditorsLine({ className }: { className?: string }) {
   const t = useT()
+  const textId = useId()
   const node = useLoad<SkillsNode>(async () => {
-    const r = await api.call(API.explainAccessTree, { query: { path: SKILLS, limit: 1 } })
-    return { who: r.self.who, members: r.members }
+    const [r, grants] = await Promise.all([api.call(API.explainAccessTree, { query: { path: SKILLS, limit: 1 } }), api.call(API.listSkillManagers)])
+    return { who: r.self.who, members: r.members, byFolder: await folderOnlyEditors(grants.items) }
   })
   const [open, setOpen] = useState(false)
   if (!node.data) return node.error ? null : <div className={clsx('h-5', className)} aria-hidden />
   return (
     <>
       <p className={clsx('text-xs leading-5 text-muted [overflow-wrap:anywhere]', className)} data-testid="skill-editors">
-        <span data-testid="skill-editors-text">{skillEditorsText(t, node.data.who, node.data.members)}</span>{' '}
+        <span id={textId} data-testid="skill-editors-text">
+          {skillEditorsText(t, node.data.who, node.data.members, node.data.byFolder)}
+        </span>{' '}
+        {/* a phone: 44 px to tap (a box around the word, above and below it), the line keeps its height */}
         <button
           type="button"
           aria-haspopup="dialog"
-          className="-my-1 rounded-sm py-1 font-medium whitespace-nowrap text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          onClick={() => setOpen(true)}
+          aria-describedby={textId}
+          className="relative rounded-sm font-medium whitespace-nowrap text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent max-sm:after:absolute max-sm:after:-inset-x-2 max-sm:after:-inset-y-3 max-sm:after:content-['']"
+          onClick={() => {
+            // the dialog lists what the server says now: the line asks again with it
+            void node.reload()
+            setOpen(true)
+          }}
           data-testid="skill-editors-change"
         >
           {t('skillMgr.change')}
@@ -116,7 +144,7 @@ export function SkillEditorsLine({ className }: { className?: string }) {
  * in it (removable), the editors other rules make (said, with a link to Folder permissions), and a search to add a
  * person or group for all of skills/ after the warning.
  */
-export function SkillManagerDialog({ node, onClose, onChanged }: { node: SkillsNode; onClose: () => void; onChanged: () => void }) {
+function SkillManagerDialog({ node, onClose, onChanged }: { node: SkillsNode; onClose: () => void; onChanged: () => void }) {
   const t = useT()
   const act = useAction()
   const actOk = useActionOk()
@@ -136,20 +164,24 @@ export function SkillManagerDialog({ node, onClose, onChanged }: { node: SkillsN
   useEffect(() => {
     if (picked) warning.current?.focus()
   }, [picked])
-  /** after a removal, the focus goes to the remove button now at that place, else to the search */
+  /** after a removal, once the list is asked again: the focus goes to the remove button now at that place, else to the
+   * search (the removed row's button is gone) */
   const focusAt = useRef<number | null>(null)
   useEffect(() => {
     const i = focusAt.current
-    if (i === null || !managers.data) return
+    if (i === null) return
     focusAt.current = null
     const buttons = list.current?.querySelectorAll<HTMLElement>('[data-testid="skill-editor-remove"]') ?? []
     ;(buttons[Math.min(i, buttons.length - 1)] ?? search.current)?.focus()
-  })
+  }, [managers.data])
   const failed = managers.error ?? users.error ?? groups.error
   const ready = !!managers.data && !!users.data && !!groups.data
-  const grants = managers.data?.items ?? []
+  const userOf = (id: string) => users.data?.find((u) => u.id === id)
+  // a rule of someone made the owner or an admin later stays on the folder; they are in the "항상" row (and the server
+  // refuses to remove it: managers.ts)
+  const grants = (managers.data?.items ?? []).filter((g) => g.subjectType === 'group' || userOf(g.subjectId)?.role === 'member' || !userOf(g.subjectId))
   const groupOf = (id: string) => groups.data?.find((g) => g.id === id)
-  const nameOf = (g: SkillManagerGrant) => (g.subjectType === 'group' ? groupOf(g.subjectId)?.name : users.data?.find((u) => u.id === g.subjectId)?.name) ?? '?'
+  const nameOf = (g: SkillManagerGrant) => (g.subjectType === 'group' ? groupOf(g.subjectId)?.name : userOf(g.subjectId)?.name) ?? '?'
   // the owner and admins always can (the server refuses them); people switched off cannot use it
   const people = (users.data ?? []).filter((u) => u.role === 'member' && u.status === 'active')
   const taken = new Set(grants.filter((g) => g.path === SKILLS).map((g) => `${g.subjectType}:${g.subjectId}`))
@@ -163,13 +195,17 @@ export function SkillManagerDialog({ node, onClose, onChanged }: { node: SkillsN
     setBusy(grantKey(g))
     const still = g.subjectType === 'user' && (await stillWrites(g.subjectId, [g]))
     setBusy(null)
+    // why: their own rule on a folder above (removing skills/재무/ of someone with skills/ too), else a group's or everyone's
+    const above = grants.find((h) => h.subjectType === 'user' && h.subjectId === g.subjectId && g.path.startsWith(h.path + '/'))
+    const note = !still ? '' : above ? t('skillMgr.offStillOwn', { path: shown(above.path) }) : t('skillMgr.offStillOn')
     const body = t('skillMgr.offBody', { paths: shown(g.path) })
-    if (!(await confirmDialog({ title: t('skillMgr.offTitle', { name }), body: still ? `${body} ${t('skillMgr.offStillOn')}` : body, confirm: t('common.continue'), danger: true }))) return
+    if (!(await confirmDialog({ title: t('skillMgr.offTitle', { name }), body: note ? `${body} ${note}` : body, confirm: t('skillMgr.remove'), danger: true }))) return
     setBusy(grantKey(g))
     const ok = await actOk(() => api.call(API.setSkillManager, { body: { subjectType: g.subjectType, subjectId: g.subjectId, path: g.path, enabled: false } }))
     setBusy(null)
-    // a failure was toasted already: no "turned off" over it
+    // a failure was toasted already: no "removed" over it
     if (ok) toast({ level: 'success', text: t('skillMgr.turnedOff') })
+    // the focus goes on once the list as it is now is on the screen (the effect runs when it comes)
     focusAt.current = i
     await managers.reload()
     onChanged()

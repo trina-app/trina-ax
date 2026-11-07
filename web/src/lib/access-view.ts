@@ -261,13 +261,16 @@ function writers(who: readonly AccessTreeWho[]): AccessTreeWho[] {
 
 /** skills/ and its folders: "고칠 수 있는 사람: 팀장·관리자, 영업팀 3명, Bob 님", from the folder's people as the server
  * grouped them (the owner and admins always can; write there is "팀 스킬 관리"). The Team skills page's line and
- * Admin › Folder permissions say the same. */
-export function skillEditorsText(t: T, who: readonly AccessTreeWho[], members: number): string {
+ * Admin › Folder permissions say the same. `byFolder`: people who can edit only a folder in it (the Team skills page),
+ * counted at the end ("폴더별 2명"); then it is never "only the owner and admins". */
+export function skillEditorsText(t: T, who: readonly AccessTreeWho[], members: number, byFolder = 0): string {
   const ws = writers(who)
-  if (!ws.length) return t('skillMgr.editorsAdmins')
+  const tail = byFolder > 0 ? t('skillMgr.byFolderCount', { n: byFolder }) : null
+  if (!ws.length) return tail ? t('skillMgr.editors', { list: tail }) : t('skillMgr.editorsAdmins')
   const parts = ws.slice(0, WHO_NAMED).map((w) => whoLabel(t, w, members))
   const rest = ws.slice(WHO_NAMED).reduce((n, w) => n + w.count, 0)
-  return t('skillMgr.editors', { list: rest > 0 ? t('accessTree.who.more', { list: parts.join(', '), n: rest }) : parts.join(', ') })
+  const list = rest > 0 ? t('accessTree.who.more', { list: parts.join(', '), n: rest }) : parts.join(', ')
+  return t('skillMgr.editors', { list: tail ? `${list}, ${tail}` : list })
 }
 
 /** A person's or a group's own rule on skills/ (or a folder in it) decided: what the team skills dialog lists and
