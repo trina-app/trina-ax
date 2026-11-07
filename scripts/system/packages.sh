@@ -152,6 +152,18 @@ pk_platform() {
   local a; a=$(pk_arch) || return 1
   case "${PK_UNAME_S:-$(uname -s)}" in Linux) echo "linux-$a" ;; Darwin) echo "darwin-$a" ;; *) return 1 ;; esac
 }
+# pk_os_identity: "<ID>-<VERSION_ID>/<machine-id>", the system this sync runs on (packages.synced "os"; mycel-ctl's
+# osIdentity reads the same files the same way). The machine-id is new on every clone of the image, so a reimage that
+# keeps the data disk (and the record on it) is a new system. Nothing when neither file can be read.
+pk_os_identity() {
+  local osr=${PK_OS_RELEASE:-/etc/os-release} mid=${PK_MACHINE_ID:-/etc/machine-id} id='' ver='' m=''
+  [ -r "$osr" ] || [ -r "$mid" ] || return 0
+  if [ -r "$osr" ]; then
+    id=$(. "$osr" && echo "${ID:-}"); ver=$(. "$osr" && echo "${VERSION_ID:-}")
+  fi
+  [ ! -r "$mid" ] || m=$(tr -cd '0-9a-f' < "$mid")
+  printf '%s-%s/%s' "$(printf '%s' "$id" | tr -cd 'A-Za-z0-9._-')" "$(printf '%s' "$ver" | tr -cd 'A-Za-z0-9._-')" "$m" | cut -c1-128
+}
 # conditions a package may name ("when"): true here?
 pk__userns_restricted() {
   if [ -n "${PK_USERNS_RESTRICTED:-}" ]; then [ "$PK_USERNS_RESTRICTED" = 1 ]; return; fi
@@ -529,15 +541,20 @@ pk_write_synced() {
   detail=$(printf '%s' "$4" | tr '\t\r\n' '   ' | tr -d '"\\\000-\037\177' | cut -c1-600)
   browser=$(printf '%s' "${5:-}" | tr -cd 'A-Za-z0-9._-')
   t=$(mktemp "$(dirname "$f")/.packages.synced.XXXXXX") || return 1
-  printf '{"format":1,"list":"%s","result":"%s","at":"%s","browser":"%s","detail":"%s"}\n' "$sum" "$res" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$browser" "$detail" > "$t"
+  printf '{"format":1,"list":"%s","result":"%s","at":"%s","browser":"%s","detail":"%s","os":"%s"}\n' "$sum" "$res" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$browser" "$detail" "$(pk_os_identity)" > "$t"
   chmod 644 "$t" && mv -f "$t" "$f" || { rm -f "$t"; return 1; }
 }
 
 # ---- sync (mycel-ctl update) ----
 
-# pk__apt_allowed INSTALL-JSON: may an unattended sync run apt? Only when the install said skipApt false. An install from
-# before the list wrote no skipApt (unknown: the administrator may manage packages by hand), and --skip-apt says true.
-pk__apt_allowed() { grep -Eq '"skipApt"[[:space:]]*:[[:space:]]*false' "$1" 2>/dev/null; }
+# pk__apt_allowed INSTALL-JSON: may an unattended sync run apt? When the install said skipApt false, or when it is a
+# hosted install ("hosted": true) that did not say skipApt true: the hosting service owns that machine and its image
+# came with the list's packages, so nobody manages its packages by hand. A self-hosted install from before the list wrote
+# no skipApt (unknown: the administrator may manage packages by hand), and --skip-apt says true.
+pk__apt_allowed() {
+  grep -Eq '"skipApt"[[:space:]]*:[[:space:]]*false' "$1" 2>/dev/null && return 0
+  grep -Eq '"hosted"[[:space:]]*:[[:space:]]*true' "$1" 2>/dev/null && ! grep -Eq '"skipApt"[[:space:]]*:[[:space:]]*true' "$1" 2>/dev/null
+}
 
 # pk_worse A B: the worse of two results (ok < incomplete < blocked)
 pk_worse() { case "$1:$2" in blocked:*|*:blocked) echo blocked ;; incomplete:*|*:incomplete) echo incomplete ;; *) echo ok ;; esac; }

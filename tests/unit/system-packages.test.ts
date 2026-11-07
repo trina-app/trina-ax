@@ -14,7 +14,7 @@ import { rootManaged } from '../../scripts/release/publish-server'
 import { SRT_VERSION } from '../../server/src/devenv/srt/config'
 import { officeBrowserEnv } from '../../server/src/office/cli'
 import { officePaths } from '../../server/src/office/settings'
-import { SYSTEM_PACKAGES_TEXT, systemPackagesDiagnostic, type SyncBy } from '../../server/src/system/system-packages'
+import { osIdentity, SYSTEM_PACKAGES_TEXT, systemPackagesDiagnostic, type SyncBy } from '../../server/src/system/system-packages'
 
 // several tests start bash and bun many times: generous under a loaded CI machine
 setDefaultTimeout(30_000)
@@ -334,9 +334,11 @@ pk_fetch https://example.com/x "" "" "${d}/x" || echo no-hash-refused`, { PK_BUN
     fs.rmSync(d, { recursive: true, force: true })
   })
 
-  test('sync runs apt unattended only where the install said skipApt false (not before the list, not --skip-apt)', () => {
+  test('sync runs apt unattended where the install said skipApt false or is hosted (not a self-hosted one from before the list, not --skip-apt)', () => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-apt-'))
-    const cases: [string, boolean][] = [['{"format":1,"skipApt":false}', true], ['{"format":1,"skipApt":true}', false], ['{"format":1,"systemd":true}', false]]
+    const cases: [string, boolean][] = [['{"format":1,"skipApt":false}', true], ['{"format":1,"skipApt":true}', false], ['{"format":1,"systemd":true}', false],
+      // a hosted install from before the list (no skipApt): the hosting service owns the machine, apt is allowed
+      ['{"format":1,"hosted": true,"systemd":true}', true], ['{"format":1,"hosted":true,"skipApt":true}', false], ['{"format":1,"hosted":false}', false]]
     for (const [json, allowed] of cases) {
       fs.writeFileSync(path.join(d, 'install.json'), json)
       expect(`${json}: ${lib(`pk__apt_allowed "${d}/install.json" && echo yes || echo no`).out.trim()}`).toBe(`${json}: ${allowed ? 'yes' : 'no'}`)
@@ -383,12 +385,38 @@ pk_fetch https://example.com/x "" "" "${d}/x" || echo no-hash-refused`, { PK_BUN
 
   test('the sync record is always JSON: control characters, quotes and backslashes are taken out', () => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-rec-'))
-    const r = lib(`pk_write_synced "${d}/packages.synced" abc incomplete "$(printf 'line one\\nline\\ttwo \\001\\033[31m "quoted" back\\\\slash')" "157.0.8103.38;rm"`)
+    const r = lib(`pk_write_synced "${d}/packages.synced" abc incomplete "$(printf 'line one\\nline\\ttwo \\001\\033[31m "quoted" back\\\\slash')" "157.0.8103.38;rm"`,
+      { PK_OS_RELEASE: path.join(d, 'none'), PK_MACHINE_ID: path.join(d, 'none') })
     expect(r.code).toBe(0)
     const j = JSON.parse(fs.readFileSync(path.join(d, 'packages.synced'), 'utf8'))
-    expect(j).toMatchObject({ format: 1, list: 'abc', result: 'incomplete', browser: '157.0.8103.38rm' })
+    expect(j).toMatchObject({ format: 1, list: 'abc', result: 'incomplete', browser: '157.0.8103.38rm', os: '' })
     expect(j.detail).toBe('line one line two [31m quoted backslash')
     expect(fs.readdirSync(d)).toEqual(['packages.synced'])
+    fs.rmSync(d, { recursive: true, force: true })
+  })
+
+  test('the sync record names the system (os-release and machine-id), the same string as mycel-ctl and the server read', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-os-'))
+    // the fixture of native/cmd/mycel-ctl TestSyncRecordNamesTheSystem
+    fs.writeFileSync(path.join(d, 'os-release'), 'PRETTY_NAME="Debian GNU/Linux 13 (trixie)"\nID=debian\nVERSION_ID="13"\n')
+    fs.writeFileSync(path.join(d, 'machine-id'), '0123456789abcdef0123456789abcdef\n')
+    const env = { PK_OS_RELEASE: path.join(d, 'os-release'), PK_MACHINE_ID: path.join(d, 'machine-id') }
+    const want = 'debian-13/0123456789abcdef0123456789abcdef'
+    expect(lib('pk_os_identity', env).out).toBe(want)
+    expect(lib(`pk_write_synced "${d}/packages.synced" abc ok "" ""`, env).code).toBe(0)
+    expect(JSON.parse(fs.readFileSync(path.join(d, 'packages.synced'), 'utf8')).os).toBe(want)
+    expect(osIdentity({ osRelease: env.PK_OS_RELEASE, machineId: env.PK_MACHINE_ID })).toBe(want)
+    expect(osIdentity({ osRelease: path.join(d, 'none'), machineId: path.join(d, 'none') })).toBe('')
+    // the server's diagnostics: a record of another system (a reimage keeps the data disk) is pending, not ok
+    const root = path.join(d, 'root'); fs.mkdirSync(root)
+    fs.writeFileSync(path.join(root, 'packages.json'), '{"format":1}')
+    const sum = new Bun.CryptoHasher('sha256').update('{"format":1}').digest('hex')
+    const diag = (osName: string) => {
+      fs.writeFileSync(path.join(root, 'packages.synced'), JSON.stringify({ format: 1, list: sum, result: 'ok', at: '2026-11-07T00:00:00Z', os: osName }))
+      return systemPackagesDiagnostic(root, { by: 'hosted', when: (x) => x, os: { osRelease: env.PK_OS_RELEASE, machineId: env.PK_MACHINE_ID } })?.status
+    }
+    expect(diag(want)).toBe('ok')
+    expect(diag('debian-13/ffffffffffffffffffffffffffffffff')).toBe('warn')
     fs.rmSync(d, { recursive: true, force: true })
   })
 
@@ -686,13 +714,15 @@ describe('updates carry the list', () => {
   test('Admin › System › Diagnostics says where the sync of the list in root/ stands, and who does it next', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-diag-'))
     const when = (iso: string) => `[${iso}]`
-    const o = { by: 'timer' as const, when }
+    // no system files: the records below carry no "os", as on this test's machine (the os check has its own test)
+    const noOs = { osRelease: path.join(root, 'no-os-release'), machineId: path.join(root, 'no-machine-id') }
+    const o = { by: 'timer' as const, when, os: noOs }
     expect(systemPackagesDiagnostic(null, o)).toBeNull()
     expect(systemPackagesDiagnostic(root, o)).toBeNull() // a server from before the list
     const list = '{"format":1}'
     fs.writeFileSync(path.join(root, 'packages.json'), list)
     const sum = new Bun.CryptoHasher('sha256').update(list).digest('hex')
-    const at = (r: Record<string, string>, by: SyncBy = 'timer') => { fs.writeFileSync(path.join(root, 'packages.synced'), JSON.stringify({ format: 1, list: sum, at: '2026-11-07T03:12:00Z', ...r })); return systemPackagesDiagnostic(root, { by, when })! }
+    const at = (r: Record<string, string>, by: SyncBy = 'timer') => { fs.writeFileSync(path.join(root, 'packages.synced'), JSON.stringify({ format: 1, list: sum, at: '2026-11-07T03:12:00Z', ...r })); return systemPackagesDiagnostic(root, { by, when, os: noOs })! }
     expect(systemPackagesDiagnostic(root, o)).toEqual({ status: 'warn', text: SYSTEM_PACKAGES_TEXT.pending('timer') }) // never synced
     expect(at({ result: 'ok', browser: '157.0.8103.38' })).toEqual({ status: 'ok', text: SYSTEM_PACKAGES_TEXT.ok('[2026-11-07T03:12:00Z]', '157.0.8103.38') })
     expect(at({ result: 'ok', list: 'other' }).text).toEqual(SYSTEM_PACKAGES_TEXT.pending('timer'))

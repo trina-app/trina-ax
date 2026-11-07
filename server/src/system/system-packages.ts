@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Locale } from '@mycel/shared/api'
 
-export interface SyncRecord { format: 1; list: string; result: 'ok' | 'incomplete' | 'blocked'; at: string; browser?: string; detail?: string }
+export interface SyncRecord { format: 1; list: string; result: 'ok' | 'incomplete' | 'blocked'; at: string; browser?: string; detail?: string; os?: string }
 
 const read = (p: string, max: number): Buffer | null => {
   try {
@@ -15,6 +15,28 @@ const read = (p: string, max: number): Buffer | null => {
     if (!st.isFile() || st.size > max) return null
     return fs.readFileSync(p)
   } catch { return null }
+}
+
+/** Where this system's identity is read (tests pass fixtures). */
+export interface OsFiles { osRelease: string; machineId: string }
+const OS_FILES: OsFiles = { osRelease: '/etc/os-release', machineId: '/etc/machine-id' }
+
+/** "<ID>-<VERSION_ID>/<machine-id>": the system a sync ran on, the same string as packages.sh pk_os_identity and
+ * mycel-ctl's osIdentity. A reimage that keeps the data disk (and root/packages.synced on it) gets a new machine-id.
+ * "" when neither file can be read. */
+export function osIdentity(files: OsFiles = OS_FILES): string {
+  const osr = read(files.osRelease, 64 << 10)?.toString('utf8')
+  const mid = read(files.machineId, 4 << 10)?.toString('utf8')
+  if (osr === undefined && mid === undefined) return ''
+  const field = (k: string) => {
+    for (const line of (osr ?? '').split('\n')) {
+      const i = line.indexOf('=')
+      if (i > 0 && line.slice(0, i) === k) return line.slice(i + 1).replace(/^["']+|["']+$/g, '')
+    }
+    return ''
+  }
+  const word = (x: string) => x.replace(/[^A-Za-z0-9._-]/g, '')
+  return `${word(field('ID'))}-${word(field('VERSION_ID'))}/${(mid ?? '').replace(/[^0-9a-f]/g, '')}`.slice(0, 128)
 }
 
 /** The sync state of rootDir: null on a server from before the list (or not Linux); the record may be missing. */
@@ -108,11 +130,12 @@ export const SYSTEM_PACKAGES_TEXT = {
 }
 
 /** The diagnostics line, or null on a server without the list. when: a record's time as people read it. */
-export function systemPackagesDiagnostic(rootDir: string | null, o: { by: SyncBy; when: (iso: string) => string }): { status: 'ok' | 'warn'; text: T } | null {
+export function systemPackagesDiagnostic(rootDir: string | null, o: { by: SyncBy; when: (iso: string) => string; os?: OsFiles }): { status: 'ok' | 'warn'; text: T } | null {
   const s = systemPackagesState(rootDir)
   if (!s) return null
   const r = s.record
-  if (!r || r.list !== s.list) return { status: 'warn', text: SYSTEM_PACKAGES_TEXT.pending(o.by) }
+  // a record of another system (a reimage, an OS upgrade) or from before the "os" field: mycel-ctl syncs again
+  if (!r || r.list !== s.list || (r.os ?? '') !== osIdentity(o.os)) return { status: 'warn', text: SYSTEM_PACKAGES_TEXT.pending(o.by) }
   if (r.result === 'ok') return { status: 'ok', text: SYSTEM_PACKAGES_TEXT.ok(o.when(r.at), r.browser ?? '') }
   if (r.result === 'blocked') return { status: 'warn', text: SYSTEM_PACKAGES_TEXT.blocked(r.detail ?? '') }
   return { status: 'warn', text: SYSTEM_PACKAGES_TEXT.incomplete(o.when(r.at), r.detail ?? '', o.by) }
