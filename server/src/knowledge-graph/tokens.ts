@@ -1,8 +1,8 @@
 // A rough token count for text the knowledge graph puts in front of the model (the lookup block before the model
 // starts, the knowledge_explore answer). Budgets are in tokens, not characters: Korean and other non-Latin text takes
 // far more tokens per character than English, so a character budget let a Korean block grow to two or three times the
-// planned size (review of wave 1). The estimate leans high so the real count stays under the budget: about 4 ASCII
-// characters per token, and 0.8 of a token for every other character.
+// planned size (review of wave 1). About 4 ASCII characters per token, and 1 token for every other character (Korean
+// is about 1 per character), so a Korean block stays within its budget.
 
 /** estimated tokens of `text` */
 export function estimateTokens(text: string): number {
@@ -12,7 +12,7 @@ export function estimateTokens(text: string): number {
     if (ch.charCodeAt(0) < 0x80) ascii++
     else other++
   }
-  return Math.ceil(ascii / 4 + other * 0.8)
+  return Math.ceil(ascii / 4 + other)
 }
 
 /** `text` cut at a whole character so that it fits `budget` estimated tokens (the whole text when it fits) */
@@ -22,7 +22,7 @@ export function fitTokens(text: string, budget: number): string {
   let used = 0
   let i = 0
   for (const ch of text) {
-    used += ch.charCodeAt(0) < 0x80 ? 0.25 : 0.8
+    used += ch.charCodeAt(0) < 0x80 ? 0.25 : 1
     if (used > budget) break
     i += ch.length
   }
