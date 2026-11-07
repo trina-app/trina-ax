@@ -116,6 +116,8 @@ pin, the trina-ax maintainers own the bumps; Medium 1, the sync record names the
 hosted installs may run apt; M3, the image builds read the kit's list and stop when it is not the checkout's; M5, the
 drift check's allowlist is per command; question 2, the image's free disk in the AMI build log; question 4, HTML to PDF in
 Docker only with `TRINA_AX_PACKAGE_GROUPS="fonts browser"` (and the packages step runs in bash: sh could not source
-packages.sh); question 6, a real Korean print in the Linux install test. Left for a decision: M4 (dev environment
-packages on request) and question 7 (a Linux-only list in the Linux bundle). The CI unit failure was the test: its
+packages.sh); question 6, a real Korean print in the Linux install test. Question 7 (owner): the Linux bundle ships a Linux copy of
+the list (`packages.ts linuxList`, no darwin platforms), so a Mac-only change is no root release; the image builds
+compare the kit's copy with the checkout's Linux copy. M4 (owner): the dev environment's packages stay in the default
+groups on every server, because the dev environment is on by default. The CI unit failure was the test: its
 command-line check read the runner's kernel (`apparmor_restrict_unprivileged_userns`).

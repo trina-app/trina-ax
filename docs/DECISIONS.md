@@ -12950,11 +12950,15 @@ the infra engineer agreed on one shared list, a CI check that fails when the scr
   and stop when they are missing (a kit from before the list) or differ from the checkout's `scripts/system/`; a kitless
   dry run takes the checkout's. `ami-chroot.sh` prints the image's free disk in the build log and warns below 5 GiB
   (question 2).
-- Left: Ubuntu 24.04 is in the list for the installer but not for `install-srt.sh` (AppArmor, spike S6). Two review
-  follow-ups wait for a decision: the dev environment's packages on request instead of by default (M4: it changes what a
-  plain install and the image get, which the owner and the infra engineer agreed on), and a Linux-only copy of the list in
-  the Linux bundle so a Mac-only change is no root release (question 7: it changes what `rootSince` compares). The office Mac shows no sync state in Diagnostics
-  (it has no root/; the browser is there or not).
+- **A Linux copy of the list in the Linux bundle (PR #164 review, question 7, owner).** `build-bundle.ts` writes
+  `root/packages.json` as `packages.ts linuxList`: the list without the darwin platforms and with a fixed `_about`. A
+  Mac-only change leaves `root/` byte for byte the same, so it is no root release (each root release restarts the
+  launcher and loads the firewall again on every server). `build.sh` and `build-ami.sh` compare the kit's copy with the
+  checkout's Linux copy (`bun scripts/system/packages.ts linux`); the office zip keeps the full list.
+- **The dev environment's packages stay in the default groups (PR #164 review, M4, owner).** Every server installs them,
+  because the dev environment is on by default (the product owner's earlier decision); M4's "on request" is not done.
+- Left: Ubuntu 24.04 is in the list for the installer but not for `install-srt.sh` (AppArmor, spike S6). The office Mac
+  shows no sync state in Diagnostics (it has no root/; the browser is there or not).
 
 ## 알림함의 대화 알림 — who, where and why in the Inbox (feat/inbox-room-notices, 2026-11-07, product owner)
 넣을 곳: trina-ax `server/src/rooms/inbox.ts` (with `notifications/service.ts`, `notifications/text.ts`, migration 262),
