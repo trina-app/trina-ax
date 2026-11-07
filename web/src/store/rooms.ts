@@ -8,7 +8,7 @@
 import { create } from 'zustand'
 import { uuidv7, type Room, type RoomAlertSettings, type ShareAnswerToRoomResult, type RoomNotifyLevel, type RoomAiRun, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomReactionEmoji, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError } from '../lib/api'
-import { withRun, withRunPosition, withRunStep, type PickedMention } from '../lib/rooms'
+import { mentionsMe, withRun, withRunPosition, withRunStep, type PickedMention } from '../lib/rooms'
 import { navigateTo } from '../lib/nav'
 import { currentLocale, t } from '../i18n'
 import { useSession } from './session'
@@ -52,6 +52,8 @@ export interface PendingSend {
   clientMessageId: string
   body: string
   mentions: string[]
+  /** "@전체" picked in the box */
+  mentionsAll?: boolean
   files: RoomFile[]
   /** a reply in this thread (null: a message of the timeline) */
   threadRootId: string | null
@@ -128,7 +130,7 @@ export function withMessage(d: RoomsData, roomId: string, m: RoomMessage, meId: 
     activityAt: fresh && time(m.createdAt) > time(room.activityAt) ? m.createdAt : room.activityAt,
     unreadCount: read && fresh ? 0 : counts ? Math.min(999, room.unreadCount + 1) : room.unreadCount,
     // (a followed thread's mention stays until that thread is read; room.read says so exactly)
-    mentioned: read && fresh ? room.threadsUnread > 0 && room.mentioned : room.mentioned || (counts && !!meId && m.mentions.includes(meId)),
+    mentioned: read && fresh ? room.threadsUnread > 0 && room.mentioned : room.mentioned || (counts && mentionsMe(m, meId)),
     lastReadSeq: read ? Math.max(room.lastReadSeq, m.seq) : room.lastReadSeq,
   }
   return { ...d, rooms: sortRooms(d.rooms.map((r) => (r.id === roomId ? next : r))), timeline, threadView }
@@ -236,7 +238,7 @@ const myRef = () => {
   return s.kind === 'signed-in' ? { id: s.me.user.id, name: s.me.user.name } : null
 }
 
-export interface SendInput { body: string; mentions: string[]; files: RoomFile[]; threadRootId?: string | null; alsoInRoom?: boolean }
+export interface SendInput { body: string; mentions: string[]; mentionsAll?: boolean; files: RoomFile[]; threadRootId?: string | null; alsoInRoom?: boolean }
 
 interface RoomsState extends RoomsData {
   loaded: boolean
@@ -270,7 +272,7 @@ interface RoomsState extends RoomsData {
   send: (roomId: string, input: SendInput) => void
   retry: (roomId: string, clientMessageId: string) => void
   discard: (roomId: string, clientMessageId: string) => void
-  edit: (roomId: string, messageId: string, body: string, mentions: string[]) => Promise<void>
+  edit: (roomId: string, messageId: string, body: string, mentions: string[], mentionsAll?: boolean) => Promise<void>
   remove: (roomId: string, messageId: string) => Promise<void>
   /** put my reaction on a message, or take it off (shown at once; the server's answer wins) */
   react: (roomId: string, messageId: string, emoji: RoomReactionEmoji, on: boolean) => Promise<void>
@@ -352,7 +354,7 @@ export const useRooms = create<RoomsState>((set, get) => {
 
   const post = async (roomId: string, p: PendingSend) => {
     try {
-      const m = await api.call(API.sendRoomMessage, { params: { id: roomId }, body: { body: p.body, mentions: p.mentions, fileIds: p.files.map((f) => f.id), clientMessageId: p.clientMessageId, ...(p.threadRootId ? { threadRootId: p.threadRootId, alsoInRoom: p.alsoInRoom } : {}) } })
+      const m = await api.call(API.sendRoomMessage, { params: { id: roomId }, body: { body: p.body, mentions: p.mentions, ...(p.mentionsAll ? { mentionsAll: true } : {}), fileIds: p.files.map((f) => f.id), clientMessageId: p.clientMessageId, ...(p.threadRootId ? { threadRootId: p.threadRootId, alsoInRoom: p.alsoInRoom } : {}) } })
       set((s) => withMessage(s, roomId, m, myId()))
       setPending(roomId, (list) => list.filter((x) => x.clientMessageId !== p.clientMessageId))
     } catch (e) {
@@ -515,7 +517,7 @@ export const useRooms = create<RoomsState>((set, get) => {
     },
 
     send(roomId, input) {
-      const p: PendingSend = { clientMessageId: uuidv7(), body: input.body, mentions: input.mentions, files: input.files, threadRootId: input.threadRootId ?? null, alsoInRoom: !!input.threadRootId && !!input.alsoInRoom, state: 'sending', createdAt: new Date().toISOString() }
+      const p: PendingSend = { clientMessageId: uuidv7(), body: input.body, mentions: input.mentions, ...(input.mentionsAll ? { mentionsAll: true } : {}), files: input.files, threadRootId: input.threadRootId ?? null, alsoInRoom: !!input.threadRootId && !!input.alsoInRoom, state: 'sending', createdAt: new Date().toISOString() }
       setPending(roomId, (list) => [...list, p])
       void post(roomId, p)
     },
@@ -532,8 +534,8 @@ export const useRooms = create<RoomsState>((set, get) => {
       setPending(roomId, (list) => list.filter((x) => x.clientMessageId !== clientMessageId))
     },
 
-    async edit(roomId, messageId, body, mentions) {
-      const m = await api.call(API.editRoomMessage, { params: { id: roomId, messageId }, body: { body, mentions } })
+    async edit(roomId, messageId, body, mentions, mentionsAll) {
+      const m = await api.call(API.editRoomMessage, { params: { id: roomId, messageId }, body: { body, mentions, ...(mentionsAll ? { mentionsAll: true } : {}) } })
       set((s) => withUpdatedMessage(s, roomId, m))
     },
 

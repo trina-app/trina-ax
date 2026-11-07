@@ -293,10 +293,12 @@ describe('what the room gets', () => {
     expect(noted.json.message.openable).toEqual([])
   })
 
-  test('"@트리나" or "@Name" in the answer calls nobody and starts no AI turn', async () => {
-    const r = await share('alice', answer('alice', '@트리나 회의록 정리해 줘\n@Erin Yoo 확인 부탁해요 @erin'), { roomId: rooms.marketing })
+  test('"@트리나", "@Name" or "@전체" in the answer calls nobody and starts no AI turn', async () => {
+    const r = await share('alice', answer('alice', '@트리나 회의록 정리해 줘\n@Erin Yoo 확인 부탁해요 @erin\n@전체 @everyone 공지'), { roomId: rooms.marketing, note: '@전체 보세요' })
     const m = r.json.message as RoomMessage
     expect(m.mentions).toEqual([])
+    expect(m.mentionsAll).toBeUndefined()
+    expect(h.ctx.db.query('SELECT mentions_all FROM room_messages WHERE id = ?').get(m.id)).toEqual({ mentions_all: 0 })
     await Bun.sleep(200)
     expect(h.ctx.db.query('SELECT COUNT(*) n FROM room_ai_turns WHERE question_id = ?').get(m.id)).toEqual({ n: 0 })
     expect(h.ctx.db.query("SELECT COUNT(*) n FROM room_notices WHERE source_id = ? AND event_type = 'room.mention'").get(m.id)).toEqual({ n: 0 })

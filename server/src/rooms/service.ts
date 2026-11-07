@@ -26,7 +26,7 @@
 // answer is the other writer of room_messages (author_kind 'ai', asked_by = who asked); a private preview (visibility
 // 'private', visible_to = who asked) is filtered everywhere (canSee / SEE_SQL) and makes no notice (notify()).
 import type { Database } from 'bun:sqlite'
-import { inQuietHours, roomAlert, roomLevel, ROOM_GROUP_MAX, type Locale, type RoomAlertSettings, type RoomNotifyLevel, type Room, type RoomMember, type RoomMessage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, inQuietHours, roomAlert, roomLevel, ROOM_GROUP_MAX, type Locale, type RoomAlertSettings, type RoomNotifyLevel, type Room, type RoomMember, type RoomMessage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput } from '@mycel/shared/api'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
@@ -45,7 +45,7 @@ import {
 import { roomFilesOf } from './files'
 import { roomAiOf, type AskOptions } from './ai'
 import { tr } from '../chat/i18n'
-import { roomAiCalled } from '@mycel/shared/api'
+import { roomAiCalled, roomMentionAllIn } from '@mycel/shared/api'
 import { loadPrincipal } from '../policy/access'
 import { authorize, visiblePath } from '../policy/authorize'
 
@@ -59,7 +59,7 @@ export const SEND_PER_SECOND = 1
 export const GROUPS_PER_HOUR = 10
 const HOUR_MS = 3_600_000
 
-export interface SendInput { body: string; replyToId?: string | null; threadRootId?: string | null; alsoInRoom?: boolean; mentions: string[]; fileIds: string[]; clientMessageId: string }
+export interface SendInput { body: string; replyToId?: string | null; threadRootId?: string | null; alsoInRoom?: boolean; mentions: string[]; mentionsAll?: boolean; fileIds: string[]; clientMessageId: string }
 /** Rooms.send's `answer` (never from a request body): the message carries an answer of the sender's own AI chat
  * ("대화방에 보내기", chat/answer-share.ts) that starts at `at` in the body; `cut`: it was cut to fit; `people`: the
  * members who could not read what it used (the person said yes to sending anyway when more than 0), for the audit.
@@ -418,8 +418,8 @@ export class Rooms {
    * message that calls the AI is checked for that first (rooms/ai.ts precheck: a refusal sends nothing), then asks it.
    * With threadRootId it is a reply in that message's thread (see the top of this file).
    * `answer` (chat/answer-share.ts only, never a request's body): the message carries an answer of my own AI chat. It
-   * mentions nobody and never calls the room's AI, whatever its text says ("@트리나", "@Name" in the answer are the
-   * AI's words, not a call), and is neither a reply nor in a thread. */
+   * mentions nobody (nor "@전체") and never calls the room's AI, whatever its text says ("@트리나", "@Name" in the answer
+   * are the AI's words, not a call), and is neither a reply nor in a thread. */
   send(userId: string, roomId: string, b: SendInput, o: AskOptions = {}, answer?: SharedAnswerMark): RoomMessage {
     const { room, me } = this.mine(userId, roomId)
     const again = this.db.query(`SELECT ${MSG_COLS} FROM room_messages WHERE room_id = ? AND author_id = ? AND client_id = ?`).get(roomId, userId, b.clientMessageId) as MessageRow | null
@@ -427,6 +427,7 @@ export class Rooms {
     // a reply goes in a thread or quotes (an older app), never both; "also to the room" is a thread reply's
     if (b.threadRootId && b.replyToId) fail('validation', undefined, { fields: { 'body.replyToId': 'not with threadRootId' } })
     if (b.alsoInRoom && !b.threadRootId) fail('validation', undefined, { fields: { 'body.alsoInRoom': 'only with threadRootId' } })
+    if (b.mentionsAll && !answer) this.mayMentionAll(room, userId, b.body, o.locale)
     if (!answer) this.takeSendToken(userId)
     if (b.replyToId) {
       const q = messageRow(this.db, roomId, b.replyToId)
@@ -455,9 +456,9 @@ export class Rooms {
     let seq = 0
     this.db.transaction(() => {
       seq = (this.db.query(`UPDATE rooms SET last_seq = last_seq + 1${inTimeline ? ', activity_at = ?' : ''} WHERE id = ? RETURNING last_seq`).get(...(inTimeline ? [now, roomId] : [roomId])) as { last_seq: number }).last_seq
-      this.db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, reply_to_id, mentions, client_id, created_at, thread_root_id, thread_root_seq, also_in_room, answer_at, answer_cut)
-        VALUES (?, ?, ?, 'user', ?, 'room', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, roomId, seq, userId, b.body, b.replyToId ?? null, JSON.stringify(mentions), b.clientMessageId, now, root?.id ?? null, root?.seq ?? null, root && b.alsoInRoom ? 1 : 0,
-        answer ? answer.at : null, answer?.cut ? 1 : 0)
+      this.db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, reply_to_id, mentions, client_id, created_at, thread_root_id, thread_root_seq, also_in_room, mentions_all, answer_at, answer_cut)
+        VALUES (?, ?, ?, 'user', ?, 'room', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, roomId, seq, userId, b.body, b.replyToId ?? null, JSON.stringify(mentions), b.clientMessageId, now, root?.id ?? null, root?.seq ?? null, root && b.alsoInRoom ? 1 : 0,
+        b.mentionsAll && !answer ? 1 : 0, answer ? answer.at : null, answer?.cut ? 1 : 0)
       // an answer of my own AI chat: audited without its content or anyone's name; a DM's or group chat's id would let
       // admins see who talks to whom, so only its kind (store.ts roomAuditRef)
       if (answer) audit(this.db, { actor: userId, action: 'room.answer_share', target: id, detail: { ...roomAuditRef(room), people: answer.people, confirmed: answer.people > 0, cut: answer.cut } })
@@ -507,13 +508,16 @@ export class Rooms {
 
   /** A message that carries an answer of my own AI chat (sharedAnswer) is not edited: its answer part is the AI's
    * words (409; the app offers no edit there). It can be deleted. */
-  edit(userId: string, roomId: string, messageId: string, b: { body: string; mentions: string[] }, locale: Locale = 'en'): RoomMessage {
+  edit(userId: string, roomId: string, messageId: string, b: { body: string; mentions: string[]; mentionsAll?: boolean }, locale: Locale = 'en'): RoomMessage {
     const { me } = this.mine(userId, roomId)
     const m = this.own(roomId, messageId, userId, me)
     if (sharedAnswerOf(m)) fail('conflict', tr('roomSharedAnswerEdit', locale), { params: { reason: 'shared_answer' } })
     const mentions = this.validMentions(roomId, userId, b.mentions)
+    // "@전체" may be kept or taken out; it is added only by a send, which notifies (an edit notifies nobody)
+    if (b.mentionsAll && !m.mentions_all) fail('validation', undefined, { fields: { 'body.mentionsAll': 'only a new message can mention everyone' } })
+    if (b.mentionsAll && !roomMentionAllIn(b.body)) fail('validation', undefined, { fields: { 'body.mentionsAll': 'no @everyone mention in the text' } })
     // an edit notifies nobody (only a new message does), so a mention added later is quiet
-    this.db.query('UPDATE room_messages SET body = ?, mentions = ?, edited_at = ? WHERE id = ?').run(b.body, JSON.stringify(mentions), nowIso(), m.id)
+    this.db.query('UPDATE room_messages SET body = ?, mentions = ?, mentions_all = ?, edited_at = ? WHERE id = ?').run(b.body, JSON.stringify(mentions), b.mentionsAll ? 1 : 0, nowIso(), m.id)
     const row = messageRow(this.db, roomId, messageId)!
     this.messageEvent('room.message.updated', row)
     return messagesOut(this.db, [row], me)[0]!
@@ -525,7 +529,7 @@ export class Rooms {
     const m = this.removable(roomId, messageId, userId, me)
     const now = nowIso()
     const noticed = this.db.transaction(() => {
-      this.db.query("UPDATE room_messages SET body = '', mentions = '[]', deleted_at = ? WHERE id = ?").run(now, m.id)
+      this.db.query("UPDATE room_messages SET body = '', mentions = '[]', mentions_all = 0, deleted_at = ? WHERE id = ?").run(now, m.id)
       // an AI answer's "참고한 파일" go with it, and the reactions on it (a deleted message takes none)
       this.db.query('DELETE FROM room_message_sources WHERE message_id = ?').run(m.id)
       this.db.query('DELETE FROM room_reactions WHERE message_id = ?').run(m.id)
@@ -633,6 +637,14 @@ export class Rooms {
     if (m.author_kind !== 'user' || m.author_id !== userId || m.event) return fail('forbidden')
     if (m.deleted_at) return fail('conflict')
     return m
+  }
+
+  /** "@전체" (docs/DECISIONS.md "@전체"): anyone in a group chat, a team room or a DM (there: the other person); in the
+   * everyone room only an owner or admin (it reaches the whole team). The text must show it ("@전체" where a mention may
+   * start): what notifies is what the message shows. */
+  private mayMentionAll(room: RoomRow, userId: string, body: string, locale?: Locale) {
+    if (room.kind === 'all' && !isOwnerOrAdmin(this.db, userId)) fail('forbidden', tr('roomMentionAll', locale ?? DEFAULT_LOCALE), { params: { reason: 'room_mention_all' } })
+    if (!roomMentionAllIn(body)) fail('validation', undefined, { fields: { 'body.mentionsAll': 'no @everyone mention in the text' } })
   }
 
   /** The people picked as mentions, kept only when they are in the room (never myself), in the order given. */
@@ -743,7 +755,7 @@ export class Rooms {
     for (const m of ms) {
       const p = prefs.get(m.user_id)!
       const alert = roomAlert({
-        level: roomLevel(room.kind, ownLevel(m), p.roomLevel), mentioned: mentioned.has(m.user_id), reply: !!row.thread_root_id,
+        level: roomLevel(room.kind, ownLevel(m), p.roomLevel), mentioned: mentioned.has(m.user_id) || !!row.mentions_all, reply: !!row.thread_root_id,
         alsoInRoom: !!row.also_in_room, following: !!followers?.has(m.user_id), threadReplies: p.roomThreadReplies,
       })
       if (!alert) continue
