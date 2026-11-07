@@ -33,7 +33,7 @@ test('accessible skill ranking goes first and fills its slash command without tr
   await page.goto('/skills')
   const row = page.getByTestId('skill-row').first()
   // a skill without a title reads as the name people type
-  await expect(row).toContainText('/weekly-report')
+  await expect(row.getByTestId('skill-name')).toHaveText('/weekly-report')
   await expect(row).toContainText('4회')
   await row.getByTestId('skill-use').click()
   await expect(page.getByTestId('composer-input')).toHaveValue('/weekly-report ')

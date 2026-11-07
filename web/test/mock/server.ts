@@ -1,7 +1,8 @@
 // A mock team server for the web client's end-to-end tests: the REST API of shared/src/api (every response is
 // checked against the contract schema, every JSON body is validated like the real server does), the WebSocket
 // protocol of ws.ts (hello / seq / resume / reset), and the built web app served by the real serveWeb() of
-// server/src/routes/web.ts (same CSP and cache headers as production).
+// server/src/routes/web-static.ts (same CSP and cache headers as production; /sw.js gets no-op badge calls in front,
+// see withoutWorkerBadge).
 //
 // The AI is scripted by keywords in the message: "artifact", "react", "ask", "error", "slow", "files", "search",
 // "cap-tools" / "cap-time" (the answer pauses at the per-answer limit of tool calls / time: done with stopReason;
@@ -3550,8 +3551,8 @@ export class MockServer {
     const p = url.pathname
     if (p.startsWith('/__test/')) return this.testControl(p, req)
     if (!p.startsWith('/api/')) {
-      const page = serveWeb(req, { dist, dev: false, devPort: 0, teamIcon: () => this.teamIcon }) ?? new Response('no', { status: 404 })
-      return pageHeaders(p === '/sw.js' && page.ok ? await withoutWorkerBadge(page) : page)
+      const res = serveWeb(req, { dist, dev: false, devPort: 0, teamIcon: () => this.teamIcon }) ?? new Response('no', { status: 404 })
+      return pageHeaders(p === '/sw.js' && res.ok ? await withoutWorkerBadge(res) : res)
     }
     this.log.push(`${req.method} ${p}`)
     // like the server's router: a path written out ("/api/intro-decks/builds") wins over one with a parameter there
@@ -3793,9 +3794,9 @@ function pageHeaders(res: Response): Response {
 
 /** Playwright's Chromium (its headless shell) kills the page's renderer as soon as a service worker calls the Badging
  * API; Chrome, full Chromium and Electron do not. web/pwa/sw.js clears the icon badge whenever the account changes
- * (`push.invalidate`, sent at every sign-out), so the worker served here gets no-op setAppBadge / clearAppBadge in front
- * of it and is otherwise the built file. Its badge logic is tested in test/unit/push-worker.test.ts. */
-const NO_WORKER_BADGE = "for (const k of ['setAppBadge', 'clearAppBadge']) if (typeof self.navigator?.[k] === 'function') Object.defineProperty(self.navigator, k, { configurable: true, value: async () => {} })\n"
+ * (`push.invalidate`, sent at every sign-out), so the worker served here gets no-op setAppBadge / clearAppBadge in
+ * front of it and is otherwise the built file. Its badge logic is tested in test/unit/push-worker.test.ts. */
+const NO_WORKER_BADGE = "for (const k of ['setAppBadge', 'clearAppBadge']) if (typeof self.navigator?.[k] === 'function') Object.defineProperty(self.navigator, k, { configurable: true, value: async () => {} });\n"
 async function withoutWorkerBadge(res: Response): Promise<Response> {
   const h = new Headers(res.headers)
   h.delete('content-length')
