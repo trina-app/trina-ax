@@ -43,9 +43,10 @@ test('drag, limits, remembered after reload, double-click reset, arrow keys', as
   await expect(divider).toHaveAttribute('aria-orientation', 'vertical')
   await expect(divider).toHaveAttribute('aria-label', DICTS.ko['preview.resize'])
   const first = await panelWidth(page)
+  const vw = page.viewportSize()!.width
 
   // drag left: wider, and the chat keeps its minimum
-  await dragTo(page, 660)
+  await dragTo(page, Math.round(vw * 0.5))
   await expect.poll(() => panelWidth(page)).toBeGreaterThan(first + 30)
   const dragged = await panelWidth(page)
   expect(await chatWidth(page)).toBeGreaterThanOrEqual(360)
@@ -55,11 +56,11 @@ test('drag, limits, remembered after reload, double-click reset, arrow keys', as
   await dragTo(page, 5)
   await expect.poll(() => chatWidth(page)).toBeGreaterThanOrEqual(359)
   expect(await chatWidth(page)).toBeLessThanOrEqual(362)
-  await dragTo(page, 1355)
+  await dragTo(page, vw - 5)
   await expect.poll(() => panelWidth(page)).toBe(320)
 
   // remembered per device (the panel itself closes with the reload; its width does not)
-  await dragTo(page, 800)
+  await dragTo(page, Math.round(vw * 0.6))
   const kept = await panelWidth(page)
   await page.reload()
   await openPreview(page)
@@ -93,4 +94,40 @@ test('a phone gets the full-screen sheet and no divider', async ({ page }) => {
   await openPreview(page)
   await expect(page.getByTestId('panel-divider')).toBeHidden()
   expect(await panelWidth(page)).toBe(390)
+})
+
+const STORE_KEY = 'mycel.sidePanel.widthFraction'
+
+test('a click on the divider, with no movement, saves nothing and changes nothing', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await openPreview(page)
+  const before = await panelWidth(page)
+  const box = (await page.getByTestId('panel-divider').boundingBox())!
+  // the very edge of the hit area, then a plain click and a double-click with no move
+  await page.mouse.click(box.x + 1, box.y + box.height / 2)
+  expect(await panelWidth(page)).toBe(before)
+  expect(await page.evaluate((k) => localStorage.getItem(k), STORE_KEY)).toBeNull()
+  await page.mouse.dblclick(box.x + 1, box.y + box.height / 2)
+  expect(await panelWidth(page)).toBe(before)
+  expect(await page.evaluate((k) => localStorage.getItem(k), STORE_KEY)).toBeNull()
+})
+
+test('dragging over an artifact preview works and the iframe is not reloaded', async ({ page }) => {
+  await reset(page)
+  await signIn(page)
+  await ask(page, 'make an artifact')
+  await expect(page.getByTestId('artifact-panel')).toBeVisible()
+  const frame = page.frameLocator('[data-testid="artifact-panel"] iframe')
+  await expect(frame.locator('h1')).toHaveText('Hello artifact (ran)')
+  // a marker in the frame's window: a reload would lose it
+  await frame.locator('body').evaluate(() => { (window as unknown as { __kept: number }).__kept = 1 })
+  const vw = page.viewportSize()!.width
+  const first = await panelWidth(page)
+  // the pointer passes over the iframe on the way left and back right
+  await dragTo(page, Math.round(vw * 0.5))
+  await expect.poll(() => panelWidth(page)).toBeGreaterThan(first + 30)
+  await dragTo(page, Math.round(vw * 0.55))
+  expect(await frame.locator('body').evaluate(() => (window as unknown as { __kept?: number }).__kept)).toBe(1)
+  await expect(frame.locator('h1')).toHaveText('Hello artifact (ran)')
 })

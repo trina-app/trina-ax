@@ -6,11 +6,14 @@ import clsx from 'clsx'
 import { useT } from '../i18n'
 import { clampPanel, panelLimits, PANEL_BIG_STEP, PANEL_STEP, readPanelFraction, writePanelFraction } from '../lib/panelWidth'
 
+const DRAG_SLOP = 3
+
 export default function SidePanelFrame({ children }: { children: ReactNode }) {
   const t = useT()
   const box = useRef<HTMLDivElement>(null)
   const fraction = useRef<number | null>(readPanelFraction())
   const raf = useRef(0)
+  const drag = useRef<{ x: number; moved: boolean; w: number | null } | null>(null)
   const [dragging, setDragging] = useState(false)
   const [m, setM] = useState({ now: 0, min: 320, max: 320 })
 
@@ -44,19 +47,24 @@ export default function SidePanelFrame({ children }: { children: ReactNode }) {
     measure()
   }, [apply, avail, measure])
 
-  // first paint with the remembered width, and again whenever the window changes size
+  // first paint with the remembered width, and again whenever the window or the row around the panel changes size
+  // (a larger text size in Settings narrows the chat without a window resize)
+  const fit = useCallback(() => {
+    if (drag.current) return
+    if (fraction.current !== null) apply(clampPanel(fraction.current * avail(), avail()))
+    measure()
+  }, [apply, avail, measure])
   useLayoutEffect(() => {
-    const fit = () => {
-      if (fraction.current !== null) apply(clampPanel(fraction.current * avail(), avail()))
-      measure()
-    }
     fit()
     window.addEventListener('resize', fit)
+    const ro = new ResizeObserver(fit)
+    if (box.current?.parentElement) ro.observe(box.current.parentElement)
     return () => {
       window.removeEventListener('resize', fit)
+      ro.disconnect()
       cancelAnimationFrame(raf.current)
     }
-  }, [apply, avail, measure])
+  }, [fit])
   useEffect(() => {
     const ro = new ResizeObserver(measure)
     if (box.current) ro.observe(box.current)
@@ -67,22 +75,40 @@ export default function SidePanelFrame({ children }: { children: ReactNode }) {
   const onDown = (e: PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return
     e.currentTarget.setPointerCapture(e.pointerId)
+    drag.current = { x: e.clientX, moved: false, w: null }
     setDragging(true)
     e.preventDefault()
   }
   const onMove = (e: PointerEvent<HTMLDivElement>) => {
-    if (!dragging) return
+    const d = drag.current
+    if (!d) return
+    // a click is not a drag: nothing changes until the pointer has gone 3 px
+    if (!d.moved && Math.abs(e.clientX - d.x) < DRAG_SLOP) return
+    d.moved = true
     const x = e.clientX
     cancelAnimationFrame(raf.current)
-    raf.current = requestAnimationFrame(() => apply(widthAt(x)))
+    raf.current = requestAnimationFrame(() => {
+      d.w = widthAt(x)
+      apply(d.w)
+    })
+  }
+  /** End of a drag: pointerup commits where the pointer is; a cancel or lost capture keeps the last width shown (or
+   * drops the inline width if none was applied yet). Without a real drag nothing is saved. Either way the DOM and the
+   * saved width agree afterwards. */
+  const endDrag = (up: PointerEvent<HTMLDivElement> | null) => {
+    const d = drag.current
+    if (!d) return
+    drag.current = null
+    cancelAnimationFrame(raf.current)
+    setDragging(false)
+    if (!d.moved) return measure()
+    const w = up ? widthAt(up.clientX) : d.w
+    if (w === null) fit()
+    else commit(w)
   }
   const onUp = (e: PointerEvent<HTMLDivElement>) => {
-    if (!dragging) return
-    cancelAnimationFrame(raf.current)
+    endDrag(e.type === 'pointerup' ? e : null)
     if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
-    setDragging(false)
-    if (e.type === 'pointerup') commit(widthAt(e.clientX))
-    else measure()
   }
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const step = e.shiftKey ? PANEL_BIG_STEP : PANEL_STEP
@@ -125,12 +151,12 @@ export default function SidePanelFrame({ children }: { children: ReactNode }) {
         onPointerMove={onMove}
         onPointerUp={onUp}
         onPointerCancel={onUp}
-        onLostPointerCapture={() => setDragging(false)}
+        onLostPointerCapture={() => endDrag(null)}
         onDoubleClick={() => commit(null)}
         onKeyDown={onKey}
         className={clsx(
-          'absolute inset-y-0 -left-1 z-30 hidden w-2 cursor-col-resize touch-none select-none md:block',
-          'after:absolute after:inset-y-0 after:left-1/2 after:w-0.5 after:-translate-x-1/2 after:transition-colors',
+          'absolute inset-y-0 -left-px z-30 hidden w-1.5 cursor-col-resize touch-none select-none md:block',
+          'after:absolute after:inset-y-0 after:left-0 after:w-0.5 after:transition-colors',
           'hover:after:bg-accent focus-visible:after:bg-accent data-[dragging]:after:bg-accent focus:outline-none',
         )}
       />
