@@ -225,13 +225,14 @@ export class PushService {
       if(failure?.outcome!=='push_cancelled'&&!(status>=200&&status<300))this.ctx.log.warn('push delivery failed',outcome)
       else this.ctx.log.debug(failure?'push delivery cancelled':'push delivered',outcome)
       if(this.stopped){this.ctx.db.query(`UPDATE ${src.deliveries} SET state='pending',next_at=?,lease_until=NULL WHERE notification_id=? AND subscription_id=? AND state='sending'`).run(this.iso(this.o.now()+30_000),row.notification_id,row.subscription_id);return}
-      // Web Push: the provider says the subscription is gone (404/410). The gateway answers 410 only for a dead token
-      // (its 404 means a wrong address, which must not delete phones).
+      // Web Push: the provider says the subscription is gone (404/410; WNS too: 404 an unknown channel, 410 an expired
+      // one). The gateway answers 410 only for a dead token (its 404 means a wrong address, which must not delete phones).
       if(status===410||(status===404&&allowed.sub.kind==='web')){this.ctx.db.query('DELETE FROM push_subscriptions WHERE id=?').run(row.subscription_id);continue}
       if(!this.eligible(src,row.subscription_id,row.notification_id,key)){
         this.ctx.db.query(`UPDATE ${src.deliveries} SET state='cancelled',lease_until=NULL WHERE notification_id=? AND subscription_id=? AND state='sending'`).run(row.notification_id,row.subscription_id);continue
       }
-      const attempts=row.attempts+1,success=status>=200&&status<300,retry=status===0||status===429||status>=500
+      // 406 is how WNS (Microsoft Edge) says "too many for now": tried again later like 429
+      const attempts=row.attempts+1,success=status>=200&&status<300,retry=status===0||status===429||(status===406&&allowed.sub.kind==='web')||status>=500
       const state=success?'sent':retry&&attempts<MAX_ATTEMPTS?'pending':'failed'
       this.ctx.db.query(`UPDATE ${src.deliveries} SET state=?,next_at=?,lease_until=NULL WHERE notification_id=? AND subscription_id=? AND state='sending'`).run(state,this.iso(this.o.now()+(attempts===1?30_000:120_000)),row.notification_id,row.subscription_id)
     }

@@ -18,6 +18,7 @@ import { JobLine, useJobRunner, useUpdateInstall } from './jobs'
 import { ReleaseNotes } from '../../components/ReleaseNotes'
 import { isOwner, useMeStrict } from '../../store/session'
 import { safeHref } from '../../lib/safeLinks'
+import { Tooltip } from '../../components/Tooltip'
 
 const STATUS_ICON = { ok: CheckCircle2, warn: CircleAlert, fail: CircleX, unknown: CircleHelp } as const
 const STATUS_CLS = { ok: 'text-ok', warn: 'text-warn', fail: 'text-danger', unknown: 'text-faint' } as const
@@ -530,14 +531,16 @@ function ConnectedFolders() {
                     <Button size="sm" variant="ghost" disabled={c.syncing} onClick={() => void act(() => api.call(API.syncConnected, { params: { id: c.id } })).then(() => state.reload())}>
                       <RefreshCw size={13} aria-hidden /> {t('connected.syncNow')}
                     </Button>
-                    <button type="button" aria-label={t('connected.remove')} title={t('connected.remove')} className="rounded p-1 text-faint hover:bg-hover hover:text-danger"
-                      onClick={async () => {
-                        if (!(await confirmDialog({ title: t('connected.removeTitle'), body: t('connected.removeBody', { name: c.name }), confirm: t('connected.remove'), danger: true }))) return
-                        await actOk(() => api.call(API.removeConnected, { params: { id: c.id } }))
-                        void state.reload() // also after a failure: a folder someone else removed goes from the list
-                      }}>
-                      <Trash2 size={15} />
-                    </button>
+                    <Tooltip label={t('connected.remove')}>
+                      <button type="button" aria-label={t('connected.remove')} className="rounded p-1 text-faint hover:bg-hover hover:text-danger"
+                        onClick={async () => {
+                          if (!(await confirmDialog({ title: t('connected.removeTitle'), body: t('connected.removeBody', { name: c.name }), confirm: t('connected.remove'), danger: true }))) return
+                          await actOk(() => api.call(API.removeConnected, { params: { id: c.id } }))
+                          void state.reload() // also after a failure: a folder someone else removed goes from the list
+                        }}>
+                        <Trash2 size={15} />
+                      </button>
+                    </Tooltip>
                   </li>
                 ))}
               </ul>

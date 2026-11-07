@@ -37,9 +37,20 @@ Owners and admins can add three more skills from **Available skills** with **Add
 |---|---|
 | `skills/<name>/SKILL.md` | Everyone who can read `skills/` (usually the whole team) |
 | `skills/<folder>/<name>/SKILL.md` | Only people who can read that folder, for example `skills/finance/` |
+| `groups/<group>/skills/<name>/SKILL.md` | Only the members of that group. Not the owner or admins outside it. |
 | `users/<you>/skills/<name>/SKILL.md` | Only you. Not even the owner or admins. |
 
-A personal skill with the same name as a team skill replaces it for you only.
+When two skills share a name, the closest one wins, for you only: your personal skill, then your group's, then the team's. If two of your groups have a skill with the same name, both are listed with their folder, and `/name` uses the one of the group whose name comes first.
+
+## Group skills
+
+Every group has its own skills in its folder: `groups/<group>/skills/`, next to the group's files. Only the members of the group see and use them: in **Team skills** (one section per group, under the group's name), in the `/` menu (marked with the group's name) and in what the AI knows. The owner and admins do not get a group's skills unless they are in the group.
+
+- Any member of the group can add or change its skills, like the group's other files. The AI asks you on a card before it saves one there, like for team skills, and every change is recorded with the group's name.
+- A member can suggest a skill to their group (**Suggest as skill**, then the group's folder); the group's members review it.
+- Renaming a group keeps its folder; the section in **Team skills** shows the new name at once. Deleting a group removes its skills from its members' lists.
+
+A group skill is written by the group's members, not by the team's skill managers: what one member saves there, every member's AI follows.
 
 ## Write a skill
 
@@ -83,6 +94,7 @@ Or, once Claude Code or Codex is connected to the team ([the MCP connector](../a
 - The server checks every skill again and suggests the ones the whole team can use. Nothing reaches the team before you press **Share with the team**.
 - The rule file becomes one team rule. Remote MCP servers become connection templates without keys: each member connects with their own.
 - A skill with the same name as a team skill is merged in a chat that can only read the two and save the team skill, after you confirm.
+- **To one of your groups instead.** On the proposal's page, **Share with** picks the whole team (the default) or one of your groups; Claude Code and Codex can name the group too. A proposal to a group adds skills only (no team rule, no connections) and never changes a team skill: a skill named like one of the group's is merged into it or kept beside it, and one named like a team skill becomes the group's own copy. The group's members see it under **Team skills › Review** (only what goes to the group) and any of them can add it to the group. The setup steps always share with the team.
 
 ## Who can change skills
 
@@ -90,6 +102,7 @@ Or, once Claude Code or Codex is connected to the team ([the MCP connector](../a
 
 - Members can **suggest** a personal skill to the team. A skill manager of the target folder reviews it.
 - Every change to `skills/` is recorded, and the owner and admins get a notice with a link to the version history.
+- A group's skills are changed by the group's members (see [Group skills](#group-skills)); their changes are recorded and announced the same way.
 
 ## Members bring their own skills
 

@@ -342,6 +342,33 @@ describe('what an answer may carry into the room', () => {
     } finally { fs.rmSync(abs, { force: true }) }
   })
 
+  test('a group\'s skills reach a room only when everyone there is in the group (docs/DECISIONS.md "Group skills")', async () => {
+    // alice and erin's group (a team room's group, with its folder groups/<name>/), and a skill of it
+    const same = await roomOf(['alice', 'erin'])
+    const folder = (h.ctx.db.query('SELECT f.path FROM groups g JOIN folders f ON f.id = g.folder_id WHERE g.id = ?').get(same.groupId) as { path: string }).path
+    const abs = path.join(h.team, folder, 'skills/room-group.md')
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, '---\nname: GROUP-ROOM-SKILL\ndescription: group only\n---\nsteps\n')
+    try {
+      const name = (h.ctx.db.query('SELECT name FROM groups WHERE id = ?').get(same.groupId) as { name: string }).name
+      const two = await ask('alice', same.roomId, `@트리나 which skills?\n${fake({ echo: 'system' }, { tool: 'find_skills', args: { query: 'group only' }, sayResult: true })}`)
+      const inGroup = (await answerTo('alice', same.roomId, two.q))!.body
+      expect(inGroup).toContain('GROUP-ROOM-SKILL')
+      // the instructions themselves (echoed): the group's skill on the list, and how to save one for it
+      expect(inGroup).toContain(`- GROUP-ROOM-SKILL [group: ${name}]`)
+      expect(inGroup).toContain(`${folder}/skills/<short-name>.md for the group "${name}"`)
+      // a room with carol, an admin who reads every group folder but is not in that group: not there, neither on the
+      // list nor in the "save one for a group" line (the room's own group, which carol is in, may be)
+      const mixed = await room(['alice', 'carol'])
+      const one = await ask('alice', mixed, `@트리나 which skills?\n${fake({ echo: 'system' }, { tool: 'find_skills', args: { query: 'group only' }, sayResult: true })}`)
+      const outside = (await answerTo('alice', mixed, one.q))!.body
+      expect(outside).not.toContain('GROUP-ROOM-SKILL')
+      expect(outside).not.toContain(`[group: ${name}]`)
+      expect(outside).not.toContain(`${folder}/skills`)
+      expect(outside).not.toContain('Entries marked [group: <name>]')
+    } finally { fs.rmSync(abs, { force: true }) }
+  })
+
   test('an account that cannot read anything fails every check (fail closed)', async () => {
     const roomId = await room(['alice', 'erin'])
     const one = await ask('alice', roomId, `@트리나 glossary\n${fake({ tool: 'read', args: { file_path: 'shared/glossary.md' } }, { say: 'ok' })}`)

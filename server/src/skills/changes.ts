@@ -1,5 +1,6 @@
-// Change tracking of skills/ (docs/DECISIONS.md "팀 스킬 관리"): every create / edit / move / delete / restore under
-// skills/, by a person on the file screen or by the AI in a chat turn, is written to the audit log (who, which file,
+// Change tracking of skills/ (docs/DECISIONS.md "팀 스킬 관리") and of each group's groups/<folder>/skills/
+// (docs/DECISIONS.md "Group skills": the audit row names the group): every create / edit / move / delete / restore
+// there, by a person on the file screen or by the AI in a chat turn, is written to the audit log (who, which file,
 // AI or not) and announced to the owner and admins (an in-app banner with a link to the file's version history,
 // where the previous version can be restored). Hooked on files/store.ts fileEvent: every team-file change records
 // one, so none is missed.
@@ -10,14 +11,14 @@ import type { AppContext } from '../context'
 import { audit, redactPersonal } from '../admin/audit'
 import { teamDefaultLocale } from '../admin/settings'
 import { onFileEvent, readRegular, type FileEventInput } from '../files/store'
-import { skillFileKind, SKILL_FILE_MAX_BYTES } from '../chat/skills'
+import { groupOfFolder, skillFileKind, SKILL_FILE_MAX_BYTES } from '../chat/skills'
 import { verifyChain } from '../policy/resolve'
-import { inSkills } from './guard'
+import { inSkills, skillRootOf } from './guard'
 import { st } from './text'
 
 export const SKILL_CHANGE_ACTION = 'skills.change'
 
-interface ChangeDetail { change: SkillChange['change']; from: string | null; byAi: boolean; turnId: string | null; kind: SkillChange['kind']; tool: string | null }
+interface ChangeDetail { change: SkillChange['change']; from: string | null; byAi: boolean; turnId: string | null; kind: SkillChange['kind']; tool: string | null; group?: { id: string | null; name: string } }
 
 const parse = (d: unknown): Record<string, unknown> => (d && typeof d === 'object' ? d as Record<string, unknown> : {})
 
@@ -75,7 +76,11 @@ export function recordSkillChange(ctx: AppContext, e: FileEventInput): void {
   const c = skillChangeOf(e)
   if (!c) return
   const kind = c.kind ?? (c.change === 'delete' ? null : kindOf(ctx, c.path))
-  const detail: ChangeDetail = { change: c.change, from: c.from, byAi: c.byAi, turnId: c.turnId, kind, tool: c.tool }
+  // a group's skills folder: the group by its name now (docs/DECISIONS.md "Group skills"); a folder no group has any
+  // more is still recorded, by its folder
+  const root = skillRootOf(c.path)
+  const group = root?.kind === 'group' ? groupOfFolder(ctx.db, root.folder) ?? { id: null, name: root.folder.split('/')[1]! } : null
+  const detail: ChangeDetail = { change: c.change, from: c.from, byAi: c.byAi, turnId: c.turnId, kind, tool: c.tool, ...(group ? { group } : {}) }
   audit(ctx.db, { actor: e.userId, action: SKILL_CHANGE_ACTION, target: c.path, detail: detail as unknown as Record<string, unknown> })
   const who = (ctx.db.query('SELECT name FROM users WHERE id = ?').get(e.userId) as { name: string } | null)?.name ?? e.userId
   const link = historyLink(c.path, c.change, kind)
@@ -84,8 +89,9 @@ export function recordSkillChange(ctx: AppContext, e: FileEventInput): void {
   queueMicrotask(() => {
     for (const u of people) {
       const p = redactPersonal(c.path, u.id)
+      const vars = { path: p, who, ai: c.byAi ? st('viaAi', u.locale) : '' }
       try {
-        ctx.services.realtime.publish(u.id, { type: 'notice', data: { level: 'info', code: 'skill_changed', message: st('changed', u.locale, { path: p, who, ai: c.byAi ? st('viaAi', u.locale) : '' }), link } })
+        ctx.services.realtime.publish(u.id, { type: 'notice', data: { level: 'info', code: 'skill_changed', message: group ? st('changedGroup', u.locale, { ...vars, group: group.name }) : st('changed', u.locale, vars), link } })
       } catch (err) { ctx.log.warn('skill change notice failed', { err }) }
     }
   })
@@ -115,7 +121,7 @@ export function listSkillChanges(db: Database, viewer: string, o: { cursor?: str
         id: String(r.id), at: r.at,
         actor: r.actor_id ? { id: r.actor_id, name: r.actor_name ?? r.actor_id } : null,
         path: r.target, change: d.change ?? 'update', from: d.from ? redactPersonal(d.from, viewer) : null,
-        byAi: !!d.byAi, kind: d.kind ?? null,
+        byAi: !!d.byAi, kind: d.kind ?? null, ...(d.group && typeof d.group.name === 'string' ? { group: { id: d.group.id ?? null, name: d.group.name } } : {}),
       }
     }),
     nextCursor: rows.length > limit ? String(page[page.length - 1]!.id) : null,

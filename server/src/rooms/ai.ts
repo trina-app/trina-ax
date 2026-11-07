@@ -43,6 +43,7 @@ import { engineError, tr } from '../chat/i18n'
 import { neutralizeTags, type RoomPrompt } from '../chat/prompt'
 import { nameSegs, readScope, roomViewers, type ReadSource } from '../chat/read-scope'
 import { CHAT_COLS, parseError, type ChatRow } from '../chat/store'
+import { groupOfFolder, isGroupSkill } from '../chat/skills'
 import { viewSourceRows, type SourceRow } from '../files/sources'
 import { atLeast, loadPrincipal, type Principal, type RuleSet } from '../policy/access'
 import { authorize, visiblePath } from '../policy/authorize'
@@ -336,7 +337,17 @@ export class RoomAi implements RoomTurns {
     const seen = new Map<string, boolean>()
     const readable = (rel: string) => {
       let ok = seen.get(rel)
-      if (ok === undefined) { const segs = rel.split('/').filter(Boolean); ok = readers.every((r) => !!r.who && atLeast(rules.access(r.who, segs), 'read')); seen.set(rel, ok) }
+      if (ok === undefined) {
+        const segs = rel.split('/').filter(Boolean)
+        ok = readers.every((r) => !!r.who && atLeast(rules.access(r.who, segs), 'read'))
+        // a group's skills (docs/DECISIONS.md "Group skills") are its members' only: here only when everyone in the
+        // room is in that group (the owner and admins read every group folder, but its skills are not theirs)
+        if (ok && isGroupSkill(segs.join('/'))) {
+          const g = groupOfFolder(db, segs.slice(0, 2).join('/'))
+          ok = !!g && readers.every((r) => !!r.who && r.who.groups.includes(g.id))
+        }
+        seen.set(rel, ok)
+      }
       return ok
     }
     return { block, others, fromSeq, prompt, readable, attachments: q ? this.attachmentsOf(q) : '' }

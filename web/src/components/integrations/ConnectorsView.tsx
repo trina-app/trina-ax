@@ -8,6 +8,7 @@ import type { Integration } from '@mycel/shared/api'
 import { connectorLogo, CONNECTORS, isConnected, type Connector } from '../../lib/connectors'
 import { useT } from '../../i18n'
 import { Button, EmptyState, IconButton, StickyHeader, Tabs, inputCls } from '../ui'
+import { Tooltip } from '../Tooltip'
 
 export type ConnectorTab = 'connected' | 'discover'
 
@@ -113,19 +114,20 @@ function AddMenu({ items, label = 'integrations.addMore' }: { items: AddMenuItem
   }
   return (
     <div ref={box} className="relative" onKeyDown={onKeyDown}>
-      <button
-        ref={button}
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={t(label)}
-        title={t(label)}
-        onClick={() => setOpen((v) => !v)}
-        className="flex h-9 items-center rounded-r-lg border-l border-accent-ink/20 bg-accent px-2 text-accent-ink transition hover:bg-accent-hover max-sm:min-h-10"
-        data-testid="integration-add-more"
-      >
-        <ChevronDown size={15} aria-hidden />
-      </button>
+      <Tooltip label={t(label)}>
+        <button
+          ref={button}
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label={t(label)}
+          onClick={() => setOpen((v) => !v)}
+          className="flex h-9 items-center rounded-r-lg border-l border-accent-ink/20 bg-accent px-2 text-accent-ink transition hover:bg-accent-hover max-sm:min-h-10"
+          data-testid="integration-add-more"
+        >
+          <ChevronDown size={15} aria-hidden />
+        </button>
+      </Tooltip>
       {open && (
         <div role="menu" aria-label={t(label)} className="absolute top-full right-0 z-30 mt-1 w-64 rounded-lg border border-line bg-surface p-1 shadow-lg">
           {items.map((it) => (
@@ -263,7 +265,7 @@ function DiscoverCard({ id, logo, name, line, by, official, state, onOpen, onAdd
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1 text-sm font-medium">
           <span className="truncate">{name}</span>
-          {official && <BadgeCheck size={14} className="shrink-0 text-muted" role="img" aria-label={t('connectors.official')} />}
+          {official && <Tooltip label={t('connectors.officialTip')} description><BadgeCheck size={14} className="shrink-0 text-muted" role="img" aria-label={t('connectors.official')} /></Tooltip>}
         </span>
         <span className="mt-0.5 line-clamp-2 text-xs text-muted">{line}</span>
         <span className="mt-1 block text-xs text-faint">{by}</span>
@@ -280,9 +282,11 @@ function DiscoverCard({ id, logo, name, line, by, official, state, onOpen, onAdd
         <span className="flex min-w-0 flex-1 items-start gap-3">{body}</span>
       )}
       {state === 'added' ? (
-        <span className="flex size-8 shrink-0 items-center justify-center text-ok" role="img" aria-label={t('integrations.discover.added', { name })} data-testid="connector-added">
-          <Check size={16} aria-hidden />
-        </span>
+        <Tooltip label={t('integrations.discover.added', { name })}>
+          <span className="flex size-8 shrink-0 items-center justify-center text-ok" role="img" aria-label={t('integrations.discover.added', { name })} data-testid="connector-added">
+            <Check size={16} aria-hidden />
+          </span>
+        </Tooltip>
       ) : state === 'off' ? (
         <span className="shrink-0 pt-1.5 text-xs text-faint" data-testid="connector-off">{t('connectors.notOn')}</span>
       ) : (
@@ -327,7 +331,7 @@ export function ConnectorDetail({ logo, name, line, official, action, descriptio
           <div className="min-w-0 flex-1">
             <h3 id={titleId} className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
               <span className="truncate">{name}</span>
-              {official && <BadgeCheck size={18} className="shrink-0 text-muted" role="img" aria-label={t('connectors.official')} />}
+              {official && <Tooltip label={t('connectors.officialTip')} description><BadgeCheck size={18} className="shrink-0 text-muted" role="img" aria-label={t('connectors.official')} /></Tooltip>}
             </h3>
             <p className="mt-0.5 text-sm text-muted" data-testid={`${testId}-line`}>{line}</p>
           </div>
