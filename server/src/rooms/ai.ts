@@ -54,7 +54,7 @@ import { atLeast, loadPrincipal, type Principal, type RuleSet } from '../policy/
 import { authorize, visiblePath } from '../policy/authorize'
 import { confidentialChat } from '../safe-ops/confidential'
 import { safeOpsEnabled } from '../safe-ops/runner'
-import { historyKinds } from './history'
+import { historyKinds, openHistories } from './history'
 import { canSee, clipMiddle, memberRow, parseMentions, roomAuditRef, members, messageRow, messagesOut, MSG_COLS, roomRow, SEE_SQL, seesFrom, setRoomAiWaiting, seeArgs, seenSeq, sharedAnswerOf, TIMELINE_SQL, type MemberRow, type MessageRow, type RoomRow } from './store'
 import { roomsOf } from './service'
 import { AI_SHOWN_SQL, attr, filesOf as messageFiles, namesOf, roomItem, ROOM_THREAD_CHARS, ROOM_THREAD_REPLIES_TOTAL, ROOM_THREAD_REPLY_CHARS, threadAttrs, threadsOf, whoseWords, type Speaker, type ThreadPeek } from './ai-context'
@@ -526,6 +526,11 @@ export class RoomAi implements RoomTurns {
    */
   decide(roomId: string, chatId: string, scope?: TurnScope, questionSeq?: number, threadRoot?: ThreadRoot, askedSeq?: number): Decision {
     const db = this.db, rules = this.ctx.files.rules()
+    // a team room or the everyone room: the members whose history is not worked out yet get it now (rooms/history.ts),
+    // so it is decided on what they will see; one still waiting (a walk that failed) keeps it unpostable (below)
+    const room = roomRow(db, roomId)
+    const history = !!room && historyKinds(room.kind)
+    if (history) try { openHistories(this.ctx, { roomId }) } catch (e) { this.ctx.log.warn('room history not opened', { err: e }) }
     // an account that cannot be loaded (disabled, deleted, still listed) reads nothing: it fails every check
     const readers = this.readers(roomId, threadRoot)
     const people = readers.map((r) => r.who)
@@ -545,13 +550,20 @@ export class RoomAi implements RoomTurns {
       if (s.type === 'integration' || s.type === 'drive_share') { outside = true; continue }
       if (s.type === 'room') {
         if (s.id !== roomId) { const v = roomViewers(db, s.id, undefined, s.fromSeq, askerId); if (!people.every((p) => !!p && v.has(p.id))) outside = true; continue }
+        // a source at the thread's first message is the thread (its context, room_thread, its own history, a file of one
+        // of its messages): only that thread's hidden answers were given. Any other position (a file of another message
+        // read with room_file) counts from there on
+        const inThread = !!threadRoot && s.fromSeq === threadRoot.seq
         for (const r of readers) {
+          // a team room's or the everyone room's member whose history is not worked out: what they will see is not
+          // known, so nobody may post it (hidden: no 올리기), rather than "joined later", which the asker may override
+          if (history && r.member.history_from_seq === null && s.fromSeq !== undefined && seesFrom(r.member) >= s.fromSeq) { hidden = true; continue }
           // messages written before someone joined (a group chat, a 1:1): they never saw them, and the answer may repeat
           // them
           if (s.fromSeq !== undefined && seesFrom(r.member) >= s.fromSeq) joined.add(r.member.user_id)
           // an old answer hidden from them (rooms/history.ts) from there on, that the asker saw (one hidden from the asker
           // too was never given to the AI): the answer may repeat it
-          else if (r.member.user_id !== askerId && this.hiddenSince(roomId, r.member.user_id, s.fromSeq ?? 0, exempt, threadRoot?.id)) hidden = true
+          else if (r.member.user_id !== askerId && this.hiddenSince(roomId, r.member.user_id, s.fromSeq ?? 0, exempt, inThread ? threadRoot!.id : undefined)) hidden = true
         }
         continue
       }
@@ -575,7 +587,7 @@ export class RoomAi implements RoomTurns {
     }
     // the question itself is the room's too: someone who joined after it was asked (invited into a group chat while the
     // AI was answering) never saw it, and the answer may repeat it, even when no earlier message went to the AI
-    if (questionSeq !== undefined) for (const r of readers) if (seesFrom(r.member) >= questionSeq) joined.add(r.member.user_id)
+    if (questionSeq !== undefined) for (const r of readers) if (seesFrom(r.member) >= questionSeq) { if (history && r.member.history_from_seq === null) hidden = true; else joined.add(r.member.user_id) }
     const joinedLater = [...this.names([...joined]).values()].sort()
     // the preview names to the person who asked only the folders they may open themselves (a name on the way to their
     // folders, or a rule changed since, can be in one they cannot): the others are "folders some people cannot open",
@@ -586,8 +598,8 @@ export class RoomAi implements RoomTurns {
   }
 
   /** Is an old answer at or after `fromSeq` hidden from this member (room_hidden_answers), one not hidden from `exempt`
-   * too (the asker: what is hidden from them was never given)? A question in a thread was given that thread only (its
-   * context, room_thread, its own history; room files are never on an answer): `rootId` keeps it to that thread. */
+   * too (the asker: what is hidden from them was never given)? `rootId`: the source was that thread only (a question in
+   * a thread is given its thread; hidden answers carry no room files), so only its hidden answers count. */
   private hiddenSince(roomId: string, userId: string, fromSeq: number, exempt: string, rootId?: string): boolean {
     return !!this.db.query(`SELECT 1 FROM room_hidden_answers h WHERE h.room_id = ?1 AND h.user_id = ?2 AND h.see_seq >= ?3
       AND NOT EXISTS (SELECT 1 FROM room_hidden_answers x WHERE x.room_id = ?1 AND x.user_id = ?4 AND x.message_id = h.message_id)
@@ -624,8 +636,10 @@ export class RoomAi implements RoomTurns {
         rooms.messageEvent('room.message.updated', m)
         return fail('conflict', tr('roomAiReasonsChanged', this.rt().userLocale(userId)), { params: { reason: 'room_ai_reasons_changed' } })
       }
-    } else if (!t?.decision) {
-      // nothing says what it used (no row, or a row without reasons): it cannot be checked, so it is not posted
+    } else if (!t?.decision || (historyKinds(room.kind) && db.query('SELECT 1 FROM room_hidden_answers WHERE room_id = ? LIMIT 1').get(roomId))) {
+      // nothing says what it used (no row, or a row without reasons): it cannot be checked, so it is not posted; nor a
+      // preview from before 246 in a room where old answers are hidden from someone (what it used cannot be judged
+      // against them)
       return fail('conflict', tr('roomAiAskAgain', this.rt().userLocale(userId)), { params: { reason: 'room_ai_ask_again' } })
     }
     // else a preview from before each question kept its own scope (migration 246): the session's scope now is a later

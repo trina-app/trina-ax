@@ -267,7 +267,7 @@ describe('the room AI after a later member joined', () => {
 })
 
 describe('a thread\'s audience in a team room', () => {
-  test('a member whose history is not open yet counts (the answer stays private for them); one to whom the root is hidden does not', async () => {
+  test('a member whose history is not open yet counts (worked out first, so it is decided on what they will see); one to whom the root is hidden does not', async () => {
     const { roomId, groupId } = await teamRoom(['alice', 'erin'])
     const root = await send('alice', roomId, 'thread start')
     const hiddenRoot = aiAnswer(roomId, 'alice', 'ROOT-SECRET', { sources: [folder('groups/marketing')] })
@@ -277,12 +277,10 @@ describe('a thread\'s audience in a team room', () => {
     db.query('INSERT INTO chats (id, user_id, room_id) VALUES (?, ?, ?)').run(chatId, 'alice', roomId)
     const ai = roomAiOf(h.ctx)
     const scope = { sources: [{ type: 'room' as const, id: roomId, fromSeq: root.seq }], outside: false }
-    // carol's history not open yet (as after an upgrade): she counts, and keeps it private as having joined later
+    // carol's history not open yet (as after an upgrade): it is worked out before deciding (she may read everything)
     db.query('UPDATE room_members SET history_from_seq = NULL WHERE room_id = ? AND user_id = ?').run(roomId, 'carol')
-    const d = ai.decide(roomId, chatId, scope, root.seq, { id: root.id, seq: root.seq }, root.seq + 100)
-    expect(d).toMatchObject({ post: false, joinedLater: ['Carol Park'] })
-    openHistories(h.ctx)
-    expect(ai.decide(roomId, chatId, scope, root.seq, { id: root.id, seq: root.seq }, root.seq + 100).post).toBe(true)
+    expect(ai.decide(roomId, chatId, scope, root.seq, { id: root.id, seq: root.seq }, root.seq + 100)).toMatchObject({ post: true, joinedLater: [] })
+    expect(db.query('SELECT history_from_seq FROM room_members WHERE room_id = ? AND user_id = ?').get(roomId, 'carol')).toEqual({ history_from_seq: 0 })
     // the thread of the answer hidden from bob: he is not of its audience (he never sees it), so he keeps nothing private
     const inHidden = { sources: [{ type: 'room' as const, id: roomId, fromSeq: hiddenRoot.seq }], outside: false }
     const d2 = ai.decide(roomId, chatId, inHidden, hiddenRoot.seq, { id: hiddenRoot.answerId, seq: hiddenRoot.seq }, hiddenRoot.seq + 100)
@@ -412,5 +410,97 @@ describe('notices and the Inbox', () => {
     await send('bob', roomId, 'me too', { threadRootId: root.id })
     await send('alice', roomId, 'welcome', { threadRootId: root.id })
     expect(countedUnreadIn(h.ctx.db, 'bob', roomId)).toBe(true)
+  })
+})
+
+// ---------------- found in the independent code review (2026-11-07) ----------------
+describe('what an answer may not carry past a hidden answer', () => {
+  test('a question in a thread that reads a file from a hidden answer\'s thread keeps its answer private', async () => {
+    const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+    const T = await send('alice', roomId, 'thread start (bob will see this)')
+    const H = aiAnswer(roomId, 'alice', 'H-SECRET', { sources: [folder('groups/marketing')] })
+    const src = path.join(h.dataDir, `upload-${uuidv7()}`), bytes = new TextEncoder().encode('FILE-CANARY-42 from the hidden thread\n')
+    fs.writeFileSync(src, bytes)
+    const file = await roomFilesOf(h.ctx).create('erin', roomId, 'budget-hidden.md', src, createHash('sha256').update(bytes).digest('hex'))
+    await send('erin', roomId, 'the numbers for H', { threadRootId: H.answerId, fileIds: [file.id] })
+    await setMembers(groupId, ['alice', 'erin', 'bob'])
+    expect((await h.req('bob', `/api/rooms/${roomId}/files/${file.id}`)).status).toBe(404)
+    const q = await send('alice', roomId, `@트리나 what does budget-hidden.md say?\n${fake({ tool: 'room_file', args: { file: 'budget-hidden.md' }, sayResult: true })}`, { threadRootId: T.id })
+    const f = await ws.alice!.next('room.ai.run', (x) => x.data.run.questionId === q.id && ['done', 'stopped', 'error'].includes(x.data.run.state), 40_000)
+    expect(f.data.run.state).toBe('done')
+    const forAlice = (await h.api('alice').call(API.listRoomThread, { params: { id: roomId, messageId: T.id }, query: {} })).items.find((m) => m.authorKind === 'ai')!
+    expect(forAlice.body).toContain('FILE-CANARY-42')
+    expect(forAlice).toMatchObject({ visibility: 'private', preview: { hidden: true } })
+    expect(JSON.stringify(await h.api('bob').call(API.listRoomThread, { params: { id: roomId, messageId: T.id }, query: {} }))).not.toContain('FILE-CANARY-42')
+  })
+
+  test('a shared answer read before its sender left and joined again is judged without their rows now', async () => {
+    const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+    const db = h.ctx.db
+    const H = aiAnswer(roomId, 'alice', 'H-PERSONAL-SECRET', { sources: [{ type: 'user', id: 'alice' }] })
+    await send('alice', roomId, 'talk after it')
+    const read = readRoom(db, 'erin', 'UTC', { room: roomId })
+    expect(read.text).toContain('H-PERSONAL-SECRET')
+    const roomSrc = { type: 'room', id: roomId, fromSeq: read.seen[0]!.fromSeq }
+    const chatId = uuidv7(), askId = uuidv7(), answerId = uuidv7()
+    db.query('INSERT INTO chats (id, user_id, session_read_scope) VALUES (?, ?, ?)').run(chatId, 'erin', JSON.stringify({ sources: [roomSrc] }))
+    db.query("INSERT INTO messages (id, chat_id, role, content, status) VALUES (?, ?, 'user', 'summarize the room', 'done')").run(askId, chatId)
+    db.query("INSERT INTO messages (id, chat_id, parent_id, role, content, status) VALUES (?, ?, ?, 'assistant', 'ERIN-SUMMARY: H-PERSONAL-SECRET', 'done')").run(answerId, chatId, askId)
+    db.query('UPDATE chats SET active_leaf_id = ? WHERE id = ?').run(answerId, chatId)
+    // erin leaves and comes back: H is hidden from her now (alice's own folder); her chat read it before
+    await setMembers(groupId, ['alice'])
+    await setMembers(groupId, ['alice', 'erin'])
+    expect(hiddenRows(roomId, 'erin')).toEqual([H.answerId])
+    const r = await h.req('erin', `/api/chats/${chatId}/messages/${answerId}/share-to-room`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ roomId, clientMessageId: cm() }) })
+    expect(r.status).toBe(200)
+    await setMembers(groupId, ['alice', 'erin', 'bob'])
+    expect(JSON.stringify(await timeline('bob', roomId))).not.toContain('H-PERSONAL-SECRET')
+    // and erin may take her own message away although it is hidden from her now
+    const mine = db.query("SELECT id FROM room_messages WHERE room_id = ? AND author_id = 'erin' AND answer_at IS NOT NULL").get(roomId) as { id: string }
+    expect((await h.req('erin', `/api/rooms/${roomId}/messages/${mine.id}`, { method: 'DELETE' })).status).toBe(204)
+  })
+
+  test('a member whose history is not worked out yet: the answer is decided on what they will see, and not postable past it', async () => {
+    const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+    const db = h.ctx.db
+    const H = aiAnswer(roomId, 'alice', 'H-MKT-SECRET', { sources: [folder('groups/marketing')] })
+    await setMembers(groupId, ['alice', 'erin', 'bob'])
+    db.query('UPDATE room_members SET history_from_seq = NULL WHERE room_id = ? AND user_id = ?').run(roomId, 'bob')
+    db.query('DELETE FROM room_hidden_answers WHERE room_id = ? AND user_id = ?').run(roomId, 'bob')
+    const chatId = uuidv7()
+    db.query('INSERT INTO chats (id, user_id, room_id) VALUES (?, ?, ?)').run(chatId, 'alice', roomId)
+    const next = () => (db.query('UPDATE rooms SET last_seq = last_seq + 1 WHERE id = ? RETURNING last_seq').get(roomId) as { last_seq: number }).last_seq
+    const qid = uuidv7(), pid = uuidv7(), now = new Date().toISOString()
+    db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, mentions, created_at) VALUES (?, ?, ?, 'user', 'alice', 'room', '@트리나 recap', '[]', ?)`).run(qid, roomId, next(), now)
+    db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, asked_by, visibility, visible_to, body, reply_to_id, mentions, created_at) VALUES (?, ?, ?, 'ai', NULL, 'alice', 'private', 'alice', 'RECAP: H-MKT-SECRET', ?, '[]', ?)`).run(pid, roomId, next(), qid, now)
+    const scope = { sources: [{ type: 'room' as const, id: roomId, fromSeq: H.seq - 1 }], outside: false }
+    // the reasons kept from before (as an older decision would have said: bob joined later)
+    db.query(`INSERT INTO room_ai_turns (turn_id, room_id, user_id, chat_id, question_id, status, answer_id, scope, decision, created_at, ended_at) VALUES (?, ?, 'alice', ?, ?, 'private', ?, ?, ?, ?, ?)`)
+      .run(uuidv7(), roomId, chatId, qid, pid, JSON.stringify(scope), JSON.stringify({ folders: [], otherFolders: false, personal: false, outside: false, joinedLater: ['Bob Lee'] }), now, now)
+    const post = await h.req('alice', `/api/rooms/${roomId}/messages/${pid}/share`, { method: 'POST' })
+    expect(post.status).toBe(409)
+    expect(await post.text()).toContain('room_ai_hidden')
+    expect(hiddenRows(roomId, 'bob')).toContain(H.answerId)
+    expect(JSON.stringify(await timeline('bob', roomId))).not.toContain('H-MKT-SECRET')
+  })
+
+  test('an answer of my own AI chat that used a hidden answer is not sent to the room, confirmed or not', async () => {
+    const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+    const db = h.ctx.db
+    aiAnswer(roomId, 'alice', 'H-SHARE-SECRET', { sources: [folder('groups/marketing')] })
+    await setMembers(groupId, ['alice', 'erin', 'bob'])
+    const read = readRoom(db, 'alice', 'UTC', { room: roomId })
+    expect(read.text).toContain('H-SHARE-SECRET')
+    const chatId = uuidv7(), askId = uuidv7(), answerId = uuidv7()
+    db.query('INSERT INTO chats (id, user_id, session_read_scope) VALUES (?, ?, ?)').run(chatId, 'alice', JSON.stringify({ sources: [{ type: 'room', id: roomId, fromSeq: read.seen[0]!.fromSeq }] }))
+    db.query("INSERT INTO messages (id, chat_id, role, content, status) VALUES (?, ?, 'user', 'summarize', 'done')").run(askId, chatId)
+    db.query("INSERT INTO messages (id, chat_id, parent_id, role, content, status) VALUES (?, ?, ?, 'assistant', 'SUMMARY: H-SHARE-SECRET', 'done')").run(answerId, chatId, askId)
+    db.query('UPDATE chats SET active_leaf_id = ? WHERE id = ?').run(answerId, chatId)
+    for (const confirm of [undefined, 5]) {
+      const r = await h.req('alice', `/api/chats/${chatId}/messages/${answerId}/share-to-room`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ roomId, clientMessageId: cm(), ...(confirm !== undefined ? { confirm } : {}) }) })
+      expect(r.status).toBe(409)
+      expect(await r.text()).toContain('answer_share_hidden')
+    }
+    expect(JSON.stringify(await timeline('bob', roomId))).not.toContain('H-SHARE-SECRET')
   })
 })

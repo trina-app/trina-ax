@@ -12765,8 +12765,9 @@ rooms and the everyone room; group chats and 1:1s keep it, as Slack's group DMs 
   see" card (`read-scope.ts viewersOf`: folders by read, names by list, someone's own folder only them, connections by
   their access rule). This room as a source: they see it from where the answer's context started, and no answer hidden
   from them lies from there on that its asker could see (the asker's own hidden answers were never in its context; used
-  only while the asker has been in the room since before that answer, because after leaving and joining again their
-  rows say nothing about what they saw then). The walk goes in seq order, so an answer built on a hidden one is hidden
+  only when what the asker read was read in their membership now: an AI answer's reads happen during its question, so
+  they joined before the question; a person's message was read at a time not known, so the oldest message read must be
+  newer than their join; after leaving and joining again their rows say nothing about what they saw then). The walk goes in seq order, so an answer built on a hidden one is hidden
   too; deleted answers are walked as well (one built on a deleted answer is judged by it).
 - **Which answers are judged:** those whose who-sees seq (their own; a thread reply's thread's first message's) is at
   or before the member's join point, whenever they were written: an answer in a thread that started before the join was
@@ -12798,14 +12799,23 @@ rooms and the everyone room; group chats and 1:1s keep it, as Slack's group DMs 
 - **The AI's share rule.** `RoomAi.decide`: an answer is private when its context (or tools) used this room from a seq
   at or after an answer hidden from some member now, one its asker saw (new reason `preview.hidden`, "방 사람 중 일부에게
   가려진 예전 답을 참고해서 대화방에 올릴 수 없어요", never who: it would tell their access). In a thread only that thread's
-  hidden answers count (a thread question is given that thread only). The asker's own hidden answers never count (they
-  were not given). Such a preview is **not postable**: the asker cannot see what is at stake for the others
+  hidden answers count for a source at the thread's first message (its context, `room_thread`, its own history, a file
+  of one of its messages); a source anywhere else (a file of another message read with `room_file`) counts from there
+  on. The asker's own hidden answers never count (they were not given). In a team room or the everyone room the members
+  whose history is not worked out yet get it first (`openHistories` for the room), so it is decided on what they will
+  see; one still waiting (a walk that failed) makes it unpostable rather than "joined later", which the asker may
+  override. Such a preview is **not postable**: the asker cannot see what is at stake for the others
   (`share` answers 409 `room_ai_hidden`; the preview has no 올리기). In a team room or the everyone room a thread's audience
   is every member to whom its first message is not hidden: one whose history is not open yet counts (and keeps the answer
   private as having joined later), so no answer is decided without them. The same audience for an AI app's thread reply
   (`roomWidening`). The readers of saved scopes (`roomViewers`: the wider-audience card, a shared answer's audience, an AI
   app's `room_send`) leave out every member with a hidden answer from the source's position on, but never the person
-  who read it (what reaches themselves widens nothing).
+  who read it (what reaches themselves widens nothing). A shared answer that would reach a member who misses a room it
+  read only because of hidden answers (or whose history is not worked out) is refused, confirmed or not (409
+  `answer_share_hidden`: the sender cannot see what is at stake for them, as for the room AI's preview). A private preview
+  from before 246 (reasons but no scope) is not posted in a team room or the everyone room where anything is hidden from
+  someone (409 `room_ai_ask_again`). Someone's own message hidden from them since they joined again may still be deleted
+  by them (not read or edited).
 - **Migration 263, additive (reader level stays 6).** `room_members.history_from_seq`, `history_recheck`,
   `room_messages.source_scope`, `room_hidden_answers(room_id, user_id, message_id, see_seq)` with an index on
   `(room_id, user_id, see_seq)`, and a partial index of the answers for the walk. Nothing is rewritten: existing later
@@ -12821,19 +12831,28 @@ rooms and the everyone room; group chats and 1:1s keep it, as Slack's group DMs 
   build and forward again, thread answers the older build posted in threads older than a later member's join (decided by
   `visible_from_seq`) are not judged again. Names a room session's instructions listed (skills, folders everyone in the
   room could read then) are not in an answer's scope. A hidden answer deleted later stays a line in an open window until
-  it reloads (the member gets no event of a message they cannot see).
+  it reloads (the member gets no event of a message they cannot see). A message an AI app sent before this version (no
+  `source_scope`) counts as its sender's own words. The wider-audience card when saving something read in a room to a
+  folder still asks (the person decides, as before); it does not refuse past hidden answers.
 - **Independent review (design, 2026-11-07) fixes.** Answers in old threads judged by their thread's seq (a blocker:
   they were decided without the later member and would have shown); AI apps' `room_send` keeps what it had read;
   the reader's discount only while they have been in the room since before the answer; deleted answers walked; access
   gained later shows hidden answers again (only fewer); an answer private for the new reason is not postable; `see_seq`
   for range checks; `history_from_seq` a required field of `MemberRow`; `moveRuns` checks too; windows told when a
   history opens in the background; "자료" in the line, `rooms.threadNotFound` no longer says only "before you joined".
+- **Independent review (code, 2026-11-07) fixes.** Four leaks reproduced and closed: a thread question's `room_file` of
+  a file in a hidden answer's thread was judged by that thread only (now by the file's message position); the walk's
+  discount used the reader's rows when their read was from an earlier membership (now only for reads in their
+  membership now); "joined later" for a member whose history was not worked out could be overridden (now worked out
+  first, else unpostable); a shared answer could be confirmed past a hidden answer (now refused). Also: deleting one's own
+  message hidden from oneself, old previews without scope in rooms with hidden answers, `mine()` retries through the
+  back-off. Each has a test.
 - **Tests.** `tests/unit/b-rooms-history.test.ts` (team-room history: messages, threads, reactions, quotes, files, no
   unread or notice; group chats and 1:1s unchanged; a hidden answer as one line and nothing else, its thread, sources,
   reactions and replies refused, shown to an admin who may read it; unknown scope and the web hidden; shared answers and
   AI apps' messages by their kept scope; recursion; the readers of personal chats and AI apps, `room_thread`, search; the
   room AI's context and share decision, the refusal to post; a thread's audience; the upgrade path; only fewer on access
-  changes, joining again; old-thread answers and deleted ones; the Inbox), the rooms, group, threads, inbox, AI and
+  changes, joining again; old-thread answers and deleted ones; the Inbox; the four leaks of the code review), the rooms, group, threads, inbox, AI and
   AI-files suites updated (the "from the join on" cases moved to group chats), `web/test/unit/room-messages.test.tsx`
   (the line, no menu, the quote, the preview reason without 올리기) and `web/test/e2e/room-history.spec.ts` (with
   `SHOTS_DIR`: 1440 and 390, light and dark).

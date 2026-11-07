@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-07 08:11
 - Branch: `feat/room-history-for-later-members`
-- Status: in progress
+- Status: done
 - Where: trina-ax `server/src/rooms`, `server/src/chat` (read-scope, answer-share, runtime), `shared/src/api/rooms.ts`,
   `web/src/components/rooms`. Why: rooms, permissions and the AI's share rule are core (see docs/REPOSITORY-RULES.md).
 - Version impact: minor (a member who joins a team room or the everyone room later sees its earlier history; new
@@ -59,4 +59,10 @@ CI) and the rooms e2e specs.
 
 ## Result
 
-Filled in at the end.
+Built as planned, with the independent design review's changes (docs/DECISIONS.md "지난 대화"): answers in threads
+that started before the join are judged whatever their own seq; a message an AI app sent after reading keeps what it
+had read (`room_messages.source_scope`, also used for shared answers); deleted answers are walked; hidden answers only
+become fewer after access changes (`history_recheck`), so an invite account that gets its groups later sees what they
+open; an answer private because it used a hidden answer cannot be posted; `has_hidden` skips the check for members with
+nothing hidden. Migration 263, additive, reader level 6. Known limits are in DECISIONS (rollback and forward again;
+names in a room session's instructions). PR: see the pull request of this branch.

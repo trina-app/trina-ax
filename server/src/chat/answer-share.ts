@@ -28,6 +28,9 @@
 // that read a room's messages (chats.rooms_seen) whose scope does not show which (an older chat, or an answer the
 // scope does not describe) counts every other member as unable. Every request takes from the sending budget before
 // anything is checked (the check is no free probe of who may read what); the message then takes nothing more.
+// In a team room or the everyone room, a member who would see what it read there but for an old answer hidden from them
+// (docs/DECISIONS.md "지난 대화") is never sent it, confirmed or not (409 answer_share_hidden): the sender cannot see what
+// is at stake for them. What it used is kept with the message (room_messages.source_scope) for those who join later.
 // A confidential conversation (safe operations 1A) is never shared. Audited (room.answer_share) with the room as audit
 // rows name it, the number of people, whether it was confirmed and cut; no content, no names.
 import type { Database } from 'bun:sqlite'
@@ -42,7 +45,8 @@ import { redactorFor } from '../integrations/connections/redact'
 import { confidentialChat } from '../safe-ops/confidential'
 import { roomsOf } from '../rooms/service'
 import { groupName, messagesOut, MSG_COLS, roomRow, type MessageRow as RoomMessageRow } from '../rooms/store'
-import { missingReaders, nameSegs, readScope, sourceOf, type ReadSource } from './read-scope'
+import { missingReaders, nameSegs, readScope, sourceOf, viewersByHistory, type ReadSource } from './read-scope'
+import { historyKinds, openHistories } from '../rooms/history'
 import { tr } from './i18n'
 import type { ChatRow, MessageRow } from './store'
 
@@ -79,8 +83,11 @@ function scopeDescribes(db: Database, chat: Pick<ChatRow, 'id' | 'active_leaf_id
 
 /** Who of the room's members (not me) could not read what the answer used, and where it came from as the sender may
  * be told. `answer`: its text (the paths it links to). */
-export function answerAudience(ctx: AppContext, userId: string, roomId: string, chat: Pick<ChatRow, 'id' | 'active_leaf_id'>, messageId: string, answer: string): { people: number; places: AnswerSharePlace[]; otherPlaces: boolean; scope: AnswerScopeKept } {
+export function answerAudience(ctx: AppContext, userId: string, roomId: string, chat: Pick<ChatRow, 'id' | 'active_leaf_id'>, messageId: string, answer: string): { people: number; places: AnswerSharePlace[]; otherPlaces: boolean; scope: AnswerScopeKept; hidden: boolean } {
   const db = ctx.db, rules = ctx.files.rules()
+  // a team room or the everyone room: the members whose history is not worked out yet get it first (rooms/history.ts)
+  const target = roomRow(db, roomId)
+  if (target && historyKinds(target.kind)) try { openHistories(ctx, { roomId }) } catch (e) { ctx.log.warn('room history not opened', { err: e }) }
   // a disabled or deleted account still in the room reads nothing now: it misses every source (missingReaders)
   const audience = (db.query('SELECT user_id FROM room_members WHERE room_id = ? AND user_id <> ?').all(roomId, userId) as { user_id: string }[]).map((r) => r.user_id)
   const places = new Map<string, AnswerSharePlace>()
@@ -103,7 +110,12 @@ export function answerAudience(ctx: AppContext, userId: string, roomId: string, 
   const roomsUnknown = roomsSeen && (!described || !scope.some((s) => s.type === 'room'))
   // kept with the message for those who join the room later (rooms/history.ts): what it used, and whether that is all
   const kept: AnswerScopeKept = { sources, unknown: !described || roomsUnknown }
-  if (!audience.length) return { people: 0, places: [], otherPlaces: false, scope: kept }
+  if (!audience.length) return { people: 0, places: [], otherPlaces: false, scope: kept, hidden: false }
+  // a member who would see a room it read but for old answers hidden from them (or whose history is not worked out):
+  // the sender cannot see what is at stake for them, so this is never sent, even when confirmed (as the room AI's
+  // answer that used a hidden answer cannot be posted)
+  const audienceSet = new Set(audience)
+  const hidden = sources.some((s) => s.type === 'room' && [...viewersByHistory(db, s.id, undefined, s.fromSeq, userId).hiddenFrom].some((id) => audienceSet.has(id)))
   for (const { source: s, missing: who } of missingReaders(db, rules, sources, audience, userId)) {
     for (const id of who) missing.add(id)
     switch (s.type) {
@@ -144,7 +156,7 @@ export function answerAudience(ctx: AppContext, userId: string, roomId: string, 
     for (const id of audience) missing.add(id)
     add({ kind: 'conversation' })
   }
-  return { people: missing.size, places: [...places.values()], otherPlaces, scope: kept }
+  return { people: missing.size, places: [...places.values()], otherPlaces, scope: kept, hidden }
 }
 
 /** What a shared answer used, as kept with its message (room_messages.answer_scope): the sources checked when it was
@@ -174,6 +186,7 @@ export function shareAnswerToRoom(ctx: AppContext, userId: string, chat: ChatRow
   // from the sending budget first (429): asking who could not read what is no free probe; the message takes no more
   rooms.takeSendToken(userId)
   const who = answerAudience(ctx, userId, room.id, chat, message.id, content)
+  if (who.hidden) fail('conflict', tr('answerShareHidden', locale), { params: { reason: 'answer_share_hidden' } })
   // sent when nobody is unable, or no more people than the person said yes to (else they are asked again)
   if (who.people > 0 && !(b.confirm !== undefined && who.people <= b.confirm)) return { status: 'confirm', people: who.people, places: who.places, otherPlaces: who.otherPlaces }
   const { body, at, cut } = answerShareBody(b.note, content, answerCutLine(locale))

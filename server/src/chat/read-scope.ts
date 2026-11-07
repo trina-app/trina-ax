@@ -104,12 +104,26 @@ export const nameSegs = (p: string) => p.split('/').filter(Boolean)
  * (room_hidden_answers) is not one of them, whatever the source held, but for `reader`, the person whose read it was:
  * what is hidden from them was never given to them (and a read of theirs reaching themselves widens nothing). */
 export function roomViewers(db: Database, roomId: string, people?: Principal[], fromSeq?: number, reader?: string | null): Set<string> {
-  const ids = (db.query(`SELECT m.user_id FROM room_members m JOIN rooms r ON r.id = m.room_id WHERE m.room_id = ?1 AND r.archived_at IS NULL
-      AND COALESCE(m.history_from_seq, m.visible_from_seq) < ?2
-      AND (m.user_id = ?4 OR NOT EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = m.user_id AND h.see_seq >= ?3))`)
-    .all(roomId, fromSeq ?? Number.MAX_SAFE_INTEGER, fromSeq ?? 0, reader ?? '') as { user_id: string }[]).map((r) => r.user_id)
+  return viewersByHistory(db, roomId, people, fromSeq, reader).see
+}
+
+/** roomViewers, and apart: the members who would see the room from `fromSeq` but for old answers hidden from them (or
+ * whose team-room history is not worked out yet: what they will see is not known) — someone may be asked to confirm
+ * sending to people who cannot read a source, never past those (chat/answer-share.ts). */
+export function viewersByHistory(db: Database, roomId: string, people?: Principal[], fromSeq?: number, reader?: string | null): { see: Set<string>; hiddenFrom: Set<string> } {
+  const rows = db.query(`SELECT m.user_id, (m.user_id <> ?4 AND EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = m.user_id AND h.see_seq >= ?3)) hid,
+      (r.kind IN ('team', 'all') AND m.history_from_seq IS NULL AND m.visible_from_seq >= ?2) waits
+    FROM room_members m JOIN rooms r ON r.id = m.room_id WHERE m.room_id = ?1 AND r.archived_at IS NULL
+      AND (COALESCE(m.history_from_seq, m.visible_from_seq) < ?2 OR (r.kind IN ('team', 'all') AND m.history_from_seq IS NULL))`)
+    .all(roomId, fromSeq ?? Number.MAX_SAFE_INTEGER, fromSeq ?? 0, reader ?? '') as { user_id: string; hid: number; waits: number }[]
   const active = new Set((people ?? activePeople(db)).map((p) => p.id))
-  return new Set(ids.filter((id) => active.has(id)))
+  const see = new Set<string>(), hiddenFrom = new Set<string>()
+  for (const r of rows) {
+    if (!active.has(r.user_id)) continue
+    if (r.hid || r.waits) hiddenFrom.add(r.user_id)
+    else see.add(r.user_id)
+  }
+  return { see, hiddenFrom }
 }
 
 export interface Widening {

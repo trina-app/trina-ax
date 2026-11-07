@@ -38,12 +38,12 @@ import { cancelPushUser } from '../notifications/push-events'
 import { teamTimeZone } from '../admin/settings'
 import { alertSettings, ownLevel, setOwnLevel } from './alerts'
 import {
-  canSee, groupName, LIST_SQL, hideable, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, seeArgs, setRoomPathCheck, sharedAnswerOf,
+  canSee, groupName, isHiddenFor, LIST_SQL, seenSeq, seesFrom, hideable, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, seeArgs, setRoomPathCheck, sharedAnswerOf,
   lastSeqFor, MENTIONS_SQL, threadable, threadSummary, threadsUnread, TIMELINE_SQL, unreadCount,
   type EventData, type MemberRow, type MessageRow, type RoomRow,
 } from './store'
 import { roomFilesOf } from './files'
-import { historyKinds, openHistories, openHistory } from './history'
+import { historyKinds, openHistories } from './history'
 import { countedUnreadIn } from './inbox'
 import { roomAiOf, type AskOptions } from './ai'
 import { tr } from '../chat/i18n'
@@ -91,7 +91,8 @@ export class Rooms {
     // a team room or the everyone room whose history is not open to me yet (rooms/history.ts): now, before anything is
     // read; a failure leaves me seeing it from my join on
     if ((me.history_from_seq === null || me.history_recheck) && historyKinds(room.kind)) {
-      try { openHistory(this.ctx, roomId, userId) } catch (e) { this.ctx.log.warn('room history not opened', { err: e }) }
+      // (through openHistories: a walk that keeps failing waits before it is tried again)
+      try { openHistories(this.ctx, { userId, roomId }) } catch (e) { this.ctx.log.warn('room history not opened', { err: e }) }
       me = memberRow(this.db, roomId, userId) ?? me
     }
     return { room, me }
@@ -663,8 +664,10 @@ export class Rooms {
    * is how they put one away), or any AI answer they can see when they are an owner or admin in the room. */
   private removable(roomId: string, messageId: string, userId: string, me: MemberRow): MessageRow {
     const m = messageRow(this.db, roomId, messageId)
+    // my own message (own() decides, also for one hidden from me)
+    if (m && m.author_kind !== 'ai' && m.author_id === userId) return this.own(roomId, messageId, userId, me, true)
     if (!m || !canSee(this.db, m, me)) return fail('not_found')
-    if (m.author_kind !== 'ai') return this.own(roomId, messageId, userId, me)
+    if (m.author_kind !== 'ai') return this.own(roomId, messageId, userId, me, true)
     const role = (this.db.query('SELECT role FROM users WHERE id = ?').get(userId) as { role: string } | null)?.role
     if (m.asked_by !== userId && role !== 'owner' && role !== 'admin') return fail('forbidden')
     if (m.deleted_at) return fail('conflict')
@@ -674,9 +677,12 @@ export class Rooms {
   /** My own message, and one I can see now: after leaving a group chat and being invited back the messages from before
    * are out of sight, my own too, so not mine to edit or delete either (joining a team room or the everyone room again
    * shows its history, mine included: rooms/history.ts). */
-  private own(roomId: string, messageId: string, userId: string, me: MemberRow): MessageRow {
+  private own(roomId: string, messageId: string, userId: string, me: MemberRow, forDelete = false): MessageRow {
     const m = messageRow(this.db, roomId, messageId)
-    if (!m || !canSee(this.db, m, me)) return fail('not_found')
+    // my own message hidden from me since I joined again (one I shared from my AI chat, or an AI app sent for me, that
+    // used something I cannot open now): not mine to read or edit, but mine to take away (its text is not shown)
+    const mineHidden = forDelete && !!m && m.author_kind === 'user' && m.author_id === userId && !m.event && seenSeq(m) > seesFrom(me) && isHiddenFor(this.db, m, userId)
+    if (!m || (!canSee(this.db, m, me) && !mineHidden)) return fail('not_found')
     // an event line is nobody's message: its author did something, they did not write it
     if (m.author_kind !== 'user' || m.author_id !== userId || m.event) return fail('forbidden')
     if (m.deleted_at) return fail('conflict')
@@ -912,8 +918,9 @@ export class Rooms {
       const room = roomRow(db, roomId)
       if (room) this.fanout(roomId, (m) => (fresh.has(m.user_id) ? null : { type: 'room.updated', data: { roomId, change: 'members', room: roomOut(db, room, m) } }))
     }
-    // a history that opened (or showed more) for someone already in the room: their windows read the room again
-    for (const o of opened) if (!added.get(o.roomId)?.includes(o.userId)) this.roomEvent(o.roomId, 'updated', new Set([o.userId]))
+    // a history that opened (or showed more) for someone already in the room: their windows read its messages again
+    // ('members' is the change that makes an open room load its newest page and thread again)
+    for (const o of opened) if (!added.get(o.roomId)?.includes(o.userId)) this.roomEvent(o.roomId, 'members', new Set([o.userId]))
   }
 }
 

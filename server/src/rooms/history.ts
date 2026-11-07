@@ -39,7 +39,7 @@ const failed = new WeakMap<Database, Map<string, number>>()
 
 /** What an old answer used, as kept; closed: not all of it is known (hidden from every later member). */
 interface Scope { sources: ReadSource[]; closed: boolean }
-type Candidate = { id: string; seq: number; see: number; author_kind: 'user' | 'ai'; author_id: string | null; asked_by: string | null; thread_root_id: string | null; ai_scope: string | null; source_scope: string | null }
+type Candidate = { id: string; seq: number; see: number; author_kind: 'user' | 'ai'; author_id: string | null; asked_by: string | null; thread_root_id: string | null; ai_scope: string | null; source_scope: string | null; q_seq: number | null }
 const KNOWN: ReadonlySet<string> = new Set(['folder', 'root', 'user', 'integration', 'drive_share', 'room', 'name'])
 
 /** An AI answer's question scope (room_ai_turns.scope: {sources, outside}) or a person's message's
@@ -90,28 +90,32 @@ export function openHistory(ctx: AppContext, roomId: string, userId: string): bo
 function walk(ctx: AppContext, rules: RuleSet, roomId: string, userId: string, joinedAt: number, who: Principal | null): { id: string; see: number }[] {
   const db = ctx.db
   const candidates = db.query(`SELECT m.id, m.seq, COALESCE(m.thread_root_seq, m.seq) see, m.author_kind, m.author_id, m.asked_by, m.thread_root_id, m.source_scope,
-      (SELECT t.scope FROM room_ai_turns t WHERE t.answer_id = m.id LIMIT 1) ai_scope
+      (SELECT t.scope FROM room_ai_turns t WHERE t.answer_id = m.id LIMIT 1) ai_scope, (SELECT q.seq FROM room_messages q WHERE q.id = m.reply_to_id AND q.room_id = m.room_id) q_seq
     FROM room_messages m WHERE m.room_id = ? AND (m.author_kind = 'ai' OR m.answer_at IS NOT NULL OR m.source_scope IS NOT NULL)
       AND COALESCE(m.thread_root_seq, m.seq) <= ? AND m.visibility = 'room' AND m.event IS NULL ORDER BY m.seq`).all(roomId, joinedAt) as Candidate[]
   const hidden: { id: string; see: number }[] = []
   const ids = new Set<string>()
   const verdicts = new Map<string, boolean>()
   const readerRows = new Map<string, Set<string>>()
-  /** the answers hidden from the person whose question (or message) `c` was, when they have been in the room since
-   * before it (their rows are then what they could not see when it was made: rows only become fewer); else none */
-  const exemptFor = (c: Candidate): Set<string> | null => {
+  /** the answers hidden from the person whose question (or message) `c` was, when what they read was read in their
+   * membership now (their rows are then what they could not see when they read it: rows only become fewer while they
+   * stay); else none. An AI answer's reads happened during its question (a turn stops when its asker leaves): they
+   * joined before the question. A person's message (a shared answer, an AI app's) read at a time not known: the
+   * oldest message read must be newer than their join (it did not exist before). */
+  const exemptFor = (c: Candidate, s: ReadSource & { type: 'room' }): Set<string> | null => {
     const r = c.author_kind === 'ai' ? c.asked_by : c.author_id
     if (!r || r === userId) return null
     const row = memberRow(db, roomId, r)
-    if (!row || row.visible_from_seq >= c.seq) return null
-    let s = readerRows.get(r)
-    if (!s) readerRows.set(r, (s = new Set((db.query('SELECT message_id FROM room_hidden_answers WHERE room_id = ? AND user_id = ?').all(roomId, r) as { message_id: string }[]).map((x) => x.message_id))))
-    return s
+    const since = c.author_kind === 'ai' ? c.q_seq : s.fromSeq ?? null
+    if (!row || since === null || row.visible_from_seq >= since) return null
+    let rows = readerRows.get(r)
+    if (!rows) readerRows.set(r, (rows = new Set((db.query('SELECT message_id FROM room_hidden_answers WHERE room_id = ? AND user_id = ?').all(roomId, r) as { message_id: string }[]).map((x) => x.message_id))))
+    return rows
   }
   const reads = (p: Principal, s: ReadSource, c: Candidate): boolean => {
     if (s.type === 'room' && s.id === roomId) {
       const from = s.fromSeq ?? 0
-      const exempt = exemptFor(c)
+      const exempt = exemptFor(c, s)
       return !hidden.some((h) => h.see >= from && !exempt?.has(h.id))
     }
     const k = sourceKey(s)
@@ -141,29 +145,30 @@ function walk(ctx: AppContext, rules: RuleSet, roomId: string, userId: string, j
 }
 
 /** Members waiting for a room's history (NULL) or a check again, newest joins first: `userId`'s only, or everyone's. */
-function waiting(db: Database, userId?: string): { room_id: string; user_id: string }[] {
+function waiting(db: Database, o: { userId?: string; roomId?: string }): { room_id: string; user_id: string }[] {
   return db.query(`SELECT m.room_id, m.user_id FROM room_members m JOIN rooms r ON r.id = m.room_id
-    WHERE r.kind IN ('team', 'all') AND r.archived_at IS NULL AND (m.history_from_seq IS NULL OR m.history_recheck = 1)${userId ? ' AND m.user_id = ?' : ''}
-    ORDER BY m.joined_at DESC, m.room_id, m.user_id`).all(...(userId ? [userId] : [])) as { room_id: string; user_id: string }[]
+    WHERE r.kind IN ('team', 'all') AND r.archived_at IS NULL AND (m.history_from_seq IS NULL OR m.history_recheck = 1)
+      AND (?1 IS NULL OR m.user_id = ?1) AND (?2 IS NULL OR m.room_id = ?2)
+    ORDER BY m.joined_at DESC, m.room_id, m.user_id`).all(o.userId ?? null, o.roomId ?? null) as { room_id: string; user_id: string }[]
 }
 
 /**
  * Open the history of team rooms and the everyone room to the members waiting for it, and check again those whose
- * access changed: `userId`'s rooms only (when they open their rooms: no time limit), or everyone's for at most
+ * access changed: `userId`'s rooms only and/or `roomId`'s members only (no time limit), or everyone's for at most
  * `budgetMs` (the rest on the next call: Rooms.sync runs at start, every minute and after access changes). The first
  * members (joined at 0) have nothing to work out. A failure leaves that member as they were, is logged without the room
  * or the person, and is tried again after RETRY_MS. Returns the (room, member) pairs whose view changed, for the caller
  * to tell their windows.
  */
-export function openHistories(ctx: AppContext, o: { userId?: string; budgetMs?: number } = {}): { roomId: string; userId: string }[] {
+export function openHistories(ctx: AppContext, o: { userId?: string; roomId?: string; budgetMs?: number } = {}): { roomId: string; userId: string }[] {
   const db = ctx.db
-  db.query(`UPDATE room_members SET history_from_seq = 0 WHERE history_from_seq IS NULL AND visible_from_seq <= 0${o.userId ? ' AND user_id = ?' : ''}
-    AND room_id IN (SELECT id FROM rooms WHERE kind IN ('team', 'all'))`).run(...(o.userId ? [o.userId] : []))
+  db.query(`UPDATE room_members SET history_from_seq = 0 WHERE history_from_seq IS NULL AND visible_from_seq <= 0 AND (?1 IS NULL OR user_id = ?1) AND (?2 IS NULL OR room_id = ?2)
+    AND room_id IN (SELECT id FROM rooms WHERE kind IN ('team', 'all'))`).run(o.userId ?? null, o.roomId ?? null)
   const until = o.budgetMs === undefined ? Infinity : Date.now() + o.budgetMs
   const fails = failed.get(db) ?? new Map<string, number>()
   failed.set(db, fails)
   const changed: { roomId: string; userId: string }[] = []
-  for (const m of waiting(db, o.userId)) {
+  for (const m of waiting(db, o)) {
     if (Date.now() > until) break
     const key = `${m.room_id} ${m.user_id}`
     if ((fails.get(key) ?? 0) > Date.now()) continue
