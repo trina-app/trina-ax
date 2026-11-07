@@ -289,8 +289,7 @@ export class MockServer {
   speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null as number | null, hostedNewSec: null as number | null, localMissing: [] as LocalSpeechTool[] }
   /** every request the client made (method + path), for assertions */
   log: string[] = []
-  /** team skills: "팀 스킬 관리" grants (also kept as folder rules on this.folders), suggestions, changes under skills/ */
-  skillManagers: SkillManagerGrant[] = []
+  /** team skills: suggestions, changes under skills/ (who manages them is the folder rules: skillGrants) */
   suggestions: SkillSuggestion[] = []
   skillChanges: SkillChange[] = []
   /** engine / model named in chat requests (tests check people who may not pick never send one) */
@@ -440,7 +439,6 @@ export class MockServer {
     this.files.clear()
     this.log = []
     this.engineRequests = []
-    this.skillManagers = []
     this.suggestions = []
     this.skillChanges = []
     this.memberChoice = { mode: 'off', groupIds: [], userIds: [] }
@@ -707,7 +705,7 @@ export class MockServer {
     // a member manages the skills of their groups (docs/DECISIONS.md "Group skills"; the groups Admin › Groups made)
     const groups = this.groupSkillRoots(u).map((g) => g.root)
     if (u.role === 'owner' || u.role === 'admin') return ['skills', ...groups]
-    return [...this.skillManagers.filter((g) => (g.subjectType === 'user' && g.subjectId === u.id) || (g.subjectType === 'group' && u.groupIds.includes(g.subjectId))).map((g) => g.path), ...groups]
+    return [...this.skillGrants().filter((g) => (g.subjectType === 'user' && g.subjectId === u.id) || (g.subjectType === 'group' && u.groupIds.includes(g.subjectId))).map((g) => g.path), ...groups]
   }
   /** the skills folders of the person's groups that have a folder of their own (made by Admin › Groups, "this group
    * writes"): like server/src/chat/skills.ts writableGroupSkillRoots, by group name */
@@ -807,8 +805,19 @@ export class MockServer {
   suggestionFor(s: SkillSuggestion, u: User): SkillSuggestion {
     return { ...s, canReview: this.manages(u, s.targetFolder) }
   }
+  /** like the server (skills/managers.ts listSkillManagers): the write rules for people and groups on skills/ and its
+   * folders, however they were made (the Team skills dialog or Admin › 폴더 권한), by path, kind and id */
+  skillGrants(): SkillManagerGrant[] {
+    const out: SkillManagerGrant[] = []
+    for (const f of this.folders) {
+      if (f.path !== 'skills' && !f.path.startsWith('skills/')) continue
+      for (const r of f.rules) if (r.access === 'write' && (r.subjectType === 'user' || r.subjectType === 'group') && r.subjectId) out.push({ subjectType: r.subjectType, subjectId: r.subjectId, path: f.path })
+    }
+    const key = (g: SkillManagerGrant) => [g.path, g.subjectType, g.subjectId]
+    return out.sort((a, b) => { const x = key(a), y = key(b); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i]! < y[i]! ? -1 : 1; return 0 })
+  }
   skillManagersResponse() {
-    return { folders: ['skills', 'skills/재무'], items: this.skillManagers }
+    return { folders: ['skills', 'skills/재무'], items: this.skillGrants() }
   }
 
   // ---------------- realtime ----------------
@@ -2391,8 +2400,6 @@ export class MockServer {
       const u = this.users.find((x) => x.id === subjectId)
       if (subjectType === 'user' && (!u || u.role !== 'member')) fail('validation', 400, '팀장·관리자는 항상 팀 스킬을 관리해요.')
       if (!(p === 'skills' || p.startsWith('skills/'))) fail('validation', 400, 'skills/ 안의 볼 수 있는 폴더를 골라 주세요.')
-      this.skillManagers = this.skillManagers.filter((g) => !(g.subjectType === subjectType && g.subjectId === subjectId && g.path === p))
-      if (enabled) this.skillManagers.push({ subjectType, subjectId, path: p })
       if (enabled && !this.files.has(p)) this.files.set(p, { type: 'folder', mtime: now() })
       // the same rule Admin > 폴더 권한 shows
       let f = this.folders.find((x) => x.path === p)
