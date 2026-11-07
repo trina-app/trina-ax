@@ -21,7 +21,7 @@ document.documentElement.lang = useLocaleStore.getState().locale
 initMobile(error => toast({ level: 'error', text: t(error instanceof MobileFileTooLarge ? 'mobile.fileTooLarge' : 'mobile.saveFailed') }))
 useSession.subscribe(state => {
   const status = state.status
-  setMobileSession(status.kind === 'signed-in' ? `${status.me.user.id}:${status.me.session.id}` : null)
+  setMobileSession(status.kind === 'signed-in' ? `${status.me.user.id}:${status.me.session.id}` : null, status.kind === 'signed-out')
   setPushSession(status.kind === 'signed-in' ? `${status.me.user.id}:${status.me.session.id}` : null)
   setMobilePushSession(status.kind === 'signed-in' && !status.me.user.mustChangePassword ? `${status.me.user.id}:${status.me.session.id}` : null)
 })

@@ -1,4 +1,4 @@
-import { APPEARANCE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, safeFileName, sameTeam, googleOAuthUrl, validConfig, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, type PushToken } from '../../../mobile/src/protocol'
+import { APPEARANCE_CAPABILITY, MAX_CHUNK_BYTES, MAX_FILE_BYTES, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, safeFileName, sameTeam, googleOAuthUrl, validConfig, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, type PushToken } from '../../../mobile/src/protocol'
 import { currentTheme } from './theme'
 
 type PhoneWindow = Window & { mycelMobile?: unknown; ReactNativeWebView?: { postMessage(raw: string): void } }
@@ -12,6 +12,9 @@ const pending = new Map<string, Pending>()
 const downloads = new Set<AbortController>()
 let epoch = 0, busy = false, initialized = false
 let sessionKey: string | null = null
+// No one is signed in on this page (status signed-out: the sign-in page at a cold start, a sign-out, an expired
+// session), and whether the app has heard it since: it is told once per bridge, also when the bridge comes later.
+let pageSignedOut = false, signedOutTold = false
 let barrier: Promise<void> = Promise.resolve()
 let onError: (error: unknown) => void = () => {}
 const cancelled = () => new DOMException('Mobile operation cancelled', 'AbortError')
@@ -49,18 +52,27 @@ function abortPending(preserveReset = false) {
   for (const controller of downloads) controller.abort()
   downloads.clear()
 }
-/** Session identity stays in JS memory. Only an opaque generation reset crosses the native bridge. */
-export function setMobileSession(key: string | null): void {
-  if (key === sessionKey) return
-  sessionKey = key
-  resetMobileSession()
+/** Session identity stays in JS memory. Only an opaque generation reset crosses the native bridge, and whether the
+ * person is out: signedOut (the status says signed-out, or one person's session gave way to another's) makes the app
+ * clear the notifications on screen, which may name people, and the key its notification extension reads them with.
+ * Loading, an error screen, a sign-in or a reload of a signed-in page are no sign-out. */
+export function setMobileSession(key: string | null, signedOut = false): void {
+  const switched = sessionKey !== null && key !== null && key !== sessionKey
+  const out = key === null && signedOut
+  if (key === sessionKey && !(out && !signedOutTold)) return
+  // a new state of the page: the app has not heard it yet
+  if (key !== sessionKey) signedOutTold = false
+  sessionKey = key; pageSignedOut = out
+  resetMobileSession(switched || out)
 }
-export function resetMobileSession(): void {
+export function resetMobileSession(signedOut = false): void {
   abortPending(true)
   barrier = barrier.catch(() => {}).then(async () => {
     const config = mobileApp(); if (!config) return
-    const reply = await request({ ...envelope(config), type: 'session-reset' }, config)
+    const reply = await request({ ...envelope(config), type: 'session-reset', ...(signedOut ? { signedOut: true } : {}) }, config)
     if (reply.nextGeneration !== config.generation + 1) throw new Error('mobile_protocol_mismatch')
+    // heard only once the app answered (a reset that was dropped is told again at the next bridge-ready)
+    if (signedOut && pageSignedOut && sessionKey === null) signedOutTold = true
     // Native also installs this config before delivering its acknowledgement.
     if (!mobileApp() || mobileApp()!.generation !== reply.nextGeneration) throw new Error('mobile_protocol_mismatch')
     void sendAppearance().catch(() => {})
@@ -140,8 +152,10 @@ export async function openExternal(url: string, options: { purpose: 'google-oaut
   await request({ ...envelope(config), type: 'external-open', url, purpose: options.purpose }, config)
 }
 /** The phone's APNs/FCM device token (push-token-v1). The app shows the OS permission prompt here if the person has not
- * answered yet, so this is only called for a signed-in session. Rejects with push_denied / push_unavailable. */
-export async function requestPushToken(): Promise<PushToken> {
+ * answered yet, so this is only called for a signed-in session. Rejects with push_denied / push_unavailable. labelHash:
+ * an iPhone app that shows who and where in a room push (push-label-v1) made a label key for its notification extension
+ * and gives only its hash, which the page registers with the token. */
+export async function requestPushToken(): Promise<PushToken & { labelHash?: string }> {
   const turn = epoch
   await barrier
   if (turn !== epoch) throw cancelled()
@@ -151,7 +165,9 @@ export async function requestPushToken(): Promise<PushToken> {
   const reply = await request({ ...envelope(config), type: 'push-token' }, config, 300_000)
   if (turn !== epoch) throw cancelled()
   if (!validPushToken(reply.push)) throw new Error('push_unavailable')
-  return reply.push
+  const { platform, token, environment } = reply.push
+  const labelHash = config.capabilities.includes(PUSH_LABEL_CAPABILITY) && platform === 'ios' && typeof reply.labelHash === 'string' && /^[0-9a-f]{64}$/.test(reply.labelHash) ? reply.labelHash : undefined
+  return { platform, token, environment, ...(labelHash ? { labelHash } : {}) }
 }
 /** Tells the app which device id this team gave it (taps from other teams are ignored) and the removal key the app
  * uses to remove the device when the person switches team. Only an app offering push-registered-v1 gets it: an older
@@ -203,7 +219,13 @@ export function initMobile(errorHandler?: (error: unknown) => void): void {
   if (typeof window === 'undefined' || initialized) return
   initialized = true; onError = errorHandler ?? onError
   window.addEventListener('mycel:mobile', receive)
-  window.addEventListener('mycel:mobile-ready', () => { abortPending(); barrier = Promise.resolve(); void sendAppearance().catch(() => {}) })
+  window.addEventListener('mycel:mobile-ready', () => {
+    abortPending(); barrier = Promise.resolve()
+    // a page that knew it was signed out before the bridge came (a cold start on the sign-in page) tells the app now;
+    // the reset sends the look after it
+    if (pageSignedOut && !signedOutTold) resetMobileSession(true)
+    else void sendAppearance().catch(() => {})
+  })
   window.addEventListener('mycel:theme', () => void sendAppearance().catch(() => {}))
   window.addEventListener('pagehide', () => abortPending())
   window.addEventListener('mycel:download', (event) => {

@@ -10,9 +10,9 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import { WebView as NativeWebView, type WebViewProps } from 'react-native-webview'
 import { FileTransfers, MobileReceiver, StuckLoad, stillStuck } from './src/bridge'
 import { clearDownloadCache, fileTransferIO } from './src/files'
-import { APPEARANCE_CAPABILITY, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
+import { APPEARANCE_CAPABILITY, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
 import { accentInk, mobileProduct } from './src/product'
-import { devicePushToken, devices, forgetDelivered, notificationPermission, onNotificationTap, openAppSettings, quietForeground } from './src/push'
+import { devicePushToken, devices, forgetDelivered, labels, notificationPermission, onNotificationTap, openAppSettings, quietForeground } from './src/push'
 import { DARK, LIGHT, frame, insetScript, isDark, padding, pageInsets, type Insets, type Padding, type Palette } from './src/look'
 import { currentDevice, leaveTeam, rememberDevice, retryRemovals } from './src/device'
 import { offlineError, stringsFor } from './src/strings'
@@ -89,8 +89,14 @@ export default function App() {
     void Promise.all([savedTeamUrl(), savedTeamSince(), selfPaddedTeam()]).then(async ([origin, chosen, pads]) => {
       since.current = chosen; hasTeam.current = !!origin; padsAtLaunch.current = pads
       const deps = reinstallDeps()
-      if (await wasReinstalled(deps, { ios: Platform.OS === 'ios', hasTeam: !!origin }).catch(() => false) && origin) signOut.current = new ReinstallSignOut(origin, () => reinstallDone(deps), () => Crypto.randomUUID())
-      device.current = origin ? (await currentDevice(devices, origin).catch(() => null))?.deviceId ?? null : null
+      const reinstalled = await wasReinstalled(deps, { ios: Platform.OS === 'ios', hasTeam: !!origin }).catch(() => false)
+      // the keychain outlived the deleted app: its notification extension names nobody until this install registers
+      if (reinstalled) await labels?.forget().catch(() => {})
+      if (reinstalled && origin) signOut.current = new ReinstallSignOut(origin, () => reinstallDone(deps), () => Crypto.randomUUID())
+      let deviceRead = true
+      device.current = origin ? (await currentDevice(devices, origin).catch(() => { deviceRead = false; return null }))?.deviceId ?? null : null
+      // what the extension may use belongs to this team and this device, or it goes (not when the device could not be read)
+      if (deviceRead) await labels?.tidy(origin, device.current).catch(() => {})
       setTeam(origin ? { origin, entryPath: '/' } : null)
       off = onNotificationTap(() => since.current, () => device.current, path => { if (hasTeam.current) setOpened(o => ({ path, n: (o?.n ?? 0) + 1 })) })
     })
@@ -104,6 +110,8 @@ export default function App() {
       : <TeamWeb key={team.origin} address={team} pads={padsAtLaunch.current === team.origin} signOut={signOut.current} opened={opened} onDevice={id => { device.current = id }} onAppearance={look => setPage(p => p?.dark === look.dark && p.system === look.system ? p : look)}
         onChangeTeam={async () => {
           hasTeam.current = false; device.current = null; forgetDelivered()
+          // the notification extension stops asking the team left for names (before anything else of the switch)
+          await labels?.forget().catch(() => {})
           // remove this phone from the team it leaves (now, or at a later start if that server cannot be reached)
           void leaveTeam(devices, team.origin).catch(() => {})
           await saveTeamUrl(null); setOpened(null); setPage(null); setTeam(null)
@@ -159,11 +167,20 @@ function TeamWeb({ address, pads, signOut, opened, onDevice, onAppearance, onCha
   const selfPadded = pad.selfPadded
   const receiver = useRef<MobileReceiver | null>(null)
   if (!receiver.current) {
-    const config: MobileConfig = { protocol: 1, appVersion: VERSION, platform: Platform.OS === 'ios' ? 'ios' : 'android', nonce: '0'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, PUSH_PERMISSION_CAPABILITY, APPEARANCE_CAPABILITY] }
+    // push-label-v1 only where the notification extension can read the label key (an iPhone build with the extension)
+    const config: MobileConfig = { protocol: 1, appVersion: VERSION, platform: Platform.OS === 'ios' ? 'ios' : 'android', nonce: '0'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, PUSH_PERMISSION_CAPABILITY, APPEARANCE_CAPABILITY, ...(labels ? [PUSH_LABEL_CAPABILITY] : [])] }
     receiver.current = new MobileReceiver(address.origin, config, new FileTransfers(fileTransferIO()), async url => { await Linking.openURL(url) }, {
       token: () => devicePushToken(t.channelName),
-      async registered({ deviceId, removeKey }) { await rememberDevice(devices, { origin: address.origin, deviceId, removeKey, at: Date.now() }); onDevice(deviceId) },
+      async registered({ deviceId, removeKey }) {
+        await rememberDevice(devices, { origin: address.origin, deviceId, removeKey, at: Date.now() }); onDevice(deviceId)
+        // the notification extension may ask this team for this device's room pushes now
+        await labels?.registered(address.origin, deviceId).catch(() => {})
+      },
       permission: notificationPermission, openSettings: openAppSettings,
+      ...(labels ? { labelHash: () => labels!.keyHash(address.origin) } : {}),
+      // signed out (or the session expired, or another person signed in): no names stay on the lock screen, and the
+      // extension stops asking
+      async signedOut() { forgetDelivered(); await labels?.forget().catch(() => {}) },
     }, look => {
       onAppearance(look)
       if (padRef.current.confirmed) return

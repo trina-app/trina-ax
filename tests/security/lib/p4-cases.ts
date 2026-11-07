@@ -24,6 +24,8 @@ export const P4_SPECS: Record<string, Spec> = {
   unregisterPushDevice: { build: c => c.del('/api/push/devices/00000000-0000-7000-8000-000000000000'), scope: 'nobody' },
   // public by design (the app removes its device after a team switch, without the old team's session); 204 for anyone
   removePushDevice: { build: c => c.post('/api/push/devices/00000000-0000-7000-8000-000000000000/remove', { key: 'A'.repeat(43) }), scope: 'byLevel' },
+  // public by design (the iPhone's notification extension, with the label key; no session): {} for every failure
+  labelPushDevice: { build: c => c.post('/api/push/devices/00000000-0000-7000-8000-000000000000/label', { key: 'A'.repeat(43), notificationId: 'n-1' }), scope: 'byLevel' },
   myDriveConnection: { build: c => c.get('/api/integrations/google-drive?userId=alice'), scope: 'self' },
   authorizeDrive: { build: c => c.post('/api/integrations/google-drive/authorize', {}), scope: 'self' },
   driveFlow: { build: c => c.get('/api/integrations/google-drive/flows/00000000-0000-7000-8000-000000000000'), scope: 'nobody' },

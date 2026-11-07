@@ -48,7 +48,11 @@ npx expo prebuild --platform android --clean
 (cd android && ./gradlew --no-daemon bundleRelease)
 
 name="$(node -p "require(process.argv[1]).name.replace(/[^A-Za-z0-9]+/g, '-')" "$edition_json")"
-aab="$out/$name-1.0.0-$BUILD_NUMBER.aab"
+# the file is named by the version the bundle carries (app.config.ts VERSION)
+unzip -p android/app/build/outputs/bundle/release/app-release.aab base/assets/app.config > "$out/built-config.json"
+version="$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).version" "$out/built-config.json")"
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "the bundle has no app version" >&2; exit 1; }
+aab="$out/$name-$version-$BUILD_NUMBER.aab"
 cp android/app/build/outputs/bundle/release/app-release.aab "$aab"
 
 # 1. The app reads the edition's config at runtime (name, package), not the neutral one.
