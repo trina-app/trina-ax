@@ -9,7 +9,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import type { RoomMessage, UserRef } from '@mycel/shared/api'
 import { errorText, isApiError } from '../../lib/api'
 import { lookingAt } from '../../lib/attention'
-import { newestSeq } from '../../lib/rooms'
+import { newestSeq, TARGET_PAGES } from '../../lib/rooms'
 import { stickToBottom } from '../../lib/stickToBottom'
 import { useLocale, useT } from '../../i18n'
 import { useRooms, type PendingSend } from '../../store/rooms'
@@ -92,6 +92,15 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
     }
     tryRead()
   }
+
+  // the reply a link points at but older than the newest page: older pages until it is there, at most TARGET_PAGES
+  const tries = useRef(0)
+  useEffect(() => {
+    if (!highlight || !view || view.loading || view.error || !view.root || !view.nextCursor || tries.current >= TARGET_PAGES) return
+    if (view.root.id === highlight || view.replies.some((m) => m.id === highlight)) return
+    tries.current++
+    void useRooms.getState().loadOlderReplies(roomId, rootId)
+  }, [highlight, view, roomId, rootId])
 
   const notFound = !!view?.error && (isApiError(view.error, 'not_found') || isApiError(view.error, 'forbidden'))
   const count = root?.thread?.replyCount ?? replies.filter((m) => !m.deletedAt).length

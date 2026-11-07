@@ -11,7 +11,7 @@
 import type { Database } from 'bun:sqlite'
 import { plainLabel, type InboxNotification, type Locale } from '@mycel/shared/api'
 import { ROOM_WORDS } from '../notifications/text'
-import { groupName, MENTIONS_SQL, parseMentions, seenSeq } from './store'
+import { groupName, MENTIONS_SQL, parseMentions, seenSeq, sharedAnswerOf } from './store'
 
 /** Which room notices are rows of the Inbox (on room_notices `n` and its message `m`): mentions ("@전체" too) and
  * replies in threads I follow. A message of a DM, a group chat or a room at 모든 메시지 still makes its notice and its
@@ -44,7 +44,7 @@ export interface RoomRow {
   counted: boolean
   group: Group
 }
-interface Group { ids: string[]; roomId: string; place: string | null; from: number; to: number; mentions: string[] }
+interface Group { ids: string[]; roomId: string; place: string | null; from: number; to: number }
 type Listed = { id: string; user_id: string; event_type: 'room.dm' | 'room.mention'; source_id: string; room_id: string; created_at: string; read_at: string | null; last_at: string; last_seq: number | null; seq: number; place: string | null; counted: number }
 
 /** The person's Inbox rows of rooms (within the Inbox's 30 days), newest first. */
@@ -69,7 +69,6 @@ export function roomRows(db: Database, userId: string, cutoff: string): RoomRow[
       counted: !newest.read_at && g.some((x) => !!x.counted),
       group: {
         ids: g.map((x) => x.id), roomId: newest.room_id, place: newest.place, from: Math.min(...g.map((x) => x.seq)), to: Math.max(...g.map((x) => Math.max(x.seq, x.last_seq ?? x.seq))),
-        mentions: g.filter((x) => x.event_type === 'room.mention').map((x) => x.source_id),
       },
     })
   }
@@ -82,8 +81,10 @@ export function roomRowOf(db: Database, userId: string, noticeId: string, cutoff
 }
 
 type RoomInfo = { kind: 'team' | 'all' | 'dm' | 'group'; name: string | null; group_id: string | null; last_read_seq: number; visible_from_seq: number }
-type Msg = { id: string; seq: number; author_kind: 'user' | 'ai'; author_id: string | null; body: string; created_at: string }
-const MSG = 'm.id, m.seq, m.author_kind, m.author_id, m.body, m.created_at'
+type Msg = { id: string; seq: number; author_kind: 'user' | 'ai'; author_id: string | null; body: string; created_at: string; deleted_at: string | null; event: string | null; answer_at: number | null; answer_cut: number }
+const MSG = 'm.id, m.seq, m.author_kind, m.author_id, m.body, m.created_at, m.deleted_at, m.event, m.answer_at, m.answer_cut'
+/** A row counts at most this many messages (the pill says 99+ past 99), so a long run costs no more than that. */
+export const COUNT_MAX = 100
 /** What counts in a row for `?` (the person), on room_messages `m`: a message for the whole room they see, not deleted,
  * not an event line, written by someone else, not an AI answer they asked for. Parameters: visible_from_seq ×2, person ×2. */
 const FOR_ME_SQL = `m.seq > ? AND COALESCE(m.thread_root_seq, m.seq) > ? AND m.visibility = 'room' AND m.deleted_at IS NULL AND m.event IS NULL
@@ -98,21 +99,36 @@ const roomName = (db: Database, room: Pick<RoomInfo, 'kind' | 'name' | 'group_id
   const name = room.name || groupName(db, room)
   return name ? plainLabel(name, NAME_MAX) : null
 }
-/** The strongest reason of these mention messages for the person: picked by name, or only "@전체". */
-const mentionReason = (db: Database, ids: readonly string[], userId: string): 'mention' | 'everyone' | null => {
-  if (!ids.length) return null
-  const rows = db.query(`SELECT mentions FROM room_messages WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { mentions: string }[]
-  return rows.some((r) => parseMentions(r.mentions).includes(userId)) ? 'mention' : 'everyone'
-}
 /** Who wrote a message, as the row says it */
 const writer = (db: Database, m: Pick<Msg, 'author_kind' | 'author_id'>) => ({
   from: m.author_kind === 'ai' ? null : (() => { const n = nameOf(db, m.author_id); return n ? plainLabel(n, NAME_MAX) : null })(),
   fromId: m.author_kind === 'ai' ? null : m.author_id, ...(m.author_kind === 'ai' ? { ai: true as const } : {}),
 })
 
+/** The first line of a message as the Inbox shows it: an AI answer's (and an answer shared from an AI chat, after the
+ * person's own note when there is none) without its Markdown marks. */
+function messageLine(m: Msg): string {
+  const shared = sharedAnswerOf(m)
+  if (shared) {
+    const note = previewLine(m.body.slice(0, shared.at))
+    return note || previewLine(plainMarkdown(m.body.slice(shared.at)))
+  }
+  return previewLine(m.author_kind === 'ai' ? plainMarkdown(m.body) : m.body)
+}
+/** Markdown's marks off each line (headings, quotes, list marks, emphasis, code ticks, link targets): what the app's
+ * rooms list does for an AI answer (web lib/rooms.ts plainLine), enough for one line. */
+export function plainMarkdown(md: string): string {
+  return md.split('\n').map((l) => l
+    .replace(/!?\[([^\]]*)\]\([^)]*\)?/g, '$1')
+    .replace(/^[ \t]{0,3}(#{1,6}[ \t]+|>[ \t]?|[-*+][ \t]+|\d+[.)][ \t]+)/, '')
+    .replace(/(\*\*|__|~~)(.+?)\1/g, '$2').replace(/\*\*|__|~~|`+/g, '')
+    .replace(/^[ \t]*\|?[ \t]*:?-{2,}.*$/, '').replace(/[ \t]*\|[ \t]*/g, ' ')).join('\n')
+}
+
 /** What an Inbox row says (`InboxNotification.room`), with the first line of its newest message. The messages it counts:
- * in a thread I follow every reply, elsewhere what mentions me; while unread those after my place there (and from the
- * row's first notice on), once read those the row's notices stood for. */
+ * in a thread I follow every reply, elsewhere what mentions me, from the row's first notice to the newest message its
+ * notices held back (while unread: from my place there on); at most COUNT_MAX of them. Its reason: one of them mentions
+ * me by name, or "@전체", else a reply or a message. */
 export function roomRowOut(db: Database, row: RoomRow): NonNullable<InboxNotification['room']> | null {
   const { group } = row, me = row.user_id
   const room = roomInfo(db, group.roomId, me)
@@ -121,22 +137,26 @@ export function roomRowOut(db: Database, row: RoomRow): NonNullable<InboxNotific
   const all = !!group.place && !!follow
   const read = group.place ? (follow?.last_read_seq ?? 0) : Math.max(room.last_read_seq, room.visible_from_seq)
   const from = row.read_at ? group.from : Math.max(group.from, read + 1)
-  const to = row.read_at ? group.to : Number.MAX_SAFE_INTEGER
+  const to = group.to
   const place = group.place ? 'm.thread_root_id = ?' : 'm.room_id = ? AND m.thread_root_id IS NULL'
   const where = `${place} AND m.seq >= ? AND m.seq <= ? AND ${FOR_ME_SQL}${all ? '' : ` AND ${MENTIONS_SQL}`}`
   const args = [group.place ?? group.roomId, from, to, room.visible_from_seq, room.visible_from_seq, me, me, ...(all ? [] : [me, me])]
-  const sum = db.query(`SELECT COUNT(*) n, COUNT(DISTINCT CASE WHEN m.author_kind = 'ai' THEN '' ELSE m.author_id END) people, MIN(m.seq) first, MAX(m.seq) last FROM room_messages m WHERE ${where}`)
-    .get(...args) as { n: number; people: number; first: number | null; last: number | null }
+  // the newest COUNT_MAX of them (one indexed walk down from the run's end), and the first (one step up from its start)
+  const sum = db.query(`SELECT COUNT(*) n, COUNT(DISTINCT CASE WHEN author_kind = 'ai' THEN '' ELSE author_id END) people, MAX(seq) last, MAX(named) named, MAX(everyone) everyone
+    FROM (SELECT m.seq, m.author_kind, m.author_id, EXISTS(SELECT 1 FROM json_each(m.mentions) j WHERE j.value = ?) named, m.mentions_all = 1 everyone
+      FROM room_messages m WHERE ${where} ORDER BY m.seq DESC LIMIT ${COUNT_MAX})`)
+    .get(me, ...args) as { n: number; people: number; last: number | null; named: number | null; everyone: number | null }
+  const firstSeq = sum.last === null ? null : (db.query(`SELECT m.seq FROM room_messages m WHERE ${where} ORDER BY m.seq LIMIT 1`).get(...args) as { seq: number } | null)?.seq ?? null
   // nothing left to count (read meanwhile, or the run's messages gone): the row's own newest notice
   const at = (seq: number) => db.query(`SELECT ${MSG} FROM room_messages m WHERE m.room_id = ? AND m.seq = ?`).get(group.roomId, seq) as Msg
   const own = db.query(`SELECT ${MSG} FROM room_messages m WHERE m.id = ?`).get(row.source_id) as Msg
-  const first = sum.first !== null ? at(sum.first) : own, newest = sum.last !== null ? at(sum.last) : own
-  const line = previewLine(newest.body)
+  const first = firstSeq !== null ? at(firstSeq) : own, newest = sum.last !== null ? at(sum.last) : own
+  const line = messageLine(newest)
   const files = line ? 0 : (db.query('SELECT COUNT(*) n FROM room_files WHERE message_id = ?').get(newest.id) as { n: number }).n
   return {
     id: group.roomId, ...writer(db, newest), ...(group.place ? { thread: group.place } : {}),
     kind: room.kind, name: roomName(db, room),
-    reason: mentionReason(db, group.mentions, me) ?? (group.place ? 'reply' : 'message'),
+    reason: sum.named ? 'mention' : sum.everyone ? 'everyone' : group.place ? 'reply' : 'message',
     message: first.id, preview: line, ...(files ? { files } : {}),
     count: Math.max(1, sum.n), people: Math.max(1, sum.people), at: newest.created_at,
   }
@@ -146,13 +166,13 @@ export function roomRowOut(db: Database, row: RoomRow): NonNullable<InboxNotific
  * notification's title on a device in the person's language ("민준 · #마케팅 › 스레드", a DM "민준"). null while the
  * person may not read its message. */
 export function roomNoticeOut(db: Database, notice: { id: string; user_id: string; event_type: string; source_id: string }, locale: Locale): NonNullable<InboxNotification['room']> | null {
-  const s = db.query(`SELECT ${MSG}, m.room_id, m.thread_root_id, m.thread_root_seq, m.visibility, m.visible_to, m.deleted_at, m.mentions FROM room_messages m WHERE m.id = ?`)
-    .get(notice.source_id) as (Msg & { room_id: string; thread_root_id: string | null; thread_root_seq: number | null; visibility: string; visible_to: string | null; deleted_at: string | null; mentions: string }) | null
+  const s = db.query(`SELECT ${MSG}, m.room_id, m.thread_root_id, m.thread_root_seq, m.visibility, m.visible_to, m.mentions, m.mentions_all FROM room_messages m WHERE m.id = ?`)
+    .get(notice.source_id) as (Msg & { room_id: string; thread_root_id: string | null; thread_root_seq: number | null; visibility: string; visible_to: string | null; mentions: string; mentions_all: number }) | null
   const room = s && db.query(`SELECT r.kind, r.name, r.group_id, rm.last_read_seq, rm.visible_from_seq FROM rooms r JOIN room_members rm ON rm.room_id = r.id AND rm.user_id = ?
-    WHERE r.id = ? AND r.archived_at IS NULL`).get(notice.user_id, s.room_id) as RoomInfo | null
+    WHERE r.id = ? AND r.archived_at IS NULL AND rm.hidden_at IS NULL`).get(notice.user_id, s.room_id) as RoomInfo | null
   if (!s || !room || s.deleted_at || seenSeq(s) <= room.visible_from_seq || (s.visibility !== 'room' && s.visible_to !== notice.user_id)) return null
   const who = writer(db, s), name = roomName(db, room)
-  const reason = notice.event_type === 'room.mention' ? (parseMentions(s.mentions).includes(notice.user_id) ? 'mention' as const : 'everyone' as const) : s.thread_root_id ? 'reply' as const : 'message' as const
+  const reason = parseMentions(s.mentions).includes(notice.user_id) ? 'mention' as const : s.mentions_all && s.author_id !== notice.user_id ? 'everyone' as const : s.thread_root_id ? 'reply' as const : 'message' as const
   return {
     id: s.room_id, ...who, ...(s.thread_root_id ? { thread: s.thread_root_id } : {}), kind: room.kind, name, reason, message: s.id, count: 1, people: 1, at: s.created_at,
     label: roomLabel(db, { roomId: s.room_id, userId: notice.user_id, kind: room.kind, name, thread: !!s.thread_root_id, who: who.from ?? (who.ai ? ROOM_WORDS[locale].ai : null) }, locale),

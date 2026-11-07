@@ -76,15 +76,21 @@ export function Notifications() {
   /** changes made while one is saving: sent together right after it (nothing waits for the server on screen) */
   const queued = useRef<Partial<NotificationPreferences> | null>(null)
   useEffect(() => { life.current++; return () => { life.current++ } }, [])
+  /** how many rows are on screen: a read again keeps the pages already loaded ("더 보기"), up to the API's 100 */
+  const shown = useRef(0)
   const load = useCallback(async (after?: string) => {
     const generation = life.current, seq = ++sequence.current
     try {
       const [inbox, prefs] = await Promise.all([
-        api.call(API.listNotifications, { query: { limit: 30, cursor: after } }),
+        api.call(API.listNotifications, { query: { limit: after ? 30 : Math.min(100, Math.max(30, shown.current)), cursor: after } }),
         api.call(API.getNotificationPreferences),
       ])
       if (generation !== life.current || seq !== sequence.current) return
-      setItems(previous => after && previous ? [...new Map([...previous, ...inbox.items].map(item => [item.id, item])).values()] : inbox.items)
+      setItems(previous => {
+        const next = after && previous ? [...new Map([...previous, ...inbox.items].map(item => [item.id, item])).values()] : inbox.items
+        shown.current = next.length
+        return next
+      })
       // while my changes are being saved, the switches show them, not a read from before the last one landed
       if (!writing.current) setPreferences(prefs)
       setCursor(inbox.nextCursor); setUnread(inbox.unreadCount); setError(null)
@@ -97,9 +103,15 @@ export function Notifications() {
     const off = notificationsChanged.on(() => void load()), reload = reloadAsked.on(() => void load())
     const access = accessChanged.on(() => { setItems(null); void load() })
     // a conversation row grows while its run goes on (another reply in the thread) without a new notice: read the rows
-    // again once the rooms have been quiet for a moment
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const rooms = useRooms.subscribe((s, before) => { if (s.rooms !== before.rooms) { clearTimeout(timer); timer = setTimeout(() => void load(), 1000) } })
+    // again once the rooms have been quiet for a second, and at least every 5 seconds while they keep changing
+    let timer: ReturnType<typeof setTimeout> | undefined, since = 0
+    const rooms = useRooms.subscribe((s, before) => {
+      if (s.rooms === before.rooms) return
+      const now = Date.now()
+      if (!since) since = now
+      clearTimeout(timer)
+      timer = setTimeout(() => { since = 0; void load() }, now - since >= 5000 ? 0 : 1000)
+    })
     return () => { off(); reload(); access(); rooms(); clearTimeout(timer) }
   }, [load])
   // shown at once; saved in order, one request at a time (a change made meanwhile goes with the next one)

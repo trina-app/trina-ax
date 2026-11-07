@@ -12579,6 +12579,18 @@ reference; a product and privacy review cut the first plan down to this.
   the product's name, as before. An older worker ignores the field. The phone app's own notices are not in this step.
 - **Older clients and servers.** Every new field of `InboxNotification.room` is optional and the event codes are the
   same. An older page shows the rows with the line it had; this page shows an older server's notices with that line.
+- **Independent review (2026-11-07) fixes.** Reading the room or a thread up to a point now leaves a notice unread when
+  its run goes on past that point (`last_seq`; `markNoticesRead`, `markThreadNoticesRead`): a read request still on its
+  way when the next mention came marked the run read, and what came after had no notice and vanished from the count.
+  Hiding a room, showing it again and leaving or being taken out tell the person's windows to read the Inbox's count
+  again (`notifications.changed`). A row counts within its run only (from the first notice to the newest it held back)
+  and at most `COUNT_MAX` (100; the pill says 99+), with its first and newest message found by one indexed step each:
+  a run under 50,000 later messages cost 18 ms a list before. `last_seq` is written only for the kinds the Inbox lists,
+  and reading a notice works out its row only for a room notice. The Inbox page reads its rows again as rooms change
+  (once quiet for a second, at most 5 seconds apart) keeping the pages already shown. A linked message older than the
+  newest page is looked for in older pages (at most 10: 500 messages). The reason comes from the counted messages (a
+  mention edited away is no "@"), and an AI answer's or a shared answer's line has its Markdown marks taken off (a
+  shared answer: the person's note first). The notice a push opens has no room while its room is hidden.
 - Rejected: a new event code for replies (the enum is shared with older apps); grouping only by notice (a mention and a
   reply in one thread were two rows); listing every message notice (the 대화 tab already has them; the owner decides).
 - Tests: `tests/unit/b-rooms-inbox.test.ts` (what is listed and counted, pushes untouched, hidden rooms, what a row says,

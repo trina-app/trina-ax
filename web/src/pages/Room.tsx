@@ -16,7 +16,7 @@ import { Link, useLocation, useNavigate, useNavigationType, useParams, type Navi
 import { isUuid7, type RoomMember, type RoomMessage } from '@mycel/shared/api'
 import { errorText, isApiError } from '../lib/api'
 import { lookingAt } from '../lib/attention'
-import { newestSeq, threadClosing, threadOpening } from '../lib/rooms'
+import { newestSeq, TARGET_PAGES, threadClosing, threadOpening } from '../lib/rooms'
 import { useBackLink } from '../lib/back'
 import { stickToBottom } from '../lib/stickToBottom'
 import { useLocale, useT } from '../i18n'
@@ -141,6 +141,14 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
       .fetchRoom(roomId)
       .then((r) => !r && setMissing(true), () => {})
   }, [loaded, room, roomId, missing])
+  // the message a link points at but older than the newest page: older pages until it is there, at most TARGET_PAGES
+  const tries = useRef(0)
+  useEffect(() => {
+    if (!target || threadId || !timeline || timeline.loading || timeline.error || !timeline.nextCursor || tries.current >= TARGET_PAGES) return
+    if (timeline.messages.some((m) => m.id === target)) return
+    tries.current++
+    void useRooms.getState().loadOlder(roomId)
+  }, [target, threadId, timeline, roomId])
   const notFound = missing || badThread || (!!timeline?.error && (isApiError(timeline.error, 'not_found') || isApiError(timeline.error, 'forbidden')))
 
   const messages = timeline?.messages ?? NO_MESSAGES

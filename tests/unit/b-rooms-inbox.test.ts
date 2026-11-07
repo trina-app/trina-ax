@@ -10,9 +10,9 @@ import { updateTeamSettings } from '../../server/src/admin/settings'
 import { notificationsOf } from '../../server/src/notifications/service'
 import { roomsOf } from '../../server/src/rooms/service'
 import { noticeWanted } from '../../server/src/rooms/alerts'
-import { previewLine } from '../../server/src/rooms/inbox'
+import { COUNT_MAX, plainMarkdown, previewLine } from '../../server/src/rooms/inbox'
 import { zonedClock } from '../../shared/src/api/room-alerts'
-import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
+import { addMember, harness, RecordingHub, withOwner, type Client, type Harness } from './a-lib'
 
 setDefaultTimeout(60_000)
 let h: Harness
@@ -219,7 +219,7 @@ test('a member who joined after a thread\'s root gets no row of it; an AI answer
     VALUES (?, ?, ?, 'ai', NULL, ?, 'room', '**요약**: 세 가지', '[]', ?, ?, ?)`).run(aiId, team.id, seq, otto.id, new Date().toISOString(), root.id, root.seq)
   roomsOf(h.ctx).notify(h.ctx.db.query('SELECT * FROM room_messages WHERE id = ?').get(aiId) as any)
   const row = rows(mia.id).find((x) => x.room?.thread === root.id)!
-  expect(row.room).toMatchObject({ ai: true, fromId: null, from: null, preview: '**요약**: 세 가지', people: 3, count: 3 })
+  expect(row.room).toMatchObject({ ai: true, fromId: null, from: null, preview: '요약: 세 가지', people: 3, count: 3 })
   // the notice a push opened was the run's first reply's
   expect(n.get(mia.id, row.id).room!.label).toMatch(/^NORA · #design › (스레드|Thread)$/)
   // otto asked it: the answer is not news to him
@@ -239,4 +239,55 @@ test('names are one plain line: no control or bidirectional characters, no line 
   const row = rows().find((x) => x.room?.id === team.id)!
   expect(row.room).toMatchObject({ from: 'Eve live', preview: '@NORA hi there' })
   expect(n.get(nora.id, row.id).room!.label).toBe('Eve live · #design')
+})
+
+test('review fixes: a read that stops inside a run keeps it unread; the count is read again when rows go or come; the count is capped; an edited-away mention', async () => {
+  const { mia, nora, otto, n, team, send, reply, rows } = await setup()
+  const hub = new RecordingHub()
+  h.ctx.services.realtime = hub
+  const changed = (uid: string) => hub.events.filter((e) => e.target === uid && (e.data as any)?.data?.code === 'notifications.changed').length
+  // a mention at 1, a plain message, a mention at 3 (held back by the first): a read up to the plain message keeps the
+  // row unread and counts what is left
+  const m1 = await send(mia.client, team.id, '@NORA one', { mentions: [nora.id] })
+  const plain = await send(mia.client, team.id, 'plain')
+  const m3 = await send(otto.client, team.id, '@NORA three', { mentions: [nora.id] })
+  await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: plain.seq })
+  expect(n.list(nora.id, {}).unreadCount).toBe(1)
+  expect(rows()[0]).toMatchObject({ readAt: null, room: { count: 1, message: m3.id, preview: '@NORA three' } })
+  await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: m3.seq })
+  expect(n.list(nora.id, {}).unreadCount).toBe(0)
+  expect(rows()[0]).toMatchObject({ readAt: expect.any(String), room: { count: 2, message: m1.id } })
+  // hiding the room and showing it again: the Inbox's count is told to read again each time
+  await send(mia.client, team.id, '@NORA again', { mentions: [nora.id] })
+  const before = changed(nora.id)
+  await nora.client.call('PUT', `/api/rooms/${team.id}/hidden`, { hidden: true })
+  expect(changed(nora.id)).toBe(before + 1)
+  expect(n.list(nora.id, {}).unreadCount).toBe(0)
+  await nora.client.call('PUT', `/api/rooms/${team.id}/hidden`, { hidden: false })
+  expect(changed(nora.id)).toBe(before + 2)
+  expect(n.list(nora.id, {}).unreadCount).toBe(1)
+  // the notice a push opens has no room while the room is hidden
+  await nora.client.call('PUT', `/api/rooms/${team.id}/hidden`, { hidden: true })
+  expect(n.get(nora.id, rows().length ? rows()[0]!.id : (h.ctx.db.query('SELECT id FROM room_notices WHERE user_id = ? AND read_at IS NULL').get(nora.id) as { id: string }).id).room).toBeUndefined()
+  await nora.client.call('PUT', `/api/rooms/${team.id}/hidden`, { hidden: false })
+  // leaving a group chat: told too
+  const g = await mia.client.call('POST', '/api/rooms', { kind: 'group', userIds: [nora.id, otto.id] })
+  await send(mia.client, g.id, '@NORA in the group', { mentions: [nora.id] })
+  const left = changed(nora.id)
+  await nora.client.call('POST', `/api/rooms/${g.id}/leave`)
+  expect(changed(nora.id)).toBeGreaterThan(left)
+  // a long run of replies counts at most COUNT_MAX
+  const root = await send(nora.client, team.id, 'a long thread')
+  for (let i = 0; i < COUNT_MAX + 5; i++) await reply(i % 2 ? mia.client : otto.client, team.id, root.id, `reply ${i}`)
+  const long = rows().find((x) => x.room?.thread === root.id)!
+  expect(long.room).toMatchObject({ count: COUNT_MAX, people: 2, preview: `reply ${COUNT_MAX + 4}` })
+  // a mention edited away: the row is no longer a mention
+  await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 99999 })
+  const e = await send(mia.client, team.id, '@NORA soon edited', { mentions: [nora.id] })
+  expect(rows().find((x) => x.sourceId === e.id)?.room?.reason).toBe('mention')
+  await mia.client.call('PATCH', `/api/rooms/${team.id}/messages/${e.id}`, { body: 'nothing for nora', mentions: [] })
+  expect(rows().find((x) => x.sourceId === e.id)?.room).toMatchObject({ reason: 'message', preview: 'nothing for nora' })
+  expect(n.get(nora.id, rows().find((x) => x.sourceId === e.id)!.id).room?.reason).toBe('message')
+  // an answer's Markdown is one plain line
+  expect(plainMarkdown('## 제목\n- **굵게** `code` [링크](https://example.test)')).toBe('제목\n굵게 code 링크')
 })

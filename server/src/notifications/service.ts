@@ -95,8 +95,9 @@ export class Notifications {
     const open = this.ctx.db.query(`SELECT n.id FROM room_notices n JOIN room_messages m ON m.id=n.source_id WHERE n.user_id=? AND n.room_id=? AND n.event_type=? AND n.read_at IS NULL AND n.suppressed=0 AND n.created_at>=?
       AND m.thread_root_id IS ? AND (n.quiet=0 OR ?=1) ORDER BY n.created_at DESC, n.id DESC LIMIT 1`).get(userId, roomId, event, this.cutoff(), threadRootId, quiet ? 1 : 0) as { id: string } | null
     if (open) {
-      // no signal: the Inbox's count is the same, and an open Inbox reads its rows again as the rooms change
-      if (seq !== undefined) this.ctx.db.query('UPDATE room_notices SET last_seq=?, last_at=? WHERE id=? AND COALESCE(last_seq, 0) < ?').run(seq, at, open.id, seq)
+      // only for the kinds the Inbox lists (a mention, a reply: rooms/inbox.ts; a DM's message is no row). No signal: the
+      // Inbox's count is the same, and an open Inbox reads its rows again as the rooms change
+      if (seq !== undefined && (event === 'room.mention' || threadRootId !== null)) this.ctx.db.query('UPDATE room_notices SET last_seq=?, last_at=? WHERE id=? AND COALESCE(last_seq, 0) < ?').run(seq, at, open.id, seq)
       return false
     }
     const r = this.ctx.db.query('INSERT INTO room_notices(id,user_id,event_type,source_id,room_id,created_at,suppressed,quiet) VALUES(?,?,?,?,?,?,0,?) ON CONFLICT(user_id,event_type,source_id) DO NOTHING')
@@ -526,7 +527,7 @@ export class Notifications {
     const args = [new Date().toISOString(), id, userId, this.cutoff()]
     // a room notice's row in the Inbox is every unread notice of its place (rooms/inbox.ts): read together, at one time,
     // so they stay one row
-    const row = roomRowOf(db, userId, id, this.cutoff())
+    const row = db.query('SELECT 1 FROM room_notices WHERE id=? AND user_id=?').get(id, userId) ? roomRowOf(db, userId, id, this.cutoff()) : null
     const update = (table: string) => db.query(`UPDATE ${table} SET read_at=COALESCE(read_at,?) WHERE id=? AND user_id=? AND suppressed=0 AND created_at>=? RETURNING *`).get(...args) as Row | null
     let r: Row | null = null
     for (const table of NOTICE_TABLES) if ((r = update(table))) break

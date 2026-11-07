@@ -255,6 +255,8 @@ export class Rooms {
       this.roomEvent(roomId, 'updated', new Set([userId]))
       // a push of this room that waits or is on its way is checked again: a hidden room pushes nothing (alerts.ts)
       cancelPushUser(this.ctx, userId)
+      // its rows leave the Inbox (rooms/inbox.ts): the count is read again
+      this.notifySignal(userId)
     } else if (!hidden) this.unhide(roomId, [userId])
     return this.get(userId, roomId)
   }
@@ -267,6 +269,8 @@ export class Rooms {
     const ids = [...new Set(userIds)]
     for (const r of this.db.query(`UPDATE room_members SET hidden_at = NULL WHERE room_id = ? AND hidden_at IS NOT NULL AND user_id IN (${ids.map(() => '?').join(',')}) RETURNING user_id`).all(roomId, ...ids) as { user_id: string }[]) back.add(r.user_id)
     if (publish && back.size) this.roomEvent(roomId, 'updated', back)
+    // its rows are in the Inbox again (rooms/inbox.ts): the count is read again
+    for (const u of back) this.notifySignal(u)
     return back
   }
 
@@ -375,7 +379,13 @@ export class Rooms {
 
   /** Someone is out of a room: their member row, notices, the threads they followed and their reactions there go. */
   private forgetMember(roomId: string, userId: string) {
-    for (const t of ['room_members', 'room_notices', 'room_thread_follows', 'room_reactions']) this.db.query(`DELETE FROM ${t} WHERE room_id = ? AND user_id = ?`).run(roomId, userId)
+    let notices = 0
+    for (const t of ['room_members', 'room_notices', 'room_thread_follows', 'room_reactions']) {
+      const n = this.db.query(`DELETE FROM ${t} WHERE room_id = ? AND user_id = ?`).run(roomId, userId).changes
+      if (t === 'room_notices') notices = n
+    }
+    // their rows of the room leave the Inbox: its count is read again
+    if (notices) this.notifySignal(userId)
   }
 
   /** Only active accounts of this team; one that is not (disabled, deleted, unknown) refuses the whole request without
@@ -703,14 +713,16 @@ export class Rooms {
   /** My notices of this room's timeline up to `seq` count as read (the inbox and a pending push follow); a thread's
    * own replies are read in the thread (markThreadNoticesRead). */
   markNoticesRead(userId: string, roomId: string, seq: number) {
-    const r = this.db.query(`UPDATE room_notices SET read_at = ? WHERE user_id = ? AND room_id = ? AND read_at IS NULL
-      AND source_id IN (SELECT m.id FROM room_messages m WHERE m.room_id = ? AND m.seq <= ? AND ${TIMELINE_SQL})`).run(nowIso(), userId, roomId, roomId, seq)
+    // a notice whose run goes on past seq (it held a later message back: last_seq) stays unread: what came after is not
+    // read yet, and no other notice stands for it (rooms/inbox.ts)
+    const r = this.db.query(`UPDATE room_notices SET read_at = ? WHERE user_id = ? AND room_id = ? AND read_at IS NULL AND (last_seq IS NULL OR last_seq <= ?)
+      AND source_id IN (SELECT m.id FROM room_messages m WHERE m.room_id = ? AND m.seq <= ? AND ${TIMELINE_SQL})`).run(nowIso(), userId, roomId, seq, roomId, seq)
     if (r.changes) this.notifySignal(userId)
   }
   /** My notices of the replies in this thread up to `seq` count as read. */
   markThreadNoticesRead(userId: string, roomId: string, rootId: string, seq: number) {
-    const r = this.db.query(`UPDATE room_notices SET read_at = ? WHERE user_id = ? AND room_id = ? AND read_at IS NULL
-      AND source_id IN (SELECT id FROM room_messages WHERE room_id = ? AND thread_root_id = ? AND seq <= ?)`).run(nowIso(), userId, roomId, roomId, rootId, seq)
+    const r = this.db.query(`UPDATE room_notices SET read_at = ? WHERE user_id = ? AND room_id = ? AND read_at IS NULL AND (last_seq IS NULL OR last_seq <= ?)
+      AND source_id IN (SELECT id FROM room_messages WHERE room_id = ? AND thread_root_id = ? AND seq <= ?)`).run(nowIso(), userId, roomId, seq, roomId, rootId, seq)
     if (r.changes) this.notifySignal(userId)
   }
 

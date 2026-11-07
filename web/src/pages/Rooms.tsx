@@ -27,7 +27,6 @@ import { Button, ErrorNote, PageHeader, Skeleton } from '../components/ui'
 import { useNameOf } from '../store/people'
 import { useResumeOnLanding } from '../components/onboarding/WelcomeResume'
 
-export { listTime } from '../lib/format'
 
 export default function Rooms() {
   const t = useT()
