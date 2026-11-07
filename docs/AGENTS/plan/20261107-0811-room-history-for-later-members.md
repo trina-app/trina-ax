@@ -65,4 +65,4 @@ had read (`room_messages.source_scope`, also used for shared answers); deleted a
 become fewer after access changes (`history_recheck`), so an invite account that gets its groups later sees what they
 open; an answer private because it used a hidden answer cannot be posted; `has_hidden` skips the check for members with
 nothing hidden. Migration 264, additive, reader level 6. Known limits are in DECISIONS (rollback and forward again;
-names in a room session's instructions). PR: see the pull request of this branch.
+names in a room session's instructions). PR: https://github.com/trina-app/trina-ax/pull/161
