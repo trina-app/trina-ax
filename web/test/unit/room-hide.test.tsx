@@ -159,9 +159,8 @@ describe('a row\'s 알림 설정 and its sheet', () => {
     const m = await mount(<MemoryRouter><ul><li onPointerDown={() => pressed++}><RoomMenu room={r} title="t" /></li></ul></MemoryRouter>)
     try {
       const more = m.get('room-menu')
-      // a bare level menu has no button on screen: the fake document has no layout, so the "⋯" counts as shown and the
-      // bare one's as not (offsetParent)
-      Object.defineProperty(more, 'offsetParent', { get: () => m.container })
+      // the bare level menu's button is not on screen (display: none): the fake document has no layout, so say so
+      Object.defineProperty(m.get('room-notify-row'), 'offsetParent', { get: () => null })
       await m.click('room-menu')
       await m.click('room-menu-notify')
       await m.until(() => body(m).querySelectorAll('[role="menuitemradio"]').length === 4, 'the levels')

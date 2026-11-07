@@ -96,7 +96,8 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openRequest])
   /** the keyboard back to the button, or where the caller says when there is none on screen */
-  const giveBack = () => (button.current?.offsetParent ? button.current.focus() : focusBack?.())
+  const hiddenButton = () => button.current?.offsetParent === null
+  const giveBack = () => (hiddenButton() && focusBack ? focusBack() : button.current?.focus())
   const onKey = (e: KeyboardEvent) => {
     if (!open) return
     if (e.key === 'Escape') {
@@ -168,7 +169,7 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
                 if (Date.now() - pressedAt.current < 400) return
                 setOpen(null)
                 // a menu without a button on screen: the item is gone with it, the keyboard goes back where it came from
-                if (!button.current?.offsetParent && focusBack && menu.current?.contains(document.activeElement)) focusBack()
+                if (hiddenButton() && focusBack && menu.current?.contains(document.activeElement)) focusBack()
                 it.onSelect()
               }}
               className={clsx('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm max-md:min-h-12 max-md:gap-3 max-md:rounded-lg max-md:px-3', it.danger ? 'text-danger hover:bg-danger-soft' : 'text-ink hover:bg-hover')}
