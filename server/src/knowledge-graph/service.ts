@@ -43,6 +43,7 @@ import type { DocHit, DocIndexOptions, DocIndexPort, OpenDocIndex } from './docs
 import { cutText, DocumentIndex, matchStrength, questionTerms } from './documents'
 import { queryTerms } from './documents/text'
 import { DocSearchWorker, docSearchWorkerScript } from './documents/search-worker'
+import { MeaningIndexer, startEmbedChild, type MeaningIndexerOptions } from './meaning/indexer'
 
 export const ENABLED_SETTING = 'knowledgeGraph.enabled'
 export const ADDED_SETTING = 'knowledgeGraph.added'
@@ -69,6 +70,9 @@ export interface KgOptions {
   docRunMax?: number
   /** a document larger than this is not read (recorded as too big) */
   docReadMax?: number
+  /** search by meaning's indexing (meaning/indexer.ts): stand-ins and limits; null: never index by meaning (tests'
+   * default, so no test starts the model) */
+  meaning?: Partial<Omit<MeaningIndexerOptions, 'store' | 'on' | 'log'>> | null
 }
 
 interface DocState {
@@ -188,6 +192,10 @@ export function openDocumentIndex(dir: string, o: DocIndexOptions): DocIndexPort
     related: (r, rel, x) => reader?.usable ? reader.related(r, rel, x, people()) : idx.related(r, rel, x),
     stats: (r) => idx.stats(r),
     diskBytes: () => idx.diskBytes(),
+    // search by meaning: the vectors are written on this thread's connection, like every other write
+    pendingVectors: (n) => idx.pendingVectors(n),
+    writeVectors: (rows) => idx.writeVectors(rows),
+    vectorCounts: () => idx.vectorCounts(),
     close: () => { reader?.close(); idx.close() },
     destroy: () => { reader?.close(); idx.destroy() },
   }
@@ -201,7 +209,9 @@ export class KnowledgeGraph {
   readonly runner: GraphRunner | null
   private openDocs: OpenDocIndex | null
   private docs: DocIndexPort | null = null
-  private o: Required<Omit<KgOptions, 'runner' | 'openDocs' | 'firstCheckMs'>> & { firstCheckMs: number | null }
+  private o: Required<Omit<KgOptions, 'runner' | 'openDocs' | 'firstCheckMs' | 'meaning'>> & { firstCheckMs: number | null }
+  private meaningOpts: KgOptions['meaning']
+  private meaning: MeaningIndexer | null = null
   private state: State
   private timers = new Map<string, { t: ReturnType<typeof setTimeout>; first: number }>()
   private queue: string[] = []
@@ -228,6 +238,7 @@ export class KnowledgeGraph {
       pauseMinMs: opts.pauseMinMs ?? 2_000, pauseMaxMs: opts.pauseMaxMs ?? 60_000,
       docRunMax: opts.docRunMax ?? 200, docReadMax: opts.docReadMax ?? 100 * 1024 * 1024,
     }
+    this.meaningOpts = opts.meaning
     this.state = this.load()
     // a run that was going when the server stopped starts again
     for (const s of Object.values(this.state.roots)) {
@@ -256,6 +267,39 @@ export class KnowledgeGraph {
   docsOn() { return !!this.openDocs && this.docsEnabled() }
   /** anything to index */
   anyOn() { return this.enabled() || this.docsOn() }
+  /**
+   * Search by meaning (wave 2): `knowledgeGraph.meaning: true` in server.json, and the documents part runs. Off unless
+   * set; off means no indexing and no meaning in the search (the combined search asks this). Nothing about it is in the
+   * admin screens.
+   */
+  meaningOn() { return this.ctx.config.knowledgeGraph?.meaning === true && this.docsOn() }
+
+  /** the background indexing of search by meaning, made when first needed while it is on */
+  private meaningIndexer(): MeaningIndexer | null {
+    if (this.closed || this.meaningOpts === null || !this.meaningOn()) return null
+    if (this.meaning) return this.meaning
+    const dataDir = this.ctx.engineConfig.dataDir
+    const models = process.env.MYCEL_MODELS_DIR
+    this.meaning = new MeaningIndexer({
+      store: () => this.docsOn() ? this.docIndex() : null,
+      on: () => !this.closed && this.meaningOn(),
+      peopleWaiting: () => this.peopleWaiting(),
+      log: this.ctx.log,
+      // the same model folders as the old search by meaning: <data>/models, or a host's read-only shared copy
+      startChild: () => startEmbedChild({ modelDir: path.join(dataDir, 'models'), sharedDir: models ? path.join(models, 'semantic') : null, threads: 1 }),
+      ...this.meaningOpts,
+    })
+    return this.meaning
+  }
+
+  /**
+   * Someone is waiting for an answer: a chat turn runs or waits in the queue (the turns table, which the chat runtime
+   * keeps: queued, then running until it ends; a server start sets the ones a stop left running to their end). One
+   * query on its status index; the background indexing of search by meaning pauses meanwhile.
+   */
+  private peopleWaiting(): boolean {
+    try { return !!this.ctx.db.query("SELECT 1 FROM turns WHERE status IN ('queued', 'running') LIMIT 1").get() } catch { return false }
+  }
   added(): string[] {
     const v = getSetting<unknown>(this.ctx.db, ADDED_SETTING)
     return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
@@ -397,6 +441,8 @@ export class KnowledgeGraph {
     for (const p of list) this.enqueue(p)
     this.state.lastFullAt = nowIso()
     this.save()
+    // search by meaning: pieces still without a vector, and the try again after a refusal (memory, the model)
+    this.meaningIndexer()?.kick({ retry: true })
   }
 
   private nightlyDue(): boolean {
@@ -486,6 +532,8 @@ export class KnowledgeGraph {
     Object.assign(d, { status: 'ready', documents: st.documents, failed: st.failed.length, lastSyncAt: nowIso(), error: null })
     this.diskCache = null
     if (done) this.ctx.log.info('knowledge graph: documents indexed', { root: s.id, files: done, documents: st.documents, failed: st.failed.length, more })
+    // new pieces have no vector yet (a document indexed again: its pieces are new, so their vectors are made again)
+    if (done) this.meaningIndexer()?.kick()
     // the rest of a large folder in the next run (after the pause), not all at once
     if (more && !this.queue.includes(p)) this.queue.push(p)
   }
@@ -582,6 +630,8 @@ export class KnowledgeGraph {
   /** The documents part off: the document index is deleted; the code goes on. */
   private clearDocs() {
     this.stopRuns()
+    this.meaning?.close()
+    this.meaning = null
     try { this.docs?.destroy() } catch (e) { this.ctx.log.warn('knowledge graph: document index not deleted', { err: String(e) }) }
     this.docs = null
     // the index's folder goes even when the index could not be opened
@@ -916,6 +966,7 @@ export class KnowledgeGraph {
     clearTimeout(this.loops.first)
     clearInterval(this.loops.every)
     this.ctx.files.events.off('tree-changed', this.onChanged)
+    this.meaning?.close()
     try { this.docs?.close() } catch {}
     for (const f of this.idle.splice(0)) f()
   }
@@ -964,8 +1015,8 @@ export function knowledgeGraphOf(ctx: AppContext, opts?: KgOptions): KnowledgeGr
   let k = SINGLETON.get(ctx)
   if (!k) {
     // tests: no first check, no CodeGraph and no document index unless a test gives them (what is installed on the
-    // machine running the tests must not change other tests' tool lists)
-    k = new KnowledgeGraph(ctx, { ...(process.env.NODE_ENV === 'test' ? { firstCheckMs: null, runner: null, openDocs: null } : {}), ...testOptions, ...opts })
+    // machine running the tests must not change other tests' tool lists); no model for search by meaning either
+    k = new KnowledgeGraph(ctx, { ...(process.env.NODE_ENV === 'test' ? { firstCheckMs: null, runner: null, openDocs: null, meaning: null } : {}), ...testOptions, ...opts })
     SINGLETON.set(ctx, k)
   }
   return k
