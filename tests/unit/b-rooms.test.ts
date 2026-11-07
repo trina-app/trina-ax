@@ -403,7 +403,7 @@ test('previews: a room file comes as bytes the app draws, never a page of this o
   const team = await teamRoom(mia.client)
   const upload = async (roomId: string, name: string, bytes: Uint8Array | string) => {
     const form = new FormData()
-    form.set('file', new File([typeof bytes === 'string' ? new TextEncoder().encode(bytes) : bytes], name))
+    form.set('file', new File([(typeof bytes === 'string' ? new TextEncoder().encode(bytes) : bytes) as BlobPart], name))
     const r = await h.fetch(`/api/rooms/${roomId}/files`, { method: 'POST', body: form, headers: { cookie: mia.client.cookie!, 'x-mycel-csrf': '1' } })
     expect(r.status).toBe(201)
     return r.json()
@@ -455,7 +455,7 @@ test('previews: a room file comes as bytes the app draws, never a page of this o
   expect(p).toMatchObject({ kind: 'image', thumb: false })
   await mia.client.call('POST', `/api/rooms/${dm.id}/messages`, { body: '', fileIds: [p.id], clientMessageId: cm() })
   expect((await get(nora.client, dm.id, p.id, '?thumb=1')).status).toBe(503)
-  for (const headers of [{}, { 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' }]) {
+  for (const headers of [{}, { 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' }] as Record<string, string>[]) {
     const r = await get(nora.client, dm.id, q.id, '?download=1', headers)
     expect(r.status).toBe(200)
     expect(await r.text()).toBe('held deck bytes')
