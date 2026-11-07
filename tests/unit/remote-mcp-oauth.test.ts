@@ -64,7 +64,7 @@ test('write is the person\'s choice and group management the owner\'s role, what
   const decided = (id: string, o: { write?: boolean; admin?: boolean }) => f.exchange(new URL(f.svc.decide(id, f.auth, true, o as { write?: boolean }).redirectUrl).searchParams.get('code')!)
   // an app that follows the 401 header asks for mcp:read only; the owner gets the write box, and group management
   const id = f.request('mcp:read offline_access')
-  expect(f.svc.consent(id, f.auth)).toMatchObject({ scopes: ['mcp:read', 'offline_access'], optional: ['mcp:write'], admin: true })
+  expect(f.svc.consent(id, f.auth)).toMatchObject({ scopes: ['mcp:read', 'offline_access'], optional: ['mcp:write', 'mcp:rooms', 'mcp:rooms.write'], admin: true })
   const first = decided(id, { write: true })
   expect(first.scope).toBe('mcp:read mcp:write mcp:admin offline_access')
   expect(JSON.parse(f.svc.authenticate(first.access_token).scopes)).toEqual(['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'])

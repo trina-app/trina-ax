@@ -39,6 +39,7 @@ import { placeProduced } from '../tools/make-file'
 import { Denied, ToolError } from '../policy/errors'
 import { authorize } from '../policy/authorize'
 import type { ToolCtx } from '../files/service'
+import type { AppContext } from '../context'
 import { z } from 'zod'
 
 export const ROOM_READ_TOOL_NAMES = ['rooms', 'room_read', 'room_file'] as const
@@ -134,43 +135,66 @@ export function roomReadTools(exec: TurnExec): Tool[] {
   ]
 }
 
+/** room_file in a chat turn: readRoomFileFor with the turn's person, picture budget and read scope. */
+function readRoomFile(exec: TurnExec, files: TurnFiles, a: { room: string; file: string; offset?: number }, named: (name: string) => void, inRoom = false, o: { upToSeq?: number; uniqueName?: boolean } = {}) {
+  const { rt, spec } = exec
+  return readRoomFileFor({
+    ctx: rt.ctx, userId: spec.userId, timeZone: rt.timeZone, signal: exec.abort.signal,
+    toolCtx: () => ({ user: exec.livePrincipal(), turnId: spec.turnId, files, signal: exec.abort.signal }),
+    seen: (s) => addSources(rt.db, spec.chatId, [s]),
+  }, a, named, inRoom, o)
+}
+
+/** Who reads a room file and where what they read is recorded: a chat turn (above) or an AI app's connection
+ * (connectors/remote-mcp/rooms.ts, no turn: a picture comes as the connection's note or its text). */
+export interface RoomFileReader {
+  ctx: AppContext
+  userId: string
+  timeZone: string
+  signal: AbortSignal
+  /** the person as they are now, for a picture (the same switch, engine check and budget as a read) */
+  toolCtx: () => ToolCtx
+  /** the room of the file joins what was read (its members see it) */
+  seen: (s: ReadSource) => void
+}
+
 /** room_file: the file checked by RoomFiles.open (in the room now, its message visible to me, not deleted), its bytes
  * bound to that check, then as text (the extractors of a Drive file: the text layer only, no OCR) or as the model's
  * picture (the same switch, engine check and per-answer budget as a read). */
-async function readRoomFile(exec: TurnExec, files: TurnFiles, a: { room: string; file: string; offset?: number }, named: (name: string) => void, inRoom = false, o: { upToSeq?: number; uniqueName?: boolean } = {}): Promise<{ content: McpContent[]; isError?: boolean; summary: string }> {
-  const { rt, spec } = exec
-  const found = findRoomFile(rt.db, spec.userId, a.room, a.file, rt.timeZone, o)
+export async function readRoomFileFor(r: RoomFileReader, a: { room: string; file: string; offset?: number }, named: (name: string) => void, inRoom = false, o: { upToSeq?: number; uniqueName?: boolean } = {}): Promise<{ content: McpContent[]; isError?: boolean; summary: string }> {
+  const { ctx, userId, timeZone } = r
+  const files = ctx.files
+  const found = findRoomFile(ctx.db, userId, a.room, a.file, timeZone, o)
   if ('text' in found) return { ...text(found.text), summary: 'room_file -> not found' }
   const { file, message, room, title, author } = found
   // who sees the message it came with sees the file: a member who joined after it keeps an answer built on it private
   // (rooms/ai.ts decide), anyone else is no reason
-  addSources(rt.db, spec.chatId, [{ type: 'room', id: room.id, fromSeq: message.thread_root_seq ?? message.seq }])
+  r.seen({ type: 'room', id: room.id, fromSeq: message.thread_root_seq ?? message.seq })
   named(file.name)
   // in a room's own session the room is "this room": its own name is not given to the AI there (rooms/ai.ts roomLabel)
   const where = inRoom ? 'this room' : `the ${neutralizeTags(roomKindLine(room.kind, title.replace(/[\r\n"<>]+/g, ' ').slice(0, 120)))}`
-  const head = `The file "${neutralizeTags(file.name.replace(/[\r\n"]+/g, ' ').slice(0, 200))}" (${file.mime.split(';')[0]}, ${file.size} bytes, file_id=${file.id}), sent by ${author ? neutralizeTags(author.replace(/[\r\n"<>]+/g, ' ').slice(0, 80)) : 'someone no longer here'} on ${localTime(message.created_at, rt.timeZone)} in ${where}. ${FILE_NOTE}`
+  const head = `The file "${neutralizeTags(file.name.replace(/[\r\n"]+/g, ' ').slice(0, 200))}" (${file.mime.split(';')[0]}, ${file.size} bytes, file_id=${file.id}), sent by ${author ? neutralizeTags(author.replace(/[\r\n"<>]+/g, ' ').slice(0, 80)) : 'someone no longer here'} on ${localTime(message.created_at, timeZone)} in ${where}. ${FILE_NOTE}`
   const kind = mediaKind(file.name)
   if (kind) return { ...text(`${head}\nThis is a${kind === 'audio' ? 'n audio' : ' video'} file: video and audio sent in a room cannot be read here, only its name is known. The user can open it in the room, or save it to the team folder and ask again.`), summary: `room_file -> ${kind} not read` }
   // a file on the team's quarantine list (safe operations) is not given, like a chat attachment held there
-  if (rt.files.quarantine.hasHash(file.sha256)) return { ...text(`${head}\nThis file is held by the team's safety check, so it cannot be read here.`, true), summary: 'room_file -> held' }
+  if (files.quarantine.hasHash(file.sha256)) return { ...text(`${head}\nThis file is held by the team's safety check, so it cannot be read here.`, true), summary: 'room_file -> held' }
   let abs: string
-  try { abs = roomFilesOf(rt.ctx).open(spec.userId, room.id, file.id, false).abs } catch { return { ...text(`No file "${a.file.replace(/[\r\n"]+/g, ' ').slice(0, 120)}" in that room that the user can see.`), summary: 'room_file -> not found' } }
+  try { abs = roomFilesOf(ctx).open(userId, room.id, file.id, false).abs } catch { return { ...text(`No file "${a.file.replace(/[\r\n"]+/g, ' ').slice(0, 120)}" in that room that the user can see.`), summary: 'room_file -> not found' } }
   let bytes: Buffer
   try { bytes = readRegular(abs, ROOM_FILE_BYTES()).bytes } catch (e) {
     const big = e instanceof Error && /too large/.test(e.message)
     return { ...text(`${head}\n${big ? 'The file is too large to read here.' : 'The file could not be read.'}`, true), summary: `room_file -> ${big ? 'too large' : 'unreadable'}` }
   }
-  const signal = exec.abort.signal
-  const ctx = { user: exec.livePrincipal(), turnId: spec.turnId, files, signal }
+  const signal = r.signal
   try {
-    rt.files.quarantine.assertBytes(bytes)
+    files.quarantine.assertBytes(bytes)
     if (file.kind === 'image' && isVisionImage(file.name)) {
-      const shown = await rt.files.imageForModel(ctx, file.name, bytes, signal)
+      const shown = await files.imageForModel(r.toolCtx(), file.name, bytes, signal)
       const body = `${head}\n<room_file name="${file.name.replace(/[\r\n"<>]+/g, ' ').slice(0, 200)}">\n${neutralizeTags(shown.text.slice(0, ROOM_FILE_CHARS))}\n</room_file>`
       return { content: [{ type: 'text', text: body }, ...(shown.jpeg ? [{ type: 'image' as const, mimeType: 'image/jpeg', data: shown.jpeg.toString('base64') }] : [])], summary: `room_file -> image${shown.jpeg ? ` ${shown.jpeg.length}B` : ' not shown'}` }
     }
-    const cfg = rt.ctx.engineConfig
-    const all = await extractText(file.name, bytes, { pandoc: cfg.pandoc ?? null, pdftotext: cfg.pdftotext ?? null, ocr: cfg.ocr ?? null, quarantine: rt.files.quarantine, textLayerOnly: true }, signal)
+    const cfg = ctx.engineConfig
+    const all = await extractText(file.name, bytes, { pandoc: cfg.pandoc ?? null, pdftotext: cfg.pdftotext ?? null, ocr: cfg.ocr ?? null, quarantine: files.quarantine, textLayerOnly: true }, signal)
     const from = Math.min(a.offset ?? 0, all.length)
     const part = all.slice(from, from + ROOM_FILE_CHARS)
     const cut = from + part.length < all.length

@@ -71,6 +71,33 @@ test('write is a box whatever the app asked; an owner or admin is told the conne
   expect(decisions).toEqual([{ allow: true, write: true }, { allow: true, write: true }])
 })
 
+test('reading conversations starts ticked, writing in them unticked and only with reading; ChatGPT\'s callback is followed', async ({ page }) => {
+  await reset(page)
+  const decisions: unknown[] = []
+  await page.route('**/api/connectors/remote/requests/*', route => {
+    if (route.request().method() === 'POST') { decisions.push(route.request().postDataJSON()); return route.fulfill({ json: { redirectUrl: 'https://chatgpt.com/connector_platform_oauth_redirect?code=synthetic-code' } }) }
+    return route.fulfill({ json: { ...consent, redirectOrigin: 'https://chatgpt.com', optional: ['mcp:write', 'mcp:rooms', 'mcp:rooms.write'] } })
+  })
+  await page.context().route('https://chatgpt.com/**', route => route.fulfill({ contentType: 'text/html', body: '<p>Synthetic callback only</p>' }))
+  await signIn(page)
+  await page.goto('/connectors/authorize?id=' + id)
+  const pane = page.getByTestId('connector-consent')
+  await expect(pane.getByTestId('connector-rooms')).toContainText('대화 읽기')
+  await expect(pane.getByTestId('connector-rooms-write')).toContainText('대화 쓰기')
+  await expect(pane.getByTestId('connector-rooms-check')).toBeChecked()
+  await expect(pane.getByTestId('connector-rooms-write-check')).not.toBeChecked()
+  // writing needs reading: unticking reading unticks and locks writing
+  await pane.getByTestId('connector-rooms-write-check').check()
+  await pane.getByTestId('connector-rooms-check').uncheck()
+  await expect(pane.getByTestId('connector-rooms-write-check')).not.toBeChecked()
+  await expect(pane.getByTestId('connector-rooms-write-check')).toBeDisabled()
+  await pane.getByTestId('connector-rooms-check').check()
+  await pane.getByTestId('connector-rooms-write-check').check()
+  await pane.getByTestId('connector-allow').click()
+  await expect(page).toHaveURL('https://chatgpt.com/connector_platform_oauth_redirect?code=synthetic-code')
+  expect(decisions).toEqual([{ allow: true, write: false, rooms: true, roomsWrite: true }])
+})
+
 test('connector denial and malformed requests cannot silently authorize', async ({ page }) => {
   await reset(page)
   const decisions: unknown[] = []
