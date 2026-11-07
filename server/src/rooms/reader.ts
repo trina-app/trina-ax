@@ -21,7 +21,7 @@ import type { Database } from 'bun:sqlite'
 import { isUuid7, ROOM_REF_RE, type Room, type RoomKind, type RoomMessage } from '@mycel/shared/api'
 import { neutralizeTags } from '../chat/prompt'
 import { zonedParts, zonedToUtc } from '../system/time-zone'
-import { canSee, MSG_COLS, messageRow, messagesOut, roomOut, SEE_SQL, seeArgs, seenSeq, threadable, TIMELINE_SQL, type FileRow, type MemberRow, type MessageRow, type RoomRow } from './store'
+import { canSee, clipMiddle, MSG_COLS, messageRow, messagesOut, roomOut, SEE_SQL, seeArgs, seenSeq, threadable, TIMELINE_SQL, type FileRow, type MemberRow, type MessageRow, type RoomRow } from './store'
 
 /** messages one read gives at most, and by default */
 export const ROOM_READ_MAX = 200
@@ -60,7 +60,8 @@ const NO_ROOM = (ref: string) => `No room matching "${attr(ref)}" among the room
 
 /** a value inside a tag's attribute: one line, no quotes or brackets */
 const attr = (s: string, n = 120) => s.replace(/[\r\n"<>\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n)
-const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}… (cut: ${s.length} characters in all)` : s)
+/** a long message: its start and its end (a request at the end of a long paste stays in), the middle said to be cut */
+const clip = (s: string, n: number) => clipMiddle(s, n)
 const norm = (s: string) => s.normalize('NFC').toLocaleLowerCase().replace(/\s+/g, '')
 /** What people add after a room's or a person's name when they name it ("<name> room", an honorific): matching data,
  * not screen text */
@@ -440,7 +441,7 @@ export type FileFound = { file: FileRow; message: MessageRow; room: RoomRow; tit
 
 /** A file sent in one of my rooms with a message I can see (not deleted), by its id or its exact name (the newest of
  * that name). Anything else (no such file, a message I cannot see, an upload not sent yet) answers the same. */
-export function findRoomFile(db: Database, userId: string, roomRef: string, fileRef: string, tz: string): FileFound {
+export function findRoomFile(db: Database, userId: string, roomRef: string, fileRef: string, tz: string, o: { upToSeq?: number; uniqueName?: boolean } = {}): FileFound {
   const f = findRoom(db, userId, roomRef)
   if (!f) return { text: NO_ROOM(roomRef) }
   if ('many' in f) return { text: several(roomRef, f.many, tz) }
@@ -449,9 +450,11 @@ export function findRoomFile(db: Database, userId: string, roomRef: string, file
   const byName = ref.normalize('NFC')
   const sql = `SELECT f.* FROM room_files f JOIN room_messages m ON m.id = f.message_id WHERE f.room_id = ? AND m.room_id = ? AND ${SEE_SQL} AND m.deleted_at IS NULL`
   const byId = isUuid7(ref)
-  const row = (byId
-    ? db.query(`${sql} AND f.id = ?`).get(room.id, room.id, ...seeArgs(me), ref)
-    : db.query(`${sql} AND f.name = ? ORDER BY m.seq DESC LIMIT 1`).get(room.id, room.id, ...seeArgs(me), byName)) as FileRow | null
+  // by name (a room's AI session): only files sent up to the question, and only when one file has that name
+  const upTo = o.upToSeq !== undefined ? ' AND m.seq <= ?' : ''
+  const named = byId ? [] : db.query(`${sql} AND f.name = ?${upTo} ORDER BY m.seq DESC LIMIT 2`).all(room.id, room.id, ...seeArgs(me), byName, ...(o.upToSeq !== undefined ? [o.upToSeq] : [])) as FileRow[]
+  if (o.uniqueName && named.length > 1) return { text: `Several files in that room the user can see are called "${attr(fileRef)}": give the file_id of the one meant (from the list).` }
+  const row = (byId ? db.query(`${sql} AND f.id = ?`).get(room.id, room.id, ...seeArgs(me), ref) : named[0] ?? null) as FileRow | null
   const message = row?.message_id ? messageRow(db, room.id, row.message_id) : null
   if (!row || !message || message.deleted_at || !canSee(message, me)) return { text: `No file "${attr(fileRef)}" in that room that the user can see. Read the room for its files and their file_id.` }
   const author = message.author_id ? (db.query('SELECT name FROM users WHERE id = ?').get(message.author_id) as { name: string } | null)?.name ?? null : null
