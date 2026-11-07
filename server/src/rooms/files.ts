@@ -182,7 +182,7 @@ export class RoomFiles {
     if (!f) return fail('not_found')
     if (f.message_id) {
       const m = messageRow(this.ctx.db, roomId, f.message_id)
-      if (!m || m.deleted_at || !canSee(m, me)) fail('not_found')
+      if (!m || m.deleted_at || !canSee(this.ctx.db, m, me)) fail('not_found')
     } else if (f.user_id !== userId) fail('not_found')
     const abs = this.abs(f)
     if (thumb) {

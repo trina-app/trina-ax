@@ -1,7 +1,8 @@
 // Renders the PWA icons (public/icons/*.png), the PNG tab icons (public/icons/favicon-16/32/48.png) and
 // public/favicon.ico (those three PNGs in one ICO, for browsers and systems that ask for /favicon.ico on their own) from
 // public/favicon.svg with headless Chromium. Run after changing the logo: bun scripts/make-icons.ts (the files are
-// committed, so builds don't need a browser). A team's own logo replaces them at run time (shared/src/team-icon.ts).
+// committed, so builds don't need a browser). A team's own logo never replaces them: it shows only in the sidebar
+// header (shared/src/team-icon.ts).
 import fs from 'node:fs'
 import path from 'node:path'
 import { chromium } from '@playwright/test'

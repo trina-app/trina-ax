@@ -1,5 +1,6 @@
 // Team chat rooms ("대화방" v1, docs/DECISIONS.md "대화방 v1"): the room model (team rooms follow their group, the
-// everyone room, one DM per pair), what a member sees (from their join on; private messages only to their person),
+// everyone room, one DM per pair), what a member sees (a team room's history, a DM from its start; private messages only
+// to their person),
 // permissions (members only, admins included; the author is never taken from the request), my own read position and
 // badge (no read receipts: nobody is told who has read what), realtime fan-out to members only, notices, room files
 // outside the team folder, and the replay check on reconnect.
@@ -59,7 +60,8 @@ test('team rooms follow their group, everyone has the everyone room, and the cha
   expect((await teamRoom(otto.client))?.id).toBe(team.id)
   expect(await teamRoom(nora.client)).toBeUndefined()
   expect((await nora.client.try('GET', `/api/rooms/${team.id}`)).status).toBe(404)
-  // a disabled account leaves the rooms at once; enabled again, it is back and sees messages from then on
+  // a disabled account leaves the rooms at once; enabled again, it is back and sees the team room's history (as a
+  // Slack channel: docs/DECISIONS.md "지난 대화"), nothing of it unread
   await owner.call('PATCH', `/api/admin/users/${otto.id}`, { status: 'disabled' })
   expect((await mia.client.call('GET', `/api/rooms/${team.id}`)).memberCount).toBe(1)
   expect(h.ctx.db.query('SELECT COUNT(*) n FROM room_members WHERE user_id = ?').get(otto.id)).toEqual({ n: 0 })
@@ -68,7 +70,8 @@ test('team rooms follow their group, everyone has the everyone room, and the cha
   expect(h.ctx.db.query('SELECT COUNT(*) n FROM room_members WHERE user_id = ? AND room_id = ?').get(otto.id, team.id)).toEqual({ n: 1 })
   const back = h.client()
   await back.login('otto', otto.password)
-  expect((await back.call('GET', `/api/rooms/${team.id}/messages`)).items).toEqual([])
+  expect((await back.call('GET', `/api/rooms/${team.id}/messages`)).items.map((m: any) => m.body)).toEqual(['while otto was away'])
+  expect((await back.call('GET', `/api/rooms/${team.id}`)).unreadCount).toBe(0)
   await owner.call('PATCH', `/api/admin/users/${otto.id}`, { status: 'disabled' })
   const actions = (h.ctx.db.query("SELECT action FROM audit_log WHERE action LIKE 'room.%'").all() as { action: string }[]).map((r) => r.action)
   expect(actions).toContain('room.create')
@@ -80,21 +83,20 @@ test('team rooms follow their group, everyone has the everyone room, and the cha
   expect((await mia.client.try('GET', `/api/rooms/${team.id}/messages`)).status).toBe(404)
 })
 
-test('a later member sees the room from their join on, quotes of earlier messages included', async () => {
+test('a later member sees a team room\'s history (quotes of earlier messages included), nothing of it unread', async () => {
   const { owner, mia, otto, group, teamRoom, send } = await setup()
   const team = await teamRoom(mia.client)
   const first = await send(mia.client, team.id, 'before otto joined')
   await owner.call('PATCH', `/api/admin/groups/${group.id}`, { memberIds: [mia.id, otto.id] })
   const forOtto = await teamRoom(otto.client)
-  expect(forOtto).toMatchObject({ unreadCount: 0, lastMessage: null })
-  expect((await otto.client.call('GET', `/api/rooms/${team.id}/messages`)).items).toEqual([])
+  expect(forOtto).toMatchObject({ unreadCount: 0, mentioned: false, lastMessage: { id: first.id } })
+  expect((await otto.client.call('GET', `/api/rooms/${team.id}/messages`)).items.map((m: any) => m.id)).toEqual([first.id])
   const second = await send(mia.client, team.id, 'after', { replyToId: first.id })
   const page = await otto.client.call('GET', `/api/rooms/${team.id}/messages`)
-  expect(page.items.map((m: any) => m.id)).toEqual([second.id])
-  expect(page.items[0].replyTo).toEqual({ id: first.id, author: null, excerpt: '', fileCount: 0, deleted: true })
-  expect(JSON.stringify(page)).not.toContain('before otto joined')
-  // otto cannot reply to what he cannot see
-  expect((await otto.client.try('POST', `/api/rooms/${team.id}/messages`, { body: 'x', replyToId: first.id, clientMessageId: cm() })).status).toBe(400)
+  expect(page.items.map((m: any) => m.id)).toEqual([first.id, second.id])
+  expect(page.items[1].replyTo).toMatchObject({ id: first.id, excerpt: 'before otto joined', deleted: false })
+  // and he may answer it (a group chat keeps "from the join on": b-rooms-group.test.ts)
+  expect((await otto.client.try('POST', `/api/rooms/${team.id}/messages`, { body: 'x', replyToId: first.id, clientMessageId: cm() })).status).toBe(201)
 })
 
 test('only members read or send; admins and the owner are no exception; the author comes from the session', async () => {

@@ -14,8 +14,10 @@
 //   {type:'drive_share', id}  what a Google Drive an admin shares with the team returned: its viewers are the active
 //                        people its rule includes today (integrations/google-drive/shares.ts)
 //   {type:'room', id, fromSeq}  messages of a team chat room the AI got as context there (rooms/ai.ts), the oldest of
-//                        them at seq fromSeq: its viewers are the room's members today who could see that message
-//                        (they were in the room before it)
+//                        them at seq fromSeq: its viewers are the room's members today who see the room from before
+//                        that message (rooms/store.ts seesFrom) and to whom no old answer from there on is hidden
+//                        (room_hidden_answers, rooms/history.ts), but for the person who read it: what is hidden from
+//                        them was never given to them
 //   {type:'name', path}  a room session only (chat/turn.ts noteRoomTool): a team path whose name the tools showed or
 //                        answered about (a sub-folder in a listing, a path a call named: there, a folder, not there),
 //                        nothing of its content. Its viewers are the people who would see the same name in a listing
@@ -114,12 +116,13 @@ function activePeople(db: Database): Principal[] {
   return ids.map((r) => loadPrincipal(db, r.id)).filter((p): p is Principal => !!p)
 }
 
-/** Who may read what came from this source, under today's rules. A folder row that is gone: nobody (asks). */
-function viewersOf(db: Database, rules: RuleSet, s: ReadSource, people: Principal[]): Set<string> {
+/** Who may read what came from this source, under today's rules. A folder row that is gone: nobody (asks). `reader`:
+ * the person whose read it was (a room source: what is hidden from them was never given to them). */
+export function viewersOf(db: Database, rules: RuleSet, s: ReadSource, people: Principal[], reader?: string | null): Set<string> {
   if (s.type === 'user') return new Set(people.some((p) => p.id === s.id) ? [s.id] : [])
   if (s.type === 'integration') return usersOf(db, s.id)
   if (s.type === 'drive_share') return shareRow(db, s.id) ? shareUsers(db, s.id) : new Set()
-  if (s.type === 'room') return roomViewers(db, s.id, people, s.fromSeq)
+  if (s.type === 'room') return roomViewers(db, s.id, people, s.fromSeq, reader)
   if (s.type === 'name') { const segs = nameSegs(s.path); return new Set(people.filter((p) => rules.canList(p, segs)).map((p) => p.id)) }
   let segs: string[] = []
   if (s.type === 'folder') {
@@ -133,13 +136,31 @@ function viewersOf(db: Database, rules: RuleSet, s: ReadSource, people: Principa
 /** A name source's path as the rules compare it. */
 export const nameSegs = (p: string) => p.split('/').filter(Boolean)
 
-/** The active people in a room now (an archived room: nobody); with `fromSeq`, only those who can see the room's
- * message at that seq (who were in the room before it). */
-export function roomViewers(db: Database, roomId: string, people?: Principal[], fromSeq?: number): Set<string> {
-  const ids = (db.query('SELECT m.user_id FROM room_members m JOIN rooms r ON r.id = m.room_id WHERE m.room_id = ? AND r.archived_at IS NULL AND m.visible_from_seq < ?')
-    .all(roomId, fromSeq ?? Number.MAX_SAFE_INTEGER) as { user_id: string }[]).map((r) => r.user_id)
+/** The active people in a room now (an archived room: nobody); with `fromSeq`, only those who see the room from before
+ * the message at that seq (rooms/store.ts seesFrom). Someone to whom an old answer at or after `fromSeq` is hidden
+ * (room_hidden_answers) is not one of them, whatever the source held, but for `reader`, the person whose read it was:
+ * what is hidden from them was never given to them (and a read of theirs reaching themselves widens nothing). */
+export function roomViewers(db: Database, roomId: string, people?: Principal[], fromSeq?: number, reader?: string | null): Set<string> {
+  return viewersByHistory(db, roomId, people, fromSeq, reader).see
+}
+
+/** roomViewers, and apart: the members who would see the room from `fromSeq` but for old answers hidden from them (or
+ * whose team-room history is not worked out yet: what they will see is not known) — someone may be asked to confirm
+ * sending to people who cannot read a source, never past those (chat/answer-share.ts). */
+export function viewersByHistory(db: Database, roomId: string, people?: Principal[], fromSeq?: number, reader?: string | null): { see: Set<string>; hiddenFrom: Set<string> } {
+  const rows = db.query(`SELECT m.user_id, (m.user_id <> ?4 AND EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = m.user_id AND h.see_seq >= ?3)) hid,
+      (r.kind IN ('team', 'all') AND m.history_from_seq IS NULL AND m.visible_from_seq >= ?2) waits
+    FROM room_members m JOIN rooms r ON r.id = m.room_id WHERE m.room_id = ?1 AND r.archived_at IS NULL
+      AND (COALESCE(m.history_from_seq, m.visible_from_seq) < ?2 OR (r.kind IN ('team', 'all') AND m.history_from_seq IS NULL))`)
+    .all(roomId, fromSeq ?? Number.MAX_SAFE_INTEGER, fromSeq ?? 0, reader ?? '') as { user_id: string; hid: number; waits: number }[]
   const active = new Set((people ?? activePeople(db)).map((p) => p.id))
-  return new Set(ids.filter((id) => active.has(id)))
+  const see = new Set<string>(), hiddenFrom = new Set<string>()
+  for (const r of rows) {
+    if (!active.has(r.user_id)) continue
+    if (r.hid || r.waits) hiddenFrom.add(r.user_id)
+    else see.add(r.user_id)
+  }
+  return { see, hiddenFrom }
 }
 
 export interface Widening {
@@ -158,9 +179,10 @@ export function widening(db: Database, chatId: string | null, targetSegs: string
   if (!sources.length) return null
   const rules = RuleSet.load(db)
   const people = activePeople(db)
+  const reader = chatId ? (db.query('SELECT user_id FROM chats WHERE id = ?').get(chatId) as { user_id: string } | null)?.user_id ?? null : null
   const target = people.filter((p) => atLeast(rules.access(p, targetSegs), 'read')).map((p) => p.id)
   const narrower = sources.filter((s, i) => sources.findIndex((x) => placeKey(x) === placeKey(s)) === i)
-    .filter((s) => { const v = viewersOf(db, rules, s, people); return target.some((id) => !v.has(id)) })
+    .filter((s) => { const v = viewersOf(db, rules, s, people, reader); return target.some((id) => !v.has(id)) })
   return narrower.length ? { narrower, targetViewers: target.length } : null
 }
 
@@ -170,7 +192,7 @@ export function widening(db: Database, chatId: string | null, targetSegs: string
  * someone misses are returned ("대화방에 보내기", chat/answer-share.ts: the room's members who could not read what an
  * answer used).
  */
-export function missingReaders(db: Database, rules: RuleSet, sources: readonly ReadSource[], audience: readonly string[]): { source: ReadSource; missing: string[] }[] {
+export function missingReaders(db: Database, rules: RuleSet, sources: readonly ReadSource[], audience: readonly string[], reader?: string | null): { source: ReadSource; missing: string[] }[] {
   if (!sources.length || !audience.length) return []
   const people = activePeople(db)
   const seen = new Set<string>()
@@ -178,7 +200,7 @@ export function missingReaders(db: Database, rules: RuleSet, sources: readonly R
   for (const s of sources) {
     if (seen.has(key(s))) continue
     seen.add(key(s))
-    const v = viewersOf(db, rules, s, people)
+    const v = viewersOf(db, rules, s, people, reader)
     const missing = audience.filter((id) => !v.has(id))
     if (missing.length) out.push({ source: s, missing })
   }
@@ -188,17 +210,23 @@ export function missingReaders(db: Database, rules: RuleSet, sources: readonly R
 /**
  * Would a message sent in this room let more people see what `sources` came from (an AI app's connection sending as
  * the person, connectors/remote-mcp/rooms.ts)? Its readers are the room's members who will see it: everyone in it, or
- * for a thread reply those who see its first message (`rootSeq`). A member whose account cannot read now (disabled: a
+ * for a thread reply those who see its first message (`root`). A member whose account cannot read now (disabled: a
  * 1:1 chat keeps them) still counts and reads nothing, as in the room's AI (rooms/ai.ts decide): they would read the
  * message once enabled again. null = no.
  */
-export function roomWidening(db: Database, roomId: string, sources: ReadSource[], rootSeq?: number): Widening | null {
+export function roomWidening(db: Database, roomId: string, sources: ReadSource[], root?: { id: string; seq: number }, reader?: string | null): Widening | null {
   if (!sources.length) return null
   const rules = RuleSet.load(db)
   const people = activePeople(db)
-  const target = (db.query('SELECT user_id FROM room_members WHERE room_id = ? AND visible_from_seq < ?').all(roomId, rootSeq ?? Number.MAX_SAFE_INTEGER) as { user_id: string }[]).map((r) => r.user_id)
+  // who will see it: everyone in the room; for a thread reply those who see its first message: in a team room or the
+  // everyone room every member to whom it is not hidden (one whose history is not open yet too: it opens to them, and
+  // then they see the thread), elsewhere who was in the room before it (rooms/ai.ts readers, the same audience)
+  const history = !!db.query("SELECT 1 FROM rooms WHERE id = ? AND kind IN ('team', 'all')").get(roomId)
+  const target = (db.query(`SELECT m.user_id FROM room_members m WHERE m.room_id = ?1 AND (?3 OR COALESCE(m.history_from_seq, m.visible_from_seq) < ?2)
+      AND NOT EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = m.user_id AND h.message_id = ?4)`)
+    .all(roomId, root?.seq ?? Number.MAX_SAFE_INTEGER, history || !root ? 1 : 0, root?.id ?? '') as { user_id: string }[]).map((r) => r.user_id)
   const narrower = sources.filter((s, i) => sources.findIndex((x) => placeKey(x) === placeKey(s)) === i)
-    .filter((s) => { const v = viewersOf(db, rules, s, people); return target.some((id) => !v.has(id)) })
+    .filter((s) => { const v = viewersOf(db, rules, s, people, reader); return target.some((id) => !v.has(id)) })
   return narrower.length ? { narrower, targetViewers: target.length } : null
 }
 

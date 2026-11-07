@@ -2,14 +2,14 @@
 // click: a phone's home screen (iPhone, Android) and a computer (Chrome or Edge from the address bar, Safari on a Mac
 // from File → Add to Dock). The pictures are drawn with HTML so their words follow the five languages and their colours
 // follow the theme; they repeat what the caption says, so screen readers skip them. They show this team's own address
-// and icon: the logo in the browser's tab and page, and as the installed app's icon only when it is also the app icon
-// (GET /api/me team.appIcon: square, at least 512 px; shared/src/team-icon.ts isAppIcon), as the real one is. iOS 26: Safari's default layout has no share button in sight, it is in the ⋯ menu next to the address bar
+// and the product's icon in the tab, the page and as the installed app's icon, as the real ones are (a team logo shows
+// only in the computer's sidebar header; docs/DECISIONS.md "Team logo as the tab icon", changed 2026-11-07). iOS 26:
+// Safari's default layout has no share button in sight, it is in the ⋯ menu next to the address bar
 // (older systems and the other Safari layouts show it in the toolbar: the caption says so).
 import { ChevronLeft, ChevronRight, Minus, MonitorDown, MoreHorizontal, MoreVertical, Share, Square, SquarePlus, X } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { PRODUCT, teamIconUrl } from '@mycel/shared'
+import { PRODUCT } from '@mycel/shared'
 import { useT, type MessageKey } from '../../i18n'
-import { useMe } from '../../store/session'
 
 type Translate = ReturnType<typeof useT>
 
@@ -25,15 +25,10 @@ function Phone({ children }: { children: ReactNode }) {
   )
 }
 
-/** the tab icon: the team's logo at any size, or the default mark (what /team-icon serves) */
-const TeamIcon = ({ className }: { className: string }) => <img src="/team-icon" alt="" className={className} />
-/** the default icon of the installed app (web/public/icons; also what /team-icon serves without a logo) */
-const DEFAULT_APP_ICON = '/icons/icon-512.png'
-/** the installed app's icon (install sheets, home screen, Dock, its window): the logo only when it is also the app icon */
-function AppIcon({ className }: { className: string }) {
-  const team = useMe()?.team
-  return <img src={team?.iconVersion && team.appIcon ? teamIconUrl(team.iconVersion) : DEFAULT_APP_ICON} alt="" className={className} data-testid="install-app-icon" />
-}
+/** the tab icon (and the page's and the share sheet's): the product's mark, as index.html links it */
+const TabIcon = ({ className }: { className: string }) => <img src="/favicon.svg" alt="" className={className} />
+/** the installed app's icon (install sheets, home screen, Dock, its window): the product's (web/public/icons) */
+const AppIcon = ({ className }: { className: string }) => <img src="/icons/icon-512.png" alt="" className={className} data-testid="install-app-icon" />
 const host = () => (typeof location === 'undefined' ? '' : location.host)
 
 /** the team page, as a calm outline */
@@ -41,7 +36,7 @@ function Page() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-1.5 p-2.5">
       <div className="flex items-center gap-1.5">
-        <TeamIcon className="size-4 rounded" />
+        <TabIcon className="size-4 rounded" />
         <span className="truncate font-semibold">{PRODUCT.displayName}</span>
       </div>
       <Lines />
@@ -112,7 +107,7 @@ function IosShare({ t }: { t: Translate }) {
       <div className="flex min-h-0 flex-1 flex-col bg-subtle pt-5">
         <div className="flex min-h-0 flex-1 flex-col rounded-t-xl bg-surface p-1">
           <span className="flex items-center gap-1.5 p-1.5">
-            <TeamIcon className="size-5 rounded" />
+            <TabIcon className="size-5 rounded" />
             <span className="min-w-0 truncate text-[9px] text-muted">{host()}</span>
           </span>
           <Rows n={3} />
@@ -279,7 +274,7 @@ function BrowserBar({ install, target }: { install?: boolean; target?: boolean }
     <>
       <div className="flex items-end gap-1 bg-subtle px-1.5 pt-1">
         <span className="flex min-w-0 max-w-[55%] items-center gap-1 rounded-t-md bg-surface px-1.5 py-1">
-          <TeamIcon className="size-2.5 shrink-0 rounded-sm" />
+          <TabIcon className="size-2.5 shrink-0 rounded-sm" />
           <span className="truncate">{PRODUCT.displayName}</span>
         </span>
       </div>

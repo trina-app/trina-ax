@@ -4,39 +4,37 @@
 
 # Trina AX
 
-**Configura Claude Code una vez y lo tendrá toda tu empresa.**
+**La IA que comparte todo tu equipo.**
 
-Claude Code y Codex en un servidor de tu empresa, con tus archivos, las skills de tu equipo y los permisos de carpeta de cada persona. Los demás solo tienen que abrir el navegador.
+Claude Code y Codex en el servidor de tu empresa, con los archivos de la empresa y las skills de tu equipo. Tu equipo lo usa en el navegador, en su propio chat o, desde la versión 0.4, llamando a @Trina en una conversación del equipo.
 
 [Sitio web](https://ax.trina.app) · [Pruébalo en 10 minutos](#pruébalo-en-10-minutos) · [Autoalojamiento](docs/for-admins.md) · [Documentación](docs/README.md)
 
 [English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · Español · [简体中文](README.zh-CN.md)
 
-https://github.com/user-attachments/assets/61f3469b-358d-4b3a-9233-c6b23b5db835
+<img src="docs/images/readme/room-quote.png" width="100%" alt="En la conversación Sales (con un icono #), Mina escribe “@Trina /quote Northwind Foods: 200 insulated boxes, delivery Nov 20”. Trina publica en la conversación un resumen del presupuesto con un enlace al archivo “Northwind Foods quote.xlsx”, y Alex responde “Matches our price sheet. Send it.”">
 
-<sub><b>97 segundos, con sonido (en inglés).</b> Un líder de equipo configura Claude una vez y, en su primer día, la propuesta de una nueva integrante sale como la suya.<br>Historia animada con la app real en el 1:15. Empresa ficticia.</sub>
+<sub>La app real, versión 0.4: la conversación Sales (interfaz en inglés). Empresa ficticia.</sub>
 
 </div>
 
-## La misma petición, dos respuestas
+- **Lo configuras una vez y todos trabajan así.** Los archivos de la empresa van en `shared/`. La forma en que tu responsable redacta un presupuesto, en `skills/quote/SKILL.md`. Todo el equipo trabaja con ellos desde su primer día.
+- **Llamas a @Trina en la conversación y el resultado aparece ahí.** Pregunta en una conversación del equipo: la skill del equipo trabaja con los archivos que tú puedes abrir, y la respuesta, con su archivo, se publica en la conversación.
+- **Retomar lo que dejó un compañero** (próximamente). Cualquiera en un proyecto podrá continuar el chat de IA de un compañero, y cada mensaje se ejecutará como la persona que lo envía.
 
-<table>
-<tr>
-<td width="50%" valign="top"><b>Claude Code en una carpeta vacía</b><br><sub>No tiene forma de conocer tu empresa, así que primero hace seis preguntas.</sub></td>
-<td width="50%" valign="top"><b>Trina AX, con la misma línea</b><br><sub>Parte de los archivos del equipo y de la skill de propuestas del CEO.</sub></td>
-</tr>
-<tr>
-<td><img src="docs/images/readme/before-empty-claude.png" alt="Claude Code, en una carpeta vacía, responde a “Write a proposal for Trina Logistics” con seis preguntas sobre la empresa, el cliente y el formato."></td>
-<td><img src="docs/images/readme/after-trina-deck.png" alt="Trina AX responde a la misma petición con una propuesta de 7 diapositivas cuya portada dice “Lead time from 2.1 to 1.4 days, within your budget”."></td>
-</tr>
-</table>
+Mete archivos reales de la empresa. Cada persona ve solo lo que tiene permitido. [Cómo](#por-dentro)
 
-<sub>Resultados reales del 31 de octubre y el 1 de noviembre de 2026 con una empresa ficticia, Dawnroute; las fotos de la presentación se hicieron con Higgsfield. Claude Code hace bien en preguntar: en una carpeta vacía no hay nada que le diga quién eres. Trina le da la carpeta.</sub>
+```sh
+git clone https://github.com/trina-app/trina-ax.git && cd trina-ax
+bun install --frozen-lockfile && bun run demo   # http://127.0.0.1:19760 · alice / teamax-demo-1
+```
+
+<sub>Demo local: equipo ficticio, IA desactivada, no apta para producción. Requiere Bun 1.3.12 y Go 1.27+. Para probar las conversaciones del equipo y @Trina, usa la [instalación con Docker](docs/INSTALL-DOCKER.md) con `TRINA_AX_VERSION=0.4.0-beta.10` y conecta una cuenta de IA.</sub>
 
 ## Cómo funciona
 
 1. **Lo guardas una sola vez.** Los archivos de la empresa van en `shared/`. Tu forma de escribir propuestas, en `skills/proposal/SKILL.md`.
-2. **Todos preguntan.** Desde una app de chat en el navegador, en el escritorio o en el teléfono. Sin terminal y sin instalar nada en el portátil.
+2. **Cualquiera pregunta, en su propio chat o en una conversación del equipo.** En el navegador del escritorio o del teléfono, o en la app de iPhone. Sin terminal y sin instalar nada en el portátil. En una conversación, @Trina trabaja como la persona que lo llamó.
 3. **Cada persona mantiene sus propios accesos.** El servidor comprueba cada archivo que abre la IA con los permisos de quien pregunta. Una carpeta que tú no puedes ver tampoco existe para tu IA.
 
 <img src="docs/images/readme/permission-answer.png" width="100%" alt="Una integrante del equipo de ventas pregunta “What was our revenue last quarter?” y la IA responde que no encontró cifras de ingresos en ningún archivo del equipo al que ella tenga acceso.">
@@ -53,6 +51,29 @@ bun run demo        # → http://127.0.0.1:19760 · inicia sesión como alice / 
 
 Un equipo ficticio con seis skills iniciales. La IA está desactivada, así que no hace falta ninguna cuenta de IA. Inicia sesión como `bob` en una ventana privada: cada usuario ve una carpeta de grupo distinta. Requiere Git, Bun 1.3.12 y Go 1.27+. Esto **no es una instalación de producción**. [Guía paso a paso](docs/QUICKSTART.md)
 
+Para probar las conversaciones del equipo y @Trina, usa la [instalación con Docker](docs/INSTALL-DOCKER.md) con `TRINA_AX_VERSION=0.4.0-beta.10` (o una versión 0.4 posterior) y conecta una cuenta de IA. La demo local tiene la IA desactivada, así que allí @Trina no responde.
+
+## La misma petición, dos respuestas
+
+<table>
+<tr>
+<td width="50%" valign="top"><b>Claude Code en una carpeta vacía</b><br><sub>No tiene forma de conocer tu empresa, así que primero hace seis preguntas.</sub></td>
+<td width="50%" valign="top"><b>Trina AX, con la misma línea</b><br><sub>Parte de los archivos del equipo y de la skill de propuestas del CEO.</sub></td>
+</tr>
+<tr>
+<td><img src="docs/images/readme/before-empty-claude.png" alt="Claude Code, en una carpeta vacía, responde a “Write a proposal for Trina Logistics” con seis preguntas sobre la empresa, el cliente y el formato."></td>
+<td><img src="docs/images/readme/after-trina-deck.png" alt="Trina AX responde a la misma petición con una propuesta de 7 diapositivas cuya portada dice “Lead time from 2.1 to 1.4 days, within your budget”."></td>
+</tr>
+</table>
+
+<sub>Resultados reales del 31 de octubre y el 1 de noviembre de 2026 con una empresa ficticia, Dawnroute; las fotos de la presentación se hicieron con Higgsfield. Claude Code hace bien en preguntar: en una carpeta vacía no hay nada que le diga quién eres. Trina le da la carpeta.</sub>
+
+**La misma conversación, dos pantallas.** Solo las respuestas hechas con lo que todos en la conversación pueden ver se publican directamente en ella. Si no, primero las ve quien preguntó.
+
+<img src="docs/images/readme/share-check.png" width="100%" alt="La conversación Everyone en el mismo momento, en dos pantallas. Alex ve la respuesta de Trina marcada “Only you can see this · Post”, con el motivo “It read folders that some people in this room cannot open (Team folder, Finance).” Mina solo ve “Answered to Alex only”.">
+
+<sub>La respuesta de Alex usó la carpeta Finance, que Mina no puede abrir. Alex aún puede decidir publicarla; hasta entonces, Mina solo ve que él recibió una respuesta (en la interfaz en español: «Respondió solo a Alex»). La app real, versión 0.4. Empresa ficticia.</sub>
+
 ## Qué incluye
 
 | | En la práctica |
@@ -60,15 +81,20 @@ Un equipo ficticio con seis skills iniciales. La IA está desactivada, así que 
 | **Agentes reales de Claude Code y Codex** | Se ejecutan en tu servidor: hasta 150 rondas de herramientas por respuesta (por defecto), hasta 4 subagentes a la vez, búsqueda web y tareas programadas. |
 | **El conocimiento está en las carpetas de la empresa** | `shared/`, `groups/`, `projects/` y carpetas personales, con historial de versiones. Extracción de texto de archivos PDF, Office y HWP/HWPX. |
 | **Skills del equipo, gestionadas como archivos** | Una skill es un archivo `SKILL.md`. Las reglas de la carpeta deciden quién puede usarla, y la IA pide confirmación a una persona antes de modificar alguna. |
+| **Conversaciones del equipo (0.4)** | Conversaciones de grupo, una conversación con todos y mensajes directos, con respuestas citadas, menciones, archivos y fotos. Llama a @Trina y responde como tú, con los archivos y las skills que puedes usar. Una conversación solo la ven sus miembros; los administradores no pueden abrir las conversaciones en las que no están. |
 | **Permisos en cada llamada a archivos** | Los archivos a los que no tienes acceso no aparecen en Archivos, las respuestas de la IA, la búsqueda, las vistas previas, el historial de versiones ni la papelera. |
 | **Tu conexión de IA** | Conecta una vez la cuenta de Claude u OpenAI de la empresa, o deja que cada persona conecte la suya. Uso por persona, con límites. Si lo alojas tú, Claude Code también puede usar otros modelos, como DeepSeek, Kimi o GLM, a través de una [pasarela compatible con Anthropic](docs/CONFIGURATION.md#anthropic-compatible-gateway). |
-| **Autoalojado o con el hosting de Trina** | Un servidor Linux, un Mac de la oficina o el hosting de Trina en AWS (Seúl). En el navegador de escritorio y del teléfono, además de un instalador para Windows. |
+| **Conector de Slack (0.4, desactivado por defecto)** | Cuando el propietario configura la app de Slack propia del equipo, cada persona vincula su cuenta de Slack y pregunta a la app en un canal o por mensaje directo. Cada pregunta se ejecuta como quien pregunta; en un canal, la respuesta primero solo la ve esa persona, con *Post to channel*. [Guía de Slack (en inglés)](docs/SLACK.md) |
+| **App de iPhone** | [Trina AX en el App Store](https://apps.apple.com/app/id6829192435). Abre el servidor de tu equipo, así que tiene lo que tenga la versión de tu servidor: las conversaciones del equipo necesitan la 0.4. |
+| **Autoalojado o con el hosting de Trina** | Un servidor Linux (también con [Docker](docs/INSTALL-DOCKER.md)), un Mac de la oficina o el hosting de Trina en AWS (Seúl). En el navegador de escritorio y del teléfono, la app de iPhone y un instalador para Windows. |
 
 ## Por dentro
 
+Nuestro primer commit, del 21 de octubre de 2026, ya tenía la función de permisos (`server/src/policy/authorize.ts`). Todas las llamadas a archivos siguen pasando por ella.
+
 ```mermaid
 flowchart LR
-  P["Tu equipo<br/>navegador · teléfono · app de Windows"] --> S["Servidor Trina"]
+  P["Tu equipo<br/>navegador · app de iPhone · app de Windows"] --> S["Servidor Trina"]
   E["Claude Code / Codex<br/>shell y herramientas de archivos propios, desactivados"] -->|"único camino: herramientas de archivos de Trina"| C{"Comprobación de permisos<br/>según quien pregunta"}
   S --> C
   C --> D[("Carpetas de la empresa<br/>shared · groups · projects · users")]
@@ -78,7 +104,7 @@ flowchart LR
 - **El agente es real.** Los subagentes actúan en nombre de la misma persona, pasan las mismas comprobaciones y dejan los mismos registros de actividad.
 - **Un acceso muy acotado.** El propio shell del motor y sus herramientas de archivos están desactivados, y hay pruebas de regresión que lo cubren en cada motor. Llega a tus carpetas a través de las herramientas de archivos de Trina, que se comprueban en cada llamada.
 - **Las claves quedan fuera de alcance.** Los tokens se sellan en el navegador antes de enviarse. El motor recibe un token sustituto para cada turno, y un proxy de modelos añade el real.
-- **Los administradores no pueden leer tus chats.** Ven qué archivos leyó la IA, no la conversación. Quienes operan el servidor sí pueden leer los datos almacenados, y lo indicamos [más abajo](#datos-y-límites).
+- **Tus chats con Trina solo los ves tú.** Una conversación solo la ven sus miembros; los administradores no pueden abrir las conversaciones en las que no están. Los administradores ven qué archivos leyó la IA, no la conversación. Quienes operan el servidor sí pueden leer los datos almacenados, y lo indicamos [más abajo](#datos-y-límites).
 
 <sub>El aislamiento a nivel de SO (una cuenta dedicada para el motor) se aplica en las instalaciones de Linux y en las de Mac con cuentas de rol. El modo Mac de oficina se ejecuta con el usuario que tiene la sesión iniciada, y la demo local no tiene aislamiento de SO. → <a href="docs/security-and-permissions.md">Seguridad y permisos</a> · <a href="docs/PERMISSIONS.md">Modelo de permisos (en coreano)</a></sub>
 
@@ -104,10 +130,10 @@ Una skill es un conjunto reutilizable de instrucciones: no entrena el modelo ni 
 | Ideal para | Equipos sin personal de TI | Equipos con un responsable de TI | Una oficina pequeña con un Mac dedicado | Echar un vistazo |
 | Quién lo gestiona | Trina, en AWS (Seúl) | Tu equipo de TI | Quien se encarga de la oficina | Tú |
 | IA | Tu conexión autorizada de Claude u OpenAI | Igual | Claude (sin Codex) | Desactivada |
-| Precio | Gratis hasta 3 personas, luego desde 39 USD/mes + uso de IA | Software gratuito + tu servidor | Software gratuito | Gratis |
-| Cómo empezar | [Ver los planes](https://ax.trina.app/#pricing) | [Guía de Linux](docs/INSTALL-LINUX.en.md) | [Guía de Mac de oficina](docs/OFFICE.en.md) | [Inicio rápido](docs/QUICKSTART.md) |
+| Precio | Prueba gratis de 14 días, luego un plan mensual + uso de IA | Software gratuito + tu servidor | Software gratuito | Gratis |
+| Cómo empezar | [Ver los planes](https://ax.trina.app/#pricing) | [Guía de Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) | [Guía de Mac de oficina](docs/OFFICE.en.md) | [Inicio rápido](docs/QUICKSTART.md) |
 
-Trina ofrece el espacio de trabajo, no la IA: usa solo cuentas y planes de Claude y OpenAI cuyo uso tengas autorizado. Planes de hosting (consultados el 2 de noviembre de 2026; precios en USD sin impuestos): **Gratis (hasta 3 personas, plazas limitadas), Starter 39 USD/mes (hasta 5 personas), Team 69 (15), Business 129 (40)**, y presupuesto a partir de 40 personas. El uso de IA va aparte. [Precios actuales](https://ax.trina.app/#pricing)
+Trina ofrece el espacio de trabajo, no la IA: usa solo cuentas y planes de Claude y OpenAI cuyo uso tengas autorizado. El hosting de Trina tiene una prueba gratis de 14 días y luego un plan mensual; el uso de IA lo factura aparte la cuenta que conectes. [Precios actuales](https://ax.trina.app/#pricing)
 
 El autoalojamiento en Linux requiere Debian 12/13 o Ubuntu 24.04, systemd con cgroup v2, amd64 o arm64, 4 GB de RAM (recomendado) y al menos 20 GB de disco. Tu equipo de TI se encarga de la instalación, las actualizaciones y la restauración de copias de seguridad.
 
@@ -143,14 +169,14 @@ Autoalojar no significa funcionar sin conexión: el contexto que necesita cada p
 <details>
 <summary><b>¿Necesitamos una cuenta de IA para probarlo?</b></summary>
 
-<br>No. La [demo local](docs/QUICKSTART.md) funciona con la IA desactivada y datos ficticios, así que puedes ver primero los archivos, las skills y los permisos.
+<br>No. La [demo local](docs/QUICKSTART.md) funciona con la IA desactivada y datos ficticios, así que puedes ver primero los archivos, las skills y los permisos. Para ver a @Trina responder en una conversación del equipo, necesitas un servidor con una conexión de IA ([Pruébalo](#pruébalo-en-10-minutos)).
 
 </details>
 
 <details>
-<summary><b>¿Pueden los administradores leer nuestros chats?</b></summary>
+<summary><b>¿Pueden los administradores leer nuestros chats y conversaciones?</b></summary>
 
-<br>No. Cada chat solo lo ve su propietario. Los registros de actividad muestran qué archivos leyó la IA, no la conversación. Quienes operan el servidor o su almacenamiento sí pueden leer los datos guardados.
+<br>No. Tus chats con Trina solo los ves tú. Una conversación solo la ven sus miembros; los administradores no pueden abrir las conversaciones en las que no están. Los registros de actividad muestran qué archivos leyó la IA, no la conversación. Quienes operan el servidor o su almacenamiento sí pueden leer los datos guardados.
 
 </details>
 
@@ -160,6 +186,18 @@ Autoalojar no significa funcionar sin conexión: el contexto que necesita cada p
 <br>Sí. La IA lee el texto de archivos HWP/HWPX en cualquier servidor. Con el plugin opcional HWP Preview activado, también crea documentos .hwpx nuevos (títulos, párrafos, listas y tablas sencillas), rellena un formulario .hwp o .hwpx existente (marcadores, celdas vacías, filas de tabla) y lo guarda en el mismo formato sin tocar el resto del archivo, y muestra vistas previas visuales. El plugin no funciona en Debian 12. Más información en las [preguntas frecuentes](docs/FAQ.md).
 
 </details>
+
+## La historia en 97 segundos
+
+https://github.com/user-attachments/assets/61f3469b-358d-4b3a-9233-c6b23b5db835
+
+<sub><b>Con sonido (en inglés).</b> Un líder de equipo configura Claude una vez y, en su primer día, la propuesta de una nueva integrante sale como la suya.<br>Historia animada con la app real en el 1:15. Empresa ficticia.</sub>
+
+## Lo que viene
+
+- **Retomar el chat de IA de un compañero.** Chats de proyecto compartidos: cualquiera en el proyecto continúa un chat de IA, y cada mensaje se ejecuta como la persona que lo envía. Diseñado, aún sin construir.
+- **App de Android.** En revisión en Google Play.
+- **La 0.4 en el hosting de Trina.** El hosting sigue el canal estable y tendrá las conversaciones del equipo cuando la 0.4 sea estable. Los servidores autoalojados pueden usar una versión 0.4 hoy.
 
 ## Comunidad y cómo contribuir
 

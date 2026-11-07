@@ -43,6 +43,27 @@ const pending = (ctx: AppContext): string[] => {
 const savePending = (ctx: AppContext, ids: string[]) => setSetting(ctx.db, FORGET_PENDING_KEY, [...new Set(ids)].slice(-MAX_FORGET_PENDING))
 const chatExists = (ctx: AppContext, id: string) => !!ctx.db.query('SELECT 1 FROM chats WHERE id = ?').get(id)
 
+/**
+ * Empty the engine's folder of a chat that still exists (a shared project chat whose person changed, chat/turn.ts):
+ * <agent root>/<chatId> with its .home, .claude and .tmp. In production the engine account owns it, so the launcher
+ * removes it (op `forget` takes any chat id and refuses only while a turn of that chat runs); in dev and office mode it
+ * is removed here. false: it is still there (the caller does not start the turn).
+ */
+export async function clearChatFolder(ctx: AppContext, agentRoot: string, chatId: string): Promise<boolean> {
+  if (!CHAT_ID_RE.test(chatId)) return false
+  const sock = launcherSockOf(ctx)
+  if (sock) {
+    try {
+      const r = await forgetOne(sock, chatId)
+      if (!r.ok) ctx.log.warn('chat folder not cleared', { chat: chatId, message: r.message })
+      return r.ok
+    } catch (e) { ctx.log.warn('chat folder not cleared', { chat: chatId, err: e }); return false }
+  }
+  const dir = path.join(agentRoot, chatId)
+  try { fs.rmSync(dir, { recursive: true, force: true }) } catch (e) { ctx.log.warn('chat folder not cleared', { chat: chatId, err: e }) }
+  return !fs.existsSync(dir)
+}
+
 /** Remove what the purged chats left outside the DB. Never throws; the promise ends when the launcher answered (or
  * the ids were put on the retry list). */
 export function forgetPurgedChats(ctx: AppContext, chatIds: string[]): Promise<void> {

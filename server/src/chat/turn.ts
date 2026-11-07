@@ -23,7 +23,7 @@ import { CoreUnavailableError } from '../context'
 import type { Running } from '../server'
 import type { LaunchHandle } from '../native'
 import type { LaunchRequest } from '@mycel/shared'
-import { atLeast, type Principal } from '../policy/access'
+import { atLeast, loadPrincipal, type Principal } from '../policy/access'
 import { parseInput, walk } from '../policy/resolve'
 import { nameFromUrl } from '../tools/save-url'
 import { badSegment, hiddenEntry } from '../policy/names'
@@ -87,6 +87,11 @@ import type { RoomTurnContext } from './runtime'
 import { knowledgeGraphOf, type KnowledgeGraph, type LookupPassage, type LookupResult } from '../knowledge-graph/service'
 import { locKey } from '../files/locations'
 import type { Logger } from '../log'
+import { audienceOf, isSharedRow, messageFor, stashWrittenBy } from './shared'
+import { missingReaders, readScope } from './read-scope'
+import { clearChatFolder } from './forget'
+import { publicStep, type ProjectRow, type StoredStep } from './store'
+import { SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
 
 /** Turn time limit (tab 3: 20 minutes, paused while waiting for a person). */
 export const TURN_TIMEOUT_MS = 20 * 60_000
@@ -179,7 +184,8 @@ const HIDDEN_STEP_TOOLS = new Set(['set_title'])
 
 export class TurnExec {
   content = ''
-  steps: Step[] = []
+  /** a shared chat's steps keep a line that names paths aside (StoredStep.sv; ChatStore.viewSteps) */
+  steps: StoredStep[] = []
   readonly abort = new AbortController()
   stopReason: 'stopped' | 'timeout' | 'shutdown' | null = null
   /** the answer reached a per-answer limit (tool rounds, working time): it ends 'done' with this reason, the chat
@@ -236,6 +242,16 @@ export class TurnExec {
   roomReadable: ((rel: string) => boolean) | null = null
   /** changes the person allowed on a card in this room turn (confirmRoomChange), by tool and input */
   private roomAllowed = new Set<string>()
+  /** a shared project chat (chat/shared.ts, chats.shared_at): everyone who sees its project sees the transcript, so
+   * what some of them cannot read enters it only after this person's yes on a card (confirmSharedRead); null elsewhere */
+  shared: { project: ProjectRow } | null = null
+  /** the places (sourceKey) this person allowed (shared) or refused (refused) on a shared chat's read card in this turn */
+  private sharedAllowed = new Set<string>()
+  private sharedRefused = new Set<string>()
+  /** a read card already open for the same places (sub-agents at the same time): they wait for that one answer */
+  private sharedPending = new Map<string, Promise<boolean>>()
+  /** steps of calls refused on the read card: they keep the neutral line, not a red one */
+  private sharedSkipped = new Set<string>()
 
   private resolveDone!: () => void
   private handle: LaunchHandle | null = null
@@ -271,7 +287,7 @@ export class TurnExec {
   /** Codex searches the model proxy took and whose item has not ended yet (chat/codex-search-step.ts) */
   private searchAsks: SearchAsk[] = []
   private patched = new Set<string>()
-  private pendingPatches = new Map<string, ((s: Step) => Partial<Step>)[]>()
+  private pendingPatches = new Map<string, ((s: Step) => Partial<StoredStep>)[]>()
   private attemptHadOutput = false
   /** set by the model proxy (upstream 401, budget used up, subscription limit): ends the turn with this error */
   private proxyError: ApiErrorBody | null = null
@@ -300,8 +316,13 @@ export class TurnExec {
   constructor(readonly rt: ChatRuntime, readonly spec: TurnSpec) {
     this.done = new Promise((r) => (this.resolveDone = r))
     // a team chat room's AI session (rooms/ai.ts): known from the start, so every step and the end go through the room
-    const roomId = (rt.db.query('SELECT room_id FROM chats WHERE id = ?').get(spec.chatId) as { room_id: string | null } | null)?.room_id
-    if (roomId) this.room = { roomId }
+    const row = rt.db.query('SELECT room_id, shared_at, project_id FROM chats WHERE id = ?').get(spec.chatId) as { room_id: string | null; shared_at: string | null; project_id: string | null } | null
+    if (row?.room_id) this.room = { roomId: row.room_id }
+    // a shared project chat: known from the start, so every check of the turn sees it (a project gone: fails below)
+    else if (row && isSharedRow(row)) {
+      const project = rt.store.projectRow(row.project_id!)
+      this.shared = { project: project ?? ({ id: row.project_id!, name: '', folder_path: '', trashed_with: 'gone' } as ProjectRow) }
+    }
     const limit = rt.wallTimeoutMs ?? 45 * 60_000
     const remaining = spec.wallDeadlineAt ? Date.parse(spec.wallDeadlineAt) - Date.now() : limit
     // A wall-clock rollback cannot extend this process's deadline. Persisted deadlines survive retries/recovery.
@@ -440,15 +461,23 @@ export class TurnExec {
       if (!rt.rooms) { this.error = engineError('crash', spec.locale); return }
       if (confidentialChat(rt.db, spec.chatId)) { this.error = { code: 'forbidden', message: tr('roomAiSafeOps', spec.locale) }; return }
     }
+    // a shared project chat is never confidential (read-only while safe operations are on), and runs only while its
+    // person still sees its project (access may have gone while the turn waited in the queue)
+    if (this.shared) {
+      if (confidentialChat(rt.db, spec.chatId)) { this.error = { code: 'conflict', message: tr('sharedChatSafeOps', spec.locale) }; return }
+      const p = rt.store.projectRow(this.shared.project.id)
+      if (!p || !audienceOf(rt.db, rt.files, p).includes(spec.userId)) { this.error = engineError('crash', spec.locale); return }
+      this.shared = { project: p }
+    }
 
     // never in a room: the in-app browser shows the person's signed-in pages, and a room's messages are other people's
-    this.browser = !this.restricted && !this.room && spec.clientKind === 'desktop' && !!spec.windowId && await rt.relay.waitForWindow(spec.userId, spec.windowId)
+    this.browser = !this.restricted && !this.room && !this.shared && spec.clientKind === 'desktop' && !!spec.windowId && await rt.relay.waitForWindow(spec.userId, spec.windowId)
     if (this.stopReason) return
     // dev environment EXPERIMENT (devenv/setting.ts), never in a scheduled run (nobody there answers the credential
     // card), an approved template run (its scope is fixed) or a company profile draft (web_fetch only). The box: a
     // project chat whose box this person may use.
     // srt: any chat of a person in scope, with or without a project; the folder access is the person's (devenv/srt).
-    if (devEnvFlag() && !this.templateScope && !this.restricted && !this.room && spec.clientKind !== 'schedule') {
+    if (devEnvFlag() && !this.templateScope && !this.restricted && !this.room && !this.shared && spec.clientKind !== 'schedule') {
       const p = chat.project_id ? rt.store.projectRow(chat.project_id) : null
       const project = p ? { id: p.id, folderPath: p.folder_path, name: p.name } : null
       if (devEnvRunner() === 'srt') { if (mayUseDevEnv(rt.db, rt.files, spec.userId)) this.devEnv = { project } }
@@ -463,7 +492,14 @@ export class TurnExec {
     const stash = sid ? rt.sessionStash(spec.chatId, sid) : ''
     // a room's session never resumes: its instructions (folders, skills, rules, the members' access) are made again for
     // every question, and the conversation so far comes as history (rooms/ai.ts)
+    // a chat several people wrote in (a shared chat, or one that stopped being shared): only a session this person's own
+    // turn wrote (another person's holds what they read, chat/shared.ts), and in a shared chat only while everyone who
+    // sees it now may see what the chat read (the session holds file contents the transcript does not: someone who
+    // joined the project since would otherwise be answered from them without a card)
+    const othersWrote = !this.room && !!rt.db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1").get(spec.chatId, spec.userId)
     let resume = !!claude && !this.room && !!sid && chat.engine_session_leaf_id === userMsg.parent_id && fs.existsSync(stash)
+      && (!(this.shared || othersWrote) || stashWrittenBy(rt.db, chat, spec.userId))
+      && (!this.shared || !this.scopeHiddenFromAudience())
     // a team file attached earlier on this branch that the person can no longer open: the stashed session still holds
     // its content and answered from it (security round 4). Start from the DB history, where it is blanked. Moves and
     // deletes reset the sessions of people who lose a file (FileService.dropSessionsOf); this covers any other way.
@@ -472,6 +508,13 @@ export class TurnExec {
       fs.rmSync(stash, { force: true })
     }
     if (!resume && userMsg.parent_id === null) this.newSession()
+    // a shared project chat: other people's messages on this branch are outside content (remember protection; no
+    // memories are kept here anyway), and the folder lists, skills, team rules and company profile the AI is shown are
+    // only what everyone who sees the chat may read (chat/shared.ts)
+    if (this.shared || othersWrote) {
+      if (rt.store.pathTo(userMsg.parent_id).some((m) => m.role === 'user' && m.author_id !== spec.userId)) this.taint()
+    }
+    if (this.shared) this.roomReadable = this.audienceReadable()
     // a room's AI session: the room's latest messages the person can see go in front of the question (rooms/ai.ts).
     // Other people's words are outside content (remember protection) and the room is where they came from (tab 7)
     let roomCtx: RoomTurnContext | null = null
@@ -520,12 +563,14 @@ export class TurnExec {
     const skills = this.roomReadable ? allSkills.filter((s) => this.roomReadable!(s.path)) : allSkills
     const skillScores = usageScores(rt.db, spec.userId, skills.map((s) => s.path))
     const skillList = buildSkillList(skills, { order: chatSkillOrder(rt.db, spec.chatId, spec.userId, () => descriptionOrder(skills, skillScores)), tag: neutralizeTags })
+    const shared = this.shared ? { project: this.shared.project.name, audience: audienceOf(rt.db, rt.files, this.shared.project).length, asker: this.principal.name } : null
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone,
-      // personal memories are not part of a room (docs/DECISIONS.md "대화방의 트리나")
-      memories: this.room ? [] : rt.memoriesForPrompt(spec.userId), project, browser: this.browser, tools: extraTools,
-      history: fresh ? rt.history(userMsg.parent_id, !!this.room) : null, connected: toolSet.prompt.join('\n\n') || null, subagents, skillList,
-      room: roomCtx?.prompt ?? null, roomReadable: this.roomReadable, templateRun: this.templateScope,
+      // personal memories are not part of a room (docs/DECISIONS.md "대화방의 트리나") or of a shared project chat
+      memories: this.room || this.shared ? [] : rt.memoriesForPrompt(spec.userId), project, browser: this.browser, tools: extraTools,
+      // a shared chat's transcript says who wrote each message (chat/shared.ts)
+      history: fresh ? rt.history(userMsg.parent_id, !!this.room, this.shared || othersWrote ? { runner: spec.userId } : null) : null, connected: toolSet.prompt.join('\n\n') || null, subagents, skillList,
+      room: roomCtx?.prompt ?? null, roomReadable: this.roomReadable, shared, templateRun: this.templateScope,
     })
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
     const turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]
@@ -560,7 +605,14 @@ export class TurnExec {
     // "/<skill name> …": that skill goes in front of the message for this turn (skills.ts); its folder joins the read
     // scope like a file the AI read. The list is that of the person who runs the turn (the sender; for a scheduled run
     // the schedule owner): team skills they can read and their own personal skills
-    const invoked = this.restricted ? null : invokedSkill(allSkills, userMsg.content)
+    let invoked = this.restricted ? null : invokedSkill(allSkills, userMsg.content)
+    // a shared project chat: a skill some of its people cannot read goes in only after the person's yes
+    let skillNotShared = ''
+    if (invoked && this.shared && await this.confirmSharedRead('skill', { path: skillFolder(invoked.skill.path) }, { step: false })) {
+      skillNotShared = `(The message starts with "/${neutralizeTags(invoked.skill.name).slice(0, 80)}", but that skill was not shared in this chat: some of the people who see it cannot read it, and ${neutralizeTags(this.principal.name)} chose not to share it. Answer without it, and do not mention where it is.)\n\n`
+      invoked = null
+    }
+    if (this.stopReason) return
     if (invoked) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), skillFolder(invoked.skill.path))])
     // a scheduled task's run: nobody is watching (waitForPerson answers at once), and the AI is told so
     let scheduled = ''
@@ -591,13 +643,15 @@ export class TurnExec {
     //   the read scope, and a save somewhere wider then needs a yes that nobody is there to give, so the task would fail
     //   on a file it never asked for (review of wave 1). A question from Slack can wait for a card (the app shows it and
     //   Slack is told once), so it gets the lookup.
+    // - Not in a shared project chat (chat/shared.ts): everyone who sees the chat sees what the AI writes, so file text
+    //   goes in only when someone asks for it
     // - Not in a team chat room: the room decides who may see an answer by the folders it used, and a search counts
     //   every folder it looked in (noteRoomTool), so a lookup on every question would keep answers that touched no file
     //   from the room
-    const lookup = !replay && (claude || codex) && !this.restricted && !this.room && spec.clientKind !== 'schedule' && !confidential && toolSet.has('knowledge_explore')
+    const lookup = !replay && (claude || codex) && !this.restricted && !this.room && !this.shared && spec.clientKind !== 'schedule' && !confidential && toolSet.has('knowledge_explore')
       ? await this.lookupDocuments(invoked ? skillInput : asSent.content) : null
     if (this.stopReason) return
-    const head = (roomCtx ? `${roomCtx.block}\n\n` : '') + scheduled + continued + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '')
+    const head = (roomCtx ? `${roomCtx.block}\n\n` : '') + skillNotShared + scheduled + continued + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '')
     const tail = (invoked ? `${skillBlock(invoked.skill, skillInput)}\n\n` : '') + composeMessage(asSent, atts) + (roomCtx?.attachments ? `\n\n${roomCtx.attachments}` : '')
     const message = head + tail
     // the message with the documents block; `session`: the Claude session it starts or continues (null: Codex, which
@@ -638,6 +692,14 @@ export class TurnExec {
     turn.files = this.files
     turn.tools = toolSet
     const chatDir = path.join(core.cfg.agentRoot, spec.chatId)
+    // a shared project chat: the engine's folder of the chat (.home, .claude, .tmp) holds what an earlier turn left
+    // there, and the person may have changed (also through a turn that failed or stopped before it got here). It is
+    // emptied before every turn (the session itself lives on the server and is restored into it when resumed); a folder
+    // that cannot be emptied means no turn (fails closed: chat/shared.ts)
+    if (this.shared || othersWrote) {
+      if (!(await this.clearChatFolder(chatDir))) { this.error = engineError('crash', spec.locale); return }
+      if (this.stopReason) return
+    }
 
     if (replay) {
       const handler = makeHandler(rt.files, rt.db, { user: this.principal!, turnId: spec.turnId, files: turn.files, signal: turn.abort.signal }, toolSet)
@@ -1082,7 +1144,8 @@ export class TurnExec {
           : this.toolSet?.stepLabel(tool, e.input, this.spec.locale) ?? stepLabel(tool, e.input, this.spec.locale, BROWSER_TOOL_NAMES)
         if (kind === 'web_search') { const q = (e.input as { query?: unknown } | null)?.query; this.searchQueries.set(e.id, typeof q === 'string' ? q : '') }
         // a sub-agent's step goes under its sub-task (parentId); the tools that patch their step are the main AI's only
-        const step = this.addStep({ id: e.id, kind, tool, label, status: 'running', ...(e.parentId ? { parentId: e.parentId } : {}) })
+        // a shared chat: a line that names team paths keeps them aside (sharedStep; shown to whoever may see them)
+        const step = this.addStep({ id: e.id, kind, tool, ...this.sharedStep(tool, e.input, label), status: 'running', ...(e.parentId ? { parentId: e.parentId } : {}) })
         const waiting = e.parentId ? undefined : this.pendingPatches.get(tool)?.shift()
         if (waiting) { this.patched.add(step.id); this.updateStep(step.id, waiting(step)) }
         this.noteTaint(tool, e.input)
@@ -1091,7 +1154,8 @@ export class TurnExec {
       }
       case 'tool_end': {
         const tool = this.toolNames.get(e.id) ?? ''
-        const patch: Partial<Step> = { status: e.ok ? 'ok' : 'error', endedAt: new Date().toISOString() }
+        // a call the person chose not to share in a shared chat did what it should: not a failed step
+        const patch: Partial<Step> = { status: e.ok || this.sharedSkipped.has(stepId(e.id)) ? 'ok' : 'error', endedAt: new Date().toISOString() }
         if (ENGINE_TEXT_STEP_KIND(tool) === 'web_search') {
           // the search server's own hits when the engine gives them structured; else only what the text's first block
           // holds (searchSources). Sources open later without a card within the link budget (tools/url-gate.ts)
@@ -1173,11 +1237,11 @@ export class TurnExec {
 
   /** The steps as saved with the answer: per sub-task its most recent SUBTASK_STEPS_KEPT steps, the number of the others
    * on the sub-task step (review M6: the step list is saved whole every 0.3 s and has no other cap). */
-  private storedSteps(): Step[] {
+  private storedSteps(): StoredStep[] {
     if (!this.subtasks.size) return this.steps
     const kept = new Map<string, number>()
     const hidden = new Map<string, number>()
-    const out: Step[] = []
+    const out: StoredStep[] = []
     for (let i = this.steps.length - 1; i >= 0; i--) {
       const s = this.steps[i]!
       if (s.parentId) {
@@ -1222,10 +1286,11 @@ export class TurnExec {
     if (!this.room) this.rt.hub.publish(this.spec.userId, { type: 'message.delta', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, offset, text: t } })
   }
 
-  addStep(s: Partial<Step> & Pick<Step, 'kind' | 'label' | 'status'>): Step {
+  addStep(s: Partial<StoredStep> & Pick<Step, 'kind' | 'label' | 'status'>): StoredStep {
     s = this.redactStep(s)
-    const step: Step = {
+    const step: StoredStep = {
       id: s.id !== undefined ? stepId(s.id) : `s-${crypto.randomUUID()}`, kind: s.kind, label: s.label.slice(0, 500), status: s.status,
+      ...(s.sv ? { sv: { label: s.sv.label.slice(0, 500), paths: s.sv.paths.slice(0, 50) } } : {}),
       startedAt: s.startedAt ?? new Date().toISOString(), endedAt: s.status === 'running' ? null : (s.endedAt ?? new Date().toISOString()),
       ...(s.tool ? { tool: s.tool.slice(0, 100) } : {}), ...(s.detail ? { detail: s.detail.slice(0, 4000) } : {}),
       ...(s.sources ? { sources: s.sources.slice(0, 50) } : {}), ...(s.images ? { images: s.images.slice(0, 20) } : {}),
@@ -1245,7 +1310,7 @@ export class TurnExec {
     return step
   }
 
-  updateStep(id: string, patch: Partial<Step>) {
+  updateStep(id: string, patch: Partial<StoredStep>) {
     id = stepId(id)
     const s = this.steps.find((x) => x.id === id)
     if (!s) return
@@ -1280,7 +1345,7 @@ export class TurnExec {
    * patch waits for the step's tool_start. FIFO per tool matches because every tool that patches its step runs one at a
    * time: only the read-only tools run side by side (mcp/socket.ts, PARALLEL_READ_TOOLS), and none of them patches.
    */
-  patchToolStep(tool: string, patch: (s: Step) => Partial<Step>) {
+  patchToolStep(tool: string, patch: (s: Step) => Partial<StoredStep>) {
     const s = this.runningStep(tool)
     if (s) { this.patched.add(s.id); this.updateStep(s.id, patch(s)); return }
     const q = this.pendingPatches.get(tool) ?? []
@@ -1289,19 +1354,22 @@ export class TurnExec {
   }
 
   /** a step's words with the person's stored connection secrets hidden (the label may quote the tool's input) */
-  private redactStep<T extends Partial<Step>>(s: T): T {
+  private redactStep<T extends Partial<StoredStep>>(s: T): T {
     const r = this.redactor()
     if (!r.re) return s
     const out: T = { ...s }
     if (out.label !== undefined) out.label = r.hide(out.label)
+    if (out.sv) out.sv = { ...out.sv, label: r.hide(out.sv.label) }
     if (out.detail) out.detail = r.hide(out.detail)
     if (out.sources) out.sources = out.sources.map((x) => ({ ...x, title: r.hide(x.title), url: r.hide(x.url) }))
     return out
   }
 
-  private publishStep(step: Step) {
-    if (this.room) { this.rt.rooms?.step({ roomId: this.room.roomId, turnId: this.id, userId: this.spec.userId }, { ...step }); return }
-    this.rt.hub.publish(this.spec.userId, { type: 'message.step', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, step: { ...step } } })
+  private publishStep(stored: StoredStep) {
+    // the person whose turn it is sees the line they caused, paths included (a shared chat stores it aside)
+    const step: Step = stored.sv ? { ...publicStep(stored), label: stored.sv.label } : { ...stored }
+    if (this.room) { this.rt.rooms?.step({ roomId: this.room.roomId, turnId: this.id, userId: this.spec.userId }, step); return }
+    this.rt.hub.publish(this.spec.userId, { type: 'message.step', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, step } })
   }
 
   private closeThinking() {
@@ -1509,11 +1577,207 @@ export class TurnExec {
     } catch { return null }
   }
 
+  // ---------------- shared project chats (chat/shared.ts) ----------------
+  /** The people who see this shared chat now (its project's audience: who can read the project folder). */
+  private sharedAudience(): string[] {
+    if (!this.shared) return []
+    const p = this.rt.store.projectRow(this.shared.project.id)
+    return p ? audienceOf(this.rt.db, this.rt.files, p) : []
+  }
+
+  /** May everyone who sees this shared chat read this team path (the folder lists, skills, team rules and company profile
+   * the AI is shown)? The audience as it is when the turn starts. */
+  private audienceReadable(): (rel: string) => boolean {
+    const rules = this.rt.files.rules()
+    const people = this.sharedAudience().map((id) => loadPrincipal(this.rt.db, id)).filter((p): p is Principal => !!p)
+    const seen = new Map<string, boolean>()
+    return (rel) => {
+      let v = seen.get(rel)
+      if (v === undefined) { const segs = rel.split('/').filter(Boolean); v = people.every((p) => atLeast(rules.access(p, segs), 'read')); seen.set(rel, v) }
+      return v
+    }
+  }
+
+  /** Has this chat read something some of the people who see it now cannot see (its read scope against today's
+   * audience)? A session that read it is not resumed then. */
+  private scopeHiddenFromAudience(): boolean {
+    const scope = readScope(this.rt.db, this.spec.chatId)
+    if (!scope?.length) return false
+    try { return missingReaders(this.rt.db, this.rt.files.rules(), scope, this.sharedAudience()).length > 0 } catch { return true }
+  }
+
+  /** A shared chat's call as it runs: a search without a path looks in the project folder only (the project's people
+   * may all read it); the AI is told so in its instructions. */
+  sharedArgs(tool: string, args: unknown): unknown {
+    if (!this.shared || !SEARCH_TOOLS.has(tool) || !args || typeof args !== 'object') return args
+    const a = args as Record<string, unknown>
+    return typeof a.path === 'string' && a.path.trim() !== '' && a.path.trim() !== '.' ? args : { ...a, path: this.shared.project.folder_path }
+  }
+
+  /**
+   * Where a call of a shared chat would read from, before it runs, by what the person's own access lets it show
+   * (docs/DECISIONS.md "Shared project chats", the read gate; the rule of a room's names, noteRoomTool):
+   *   - every team path it names: content when the person may read it (a file, a folder, or that nothing is there),
+   *     a name when they may only list it, else the nearest folder above that they may read (a "not found" there tells
+   *     its readers something) or nothing (anyone without access gets the same answer);
+   *   - a path a call writes to (WRITE_TARGET_ARGS) only when something is there already;
+   *   - a search looks into every folder under where it starts that the person may read, the person's own included;
+   *   - a listing shows the names one level down: each entry the person sees there that is a folder with its own rules,
+   *     or every entry when they may only list the folder.
+   */
+  sharedSources(tool: string, input: unknown): ReadSource[] {
+    const a = input && typeof input === 'object' ? input as Record<string, unknown> : {}
+    const fx = this.rt.files.fx, rules = this.rt.files.rules()
+    let me: Principal
+    try { me = this.livePrincipal() } catch { return [] }
+    const out: ReadSource[] = []
+    const readable = (segs: string[]) => atLeast(rules.access(me, segs), 'read') && !(segs.length === 1 && segs[0] === 'users')
+    const note = (p: string) => {
+      const segs = p.split('/').filter(Boolean)
+      if (readable(segs)) { out.push(sourceOf(this.rt.db, rules, segs.join('/'))); return }
+      if (rules.canList(me, segs)) { out.push({ type: 'name', path: segs.join('/') }); return }
+      for (let n = segs.length - 1; n >= 0; n--) {
+        const up = segs.slice(0, n)
+        if (readable(up)) { out.push(sourceOf(this.rt.db, rules, up.join('/'))); return }
+        if (rules.canList(me, up)) return
+      }
+    }
+    const exists = (p: string) => { try { return authorize(fx, rules, me, p, 'list').exists } catch { return false } }
+    const writes = new Set(WRITE_TARGET_ARGS[tool] ?? [])
+    for (const k of PATH_ARGS) {
+      // a listing's own folder: below, by the names it shows
+      if (tool === 'list' && k === 'path') continue
+      for (const v of Array.isArray(a[k]) ? a[k] as unknown[] : [a[k]]) {
+        if (typeof v !== 'string' || /^[a-z][a-z0-9+.-]*:/i.test(v)) continue
+        if (writes.has(k) && !exists(v)) continue
+        for (const p of this.roomNames(v)) note(p)
+      }
+    }
+    if (SEARCH_TOOLS.has(tool) || tool === 'list') {
+      const fold = (p: string) => { const n = p.normalize('NFC'); return fx.caseInsensitive ? n.toLowerCase() : n }
+      const start = typeof a.path === 'string' ? a.path : ''
+      const bases = [...new Set(this.roomNames(start).map(fold))]
+      if (SEARCH_TOOLS.has(tool)) {
+        const under = (f: string) => { const k = fold(f); return bases.some((b) => b === '' || k === b || k.startsWith(b + '/')) }
+        for (const f of ['', ...rules.ruleFolders()]) {
+          if (!under(f) || f.split('/')[0] === 'users') continue
+          if (readable(f ? f.split('/') : [])) out.push(sourceOf(this.rt.db, rules, f))
+        }
+        const mine = fold(`users/${me.id}`)
+        if (bases.some((b) => b === '' || b === 'users' || b === mine || b.startsWith(mine + '/'))) out.push({ type: 'user', id: me.id })
+      } else {
+        // the names a listing shows: each folder the person sees there by its name (who else would see that name), the
+        // files by the folder's readers; a folder they cannot list at all: what note() makes of the path
+        try {
+          const r = authorize(fx, rules, me, start, 'list')
+          if (!r.exists || !r.st?.isDirectory()) { note(start); return out }
+          let n = 0, files = false
+          for (const e of fs.readdirSync(r.abs, { withFileTypes: true })) {
+            if (hiddenEntry(e.name, r.segs.length) || badSegment(e.name) || e.isSymbolicLink()) continue
+            const segs = [...r.segs, e.name]
+            if (++n > 2000) {
+              // too many to look at one by one: the folder's readers, and each folder with its own rules in it by name
+              out.push(sourceOf(this.rt.db, rules, r.rel))
+              for (const f of rules.ruleFolders()) if (f.split('/').length === r.segs.length + 1 && (r.rel === '' || f.startsWith(r.rel + '/'))) out.push({ type: 'name', path: f })
+              break
+            }
+            if (e.isDirectory()) { if (rules.canList(me, segs)) out.push({ type: 'name', path: segs.join('/') }) }
+            else if (atLeast(rules.access(me, segs), 'read')) files = true
+          }
+          if (files) out.push(sourceOf(this.rt.db, rules, r.rel))
+        } catch { note(start) }
+      }
+    }
+    return out
+  }
+
+  /**
+   * The read gate of a shared project chat (docs/DECISIONS.md "Shared project chats"): before a call reads from a place
+   * some of the people who see the chat cannot read (missingReaders), the person whose turn it is gets the card "읽고
+   * 공유하기 / 읽지 않기" with the places and how many of the people cannot see them. A yes holds for those places for
+   * the rest of this turn; a no, no answer in time, a scheduled run (nobody can answer) or a check that fails is a
+   * refusal that names no place, and the same places are refused again without a card in this turn. Every agent's calls
+   * come here (sub-agents too); an audit row keeps the decision and the counts, never who. Returns the refusal for the
+   * AI, or null to go on.
+   */
+  async confirmSharedRead(tool: string, input: unknown, o: { step?: boolean } = {}): Promise<string | null> {
+    if (!this.shared) return null
+    const refusal = `Not read (${tool}): some of the people who see this shared chat cannot open that place, and ${neutralizeTags(this.principal?.name ?? 'the user')} did not share it here. Nothing from it was read. Do not try other paths, searches or tools to get it, and do not mention the place or guess what is there.`
+    // the call's step says so (a call's own step only: an attachment or a "/name" skill has none)
+    const refuse = () => { if (o.step !== false) this.skipStep(tool); return refusal }
+    let missing: { source: ReadSource; missing: string[] }[], audience: string[]
+    try {
+      const sources = this.sharedSources(tool, input)
+      audience = this.sharedAudience()
+      missing = missingReaders(this.rt.db, this.rt.files.rules(), sources, audience).filter((m) => !this.sharedAllowed.has(sourceKey(m.source)))
+    } catch (e) { this.rt.log.warn('shared read check failed', { err: e, turn: this.id }); return refuse() }
+    if (!missing.length) return null
+    const keys = missing.map((m) => sourceKey(m.source))
+    if (keys.some((k) => this.sharedRefused.has(k))) return refuse()
+    const pendingKey = [...keys].sort().join('\u0000')
+    let pending = this.sharedPending.get(pendingKey)
+    if (!pending) {
+      pending = this.askSharedRead(tool, missing, audience.length).finally(() => this.sharedPending.delete(pendingKey))
+      this.sharedPending.set(pendingKey, pending)
+    }
+    const yes = await pending
+    for (const k of keys) (yes ? this.sharedAllowed : this.sharedRefused).add(k)
+    return yes ? null : refuse()
+  }
+
+  /** The card itself and its audit row; true = "읽고 공유하기". */
+  private async askSharedRead(tool: string, missing: { source: ReadSource; missing: string[] }[], audience: number): Promise<boolean> {
+    const L = this.spec.locale
+    const labels = { mine: tr('sharedScopeMine', L), root: tr('scopeRoot', L), room: tr('scopeRoom', L) }
+    const places = [...new Set(missing.map((m) => sourceLabel(this.rt.db, m.source, this.spec.userId, labels, { ownNames: true })))]
+    const who = new Set(missing.flatMap((m) => m.missing))
+    const scheduled = this.spec.clientKind === 'schedule'
+    const answer = await this.waitForPerson({
+      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
+      question: tr('sharedReadConfirm', L, { sources: places.join(', '), n: String(audience), m: String(who.size) }),
+      options: [{ label: tr('sharedReadYes', L), value: 'share' }, { label: tr('sharedReadNo', L), value: 'skip' }], multiple: false, allowText: false,
+      expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
+    } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
+    const yes = answer === 'share' || (Array.isArray(answer) && answer.length === 1 && answer[0] === 'share')
+    const decision = yes ? 'shared' : scheduled ? 'unattended' : answer === null || answer === undefined ? 'no_answer' : 'declined'
+    try { auditLog(this.rt.db, { actor: this.spec.userId, action: 'chat.shared_read', target: this.spec.chatId, detail: { decision, tool, places: places.length, cannotSee: who.size, audience, turnId: this.id } }) }
+    catch (e) { this.rt.log.warn('shared read audit failed', { err: e, turn: this.id }) }
+    return yes
+  }
+
+  /** The step of a call refused on the read card: one neutral line, no path, not red (sharedSkipped). */
+  private skipStep(tool: string) {
+    const label = tr('sharedReadSkipped', this.spec.locale)
+    this.patchToolStep(tool, (st) => { this.sharedSkipped.add(st.id); return { label, sv: undefined, detail: undefined } as Partial<StoredStep> })
+  }
+
+  /** The engine's folder of this chat, emptied (a shared chat whose person changed): through the launcher where the
+   * engine account owns it (production), else here. false: it could not be. */
+  private clearChatFolder(chatDir: string): Promise<boolean> {
+    return clearChatFolder(this.rt.ctx, path.dirname(chatDir), this.spec.chatId)
+  }
+
+  /** A step of a shared chat that names team paths: stored with the words alone and the full line kept aside
+   * (ChatStore.viewSteps shows it to a viewer who may see every path it names). */
+  private sharedStep(tool: string, input: unknown, label: string): Pick<StoredStep, 'label' | 'sv'> {
+    if (!this.shared) return { label }
+    const a = input && typeof input === 'object' ? input as Record<string, unknown> : {}
+    const paths = new Set<string>()
+    for (const k of PATH_ARGS) for (const v of Array.isArray(a[k]) ? a[k] as unknown[] : [a[k]]) {
+      // as typed and as spelled on disk (another case or Unicode form): a viewer must be able to see every spelling
+      if (typeof v === 'string' && v && !/^[a-z][a-z0-9+.-]*:/i.test(v)) for (const p of this.roomNames(v)) paths.add(p)
+    }
+    if (!paths.size) return { label }
+    return { label: FILE_STEP_VERB[tool]?.[this.spec.locale] ?? label.split(' · ')[0] ?? tool, sv: { label, paths: [...paths] } }
+  }
+
   // ---------------- attachments ----------------
   /** a team-file attachment of an earlier message on the branch is no longer available to the person */
   private branchLostAttachment(leafId: string | null): boolean {
     const store = this.rt.store
-    return store.pathTo(leafId).some((m) => m.role === 'user' && hasAttachments(m) && store.attachmentsOf(m).some((a) => a.source === 'team' && a.unavailable))
+    // a shared chat: as this person may see them (chat/shared.ts)
+    const viewer = this.shared ? this.spec.userId : undefined
+    return store.pathTo(leafId).some((m) => m.role === 'user' && hasAttachments(m) && store.attachmentsOf(m, viewer).some((a) => a.source === 'team' && a.unavailable))
   }
 
   /**
@@ -1534,17 +1798,24 @@ export class TurnExec {
     const rules = this.rt.files.rules()
     const L = this.spec.locale
     const add: ReadSource[] = []
+    const refused = new Set<string>()
     for (const a of now) {
       if (a.source !== 'team') continue
       const id = attachStepId(a.id)
       // not an error of the answer: the AI answers without the file (a neutral step, not a red one)
       if (a.unavailable) { this.addStep({ id, kind: 'tool', tool: 'attachment', label: tr('attachUnavailable', L), status: 'ok' }); continue }
+      // a shared project chat: a file some of its people cannot read is given to the AI only after the person's yes
+      if (this.shared && await this.confirmSharedRead('read', { file_path: a.path }, { step: false })) {
+        this.addStep({ id, kind: 'tool', tool: 'attachment', label: tr('sharedReadSkipped', L), status: 'ok' })
+        refused.add(a.id)
+        continue
+      }
       add.push(sourceOf(this.rt.db, rules, a.path))
       if (a.changed) this.addStep({ id, kind: 'tool', tool: 'attachment', label: tr('attachChanged', L, { path: a.path }), status: 'ok' })
       else if (a.moved) this.addStep({ id, kind: 'tool', tool: 'attachment', label: tr('attachMoved', L, { path: a.path }), status: 'ok' })
     }
     addSources(this.rt.db, this.spec.chatId, add)
-    return now
+    return refused.size ? now.map((a) => (refused.has(a.id) ? blankTeamAttachment(a) : a)) : now
   }
 
   // ---------------- the team's documents before the model starts ----------------
@@ -1649,8 +1920,11 @@ export class TurnExec {
     const labels = { mine: tr('scopeMine', L), root: tr('scopeRoot', L), room: tr('scopeRoom', L) }
     // the card names a room by its own name (shown to the person as text); the refusal the AI reads back by the
     // server's name only (any member of a group chat may set its own name)
-    const from = w.narrower.map((s) => sourceLabel(this.rt.db, s, this.spec.userId, labels, { ownNames: true })).join(', ')
-    const fromForAi = w.narrower.map((s) => sourceLabel(this.rt.db, s, this.spec.userId, labels)).join(', ')
+    // a shared chat's read scope also holds what other people's turns read there: a place this person cannot see
+    // themselves is not named to them
+    const label = (s: ReadSource, own: boolean) => (this.shared && !this.seesSource(s, me) ? tr('sharedScopeOther', L) : sourceLabel(this.rt.db, s, this.spec.userId, labels, own ? { ownNames: true } : {}))
+    const from = [...new Set(w.narrower.map((s) => label(s, true)))].join(', ')
+    const fromForAi = [...new Set(w.narrower.map((s) => label(s, false)))].join(', ')
     const answer = await this.waitForPerson({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: tr('widenConfirm', L, { sources: from, target: segs.join('/'), n: String(w.targetViewers) }) + (binding ? '\nSHA-256: ' + JSON.parse(binding).hash : ''),
       options: [{ label: tr('widenSave', L), value: 'save' }, { label: tr('widenDont', L), value: 'skip' }], multiple: false, allowText: false,
@@ -1665,6 +1939,19 @@ export class TurnExec {
       return null
     }
     return `The user did not allow saving to '${segs.join('/')}': more people can see that folder than can see what you read in this chat (${fromForAi}). Do not save it anywhere else that more people can see; ask the user where to put it.`
+  }
+
+  /** May this person see where a read-scope source is (its folder, by name)? */
+  private seesSource(s: ReadSource, me: Principal): boolean {
+    const rules = this.rt.files.rules()
+    if (s.type === 'user') return s.id === me.id
+    if (s.type === 'root') return atLeast(rules.access(me, []), 'read')
+    if (s.type === 'name') return rules.canList(me, s.path.split('/').filter(Boolean))
+    if (s.type === 'folder') {
+      const row = this.rt.db.query('SELECT path FROM folders WHERE id = ?').get(s.id) as { path: string } | null
+      return !!row && rules.canList(me, row.path ? row.path.split('/') : [])
+    }
+    return false
   }
 
   // ---------------- team skills (skills/guard.ts) ----------------
@@ -1999,7 +2286,11 @@ export class TurnExec {
     else this.rt.turnFinished(this)
     const row = this.rt.store.messageRow(this.spec.assistantId)
     if (this.room) this.rt.roomEnded(this.id)
-    else if (row) this.rt.hub.publish(this.spec.userId, { type: 'message.done', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, status, message: this.rt.store.toMessage(row) } })
+    else if (row) {
+      const chatRow = this.rt.store.chatRow(this.spec.chatId)
+      const message = chatRow ? messageFor(this.rt, chatRow, row, this.spec.userId, this.spec.locale) : this.rt.store.toMessage(row)
+      this.rt.hub.publish(this.spec.userId, { type: 'message.done', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, status, message } })
+    }
     // an answer that ran about a minute or longer is worth telling when it ends (docs/DECISIONS.md "Session markers"):
     // not one the person stopped, not one a server stop cut off (a restart would tell once per chat), not a scheduled
     // run or a question from Slack (this.tells)

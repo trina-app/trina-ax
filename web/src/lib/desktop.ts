@@ -17,10 +17,14 @@ export const isDesktop = () => !!desktop()
 export type BrowserSettingsBridge = NonNullable<DesktopBridge['browserSettings']>
 export const browserSettingsBridge = (bridge: DesktopBridge | null = desktop()): BrowserSettingsBridge | null => bridge?.browserSettings ?? null
 
-/** Inside a Mac App Store build of the desktop app: the store updates it, so Settings > Apps offers no installer, only
- * the App Store line (lib/downloads.ts offeredDownloads). A desktop app from before the flag leaves it out: not a store
- * build. */
+/** Inside a Mac App Store or Microsoft Store build of the desktop app: the store updates it, so Settings > Apps offers
+ * no installer, only the store's line (lib/downloads.ts offeredDownloads). A desktop app from before the flag leaves it
+ * out: not a store build. */
 export const storeApp = (bridge: DesktopBridge | null = desktop()): boolean => bridge?.store === true
+
+/** The Mac App Store build, the one build that answers the page's file inputs itself (its own window, opened at
+ * .claude for a folder input); every other desktop build, the Microsoft Store one too, picks like a browser. */
+export const answersFileInputs = (bridge: DesktopBridge | null = desktop()): boolean => storeApp(bridge) && bridge?.platform === 'darwin'
 
 // ---- pane state, shared by every component that shows it (one subscription to the desktop app)
 const CLOSED: DesktopPaneState = { open: false, tabs: [], driving: false }

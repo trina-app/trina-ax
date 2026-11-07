@@ -3,7 +3,7 @@
 import clsx from 'clsx'
 import { ShieldAlert, WifiOff, RefreshCw } from 'lucide-react'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { matchPath, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { mayReloadNow } from '../lib/reload-guard'
 import { setNavigator } from '../lib/nav'
@@ -153,7 +153,8 @@ export default function Layout() {
           <BottomTabs />
         </main>
         {panel && (
-          <SidePanelFrame>
+          // beside an open thread (a file a reply links to) the panel leaves the room and the thread their minimums
+          <SidePanelFrame besideThread={!!matchPath('/rooms/:roomId/t/:messageId', location.pathname)}>
             <ChunkErrorBoundary resetKey={panel.kind === 'file' ? `file:${panel.key}` : panel.kind === 'artifact' ? `artifact:${panel.chatId}:${panel.artifactKey}:${panel.versionId ?? ''}` : panel.kind}>
               <Suspense fallback={<Spinner className="p-6" />}>
                 {panel.kind === 'artifact' && <ArtifactPanel chatId={panel.chatId} artifactKey={panel.artifactKey} versionId={panel.versionId} onClose={closeSidePanel} />}

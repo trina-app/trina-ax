@@ -203,7 +203,7 @@ test('only what the person may read: nothing after leaving, for an archived room
   expect(rows(mia.id).some((x) => x.room?.thread === lone.id)).toBe(false)
 })
 
-test('a member who joined after a thread\'s root gets no row of it; an AI answer in a row says it is the AI', async () => {
+test('a member who joined a team room after a thread\'s root sees it, so a mention there is a row (docs/DECISIONS.md "지난 대화"); an AI answer in a row says it is the AI', async () => {
   const { owner, mia, nora, otto, pia, group, n, team, send, reply, rows } = await setup()
   const root = await send(mia.client, team.id, 'root before')
   await reply(nora.client, team.id, root.id, 'nora replies')
@@ -211,7 +211,7 @@ test('a member who joined after a thread\'s root gets no row of it; an AI answer
   await owner.call('PATCH', `/api/admin/groups/${group.id}`, { memberIds: [mia.id, nora.id, otto.id, pia.id, quin.id] })
   roomsOf(h.ctx).sync()
   await reply(otto.client, team.id, root.id, '@QUIN LATE REPLY', { mentions: [quin.id] })
-  expect(JSON.stringify(n.list(quin.id, {}))).not.toContain('LATE')
+  expect(JSON.stringify(n.list(quin.id, {}))).toContain('LATE')
   // an AI answer in the thread (written here as the AI would be): the row names the AI, no person
   const seq = (h.ctx.db.query('UPDATE rooms SET last_seq = last_seq + 1 WHERE id = ? RETURNING last_seq').get(team.id) as { last_seq: number }).last_seq
   const aiId = crypto.randomUUID()

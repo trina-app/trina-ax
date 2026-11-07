@@ -9,18 +9,24 @@
 // NSIS: no publisherName, so electron-updater does not ask for a signature; the sha512 in latest.yml is checked.
 // macOS: no automatic install (that needs an Apple-signed app); /downloads/index.json is read with the team page's
 // own cookies and a newer Mac item is announced once per version, with a link to Settings > Apps.
-// Mac App Store build (process.mas): nothing; the store updates it, and the store does not allow pointing to another
-// download (editions/trina/mac-app-store). Settings > Apps of such a build lists no installer either, for the Mac or
-// Windows (the bridge's store flag, web/src/lib/downloads.ts offeredDownloads).
+// Store build (Mac App Store: process.mas; Microsoft Store: process.windowsStore, true inside an MSIX package): nothing;
+// the store updates it, and a store does not allow pointing to another download (editions/trina/mac-app-store,
+// editions/trina/microsoft-store). Settings > Apps of such a build lists no installer either, for the Mac or Windows
+// (the bridge's store flag, web/src/lib/downloads.ts offeredDownloads).
 export const FIRST_CHECK_MS = 20_000
 export const CHECK_EVERY_MS = 4 * 3600_000
 
 export type UpdateMode = 'auto-install' | 'notice' | 'off'
 
-/** what this build does: electron-updater only in a packaged Windows app, never in a Mac App Store build
+/** a Mac App Store or Microsoft Store build (Electron's process.mas / process.windowsStore): the store updates it */
+export function storeBuild(p: { mas?: boolean; windowsStore?: boolean }): boolean {
+  return p.mas === true || p.windowsStore === true
+}
+
+/** what this build does: electron-updater only in a packaged Windows app, never in a store build
  * (MYCEL_DESKTOP_UPDATE_TEST forces a mode in development and tests, not in a store build) */
-export function updateMode(platform: string, packaged: boolean, forced?: string, mas = false): UpdateMode {
-  if (mas) return 'off'
+export function updateMode(platform: string, packaged: boolean, forced?: string, store = false): UpdateMode {
+  if (store) return 'off'
   if (forced === 'auto-install' || forced === 'notice' || forced === 'off') return forced
   if (!packaged) return 'off'
   if (platform === 'win32') return 'auto-install'

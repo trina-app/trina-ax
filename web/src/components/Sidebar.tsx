@@ -12,6 +12,8 @@
 // 768 px it is the 트리나 tab's drawer, the AI's history only (☰ in the phone's top bar on Home): the AI's name on top,
 // 검색, 프로젝트, 예약 작업, 팀 스킬, 트리나 기록, and 삭제한 기록 at the bottom. A new AI chat is the 트리나 tab itself, the
 // Inbox and Admin are in the 나 tab, 파일 is its own tab and the rooms are the 대화 tab; rows are 44 px there.
+// A shared project chat I made or wrote in (docs/DECISIONS.md "Shared project chats") is a row like any other, with the
+// people icon before its title (no section of its own); its "···" offers only what I may do there.
 import clsx from 'clsx'
 import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Palette, Pencil, Search, Settings, Shield, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
@@ -28,6 +30,8 @@ import { useLocale, useT, type MessageKey } from '../i18n'
 import { markerOf, needsMe, waitingOrRunning, type MarkerView } from '../lib/sessionMarkers'
 import { useChats } from '../store/chats'
 import { useInboxUnread } from '../store/inbox'
+import { sharedRights } from '../lib/sharedChat'
+import { SharedIcon } from './chat/SharedChat'
 import { cardChats, useSessionMarkers } from '../store/sessionMarkers'
 import { isAdmin, useMeStrict, useSession } from '../store/session'
 import { useUi } from '../store/ui'
@@ -36,7 +40,7 @@ import { useChatActions } from './chat/chatActions'
 import { isUnused, SessionMarker, useChatMarker } from './chat/ChatState'
 import { SidebarRooms } from './rooms/SidebarRooms'
 import { SetupRow } from './onboarding/SetupRow'
-import { useMediaQuery } from './ui'
+import { SidebarSectionTitle, useMediaQuery } from './ui'
 import { settingsOpenedFrom } from './settings/SettingsDialog'
 import { Tooltip } from './Tooltip'
 
@@ -231,12 +235,9 @@ export default function Sidebar() {
         {/* the owner's way back to the welcome steps (onboarding/SetupRow.tsx): its own row between the sections */}
         <SetupRow onNavigate={close} />
         <div className="group/recents flex items-center gap-1 pr-1 pl-3" data-testid="recents-head">
-          <h2 className="text-xs font-medium text-faint">
-            <button type="button" aria-expanded={recentsOpen} aria-controls={listId} onClick={toggleRecents} className="flex items-center gap-1 rounded py-1 hover:text-muted" data-testid="recents-toggle">
-              {t('sidebar.aiChats', { name: aiName(t) })}
-              <ChevronDown size={12} className={clsx('transition-transform', !recentsOpen && '-rotate-90')} aria-hidden />
-            </button>
-          </h2>
+          <SidebarSectionTitle open={recentsOpen} onToggle={toggleRecents} controls={listId} testId="recents-toggle">
+            {t('sidebar.aiChats', { name: aiName(t) })}
+          </SidebarSectionTitle>
           {changed.length > 0 && (
             <span className="flex min-w-0 items-center gap-0.5 text-xs text-faint" data-testid="recents-filter-label">
               <span aria-hidden>·</span>
@@ -381,6 +382,9 @@ function ChatItem({ chat, onNavigate, peek }: { chat: Chat; onNavigate: () => vo
   const t = useT()
   const [menu, setMenu] = useState(false)
   const actions = useChatActions()
+  // a shared chat: rename for its creator, delete for its creator or a project editor; nothing to offer, no "···"
+  const rights = sharedRights(chat, useMeStrict().user.id)
+  const hasMenu = rights.creator || rights.canDelete
   // "?" your turn, a grey ring while it runs, a dot for a new answer; nothing on an idle row. A row that needs me ("?" or
   // the dot: what "답 필요" and the one count hold) reads in ink, the others stay muted
   const { marker, reason } = useChatMarker(chat)
@@ -413,19 +417,21 @@ function ChatItem({ chat, onNavigate, peek }: { chat: Chat; onNavigate: () => vo
         onBlur={peek.hide}
         onKeyDown={(e) => e.key === 'Escape' && peek.hide()}
         className={({ isActive }) =>
-          clsx('flex h-9 items-center gap-2 rounded-lg pr-9 pl-3 text-sm hover:bg-hover max-md:h-11 max-md:pr-11', marker && 'max-md:pr-17', isActive ? 'bg-hover font-medium text-ink' : needsMe(marker) ? 'font-medium text-ink' : 'text-muted')
+          clsx('flex h-9 items-center gap-2 rounded-lg pl-3 text-sm hover:bg-hover max-md:h-11', hasMenu ? 'pr-9 max-md:pr-11' : marker ? 'pr-9' : 'pr-3', hasMenu && marker && 'max-md:pr-17', isActive ? 'bg-hover font-medium text-ink' : needsMe(marker) ? 'font-medium text-ink' : 'text-muted')
         }
       >
+        {rights.shared && <SharedIcon className="text-faint" />}
         <span className="truncate">{chat.title || t('chat.untitled')}</span>
         {marker && (
           // one marker at the right end (session markers): its reason is part of the link's name. On a computer it sits in
           // the "···" spot, its right edge in line with the rooms' pills above, and gives way to "···" on hover and focus;
           // on a phone "···" always shows and it sits left of it
-          <span className={clsx('pointer-events-none absolute top-1/2 right-3 flex -translate-y-1/2 items-center max-md:right-11', menu ? 'opacity-0' : 'md:group-focus-within:opacity-0 md:group-hover:opacity-0')} data-testid="chat-marker">
+          <span className={clsx('pointer-events-none absolute top-1/2 right-3 flex -translate-y-1/2 items-center', hasMenu && 'max-md:right-11', menu ? 'opacity-0' : hasMenu && 'md:group-focus-within:opacity-0 md:group-hover:opacity-0')} data-testid="chat-marker">
             <SessionMarker marker={marker} label={reason} />
           </span>
         )}
       </NavLink>
+      {hasMenu && (
       <Tooltip label={t('chat.menu')}>
         <button
           type="button"
@@ -437,14 +443,19 @@ function ChatItem({ chat, onNavigate, peek }: { chat: Chat; onNavigate: () => vo
           <MoreHorizontal size={15} aria-hidden />
         </button>
       </Tooltip>
-      {menu && (
+      )}
+      {menu && hasMenu && (
         <div role="menu" className="absolute top-8 right-1 z-30 w-40 rounded-lg border border-line bg-surface p-1 shadow-lg">
-          <button role="menuitem" type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-hover" onClick={rename}>
-            <Pencil size={14} aria-hidden /> {t('chat.rename')}
-          </button>
-          <button role="menuitem" type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-danger hover:bg-danger-soft" onClick={del}>
-            <Trash2 size={14} aria-hidden /> {t('common.delete')}
-          </button>
+          {rights.creator && (
+            <button role="menuitem" type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-hover" onClick={rename}>
+              <Pencil size={14} aria-hidden /> {t('chat.rename')}
+            </button>
+          )}
+          {rights.canDelete && (
+            <button role="menuitem" type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-danger hover:bg-danger-soft" onClick={del}>
+              <Trash2 size={14} aria-hidden /> {t('common.delete')}
+            </button>
+          )}
         </div>
       )}
     </li>
