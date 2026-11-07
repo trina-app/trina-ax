@@ -8,8 +8,9 @@ import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API } from '@mycel/shared/api'
 import { makeFileRule } from '../../server/src/chat/prompt'
-import { htmlPdfUnavailable } from '../../server/src/files/html-pdf'
-import { HTML_PDF_HINT, HTML_PDF_OFF_HINT, htmlPdfResultText } from '../../server/src/tools/make-file'
+import { _queueForTest, HTML_PDF_LIMITS, htmlPdfUnavailable, renderSlot } from '../../server/src/files/html-pdf'
+import { componentC } from '../../server/src/team-files/component'
+import { HTML_PDF_HINT, HTML_PDF_OFF_HINT, htmlPdfResultText, printTeamHtml } from '../../server/src/tools/make-file'
 import { toolRegistry } from '../../server/src/tools/registry'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 
@@ -166,6 +167,27 @@ describe('the file preview\'s "PDF로 저장"', () => {
     expect(d.headers.get('content-disposition')).toContain('attachment')
     expect(Buffer.from(await d.arrayBuffer()).subarray(0, 5).toString()).toBe('%PDF-')
     expect(exists('projects/falcon/견적서.pdf')).toBe(false)
+  })
+
+  test('an HTML file over the page limit: the print\'s own refusal (413, reason html_too_large), not the file layer\'s', async () => {
+    put('shared/quote/huge.html', '<!doctype html><p>' + 'x'.repeat(HTML_PDF_LIMITS.maxHtmlBytes) + '</p>')
+    const r = await post('bob', 'shared/quote/huge.html')
+    expect(r.status).toBe(413)
+    const body = await r.json() as { error: { message: string; params?: { reason?: string } } }
+    expect(body.error.params?.reason).toBe('html_too_large')
+    expect(body.error.message).toContain('PDF')
+  })
+
+  prints('every print goes through the queue: a print of the same person waits for the one before', async () => {
+    const release = await renderSlot('bob')
+    let done = false
+    const p = printTeamHtml(h.ctx, componentC(h.ctx).files, h.ctx.files.principal('bob'), 'shared/quote/견적서.html').then((r) => { done = true; return r })
+    await Bun.sleep(300)
+    expect(done).toBe(false)
+    expect(_queueForTest().waiting).toBe(1)
+    release()
+    expect((await p).pages).toBe(2)
+    expect(_queueForTest()).toEqual({ running: 0, waiting: 0 })
   })
 
   test('Me says whether this server prints HTML (the preview shows the action only then)', async () => {

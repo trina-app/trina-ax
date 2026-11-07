@@ -4,9 +4,11 @@
 // `@page` size and margins (A4 when it names none), its page breaks, merged cells, the server's Korean fonts.
 //
 // The page is untrusted (a file from the web, an email, another person), so the browser is locked down in layers:
-// - It runs in the converters' isolation (tools/isolate.ts): sandbox-exec with no network on macOS, bwrap with its own
-//   empty network namespace on Linux (inside the converter cgroup in production), as the server account, never root.
-//   Its only writable place is an empty work folder; it reads neither the team folder nor the server's data.
+// - It runs in the converters' isolation (tools/isolate.ts): sandbox-exec with no network on macOS (with the print's
+//   tighter rules: no Mach services but its own, no LaunchServices, no Apple events), bwrap with its own empty network
+//   namespace on Linux (in production in a cgroup leaf of its own, system/cgroups.ts S/print, never the converters'),
+//   as the server account, never root. Its only writable place is an empty work folder; it reads neither the team
+//   folder nor the server's data.
 // - It never loads anything by itself. The page is served from a made-up origin (ORIGIN, the reserved .invalid name)
 //   through the DevTools protocol's Fetch interception: the server answers every request. The page's own address gives
 //   the page; a path under it gives a team file only when it is an image, a stylesheet or a font and `asset()` (the
@@ -32,7 +34,7 @@ import path from 'node:path'
 import { REPO_ROOT } from '../app-config'
 import { bundledFontDir } from '../config'
 import { dirBytes, isolatedCommand, isolation, makeWorkDir, treeRssKiB } from '../tools/isolate'
-import { converterCgroup } from '../system/cgroups'
+import { killPrintLeaf, makePrintLeaf, PRINT_ONE_MIB, printCgroup, printCgroupState, printLeafPeak } from '../system/cgroups'
 import { killTree } from '../system/kill-tree'
 
 /** The address the page has in the browser: a reserved name (RFC 2606) that never resolves. */
@@ -58,13 +60,15 @@ export const HTML_PDF_LIMITS = {
 export type HtmlPdfLimits = typeof HTML_PDF_LIMITS
 /** renders running at the same time on the server at most; more wait */
 export const RENDER_PARALLEL = 2
-/** Measured on Debian 13 (a 12-page table, PSS of all its processes): chromium about 500 MiB, chromium-headless-shell
- * about 240 MiB. In production the converters share one cgroup (system/cgroups.ts, 512–1536 MiB), so a small budget
- * prints one page at a time. */
+/** In Linux production prints run in their own cgroup (system/cgroups.ts S/print, never the converters'), which holds
+ * one or two of them by the machine's memory; elsewhere two. */
 export const renderParallel = (): number => {
-  const conv = converterCgroup()
-  return conv ? Math.max(1, Math.min(RENDER_PARALLEL, Math.floor(conv.memoryMiB / 768))) : RENDER_PARALLEL
+  const p = printCgroup()
+  return p ? Math.max(1, Math.min(RENDER_PARALLEL, p.parallel)) : RENDER_PARALLEL
 }
+/** the print's OOM score in its leaf: under memory pressure in the server's cgroup the browser goes before the
+ * converters (500) and the server */
+export const PRINT_OOM_SCORE_ADJ = 900
 /** renders waiting; more are refused as busy */
 export const QUEUE_MAX = 10
 const WAIT_MAX_MS = 120_000
@@ -96,7 +100,7 @@ export const PLACEHOLDER_SVG = "<svg xmlns='http://www.w3.org/2000/svg' width='1
 const PLACEHOLDER_B64 = Buffer.from(PLACEHOLDER_SVG).toString('base64')
 
 export class HtmlPdfError extends Error {
-  constructor(public code: 'unavailable' | 'busy' | 'timeout' | 'pages' | 'too_large' | 'memory' | 'aborted' | 'browser' | 'html_too_large', message: string) { super(message) }
+  constructor(public code: 'unavailable' | 'busy' | 'timeout' | 'pages' | 'too_large' | 'memory' | 'aborted' | 'browser' | 'html_too_large' | 'protocol', message: string) { super(message) }
 }
 
 // ---------------- finding the browser ----------------
@@ -127,17 +131,18 @@ function hyperframesBrowser(home: string): string | null {
  * install shows without a restart.
  */
 export function findPdfBrowser(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform, home = os.homedir()): string | null {
-  const ok = (p: string | undefined | null): p is string => isExe(p) && trustedBrowser(p)
+  // the real path, the one trustedBrowser looked at: printIn runs exactly that file
+  const ok = (p: string | undefined | null): string | null => (isExe(p) && trustedBrowser(p) ? fs.realpathSync(p) : null)
   const explicit = env.MYCEL_HTML_PDF_BROWSER
   if (explicit === 'none') return null
-  if (explicit) return ok(explicit) ? explicit : null
-  if (ok(env.HYPERFRAMES_BROWSER_PATH)) return env.HYPERFRAMES_BROWSER_PATH
-  const hf = hyperframesBrowser(home)
-  if (ok(hf)) return hf
+  if (explicit) return ok(explicit)
+  const hyper = ok(env.HYPERFRAMES_BROWSER_PATH) ?? ok(hyperframesBrowser(home))
+  if (hyper) return hyper
   // Linux: Debian's packages, the real binaries (not the /usr/bin shell wrappers). Not Google Chrome on a Mac: it
   // needs a Unix socket of its own (ProcessSingleton) that the isolation's "no network" refuses, and it stops.
   const system = platform === 'linux' ? ['/usr/lib/chromium/chromium-headless-shell', '/usr/lib/chromium/headless_shell', '/usr/lib/chromium/chromium'] : []
-  return system.find(ok) ?? null
+  for (const p of system) { const r = ok(p); if (r) return r }
+  return null
 }
 
 /** The folder whose files the browser may run as its helpers: a macOS app's bundle, else the binary's own folder. */
@@ -155,24 +160,27 @@ const SHARED_DIRS = new Set(['/', '/bin', '/sbin', '/usr', '/usr/bin', '/usr/sbi
   '/opt/homebrew/lib', '/opt/homebrew/libexec', '/opt/homebrew/opt', '/opt/homebrew/Cellar', '/private/tmp', '/tmp', '/var/tmp', '/Applications',
   '/usr/lib/x86_64-linux-gnu', '/usr/lib/aarch64-linux-gnu'])
 /**
- * A browser the server may run: its binary, its own folder (browserHome) and every folder above it are owned by root
- * or the server's account and nobody else can write them, and its folder is not a shared one such as /usr/bin. Anyone
- * who could change those files could run code as the server account inside the isolation, and the macOS profile lets
- * the browser exec every file of its folder.
+ * A browser the server may run: its binary and every folder from it up to the root (through its own folder,
+ * browserHome: an app bundle's Contents/MacOS and Contents included) are owned by root or the server's account and
+ * nobody else can write them, and its own folder is not a shared one such as /usr/bin. Anyone who could change those
+ * files could run code as the server account inside the isolation, and the macOS profile lets the browser exec every
+ * file of its folder.
  */
 export function trustedBrowser(bin: string, uid = process.getuid?.() ?? -1): boolean {
   try {
     const real = fs.realpathSync(bin)
     const home = browserHome(real)
     if (SHARED_DIRS.has(home)) return false
-    // a folder above it may be writable by all when it is sticky (/tmp): nobody can rename what is not theirs there
+    // a folder above the browser's own one may be writable by all when it is sticky (/tmp): nobody can rename what is
+    // not theirs there; the browser's own folder and those inside it never
     const owned = (p: string, sticky = false) => {
       const st = fs.statSync(p)
       return (st.uid === 0 || st.uid === uid) && (!(st.mode & 0o022) || (sticky && !!(st.mode & 0o1000)))
     }
-    if (!owned(real) || !owned(home)) return false
-    for (let d = path.dirname(home); ; d = path.dirname(d)) {
-      if (!owned(d, true)) return false
+    if (!owned(real)) return false
+    const inside = (d: string) => d === home || d.startsWith(home + '/')
+    for (let d = path.dirname(real); ; d = path.dirname(d)) {
+      if (!owned(d, !inside(d))) return false
       if (d === path.dirname(d)) break
     }
     return true
@@ -195,6 +203,8 @@ export function htmlPdfUnavailable(env: NodeJS.ProcessEnv = process.env): string
   // the browser runs without a sandbox of its own (the isolation is its sandbox): never as root. Only this repository's
   // container check of the Linux print (bwrap cannot make its network as a plain account in some VMs) runs it as root.
   if (process.getuid?.() === 0 && !(env.NODE_ENV === 'test' && env.MYCEL_HTML_PDF_TEST_AS_ROOT === '1')) return 'the server runs as root, and a browser is never run as root, so HTML is not printed to PDF here'
+  // Linux production: one print must fit the server's memory (system/cgroups.ts printBudgetMiB)
+  if (printCgroupState() === 'too_small') return `this server's memory is too small to print HTML to PDF (one print needs ${PRINT_ONE_MIB} MiB, a quarter of a server's memory)`
   return null
 }
 
@@ -339,6 +349,8 @@ export interface HtmlPdfResult {
   /** the page has <script> or on…= handlers; they did not run */
   scripts: boolean
   ms: number
+  /** Linux production: the print leaf's peak memory and tasks (system/cgroups.ts printLeafPeak) */
+  usage?: { memoryMiB?: number; pids?: number }
 }
 
 const encodePath = (p: string) => p.split('/').map(encodeURIComponent).join('/')
@@ -454,8 +466,12 @@ export async function renderHtmlPdf(req: HtmlPdfRequest): Promise<HtmlPdfResult>
 
 async function printIn(work: string, req: HtmlPdfRequest, L: HtmlPdfLimits): Promise<HtmlPdfResult> {
   const started = Date.now()
+  // the file trustedBrowser looks at is the file that runs: resolved once, checked, and run by that path
+  let browser: string
+  try { browser = fs.realpathSync(req.browser) } catch { throw new HtmlPdfError('unavailable', 'the browser is not installed') }
+  if (!trustedBrowser(browser)) throw new HtmlPdfError('unavailable', 'the browser is not in a folder only root or the server can change')
   const fonts = (req.fonts ?? []).filter((d) => { try { return fs.statSync(d).isDirectory() } catch { return false } })
-  const home = browserHome(req.browser)
+  const home = browserHome(browser)
   // Chromium on macOS keeps its temporary files in the user's temp folder, which the isolation hides, unless
   // MAC_CHROMIUM_TMPDIR names another one (base/files/file_util_apple.mm)
   const env: Record<string, string> = process.platform === 'darwin' ? { MAC_CHROMIUM_TMPDIR: work } : {}
@@ -467,21 +483,31 @@ async function printIn(work: string, req: HtmlPdfRequest, L: HtmlPdfLimits): Pro
   // becomes the browser (exec); macOS's /bin/sh starts the shell /private/var/select/sh names, so that one may run too
   const shell = '/bin/sh'
   const execAlso = process.platform === 'darwin' ? (() => { try { return [fs.realpathSync('/private/var/select/sh')] } catch { return [] } })() : []
-  const { argv, env: fullEnv } = isolatedCommand({ cmd: shell, args: ['-c', BROWSER_SHELL, req.browser, ...browserArgs(work)], workDir: work, readPaths: [home, ...fonts], helpersIn: home, execAlso, env, timeoutMs: L.timeoutMs, background: false, cpuThreads: 2 })
-  // its own process group: the time limit, an abort and the end of the render kill it with every helper it started
-  const p = Bun.spawn(argv, { cwd: work, env: fullEnv, stdin: 'pipe', stdout: 'pipe', stderr: 'pipe', detached: true })
+  // Linux production: a cgroup leaf of its own (system/cgroups.ts S/print), never the converters'
+  let leaf: string | null
+  try { leaf = makePrintLeaf() } catch (e) { throw new HtmlPdfError('unavailable', `the print's cgroup could not be made (${(e as Error).message})`) }
+  let p: Bun.Subprocess<'pipe', 'pipe', 'pipe'> | null = null
   let failure: HtmlPdfError | null = null
   let timer: ReturnType<typeof setTimeout> | undefined
   let watch: ReturnType<typeof setInterval> | undefined
   let onAbort: (() => void) | undefined
   let cdp: Cdp | undefined
+  let result: HtmlPdfResult | undefined
   try {
-    const tooLarge = () => new HtmlPdfError('too_large', `the PDF would be larger than ${Math.round(L.maxPdfBytes / 1024 / 1024)} MB`)
-    const sink = p.stdin
+    const { argv, env: fullEnv } = isolatedCommand({
+      cmd: shell, args: ['-c', BROWSER_SHELL, browser, ...browserArgs(work)], workDir: work, readPaths: [home, ...fonts], helpersIn: home, execAlso,
+      browserProfile: true, ...(leaf ? { cgroupLeaf: { dir: leaf, oomScoreAdj: PRINT_OOM_SCORE_ADJ } } : {}), env, timeoutMs: L.timeoutMs, background: false, cpuThreads: 2,
+    })
+    // its own process group: the time limit, an abort and the end of the render kill it with every helper it started
+    const proc = p = Bun.spawn(argv, { cwd: work, env: fullEnv, stdin: 'pipe', stdout: 'pipe', stderr: 'pipe', detached: true })
+    const sink = proc.stdin
     // one message out; the promise is the moment the pipe has taken it (the next large one waits for it, printPage)
     const write = async (s: string) => { sink.write(s); await sink.flush() }
-    // the largest message the browser sends: one read of the PDF stream (1 MiB, base64) with room to spare
-    const c = cdp = new Cdp(write, 8 * 1024 * 1024, tooLarge)
+    // The largest message the browser may send: its events carry the page's own addresses, a data: picture inside the
+    // page included (a 10 MB page can make a 10 MB event), so twice the page limit and room to spare, and never less
+    // than one read of the PDF stream (1 MiB in base64) needs.
+    const maxMessage = Math.max(8 * 1024 * 1024, 2 * L.maxHtmlBytes + 4 * 1024 * 1024)
+    const c = cdp = new Cdp(write, maxMessage, () => new HtmlPdfError('protocol', `the browser sent a message larger than ${Math.round(maxMessage / 1024 / 1024)} MB; the page is too large to print`))
     let stderr = ''
     let finish!: () => void
     const failed = new Promise<never>((_, reject) => { finish = () => reject(failure) })
@@ -489,25 +515,28 @@ async function printIn(work: string, req: HtmlPdfRequest, L: HtmlPdfLimits): Pro
     const fail = (e: HtmlPdfError) => { if (!failure) { failure = e; c.close(e); finish() } }
     c.onFatal = fail
     void (async () => {
-      try { for await (const ch of p.stdout) c.read(Buffer.from(ch)) } catch { /* ended */ }
-      c.close(new HtmlPdfError('browser', 'the browser closed'))
+      try { for await (const ch of proc.stdout) c.read(Buffer.from(ch)) } catch { /* ended */ }
+      // the pipe ended: the exit (and its code, the error worth telling) usually follows at once
+      await Promise.race([proc.exited, wait(1000)])
+      if (proc.exitCode === null && proc.signalCode === null) fail(new HtmlPdfError('browser', 'the browser closed its pipe'))
     })()
     void (async () => {
       const dec = new TextDecoder()
-      try { for await (const ch of p.stderr) if (stderr.length < 16 * 1024) stderr += dec.decode(ch, { stream: true }) } catch { /* ended */ }
+      try { for await (const ch of proc.stderr) if (stderr.length < 16 * 1024) stderr += dec.decode(ch, { stream: true }) } catch { /* ended */ }
     })()
-    void p.exited.then((code) => fail(new HtmlPdfError('browser', `the browser stopped (${code ?? p.signalCode}): ${stderr.trim().split('\n').slice(-2).join(' ').slice(0, 300)}`)))
+    void proc.exited.then((code) => fail(new HtmlPdfError('browser', `the browser stopped (${code ?? proc.signalCode}): ${stderr.trim().split('\n').slice(-2).join(' ').slice(0, 300)}`)))
     timer = setTimeout(() => fail(new HtmlPdfError('timeout', `printing took longer than ${Math.round(L.timeoutMs / 1000)} s`)), L.timeoutMs)
     // memory of the browser's processes, and the work folder (Chromium writes its profile and temporary files there;
     // macOS has no file size limit for it)
     watch = setInterval(() => {
-      if (p.pid) void treeRssKiB(p.pid).then((kib) => { if (kib > L.maxRssMiB * 1024) fail(new HtmlPdfError('memory', 'the page needs too much memory to print')) })
+      if (proc.pid) void treeRssKiB(proc.pid).then((kib) => { if (kib > L.maxRssMiB * 1024) fail(new HtmlPdfError('memory', 'the page needs too much memory to print')) })
       if (dirBytes(work) > L.maxWorkBytes) fail(new HtmlPdfError('too_large', 'the print needs too much disk space'))
     }, 250)
     onAbort = () => fail(new HtmlPdfError('aborted', 'stopped'))
     req.signal?.addEventListener('abort', onAbort, { once: true })
     const race = <T>(x: Promise<T>) => Promise.race([x, failed])
-    return await printPage(c, race, req, L, started)
+    result = await printPage(c, race, req, L, started)
+    return result
   } catch (e) {
     if (failure) throw failure
     if (e instanceof HtmlPdfError) throw e
@@ -518,9 +547,19 @@ async function printIn(work: string, req: HtmlPdfRequest, L: HtmlPdfLimits): Pro
     if (onAbort) req.signal?.removeEventListener('abort', onAbort)
     if (!failure) failure = new HtmlPdfError('aborted', 'done')
     cdp?.close(failure)
-    try { void p.stdin.end() } catch { /* closed */ }
-    if (p.pid && p.exitCode === null && p.signalCode === null) killTree(p.pid)
-    await Promise.race([p.exited, wait(3000)])
+    if (p) {
+      try { void p.stdin.end() } catch { /* closed */ }
+      // the whole process group, whether its first process is still there or not: a helper that outlived it (and still
+      // holds the pipes) goes too; then anything under the first process that left the group
+      try { process.kill(-p.pid, 'SIGKILL') } catch { /* no such group any more */ }
+      if (p.exitCode === null && p.signalCode === null) killTree(p.pid)
+      await Promise.race([p.exited, wait(3000)])
+    }
+    // Linux production: every process left in the leaf (one that left the group too), and the leaf
+    if (leaf) {
+      if (result) result.usage = printLeafPeak(leaf)
+      await killPrintLeaf(leaf)
+    }
   }
 }
 

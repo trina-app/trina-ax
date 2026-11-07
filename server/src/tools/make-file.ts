@@ -566,10 +566,13 @@ export async function printTeamHtml(ctx: AppContext, files: TeamFiles, user: Too
   const src = authorize(fx, rules, user, source, 'read')
   if (src.st!.isDirectory()) throw new ToolError(`'${src.rel}' is a folder`)
   if (!HTML_SOURCE_EXT.has(ext(src.rel))) throw new ToolError('only an .html file can be printed to PDF')
+  // a page over the limit is the print's own refusal (the route words it), not the file layer's general "too large"
+  const max = HTML_PDF_LIMITS.maxHtmlBytes
+  if (src.st!.size > max) { const e = new HtmlPdfError('html_too_large', `the HTML file is larger than ${max / 1024 / 1024} MB`); throw new ToolError(htmlPdfErrorText(e), `html_pdf_${e.code}`) }
   const why = htmlPdfUnavailable()
   const browser = findPdfBrowser()
   if (why || !browser) throw new ToolError(`${why ?? 'no headless browser is installed on this server'}; nothing was saved. Tell the user so; never rewrite the HTML as Markdown instead without saying that its design (colours, backgrounds, merged cells, page layout) would be lost`, 'html_pdf_unavailable')
-  const { bytes } = readRegular(src.abs, HTML_PDF_LIMITS.maxHtmlBytes)
+  const { bytes } = readRegular(src.abs, max)
   ctx.files.quarantine.assertBytes(bytes)
   /** the team path the page asked for -> its actual name (authorize resolves case and Unicode forms) */
   const used = new Map<string, string>()

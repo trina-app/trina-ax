@@ -118,6 +118,11 @@ export const filesRoutes: RouteModule = {
     // stops the print.
     kit.handle(API.saveHtmlPdf, ({ c, body, auth }) => mapErrors(c.get('locale'), () => saveHtmlPdf(ctx, svc, auth.user.id, body.path, c.req.raw.signal)))
     kit.handle(API.downloadHtmlPdf, ({ c, query, auth }) => mapErrors(c.get('locale'), async () => {
+      // a print is a minute of a browser: only this app starts one. A browser says where a request comes from
+      // (Fetch Metadata); another site's <img> or link, another team's page on a sibling address included, is refused
+      // before anything runs. A client that sends no such header (the phone app's own download) is not a page.
+      const site = c.req.header('sec-fetch-site')
+      if (site !== undefined && site !== 'same-origin') fileError('forbidden', 'htmlPdfCrossSite', undefined, { reason: 'cross_site' })
       const r = await htmlPdfDownload(ctx, svc, auth.user.id, query.path, c.req.raw.signal)
       return new Response(new Uint8Array(r.pdf), { status: 200, headers: { 'Content-Type': 'application/pdf', 'Content-Length': String(r.pdf.length), 'Content-Disposition': contentDisposition('attachment', r.name),
         'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox" } })

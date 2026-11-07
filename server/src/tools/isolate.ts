@@ -45,6 +45,12 @@ export interface IsolatedRun {
   helpersIn?: string
   /** macOS: more programs the converter may exec, each by its exact path (a shell's real binary behind /bin/sh) */
   execAlso?: string[]
+  /** macOS: the headless browser's tighter profile (no Mach services but the ones it needs, no LaunchServices, no
+   * opening apps or URLs, no Apple events; browserProfileRules) */
+  browserProfile?: boolean
+  /** Linux production: run in this cgroup leaf with this OOM score instead of the converters' shared one (the print's
+   * own leaf, system/cgroups.ts makePrintLeaf) */
+  cgroupLeaf?: { dir: string; oomScoreAdj: number }
   timeoutMs?: number
   /** threads the converter computes with (whisper.cpp -t): its CPU-seconds limit in the converter cgroup is the time
    * limit times this, since the kernel counts the CPU time of all threads */
@@ -108,7 +114,29 @@ function metalCacheDirs(): string[] {
   return metalCache
 }
 
-export function sandboxProfile(o: { cmd: string; workDir: string; readPaths: string[]; denyRead: string[]; gpu?: boolean; curatedFonts?: boolean; helpersIn?: string; execAlso?: string[] }): string {
+/**
+ * The Mach services the headless browser may look up (macOS, browserProfile), found by printing with every lookup
+ * denied and allowing only what it could not print without: the browser's own rendezvous service, which its helper
+ * processes look up to receive their shared memory (Chromium's MachPortRendezvousServer.<pid>). Without it the
+ * helpers quit at once; with only it the sample quote printed byte for byte the same PDF as with every service
+ * allowed (fonts included: CoreText reads the font files itself). Everything else is denied: LaunchServices (opening
+ * apps and URLs), the window server, the pasteboard, the keychain, notifications, DNS configuration, power events.
+ */
+export const BROWSER_MACH_SERVICES: readonly string[] = ['^org\\.chromium\\.[A-Za-z]+\\.MachPortRendezvousServer\\.[0-9]+$']
+/** The browser's rules on top of a converter profile (helpersIn): Mach lookups only to BROWSER_MACH_SERVICES, and no
+ * way to open an app, a document or a URL or to send an Apple event. Last rule wins in a sandbox profile, so these go
+ * after the general ones. */
+export function browserProfileRules(services: readonly string[] = BROWSER_MACH_SERVICES): string[] {
+  return [
+    '(deny mach-lookup)',
+    // a name, or a pattern written as ^…$ (the browser's own per-process rendezvous service)
+    ...(services.length ? [`(allow mach-lookup ${services.map((s) => (s.startsWith('^') ? `(global-name-regex #"${s.replace(/"/g, '')}")` : `(global-name ${sq(s)})`)).join(' ')})`] : []),
+    '(deny lsopen)',
+    '(deny appleevent-send)',
+  ]
+}
+
+export function sandboxProfile(o: { cmd: string; workDir: string; readPaths: string[]; denyRead: string[]; gpu?: boolean; curatedFonts?: boolean; helpersIn?: string; execAlso?: string[]; browserProfile?: boolean }): string {
   const gpu = o.gpu ? metalCacheDirs() : []
   const deny = [...new Set([
     '/Users', '/Volumes', '/private/tmp', '/private/var/folders', '/private/var/root', '/Library/Keychains',
@@ -142,6 +170,7 @@ export function sandboxProfile(o: { cmd: string; workDir: string; readPaths: str
     // the listing of the converter's own folder (not the files in it): Apple's frameworks look next to the executable
     // (mycel-ocr's Vision request fails without it when the helper sits under a denied folder such as the home)
     `(allow file-read-data (literal ${sq(path.dirname(real(o.cmd)))}))`,
+    ...(o.browserProfile ? browserProfileRules() : []),
   ].join('\n')
 }
 
@@ -222,8 +251,8 @@ export function backgroundPrefix(platform: NodeJS.Platform = process.platform): 
 /**
  * The command line and environment that run `o.cmd` isolated in `o.workDir` (a plain folder the server made, already
  * resolved): sandbox-exec on macOS, bwrap on Linux (inside the converter cgroup in production), else the converter
- * directly. runIsolated spawns it; files/html-pdf.ts spawns a headless browser with it, since that one also needs the
- * two extra pipes of its DevTools protocol (fd 3 and 4), which pass through sandbox-exec and bwrap unchanged.
+ * directly. runIsolated spawns it; files/html-pdf.ts spawns the headless browser with it itself (a shell in front of
+ * the browser, its own process group and cgroup leaf, its stdin and stdout as the DevTools pipes).
  */
 export function isolatedCommand(o: IsolatedRun & { workDir: string; timeoutMs: number; background: boolean }): { argv: string[]; env: Record<string, string> } {
   const workDir = o.workDir
@@ -233,11 +262,11 @@ export function isolatedCommand(o: IsolatedRun & { workDir: string; timeoutMs: n
   const low = o.background ? backgroundPrefix() : []
   let argv: string[]
   if (kind === 'sandbox-exec') {
-    argv = [...low, '/usr/bin/sandbox-exec', '-p', sandboxProfile({ cmd, workDir, readPaths: o.readPaths ?? [], denyRead: o.denyRead ?? [], gpu: o.gpu, curatedFonts: o.curatedFonts, helpersIn: o.helpersIn, execAlso: o.execAlso }), cmd, ...o.args]
+    argv = [...low, '/usr/bin/sandbox-exec', '-p', sandboxProfile({ cmd, workDir, readPaths: o.readPaths ?? [], denyRead: o.denyRead ?? [], gpu: o.gpu, curatedFonts: o.curatedFonts, helpersIn: o.helpersIn, execAlso: o.execAlso, browserProfile: o.browserProfile }), cmd, ...o.args]
   } else if (kind === 'bwrap') {
     const bwrap = which('bwrap')!
     // production Linux: the converter starts inside the server's converter cgroup with rlimits (system/cgroups.ts)
-    argv = [...low, ...cgexecPrefix(o.timeoutMs, o.cpuThreads), bwrap, ...bwrapArgs({ cmd, workDir, readPaths: o.readPaths ?? [], modern: bwrapIsModern(bwrap), curatedFonts: o.curatedFonts }),
+    argv = [...low, ...cgexecPrefix(o.timeoutMs, o.cpuThreads, o.cgroupLeaf), bwrap, ...bwrapArgs({ cmd, workDir, readPaths: o.readPaths ?? [], modern: bwrapIsModern(bwrap), curatedFonts: o.curatedFonts }),
       ...Object.entries(env).flatMap(([k, v]) => ['--setenv', k, v]), cmd, ...o.args]
   } else {
     argv = [...low, cmd, ...o.args]

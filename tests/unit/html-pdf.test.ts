@@ -13,7 +13,7 @@ import {
   QUEUE_MAX, renderHtmlPdf, RENDER_PARALLEL, renderParallel, renderSlot, serverFontDirs, teamPathOf, trustedBrowser, type HtmlPdfRequest,
 } from '../../server/src/files/html-pdf'
 import { makePagedPdf } from '../lib/pdf'
-import { isolation, sandboxProfile } from '../../server/src/tools/isolate'
+import { BROWSER_MACH_SERVICES, browserProfileRules, isolation, sandboxProfile } from '../../server/src/tools/isolate'
 import { which } from '../../server/src/config'
 import { WORK } from '../lib/env'
 
@@ -314,6 +314,96 @@ describe('locked down', () => {
     setTimeout(() => ctrl.abort(), 30)
     expect(((await p) as HtmlPdfError).code).toBe('aborted')
   })
+
+  renders('a 9 MB page with a 7 MB data: picture prints: the browser\'s messages about the page may be as large as the page', async () => {
+    const big = Buffer.concat([PNG, Buffer.alloc(7 * 1024 * 1024, 1)]).toString('base64')
+    const html = `<!doctype html><p>logo</p><img src="data:image/png;base64,${big}" width="20">`
+    expect(html.length).toBeGreaterThan(9 * 1024 * 1024)
+    expect((await render(html)).pages).toBe(1)
+  })
+
+  renders('the page\'s CSP is applied: its base-uri \'none\' keeps a <base> from moving where the page\'s files are read', async () => {
+    const asked: string[] = []
+    await render(`<!doctype html><base href="${ORIGIN}/elsewhere/"><img src="logo.png"><p>base</p>`, { asset: (p) => { asked.push(p); return p === 'sales/logo.png' ? PNG : null } })
+    expect(asked).toEqual(['sales/logo.png'])
+  })
+
+  renders('interception alone, without the OS isolation (MYCEL_ISOLATION=none): nothing reaches this machine\'s TCP listener', () => {
+    // a process of its own: the isolation is chosen once per process
+    const r = Bun.spawnSync([process.execPath, path.join(import.meta.dir, '..', 'lib', 'html-pdf-interception.ts')], {
+      env: { ...process.env, MYCEL_ISOLATION: 'none', ...(BROWSER ? { MYCEL_HTML_PDF_BROWSER: BROWSER } : {}) }, timeout: 300_000,
+    })
+    const line = r.stdout.toString().trim().split('\n').pop()!
+    const out = JSON.parse(line) as { isolation: string; cases: Record<string, string[]> }
+    expect(out.isolation).toBe('none')
+    const reached = Object.entries(out.cases).filter(([, c]) => c.length > 0)
+    expect(reached).toEqual([])
+    expect(Object.keys(out.cases).length).toBeGreaterThanOrEqual(17)
+  }, 300_000)
+})
+
+// ---------------- a misbehaving browser: fake ones, shell scripts on the DevTools pipes (fd 3 in, fd 4 out) ----------------
+describe('a browser that misbehaves', () => {
+  const fakes = path.join(base, 'fakes')
+  /** a fake "browser" in a folder of its own (trustedBrowser: owned, not writable by others) */
+  const fake = (name: string, script: string) => {
+    const dir = path.join(fakes, name)
+    fs.mkdirSync(dir, { recursive: true, mode: 0o755 })
+    const bin = path.join(dir, 'browser')
+    fs.writeFileSync(bin, `#!/bin/sh\n${script}\n`, { mode: 0o755 })
+    return bin
+  }
+  const run = (bin: string, limits: Partial<HtmlPdfRequest['limits']> = {}) =>
+    renderHtmlPdf({ browser: bin, html: Buffer.from('<p>x</p>'), page: 'a/b.html', workBase: base, asset: () => null, limits: { timeoutMs: 8000, ...limits } }).then(() => null, (e) => e as HtmlPdfError)
+  /** processes whose command line names `dir` */
+  const left = (dir: string) => Bun.spawnSync(['/bin/ps', '-A', '-o', 'pid=,command=']).stdout.toString().split('\n').filter((l) => l.includes(dir) && !l.includes('/bin/ps'))
+  const isolated = isolation() !== 'none'
+  const fakeTest = isolated ? test : test.skip
+
+  fakeTest('endless output without a message end: refused at the protocol\'s message size, at once, its own error', async () => {
+    const bin = fake('junk', "while :; do printf '%s' 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' >&4; done")
+    const t = Date.now()
+    const e = await run(bin, { timeoutMs: 30_000 })
+    expect(e?.code).toBe('protocol')
+    expect(Date.now() - t).toBeLessThan(25_000)
+    await Bun.sleep(200)
+    expect(left(path.dirname(bin))).toEqual([])
+  }, 40_000)
+
+  fakeTest('half a message and an exit: the browser stopped', async () => {
+    const e = await run(fake('crash', `printf '{"id":1,"result":{"targ' >&4\nexit 3`))
+    expect(e?.code).toBe('browser')
+    expect(e?.message).toContain('stopped (3)')
+  })
+
+  fakeTest('not JSON, an answer to nothing asked, a forged error: no crash, the error ends the print', async () => {
+    const e = await run(fake('badjson', `printf 'not json\\0{"id":999,"result":{}}\\0{"id":1,"error":{"message":"forged"}}\\0' >&4\nread -r x <&3`))
+    expect(e?.code).toBe('browser')
+    expect(e?.message).toContain('forged')
+  })
+
+  fakeTest('a browser that never answers: the time limit', async () => {
+    const e = await run(fake('silent', 'read -r x <&3\nsleep 30'), { timeoutMs: 1500 })
+    expect(e?.code).toBe('timeout')
+    await Bun.sleep(200)
+    expect(left(path.join(fakes, 'silent'))).toEqual([])
+  })
+
+  fakeTest('a helper that outlives the browser: killed with its process group (it held the pipes open)', async () => {
+    const bin = fake('orphan', '( n=0; while [ $n -lt 40000000 ]; do n=$((n+1)); done ) &\nexit 0')
+    const e = await run(bin)
+    expect(e?.code).toBe('browser')
+    await Bun.sleep(300)
+    expect(left(path.dirname(bin))).toEqual([])
+  })
+
+  fakeTest('a browser in a folder others can write is never run, even when named directly', async () => {
+    const bin = fake('writable', 'exit 0')
+    fs.chmodSync(path.dirname(bin), 0o777)
+    const e = await run(bin)
+    expect(e?.code).toBe('unavailable')
+    fs.chmodSync(path.dirname(bin), 0o755)
+  })
 })
 
 // ---------------- the parts, without a browser ----------------
@@ -370,9 +460,20 @@ describe('parts', () => {
     expect(plain).not.toContain('(subpath "/opt/b")')
     // the shell in front of the browser: /bin/sh, and on macOS the one shell it starts, each by its exact path
     const sh = sandboxProfile({ cmd: '/bin/sh', workDir: '/tmp/w', readPaths: ['/opt/b'], denyRead: [], helpersIn: '/opt/b', execAlso: ['/bin/bash'] })
-    expect(sh).toContain('(allow process-exec (literal "/bin/sh"))')
-    expect(sh).toContain('(allow process-exec (literal "/bin/bash"))')
+    // by their real paths (on Debian /bin/sh is /usr/bin/dash)
+    expect(sh).toContain(`(allow process-exec (literal "${fs.realpathSync('/bin/sh')}"))`)
+    expect(sh).toContain(`(allow process-exec (literal "${fs.realpathSync('/bin/bash')}"))`)
     expect(sh).toContain('(deny network*)')
+    expect(sh).not.toContain('(deny mach-lookup)')
+    // the browser's own: Mach lookups only to its rendezvous service; no LaunchServices, no Apple events. Last rule wins,
+    // so they come last. The other converters' profiles have none of it.
+    const b = sandboxProfile({ cmd: '/bin/sh', workDir: '/tmp/w', readPaths: [], denyRead: [], helpersIn: '/opt/b', browserProfile: true }).split('\n')
+    const tail = b.slice(-4)
+    expect(tail).toEqual(browserProfileRules())
+    expect(tail[0]).toBe('(deny mach-lookup)')
+    expect(tail[1]).toBe('(allow mach-lookup (global-name-regex #"^org\\.chromium\\.[A-Za-z]+\\.MachPortRendezvousServer\\.[0-9]+$"))')
+    expect(tail.slice(2)).toEqual(['(deny lsopen)', '(deny appleevent-send)'])
+    expect(BROWSER_MACH_SERVICES).toHaveLength(1)
   })
 
   test('the shell line maps stdin and stdout to the DevTools descriptors 3 and 4, then becomes the browser', () => {
@@ -391,9 +492,20 @@ describe('parts', () => {
       const bin = path.join(home, '.cache', 'hyperframes', 'chrome', 'chrome-headless-shell', 'mac_arm-152.0.1.1', 'chrome-headless-shell-mac-arm64', 'chrome-headless-shell')
       fs.mkdirSync(path.dirname(bin), { recursive: true })
       fs.writeFileSync(bin, '#!/bin/sh\n', { mode: 0o755 })
-      expect(findPdfBrowser({}, 'darwin', home)).toBe(bin)
-      expect(findPdfBrowser({ HYPERFRAMES_BROWSER_PATH: bin }, 'linux', '/nonexistent')).toBe(bin)
-      expect(findPdfBrowser({ MYCEL_HTML_PDF_BROWSER: bin }, 'linux', '/nonexistent')).toBe(bin)
+      // the real path: the one trustedBrowser looked at is the one that runs
+      const real = fs.realpathSync(bin)
+      expect(findPdfBrowser({}, 'darwin', home)).toBe(real)
+      expect(findPdfBrowser({ HYPERFRAMES_BROWSER_PATH: bin }, 'linux', '/nonexistent')).toBe(real)
+      expect(findPdfBrowser({ MYCEL_HTML_PDF_BROWSER: bin }, 'linux', '/nonexistent')).toBe(real)
+      // trustedBrowser decides: the same browser in a folder others can write is never found
+      fs.chmodSync(path.dirname(bin), 0o777)
+      expect(findPdfBrowser({}, 'darwin', home)).toBeNull()
+      expect(findPdfBrowser({ MYCEL_HTML_PDF_BROWSER: bin }, 'linux', '/nonexistent')).toBeNull()
+      fs.chmodSync(path.dirname(bin), 0o755)
+      fs.chmodSync(bin, 0o777)
+      // ('darwin': no system browser to fall back to)
+      expect(findPdfBrowser({ HYPERFRAMES_BROWSER_PATH: bin }, 'darwin', '/nonexistent')).toBeNull()
+      fs.chmodSync(bin, 0o755)
       expect(htmlPdfUnavailable({ MYCEL_HTML_PDF_BROWSER: 'none' })).toContain('no headless browser')
       if (isolation() !== 'none') {
         // never as root (only this repository's container check, NODE_ENV=test with MYCEL_HTML_PDF_TEST_AS_ROOT=1)
@@ -429,6 +541,14 @@ describe('parts', () => {
       // another account's file (uid 12345 stands for someone else)
       expect(trustedBrowser(bin, 12345)).toBe(process.getuid?.() === 0)
       for (const shared of ['/usr/bin/env', '/bin/sh']) if (fs.existsSync(shared)) expect(trustedBrowser(shared)).toBe(false)
+      // every folder between the binary and its bundle's root counts: an app's Contents writable by its group is not trusted
+      const app = path.join(dir, 'Shell.app', 'Contents', 'MacOS')
+      fs.mkdirSync(app, { recursive: true, mode: 0o755 })
+      const inApp = path.join(app, 'Shell')
+      fs.writeFileSync(inApp, '#!/bin/sh\n', { mode: 0o755 })
+      expect(trustedBrowser(inApp)).toBe(true)
+      fs.chmodSync(path.dirname(app), 0o775)
+      expect(trustedBrowser(inApp)).toBe(false)
     } finally { fs.rmSync(dir, { recursive: true, force: true }) }
   })
 

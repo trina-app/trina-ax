@@ -78,6 +78,32 @@ test('a folder the person cannot write: the PDF is downloaded instead', async ({
   expect(await printed(page)).toEqual([{ path: 'finance/2026/견적서.html', how: 'download' }])
 })
 
+test('a refusal that is not a read-only folder says why and downloads nothing', async ({ page }) => {
+  await reset(page)
+  expect((await page.request.post('/__test/html-pdf', { data: { on: true } })).ok()).toBeTruthy()
+  await signIn(page)
+  await put(page, 'marketing/quote/wider.html', QUOTE.replace('</body>', '<img src="../../finance/2026/chart.png"></body>'))
+  await open(page, 'marketing/quote', 'wider.html')
+  let downloads = 0
+  page.on('download', () => { downloads++ })
+  await page.getByTestId('file-save-pdf').click()
+  await expect(page.getByText('이 폴더를 보는 사람 모두가 볼 수는 없는 파일이 있어서 여기에 저장하지 않았어요', { exact: false })).toBeVisible()
+  await page.waitForTimeout(500)
+  expect(downloads).toBe(0)
+  expect(await printed(page)).toEqual([])
+})
+
+test('the download refuses a request from another site (Fetch Metadata)', async ({ page }) => {
+  await reset(page)
+  expect((await page.request.post('/__test/html-pdf', { data: { on: true } })).ok()).toBeTruthy()
+  await signIn(page)
+  await put(page, 'marketing/quote/견적서.html', QUOTE)
+  const url = '/api/files/html-pdf?path=' + encodeURIComponent('marketing/quote/견적서.html')
+  expect((await page.request.get(url, { headers: { 'sec-fetch-site': 'cross-site' } })).status()).toBe(403)
+  expect((await page.request.get(url, { headers: { 'sec-fetch-site': 'same-site' } })).status()).toBe(403)
+  expect((await page.request.get(url, { headers: { 'sec-fetch-site': 'same-origin' } })).status()).toBe(200)
+})
+
 test('on a phone the action sits in the ⋯ menu', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await reset(page)

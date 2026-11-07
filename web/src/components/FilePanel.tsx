@@ -86,7 +86,9 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
       const detail = [r.blocked ? t('preview.pdfBlocked', { count: r.blocked }) : '', r.scripts ? t('preview.pdfScripts') : ''].filter(Boolean).join(' ')
       toast({ level: 'success', text: t('preview.pdfSaved', { name: r.entry.name }), ...(detail ? { detail } : {}), action: { label: t('preview.pdfOpen'), run: () => openTeamFile(r.entry.path) } })
     } catch (e) {
-      if (isApiError(e, 'forbidden')) {
+      // only a folder the person cannot write gets the download; any other refusal (the PDF would let more people see
+      // a file of the page) says why and saves nothing
+      if (isApiError(e, 'forbidden') && e.body.params?.reason === 'read_only') {
         startDownload(api.url(API.downloadHtmlPdf, { query: { path: file.path } }), file.name.replace(/\.[^./]+$/, '') + '.pdf')
         toast({ level: 'info', text: t('preview.pdfDownloaded') })
       } else toast({ level: 'error', text: errorText(e, locale, t('error.network')) })

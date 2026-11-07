@@ -12471,9 +12471,24 @@ PDF that looks like the HTML, directly. Placement: Team AX core (make_file in `s
   server memory); pages are counted in its page tree.
 - Limits (`HTML_PDF_LIMITS`): 60 s for the whole print, 2 GiB of the browser's processes' resident memory added up, 200
   pages, 50 MB of PDF, a 10 MB page, make_file's image limits for its files (200, 20 MB each, 100 MB together). One print
-  per person (`renderSlot`) and two on the server, one where the converter cgroup has less than 1.5 GiB (a 12-page table
-  measured on Debian 13: chromium about 500 MiB PSS, 960 MiB of RSS added up; chromium-headless-shell about 240 MiB);
-  up to 10 wait (2 minutes), more are told the server is busy.
+  per person (`renderSlot`) and as many on the server as the print cgroup holds (below; two where there is none); up to
+  10 wait (2 minutes), more are told the server is busy.
+- **Its own cgroup on a Linux server** (`system/cgroups.ts` S/print, beside S/conv, never inside it; review round 3).
+  In S/conv (pids.max 128, 512–1536 MiB shared by every converter) one print took about 120 pids and two could run:
+  LibreOffice and whisper conversions of other people starved, and the smallest budget was too small. S/print gets
+  `printBudgetMiB` = a quarter of the plan's (or machine's) memory, at most two prints; each print runs in a leaf of its
+  own (S/print/p-…: memory.max `PRINT_ONE_MIB` 768 MiB, pids.max `PRINT_ONE_PIDS` 192, swap 0, memory.oom.group 1,
+  started by the same `mycel-sandbox cgexec` with oom_score_adj 900, so under pressure in the server's cgroup the browser
+  goes before the converters (500) and the server). One print fits from 3 GB (a 4 GB plan: one at a time), two from
+  6 GB; under 3 GB (a 2 GB plan) there is no S/print, `Me.server.htmlPdf` is absent and make_file says the server's
+  memory is too small. The leaf is killed whole (`cgroup.kill`) and removed after each print; leaves an earlier server
+  left are removed at start. Measured in the leaf (memory.peak, pids.peak; Debian 13 arm64, kernel 6.8, real cgexec):
+  chromium 156 — a one-page quote 240 MiB / 123 tasks, 18 pages with twelve 5 MB photos 285 MiB / 121, 190 pages with a
+  photo and a table each 487 MiB / 122; chromium-headless-shell 156 — 87, 180 and 283 MiB, 72–74 tasks. The limits are
+  about 1.5 times the worst. (The first estimate, 960 MiB, added up each process's resident memory, which counts the
+  shared pages once per process.) **Not changed:** the server unit's MemoryMax (reserve + converters, set by
+  `mycel-ctl apply-plan`) does not include the print budget, so a print shares the unit's memory with the server and the
+  converters; the OOM order above decides who goes. Adding the print budget to the unit is a hosting decision.
 - Korean: on Linux the browser's fontconfig adds the fonts the server ships for its PDFs (the bundle's `fonts/` with Noto
   Sans CJK and Pretendard, the repository's Pretendard), so "Pretendard" by name and Hangul without a named face both
   print; a Mac uses its own fonts (Apple SD Gothic Neo), as its typst PDFs do.
@@ -12539,6 +12554,49 @@ PDF that looks like the HTML, directly. Placement: Team AX core (make_file in `s
 - Held: the browser holds the pipe open, so it ends within seconds when the server process ends (checked by the reviewer
   after an exit and after SIGKILL); no shutdown hook like the promo video's.
 
+### Review round 3 (merge after should-fix), fixed
+- The print's own cgroup on Linux (above, "Its own cgroup").
+- **The process group is always killed** at the end of a print, whether its first process is still there or not: a
+  helper that outlived the browser on macOS kept the pipes (and the server's reader) open. Then the tree under the first
+  process, and on Linux the leaf's `cgroup.kill` (a process that left the group too).
+- **A message from the browser may be twice the page limit and 4 MiB more** (24 MiB): its events carry the page's
+  addresses, a `data:` picture inside the page included, and an 8 MiB cap refused a 9.3 MB page with a 7 MB picture as
+  "PDF too large". Over the cap: its own error (`protocol`), at once.
+- **The macOS profile of the print is tighter** (`browserProfile`, `browserProfileRules`; only the print uses it, every
+  other converter's profile is as before): `(deny mach-lookup)` with one exception, the browser's own rendezvous service
+  (`org.chromium.<name>.MachPortRendezvousServer.<pid>`, as a pattern), then `(deny lsopen)` and
+  `(deny appleevent-send)`. Found by printing with every lookup denied: without the rendezvous service the helpers quit
+  ("bootstrap_look_up … Permission denied"); with only it, the sample quote printed byte for byte the same PDF as with
+  every service allowed (CoreText reads the font files itself). Denied with it: LaunchServices (opening an app, a
+  document or a URL), the window server, the pasteboard, the keychain, notifications, DNS configuration and power events
+  (the browser logs that it cannot watch them, and prints).
+- **The download is this app's only** (`GET /api/files/html-pdf`): a browser's `Sec-Fetch-Site` other than
+  `same-origin` is refused (403, reason `cross_site`) before anything runs, so another team's page on a sibling address
+  cannot start a minute of printing with an `<img>`. A client without Fetch Metadata (the phone app's download) passes.
+- **Only a read-only folder falls back to the download** (`reason: read_only`); the wider-audience refusal now has its own
+  words ("이 페이지에 들어가는 파일 중 이 폴더를 보는 사람 모두가 볼 수는 없는 파일이 있어서 여기에 저장하지 않았어요", reason
+  `wider_audience`) and downloads nothing.
+- **The browser that runs is the one checked**: `findPdfBrowser` returns the real path `trustedBrowser` looked at, the
+  print resolves and checks it again and runs that path, and `trustedBrowser` checks every folder from the binary up
+  (an app bundle's Contents and Contents/MacOS included).
+- An HTML file over the page limit gets the print's own message (413, reason `html_too_large`), checked before the
+  browser's availability.
+- Tests added for each guard: fake browsers (endless output without a message end → `protocol`; half a message and an
+  exit → "stopped (3)"; not JSON, an answer to nothing, a forged error; never answering → time limit; a helper that
+  outlives the browser → nothing left; a browser in a writable folder → never run), the 9 MB `data:` page, the page CSP
+  (`base-uri 'none'` keeps a `<base>` from moving where the page's files are read), `findPdfBrowser` refusing a writable
+  folder, `printTeamHtml` waiting in the queue, the "nothing is sent" cases again with `MYCEL_ISOLATION=none` (the
+  interception alone; `tests/lib/html-pdf-interception.ts` in a process of its own), the macOS rules, the S/print
+  setup and leaves (`tests/unit/g-cgroups.test.ts`), the cross-site download and the wider-audience notice (e2e).
+- **Linux, checked in a container** (`tests/linux/Dockerfile.html-pdf`, `tests/linux/html-pdf.sh`: privileged, its own
+  cgroup namespace, root): the unit tests with both Debian browsers under Bun 1.3.12, and `tests/linux/html-pdf-cgroup.ts`
+  with the server's own `setupServerCgroups` and the real linux `mycel-sandbox cgexec`: S/print beside S/conv with the
+  limits above on 4 and 8 GB, none on 2 GB, the browser's processes only in print leaves, the peaks above under the
+  leaf's limits, no leaf left, nothing in the converters' cgroup, the child of a fake browser killed with its leaf.
+  **Not verified there:** systemd's delegation itself (the container's cgroup stands in for the unit's S), the unit's
+  MemoryMax around it, and a run as the server account (as a plain account bwrap cannot make its network namespace in
+  this VM).
+
 ### Open (for the owner)
 - **No browser on an office Mac and on a self-hosted Linux server without the dev environment.** Smallest options: on
   Debian, `apt-get install chromium-headless-shell` (about 210 MB plus `chromium-common` 84 MB; security updates from
@@ -12547,3 +12605,5 @@ PDF that looks like the HTML, directly. Placement: Team AX core (make_file in `s
   the office installer would fetch `chrome-headless-shell` for macOS into the app's folder. Each adds a browser to keep
   updated; not done without the owner's OK.
 - Whether Debian 12 has `chromium-headless-shell` was not checked (Debian 13 has it).
+- The print budget is not in the server unit's MemoryMax (above): `mycel-ctl apply-plan` could add `printBudgetMiB` to
+  it (a hosting decision).

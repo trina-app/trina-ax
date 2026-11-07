@@ -1710,7 +1710,9 @@ export class MockServer {
       if (!/\.html?$/i.test(page)) fail('validation', 400, 'HTML 파일만 PDF로 저장할 수 있어요.')
       if (!this.htmlPdf) fail('unavailable', 503, '이 서버에는 HTML을 PDF로 만드는 브라우저가 없어요. 관리자에게 알려 주세요.', undefined, { reason: 'unavailable' })
       const folder = page.includes('/') ? page.slice(0, page.lastIndexOf('/')) : ''
-      if (this.access(folder, c.user) !== 'write') fail('forbidden', 403, '읽기 전용이라 바꿀 수 없어요.')
+      if (this.access(folder, c.user) !== 'write') fail('forbidden', 403, '읽기 전용이라 바꿀 수 없어요.', undefined, { reason: 'read_only' })
+      // a page that names a finance file: the PDF would let more people see it (html-pdf-save.ts htmlPdfWider)
+      if (/finance\//.test(dec.decode(n!.data!))) fail('forbidden', 403, '이 페이지에 들어가는 파일 중 이 폴더를 보는 사람 모두가 볼 수는 없는 파일이 있어서 여기에 저장하지 않았어요.', undefined, { reason: 'wider_audience' })
       let out = page.replace(/\.[^./]+$/, '') + '.pdf'
       for (let i = 2; this.files.has(out); i++) out = `${page.replace(/\.[^./]+$/, '')} (${i}).pdf`
       this.putFile(out, MOCK_PDF)
@@ -1718,6 +1720,9 @@ export class MockServer {
       return { status: 201, body: { entry: this.entry(out, this.files.get(out)!, c.user), pages: 1, blocked: /https?:\/\//.test(dec.decode(n!.data!)) ? 1 : 0, scripts: /<script\b/i.test(dec.decode(n!.data!)) } }
     },
     downloadHtmlPdf: (c) => {
+      // like the server: only this app starts a print (Fetch Metadata)
+      const site = c.req.headers.get('sec-fetch-site')
+      if (site !== null && site !== 'same-origin') fail('forbidden', 403, 'PDF는 이 앱에서만 만들 수 있어요.', undefined, { reason: 'cross_site' })
       const page = c.query.path!
       const n = this.files.get(page)
       if (!n || n.type !== 'file' || this.access(page, c.user) === 'none') fail('not_found', 404)

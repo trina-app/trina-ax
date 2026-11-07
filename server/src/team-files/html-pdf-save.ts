@@ -14,7 +14,7 @@ import type { AppContext } from '../context'
 import { sourceOf, widening } from '../chat/read-scope'
 import { sha256 } from '../files/store'
 import { authorize } from '../policy/authorize'
-import { ToolError } from '../policy/errors'
+import { Denied, ToolError } from '../policy/errors'
 import { assertStorageRoom } from '../system/storage'
 import { HTML_SOURCE_EXT, printTeamHtml, type PrintedHtml } from '../tools/make-file'
 import { embedNarrower } from './embed'
@@ -41,7 +41,7 @@ async function print(ctx: AppContext, files: TeamFiles, userId: string, page: st
     if (code === 'unavailable') fileError('unavailable', 'htmlPdfUnavailable', undefined, { reason: 'unavailable' })
     if (code === 'busy') fileError('unavailable', 'htmlPdfBusy', undefined, { reason: 'busy' })
     if (code === 'pages') fileError('payload_too_large', 'htmlPdfPages', undefined, { reason: 'pages' })
-    if (code === 'too_large' || code === 'html_too_large' || code === 'memory') fileError('payload_too_large', 'htmlPdfTooLarge', undefined, { reason: code })
+    if (code === 'too_large' || code === 'html_too_large' || code === 'memory' || code === 'protocol') fileError('payload_too_large', 'htmlPdfTooLarge', undefined, { reason: code })
     if (code === 'timeout') fileError('unavailable', 'htmlPdfTimeout', undefined, { reason: 'timeout' })
     fileError('unavailable', 'htmlPdfFailed', undefined, { reason: code })
   }
@@ -54,15 +54,19 @@ export async function saveHtmlPdf(ctx: AppContext, files: TeamFiles, userId: str
   const me = files.principal(userId)
   const src = authorize(files.fx, files.rules(), me, page, 'read')
   const folder = src.segs.slice(0, -1)
-  // before the print: a read-only folder is refused at once (the panel offers the download instead)
-  authorize(files.fx, files.rules(), me, folder.join('/'), 'write', { mustExist: true })
+  // before the print: a read-only folder is refused at once, with its own reason (the panel downloads the PDF instead;
+  // no other refusal does that)
+  try { authorize(files.fx, files.rules(), me, folder.join('/'), 'write', { mustExist: true }) } catch (e) {
+    if (e instanceof Denied && e.message.startsWith('read-only')) fileError('forbidden', 'readOnly', undefined, { reason: 'read_only' })
+    throw e
+  }
   const printed = await print(ctx, files, userId, src.rel, signal)
   assertStorageRoom(printed.pdf.length)
   const name = pdfNameOf(src.segs[src.segs.length - 1]!)
   // nobody may read the PDF who could not read every file in it: true by construction (the page's folder, the preview's
   // rule for its files); checked again here, so a change of that construction cannot widen silently
   const rules = files.rules()
-  if (widening(ctx.db, null, [...folder, name], printed.sources.map((p) => sourceOf(ctx.db, rules, p)))) fileError('forbidden', 'embedNarrower', undefined, { reason: 'embed_narrower' })
+  if (widening(ctx.db, null, [...folder, name], printed.sources.map((p) => sourceOf(ctx.db, rules, p)))) fileError('forbidden', 'htmlPdfWider', undefined, { reason: 'wider_audience' })
   const tmp = await writeTemp(path.join(ctx.config.dataDir, 'uploads', 'tmp'), printed.pdf)
   try {
     const entry = await files.placeUpload(userId, folder.join('/'), name, tmp, 'rename', sha256(printed.pdf), { action: 'create', detail: { via: 'html_pdf', from: printed.source, pages: printed.pages, files: printed.sources.slice(1, 51), fileCount: printed.sources.length - 1 } })
