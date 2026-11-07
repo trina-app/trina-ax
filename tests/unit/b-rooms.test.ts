@@ -397,6 +397,78 @@ test('files: kept outside the team folder, readable by the room\'s members only,
   expect(fs.existsSync(stored)).toBe(false)
 })
 
+test('previews: a room file comes as bytes the app draws, never a page of this origin; members only; download-only stays a download', async () => {
+  const { mia, nora, otto, teamRoom } = await setup()
+  const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
+  const team = await teamRoom(mia.client)
+  const upload = async (roomId: string, name: string, bytes: Uint8Array | string) => {
+    const form = new FormData()
+    form.set('file', new File([(typeof bytes === 'string' ? new TextEncoder().encode(bytes) : bytes) as BlobPart], name))
+    const r = await h.fetch(`/api/rooms/${roomId}/files`, { method: 'POST', body: form, headers: { cookie: mia.client.cookie!, 'x-mycel-csrf': '1' } })
+    expect(r.status).toBe(201)
+    return r.json()
+  }
+  const page = '<!doctype html><h1>acme</h1><script>parent.document.cookie</script>'
+  const html = await upload(dm.id, 'deck.html', page)
+  const svg = await upload(dm.id, 'logo.svg', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
+  const md = await upload(dm.id, 'notes.md', '# acme\n')
+  // XML documents a browser shows as pages, where an XHTML script would run (RSS, XSLT, MathML, XUL, WML), and scripts
+  // under other names (ECMAScript): a page could load one as its own script
+  const xml = '<rss xmlns:h="http://www.w3.org/1999/xhtml"><h:script>alert(1)</h:script></rss>'
+  const feeds = await Promise.all(['feed.rss', 'style.xsl', 'formula.mml', 'app.xul', 'card.wml', 'module.es', 'app.js'].map((n) => upload(dm.id, n, xml)))
+  await mia.client.call('POST', `/api/rooms/${dm.id}/messages`, { body: '', fileIds: [html.id, svg.id, md.id, ...feeds.map((f) => f.id)], clientMessageId: cm() })
+  const get = (c: Client, roomId: string, id: string, q = '', headers: Record<string, string> = {}) => h.fetch(`/api/rooms/${roomId}/files/${id}${q}`, { headers: { cookie: c.cookie!, ...headers } })
+  // what the preview panel reads (fetch, inline): a page or a picture that can run is text, with the sandbox CSP and
+  // nosniff, so even opened as an address it is never a page of this origin; the bytes are the file's
+  for (const f of [html, svg, ...feeds]) {
+    const r = await get(nora.client, dm.id, f.id, '', { 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty' })
+    expect(r.status).toBe(200)
+    expect(r.headers.get('content-type')).toBe('text/plain; charset=utf-8')
+    expect(r.headers.get('content-security-policy')).toContain('sandbox')
+    expect(r.headers.get('content-security-policy')).toContain("default-src 'none'")
+    expect(r.headers.get('x-content-type-options')).toBe('nosniff')
+    expect(r.headers.get('content-disposition')).toStartWith('inline;')
+  }
+  expect(await (await get(nora.client, dm.id, html.id)).text()).toBe(page)
+  // the panel's download: an attachment with the same CSP
+  const down = await get(nora.client, dm.id, html.id, '?download=1')
+  expect(down.headers.get('content-disposition')).toStartWith('attachment;')
+  expect(down.headers.get('content-security-policy')).toContain('sandbox')
+  expect((await get(nora.client, dm.id, md.id)).headers.get('content-security-policy')).toContain('sandbox')
+  // members only: someone outside the room, an admin too, gets 404; a file asked for under another room (one the
+  // person is in) is 404 as well
+  expect((await get(otto.client, dm.id, html.id)).status).toBe(404)
+  expect((await get(otto.client, dm.id, html.id, '?download=1')).status).toBe(404)
+  expect((await get(mia.client, team.id, html.id)).status).toBe(404)
+  expect((await get(nora.client, team.id, html.id)).status).toBe(404)
+  // a file on the safety check's download-only list: only a download, never inline or a thumbnail (what the preview
+  // panel reads: it then says the file can only be downloaded). The phone app saves a download through fetch, so a
+  // download a page fetched still goes
+  const held = new TextEncoder().encode('held deck bytes')
+  h.ctx.files.quarantine.add(held, 'pptx')
+  const q = await upload(dm.id, 'held.pdf', held)
+  await mia.client.call('POST', `/api/rooms/${dm.id}/messages`, { body: '', fileIds: [q.id], clientMessageId: cm() })
+  for (const [query, headers] of [['', {}], ['', { 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty' }], ...['image', 'iframe', 'video', 'object', 'script'].map((d) => ['?download=1', { 'sec-fetch-mode': 'no-cors', 'sec-fetch-dest': d }])] as [string, Record<string, string>][]) {
+    const r = await get(nora.client, dm.id, q.id, query, headers)
+    expect({ query, headers, status: r.status }).toEqual({ query, headers, status: 503 })
+    expect((await r.json()).error.params.reason).toBe('quarantined')
+  }
+  // a held picture has no thumbnail made, and a small one is not sent as its own either
+  const pic = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new TextEncoder().encode('held picture')])
+  h.ctx.files.quarantine.add(pic, 'image')
+  const p = await upload(dm.id, 'held.png', pic)
+  expect(p).toMatchObject({ kind: 'image', thumb: false })
+  await mia.client.call('POST', `/api/rooms/${dm.id}/messages`, { body: '', fileIds: [p.id], clientMessageId: cm() })
+  expect((await get(nora.client, dm.id, p.id, '?thumb=1')).status).toBe(503)
+  for (const headers of [{}, { 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' }, { 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty' }] as Record<string, string>[]) {
+    const r = await get(nora.client, dm.id, q.id, '?download=1', headers)
+    expect(r.status).toBe(200)
+    expect(await r.text()).toBe('held deck bytes')
+  }
+  // (still members only first)
+  expect((await get(otto.client, dm.id, q.id, '?download=1')).status).toBe(404)
+})
+
 test('photos: the place they were taken and the camera are cut out; they stand upright at the size shown', async () => {
   const { exifOrientation } = await import('../../server/src/uploads/metadata')
   const { mia, nora } = await setup()

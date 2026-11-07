@@ -40,7 +40,8 @@
 // In a team room or the everyone room, a member who would see what it read there but for an old answer hidden from them
 // (docs/DECISIONS.md "지난 대화") is never sent it, confirmed or not (409 answer_share_hidden): the sender cannot see what
 // is at stake for them. What it used (and the files that go with it) is kept with the message (room_messages
-// .source_scope) for those who join later.
+// .source_scope) for those who join later, and so is each copy with the answer's links that name it: a member who cannot
+// open the team file opens the copy from the link (RoomMessage.attachedLinks, rooms/store.ts).
 // A confidential conversation (safe operations 1A) is never shared. Audited (room.answer_share) with the room as audit
 // rows name it, the number of people, whether it was confirmed, cut, and the number of files attached; no content, no
 // names.
@@ -144,8 +145,13 @@ interface Prov { missing: Set<string>; places: AnswerSharePlace[]; otherPlaces: 
 /** What a shared answer used, as kept with its message (room_messages.source_scope): the sources checked when it was
  * sent, the files that went with it and the paths it links to (as names), and `unknown` when not all of it is known
  * (the chat's scope did not describe the answer, or it read rooms the scope does not name). A later member of the room
- * sees it only when they may read every source and nothing is unknown (rooms/history.ts). */
-export interface AnswerScopeKept { sources: ReadSource[]; unknown: boolean }
+ * sees it only when they may read every source and nothing is unknown (rooms/history.ts). `attached`: each file that
+ * went with it as a copy (its room file id), the team path it was copied from and the answer's links that name it, so a
+ * member who cannot open the team file opens the copy from the link (rooms/store.ts attachedLinksOf; only the links,
+ * which the message's text has, ever leave the server). */
+export interface AnswerScopeKept { sources: ReadSource[]; unknown: boolean; attached?: AttachedCopy[] }
+/** One file that went with a shared answer as a copy: the room file, its team path when it was copied, the links. */
+export interface AttachedCopy { file: string; path: string; links: string[] }
 
 /** Per AppContext: the secret the confirm keys are made with (in memory: a restart asks again). */
 const secrets = new WeakMap<AppContext, Buffer>()
@@ -190,6 +196,9 @@ export async function answerCheck(ctx: AppContext, userId: string, roomId: strin
   // ---- A. the linked files ----
   const rows: Row[] = []
   const seenRel = new Set<string>()
+  /** every link of the answer (as answerFilePaths names it) that is a file I may open now, and its actual path: the
+   * links an attached copy stands for (two links may name one file) */
+  const linkRel = new Map<string, string>()
   const links = answerFilePaths(answerPart, ANSWER_SHARE_FILES_MAX + 1)
   // more links than rows: the rest is one row nothing is told about (everyone else counted), so nothing goes unasked
   const more = links.length > ANSWER_SHARE_FILES_MAX
@@ -198,6 +207,7 @@ export async function answerCheck(ctx: AppContext, userId: string, roomId: strin
     const dir = f ? null : myFolder(link)
     const at = f ?? dir
     if (!at) { rows.push({ link, rel: null, name: '', size: 0, unable: audience, attach: 'hidden' }); continue }
+    if (f) linkRel.set(link, f.rel)
     if (seenRel.has(at.rel)) continue
     seenRel.add(at.rel)
     // a folder: who may list it; it is never attached
@@ -370,7 +380,7 @@ export async function answerCheck(ctx: AppContext, userId: string, roomId: strin
   /** what an older client is told and sends back (`confirm`): nobody attached, so every row's people count */
   const peopleWithout = async (): Promise<number> => unablePeople({ audience, rows }, new Set(), await provenance(new Set()))
 
-  return { audience, rows, offered, provenance, peopleWithout }
+  return { audience, rows, offered, provenance, peopleWithout, linkRel }
 }
 
 type Check = Awaited<ReturnType<typeof answerCheck>>
@@ -466,10 +476,15 @@ export async function shareAnswerToRoom(ctx: AppContext, userId: string, chat: C
   // the copies first (my read access checked again, the limits of an upload), then the message with them
   const files = roomFilesOf(ctx)
   const fileIds: string[] = []
+  const copies: AttachedCopy[] = []
   try {
-    for (const rel of attach) fileIds.push((await files.fromTeamFile(userId, room.id, rel)).id)
-    // audited with the message (Rooms.send: room.answer_share)
-    const kept = (await c.provenance(new Set(attach))).kept
+    for (const rel of attach) {
+      const id = (await files.fromTeamFile(userId, room.id, rel)).id
+      fileIds.push(id)
+      copies.push({ file: id, path: rel, links: [...c.linkRel].filter(([, r]) => r === rel).map(([link]) => link) })
+    }
+    // audited with the message (Rooms.send: room.answer_share); the copies and the links they stand for are kept with it
+    const kept: AnswerScopeKept = { ...(await c.provenance(new Set(attach))).kept, ...(copies.length ? { attached: copies } : {}) }
     const m = rooms.send(userId, room.id, { body, mentions: [], fileIds, clientMessageId: b.clientMessageId }, {}, { at, cut, people, confirmed, scope: JSON.stringify(kept) })
     return { status: 'sent', message: m, cut }
   } finally {

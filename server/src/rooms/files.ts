@@ -4,7 +4,10 @@
 // owner's export (policy/access.ts, policy/resolve.ts, system/export.ts), yet it is in every backup, archive and
 // restore of the team folder (system/backup.ts), so room files go wherever the database goes. They are reached only
 // through GET /api/rooms/:id/files/:fileId, which checks on every read that the caller is in the room now and may see
-// the message the file was sent with. The upload path and its limits are the chat attachments' (multipart ≤ 50 MB, the
+// the message the file was sent with. It sends them like a team file's download (team-files/download.ts streamFile:
+// nosniff, a sandbox CSP, a page or script type inline as text/plain); the app's preview panel reads those bytes and
+// draws them (an HTML page only in its sandbox frame), never as a page of this origin. A file whose bytes are on the
+// team's download-only list goes only as a download (no inline read, no thumbnail). The upload path and its limits are the chat attachments' (multipart ≤ 50 MB, the
 // storage check, the temp file and its sha256, the image size and thumbnail helpers, the quarantine list).
 // reconcile() runs at every start: after a restore the database and the folder may be from different moments; a file
 // without its row is set aside in .system/rooms-orphans/ for 30 days, a row without its file is only counted.
@@ -174,9 +177,10 @@ export class RoomFiles {
 
   /**
    * The file for `userId`, checked now: in the room, and either sent in a message they may see (not deleted) or their
-   * own upload not sent yet. thumb: the small preview (or the image itself when it is a small web image).
+   * own upload not sent yet. thumb: the small preview (or the image itself when it is a small web image). quarantined:
+   * its bytes are on the team's download-only list (the route then sends it only as a download).
    */
-  open(userId: string, roomId: string, fileId: string, thumb: boolean): { abs: string; name: string } {
+  open(userId: string, roomId: string, fileId: string, thumb: boolean): { abs: string; name: string; quarantined: boolean } {
     const me = this.member(userId, roomId)
     const f = this.ctx.db.query('SELECT * FROM room_files WHERE id = ? AND room_id = ?').get(fileId, roomId) as FileRow | null
     if (!f) return fail('not_found')
@@ -185,12 +189,13 @@ export class RoomFiles {
       if (!m || m.deleted_at || !canSee(this.ctx.db, m, me)) fail('not_found')
     } else if (f.user_id !== userId) fail('not_found')
     const abs = this.abs(f)
+    const quarantined = this.ctx.files.quarantine.hasHash(f.sha256)
     if (thumb) {
-      if (f.thumb) { try { checkRegular(this.thumbAbs(f)); return { abs: this.thumbAbs(f), name: `${f.name}.jpg` } } catch { /* the original below */ } }
+      if (f.thumb) { try { checkRegular(this.thumbAbs(f)); return { abs: this.thumbAbs(f), name: `${f.name}.jpg`, quarantined } } catch { /* the original below */ } }
       if (f.kind !== 'image' || !/^(png|jpe?g|gif|webp)$/.test(ext(f.name)) || f.size > 2 * 1024 * 1024) fail('not_found')
     }
     try { checkRegular(abs) } catch { fail('not_found') }
-    return { abs, name: f.name }
+    return { abs, name: f.name, quarantined }
   }
 
   /** A message was deleted: its files go from disk and from the table. */

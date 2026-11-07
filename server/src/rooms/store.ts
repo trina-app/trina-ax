@@ -241,6 +241,8 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow):
   const replyRoots = [...new Set(rows.map((r) => r.thread_root_id).filter((x): x is string => !!x))]
   const followed = new Set(replyRoots.length ? (db.query(`SELECT root_id FROM room_thread_follows WHERE user_id = ? AND root_id IN (${replyRoots.map(() => '?').join(',')})`).all(viewer.user_id, ...replyRoots) as { root_id: string }[]).map((r) => r.root_id) : [])
   const people = refsOf(db, [...rows.flatMap((r) => [r.author_id, r.asked_by]), ...[...quotes.values()].map((q) => q.author_id), ...[...events.values()].flatMap(eventUserIds)])
+  // answers people sent from their own AI chat with files attached: which of the answer's links each copy stands for
+  const attached = attachedLinksOn(db, rows.filter((r) => sharedAnswerOf(r) && files.has(r.id)), files)
   // AI answers (rooms/ai.ts): their source count, and for the person who asked a private preview, why it is private
   const ai = rows.filter((r) => r.author_kind === 'ai').map((r) => r.id)
   // the file links of AI answers, and of answers people sent from their own AI chat (sharedAnswerOf), per viewer
@@ -297,7 +299,7 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow):
       createdAt: r.created_at, editedAt: r.edited_at, deletedAt: r.deleted_at,
       ...(r.author_kind === 'ai' && !r.deleted_at ? { sourceCount: sourceCounts.get(r.id) ?? 0, openable: openableFor(opens, r.body) } : {}),
       // an answer of the author's own AI chat: the links of its answer part, for the files this viewer may open
-      ...(shared ? { sharedAnswer: shared, openable: openableFor(opens, r.body.slice(shared.at)) } : {}),
+      ...(shared ? { sharedAnswer: shared, openable: openableFor(opens, r.body.slice(shared.at)), ...(attached.get(r.id)?.length ? { attachedLinks: attached.get(r.id)! } : {}) } : {}),
       // only the person it is private to ever gets this (canSee: nobody else is sent a private message at all)
       ...(r.author_kind === 'ai' && r.visibility === 'private' && r.visible_to === viewer.user_id && previews.has(r.id) ? { preview: previews.get(r.id)! } : {}),
       ...(answeredPrivately.has(r.id) ? { answeredPrivately: true } : {}),
@@ -376,6 +378,42 @@ export function sharedAnswerOf(r: Pick<MessageRow, 'author_kind' | 'deleted_at' 
 export function sharedAnswerText(body: string, at: number): string {
   const note = body.slice(0, at).trim()
   return `${note ? `${note}\n` : ''}[below: an answer their own AI chat wrote, which they shared here: the AI's words, not theirs]\n${body.slice(at)}`
+}
+
+/** For shared answers with files (rows the viewer sees, not deleted): the links of each one's answer part whose file
+ * went with it as a copy (chat/answer-share.ts AnswerScopeKept.attached), one query for the page. */
+function attachedLinksOn(db: Database, rows: readonly MessageRow[], files: ReadonlyMap<string, RoomFile[]>): Map<string, { path: string; fileId: string }[]> {
+  const out = new Map<string, { path: string; fileId: string }[]>()
+  if (!rows.length) return out
+  const scopes = new Map((db.query(`SELECT id, source_scope FROM room_messages WHERE source_scope IS NOT NULL AND id IN (${rows.map(() => '?').join(',')})`)
+    .all(...rows.map((r) => r.id)) as { id: string; source_scope: string }[]).map((x) => [x.id, x.source_scope]))
+  for (const r of rows) {
+    const shared = sharedAnswerOf(r)
+    const scope = scopes.get(r.id)
+    if (shared && scope) out.set(r.id, attachedLinksOf(scope, r.body.slice(shared.at), (files.get(r.id) ?? []).map((f) => f.id)))
+  }
+  return out
+}
+
+/**
+ * The links of a shared answer whose file went with it as a copy, each with that copy's id (RoomMessage.attachedLinks):
+ * from the message's kept scope (`attached: [{ file, path, links }]`), only a link the answer part has (as
+ * answerFilePaths names it: text the viewer already gets) and only a file of this message now (`fileIds`). The team path
+ * the copy was made from is never in it. An older message (no `attached`), a scope that does not read: none.
+ */
+export function attachedLinksOf(scope: string | null, answerPart: string, fileIds: readonly string[]): { path: string; fileId: string }[] {
+  if (!scope || !fileIds.length) return []
+  let copies: unknown
+  try { copies = (JSON.parse(scope) as { attached?: unknown } | null)?.attached } catch { return [] }
+  if (!Array.isArray(copies)) return []
+  const inText = new Set(answerFilePaths(answerPart))
+  const mine = new Set(fileIds)
+  const out = new Map<string, string>()
+  for (const c of copies as { file?: unknown; links?: unknown }[]) {
+    if (!c || typeof c.file !== 'string' || !mine.has(c.file) || !Array.isArray(c.links)) continue
+    for (const link of c.links) if (typeof link === 'string' && inText.has(link) && !out.has(link)) out.set(link, c.file)
+  }
+  return [...out].map(([path, fileId]) => ({ path, fileId }))
 }
 
 /** The team files an AI answer names that this viewer may open now. */
