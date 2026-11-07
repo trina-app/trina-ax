@@ -1,0 +1,9 @@
+MUTUAL NON-DISCLOSURE AGREEMENT (비밀유지계약)
+Between Acme Corp. and Northwind Sample Inc. (fictional). Effective 2026-06-10.
+
+1. Confidential information stays confidential for 3 years after the end of the discussions.
+   비밀유지 의무는 협의 종료 후 3년간 유지된다.
+2. Each side may share confidential information only with employees who need it.
+3. On request, all copies must be returned or destroyed within 30 days.
+4. Remedy for breach: injunctive relief plus damages. No fixed penalty amount is agreed.
+5. Governing law: Korea. Venue: Seoul.

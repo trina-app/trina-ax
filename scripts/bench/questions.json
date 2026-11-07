@@ -1,0 +1,37 @@
+{
+  "_note": "Written before any run; do not tune after seeing results. kind: find | answer | multi. expectFiles: team paths, a cited/read file counts if ANY is given... see README. expectFacts: every entry must appear in the answer; 'a|b' means either spelling. Matching ignores case, spaces and commas.",
+  "folder": "shared/bench",
+  "questions": [
+    { "id": "en-01", "lang": "en", "kind": "find", "q": "Which file has the 2027 price list?", "expectFiles": ["shared/bench/price-list-2027.csv"], "expectFacts": ["price-list-2027"] },
+    { "id": "en-02", "lang": "en", "kind": "answer", "q": "What is the late-delivery penalty in the Acme supply contract?", "expectFiles": ["shared/bench/supply-contract-acme-hanbit.md"], "expectFacts": ["0.5%", "10%"] },
+    { "id": "en-03", "lang": "en", "kind": "answer", "q": "How many days does Acme have to pay an invoice under the Hanbit supply contract?", "expectFiles": ["shared/bench/supply-contract-acme-hanbit.md"], "expectFacts": ["45"] },
+    { "id": "en-04", "lang": "en", "kind": "answer", "q": "How long does confidentiality last under the Northwind NDA?", "expectFiles": ["shared/bench/nda-acme-northwind.txt"], "expectFacts": ["3 year|three year|3-year|3년"] },
+    { "id": "en-05", "lang": "en", "kind": "answer", "q": "What does the Acme Desk Pro plan cost per month in 2027?", "expectFiles": ["shared/bench/price-list-2027.csv"], "expectFacts": ["650000"] },
+    { "id": "en-06", "lang": "en", "kind": "answer", "q": "How many days a week may employees work remotely?", "expectFiles": ["shared/bench/hr-remote-work.txt"], "expectFacts": ["2 days|two days|up to 2|up to two"] },
+    { "id": "en-07", "lang": "en", "kind": "answer", "q": "What is the minimum password length in our security policy?", "expectFiles": ["shared/bench/security-policy.html"], "expectFacts": ["14"] },
+    { "id": "en-08", "lang": "en", "kind": "find", "q": "Where is the report about the September outage?", "expectFiles": ["shared/bench/incident-report-2026-09.md"], "expectFacts": ["incident-report-2026-09"] },
+    { "id": "en-09", "lang": "en", "kind": "answer", "q": "How many desks can a single office have in Acme Desk?", "expectFiles": ["shared/bench/product-spec-acme-desk.md"], "expectFacts": ["500"] },
+    { "id": "en-10", "lang": "en", "kind": "answer", "q": "What was our total revenue in Q3 2026?", "expectFiles": ["shared/bench/sales-summary-2026-q3.html", "shared/bench/sales-report-2026-q3.csv"], "expectFacts": ["482"] },
+    { "id": "en-11", "lang": "en", "kind": "answer", "q": "When does the office lease end and what is the monthly rent?", "expectFiles": ["shared/bench/office-lease-summary.txt"], "expectFacts": ["2028-06-30|june 30, 2028|30 june 2028", "18500000"] },
+    { "id": "en-12", "lang": "en", "kind": "multi", "q": "By how many KRW per month does the Acme Desk Pro plan go up from the 2026 price list to the 2027 one?", "expectFiles": ["shared/bench/price-list-2026.csv", "shared/bench/price-list-2027.csv"], "expectFacts": ["60000"] },
+    { "id": "en-13", "lang": "en", "kind": "multi", "q": "Which vendor contract renews first, and when is the Series A deck due?", "expectFiles": ["shared/bench/vendor-list.csv", "shared/bench/meeting-2026-11-leadership.md"], "expectFacts": ["mailbird", "2026-12-10|december 10|10 december"] },
+    { "id": "en-14", "lang": "en", "kind": "answer", "q": "What was the NPS in the Q3 2026 customer feedback?", "expectFiles": ["shared/bench/customer-feedback-2026-q3.md"], "expectFacts": ["41"] },
+    { "id": "en-15", "lang": "en", "kind": "multi", "q": "When does the mobile app launch, and which feature moved to Q2 2027?", "expectFiles": ["shared/bench/meeting-2026-10-product.md", "shared/bench/roadmap-2027.md"], "expectFacts": ["2027-03-15|march 15|15 march|3월15일|3월 15일", "qr"] },
+
+    { "id": "ko-01", "lang": "ko", "kind": "find", "q": "2026년 가격표 파일이 어디 있어?", "expectFiles": ["shared/bench/price-list-2026.csv"], "expectFacts": ["price-list-2026"] },
+    { "id": "ko-02", "lang": "ko", "kind": "answer", "q": "Acme 공급 계약서의 납기 지연 배상 비율이 어떻게 돼?", "expectFiles": ["shared/bench/supply-contract-acme-hanbit.md"], "expectFacts": ["0.5%", "10%"] },
+    { "id": "ko-03", "lang": "ko", "kind": "answer", "q": "한빛 공급 계약의 계약 기간은 얼마야?", "expectFiles": ["shared/bench/supply-contract-acme-hanbit.md"], "expectFacts": ["24개월|24 months"] },
+    { "id": "ko-04", "lang": "ko", "kind": "answer", "q": "연차는 최대 며칠까지 늘어나?", "expectFiles": ["shared/bench/hr-leave-policy.md"], "expectFacts": ["25"] },
+    { "id": "ko-05", "lang": "ko", "kind": "answer", "q": "재택 장비 지원금이 얼마야?", "expectFiles": ["shared/bench/hr-remote-work.txt"], "expectFacts": ["300000|30만"] },
+    { "id": "ko-06", "lang": "ko", "kind": "answer", "q": "보안 규정에서 비밀번호는 며칠마다 바꿔야 해?", "expectFiles": ["shared/bench/security-policy.html"], "expectFacts": ["180"] },
+    { "id": "ko-07", "lang": "ko", "kind": "find", "q": "9월 장애 보고서는 어느 파일이야?", "expectFiles": ["shared/bench/incident-report-2026-09.md"], "expectFacts": ["incident-report-2026-09"] },
+    { "id": "ko-08", "lang": "ko", "kind": "answer", "q": "9월 장애는 원인이 뭐였고 얼마나 오래 갔어?", "expectFiles": ["shared/bench/incident-report-2026-09.md"], "expectFacts": ["인증서|certificate", "47"] },
+    { "id": "ko-09", "lang": "ko", "kind": "answer", "q": "고객지원 운영 시간이 어떻게 돼?", "expectFiles": ["shared/bench/support-faq.txt"], "expectFacts": ["09:00|9시|오전9", "18:00|6시|오후6"] },
+    { "id": "ko-10", "lang": "ko", "kind": "answer", "q": "3분기 서울 매출은 얼마야?", "expectFiles": ["shared/bench/sales-summary-2026-q3.html"], "expectFacts": ["356"] },
+    { "id": "ko-11", "lang": "ko", "kind": "answer", "q": "모바일 앱 출시일이 언제로 정해졌어?", "expectFiles": ["shared/bench/meeting-2026-10-product.md", "shared/bench/roadmap-2027.md"], "expectFacts": ["2027-03-15|2027년3월15일|march 15, 2027"] },
+    { "id": "ko-12", "lang": "ko", "kind": "answer", "q": "택시비는 얼마 넘으면 영수증이 필요해?", "expectFiles": ["shared/bench/expense-policy.md"], "expectFacts": ["30000|3만"] },
+    { "id": "ko-13", "lang": "ko", "kind": "multi", "q": "스타터 요금제는 2026년 대비 2027년에 월 얼마나 올랐어?", "expectFiles": ["shared/bench/price-list-2026.csv", "shared/bench/price-list-2027.csv"], "expectFacts": ["30000|3만"] },
+    { "id": "ko-14", "lang": "ko", "kind": "multi", "q": "신규 입사자는 보안 교육을 며칠 안에 마쳐야 하고, 기기를 분실하면 몇 시간 안에 신고해야 해?", "expectFiles": ["shared/bench/onboarding-checklist.md", "shared/bench/security-policy.html"], "expectFacts": ["7일|7 days", "2시간|2 hours"] },
+    { "id": "ko-15", "lang": "ko", "kind": "find", "q": "휴가 규정이 적힌 문서가 어디 있지?", "expectFiles": ["shared/bench/hr-leave-policy.md"], "expectFacts": ["hr-leave-policy"] }
+  ]
+}
