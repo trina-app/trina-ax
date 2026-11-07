@@ -11,20 +11,32 @@ let seq = 100
 export interface MockRoom {
   /** the bodies of POST /api/rooms/:id/messages, in order */
   sent: { body: string; mentions: string[]; threadRootId?: string | null }[]
+  /** the reactions put on or taken off (PUT …/reactions), in order */
+  reacted: { messageId: string; emoji: string; on: boolean }[]
 }
 
-export async function routeRoom(page: Page, o: { members: { id: string; name: string }[]; messages?: { id: string; author: { id: string; name: string }; body: string; mentions?: string[] }[] }): Promise<MockRoom> {
-  const state: MockRoom = { sent: [] }
+/** A message of the room; `threadRootId`: a reply in that message's thread (in the thread, not the timeline); `extra`:
+ * more contract fields as they are (reactions, a thread's summary, …). */
+export interface MockMessage { id: string; author: { id: string; name: string }; body: string; mentions?: string[]; threadRootId?: string; extra?: Record<string, unknown> }
+
+export async function routeRoom(page: Page, o: { members: { id: string; name: string }[]; messages?: MockMessage[] }): Promise<MockRoom> {
+  const state: MockRoom = { sent: [], reacted: [] }
+  // the reactions each message has now (mine only: olga is the only one reacting here)
+  const mine = new Map<string, string[]>()
   const members = [{ id: 'olga', name: 'Olga' }, ...o.members]
-  const message = (m: { id: string; author: { id: string; name: string } | null; body: string; mentions?: string[] }, n: number) => ({
+  const message = (m: { id: string; author: { id: string; name: string } | null; body: string; mentions?: string[]; threadRootId?: string; extra?: Record<string, unknown> }, n: number) => ({
     id: m.id, roomId: ROOM_ID, seq: n, authorKind: 'user', author: m.author, askedBy: null, visibility: 'room', body: m.body, replyTo: null,
     mentions: m.mentions ?? [], files: [], createdAt: at(n), editedAt: null, deletedAt: null,
+    ...(m.threadRootId ? { threadRootId: m.threadRootId } : {}), ...(m.extra ?? {}),
   })
-  const messages = (o.messages ?? []).map((m, i) => message(m, i + 1))
+  const all = (o.messages ?? []).map((m, i) => message(m, i + 1))
+  const messages = all.filter((m) => !('threadRootId' in m))
+  const replies = (root: string) => all.filter((m) => (m as { threadRootId?: string }).threadRootId === root)
+  const last = Math.max(0, ...messages.map((m) => m.seq))
   const room = {
     id: ROOM_ID, kind: 'group', name: '디자인 리뷰', canRename: true, managerId: 'olga', groupId: null, memberCount: members.length,
-    peers: o.members.slice(0, 4), lastSeq: messages.length, unreadCount: 0, threadsUnread: 0, nextThreadId: null, mentioned: false,
-    lastReadSeq: messages.length, lastMessage: null, muted: false, createdAt: at(-60), activityAt: at(messages.length),
+    peers: o.members.slice(0, 4), lastSeq: last, unreadCount: 0, threadsUnread: 0, nextThreadId: null, mentioned: false,
+    lastReadSeq: last, lastMessage: null, muted: false, createdAt: at(-60), activityAt: at(messages.length),
   }
   const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
   await page.route(/\/api\/rooms(\/|\?|$)/, async (route) => {
@@ -37,9 +49,18 @@ export async function routeRoom(page: Page, o: { members: { id: string; name: st
     if (method === 'GET' && path === `/api/rooms/${ROOM_ID}/members`) return route.fulfill(json({ items: members.map((user) => ({ user, joinedAt: at(-60) })) }))
     if (method === 'GET' && path === `/api/rooms/${ROOM_ID}/ai`) return route.fulfill(json({ answering: 0, mine: [] }))
     if (method === 'POST' && path === `/api/rooms/${ROOM_ID}/read`) return route.fulfill(json({ lastReadSeq: room.lastSeq, unreadCount: 0, mentioned: false }))
+    const react = /^\/api\/rooms\/[^/]+\/messages\/([^/]+)\/reactions$/.exec(path)
+    if (react && method === 'PUT') {
+      const b = req.postDataJSON() as { emoji: string; on: boolean }
+      state.reacted.push({ messageId: react[1]!, ...b })
+      const list = (mine.get(react[1]!) ?? []).filter((e) => e !== b.emoji)
+      if (b.on) list.push(b.emoji)
+      mine.set(react[1]!, list)
+      return route.fulfill(json({ reactions: list.map((emoji) => ({ emoji, count: 1, mine: true, users: [{ id: 'olga', name: 'Olga' }] })) }))
+    }
     const thread = /^\/api\/rooms\/[^/]+\/messages\/([^/]+)\/thread(\/read)?$/.exec(path)
     const root = thread && messages.find((m) => m.id === thread[1])
-    if (thread && root && method === 'GET' && !thread[2]) return route.fulfill(json({ root, items: [], nextCursor: null }))
+    if (thread && root && method === 'GET' && !thread[2]) return route.fulfill(json({ root, items: replies(root.id), nextCursor: null }))
     if (thread && root && method === 'POST' && thread[2]) return route.fulfill(json({ lastReadSeq: room.lastSeq, room }))
     if (method === 'POST' && path === `/api/rooms/${ROOM_ID}/messages`) {
       const b = req.postDataJSON() as MockRoom['sent'][number]
