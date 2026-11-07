@@ -60,7 +60,8 @@ export function SetupRow({ onNavigate }: { onNavigate?: () => void }) {
   }
   const words = setupRowWords(t, progress, aiReady, computer)
   return (
-    <div className="group/setup mb-3 flex items-center gap-0.5 pr-1" data-testid="setup-row" data-state={state}>
+    // as far from 트리나 기록's title as 대화's list is from it (20px each side), so it reads as its own row, not the title's
+    <div className="group/setup mb-5 flex items-center gap-0.5 pr-1" data-testid="setup-row" data-state={state}>
       {state === 'ai' ? (
         <ConnectAiButton row={row} panel data-testid="setup-row-ai">
           <Sparkles size={16} className="shrink-0 text-accent-text" aria-hidden />

@@ -73,9 +73,10 @@ export const inputCls =
 
 /** The title of a sidebar section (대화, 트리나 기록), which folds its list. A step under the rows (12px, 13px on phones;
  * rows are 14 / 15px) but heavier and darker than them and than "더 보기" under a list (the owner, 2026-11-07: the quiet
- * grey titles ran the two lists together); a date heading inside a list stays a step lower (text-micro, faint). The
- * chevron stays quiet; hover fills the button as the "+" beside it, and its text stays in line with the rows (the negative
- * margin takes back the fill's padding). */
+ * grey titles ran the two lists together); a date heading inside a list stays lower (text-micro, 500, faint: smaller on
+ * computers, the same 13px on phones, where weight and colour set it apart). The chevron stays quiet; hover fills the
+ * button as the buttons beside it ("+", the filter), and its text stays in line with the rows (the negative margin takes
+ * back the fill's padding). */
 export function SidebarSectionTitle({ open, onToggle, controls, children, testId }: { open: boolean; onToggle: () => void; controls: string; children: ReactNode; testId: string }) {
   return (
     <h2 className="text-xs font-semibold text-ink">
