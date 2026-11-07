@@ -10,7 +10,7 @@ import { remoteOAuthOf } from '../../server/src/connectors/remote-mcp/oauth'
 import { RemoteTools } from '../../server/src/connectors/remote-mcp/tools'
 import { challenge } from '../../server/src/connectors/remote-mcp/policy'
 import { connectorInstructions, GUIDE_GROUPS } from '../../server/src/connectors/remote-mcp/guide'
-import { looksLikeSkillFile, SKILL_FILE_NOTE, skillWriteRefusal } from '../../server/src/connectors/remote-mcp/upload'
+import { looksLikeSkillFile, SKILL_FILE_NOTE, SKILL_LINK_NOTE, skillWriteRefusal } from '../../server/src/connectors/remote-mcp/upload'
 import { LINK_LIMITS, linkUpload } from '../../server/src/connectors/remote-mcp/upload-link'
 import { hash } from '../../server/src/connectors/remote-mcp/policy'
 import { mcpRequest } from '../../server/src/connectors/remote-mcp/transport'
@@ -65,7 +65,9 @@ test('initialize carries the folder guide: shared, groups, the own folder, skill
   expect(text).toContain('"shared" or a group\'s name means that area, not its top')
   expect(text).toContain('pick the best existing subfolder, or make one named like the others (language, case, pattern)')
   expect(text).toContain('never leave files loose at the top of shared/, a group\'s folder or the team root unless the person asks for exactly that spot')
-  expect(text).toContain('Do not upload a file the team drive already has')
+  // glob and list, not grep: a grep's matches join the read scope and would block a save to a wider folder
+  expect(text).toContain('Do not upload a file the team drive already has (look for its name with glob or list first')
+  expect(text).not.toContain('search first')
   expect(text).toContain('say in one line where each file went and why')
   expect(text).toContain('Never upload secrets: resident registration numbers, certificates, passwords')
   // the older lines stay
@@ -135,12 +137,13 @@ test('a SKILL.md or skill-looking file outside the real roots is saved with the 
     expect(out, p).toMatchObject({ path: clean(p), conflictCopy: false, replaced: false, notice: SKILL_FILE_NOTE })
     expect(fs.readFileSync(f.abs(clean(p)), 'utf8'), p).toBe('synthetic')
   }
-  // create_upload_link: the link's answer carries the note; its PUT saves the file and answers as before
+  // create_upload_link: the link's answer carries the note (the bytes come later: "will be saved"); its PUT saves the
+  // file and answers as before
   for (const p of lookAlikes(f.me, 'l')) {
     const r = await f.tools.call(f.token, 'create_upload_link', { path: p })
     expect([p, r.isError]).toEqual([p, undefined])
     const link = JSON.parse(text(r))
-    expect(link.notice, p).toBe(SKILL_FILE_NOTE)
+    expect(link.notice, p).toBe(SKILL_LINK_NOTE)
     const res = await f.send(link.url, 'synthetic bytes')
     expect([p, res.status]).toEqual([p, 200])
     expect(await res.json(), p).toEqual({ path: clean(p), size: 15, conflictCopy: false, replaced: false })
@@ -166,9 +169,11 @@ test('the real skill roots stay refused on write, edit, upload_file, create_uplo
   const f = await setup('refuse')
   const real = ['skills/a.md', 'Skills/b/SKILL.md', 'SKILLS/c/x.txt', './skills/d.md', 'skills//e.md', 'skills/', 'skills/f/SKILL.md/',
     'groups/recruiting/skills/test.md', 'Groups/Recruiting/SKILLS/x.md', 'groups/recruiting/Skills/y/SKILL.md',
-    `users/${f.me}/skills/a/SKILL.md`, `Users/${f.me}/Skills/x.md`, `./users/${f.me}/skills/c.md`, 'skills\\g.md']
+    `users/${f.me}/skills/a/SKILL.md`, `Users/${f.me}/Skills/x.md`, `./users/${f.me}/skills/c.md`, 'skills\\g.md',
+    // look-alikes a macOS disk folds into the real folder (long s, Kelvin sign): refused as roots on every disk
+    '\u017fkills/x/SKILL.md', 's\u212aills/k.md', 'groups/recruiting/\u017fkills/a.md', `users/${f.me}/\u017fkills/a/SKILL.md`]
   for (const p of real) {
-    for (const [tool, args] of [['write', { file_path: p, content: 'x' }], ['upload_file', { path: p, content_base64: b64 }], ['create_upload_link', { path: p }]] as const) {
+    for (const [tool, args] of [['write', { file_path: p, content: 'x' }], ['edit', { file_path: p, old_string: 'a', new_string: 'b' }], ['upload_file', { path: p, content_base64: b64 }], ['create_upload_link', { path: p }]] as const) {
       const r = await f.tools.call(f.token, tool, args)
       expect([tool, p, r.isError]).toEqual([tool, p, true])
       expect(text(r), `${tool} ${p}`).toContain('Skill changes require confirmation inside the team app.')
@@ -201,13 +206,37 @@ test('the real skill roots stay refused on write, edit, upload_file, create_uplo
 })
 
 test('which paths are refused, which get the note, which are ordinary', () => {
-  const refused = ['skills', 'skills/a.md', 'Skills/x/SKILL.md', './skills/b.md', 'groups/g/skills/x.md', 'Groups/G/SKILLS/y', 'users/u1/skills/a/SKILL.md', 'USERS/u1/Skills/x', 'users\\u1\\skills\\x', 'skills/../shared/SKILL.md']
+  const refused = ['skills', 'skills/a.md', 'Skills/x/SKILL.md', './skills/b.md', 'groups/g/skills/x.md', 'Groups/G/SKILLS/y', 'users/u1/skills/a/SKILL.md', 'USERS/u1/Skills/x', 'users\\u1\\skills\\x', 'skills/../shared/SKILL.md',
+    '\u017fkills/x/SKILL.md', 'S\u212aILLS/a.md', 'groups/g/\u017fkills/x.md', 'users/u1/\u017fkills/x']
   for (const p of refused) { expect(skillWriteRefusal(p), p).toContain('Skill changes require confirmation'); expect(looksLikeSkillFile(p), p).toBe(false) }
   const noted = ['shared/SKILL.md', 'shared/a/skill.md', 'shared/a/Skill.Md', 'users/u1/backup/s/SKILL.md', 'groups/g/drafts/skills/x/SKILL.md', 'shared/p/.claude/skills/a/x.txt', 'shared/p/.CLAUDE/skills/a.png', 'shared/p/.codex/skills/x', 'shared/p/.agents/Skills/b/c.md', 'shared/Skills/q/readme.md', 'groups/g/x/skills/q/notes.MD', 'shared/a/SKILL.md/']
   for (const p of noted) { expect(skillWriteRefusal(p), p).toBeNull(); expect(looksLikeSkillFile(p), p).toBe(true) }
   // no engine reads these from a team folder (docs/DECISIONS.md): ordinary files, no note
   const ordinary = ['shared/a.md', 'shared/skillset.md', 'shared/SKILL.md.txt', 'shared/my-skills/a.md', 'shared/skills.md', 'shared/HR/Skills/matrix.pdf', 'shared/training/skills/x.pdf', 'users/u1/docs/skills/notes.md', 'shared/skills/a.md', 'shared/p/CLAUDE.md', 'shared/p/AGENTS.md', 'shared/p/.claude/settings.json', 'shared/p/.claude/commands/x.md', 'groups/skills/x']
   for (const p of ordinary) { expect(skillWriteRefusal(p), p).toBeNull(); expect(looksLikeSkillFile(p), p).toBe(false) }
+})
+
+test('glob and list leave the read scope as it was, so a save to shared/ after them works; a grep\'s matches narrow it', async () => {
+  const f = await setup('find')
+  f.put(`users/${f.me}/docs/quote.md`, 'synthetic quote')
+  fs.mkdirSync(f.abs('shared/Sales'), { recursive: true })
+  expect(text(await f.tools.call(f.token, 'glob', { pattern: '**/quote.md' }))).toContain(`users/${f.me}/docs/quote.md`)
+  expect(text(await f.tools.call(f.token, 'list', { path: `users/${f.me}/docs` }))).toContain('quote.md')
+  expect((await f.tools.call(f.token, 'upload_file', { path: 'shared/Sales/acme.pdf', content_base64: b64 })).isError).toBeUndefined()
+  // why the guide says glob or list: after a grep that matched the private file, shared/ is refused
+  expect(text(await f.tools.call(f.token, 'grep', { pattern: 'synthetic quote' }))).toContain('quote.md')
+  const after = await f.tools.call(f.token, 'upload_file', { path: 'shared/Sales/acme-2.pdf', content_base64: b64 })
+  expect(after.isError).toBe(true); expect(text(after)).toContain('more people')
+})
+
+test('write and edit of a folder path are refused with the check every write path shares', async () => {
+  const f = await setup('folder')
+  fs.mkdirSync(f.abs('shared/Sales'), { recursive: true })
+  for (const [tool, args] of [['write', { file_path: 'shared/Sales', content: 'x' }], ['edit', { file_path: 'shared/Sales/', old_string: 'a', new_string: 'b' }], ['upload_file', { path: 'shared/Sales', content_base64: b64 }]] as const) {
+    const r = await f.tools.call(f.token, tool, args)
+    expect([tool, r.isError, text(r)]).toEqual([tool, true, "'shared/Sales' is a folder."])
+  }
+  expect(fs.statSync(f.abs('shared/Sales')).isDirectory()).toBe(true)
 })
 
 test('ordinary files are still written, also next to look-alike names', async () => {

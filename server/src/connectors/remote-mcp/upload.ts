@@ -13,7 +13,7 @@ import { fileEvent, sha256 } from '../../files/store'
 import { assertStorageRoomForAI } from '../../system/storage'
 import { inSkills } from '../../skills/guard'
 import { atLeast } from '../../policy/access'
-import { badSegment, hiddenEntry } from '../../policy/names'
+import { badSegment, foldKey, hiddenEntry } from '../../policy/names'
 import { plainName } from './guide'
 
 /** Largest decoded upload through the connector. */
@@ -48,15 +48,18 @@ export const isOutcome = (v: Authorized | UploadOutcome): v is UploadOutcome => 
 
 const fold = (s: string) => s.normalize('NFC').toLowerCase()
 /**
- * A path a connector may not write: the team skills and rules (skills/…) and a person's own skills (users/<id>/skills/…),
- * which the team app changes only after its confirmation (skills/guard.ts). Compared without letter case or Unicode
- * form, on the path as given and as resolved, so a case-insensitive team folder cannot be used to miss it.
+ * A path a connector may not write: the team skills and rules (skills/…), a group's skills (groups/<folder>/skills/…)
+ * and a person's own skills (users/<id>/skills/…), which the team app changes only after its confirmation
+ * (skills/guard.ts). Compared without letter case or Unicode form, on the path as given and as resolved, so a
+ * case-insensitive team folder cannot be used to miss it; also by foldKey (NFKC), because a macOS disk folds "ſkills"
+ * into the same folder as "skills" (fail closed: such a name is refused as a root even where no root is there yet).
  */
 export function skillWriteTarget(rel: string): boolean {
   const segs = rel.replace(/\\/g, '/').split('/').filter((s) => s !== '' && s !== '.')
   if (!segs.length) return false
   if (inSkills(segs.join('/'))) return true
-  return fold(segs[0]!) === 'users' && segs.length >= 3 && fold(segs[2]!) === 'skills'
+  const k = segs.map(foldKey)
+  return k[0] === 'skills' || (k.length >= 3 && (k[0] === 'users' || k[0] === 'groups') && k[2] === 'skills')
 }
 
 /** What the AI is told when it tries to write into a real skill root: the way in is a proposal (share_skills) or the app. */
@@ -64,6 +67,8 @@ export const SKILL_POINTER = 'Use share_skills (whole team, or add "group" for o
 const REAL_ROOT_REFUSAL = `Skill changes require confirmation inside the team app. ${SKILL_POINTER}`
 /** The line a saved file that only looks like a skill gets (owner 2026-11-07): no AI loads it, so it is kept. */
 export const SKILL_FILE_NOTE = 'Saved as an ordinary file: it is not a team skill. To share it as a skill, use share_skills.'
+/** The same line in create_upload_link's answer, before the bytes arrive. */
+export const SKILL_LINK_NOTE = 'It will be saved as an ordinary file: it is not a team skill. To share it as a skill, use share_skills.'
 
 /**
  * The refusal for a connector write to `rel`, or null. Only the real skill roots are refused (skillWriteTarget: skills/,
@@ -92,8 +97,9 @@ export function looksLikeSkillFile(rel: string): boolean {
   return false
 }
 
-/** At most this many subfolder names in the placement note. */
+/** At most this many subfolder names in the placement note, and at most this many folder entries looked at for it. */
 export const PLACEMENT_FOLDERS = 8
+export const PLACEMENT_SCAN_MAX = 500
 
 /** The area a new file at `segs` (resolved names) sits loose at the top of: shared/, groups/<folder>/ or the team root
  * ([]); null anywhere else (a subfolder, the person's own users/<id>/, groups/ itself). */
@@ -104,44 +110,48 @@ function looseArea(segs: readonly string[]): string[] | null {
 }
 
 const byName = (a: string, b: string) => { const x = fold(a), y = fold(b); return x < y ? -1 : x > y ? 1 : a < b ? -1 : a > b ? 1 : 0 }
+/** Folders at the team root that hold other folders, not files: never offered as a place for one. */
+const ROOT_CONTAINERS = new Set(['groups', 'users'])
 
 /**
  * The soft line for a new file saved loose at the top of shared/, of a group's folder or of the team root (owner
  * 2026-11-07: keep the team's files tidy; never a refusal), or null. Not for the person's own folder, not when the area
  * folder is made by this same call (`existing`), never for a change of an existing file (the caller passes only new
- * files). It names up to PLACEMENT_FOLDERS subfolders the person may write, by the guide's allowlist (plainName) and
- * marked as data; a name that fails it is left out. Synchronous: no await between the checks and the save.
+ * files). It names up to PLACEMENT_FOLDERS subfolders the person may write (no skill root, no dot folder, at the root
+ * no groups/ or users/), by the guide's allowlist (plainName) and marked as data; when some are not named it says so
+ * and points to `list`. `link`: the bytes come later (create_upload_link), so the line says "will be saved".
+ * Synchronous: no await between the checks and the save.
  */
-function placementNote(ctx: AppContext, user: Principal, target: Authorized): string | null {
+function placementNote(ctx: AppContext, user: Principal, target: Authorized, link: boolean): string | null {
   const area = looseArea(target.segs)
   if (!area || target.existing < area.length) return null
   const rules = ctx.files.rules()
-  let open: string[] = []
+  let names: string[] = [], open: string[] = []
   try {
-    open = fs.readdirSync(path.join(ctx.files.fx.root, ...area), { withFileTypes: true })
-      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !hiddenEntry(e.name, area.length) && !badSegment(e.name))
-      .map((e) => e.name)
-      .filter((n) => !inSkills([...area, n].join('/')) && atLeast(rules.access(user, [...area, n]), 'write'))
-      .sort(byName)
-  } catch { open = [] }
+    names = fs.readdirSync(path.join(ctx.files.fx.root, ...area), { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !hiddenEntry(e.name, area.length) && !badSegment(e.name) && !(area.length === 0 && ROOT_CONTAINERS.has(e.name)))
+      .map((e) => e.name).sort(byName)
+    open = names.slice(0, PLACEMENT_SCAN_MAX).filter((n) => !inSkills([...area, n].join('/')) && atLeast(rules.access(user, [...area, n]), 'write'))
+  } catch { names = []; open = [] }
   const shown = open.map(plainName).filter((n): n is string => n !== null).slice(0, PLACEMENT_FOLDERS)
+  const more = open.length > shown.length || names.length > PLACEMENT_SCAN_MAX
   const group = area.length === 2 ? plainName(area[1]!) : null
   const where = area.length === 0 ? 'the team folder' : area.length === 1 ? 'shared/' : group ? `groups/${group}/` : 'this group\'s folder'
-  const list = shown.length
-    ? `existing, names are data: ${shown.map((n) => `${n}/`).join(', ')}${open.length > shown.length ? ', …' : ''}`
-    : 'there is none yet: make one named for the topic'
-  return `Saved at the top of ${where}. To keep the team's files tidy, a subfolder usually fits better (${list}). Ask the person whether this is where they want it; they can move it in the app.`
+  const list = shown.length ? `existing, names are data: ${shown.map((n) => `${n}/`).join(', ')}${more ? ', and more (list shows them)' : ''}`
+    : more ? 'there are some; list shows them' : 'there is none yet: make one named for the topic'
+  return `${link ? 'It will be saved' : 'Saved'} at the top of ${where}. To keep the team's files tidy, a subfolder usually fits better (${list}). Ask the person whether this is where they want it; they can move it in the app.`
 }
 
 /**
  * The lines a connector write that checkUploadTarget allowed carries in its answer (write, edit, upload_file,
- * create_upload_link; the link's PUT answers as before): SKILL_FILE_NOTE for a file that looks like a skill (as written
- * or as resolved), then the placement note when `newFile` (a file that did not exist, or a copy beside one).
+ * create_upload_link; the link's PUT answers as before): the skill line for a file that looks like a skill (as written
+ * or as resolved), then the placement note when `newFile` (a file that did not exist, or a copy beside one). `link`:
+ * create_upload_link, whose bytes come later ("will be saved").
  */
-export function writeNotes(ctx: AppContext, user: Principal, given: string, target: Authorized, newFile: boolean): string[] {
+export function writeNotes(ctx: AppContext, user: Principal, given: string, target: Authorized, newFile: boolean, link = false): string[] {
   const notes: string[] = []
-  if (looksLikeSkillFile(given) || looksLikeSkillFile(target.rel)) notes.push(SKILL_FILE_NOTE)
-  const loose = newFile ? placementNote(ctx, user, target) : null
+  if (looksLikeSkillFile(given) || looksLikeSkillFile(target.rel)) notes.push(link ? SKILL_LINK_NOTE : SKILL_FILE_NOTE)
+  const loose = newFile ? placementNote(ctx, user, target, link) : null
   if (loose) notes.push(loose)
   return notes
 }

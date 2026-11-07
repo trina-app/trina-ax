@@ -65,7 +65,7 @@ export function createUploadLink(ctx: AppContext, oauth: RemoteOAuth, grant: Gra
     rel = target.rel
     // the link's answer carries the notes (a file that looks like a skill, a new file loose at the top of an area); the
     // PUT answers with the saved path only, as before
-    notes = writeNotes(ctx, user, filePath, target, !target.exists || !overwrite)
+    notes = writeNotes(ctx, user, filePath, target, !target.exists || !overwrite, true)
   } catch (e) {
     return uploadFailure(ctx, user, rel, e, 'create_upload_link')
   }

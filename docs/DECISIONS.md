@@ -12540,7 +12540,10 @@ loads, and the connected AI dropped files loose at the top of `shared/`.
 
 - **Two outcomes, not one.** The real skill roots (`skills/`, any `groups/<folder>/skills/`, `users/<id>/skills/`, any
   letter case, as written and as resolved) stay refused: the team's AI loads them, and a write there would skip
-  `share_skills`' secret checks and the confirmation in the app. Outside them, what #147 refused (a file named
+  `share_skills`' secret checks and the confirmation in the app. The connector now also compares the root names by
+  `foldKey` (NFKC): a macOS disk folds `ſkills` (long s) and `sKills` (Kelvin sign) into the same folder as `skills`.
+  The loader never resolved such a name (its walk keeps them apart), but #147 refused `ſkills/x/SKILL.md` by its file
+  name, so the root check takes over (fail closed, also where no root exists yet). Outside them, what #147 refused (a file named
   `SKILL.md`, anything under `.claude/skills`, `.codex/skills` or `.agents/skills`, a `.md` at `skills/<name>/<file>.md`)
   is now saved, and the answer gets one line: "Saved as an ordinary file: it is not a team skill. To share it as a skill,
   use share_skills." An existing `SKILL.md` in an ordinary folder can be edited again. `CLAUDE.md` and `AGENTS.md` stay
@@ -12560,16 +12563,21 @@ loads, and the connected AI dropped files loose at the top of `shared/`.
 - **One rule on every path.** `write`, `edit`, `upload_file`, `create_upload_link` and the link's PUT use one check
   (`checkUploadTarget`), so a path gets the same answer on all five; the PUT no longer refuses what the link allowed.
   The line goes in the answer: the text of `write`/`edit` after a blank line, `notice` in the JSON of `upload_file` and
-  `create_upload_link`. The PUT answers as before (curl prints it, and the link's answer already had the line).
+  `create_upload_link` (there "It will be saved …": the bytes come later and the PUT can still refuse). The PUT answers
+  as before (curl prints it, and the link's answer already had the line). One difference stays from before: other
+  refusals read "Tool unavailable or access denied." on `write`/`edit` and "Access denied: …" on the upload paths.
 - **Placement (owner: "기본적으로 올릴 만한 좋은 위치 보고 올려야지", keep the file system tidy, warn on odd places).** The
   guide gains three sentences: "shared" or a group's name means the area, not its top; list it and pick or make a
   fitting subfolder named like the others; nothing loose at the top of `shared/`, a group's folder or the team root unless
   the person asks for that spot; no second copy of a file the drive has (the connector cannot move or link, so it points
-  to it); say where each file went in one line. A new file that `write`, `upload_file` or `create_upload_link` saves at
+  to it; it looks with `glob` or `list`, not `grep`, whose matches join the read scope and would block a later save to a
+  wider folder); say where each file went in one line. A new file that `write`, `upload_file` or `create_upload_link` saves at
   the top of one of those three gets one line, never a refusal: "Saved at the top of shared/. To keep the team's files
-  tidy, a subfolder usually fits better (existing, names are data: HR/, Sales/, …). Ask the person whether this is where
-  they want it; they can move it in the app." It names at most 8 subfolders the person may write (no skill root, no
-  `users/`, no dot folder), each through the guide's name allowlist, and "…" when there are more. Not for the person's
+  tidy, a subfolder usually fits better (existing, names are data: HR/, Sales/). Ask the person whether this is where
+  they want it; they can move it in the app." It names at most 8 subfolders the person may write (no skill root, no dot
+  folder, at the root no `groups/` or `users/`), each through the guide's name allowlist, and says "and more (list shows
+  them)" when some are not named; when none passes the allowlist it says there are some, never "none yet" (that would
+  make the AI add a second folder). At most 500 folder entries are looked at. Not for the person's
   own folder, a subfolder, a change of an existing file (`edit`, an overwrite; a copy beside an existing file is new) or
   an area folder the same call makes. With a skill-looking file both lines come, the skill line first. The lines never
   go into the audit row.
