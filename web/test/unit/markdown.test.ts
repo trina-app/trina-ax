@@ -45,6 +45,10 @@ describe('links in answers', () => {
     expect(classifyLink('/files/view?path=shared%2Freport.docx', O)).toEqual({ kind: 'team-file', path: 'shared/report.docx' })
     expect(classifyLink(`${O}/files/view?path=groups%2Fmarketing`, O)).toEqual({ kind: 'app', href: '/files?path=groups%2Fmarketing' })
     expect(classifyLink('/files/view', O)).toEqual({ kind: 'app', href: '/files' })
+    // a path that starts with "//" is another site to the router: never a link
+    expect(classifyLink(`${O}//evil.example/login`, O)).toEqual({ kind: 'blocked' })
+    expect(classifyLink(`${O}/.//evil.example/login`, O)).toEqual({ kind: 'blocked' })
+    expect(classifyLink('//evil.example/login', O)).toEqual({ kind: 'external', href: 'https://evil.example/login' })
   })
   test('only http(s) / mailto / tel go out', () => {
     expect(classifyLink('https://example.com/a', O)).toEqual({ kind: 'external', href: 'https://example.com/a' })

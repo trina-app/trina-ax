@@ -38,6 +38,8 @@ import { RoomAlertSettings, RoomNotifyLevel } from './room-alerts'
 export const ROOM_MESSAGE_MAX = 10_000
 export const ROOM_FILES_MAX = 10
 export const ROOM_MENTIONS_MAX = 50
+/** a quote's excerpt (RoomQuote.excerpt) is the message cut to this many characters, the last one "…" */
+export const ROOM_QUOTE_EXCERPT_MAX = 200
 /** an AI answer in a room is cut here (the rest is said to be cut) */
 export const ROOM_AI_ANSWER_MAX = 60_000
 

@@ -3414,6 +3414,8 @@ export const ko = {
   "rooms.reactRemove": "{emoji} 반응 빼기",
   "rooms.messageMenu": "메시지 메뉴",
   "rooms.copied": "복사했어요",
+  "rooms.linkHttpCopied": "앱에서는 https 주소만 열 수 있어서 이 주소를 복사했어요. 브라우저에 붙여 넣어 여세요.",
+  "rooms.linkHttpApp": "앱에서는 https 주소만 열 수 있어요. 이 주소는 브라우저에서 여세요.",
   "rooms.deleteTitle": "메시지를 삭제할까요?",
   "rooms.deleteBody": "대화방의 모두에게서 이 메시지와 파일이 지워져요. 되돌릴 수 없어요.",
   "rooms.editLabel": "메시지 수정",
