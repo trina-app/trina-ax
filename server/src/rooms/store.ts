@@ -94,6 +94,13 @@ function refsOf(db: Database, ids: Iterable<string | null>): Map<string, UserRef
 }
 
 const excerpt = (s: string, max: number) => (s.length > max ? s.slice(0, max - 1) + '…' : s)
+/** A long message for the AI: its start and its end, the middle said to be left out (a request at the end of a long
+ * paste, "…위 내용으로 견적서 만들어줘", stays in). `head`: the start's share of `max`. */
+export function clipMiddle(s: string, max: number, head = 0.7): string {
+  if (s.length <= max) return s
+  const a = Math.round(max * head), b = max - a
+  return `${s.slice(0, a)}\n… [${s.length - max} of ${s.length} characters left out here] …\n${s.slice(s.length - b)}`
+}
 const parseMentions = (s: string): string[] => { try { const v = JSON.parse(s); return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [] } catch { return [] } }
 
 /** An event line's stored JSON, or null when it is none (or not one this build knows). */

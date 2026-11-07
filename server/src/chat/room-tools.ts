@@ -16,7 +16,7 @@
 //     must not learn who talks to whom
 import fs from 'node:fs'
 import path from 'node:path'
-import { FILE_STEP_VERB, RoomFileHereInput, RoomFileInput, RoomReadInput, RoomsInput, SaveRoomFileInput } from '@mycel/shared'
+import { FILE_STEP_VERB, isUuid7, RoomFileHereInput, RoomFileInput, RoomReadInput, RoomsInput, SaveRoomFileInput } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
 import type { McpContent } from '../turns'
 import type { TurnFiles } from '../files/service'
@@ -28,6 +28,7 @@ import { readMaxBytes } from '../system/limits'
 import { roomFilesOf } from '../rooms/files'
 import { roomsOf } from '../rooms/service'
 import { findRoomFile, listRooms, localTime, readRoom, roomKindLine, searchRooms, type ReadResult } from '../rooms/reader'
+import type { FileRow, MessageRow } from '../rooms/store'
 import { addSources, type ReadSource } from './read-scope'
 import { neutralizeTags } from './prompt'
 import type { Tool } from './tools'
@@ -248,6 +249,15 @@ export function roomSessionFileTools(exec: TurnExec): Tool[] {
     },
     {
       name: 'save_room_file', description: ROOM_SESSION_TOOL_DESCRIPTIONS.save_room_file, inputSchema: schema(SaveRoomFileInput), label: fileLabel('save_room_file'),
+      // refused before the room's card: not a file id, a file the person cannot see, or a place a room file never goes
+      refuse(args) {
+        const a = SaveRoomFileInput.safeParse(args)
+        if (!a.success) return null
+        const no = saveRefusal(exec, roomId, a.data)
+        if (!no) return null
+        label('save_room_file')
+        return { text: no.text, summary: no.summary }
+      },
       async call(args, files) {
         const a = SaveRoomFileInput.safeParse(args)
         if (!a.success) { label('save_room_file'); return text(zodText(a.error), true) }
@@ -264,32 +274,51 @@ export function roomSessionFileTools(exec: TurnExec): Tool[] {
 /** save_room_file: the room file as room_file finds it (this room, a message the person sees, not deleted, not held by
  * the safety check), its bytes copied to a work file and placed like save_url's downloads (placeProduced: the
  * person's write access checked again, a conflict copy next to a file not read in this turn, never under skills/). */
-async function saveRoomFile(exec: TurnExec, files: TurnFiles, roomId: string, a: { file: string; save_as?: string }, named: (name: string) => void): Promise<{ content: McpContent[]; isError?: boolean; summary: string }> {
+/** Why save_room_file will not run, whatever the person says (checked before the card and again in the call), or null;
+ * else the file and where it goes. */
+function saveTarget(exec: TurnExec, roomId: string, a: { file: string; save_as?: string }): { text: string; summary: string } | { file: FileRow; message: MessageRow; target: string } {
   const { rt, spec } = exec
-  const found = findRoomFile(rt.db, spec.userId, roomId, a.file, rt.timeZone)
-  if ('text' in found) return { ...text(found.text, true), summary: 'save_room_file -> not found' }
+  // by its id only: the card names the file, and the yes is for that one file (two files may share a name, and one
+  // posted while the card waits must not be the one copied)
+  if (!isUuid7(a.file.trim())) return { text: 'Give the file\'s file_id (from the <attachments> list or after a message in <room_context>), not its name: two files in a room may share a name.', summary: 'save_room_file -> refused: not a file id' }
+  const found = findRoomFile(rt.db, spec.userId, roomId, a.file.trim(), rt.timeZone)
+  if ('text' in found) return { text: found.text, summary: 'save_room_file -> not found' }
   const { file, message } = found
-  named(file.name)
-  if (rt.files.quarantine.hasHash(file.sha256)) return { ...text('This file is held by the team\'s safety check, so it cannot be saved.', true), summary: 'save_room_file -> held' }
+  if (rt.files.quarantine.hasHash(file.sha256)) return { text: 'This file is held by the team\'s safety check, so it cannot be saved.', summary: 'save_room_file -> held' }
   const wanted = (a.save_as ?? '').trim().replace(/^\/+/, '').normalize('NFC')
   const folder = !wanted ? `users/${spec.userId}/downloads` : wanted.endsWith('/') ? wanted.replace(/\/+$/, '') : null
   const target = folder === null ? wanted : `${folder}/${file.name}`
-  if (inSkills(target)) return { ...text('Files from a room cannot be saved under skills/ (team skills and rules); pick another folder.', true), summary: 'save_room_file -> refused: skills/' }
+  if (inSkills(target)) return { text: 'Files from a room cannot be saved under skills/ (team skills and rules); pick another folder.', summary: 'save_room_file -> refused: skills/' }
   // a skill, team rule or instruction file changes from a room only with all of its content on the card, which a copied
   // file's is not (the same rule as save_url and copy_files there)
-  if (instructionLike(target)) return { ...text(`Not saved: '${target}' is named like an instruction file the AI follows (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md), and a file from a room is not put there. Pick another name.`, true), summary: 'save_room_file -> refused: instruction file' }
+  if (instructionLike(target)) return { text: `Not saved: '${target}' is named like an instruction file the AI follows (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md), and a file from a room is not put there. Pick another name.`, summary: 'save_room_file -> refused: instruction file' }
+  return { file, message, target }
+}
+const saveRefusal = (exec: TurnExec, roomId: string, a: { file: string; save_as?: string }) => { const t = saveTarget(exec, roomId, a); return 'text' in t ? t : null }
+
+async function saveRoomFile(exec: TurnExec, files: TurnFiles, roomId: string, a: { file: string; save_as?: string }, named: (name: string) => void): Promise<{ content: McpContent[]; isError?: boolean; summary: string }> {
+  const { rt, spec } = exec
+  const checked = saveTarget(exec, roomId, a)
+  if ('text' in checked) return { ...text(checked.text, true), summary: checked.summary }
+  const { file, message, target } = checked
+  named(file.name)
   // the room is where the bytes come from: saving where people outside it can read asks (the wider-audience card)
   addSources(rt.db, spec.chatId, [{ type: 'room', id: roomId, fromSeq: message.thread_root_seq ?? message.seq }])
-  let abs: string
-  try { abs = roomFilesOf(rt.ctx).open(spec.userId, roomId, file.id, false).abs } catch { return { ...text('That file is no longer in this room.', true), summary: 'save_room_file -> not found' } }
+  try { roomFilesOf(rt.ctx).open(spec.userId, roomId, file.id, false) } catch { return { ...text('That file is no longer in this room.', true), summary: 'save_room_file -> not found' } }
   const refusal = await exec.confirmWidening(target)
   if (refusal) return { ...text(refusal, true), summary: 'save_room_file -> not allowed by the user (wider audience)' }
+  // the card may have waited minutes: the asker still in the room, the message still there and seen, the bytes as read
+  exec.abort.signal.throwIfAborted()
+  let abs: string
+  try { abs = roomFilesOf(rt.ctx).open(spec.userId, roomId, file.id, false).abs } catch { return { ...text('That file is no longer in this room.', true), summary: 'save_room_file -> not found' } }
   const workRoot = path.join(rt.ctx.engineConfig.dataDir, 'work')
   fs.mkdirSync(workRoot, { recursive: true, mode: 0o700 })
   const work = fs.mkdtempSync(path.join(workRoot, 'room-file-'))
   try {
     const tmp = path.join(work, 'file')
-    fs.writeFileSync(tmp, readRegular(abs, 1024 * 1024 * 1024).bytes, { mode: 0o600 })
+    const bytes = readRegular(abs, 1024 * 1024 * 1024).bytes
+    rt.files.quarantine.assertBytes(bytes)
+    fs.writeFileSync(tmp, bytes, { mode: 0o600 })
     const c: ToolCtx = { user: exec.livePrincipal(), turnId: spec.turnId, files, signal: exec.abort.signal, confirmWidening: (t, s, b) => exec.confirmWidening(t, s, b) }
     const made = await placeProduced(rt.ctx, componentC(rt.ctx).files, c, target.split('/').filter(Boolean), tmp, 'save_room_file', undefined, { turnBytes: false, detail: { type: file.mime } })
     const note = made.conflictCopyOf ? ` ${made.conflictCopyOf} already existed and was not read in this turn, so this was saved as a copy next to it; the original is unchanged.` : ''

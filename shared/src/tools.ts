@@ -242,7 +242,7 @@ export const RoomFileHereInput = z.strictObject({
 })
 /** save_room_file: a copy of a file sent in this room put into the team folder (a room's own AI session) */
 export const SaveRoomFileInput = z.strictObject({
-  file: z.string().min(1).max(300).describe('The file\'s id (file_id=…) or its exact name.'),
+  file: z.string().min(1).max(300).describe('The file\'s id (file_id=… in the <attachments> list or after a message in <room_context>); a name is not taken, as two files may share one.'),
   save_as: z.string().max(300).optional().describe('Team path to save to, e.g. "shared/photos/receipt.jpg"; a path ending in "/" keeps the file\'s own name ("shared/"). Default: users/<you>/downloads/.'),
 })
 

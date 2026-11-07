@@ -21,7 +21,7 @@ import type { Database } from 'bun:sqlite'
 import { isUuid7, ROOM_REF_RE, type Room, type RoomKind, type RoomMessage } from '@mycel/shared/api'
 import { neutralizeTags } from '../chat/prompt'
 import { zonedParts, zonedToUtc } from '../system/time-zone'
-import { canSee, MSG_COLS, messageRow, messagesOut, roomOut, SEE_SQL, seeArgs, seenSeq, threadable, TIMELINE_SQL, type FileRow, type MemberRow, type MessageRow, type RoomRow } from './store'
+import { canSee, clipMiddle, MSG_COLS, messageRow, messagesOut, roomOut, SEE_SQL, seeArgs, seenSeq, threadable, TIMELINE_SQL, type FileRow, type MemberRow, type MessageRow, type RoomRow } from './store'
 
 /** messages one read gives at most, and by default */
 export const ROOM_READ_MAX = 200
@@ -60,7 +60,8 @@ const NO_ROOM = (ref: string) => `No room matching "${attr(ref)}" among the room
 
 /** a value inside a tag's attribute: one line, no quotes or brackets */
 const attr = (s: string, n = 120) => s.replace(/[\r\n"<>\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n)
-const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}… (cut: ${s.length} characters in all)` : s)
+/** a long message: its start and its end (a request at the end of a long paste stays in), the middle said to be cut */
+const clip = (s: string, n: number) => clipMiddle(s, n)
 const norm = (s: string) => s.normalize('NFC').toLocaleLowerCase().replace(/\s+/g, '')
 /** What people add after a room's or a person's name when they name it ("<name> room", an honorific): matching data,
  * not screen text */

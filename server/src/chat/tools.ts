@@ -45,6 +45,8 @@ export interface Tool {
   inputSchema: Record<string, unknown>
   /** the step label (and the room card's words) of a call, when the shared words do not say enough */
   label?(args: unknown, locale: Locale): string
+  /** a call the tool will refuse whatever the person says, refused before any card is raised (null: go on) */
+  refuse?(args: unknown): { text: string; summary: string } | null
   /** `files`: the calling agent's turn state (the main AI's, or a sub-agent's: TurnFiles.forAgent) */
   call(args: unknown, files: TurnFiles): Promise<{ content: McpContent[]; isError?: boolean; summary?: string }>
 }
@@ -187,6 +189,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       const t = tools.get(name)!
       exec.noteTaint(name, args)
       exec.noteRoomTool(name, args)
+      // a call the tool refuses anyway asks nobody first (save_room_file without a file id, into skills/, …)
+      const early = t.refuse?.(args)
+      if (early) return { ...text(early.text, true), summary: early.summary }
       // a room's AI session: anything that may change something waits for the person's yes (rooms/ai-tools.ts)
       const roomNo = await exec.confirmRoomChange(name, args)
       if (roomNo) return { ...text(roomNo, true), summary: `${name} -> not allowed by the user (${exec.room ? 'room' : 'after a room read'})` }

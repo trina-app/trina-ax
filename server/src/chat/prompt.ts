@@ -137,7 +137,7 @@ export function teamRules(files: FileService, user: Principal): string {
   return r.text + `\n\n(${r.total - r.followed} more team rule file${r.total - r.followed === 1 ? '' : 's'} under skills/ ${r.total - r.followed === 1 ? 'is' : 'are'} not included: only the first ${SKILL_FILES_MAX} by file name are given to you. If the user asks about a rule you do not see here, say so.)`
 }
 
-const BLOCK_TAGS = ['memories_about_the_user', 'company_profile', 'project_instructions', 'previous_conversation', 'turn_context', 'instructions', 'team_skill', 'skill_hints', 'scheduled_run', 'continuation', 'room_context', 'room_message', 'room_messages', 'room_event', 'room_list', 'room_file', 'room_refs']
+const BLOCK_TAGS = ['memories_about_the_user', 'company_profile', 'project_instructions', 'previous_conversation', 'turn_context', 'instructions', 'team_skill', 'skill_hints', 'scheduled_run', 'continuation', 'room_context', 'room_message', 'room_messages', 'room_event', 'room_list', 'room_file', 'room_refs', 'attachments']
 const BLOCK_TAG_RE = new RegExp(`<(/?)\\s*(${BLOCK_TAGS.join('|')})\\b`, 'gi')
 /** Text placed inside one of our blocks can't close it (or open another): "<tag" / "</tag" lose their bracket. */
 export function neutralizeTags(s: string): string {
