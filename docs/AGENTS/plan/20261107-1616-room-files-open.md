@@ -86,4 +86,4 @@ Built as planned, no migration (the mapping lives in `room_messages.source_scope
   room or local Markdown preview shows team pictures as links and loads no upload thumbnail; a fetched `download=1` of a
   held room file is allowed (the phone app downloads through fetch) while picture, frame, player, object and script
   destinations are refused.
-- PR: filled in on GitHub.
+- PR: https://github.com/trina-app/trina-ax/pull/179
