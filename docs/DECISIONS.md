@@ -8514,7 +8514,37 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
     visibly taller line). Checked at 1280px and 390px with a real answer. Not changed here: Chrome still wraps Korean
     after a closing parenthesis ("…(473,000,000원)" / "입니다.") even with `word-break: keep-all`; that is the text's
     own wrapping, not the chip's.
-- **Not in this step.** The AI cannot open files sent in a room (it gets their names). The 12-hour new session and the context sizes are
+- **Files sent in the room (fix/room-ai-attachments, 2026-11-07).** The owner: "@Trina 야 이거 우리 공용 폴더에 넣어줘"
+  with a picture got "이 메시지에는 첨부된 파일이 없어서요" ("이걸 왜 못 보지?"): the question's own files were never given
+  to the AI (`ask()` started the turn with no attachments) and earlier files were names only.
+  - **The asking message's own files** come after it like a personal chat's `<attachments>` (`RoomAi.attachmentsOf`):
+    name, type, size and `file_id`, at most `MESSAGE_ATTACHMENTS_MAX`; a file on the team's quarantine list is only
+    counted ("held by the team's safety check"). A question in a thread lists its own files the same way. Earlier
+    messages in `<room_context>` list theirs with `file_id` too.
+  - **Read:** `room_file` in a room's session reads a file of that room only (`chat/room-tools.ts
+    roomSessionFileTools`, the personal chats' reader and checks: `findRoomFile` with the asker's member row, so
+    `visible_from_seq`, a thread by its root, not deleted, and `RoomFiles.open` again before the bytes): pictures as
+    pictures (`imageForModel`: the read's switch, engine check and per-answer budget), documents through the Drive
+    file's text extractors. Read-only (no card). The file stays in `.system/rooms/`; nothing is copied to read it. Its
+    result never names the room by its own name ("this room").
+  - **Save:** `save_room_file` puts a copy into the team folder (`save_as`, a folder keeps the file's name; default
+    the person's downloads). It is a change: the room's card first, naming the file ("대화방 파일 저장 · 포스터.png →
+    shared/"), whoever's message asked for it; then the folder rules (`placeProduced`: write access again, a conflict
+    copy next to a file not read in this turn, the storage checks) and the wider-audience card, the room being where
+    the bytes come from. Never under skills/ and never as an instruction file (CLAUDE.md, SKILL.md, …), refused without
+    a card. Not offered in personal chats (they have `room_file` for any of their rooms, and every change there asks).
+  - **Where the answer goes:** a file read or saved joins the question's read scope as the room from its message's
+    seq (`{type:'room', fromSeq}`, by the root's seq in a thread): every member who sees that message may see what came
+    from it, so it keeps nothing private; a member who joined after it does ("○○ 님이 들어오기 전 대화를 참고했어요").
+    Both tools are team-file tools (`ROOM_FILE_TOOLS`), so they do not mark the question as having used something from
+    outside.
+  - The instructions' room section says how files come and how to read or save them; the asker's progress line shows a
+    room file read like a team file read ("'영수증' 문서 읽는 중"). Both tools stay with the main AI (`PARENT_ONLY_TOOLS`).
+  - Tests: `tests/unit/b-rooms-ai-files.test.ts` (an image and a PDF with the question, read; the answer to the room;
+    a thread question; a held file; the copy into shared/ after both cards; a planted request from another member;
+    skills/ and instruction files refused; an earlier file by id and name, a later member who cannot reach it, and an
+    answer that used it staying private in a thread started after he joined).
+- **Not in this step.** (Files sent in a room: read and saved since fix/room-ai-attachments, above.) The 12-hour new session and the context sizes are
   first guesses. Cards the AI raised are not shown again after a reload (they time out like an unanswered card). A PC
   runner's tools, once merged, fall under the card rule and the outside mark but are not switched off by name.
 

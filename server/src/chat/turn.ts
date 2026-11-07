@@ -519,7 +519,7 @@ export class TurnExec {
     if (refs && !this.room) this.markRoomsSeen()
     const asSent = refs ? { ...userMsg, content: roomRefsForModel(userMsg.content) } : userMsg
     const skillInput = invoked && refs ? roomRefsForModel(invoked.input) : invoked?.input ?? ''
-    const message = (roomCtx ? `${roomCtx.block}\n\n` : '') + scheduled + continued + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '') + (invoked ? `${skillBlock(invoked.skill, skillInput)}\n\n` : '') + composeMessage(asSent, atts)
+    const message = (roomCtx ? `${roomCtx.block}\n\n` : '') + scheduled + continued + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '') + (invoked ? `${skillBlock(invoked.skill, skillInput)}\n\n` : '') + composeMessage(asSent, atts) + (roomCtx?.attachments ? `\n\n${roomCtx.attachments}` : '')
     // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message, with the
     // skills added, changed or removed since that session's instructions listed them
     const claudeMessage = (resumed: boolean, sessionId: string) => {
@@ -1925,6 +1925,13 @@ export function roomChangeWrites(tool: string, input: unknown, tree: (p: string)
       const want = str(a.save_as).trim()
       const folder = !want ? `users/${me}/downloads` : want.endsWith('/') ? want : null
       return { targets: folder === null ? [want] : [want, `${folder.replace(/\/+$/, '')}/${nameFromUrl(str(a.url)) || 'download'}`].filter(Boolean), shown: false }
+    }
+    case 'save_room_file': {
+      // a copy of a room file: named by save_as, or for a folder ("…/") or none by the file's own name, which an id does
+      // not tell here (the tool refuses an instruction file's name itself)
+      const want = str(a.save_as).trim()
+      const folder = !want ? `users/${me}/downloads/` : want.endsWith('/') ? want : null
+      return { targets: folder === null ? [want] : [`${folder}${str(a.file)}`], shown: false }
     }
     case 'move_files': case 'copy_files': {
       const to = teamSegs(a.to_folder) ?? []

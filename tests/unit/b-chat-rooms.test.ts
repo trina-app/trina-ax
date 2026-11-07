@@ -94,9 +94,11 @@ describe('where the room tools are', () => {
     const own = await turn('alice', chat, fake({ echo: 'tools' }))
     for (const t of ['rooms', 'room_read', 'room_file']) {
       expect(own.done.content.split(',')).toContain(t)
-      expect(ROOM_TOOLS.has(t)).toBe(false)
+      // a room's session has its own room_file, for that room's files only (b-rooms-ai-files.test.ts)
+      expect(ROOM_TOOLS.has(t)).toBe(t === 'room_file')
       expect(PARENT_ONLY_TOOLS.has(t)).toBe(true)
     }
+    expect(own.done.content.split(',')).not.toContain('save_room_file')
     // a confidential chat (safe operations' 1A material) keeps to its local tools
     const secret = await newChat('alice')
     h.ctx.db.query('INSERT INTO safe_ops_chats (chat_id, material) VALUES (?, 1)').run(secret)

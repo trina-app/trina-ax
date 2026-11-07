@@ -25,7 +25,7 @@ export const MAX_SUBAGENT_TURNS = 50
  * so do the person's team chat rooms (chat/room-tools.ts: other people's words, read where the person watches).
  * Turn.patchToolStep relies on this: every tool that patches its step is here, so its FIFO per tool stays right.
  */
-export const PARENT_ONLY_TOOLS: ReadonlySet<string> = new Set(['ask_user', 'connect_service', 'set_title', 'remember', 'forget', ...SCHEDULE_TOOLS, 'generate_video', ...BROWSER_TOOL_NAMES, 'box_shell', 'rooms', 'room_read', 'room_file'])
+export const PARENT_ONLY_TOOLS: ReadonlySet<string> = new Set(['ask_user', 'connect_service', 'set_title', 'remember', 'forget', ...SCHEDULE_TOOLS, 'generate_video', ...BROWSER_TOOL_NAMES, 'box_shell', 'rooms', 'room_read', 'room_file', 'save_room_file'])
 /** what the read-only Explore helper may use (of the tools the turn has) */
 export const EXPLORE_TOOLS: ReadonlySet<string> = new Set(['list', 'glob', 'grep', 'read', 'search', 'knowledge_explore', 'skill', 'find_skills', 'drive_list', 'drive_read', 'drive_search', 'hwp_render', 'web_fetch'])
 
