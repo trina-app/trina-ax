@@ -88,8 +88,14 @@ Built as planned, with these differences:
 - `--apt-snapshot` (image builds only) installs from snapshot.debian.org; self-hosted installs keep release + floors.
 
 Checks: `tests/unit/system-packages.test.ts` (22 tests), the touched unit tests, `go test ./cmd/mycel-ctl/`,
-`bun run typecheck`, `bun run check:docs`, shellcheck (warnings) on every changed script, real installs in Debian 13,
-Debian 12 and Ubuntu 24.04 containers (arm64, and amd64 under emulation), the office browser step on a Mac with
-macOS's bash 3.2, and the Linux install test (`tests/install/g-linux-install.ts`) in its systemd container.
+`bun run typecheck`, `bun run check:docs`, shellcheck (warnings) on the changed scripts, the office browser step on a
+Mac with macOS's bash 3.2, `scripts/image/test-customize.sh`, and the Linux install test
+(`tests/install/g-linux-install.ts`) in its systemd container: 72 of 75, the other 3 are safe-ops slice limits, which
+that container cannot give (no controllers delegated).
+
+Real installs in containers: the default groups on Debian 13 arm64, and the core, documents, fonts and browser groups
+on Debian 12 and Ubuntu 24.04 arm64 and Debian 12, 13 and Ubuntu 24.04 amd64. `chrome-headless-shell --version` runs on
+all of them. A real Korean print ran on the arm64 systems and on a Mac. It did not run on amd64: under qemu the browser
+is killed, so the first print on a real amd64 server is still to be checked.
 
 PR: opened by the reviewer after review.

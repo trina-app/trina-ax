@@ -207,8 +207,8 @@ pk_installed() { [ "$(dpkg-query -W -f '${db:Status-Status}' "$1" 2>/dev/null ||
 # pk_missing PACKAGE...: those not installed, one per line
 pk_missing() { local p; for p in "$@"; do pk_installed "$p" || echo "$p"; done; }
 # pk_apt_install [APT-OPTION...] -- PACKAGE...: apt-get update (once per run) and install without recommends.
-# PK_APT_SNAPSHOT=<YYYYMMDDTHHMMSSZ> installs from that snapshot of the archive (apt 2.7+: Debian 13, Ubuntu 24.04), for an
-# image that must be rebuilt with the same package versions.
+# PK_APT_SNAPSHOT=<YYYYMMDDTHHMMSSZ> installs from that snapshot of the archive (apt 2.7+; used on Debian 13, the image's
+# system; needs ca-certificates), for an image that must be rebuilt with the same package versions.
 pk_apt_install() {
   local opts=() snap=()
   while [ $# -gt 0 ] && [ "$1" != -- ]; do opts+=("$1"); shift; done
@@ -216,7 +216,8 @@ pk_apt_install() {
   [ $# -gt 0 ] || return 0
   if [ -n "${PK_APT_SNAPSHOT:-}" ]; then
     [[ "$PK_APT_SNAPSHOT" =~ ^[0-9]{8}T[0-9]{6}Z$ ]] || { pk_err "PK_APT_SNAPSHOT $PK_APT_SNAPSHOT is not YYYYMMDDTHHMMSSZ"; return 1; }
-    snap=(--snapshot "$PK_APT_SNAPSHOT")
+    # (the Release files of a snapshot older than their week have expired: their signature is still checked)
+    snap=(--snapshot "$PK_APT_SNAPSHOT" -o Acquire::Check-Valid-Until=false)
   fi
   export DEBIAN_FRONTEND=noninteractive
   if [ -z "${PK_APT_UPDATED:-}" ]; then
