@@ -180,4 +180,30 @@ template runs); MCP (parallel reads); Files search (route, screen, languages).
 
 ## Result
 
-To be filled in at the end.
+Wave 1 (built 2026-11-07; waves 2 and 3 are still to come):
+
+- Built as planned. Five parallel agents worked on separate files around one `KnowledgeGraph.lookup()`.
+- An independent review found two must-fix problems, and both were fixed and re-reviewed:
+  - the document search held the server's main thread;
+  - name-only matches widened the read scope.
+- Differences from the plan:
+  - Team rooms and scheduled runs get no lookup before the model.
+  - Weak matches show file names only.
+  - Budgets are in tokens, not characters.
+  - Document searches run in one worker thread.
+  - The slow full scan for one- and two-letter words was removed (grep still finds exact text).
+- Benchmark on this Mac with real AI: 30 questions over 22 made-up documents, one pass each. Times and tokens come from
+  the turns table, with cached tokens included in input.
+
+  | Engine | Median time | p90 | Median input tokens | Median tool calls | Correct |
+  |---|---|---|---|---|---|
+  | Claude Code, before | 7.4 s | 10.0 s | 116,964 | 2 | 30/30 |
+  | Claude Code, after | 6.9 s | 8.6 s | 80,469 (−31%) | 1 | 30/30 |
+  | Codex, before | 10.5 s | 16.2 s | 76,564 | 2 | 30/30 |
+  | Codex, after | 7.9 s (−25%) | 14.4 s | 57,949 (−24%) | 1 | 29/30 |
+
+  - The one miss was an English question about a report written in Korean. The rule now says to try the other
+    language and file names when nothing is found. Three reruns found it two times.
+  - The 7 s and 25,000-token targets were set from the dev server, whose fixed prompt is smaller than this Mac's. The
+    dev-server run (step 8) waits for a test account and the owner's OK.
+- PR: to be linked.

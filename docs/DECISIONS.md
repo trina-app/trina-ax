@@ -13050,6 +13050,14 @@ covers wave 1 (no embeddings yet).
 
   Compare only numbers from the same machine. The set is too easy to show a drop in correctness, so harder questions
   come before wave 2's quality test.
+- **After wave 1** (same Mac, same 30 questions, the code after the review fixes):
+  - Claude Code: 6.9 s median (was 7.4), 80,469 input tokens (−31%), 1 tool call (was 2), 30/30 correct.
+  - Codex: 7.9 s (−25%), 57,949 tokens (−24%), 1 tool call, 29/30 correct.
+  - The miss was en-08, an English question ("the September outage") about a report written in Korean (장애 보고서).
+    Codex searched and grepped, but never gave the Korean wording or looked at file names. The rule and the empty
+    answer now say to try `alt_query` in the other language and glob file names first. Search by meaning (wave 2) is
+    the real fix for such questions. With that wording, three reruns of en-08 on Codex found it in two, with one
+    `knowledge_explore` call each (8–9 s, about 59,000 tokens). The third still missed after glob and grep.
 - **How it was built.** Each phase of the plan is a wave. Five agents built wave 1 in parallel on separate files, around
   a contract commit that fixed `lookup()`'s signature first.
 - **Review fixes (same branch).** An independent review found two must-fix problems. Neither leaked a file to the wrong
