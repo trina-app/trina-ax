@@ -2,7 +2,9 @@
 // happens while a Korean or Japanese word is still being composed; on touch screens Enter makes a new line and the
 // button sends, like the AI chat's box), files (the clip, paste or drop; each is uploaded at once with POST
 // /api/rooms/:id/files and sent by id), and "@" for the room's members: a picked name (or "@트리나") stands out in the
-// box at once and is sent as a mention (useMentionMenu, components/TokenTextarea.tsx). In a thread (threadRootId) it
+// box at once and is sent as a mention (useMentionMenu, components/TokenTextarea.tsx). "@전체" notifies everyone in the
+// room (not in a DM; in the everyone room only for owners and admins); in a room of MENTION_ALL_CONFIRM people or more the
+// send asks first, in one line inside the box ("N명에게 알림이 가요. 보낼까요?"). In a thread (threadRootId) it
 // writes a reply, with one quiet choice under the box: "대화방에도 보내기" (the reply goes to the room's timeline too).
 // Voice input as in the AI chat's box (lib/useVoiceInput.ts, components/VoiceBar.tsx), under the same team switch: the
 // mic next to the clip, Space held in the box on a computer, a finger held on the mic; the words go into the box as
@@ -22,10 +24,10 @@ import { useMe } from '../../store/session'
 import { placeKey, roomDraftMentions, roomDrafts as drafts, useRooms } from '../../store/rooms'
 import { toast } from '../../store/ui'
 import { TokenTextarea } from '../TokenTextarea'
-import { IconButton } from '../ui'
+import { Button, IconButton } from '../ui'
 import { Tooltip } from '../Tooltip'
 import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
-import { useMentionMenu } from './useMentionMenu'
+import { useEveryone, useMentionMenu } from './useMentionMenu'
 import { useTextSize } from '../../lib/textSize'
 
 interface Upload {
@@ -38,6 +40,9 @@ interface Upload {
 }
 
 let uploadKey = 0
+
+/** From this many members (me included) a message with "@전체" asks before it goes. */
+export const MENTION_ALL_CONFIRM = 10
 
 export function RoomComposer({ roomId, threadRootId = null, members, meId, onSent, empty = false, autoFocus = false }: { roomId: string; threadRootId?: string | null; members: UserRef[]; meId: string | null; onSent: () => void; empty?: boolean; autoFocus?: boolean }) {
   const t = useT()
@@ -55,7 +60,11 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     if (s) drafts.set(key, s)
     else drafts.delete(key)
   }
-  const mention = useMentionMenu({ text, setText, input, members, meId, ai: true, initial: roomDraftMentions.get(key) })
+  // "@전체": everyone else in the room, where it is offered (useEveryone)
+  const everyone = useEveryone(roomId, members, meId)
+  const others = members.filter((m) => m.id !== meId).length
+  const mention = useMentionMenu({ text, setText, input, members, meId, ai: true, initial: roomDraftMentions.get(key), everyone })
+  const [asking, setAsking] = useState(false)
   const me = useMe()
   // voice input off (Admin > Team settings): no mic for members, a hint to the setting for admins
   const mic = micState(me)
@@ -68,6 +77,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     root,
     room: true,
     text,
+    // (through the token box's own change: the mentions' ranges follow what the words replace)
     replace: mention.inputProps.onTextChange,
     append: (said) => {
       const cur = latest.current
@@ -89,7 +99,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   useEffect(() => {
     if (!back) return
     useRooms.getState().takeReturned(key)
-    mention.putBack(back.body, back.mentions)
+    mention.putBack(back.body, back.mentions, !!back.mentionsAll)
     if (back.alsoInRoom) setAlsoInRoom(true)
     if (back.files.length) setFiles((list) => [...back.files.map((f) => ({ key: ++uploadKey, file: { name: f.name, size: f.size } as File, status: 'done' as const, roomFile: f, abort: new AbortController() })), ...list])
     input.current?.focus()
@@ -150,9 +160,20 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const ready = files.filter((f) => f.status === 'done')
   const canSend = (body.length > 0 || ready.length > 0) && files.every((f) => f.status === 'done') && text.length <= ROOM_MESSAGE_MAX && !voice.busy
 
-  const submit = () => {
+  const all = mention.mentionsAll()
+  // the question shows while the message still has "@전체" (taken out, there is nothing to ask, and a later one asks anew)
+  const ask = asking && all
+  useEffect(() => {
+    if (!all) setAsking(false)
+  }, [all])
+  const submit = (sure = false) => {
     if (!canSend) return
-    useRooms.getState().send(roomId, { body, mentions: mention.mentions(), files: ready.map((f) => f.roomFile!), threadRootId, alsoInRoom: !!threadRootId && alsoInRoom })
+    if (all && members.length >= MENTION_ALL_CONFIRM && !sure) {
+      setAsking(true)
+      return
+    }
+    setAsking(false)
+    useRooms.getState().send(roomId, { body, mentions: mention.mentions(), ...(all ? { mentionsAll: true } : {}), files: ready.map((f) => f.roomFile!), threadRootId, alsoInRoom: !!threadRootId && alsoInRoom })
     setText('')
     setFiles([])
     mention.reset()
@@ -183,6 +204,22 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
         data-testid="room-composer"
       >
         {!voice.recording && mention.list}
+        {/* the question about "@전체" (hidden while recording, like the "@" list) */}
+        {ask && !voice.recording && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 pt-2.5 max-md:px-4" data-testid="room-mention-all-confirm">
+            <p role="status" className="min-w-0 flex-1 text-sm text-ink">
+              {t('rooms.mentionAllConfirm', { n: others })}
+            </p>
+            <div className="flex shrink-0 gap-1.5">
+              <Button size="sm" variant="ghost" onClick={() => { setAsking(false); input.current?.focus() }} data-testid="room-mention-all-cancel">
+                {t('common.cancel')}
+              </Button>
+              <Button size="sm" variant="primary" onClick={() => submit(true)} disabled={!canSend} data-testid="room-mention-all-send">
+                {t('chat.send')}
+              </Button>
+            </div>
+          </div>
+        )}
         {files.length > 0 && (
           <ul className="flex flex-wrap gap-2 px-3 pt-2" aria-label={t('composer.attachments')}>
             {files.map((f) => (
@@ -241,11 +278,18 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                 onKeyDown={(e) => {
                   if (mention.onKeyDown(e)) return
                   if (voice.onKeyDown(e)) return
+                  // the question about "@전체": Esc puts it away, Enter answers it as 보내기
+                  if (ask && e.key === 'Escape' && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setAsking(false)
+                    return
+                  }
                   if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
                     // touch screens: Enter makes a new line (the button sends)
                     if (window.matchMedia?.('(pointer: coarse)').matches) return
                     e.preventDefault()
-                    submit()
+                    submit(ask)
                   }
                 }}
                 containerClassName="min-w-0 flex-1"
@@ -255,7 +299,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
               <Tooltip label={t('chat.send')}>
                 <button
                   type="button"
-                  onClick={submit}
+                  onClick={() => submit(ask)}
                   disabled={!canSend}
                   aria-label={t('chat.send')}
                   className={clsx('touch-hit mb-0.5 flex size-9 shrink-0 items-center justify-center rounded-full transition max-sm:size-10', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')}
