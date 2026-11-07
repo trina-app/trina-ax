@@ -3395,6 +3395,7 @@ export const ja: Record<MessageKey, string> = {
   "rooms.alsoSent": "トークルームにも送信済み",
   "rooms.threadReplyMark": "スレッドへの返信",
   "rooms.closeThread": "スレッドを閉じる",
+  "rooms.threadResize": "スレッドの幅を調整",
   "rooms.threadNotFound": "このスレッドは表示できません。削除されたか、表示できないメッセージから始まったスレッドの可能性があります。",
   "rooms.react": "リアクションを追加",
   "rooms.reaction": "{emoji} {n}人: {names}",
