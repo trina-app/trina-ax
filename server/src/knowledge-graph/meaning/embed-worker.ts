@@ -80,7 +80,12 @@ if (import.meta.main) {
   let idle: ReturnType<typeof setTimeout> | undefined
   const awake = () => { clearTimeout(idle); idle = setTimeout(() => process.exit(0), idleMs) }
   awake()
-  await serveEmbed(stdinLines(), (m) => { process.stdout.write(JSON.stringify(m) + '\n') },
-    () => openEmbedder({ modelDir: cfg.modelDir, sharedDir: cfg.sharedDir, threads: cfg.threads, download: cfg.download !== false }), awake)
+  await serveEmbed(stdinLines(), (m) => { process.stdout.write(JSON.stringify(m) + '\n') }, async () => {
+    const e = await openEmbedder({ modelDir: cfg.modelDir, sharedDir: cfg.sharedDir, threads: cfg.threads, download: cfg.download !== false })
+    // loading parses the tokenizer (a 250,000-word vocabulary) and reads the model file into memory: that garbage goes
+    // before the first batch, so the memory the indexer watches is the working set
+    Bun.gc(true)
+    return e
+  }, awake)
   process.exit(0)
 }

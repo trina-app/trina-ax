@@ -84,8 +84,10 @@ async function loadTransformers(dir: string, threads: number | undefined): Promi
   env.localModelPath = dir
   env.allowRemoteModels = false
   env.allowLocalModels = true
-  const session_options = threads ? { intraOpNumThreads: threads, interOpNumThreads: 1 } : undefined
-  const extractor = await pipeline('feature-extraction', MEANING_MODEL, { dtype: 'q8', ...(session_options ? { session_options } : {}) })
+  // ONNX's CPU memory arena off: it kept the largest batch's buffers (measured on an M-series Mac, one thread, batches
+  // of 4 pieces of 512 tokens: about 110 MB less resident memory, 550 instead of 660 MB, and no slower)
+  const session_options = { enableCpuMemArena: false, enableMemPattern: false, ...(threads ? { intraOpNumThreads: threads, interOpNumThreads: 1 } : {}) }
+  const extractor = await pipeline('feature-extraction', MEANING_MODEL, { dtype: 'q8', session_options })
   return {
     run: async (texts) => {
       // mean pooling over the tokens (padding left out), then L2 normalization; texts longer than the model's 512

@@ -8,17 +8,22 @@
 // - It starts when there is something to embed (and the switch is on: KnowledgeGraph.meaningOn) and ends after IDLE_MS
 //   with nothing to do.
 // - Memory: it starts only with MIN_FREE_MIB available (freeMemoryMiB); otherwise one log line, and nothing more until
-//   the service's nightly check (kick with `retry`). While it runs, its resident memory is looked at every MEM_POLL_MS
-//   and it is stopped above MAX_RSS_MIB; the batch is done again by a new one. After RESTARTS_MAX stops in one run it
-//   waits for the nightly check too.
+//   the service's nightly check (kick with `retry`). Its own memory (processMemoryMiB) is looked at every MEM_POLL_MS;
+//   once the model is loaded it is stopped above MAX_RSS_MIB and the batch is done again by a new one. After
+//   RESTARTS_MAX stops in a row it waits for the nightly check too. Loading peaks higher for a moment (the
+//   tokenizer's vocabulary is parsed and the model file read into memory, then dropped): stopping it there would only
+//   load it again. Measured on an M-series Mac with the real model, one thread, batches of 4 pieces of up to 512
+//   tokens: about 0.6 GB while it works, up to 0.7 GB for a moment while it loads; 3 pieces a second of full-size
+//   pieces at utility priority on a busy Mac.
 // - Someone waiting for an answer (a running or queued chat turn): it pauses between batches, and ends after IDLE_MS of
 //   pause, so the memory goes back to people's work.
 // - Progress goes to the log only: no screen, no admin field (the owner's rule: admins see nothing about it).
 import os from 'node:os'
 import path from 'node:path'
 import fs from 'node:fs'
+import { dlopen, FFIType, ptr } from 'bun:ffi'
 import { availableMemoryMiB } from '../../system/limits'
-import { backgroundPrefix, treeRssKiB } from '../../tools/isolate'
+import { backgroundPrefix } from '../../tools/isolate'
 import type { PendingPiece, PieceVector } from '../docs-port'
 import { MEANING_DIMS, passageText } from './vectors'
 import type { EmbedWorkerConfig, WorkerMessage } from './embed-worker'
@@ -29,7 +34,7 @@ export const BATCH = 4
 const PAGE = 64
 /** memory that must be available before the process starts (about 1.5 GB) */
 export const MIN_FREE_MIB = 1536
-/** the process is stopped above this resident memory (about 800 MB) */
+/** the process is stopped above this much memory of its own (about 800 MB; processMemoryMiB) */
 export const MAX_RSS_MIB = 800
 /** the process ends after this long with nothing to do, or this long paused */
 export const IDLE_MS = 60_000
@@ -37,7 +42,8 @@ export const IDLE_MS = 60_000
 const PAUSE_POLL_MS = 2_000
 /** how often the process's memory is looked at */
 const MEM_POLL_MS = 2_000
-/** stops (memory, a crash) in one run after which it waits for the nightly check */
+/** stops in a row (memory, a crash, a failed batch) with no batch done in between, after which it waits for the
+ * nightly check */
 export const RESTARTS_MAX = 3
 /** a progress line at most this often */
 const PROGRESS_MS = 5 * 60_000
@@ -57,7 +63,7 @@ export interface EmbedChild {
   /** int8 vectors (MEANING_DIMS bytes each) of passage texts, in order; rejects when the process failed, ended or
    * was stopped */
   embed(passages: string[]): Promise<Uint8Array[]>
-  /** its resident memory now, in MiB (0: not known) */
+  /** its own memory now, in MiB (processMemoryMiB; 0: not known) */
   rssMiB(): Promise<number>
   /** end it (`now`: killed at once, its batch failing) */
   stop(now?: boolean): void
@@ -105,6 +111,35 @@ export function freeMemoryMiB(): number | null {
     if (r.exitCode === 0 && Number.isFinite(pct) && pct > 0 && pct <= 100) return Math.floor((os.totalmem() / MIB) * pct / 100)
   } catch { /* not known */ }
   return null
+}
+
+let footprint: ((pid: number) => number) | null | undefined
+/**
+ * A process's own memory in MiB (0: not known), without the unchanged pages of the program and libraries it maps,
+ * which other processes share and the system can drop at any time:
+ * - Linux: RssAnon plus VmSwap of /proc/<pid>/status.
+ * - macOS: its physical footprint (proc_pid_rusage), the memory Activity Monitor shows for it. ps's resident size also
+ *   counts the mapped files of bun and onnxruntime: about 250 MB more for the embedding process (measured: 610 MB
+ *   footprint, 893 MB resident).
+ */
+export function processMemoryMiB(pid: number): number {
+  if (process.platform === 'linux') {
+    try {
+      const st = fs.readFileSync(`/proc/${pid}/status`, 'utf8')
+      const kb = (k: string) => Number(new RegExp(`^${k}:\\s+(\\d+) kB`, 'm').exec(st)?.[1] ?? 0)
+      return Math.round((kb('RssAnon') + kb('VmSwap')) / 1024)
+    } catch { return 0 }
+  }
+  if (process.platform !== 'darwin') return 0
+  if (footprint === undefined) {
+    try {
+      const lib = dlopen('/usr/lib/libSystem.B.dylib', { proc_pid_rusage: { args: [FFIType.i32, FFIType.i32, FFIType.ptr], returns: FFIType.i32 } })
+      // struct rusage_info_v2 (RUSAGE_INFO_V2 = 2): a 16-byte uuid, then 64-bit counters; ri_phys_footprint is the 8th
+      const buf = new BigUint64Array(64)
+      footprint = (q) => (lib.symbols.proc_pid_rusage(q, 2, ptr(buf)) === 0 ? Math.round(Number(buf[9]) / MIB) : 0)
+    } catch { footprint = null }
+  }
+  return footprint?.(pid) ?? 0
 }
 
 /** The embedding process's script: built next to the server's main.js in the bundles, embed-worker.ts in a checkout;
@@ -190,7 +225,7 @@ export function startEmbedChild(cfg: EmbedWorkerConfig, script: string | null = 
         try { p.stdin.write(JSON.stringify({ id, texts: passages }) + '\n'); p.stdin.flush() } catch (e) { waiting.delete(id); fail(new Error(errText(e))) }
       })
     },
-    async rssMiB() { return ended ? 0 : Math.round((await treeRssKiB(p.pid)) / 1024) },
+    async rssMiB() { return ended ? 0 : processMemoryMiB(p.pid) },
     stop(now = false) {
       if (now) { end('the embedding process was stopped'); try { p.kill('SIGKILL') } catch {} ; return }
       try { p.stdin.end() } catch {}
@@ -213,8 +248,9 @@ export class MeaningIndexer {
   private idle: ReturnType<typeof setTimeout> | null = null
   private memTimer: ReturnType<typeof setInterval> | null = null
   private memBusy = false
-  /** the highest resident memory of an embedding process seen since the start */
+  /** the most memory of its own an embedding process had since the start: while it worked, and while it loaded */
   private peakMiB = 0
+  private loadPeakMiB = 0
   private idleWaiters: (() => void)[] = []
 
   constructor(o: MeaningIndexerOptions) {
@@ -237,8 +273,9 @@ export class MeaningIndexer {
     })
   }
 
-  /** the highest resident memory of the embedding process seen so far, in MiB */
+  /** the most memory of its own the embedding process had so far, in MiB: while it worked, and while it loaded */
   peak(): number { return this.peakMiB }
+  loadPeak(): number { return this.loadPeakMiB }
 
   /** tests: resolves when no run goes on */
   whenIdle(): Promise<void> {
@@ -263,7 +300,7 @@ export class MeaningIndexer {
     const t0 = Date.now()
     const counts = store.vectorCounts?.()
     if (counts && counts.pending > 100) this.o.log.info('knowledge graph: search by meaning: indexing', { pending: counts.pending, done: counts.done })
-    let done = 0, restarts = 0, lastLog = t0, pausedAt = 0
+    let done = 0, restarts = 0, inARow = 0, lastLog = t0, pausedAt = 0
     try {
       while (!this.closed) {
         store = this.o.on() ? this.o.store() : null
@@ -287,7 +324,8 @@ export class MeaningIndexer {
           // it ended, was stopped above the memory limit, or failed the batch: a new process does the batch again
           this.stopChild(true)
           page.unshift(...batch)
-          if (++restarts >= this.o.restartsMax) {
+          restarts++
+          if (++inARow >= this.o.restartsMax) {
             this.o.log.warn('knowledge graph: search by meaning paused until the nightly check', { err: errText(e), restarts })
             this.waitRetry = true
             return
@@ -295,6 +333,7 @@ export class MeaningIndexer {
           continue
         }
         if (this.closed) return
+        inARow = 0
         done += store.writeVectors(batch.map((p, i) => ({ id: p.id, passage: passages[i]!, vec: vecs[i]! })))
         if (Date.now() - lastLog >= PROGRESS_MS) {
           lastLog = Date.now()
@@ -302,7 +341,7 @@ export class MeaningIndexer {
         }
       }
     } finally {
-      if (done) this.o.log.info('knowledge graph: search by meaning: indexed', { pieces: done, seconds: Math.round((Date.now() - t0) / 1000), perSecond: rate(done, t0), peakMiB: this.peakMiB, restarts })
+      if (done) this.o.log.info('knowledge graph: search by meaning: indexed', { pieces: done, seconds: Math.round((Date.now() - t0) / 1000), perSecond: rate(done, t0), peakMiB: this.peakMiB, loadPeakMiB: this.loadPeakMiB, restarts })
       // the process stays a while for the next upload, then ends
       if (this.child && !this.closed) {
         this.idle = setTimeout(() => { this.idle = null; if (!this.running) this.stopChild(false) }, this.o.idleMs)
@@ -326,8 +365,9 @@ export class MeaningIndexer {
       return null
     }
     this.child = c
-    this.watchMemory(c)
-    try { await c.ready } catch (e) {
+    const loaded = { yes: false }
+    this.watchMemory(c, loaded)
+    try { await c.ready; loaded.yes = true } catch (e) {
       if (this.child === c) this.stopChild(true)
       if (!this.closed) {
         // no internet for the first download, a model file that does not match, no runtime for this machine
@@ -339,13 +379,14 @@ export class MeaningIndexer {
     return this.closed ? null : c
   }
 
-  private watchMemory(c: EmbedChild) {
+  private watchMemory(c: EmbedChild, loaded: { yes: boolean }) {
     if (this.memTimer) clearInterval(this.memTimer)
     this.memTimer = setInterval(() => {
       if (this.memBusy || this.child !== c) return
       this.memBusy = true
       void c.rssMiB().then((mib) => {
         if (this.child !== c) return
+        if (!loaded.yes) { if (mib > this.loadPeakMiB) this.loadPeakMiB = mib; return }
         if (mib > this.peakMiB) this.peakMiB = mib
         if (mib > this.o.maxRssMiB) {
           this.o.log.info('knowledge graph: search by meaning: the embedding process went above its memory limit and is started again', { rssMiB: mib, limitMiB: this.o.maxRssMiB })

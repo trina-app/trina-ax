@@ -9,7 +9,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { DocumentIndex, headingOf } from '../../server/src/knowledge-graph/documents'
 import { ensureModel, MODEL_FILES, openEmbedder, wrapModel, type LoadedModel } from '../../server/src/knowledge-graph/meaning/embedder'
-import { MeaningIndexer, startEmbedChild, embedWorkerScript, BATCH, MIN_FREE_MIB, MAX_RSS_MIB, RESTARTS_MAX, type EmbedChild, type MeaningIndexerOptions } from '../../server/src/knowledge-graph/meaning/indexer'
+import { MeaningIndexer, startEmbedChild, embedWorkerScript, processMemoryMiB, BATCH, MIN_FREE_MIB, MAX_RSS_MIB, RESTARTS_MAX, type EmbedChild, type MeaningIndexerOptions } from '../../server/src/knowledge-graph/meaning/indexer'
 import { serveEmbed, type WorkerMessage } from '../../server/src/knowledge-graph/meaning/embed-worker'
 import { blobToVec, MEANING_DIMS, MEANING_MODEL, passageText, quantize, vecToBlob, type Embedder } from '../../server/src/knowledge-graph/meaning/vectors'
 import { Database } from 'bun:sqlite'
@@ -321,6 +321,23 @@ describe('the background indexing', () => {
     d.destroy()
   })
 
+  test('loading may peak above the limit for a moment: the limit holds once the model is loaded', async () => {
+    const d = await docIndex('loadpeak', { 'a.md': '# A\nSomething to embed.' })
+    let loading = true
+    const { ix, children } = indexer(d, {
+      child: () => fakeChild({ rss: () => (loading ? MAX_RSS_MIB + 200 : 500), ready: Bun.sleep(80).then(() => { loading = false }) }),
+    })
+    ix.kick()
+    await ix.whenIdle()
+    expect(children.length).toBe(1)
+    expect((children[0] as unknown as Fake).killed).toBe(0)
+    expect(d.vectorCounts().pending).toBe(0)
+    expect(ix.loadPeak()).toBe(MAX_RSS_MIB + 200)
+    expect(ix.peak()).toBeLessThanOrEqual(500)
+    ix.close()
+    d.destroy()
+  })
+
   test('a model that cannot load (no internet, a wrong file): one line, keyword search goes on, tried again at the nightly check', async () => {
     const d = await docIndex('nomodel', { 'a.md': '# A\nSomething to embed.' })
     const failed = Promise.reject(new Error('model download config.json: HTTP 503'))
@@ -425,6 +442,17 @@ describe('the embedding process', () => {
     // without its script it does not start
     const none = startEmbedChild({ modelDir: dir, sharedDir: null, threads: 1 }, null)
     await expect(none.ready).rejects.toThrow(/missing/)
+  })
+
+  test('its memory is its own: not the shared pages of the program and libraries it maps', () => {
+    const own = processMemoryMiB(process.pid)
+    if (process.platform === 'darwin' || process.platform === 'linux') {
+      expect(own).toBeGreaterThan(0)
+      // macOS: the physical footprint, which Bun's own rss reports too; Linux: anonymous memory, never more than rss
+      if (process.platform === 'darwin') expect(Math.abs(own - process.memoryUsage().rss / 1048576)).toBeLessThan(64)
+      else expect(own).toBeLessThanOrEqual(Math.ceil(process.memoryUsage().rss / 1048576) + 1)
+    }
+    expect(processMemoryMiB(2 ** 30)).toBe(0)
   })
 
   test('the bundles carry it next to main.js', () => {
