@@ -12597,3 +12597,60 @@ in the room, it knows what was said in the threads.
   block and through room_thread, with the stored scope; the tool reading only this room and answering alike for what it
   cannot read; a thread question reading its own thread only; paging; tags neutralised; a planted instruction in a reply
   waiting for the asker's card; the instructions and the allowlists), `step-labels-tools`, `b-codex-rooms`.
+
+## One list of system packages (feat/one-package-list, 2026-11-07, product owner and infra engineer)
+
+Input: the hosted image (`scripts/image/*`) had srt, Chromium, CJK fonts, ffmpeg, python3 and build tools; a server made
+with `scripts/install-linux.sh` got the core packages only, the dev environment was a separate manual step, and an
+office Mac had no browser. One release behaved differently by install path (HTML to PDF needs a Chromium). The owner and
+the infra engineer agreed on one shared list, a CI check that fails when the scripts disagree, and pinned versions.
+
+- **One list.** `scripts/system/packages.json`: the supported systems (Debian 12, 13, Ubuntu 24.04; amd64, arm64), groups
+  of apt packages by purpose (core, documents, media: `always`; fonts, devenv, browser: `default`; image, srt, boxes:
+  `on-request`, only the script that names them), per-system names where releases differ (`on`: the t64 libraries of
+  Debian 13 and Ubuntu 24.04; Debian's chromium, a snap on Ubuntu), and the downloaded programs pinned exactly: a version,
+  and a url, sha256 and size for every platform (node, srt, chrome-headless-shell).
+- **One reader.** `scripts/system/packages.sh`, sourced by every install path and run by `mycel-ctl update`. It reads the
+  list with a bun the caller trusts (the kit's or the bundle's, from an empty folder with no environment) or with jq
+  (customize.sh installs jq when neither is there), into flat lines that awk reads. Bash 3.2, for the Mac.
+- **Self-hosted = hosted.** `install-linux.sh` installs the `always` and `default` groups, as the image does through the
+  same installer (`--image-mode`, no `--minimal`). `--minimal` installs the `always` groups only, which is what the
+  installer installed before; it is kept in `install.json` (`--no-minimal` turns it back). An `always` package that
+  cannot be installed or is below its floor stops the install, as before; a `default` one only warns (the server runs
+  without it; `repair` tries again).
+- **The dev environment: packages only.** Its tools (python3, git, build tools, Debian's chromium …) are installed by
+  default, because installing them changes no service, account or sandbox. Turning it on (polkit rule, slice, server
+  drop-in, node and srt in `/opt/trina`) stays `install-srt.sh`, an explicit choice; it reads its packages (groups core,
+  media, fonts, devenv) and the node and srt pins from the list.
+- **apt versions.** The distribution release is the pin: the installers accept only the list's systems, and apt installs
+  from that release's archive and its security updates. Each package may have a floor (`>=`) that is checked after the
+  install (the floors `scripts/linux/deps.txt` had; the file is gone). Exact versions are not pinned: Debian and Ubuntu
+  mirrors keep only the newest version of a package in a release, so an exact pin breaks the first install after a
+  security update and would hold that update back. For an image that must be rebuilt with the same versions,
+  `--apt-snapshot <time>` (`build.sh`, `build-ami.sh`, `customize.sh`) installs from snapshot.debian.org with apt's
+  `--snapshot` (apt 2.7+, Debian 13); not for self-hosted installs (slow, rate limited, and it freezes security fixes).
+- **The browser.** Chrome for Testing's `chrome-headless-shell` 157.0.8103.38 (Stable on 2026-11-07), with the sha256 of
+  the files as downloaded (Google publishes none): linux64, linux-arm64, mac-arm64, mac-x64. The plan named Debian's
+  `chromium-headless-shell` for Linux arm64 because Chrome for Testing had no such build; it has one now, so every
+  platform takes the same pinned program (Ubuntu 24.04 arm64 has no Debian package either). Linux:
+  `/opt/trina/chrome-headless-shell/<version>/<dir>`, root's, a `current` link, `MYCEL_HTML_PDF_BROWSER` in
+  `/etc/default/<id>` (the line is ours; every other line stays; uninstall removes it). Office Mac:
+  `<prefix>/browser/chrome-headless-shell/<version>`, the office account's, outside `app/` so an update downloads it only
+  for a new version; the supervisor sets `MYCEL_HTML_PDF_BROWSER` when it is there. Both are folders nobody else can
+  write (html-pdf.ts `trustedBrowser`). Its libraries are the browser group (from `ldd` on each system).
+- **Updates.** The list and its reader are root files of the bundle (`root/packages.json`, `root/packages.sh`), so a
+  changed list, a new browser version included, is a root change without a rule of its own (publish-server.ts
+  `rootManaged`, `rootSince`). `mycel-ctl update` runs `packages.sh sync` once the root files are in place (also when
+  they were right already): missing packages of the install's profile, then the browser at the pinned version (download,
+  sha256, switch `current`, remove the old folder) and the env line. A failure is a note, not a failed update: the
+  server works without them, and the next update or a repair tries again. The office updater runs the new zip's
+  `office-install.sh --update`, which does the same for the Mac after the server has stopped.
+- **The CI check** (`tests/unit/system-packages.test.ts`, in `bun run test:unit`): the list is well formed; every
+  artifact has a version, url, sha256 and size for every platform it must have; bun and jq read the same lines as the
+  TS reader; packages.sh picks the same packages for every system and profile; no install or image script names
+  three packages on a line, apt-installs a name, or carries a hash, a version or a download url of its own; the image
+  installs the installer's default groups plus its own; install-linux.sh accepts exactly the list's systems; srt has
+  one version in the list, the server and the lockfile; the list is a root file and in the office zip. The Go side:
+  `native/cmd/mycel-ctl/syncsystem_test.go`.
+- Left: Ubuntu 24.04 is in the list for the installer but not for `install-srt.sh` (AppArmor, spike S6). The private
+  AMI build reads `scripts/image/*` and the staged `system/` folder.

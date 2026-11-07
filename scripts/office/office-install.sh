@@ -35,6 +35,10 @@
 #                        cannot run here, and the closing instructions are left out
 #   --check-only         run the checks, print what would happen, change nothing
 #
+# The pinned headless browser for HTML to PDF (chrome-headless-shell of the one list, app/scripts/system/packages.json)
+# is downloaded once into <prefix>/browser (sha256 checked; outside app/, so an update downloads it again only when the
+# list pins another version). A failed download only warns: the server runs without HTML to PDF until the next update.
+#
 # Checks: macOS 13+, not root, this Mac's architecture is in the bundle, Claude Code is installed and logged in
 # (`claude auth status`; not needed with --claude-token-file), no MCP settings in ~/.claude.json the server would remove
 # (see --remove-claude-mcp; not with --claude-token-file), the ports are free (after stopping this installation's own agent). Codex is not used in
@@ -195,6 +199,7 @@ if [ "$CHECK_ONLY" = 1 ]; then
     say "ports: free"
   fi
   if [ -d "$PREFIX/app" ]; then say "would update $PREFIX/app (data/, team/, tls/, config/ kept)"; else say "would install into $PREFIX"; fi
+  [ ! -f "$SRC/app/scripts/system/packages.json" ] || say "browser: the pinned chrome-headless-shell for HTML to PDF in $PREFIX/browser (downloaded when it is not there yet)"
   # read-only: compared with what $PREFIX already offers
   [ "$DESKTOP" = 0 ] || "$BUN_SRC" "$SRC/app/server/src/office.js" desktop --home "$PREFIX" add-from --dry-run "${DESKTOP_ARGS[@]}" | sed 's/^/  /'
   say "check only: nothing changed"
@@ -236,6 +241,25 @@ mv "$NEW" "$PREFIX/app"
 ln -sfn app/teamax "$PREFIX/teamax"
 for d in data team tls config; do mkdir -p "$PREFIX/$d"; chmod 700 "$PREFIX/$d"; done
 mkdir -p "$PREFIX/logs"
+
+# ---- the pinned headless browser for HTML to PDF (the one list: app/scripts/system/packages.json) ----
+# <prefix>/browser/chrome-headless-shell/<version>, current -> it; an older version goes (the server is stopped here).
+# This account's, and nobody else can write it (server/src/files/html-pdf.ts trustedBrowser); the supervisor names it
+# in MYCEL_HTML_PDF_BROWSER (server/src/office/cli.ts officeBrowserEnv).
+install_browser() {
+  local sys="$PREFIX/app/scripts/system" plat
+  [ -f "$sys/packages.sh" ] && [ -f "$sys/packages.json" ] || { say "this bundle has no list of packages: no browser for HTML to PDF"; return 0; }
+  # shellcheck source=../system/packages.sh
+  . "$sys/packages.sh"
+  # shellcheck disable=SC2034 # packages.sh reads it
+  PK_BUN="$PREFIX/app/bin/bun"
+  pk_load "$sys/packages.json" || return 1
+  plat=$(PK_UNAME_M="${TEAMAX_TEST_ARCH:-$(uname -m)}" pk_platform) || return 1
+  pk_browser_install "$PREFIX/browser/chrome-headless-shell" "$plat" >/dev/null || return 1
+  pk_browser_check "$PREFIX/browser/chrome-headless-shell/current/chrome-headless-shell" || { say "chrome-headless-shell does not start on this Mac"; return 1; }
+  say "browser: chrome-headless-shell $(pk_art chrome-headless-shell "$plat" version) for HTML to PDF ($PREFIX/browser)"
+}
+install_browser || say "warning: the headless browser for HTML to PDF was not installed (see above); the team server runs without HTML to PDF, and the next update tries again"
 
 # ---- agent ----
 INSTALL_ARGS=(install --home "$PREFIX")

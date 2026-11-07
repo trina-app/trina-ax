@@ -73,6 +73,16 @@ systemctl cat "$SERVER_UNIT" >/dev/null 2>&1 || die "no $SERVER_UNIT here: this 
 [ -f "$BASE/config/server.json" ] || die "no $BASE/config/server.json"
 [ -f "$BASE/root/install.json" ] || die "no $BASE/root/install.json"
 command -v jq >/dev/null || die "jq is missing, and the script cannot read $BASE/config/server.json without it: apt-get install jq, then run this again"
+# its packages: the group boxes of the one list (scripts/system/packages.json, here or as scripts/system of a checkout)
+SYSTEM=$HERE/system
+[ -f "$SYSTEM/packages.sh" ] || SYSTEM=$HERE/../system
+[ -f "$SYSTEM/packages.sh" ] && [ -f "$SYSTEM/packages.json" ] || die "no system/packages.sh and packages.json for $HERE (scripts/system)"
+# shellcheck source=../system/packages.sh
+. "$SYSTEM/packages.sh"
+pk_load "$SYSTEM/packages.json" || die "cannot read $SYSTEM/packages.json"
+DISTRO=$(pk_distro) && ARCH=$(pk_arch) || die "$OS is not in the list of packages"
+read -r -a BOX_PACKAGES <<< "$(pk_packages "$DISTRO" "$ARCH" boxes | tr '\n' ' ')"
+[ ${#BOX_PACKAGES[@]} -gt 0 ] || die "the list has no packages in the group boxes"
 [ -d "$BASE/root" ] && root_only "$BASE/root" || die "$BASE/root must belong to root, and only root may write to it"
 # A hosted server is a Trina Cloud team VM: one team on its own VM. The plan says if it has a box and its caps, in a
 # root-owned file. boxd refuses a box over these caps, so the server account cannot raise them.
@@ -176,9 +186,7 @@ export DEBIAN_FRONTEND=noninteractive
 # The first run compares with the record from before it. A later run compares only around its own apt-get: a package
 # added since then (a kernel, nginx) is not this trial's, and uninstall-trial.sh purges this list.
 if [ -e "$STATE/packages-new" ]; then dpkg-query -W -f '${Package}\n' | sort > "$STATE/packages-before"; fi
-apt-get update -qq
-apt-get install -y -qq --no-upgrade podman crun passt uidmap nftables conntrack dbus-user-session systemd-container python3 xfsprogs \
-  util-linux iproute2 >/dev/null
+pk_apt_install --no-upgrade -- "${BOX_PACKAGES[@]}" || die "apt-get install failed"
 dpkg-query -W -f '${Package}\n' | sort > "$STATE/packages-after"
 comm -13 "$STATE/packages-before" "$STATE/packages-after" > "$STATE/packages-added"
 if [ -e "$STATE/packages-new" ]; then cat "$STATE/packages-new" >> "$STATE/packages-added"; fi

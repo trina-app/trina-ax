@@ -64,7 +64,7 @@ import {
   sizeText, versionFromName, type AddPlan, type AddResult, type DownloadItem, type Found, type Signature,
 } from './desktop'
 import { deskCard, helperFetch, windowsThumbprint, type HelperState } from './helper'
-import { deskOrigins, loadSettings, MAX_RUN_DIR, officePaths, parseEnvFile, publicOrigin, runDirFor, serverConfig, settingsFrom, settingsText, tunnelLabel, type OfficeSettings } from './settings'
+import { deskOrigins, loadSettings, MAX_RUN_DIR, officePaths, parseEnvFile, publicOrigin, runDirFor, serverConfig, settingsFrom, settingsText, tunnelLabel, type OfficePaths, type OfficeSettings } from './settings'
 import { ensureOfficeTls, fingerprints, lanInfo, localHostName, type LanInfo } from './tls'
 import { TOKEN_RE } from '../proxy/subscription'
 import { reloadMarkedUpdateAgent, removeUpdateAgent, syncUpdateAgent, updateCommand } from './update-cli'
@@ -216,6 +216,9 @@ export async function run(home: string): Promise<never> {
   delete env.MYCEL_MODE
   const dist = webDist()
   if (dist) env.MYCEL_WEB_DIST = dist
+  // HTML to PDF: the browser office-install.sh installed (an explicit MYCEL_HTML_PDF_BROWSER of the agent wins)
+  const browser = officeBrowserEnv(p, env)
+  if (browser) env.MYCEL_HTML_PDF_BROWSER = browser
   const spawnServer = () => {
     startedAt = Date.now()
     child = Bun.spawn([process.execPath, mainScript(), '--config', p.serverJson], { cwd: p.home, env, stdin: 'ignore', stdout: 'ignore', stderr: 'inherit' })
@@ -372,6 +375,14 @@ function writeSecret(file: string, text: string) {
 
 async function answers(url: string, timeoutMs = 2000): Promise<boolean> {
   try { return (await fetch(url, { signal: AbortSignal.timeout(timeoutMs), tls: { rejectUnauthorized: false } } as RequestInit)).ok } catch { return false }
+}
+
+/** MYCEL_HTML_PDF_BROWSER for the office server: <home>/browser/chrome-headless-shell/current/chrome-headless-shell when
+ * office-install.sh put it there (scripts/system/packages.json); null when the environment names one already or there is
+ * none (the server then says HTML cannot be printed to PDF). */
+export function officeBrowserEnv(p: Pick<OfficePaths, 'browser'>, env: Record<string, string | undefined>): string | null {
+  if (env.MYCEL_HTML_PDF_BROWSER) return null
+  try { return fs.statSync(p.browser).isFile() ? p.browser : null } catch { return null }
 }
 
 function agentPath(s: OfficeSettings): string {

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-07 07:49
 - Branch: `feat/one-package-list`
-- Status: in progress
+- Status: done
 - Where: trina-ax scripts (image + installers). Why: the hosted image, a self-hosted Linux server and an office Mac
   get different system packages today, so one release behaves differently by install path (see
   docs/REPOSITORY-RULES.md)
@@ -76,4 +76,20 @@ g-bundle-linux, publish-server, office, dev-env-srt, devenv-hosted-boot, image-b
 
 ## Result
 
-Filled in at the end.
+Built as planned, with these differences:
+
+- Linux arm64 takes Chrome for Testing's own `chrome-headless-shell` too, not Debian's `chromium-headless-shell`:
+  Chrome for Testing publishes a linux-arm64 build now (157.0.8103.38), so every platform runs the same pinned program,
+  and Ubuntu 24.04 arm64 (no Debian package) gets one as well.
+- The linux64 build loads one library the arm64 build does not (`libatk-bridge-2.0.so.0`); the browser group lists it.
+  Found by installing the group on each system in containers and running the browser.
+- `scripts/linux/deps.txt` is gone; its floors are in the list's always groups. A repair of an older installed version
+  (a bundle without `root/packages.json`) still installs from that version's `deps.txt`.
+- `--apt-snapshot` (image builds only) installs from snapshot.debian.org; self-hosted installs keep release + floors.
+
+Checks: `tests/unit/system-packages.test.ts` (22 tests), the touched unit tests, `go test ./cmd/mycel-ctl/`,
+`bun run typecheck`, `bun run check:docs`, shellcheck (warnings) on every changed script, real installs in Debian 13,
+Debian 12 and Ubuntu 24.04 containers (arm64, and amd64 under emulation), the office browser step on a Mac with
+macOS's bash 3.2, and the Linux install test (`tests/install/g-linux-install.ts`) in its systemd container.
+
+PR: opened by the reviewer after review.

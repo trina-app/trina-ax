@@ -23,9 +23,22 @@ image mode + the first-boot pieces (`mycel-enroll`).
   the files on a tenant's data disk keep their owners when `reimageTenant` swaps the OS disk. Not 990/991: the Debian 13
   genericcloud base already uses 988-999 (pilot 2026-10-30: uid 990 = systemd-resolve). If a later base image takes
   980/981, `customize.sh` stops with `uid N is taken by <account>`.
-- Packages: `qemu-guest-agent chrony nftables bubblewrap systemd-zram-generator unattended-upgrades needrestart
-  ca-certificates e2fsprogs cloud-guest-utils` (+ systemd/udev/tzdata). `openssh-server` purged, `ssh.service`,
-  `ssh.socket`, `sshd.service` masked (D15). The kit's own apt step installs its runtime packages.
+- Packages: all from the one list `scripts/system/packages.json` (read by `scripts/system/packages.sh`; the stage
+  copies both as `system/`), so the image and a self-hosted install cannot drift apart (`tests/unit/system-packages.test.ts`):
+  - `customize.sh` installs the list's `image` group (the VM's own: `qemu-guest-agent chrony nftables bubblewrap
+    systemd-zram-generator unattended-upgrades needrestart ca-certificates e2fsprogs cloud-guest-utils`, systemd, udev,
+    tzdata …) and purges its `remove` list (`openssh-server`, D15; `ssh.service`, `ssh.socket`, `sshd.service` masked).
+  - The kit's installer (`install-linux.sh --image-mode`, without `--minimal`) installs the `always` and `default`
+    groups, exactly as a self-hosted install: the server's packages, CJK fonts, the dev environment's tools and the
+    pinned `chrome-headless-shell` in `/opt/trina/chrome-headless-shell/<version>` (`current` link,
+    `MYCEL_HTML_PDF_BROWSER` in `/etc/default/mycel`).
+  - With `--srt`, `install-srt.sh --image-mode` adds the `srt` group: node and srt at the list's versions and sha256.
+  - Versions: the image is Debian 13 (the list's `debian-13`, suite trixie); floors (`>=`) are checked after the install
+    and the newest trixie version is installed. `--apt-snapshot YYYYMMDDTHHMMSSZ` (`build.sh`, `build-ami.sh`,
+    `customize.sh`) installs every apt package from that snapshot of snapshot.debian.org instead (apt's `--snapshot`),
+    so a rebuild gets the same versions; it freezes security fixes at that time too, so use a recent one.
+  - A change to the list is a root change of the kit (`root/packages.json`): `mycel-ctl update` on a team VM runs
+    `packages.sh sync` (missing packages, the browser at the pinned version, the old one removed).
 - **Kit in image mode, moved to the seed** (decision L1): `install-linux.sh install --from <kit> --hosted --image-mode
   --engine claude --engine codex` installs into `BASE=/var/lib/mycel` on the OS disk, then `customize.sh` moves that tree
   to `/usr/lib/mycel/seed-base` (owners kept) and leaves `/var/lib/mycel` an **empty mount point**. The kit stays in
@@ -63,9 +76,11 @@ image mode + the first-boot pieces (`mycel-enroll`).
   first boot needs (`write_files`, `growpart`, `resizefs`, hostname, `runcmd`). `mycel-enroll` writes
   `/etc/cloud/cloud-init.disabled` after enrolling.
 - The dev environment on srt, image part (EC2 images: `build-ami.sh` stages `scripts/dev-env/srt` as `dev-env-srt/`;
-  `customize.sh --srt`): `install-srt.sh --image-mode` installs its packages (bubblewrap, socat, ripgrep, polkitd, jq,
-  python3, ffmpeg, chromium, build tools, CJK fonts), node 22 in `/opt/trina/node`, srt in `/opt/trina/srt/<version>`
-  and `/opt/trina/devenv/run-wrap`. A copy of the scripts stays in `/usr/lib/mycel/dev-env/srt`. It does **not** turn
+  `customize.sh --srt`): `install-srt.sh --image-mode` checks its packages (the list's groups core, media, fonts and
+  devenv: bubblewrap, socat, ripgrep, polkitd, jq, python3, ffmpeg, chromium, build tools, CJK fonts; the kit's installer
+  put them there), installs node 22 in `/opt/trina/node`, srt in `/opt/trina/srt/<version>` (both the list's `srt`
+  group) and `/opt/trina/devenv/run-wrap`. A copy of the scripts, with `system/` (the list), stays in
+  `/usr/lib/mycel/dev-env/srt`. It does **not** turn
   the dev environment on: no polkit rule, no devenv slice, no server drop-in. `install-srt.sh` without `--image-mode` on
   the team server does that (it needs `<base>/root/dev-env.json` on a hosted VM) and then downloads nothing.
 - With srt, also `mycel-devenv-boot` (`/usr/local/sbin`), `mycel-devenv-boot.service`, `mycel-devenv-plan.path` and the

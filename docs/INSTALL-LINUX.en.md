@@ -86,6 +86,16 @@ sudo mycel-ctl status
 
 The installer creates `axserver` and `axagent`, installs into `/var/lib/mycel`, configures sandbox/firewall and systemd units (`mycel-server`, `mycel-launcher`, firewall and update timers). It downloads pinned engine binaries. Default app port: 47820, loopback. `--id`, `--port`, `--proxy-port` and `--no-auto-update` are advanced options; preserve the same install identity when maintaining it. `--id` cannot be `system`, `user`, `machine` or `capsule` (systemd's own slices).
 
+### System packages
+
+The installer takes its system packages from one list in the kit (`app/<version>/root/packages.json`, `scripts/system/packages.json` in the repository). The hosted servers' image installs from the same list, so a default install has the same packages as a hosted server.
+
+- **Always** (also with `--minimal`): what the server itself uses: bubblewrap, nftables, poppler-utils, ffmpeg, libheif-examples and a few tools. The install stops when they cannot be installed or are older than the list's minimum version.
+- **By default** (left out with `--minimal`): CJK fonts (fonts-noto-cjk), the dev environment's tools (python3, git, build-essential, ripgrep, Debian's chromium …; packages only: the dev environment stays off until `scripts/dev-env/srt/install-srt.sh` turns it on) and the headless browser for HTML to PDF. When they cannot be installed the installer warns and goes on; `repair` tries again.
+- **The browser**: Chrome for Testing's `chrome-headless-shell` at the version and SHA-256 the list pins, in `/opt/trina/chrome-headless-shell/<version>/` with a `current` link, root-owned and writable by nobody else. `MYCEL_HTML_PDF_BROWSER` in `/etc/default/<id>` names it. An update whose list pins a new version downloads it, checks it, switches `current` and removes the old one (`mycel-ctl update` runs the kit's `packages.sh sync`).
+- **Versions**: the distribution release is pinned (Debian 12 or 13, Ubuntu 24.04), and each package may have a minimum version that is checked after the install. The newest version of that release is installed, security updates included; exact versions are not pinned, because mirrors drop superseded versions.
+- `--minimal` is kept for `repair` and `update`; `--no-minimal` adds the default groups back. `--skip-apt` installs no packages (they must be there); the browser is still downloaded unless `--minimal`.
+
 ## First run
 
 On your workstation open a local SSH tunnel: `ssh -L 47820:127.0.0.1:47820 <server>`. Read the setup code locally on the server from `/var/lib/mycel/setup/code` with administrative access; keep it private. Open the loopback setup page and enter the code. Create the owner, team name and language; verify the team timezone.
@@ -178,7 +188,7 @@ See [BACKUP-RESTORE.md](BACKUP-RESTORE.md) for DB-only restore, team files, encr
 sudo ./install-linux.sh uninstall
 ```
 
-This removes services/app components while retaining data, and the `MYCEL_SAFE_OPS_1A` line of `/etc/default/<id>` (a reinstall starts with 1A off; the file's other lines stay). Only after verifying an off-host recovery copy, `uninstall --purge` also removes data/accounts. Confirm the installer identity and path before removal; never use demo cleanup on a production directory.
+This removes services/app components while retaining data, and the `MYCEL_SAFE_OPS_1A` and `MYCEL_HTML_PDF_BROWSER` lines of `/etc/default/<id>` (a reinstall starts with 1A off; the file's other lines stay). The apt packages and the browser in `/opt/trina` stay: other installs may use them. Only after verifying an off-host recovery copy, `uninstall --purge` also removes data/accounts. Confirm the installer identity and path before removal; never use demo cleanup on a production directory.
 
 ## Troubleshooting and FAQ
 

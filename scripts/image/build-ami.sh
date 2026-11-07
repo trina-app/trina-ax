@@ -23,6 +23,7 @@
 #                               "trina-test-", so a check by tag finds all of it
 #   --tag K=V                   one more tag on every resource (repeat for more)
 #   --allow-missing-kit         pipeline dry run without the kit (kitVersion 0.0.0-kitless): NOT for production
+#   --apt-snapshot TS           apt packages from snapshot.debian.org at TS (YYYYMMDDTHHMMSSZ): a rebuild gets the same versions
 #   --dry-run                   print every aws command, run none, make nothing
 #   --yes, -y                   no confirmation prompt (needed when stdin is not a terminal)
 #   --cleanup STATEFILE         remove what a failed run left behind (only the ids in its state file), then exit
@@ -55,7 +56,7 @@ if [[ "${1:-}" == --manifest-v2 ]]; then shift; exec "${BASH:-/bin/bash}" "$HERE
 
 KIT=""; ENROLL_BIN=""; LINK_BIN=""; SUBNET=""; REGION=ap-northeast-2; PROFILE=""; ACCOUNT_WANT=""; SOURCE_AMI=""
 BUILDER_TYPE=t3a.medium; SSH_CIDR=""; DATE="$(date -u +%Y%m%d)"; SIGN_KEY=""; OUT="$REPO/dist/image"; ROOT_GB=20
-TEST=0; EXTRA_TAGS=(); ALLOW_MISSING_KIT=0; DRY=0; YES=0; CLEANUP_STATE=""
+TEST=0; EXTRA_TAGS=(); ALLOW_MISSING_KIT=0; DRY=0; YES=0; CLEANUP_STATE=""; APT_SNAPSHOT=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --kit) KIT="$2"; shift 2 ;;
@@ -75,10 +76,11 @@ while [[ $# -gt 0 ]]; do
     --test) TEST=1; shift ;;
     --tag) EXTRA_TAGS+=("$2"); shift 2 ;;
     --allow-missing-kit) ALLOW_MISSING_KIT=1; shift ;;
+    --apt-snapshot) APT_SNAPSHOT="$2"; shift 2 ;;
     --dry-run) DRY=1; shift ;;
     --yes|-y) YES=1; shift ;;
     --cleanup) CLEANUP_STATE="$2"; shift 2 ;;
-    -h|--help) sed -n '2,50p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,51p' "$0"; exit 0 ;;
     *) echo "build-ami: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -251,6 +253,10 @@ for pair in "enroll:$ENROLL_BIN" "link:$LINK_BIN"; do
   fi
 done
 cp -a "$HERE/customize.sh" "$HERE/files" "$STAGE/"
+# the one list of packages and its reader (scripts/system): customize.sh and install-srt.sh read it
+mkdir -p "$STAGE/system" "$STAGE/dev-env-srt/system"
+cp -p "$REPO/scripts/system/packages.sh" "$REPO/scripts/system/packages.json" "$STAGE/system/"
+cp -p "$REPO/scripts/system/packages.sh" "$REPO/scripts/system/packages.json" "$STAGE/dev-env-srt/system/"
 # the dev environment on srt, image part (customize.sh --srt, default <stage>/dev-env-srt): only the install files
 SRT_FILES=(install-srt.sh uninstall-srt.sh package.json package-lock.json run-wrap srt-full.mjs devenv.rules.in devenv.slice.in README.md)
 mkdir -p "$STAGE/dev-env-srt"
@@ -399,6 +405,10 @@ COPYFILE_DISABLE=1 tar -czf "$WORK/stage.tgz" -C "$WORK/stage" .
 if [[ $DRY == 1 ]]; then echo "+ scp stage.tgz admin@$IP:/tmp/ax-stage.tgz" >&3
 else scp -q "${SSH_OPTS[@]}" "$WORK/stage.tgz" "admin@$IP:/tmp/ax-stage.tgz"; fi
 extra=""; [[ $ALLOW_MISSING_KIT == 1 ]] && extra=" --allow-missing-kit"
+if [[ -n "$APT_SNAPSHOT" ]]; then
+  [[ "$APT_SNAPSHOT" =~ ^[0-9]{8}T[0-9]{6}Z$ ]] || die "--apt-snapshot $APT_SNAPSHOT is not YYYYMMDDTHHMMSSZ"
+  extra+=" --apt-snapshot $APT_SNAPSHOT"
+fi
 say "customize on the builder (log: $OUT/ami-build-$TEMPLATE_VERSION.log)"
 rssh "sudo bash -c 'set -e; rm -rf /root/ax-build; mkdir -m 700 /root/ax-build; tar --no-same-owner -xzf /tmp/ax-stage.tgz -C /root/ax-build; rm -f /tmp/ax-stage.tgz; bash /root/ax-build/ami-chroot.sh --volume-id $VOLUME --stage /root/ax-build/ax-image --template-version $TEMPLATE_VERSION$extra'" \
   > "$OUT/ami-build-$TEMPLATE_VERSION.log" 2>&1 || { tail -n 40 "$OUT/ami-build-$TEMPLATE_VERSION.log" >&2; die "customize on the builder failed (full log above)"; }

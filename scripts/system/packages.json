@@ -1,0 +1,224 @@
+{
+  "format": 1,
+  "_about": [
+    "The system packages and downloaded programs of every install path: the hosted image (scripts/image/customize.sh),",
+    "a self-hosted Linux server (scripts/install-linux.sh), the dev environment (scripts/dev-env/srt/install-srt.sh,",
+    "scripts/dev-env/install-trial.sh) and an office Mac (scripts/office/office-install.sh). A feature that needs a system",
+    "package or a program adds it here, never to one script (docs/REPOSITORY-RULES.md). Read by scripts/system/packages.sh;",
+    "checked by tests/unit/system-packages.test.ts. Shipped in every Linux bundle as root/packages.json, so a changed list",
+    "is a root change (rootSince) and mycel-ctl update brings a server to it (packages.sh sync).",
+    "groups.<g>.install: always = every install, also --minimal; default = every install unless --minimal, and the image;",
+    "on-request = only a script that names the group (image: customize.sh; srt: install-srt.sh and the image; boxes:",
+    "install-trial.sh).",
+    "Package versions: the distribution release is pinned (distros; the installers accept no other), each package may",
+    "carry a floor \">=V\" that is checked after the install (dpkg --compare-versions), and the newest version of that",
+    "release is installed, security updates included. A package value is \">=V\", \"\" (any version) or",
+    "{\"min\": \">=V\", \"on\": [\"<distro>\" | \"<distro>/<arch>\"], \"when\": \"userns-restricted\"}.",
+    "Artifacts are pinned exactly: one version, and a url, sha256 and size for every platform. A new browser: take the",
+    "Stable version of last-known-good-versions-with-downloads.json (googlechromelabs.github.io/chrome-for-testing),",
+    "download its four chrome-headless-shell zips, and write their sha256 (shasum -a 256) and size here."
+  ],
+  "distros": {
+    "debian-12": { "id": "debian", "version": "12", "suite": "bookworm" },
+    "debian-13": { "id": "debian", "version": "13", "suite": "trixie" },
+    "ubuntu-24.04": { "id": "ubuntu", "version": "24.04", "suite": "noble" }
+  },
+  "arches": ["amd64", "arm64"],
+  "groups": {
+    "core": {
+      "install": "always",
+      "for": "the sandbox (bwrap), the engine firewall (nft), downloads and unpacking. Floors: Debian 12, the oldest release",
+      "packages": {
+        "bubblewrap": ">=0.8.0",
+        "nftables": ">=1.0.6",
+        "ca-certificates": ">=20230311",
+        "curl": ">=7.88.1",
+        "gnupg": ">=2.2.40",
+        "file": ">=1:5.44",
+        "zstd": ">=1.5.4",
+        "util-linux": ">=2.38.1",
+        "apparmor": { "when": "userns-restricted" }
+      }
+    },
+    "documents": {
+      "install": "always",
+      "for": "the server's own converters: PDF pages and HEIC photos",
+      "packages": {
+        "poppler-utils": ">=22.12.0",
+        "libheif-examples": ">=1.15.1"
+      }
+    },
+    "media": {
+      "install": "always",
+      "for": "video and audio the AI reads (ffmpeg, ffprobe)",
+      "packages": {
+        "ffmpeg": ">=7:5.1"
+      }
+    },
+    "fonts": {
+      "install": "default",
+      "for": "Korean, Japanese and Chinese in what the browser prints and the dev environment draws; Arial-compatible Latin",
+      "packages": {
+        "fonts-noto-cjk": "",
+        "fonts-liberation": ""
+      }
+    },
+    "devenv": {
+      "install": "default",
+      "for": "the dev environment's commands and srt (socat, ripgrep). Installing them turns nothing on: install-srt.sh does",
+      "packages": {
+        "socat": "",
+        "ripgrep": "",
+        "polkitd": "",
+        "jq": "",
+        "git": "",
+        "xz-utils": "",
+        "python3": "",
+        "python3-venv": "",
+        "python3-pip": "",
+        "build-essential": "",
+        "chromium": { "on": ["debian-12", "debian-13"] }
+      }
+    },
+    "browser": {
+      "install": "default",
+      "for": "HTML to PDF (server/src/files/html-pdf.ts): the pinned chrome-headless-shell and the libraries it loads (ldd of the linux64 and linux-arm64 builds on each system)",
+      "packages": {
+        "unzip": "",
+        "libnspr4": "",
+        "libnss3": "",
+        "libdbus-1-3": "",
+        "libexpat1": "",
+        "libgbm1": "",
+        "libx11-6": "",
+        "libxcb1": "",
+        "libxcomposite1": "",
+        "libxdamage1": "",
+        "libxext6": "",
+        "libxfixes3": "",
+        "libxkbcommon0": "",
+        "libxrandr2": "",
+        "libfontconfig1": "",
+        "libglib2.0-0": { "on": ["debian-12"] },
+        "libatk1.0-0": { "on": ["debian-12"] },
+        "libatspi2.0-0": { "on": ["debian-12"] },
+        "libatk-bridge2.0-0": { "on": ["debian-12"] },
+        "libasound2": { "on": ["debian-12"] },
+        "libglib2.0-0t64": { "on": ["debian-13", "ubuntu-24.04"] },
+        "libatk1.0-0t64": { "on": ["debian-13", "ubuntu-24.04"] },
+        "libatspi2.0-0t64": { "on": ["debian-13", "ubuntu-24.04"] },
+        "libatk-bridge2.0-0t64": { "on": ["debian-13", "ubuntu-24.04"] },
+        "libasound2t64": { "on": ["debian-13", "ubuntu-24.04"] }
+      },
+      "artifacts": ["chrome-headless-shell"]
+    },
+    "image": {
+      "install": "on-request",
+      "for": "the hosted team VM (scripts/image/customize.sh): guest agent, time, zram, security updates, no SSH server",
+      "packages": {
+        "systemd": "",
+        "systemd-sysv": "",
+        "udev": "",
+        "tzdata": "",
+        "qemu-guest-agent": "",
+        "chrony": "",
+        "nftables": "",
+        "bubblewrap": "",
+        "systemd-zram-generator": "",
+        "unattended-upgrades": "",
+        "needrestart": "",
+        "ca-certificates": "",
+        "e2fsprogs": "",
+        "cloud-guest-utils": "",
+        "util-linux": "",
+        "procps": "",
+        "perl-base": ""
+      },
+      "remove": ["openssh-server", "openssh-sftp-server"]
+    },
+    "srt": {
+      "install": "on-request",
+      "for": "the dev environment on srt (install-srt.sh, the image with --srt): node in /opt/trina/node, srt in /opt/trina/srt/<version>",
+      "artifacts": ["node", "srt"]
+    },
+    "boxes": {
+      "install": "on-request",
+      "for": "the dev environment trial on podman boxes (scripts/dev-env/install-trial.sh)",
+      "packages": {
+        "podman": "",
+        "crun": "",
+        "passt": "",
+        "uidmap": "",
+        "nftables": "",
+        "conntrack": "",
+        "dbus-user-session": "",
+        "systemd-container": "",
+        "python3": "",
+        "xfsprogs": "",
+        "util-linux": "",
+        "iproute2": ""
+      }
+    }
+  },
+  "artifacts": {
+    "chrome-headless-shell": {
+      "version": "157.0.8103.38",
+      "for": "Chrome for Testing, Stable channel (googlechromelabs.github.io/chrome-for-testing). Google publishes no checksums: the sha256 are of the files downloaded on 2026-11-07. Installed in /opt/trina/chrome-headless-shell/<version>/<dir> on Linux and <prefix>/browser/chrome-headless-shell/<version>/<dir> on an office Mac, with a link current",
+      "platforms": {
+        "linux-amd64": {
+          "url": "https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux64/chrome-headless-shell-linux64.zip",
+          "sha256": "deafffa74660b34853a4119c361fd427ac8c9fcb62db51ddb8a797cd83a4ba2d",
+          "size": 128168542,
+          "dir": "chrome-headless-shell-linux64"
+        },
+        "linux-arm64": {
+          "url": "https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux-arm64/chrome-headless-shell-linux-arm64.zip",
+          "sha256": "b9b910a57b2a15eb3e55000a2339f93a973934a413ebfc6e585a50ec6c42fd6c",
+          "size": 128171139,
+          "dir": "chrome-headless-shell-linux-arm64"
+        },
+        "darwin-arm64": {
+          "url": "https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/mac-arm64/chrome-headless-shell-mac-arm64.zip",
+          "sha256": "e6a6b13551aa12f951d0891d79282606b13742837c8fa0505e1272bae116ce82",
+          "size": 104773711,
+          "dir": "chrome-headless-shell-mac-arm64"
+        },
+        "darwin-amd64": {
+          "url": "https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/mac-x64/chrome-headless-shell-mac-x64.zip",
+          "sha256": "79821745d0a72d2ba752d981284ed0a9e6fa320dad133596941a17dba6186de3",
+          "size": 110442262,
+          "dir": "chrome-headless-shell-mac-x64"
+        }
+      }
+    },
+    "node": {
+      "version": "22.23.4",
+      "for": "srt's runtime (srt needs 22.12 or later, NODE_USE_ENV_PROXY 22.21; Debian 13 has 20). sha256 from the release's SHASUMS256.txt",
+      "platforms": {
+        "linux-amd64": {
+          "url": "https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-x64.tar.xz",
+          "sha256": "1805bcd35e6815559bd2eb97db438d3fdb0eb3a5e6a977b7c1badca76337e9ce",
+          "size": 31029996,
+          "dir": "node-v22.23.4-linux-x64"
+        },
+        "linux-arm64": {
+          "url": "https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-arm64.tar.xz",
+          "sha256": "6287aa46b6c375d816e63ae66d024fbbfd70404825aabdfdf898a970871d2f4b",
+          "size": 30201396,
+          "dir": "node-v22.23.4-linux-arm64"
+        }
+      }
+    },
+    "srt": {
+      "version": "0.0.81",
+      "for": "@anthropic-ai/sandbox-runtime. install-srt.sh installs it with npm ci from scripts/dev-env/srt/package-lock.json, which pins this tarball (its sha512 integrity is the same file as this sha256)",
+      "platforms": {
+        "any": {
+          "url": "https://registry.npmjs.org/@anthropic-ai/sandbox-runtime/-/sandbox-runtime-0.0.81.tgz",
+          "sha256": "0e0b8249062047f7b592c7995f8ec2f251f3bbebdc0402db1ee23af09983953f",
+          "size": 4836387
+        }
+      }
+    }
+  }
+}

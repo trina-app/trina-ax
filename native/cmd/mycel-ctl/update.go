@@ -798,6 +798,7 @@ func (u *updater) updateRoot(dir, v string) error {
 		if err := u.syncUnits(systemd, false); err != nil {
 			return err
 		}
+		u.syncSystem(dir)
 		if stale {
 			if !u.waitForTurns() {
 				return u.deferUpdate(v, boxdUnit+" not restarted")
@@ -873,7 +874,44 @@ func (u *updater) updateRoot(dir, v string) error {
 	} else {
 		u.res.Notes = append(u.res.Notes, "no systemd: restart `mycel-ctl supervise` to run the new root files")
 	}
+	u.syncSystem(dir)
 	return nil
+}
+
+// The reader of the one list of system packages and programs (scripts/system/packages.sh with packages.json): root files
+// of every bundle since the list came. bashPath runs it (a variable for the tests).
+const packagesSh = "packages.sh"
+
+var bashPath = "/bin/bash"
+
+// syncSystem brings this machine to the list of the root files now in place: the packages of the install's profile that
+// are missing (apt; none with --minimal's groups only, nothing with --skip-apt) and the pinned headless browser
+// (/opt/trina/chrome-headless-shell/<version>, the old one removed, MYCEL_HTML_PDF_BROWSER in /etc/default/<id>). The
+// list is a root file, so a release that changes it is a root release (publish-server.ts rootSince) and comes here; a
+// run whose machine is right already changes nothing and downloads nothing. packages.sh reads the list with the
+// verified bundle's bun. Its lines become notes, and so does a failure: the server runs without them (HTML to PDF says
+// there is no browser), and the next update or `install-linux.sh repair` tries again.
+func (u *updater) syncSystem(dir string) {
+	sh := u.e.root(packagesSh)
+	if !fileExists(sh) || !fileExists(u.e.root("packages.json")) {
+		return
+	}
+	args := []string{sh, "sync", "--id", u.in.ID, "--base", u.e.base}
+	if bun := filepath.Join(dir, "bin", "bun"); fileExists(bun) {
+		args = append(args, "--bun", bun)
+	}
+	cmd := exec.Command(bashPath, args...)
+	cmd.Dir = "/"
+	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL=C", "HOME=/root"}
+	out, err := cmd.CombinedOutput()
+	for _, l := range strings.Split(string(out), "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			u.res.Notes = append(u.res.Notes, l)
+		}
+	}
+	if err != nil {
+		u.res.Notes = append(u.res.Notes, "system packages: "+packagesSh+" sync: "+err.Error())
+	}
 }
 
 // The dev environment's root helper: root/<boxdProgram> comes with every kit, and only a server with the dev env has

@@ -108,14 +108,28 @@ sudo ./install-linux.sh install --from . --engine claude --engine codex
 ```
 
 - 계정 `axserver`(서버)·`axagent`(AI 엔진)을 시스템 계정으로 만든다. 모든 파일은 `/var/lib/mycel` 아래.
-- 필요한 패키지(bubblewrap, nftables, poppler-utils, ffmpeg, libheif-examples …)를 apt로 설치한다(`--skip-apt`로 끔). tesseract는 더 이상 설치하지 않는다(이미 있어도 쓰지 않음).
+- 시스템 패키지는 키트 안의 한 목록(`app/<버전>/root/packages.json`, 저장소의 `scripts/system/packages.json`)에서 apt로
+  설치한다(`--skip-apt`로 끔). 호스팅 서버의 이미지도 같은 목록에서 설치하므로, 기본 설치는 호스팅 서버와 같은 패키지를 갖는다.
+  - 늘 설치(`--minimal`에서도): bubblewrap, nftables, poppler-utils, ffmpeg, libheif-examples 등 서버가 쓰는 것. 설치할 수
+    없거나 목록의 최소 버전보다 낮으면 설치를 멈춘다.
+  - 기본 설치(`--minimal`이면 빠짐): 한중일 글꼴(fonts-noto-cjk), 개발 환경의 도구(python3, git, build-essential, ripgrep,
+    Debian의 chromium …; 패키지만 넣고 개발 환경은 켜지 않는다. 켜는 것은 `scripts/dev-env/srt/install-srt.sh`), 그리고 HTML을
+    PDF로 바꾸는 헤드리스 브라우저. 이것들이 설치되지 않으면 경고만 하고 계속한다(`repair`가 다시 시도).
+  - 브라우저: 목록이 고정한 Chrome for Testing `chrome-headless-shell`(버전과 SHA-256 고정)을
+    `/opt/trina/chrome-headless-shell/<버전>/`에 받고 `current` 링크를 건다. root 소유이고 다른 계정은 쓸 수 없다.
+    `/etc/default/<id>`의 `MYCEL_HTML_PDF_BROWSER`가 이 브라우저를 가리킨다. 목록이 새 버전을 고정한 업데이트는 새 버전을 받아
+    확인하고 `current`를 옮긴 뒤 옛 버전을 지운다(`mycel-ctl update`가 키트의 `packages.sh sync`를 돌린다).
+  - 패키지 버전: 배포판 릴리스(Debian 12·13, Ubuntu 24.04)를 고정하고, 패키지마다 최소 버전을 확인한다. 그 릴리스의 최신
+    버전(보안 업데이트 포함)을 설치하고, 정확한 버전은 고정하지 않는다(미러가 옛 버전을 지우면 설치가 깨진다).
+  - tesseract는 더 이상 설치하지 않는다(이미 있어도 쓰지 않음).
 - 엔진 바이너리는 공식 주소에서 받아 고정된 SHA-256과 비교한다(번들에 넣지 않음).
 - 방화벽(nftables)을 먼저 넣고, 실패하면 설치를 멈춘다: AI 엔진 계정은 `127.0.0.1:<모델 프록시 포트>` 말고는 아무 데도 못 나간다.
 - systemd 유닛: `mycel-firewall.timer`, `mycel-launcher.service`, `mycel-server.service`, `mycel-update.timer`.
 - 마지막 줄이 `installed …`이면 성공. 실패하면 이유를 출력하고 1로 끝난다.
 
 자주 쓰는 옵션: `--id ID`(한 서버에 시험 설치를 하나 더. systemd 자체 그룹 이름인 `system`·`user`·`machine`·`capsule`은 쓸 수 없다), `--port N`(기본 47820), `--proxy-port N`(기본 47821),
-`--tls-port N`(사무실 안 직접 연결, 기본 끔), `--no-auto-update`, `--plan FILE`(요금제 파일, 아래 9장).
+`--tls-port N`(사무실 안 직접 연결, 기본 끔), `--no-auto-update`, `--plan FILE`(요금제 파일, 아래 9장),
+`--minimal`(늘 필요한 패키지만. repair·update가 기억하고, `--no-minimal`로 되돌린다).
 
 공개 주소와 연동(7장 "공개 주소"):
 
@@ -373,4 +387,4 @@ sudo ./install-linux.sh uninstall              # 앱·실행기·유닛 삭제, 
 sudo ./install-linux.sh uninstall --purge      # 전부 삭제, 계정도 삭제
 ```
 
-제거하면 `/etc/default/<id>`의 `MYCEL_SAFE_OPS_1A` 줄도 지운다(다시 설치하면 1A는 꺼진 채로 시작한다). 그 파일의 다른 줄은 남는다.
+제거하면 `/etc/default/<id>`의 `MYCEL_SAFE_OPS_1A`·`MYCEL_HTML_PDF_BROWSER` 줄도 지운다(다시 설치하면 1A는 꺼진 채로 시작한다). 그 파일의 다른 줄은 남는다. apt 패키지와 `/opt/trina`의 브라우저는 남긴다(다른 설치가 쓸 수 있다).
