@@ -201,10 +201,19 @@ function toShare(ctx: AppContext, r: Row, viewer: string): SkillShare {
   const target = targetOf(ctx, r)
   const mine = r.created_by === viewer
   const open = r.status === 'checking' || r.status === 'ready'
+  // a group's member who reviews someone else's proposal reads what goes to the group, nothing more of the proposer's:
+  // no CLAUDE.md lines, no tools, no skill that stays on their computer (excluded, with its secret's kind), and a
+  // same-name or similar skill only when the reviewer can read it themselves
+  const reviewer = mine ? null : principalOf(ctx, viewer)
+  const readable = <T extends { path: string }>(ref: T | null): T | null => (ref && reviewer && readSkill(ctx.files, reviewer, ref.path) ? ref : null)
+  const candidates = mine ? res.candidates ?? [] : (res.candidates ?? []).filter((c) => c.group !== 'excluded').map((c) => {
+    const sameName = readable(c.sameName), similar = readable(c.similar)
+    return { ...c, sameName, similar, detail: c.reason === 'similar' && !similar ? null : c.detail }
+  })
   return {
     id: r.id, source, app: source === 'codex' ? 'codex' : res.app ?? 'claude', status: r.status, where: r.where_label, projects: r.projects,
     createdAt: new Date(r.created_at).toISOString(), updatedAt: new Date(Number.isFinite(Date.parse(r.updated_at)) ? r.updated_at : r.created_at).toISOString(), expiresAt: new Date(r.expires_at).toISOString(), ai: r.ai,
-    candidates: res.candidates ?? [], rule: res.rule ?? null, tools: res.tools ?? [], landing: res.landing ?? null,
+    candidates, rule: mine ? res.rule ?? null : null, tools: mine ? res.tools ?? [] : [], landing: res.landing ?? null,
     targetGroup: target, proposer: { id: r.created_by, name: nameOf(ctx, r.created_by) }, mine, canApply: mayApply(ctx, r, viewer),
     targets: mine && open && !partlyIn(res) ? targetChoices(ctx, viewer) : [],
   }
@@ -245,13 +254,13 @@ function mayApply(ctx: AppContext, r: Row, viewer: string): boolean {
 /** Something of the share already went in (a skill added or merging, the rule, a tool): its target is fixed. */
 const partlyIn = (res: Result) => res.candidates.some((c) => c.applied && c.applied.status !== 'failed') || !!res.rule?.path || res.tools.some((t) => !!t.templateId)
 
-/** The existing skills a share's candidates are compared with, as the person `me` sees them: a group's own skills
- * (first: a group skill of a name hides the team's) and the team's, for a group target; the team's for the team. */
+/** The skills a share's candidates may collide with and merge into, as the person `me` sees them: the target's own.
+ * For a group target that is the group's skills only: a share to a group never changes a team skill, and a team skill
+ * of the same name is no conflict (the group's copy replaces it for the group's members: personal > group > team).
+ * The AI's judgement still reads the team's skills too (share-judge.ts), to tell what the team already has. */
 function targetRefs(ctx: AppContext, me: Principal, groupId: string | null): TeamSkillRef[] {
-  const team = teamRefs(ctx, me)
-  if (!groupId) return team
-  const group = listGroupSkills(ctx.files, me, groupId).map((s) => ({ name: s.name, path: s.path, title: skillTitle(s), description: s.description }))
-  return [...group, ...team.filter((t) => !group.some((g) => sameSkillName(g.name, t.name)))]
+  if (!groupId) return teamRefs(ctx, me)
+  return listGroupSkills(ctx.files, me, groupId).map((s) => ({ name: s.name, path: s.path, title: skillTitle(s), description: s.description }))
 }
 
 /** Active members of a group who may write its skills folder, with their language: who reviews a share to it. */
@@ -467,8 +476,10 @@ export function createSkillShare(ctx: AppContext, rt: ChatRuntime | null, who: S
  * who may apply it are told. Audited as skills.share_target.
  */
 export function setSkillShareTarget(ctx: AppContext, rt: ChatRuntime, who: ShareCaller, locale: Locale, id: string, body: { group: string | null }): SkillShare {
-  const r = rowOf(ctx, id)
+  let r = rowOf(ctx, id)
   if (!r || r.created_by !== who.id) return fail('not_found')
+  // one past its days expires first (its staged files go), as a read would
+  if ((r.status === 'checking' || r.status === 'ready') && Date.parse(r.expires_at) <= Date.now()) { close(ctx, rt, r, 'expired'); r = rowOf(ctx, id)! }
   if (r.status !== 'checking' && r.status !== 'ready') fail('conflict', TEXT[r.status === 'applied' ? 'applied' : 'gone'][locale], { params: { reason: r.status } })
   const res = readResult(r)
   if (partlyIn(res)) fail('conflict', TEXT.targetFixed[locale], { params: { reason: 'partly_applied' } })
@@ -483,8 +494,13 @@ export function setSkillShareTarget(ctx: AppContext, rt: ChatRuntime, who: Share
     const same = refs.find((x) => sameSkillName(x.name, c.name))
     c.sameName = same ? { path: same.path, title: same.title } : null
     if (c.similar && !ref(c.similar.path)) c.similar = null
-    // a reason that named the other target's skill no longer holds
-    if ((c.reason === 'same_name' && !c.sameName) || (c.reason === 'similar' && !c.similar)) c.reason = c.group === 'recommended' ? 'team_any' : 'unjudged'
+    // a reason that named the other target's skill no longer holds (nor its title as the detail); a same name in the
+    // new target is said as such on a recommended row
+    if ((c.reason === 'same_name' && !c.sameName) || (c.reason === 'similar' && !c.similar)) {
+      c.reason = c.group === 'recommended' ? 'team_any' : 'unjudged'
+      c.detail = null
+    }
+    if (c.sameName && c.reason === 'team_any') { c.reason = 'same_name'; c.detail = null }
     c.action = c.sameName || c.similar ? 'merge' : 'add'
   }
   ctx.db.query('UPDATE skill_shares SET target_group_id = ?, result = ?, updated_at = ? WHERE id = ?').run(group, JSON.stringify(res), new Date().toISOString(), id)

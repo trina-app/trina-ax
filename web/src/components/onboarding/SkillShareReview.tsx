@@ -415,6 +415,11 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
         >
           <option value="">{t('skillShare.targetTeam', { team })}</option>
           {choices.map((g) => <option key={g.id} value={g.id}>{t('skillShare.targetGroup', { group: g.name })}</option>)}
+          {/* the group it goes to now, when it is no choice any more (gone, or no longer the proposer's to write): shown
+              as it is, so picking the team still changes it */}
+          {group && !choices.some((g) => g.id === group.id) && (
+            <option value={group.id} disabled>{group.name === null ? t('skillShare.groupGone') : t('skillShare.targetGroup', { group: group.name })}</option>
+          )}
         </select>
       </label>
     )

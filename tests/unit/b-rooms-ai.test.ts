@@ -342,6 +342,23 @@ describe('what an answer may carry into the room', () => {
     } finally { fs.rmSync(abs, { force: true }) }
   })
 
+  test('a group\'s skills reach a room only when everyone there is in the group (docs/DECISIONS.md "Group skills")', async () => {
+    // alice and erin's group (a team room's group, with its folder groups/<name>/), and a skill of it
+    const same = await roomOf(['alice', 'erin'])
+    const folder = (h.ctx.db.query('SELECT f.path FROM groups g JOIN folders f ON f.id = g.folder_id WHERE g.id = ?').get(same.groupId) as { path: string }).path
+    const abs = path.join(h.team, folder, 'skills/room-group.md')
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, '---\nname: GROUP-ROOM-SKILL\ndescription: group only\n---\nsteps\n')
+    try {
+      const two = await ask('alice', same.roomId, `@트리나 which skills?\n${fake({ echo: 'system' }, { tool: 'find_skills', args: { query: 'group only' }, sayResult: true })}`)
+      expect((await answerTo('alice', same.roomId, two.q))!.body).toContain('GROUP-ROOM-SKILL')
+      // a room with carol, an admin who reads every group folder but is not in that group: not there
+      const mixed = await room(['alice', 'carol'])
+      const one = await ask('alice', mixed, `@트리나 which skills?\n${fake({ echo: 'system' }, { tool: 'find_skills', args: { query: 'group only' }, sayResult: true })}`)
+      expect((await answerTo('alice', mixed, one.q))!.body).not.toContain('GROUP-ROOM-SKILL')
+    } finally { fs.rmSync(abs, { force: true }) }
+  })
+
   test('an account that cannot read anything fails every check (fail closed)', async () => {
     const roomId = await room(['alice', 'erin'])
     const one = await ask('alice', roomId, `@트리나 glossary\n${fake({ tool: 'read', args: { file_path: 'shared/glossary.md' } }, { say: 'ok' })}`)

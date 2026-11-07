@@ -134,6 +134,29 @@ describe('move_files', () => {
     expect(has('skills/team-rules.md')).toBe(true)
   })
 
+  test('a group\'s skills folder (docs/DECISIONS.md "Group skills") cannot be made by a rename or a move, nor emptied', async () => {
+    // groups/marketing/skills is not there yet: a renamed or moved folder would become the group's skills
+    put('groups/marketing/drafts/evil.md', '---\nname: Evil\ndescription: x\n---\nsteps\n')
+    put('groups/marketing/tmp/skills/evil2.md', '---\nname: Evil2\ndescription: x\n---\nsteps\n')
+    const renamed = await call('alice', 'rename_file', { path: 'groups/marketing/drafts', new_name: 'skills' }, { person: ask(true), turn: true })
+    expect(renamed.isError).toBe(true)
+    expect(renamed.text).toContain('skills folder')
+    const moved = await call('alice', 'move_files', { paths: ['groups/marketing/tmp/skills'], to_folder: 'groups/marketing' }, { person: ask(true), turn: true })
+    expect(moved.isError).toBe(true)
+    expect(has('groups/marketing/skills')).toBe(false)
+    // the file layer refuses it too, for any AI move (turn set); a person on the Files screen (no turn) may
+    const { componentC } = await import('../../server/src/team-files/component')
+    const turnId = A.turn('alice', A.chat('alice'))
+    expect(() => componentC(A.ctx).files.move('alice', 'groups/marketing/drafts', 'groups/marketing/skills', 'fail', { turnId })).toThrow(/skills folder/)
+    const adminTurn = A.turn('carol', A.chat('carol'))
+    expect(() => componentC(A.ctx).files.move('carol', 'groups/marketing/tmp', 'groups/tmp2', 'fail', { turnId: adminTurn })).toThrow(/skills folder/)
+    // and out of an existing one
+    put('groups/marketing/skills/kept.md', '---\nname: Kept\ndescription: x\n---\nsteps\n')
+    const out = await call('alice', 'move_files', { paths: ['groups/marketing/skills/kept.md'], to_folder: 'groups/marketing/drafts' }, { person: ask(true), turn: true })
+    expect(out.isError).toBe(true)
+    expect(has('groups/marketing/skills/kept.md')).toBe(true)
+  })
+
   test('a group folder moves only for admins and owners, as on the Files screen', async () => {
     fs.mkdirSync(path.join(A.team, 'shared/elsewhere'), { recursive: true })
     const r = await call('alice', 'move_files', { paths: ['groups/marketing'], to_folder: 'shared/elsewhere' }, { person: ask(true) })

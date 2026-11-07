@@ -15,6 +15,7 @@ import { HttpError } from '../http/errors'
 import { atLeast, RuleSet, type Principal } from '../policy/access'
 import { authorize, siblingVisible, type Authorized } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
+import { inSkills } from '../skills/guard'
 import { badSegment, hiddenEntry, volumeKey } from '../policy/names'
 import { currentPlan } from '../system/limits'
 import { assertStorageRoom, assertStorageRoomForAI } from '../system/storage'
@@ -328,6 +329,14 @@ export class TeamFiles {
     if (isDir && (target.join('/') === fr.rel || isUnder(fr.rel, target.join('/')))) fileError('validation', 'intoItself', { to })
     this.assertMovable(target)
     if (isDir) this.assertSubtreeWritable(user, rules, fr.segs)
+    // the AI never moves anything into or out of a skill root (skills/, a group's groups/<g>/skills/; skills/guard.ts),
+    // nor a folder holding a skills/ folder into groups/<g>/ (it would make that group's skills folder): what everyone's
+    // AI follows changes only through write / edit and their card (docs/DECISIONS.md "Group skills")
+    if (o.turnId != null) {
+      const holdsSkills = isDir && target.length === 2 && target[0]!.normalize('NFC').toLowerCase() === 'groups'
+        && (() => { try { return fs.readdirSync(fr.abs).some((n) => n.normalize('NFC').toLowerCase() === 'skills') } catch { return true } })()
+      if (inSkills(fr.rel) || inSkills(target.join('/')) || holdsSkills) throw new Denied('skills/ and a group\'s skills folder (skills and rules people\'s AI follows) cannot be changed by moving or renaming: use write / edit, which ask the user, or the Files screen')
+    }
     // under users/ folder rules are not read: the folder would become private to one person and the rest of the team,
     // admins included, could not see it to move it back. Nobody may do that, owner included (design tab 2 rule 3).
     if (managed && target[0] === 'users') fileError('validation', 'ruleFolderToUsers', { to: 'invalid_path: a group, project or rule folder cannot move under users/' })

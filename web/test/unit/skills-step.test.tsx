@@ -26,7 +26,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import type { ApplySkillShare, ShareCandidate, SkillShare } from '@mycel/shared/api'
 import { DICTS, translate, useLocaleStore, type MessageKey } from '../../src/i18n'
-import { SkillsStep } from '../../src/components/onboarding/SkillsStep'
+import { shownShare, SkillsStep } from '../../src/components/onboarding/SkillsStep'
 import SkillSharePage from '../../src/pages/SkillSharePage'
 import { useSession } from '../../src/store/session'
 import { toast, useUi } from '../../src/store/ui'
@@ -607,6 +607,15 @@ describe('phones', () => {
       expect(events).toEqual(['phoneNext'])
       expect(called(`POST /api/skill-shares/${CC_ID}/dismiss`)).toHaveLength(0)
     } finally { await m.unmount() }
+  })
+})
+
+describe('a proposal to a group (docs/DECISIONS.md "Group skills")', () => {
+  test('the step (the team\'s) never takes it up: it is done on its own page', () => {
+    const toGroup = shareOf({ id: '01900000-0000-7000-8000-0000000006a1', status: 'ready', targetGroup: { id: 'g1', name: '영업팀' } })
+    const toTeam = shareOf({ id: '01900000-0000-7000-8000-0000000006a2', status: 'ready' })
+    expect(shownShare([toGroup], { since: 0, done: false, gone: new Set() })).toBeNull()
+    expect(shownShare([toGroup, toTeam], { since: 0, done: false, gone: new Set() })?.id).toBe(toTeam.id)
   })
 })
 

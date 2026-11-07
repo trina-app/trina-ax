@@ -49,10 +49,11 @@ const fromConnector = (s: SkillShareSource) => (CONNECTOR_SHARE_SOURCES as reado
  * - else the newest of: a proposal still open (checking, which turns ready; or ready, also one with some rows applied
  *   and some failed), from any source; and once 내 스킬 is done (`done`), a share applied (what went in);
  * - `fresh` (the person let go of what was shown: 그만 찾기, 다른 폴더도 가져오기): only a proposal made since `since`.
- * Dismissed and expired ones never show, nor the ones this step let go of (`gone`).
+ * Dismissed and expired ones never show, nor the ones this step let go of (`gone`), nor one to a group (the step shares
+ * with the team: docs/DECISIONS.md "Group skills"; a proposal to a group is done on its own page).
  */
 export function shownShare(items: readonly SkillShare[], o: { since: number; done: boolean; gone: ReadonlySet<string>; fresh?: boolean }): SkillShare | null {
-  const live = items.filter((s) => !o.gone.has(s.id))
+  const live = items.filter((s) => !o.gone.has(s.id) && !s.targetGroup)
   const appliedSince = live.find((s) => s.status === 'applied' && Date.parse(s.updatedAt ?? s.createdAt) >= o.since)
   if (appliedSince) return appliedSince
   return live.find((s) => {

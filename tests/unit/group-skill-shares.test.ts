@@ -49,16 +49,22 @@ const cand = (s: SkillShare, name: string) => s.candidates.find((c) => c.name ==
 
 describe('a share proposal to a group', () => {
   let s: SkillShare
-  test('targeting a group: stored with it; the checks see the group\'s skills and the team\'s', async () => {
-    s = await create({ group: 'marketing', skills: [skill('weekly'), skill('quote'), skill('fresh-one')] })
+  test('targeting a group: stored with it; the checks see the group\'s skills (the judge the team\'s too)', async () => {
+    s = await create({
+      group: 'marketing', skills: [skill('weekly'), skill('quote'), skill('fresh-one')],
+      excluded: [{ name: 'with-key', reason: 'secret', kind: 'slack' }],
+      rule: { text: '- PROPOSER-RULE-CANARY write short\n' }, tools: [{ name: 'CRM', url: 'https://crm.proposer.example/mcp', auth: 'oauth' }],
+    })
     expect(s.targetGroup).toEqual({ id: 'marketing', name: 'Marketing' })
     expect(s).toMatchObject({ mine: true, canApply: true, proposer: { id: 'dana' } })
     expect(h.ctx.db.query('SELECT target_group_id FROM skill_shares WHERE id = ?').get(s.id)).toEqual({ target_group_id: 'marketing' })
-    // the group's own skill and the team's both count as "the same name"
+    // the group's own skill is "the same name"; the team's is not a conflict (the group's copy replaces it for the
+    // group's members), and a group share never merges into a team skill
     expect(cand(s, 'weekly').sameName).toEqual({ path: 'groups/marketing/skills/weekly/SKILL.md', title: 'weekly' })
-    expect(cand(s, 'quote').sameName).toEqual({ path: 'skills/quote/SKILL.md', title: 'quote' })
+    expect(cand(s, 'quote')).toMatchObject({ sameName: null, action: 'add' })
     expect(cand(s, 'fresh-one').sameName).toBeNull()
-    // the AI's judgement reads the group's skills too
+    expect(s.tools.map((t) => t.name)).toEqual(['CRM'])
+    // the AI's judgement reads the group's skills and the team's
     const chat = (h.ctx.db.query('SELECT chat_id FROM skill_share_judges WHERE share_id = ?').get(s.id) as { chat_id: string } | null)?.chat_id
     if (chat) expect(shareJudgeOf(h.ctx, chat)!.material.team.map((t) => t.name)).toEqual(expect.arrayContaining(['weekly', 'quote']))
     // audited with the group
@@ -76,7 +82,12 @@ describe('a share proposal to a group', () => {
     expect((await h.api('alice').call(API.listSkillShares, { query: { scope: 'review' } })).items.map((x) => x.id)).toEqual([s.id])
     expect((await h.api('alice').call(API.listSkillShares, { query: {} })).items).toEqual([])
     expect((await h.api('alice').call(API.skillsOverview)).sharesToReview).toBe(1)
-    expect(await h.api('alice').call(API.getSkillShare, { params: { id: s.id } })).toMatchObject({ mine: false, canApply: true, targets: [] })
+    const seen = await h.api('alice').call(API.getSkillShare, { params: { id: s.id } })
+    expect(seen).toMatchObject({ mine: false, canApply: true, targets: [], rule: null, tools: [] })
+    // nothing of the proposer's but what goes to the group: no rule, no tools, no skill left on their computer
+    expect(JSON.stringify(seen)).not.toContain('crm.proposer.example')
+    expect(JSON.stringify(seen)).not.toContain('with-key')
+    expect(cand(seen, 'weekly').sameName?.path).toBe('groups/marketing/skills/weekly/SKILL.md')
     for (const u of ['bob', 'carol']) {
       expect(await status(h.api(u).call(API.getSkillShare, { params: { id: s.id } }))).toBe(404)
       expect(await status(h.api(u).call(API.applySkillShare, { params: { id: s.id }, body: { skills: [{ name: 'fresh-one', action: 'add' }] } }))).toBe(404)
@@ -92,9 +103,16 @@ describe('a share proposal to a group', () => {
     expect(await status(h.api('alice').call(API.applySkillShare, { params: { id: s.id }, body: { skills: [], rule: true } }))).toBe(400)
     // the group's own skill of the same name: add is refused, separate goes beside it
     expect(await status(h.api('alice').call(API.applySkillShare, { params: { id: s.id }, body: { skills: [{ name: 'weekly', action: 'add' }] } }))).toBe(409)
-    const done = await h.api('alice').call(API.applySkillShare, { params: { id: s.id }, body: { skills: [{ name: 'fresh-one', action: 'add' }, { name: 'weekly', action: 'separate' }] } })
+    expect(await status(h.api('alice').call(API.applySkillShare, { params: { id: s.id }, body: { skills: [], tools: ['CRM'] } }))).toBe(400)
+    const teamQuote = fs.readFileSync(path.join(h.team, 'skills/quote/SKILL.md'), 'utf8')
+    const done = await h.api('alice').call(API.applySkillShare, { params: { id: s.id }, body: { skills: [{ name: 'fresh-one', action: 'add' }, { name: 'weekly', action: 'separate' }, { name: 'quote', action: 'add' }] } })
     expect(cand(done, 'fresh-one').applied).toMatchObject({ status: 'added', path: 'groups/marketing/skills/fresh-one/SKILL.md' })
     expect(cand(done, 'weekly').applied).toMatchObject({ status: 'added', path: 'groups/marketing/skills/weekly-2/SKILL.md' })
+    // a team skill of the same name: the group gets its own copy, the team's stays as it was
+    expect(cand(done, 'quote').applied).toMatchObject({ status: 'added', path: 'groups/marketing/skills/quote/SKILL.md' })
+    expect(fs.readFileSync(path.join(h.team, 'skills/quote/SKILL.md'), 'utf8')).toBe(teamQuote)
+    expect((await h.api('erin').call(API.listSkills)).items.filter((x) => x.name === 'quote').map((x) => x.path)).toEqual(['groups/marketing/skills/quote/SKILL.md'])
+    expect((await h.api('bob').call(API.listSkills)).items.filter((x) => x.name === 'quote').map((x) => x.path)).toEqual(['skills/quote/SKILL.md'])
     expect(done.landing).toBeNull()
     expect(fs.existsSync(path.join(h.team, 'groups/marketing/skills/fresh-one/SKILL.md'))).toBe(true)
     expect(fs.existsSync(path.join(h.team, 'skills/fresh-one'))).toBe(false)
