@@ -237,15 +237,19 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
           </ul>
         )}
         {voice.recording ? (
-          // as tall as the box's row, so nothing around it moves
-          <VoiceBar voice={voice} className="px-1.5 py-2 max-md:px-3 max-sm:py-1.5" />
+          // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where the clip and send were: nothing moves
+          <VoiceBar voice={voice} className="box-content min-h-composer-line px-1.5 py-1.5 max-md:px-3" />
         ) : (
           <>
             <VoiceProgress voice={voice} text={text} className="px-3 pt-2 max-md:px-4" />
+            {/* bottom-aligned; each control centred in a slot as tall as one text line's box (index.css
+                --spacing-composer-line): one line, one centre; more lines, the buttons stay on the last */}
             <div className="flex items-end gap-1 px-1.5 py-1.5 max-md:px-3">
-              <IconButton tip label={t('composer.attach')} onClick={() => picker.current?.click()} className="touch-hit mb-0.5" data-testid="room-attach">
-                <Paperclip size={18} />
-              </IconButton>
+              <div className="flex h-composer-line shrink-0 items-center">
+                <IconButton tip label={t('composer.attach')} onClick={() => picker.current?.click()} className="touch-hit" data-testid="room-attach">
+                  <Paperclip size={18} />
+                </IconButton>
+              </div>
               <input
                 ref={picker}
                 type="file"
@@ -296,19 +300,21 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                 data-testid="room-input"
               />
               {/* the mic right before send, as in ChatGPT's box */}
-              <VoiceMic voice={voice} mic={mic} tip className="mb-0.5" />
-              <Tooltip label={t('chat.send')}>
-                <button
-                  type="button"
-                  onClick={() => submit(ask)}
-                  disabled={!canSend}
-                  aria-label={t('chat.send')}
-                  className={clsx('touch-hit mb-0.5 flex size-9 shrink-0 items-center justify-center rounded-full transition max-sm:size-10', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')}
-                  data-testid="room-send"
-                >
-                  <ArrowUp size={18} aria-hidden />
-                </button>
-              </Tooltip>
+              <div className="flex h-composer-line shrink-0 items-center gap-1">
+                <VoiceMic voice={voice} mic={mic} tip />
+                <Tooltip label={t('chat.send')}>
+                  <button
+                    type="button"
+                    onClick={() => submit(ask)}
+                    disabled={!canSend}
+                    aria-label={t('chat.send')}
+                    className={clsx('touch-hit flex size-9 shrink-0 items-center justify-center rounded-full transition max-sm:size-10', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')}
+                    data-testid="room-send"
+                  >
+                    <ArrowUp size={18} aria-hidden />
+                  </button>
+                </Tooltip>
+              </div>
             </div>
           </>
         )}
