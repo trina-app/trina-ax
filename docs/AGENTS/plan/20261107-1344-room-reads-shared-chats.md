@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-07 13:44
 - Branch: `feat/room-reads-shared-chats`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`server/src/chat`, `server/src/rooms`, `shared/src`). Why: rooms, chats and permissions are core
   (see docs/REPOSITORY-RULES.md).
 - Version impact: minor. Two new AI tools in room sessions and one audit action; no API or database change.
@@ -60,4 +60,17 @@ shared, read-scope, prompt, the security suite, `test:web`, `build:web` and the 
 
 ## Result
 
-Filled in at the end.
+Built as planned. Differences and notes:
+
+- No card: rooms decide this kind of read through the read scope and `decide()` (files, names, threads), so the
+  project folder joins the scope and the existing private preview applies.
+- The transcript uses `labelledTranscript`'s name escaping and `historyWindow`'s cap and tag neutralising
+  (`readTranscript`), not `sharedTranscriptText` itself: that one wraps the text in `<previous_conversation>` with
+  "continue from here", which would make the room's AI treat another chat as its own conversation, and labels the
+  asker's own messages as theirs to follow.
+- Under 1A turned on during a turn the confidential mode's own gate refuses the tools before they run.
+- The instructions are English for every language, so one line was added.
+- The e2e mock does not run the room's AI (rooms are page.route fixtures), so no e2e spec; unit and security tests
+  cover it, and a real-engine run checked both outcomes.
+
+PR: (link added when opened)
