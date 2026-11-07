@@ -1,7 +1,7 @@
 // The widths behind the panel dividers (lib/panelWidth.ts, components/PanelDivider.tsx): the right-hand panel beside the
 // chat and a thread beside its room share the logic, each with its own limits and its own remembered width.
 import { describe, expect, test } from 'bun:test'
-import { clampPanel, fitPanel, keyWidth, panelLimits, PANEL_BIG_STEP, PANEL_STEP, readPanelFraction, settlePanel, SIDE_PANEL, THREAD_PANEL, writePanelFraction } from '../../src/lib/panelWidth'
+import { clampPanel, fitPanel, keyWidth, panelLimits, PANEL_BIG_STEP, PANEL_STEP, readPanelFraction, settlePanel, SIDE_PANEL, SIDE_PANEL_BESIDE_THREAD, THREAD_PANEL, writePanelFraction } from '../../src/lib/panelWidth'
 
 const setStorage = (s: unknown) => { (globalThis as { localStorage?: unknown }).localStorage = s }
 const clearStorage = () => { delete (globalThis as { localStorage?: unknown }).localStorage }
@@ -25,6 +25,12 @@ describe('panel width limits', () => {
     expect(clampPanel(1000, 1160, THREAD_PANEL)).toBe(740)
     expect(clampPanel(612.6, 1160, THREAD_PANEL)).toBe(613)
   })
+  test('the right-hand panel beside an open thread leaves the room 420 px and the thread 320', () => {
+    expect(SIDE_PANEL_BESIDE_THREAD.key).toBe(SIDE_PANEL.key)
+    // 1440 px window: the page and the panel share 1440 - 280 = 1160
+    expect(panelLimits(1160, SIDE_PANEL_BESIDE_THREAD)).toEqual({ min: 320, max: 420 })
+    expect(fitPanel(0.6, 1160, SIDE_PANEL_BESIDE_THREAD)).toBe(420)
+  })
   test('a window too narrow for both: the panel minimum wins', () => {
     expect(panelLimits(600, SIDE_PANEL)).toEqual({ min: 320, max: 320 })
     expect(clampPanel(500, 600, SIDE_PANEL)).toBe(320)
@@ -39,11 +45,22 @@ describe('panel width limits', () => {
 
 describe('settling and fitting a width', () => {
   test('a width set for good is clamped and remembered as a share of the row; null is the default and forgets', () => {
-    expect(settlePanel(580, 1160, THREAD_PANEL)).toEqual({ width: 580, fraction: 0.5 })
-    expect(settlePanel(2000, 1160, THREAD_PANEL)).toEqual({ width: 740, fraction: 740 / 1160 })
-    expect(settlePanel(null, 1160, THREAD_PANEL)).toEqual({ width: null, fraction: null })
-    // no row measured yet: the width shows but nothing is remembered
-    expect(settlePanel(400, 0, THREAD_PANEL)).toEqual({ width: 320, fraction: null })
+    expect(settlePanel(580, 1160, THREAD_PANEL, null)).toEqual({ width: 580, fraction: 0.5 })
+    expect(settlePanel(2000, 1160, THREAD_PANEL, 0.3)).toEqual({ width: 740, fraction: 740 / 1160 })
+    expect(settlePanel(null, 1160, THREAD_PANEL, 0.3)).toEqual({ width: null, fraction: null })
+  })
+  test('a row with no room to choose keeps the width chosen before', () => {
+    // 700 px: 320 is both the smallest and the largest thread; a drag or a key there changes nothing remembered
+    expect(settlePanel(500, 700, THREAD_PANEL, 0.6)).toEqual({ width: 320, fraction: 0.6 })
+    expect(settlePanel(320, 700, THREAD_PANEL, null)).toEqual({ width: null, fraction: null })
+    // and a wider row later brings that width back
+    expect(fitPanel(settlePanel(500, 700, THREAD_PANEL, 0.6).fraction, 1160, THREAD_PANEL)).toBe(696)
+    // the right-hand panel beside an open thread, at its largest: the same
+    expect(settlePanel(400, 1000, SIDE_PANEL_BESIDE_THREAD, 0.45)).toEqual({ width: 320, fraction: 0.45 })
+    // no row measured yet: nothing is remembered either
+    expect(settlePanel(400, 0, THREAD_PANEL, null)).toEqual({ width: null, fraction: null })
+    // a double-click still forgets
+    expect(settlePanel(null, 700, THREAD_PANEL, 0.6)).toEqual({ width: null, fraction: null })
   })
   test('a remembered share follows the window and stays within the limits', () => {
     expect(fitPanel(null, 1160, THREAD_PANEL)).toBeNull()
@@ -73,8 +90,8 @@ describe('keyboard', () => {
     for (const k of ['ArrowUp', 'ArrowDown', 'Enter', ' ', 'Tab', 'a']) expect(keyWidth(k, false, 440, limits)).toBeNull()
   })
   test('a step past a limit is clamped when it is set', () => {
-    expect(settlePanel(keyWidth('ArrowRight', true, 340, limits)!, 1160, THREAD_PANEL).width).toBe(320)
-    expect(settlePanel(keyWidth('ArrowLeft', true, 700, limits)!, 1160, THREAD_PANEL).width).toBe(740)
+    expect(settlePanel(keyWidth('ArrowRight', true, 340, limits)!, 1160, THREAD_PANEL, null).width).toBe(320)
+    expect(settlePanel(keyWidth('ArrowLeft', true, 700, limits)!, 1160, THREAD_PANEL, null).width).toBe(740)
   })
 })
 

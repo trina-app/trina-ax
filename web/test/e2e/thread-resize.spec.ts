@@ -1,8 +1,10 @@
 // The divider on a thread's left edge (components/PanelDivider.tsx, the same one as the preview panel's): drag, limits
 // (the thread keeps 320 px, the room 420 px), remembered per browser, double-click reset, arrow keys, a smaller window
-// clamps the remembered width, no divider on a phone, and the preview panel's divider still works on its own width.
-// The room is answered through page.route (rooms-mock.ts).
-// SHOTS_DIR=<folder>: screenshots at 1440 px (light and dark; the thread narrow and wide; the divider on hover and focus).
+// clamps the remembered width, no divider on a phone, the preview panel's divider still works on its own width, and a
+// file preview opened from a reply sits beside the thread without squeezing the room under 420 px. The room is
+// answered through page.route (rooms-mock.ts).
+// SHOTS_DIR=<folder>: screenshots at 1440 px (light and dark; the thread narrow and wide; the divider on hover and focus;
+// a file preview beside the thread).
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
 import { ROOM_ID, routeRoom } from './rooms-mock'
@@ -16,7 +18,8 @@ const id = (n: number) => `019a5f00-0000-7000-8000-0000000002${String(n).padStar
 const KEY = 'mycel.threadPanel.widthFraction'
 const SHOTS = process.env.SHOTS_DIR
 
-async function openThread(page: Page) {
+/** `reply`: the text of one more reply (a link to a team file, say) */
+async function openThread(page: Page, reply?: string) {
   await reset(page)
   await routeRoom(page, {
     members: [SORA],
@@ -24,11 +27,12 @@ async function openThread(page: Page) {
       { id: id(1), author: SORA, body: '이번 주 시안 검토 일정 공유드려요. 금요일까지 피드백 부탁드립니다.', extra: { thread: { replyCount: 2, lastReplyAt: '2026-11-05T09:03:00.000Z', repliers: [SORA, OLGA], newReplies: false } } },
       { id: id(2), author: SORA, body: '확인했어요! 로고 버전 두 개 중에 어느 쪽이 나은지 의견 주세요.', threadRootId: id(1) },
       { id: id(3), author: OLGA, body: '두 번째 안이 좋아 보여요. 색 대비가 더 분명해요.', threadRootId: id(1) },
+      ...(reply ? [{ id: id(4), author: SORA, body: reply, threadRootId: id(1) }] : []),
     ],
   })
   await signIn(page)
   await page.goto(`/rooms/${ROOM_ID}/t/${id(1)}`)
-  await expect(page.getByTestId('room-thread').getByTestId('room-message')).toHaveCount(3)
+  await expect(page.getByTestId('room-thread').getByTestId('room-message')).toHaveCount(reply ? 4 : 3)
 }
 
 const width = async (page: Page, testId: string) => Math.round((await page.getByTestId(testId).boundingBox())!.width)
@@ -90,8 +94,8 @@ test('drag, limits, remembered after reload, double-click reset, arrow keys', as
   await divider.focus()
   await page.keyboard.press('ArrowLeft')
   await expect.poll(() => threadWidth(page)).toBe(first + 24)
-  const line = await divider.evaluate((e) => getComputedStyle(e, '::after').backgroundColor)
-  expect(line).not.toBe('rgba(0, 0, 0, 0)')
+  // (the line fades in over 150 ms)
+  await expect.poll(() => divider.evaluate((e) => getComputedStyle(e, '::after').backgroundColor)).toMatch(/^rgb\(/)
   await page.keyboard.press('ArrowRight')
   await page.keyboard.press('ArrowRight')
   await expect.poll(() => threadWidth(page)).toBe(first - 24)
@@ -127,8 +131,9 @@ test('a smaller window keeps the room at 420 px; a click without a move saves no
   await expect.poll(() => roomWidth(page)).toBe(420)
 })
 
-test('a phone shows the thread full screen and no divider', async ({ page }) => {
+test('a phone shows the thread full screen and no divider, whatever width a computer remembered', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
+  await page.addInitScript((k) => localStorage.setItem(k, '0.6'), KEY)
   await openThread(page)
   await expect(page.getByTestId('thread-divider')).toBeHidden()
   expect(await threadWidth(page)).toBe(390)
@@ -160,6 +165,39 @@ test('the preview panel still resizes, and the two panels keep their own widths'
   await page.getByTestId('panel-divider').dblclick()
   await expect.poll(() => width(page, 'side-panel')).toBe(panel)
   expect(await page.evaluate((k) => localStorage.getItem(k), KEY)).toBe(thread)
+})
+
+test('a file preview beside the thread leaves the room 420 px and the thread 320; each divider keeps its own width', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const origin = new URL(test.info().project.use.baseURL!).origin
+  await openThread(page, `보고서 여기 있어요: ${origin}/files/view?path=marketing%2Fplan.md`)
+  await page.getByTestId('room-thread').getByTestId('room-link').click()
+  await expect(page.getByTestId('file-panel')).toContainText('launch')
+  await expect(page.getByTestId('panel-divider')).toBeVisible()
+  await expect(page.getByTestId('thread-divider')).toBeVisible()
+  const side = page.getByTestId('side-panel')
+  // 1440 px: the page and the preview share 1440 - 280; the preview leaves the page 420 + 320
+  const fits = async () => {
+    const t = (await page.getByTestId('room-thread').boundingBox())!
+    const p = (await side.boundingBox())!
+    expect(Math.round(t.x + t.width)).toBeLessThanOrEqual(Math.round(p.x) + 1)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1440)
+    expect(await threadWidth(page)).toBeGreaterThanOrEqual(320)
+  }
+  await expect.poll(() => roomWidth(page)).toBeGreaterThanOrEqual(419)
+  await fits()
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/thread-1440-light-with-preview.png` })
+
+  // the preview dragged far left: still the room's 420 and the thread's 320
+  await dragTo(page, 5, 'panel-divider', 'panel-drag-overlay')
+  await expect.poll(() => width(page, 'side-panel')).toBe(420)
+  expect(await roomWidth(page)).toBeGreaterThanOrEqual(419)
+  await fits()
+  // the thread has no room to choose here: a drag of its divider remembers nothing
+  await dragTo(page, 600)
+  expect(await threadWidth(page)).toBe(320)
+  expect(await page.evaluate((k) => localStorage.getItem(k), KEY)).toBeNull()
+  expect(await page.evaluate(() => localStorage.getItem('mycel.sidePanel.widthFraction'))).not.toBeNull()
 })
 
 test('screenshots at 1440 px', async ({ page }) => {

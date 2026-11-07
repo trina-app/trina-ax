@@ -2,11 +2,13 @@
 // reset. Used by the right-hand panel beside the chat (components/SidePanelFrame.tsx) and a thread beside its room
 // (components/rooms/ThreadPanel.tsx), so both look and behave the same.
 //
-// It resizes its PARENT element, the panel: the panel is `relative` from md up, takes its width from the CSS variable
-// `--panel-w` with its own default (`md:w-[var(--panel-w,<default>)]`) and its minimum (`md:min-w-[…]`). The column it
-// shares the row with is the panel's previous sibling. Phones (< 768 px) get no divider (the panel is full screen there).
-// While dragging the width is written straight to the variable once per animation frame: nothing in the panel or the
-// column beside it re-renders because of it. Widths and limits: lib/panelWidth.ts.
+// It resizes its PARENT element, the panel: from md up the panel is positioned relative, its width is the CSS variable
+// --panel-w with the panel's own default as the fallback, and its minimum width is the sizing's minimum. The column it
+// shares the row with is the panel's previous sibling. A default wider than the limits allow (a narrow window, the
+// right-hand panel beside an open thread) is shown at the largest width without being remembered. Phones (< 768 px)
+// get no divider (the panel is full screen there). While dragging the width is written straight to the variable once
+// per animation frame: nothing in the panel or the column beside it re-renders because of it. Widths and limits:
+// lib/panelWidth.ts.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import clsx from 'clsx'
 import { clampPanel, fitPanel, keyWidth, panelLimits, readPanelFraction, settlePanel, writePanelFraction, type PanelSizing } from '../lib/panelWidth'
@@ -21,7 +23,8 @@ function watch(el: Element, fn: () => void): ResizeObserver | undefined {
   return ro
 }
 
-/** `testId`, `overlayTestId`: the divider's test id and that of the cover laid over the panel while dragging. */
+/** `sizing`: one of the constants in lib/panelWidth.ts (the same object on every render: a new one measures again).
+ * `testId`, `overlayTestId`: the divider's test id and that of the cover laid over the panel while dragging. */
 export function PanelDivider({ sizing, label, testId = 'panel-divider', overlayTestId = 'panel-drag-overlay' }: { sizing: PanelSizing; label: string; testId?: string; overlayTestId?: string }) {
   const handle = useRef<HTMLDivElement>(null)
   const [remembered] = useState(() => readPanelFraction(sizing))
@@ -53,23 +56,31 @@ export function PanelDivider({ sizing, label, testId = 'panel-divider', overlayT
     else box.style.setProperty('--panel-w', `${px}px`)
   }, [panel])
 
-  /** Set the width for good (null: back to the default) and remember it. */
-  const commit = useCallback((px: number | null) => {
-    const { width, fraction: f } = settlePanel(px, avail(), sizing)
-    fraction.current = f
-    writePanelFraction(f, sizing)
-    apply(width)
-    measure()
-  }, [apply, avail, measure, sizing])
-
   // first paint with the remembered width, and again whenever the window or the row around the panel changes size
   // (a larger text size in Settings narrows the column without a window resize)
   const fit = useCallback(() => {
     if (drag.current) return
-    const w = fitPanel(fraction.current, avail(), sizing)
+    const a = avail()
+    const w = fitPanel(fraction.current, a, sizing)
     if (w !== null) apply(w)
+    else {
+      // the default width, but never past the largest one (not remembered: a wider row gets the default again)
+      apply(null)
+      const { max } = panelLimits(a, sizing)
+      if ((panel()?.offsetWidth ?? 0) > max) apply(max)
+    }
     measure()
-  }, [apply, avail, measure, sizing])
+  }, [apply, avail, measure, panel, sizing])
+
+  /** Set the width for good (null: back to the default) and remember it. */
+  const commit = useCallback((px: number | null) => {
+    const { width, fraction: f } = settlePanel(px, avail(), sizing, fraction.current)
+    fraction.current = f
+    writePanelFraction(f, sizing)
+    if (width === null) return fit()
+    apply(width)
+    measure()
+  }, [apply, avail, fit, measure, sizing])
   useLayoutEffect(() => {
     fit()
     window.addEventListener('resize', fit)

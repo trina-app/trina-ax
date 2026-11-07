@@ -15,6 +15,9 @@ export interface PanelSizing {
 export const SIDE_PANEL: PanelSizing = { key: 'mycel.sidePanel.widthFraction', min: 320, otherMin: 360 }
 /** A thread beside its room: the room's messages keep 420 px. */
 export const THREAD_PANEL: PanelSizing = { key: 'mycel.threadPanel.widthFraction', min: 320, otherMin: 420 }
+/** The same right-hand panel (and its remembered width) while a thread is open beside its room: the page beside it
+ * keeps the room's 420 px and the thread's 320. */
+export const SIDE_PANEL_BESIDE_THREAD: PanelSizing = { ...SIDE_PANEL, otherMin: THREAD_PANEL.otherMin + THREAD_PANEL.min }
 
 export const PANEL_STEP = 24
 export const PANEL_BIG_STEP = 96
@@ -32,9 +35,13 @@ export function clampPanel(width: number, avail: number, s: PanelSizing): number
 }
 
 /** A width set for good (a drag ends, a key, a double-click with null): the width to show (null: the panel's default)
- * and the fraction of `avail` to remember (null: forget it). */
-export function settlePanel(px: number | null, avail: number, s: PanelSizing): { width: number | null; fraction: number | null } {
+ * and the fraction of `avail` to remember (null: forget it). In a row with no room to choose (the smallest width is
+ * also the largest) nothing was chosen: the `previous` fraction stays, so a wider window later brings back the width
+ * picked before, not a share of the cramped row. */
+export function settlePanel(px: number | null, avail: number, s: PanelSizing, previous: number | null): { width: number | null; fraction: number | null } {
   if (px === null) return { width: null, fraction: null }
+  const { min, max } = panelLimits(avail, s)
+  if (max <= min) return { width: fitPanel(previous, avail, s), fraction: previous }
   const width = clampPanel(px, avail, s)
   return { width, fraction: avail > 0 ? width / avail : null }
 }

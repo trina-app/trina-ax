@@ -1,9 +1,8 @@
 // A thread (docs/DECISIONS.md "스레드와 반응"), at /rooms/:roomId/t/:messageId: on computers a plain column beside the
 // room (a hairline on its left, a divider there to resize it: components/PanelDivider.tsx; the room keeps 420 px), on
-// phones the whole screen (the room's header gives way to the thread's, with a back
-// arrow; the bottom tabs stay away as in the room). The root on top with its reactions, a hairline with how many
-// replies, the replies (the room's list: runs, reactions, my AI questions asked here), and the reply box with
-// "대화방에도 보내기". What I see is marked read in the thread (POST …/thread/read) while the window has the focus and
+// phones the whole screen (the room's header gives way to the thread's, with a back arrow; the bottom tabs stay away
+// as in the room). The root on top with its reactions, a hairline with how many replies, the replies (the room's list:
+// runs, reactions, my AI questions asked here), and the reply box with "대화방에도 보내기". What I see is marked read in the thread (POST …/thread/read) while the window has the focus and
 // the end of the thread is in sight. A thread I cannot see (I joined after its root, it is gone) says so.
 import { ChevronLeft, Loader2, X } from 'lucide-react'
 import clsx from 'clsx'
