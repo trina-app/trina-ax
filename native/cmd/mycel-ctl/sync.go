@@ -254,6 +254,14 @@ func cmdPackagesSync(e *env, args []string) (int, error) {
 		return 0, nil
 	}
 	defer unlock()
+	// private copies a stopped sync left (SIGTERM runs no defers: systemctl stop, RuntimeMaxSec, a reboot); we hold the lock
+	if old, _ := filepath.Glob(e.root(".packages-sync-*")); len(old) > 0 {
+		for _, d := range old {
+			if fi, err := os.Lstat(d); err == nil && fi.IsDir() {
+				os.RemoveAll(d)
+			}
+		}
+	}
 	u := &updater{e: e, in: in, res: &UpdateResult{}}
 	u.syncSystem("", syncTimeout)
 	for _, n := range u.res.Notes {

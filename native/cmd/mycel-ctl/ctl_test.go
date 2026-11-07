@@ -45,6 +45,14 @@ func newTestBase(t *testing.T, from string) *testBase {
 	prevM, prevO := machineIDPath, osReleasePath
 	machineIDPath, osReleasePath = filepath.Join(t.TempDir(), "no-machine-id"), filepath.Join(t.TempDir(), "no-os-release")
 	t.Cleanup(func() { machineIDPath, osReleasePath = prevM, prevO })
+	// the sync runs inline in the tests, also on a host with systemd (a CI runner); syncUnitBase turns the unit on
+	prevUnit, prevStart := syncAsUnit, startSyncUnit
+	syncAsUnit = func(*updater) bool { return false }
+	startSyncUnit = func(args []string) (string, error) {
+		t.Errorf("systemd-run called: %q", args)
+		return "", os.ErrPermission
+	}
+	t.Cleanup(func() { syncAsUnit, startSyncUnit = prevUnit, prevStart })
 	w, _ := filepath.EvalSymlinks(t.TempDir())
 	tb := &testBase{t: t, base: filepath.Join(w, "base"), fakeBin: filepath.Join(w, "bin"), sysCalls: filepath.Join(w, "systemctl.calls")}
 	for _, d := range []string{"root", "run", "app/versions/" + from + "/bin", "config", "data", "run-launcher"} {

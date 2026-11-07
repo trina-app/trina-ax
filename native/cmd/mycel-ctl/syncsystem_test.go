@@ -421,6 +421,7 @@ func TestPackagesSyncCommand(t *testing.T) {
 		}
 		return code, out.String()
 	}
+	must(t, os.MkdirAll(filepath.Join(tb.base, "root", ".packages-sync-left"), 0o700)) // a copy a stopped sync left
 	code, out := run()
 	b, _ := os.ReadFile(marker)
 	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
