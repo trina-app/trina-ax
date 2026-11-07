@@ -2861,7 +2861,7 @@ export const ja: Record<MessageKey, string> = {
   'teamIcon.upload': "ロゴをアップロード",
   'teamIcon.replace': "ロゴを置換",
   'teamIcon.remove': "既定のアイコンに戻す",
-  'teamIcon.hint': "PNG、JPEG、WebP、最大1 MB、各辺32～4096 pxです。180 × 180 px以上の正方形画像が最も鮮明に表示されます。",
+  'teamIcon.hint': "PNG、JPEG、WebP、最大1 MB、各辺32～4096 pxです。{n} × {n} px以上の正方形画像を使ってください。それより小さい画像や正方形でない画像はブラウザーのタブとサイドバーにだけ表示され、インストールしたアプリとホーム画面には標準アイコンが使われます。",
   'teamIcon.light': "ライト",
   'teamIcon.dark': "ダーク",
   'teamIcon.sizeTab': "タブ {n} px",

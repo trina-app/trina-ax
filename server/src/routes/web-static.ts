@@ -2,7 +2,7 @@
 // the web client's mock server (web/test/mock) serves the build with exactly the same headers.
 import fs from 'node:fs'
 import path from 'node:path'
-import { iconLinks, manifestWithIcon, PRODUCT, TEAM_ICON_PATH, withIconLinks, type TeamIconFile } from '@mycel/shared'
+import { iconLinks, isAppIcon, manifestWithIcon, PRODUCT, TEAM_ICON_PATH, withIconLinks, type TeamIconFile } from '@mycel/shared'
 
 export const WEB_DEV_URL = 'http://localhost:19140'
 
@@ -246,13 +246,15 @@ const ICON_CACHE_SHORT = 'public, max-age=300'
 const DEFAULT_TEAM_ICON = 'icons/icon-512.png'
 /**
  * Icon addresses browsers and systems ask for on their own (bookmarks, Safari, Windows, iOS home screen): the logo when
- * one is set, else this default file of the build.
+ * one is set, else this default file of the build. The home-screen ones take the logo only when it is an app icon
+ * (isAppIcon: square, at least 512 px); the tab icon takes it at any size.
  */
 const WELL_KNOWN_ICONS: Record<string, string> = {
   '/favicon.ico': 'favicon.ico',
   '/apple-touch-icon.png': 'icons/apple-touch-icon.png',
   '/apple-touch-icon-precomposed.png': 'icons/apple-touch-icon.png',
 }
+const HOME_SCREEN_ICONS = new Set(['/apple-touch-icon.png', '/apple-touch-icon-precomposed.png'])
 
 function iconHeaders(type: string, cache: string): Record<string, string> {
   return {
@@ -305,7 +307,8 @@ export function serveWeb(req: Request, o: WebOptions): Response | null {
   const icon = o.teamIcon?.() ?? null
   if (p === TEAM_ICON_PATH) return serveTeamIcon(req, url, icon, root)
   const wellKnown = WELL_KNOWN_ICONS[p]
-  if (wellKnown && icon) return logoResponse(req, url, icon)
+  const appIcon = icon !== null && isAppIcon(icon)
+  if (wellKnown && icon && (appIcon || !HOME_SCREEN_ICONS.has(p))) return logoResponse(req, url, icon)
 
   const index = path.join(root, 'index.html')
   if (!fs.existsSync(index)) {
@@ -314,8 +317,8 @@ export function serveWeb(req: Request, o: WebOptions): Response | null {
   }
 
   const file = p === '/' || p === '/index.html' ? null : safeFile(root, wellKnown ? '/' + wellKnown : p)
-  if (file && p === '/manifest.webmanifest' && icon) {
-    // an installed app (PWA) shows the logo too
+  if (file && p === '/manifest.webmanifest' && icon && appIcon) {
+    // an installed app (PWA) shows the logo too, when it is square and big enough (else the built default icons)
     let text: string
     try { text = manifestWithIcon(fs.readFileSync(file, 'utf8'), icon) } catch { text = fs.readFileSync(file, 'utf8') }
     return new Response(text, { headers: { 'content-type': 'application/manifest+json', 'cache-control': 'no-cache' } })
@@ -351,7 +354,7 @@ export function serveWeb(req: Request, o: WebOptions): Response | null {
   // the app shell; with a logo set, its icon links point at it from the first load (browsers keep tab icons long)
   let body: BodyInit = Bun.file(index)
   if (icon) {
-    try { body = withIconLinks(fs.readFileSync(index, 'utf8'), iconLinks(icon.version)) } catch { /* the default links */ }
+    try { body = withIconLinks(fs.readFileSync(index, 'utf8'), iconLinks(icon.version, appIcon)) } catch { /* the default links */ }
   }
   return new Response(body, {
     headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', 'content-security-policy': appCsp(url.host) },

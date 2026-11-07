@@ -5,7 +5,7 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { checkTeamIcon, imageInfo, TEAM_ICON_MAX_BYTES, TEAM_ICON_MAX_PX, TEAM_ICON_MIN_PX, type TeamIconFile, type TeamIconProblem } from '@mycel/shared'
+import { checkTeamIcon, imageInfo, isAppIcon, TEAM_ICON_MAX_BYTES, TEAM_ICON_MAX_PX, TEAM_ICON_MIN_PX, type TeamIconFile, type TeamIconProblem } from '@mycel/shared'
 import type { Locale, TeamIconInfo } from '@mycel/shared/api'
 import { fail, HttpError } from '../http/errors'
 import { writeAtomic } from '../system/streams'
@@ -61,7 +61,12 @@ export function readTeamIcon(dataDir: string): TeamIconFile | null {
   return icon
 }
 
-export const teamIconVersion = (dataDir: string): string | null => readTeamIcon(dataDir)?.version ?? null
+/** What GET /api/me says about the logo: its version (null: none), and `appIcon` when it is also the app icon of the
+ * installed app and the home screen (isAppIcon: square, at least 512 px). */
+export function teamIconOfMe(dataDir: string): { iconVersion: string | null; appIcon?: true } {
+  const icon = readTeamIcon(dataDir)
+  return { iconVersion: icon?.version ?? null, ...(icon && isAppIcon(icon) ? { appIcon: true as const } : {}) }
+}
 
 export const teamIconInfo = (i: TeamIconFile): TeamIconInfo => ({ version: i.version, type: i.type, width: i.width, height: i.height, size: i.bytes.byteLength })
 

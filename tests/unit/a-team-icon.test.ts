@@ -1,10 +1,11 @@
 // The team logo as the tab icon (Admin › Team settings; shared/src/team-icon.ts, server/src/admin/team-icon.ts,
-// routes/web-static.ts): what an upload must be, who may set it, and that /team-icon, /favicon.ico, the manifest and
-// index.html's icon links follow it, with the default icon back after removing it.
+// routes/web-static.ts): what an upload must be, who may set it, and that /team-icon, /favicon.ico and index.html's
+// tab icon link follow it; the manifest and the home-screen icon only for a square logo of at least 512 px; the
+// default icon back after removing it.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { checkTeamIcon, ICON_LINKS_END, ICON_LINKS_START, iconLinks, iconLinksHtml, imageInfo, TEAM_ICON_MAX_BYTES, withIconLinks } from '@mycel/shared'
+import { checkTeamIcon, ICON_LINKS_END, ICON_LINKS_START, iconLinks, iconLinksHtml, imageInfo, isAppIcon, manifestWithIcon, TEAM_ICON_APP_PX, TEAM_ICON_MAX_BYTES, withIconLinks } from '@mycel/shared'
 import { TEXT } from '../../server/src/admin/team-icon'
 import { WORK } from '../lib/env'
 import { makeJpeg, makePng, makeWebp, SVG } from '../lib/images'
@@ -84,10 +85,26 @@ describe('reading an image header (shared/src/team-icon.ts)', () => {
     const html = `<head>\n    ${ICON_LINKS_START}\n${iconLinksHtml(iconLinks(null))}\n    ${ICON_LINKS_END}\n</head>`
     const out = withIconLinks(html, iconLinks('0123456789abcdef'))
     expect(out).toContain('<link rel="icon" href="/team-icon?v=0123456789abcdef" />')
-    expect(out).toContain('<link rel="apple-touch-icon" href="/team-icon?v=0123456789abcdef" />')
+    expect(out).toContain('<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />')
     expect(out).not.toContain('favicon')
+    const app = withIconLinks(html, iconLinks('0123456789abcdef', true))
+    expect(app).toContain('<link rel="icon" href="/team-icon?v=0123456789abcdef" />')
+    expect(app).toContain('<link rel="apple-touch-icon" href="/team-icon?v=0123456789abcdef" />')
     expect(withIconLinks(out, iconLinks(null))).toBe(html)
+    expect(withIconLinks(app, iconLinks(null))).toBe(html)
     expect(withIconLinks('<head></head>', iconLinks('0123456789abcdef'))).toBe('<head></head>')
+  })
+  test('the app icon: square and at least 512 px; the manifest takes only such a logo, as its only icon', () => {
+    expect(TEAM_ICON_APP_PX).toBe(512)
+    for (const [width, height, app] of [[512, 512, true], [4096, 4096, true], [511, 511, false], [100, 100, false], [180, 180, false], [1024, 512, false], [512, 1024, false]] as const) {
+      expect({ width, height, app: isAppIcon({ width, height }) }).toEqual({ width, height, app })
+    }
+    const built = JSON.stringify({ name: 'Team', icons: [{ src: '/icons/icon-192.png' }, { src: '/icons/icon-maskable-512.png', purpose: 'maskable' }] })
+    expect(manifestWithIcon(built, { type: 'image/png', width: 100, height: 100, version: '0123456789abcdef' })).toBe(built)
+    expect(manifestWithIcon(built, { type: 'image/png', width: 1024, height: 512, version: '0123456789abcdef' })).toBe(built)
+    expect(JSON.parse(manifestWithIcon(built, { type: 'image/webp', width: 512, height: 512, version: '0123456789abcdef' }))).toEqual({
+      name: 'Team', icons: [{ src: '/team-icon?v=0123456789abcdef', sizes: '512x512', type: 'image/webp', purpose: 'any' }],
+    })
   })
 })
 
@@ -182,28 +199,31 @@ describe('a logo set by an admin', () => {
     const again = await get('/team-icon', { 'if-none-match': `"${v}"` })
     expect(again.status).toBe(304)
   })
-  test('/favicon.ico and /apple-touch-icon.png are the logo too', async () => {
-    for (const p of ['/favicon.ico', '/apple-touch-icon.png', '/apple-touch-icon-precomposed.png']) {
+  test('/favicon.ico is the logo at any size; the home-screen addresses keep the default under 512 px', async () => {
+    const ico = await get('/favicon.ico')
+    expectIconHeaders(ico, 'image/png')
+    expect(await bytesOf(ico)).toEqual(logo)
+    for (const p of ['/apple-touch-icon.png', '/apple-touch-icon-precomposed.png']) {
       const r = await get(p)
       expect({ p, status: r.status }).toEqual({ p, status: 200 })
-      expectIconHeaders(r, 'image/png')
-      expect(await bytesOf(r)).toEqual(logo)
+      expect(await bytesOf(r)).toEqual(new Uint8Array(fs.readFileSync(path.join(DIST, 'icons', 'apple-touch-icon.png'))))
     }
   })
-  test('index.html points its icon links at it from the first load (any page, signed in or not)', async () => {
+  test('index.html points its tab icon link at it from the first load (any page, signed in or not)', async () => {
     for (const p of ['/', '/login', '/admin/settings', '/index.html']) {
       const html = await (await get(p)).text()
       expect(html).toContain(`<link rel="icon" href="/team-icon?v=${v}" />`)
-      expect(html).toContain(`<link rel="apple-touch-icon" href="/team-icon?v=${v}" />`)
+      expect(html).toContain('<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />')
       expect(html).not.toContain('/favicon.svg')
       expect(html).toContain('<div id="root">')
     }
+    expect((await member.call('GET', '/api/me')).team.appIcon).toBeUndefined()
   })
-  test('the manifest of an installed app (PWA) has it as its only icon, the rest as built', async () => {
+  test('the manifest of an installed app (PWA) keeps the default icons for a 256 px logo', async () => {
     const r = await get('/manifest.webmanifest')
     expect(r.headers.get('content-type')).toBe('application/manifest+json')
-    const m = (await r.json()) as { name: string; start_url: string; icons: unknown[] }
-    expect(m.icons).toEqual([{ src: `/team-icon?v=${v}`, sizes: '256x256', type: 'image/png', purpose: 'any' }])
+    const m = (await r.json()) as { name: string; start_url: string; icons: { src: string }[] }
+    expect(m.icons.map((i) => i.src)).toEqual(['/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-maskable-512.png'])
     expect(m.start_url).toBe('/')
     expect(m.name).toBe('Team')
   })
@@ -216,6 +236,53 @@ describe('a logo set by an admin', () => {
     expect(await bytesOf(r)).toEqual(jpeg)
     expect((await auditActions())[0]!.detail).toMatchObject({ type: 'image/jpeg', before: v })
     v = info.version
+  })
+})
+
+describe('the logo as the app icon (installed app, home screen): only square and at least 512 px', () => {
+  const builtIcons = ['/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-maskable-512.png']
+  const appleDefault = () => new Uint8Array(fs.readFileSync(path.join(DIST, 'icons', 'apple-touch-icon.png')))
+  async function state() {
+    const me = (await member.call('GET', '/api/me')).team as { iconVersion: string | null; appIcon?: true }
+    const html = await (await get('/')).text()
+    const block = html.slice(html.indexOf(ICON_LINKS_START), html.indexOf(ICON_LINKS_END))
+    const manifest = (await (await get('/manifest.webmanifest')).json()) as { icons: { src: string; sizes?: string; type?: string; purpose?: string }[] }
+    return { me, block, manifest, apple: await bytesOf(await get('/apple-touch-icon.png')), ico: await bytesOf(await get('/favicon.ico')) }
+  }
+  for (const [name, bytes, type] of [
+    ['a 100 px logo', makePng(100, 100), 'image/png'],
+    ['a 511 px logo', makePng(511, 511), 'image/png'],
+    ['a wide 1024 × 512 logo', makeWebp(1024, 512), 'image/webp'],
+  ] as const) {
+    test(`${name}: the tab icon only; manifest, home-screen link and address keep the defaults`, async () => {
+      const info = (await (await put(admin, bytes, type)).json()) as { version: string }
+      const s = await state()
+      expect(s.me).toEqual(expect.objectContaining({ iconVersion: info.version }))
+      expect(s.me.appIcon).toBeUndefined()
+      expect(s.block).toContain(`<link rel="icon" href="/team-icon?v=${info.version}" />`)
+      expect(s.block).toContain('<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />')
+      expect(s.manifest.icons.map((i) => i.src)).toEqual(builtIcons)
+      expect(s.apple).toEqual(appleDefault())
+      expect(s.ico).toEqual(bytes)
+    })
+  }
+  test('a 512 px square: the only icon of the manifest (no default maskable next to it), the home-screen link and address', async () => {
+    const logo = makePng(512, 512)
+    const info = (await (await put(admin, logo, 'image/png')).json()) as { version: string }
+    const s = await state()
+    expect(s.me).toEqual(expect.objectContaining({ iconVersion: info.version, appIcon: true }))
+    expect(s.block).toContain(`<link rel="icon" href="/team-icon?v=${info.version}" />`)
+    expect(s.block).toContain(`<link rel="apple-touch-icon" href="/team-icon?v=${info.version}" />`)
+    expect(s.manifest.icons).toEqual([{ src: `/team-icon?v=${info.version}`, sizes: '512x512', type: 'image/png', purpose: 'any' }])
+    expect(s.apple).toEqual(logo)
+    expect(s.ico).toEqual(logo)
+    const r = await get('/manifest.webmanifest')
+    expect(r.headers.get('content-type')).toBe('application/manifest+json')
+    expect(r.headers.get('cache-control')).toBe('no-cache')
+    // a new logo is a new address in the manifest, so an installed app sees the change
+    const next = (await (await put(admin, makeJpeg(1024, 1024), 'image/jpeg')).json()) as { version: string }
+    expect(next.version).not.toBe(info.version)
+    expect((await state()).manifest.icons).toEqual([{ src: `/team-icon?v=${next.version}`, sizes: '1024x1024', type: 'image/jpeg', purpose: 'any' }])
   })
 })
 

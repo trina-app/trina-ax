@@ -2900,7 +2900,7 @@ export const ko = {
   'teamIcon.upload': '로고 올리기',
   'teamIcon.replace': '로고 바꾸기',
   'teamIcon.remove': '기본 아이콘으로 되돌리기',
-  'teamIcon.hint': 'PNG, JPEG, WebP 파일을 올릴 수 있어요(1MB 이하, 가로세로 32–4096px). 180×180px 이상인 정사각형 이미지가 가장 선명해요.',
+  'teamIcon.hint': 'PNG, JPEG, WebP 파일을 올릴 수 있어요(1MB 이하, 가로세로 32–4096px). {n}×{n}px 이상인 정사각형을 올려 주세요. 그보다 작거나 정사각형이 아니면 브라우저 탭과 사이드바에만 보이고, 설치한 앱과 홈 화면은 기본 아이콘을 써요.',
   'teamIcon.light': '밝은 화면',
   'teamIcon.dark': '어두운 화면',
   'teamIcon.sizeTab': '탭 {n}px',

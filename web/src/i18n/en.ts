@@ -2901,7 +2901,7 @@ export const en: Record<MessageKey, string> = {
   'teamIcon.upload': 'Upload logo',
   'teamIcon.replace': 'Replace logo',
   'teamIcon.remove': 'Back to the default icon',
-  'teamIcon.hint': 'PNG, JPEG or WebP, up to 1 MB and 32–4096 px a side. A square image of at least 180 × 180 px looks sharpest.',
+  'teamIcon.hint': 'PNG, JPEG or WebP, up to 1 MB and 32–4096 px a side. Use a square of at least {n} × {n} px: a smaller or non-square logo shows only in browser tabs and the sidebar, and installed apps and home screens keep the default icon.',
   'teamIcon.light': 'Light',
   'teamIcon.dark': 'Dark',
   'teamIcon.sizeTab': 'Tab {n} px',

@@ -2861,7 +2861,7 @@ export const es: Record<MessageKey, string> = {
   'teamIcon.upload': "Subir logo",
   'teamIcon.replace': "Reemplazar logo",
   'teamIcon.remove': "Volver al icono predeterminado",
-  'teamIcon.hint': "PNG, JPEG o WebP, hasta 1 MB y entre 32 y 4096 px por lado. Una imagen cuadrada de al menos 180 × 180 px ofrece mayor nitidez.",
+  'teamIcon.hint': "PNG, JPEG o WebP, hasta 1 MB y entre 32 y 4096 px por lado. Use una imagen cuadrada de al menos {n} × {n} px: un logotipo más pequeño o no cuadrado solo aparece en las pestañas del navegador y en la barra lateral, y las aplicaciones instaladas y las pantallas de inicio mantienen el icono predeterminado.",
   'teamIcon.light': "Claro",
   'teamIcon.dark': "Oscuro",
   'teamIcon.sizeTab': "Pestaña {n} px",

@@ -2901,7 +2901,7 @@ export const id: Record<MessageKey, string> = {
   'teamIcon.upload': 'Unggah logo',
   'teamIcon.replace': 'Ganti logo',
   'teamIcon.remove': 'Kembali ke ikon bawaan',
-  'teamIcon.hint': 'PNG, JPEG, atau WebP, maksimal 1 MB dan 32–4096 piksel per sisi. Gambar persegi minimal 180 × 180 piksel paling tajam.',
+  'teamIcon.hint': 'PNG, JPEG, atau WebP, maksimal 1 MB dan 32–4096 piksel per sisi. Pakai gambar persegi minimal {n} × {n} piksel: logo yang lebih kecil atau tidak persegi hanya tampil di tab browser dan bilah samping, sedangkan aplikasi yang dipasang dan layar utama tetap memakai ikon bawaan.',
   'teamIcon.light': 'Terang',
   'teamIcon.dark': 'Gelap',
   'teamIcon.sizeTab': 'Tab {n} px',

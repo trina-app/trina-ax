@@ -42,6 +42,9 @@ export const Me = z.object({
     /** the team logo's version (Admin > Team settings): the icon links point at /team-icon?v=<it>; null = the default
      * icon. Absent (older server) = leave the icon links alone. */
     iconVersion: z.string().regex(TEAM_ICON_VERSION_RE).nullable().optional(),
+    /** the logo is also the app icon (square, at least 512 px; shared/src/team-icon.ts isAppIcon): the home-screen link
+     * points at it too. Absent: the default icon there (no logo, a smaller or non-square one, or an older server). */
+    appIcon: z.literal(true).optional(),
     /** voice input works (Admin > Team settings: OpenRouter with a key, or on this server). false: the composer hides
      * the mic (admins see a hint). Absent (older server) = on. */
     voiceInput: z.boolean().optional(),

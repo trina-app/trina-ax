@@ -6,9 +6,9 @@
 // with the team's key, or whisper.cpp on this server; docs/DECISIONS.md "Voice input through OpenRouter"; a saved team key
 // turns it on while no provider is chosen, "Voice input on a team's own server: the key turns it on") and whether
 // the AI's video and audio reads turn sound into text ("AI reads video and audio"), and the team
-// logo (the tab icon and the home-screen app icon; shared/src/team-icon.ts), the company profile every chat's AI is told
-// (components/onboarding/CompanyProfileCard.tsx), the dev environment (DevEnvTeam.tsx, hidden when the server has it
-// off), and for the owner the ownership transfer
+// logo (the tab icon, and the home-screen app icon when square and at least 512 px; shared/src/team-icon.ts), the
+// company profile every chat's AI is told (components/onboarding/CompanyProfileCard.tsx), the dev environment
+// (DevEnvTeam.tsx, hidden when the server has it off), and for the owner the ownership transfer
 // (TransferOwner.tsx). After the form, the team's AI settings (AI defaults, who picks the engine, members' own AI
 // accounts, usage limits; TeamAiSettings.tsx, #ai and #ai-limits) and the knowledge graph (KnowledgeGraph.tsx,
 // #knowledge-graph), which save on their own. The OpenRouter key is sealed in the
@@ -16,7 +16,7 @@
 import clsx from 'clsx'
 import { useEffect, useRef, useState } from 'react'
 import { ExternalLink, RotateCcw, Upload } from 'lucide-react'
-import { teamIconUrl, TEAM_ICON_TYPES } from '@mycel/shared'
+import { DEFAULT_APPLE_TOUCH_ICON, TEAM_ICON_APP_PX, teamIconUrl, TEAM_ICON_TYPES } from '@mycel/shared'
 import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_SPEECH_MODEL, mediaTranscriptsDefault, mediaTranscriptsOffSmall, TeamSettings, type Locale, type SpeechHost, type SpeechProvider, DEFAULT_DECK_TIER } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
@@ -189,7 +189,8 @@ function DaysRow({ id, title, desc, value, min, max, onChange }: { id: string; t
 }
 
 /**
- * The team logo: the tab icon of everyone's browser, the sign-in page's icon and the home-screen app icon. Uploaded
+ * The team logo: the tab icon of everyone's browser, the sign-in page's icon, and the home-screen and installed app's
+ * icon when it is square and at least 512 px (GET /api/me team.appIcon; else those keep the default mark). Uploaded
  * at once when chosen (PNG, JPEG or WebP; checked here first, the server checks again), removed back to the default
  * mark. A row with the logo now and its buttons; the previews at the sizes browsers and phones show it, on a light and
  * a dark background, behind "Show previews".
@@ -235,17 +236,19 @@ export function TeamIconRow() {
     }
   }
 
-  // what each place shows: the logo at every size, or the default mark (the SVG in tabs, the home-screen PNG)
+  // what each place shows: the logo in tabs at any size, on the home screen only when it is also the app icon; else the
+  // default mark (the SVG in tabs, the home-screen PNG)
   const tabSrc = version ? teamIconUrl(version) : '/favicon.svg'
-  const homeSrc = version ? teamIconUrl(version) : '/icons/apple-touch-icon.png'
+  const logoSrc = version ? teamIconUrl(version) : DEFAULT_APPLE_TOUCH_ICON
+  const homeSrc = version && me.team.appIcon ? teamIconUrl(version) : DEFAULT_APPLE_TOUCH_ICON
   return (
     <div data-testid="team-icon" data-version={version ?? ''}>
       <SettingRow heading title={t('teamIcon.title')}
         desc={<>{t('teamIcon.desc')} <span data-testid="team-icon-status">{version ? t('teamIcon.custom') : t('teamIcon.default')}</span></>}
-        more={t('teamIcon.hint')}
+        more={t('teamIcon.hint', { n: TEAM_ICON_APP_PX })}
         control={
           <span className="inline-flex flex-wrap items-center gap-2">
-            <img src={homeSrc} alt="" width={36} height={36} className="h-9 w-9 rounded-lg border border-line object-cover" />
+            <img src={logoSrc} alt="" width={36} height={36} className="h-9 w-9 rounded-lg border border-line object-cover" />
             <Button size="sm" busy={busy === 'upload'} disabled={busy !== null} onClick={() => input.current?.click()} data-testid="team-icon-upload">
               <Upload size={14} aria-hidden /> {version ? t('teamIcon.replace') : t('teamIcon.upload')}
             </Button>
