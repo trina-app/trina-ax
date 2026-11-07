@@ -3612,6 +3612,7 @@ export const en: Record<MessageKey, string> = {
   "audit.act.room.archive": "Archived a chat room",
   "audit.act.room.rename": "Renamed a chat room",
   "audit.act.room.ai_share": "Posted an AI answer to a room",
+  "audit.act.room.ai_shared_chats": "The AI read shared project chats in a room",
   "audit.act.room.answer_share": "Sent an AI answer of their own chat to a room",
   "audit.act.room.ai_delete": "Deleted an AI answer in a room",
   "slack.state.off": "Off",

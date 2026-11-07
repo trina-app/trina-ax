@@ -21,6 +21,13 @@ export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
   // private for any member who cannot see that thread ("들어오기 전 대화"). Nothing in it comes from outside the team:
   // it keeps an answer "team files only" as the block does (docs/DECISIONS.md "대화방의 트리나가 스레드도 본다")
   'room_thread',
+  // the shared project chats the asker may view (chat/room-project-chats.ts): what the project's people already see in
+  // that chat (each turn of it behind the shared chat's read card). An answer there may quote a web page an earlier turn
+  // fetched, as a room message may quote one a member pasted: both count as the team's own words (the room's
+  // <room_context> block keeps an answer "team files only" too). What they showed joins the read scope as the chat's
+  // project folder, whose readers are the chat's audience, so decide() keeps the answer private for any member outside
+  // it (docs/DECISIONS.md "대화방의 트리나가 공유 프로젝트 채팅을 읽는다")
+  'project_chats', 'project_chat',
 ])
 
 /**
@@ -37,18 +44,26 @@ export const ROOM_TOOLS: ReadonlySet<string> = new Set([
   'room_file', 'save_room_file',
   // one whole thread of this room (read-only; in a thread question that thread only)
   'room_thread',
+  // the shared project chats the asker may view: a list or search, and one chat's messages (read-only)
+  'project_chats', 'project_chat',
 ])
 
 /** A room's own tools: its files and its threads. */
 export const ROOM_OWN_TOOLS: ReadonlySet<string> = new Set(['room_file', 'save_room_file', 'room_thread'])
 
+/** A room session's tools that read the shared project chats the asker may view (chat/room-project-chats.ts). Never in a
+ * shared project chat itself (SHARED_TOOLS) and never in a person's own chat (chat/tools.ts offers them to room sessions
+ * only). */
+export const ROOM_PROJECT_CHAT_TOOLS: ReadonlySet<string> = new Set(['project_chats', 'project_chat'])
+
 /**
  * The only tools a shared project chat gets (docs/DECISIONS.md "Shared project chats"): ROOM_TOOLS without the room's
  * own tools. Its transcript is seen by everyone who sees its project, so the same allowlist as a room: no memories, no
  * chat title, no connection's tools, no Google Drive, no schedules, nothing on a computer or in the person's signed-in
- * browser, no room reading (room_read, rooms). A tool added later is not offered here until it is listed.
+ * browser, no room reading (room_read, rooms), no reading of other shared chats (project_chats, project_chat). A tool
+ * added later is not offered here until it is listed.
  */
-export const SHARED_TOOLS: ReadonlySet<string> = new Set([...ROOM_TOOLS].filter((t) => !ROOM_OWN_TOOLS.has(t)))
+export const SHARED_TOOLS: ReadonlySet<string> = new Set([...ROOM_TOOLS].filter((t) => !ROOM_OWN_TOOLS.has(t) && !ROOM_PROJECT_CHAT_TOOLS.has(t)))
 
 /** The arguments that name where a call writes, per tool: a shared chat's read card counts them only when something
  * is there already (chat/turn.ts sharedSources); every other path argument counts as a read. */
@@ -68,7 +83,7 @@ export const SEARCH_TOOLS: ReadonlySet<string> = new Set(['grep', 'glob', 'searc
  */
 export const ROOM_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   'list', 'glob', 'grep', 'read', 'search', 'knowledge_explore', 'skill', 'find_skills', 'ask_user', 'hwp_render', 'share_file', 'artifact', 'web_fetch',
-  'room_file', 'room_thread',
+  'room_file', 'room_thread', 'project_chats', 'project_chat',
 ])
 
 /** The arguments of our tools that name a team path (a room session counts each as a name read, chat/turn.ts). */
