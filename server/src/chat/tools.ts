@@ -229,16 +229,19 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         try { if (typeof p === 'string') files.namePaths.add(authorize(exec.rt.files.fx, exec.rt.files.rules(), exec.livePrincipal(), p, 'read').rel) } catch { /* the call already failed for it */ }
       }
       exec.afterTool()
+      // a new file left loose at the top of shared/, a group's folder or the team root: the server's note (chat/file-placement.ts)
+      const note = exec.placementNote(files)
       // the audit line (tool_events) never repeats a stored connection secret (integrations/connections/redact.ts), and
       // in a chat that read team chat rooms keeps of an address only its site (tools/audit-url.ts): admins read it
       const summary = exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`)
-      return { content: out.content, isError: out.isError, summary: !exec.room && exec.roomsSeen ? hideUrls(summary) : summary }
+      return { content: note ? [...out.content, { type: 'text', text: note }] : out.content, isError: out.isError, summary: !exec.room && exec.roomsSeen ? hideUrls(summary) : summary }
     },
-    afterFileTool: (name, isError, args) => {
+    afterFileTool: (name, isError, args, caller) => {
       exec.noteTaint(name, args); exec.noteRoomTool(name, args); exec.noteReads(); exec.afterTool()
       const filePath = (args as { file_path?: unknown } | null)?.file_path
       if (!isError && name === 'read' && typeof filePath === 'string')
         recordSkillRead(exec.rt.db, exec.rt.files, exec.livePrincipal(), exec.id, filePath)
+      return exec.placementNote(caller?.files ?? exec.files)
     },
     // edit_files (mcp/protocol.ts): in a room one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {

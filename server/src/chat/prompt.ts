@@ -284,6 +284,15 @@ export function localTimeText(now: Date, timeZone: string): string {
  */
 export const WRITE_ACCESS_RULE = 'The folder lists above and folder names are hints, not the access check. When the user asks to change or save a file, call write or edit and let the server decide; do not refuse on your own guess that a folder is read-only. If the server denies the call, tell the user plainly and do not save a copy somewhere else unless they ask: the user then sees the reason and a button to save in their own folder.'
 
+/**
+ * Where a new file goes (docs/DECISIONS.md "The in-app AI keeps the team's folders tidy"). Asked to put a quote "in
+ * shared", the AI copied it to the top of shared/, left the original in the person's folder and only said that everyone
+ * could see it; the person had to ask again for a folder that follows the team's own names. In personLines like
+ * WRITE_ACCESS_RULE, so a resumed session gets it too; not for sub-agents (they save where their task says). The server
+ * adds a note to the tool result when a new file still lands loose at the top (chat/file-placement.ts).
+ */
+export const FILE_PLACEMENT_RULE = 'Where files go: a folder the user names ("shared", a group, a team such as sales) is the area, not the exact spot. Before you save or move a file there, list that area and put the file in the subfolder that fits best, or create one named like the ones already there (same language, letter case and pattern; move_files and copy_files need a folder that exists, so write a short README.md into a new one first). Never leave a file loose at the top of shared/, of a group\'s folder or of the team root unless the user asked for exactly that spot. Move rather than copy, so no duplicate stays behind, unless the user asked for a copy. Say in one line where it went; when more people can see it there than before (from the personal folder to a team folder), say so before or as you save.'
+
 /** A change to many files or items (A9 S17, docs/DECISIONS.md "Bulk edits in one call"): the answer said what changed
  * and left out the ones that were already as asked, so the person could not tell them from ones it missed. */
 /** knowledge_explore (knowledge-graph/tool.ts): the code map, for questions about code across the team's folders */
@@ -312,6 +321,7 @@ function personLines(files: FileService, i: PromptInput, subagent = false): stri
     `Writable folders: ${writable.join(', ') || '(none)'}`,
     readable.length ? `Read-only folders: ${readable.join(', ')}` : '',
     WRITE_ACCESS_RULE,
+    subagent ? '' : FILE_PLACEMENT_RULE,
     timeLine(now, i.timeZone),
     `Answer in ${LANGUAGE[i.locale]} unless the user writes in another language or asks otherwise.`,
     // last, after the time line (it changes every minute): the instructions before that line stay as they were

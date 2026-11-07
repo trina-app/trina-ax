@@ -30,6 +30,7 @@ import { badSegment, hiddenEntry } from '../policy/names'
 import { TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, instructionFiles, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
+import { looseArea, placementNote } from './file-placement'
 import { buildAgentDefinitions, initProblem, LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS, PARENT_ONLY_TOOLS, SUBTASK_STEPS_KEPT, subtaskSummary } from './subagents'
 import { getTeamSettings } from '../admin/settings'
 import { invokedSkill, listSkills, skillFolder } from './skills'
@@ -202,6 +203,9 @@ export class TurnExec {
    * running, which the tool waits for (docs/INTEGRATIONS.md "Connecting from a chat") */
   readonly connectCards = new Map<string, ConnectCard>()
   private lastFileEvent = 0
+  /** new files of this turn left loose at the top of shared/, a group's folder or the team root that no note named yet
+   * (file-placement.ts) */
+  private loosePlaced: string[] = []
   private registered = false
   private thinkingStep: Step | null = null
   private toolNames = new Map<string, string>()
@@ -1678,8 +1682,30 @@ export class TurnExec {
     for (const r of rows) {
       if (r.action === 'create' || r.action === 'update' || r.action === 'delete' || r.action === 'restore') changes.push({ path: r.path, action: r.action, by, turnId: this.id })
       else if (r.action === 'upload') changes.push({ path: r.path, action: 'create', by, turnId: this.id })
+      if (r.action === 'create' && looseArea(r.path) !== null) {
+        // a new file, not a folder, a conflict copy beside its original or a rename in place
+        const d = parseJson(r.detail)
+        const folderOf = (p: string) => p.split('/').slice(0, -1).join('/')
+        const renamed = typeof d.movedFrom === 'string' && folderOf(d.movedFrom) === folderOf(r.path)
+        if (!d.folder && !d.conflictCopyOf && !renamed) this.loosePlaced.push(r.path)
+      }
     }
     if (changes.length) this.rt.publishFileChanges(changes)
+  }
+
+  /**
+   * After a tool call (chat/tools.ts): the server's note for the AI about new files the turn left loose at the top of
+   * shared/, a group's folder or the team root (file-placement.ts), or ''. Only the main AI's calls carry it (a
+   * sub-agent saves where its task says; the note waits for the main AI's next call), and a template run gets none (its
+   * approved scope says where files go). Names only folders the person may list; in a room session only those
+   * everyone in the room may read.
+   */
+  placementNote(files: TurnFiles): string {
+    if (!this.loosePlaced.length || files.agent !== null) return ''
+    const paths = this.loosePlaced
+    this.loosePlaced = []
+    if (this.templateScope) return ''
+    try { return placementNote(this.rt.files, this.livePrincipal(), paths, this.roomReadable) } catch { return '' }
   }
 
   private fileSummary(): FileChangeSummary | null {

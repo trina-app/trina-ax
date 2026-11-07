@@ -64,11 +64,13 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
     }
     const out = registry?.has(name) ? await registry.call(name, params?.arguments ?? {}, callCtx) : await files.call(name, params?.arguments ?? {}, callCtx)
     audit.run(ctx.turnId, ctx.user.id, name.slice(0, 64), out.summary.slice(0, 1000), out.isError ? 0 : 1)
-    try { extra?.afterFileTool?.(name, !!out.isError, params?.arguments) } catch {}
+    let note: string | void = ''
+    try { note = extra?.afterFileTool?.(name, !!out.isError, params?.arguments, caller) } catch {}
     try { out.beforeDelivery?.() } catch {
       return failed(safeText(db,ctx.user.id,'changed'))
     }
-    return { result: { content: out.content ?? [{ type: 'text', text: out.text }, ...(out.images ?? [])], ...(out.isError ? { isError: true as const } : {}) }, beforeDelivery: out.beforeDelivery }
+    const content = out.content ?? [{ type: 'text', text: out.text }, ...(out.images ?? [])]
+    return { result: { content: note ? [...content, { type: 'text', text: note }] : content, ...(out.isError ? { isError: true as const } : {}) }, beforeDelivery: out.beforeDelivery }
   }
 
   /**
