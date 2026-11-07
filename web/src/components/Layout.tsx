@@ -134,7 +134,7 @@ export default function Layout() {
             </div>
           </div>
         )}
-        <main id="main" tabIndex={-1} className="flex min-w-0 flex-1 flex-col">
+        <main id="main" tabIndex={-1} className="flex min-w-0 flex-1 flex-col outline-none">
           {/* a web browser not asked about notifications yet: one line, here on a computer (components/WebPushAsk.tsx) */}
           <WebPushAsk at="top" />
           {/* phones: where you are and one action at most (components/PhoneTopBar.tsx); not in a room or an AI chat */}

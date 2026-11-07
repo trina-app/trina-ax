@@ -4,11 +4,11 @@ import type { AppContext } from '../../context'
 import { TurnFiles } from '../../files/service'
 import { authorize } from '../../policy/authorize'
 import { listSkills, skillInfo } from '../../chat/skills'
-import { sourceKey, sourceOf, widening, type ReadSource } from '../../chat/read-scope'
+import { sourceKey, sourceOf, type ReadSource } from '../../chat/read-scope'
 import { audit } from '../../admin/audit'
 import { ADMIN_SCOPE, hash, OAuthError, ROOMS_SCOPE, ROOMS_WRITE_SCOPE } from './policy'
 import { dropAdminScope, isTeamAdmin, remoteOAuthOf, type Grant, type RemoteOAuth } from './oauth'
-import { skillWriteRefusal, uploadFile, uploadTool } from './upload'
+import { checkUploadTarget, isOutcome, uploadFile, uploadTool, writeNotes } from './upload'
 import { createUploadLink, uploadLinkTool } from './upload-link'
 import { shareSkills, shareSkillsTool } from './share'
 import { GROUP_TOOLS, groupTool, groupTools } from './groups'
@@ -121,19 +121,18 @@ export class RemoteTools {
       }
       const input = FILE_TOOLS[name as FileToolName].input.safeParse(args ?? {})
       if (!input.success) return result('Invalid tool input.', true)
+      let notes: string[] = []
       if (WRITE.has(name)) {
         const filePath = (input.data as { file_path: string }).file_path
         // A null turn ID normally means a human file API. An external model has no server confirmation card: no team
-        // skill or rule (skills/), and no personal skill of the person (users/<id>/skills/) either. The path as written
-        // is checked first: on a case-sensitive disk (Linux) "Users/<id>/Skills" is an unknown folder that authorize
-        // refuses with a vaguer answer, so the same request would read differently by OS
-        const asGiven = skillWriteRefusal(filePath)
-        if (asGiven) return result(asGiven, true)
-        const target = authorize(this.ctx.files.fx, this.ctx.files.rules(), user, filePath, 'write', { createDirs: true })
-        const resolved = skillWriteRefusal(target.rel)
-        if (resolved) return result(resolved, true)
-        const sources = JSON.parse(fresh.sources) as ReadSource[]
-        if (widening(this.ctx.db, null, target.segs, sources)) return result('Saving here would expose previously read material to more people. Use a folder with the same or narrower access.', true)
+        // skill or rule (skills/), no group's skill and no personal skill of the person (users/<id>/skills/) either.
+        // The same check as upload_file, create_upload_link and the link's PUT (checkUploadTarget), the path as written
+        // first: on a case-sensitive disk (Linux) "Users/<id>/Skills" is an unknown folder that authorize refuses with
+        // a vaguer answer, so the same request would read differently by OS
+        const target = checkUploadTarget(this.ctx, user, filePath, JSON.parse(fresh.sources) as ReadSource[], null)
+        if (isOutcome(target)) return result(target.text, true)
+        // edit changes an existing file: never the placement note
+        notes = writeNotes(this.ctx, user, filePath, target, name === 'write' && !target.exists)
       }
       m.files.readPaths.clear()
       const out = await this.ctx.files.call(name, input.data, { user, turnId: null, files: m.files, signal })
@@ -149,7 +148,7 @@ export class RemoteTools {
       if (sources.size > 2000) return result('Read scope limit reached; reconnect to continue.', true)
       this.ctx.db.query('UPDATE remote_mcp_grants SET sources=? WHERE id=?').run(JSON.stringify([...sources.values()]), latest.id)
       audit(this.ctx.db, { actor: user.id, action: 'remote_mcp.tool', target: latest.id, detail: { tool: name, ok: !out.isError } })
-      return result(out.text, out.isError)
+      return result(notes.length && !out.isError ? `${out.text}\n\n${notes.join(' ')}` : out.text, out.isError)
     } catch (e) {
       if (e instanceof OAuthError) throw e
       // Do not include arbitrary exceptions, paths, tokens or file text in the connector audit/error.

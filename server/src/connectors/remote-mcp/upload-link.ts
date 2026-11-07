@@ -10,7 +10,7 @@ import { boundedBody } from '../../http/route'
 import { HttpError } from '../../http/errors'
 import { hash, OAuthError, secret } from './policy'
 import { remoteOAuthOf, type Grant, type RemoteOAuth } from './oauth'
-import { checkUploadTarget, fail, isOutcome, placeConnectorUpload, uploadFailure, uploadTmp, type UploadOutcome } from './upload'
+import { checkUploadTarget, fail, isOutcome, placeConnectorUpload, uploadFailure, uploadTmp, writeNotes, type UploadOutcome } from './upload'
 
 /** Public path of the one-time upload links (outside /api: no cookie session, no CSRF header; the token is the auth). */
 export const LINK_PATH = '/connector-uploads/'
@@ -58,11 +58,14 @@ export function createUploadLink(ctx: AppContext, oauth: RemoteOAuth, grant: Gra
   const now = oauth.now()
   const open = ctx.db.query('SELECT count(*) AS n FROM remote_mcp_upload_links WHERE grant_id=? AND used_at IS NULL AND expires_at>?').get(grant.id, now) as { n: number }
   if (open.n >= LINK_LIMITS.openPerGrant) return fail('Too many unused upload links for this connection; use them or wait 10 minutes.')
-  let rel = filePath.slice(0, 500)
+  let rel = filePath.slice(0, 500), notes: string[] = []
   try {
     const target = checkUploadTarget(ctx, user, filePath, JSON.parse(grant.sources) as ReadSource[], size ?? null)
     if (isOutcome(target)) return target
     rel = target.rel
+    // the link's answer carries the notes (a file that looks like a skill, a new file loose at the top of an area); the
+    // PUT answers with the saved path only, as before
+    notes = writeNotes(ctx, user, filePath, target, !target.exists || !overwrite, true)
   } catch (e) {
     return uploadFailure(ctx, user, rel, e, 'create_upload_link')
   }
@@ -74,6 +77,7 @@ export function createUploadLink(ctx: AppContext, oauth: RemoteOAuth, grant: Gra
     url, method: 'PUT', path: rel, overwrite, maxBytes: LINK_LIMITS.maxBytes, expiresAt,
     command: `curl --fail-with-body -T "<local file>" "${url}"`,
     note: 'Replace <local file> with the local file path. The link works once. Do not show the URL to anyone.',
+    ...(notes.length ? { notice: notes.join(' ') } : {}),
   }
   // The audit row never holds the token or its hash.
   return { text: JSON.stringify(out), audit: { path: rel, overwrite, maxBytes: LINK_LIMITS.maxBytes, expiresAt } }
