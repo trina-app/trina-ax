@@ -81,3 +81,4 @@ Built as planned. Differences:
   per person per 10 minutes.
 - Sentry adds the country of the server that posted a report; the SDK setting that should stop it did not.
 - Tested against real Sentry projects on Bun 1.3.12: events arrive, alerts fire, crashes still exit with code 1.
+- PR: https://github.com/trina-app/trina-ax/pull/168
