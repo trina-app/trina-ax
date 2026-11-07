@@ -2,9 +2,9 @@
 
 - Date (UTC): 2026-11-07 13:03
 - Branch: `fix/sidebar-section-headers`
-- Status: in progress
-- Where: trina-ax `web/src/` (components/Sidebar.tsx, components/rooms/SidebarRooms.tsx, one shared class in
-  components/ui.tsx). Why: a type and spacing fix in the web app's own sidebar (see docs/REPOSITORY-RULES.md).
+- Status: done
+- Where: trina-ax `web/src/` (components/Sidebar.tsx, components/rooms/SidebarRooms.tsx,
+  components/onboarding/SetupRow.tsx, one shared title in components/ui.tsx). Why: a type and spacing fix in the web app's own sidebar (see docs/REPOSITORY-RULES.md).
 - Version impact: patch. A visual fix; no new feature, no API or data change.
 
 ## Goal
@@ -39,19 +39,20 @@ Computed in Chromium on the mock server (made-up rooms and chats, one with a lon
 
 In:
 
-- One class for both titles, in `ui.tsx` (`sidebarSectionTitle`): 12px / 600 / `--c-ink` (13px on phones, from the
+- One title for both, in `ui.tsx` (`SidebarSectionTitle`): 12px / 600 / `--c-ink` (13px on phones, from the
   `text-xs` token), 16.8:1 and 15.6:1 on the sidebar. A step smaller than the rows and heavier and darker than them
   and than "더 보기", so it is neither one more row nor as quiet as the line under a list.
-- The chevron stays, in `--c-faint`; the toggle gets the sidebar's own hover fill (`hover:bg-hover`, as the "+" and the
-  filter button beside it) instead of a colour change. Its text stays in line with the rows (negative margin for its
-  padding).
-- More room above 트리나 기록 on a computer: 24px after the 대화 list instead of 12px, so the break between the lists
-  is about twice the gap between two rows. No hairline unless the screenshots show that space is not enough.
+- The chevron stays, in `--c-faint`. No fill (first a `hover:bg-hover` fill; dropped in review: type and space only);
+  hover shifts the colour one step, as before. The title never shrinks or wraps; a long filter label beside it is cut.
+- More room above 트리나 기록 on a computer: 20px after the 대화 list instead of 12px (first 24px; 20px after the review,
+  as much as above 대화), so the break between the lists is about twice the gap between two rows. The owner's setup row,
+  while it shows between the two, gets 20px on both sides. No hairline unless the screenshots show that space is not
+  enough.
 - The date headings keep 11px / 500 / faint (13px on phones), now clearly under the 13px / 600 / ink title.
 - `docs/DESIGN-SYSTEM.md`: the sidebar line, the c-faint and contrast rows and a "sidebar-section" type style.
 - CHANGELOG Unreleased line.
-- Tests: the e2e that pins the title's size (12px) also pins weight and colour; a unit check that both titles use the
-  one class.
+- Tests: an e2e that measures the titles' weight, contrast and size against a row and "더 보기", and the break before
+  트리나 기록, in both looks.
 
 Out:
 
@@ -68,7 +69,7 @@ Out:
 
 ## Risks
 
-- Space: 12px more before 트리나 기록 pushes its first rows down. The e2e "60 rooms at 1280×800" wants at least one
+- Space: 8px more before 트리나 기록 pushes its first rows down. The e2e "60 rooms at 1280×800" wants at least one
   AI chat in sight under five rooms; check it.
 - A bold ink title must not look like an unread room (14px / 600 / ink): it is 2px smaller, has the chevron, and the
   space above it.
@@ -82,4 +83,32 @@ web e2e (chromium) on a free port.
 
 ## Result
 
-Filled in at the end.
+- `SidebarSectionTitle` in `web/src/components/ui.tsx`: an h2 `shrink-0 text-xs font-semibold whitespace-nowrap
+  text-ink` with the fold button (`rounded py-1 hover:text-muted`, `aria-expanded` / `aria-controls` and test ids as
+  before) and a 12px `text-faint` chevron. Both titles use it (Sidebar.tsx, rooms/SidebarRooms.tsx).
+- Measured (Chromium, mock server, made-up data), before → after:
+  - title: 12px / 500 / `--c-faint` → 12px / 600 / `--c-ink` (13px on phones); 5.22:1 → 16.84:1 (light), 5.28:1 →
+    15.64:1 (dark) on the sidebar.
+  - "더 보기 (2)" unchanged at 12px / 400 / `--c-muted`, 7.70:1 / 7.63:1: now under the title in weight and contrast.
+  - rows unchanged (14px / 400 / muted; unread 14px / 600 / ink); date headings unchanged (11px / 500 / faint, 13px on
+    phones), now under the title on phones too (600 / 16.8:1 against 500 / 5.2:1).
+  - space: `SidebarRooms` `mb-3` → `mb-5` (12 → 20px): text to text from "더 보기" to 트리나 기록 27 → 35px (rows 19px,
+    above 대화 33px); the owner's setup row `mb-3` → `mb-5`: 30 / 28px → 38 / 36px around it.
+  - a long filter label beside 트리나 기록 (ko "답변 중이거나 내 답을 기다림", id "Sedang menjawab atau menunggu Anda")
+    no longer breaks the title onto two lines (title box 40px / 44px on phones on the first commit → 24 / 26px).
+- Screenshots of the same views before and after (1440 and 390, light and dark, ko and en, member, admin, owner, the
+  owner with the setup row, the whole history open, the long filter, the largest text size; hover, focus, folded) were
+  taken outside the repo. Nothing outside the sidebar changed (pixel diff).
+- Differs from the plan: the first version had 24px and a hover fill; the review brought 20px (the same distance as above
+  대화), the setup row's space, no fill, and the no-wrap title. No hairline was needed. The e2e is new instead of an
+  extended size check, and there is no unit check (the e2e measures the rendered result).
+- Tests: `web/test/e2e/sidebar.spec.ts` has three new tests (the titles against a row and "더 보기" with the break, in
+  both looks; the long filter; 트리나 기록 against "오늘" in the phone's drawer). They fail on the old values.
+- Checks: `bun run typecheck`, `bun run check:i18n` (0 issues), `bun run check:docs` and `bun run build:web` pass;
+  `bun run test:web` 1629 pass / 1 fail, the "unhandled error between tests" in `download-only-actions.test.ts` that
+  clean dev has too; the full web e2e (chromium) on the second commit: 771 passed, 11 skipped, 0 failed; after the last
+  commit sidebar, a11y, phone-nav, text-size, account-settings and session-markers: 67 passed, 0 failed.
+- An independent review found nothing that must be fixed; its should-fixes (the setup row's space, the plan) and the
+  coordinator's notes (no fill, the no-wrap title, the e2e reading the text's own element and a phone pass, the wording)
+  are in.
+- PR: not opened (dev only, after the owner's OK).
