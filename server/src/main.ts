@@ -8,11 +8,12 @@ import { SMALL_UPLOAD_MAX } from '@mycel/shared/api'
 import { ConfigError, loadAppConfig, type AppConfig } from './app-config'
 import { buildApp } from './app'
 import { directFetch } from './http/tunnel'
-import { createContext, socketPathProblems, type AppContext } from './context'
+import { SERVER_VERSION, createContext, socketPathProblems, type AppContext } from './context'
 import { SchemaTooNewError, openDb } from './db'
 import { syncFollowingLocales } from './admin/settings'
 import { createLogger, type Logger } from './log'
 import { applyPendingRestore } from './system/backup'
+import { errorReportsFrom, logLineInput, reportCrashes, setErrorReports } from './system/error-report'
 import { ensureLanCert } from './system/lan-cert'
 import { resolveLayout } from './system/layout'
 import { reloadManagedFiles } from './system/managed'
@@ -186,13 +187,23 @@ if (import.meta.main) {
     console.error(`${PRODUCT.displayName}: ${(e as Error).message}`)
     process.exit(e instanceof ConfigError ? EXIT.config : EXIT.startFailed)
   }
-  const log = createLogger({ level: cfg.logLevel, dir: cfg.logDir, name: 'server', pretty: cfg.mode === 'dev' && process.stdout.isTTY })
+  const reports = errorReportsFrom(process.env, cfg, SERVER_VERSION)
+  setErrorReports(reports)
+  const { server: errorReporter } = reports
+  const log = createLogger({
+    level: cfg.logLevel, dir: cfg.logDir, name: 'server', pretty: cfg.mode === 'dev' && process.stdout.isTTY,
+    ...(errorReporter ? { report: (msg: string, fields?: Record<string, unknown>) => errorReporter.capture(logLineInput(msg, fields)) } : {}),
+  })
+  if (reports.refused) log.warn('a hosted server sends no error reports: the key is ignored')
+  for (const setting of reports.invalid) log.warn('this error report key is not valid and is ignored', { setting })
+  if (errorReporter) reportCrashes(errorReporter, log)
   let started: Started
   try {
     started = await start(cfg, log)
   } catch (e) {
     if (e instanceof SchemaTooNewError) { log.error('database is newer than this server', { err: e }); process.exit(EXIT.schemaTooNew) }
     log.error('start failed', { err: e })
+    await errorReporter?.flush(2_000)
     process.exit(EXIT.startFailed)
   }
   let stopping = false

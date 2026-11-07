@@ -50,7 +50,7 @@ Allowed: error type, scrubbed message, stack frames (file name, function, line),
 route pattern (`/api/files/:id`), the first segment of the web page path.
 
 Never: chat text, prompts, file names, paths or contents, request bodies, emails, names, tokens, engine stderr, log
-fields other than those above, hostnames, IP addresses.
+fields other than those above, hostnames, IP addresses. Sentry adds the country of the server that posted the report.
 
 The allowlist is the sender itself: a field reaches Sentry only if the code names it.
 

@@ -12724,3 +12724,42 @@ reference; a product and privacy review cut the first plan down to this.
   older servers, the rows in the Inbox and the click), `web/test/unit/push-worker.test.ts` (the title), and the e2e
   `inbox-rooms.spec.ts` (the rows, and a click that opens the thread at the first unread reply in sight).
 - Version impact: **minor** (the Inbox lists conversation notices, new optional fields, an additive migration).
+
+## Error reports to Sentry (feat/sentry-error-reporting, 2026-11-07, product owner decision)
+
+- **Off without a key, and no key ships.** `MYCEL_SENTRY_DSN` and `MYCEL_SENTRY_WEB_DSN` come only from the server's
+  environment. An install that sets neither builds no report, adds no crash handler and tells the web app nothing. This
+  repo is public, so a key in it would let anyone send false errors.
+- **A hosted server refuses a key.** The terms name the sub-processors and promise notice before a new one, the privacy
+  policy says hosted customer content is not sent abroad, and hosted app logs stay inside the tenant. Sending from there
+  needs those changed first. The refusal is in the code so that a stray setting cannot break the promise.
+- **A small sender instead of the Sentry SDK.** The current `@sentry/bun` needs a newer Bun than the pinned one, and moving
+  the pin is a separate decision that reaches every install. The SDK's value is automatic capture, and that is what this
+  must not do: here a field reaches Sentry only if `buildEvent` names it, so the allowlist holds by construction and
+  self-hosted installs carry no third-party telemetry code. Cost: this file is ours to maintain, and there are no
+  breadcrumbs, tracing or replay, which are not wanted.
+- **The log hook passes the fields as given, and the sender reads only the error object, `method` and `route`.** Other
+  fields can hold paths, addresses and engine stderr. `route` is the Hono pattern (`/api/files/:id`), never the path.
+  Only error lines are reported: warnings are too noisy, and turn failures log engine stderr as a field, which stays out.
+- **Scrubbing removes rather than masks by shape alone.** Messages keep the first line, cut to 300 characters; quoted text,
+  paths, file names, addresses, long ids, numbers and non-ASCII text are replaced. The code's own messages are English,
+  so other letters came from a person. Limit: a plain English word cannot be recognised as a name.
+- **Browser errors go through the team server.** A signed-in `POST /api/client-errors` takes them and the same scrubber runs
+  there. The CSP stays as it is, the browser holds no key, and only frames in the app's own `/assets/` keep a file name, so
+  the team's address never leaves. The web app sends only the first part of the page path: the rest can hold a file path
+  or a token. Errors on the sign-in page are not reported: an open endpoint would be a relay to Sentry.
+- **Sentry records a country.** It works out `user.geo` from the address that posts the report, and `sdk.settings.infer_ip:
+  never` did not stop it (tried against a real project). The IP itself is not stored. Accepted: the server posts every
+  report, browser errors too, so it is the server's country and never a person's.
+- **Crash handlers exist only while reports are on,** because a listener is what stops the default crash. They send the
+  error, wait at most 2 seconds and exit with code 1, as before, so the supervisor restarts the server the same way.
+- **Limits:** a repeat within a minute is dropped, at most 30 reports a minute per project, and Sentry's 429 and
+  `X-Sentry-Rate-Limits` pause sending. A signed-in person can crowd out real browser reports up to that limit; nobody
+  can raise the volume, and only servers with a key are affected.
+- Rejected: opening the CSP to Sentry (each browser would hold the key and post directly); a Bun bump for the SDK;
+  session replay (it would capture screens with chats and files); web source maps in this change (uploading needs a
+  secret, and the `dev-build.yml` build job has none by design: a follow-up with the release owner).
+- Tests: `tests/unit/error-report.test.ts` (key, off by default, hosted refusal, scrubbing, frames, the canary, the exact
+  field list, limits, the log hook, the route pattern, crashes), `tests/unit/error-report-http.test.ts` (off, on, sign-in,
+  CSRF, body limits, unknown fields), `web/test/unit/error-report.test.ts`.
+- Version impact: **minor** (new optional settings and an optional endpoint; nothing changes without a key).

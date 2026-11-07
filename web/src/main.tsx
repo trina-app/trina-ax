@@ -10,6 +10,7 @@ import { initMobile, MobileFileTooLarge, setMobileSession } from './lib/mobile'
 import { useSession } from './store/session'
 import { toast } from './store/ui'
 import { setPushSession } from './lib/push'
+import { initErrorReports, setErrorReports } from './lib/error-report'
 import { setMobilePushSession } from './lib/mobile-push'
 import './index.css'
 import './theme.edition.css'
@@ -19,8 +20,10 @@ applyTextSize(storedTextSize())
 watchSystemTheme()
 document.documentElement.lang = useLocaleStore.getState().locale
 initMobile(error => toast({ level: 'error', text: t(error instanceof MobileFileTooLarge ? 'mobile.fileTooLarge' : 'mobile.saveFailed') }))
+initErrorReports()
 useSession.subscribe(state => {
   const status = state.status
+  setErrorReports(status.kind === 'signed-in' && status.me.server.errorReports === true)
   setMobileSession(status.kind === 'signed-in' ? `${status.me.user.id}:${status.me.session.id}` : null)
   setPushSession(status.kind === 'signed-in' ? `${status.me.user.id}:${status.me.session.id}` : null)
   setMobilePushSession(status.kind === 'signed-in' && !status.me.user.mustChangePassword ? `${status.me.user.id}:${status.me.session.id}` : null)

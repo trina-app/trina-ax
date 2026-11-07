@@ -13,6 +13,8 @@ Use the installer and Admin settings first. `server.json` is operator-owned depl
 | `MYCEL_PUBLIC_ORIGINS` | Comma-separated browser origins for the actual installation; wrong host/port causes cookie/origin problems |
 | `MYCEL_LOG_LEVEL` | debug/info/warn/error; inspect logs locally and redact before sharing |
 | `MYCEL_EXIT_ADDRESS_CHECK` | `off` stops the server from asking the release feed (`https://updates.trina.app/ip`) for its own public address. Without that address (and without a relay that reports it) every web address the AI opens needs a person, and scheduled tasks open none. Admin > System > Diagnostics shows whether the server knows it ("Public address of the server"; never the address) |
+| `MYCEL_SENTRY_DSN`, `MYCEL_SENTRY_WEB_DSN` | Optional error reports to a Sentry project of your own: server errors, and browser errors through this server. Off when unset; a hosted server ignores them. See [Error reports](#error-reports) |
+| `MYCEL_SENTRY_ENV` | The environment name on those reports; default `production`, or `dev` in development |
 | `TEAM_AX_DEV_DIR`, `TEAM_AX_DEV_PORT` | Development supervisor directory and server port; not production installer settings |
 | `engine.authMode` | `local-login` uses the OS user's CLI login; `managed` uses configured AI connections behind the proxy |
 | `engine.credentialKinds` | Operator can narrow permitted connection kinds; team settings cannot grant forbidden kinds |
@@ -21,6 +23,23 @@ Use the installer and Admin settings first. `server.json` is operator-owned depl
 | `knowledgeGraph.codegraph` | The CodeGraph command for the knowledge graph (a path, relative to this file's folder); `""` never uses one. Absent: `codegraph` on the PATH. See [KNOWLEDGE-GRAPH.md](KNOWLEDGE-GRAPH.md) |
 
 `engine.modelUpstreams`, fake upstream URLs, native-path overrides and response-validation controls are test/advanced development tools, not recommended onboarding settings. Never point a live credential proxy at an untrusted endpoint. To run Claude Code on other models, use `engine.anthropicGateway` (below), not `modelUpstreams`.
+
+## Error reports
+
+Trina AX sends no error reports by default, and no Sentry key ships with it. To see this server's errors in your own
+Sentry project, set `MYCEL_SENTRY_DSN` to the project's key in the server's environment (`/etc/default/mycel` on Linux)
+and restart. `MYCEL_SENTRY_WEB_DSN` does the same for browser errors, which go through this server, so the browser
+holds no key and the Content Security Policy does not change. A key that is not valid is ignored with a warning in the
+log. A hosted server ignores these settings.
+
+A report holds the error type, the message, stack frames (file, function, line), the version, the environment, the HTTP
+method, the route pattern (`/api/files/:id`) and the first part of the web page's address. It never holds chats,
+prompts, file contents, request bodies or log fields. Quoted text, paths, file names, addresses, long ids and text in
+other languages are taken out of the message first. That filter cannot recognise a plain English word as a name, so
+review what your own Sentry project keeps. Sentry itself records the country of the address that sent a report; this
+server sends every report, browser errors included, so that is the server's country, not a person's.
+
+The server sends one copy of a repeated error per minute, at most 30 reports a minute, and waits when Sentry asks it to.
 
 ## Anthropic-compatible gateway
 

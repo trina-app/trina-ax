@@ -2,6 +2,7 @@
 // Callers: main.ts (Bun.serve / TLS listener), the relay client (in-process app.fetch with the real client IP),
 // tests (app.fetch with via 'test').
 import { Hono } from 'hono'
+import { routePath } from 'hono/route'
 import { DEFAULT_LOCALE } from '@mycel/shared/api'
 import type { AppContext } from './context'
 import type { AppEnv } from './http/env'
@@ -26,7 +27,7 @@ export async function buildApp(ctx: AppContext, modules: readonly RouteModule[] 
       if (err.retryAfter !== undefined) c.header('Retry-After', String(err.retryAfter))
       return c.json({ error: err.body(locale, rid) }, err.status as 400)
     }
-    ;(c.get('log') ?? ctx.log).error('unhandled error', { err, method: c.req.method, path: loggablePath(c.req.path) })
+    ;(c.get('log') ?? ctx.log).error('unhandled error', { err, method: c.req.method, path: loggablePath(c.req.path), route: routePath(c) })
     return c.json({ error: new HttpError('internal').body(locale, rid) }, 500)
   })
   app.notFound((c) => {

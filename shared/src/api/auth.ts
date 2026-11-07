@@ -77,6 +77,8 @@ export const Me = z.object({
     allChatsConfidential: z.literal(true).optional(),
     /** the dev environment experiment is on (MYCEL_DEV_ENV=1): Team settings shows its section. Absent = off. */
     devEnv: z.literal(true).optional(),
+    /** this server takes browser errors for its error reports (MYCEL_SENTRY_WEB_DSN): POST /api/client-errors. Absent = off. */
+    errorReports: z.literal(true).optional(),
     /** a Linux server's Windows desktop app in Settings > Apps (server/src/system/windows-app.ts): 'feed' = the server
      * (self-installed or a hosted tenant) takes it from the signed release feed by itself after it starts or updates,
      * 'folder' = a self-installed server without a feed (the owner copies the release's files in). Absent: an office Mac
