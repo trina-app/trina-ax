@@ -24,6 +24,10 @@
 //   (files/hwpx-write.ts, never in this process) with the built-in or a team template from skills/; anything the
 //   writer does not support is refused there, naming it. The file is then read back with hwp.ts, as read and grep
 //   read it: when its paragraphs and headings are not the document's, nothing is saved (files/hwpx-check.ts).
+// - pdf from an .html `source`: printed by the server's headless browser exactly as a browser prints the page (its CSS,
+//   colours and backgrounds, merged cells, `@page` size and margins, page breaks), never rewritten as Markdown
+//   (files/html-pdf.ts: no network, no scripts, the page's pictures, stylesheets and fonts read with the person's
+//   access). The page and every file it used are the PDF's sources, as for images above.
 import fs from 'node:fs'
 import path from 'node:path'
 import ExcelJS from 'exceljs'
@@ -51,6 +55,7 @@ import { typstJobs } from '../system/limits'
 import { assertStorageRoomForAI } from '../system/storage'
 import { deckMismatch, deckShape, type Deck, type DeckShape } from './pptx-check'
 import { readDeckIsolated } from '../safe-ops/deck-check'
+import { findPdfBrowser, HTML_PDF_LIMITS, HtmlPdfError, htmlPdfUnavailable, renderHtmlPdf, renderSlot, serverFontDirs } from '../files/html-pdf'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { withWorkflow } from '../safe-ops/workflow'
 import { publishArtifact } from '../safe-ops/publication'
@@ -59,7 +64,40 @@ import { snapshot, type SourceSnapshot } from '../safe-ops/source'
 import { safeText } from '../safe-ops/strings'
 
 type Input = z.output<typeof MakeFileInput>
-export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck; formulas?: number }
+/** a PDF printed from HTML: its pages, what the page referred to but did not get, and whether it has scripts (off) */
+export interface FromHtml { pages: number; blocked: string[]; blockedCount: number; scripts: boolean }
+export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck; formulas?: number; html?: FromHtml }
+/** the sources make_file prints as a page (format pdf only) */
+export const HTML_SOURCE_EXT = new Set(['html', 'htm'])
+
+/** make_file's description where this server prints HTML (tools/index.ts). Before it, an AI asked to turn a quote's
+ * .html into a PDF rewrote it as Markdown tables (losing its navy headers, highlights, merged cells and A4 layout) and
+ * told the person to print it from Chrome. */
+export const HTML_PDF_HINT =
+  'PDF from HTML: give `source` = the .html file and format "pdf": the server prints it exactly as a browser prints it (its CSS, colours and ' +
+  'backgrounds, merged cells, the page\'s `@page` size and margins (A4 when none), page breaks such as break-before: page, Korean fonts). ' +
+  'Use this for every HTML page the user wants as a PDF: never rewrite HTML as Markdown for a PDF, and never send the user to print it from a browser. ' +
+  'Printing loads only the page\'s own pictures, stylesheets and fonts from the team folder by relative path (web addresses are not loaded) and runs ' +
+  'no JavaScript, so when you write a page for PDF, put its design in CSS and its pictures in team files (save_url), and set @page { size: A4; margin: 15mm }. '
+/** make_file's description where no headless browser is installed */
+export const HTML_PDF_OFF_HINT =
+  'This server cannot print an HTML page to PDF (no headless browser is installed). If the user asks for one, say so; going through Markdown ' +
+  'loses the page\'s design (colours, backgrounds, merged cells, layout), so say that before you offer it. '
+
+/** What the AI is told about a PDF printed from HTML (tools/index.ts). */
+export function htmlPdfResultText(h: FromHtml): string {
+  const lines = [`The PDF has ${h.pages} page${h.pages === 1 ? '' : 's'}, printed from the HTML as a browser prints it.`]
+  if (h.blockedCount) lines.push(`${h.blockedCount} reference${h.blockedCount === 1 ? ' was' : 's were'} not loaded (web addresses, other kinds of files, or files the user cannot read; a picture shows as a grey box): ${h.blocked.slice(0, 3).join(', ')}. Tell the user; to include a web picture, save it into the team folder (save_url) and refer to it by a relative path.`)
+  if (h.scripts) lines.push('The page has scripts, which did not run: JavaScript is off when printing, so anything a script draws or fills in is missing. If that matters, write that part as plain HTML and print again.')
+  return lines.join('\n')
+}
+
+/** The AI's words for a failed HTML print (files/html-pdf.ts HtmlPdfError). Nothing was saved in every case. */
+export function htmlPdfErrorText(e: HtmlPdfError): string {
+  if (e.code === 'pages') return `${e.message}; nothing was saved. Split the page into shorter HTML files, or ask the user which part to print`
+  if (e.code === 'browser') return `the HTML could not be printed to PDF (${e.message}); nothing was saved`
+  return `${e.message}; nothing was saved`
+}
 
 const MAX_SOURCE = 10 * 1024 * 1024
 const MAX_IMAGE = 20 * 1024 * 1024
@@ -173,6 +211,8 @@ export class MakeFile {
   constructor(private ctx: AppContext, private files: TeamFiles, private conv: Converters) {}
 
   async run(c: ToolCtx, a: Input): Promise<MadeFile> {
+    // an HTML page is printed, never converted through Markdown (its design would be lost)
+    if (a.source !== undefined && HTML_SOURCE_EXT.has(ext(a.source))) return this.fromHtml(c, a)
     if(a.format==='pptx' && safeOpsEnabled()) return withWorkflow(this.ctx.files,c,() => this.safePresentation(c,a))
     if(a.expected_layouts) throw new ToolError(safeText(this.ctx.db,c.user.id,'unavailable'))
     const fx = this.files.fx
@@ -187,7 +227,7 @@ export class MakeFile {
       const r = authorize(fx, rules, c.user, a.source, 'read')
       if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`)
       const x = ext(r.rel)
-      if (!['md', 'markdown', 'txt', 'csv', 'tsv'].includes(x)) throw new ToolError('source must be a .md, .txt, .csv or .tsv file')
+      if (!['md', 'markdown', 'txt', 'csv', 'tsv'].includes(x)) throw new ToolError('source must be a .md, .txt, .csv or .tsv file (or an .html file for format "pdf")')
       const { bytes } = readRegular(r.abs, MAX_SOURCE)
       text = bytes.toString('utf8')
       kind = x === 'csv' ? 'csv' : x === 'tsv' ? 'tsv' : 'markdown'
@@ -271,6 +311,31 @@ export class MakeFile {
       await this.checkWidening(c, out.rel, out.segs, sources)
       const made = await this.place(c, out.segs, produced)
       return deck ? { ...made, deck } : formulas !== undefined ? { ...made, formulas } : made
+    } finally { fs.rmSync(work, { recursive: true, force: true }) }
+  }
+
+  /**
+   * PDF from an HTML page in the team folder (files/html-pdf.ts): printed by the server's headless browser, its
+   * pictures, stylesheets and fonts read with the person's own access. The page and those files are the PDF's sources
+   * (the wider-audience card, as for images); then the PDF is placed like every make_file output.
+   */
+  private async fromHtml(c: ToolCtx, a: Input): Promise<MadeFile> {
+    if (a.format !== 'pdf') throw new ToolError(`an .html source can only be printed to PDF: give format "pdf" (for ${a.format}, write the document as Markdown)`)
+    if (a.template) throw new ToolError('a PDF printed from HTML takes no template: the page\'s own CSS is its design')
+    const fx = this.files.fx
+    let outRel = a.output.replace(/\/+$/, '')
+    if (ext(outRel) !== 'pdf') outRel += '.pdf'
+    const out = authorize(fx, this.files.rules(), c.user, outRel, 'write', { mustExist: false, createDirs: true })
+    if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder`)
+    const printed = await printTeamHtml(this.ctx, this.files, c.user, a.source!, { signal: c.signal })
+    const work = makeWorkDir(path.join(this.ctx.config.dataDir, 'work'))
+    try {
+      const produced = path.join(work, 'out.pdf')
+      fs.writeFileSync(produced, printed.pdf, { flag: 'wx', mode: 0o600 })
+      await this.checkWidening(c, out.rel, out.segs, printed.sources)
+      // the audit line names every team file whose bytes are in the PDF (the page's pictures, stylesheets, fonts)
+      const made = await placeProduced(this.ctx, this.files, c, out.segs, produced, 'make_file', undefined, { detail: { from: printed.source, pages: printed.pages, files: printed.sources.slice(1, 51), fileCount: printed.sources.length - 1 } })
+      return { ...made, html: { pages: printed.pages, blocked: printed.blocked, blockedCount: printed.blockedCount, scripts: printed.scripts } }
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
 
@@ -483,6 +548,54 @@ export async function confirmSources(ctx: AppContext, files: TeamFiles, c: ToolC
   const chatId = c.turnId ? (db.query('SELECT chat_id FROM turns WHERE id = ?').get(c.turnId) as { chat_id: string } | null)?.chat_id ?? null : null
   const w = widening(db, chatId, targetSegs, sources.map((p) => sourceOf(db, rules, p)))
   if (w) throw new Denied(`more people can read '${target}' than the files it is made from; nothing was saved. Save it in a folder that only the people who can read those files can see, or ask the user where to put it.`)
+}
+
+/** An HTML page of the team folder printed to PDF (files/html-pdf.ts), and every team file whose bytes are in it. */
+export interface PrintedHtml extends FromHtml { pdf: Buffer; source: string; sources: string[] }
+
+/**
+ * Print the team file `source` (an .html page `user` may read) to PDF with the server's headless browser: one render
+ * per person at a time (files/html-pdf.ts renderSlot). The page's pictures, stylesheets and fonts are read through the
+ * normal authorize path for `user`, so a reference that leaves their access gets nothing; `embedOnly` (the file
+ * preview's action) also leaves out a file that someone who can read the page cannot read, as the preview does
+ * (team-files/embed.ts). Throws ToolError with the reason (no browser here, busy, too long, too many pages ...).
+ */
+export async function printTeamHtml(ctx: AppContext, files: TeamFiles, user: ToolCtx['user'], source: string, o: { signal?: AbortSignal; embedOnly?: (page: string[], file: string[]) => boolean } = {}): Promise<PrintedHtml> {
+  const fx = files.fx
+  const rules = files.rules()
+  const src = authorize(fx, rules, user, source, 'read')
+  if (src.st!.isDirectory()) throw new ToolError(`'${src.rel}' is a folder`)
+  if (!HTML_SOURCE_EXT.has(ext(src.rel))) throw new ToolError('only an .html file can be printed to PDF')
+  const why = htmlPdfUnavailable()
+  const browser = findPdfBrowser()
+  if (why || !browser) throw new ToolError(`${why ?? 'no headless browser is installed on this server'}; nothing was saved. Tell the user so; never rewrite the HTML as Markdown instead without saying that its design (colours, backgrounds, merged cells, page layout) would be lost`, 'html_pdf_unavailable')
+  const { bytes } = readRegular(src.abs, HTML_PDF_LIMITS.maxHtmlBytes)
+  ctx.files.quarantine.assertBytes(bytes)
+  /** the team path the page asked for -> its actual name (authorize resolves case and Unicode forms) */
+  const used = new Map<string, string>()
+  /** HtmlPdfError -> ToolError with code html_pdf_<code> (the file preview's route words each one for the person) */
+  const toTool = (e: unknown) => (e instanceof HtmlPdfError ? new ToolError(htmlPdfErrorText(e), `html_pdf_${e.code}`) : e)
+  let release: () => void
+  try { release = await renderSlot(user.id, o.signal) } catch (e) { throw toTool(e) }
+  try {
+    const r = await renderHtmlPdf({
+      browser, html: bytes, page: src.rel, workBase: ctx.config.dataDir, fonts: serverFontDirs(), signal: o.signal,
+      asset: (p, max) => {
+        try {
+          const f = authorize(fx, rules, user, p, 'read')
+          if (f.st!.isDirectory() || f.rel === src.rel) return null
+          if (o.embedOnly && !o.embedOnly(src.segs, f.segs)) return null
+          const b = readRegular(f.abs, max).bytes
+          if (ctx.files.quarantine.hasBytes(b)) return null
+          used.set(p, f.rel)
+          return b
+        } catch { return null }
+      },
+    })
+    return { pdf: r.pdf, pages: r.pages, blocked: r.blocked, blockedCount: r.blockedCount, scripts: r.scripts, source: src.rel, sources: [src.rel, ...r.assets.map((p) => used.get(p) ?? p)] }
+  } catch (e) {
+    throw toTool(e)
+  } finally { release() }
 }
 
 /**

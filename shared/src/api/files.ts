@@ -236,6 +236,12 @@ export const RecentFilesQuery = z.object({ limit: z.coerce.number().int().min(1)
 export const FileList = z.object({ items: z.array(FileEntry), truncated: z.boolean() })
 export type FileList = z.infer<typeof FileList>
 
+/** The file preview's "PDF로 저장" of an .html file (server/src/team-files/html-pdf-save.ts): the page printed by the
+ * server's headless browser, saved next to it. `blocked`: references it did not load (web addresses, files not
+ * everyone who can read the page can read); `scripts`: the page has scripts, which do not run when printing. */
+export const HtmlPdfSaved = z.object({ entry: FileEntry, pages: z.number().int().min(1), blocked: z.number().int().min(0), scripts: z.boolean() })
+export type HtmlPdfSaved = z.infer<typeof HtmlPdfSaved>
+
 export const FILES = {
   tree: endpoint({ method: 'GET', path: '/api/files/tree', auth: 'user', owner: 'C', query: TreeQuery, response: TreeResponse, summary: 'List a folder (only what the caller may see; ancestors of visible folders shown for navigation).' }),
   content: endpoint({ method: 'GET', path: '/api/files/content', auth: 'user', owner: 'C', query: ContentQuery, response: FileContent, summary: 'Text content for preview / editing.' }),
@@ -243,6 +249,8 @@ export const FILES = {
   download: endpoint({ method: 'GET', path: '/api/files/download', auth: 'user', owner: 'C', query: DownloadQuery, response: stream(true), summary: 'Stream a file (Range supported, never loaded whole into memory).' }),
   hwpPreview: endpoint({ method: 'GET', path: '/api/files/hwp-preview', auth: 'user', owner: 'C', query: z.object({ path: RelPath, page: z.coerce.number().int().min(1).max(200), cacheId: z.string().uuid().optional() }), response: HwpPage.extend({ id: z.string().uuid(), png: z.string().max(45 * 1024 * 1024) }), summary: 'Authorized HWP/HWPX raster page. Pages are 1-based. Original download stays available.' }),
   preview: endpoint({ method: 'GET', path: '/api/files/preview', auth: 'user', owner: 'C', query: PathQuery, response: stream(false), summary: 'JPEG preview of a HEIC / HEIF photo (converted on the server, cached). No converter or a failed conversion: 503 unavailable with params.reason no_preview.' }),
+  saveHtmlPdf: endpoint({ method: 'POST', path: '/api/files/html-pdf', auth: 'user', owner: 'C', status: 201, body: PathQuery, response: HtmlPdfSaved, summary: 'Print an .html file to PDF on the server (as a browser prints it; no network, no scripts) and save it next to the page, named like the page with .pdf (" (2)" when taken). Read access to the page, write access to its folder (403 read-only otherwise). No browser on the server: 503 unavailable with params.reason unavailable; busy: reason busy.' }),
+  downloadHtmlPdf: endpoint({ method: 'GET', path: '/api/files/html-pdf', auth: 'user', owner: 'C', query: PathQuery, response: stream(false), summary: 'The same PDF of an .html file as an attachment; nothing is saved (read access to the page).' }),
   upload: endpoint({ method: 'POST', path: '/api/files/upload', auth: 'user', owner: 'C', status: 201, body: multipart(UploadFields, SMALL_UPLOAD_MAX), response: FileEntry, summary: 'Upload one file up to 50 MB into a folder (write access).' }),
   mkdir: endpoint({ method: 'POST', path: '/api/files/mkdir', auth: 'user', owner: 'C', status: 201, body: MkdirBody, response: FileEntry, summary: 'Create a folder (name rules + collision check).' }),
   move: endpoint({ method: 'POST', path: '/api/files/move', auth: 'user', owner: 'C', body: MoveBody, response: MoveResult, summary: 'Move / rename (write access at both ends; folders.path follows). Group / project / rule folders: admin or owner only, never into users/ (400). Into users/<me>/ when others lose sight of it: 409 audience_narrowed unless confirm.' }),

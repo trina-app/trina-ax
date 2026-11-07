@@ -66,7 +66,7 @@ export const EDIT_FILES_DESCRIPTION = 'Make the same exact-string replacement in
 // ---------------- other tools (stage 1: contracts only) ----------------
 export const HwpRenderInput = z.strictObject({ source: relPath, page: z.number().int().min(1).max(200), format: z.literal('png') })
 export const MakeFileInput = z.strictObject({
-  source: optRelPath.describe('.md/.csv file to convert (source or content)'),
+  source: optRelPath.describe('.md/.csv file to convert, or an .html page to print to PDF (format "pdf"); source or content'),
   content: z.string().optional(),
   format: z.enum(['docx', 'pptx', 'xlsx', 'pdf', 'hwpx']),
   output: relPath.describe('Where to save (write access needed; a conflict copy is made if it exists)'),
@@ -76,7 +76,7 @@ export const MakeFileInput = z.strictObject({
   expected_layouts: z.array(z.enum(['Title Slide','Title and Content','Section Header','Two Content','Comparison','Content with Caption','Blank'])).min(1).max(30).optional().describe('Safe PowerPoint only: required bundled layout for each slide in order. A mismatch saves nothing. One ## heading per ordinary slide; columns select Two Content, text then image selects Content with Caption.'),
 }).refine((v) => (v.source === undefined) !== (v.content === undefined), { message: 'give exactly one of source or content' })
   .refine((v) => v.format === 'pptx' || (v.expected_slides === undefined && v.expected_notes === undefined && v.expected_layouts === undefined), { message: 'expected_slides and expected_notes are only for format "pptx"' })
-export const MakeFileOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string(), slides: z.number().optional(), notes: z.number().optional() })
+export const MakeFileOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string(), slides: z.number().optional(), notes: z.number().optional(), pages: z.number().optional() })
 
 /** edit_hwp: the text of an existing Hangul document (.hwp or .hwpx) changed, the rest of the file kept as it was
  * (server/src/tools/edit-hwp.ts, server/src/files/hwpx-edit.ts, server/src/files/hwp-edit.ts). */

@@ -17,6 +17,7 @@ import { zonedParts } from '../system/time-zone'
 import { MAX_CONCURRENT_SUBAGENTS } from '../engine/claude'
 import { PROFILE_PATH, profileFactLines, readCompanyProfile } from '../onboarding/profile'
 import { getTeamSettings } from '../admin/settings'
+import { htmlPdfUnavailable } from '../files/html-pdf'
 
 export const MEMORY_ITEM_MAX = MEMORY_TEXT_MAX
 /** A memory's text as it is kept: runs of spaces and line breaks folded into one space, trimmed; refused when empty or
@@ -485,10 +486,12 @@ export function sourceLinkRule(search: boolean): string {
 /** make_file; Hangul (.hwpx) only while Hangul writing is on, which is exactly while edit_hwp is offered (the HWP
  * plugin installed and on, tools/hwp-writing.ts). Otherwise nothing about Hangul documents: a team without the plugin
  * is not told about a feature it did not add. */
-export function makeFileRule(hangul: boolean): string {
-  return hangul
+export function makeFileRule(hangul: boolean, html: boolean = htmlPdfUnavailable() === null): string {
+  // an HTML page becomes a PDF by printing, not through Markdown (files/html-pdf.ts), where this server can print
+  const fromHtml = html ? ' An HTML page becomes a PDF with make_file `source` = the .html file and format "pdf": it is printed as a browser prints it; never rewrite HTML as Markdown for that.' : ''
+  return (hangul
     ? 'To produce Word / PowerPoint / Excel / PDF / Hangul (.hwpx) files, write Markdown or CSV and convert it with make_file (write and edit cannot save .hwp or .hwpx files).'
-    : 'To produce Word / PowerPoint / Excel / PDF files, write Markdown or CSV and convert it with make_file.'
+    : 'To produce Word / PowerPoint / Excel / PDF files, write Markdown or CSV and convert it with make_file.') + fromHtml
 }
 export const EDIT_HWP_RULE = 'To fill in or change an existing Hangul document (.hwp or .hwpx: a form, a template with blanks), read it, then use edit_hwp; it keeps everything you do not change exactly as it was and saves the same format.'
 

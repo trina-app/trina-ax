@@ -5,8 +5,11 @@
 // Text files the person may write can be fixed in place (tab 5 "텍스트 파일 고치기"): the editor keeps the sha256 it
 // loaded and saves with it as baseSha256 (PUT /api/files/content); when someone changed the file in between, the
 // server keeps their version and saves this one as a conflict copy, which the panel then opens.
+// An .html file has "PDF로 저장" where the server can print HTML (Me.server.htmlPdf): the server's headless browser
+// prints the page as a browser does and saves "<name>.pdf" next to it (POST /api/files/html-pdf); a folder the person
+// cannot write gets the same PDF as a download (GET /api/files/html-pdf).
 import clsx from 'clsx'
-import { Download, FileText, FolderOpen, Loader2, Paperclip, Pencil, Sparkles, X } from 'lucide-react'
+import { Download, FileDown, FileText, FolderOpen, Loader2, Paperclip, Pencil, Sparkles, X } from 'lucide-react'
 import Papa from 'papaparse'
 import { Fragment, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -27,6 +30,7 @@ import SandboxFrame, { StaticFrame } from './SandboxFrame'
 import ExternalImagesNote from './ExternalImagesNote'
 import { useFrameFiles } from '../lib/useFrameFiles'
 import { toast } from '../store/ui'
+import { useMe } from '../store/session'
 import { Button, confirmDialog, IconButton } from './ui'
 import { MenuButton, type MenuItem } from './rooms/MenuButton'
 import { Tooltip } from './Tooltip'
@@ -68,8 +72,28 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   const [saving, setSaving] = useState(false)
   const [loadingEdit, setLoadingEdit] = useState(false)
   const canEdit = file.source === 'team' && !!kind && EDITABLE.includes(kind)
+  const me = useMe()
+  const [pdfBusy, setPdfBusy] = useState(false)
 
   useEffect(() => setEditing(null), [file])
+
+  /** "PDF로 저장": the server prints the page and saves the PDF next to it; a read-only folder gets it as a download */
+  const savePdf = async () => {
+    if (file.source !== 'team' || pdfBusy) return
+    setPdfBusy(true)
+    try {
+      const r = await api.call(API.saveHtmlPdf, { body: { path: file.path } })
+      const detail = [r.blocked ? t('preview.pdfBlocked', { count: r.blocked }) : '', r.scripts ? t('preview.pdfScripts') : ''].filter(Boolean).join(' ')
+      toast({ level: 'success', text: t('preview.pdfSaved', { name: r.entry.name }), ...(detail ? { detail } : {}), action: { label: t('preview.pdfOpen'), run: () => openTeamFile(r.entry.path) } })
+    } catch (e) {
+      if (isApiError(e, 'forbidden')) {
+        startDownload(api.url(API.downloadHtmlPdf, { query: { path: file.path } }), file.name.replace(/\.[^./]+$/, '') + '.pdf')
+        toast({ level: 'info', text: t('preview.pdfDownloaded') })
+      } else toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    } finally {
+      setPdfBusy(false)
+    }
+  }
 
   const startEdit = async () => {
     if (file.source !== 'team') return
@@ -157,8 +181,11 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   const addToChat = teamPath && chatActionsFor(file, error, downloadOnly) && chatAttach.target ? { title: chatAttach.target.title, add: () => chatAttach.addToChat([teamPath]) } : null
   const openInFiles = () => teamPath && navigate(`/files?path=${encodeURIComponent(parentPath(teamPath))}&select=${encodeURIComponent(file.name)}`)
   const canDownload = error?.kind !== 'missing'
+  // an .html team file the server can print (never a button that cannot work), not while editing or after an error
+  const canPdf = file.source === 'team' && kind === 'html' && !!me?.server.htmlPdf && !error && !editing
   // the app's "…" menu (rooms/MenuButton.tsx): arrow keys, Home / End, Esc back to the button; a bottom sheet on phones
   const more: MenuItem[] = [
+    ...(canPdf ? [{ label: pdfBusy ? t('preview.savingPdf') : t('preview.savePdf'), icon: pdfBusy ? <Loader2 size={15} className="shrink-0 animate-spin" aria-hidden /> : <FileDown size={15} className="shrink-0" aria-hidden />, onSelect: () => void savePdf(), testId: 'file-more-save-pdf' }] : []),
     ...(addToChat ? [{ label: t('files.addToChatNamed', { title: addToChat.title }), icon: <Paperclip size={15} className="shrink-0" aria-hidden />, onSelect: addToChat.add, testId: 'file-more-add-to-chat' }] : []),
     ...(file.source === 'team' ? [{ label: t('preview.openInFiles'), icon: <FolderOpen size={15} className="shrink-0" aria-hidden />, onSelect: openInFiles, testId: 'file-more-open-in-files' }] : []),
     ...(canDownload ? [{ label: t('common.download'), icon: <Download size={15} className="shrink-0" aria-hidden />, onSelect: download, testId: 'file-more-download' }] : []),
@@ -195,6 +222,11 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
             <IconButton label={t('files.addToChatNamed', { title: addToChat.title })} className="max-md:hidden" onClick={addToChat.add} data-testid="file-add-to-chat">
               <Paperclip size={16} />
             </IconButton>
+          )}
+          {canPdf && (
+            <button type="button" onClick={() => void savePdf()} disabled={pdfBusy} aria-busy={pdfBusy} className="touch-hit mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted transition hover:bg-hover hover:text-ink disabled:opacity-60 max-md:hidden" data-testid="file-save-pdf">
+              {pdfBusy ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <FileDown size={14} aria-hidden />} {pdfBusy ? t('preview.savingPdf') : t('preview.savePdf')}
+            </button>
           )}
           {canEdit && !editing && !error && (
             <IconButton label={t('preview.edit')} onClick={() => void startEdit()} disabled={loadingEdit} data-testid="file-edit">

@@ -39,6 +39,12 @@ export interface IsolatedRun {
   gpu?: boolean
   /** HWP: deny host font directories; only explicitly staged fonts are available. */
   curatedFonts?: boolean
+  /** A program that starts helper processes of its own (a headless browser, files/html-pdf.ts): on macOS it may fork,
+   * and exec the files of this folder (its own app folder) besides itself. Never a folder anyone but root or the
+   * server can write. Linux: no change (bwrap does not limit exec; everything still runs inside the isolation). */
+  helpersIn?: string
+  /** macOS: more programs the converter may exec, each by its exact path (a shell's real binary behind /bin/sh) */
+  execAlso?: string[]
   timeoutMs?: number
   /** threads the converter computes with (whisper.cpp -t): its CPU-seconds limit in the converter cgroup is the time
    * limit times this, since the kernel counts the CPU time of all threads */
@@ -102,7 +108,7 @@ function metalCacheDirs(): string[] {
   return metalCache
 }
 
-export function sandboxProfile(o: { cmd: string; workDir: string; readPaths: string[]; denyRead: string[]; gpu?: boolean; curatedFonts?: boolean }): string {
+export function sandboxProfile(o: { cmd: string; workDir: string; readPaths: string[]; denyRead: string[]; gpu?: boolean; curatedFonts?: boolean; helpersIn?: string; execAlso?: string[] }): string {
   const gpu = o.gpu ? metalCacheDirs() : []
   const deny = [...new Set([
     '/Users', '/Volumes', '/private/tmp', '/private/var/folders', '/private/var/root', '/Library/Keychains',
@@ -122,9 +128,11 @@ export function sandboxProfile(o: { cmd: string; workDir: string; readPaths: str
       `(allow file-read-data (literal ${sq(real(o.cmd))}))`,
       '(deny mach-lookup (global-name "com.apple.FontObjectsServer"))',
     ] : []),
-    '(deny process-fork)',
+    ...(o.helpersIn ? [] : ['(deny process-fork)']),
     '(deny process-exec)',
     `(allow process-exec (literal ${sq(real(o.cmd))}))`,
+    ...(o.helpersIn ? [`(allow process-exec (subpath ${sq(real(o.helpersIn))}))`] : []),
+    ...(o.execAlso ?? []).map((p) => `(allow process-exec (literal ${sq(real(p))}))`),
     '(deny signal (target others))',
     '(deny process-info* (target others))',
     '(deny file-write*)',
@@ -211,6 +219,32 @@ export function backgroundPrefix(platform: NodeJS.Platform = process.platform): 
   return p
 }
 
+/**
+ * The command line and environment that run `o.cmd` isolated in `o.workDir` (a plain folder the server made, already
+ * resolved): sandbox-exec on macOS, bwrap on Linux (inside the converter cgroup in production), else the converter
+ * directly. runIsolated spawns it; files/html-pdf.ts spawns a headless browser with it, since that one also needs the
+ * two extra pipes of its DevTools protocol (fd 3 and 4), which pass through sandbox-exec and bwrap unchanged.
+ */
+export function isolatedCommand(o: IsolatedRun & { workDir: string; timeoutMs: number; background: boolean }): { argv: string[]; env: Record<string, string> } {
+  const workDir = o.workDir
+  const cmd = real(o.cmd)
+  const env: Record<string, string> = { PATH: '/usr/bin:/bin', LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8', HOME: workDir, TMPDIR: workDir, ...o.env }
+  const kind = isolation()
+  const low = o.background ? backgroundPrefix() : []
+  let argv: string[]
+  if (kind === 'sandbox-exec') {
+    argv = [...low, '/usr/bin/sandbox-exec', '-p', sandboxProfile({ cmd, workDir, readPaths: o.readPaths ?? [], denyRead: o.denyRead ?? [], gpu: o.gpu, curatedFonts: o.curatedFonts, helpersIn: o.helpersIn, execAlso: o.execAlso }), cmd, ...o.args]
+  } else if (kind === 'bwrap') {
+    const bwrap = which('bwrap')!
+    // production Linux: the converter starts inside the server's converter cgroup with rlimits (system/cgroups.ts)
+    argv = [...low, ...cgexecPrefix(o.timeoutMs, o.cpuThreads), bwrap, ...bwrapArgs({ cmd, workDir, readPaths: o.readPaths ?? [], modern: bwrapIsModern(bwrap), curatedFonts: o.curatedFonts }),
+      ...Object.entries(env).flatMap(([k, v]) => ['--setenv', k, v]), cmd, ...o.args]
+  } else {
+    argv = [...low, cmd, ...o.args]
+  }
+  return { argv, env }
+}
+
 /** Run a converter isolated. Never throws for a non-zero exit; check `code`. */
 export async function runIsolated(o: IsolatedRun): Promise<IsolatedResult> {
   const ownDir = !o.workDir
@@ -221,23 +255,9 @@ export async function runIsolated(o: IsolatedRun): Promise<IsolatedResult> {
   // since the folder itself is inside the writable subpath. Every later path the server opens under it (readOutput,
   // the next converter's sandbox profile, make_file's writes) would then go through that link. Checked after the run.
   const workId = folderId(workDir)
-  const cmd = real(o.cmd)
-  const env: Record<string, string> = { PATH: '/usr/bin:/bin', LANG: 'en_US.UTF-8', LC_ALL: 'en_US.UTF-8', HOME: workDir, TMPDIR: workDir, ...o.env }
-  const kind = isolation()
   const timeoutMs = o.timeoutMs ?? 60_000
   const background = o.background ?? backgroundRun()
-  const low = background ? backgroundPrefix() : []
-  let argv: string[]
-  if (kind === 'sandbox-exec') {
-    argv = [...low, '/usr/bin/sandbox-exec', '-p', sandboxProfile({ cmd, workDir, readPaths: o.readPaths ?? [], denyRead: o.denyRead ?? [], gpu: o.gpu, curatedFonts: o.curatedFonts }), cmd, ...o.args]
-  } else if (kind === 'bwrap') {
-    const bwrap = which('bwrap')!
-    // production Linux: the converter starts inside the server's converter cgroup with rlimits (system/cgroups.ts)
-    argv = [...low, ...cgexecPrefix(timeoutMs, o.cpuThreads), bwrap, ...bwrapArgs({ cmd, workDir, readPaths: o.readPaths ?? [], modern: bwrapIsModern(bwrap), curatedFonts: o.curatedFonts }),
-      ...Object.entries(env).flatMap(([k, v]) => ['--setenv', k, v]), cmd, ...o.args]
-  } else {
-    argv = [...low, cmd, ...o.args]
-  }
+  const { argv, env } = isolatedCommand({ ...o, workDir, timeoutMs, background })
   const p = Bun.spawn(argv, { cwd: workDir, env, stdin: o.stdin ? 'pipe' : 'ignore', stdout: 'pipe', stderr: 'pipe' })
   let killed: IsolatedResult['killed'] = null
   const kill = (why: NonNullable<IsolatedResult['killed']>) => { if (!killed) { killed = why; try { p.kill('SIGKILL') } catch {} } }
@@ -286,7 +306,7 @@ export async function runIsolated(o: IsolatedRun): Promise<IsolatedResult> {
 const RSS_POLL_MS = 200
 
 /** Bytes of the files in a folder and its subfolders (links are not followed). */
-function dirBytes(dir: string): number {
+export function dirBytes(dir: string): number {
   let n = 0
   try {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {

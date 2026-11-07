@@ -77,6 +77,9 @@ export const Me = z.object({
     allChatsConfidential: z.literal(true).optional(),
     /** the dev environment experiment is on (MYCEL_DEV_ENV=1): Team settings shows its section. Absent = off. */
     devEnv: z.literal(true).optional(),
+    /** this server can print HTML to PDF (a headless browser in the converter isolation, server/src/files/html-pdf.ts):
+     * an .html file's preview shows "PDF로 저장". Absent = it cannot (no button that cannot work). */
+    htmlPdf: z.literal(true).optional(),
     /** a Linux server's Windows desktop app in Settings > Apps (server/src/system/windows-app.ts): 'feed' = the server
      * (self-installed or a hosted tenant) takes it from the signed release feed by itself after it starts or updates,
      * 'folder' = a self-installed server without a feed (the owner copies the release's files in). Absent: an office Mac

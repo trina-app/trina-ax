@@ -12400,3 +12400,150 @@ reading is part of a new connection's normal access, writing is its own box, no 
   quarantine list while its text is being extracted is still returned, as in the app's own room_file and file reads.
   The client name on the consent page is the app's own (as for Claude's callback); the return address under it is
   what the server checks.
+
+## HTML to PDF: make_file prints a page, and the preview's "PDF로 저장" (feat/html-to-pdf, 2026-11-07, product owner)
+
+A person asked the AI to turn `견적서_….html` into a PDF. make_file took only Markdown, so the AI rewrote the page as
+Markdown tables (the navy headers, the highlights, the merged cells and the A4 layout were gone), said it had no tool
+that renders HTML like a browser, and told the person to print it from Chrome. The owner: the AI and the person make a
+PDF that looks like the HTML, directly. Placement: Team AX core (make_file in `server/src/tools`, the renderer in
+`server/src/files/html-pdf.ts`, the file preview).
+
+### The renderer: a Chromium the server already has, in the converter isolation
+- **What exists (checked before building).** The promo video's MP4 uses the HyperFrames CLI's `chrome-headless-shell`
+  on a macOS development server only, outside the converter isolation (a process group, "V"). The intro deck's PDF is
+  typst ("D2" rejected HTML → PDF with Chrome: no Chrome on hosted Linux). The in-app browser is Electron on the
+  person's computer, not the server. The srt dev environment installs Debian's `chromium` and `fonts-noto-cjk` on the
+  host (`install-srt.sh`, also `--image-mode` in the hosted image build); it cannot start under srt (seccomp blocks
+  AF_UNIX) but starts in the converters' bwrap, which has no seccomp filter. So no browser exists on every deployment:
+  hosted servers built with the dev environment and Linux servers that installed it have Debian's chromium, a
+  development Mac has HyperFrames' headless shell, an office Mac and a plain self-hosted Linux server have none.
+- **Decision: find, do not ship** (`findPdfBrowser`): `MYCEL_HTML_PDF_BROWSER` (a path, or `none`),
+  `HYPERFRAMES_BROWSER_PATH` (the promo video's Linux handoff), the headless shell HyperFrames fetched
+  (`~/.cache/hyperframes/chrome`), then Debian's `/usr/lib/chromium/chromium-headless-shell` and `/usr/lib/chromium/chromium`
+  (the real binaries, not the `/usr/bin` shell wrappers). Read on every call. Without one, or without the isolation,
+  nothing offers it: make_file's description says the server cannot print HTML, `Me.server.htmlPdf` is absent and the
+  preview shows no button. Google Chrome on a Mac is not used: it needs a Unix socket of its own (ProcessSingleton),
+  which the isolation's `(deny network*)` refuses, and it stops.
+- **The isolation is the converters'** (`tools/isolate.ts`, refactored into `isolatedCommand` so the browser can be
+  spawned by `Bun.spawn` with its own pipes). The DevTools pipes are the browser's fd 3 and 4: `/bin/sh` in front of it
+  maps its stdin and stdout to them and then becomes the browser (`BROWSER_SHELL`), so the server uses the plain
+  stdin/stdout pipes every converter uses. Not node:child_process's extra pipes: under Bun 1.3 (the bundled runtime)
+  each has two owners (the subprocess closes the descriptor when the child exits, the socket over it closes it again
+  when collected), and a later print whose pipe had taken that number lost it (its browser quit, the next spawn failed
+  with EBADF); found in the Debian container, where a print allocating 60 MB set off the collector. macOS: the same
+  profile with `helpersIn` = the browser's own folder (it may fork and exec files there) and `execAlso` = the one shell
+  `/bin/sh` starts (`/private/var/select/sh`); still no network, writes only in the empty work folder, the team folder,
+  the data folder and the homes unreadable; `MAC_CHROMIUM_TMPDIR` points
+  Chromium's temp files (the PDF stream) into the work folder. Linux: bwrap as before (`--unshare-all`: an empty
+  network namespace; `--disable-userns`, `--cap-drop ALL`; the converter cgroup in production), so Chromium runs with
+  `--no-sandbox --no-zygote` (it cannot make namespaces of its own inside), fontconfig from a file in the work folder.
+  The server account, never root: a server running as root does not print (only this repository's container check runs
+  it as root, with `NODE_ENV=test` and `MYCEL_HTML_PDF_TEST_AS_ROOT=1`), and without the isolation nothing prints, not
+  even in development. Only a browser whose binary and own folder are owned by root or the server account, writable by
+  nobody else and not a shared folder such as `/usr/bin` (`trustedBrowser`: the macOS profile lets it exec every file of
+  that folder). The process group and every process under it are killed by id at the end, on the time limit, on the
+  memory and disk limits and on an abort (`system/kill-tree.ts`, moved out of the promo video's render).
+
+### The print (`files/html-pdf.ts`)
+- DevTools protocol over the pipes (`--remote-debugging-pipe`; no port). The page is served from `https://html-pdf.invalid`
+  (a reserved name) through Fetch interception at the request stage: the server answers every request. The page's own
+  address gives the page; a path under it gives a team file only for a picture, a stylesheet or a font (by extension and
+  by resource type), through the caller's `asset()` = the person's normal `authorize` read path. The URL parser stops
+  `..` at the origin's root, so a climbing path names a team path that authorize decides; an encoded `%2F` or a control
+  character names nothing. Everything else fails (other origins, localhost, the server's API, a frame of another page);
+  a refused picture gets the preview's grey placeholder, a refused document is aborted (no error page is printed).
+- Layers under the interception: the page's CSP (only the made-up origin, `data:` and `blob:`; `script-src 'none'`,
+  `connect-src 'none'`, `object-src 'none'`, `base-uri 'none'`, `form-action 'none'`; pictures may name any address so
+  that they reach the interception and get the placeholder); `--host-resolver-rules=MAP * ~NOTFOUND`, `--no-proxy-server`,
+  `--dns-prefetch-disable`, no background networking; site isolation off (every frame in the page's target, so the
+  interception sees it); downloads denied.
+- **JavaScript is off** (`--blink-settings=scriptEnabled=false`, `Emulation.setScriptExecutionDisabled`, CSP). A quote or a
+  report is HTML and CSS; V8 is the browser's largest attack surface; a script could only add content the server cannot
+  check, and with the network gone nothing it fetched would arrive anyway. The cost: a part a script draws (a chart) is
+  missing; the AI is told when the page has scripts, and the tool description says to write pages for PDF without them.
+  The file preview runs inline scripts, so such a page can differ from its preview.
+- `Page.printToPDF` with `printBackground`, `preferCSSPageSize` (the page's `@page` size and margins win), A4 as the
+  paper when the page names none, Chromium's default margins otherwise, no header or footer; laid out as print from the
+  start (`Emulation.setEmulatedMedia`), printed after `load` and the network going quiet (at most 5 s more). `pageRanges`
+  asks for one page more than the limit, so a longer page is refused, never cut; the PDF is read as a stream, 1 MiB at
+  a time, and refused past its size limit (one message holding the whole PDF would cost several times its size in
+  server memory); pages are counted in its page tree.
+- Limits (`HTML_PDF_LIMITS`): 60 s for the whole print, 2 GiB of the browser's processes' resident memory added up, 200
+  pages, 50 MB of PDF, a 10 MB page, make_file's image limits for its files (200, 20 MB each, 100 MB together). One print
+  per person (`renderSlot`) and two on the server, one where the converter cgroup has less than 1.5 GiB (a 12-page table
+  measured on Debian 13: chromium about 500 MiB PSS, 960 MiB of RSS added up; chromium-headless-shell about 240 MiB);
+  up to 10 wait (2 minutes), more are told the server is busy.
+- Korean: on Linux the browser's fontconfig adds the fonts the server ships for its PDFs (the bundle's `fonts/` with Noto
+  Sans CJK and Pretendard, the repository's Pretendard), so "Pretendard" by name and Hangul without a named face both
+  print; a Mac uses its own fonts (Apple SD Gothic Neo), as its typst PDFs do.
+
+### make_file: `source` = the .html page, format pdf
+- An option of make_file, not a new tool: the AI already reaches for make_file for a PDF; the output path, write access,
+  conflict copy (an existing file the AI did not read in the turn), the turn's write limits, the file event, the tool
+  event, the read scope and the wider-audience card are the same code (`placeProduced`, `confirmSources`). The page and
+  every file the print used are the PDF's sources: a picture from a narrower folder in a page saved to a wider one asks
+  the person first; a picture the person cannot read is never loaded. `content` stays Markdown: a page to print must be
+  a team file, so its relative files resolve and the person can open what was printed. Another format or a template with
+  an .html source is refused.
+- The description (where the server prints) says to use it for every HTML page, never to rewrite HTML as Markdown for a
+  PDF and never to send the person to a browser's print; where it does not, it says so and that a Markdown version loses
+  the design. The system prompt's make_file rule says the same where it prints. The result names the pages, what was not
+  loaded and whether scripts were skipped.
+
+### The file preview: "PDF로 저장"
+- In an `.html` team file's preview header (a phone: the ⋯ menu), only when `Me.server.htmlPdf`. `POST /api/files/html-pdf`
+  prints with the person's access and the preview's own rule for the page's files (`team-files/embed.ts`: only files
+  everyone who can read the page can read), saves `<name>.pdf` next to the page as an upload does (`<name> (2).pdf` when
+  taken, never over a file; file event `create` with `via: html_pdf` and the page), after the disk check. A read-only
+  folder is refused (403) before printing, and the panel then downloads the same PDF (`GET /api/files/html-pdf`, nothing
+  saved). The notice has 열기, which opens the PDF in the panel. Words in five locales. The preview's split and resize
+  are not touched.
+
+### Measured and checked
+- This Mac (HyperFrames' chrome-headless-shell 152, sandbox-exec): a two-page quote 0.8–1.3 s. A Debian 13 container
+  (bubblewrap 0.12, chromium 156 and chromium-headless-shell 156, fonts-noto-cjk): 0.7–1.4 s; the same tests pass with
+  both binaries, Pretendard printed through fontconfig. In colima's VM bwrap could not set up its loopback as a plain
+  account (Ubuntu's AppArmor limit on unprivileged user namespaces, which `install-linux.sh` handles with its bwrap
+  profile), so the container ran it as root; not yet run on a real hosted VM.
+- Tests: `tests/unit/html-pdf.test.ts` (the sample quote: two A4 pages, its text, navy and yellow pixels where the colspan
+  and rowspan cells are; `@page` A5 and Letter landscape; A4 by default; UTF-8; the server's fonts; the page's own files
+  through `asset()`; an external picture, `fetch`/beacon/script, iframes to localhost and this machine's address,
+  stylesheets/fonts/@import/preconnect/prefetch/meta refresh, `file:///etc/passwd` and a local file, climbing paths,
+  the page served once, one picture under many addresses, a title that says "/Count 150", page/size/HTML limits, time
+  and memory limits, an abort; the CSP, the command line, the macOS profile, the browser search and its trust check,
+  root, the queue), `tests/unit/c-make-file-html-pdf.test.ts` (make_file and the route through real turns and requests:
+  the audit lines, the conflict copy, a page the person cannot read, a narrower picture asking first, scripts, the
+  preview's rule, read-only and download, the description and the prompt), the permission matrix's two routes,
+  `web/test/e2e/html-pdf.spec.ts` (the button only where the server prints, saving, 열기, " (2)", the download in a
+  read-only folder, the phone menu).
+
+### Independent review (security first), fixed
+- **Must-fix: one picture under many addresses.** `big.png?0` … `?199` was answered with a fresh base64 copy each time,
+  written to the pipe without backpressure: a 2 MB picture took the server process to 2.8 GB. Now each team file is read
+  and encoded once, every byte handed to the browser counts against one budget per print (200 MB, repeats included),
+  requests are capped (2,000), and the answers go out one at a time, each after the pipe has taken the one before (a
+  first fix that refused a print with more than 64 MB unsent also refused a page of a dozen 5 MB photos; round 2).
+- The page count was searched in the file's text, and the page's own `<title>` is written into it: now it is read through
+  `startxref`, the cross-reference table, the trailer's `/Root` and the catalog's `/Pages` (strings left out, so a `lang`
+  of "ko /Pages 9 0 R" names nothing; round 2), which must be the root `/Pages` node.
+- One person could fill the wait list: one waiting print per person now.
+- Root and an undocumented switch that dropped the isolation: refused / removed (above). The `helpersIn` folder is checked
+  (`trustedBrowser`; round 2: every folder above it too, and more shared folders such as `/usr/libexec`).
+- Round 2 also: a protocol message over its size ends the print at once; the file event records how many team files went
+  in (`fileCount`) besides the first 50.
+- Smaller: a failure before the browser started left its work folder; the request handler could throw outside a promise;
+  the work folder had no size limit (256 MB now); the file event now names the team files in the PDF (`files`); the test's
+  work folder is its own per run (two runs at once removed each other's, which showed as "Read failed").
+- The page is served once per print (a meta refresh to itself or a frame of itself gets nothing).
+- Held: the browser holds the pipe open, so it ends within seconds when the server process ends (checked by the reviewer
+  after an exit and after SIGKILL); no shutdown hook like the promo video's.
+
+### Open (for the owner)
+- **No browser on an office Mac and on a self-hosted Linux server without the dev environment.** Smallest options: on
+  Debian, `apt-get install chromium-headless-shell` (about 210 MB plus `chromium-common` 84 MB; security updates from
+  Debian) as an optional step of `install-linux.sh`; Ubuntu 24.04 has no Chromium deb (snap only), so there the bundle
+  would carry Chrome for Testing's `chrome-headless-shell` (x64; arm64 only from Playwright's builds); on an office Mac
+  the office installer would fetch `chrome-headless-shell` for macOS into the app's folder. Each adds a browser to keep
+  updated; not done without the owner's OK.
+- Whether Debian 12 has `chromium-headless-shell` was not checked (Debian 13 has it).

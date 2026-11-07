@@ -657,6 +657,13 @@ export const ko = {
   'preview.discardTitle': '고친 내용을 버릴까요?',
   'preview.discard': '버리기',
   'preview.saved': '저장했어요.',
+  'preview.savePdf': 'PDF로 저장',
+  'preview.savingPdf': 'PDF를 만드는 중이에요…',
+  'preview.pdfSaved': 'PDF로 저장했어요: {name}',
+  'preview.pdfDownloaded': '이 폴더에는 저장할 수 없어서 PDF를 내려받았어요.',
+  'preview.pdfOpen': '열기',
+  'preview.pdfBlocked': '웹 주소나 이 페이지를 보는 사람 모두가 볼 수는 없는 파일 {count}개는 넣지 않았어요.',
+  'preview.pdfScripts': '페이지의 스크립트는 실행하지 않았어요.',
   'preview.savedConflict': '그사이 다른 사람이 이 파일을 바꿨어요. 원본은 그대로 두고 내 내용은 충돌 사본({path})으로 저장했어요.',
 
   'browser.title': '브라우저',

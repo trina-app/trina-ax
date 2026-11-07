@@ -9,6 +9,7 @@ import { HeicPreviews, isHeic, noPreviewError } from '../files/heic-preview'
 import { componentC } from '../team-files/component'
 import { contentDisposition, streamFile } from '../team-files/download'
 import { embedNarrower } from '../team-files/embed'
+import { htmlPdfDownload, saveHtmlPdf } from '../team-files/html-pdf-save'
 import { authorize } from '../policy/authorize'
 import { searchFileContents } from '../team-files/content-search'
 import { findFiles, recentFiles } from '../team-files/find'
@@ -110,6 +111,16 @@ export const filesRoutes: RouteModule = {
         'Content-Security-Policy': "default-src 'none'; sandbox", 'Content-Length': String(r.bytes.length), 'Content-Disposition': contentDisposition('inline', f.name.replace(/\.[^.]+$/, '') + '.jpg') })
       if (c.req.header('if-none-match')?.split(',').map((s) => s.trim()).includes(etag)) return new Response(null, { status: 304, headers })
       return new Response(c.req.method === 'HEAD' ? null : new Uint8Array(r.bytes), { status: 200, headers })
+    }))
+
+    // "PDF로 저장" in an .html file's preview (team-files/html-pdf-save.ts): the server's headless browser prints the page
+    // with the preview's rule for its files; saved next to it, or given as a download. A request the browser cancels
+    // stops the print.
+    kit.handle(API.saveHtmlPdf, ({ c, body, auth }) => mapErrors(c.get('locale'), () => saveHtmlPdf(ctx, svc, auth.user.id, body.path, c.req.raw.signal)))
+    kit.handle(API.downloadHtmlPdf, ({ c, query, auth }) => mapErrors(c.get('locale'), async () => {
+      const r = await htmlPdfDownload(ctx, svc, auth.user.id, query.path, c.req.raw.signal)
+      return new Response(new Uint8Array(r.pdf), { status: 200, headers: { 'Content-Type': 'application/pdf', 'Content-Length': String(r.pdf.length), 'Content-Disposition': contentDisposition('attachment', r.name),
+        'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox" } })
     }))
 
     kit.handle(API.hwpPreview, ({ c, query, auth }) => mapErrors(c.get('locale'), async () => {

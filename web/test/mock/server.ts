@@ -31,6 +31,8 @@
 // offers two tools at the first check and a third from the next one (one on a "many." host offers 150, of which the
 // first 100 are kept), and a sign-in completes on the second poll.
 // POST /__test/dev-env {box?: 'running', srt?: true} turns the dev environment (experiment) on for every project until the next reset.
+// POST /__test/html-pdf {on: boolean} says whether this server prints HTML to PDF (Me.server.htmlPdf; off by default, as
+// a server without a headless browser) until the next reset; GET /__test/html-pdf lists the pages printed so far.
 // "/intro-deck …" builds the deck like round 2 of docs/DECISIONS.md "D2": an outline, one intro_deck call per slide (the
 // third slide's first try fails and is tried again), the review, then the saved deck, with deck.progress after each and
 // small slide pictures from GET /api/intro-decks/builds/:id/slides/:n; "deck-fail" in the message stops it after three
@@ -72,6 +74,9 @@ const sha256Hex = (d: Uint8Array) => new Bun.CryptoHasher('sha256').update(d).di
 const parentOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
 /** like a server whose relay.officialAvailable is off: the official relay is not offered */
 const defaultConnection = (): ConnectionStatus => ({ mode: 'self-relay', address: 'http://acme.localhost:19143', state: 'connecting', detail: null, connectedSince: null, direct: { enabled: false, port: 8443, fingerprintSha256: null }, teamName: 'acme', availableModes: ['self-relay', 'direct-only'] })
+/** A one-page A4 PDF, the stand-in for what the server's headless browser prints (POST /api/files/html-pdf) */
+const MOCK_PDF = '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n'
+
 class Fail extends Error {
   constructor(public code: ErrorCode, public status: number, msg?: string, public fields?: Record<string, string>, public params?: Record<string, string | number | boolean>) {
     super(msg ?? ERROR_MESSAGES[code].ko)
@@ -316,6 +321,9 @@ export class MockServer {
    * running dev server and a waiting job, warning version 2); otherwise its endpoints answer 404, like
    * a server without MYCEL_DEV_ENV */
   devEnv: { box: 'stopped' | 'running'; srt?: { running: DevEnvRun[]; waiting: DevEnvRun[] } } | null = null
+  /** POST /__test/html-pdf: the server prints HTML to PDF ("PDF로 저장" in an .html preview); the pages printed, with how */
+  htmlPdf = false
+  htmlPdfCalls: { path: string; how: 'save' | 'download' }[] = []
   /** the team setting devEnv.team (GET and PUT /api/admin/dev-env), off until an admin turns it on */
   devEnvTeam = MockServer.devEnvTeamDefault()
   static devEnvTeamDefault() {
@@ -363,6 +371,8 @@ export class MockServer {
     this.teamGoal = null
     this.popular = []
     this.devEnv = null
+    this.htmlPdf = false
+    this.htmlPdfCalls = []
     this.devEnvTeam = MockServer.devEnvTeamDefault()
     this.notifyPrefs = MockServer.notifyPrefsDefault()
     this.devEnvSites = new Map()
@@ -807,6 +817,7 @@ export class MockServer {
         version: this.serverVersion, dev: !this.cloud, deployment: this.cloud ? 'hosted' : 'self', timeZone: this.settings.timeZone,
         ...(this.allConfidential ? { allChatsConfidential: true as const } : {}),
         ...(this.devEnv ? { devEnv: true as const } : {}),
+        ...(this.htmlPdf ? { htmlPdf: true as const } : {}),
         features: this.cloud
           ? { connectionChange: false, selfUpdate: false, officeUpdate: false, connectedFolders: false, apiEngineAnyUrl: false, hostDiagnostics: false, pluginFileInstall: false }
           : { connectionChange: true, selfUpdate: true, officeUpdate: false, connectedFolders: true, apiEngineAnyUrl: true, hostDiagnostics: true, pluginFileInstall: true },
@@ -1689,6 +1700,31 @@ export class MockServer {
           throw new Fail('forbidden', 403, undefined, undefined, { reason: 'embed_narrower' })
       }
       return new Response(n!.data! as unknown as BodyInit, { headers: { 'content-type': mimeOf(c.query.path!) ?? 'application/octet-stream', 'content-length': String(n!.data!.byteLength), 'content-disposition': 'attachment', 'x-content-type-options': 'nosniff', 'content-security-policy': "sandbox; default-src 'none'" } })
+    },
+    // "PDF로 저장" (server/src/team-files/html-pdf-save.ts): a one-page stand-in PDF next to the page, " (2)" when taken;
+    // a folder the person cannot write: 403, and the panel downloads it instead
+    saveHtmlPdf: (c) => {
+      const page: string = c.body.path
+      const n = this.files.get(page)
+      if (!n || n.type !== 'file' || this.access(page, c.user) === 'none') fail('not_found', 404)
+      if (!/\.html?$/i.test(page)) fail('validation', 400, 'HTML 파일만 PDF로 저장할 수 있어요.')
+      if (!this.htmlPdf) fail('unavailable', 503, '이 서버에는 HTML을 PDF로 만드는 브라우저가 없어요. 관리자에게 알려 주세요.', undefined, { reason: 'unavailable' })
+      const folder = page.includes('/') ? page.slice(0, page.lastIndexOf('/')) : ''
+      if (this.access(folder, c.user) !== 'write') fail('forbidden', 403, '읽기 전용이라 바꿀 수 없어요.')
+      let out = page.replace(/\.[^./]+$/, '') + '.pdf'
+      for (let i = 2; this.files.has(out); i++) out = `${page.replace(/\.[^./]+$/, '')} (${i}).pdf`
+      this.putFile(out, MOCK_PDF)
+      this.htmlPdfCalls.push({ path: page, how: 'save' })
+      return { status: 201, body: { entry: this.entry(out, this.files.get(out)!, c.user), pages: 1, blocked: /https?:\/\//.test(dec.decode(n!.data!)) ? 1 : 0, scripts: /<script\b/i.test(dec.decode(n!.data!)) } }
+    },
+    downloadHtmlPdf: (c) => {
+      const page = c.query.path!
+      const n = this.files.get(page)
+      if (!n || n.type !== 'file' || this.access(page, c.user) === 'none') fail('not_found', 404)
+      if (!this.htmlPdf) fail('unavailable', 503, undefined, undefined, { reason: 'unavailable' })
+      this.htmlPdfCalls.push({ path: page, how: 'download' })
+      const bytes = enc.encode(MOCK_PDF)
+      return new Response(bytes as unknown as BodyInit, { headers: { 'content-type': 'application/pdf', 'content-length': String(bytes.byteLength), 'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(page.split('/').pop()!.replace(/\.[^./]+$/, '') + '.pdf')}`, 'x-content-type-options': 'nosniff' } })
     },
     upload: (c) => {
       const folder: string = c.body.folder
@@ -3458,6 +3494,8 @@ export class MockServer {
     else if (p === '/__test/popular-skills') this.popular = (body.items as { path: string; uses: number; users: number }[]) ?? []
     else if (p === '/__test/team-goal') this.teamGoal = body.goal === null ? null : TeamGoal.parse(body.goal)
     else if (p === '/__test/result-suggestion') this.resultSuggestion = body.suggestion ? (body.suggestion as unknown as import('@mycel/shared/api').ResultSuggestion) : null
+    else if (p === '/__test/html-pdf' && req.method === 'GET') return Response.json(this.htmlPdfCalls)
+    else if (p === '/__test/html-pdf') this.htmlPdf = body.on !== false
     else if (p === '/__test/dev-env') {
       const by = this.users[0] ? { id: this.users[0].id, name: this.users[0].name } : null
       const run = (id: string, kind: 'job' | 'server', name: string, position: number | null, lastLine: string) => ({ id, kind, name, by, startedAt: now(), runAt: position === null ? now() : null, position, memoryMiB: position === null ? 320 : null, lastLine })
