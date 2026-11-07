@@ -90,6 +90,11 @@ test('the consent offers reading conversations and writing in them; an older pag
   expect(odd.scope).toBe('mcp:read offline_access')
   const both = await f.connect(f.reader.client.cookie!, { rooms: true, roomsWrite: true })
   expect(both.scope).toBe('mcp:read mcp:rooms mcp:rooms.write offline_access')
+  // a refresh that keeps writing but drops reading drops writing too
+  const narrowed = await f.connect(f.reader.client.cookie!, { rooms: true, roomsWrite: true })
+  const again = f.oauth.token({ client_id: f.client.client_id, grant_type: 'refresh_token', refresh_token: narrowed.refresh, scope: 'mcp:read mcp:rooms.write offline_access', resource: f.oauth.resource() })
+  expect(again.scope).toBe('mcp:read offline_access')
+  expect(f.names(again.access_token).filter(n => ROOM_TOOLS.has(n))).toEqual([])
   expect(f.names(both.token)).toEqual(['list', 'glob', 'grep', 'read', 'skills_list', ...READS, 'room_send'])
   const listed = f.tools.list(both.grant())
   for (const n of READS) expect(listed.find(t => t.name === n)!.annotations).toMatchObject({ readOnlyHint: true, openWorldHint: false })
@@ -188,6 +193,7 @@ test('room_send posts as the person through the app\'s rules: a member\'s room, 
   expect(text(await f.call(c.token, 'room_send', { room: team, text: '@OUTSIDER 안녕', mentions: [f.outsider.id] }))).toContain('Mention only members')
   expect(text(await f.call(c.token, 'room_send', { room: team, text: '확인 부탁해요', mentions: [f.helper.id] }))).toContain('"@HELPER"')
   expect(text(await f.call(c.token, 'room_send', { room: team, text: '@READER 나', mentions: [f.reader.id] }))).toContain('themselves')
+  expect(text(await f.call(c.token, 'room_send', { room: team, text: 'mail@HELPER 확인', mentions: [f.helper.id] }))).toContain('"@HELPER"')
   // "@everyone" in any language is not offered here
   for (const t of ['@전체 공지입니다', '공지 @everyone!', '@全員 確認', '(@todos) hola', '@semua cek', '@ALL hands']) expect(text(await f.call(c.token, 'room_send', { room: team, text: t }))).toContain('@everyone')
   // only by id, and only a room the person is in; an empty message is nothing
@@ -200,8 +206,20 @@ test('room_send posts as the person through the app\'s rules: a member\'s room, 
 })
 
 test('"@everyone" is found where a mention may start, a person whose name starts the same is not', () => {
-  for (const t of ['@전체', '다들 @전체에게', '@Everyone', '"@all"', '(@semua)', '@全員']) expect(mentionsEveryone(t)).toBe(true)
+  for (const t of ['@전체', '다들 @전체에게', '@Everyone', '"@all"', '(@semua)', '@全員', '＠everyone', '@\u200beveryone', '@ｅｖｅｒｙｏｎｅ']) expect(mentionsEveryone(t)).toBe(true)
   for (const t of ['@allison 안녕', 'mail@all.example', '@everyones', '전체 회의', 'e@전체']) expect(mentionsEveryone(t)).toBe(false)
+})
+
+test('a mention is the name the text shows: the longest member name at an "@", a particle after it is fine', async () => {
+  const f = await setup('names')
+  const kim = await addMember(f.h, f.owner, { username: 'kim' }), kimberly = await addMember(f.h, f.owner, { username: 'kimberly' })
+  const team = await f.room(f.reader, { kind: 'group', userIds: [kim.id, kimberly.id], name: '이름방' })
+  const c = await f.connect(f.reader.client.cookie!, { rooms: true, roomsWrite: true })
+  // "@KIMBERLY" shows Kimberly: Kim is not who the text names
+  expect(text(await f.call(c.token, 'room_send', { room: team, text: '@KIMBERLY 안녕', mentions: [kim.id] }))).toContain('"@KIM"')
+  expect((await f.call(c.token, 'room_send', { room: team, text: '@KIMBERLY 안녕', mentions: [kimberly.id] })).isError).toBeUndefined()
+  expect((await f.call(c.token, 'room_send', { room: team, text: '@KIM님 확인 부탁해요', mentions: [kim.id] })).isError).toBeUndefined()
+  expect(f.rows(team).map(r => JSON.parse(r.mentions))).toEqual([[kimberly.id], [kim.id]])
 })
 
 test('the send rate is the app\'s: a burst, then refused with the seconds to wait', async () => {
@@ -250,6 +268,31 @@ test('nothing read through the connection is sent where people who could not see
   expect(rooms.length).toBe(1)
 })
 
+test('a later member: an empty read does not undo what an earlier read narrowed; a disabled member of a 1:1 still counts', async () => {
+  const f = await setup('narrow')
+  const team = await f.room(f.reader, { kind: 'group', userIds: [f.helper.id, f.third.id], name: '먼저 온 방' })
+  await f.say(f.helper, team, '나중에 온 사람은 못 본 이야기')
+  await f.reader.client.call('POST', `/api/rooms/${team}/members`, { userIds: [f.outsider.id] })
+  const c = await f.connect(f.reader.client.cookie!, { rooms: true, roomsWrite: true })
+  expect(text(await f.call(c.token, 'room_read', { room: team }))).toContain('나중에 온 사람은 못 본 이야기')
+  expect(text(await f.call(c.token, 'room_send', { room: team, text: '요약: 못 본 이야기' }))).toContain('Not sent')
+  // a read that shows nothing (a time in the future) records the room without a position: it must not widen
+  expect(text(await f.call(c.token, 'room_read', { room: team, since: '2099-01-01' }))).toContain('no messages')
+  expect(text(await f.call(c.token, 'room_send', { room: team, text: '요약: 못 본 이야기' }))).toContain('Not sent')
+  const dm = await f.room(f.reader, { kind: 'dm', userId: f.outsider.id })
+  expect(text(await f.call(c.token, 'room_send', { room: dm, text: '요약: 못 본 이야기' }))).toContain('Not sent')
+  // a 1:1 keeps a disabled account: it reads nothing now and would read the message once enabled again
+  const mine = `users/${f.reader.id}/note.txt`
+  fs.mkdirSync(path.dirname(path.join(f.h.ctx.config.teamRoot, mine)), { recursive: true })
+  fs.writeFileSync(path.join(f.h.ctx.config.teamRoot, mine), 'synthetic private note')
+  const withHelper = await f.room(f.reader, { kind: 'dm', userId: f.helper.id })
+  const d = await f.connect(f.reader.client.cookie!, { write: true, rooms: true, roomsWrite: true })
+  await f.call(d.token, 'read', { file_path: mine })
+  f.h.ctx.db.query("UPDATE users SET status = 'disabled' WHERE id = ?").run(f.helper.id)
+  expect(text(await f.call(d.token, 'room_send', { room: withHelper, text: 'synthetic private note' }))).toContain('Not sent')
+  expect(f.rows(withHelper)).toEqual([])
+})
+
 test('no message, name or room id reaches the log', async () => {
   const f = await setup('log')
   const team = await f.room(f.reader, { kind: 'group', userIds: [f.helper.id, f.third.id], name: '로그 비밀방' })
@@ -261,6 +304,8 @@ test('no message, name or room id reaches the log', async () => {
   await f.call(c.token, 'room_file', { room: team, file: uuidv7() })
   await f.call(c.token, 'room_send', { room: team, text: '보낸 비밀 문장', mentions: [f.helper.id] })
   await f.call(c.token, 'room_send', { room: team, text: '@HELPER 보낸 비밀 문장 둘', mentions: [f.helper.id] })
+  // a message that calls the AI (whatever happens to the question here)
+  await f.call(c.token, 'room_send', { room: team, text: '@트리나 보낸 비밀 문장 셋' })
   const logged = f.rec.all()
   expect(f.rows(team).map(r => r.body)).toContain('@HELPER 보낸 비밀 문장 둘')
   for (const secret of ['로그에 남으면 안 되는 문장', '보낸 비밀 문장', '로그 비밀방', team, 'HELPER']) expect(logged).not.toContain(secret)

@@ -214,8 +214,10 @@ export class RemoteOAuth {
         if (g.client_id !== c.id) throw invalid()
         if (row.used_at !== null) { this.revokeGrant(g.id); return invalid() }
         if (row.expires_at <= this.now()) throw invalid()
-        const original = JSON.parse(g.scopes) as string[], selected = body.scope === undefined ? original : scopes(body.scope)
-        if (selected.some(s => !original.includes(s))) throw new OAuthError('invalid_scope')
+        const original = JSON.parse(g.scopes) as string[], asked = body.scope === undefined ? original : scopes(body.scope)
+        if (asked.some(s => !original.includes(s))) throw new OAuthError('invalid_scope')
+        // writing in conversations goes only with reading them (decide): narrowed away with it
+        const selected = asked.filter(s => s !== ROOMS_WRITE_SCOPE || asked.includes(ROOMS_SCOPE))
         const count = this.db.query('SELECT count(*) AS n FROM remote_mcp_tokens WHERE grant_id=?').get(g.id) as { n: number }
         if (count.n >= 4096) { this.revokeGrant(g.id); return invalid() }
         // Narrowing persists for this grant and all future refreshes, never quietly expands again.

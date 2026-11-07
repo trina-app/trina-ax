@@ -10,6 +10,7 @@
 // roomWidening). No audit line and no count for these tools (the owner's decision); nothing here writes a message, a
 // name or a room id to the log.
 import crypto from 'node:crypto'
+import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
 import { RoomFileInput, RoomReadInput, RoomsInput } from '@mycel/shared'
 import { errorMessage, isUuid7, ROOM_MENTIONS_MAX, ROOM_MESSAGE_MAX } from '@mycel/shared/api'
@@ -64,7 +65,8 @@ const zodText = (e: z.ZodError) => 'Invalid input: ' + e.issues.map((i) => `${i.
  * app sends it only from its "@" list, and it notifies everyone; through an AI app it is not offered. A Latin word
  * must end there ("@allison" is a person), a Korean or Japanese one may run on ("@전체에게"). */
 export function mentionsEveryone(text: string): boolean {
-  const lower = text.normalize('NFC').toLocaleLowerCase()
+  // a full-width "＠" or a zero-width character between does not hide it
+  const lower = text.normalize('NFKC').replace(/[\u200b-\u200d\u2060\ufeff\u00ad]/g, '').toLocaleLowerCase()
   for (let i = lower.indexOf('@'); i >= 0; i = lower.indexOf('@', i + 1)) {
     if (i > 0 && !/[\s([{"'“‘]/.test(lower[i - 1]!)) continue
     for (const w of ROOM_EVERYONE_WORDS) {
@@ -83,14 +85,15 @@ const seenOf = (r: Pick<ReadResult, 'seen' | 'ownPrivate'>, userId: string): Rea
 ]
 
 /** The connection's sources with `add`: one room source per room, from the oldest message read there (it has the
- * fewest readers, so it alone decides) */
+ * fewest readers, so it alone decides). A read that showed no message has no fromSeq (everyone in the room now): it
+ * never widens what an earlier read narrowed. */
 export function mergeSources(have: ReadSource[], add: ReadSource[]): ReadSource[] {
   const all = new Map<string, ReadSource>()
   for (const s of [...have, ...add]) {
     if (s.type !== 'room') { all.set(sourceKey(s), s); continue }
     const k = `room:${s.id}`, was = all.get(k) as Extract<ReadSource, { type: 'room' }> | undefined
-    const from = was === undefined ? s.fromSeq : was.fromSeq === undefined || s.fromSeq === undefined ? undefined : Math.min(was.fromSeq, s.fromSeq)
-    all.set(k, { type: 'room', id: s.id, ...(from !== undefined ? { fromSeq: from } : {}) })
+    const seqs = [was?.fromSeq, s.fromSeq].filter((n): n is number => n !== undefined)
+    all.set(k, { type: 'room', id: s.id, ...(seqs.length ? { fromSeq: Math.min(...seqs) } : {}) })
   }
   return [...all.values()]
 }
@@ -136,6 +139,21 @@ export async function roomTool(ctx: AppContext, user: Principal, name: string, a
   return out('Unknown tool.', true)
 }
 
+/** The members whose "@name" the text shows, as the app reads a sent message (web lib/rooms.ts mentionParts): an "@"
+ * where a mention may start (the start, a space or an opening mark before it) followed by a member's name, the
+ * longest name there when several fit ("@Kimberly" shows Kimberly, never Kim). */
+function shownMentions(db: Database, roomId: string, text: string): Set<string> {
+  const people = (db.query('SELECT u.id, u.name FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ?').all(roomId) as { id: string; name: string }[])
+    .filter((p) => p.name).map((p) => ({ id: p.id, name: p.name.normalize('NFC') })).sort((a, b) => b.name.length - a.name.length)
+  const body = text.normalize('NFC'), out = new Set<string>()
+  for (let i = body.indexOf('@'); i >= 0; i = body.indexOf('@', i + 1)) {
+    if (i > 0 && !/[\s([{"'“‘]/.test(body[i - 1]!)) continue
+    const hit = people.find((p) => body.startsWith(p.name, i + 1))
+    if (hit) out.add(hit.id)
+  }
+  return out
+}
+
 function send(ctx: AppContext, userId: string, args: unknown, sources: ReadSource[], tz: string): RoomToolOut {
   const db = ctx.db
   const a = RoomSendInput.safeParse(args ?? {})
@@ -151,11 +169,12 @@ function send(ctx: AppContext, userId: string, args: unknown, sources: ReadSourc
   // people to notify: in the room now, never the user, and named in the text as the app writes them ("@<name>")
   const inRoom = new Set(members(db, roomId).map((m) => m.user_id))
   const ids = [...new Set(mentions.map((m) => m.trim()))]
+  const shown = shownMentions(db, roomId, text)
   for (const id of ids) {
     if (id === userId) return out('The user cannot mention themselves.', true)
     if (!inRoom.has(id)) return out('Mention only members of this room: use the user_id values of room_read\'s member list.', true)
     const who = (db.query('SELECT name FROM users WHERE id = ?').get(id) as { name: string } | null)?.name ?? ''
-    if (!who || !text.normalize('NFC').includes('@' + who.normalize('NFC'))) return out(`Write "@${who.replace(/[\r\n"]+/g, ' ').slice(0, 80)}" in the text for each person in mentions, as the app does.`, true)
+    if (!who || !shown.has(id)) return out(`Write "@${who.replace(/[\r\n"]+/g, ' ').slice(0, 80)}" in the text for each person in mentions, where a mention may start (at the start or after a space), as the app does.`, true)
   }
   // a thread reply: its first message, one the user sees (Rooms.send checks it again); its readers are those who see it
   let rootSeq: number | undefined

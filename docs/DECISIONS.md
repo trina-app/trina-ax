@@ -12074,3 +12074,20 @@ reading is part of a new connection's normal access, writing is its own box, no 
   connector client, behind a local TLS proxy: dynamic registration as "Codex", sign-in with the plain loopback
   `/callback` and `iss`, then `codex exec` called `rooms`, `room_read` and `room_send`; the message stood in the room as
   the person's own, with no audit line and nothing of it in the log. ChatGPT was not tried live.
+- **Independent review (security first), fixed.** (1) A read that showed no message (an empty room, a time in the
+  future) recorded the room without a position, and merging kept the wider one: one such read let `room_send` reach
+  members who joined after what was read. Merging now keeps the oldest position read. (2) The widening check counted
+  only active members, but a 1:1 chat keeps a disabled account, which reads the message once enabled again: every
+  member who will see the message counts now, and one who cannot read reads nothing (as `rooms/ai.ts` decide). (3) A
+  mention matched any "@name" in the text ("@Kimberly" passed for Kim): now the app's own reading of a sent message
+  (an "@" where a mention may start, the longest member name there). (4) "＠everyone" (full width) and a zero-width
+  character inside are "@everyone" too. (5) A refresh that kept 대화 쓰기 and dropped 대화 읽기 named a scope that
+  did nothing: writing is narrowed away with reading. (6) `rooms/ai.ts` logged the room id when a question could not
+  start: no longer.
+- **Review items accepted, not changed.** Room names, the other person of a 1:1 and unread counts from the `rooms` list
+  (and a "several rooms match" answer) do not enter the read scope: they are what the person's sidebar shows, and
+  counting them would refuse nearly every message after a list (a 1:1 named in it has two readers). "@HELPERS" with
+  HELPER mentioned shows "@HELPER" in the app as well (no member is called HELPERS), so it stays. A file put on the
+  quarantine list while its text is being extracted is still returned, as in the app's own room_file and file reads.
+  The client name on the consent page is the app's own (as for Claude's callback); the return address under it is
+  what the server checks.
