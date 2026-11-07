@@ -117,6 +117,22 @@ describe('search', () => {
     expect(idx.search('회의록', { rootIds: ['projects/other'] })).toEqual([])
     expect(idx.search('회의록', { rootIds: [] })).toEqual([])
   })
+  test('a longer passage on request, its lines kept; only the snippet otherwise', () => {
+    const h = idx.search('quarterly budget', { rootIds: ['projects/acme'], passage: 500 }).find((x) => x.relPath === 'notes/plan.md')!
+    expect(h.passage).toBeDefined()
+    expect(h.passage!.length).toBeLessThanOrEqual(500)
+    expect(h.passage!.toLowerCase()).toContain('quarterly budget')
+    expect(h.passage).toContain('\n')
+    expect(idx.search('quarterly budget', { rootIds: ['projects/acme'] })[0]!.passage).toBeUndefined()
+  })
+  test('a folder inside the root: only its files', () => {
+    expect(idx.search('budget', { rootIds: ['projects/acme'], prefix: 'notes' }).map((h) => h.relPath)).toEqual(['notes/plan.md'])
+    expect(idx.search('booth', { rootIds: ['projects/acme'], prefix: 'notes' })).toEqual([])
+    expect(idx.search('booth', { rootIds: ['projects/acme'], prefix: 'web' })[0]?.relPath).toBe('web/launch.html')
+    // "notes" does not take in "notes-old/" or "notesx"; a path that is not plain is no folder (no narrowing)
+    expect(idx.search('booth', { rootIds: ['projects/acme'], prefix: 'we' })).toEqual([])
+    expect(idx.search('booth', { rootIds: ['projects/acme'], prefix: '../web' })[0]?.relPath).toBe('web/launch.html')
+  })
   test('odd questions give no error', () => {
     for (const q of ['"', '*', 'AND OR NOT', ')(', '\\', '%_', '']) expect(() => idx.search(q, { rootIds: ['projects/acme'] })).not.toThrow()
   })
