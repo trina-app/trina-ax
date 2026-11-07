@@ -40,7 +40,7 @@ import { visionText } from './vision-text'
 import { normalizeForModel } from './vision'
 import { openChecked } from '../team-files/place'
 import { JobFailure } from '../jobs/service'
-import { FREE_USED, HOSTED_SPEECH_MODEL } from '../credentials/hosted-speech'
+import { FREE_USED, HOSTED_SPEECH_MODEL, hostedSpeechFreeHours } from '../credentials/hosted-speech'
 import { converterInputName, missingLocalTools, modelReady, transcribeConfig, whisperFile, type TranscribeConfig } from '../jobs/transcribe'
 import { openRouterAudio, openRouterServed, sendToOpenRouter, wavData, type OpenRouterAnswer } from '../jobs/openrouter-stt'
 import { keepLongRetry, LONG_PIECE_SEC, longRetryLanguage } from '../jobs/speech-language'
@@ -1058,6 +1058,7 @@ export class FileService {
     else if (stopped === 'voiceBusy') notes.push(say('voiceBusy'))
     // how far it got, and that reading again goes on from there (the pieces made are kept)
     else if (stopped === 'time') notes.push(covered > w.from ? say('timeUp', { from: media.clock(w.from), to: media.clock(covered) }) : say('timeNone'))
+    else if (stopped === 'freeUsed') notes.push(say('freeUsed', { hours: hostedSpeechFreeHours() }))
     else if (stopped && stopped !== 'failed') notes.push(say(stopped as MediaTextKey))
     if (failure) notes.push(say('failed', { why: failure.replace(/[.。]\s*$/, '') }))
     return { segments, from: w.from, covered, notes, label, languages: media.transcriptLanguages(pieces), provider, made, cached, silent, stopped }

@@ -1,7 +1,8 @@
 // The hosting service's free speech-to-text hours (docs/DECISIONS.md "Hosted speech-to-text"): a hosted team without
 // its own OpenRouter key turns voice input and video sound into text with the key the hosting service made for it
-// (credentials/speech-key.ts), HOSTED_SPEECH_FREE_SEC of sound a calendar month (Korea time). Every request with that
-// key goes through the meter (jobs/openrouter-stt.ts postAudio), a retry or a second try in another language too:
+// (credentials/speech-key.ts), the plan's free hours of sound a calendar month (Korea time; hostedSpeechFreeHours: the
+// control plane writes them per plan in plan.json, else 10). Every request with that key goes through the meter
+// (jobs/openrouter-stt.ts postAudio), a retry or a second try in another language too:
 // refused before it is sent once the month's hours are used; the sound's length is held against the month while the
 // request is out (so requests sent at the same time cannot all pass the last minutes), then counted as the length of
 // what was sent (the WAV the server made; else what OpenRouter says it heard), or given back when no answer came. The
@@ -12,9 +13,17 @@ import type { Database } from 'bun:sqlite'
 import { DEFAULT_SPEECH_MODEL, type HostedSpeechUsage } from '@mycel/shared/api'
 import { JobFailure } from '../jobs/service'
 import { HOSTED_SPEECH_USAGE_SETTING } from '../admin/settings'
+import { currentPlan } from '../system/limits'
 
-export const HOSTED_SPEECH_FREE_HOURS = 10
-export const HOSTED_SPEECH_FREE_SEC = HOSTED_SPEECH_FREE_HOURS * 3600
+/** the free hours a month when the plan does not say (a plan.json without speechFreeHours, or none) */
+export const HOSTED_SPEECH_DEFAULT_FREE_HOURS = 10
+/** This team's free hours a month: its plan's `speechFreeHours` (shared/src/cloud-protocol PlanFile; the control plane
+ * writes it per plan), else HOSTED_SPEECH_DEFAULT_FREE_HOURS. Read at each check, so a plan change applies within a
+ * minute (system/limits.ts reads plan.json again when it changes), to this month's count as it stands. */
+export function hostedSpeechFreeHours(): number {
+  return currentPlan()?.speechFreeHours ?? HOSTED_SPEECH_DEFAULT_FREE_HOURS
+}
+export const hostedSpeechFreeSec = (): number => hostedSpeechFreeHours() * 3600
 export { HOSTED_SPEECH_USAGE_SETTING }
 /** the one model the hosting key may use (the control plane's guardrail at OpenRouter allows no other); a team's own
  * key uses the model chosen in Team settings */
@@ -37,7 +46,7 @@ export function hostedSpeechUsage(db: Database, now = Date.now()): HostedSpeechU
     // a row of a later month than the clock says (a clock set back) still counts: the month never goes back
     if (v && typeof v.month === 'string' && v.month >= month && typeof v.seconds === 'number' && Number.isFinite(v.seconds) && v.seconds > 0) usedSec = v.seconds
   } catch { /* a broken row counts as nothing used */ }
-  return { month, usedSec: Math.round(usedSec * 10) / 10, freeSec: HOSTED_SPEECH_FREE_SEC }
+  return { month, usedSec: Math.round(usedSec * 10) / 10, freeSec: hostedSpeechFreeSec() }
 }
 
 /** Seconds of sound left this month (0 when used up). */
@@ -51,7 +60,7 @@ export function hostedSpeechLeft(db: Database, now = Date.now()): number {
  * seconds (an answer claiming more cannot fill the row with nonsense). Returns the row's month. */
 export function chargeHostedSpeech(db: Database, seconds: number, now = Date.now()): string {
   const month = hostedSpeechMonth(now)
-  const sec = Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds, HOSTED_SPEECH_FREE_SEC) : 0
+  const sec = Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds, hostedSpeechFreeSec()) : 0
   const r = db.query(`INSERT INTO settings (key, value) VALUES (?1, json_object('month', ?2, 'seconds', ?3))
     ON CONFLICT(key) DO UPDATE SET value = CASE
       WHEN json_valid(value) AND json_extract(value, '$.month') >= ?2 AND typeof(json_extract(value, '$.seconds')) IN ('integer', 'real')
@@ -72,17 +81,17 @@ function adjustHostedSpeech(db: Database, month: string, delta: number): void {
 
 /** a length in seconds the meter takes: finite, 0 or more, at most the month's free seconds; else null */
 export const meterSeconds = (v: unknown): number | null =>
-  (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.min(v, HOSTED_SPEECH_FREE_SEC) : null)
+  (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.min(v, hostedSpeechFreeSec()) : null)
 
 /** JobFailure.reason of SPEECH_FREE_USED (a video read stops with its own note) */
 export const FREE_USED = 'free_used'
-/** The month's free hours are used up (voice input; a video read gets the same as its note). */
-export const SPEECH_FREE_USED = () => new JobFailure('rate_limited', {
-  ko: `이번 달 무료 받아쓰기 ${HOSTED_SPEECH_FREE_HOURS}시간을 다 썼어요. 다음 달 1일에 다시 생겨요. 지금 더 쓰려면 관리자가 관리 › 팀 설정 › 음성 입력에 팀의 OpenRouter 키를 넣어 주세요.`,
-  en: `This month's ${HOSTED_SPEECH_FREE_HOURS} free hours of transcription are used up. They come back on the 1st. To go on now, an admin can add the team's own OpenRouter key in Admin › Team settings › Voice input.`,
-  id: `${HOSTED_SPEECH_FREE_HOURS} jam transkripsi gratis bulan ini sudah habis. Jatahnya kembali tanggal 1. Untuk lanjut sekarang, admin dapat menambahkan kunci OpenRouter tim di Admin › Pengaturan tim › Input suara.`,
-  ja: `今月の無料文字起こし${HOSTED_SPEECH_FREE_HOURS}時間を使い切りました。来月1日にまた使えます。今すぐ続けるには、管理者が「管理 › チーム設定 › 音声入力」でチームの OpenRouter キーを追加してください。`,
-  es: `Se han agotado las ${HOSTED_SPEECH_FREE_HOURS} horas gratuitas de transcripción de este mes. Vuelven el día 1. Para seguir ahora, un administrador puede añadir la clave de OpenRouter del equipo en Administración › Configuración del equipo › Entrada de voz.`,
+/** The month's free hours (`hours`, the plan's) are used up (voice input; a video read gets the same as its note). */
+export const SPEECH_FREE_USED = (hours = hostedSpeechFreeHours()) => new JobFailure('rate_limited', {
+  ko: `이번 달 무료 받아쓰기 ${hours}시간을 다 썼어요. 다음 달 1일에 다시 생겨요. 지금 더 쓰려면 관리자가 관리 › 팀 설정 › 음성 입력에 팀의 OpenRouter 키를 넣어 주세요.`,
+  en: `This month's ${hours} free hours of transcription are used up. They come back on the 1st. To go on now, an admin can add the team's own OpenRouter key in Admin › Team settings › Voice input.`,
+  id: `${hours} jam transkripsi gratis bulan ini sudah habis. Jatahnya kembali tanggal 1. Untuk lanjut sekarang, admin dapat menambahkan kunci OpenRouter tim di Admin › Pengaturan tim › Input suara.`,
+  ja: `今月の無料文字起こし${hours}時間を使い切りました。来月1日にまた使えます。今すぐ続けるには、管理者が「管理 › チーム設定 › 音声入力」でチームの OpenRouter キーを追加してください。`,
+  es: `Se han agotado las ${hours} horas gratuitas de transcripción de este mes. Vuelven el día 1. Para seguir ahora, un administrador puede añadir la clave de OpenRouter del equipo en Administración › Configuración del equipo › Entrada de voz.`,
 }, FREE_USED)
 /** OpenRouter refused the hosting key (taken away, paused with a suspended team, or its monthly backstop reached) */
 export const HOSTED_KEY_REFUSED = () => new JobFailure('unavailable', {

@@ -37,15 +37,23 @@ describe('plan file', () => {
     // the Go reader's range (native/internal/plan): a plan mycel-ctl apply-plan would refuse is refused here too
     expect(Plan.safeParse({ format: 1, plan: 'x', maxConcurrency: 2, memoryMiB: 2048, cpuCores: 2, diskGiB: 20, turnPidsMax: 32 }).success).toBe(false)
   })
+  test('speechFreeHours (the hosting service\'s free speech-to-text hours a month): whole hours 1-1000 as in Go, or null / absent', () => {
+    const p = { format: 1, plan: 'x', maxConcurrency: 2, memoryMiB: 2048, cpuCores: 2, diskGiB: 20 }
+    // absent stays absent (no default: a plan parsed and written again must not gain the key an older kit refuses)
+    expect('speechFreeHours' in Plan.parse(p)).toBe(false)
+    expect(Plan.parse({ ...p, speechFreeHours: null }).speechFreeHours).toBeNull()
+    for (const h of [1, 50, 100, 200, 1000]) expect(Plan.parse({ ...p, speechFreeHours: h }).speechFreeHours).toBe(h)
+    for (const h of [0, -1, 1001, 1.5, '50', true]) expect(Plan.safeParse({ ...p, speechFreeHours: h }).success).toBe(false)
+  })
   test('read from the file, again when it changes; a broken write keeps the last good plan', () => {
     const f = path.join(W, 'plan.json')
     fs.writeFileSync(f, JSON.stringify({ format: 1, plan: 'basic', maxConcurrency: 2, memoryMiB: 2048, cpuCores: 1, diskGiB: 20, maxActiveMembers: 5 }))
     configurePlan({ file: f })
     expect(currentPlan()).toMatchObject({ plan: 'basic', maxActiveMembers: 5 })
     expect(planFileProblem()).toBeNull()
-    fs.writeFileSync(f, JSON.stringify({ format: 1, plan: 'team', maxConcurrency: 3, memoryMiB: 4096, cpuCores: 2, diskGiB: 50 }))
+    fs.writeFileSync(f, JSON.stringify({ format: 1, plan: 'team', maxConcurrency: 3, memoryMiB: 4096, cpuCores: 2, diskGiB: 50, speechFreeHours: 100 }))
     fs.utimesSync(f, new Date(), new Date(Date.now() + 5000))
-    expect(currentPlan(Date.now() + 61_000)?.plan).toBe('team')
+    expect(currentPlan(Date.now() + 61_000)).toMatchObject({ plan: 'team', speechFreeHours: 100 })
     fs.writeFileSync(f, '{ broken')
     fs.utimesSync(f, new Date(), new Date(Date.now() + 10_000))
     expect(currentPlan(Date.now() + 130_000)?.plan).toBe('team')
