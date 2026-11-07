@@ -187,15 +187,10 @@ function ChatView({ chatId }: { chatId: string }) {
     return stickToBottom(s, c, () => stick.current)
   }, [])
 
-  // the reader leaves the bottom by scrolling up, not because something grew below between our scroll to the bottom
-  // and its scroll event (a card that opens a moment after the question was sent stayed behind the box)
-  const lastTop = useRef(0)
   const onScroll = async () => {
     const el = scroller.current
     if (!el) return
-    const up = el.scrollTop < lastTop.current
-    lastTop.current = el.scrollTop
-    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80 || (stick.current && !up)
+    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
     if (el.scrollTop < 200 && thread.nextCursor && !olderBusy) {
       setOlderBusy(true)
       const before = el.scrollHeight
