@@ -336,7 +336,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | Method | Path | Who | What it does |
 |---|---|---|---|
 | `GET` | `/api/connectors/remote/requests/:id` | Signed in | Inspect an OAuth request, bound to this user and login session. |
-| `POST` | `/api/connectors/remote/requests/:id` | Signed in | Explicitly allow or deny an external app connection. The grant is mcp:read, plus mcp:write when `write` (left out: when the app asked for it), plus mcp:admin when the person is an owner or admin now, plus offline_access when asked. `admin` is ignored (an older page sent it). |
+| `POST` | `/api/connectors/remote/requests/:id` | Signed in | Explicitly allow or deny an external app connection. The grant is mcp:read, plus mcp:write when `write` (left out: when the app asked for it), plus mcp:rooms (read my conversations) when `rooms` and mcp:rooms.write (send messages as me) when `rooms` and `roomsWrite` (left out: no), plus mcp:admin when the person is an owner or admin now, plus offline_access when asked. `admin` is ignored (an older page sent it). |
 | `GET` | `/api/connectors/remote` | Signed in | List only this user’s external connections. |
 | `DELETE` | `/api/connectors/remote/:id` | Signed in | Revoke an own external connection and all of its tokens. |
 

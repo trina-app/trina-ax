@@ -155,7 +155,8 @@ export class RoomAi implements RoomTurns {
       if (t) this.publishRun(t)
       this.publishCount(roomId)
     } catch (e) {
-      this.ctx.log.warn('room question did not start', { err: e, room: roomId })
+      // no room id or text in the log (who talks where is not the log's); the person is told by room.ai.run
+      this.ctx.log.warn('room question did not start', { err: e })
       const locale = p.locale ?? rt.userLocale(userId)
       const error: ApiErrorBody = e && typeof e === 'object' && 'body' in e && typeof (e as { body: unknown }).body === 'function'
         ? (e as { body: (l: Locale) => ApiErrorBody }).body(locale) : engineError('crash', locale)

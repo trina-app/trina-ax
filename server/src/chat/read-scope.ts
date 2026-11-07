@@ -148,6 +148,23 @@ export function missingReaders(db: Database, rules: RuleSet, sources: readonly R
   return out
 }
 
+/**
+ * Would a message sent in this room let more people see what `sources` came from (an AI app's connection sending as
+ * the person, connectors/remote-mcp/rooms.ts)? Its readers are the room's members who will see it: everyone in it, or
+ * for a thread reply those who see its first message (`rootSeq`). A member whose account cannot read now (disabled: a
+ * 1:1 chat keeps them) still counts and reads nothing, as in the room's AI (rooms/ai.ts decide): they would read the
+ * message once enabled again. null = no.
+ */
+export function roomWidening(db: Database, roomId: string, sources: ReadSource[], rootSeq?: number): Widening | null {
+  if (!sources.length) return null
+  const rules = RuleSet.load(db)
+  const people = activePeople(db)
+  const target = (db.query('SELECT user_id FROM room_members WHERE room_id = ? AND visible_from_seq < ?').all(roomId, rootSeq ?? Number.MAX_SAFE_INTEGER) as { user_id: string }[]).map((r) => r.user_id)
+  const narrower = sources.filter((s, i) => sources.findIndex((x) => key(x) === key(s)) === i)
+    .filter((s) => { const v = viewersOf(db, rules, s, people); return target.some((id) => !v.has(id)) })
+  return narrower.length ? { narrower, targetViewers: target.length } : null
+}
+
 /** Where a source is, for the confirmation card. `ownNames`: a room by the name its members gave it (the card, shown to
  * the person as text); without it by the server's name only (anything the AI reads back: any member of a group chat may
  * set its own name). */
