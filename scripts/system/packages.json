@@ -158,6 +158,17 @@
         "util-linux": "",
         "iproute2": ""
       }
+    },
+    "test-vm": {
+      "install": "on-request",
+      "for": "the dev environment's test VM (scripts/dev-env/vm-setup.sh, with the boxes group): vm-tests.sh measures with time and bc",
+      "packages": {
+        "curl": "",
+        "jq": "",
+        "ca-certificates": "",
+        "time": "",
+        "bc": ""
+      }
     }
   },
   "artifacts": {

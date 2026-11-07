@@ -98,4 +98,13 @@ on Debian 12 and Ubuntu 24.04 arm64 and Debian 12, 13 and Ubuntu 24.04 amd64. `c
 all of them. A real Korean print ran on the arm64 systems and on a Mac. It did not run on amd64: under qemu the browser
 is killed, so the first print on a real amd64 server is still to be checked.
 
+Review round 1 (must-fix), all in this branch: office updates download and test the browser before the server stops,
+bounded, warning only; `root/packages.synced` and a catch-up sync by the new `mycel-ctl` (rootJob and the scheduled gate
+count a pending sync; no download) after an older binary did the swap; the sync runs after the app, with a deadline and
+its own process group, apt in a session of its own with dpkg's lock timeout, proxies passed; the browser switches only to
+a version that starts, keeps the one before until the next switch and never a newer one's place; existing installs get
+no unattended apt; a free-space check and the browser's libraries in their own transaction; the flat copy
+`root/packages.flat` so root needs no reader; the scanner covers every script and container file; `mycel-ctl status` and
+Admin › Diagnostics show the sync.
+
 PR: opened by the reviewer after review.

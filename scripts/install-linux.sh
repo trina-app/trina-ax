@@ -540,20 +540,35 @@ if [ "$LIST_OK" = 1 ]; then
   # shellcheck disable=SC2034 # packages.sh reads it (the list's "when": userns-restricted)
   PK_USERNS_RESTRICTED=$RESTRICT_USERNS
   read -r -a PKGS <<< "$(pk_packages "$DISTRO" "$ARCH" minimal | tr '\n' ' ')"
-  read -r -a EXTRA <<< "$(pk_packages "$DISTRO" "$ARCH" "$PROFILE" | grep -vxF -f <(printf '%s\n' "${PKGS[@]}") | tr '\n' ' ' || true)"
   [ ${#PKGS[@]} -gt 0 ] || die "the kit's list has no packages for $DISTRO $ARCH"
+  # the default groups in two transactions: the browser's libraries first, so one package of another group that cannot
+  # be installed does not keep the browser from working
+  BPKGS=() EXTRA=()
+  if [ "$PROFILE" != minimal ]; then
+    read -r -a BPKGS <<< "$(pk_packages "$DISTRO" "$ARCH" browser | grep -vxF -f <(printf '%s\n' "${PKGS[@]}") | tr '\n' ' ' || true)"
+    read -r -a EXTRA <<< "$(pk_packages "$DISTRO" "$ARCH" "$PROFILE" | grep -vxF -f <(printf '%s\n' "${PKGS[@]}" ${BPKGS[@]+"${BPKGS[@]}"}) | tr '\n' ' ' || true)"
+  fi
+  SYNC_RESULT=ok SYNC_DETAIL=""
   if [ "$SKIP_APT" = 0 ]; then
     say "installing packages: ${PKGS[*]}"
-    pk_apt_install -- "${PKGS[@]}" || die "apt-get install failed"
-    if [ ${#EXTRA[@]} -gt 0 ]; then
-      say "installing the default groups ($(pk_groups default | grep -vxF -f <(pk_groups minimal) | tr '\n' ' ' | sed 's/ $//'); --minimal leaves them out): ${EXTRA[*]}"
-      pk_apt_install -- "${EXTRA[@]}" || warn "the default groups' packages did not install (see above); the server runs without them, and \`sudo $0 repair\` tries again"
-    fi
+    pk_apt_install -- "${PKGS[@]}" || die "apt-get install failed (see above)"
+    for batch in "${BPKGS[*]:-}" "${EXTRA[*]:-}"; do
+      [ -n "$batch" ] || continue
+      say "installing default packages (--minimal leaves them out): $batch"
+      # shellcheck disable=SC2086 # package names have no spaces
+      if ! pk_apt_install -- $batch; then
+        warn "these default packages did not install (see above); the server runs without them, and \`sudo $0 repair\` tries again: $batch"
+        SYNC_RESULT=incomplete SYNC_DETAIL="${SYNC_DETAIL:+$SYNC_DETAIL; }not installed: $batch"
+      fi
+    done
   fi
   FLOORS=$(pk_check_floors "$DISTRO" "$ARCH" minimal) || die "${FLOORS//$'\n'/; }$([ "$SKIP_APT" = 1 ] && echo " (--skip-apt)")"
   if [ "$PROFILE" != minimal ] && ! FLOORS=$(pk_check_floors "$DISTRO" "$ARCH" "$PROFILE"); then warn "${FLOORS//$'\n'/; }"; fi
-  if [ ${#EXTRA[@]} -gt 0 ] && MISS=$(pk_missing "${EXTRA[@]}" | tr '\n' ' ') && [ -n "$MISS" ]; then
+  if MISS=$(pk_missing ${BPKGS[@]+"${BPKGS[@]}"} ${EXTRA[@]+"${EXTRA[@]}"} | tr '\n' ' ') && [ -n "$MISS" ]; then
     warn "not installed (default groups): $MISS"
+    SYNC_RESULT=incomplete
+    [ "$SKIP_APT" = 0 ] || SYNC_RESULT=blocked
+    SYNC_DETAIL="${SYNC_DETAIL:+$SYNC_DETAIL; }missing: $MISS"
   fi
 else
   # a bundle from before the list: the packages of its deps.txt (one "package" or "package>=version" per line), as then
@@ -785,6 +800,9 @@ BOXD_BEFORE=$(boxd_sum)
 [ ! -f "$KROOT/mycel-boxd" ] || rootfile 755 mycel-boxd
 boxd_restart "$BOXD_BEFORE"
 rootfile 644 safe-fs.sh
+# the one list of system packages, its flat copy and its reader: `mycel-ctl update` syncs this machine to them
+# (packages.sh sync) and compares root/packages.synced with the list. A kit from before the list has none.
+for f in packages.json packages.flat packages.sh; do [ ! -f "$KROOT/$f" ] || rootfile 644 "$f"; done
 # the unit templates go with the root programs (mycel-ctl render-units and update read them from root/systemd/)
 mk root root 755 "$BASE/root/systemd"
 for t in firewall.service firewall.timer launcher.service server.service update.service update.timer slice; do rootfile 644 "systemd/$t.in"; done
@@ -819,26 +837,29 @@ printf '{"format":1,"id":"%s","engineUid":%s,"serverUid":%s,"proxyPort":%s,"serv
 install -o root -g root -m 644 "$ITMP/firewall.conf.json" "$BASE/root/firewall.conf.json"
 
 # ---- 7b) the list's programs: the pinned headless browser for HTML to PDF (default groups, not with --minimal) in
-# /opt/trina/chrome-headless-shell/<version> (root's; one per machine), named in /etc/default/<id> as
-# MYCEL_HTML_PDF_BROWSER. The server's processes are stopped here, so the old version can go. A failure only warns:
-# HTML to PDF says there is no browser until a repair or the next update (`mycel-ctl update` runs packages.sh sync). ----
+# /opt/trina/chrome-headless-shell/<version> (root's; one per machine, shared by every install id), named in
+# /etc/default/<id> as MYCEL_HTML_PDF_BROWSER. packages.sh downloads and tests a version before current points to it, keeps
+# the version before it until the next switch, and leaves a newer version another install put there. A failure only
+# warns: HTML to PDF says there is no browser. root/packages.synced records the list and the result: mycel-ctl update
+# tries again after some hours when it is "incomplete" (a download), and when the list changes. ----
 if [ "$LIST_OK" = 1 ]; then
+  BROWSER_V=""
   if pk_artifacts "$PROFILE" | grep -qx chrome-headless-shell; then
-    if BROWSER=$(pk_browser_install "$PK_OPT/chrome-headless-shell" "linux-$ARCH"); then
-      # image mode in a chroot of another machine's kernel may not run it; the booted VM's first PDF does
-      if pk_browser_check "$BROWSER" || [ "$IMAGE_MODE" = 1 ]; then
-        pk_set_env "/etc/default/$ID" MYCEL_HTML_PDF_BROWSER "$BROWSER" || die "writing /etc/default/$ID failed"
-        say "browser: chrome-headless-shell $(pk_art chrome-headless-shell "linux-$ARCH" version) ($BROWSER)"
-      else
-        pk_set_env "/etc/default/$ID" MYCEL_HTML_PDF_BROWSER "" || true
-        warn "chrome-headless-shell does not start (a library of the browser group missing?); HTML to PDF stays off until \`sudo $0 repair\`"
-      fi
+    pk_browser_prepare "$PK_OPT/chrome-headless-shell" "linux-$ARCH" || { warn "the pinned headless browser was not installed (see above)"; SYNC_RESULT=incomplete; }
+    if BROWSER=$(pk_browser_switch "$PK_OPT/chrome-headless-shell" "linux-$ARCH"); then
+      pk_set_env "/etc/default/$ID" MYCEL_HTML_PDF_BROWSER "$BROWSER" || die "writing /etc/default/$ID failed"
+      BROWSER_V=$(pk__current_version "$PK_OPT/chrome-headless-shell")
+      say "browser: chrome-headless-shell $BROWSER_V ($BROWSER)"
     else
-      warn "the headless browser was not installed (see above); HTML to PDF stays off until \`sudo $0 repair\` or the next update"
+      pk_set_env "/etc/default/$ID" MYCEL_HTML_PDF_BROWSER "" || die "writing /etc/default/$ID failed"
+      warn "no headless browser runs here, so HTML to PDF stays off (see above); \`sudo $0 repair\` tries again"
+      SYNC_RESULT=incomplete SYNC_DETAIL="${SYNC_DETAIL:+$SYNC_DETAIL; }no chrome-headless-shell runs"
     fi
   else
     pk_set_env "/etc/default/$ID" MYCEL_HTML_PDF_BROWSER "" || die "writing /etc/default/$ID failed"
   fi
+  pk_write_synced "$BASE/root/packages.synced" "$(pk_sha256 "$KROOT/packages.json")" "$SYNC_RESULT" "$SYNC_DETAIL" "$BROWSER_V" \
+    || die "writing $BASE/root/packages.synced failed"
 fi
 
 # ---- 8) engines: app/engines/<name>/<sha12>/<name>, current -> <sha12> ----

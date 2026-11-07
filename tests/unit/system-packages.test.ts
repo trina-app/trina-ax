@@ -3,18 +3,21 @@
 // it. This is the CI check that fails when they disagree: the list is well formed, every artifact has a version and a
 // sha256 for every platform, the two readers of packages.sh (bun, jq) read the same thing, no install or image script
 // keeps a list or a pinned download of its own, and the image installs the installer's default groups.
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { flatLines, groupsFor, listProblems, packagesFor, readList, REQUIRED_PLATFORMS, type PackageList } from '../../scripts/system/packages'
+import { flatFile, flatLines, groupsFor, listProblems, packagesFor, readList, REQUIRED_PLATFORMS, type PackageList } from '../../scripts/system/packages'
 import { LINUX_ROOT_SCRIPTS, linuxBundleFiles } from '../../scripts/build-bundle'
 import { bundleManifest } from '../../scripts/build-office'
 import { rootManaged } from '../../scripts/release/publish-server'
 import { SRT_VERSION } from '../../server/src/devenv/srt/config'
 import { officeBrowserEnv } from '../../server/src/office/cli'
 import { officePaths } from '../../server/src/office/settings'
+import { SYSTEM_PACKAGES_TEXT, systemPackagesDiagnostic } from '../../server/src/system/system-packages'
 
+// several tests start bash and bun many times: generous under a loaded CI machine
+setDefaultTimeout(30_000)
 const REPO = path.resolve(import.meta.dir, '../..')
 const read = (f: string) => fs.readFileSync(path.join(REPO, f), 'utf8')
 const SH = path.join(REPO, 'scripts', 'system', 'packages.sh')
@@ -93,7 +96,7 @@ describe('the list (scripts/system/packages.json)', () => {
 
 describe('packages.sh reads the list', () => {
   test('syntax', () => {
-    for (const f of ['scripts/system/packages.sh', ...INSTALLERS, ...STAGERS, 'scripts/image/ami-chroot.sh', 'scripts/office/office-uninstall.sh']) {
+    for (const f of ['scripts/system/packages.sh', ...INSTALLERS, ...STAGERS, 'scripts/image/ami-chroot.sh', 'scripts/office/office-uninstall.sh', 'scripts/dev-env/vm-setup.sh']) {
       const p = Bun.spawnSync(['/bin/bash', '-n', path.join(REPO, f)], { stderr: 'pipe' })
       expect(`${f}: ${p.exitCode} ${p.stderr.toString()}`).toBe(`${f}: 0 `)
     }
@@ -135,7 +138,7 @@ describe('packages.sh reads the list', () => {
     expect(packagesFor(LIST, 'debian-13', 'arm64', ['browser'])).toContain('libasound2t64')
     expect(packagesFor(LIST, 'ubuntu-24.04', 'amd64', ['devenv'])).not.toContain('chromium') // a snap there
     expect(sh(['groups', ...bun, 'nosuch']).err).toContain('no group or profile "nosuch"')
-  })
+  }, 30_000)
 
   test('artifacts and platforms', () => {
     const r = lib(`pk_load; for p in linux-amd64 linux-arm64 darwin-arm64 darwin-amd64; do echo "$p $(pk_art chrome-headless-shell $p version) $(pk_art chrome-headless-shell $p dir)"; done
@@ -153,25 +156,94 @@ pk_artifacts default; pk_artifacts minimal; pk_artifacts srt`, { PK_BUN: process
     expect(lib('pk_load; pk_distro debian 13; pk_distro ubuntu 24.04; pk_distro debian 11 || echo refused', { PK_BUN: process.execPath }).out.trim().split('\n')).toEqual(['debian-13', 'ubuntu-24.04', 'refused'])
   })
 
-  test('the browser: switches to the pinned version it has, removes the others, downloads nothing then', () => {
+  // a fake browser folder: versions with a program that runs (or does not), current -> one of them
+  const fakeBrowser = (runs = true) => `#!/bin/sh\n${runs ? 'echo "Google Chrome for Testing 1.2.3"' : 'echo "error while loading shared libraries" >&2; exit 127'}\n`
+  const PIN = LIST.artifacts['chrome-headless-shell']!.version
+  function browserDir(versions: Record<string, boolean>, current?: string) {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-browser-'))
     const dest = path.join(d, 'chrome-headless-shell')
-    const a = LIST.artifacts['chrome-headless-shell']!, f = a.platforms['linux-amd64']!
-    fs.mkdirSync(path.join(dest, a.version, f.dir!), { recursive: true })
-    fs.writeFileSync(path.join(dest, a.version, f.dir!, 'chrome-headless-shell'), '#!/bin/sh\necho "Google Chrome for Testing 1.2.3"\n', { mode: 0o755 })
-    fs.writeFileSync(path.join(dest, a.version, '.sha256'), f.sha256 + '\n')
-    fs.mkdirSync(path.join(dest, '150.0.1.2', 'x'), { recursive: true })
-    fs.mkdirSync(path.join(dest, '.new.abc123'))
-    fs.symlinkSync('150.0.1.2/x', path.join(dest, 'current'))
+    const f = LIST.artifacts['chrome-headless-shell']!.platforms['linux-amd64']!
+    for (const [v, runs] of Object.entries(versions)) {
+      fs.mkdirSync(path.join(dest, v, f.dir!), { recursive: true })
+      fs.writeFileSync(path.join(dest, v, f.dir!, 'chrome-headless-shell'), fakeBrowser(runs), { mode: 0o755 })
+      fs.writeFileSync(path.join(dest, v, '.sha256'), (v === PIN ? f.sha256 : 'old') + '\n')
+    }
+    if (current) fs.symlinkSync(`${current}/${f.dir}`, path.join(dest, 'current'))
     // a curl that must not run
     const bin = path.join(d, 'bin'); fs.mkdirSync(bin)
     fs.writeFileSync(path.join(bin, 'curl'), '#!/bin/sh\necho "curl ran" >&2\nexit 9\n', { mode: 0o755 })
-    const r = lib(`pk_load; p=$(PK_UNAME_S=Linux pk_browser_install "${dest}" linux-amd64); echo "$p"; pk_browser_check "$p" && echo runs`, { PK_BUN: process.execPath, PATH: `${bin}:${PATH}` })
+    return { d, dest, dir: f.dir!, sha: f.sha256, env: { PK_BUN: process.execPath, PATH: `${bin}:${PATH}`, PK_UNAME_S: 'Linux' } }
+  }
+  const names_ = (dest: string) => fs.readdirSync(dest).filter((n) => n !== '.lock').sort()
+
+  test('the browser: switch to the prepared version that runs; the one before stays until the next switch; no download', () => {
+    const b = browserDir({ [PIN]: true, '150.0.1.2': true, '149.0.0.1': true }, '150.0.1.2')
+    fs.mkdirSync(path.join(b.dest, '.new.abc123'))
+    let r = lib(`pk_load; p=$(pk_browser_install "${b.dest}" linux-amd64); echo "$p"; pk_browser_check "$p" && echo runs`, b.env)
     expect(r.err).toBe('')
-    expect(r.out.trim().split('\n')).toEqual([path.join(dest, 'current', 'chrome-headless-shell'), 'runs'])
-    expect(fs.readlinkSync(path.join(dest, 'current'))).toBe(`${a.version}/${f.dir}`)
-    expect(fs.readdirSync(dest).sort()).toEqual([a.version, 'current'].sort())
-    fs.rmSync(d, { recursive: true, force: true })
+    expect(r.out.trim().split('\n')).toEqual([path.join(b.dest, 'current', 'chrome-headless-shell'), 'runs'])
+    expect(fs.readlinkSync(path.join(b.dest, 'current'))).toBe(`${PIN}/${b.dir}`)
+    // 150 (current before) stays for a print that may still run; 149 and the leftover go; the swap left no temp link
+    expect(names_(b.dest)).toEqual(['.previous', '150.0.1.2', 'current', PIN].sort())
+    // the next sync: nothing to switch, so the previous version goes
+    r = lib(`pk_load; pk_browser_install "${b.dest}" linux-amd64 >/dev/null`, b.env)
+    expect(r.code).toBe(0)
+    expect(names_(b.dest)).toEqual(['current', PIN].sort())
+    fs.rmSync(b.d, { recursive: true, force: true })
+  })
+
+  test('the browser: a new version that does not start is never switched to; the old one stays current', () => {
+    const b = browserDir({ '150.0.1.2': true }, '150.0.1.2')
+    // a verified download that does not run here (a library missing): kept untested, tested again next time
+    const un = path.join(b.dest, `.untested-${PIN}`)
+    fs.mkdirSync(path.join(un, b.dir), { recursive: true })
+    fs.writeFileSync(path.join(un, b.dir, 'chrome-headless-shell'), fakeBrowser(false), { mode: 0o755 })
+    fs.writeFileSync(path.join(un, '.sha256'), b.sha + '\n')
+    const r = lib(`pk_load; pk_browser_prepare "${b.dest}" linux-amd64 || echo not-prepared; pk_browser_switch "${b.dest}" linux-amd64`, b.env)
+    expect(r.out.trim().split('\n')).toEqual(['not-prepared', path.join(b.dest, 'current', 'chrome-headless-shell')])
+    expect(r.err).toContain('does not start here')
+    expect(r.err).not.toContain('curl ran') // the untested copy was tested again, not downloaded again
+    expect(fs.readlinkSync(path.join(b.dest, 'current'))).toBe(`150.0.1.2/${b.dir}`)
+    expect(fs.existsSync(path.join(b.dest, PIN))).toBe(false)
+    expect(fs.existsSync(un)).toBe(true)
+    // once it runs (the library came), the next prepare takes it without a download, and the switch moves current
+    fs.writeFileSync(path.join(un, b.dir, 'chrome-headless-shell'), fakeBrowser(true), { mode: 0o755 })
+    const r2 = lib(`pk_load; pk_browser_install "${b.dest}" linux-amd64`, b.env)
+    expect(r2.err).toBe('')
+    expect(fs.readlinkSync(path.join(b.dest, 'current'))).toBe(`${PIN}/${b.dir}`)
+    // nothing runs at all: current goes, so nothing names a broken program
+    const c = browserDir({ '150.0.1.2': false }, '150.0.1.2')
+    const r3 = lib(`pk_load; pk_browser_switch "${c.dest}" linux-amd64 || echo none-runs`, c.env)
+    expect(r3.out.trim()).toBe('none-runs')
+    expect(fs.existsSync(path.join(c.dest, 'current'))).toBe(false)
+    fs.rmSync(b.d, { recursive: true, force: true }); fs.rmSync(c.d, { recursive: true, force: true })
+  })
+
+  test('the browser: a repair from an older kit keeps a newer browser another install put there', () => {
+    const b = browserDir({ '999.0.0.1': true }, '999.0.0.1')
+    const r = lib(`pk_load; pk_browser_install "${b.dest}" linux-amd64`, b.env)
+    expect(r.out.trim()).toBe(path.join(b.dest, 'current', 'chrome-headless-shell'))
+    expect(r.err).toContain('999.0.0.1 stays: it is newer than this list')
+    expect(r.err).not.toContain('curl ran')
+    expect(fs.readlinkSync(path.join(b.dest, 'current'))).toBe(`999.0.0.1/${b.dir}`)
+    expect(names_(b.dest)).toEqual(['999.0.0.1', 'current'])
+    fs.rmSync(b.d, { recursive: true, force: true })
+  })
+
+  test('the browser folder and its parent are 755 whatever the umask; a dir with .. in the list is refused', () => {
+    const b = browserDir({})
+    const r = lib(`umask 077; pk_load; pk_browser_switch "${b.dest}" linux-amd64 || true`, b.env)
+    expect(r.code).toBe(0)
+    for (const p of [b.d, b.dest]) expect((fs.statSync(p).mode & 0o777).toString(8)).toBe('755')
+    // a list whose dir climbs out
+    const bad = path.join(b.d, 'packages.json')
+    const l = clone(); l.artifacts['chrome-headless-shell']!.platforms['linux-amd64']!.dir = '..'
+    fs.writeFileSync(bad, JSON.stringify(l))
+    expect(listProblems(l).join()).toContain('bad dir')
+    const r2 = lib(`pk_load "${bad}"; pk_browser_prepare "${b.dest}" linux-amd64 || echo refused`, b.env)
+    expect(r2.out.trim()).toBe('refused')
+    expect(r2.err).toContain('bad version or dir')
+    fs.rmSync(b.d, { recursive: true, force: true })
   })
 
   test('the browser: a download with another sha256 leaves nothing; only https; no hash, no download', () => {
@@ -181,27 +253,97 @@ pk_artifacts default; pk_artifacts minimal; pk_artifacts srt`, { PK_BUN: process
     fs.writeFileSync(path.join(bin, 'curl'), '#!/bin/sh\nwhile [ $# -gt 0 ]; do [ "$1" = -o ] && { echo other > "$2"; shift; }; shift; done\n', { mode: 0o755 })
     fs.writeFileSync(path.join(bin, 'unzip'), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
     const dest = path.join(d, 'chrome-headless-shell')
-    const r = lib(`pk_load; PK_UNAME_S=Linux pk_browser_install "${dest}" linux-arm64 || echo failed
+    const r = lib(`pk_load; PK_UNAME_S=Linux pk_browser_prepare "${dest}" linux-arm64 || echo failed
 pk_fetch http://example.com/x "${'a'.repeat(64)}" "" "${d}/x" || echo http-refused
 pk_fetch https://example.com/x "" "" "${d}/x" || echo no-hash-refused`, { PK_BUN: process.execPath, PATH: `${bin}:${PATH}` })
     expect(r.out.trim().split('\n')).toEqual(['failed', 'http-refused', 'no-hash-refused'])
     expect(r.err).toContain('the list pins')
-    expect(fs.readdirSync(dest)).toEqual([]) // no .new.* left, no version, no current
+    expect(names_(dest)).toEqual([]) // no .new.* left, no version, no current
     fs.rmSync(d, { recursive: true, force: true })
   })
 
-  test('/etc/default/<id>: one line of ours, every other line kept, an empty file removed', () => {
+  test('a download that stalls is stopped at its budget, with curl told to give up on its own too', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-stall-'))
+    const bin = path.join(d, 'bin'); fs.mkdirSync(bin)
+    // a curl that hangs whatever it is told (a dead mirror that keeps the connection open)
+    fs.writeFileSync(path.join(bin, 'curl'), `#!/bin/sh\necho "$@" >> "${d}/args"\nexec sleep 60\n`, { mode: 0o755 })
+    const start = Date.now()
+    const r = lib(`PK_FETCH_BUDGET=6 pk_fetch https://example.com/x "${'a'.repeat(64)}" "" "${d}/x" || echo stopped`, { PATH: `${bin}:${PATH}` })
+    const took = Date.now() - start
+    expect(r.out.trim()).toBe('stopped')
+    expect(r.err).toContain('stopped after 6 s (PK_FETCH_BUDGET)')
+    expect(took).toBeLessThan(20_000)
+    const args = fs.readFileSync(path.join(d, 'args'), 'utf8')
+    for (const a of ['--connect-timeout 20', '--speed-limit 10240', '--speed-time 60', '--max-time ', '--proto =https']) expect(args).toContain(a)
+    expect(fs.existsSync(path.join(d, 'x'))).toBe(false)
+    // no curl is left running
+    expect(Bun.spawnSync(['pgrep', '-f', `${d}/args`]).exitCode).not.toBe(0)
+    fs.rmSync(d, { recursive: true, force: true })
+  }, 30_000)
+
+  test('/etc/default/<id>: one line of ours, every other line kept, an empty file removed, renamed into place', () => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-env-'))
     const f = path.join(d, 'mycel')
     fs.writeFileSync(f, 'MYCEL_TEAM_TZ=Asia/Seoul\nMYCEL_HTML_PDF_BROWSER=/old\nMYCEL_SAFE_OPS_1A=1\n')
+    const ino = fs.statSync(f).ino
     expect(lib(`pk_set_env "${f}" MYCEL_HTML_PDF_BROWSER /opt/trina/chrome-headless-shell/current/chrome-headless-shell`).code).toBe(0)
     expect(fs.readFileSync(f, 'utf8')).toBe('MYCEL_TEAM_TZ=Asia/Seoul\nMYCEL_SAFE_OPS_1A=1\nMYCEL_HTML_PDF_BROWSER=/opt/trina/chrome-headless-shell/current/chrome-headless-shell\n')
+    expect(fs.statSync(f).ino).not.toBe(ino) // a new file renamed over the old one: a reader never sees half of it
+    expect((fs.statSync(f).mode & 0o777).toString(8)).toBe('644')
     expect(lib(`pk_set_env "${f}" MYCEL_HTML_PDF_BROWSER ""`).code).toBe(0)
     expect(fs.readFileSync(f, 'utf8')).toBe('MYCEL_TEAM_TZ=Asia/Seoul\nMYCEL_SAFE_OPS_1A=1\n')
     fs.writeFileSync(f, 'MYCEL_HTML_PDF_BROWSER=/x\n')
     expect(lib(`pk_set_env "${f}" MYCEL_HTML_PDF_BROWSER ""`).code).toBe(0)
     expect(fs.existsSync(f)).toBe(false)
+    expect(fs.readdirSync(d)).toEqual([]) // no temporary file left
     fs.rmSync(d, { recursive: true, force: true })
+  })
+
+  test('root reads a bundle\'s flat copy with awk alone; a copy that is not of this list is not used', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-flat-'))
+    const text = read('scripts/system/packages.json')
+    fs.writeFileSync(path.join(d, 'packages.json'), text)
+    fs.writeFileSync(path.join(d, 'packages.flat'), flatFile(text))
+    // no bun, and no jq: /usr/bin has one on some systems, so it is shadowed by one that fails
+    const bin = path.join(d, 'bin'); fs.mkdirSync(bin)
+    fs.writeFileSync(path.join(bin, 'jq'), '#!/bin/sh\necho "jq ran" >&2\nexit 9\n', { mode: 0o755 })
+    const env = { PATH: `${bin}:/usr/bin:/bin`, PK_BUN: '' }
+    const r = lib(`pk_load "${d}/packages.json" && pk_art chrome-headless-shell linux-amd64 version`, env)
+    expect(r.err).toBe('')
+    expect(r.out.trim()).toBe(PIN)
+    fs.writeFileSync(path.join(d, 'packages.flat'), flatFile(text.replace(PIN, '1.0.0.0')).replace(/^#sha256 [0-9a-f]+/, '#sha256 ' + '0'.repeat(64)))
+    const r2 = lib(`pk_load "${d}/packages.json" || echo not-read`, env)
+    expect(r2.out.trim()).toBe('not-read')
+    expect(r2.err).toContain('jq ran')
+    fs.rmSync(d, { recursive: true, force: true })
+  })
+
+  test('sync runs apt unattended only where the install said skipApt false (not before the list, not --skip-apt)', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-apt-'))
+    const cases: [string, boolean][] = [['{"format":1,"skipApt":false}', true], ['{"format":1,"skipApt":true}', false], ['{"format":1,"systemd":true}', false]]
+    for (const [json, allowed] of cases) {
+      fs.writeFileSync(path.join(d, 'install.json'), json)
+      expect(`${json}: ${lib(`pk__apt_allowed "${d}/install.json" && echo yes || echo no`).out.trim()}`).toBe(`${json}: ${allowed ? 'yes' : 'no'}`)
+    }
+    // apt waits for dpkg's lock, runs in a session of its own, checks free space first; the browser's libraries first
+    const s = read('scripts/system/packages.sh')
+    expect(s.match(/apt-get (update|install) [^\n]*-o DPkg::Lock::Timeout=300/g)?.length).toBeGreaterThanOrEqual(2)
+    expect(s).toContain('run=(setsid -w)')
+    expect(s).toContain('if ! why=$(pk_apt_space')
+    expect(s).toMatch(/for batch in "\$\(pk_missing \$browser_pkgs/)
+    fs.rmSync(d, { recursive: true, force: true })
+  })
+
+  test('the office installer downloads the browser before it stops the server, bounded, and only warns', () => {
+    const s = read('scripts/office/office-install.sh')
+    const prepare = s.indexOf('pk_browser_prepare "$BROWSER_DIR"'), stop = s.indexOf('launchctl bootout "gui/$(id -u)/$LABEL"'), sw = s.indexOf('pk_browser_switch "$BROWSER_DIR"')
+    expect(prepare).toBeGreaterThan(0)
+    expect(prepare).toBeLessThan(stop)
+    expect(sw).toBeGreaterThan(s.indexOf('mv "$NEW" "$PREFIX/app"'))
+    expect(s).toContain('if [ "$UPDATE" = 1 ]; then PK_FETCH_BUDGET=240; else PK_FETCH_BUDGET=480; fi')
+    // neither step can end the installer: both are in an if or after ||
+    expect(s).toMatch(/pk_browser_prepare "\$BROWSER_DIR" "\$BROWSER_PLAT" \\\n\s+\|\| say "warning:/)
+    expect(s).toMatch(/if pk_browser_switch "\$BROWSER_DIR"/)
   })
 
   test('sync (mycel-ctl update) needs an id and a base', () => {
@@ -214,26 +356,88 @@ describe('every install path reads the list', () => {
   const names = new Set(Object.values(LIST.groups).flatMap((g) => [...Object.keys(g.packages ?? {}), ...(g.remove ?? [])]))
   const word = (n: string) => new RegExp(`(?<![A-Za-z0-9.+_/-])${n.replace(/[.+]/g, '\\$&')}(?![A-Za-z0-9.+_/-])`)
 
-  test('no install or image script keeps a package list of its own', () => {
+  // every shell script under scripts/ and every Containerfile/Dockerfile of the repository is scanned; these may name
+  // packages, each for a reason (none of them installs the product's system)
+  const ALLOWED: Record<string, string> = {
+    'scripts/linux/build-whisper.sh': 'the build machine\'s compiler for whisper-cli, not a server',
+    'scripts/dev-env/srt/vm-check.sh': 'a throwaway test VM of the srt spike',
+    'scripts/dev-env/srt/spike-vm.sh': 'the srt design spike\'s VM',
+    'scripts/dev-env/Containerfile': 'the inside of a dev environment box (podman image), not the server',
+    'tests/linux/Dockerfile': 'the Linux test container',
+    'tests/linux/Dockerfile.srt': 'the srt attack test container',
+    'tests/linux/Dockerfile.safe-ops': 'the safe operations test container',
+    'tests/install/linux/Dockerfile': 'the install test\'s systemd container (what an installer fetches, cached)',
+    'tests/linux/Dockerfile.html-pdf': 'the HTML to PDF test container',
+  }
+  const scanned = () => {
+    const out: string[] = []
+    const walk = (dir: string) => {
+      for (const e of fs.readdirSync(path.join(REPO, dir), { withFileTypes: true })) {
+        const rel = `${dir}/${e.name}`
+        if (e.isDirectory()) { if (!['node_modules', '.work'].includes(e.name)) walk(rel) }
+        else if ((dir.startsWith('scripts') && e.name.endsWith('.sh')) || /^(Containerfile|Dockerfile)/.test(e.name)) out.push(rel)
+      }
+    }
+    walk('scripts'); walk('tests')
+    return out.sort()
+  }
+  /** a file's commands: comments out, continuation lines joined, each with the number of its first line */
+  const commands = (text: string) => {
+    const out: [number, string][] = []
+    let cur = '', first = 0
+    text.split('\n').forEach((l, i) => {
+      if (!cur && l.trimStart().startsWith('#')) return
+      if (!cur) first = i + 1
+      if (/\\$/.test(l)) { cur += l.replace(/\\$/, ' '); return }
+      out.push([first, cur + l]); cur = ''
+    })
+    return out
+  }
+  // apt-get or apt, options before the command too (`apt-get -y -o X=Y install`), then what it installs
+  const APT = /\bapt(?:-get)?((?:\s+(?:-o\s+\S+|-\S+))*)\s+install\b/g
+  const aptByName = (line: string): string[] => {
+    const bad: string[] = []
+    for (const m of line.matchAll(APT)) {
+      if ((line.slice(0, m.index).match(/"/g) ?? []).length % 2) continue // inside a message
+      const args = line.slice(m.index! + m[0].length).split(/\s*(?:\d?>|\|\||&&|;|\)|\|)/)[0]!.trim().split(/\s+/).filter(Boolean)
+      for (let i = 0; i < args.length; i++) {
+        const a = args[i]!
+        if (a === '-o') { i++; continue }
+        if (a.startsWith('-') || a.startsWith('$') || a.startsWith('"$') || a.startsWith('${')) continue
+        bad.push(a)
+      }
+    }
+    return bad
+  }
+
+  test('the scanner sees through options, continuation lines and quotes', () => {
+    expect(aptByName('apt-get -y -q -o Dpkg::Options::=--force-confold install podman crun')).toEqual(['podman', 'crun'])
+    expect(aptByName('DEBIAN_FRONTEND=noninteractive apt install -y --no-install-recommends "$@" jq')).toEqual(['jq'])
+    expect(aptByName('die "jq is missing: apt-get install jq, then run this again"')).toEqual([])
+    expect(aptByName('pk_apt_install -- "${PKGS[@]}" || apt-get install -y "${X[@]}"')).toEqual([])
+    expect(aptByName('apt-get install --assume-no -o DPkg::Lock::Timeout=300 "$@" 2>/dev/null')).toEqual([])
+    const c = commands('# apt-get install nothing\nRUN apt-get update && apt-get install -y \\\n    podman \\\n    crun\necho done\n')
+    expect(c.map(([n, l]) => [n, aptByName(l)])).toEqual([[2, ['podman', 'crun']], [5, []], [6, []]])
+  })
+
+  test('no script or container file keeps a package list of its own (except the allowed few, with a reason)', () => {
+    const files = scanned()
+    for (const f of [...INSTALLERS, ...STAGERS, 'scripts/dev-env/vm-setup.sh', 'scripts/dev-env/Containerfile']) expect(files).toContain(f)
+    for (const f of Object.keys(ALLOWED)) expect(`${f}: ${files.includes(f)}`).toBe(`${f}: true`) // no stale entry
     const found: string[] = []
-    for (const f of [...INSTALLERS, ...STAGERS, 'scripts/image/ami-chroot.sh']) {
-      for (const [n, l] of codeLines(f)) {
+    for (const f of files) {
+      if (ALLOWED[f]) continue
+      for (const [n, l] of commands(read(f))) {
         const hits = [...names].filter((p) => word(p).test(l))
         if (hits.length >= 3) found.push(`${f}:${n}: ${hits.join(' ')}`)
-        // apt-get install / apt install: every package argument comes from a variable (the list), never a name
-        for (const m of l.matchAll(/\bapt(?:-get)? install\b/g)) {
-          if ((l.slice(0, m.index).match(/"/g) ?? []).length % 2) continue // inside a message
-          const args = l.slice(m.index! + m[0].length).split(/\s*(?:>|\|\||&&|;|\))/)[0]!.trim().split(/\s+/).filter(Boolean)
-          for (let i = 0; i < args.length; i++) {
-            const a = args[i]!
-            if (a === '-o') { i++; continue }
-            if (a.startsWith('-') || a.startsWith('$') || a.startsWith('"$') || a.startsWith('${') || a === '\\') continue
-            found.push(`${f}:${n}: apt installs "${a}" by name`)
-          }
-        }
+        for (const a of aptByName(l)) found.push(`${f}:${n}: apt installs "${a}" by name`)
       }
     }
     expect(found).toEqual([])
+  })
+
+  test('both readers are compared in CI: jq must be there', () => {
+    if (process.env.CI) expect(`jq on PATH: ${!!JQ}`).toBe('jq on PATH: true')
   })
 
   test('no pinned download of their own: versions, urls and hashes come from the list', () => {
@@ -306,12 +510,23 @@ describe('updates carry the list', () => {
     const files = linuxBundleFiles({ arch: 'amd64', codexVersion: '0.163.0', whisper: false, systemd: [] })
     expect(files).toContain('root/packages.json')
     expect(files).toContain('root/packages.sh')
+    expect(files).toContain('root/packages.flat')
     expect(files).not.toContain('deps.txt')
     // publish-server.ts compares root-managed files with the channel heads' manifests (needsRoot, rootSince)
-    expect(rootManaged('root/packages.json')).toBe(true)
-    expect(rootManaged('root/packages.sh')).toBe(true)
-    // mycel-ctl update runs packages.sh sync once the root files are in place (native/cmd/mycel-ctl/syncsystem_test.go)
-    expect(read('native/cmd/mycel-ctl/update.go')).toContain('u.syncSystem(dir)')
+    for (const f of ['root/packages.json', 'root/packages.sh', 'root/packages.flat']) expect(rootManaged(f)).toBe(true)
+    // mycel-ctl update syncs after the root files and the app, and whenever root/packages.synced is not of the list in
+    // root/ (native/cmd/mycel-ctl/sync.go, syncsystem_test.go); install-linux.sh writes the record and the root files
+    expect(read('native/cmd/mycel-ctl/update.go')).toContain('defer u.syncAfter(dir)')
+    const inst = read('scripts/install-linux.sh')
+    expect(inst).toContain('for f in packages.json packages.flat packages.sh; do [ ! -f "$KROOT/$f" ] || rootfile 644 "$f"; done')
+    expect(inst).toContain('pk_write_synced "$BASE/root/packages.synced"')
+  })
+
+  test('a bundle\'s flat copy is the list\'s: its first line names the list\'s sha256', () => {
+    const text = read('scripts/system/packages.json')
+    const f = flatFile(text)
+    expect(f.split('\n')[0]).toBe(`#sha256 ${new Bun.CryptoHasher('sha256').update(text).digest('hex')}`)
+    expect(f.split('\n').slice(1).join('\n').trimEnd()).toBe(flatLines(LIST))
   })
 
   test('the office zip carries it, and its installer puts the browser outside app/', () => {
@@ -320,7 +535,7 @@ describe('updates carry the list', () => {
     expect(m).toContain('app/scripts/system/packages.sh')
     const s = read('scripts/office/office-install.sh')
     expect(s).toMatch(/for p in server scripts /) // app/scripts (with system/) is copied into the installed app
-    expect(s).toContain('pk_browser_install "$PREFIX/browser/chrome-headless-shell" "$plat"')
+    expect(s).toContain('BROWSER_DIR="$PREFIX/browser/chrome-headless-shell"')
     expect(read('scripts/office/office-uninstall.sh')).toContain('"$PREFIX/browser"')
   })
 
@@ -334,6 +549,23 @@ describe('updates carry the list', () => {
     expect(officeBrowserEnv(p, {})).toBe(p.browser)
     expect(officeBrowserEnv(p, { MYCEL_HTML_PDF_BROWSER: 'none' })).toBeNull()
     fs.rmSync(home, { recursive: true, force: true })
+  })
+
+  test('Admin › System › Diagnostics says where the sync of the list in root/ stands', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pk-diag-'))
+    expect(systemPackagesDiagnostic(null)).toBeNull()
+    expect(systemPackagesDiagnostic(root)).toBeNull() // a server from before the list
+    const list = '{"format":1}'
+    fs.writeFileSync(path.join(root, 'packages.json'), list)
+    const sum = new Bun.CryptoHasher('sha256').update(list).digest('hex')
+    const at = (r: Record<string, string>) => { fs.writeFileSync(path.join(root, 'packages.synced'), JSON.stringify({ format: 1, list: sum, at: '2026-11-07T03:12:00Z', ...r })); return systemPackagesDiagnostic(root)! }
+    expect(systemPackagesDiagnostic(root)).toEqual({ status: 'warn', text: SYSTEM_PACKAGES_TEXT.pending }) // never synced
+    expect(at({ result: 'ok', browser: '157.0.8103.38' })).toEqual({ status: 'ok', text: SYSTEM_PACKAGES_TEXT.ok('2026-11-07T03:12:00Z', '157.0.8103.38') })
+    expect(at({ result: 'ok', list: 'other' }).text).toEqual(SYSTEM_PACKAGES_TEXT.pending)
+    expect(at({ result: 'blocked', detail: 'missing: socat' })).toEqual({ status: 'warn', text: SYSTEM_PACKAGES_TEXT.blocked('missing: socat') })
+    expect(at({ result: 'incomplete', detail: 'download' }).text.en).toContain('did not finish: download')
+    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) expect(SYSTEM_PACKAGES_TEXT.ok('t', 'v')[l]).toContain('v')
+    fs.rmSync(root, { recursive: true, force: true })
   })
 })
 

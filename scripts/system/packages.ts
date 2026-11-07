@@ -3,6 +3,7 @@
 // agree, that the list is well formed and that no install or image script keeps a list of its own.
 //
 //   bun scripts/system/packages.ts check     the list is well formed (exit 1 and the problems otherwise)
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -117,7 +118,7 @@ export function listProblems(j: unknown): string[] {
       else if (typeof a.version === 'string' && !f.url.includes(a.version)) p.push(`${pa}: the url does not name version ${a.version} (a version moved without its files?)`)
       if (typeof f.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(f.sha256)) p.push(`${pa}: no sha256 (64 hex characters)`)
       if (!Number.isInteger(f.size) || f.size <= 0) p.push(`${pa}: no size (bytes)`)
-      if (f.dir !== undefined && (typeof f.dir !== 'string' || !/^[A-Za-z0-9._-]+$/.test(f.dir))) p.push(`${pa}: bad dir`)
+      if (f.dir !== undefined && (typeof f.dir !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(f.dir) || f.dir.includes('..'))) p.push(`${pa}: bad dir (a folder name, no ..)`)
     }
   }
   for (const n of Object.keys(REQUIRED_PLATFORMS)) if (!has(artifacts, n)) p.push(`no artifact ${n}`)
@@ -163,6 +164,12 @@ export function flatLines(l: PackageList): string {
   }
   for (const [n, a] of Object.entries(l.artifacts)) for (const [p, x] of Object.entries(a.platforms)) t('F', n, p, a.version, x.url, x.sha256, x.size, x.dir)
   return o.join('\n')
+}
+
+/** root/packages.flat of a Linux bundle: a first line with the sha256 of the list's bytes, then its flat lines. packages.sh
+ * reads it with awk alone when the sha256 is the list's (pk__flat_file), so root needs neither bun nor jq. */
+export function flatFile(listText: string): string {
+  return `#sha256 ${createHash('sha256').update(listText).digest('hex')}\n${flatLines(JSON.parse(listText) as PackageList)}\n`
 }
 
 if (import.meta.main) {

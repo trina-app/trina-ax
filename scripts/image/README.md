@@ -38,7 +38,9 @@ image mode + the first-boot pieces (`mycel-enroll`).
     `customize.sh`) installs every apt package from that snapshot of snapshot.debian.org instead (apt's `--snapshot`),
     so a rebuild gets the same versions; it freezes security fixes at that time too, so use a recent one.
   - A change to the list is a root change of the kit (`root/packages.json`): `mycel-ctl update` on a team VM runs
-    `packages.sh sync` (missing packages, the browser at the pinned version, the old one removed).
+    `packages.sh sync` after the root files and the app (missing packages; the browser at the pinned version once it
+    starts, the one before kept until the next switch) and records it in `/var/lib/mycel/root/packages.synced`. A team VM
+    has no update timer: the control plane's next `mycel-ctl update` also syncs when that record is not of the list.
 - **Kit in image mode, moved to the seed** (decision L1): `install-linux.sh install --from <kit> --hosted --image-mode
   --engine claude --engine codex` installs into `BASE=/var/lib/mycel` on the OS disk, then `customize.sh` moves that tree
   to `/usr/lib/mycel/seed-base` (owners kept) and leaves `/var/lib/mycel` an **empty mount point**. The kit stays in

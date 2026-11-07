@@ -50,6 +50,7 @@ import { SEMANTIC_EXTERNAL, vendorSemantic } from './vendor-semantic'
 import { stageHwp } from './hwp-bundle'
 import { assertNoPluginPayload, stagePluginCatalog } from './plugins/release-check'
 import { BUNDLED_FONTS, RELEASE_NOTICE_FILES, writeReleaseNotices, reportReleaseNotices } from './release-notices'
+import { flatFile } from './system/packages'
 
 const REPO = path.resolve(import.meta.dir, '..')
 export type BundleArch = 'arm64' | 'amd64' | 'universal'
@@ -295,6 +296,8 @@ export function linuxBundleFiles(o: { arch: LinuxArch; codexVersion: string; whi
     'server/src/main.js', 'server/src/admin.js', 'server/src/account.js', 'server/src/office-worker.js', 'server/src/deck-worker.js',
     ...LINUX_ROOT_NATIVE.map((n) => `root/${n}`),
     ...LINUX_ROOT_SCRIPTS.map(([, d]) => `root/${d}`),
+    // the list flattened, with its sha256: root reads it with awk alone (packages.sh pk__flat_file)
+    'root/packages.flat',
     ...o.systemd.map((u) => `root/systemd/${u}`),
     'engines.lock.json', codexCatalogName(o.codexVersion),
   ]
@@ -391,6 +394,7 @@ export async function buildLinuxBundle(o: {
     if (fs.existsSync(path.join(REPO, src))) fs.copyFileSync(path.join(REPO, src), path.join(root, dst))
     else missing.push(src)
   }
+  if (fs.existsSync(path.join(root, 'packages.json'))) fs.writeFileSync(path.join(root, 'packages.flat'), flatFile(fs.readFileSync(path.join(root, 'packages.json'), 'utf8')))
   const unitDir = path.join(REPO, 'scripts', 'linux', 'systemd')
   const units = fs.existsSync(unitDir) ? fs.readdirSync(unitDir).filter((f) => f.endsWith('.in')).sort() : []
   if (!units.length) missing.push('scripts/linux/systemd/*.in')

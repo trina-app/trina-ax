@@ -26,6 +26,7 @@ import { engineSockets, maxSocketPathBytes, probeSocket, tooLongSockets, underSa
 import { compareVersions, UpdateManager } from './update'
 import { rolloutTurn } from './rollout'
 import { lastPrune, PRUNE_FIRST_MS, pruneVersions, PRUNE_TEXT, type PruneResult } from './prune'
+import { SYSTEM_PACKAGES_TEXT, systemPackagesDiagnostic } from './system-packages'
 import { configurePlan, currentPlan, effectiveConcurrency, planDiskBytes, planFileProblem } from './limits'
 import { configureNotices, noticesFileProblem } from './managed'
 import { feature, hostKind, isHosted } from './deployment'
@@ -610,6 +611,9 @@ export class OpsService {
         add('versions_kept', 'update', t(PRUNE_TEXT.label), pr.errors.length ? 'warn' : 'ok', t(pr.errors.length ? PRUNE_TEXT.failed(list, pr.keptBytes, `${pr.errors[0]!.path}: ${pr.errors[0]!.error}`) : PRUNE_TEXT.ok(list, pr.keptBytes)))
       }
     }
+    // the one list of system packages (Linux, root/packages.synced against root/packages.json; system/system-packages.ts)
+    const sp = systemPackagesDiagnostic(this.layout.rootDir)
+    if (sp) add('system_packages', 'update', t(SYSTEM_PACKAGES_TEXT.label), sp.status, t(sp.text))
 
     return {
       version: this.ctx.version,

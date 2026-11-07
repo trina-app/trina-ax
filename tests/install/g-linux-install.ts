@@ -21,7 +21,7 @@ import path from 'node:path'
 import { TenantStatus } from '@mycel/shared/cloud-protocol'
 import { RELEASE_CHANNEL } from '../../shared/src/release-channel'
 import { buildLinuxBundle } from '../../scripts/build-bundle'
-import { packagesFor, readList } from '../../scripts/system/packages'
+import { flatFile, packagesFor, readList } from '../../scripts/system/packages'
 import { writeManifest } from '../../server/src/system/bundle'
 import { walkTree } from '../../server/src/system/manifest'
 import { writeAtomic, zstdCompress } from '../../server/src/system/streams'
@@ -127,6 +127,7 @@ async function main() {
     for (const [src, dst] of [['account.sh', 'mycel-account'], ['set-claude-token.sh', 'set-claude-token'], ['safe-fs.sh', 'safe-fs.sh'], ['apparmor-bwrap.in', 'apparmor-bwrap.in']])
       fs.copyFileSync(path.join(REPO, 'scripts', 'linux', src!), path.join(d1, 'root', dst!))
     for (const f of ['packages.json', 'packages.sh']) fs.copyFileSync(path.join(REPO, 'scripts', 'system', f), path.join(d1, 'root', f))
+    fs.writeFileSync(path.join(d1, 'root', 'packages.flat'), flatFile(fs.readFileSync(path.join(d1, 'root', 'packages.json'), 'utf8')))
     await writeManifest(d1, V(1))
   }
   await deriveKit(2, {})
@@ -215,6 +216,9 @@ async function main() {
     ij?.minimal === false && notInstalled.length === 0 && bv.code === 0 && bv.out.includes(list.artifacts['chrome-headless-shell']!.version)
     && new RegExp(`^MYCEL_HTML_PDF_BROWSER=${browser}$`, 'm').test(defaults()) && statOf('/opt/trina/chrome-headless-shell') === 'root:root 755',
     `${distro} missing ${notInstalled} ${bv.out.trim()} ${JSON.stringify(defaults())}`)
+  const synced = readJson(`${BASE}/root/packages.synced`)
+  check('root/packages.synced: the installer recorded the list it installed (ok)', synced?.result === 'ok' && synced?.list === new Bun.CryptoHasher('sha256').update(fs.readFileSync(`${BASE}/root/packages.json`)).digest('hex')
+    && fs.existsSync(`${BASE}/root/packages.flat`) && fs.existsSync(`${BASE}/root/packages.sh`), JSON.stringify(synced))
   const engineStat = statOf(`${BASE}/app/engines/claude/current/claude`)
   check('engines: app/engines/<name>/<sha12>/<name>, server-owned, engine group may run', engineStat === `${SRV}:${AGT} 750` && statOf(`${BASE}/app/engines/codex/current/model_catalog.json`) === `${SRV}:${AGT} 640`, engineStat)
   const cfg = readJson(`${BASE}/config/server.json`)

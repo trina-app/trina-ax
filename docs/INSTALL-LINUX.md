@@ -117,8 +117,17 @@ sudo ./install-linux.sh install --from . --engine claude --engine codex
     PDF로 바꾸는 헤드리스 브라우저. 이것들이 설치되지 않으면 경고만 하고 계속한다(`repair`가 다시 시도).
   - 브라우저: 목록이 고정한 Chrome for Testing `chrome-headless-shell`(버전과 SHA-256 고정)을
     `/opt/trina/chrome-headless-shell/<버전>/`에 받고 `current` 링크를 건다. root 소유이고 다른 계정은 쓸 수 없다.
-    `/etc/default/<id>`의 `MYCEL_HTML_PDF_BROWSER`가 이 브라우저를 가리킨다. 목록이 새 버전을 고정한 업데이트는 새 버전을 받아
-    확인하고 `current`를 옮긴 뒤 옛 버전을 지운다(`mycel-ctl update`가 키트의 `packages.sh sync`를 돌린다).
+    `/etc/default/<id>`의 `MYCEL_HTML_PDF_BROWSER`가 이 브라우저를 가리킨다. 새 버전은 받아서(최대 8분) 확인하고 한 번
+    실행해 본 뒤(`--version`) `current`를 옮긴다. 실행되지 않으면 옛 버전이 그대로 남는다. 바로 앞 버전은 다음 전환 때까지 남긴다
+    (인쇄가 아직 쓰고 있을 수 있다). 같은 기계의 다른 설치가 둔 더 새 브라우저는 그대로 둔다.
+  - 업데이트: 목록은 모든 릴리스의 root 파일(`root/packages.json`)이라 목록이 바뀐 릴리스는 root 업데이트다. `mycel-ctl update`가
+    root 파일과 앱을 넣은 뒤 이 기계를 목록대로 맞추고(`packages.sh sync`: 빠진 패키지, 그다음 브라우저) 결과를
+    `root/packages.synced`에 적는다. `sudo mycel-ctl status`와 관리자 › 시스템 › 진단("시스템 패키지")에 보인다. 그 기록이
+    `root/`의 목록과 다르면(예: 옛 `mycel-ctl`이 릴리스를 설치했을 때) 업데이트 타이머가 업데이트 시간에 맞춘다. *끝내지 못한*
+    맞춤(받기나 apt 실패, dpkg 잠금이 5분 넘게 잡힘)은 6시간 뒤 타이머가 다시 하고, *관리자가 할 일이 있는* 맞춤은 목록이 바뀌거나
+    `sudo ./install-linux.sh repair`를 돌릴 때까지 기다린다. 사람 없이 도는 맞춤은 이 설치 프로그램으로 `--skip-apt` 없이
+    설치한 서버에서만 apt를 돌린다. 목록 전에 설치한 서버에서는 빠진 것만 알리고, `repair`가 설치한다. apt는 dpkg 잠금을 기다리고,
+    먼저 빈 공간을 확인하고, 브라우저 라이브러리를 따로 한 번에 설치한다. 맞춤은 앱 업데이트를 붙잡지도 실패시키지도 않는다.
   - 패키지 버전: 배포판 릴리스(Debian 12·13, Ubuntu 24.04)를 고정하고, 패키지마다 최소 버전을 확인한다. 그 릴리스의 최신
     버전(보안 업데이트 포함)을 설치하고, 정확한 버전은 고정하지 않는다(미러가 옛 버전을 지우면 설치가 깨진다).
   - tesseract는 더 이상 설치하지 않는다(이미 있어도 쓰지 않음).

@@ -12695,22 +12695,52 @@ the infra engineer agreed on one shared list, a CI check that fails when the scr
   `<prefix>/browser/chrome-headless-shell/<version>`, the office account's, outside `app/` so an update downloads it only
   for a new version; the supervisor sets `MYCEL_HTML_PDF_BROWSER` when it is there. Both are folders nobody else can
   write (html-pdf.ts `trustedBrowser`). Its libraries are the browser group (from `ldd` on each system).
-- **Updates.** The list and its reader are root files of the bundle (`root/packages.json`, `root/packages.sh`), so a
-  changed list, a new browser version included, is a root change without a rule of its own (publish-server.ts
-  `rootManaged`, `rootSince`). `mycel-ctl update` runs `packages.sh sync` once the root files are in place (also when
-  they were right already): missing packages of the install's profile, then the browser at the pinned version (download,
-  sha256, switch `current`, remove the old folder) and the env line. A failure is a note, not a failed update: the
-  server works without them, and the next update or a repair tries again. The office updater runs the new zip's
-  `office-install.sh --update`, which does the same for the Mac after the server has stopped.
+- **Updates.** The list, its flat copy and its reader are root files of the bundle (`root/packages.json`,
+  `root/packages.flat`, `root/packages.sh`), so a changed list, a new browser version included, is a root change without
+  a rule of its own (publish-server.ts `rootManaged`, `rootSince`). `mycel-ctl update` runs `packages.sh sync` last, after
+  the root files and the app (a deferred step of `run`: apt or a download never holds up the app), and the sync writes
+  `root/packages.synced` (the list's sha256 and ok, incomplete or blocked). The flat copy lets root read the list with awk
+  alone: no bun, no jq.
+- **Catch-up after an older mycel-ctl (review, must-fix).** A server whose update is done by an older `mycel-ctl` gets the
+  root files of a release with the list, including the new `mycel-ctl`, but that older binary never syncs, and an app-only
+  release never calls `mycel-ctl` at all. So the new binary treats a `root/packages.synced` that is not of the list in
+  `root/` as root's work: `rootJob` and the scheduled gate count it, and `run` syncs from the files in place even when the
+  feed's release is installed (nothing is downloaded). The first update timer run of the new binary inside the update
+  window does it; on a hosted VM, which has no timer, the control plane's next `mycel-ctl update`. An incomplete sync is
+  tried again after 6 hours; a blocked one (an install from before the list or with `--skip-apt` may not run apt
+  unattended; a full disk) waits for the list to change or `install-linux.sh repair`. `mycel-ctl status` and Admin ›
+  System › Diagnostics ("System packages") show the state. Other ways were weighed and dropped: an `ExecStartPost=` in
+  the update unit (the running job keeps its old definition), the firewall timer (wrong layer), or a status call that
+  changes the system.
+- **Bounded, never in the way (review, must-fix).** The sync runs with a 20-minute deadline in its own process group
+  (`Setpgid`); at the deadline the group gets SIGTERM, which stops a download. apt and dpkg run in a session of their own
+  (`setsid -w`), so they are never signalled mid-transaction; they wait up to 5 minutes for dpkg's lock
+  (`DPkg::Lock::Timeout=300`) and run only after a free-space check (apt's own estimate plus 256 MB). Downloads are bounded
+  in packages.sh (20 s to connect, give up below 10 KB/s for 60 s, all tries within 8 minutes, and a watchdog that stops
+  curl whatever it does). The proxy variables of the run are passed through. The browser's libraries go in a
+  transaction of their own, before the other groups.
+- **The browser switch (review, must-fix).** A new version is downloaded into `.new.*`, checked, and started once
+  (`--version`) before it gets its version folder's name; `current` moves only to a version that starts (one rename of a
+  temporary link), and a version that does not start is kept as `.untested-<version>` and tested again next time without
+  a new download. The version `current` pointed to stays until the next switch, as a print may still use it. A version
+  newer than the list's (another install's newer kit, a repair from an older one) stays current and is never deleted.
+  When nothing starts, `current` and the env line go. One `flock` serializes every install on the machine; the folder
+  and its parent are 755 whatever the umask; `/etc/default/<id>` is written next to itself and renamed.
+- **Office updates (review, must-fix).** `office-install.sh` downloads and tests the browser while the server still runs
+  (at most 4 minutes during an automatic update, which stops the installer after 10 minutes and rolls back), and only
+  switches `current` after the server has stopped. A failure only warns: it can neither fail nor roll back an update.
 - **The CI check** (`tests/unit/system-packages.test.ts`, in `bun run test:unit`): the list is well formed; every
   artifact has a version, url, sha256 and size for every platform it must have; bun and jq read the same lines as the
-  TS reader; packages.sh picks the same packages for every system and profile; no install or image script names
-  three packages on a line, apt-installs a name, or carries a hash, a version or a download url of its own; the image
-  installs the installer's default groups plus its own; install-linux.sh accepts exactly the list's systems; srt has
-  one version in the list, the server and the lockfile; the list is a root file and in the office zip. The Go side:
-  `native/cmd/mycel-ctl/syncsystem_test.go`.
+  TS reader (jq is required in CI); packages.sh picks the same packages for every system and profile; every shell script
+  under `scripts/` and every Containerfile/Dockerfile is scanned (comments out, continuation lines joined, apt options
+  before `install` too), and none names three packages on a line or apt-installs a name, except an allowlist of build and
+  test files with a reason each; the installers carry no hash, version or download url of their own; the image installs
+  the installer's default groups plus its own; install-linux.sh accepts exactly the list's systems; srt has one version
+  in the list, the server and the lockfile; the list is a root file and in the office zip; the browser switch, the
+  stalled download and the env file behave. The Go side: `native/cmd/mycel-ctl/syncsystem_test.go`.
 - Left: Ubuntu 24.04 is in the list for the installer but not for `install-srt.sh` (AppArmor, spike S6). The private
-  AMI build reads `scripts/image/*` and the staged `system/` folder.
+  AMI build reads `scripts/image/*` and the staged `system/` folder. The office Mac shows no sync state in Diagnostics
+  (it has no root/; the browser is there or not).
 
 ## 알림함의 대화 알림 — who, where and why in the Inbox (feat/inbox-room-notices, 2026-11-07, product owner)
 넣을 곳: trina-ax `server/src/rooms/inbox.ts` (with `notifications/service.ts`, `notifications/text.ts`, migration 262),

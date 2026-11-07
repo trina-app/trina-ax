@@ -961,7 +961,7 @@ func TestRootJobForOldApps(t *testing.T) {
 		if got := rootNeeded(fd, c.root); got != c.need {
 			t.Errorf("rootNeeded %+v = %v", c, got)
 		}
-		if got := rootJob(fd, c.root, c.app); got != c.job {
+		if got := rootJob(fd, c.root, c.app, false); got != c.job {
 			t.Errorf("rootJob %+v = %v", c, got)
 		}
 	}

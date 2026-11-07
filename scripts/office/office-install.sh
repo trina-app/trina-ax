@@ -218,6 +218,31 @@ if [ "$MCP_FOUND" = 1 ]; then
   say "copy of the MCP settings in ~/.claude.json: $MCP_COPY"
 fi
 
+# ---- the pinned headless browser for HTML to PDF (the one list: the zip's app/scripts/system/packages.json), part 1,
+# while the server still runs: download it, check its sha256 and test it in <prefix>/browser/chrome-headless-shell/<version>
+# (current is not touched). Bounded: during an automatic update (the updater stops this installer after 10 minutes and
+# rolls back) at most 4 minutes, else 8. A failure only warns: nothing here can fail the install or the update. Owned
+# by this account, nobody else can write it (server/src/files/html-pdf.ts trustedBrowser); the supervisor names it in
+# MYCEL_HTML_PDF_BROWSER (server/src/office/cli.ts officeBrowserEnv). ----
+BROWSER_DIR="$PREFIX/browser/chrome-headless-shell" BROWSER_PLAT="" BROWSER_LIB=0
+browser_lib() {
+  local sys="$SRC/app/scripts/system"
+  [ -f "$sys/packages.sh" ] && [ -f "$sys/packages.json" ] || { say "this bundle has no list of packages: no browser for HTML to PDF"; return 1; }
+  # shellcheck source=../system/packages.sh
+  . "$sys/packages.sh"
+  # shellcheck disable=SC2034 # packages.sh reads it
+  PK_BUN="$BUN_SRC"
+  pk_load "$sys/packages.json" || return 1
+  BROWSER_PLAT=$(PK_UNAME_M="${TEAMAX_TEST_ARCH:-$(uname -m)}" pk_platform) || return 1
+}
+if browser_lib; then
+  BROWSER_LIB=1
+  # shellcheck disable=SC2034 # packages.sh reads it
+  if [ "$UPDATE" = 1 ]; then PK_FETCH_BUDGET=240; else PK_FETCH_BUDGET=480; fi
+  pk_browser_prepare "$BROWSER_DIR" "$BROWSER_PLAT" \
+    || say "warning: the pinned headless browser for HTML to PDF was not downloaded (see above); an older one that runs stays"
+fi
+
 # ---- stop a running installation before its program is replaced (the server and its cloudflared) ----
 launchctl bootout "gui/$(id -u)/$LABEL.tunnel" >/dev/null 2>&1 || true
 if launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1; then sleep 1; fi
@@ -242,24 +267,15 @@ ln -sfn app/teamax "$PREFIX/teamax"
 for d in data team tls config; do mkdir -p "$PREFIX/$d"; chmod 700 "$PREFIX/$d"; done
 mkdir -p "$PREFIX/logs"
 
-# ---- the pinned headless browser for HTML to PDF (the one list: app/scripts/system/packages.json) ----
-# <prefix>/browser/chrome-headless-shell/<version>, current -> it; an older version goes (the server is stopped here).
-# This account's, and nobody else can write it (server/src/files/html-pdf.ts trustedBrowser); the supervisor names it
-# in MYCEL_HTML_PDF_BROWSER (server/src/office/cli.ts officeBrowserEnv).
-install_browser() {
-  local sys="$PREFIX/app/scripts/system" plat
-  [ -f "$sys/packages.sh" ] && [ -f "$sys/packages.json" ] || { say "this bundle has no list of packages: no browser for HTML to PDF"; return 0; }
-  # shellcheck source=../system/packages.sh
-  . "$sys/packages.sh"
-  # shellcheck disable=SC2034 # packages.sh reads it
-  PK_BUN="$PREFIX/app/bin/bun"
-  pk_load "$sys/packages.json" || return 1
-  plat=$(PK_UNAME_M="${TEAMAX_TEST_ARCH:-$(uname -m)}" pk_platform) || return 1
-  pk_browser_install "$PREFIX/browser/chrome-headless-shell" "$plat" >/dev/null || return 1
-  pk_browser_check "$PREFIX/browser/chrome-headless-shell/current/chrome-headless-shell" || { say "chrome-headless-shell does not start on this Mac"; return 1; }
-  say "browser: chrome-headless-shell $(pk_art chrome-headless-shell "$plat" version) for HTML to PDF ($PREFIX/browser)"
-}
-install_browser || say "warning: the headless browser for HTML to PDF was not installed (see above); the team server runs without HTML to PDF, and the next update tries again"
+# ---- the browser, part 2 (the server is stopped): current -> the version part 1 prepared, when it runs; the version
+# before stays until the next switch. No network here. ----
+if [ "$BROWSER_LIB" = 1 ]; then
+  if pk_browser_switch "$BROWSER_DIR" "$BROWSER_PLAT" >/dev/null; then
+    say "browser: chrome-headless-shell $(pk__current_version "$BROWSER_DIR") for HTML to PDF ($PREFIX/browser)"
+  else
+    say "warning: no headless browser runs on this Mac, so the team server runs without HTML to PDF; the next update tries again"
+  fi
+fi
 
 # ---- agent ----
 INSTALL_ARGS=(install --home "$PREFIX")

@@ -3,12 +3,17 @@ package main
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"mycel/native/internal/bundle"
 )
@@ -32,7 +37,7 @@ func listBundle(t *testing.T, launcher, script string) (dir, arch, key string) {
 	dir = signedBundle(t, "0.2.0", priv, launcher)
 	if script != "" {
 		must(t, os.WriteFile(filepath.Join(dir, "root", packagesSh), []byte(script), 0o644))
-		must(t, os.WriteFile(filepath.Join(dir, "root/packages.json"), []byte(`{"format":1}`), 0o644))
+		must(t, os.WriteFile(filepath.Join(dir, "root", packagesList), []byte(`{"format":1}`), 0o644))
 		must(t, bundle.WriteManifest(dir, "0.2.0", priv))
 	}
 	arch = filepath.Join(t.TempDir(), "0.2.0-linux-"+runtime.GOARCH+".tar.zst")
@@ -40,10 +45,25 @@ func listBundle(t *testing.T, launcher, script string) (dir, arch, key string) {
 	return dir, arch, base64.StdEncoding.EncodeToString(pub)
 }
 
-// The list of system packages travels with the root files (root/packages.json and its reader root/packages.sh, from
-// scripts/system): once a release's root files are in place, update runs `packages.sh sync` with the install's id and
-// base and the verified bundle's bun, and its lines become notes. Also when the root files were right already (a server
-// whose browser download failed last time gets it now). A bundle without the list runs nothing.
+// recorder is a packages.sh that appends "<its arguments>|<app/current then>" to a file of the test.
+func recorder(t *testing.T) (script, marker string) {
+	marker = filepath.Join(t.TempDir(), "sync.calls")
+	return "printf '%s|%s\\n' \"$*\" \"$(readlink \"$5/app/current\")\" >> '" + marker + "'\n" +
+		"echo 'packages: chrome-headless-shell 157.0.8103.38 (/opt/trina/chrome-headless-shell/current/chrome-headless-shell)'\n", marker
+}
+
+func calls(marker string) []string {
+	b, _ := os.ReadFile(marker)
+	if s := strings.TrimSpace(string(b)); s != "" {
+		return strings.Split(s, "\n")
+	}
+	return nil
+}
+
+// The list travels with the root files (root/packages.json and root/packages.sh): update runs `packages.sh sync` with
+// the install's id and base and the verified bundle's bun once the root files AND the app are in (app/current names the
+// new version by then), and its lines become notes. Also when the root files were right already. A bundle without the
+// list runs nothing.
 func TestUpdateSyncsSystemPackages(t *testing.T) {
 	for _, c := range []struct {
 		name     string
@@ -57,11 +77,9 @@ func TestUpdateSyncsSystemPackages(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			tb := syncTestBase(t)
-			marker := filepath.Join(t.TempDir(), "sync.calls")
-			script := ""
-			if c.list {
-				script = "printf '%s\\n' \"$*\" >> '" + marker + "'\n" +
-					"echo 'packages: chrome-headless-shell 157.0.8103.38 (/opt/trina/chrome-headless-shell/current/chrome-headless-shell)'\n"
+			script, marker := recorder(t)
+			if !c.list {
+				script = ""
 			}
 			launcher := "new launcher"
 			if c.sameRoot {
@@ -69,8 +87,7 @@ func TestUpdateSyncsSystemPackages(t *testing.T) {
 			}
 			dir, arch, k := listBundle(t, launcher, script)
 			if c.sameRoot {
-				// every root file of the bundle is installed already: none changes, only root/VERSION moves up
-				for _, f := range []string{"mycel-ctl", packagesSh, "packages.json"} {
+				for _, f := range []string{"mycel-ctl", packagesSh, packagesList} {
 					b, err := os.ReadFile(filepath.Join(dir, "root", f))
 					must(t, err)
 					must(t, os.WriteFile(filepath.Join(tb.base, "root", f), b, 0o644))
@@ -80,23 +97,19 @@ func TestUpdateSyncsSystemPackages(t *testing.T) {
 			if code != 0 || r.Result != "ok" || r.RootUpdated == c.sameRoot || !r.AppUpdated {
 				t.Fatalf("%d %+v", code, r)
 			}
-			b, _ := os.ReadFile(marker)
-			var calls []string
-			if s := strings.TrimSpace(string(b)); s != "" {
-				calls = strings.Split(s, "\n")
-			}
-			notes := strings.Join(r.Notes, "\n")
-			if len(calls) != c.calls || strings.Contains(notes, "chrome-headless-shell") != (c.calls > 0) {
-				t.Fatalf("packages.sh calls %q, notes %v", calls, r.Notes)
+			got, notes := calls(marker), strings.Join(r.Notes, "\n")
+			if len(got) != c.calls || strings.Contains(notes, "chrome-headless-shell") != (c.calls > 0) {
+				t.Fatalf("packages.sh calls %q, notes %v", got, r.Notes)
 			}
 			if c.calls == 0 {
 				return
 			}
-			if !strings.HasPrefix(calls[0], "sync --id mycel --base "+tb.base+" --bun ") || !strings.HasSuffix(calls[0], "/bundle/bin/bun") {
-				t.Fatalf("packages.sh %q", calls[0])
+			args, current, _ := strings.Cut(got[0], "|")
+			if !strings.HasPrefix(args, "sync --id mycel --base "+tb.base+" --bun ") || !strings.HasSuffix(args, "/bundle/bin/bun") {
+				t.Fatalf("packages.sh %q", args)
 			}
-			if tb.file("root/"+packagesSh) != strings.TrimSpace(script) {
-				t.Fatal("root/packages.sh is not the bundle's")
+			if current != "versions/0.2.0" {
+				t.Fatalf("the sync ran before the app was switched (app/current %q)", current)
 			}
 		})
 	}
@@ -111,5 +124,150 @@ func TestUpdateSystemPackagesFailureIsANote(t *testing.T) {
 	if code != 0 || r.Result != "ok" || !r.RootUpdated || !r.AppUpdated ||
 		!strings.Contains(notes, "downloading x failed") || !strings.Contains(notes, "packages.sh sync: exit status 3") {
 		t.Fatalf("%d %+v", code, r)
+	}
+}
+
+// A sync that hangs is stopped at its deadline with its whole process group (a download it started too), and the update
+// goes on: a note, never a failure, never the app held up.
+func TestUpdateSyncDeadlineStopsTheGroup(t *testing.T) {
+	tb := syncTestBase(t)
+	prevT, prevW := syncTimeout, syncWaitDelay
+	syncTimeout, syncWaitDelay = 1500*time.Millisecond, 2*time.Second
+	t.Cleanup(func() { syncTimeout, syncWaitDelay = prevT, prevW })
+	pidFile := filepath.Join(t.TempDir(), "child.pid")
+	_, arch, k := listBundle(t, "new launcher", "sleep 60 &\necho $! > '"+pidFile+"'\nwait\n")
+	start := time.Now()
+	code, r := tb.update(t, "--bundle", arch, "--pubkey", k)
+	took := time.Since(start)
+	if code != 0 || r.Result != "ok" || !r.AppUpdated || !strings.Contains(strings.Join(r.Notes, "\n"), "did not finish in 1.5s and was stopped") || took > 15*time.Second {
+		t.Fatalf("%d %+v after %v", code, r, took)
+	}
+	b, err := os.ReadFile(pidFile)
+	must(t, err)
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+	time.Sleep(200 * time.Millisecond)
+	if pid > 0 && syscall.Kill(pid, 0) == nil {
+		syscall.Kill(pid, syscall.SIGKILL)
+		t.Fatalf("the sync's child %d still runs", pid)
+	}
+}
+
+// apt and curl get this run's proxy settings, and nothing else of its environment.
+func TestUpdateSyncGetsTheProxy(t *testing.T) {
+	tb := syncTestBase(t)
+	t.Setenv("https_proxy", "http://proxy.example:3128")
+	t.Setenv("NO_PROXY", "127.0.0.1")
+	t.Setenv("MYCEL_SOMETHING_ELSE", "x")
+	out := filepath.Join(t.TempDir(), "env")
+	_, arch, k := listBundle(t, "new launcher", "env | sort > '"+out+"'\n")
+	if code, r := tb.update(t, "--bundle", arch, "--pubkey", k); code != 0 || r.Result != "ok" {
+		t.Fatalf("%d %+v", code, r)
+	}
+	b, _ := os.ReadFile(out)
+	env := string(b)
+	if !strings.Contains(env, "https_proxy=http://proxy.example:3128\n") || !strings.Contains(env, "NO_PROXY=127.0.0.1\n") || strings.Contains(env, "MYCEL_SOMETHING_ELSE") || !strings.Contains(env, "PATH=/usr/sbin:/usr/bin:/sbin:/bin\n") {
+		t.Fatalf("environment of packages.sh:\n%s", env)
+	}
+}
+
+// listRoot puts the list and a recording packages.sh in root/ (what an older mycel-ctl leaves: it copied the root files
+// of a release with the list and never synced). synced: the content of root/packages.synced ("" = none).
+func listRoot(t *testing.T, tb *testBase, synced string) (marker, sum string) {
+	script, marker := recorder(t)
+	must(t, os.WriteFile(filepath.Join(tb.base, "root", packagesSh), []byte(script), 0o644))
+	must(t, os.WriteFile(filepath.Join(tb.base, "root", packagesList), []byte(`{"format":1,"x":1}`), 0o644))
+	h := sha256.Sum256([]byte(`{"format":1,"x":1}`))
+	sum = hex.EncodeToString(h[:])
+	p := filepath.Join(tb.base, "root", packagesSynced)
+	os.Remove(p)
+	if synced != "" {
+		must(t, os.WriteFile(p, []byte(strings.ReplaceAll(synced, "SUM", sum)), 0o644))
+	}
+	return marker, sum
+}
+
+// The catch-up after an older mycel-ctl did the swap: the release is installed, so nothing is downloaded, but the list in
+// root/ was never synced. The timer's run (--only-if-needs-root) and an administrator's plain update sync it, from the
+// list's flat copy (no bundle, no --bun). A matching record, or an incomplete one younger than syncRetry, needs nothing.
+func TestPendingSyncWithNothingToInstall(t *testing.T) {
+	f := newFeedServer(t)
+	f.channel("0.2.17", true)
+	tb, switched := feedBase(t, f, "0.2.17", "0.2.17")
+	recent := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
+	old := time.Now().UTC().Add(-7 * time.Hour).Format(time.RFC3339)
+	for _, c := range []struct {
+		name, synced string
+		syncs        bool
+	}{
+		{"never synced", "", true},
+		{"another list synced", `{"format":1,"list":"abc","result":"ok","at":"2026-11-01T00:00:00Z"}`, true},
+		{"this list synced", `{"format":1,"list":"SUM","result":"ok","at":"2026-11-01T00:00:00Z"}`, false},
+		{"blocked: an administrator's step", `{"format":1,"list":"SUM","result":"blocked","at":"2026-11-01T00:00:00Z"}`, false},
+		{"incomplete an hour ago", `{"format":1,"list":"SUM","result":"incomplete","at":"` + recent + `"}`, false},
+		{"incomplete 7 hours ago", `{"format":1,"list":"SUM","result":"incomplete","at":"` + old + `"}`, true},
+	} {
+		for _, args := range [][]string{{"--only-if-needs-root"}, {}} {
+			marker, _ := listRoot(t, tb, c.synced)
+			code, r := tb.update(t, append(args, "--pubkey", f.key)...)
+			got := calls(marker)
+			if code != 0 || r.Result != "ok" || !r.Skipped || r.RootUpdated || r.AppUpdated || *switched != "" || f.downloaded() != 0 || (len(got) == 1) != c.syncs {
+				t.Fatalf("%s %v: %d %+v calls %q downloads %d", c.name, args, code, r, got, f.downloaded())
+			}
+			if c.syncs && (!strings.HasPrefix(got[0], "sync --id mycel --base "+tb.base+"|") || !strings.Contains(strings.Join(r.Notes, "\n"), "packages: chrome-headless-shell")) {
+				t.Fatalf("%s %v: %q %v", c.name, args, got, r.Notes)
+			}
+		}
+	}
+}
+
+// The update timer's scheduled run: inside the window, a pending sync is root's work even when the release needs nothing
+// (the gate says so in a note); outside the window it waits like any other root job.
+func TestScheduledRunSyncsAPendingList(t *testing.T) {
+	f := newFeedServer(t)
+	f.channel("0.2.18", true)
+	tb := schedBase(t, f)
+	marker, _ := listRoot(t, tb, "")
+	r := &schedRun{clock: at("2026-11-01T18:10:00Z"), window: "03:00-05:00", zone: "Asia/Seoul"}
+	scheduledHooks(t, tb, r)
+	code, res := tb.scheduled(t, f)
+	if code != 0 || res.Result != "ok" || res.AppUpdated || res.RootUpdated || f.downloaded() != 0 || len(calls(marker)) != 1 ||
+		!strings.Contains(strings.Join(res.Notes, "\n"), "system packages: the list in root/") {
+		t.Fatalf("%d %+v calls %q", code, res, calls(marker))
+	}
+	f = newFeedServer(t)
+	f.channel("0.2.18", true)
+	tb = schedBase(t, f)
+	marker, _ = listRoot(t, tb, "")
+	r = &schedRun{clock: at("2026-11-01T08:10:00Z"), window: "03:00-05:00", zone: "Asia/Seoul"} // 17:10 in Seoul
+	scheduledHooks(t, tb, r)
+	if code, res := tb.scheduled(t, f); code != 0 || !res.Skipped || !strings.HasPrefix(res.Detail, "outside the update window") || len(calls(marker)) != 0 {
+		t.Fatalf("outside the window: %d %+v calls %q", code, res, calls(marker))
+	}
+}
+
+func TestRootJobCountsAPendingSync(t *testing.T) {
+	f := &ReleaseFeed{Version: "0.4.0", RootSince: "0.3.0"}
+	if rootJob(f, "0.4.0", "0.4.0", false) || !rootJob(f, "0.4.0", "0.4.0", true) {
+		t.Fatal("a pending sync is root's work")
+	}
+}
+
+// `mycel-ctl status` says where the sync stands.
+func TestSyncStatusLine(t *testing.T) {
+	tb := newTestBase(t, "0.1.0")
+	e := &env{base: tb.base, now: time.Now}
+	if line, _, _ := syncStatus(e, time.Now()); line != "" {
+		t.Fatalf("a server from before the list: %q", line)
+	}
+	for _, c := range []struct{ synced, want string }{
+		{"", "not synced to the list in root/ (the list in root/ ("},
+		{`{"format":1,"list":"SUM","result":"ok","at":"2026-11-07T03:12:00Z","browser":"157.0.8103.38"}`, "synced 2026-11-07T03:12:00Z, chrome-headless-shell 157.0.8103.38"},
+		{`{"format":1,"list":"SUM","result":"blocked","at":"2026-11-07T03:12:00Z","detail":"missing: unzip"}`, "needs an administrator (missing: unzip)"},
+		{`{"format":1,"list":"SUM","result":"incomplete","at":"2026-11-07T03:12:00Z","detail":"downloading failed"}`, "incomplete at 2026-11-07T03:12:00Z (downloading failed); tried again after 6h0m0s"},
+	} {
+		listRoot(t, tb, c.synced)
+		if line, _, _ := syncStatus(e, time.Now()); !strings.HasPrefix(line, c.want) {
+			t.Fatalf("%q: %q", c.synced, line)
+		}
 	}
 }

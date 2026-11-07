@@ -272,7 +272,8 @@ func (u *updater) gate(onlyRoot bool) (bool, error) {
 	u.res.To = feed.Version
 	root := rootVersion(u.e)
 	why := notNewer(feed.Version, u.res.From, root)
-	if why == "" && onlyRoot && !rootJob(feed, root, u.res.From) && !heldHere(u.e, feed.Version) {
+	pending, pendingWhy := syncPending(u.e, u.e.now())
+	if why == "" && onlyRoot && !rootJob(feed, root, u.res.From, pending) && !heldHere(u.e, feed.Version) {
 		why = "release " + feed.Version + " does not change root files"
 	}
 	if why == "" && feed.Version == u.res.From && root == feed.Version {
@@ -281,6 +282,13 @@ func (u *updater) gate(onlyRoot bool) (bool, error) {
 	if why != "" {
 		clearDeferred(u.e)
 		clearFailedUpTo(u.e, u.res.From) // a hold of a version the app has reached is over
+		if pending {
+			// nothing to install, but the list of the root files in place is not synced here: run() finds nothing to
+			// install and syncs (sync.go). gateVersion: a release the feed gets meanwhile waits for the next check.
+			u.gateVersion = feed.Version
+			u.res.Notes = append(u.res.Notes, "system packages: "+pendingWhy)
+			return true, nil
+		}
 		u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, why
 		return false, nil
 	}
@@ -405,6 +413,9 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 	u.work = work
 	defer os.RemoveAll(work)
 	dir := filepath.Join(work, "bundle")
+	// the system packages last, after the root files and the app (neither waits for apt or a download), and also when
+	// there was nothing to install but the list in place is not synced here (sync.go)
+	defer u.syncAfter(dir)
 	needsRoot := true
 	if bundleFile != "" {
 		u.attempted = true
@@ -417,7 +428,8 @@ func (u *updater) run(version, bundleFile string, onlyRoot bool) error {
 		if err != nil {
 			return err
 		}
-		u.res.To, needsRoot = feed.Version, rootJob(feed, rootVersion(u.e), u.res.From) || heldHere(u.e, feed.Version)
+		pending, _ := syncPending(u.e, u.e.now())
+		u.res.To, needsRoot = feed.Version, rootJob(feed, rootVersion(u.e), u.res.From, pending) || heldHere(u.e, feed.Version)
 		if u.scheduled && u.gateVersion != "" && feed.Version != u.gateVersion {
 			u.res.Result, u.res.Skipped, u.res.Detail = "ok", true, "the feed moved from "+u.gateVersion+" to "+feed.Version+" while this run waited for a quiet moment; the next check decides on "+feed.Version
 			return nil
@@ -494,8 +506,10 @@ func rootNeeded(f *ReleaseFeed, root string) bool {
 // that runs is 0.2.18 or older (a server whose app the bootstrap rolled back to one, 0.2.19 review S3) and reads only
 // needsRoot: it refuses a release with needsRoot, so root installs it, the root files already in place (and so when
 // no app/current is there to take it).
-func rootJob(f *ReleaseFeed, root, app string) bool {
-	return rootNeeded(f, root) || f.NeedsRoot && (app == "" || compareVersions(app, lastOldUpdater) <= 0)
+// syncPending: root/packages.synced does not match root/packages.json (an older mycel-ctl put the root files in and
+// did not sync), or its last sync is to be tried again (sync.go): root, not the app, has that to do.
+func rootJob(f *ReleaseFeed, root, app string, syncPending bool) bool {
+	return rootNeeded(f, root) || syncPending || f.NeedsRoot && (app == "" || compareVersions(app, lastOldUpdater) <= 0)
 }
 
 // heldHere: root's update of version failed here (root/update-failed.json, the hold over or not). The timer tries it
@@ -798,7 +812,6 @@ func (u *updater) updateRoot(dir, v string) error {
 		if err := u.syncUnits(systemd, false); err != nil {
 			return err
 		}
-		u.syncSystem(dir)
 		if stale {
 			if !u.waitForTurns() {
 				return u.deferUpdate(v, boxdUnit+" not restarted")
@@ -874,44 +887,7 @@ func (u *updater) updateRoot(dir, v string) error {
 	} else {
 		u.res.Notes = append(u.res.Notes, "no systemd: restart `mycel-ctl supervise` to run the new root files")
 	}
-	u.syncSystem(dir)
 	return nil
-}
-
-// The reader of the one list of system packages and programs (scripts/system/packages.sh with packages.json): root files
-// of every bundle since the list came. bashPath runs it (a variable for the tests).
-const packagesSh = "packages.sh"
-
-var bashPath = "/bin/bash"
-
-// syncSystem brings this machine to the list of the root files now in place: the packages of the install's profile that
-// are missing (apt; none with --minimal's groups only, nothing with --skip-apt) and the pinned headless browser
-// (/opt/trina/chrome-headless-shell/<version>, the old one removed, MYCEL_HTML_PDF_BROWSER in /etc/default/<id>). The
-// list is a root file, so a release that changes it is a root release (publish-server.ts rootSince) and comes here; a
-// run whose machine is right already changes nothing and downloads nothing. packages.sh reads the list with the
-// verified bundle's bun. Its lines become notes, and so does a failure: the server runs without them (HTML to PDF says
-// there is no browser), and the next update or `install-linux.sh repair` tries again.
-func (u *updater) syncSystem(dir string) {
-	sh := u.e.root(packagesSh)
-	if !fileExists(sh) || !fileExists(u.e.root("packages.json")) {
-		return
-	}
-	args := []string{sh, "sync", "--id", u.in.ID, "--base", u.e.base}
-	if bun := filepath.Join(dir, "bin", "bun"); fileExists(bun) {
-		args = append(args, "--bun", bun)
-	}
-	cmd := exec.Command(bashPath, args...)
-	cmd.Dir = "/"
-	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL=C", "HOME=/root"}
-	out, err := cmd.CombinedOutput()
-	for _, l := range strings.Split(string(out), "\n") {
-		if l = strings.TrimSpace(l); l != "" {
-			u.res.Notes = append(u.res.Notes, l)
-		}
-	}
-	if err != nil {
-		u.res.Notes = append(u.res.Notes, "system packages: "+packagesSh+" sync: "+err.Error())
-	}
 }
 
 // The dev environment's root helper: root/<boxdProgram> comes with every kit, and only a server with the dev env has
