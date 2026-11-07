@@ -117,9 +117,10 @@ export function listSkillManagers(ctx: AppContext): SkillManagersResponse {
 
 /**
  * Turn "팀 스킬 관리" on or off for one person or group on one skills folder (the Team skills page's dialog turns it on
- * for skills/ only; Folder permissions hands over a subfolder): their own write rule there is added or
- * removed (other rules of the folder stay). A new folder is created on disk. A folder row left without any rule by
- * this (a subfolder made only for this) is removed again, so it falls back to the rules of skills/.
+ * for skills/ only and off anywhere; a subfolder is handed over with Folder permissions' own rule editor, PUT
+ * /api/admin/folders/:id/rules, not here): their own write rule there is added or removed (other rules of the folder
+ * stay). A new folder is created on disk. A folder row left without any rule by this (a subfolder made only for this) is
+ * removed again, so it falls back to the rules of skills/.
  */
 export function setSkillManager(ctx: AppContext, actor: string, b: { subjectType: 'user' | 'group'; subjectId: string; path: string; enabled: boolean }, locale: Locale): SkillManagersResponse {
   const db = ctx.db

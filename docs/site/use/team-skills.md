@@ -100,9 +100,9 @@ Or, once Claude Code or Codex is connected to the team ([the MCP connector](../a
 
 **Skill managers** change team skills: the owner, admins, and the people or groups an admin adds. Underneath, that is simply write access to `skills/` or a folder in it.
 
-The owner and admins see who that is under the **Team skills** heading: "Who can edit: the owner and admins, Sales: 3 people, Alex [Change]". The list is what Folder permissions says for `skills/`, so it includes people who can edit through a group, an everyone rule or a rule on the whole team folder. **Change** opens one window:
+The owner and admins see who that is under the **Team skills** heading: "Who can edit: the owner and admins, Sales: 3 people, Alex [Change]". The list is what Folder permissions says for `skills/`, so it includes people who can edit through a group, an everyone rule or a rule on the whole team folder. People who can edit only a folder in it are counted at the end ("2 more by folder"). **Change** opens one window:
 
-- It lists the owner and admins (always) and every person and group with their own write rule on `skills/`, with the folder when the rule is on a subfolder such as `skills/finance/`. **Remove** takes that rule away after a confirm; it says so when a group's or everyone's rule still lets the person edit.
+- It lists the owner and admins (always) and every person and group with their own write rule on `skills/`, with the folder when the rule is on a subfolder such as `skills/finance/`. **Remove** takes that rule away after a confirm; it says so when another rule still lets the person edit (a group's, everyone's, or their own rule on `skills/`).
 - **Add a person or group** finds one by name. Read the warning, then **Turn on**: they can edit all of `skills/`.
 - To hand over one folder only, follow **To hand over one folder, use Folder permissions** and give write access on that folder there.
 
