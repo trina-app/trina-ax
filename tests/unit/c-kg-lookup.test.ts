@@ -4,9 +4,11 @@
 //   calls, `base`, a quarantined file, links (also when the index answers more than it was asked)
 // - strength: ordinary chat messages are none or weak, document questions strong
 // - two wordings merged, one entry per (path, place); long and short sizes; the deadline (also with one wording)
-// - the search worker: a blocking search inside it never holds the caller past the deadline nor the event loop
+// - the search worker: a blocking search inside it never holds the caller past the deadline nor the event loop; a
+//   request without one gets DEFAULT_DEADLINE_MS; after a crash it starts again with its connection open; after
+//   FAILS_MAX failures in a row it is left off for PAUSE_MS
 // - the tool's answer: passages first, its size in tokens, alt_query
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, setSystemTime, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { makeCApp, type CApp } from '../lib/c-app'
@@ -15,7 +17,7 @@ import type { DocHit, DocIndexOptions, DocIndexPort, DocLink, DocSearchOptions }
 import { knowledgeGraphOf, LOOKUP_LONG, LOOKUP_LONG_CHARS, LOOKUP_SHORT, LOOKUP_SHORT_CHARS, openDocumentIndex, setKnowledgeGraphForTests, type KnowledgeGraph, type LookupResult } from '../../server/src/knowledge-graph/service'
 import { exploreText, LONG_TOKENS, TOOL_TOKENS_MAX } from '../../server/src/knowledge-graph/tool'
 import { estimateTokens } from '../../server/src/knowledge-graph/tokens'
-import { DocSearchWorker } from '../../server/src/knowledge-graph/documents/search-worker'
+import { DEFAULT_DEADLINE_MS, DocSearchWorker, FAILS_MAX, PAUSE_MS } from '../../server/src/knowledge-graph/documents/search-worker'
 import os from 'node:os'
 import { toolRegistry } from '../../server/src/tools/registry'
 
@@ -441,15 +443,17 @@ describe('the search worker', () => {
   const SELF = path.join(import.meta.dir, '../../server/src/knowledge-graph/documents/search-worker.ts')
   let dir: string
   let script: string
+  let broken: string
   beforeAll(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kg-search-worker-'))
     script = path.join(dir, 'blocking-worker.ts')
+    broken = path.join(dir, 'broken-worker.ts')
     // the worker's own loop (serveDocSearch) with a search that holds its thread: "block<ms>" spins that long, "crash"
-    // ends the worker with an error it does not catch
+    // ends the worker with an error it does not catch; an index in a folder named "slow-open" takes 300 ms to open
     fs.writeFileSync(script, `import { parentPort } from 'node:worker_threads'
 import { serveDocSearch } from ${JSON.stringify(SELF)}
 const spin = (ms) => { const end = Date.now() + ms; while (Date.now() < end) {} }
-serveDocSearch(parentPort, (d) => ({
+serveDocSearch(parentPort, (d) => (spin(d.endsWith('slow-open') ? 300 : 0), {
   dir: d,
   search(q) {
     if (q === 'crash') setTimeout(() => { throw new Error('crash') })
@@ -460,6 +464,8 @@ serveDocSearch(parentPort, (d) => ({
   close() {},
 }))
 `)
+    // a worker that never starts
+    fs.writeFileSync(broken, `throw new Error('broken worker')\n`)
   })
   afterAll(() => { fs.rmSync(dir, { recursive: true, force: true }) })
 
@@ -491,21 +497,61 @@ serveDocSearch(parentPort, (d) => ({
     } finally { w.close() }
   })
 
-  test('a worker that dies starts again at the next search; close ends it and answers those waiting', async () => {
+  test('a request without a deadline gets nothing after DEFAULT_DEADLINE_MS, so a hung worker cannot hold the AI', async () => {
+    const w = new DocSearchWorker(dir, script)
+    try {
+      expect(await w.search('warm', { rootIds: ['shared'] })).toHaveLength(1)
+      const t0 = performance.now()
+      expect(await w.search(`block${DEFAULT_DEADLINE_MS + 1500}`, { rootIds: ['shared'] })).toEqual([])
+      const took = performance.now() - t0
+      expect(took).toBeGreaterThan(DEFAULT_DEADLINE_MS - 100)
+      expect(took).toBeLessThan(DEFAULT_DEADLINE_MS + 1000)
+    } finally { w.close() }
+  })
+
+  test('a worker that dies starts again at once with its connection open, so the next lookup is in time; close ends it', async () => {
     const errors: string[] = []
-    const w = new DocSearchWorker(dir, script, (e) => errors.push(e))
+    // its index takes 300 ms to open: a lookup that had to wait for that would be late
+    const w = new DocSearchWorker(path.join(dir, 'slow-open'), script, (e) => errors.push(e))
     try {
       await w.search('crash', { rootIds: ['shared'] })
-      for (let i = 0; i < 50 && w.running; i++) await Bun.sleep(20)
-      expect(w.running).toBe(false)
-      expect(errors.length).toBeGreaterThan(0)
-      expect((await w.search('again', { rootIds: ['shared'] })).map((h) => h.relPath)).toEqual(['again.md'])
+      for (let i = 0; i < 100 && !errors.length; i++) await Bun.sleep(20)
+      expect(errors).toHaveLength(1)
+      expect(w.running).toBe(true)
+      await Bun.sleep(1000)
+      expect((await w.search('again', { rootIds: ['shared'], due: Date.now() + 250 })).map((h) => h.relPath)).toEqual(['again.md'])
+      expect(errors).toHaveLength(1)
       const waiting = w.search('block300', { rootIds: ['shared'] })
       w.close()
       expect(await waiting).toEqual([])
       expect(w.running).toBe(false)
       expect(await w.search('after-close', { rootIds: ['shared'] })).toEqual([])
     } finally { w.close() }
+  })
+
+  test('a worker that fails FAILS_MAX times in a row is left off for PAUSE_MS, with one line that says so', async () => {
+    const errors: string[] = []
+    const w = new DocSearchWorker(dir, broken, (e) => errors.push(e))
+    try {
+      w.warm()
+      for (let i = 0; i < 250 && w.usable; i++) await Bun.sleep(20)
+      expect(w.usable).toBe(false)
+      expect(errors).toHaveLength(FAILS_MAX)
+      expect(errors.at(-1)).toContain('main thread')
+      expect(w.running).toBe(false)
+      // meanwhile no worker starts and nothing more is logged (openDocumentIndex searches on its own thread)
+      expect(await w.search('x', { rootIds: ['shared'] })).toEqual([])
+      w.warm()
+      expect(w.running).toBe(false)
+      await Bun.sleep(100)
+      expect(errors).toHaveLength(FAILS_MAX)
+      // after the pause the next read tries it again; one more failure leaves it off again, with one line
+      setSystemTime(new Date(Date.now() + PAUSE_MS + 1000))
+      expect(w.usable).toBe(true)
+      expect(await w.search('y', { rootIds: ['shared'] })).toEqual([])
+      expect(w.usable).toBe(false)
+      expect(errors).toHaveLength(FAILS_MAX + 1)
+    } finally { setSystemTime(); w.close() }
   })
 
   test('the real index through the worker: a reader sees what the writer commits; a request past its deadline is not sent', async () => {

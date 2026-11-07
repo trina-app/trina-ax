@@ -4,9 +4,13 @@
 // its own connection (DocumentIndex.openReader: query_only, WAL), and the caller waits only until its deadline:
 // - requests and replies carry an id; a reply nobody waits for any more is dropped
 // - the caller's deadline (`due`, a Date.now() time) passes: the caller gets null at once; a request still queued in the
-//   worker when its deadline has passed is dropped there without running
-// - the worker starts when the index opens (warm: its first answer takes 0.1–0.5 s, more than a lookup's deadline),
-//   starts again at the next read after it died, and ends with the index (close)
+//   worker when its deadline has passed is dropped there without running. A request without one (the AI's tool,
+//   related documents) gets DEFAULT_DEADLINE_MS, so a worker that hangs cannot hold the AI's turn
+// - the worker starts when the index opens and again as soon as it died, and opens its connection at once both times
+//   (warm: its first answer takes 0.1–0.5 s, more than a lookup's deadline, and a request already late never opens it)
+// - after FAILS_MAX failures in a row it is left off for PAUSE_MS (usable: false) and the caller searches on its own
+//   thread meanwhile, bounded, instead of starting a worker that dies again; the next read after that starts it again;
+//   it ends with the index (close)
 // - the index's writes (update, remove, dropRoot) stay on the main thread's connection; WAL lets this one read the last
 //   committed state meanwhile
 //
@@ -18,6 +22,11 @@ import { isMainThread, parentPort, workerData } from 'node:worker_threads'
 import { DocumentIndex, type DocHit, type RelatedDoc, type SearchOptions } from './index'
 
 const MARK = 'mycel-doc-search'
+/** a request without its own deadline gets nothing after this long */
+export const DEFAULT_DEADLINE_MS = 5_000
+/** failures in a row (the worker died, or would not start) after which it is left off for PAUSE_MS */
+export const FAILS_MAX = 3
+export const PAUSE_MS = 5 * 60_000
 
 export type Req =
   | { id: number; op: 'open'; dir: string; due: number | null }
@@ -80,25 +89,30 @@ export class DocSearchWorker {
   private seq = 0
   private waiting = new Map<number, { done: (r: Reply | null) => void; timer?: ReturnType<typeof setTimeout> }>()
   private closed = false
+  private fails = 0
+  private pausedUntil = 0
 
   constructor(readonly dir: string, private script: string, private onError: (err: string) => void = () => {}) {}
 
   /** the pieces that answer `query` (DocumentIndex.search); [] when not ready by `due` */
   async search(query: string, o: SearchOptions & { due?: number }): Promise<DocHit[]> {
     const { due, ...rest } = o
-    const r = await this.ask({ op: 'search', query, o: rest }, due ?? null)
+    const r = await this.ask({ op: 'search', query, o: rest }, due)
     return Array.isArray(r) ? r as DocHit[] : []
   }
 
   /** the documents related to one (DocumentIndex.related), with the team members' names for "people" links */
   async related(rootId: string, relPath: string, o: { rootIds: readonly string[]; limit?: number }, people: string[]): Promise<RelatedDoc[]> {
-    const r = await this.ask({ op: 'related', rootId, relPath, o, people }, null)
+    const r = await this.ask({ op: 'related', rootId, relPath, o, people })
     return Array.isArray(r) ? r as RelatedDoc[] : []
   }
 
   /** Start the worker and open its connection now, so the first search does not wait for them (about 0.1–0.5 s: a
    * lookup before the model starts has 200 ms). */
-  warm() { void this.ask({ op: 'open' }, null).catch((e) => this.onError(String(e))) }
+  warm() { if (this.usable && !this.closed) try { this.worker() } catch {} }
+
+  /** false for PAUSE_MS after FAILS_MAX failures in a row: the caller searches on its own thread meanwhile */
+  get usable() { return Date.now() >= this.pausedUntil }
 
   /** the worker ends; anyone still waiting gets nothing */
   close() {
@@ -109,9 +123,10 @@ export class DocSearchWorker {
   /** tests: the worker runs now */
   get running() { return !!this.w }
 
-  private ask(body: Record<string, unknown>, due: number | null): Promise<unknown> {
-    if (this.closed) return Promise.resolve(null)
-    if (due !== null && Date.now() >= due) return Promise.resolve(null)
+  private ask(body: Record<string, unknown>, at?: number): Promise<unknown> {
+    if (this.closed || !this.usable) return Promise.resolve(null)
+    const due = at ?? Date.now() + DEFAULT_DEADLINE_MS
+    if (Date.now() >= due) return Promise.resolve(null)
     const id = ++this.seq
     return new Promise((resolve, reject) => {
       const entry: { done: (r: Reply | null) => void; timer?: ReturnType<typeof setTimeout> } = {
@@ -123,7 +138,7 @@ export class DocSearchWorker {
         },
       }
       // the deadline: what is ready now (nothing), not what comes later
-      if (due !== null) entry.timer = setTimeout(() => entry.done(null), Math.max(0, due - Date.now()))
+      entry.timer = setTimeout(() => entry.done(null), Math.max(0, due - Date.now()))
       this.waiting.set(id, entry)
       try { this.worker().postMessage({ id, dir: this.dir, due, ...body }) } catch (e) { entry.done({ id, error: String(e) }) }
     })
@@ -131,20 +146,41 @@ export class DocSearchWorker {
 
   private worker(): Worker {
     if (this.w) return this.w
-    const w = new Worker(this.script, { workerData: { kind: MARK, script: this.script } } as WorkerOptions)
-    w.addEventListener('message', (e: MessageEvent<Reply>) => this.waiting.get(e.data?.id)?.done(e.data))
-    // it died (an error it did not catch, or its thread ended): those waiting get nothing; the next read starts another
+    let w: Worker
+    try { w = new Worker(this.script, { workerData: { kind: MARK, script: this.script } } as WorkerOptions) } catch (e) {
+      this.failed(`document search worker did not start: ${String((e as Error)?.message ?? e).slice(0, 200)}`)
+      throw e
+    }
+    w.addEventListener('message', (e: MessageEvent<Reply>) => {
+      const entry = this.waiting.get(e.data?.id)
+      if (!entry) return
+      if ('value' in e.data) this.fails = 0
+      entry.done(e.data)
+    })
+    // it died (an error it did not catch, or its thread ended): those waiting get nothing, and another one starts and
+    // opens its connection now, so the next lookup finds it ready (not while left off after FAILS_MAX)
     const gone = (why: string) => {
       if (this.w !== w) return
-      this.onError(why)
+      this.failed(why)
       this.stop()
+      this.warm()
     }
     w.addEventListener('error', (e: ErrorEvent) => gone(`document search worker failed: ${String(e.message ?? e).slice(0, 200)}`))
     w.addEventListener('close', () => gone('document search worker ended'))
     // never keeps the process alive (Bun's Worker has unref; the DOM type does not say so)
     ;(w as Worker & { unref?: () => void }).unref?.()
     this.w = w
+    // its connection opens now, before any request (id 0: no one waits for the answer); a request already late when it
+    // arrives is dropped before the connection opens, so without this the lookups after a crash were lost one by one
+    w.postMessage({ id: 0, op: 'open', dir: this.dir, due: null } satisfies Req)
     return w
+  }
+
+  /** the worker died or did not start: one log line; after FAILS_MAX in a row, left off for PAUSE_MS (the line says so) */
+  private failed(why: string) {
+    if (++this.fails < FAILS_MAX) return this.onError(why)
+    this.pausedUntil = Date.now() + PAUSE_MS
+    this.onError(`${why}; ${this.fails} failures in a row: searches run on the main thread for the next ${PAUSE_MS / 60_000} minutes`)
   }
 
   private stop() {

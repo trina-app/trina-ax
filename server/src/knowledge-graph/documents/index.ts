@@ -62,9 +62,6 @@ export interface SearchOptions {
   passage?: number
   /** only files under this folder of the root (a path relative to it), when the folders asked are one */
   prefix?: string
-  /** also look for a word of one or two characters inside longer words by reading the text (a full scan, about 200 ms
-   * on a large index): for the AI's tool, never for the lookup before the model starts or the Files search */
-  scan?: boolean
 }
 export type RelatedKind = 'folder' | 'mention' | 'link' | 'terms' | 'people' | 'code'
 export interface RelatedReason { kind: RelatedKind; detail: string }
@@ -83,8 +80,6 @@ const PERMANENT = new Set(['too_big', 'unreadable', 'unsupported', 'empty'])
  * ranking every match of a common word by bm25 took 130–250 ms on a 36,000-piece index, the first few hundred under 15) */
 const PER_WORD = 300
 const ALL_WORDS = 300
-/** pieces read by a full scan for a word of one or two characters inside a longer one (only when asked: `scan`) */
-const SCAN_MAX = 300
 /** the particles and endings a short Korean word is looked up with as whole words ("환불" → "환불은", "환불을"): a
  * prefix query ("환불"*) gathers every word that starts so before it can stop, which for a common word took 20–250 ms */
 const KO_FORMS = ['은', '는', '이', '가', '을', '를', '의', '에', '로', '와', '과', '도', '만', '에서', '으로', '에게', '까지', '부터', '이나', '이다',
@@ -404,8 +399,9 @@ export class DocumentIndex {
    * Bounded: the pieces looked at are the first PER_WORD the full-text index lists for each word and the first ALL_WORDS
    * holding every word, unranked, so a common word costs about what a rare one does (one that is in thousands of pieces
    * gives an arbitrary few hundred of them, which no single common word answers well anyway). A word of three characters
-   * or more is found inside longer words (trigram); a shorter one at the start of a word ("환불" in "환불은"), and inside
-   * a longer word only with `scan`.
+   * or more is found inside longer words (trigram); a shorter one only at the start of a word ("환불" in "환불은"), never
+   * in the middle of one: that took a full scan of the text, which held the one search worker for 0.3–1.1 s (grep finds
+   * exact text).
    */
   search(query: string, o: SearchOptions): DocHit[] {
     if (this.closed || !o.rootIds.length) return []
@@ -430,9 +426,6 @@ export class DocumentIndex {
       // shorter: as a whole word (with Korean particles); words that start with it ("회의록" for "회의") only when those
       // were few, so the prefix query stays small
       if (add(this.firstMatches('fts_uni', wordForms(t), scope, PER_WORD, within)) < PER_WORD / 3) add(this.firstMatches('fts_uni', phrase(t) + '*', scope, PER_WORD, within))
-    }
-    if (o.scan && short.length && cand.size < limit * 3) {
-      for (const t of short.slice(0, 3)) add(this.db.query(`SELECT c.id AS id FROM chunks c JOIN docs d ON d.id = c.doc_id WHERE d.failed IS NULL AND ${IN_SCOPE}${within.sql} AND c.text LIKE ? ESCAPE '\\' LIMIT ?`).all(scope, ...within.args, '%' + likeEscape(t) + '%', SCAN_MAX) as { id: number }[])
     }
     if (!cand.size) return []
     const rows = this.db.query('SELECT c.id, c.loc, c.text, d.root_id, d.rel FROM chunks c JOIN docs d ON d.id = c.doc_id WHERE c.id IN (SELECT value FROM json_each(?))')

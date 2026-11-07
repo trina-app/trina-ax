@@ -1561,7 +1561,7 @@ export class TurnExec {
    * is recorded as what it showed (review of wave 1):
    * - strong: file text went to the model, so the files join the chat's read scope and the answer's sources and mark
    *   outside content, as after a knowledge_explore call (knowledge-graph/tool.ts) and a read (noteTaint)
-   * - weak: names and places only, recorded as the names a list or glob showed (TurnFiles.namePaths, the folder of each
+   * - weak: file paths only, recorded as the names a list or glob showed (TurnFiles.namePaths, the folder of each
    *   file): not read, not a source, no outside mark. A weak match is common (one ordinary word), and recording it as
    *   read widened the read scope, so a save to a wider folder asked about files the model was told to ignore
    */

@@ -36,8 +36,8 @@ export const NOTHING_FOUND = 'Nothing in the indexed documents or code matches, 
 /** the whole answer's size in estimated tokens */
 export const TOOL_TOKENS_MAX = 6_000
 /** one passage to answer from, and one short match, in estimated tokens: an English passage of LOOKUP_LONG_CHARS is
- * about 400 and stays whole; a Korean one is cut to about 1,100 characters, so three of them and the short matches
- * still leave room for the rest */
+ * about 400 and stays whole; a Korean one is cut to about 1,000 characters with its spaces, so three of them and the
+ * short matches still leave room for the rest */
 export const LONG_TOKENS = 900
 export const SHORT_TOKENS = 150
 

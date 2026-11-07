@@ -17,10 +17,8 @@ export interface DocSearchOptions {
   /** only files under this folder of the root (relative to it); only given when rootIds is that one root. A narrowing
    * for speed: the caller still filters every hit by its own path. */
   prefix?: string
-  /** also find a word of one or two characters inside longer words by reading the text (slow on a large index): the
-   * AI's tool only */
-  scan?: boolean
-  /** a Date.now() time: an answer not ready by then is not waited for ([] instead), and one not started is not run */
+  /** a Date.now() time: an answer not ready by then is not waited for ([] instead), and one not started is not run
+   * (none: the search worker's DEFAULT_DEADLINE_MS) */
   due?: number
 }
 /** why two documents are linked: kind is folder · mention · link · terms · people · code; detail is made only from the

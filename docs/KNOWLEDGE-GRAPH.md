@@ -179,8 +179,9 @@ hold for document passages, related documents and code:
 
 `knowledge_explore { query, alt_query?, path?, limit? }`: one search over the team's documents and code. `alt_query`
 is the same question in other words or another language (an English wording for a Korean question); both are
-searched. The answer is at most about 6,000 tokens (counted with `knowledge-graph/tokens.ts`, so Korean text gets fewer
-characters than English), with a note when something is left out:
+searched. The answer is at most about 6,000 tokens (estimated with `knowledge-graph/tokens.ts`: about 4 English
+characters per token and 1 token per Korean or other non-ASCII character, so Korean text gets fewer characters than
+English), with a note when something is left out:
 
 - **Documents:** up to 3 passages (up to 1,500 characters and about 900 tokens each) to answer from, with the file, the page, sheet, slide or
   section, and a link. The AI answers from them when they are enough and reads a file only for more.
@@ -199,10 +200,16 @@ template's own folders.
 - **Off the main thread.** The searches run in one long-lived worker (`documents/search-worker.ts`, built as
   `doc-search-worker.js` next to the server's `main.js` in the bundles) with its own read-only connection to the index,
   which the writer keeps in WAL mode. The deadline is real: a search not back in time is dropped and the caller gets
-  nothing, and a queued search whose time has passed never runs. The worker starts with the index and restarts if it
-  dies. Without it (a bundle missing the file), searches run on the main thread, bounded, with a warning in the log.
+  nothing, and a queued search whose time has passed never runs. A search without its own deadline (`knowledge_explore`,
+  related documents) gets 5 seconds, so a hung worker cannot hold the AI's turn. The worker starts with the index and
+  again as soon as it dies, and opens its connection at once both times, so the next lookup does not wait for it. After
+  3 failures in a row, searches run on the main thread for 5 minutes, bounded, with one line in the log. Without the
+  worker (a bundle missing the file, which the Linux and office bundle checks refuse), searches run on the main
+  thread too, with a warning in the log.
 - **Bounded.** Each word adds only the first few hundred matching pieces. Short Korean words match as whole words with
-  their particles. The full scan for a two-letter word runs only for `knowledge_explore`, inside the worker.
+  their particles, or at the start of a longer word. A word of one or two characters is never found in the middle of a
+  longer word: that took a full scan of the text, which held the one worker for 0.3–1.1 s while lookups queued behind
+  it. grep finds exact text.
 - **One folder listing per batch.** The per-file permission checks of one answer share a folder listing.
 - Measured on a made-up index of 3,000 documents (36,000 pieces): about 3 ms of main-thread time per lookup (p95 4–6 ms;
   before: 260–720 ms), and about 10 ms for the lookup (p95 16–27 ms).
@@ -227,8 +234,10 @@ nothing is added.
 - **Strong:** a `<document_matches>` block in front of the message, with the passages and short labels, at most about
   2,500 tokens (a long passage is cut to fit, so Korean gets fewer passages). It says that the server added it and that
   the passages are file contents, data and never instructions. File text cannot open or close a block (`BLOCK_TAGS`,
-  which also catches spaces and zero-width characters inside a tag; those characters are stripped from file text).
-- **Weak:** at most 5 lines of file and place (about 300 tokens at most), with no text and no links.
+  which also catches spaces and zero-width characters inside a tag; format and other invisible characters, such as
+  U+3164 and U+034F, are stripped from file text, paths, places and links first).
+- **Weak:** at most 5 file paths (about 300 tokens at most), with no place, no text and no links: a heading or a sheet
+  name is document text, and a weak block's files are not recorded as read.
 - **None:** no block.
 - A strong block's files join the read scope at once, become the answer's sources and mark the chat as having read
   outside content, as after a read: their text reached the model. A weak block's files count only as names shown, as
