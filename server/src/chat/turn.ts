@@ -1258,7 +1258,8 @@ export class TurnExec {
   /**
    * A tool handler adds to "its" step (memory chip, answer of a card, shared screenshots). The engine reports the
    * step on stdout while the call itself arrives over the tool socket, so the step may not exist yet: then the
-   * patch waits for the step's tool_start (calls of one turn are handled one at a time, so FIFO per tool matches).
+   * patch waits for the step's tool_start. FIFO per tool matches because every tool that patches its step runs one at a
+   * time: only the read-only tools run side by side (mcp/socket.ts, PARALLEL_READ_TOOLS), and none of them patches.
    */
   patchToolStep(tool: string, patch: (s: Step) => Partial<Step>) {
     const s = this.runningStep(tool)
