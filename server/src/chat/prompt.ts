@@ -322,6 +322,11 @@ function projectSection(p: NonNullable<PromptInput['project']>): string {
   ].filter(Boolean).join('\n')
 }
 
+/** groups named in the "save one for a group" line (it is outside the skill list's 8,000-character budget) */
+export const GROUP_SAVE_MAX = 5
+/** a group's name there, as in the list's [group: …] tag */
+const GROUP_NAME_MAX = 40
+
 /** Item 5b: the skills the person may use (one line each: name, what it does; skill-list.ts), how to load one, and how
  * to make one. `user` is the person who runs this turn (the schedule owner for a scheduled run): the list holds the
  * team skills the folder rules let them read and their own personal skills, never anyone else's. `list`: the turn's
@@ -357,7 +362,11 @@ export function skillsSection(files: FileService, user: Principal, list?: SkillL
     lines.push('You cannot save under skills/. When the user wants a workflow kept as a team skill, tell them to use the "Suggest as skill" button under your answer (it is shown in their screen language): someone who manages team skills reviews it.')
   }
   if (groupRoots.length) {
-    lines.push(`To save a workflow as a skill for one of the user's groups only, when they ask for that: ${groupRoots.map((g) => `${g.root}/<short-name>.md for the group "${neutralizeTags(oneLine(g.name))}"`).join('; ')}, with the same header. ` +
+    // outside the skill list's budget, so bounded on its own: at most GROUP_SAVE_MAX groups, each name cut like the
+    // list's [group: …] tag
+    const named = groupRoots.slice(0, GROUP_SAVE_MAX).map((g) => `${g.root}/<short-name>.md for the group "${neutralizeTags(shortDescription(g.name, GROUP_NAME_MAX)).replace(/"/g, "'")}"`)
+    const more = groupRoots.length - named.length
+    lines.push(`To save a workflow as a skill for one of the user's groups only, when they ask for that: ${named.join('; ')}${more ? `; … and ${more} more group${more === 1 ? '' : 's'} of the user (each one's skills folder is groups/<its folder>/skills; find_skills shows a group's skills with their paths)` : ''}, with the same header. ` +
       'Every member of that group\'s AI follows it, so the same confirmation card shows before anything there is saved.')
   }
   lines.push(`To keep a workflow only for this user, write ${personalSkillsDir(user.id)}/<short-name>.md with the same header. Only this user can see or use a personal skill; they can suggest it to the team with "Suggest as skill" on the Files screen.`)

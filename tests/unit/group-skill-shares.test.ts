@@ -51,7 +51,8 @@ describe('a share proposal to a group', () => {
   let s: SkillShare
   test('targeting a group: stored with it; the checks see the group\'s skills (the judge the team\'s too)', async () => {
     s = await create({
-      group: 'marketing', skills: [skill('weekly'), skill('quote'), skill('fresh-one')],
+      group: 'marketing', where: 'PROPOSER-WHERE-CANARY',
+      skills: [skill('weekly'), skill('quote'), { ...skill('fresh-one'), origin: 'project', project: 'PROPOSER-PROJECT-CANARY' }],
       excluded: [{ name: 'with-key', reason: 'secret', kind: 'slack' }],
       rule: { text: '- PROPOSER-RULE-CANARY write short\n' }, tools: [{ name: 'CRM', url: 'https://crm.proposer.example/mcp', auth: 'oauth' }],
     })
@@ -87,6 +88,11 @@ describe('a share proposal to a group', () => {
     // nothing of the proposer's but what goes to the group: no rule, no tools, no skill left on their computer
     expect(JSON.stringify(seen)).not.toContain('crm.proposer.example')
     expect(JSON.stringify(seen)).not.toContain('with-key')
+    // nor where on their computer it came from
+    expect(seen).toMatchObject({ where: null, projects: null })
+    expect(JSON.stringify(seen)).not.toContain('PROPOSER-WHERE-CANARY')
+    expect(JSON.stringify(seen)).not.toContain('PROPOSER-PROJECT-CANARY')
+    expect((await h.api('dana').call(API.getSkillShare, { params: { id: s.id } })).where).toBe('PROPOSER-WHERE-CANARY')
     expect(cand(seen, 'weekly').sameName?.path).toBe('groups/marketing/skills/weekly/SKILL.md')
     for (const u of ['bob', 'carol']) {
       expect(await status(h.api(u).call(API.getSkillShare, { params: { id: s.id } }))).toBe(404)
@@ -165,6 +171,10 @@ describe('the target: chosen, moved, refused, gone', () => {
     const id = JSON.parse(ok.text.split('\n')[0]!).proposalId as string
     expect(h.ctx.db.query('SELECT target_group_id FROM skill_shares WHERE id = ?').get(id)).toEqual({ target_group_id: 'marketing' })
     expect(ok.audit.group).toBe('marketing')
+    // the answer says who decides for a group: no "team lead"
+    expect(JSON.parse(ok.text.split('\n')[0]!).group).toBe('Marketing')
+    expect(ok.text).toContain('member of the group "Marketing" adds it')
+    expect(ok.text).not.toContain('team lead')
     const no = shareSkills(h.ctx, oauth, dana, { group: 'Finance', skills: [skill('from-code')] })
     expect(no.isError).toBe(true)
     expect(no.text).toContain('"Marketing"')
@@ -180,11 +190,22 @@ describe('the target: chosen, moved, refused, gone', () => {
     } finally { h.ctx.db.query("INSERT INTO group_members (group_id, user_id) VALUES ('marketing', 'erin')").run() }
   })
 
-  test('migration 258 is additive (reader 1), and its number is the only one', () => {
-    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, '258_b_skill_share_targets.sql'), 'utf8')
+  test('a merge applied by a member of the group: the merge chat is theirs, its link only for them', async () => {
+    const s = await ready((await create({ group: 'marketing', skills: [skill('weekly')] })).id)
+    expect(cand(s, 'weekly')).toMatchObject({ action: 'merge', sameName: { path: 'groups/marketing/skills/weekly/SKILL.md' } })
+    const done = await h.api('alice').call(API.applySkillShare, { params: { id: s.id }, body: { skills: [{ name: 'weekly', action: 'merge' }] } })
+    const chatId = cand(done, 'weekly').applied?.chatId
+    expect(cand(done, 'weekly').applied).toMatchObject({ status: 'merge', path: 'groups/marketing/skills/weekly/SKILL.md' })
+    expect(chatId).toBeTruthy()
+    expect(h.ctx.db.query('SELECT user_id FROM chats WHERE id = ?').get(chatId!)).toEqual({ user_id: 'alice' })
+    expect(cand(await h.api('dana').call(API.getSkillShare, { params: { id: s.id } }), 'weekly').applied).toMatchObject({ status: 'merge', chatId: null })
+  })
+
+  test('migration 260 is additive (reader 1), and its number is the only one', () => {
+    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, '260_b_skill_share_targets.sql'), 'utf8')
     expect(sql.split('\n')[0]).toBe('-- min_compatible_reader: 1')
     expect(sql).not.toMatch(/DROP TABLE|DROP COLUMN|RENAME/i)
-    expect(fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.startsWith('258_'))).toEqual(['258_b_skill_share_targets.sql'])
+    expect(fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.startsWith('260_'))).toEqual(['260_b_skill_share_targets.sql'])
   })
 
   test('a deleted group: nothing can be applied (409), the proposer still sees it', async () => {

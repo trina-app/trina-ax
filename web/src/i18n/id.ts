@@ -3925,7 +3925,7 @@ export const id: Record<MessageKey, string> = {
   "teamLink.landing": "Yang bergabung mulai dari '{skill}'",
   "teamLink.landingChange": "Ubah",
   "audit.act.skills.share_create": "Usulan berbagi skill dibuat",
-  "audit.act.skills.share_apply": "Skill dibagikan ke tim",
+  "audit.act.skills.share_apply": "Skill dari usulan berbagi ditambahkan (tim atau grup)",
   "audit.act.skills.share_dismiss": "Usulan berbagi skill ditutup",
   "audit.act.skills.share_target": "Tujuan usulan berbagi skill diubah",
   // ── K end: welcome order ──

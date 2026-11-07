@@ -3925,7 +3925,7 @@ export const en: Record<MessageKey, string> = {
   "teamLink.landing": "People who join start with '{skill}'",
   "teamLink.landingChange": "Change",
   "audit.act.skills.share_create": "Skill share proposed",
-  "audit.act.skills.share_apply": "Skills shared with the team",
+  "audit.act.skills.share_apply": "Skills from a share proposal added (team or group)",
   "audit.act.skills.share_dismiss": "Skill share proposal dropped",
   "audit.act.skills.share_target": "Skill share proposal moved to the team or a group",
   // ── K end: welcome order ──

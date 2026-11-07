@@ -329,13 +329,19 @@ export class TeamFiles {
     if (isDir && (target.join('/') === fr.rel || isUnder(fr.rel, target.join('/')))) fileError('validation', 'intoItself', { to })
     this.assertMovable(target)
     if (isDir) this.assertSubtreeWritable(user, rules, fr.segs)
-    // the AI never moves anything into or out of a skill root (skills/, a group's groups/<g>/skills/; skills/guard.ts),
-    // nor a folder holding a skills/ folder into groups/<g>/ (it would make that group's skills folder): what everyone's
-    // AI follows changes only through write / edit and their card (docs/DECISIONS.md "Group skills")
+    // the AI never moves anything into or out of a skill root (skills/, a group's groups/<g>/skills/; skills/guard.ts):
+    // not a folder holding a skills/ folder into groups/<g>/ (it would make that group's skills folder), nor groups/ or
+    // a groups/<g>/ that holds one anywhere (the group's skills would leave with it). What everyone's AI follows
+    // changes only through write / edit and their card (docs/DECISIONS.md "Group skills"); people on the Files screen
+    // (no turn) move as before
     if (o.turnId != null) {
-      const holdsSkills = isDir && target.length === 2 && target[0]!.normalize('NFC').toLowerCase() === 'groups'
-        && (() => { try { return fs.readdirSync(fr.abs).some((n) => n.normalize('NFC').toLowerCase() === 'skills') } catch { return true } })()
-      if (inSkills(fr.rel) || inSkills(target.join('/')) || holdsSkills) throw new Denied('skills/ and a group\'s skills folder (skills and rules people\'s AI follows) cannot be changed by moving or renaming: use write / edit, which ask the user, or the Files screen')
+      const fold = (n: string) => n.normalize('NFC').toLowerCase()
+      const hasSkills = (abs: string) => { try { return fs.readdirSync(abs).some((n) => fold(n) === 'skills') } catch { return true } }
+      const children = (abs: string) => { try { return fs.readdirSync(abs, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => path.join(abs, d.name)) } catch { return null } }
+      const intoGroup = isDir && target.length === 2 && fold(target[0]!) === 'groups' && hasSkills(fr.abs)
+      const groupOut = isDir && fold(fr.segs[0] ?? '') === 'groups' && (
+        fr.segs.length === 2 ? hasSkills(fr.abs) : fr.segs.length === 1 ? (children(fr.abs)?.some(hasSkills) ?? true) : false)
+      if (inSkills(fr.rel) || inSkills(target.join('/')) || intoGroup || groupOut) throw new Denied('skills/ and a group\'s skills folder (skills and rules people\'s AI follows) cannot be changed by moving or renaming: use write / edit, which ask the user, or the Files screen')
     }
     // under users/ folder rules are not read: the folder would become private to one person and the rest of the team,
     // admins included, could not see it to move it back. Nobody may do that, owner included (design tab 2 rule 3).
@@ -474,6 +480,9 @@ export class TeamFiles {
     const pr = authorize(this.fx, rules, user, typed.slice(0, -1).join('/'), 'write', { mustExist: true })
     if (!pr.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
     let r = authorize(this.fx, rules, user, [...pr.segs, name].join('/'), 'write', { mustExist: false })
+    // the AI never copies into a skill root (skills/, a group's skills; as move above): only write / edit and their card
+    // put a file there. People on the Files screen (no turn) copy as before
+    if (o.turnId != null && inSkills(r.rel)) throw new Denied('skills/ and a group\'s skills folder (skills and rules people\'s AI follows) cannot be changed by copying: use write / edit, which ask the user, or the Files screen')
     const added = this.viewersAdded(rules, user.id, fr.segs, r.segs)
     if (o.dryRun) return { viewersAdded: added }
     // with a plan, the team disk near full or over the plan's limit (system/storage.ts): a tool gets a tool error, the

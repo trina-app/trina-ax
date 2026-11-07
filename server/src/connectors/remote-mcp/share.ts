@@ -43,7 +43,7 @@ export const shareSkillsTool = {
     `Each skill: "name" is its folder name (a command: its file name without .md); "files" have paths relative to the skill folder ("SKILL.md", "templates/quote.md"). Text files (md, txt, json, yaml, csv, tsv, html, xml, svg) go as "text", at most ${kb(SKILL_SHARE_LIMITS.fileBytes)} KB each; small images (png, jpg, gif, webp, at most ${kb(SKILL_SHARE_LIMITS.fileBytes)} KB) as "base64"; script and code files (py, sh, js, ts and so on) go as their path with "text": "" (never their content: the team never runs a skill's scripts); leave every other file out. At most ${SKILL_SHARE_LIMITS.skillFiles} files and ${kb(SKILL_SHARE_LIMITS.skillBytes)} KB per skill and ${SKILL_SHARE_LIMITS.connectorSkills} skills per call (keep one call under about 20 MB); list a bigger skill under "excluded" with reason "too_big".`,
     '"tools": only remote MCP servers reached over https (Streamable HTTP), as { name, url, auth: "bearer" | "header" | "oauth", header (the header\'s name, for "header") }. Codex: the [mcp_servers.<name>] entries of ~/.codex/config.toml that have a url (bearer_token_env_var → "bearer"; http_headers or env_http_headers → "header" with the header\'s name; else "oauth"). There is no field for a key, a token, an environment variable or a header value and none may be in the url: each teammate connects with their own. Local (stdio, "command") MCP servers cannot be shared: leave them out.',
     '"picked": the names you would recommend for the whole team (the server judges again); "projects": how many project folders you looked in.',
-    'The answer has the proposal\'s link: give it to the user. Nothing changes until the team lead confirms in the app.',
+    'The answer has the proposal\'s link: give it to the user. Nothing changes until the team lead confirms in the app (a proposal to a group: until the user or another member of that group adds it there); the answer says which.',
   ].join('\n\n'),
   inputSchema: schema,
   annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
@@ -94,10 +94,14 @@ export function shareSkills(ctx: AppContext, oauth: RemoteOAuth, user: Principal
     throw e
   }
   const url = `${oauth.enabled()}/skills/share/${share.id}`
-  const out = { proposalId: share.id, url, status: 'pending' as const }
+  const out = { proposalId: share.id, url, status: 'pending' as const, ...(share.targetGroup?.name ? { group: share.targetGroup.name } : {}) }
   const excluded = share.candidates.filter((c) => c.group === 'excluded').length
+  // who decides: the team lead for the team; for a group, the user or another member of it who may add its skills
+  const next = share.targetGroup?.name
+    ? `Nothing changes until the user or another member of the group ${JSON.stringify(share.targetGroup.name)} adds it in the app; only that group's members will see and use these skills.`
+    : 'Nothing changes until the team lead confirms in the app.'
   return {
-    text: `${JSON.stringify(out)}\n\nNothing changes until the team lead confirms in the app.`,
+    text: `${JSON.stringify(out)}\n\n${next}`,
     audit: { proposalId: share.id, app: share.app, skills: share.candidates.length - excluded, excluded, rule: !!input.data.rule, tools: share.tools.length, ...(group ? { group } : {}) },
   }
 }

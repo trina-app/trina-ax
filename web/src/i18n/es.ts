@@ -3885,7 +3885,7 @@ export const es: Record<MessageKey, string> = {
   "teamLink.landing": "Quien se une empieza por '{skill}'",
   "teamLink.landingChange": "Cambiar",
   "audit.act.skills.share_create": "Propuesta de compartir skills creada",
-  "audit.act.skills.share_apply": "Skills compartidas con el equipo",
+  "audit.act.skills.share_apply": "Habilidades de una propuesta agregadas (equipo o grupo)",
   "audit.act.skills.share_dismiss": "Propuesta de compartir skills descartada",
   "audit.act.skills.share_target": "Destino de la propuesta de compartir skills cambiado",
   // ── K end: welcome order ──

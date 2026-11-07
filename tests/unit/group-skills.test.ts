@@ -153,6 +153,33 @@ describe('discovery and precedence (real folder rules)', () => {
     expect(teamAt).toBe(-1) // a team rule is no skill
   })
 
+  test('the "save one for a group" line (outside the list\'s budget) names at most 5 groups, each name cut at 40', () => {
+    const long = 'G'.repeat(90)
+    const ids: string[] = []
+    for (let i = 0; i < 8; i++) {
+      const id = `many-${i}`, folder = `f_many_${i}`
+      ids.push(id)
+      e.db.query('INSERT INTO folders (id, path) VALUES (?, ?)').run(folder, `groups/many-${i}`)
+      e.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'group', ?, 'write')").run(`r_many_${i}`, folder, id)
+      e.db.query('INSERT INTO groups (id, name, folder_id) VALUES (?, ?, ?)').run(id, `${i}-${long}`, folder)
+      e.db.query('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)').run(id, 'bob')
+      fs.mkdirSync(path.join(e.fx.team, `groups/many-${i}`), { recursive: true })
+    }
+    try {
+      const line = skillsSection(e.files, who('bob')).split('\n').find((l) => l.startsWith('To save a workflow as a skill for one of the user\'s groups'))!
+      expect(line.match(/for the group "/g)).toHaveLength(5)
+      expect(line).toContain('… and 4 more groups of the user') // 8 here and finance
+      expect(line).toContain('find_skills')
+      expect(line).not.toContain('G'.repeat(41))
+      expect(line.length).toBeLessThan(1200)
+    } finally {
+      for (const id of ids) {
+        e.db.query('DELETE FROM group_members WHERE group_id = ?').run(id)
+        e.db.query('DELETE FROM groups WHERE id = ?').run(id)
+      }
+    }
+  })
+
   test('a person in many groups stays within the 8,000-character budget', () => {
     const many: Skill[] = []
     for (let g = 0; g < 40; g++) for (let i = 0; i < 25; i++) many.push({ path: `groups/g${g}/skills/s${i}/SKILL.md`, name: `s${i}-group-${g}`, description: 'd'.repeat(150), body: '', group: { id: `g${g}`, name: `Group number ${g} with a long name` } })

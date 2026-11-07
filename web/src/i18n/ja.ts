@@ -3885,7 +3885,7 @@ export const ja: Record<MessageKey, string> = {
   "teamLink.landing": "参加すると「{skill}」から開きます",
   "teamLink.landingChange": "変更",
   "audit.act.skills.share_create": "スキル共有の提案を作成",
-  "audit.act.skills.share_apply": "スキルをチームに共有",
+  "audit.act.skills.share_apply": "共有の提案のスキルを追加（チームまたはグループ）",
   "audit.act.skills.share_dismiss": "スキル共有の提案を閉じる",
   "audit.act.skills.share_target": "スキル共有の提案の共有先を変更",
   // ── K end: welcome order ──

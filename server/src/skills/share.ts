@@ -1,6 +1,6 @@
 // 내 스킬 가져오기 (docs/DECISIONS.md "SK — 내 스킬 가져오기"): share proposals of an owner or admin. Contract:
 // shared/src/api/skill-shares.ts; routes: routes/skill-shares.ts; Claude Code: connectors/remote-mcp/share.ts.
-// The target (docs/DECISIONS.md "Group skills", migration 258): the team (skills/) or one of the proposer's groups whose
+// The target (docs/DECISIONS.md "Group skills", migration 260): the team (skills/) or one of the proposer's groups whose
 // skills folder they may write (groups/<folder>/skills/), chosen at create (share_skills `group`) or moved before
 // anything went in (setSkillShareTarget). The checks and the judgement compare with the target's skills (the group's and
 // the team's); a share to a group is also seen, applied and dropped by the group's members who may write its skills
@@ -59,7 +59,7 @@ interface Row {
   projects: number | null; result: string; created_at: string; expires_at: string; updated_at: string
   /** 'codex' for a share Codex sent through the connector (the source column's CHECK has no 'codex': migration 253) */
   source_detail: string | null
-  /** the group it goes to, or null for the team (migration 258; docs/DECISIONS.md "Group skills") */
+  /** the group it goes to, or null for the team (migration 260; docs/DECISIONS.md "Group skills") */
   target_group_id: string | null
 }
 const COLS = 'id, created_by, source, status, ai, where_label, projects, result, created_at, expires_at, updated_at, source_detail, target_group_id'
@@ -206,12 +206,20 @@ function toShare(ctx: AppContext, r: Row, viewer: string): SkillShare {
   // same-name or similar skill only when the reviewer can read it themselves
   const reviewer = mine ? null : principalOf(ctx, viewer)
   const readable = <T extends { path: string }>(ref: T | null): T | null => (ref && reviewer && readSkill(ctx.files, reviewer, ref.path) ? ref : null)
-  const candidates = mine ? res.candidates ?? [] : (res.candidates ?? []).filter((c) => c.group !== 'excluded').map((c) => {
+  // a merge chat is the applier's own: its id only for them (a reviewer's merge is no link for the proposer, and back)
+  const owners = new Map<string, string | null>()
+  const chatOwner = (id: string) => {
+    if (!owners.has(id)) owners.set(id, (ctx.db.query('SELECT user_id FROM chats WHERE id = ?').get(id) as { user_id: string } | null)?.user_id ?? null)
+    return owners.get(id)
+  }
+  const ownChat = (c: ShareCandidate): ShareCandidate['applied'] => (c.applied?.chatId && chatOwner(c.applied.chatId) !== viewer ? { ...c.applied, chatId: null } : c.applied)
+  const candidates = mine ? (res.candidates ?? []).map((c) => ({ ...c, applied: ownChat(c) })) : (res.candidates ?? []).filter((c) => c.group !== 'excluded').map((c) => {
     const sameName = readable(c.sameName), similar = readable(c.similar)
-    return { ...c, sameName, similar, detail: c.reason === 'similar' && !similar ? null : c.detail }
+    // nor where on the proposer's computer it came from (the folder, a project's name)
+    return { ...c, sameName, similar, detail: c.reason === 'similar' && !similar ? null : c.detail, project: null, applied: ownChat(c) }
   })
   return {
-    id: r.id, source, app: source === 'codex' ? 'codex' : res.app ?? 'claude', status: r.status, where: r.where_label, projects: r.projects,
+    id: r.id, source, app: source === 'codex' ? 'codex' : res.app ?? 'claude', status: r.status, where: mine ? r.where_label : null, projects: mine ? r.projects : null,
     createdAt: new Date(r.created_at).toISOString(), updatedAt: new Date(Number.isFinite(Date.parse(r.updated_at)) ? r.updated_at : r.created_at).toISOString(), expiresAt: new Date(r.expires_at).toISOString(), ai: r.ai,
     candidates, rule: mine ? res.rule ?? null : null, tools: mine ? res.tools ?? [] : [], landing: res.landing ?? null,
     targetGroup: target, proposer: { id: r.created_by, name: nameOf(ctx, r.created_by) }, mine, canApply: mayApply(ctx, r, viewer),

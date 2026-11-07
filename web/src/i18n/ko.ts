@@ -3925,7 +3925,7 @@ export const ko = {
   "teamLink.landing": "들어오면 '{skill}'부터 열려요",
   "teamLink.landingChange": "바꾸기",
   "audit.act.skills.share_create": "내 스킬 가져오기 제안 만들기",
-  "audit.act.skills.share_apply": "내 스킬을 팀에 공유",
+  "audit.act.skills.share_apply": "공유 제안의 스킬 넣기 (팀 또는 그룹)",
   "audit.act.skills.share_dismiss": "내 스킬 가져오기 제안 닫기",
   "audit.act.skills.share_target": "스킬 공유 제안의 보낼 곳 바꿈",
   // ── K end: welcome order ──

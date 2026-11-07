@@ -157,6 +157,35 @@ describe('move_files', () => {
     expect(has('groups/marketing/skills/kept.md')).toBe(true)
   })
 
+  test('an admin\'s AI cannot move a group folder holding skills out (its skills would leave); a person on the Files screen can', async () => {
+    put('groups/gs-sales/skills/offer.md', '---\nname: Offer\ndescription: x\n---\nsteps\n')
+    put('groups/gs-sales/notes.md', 'notes\n')
+    fs.mkdirSync(path.join(A.team, 'shared/archive'), { recursive: true })
+    const { componentC } = await import('../../server/src/team-files/component')
+    const turnId = A.turn('carol', A.chat('carol'))
+    expect(() => componentC(A.ctx).files.move('carol', 'groups/gs-sales', 'shared/archive/gs-sales', 'fail', { turnId })).toThrow(/skills folder/)
+    // a rename inside groups/ too
+    expect(() => componentC(A.ctx).files.move('carol', 'groups/gs-sales', 'groups/gs-sales-2', 'fail', { turnId })).toThrow(/skills folder/)
+    const tool = await call('carol', 'move_files', { paths: ['groups/gs-sales'], to_folder: 'shared/archive' }, { person: ask(true), turn: true })
+    expect(tool.isError).toBe(true)
+    expect(has('groups/gs-sales/skills/offer.md')).toBe(true)
+    // the same move by a person (no turn): allowed, as before
+    componentC(A.ctx).files.move('carol', 'groups/gs-sales', 'shared/archive/gs-sales', 'fail')
+    expect(has('shared/archive/gs-sales/skills/offer.md')).toBe(true)
+  })
+
+  test('the AI cannot copy into skills/ or a group\'s skills folder (the file layer); a person can', async () => {
+    const { componentC } = await import('../../server/src/team-files/component')
+    put('groups/marketing/skills/.keep', '')
+    const turnId = A.turn('carol', A.chat('carol'))
+    await expect(componentC(A.ctx).files.copy('carol', 'shared/glossary.md', 'skills/copied-glossary.md', { turnId })).rejects.toThrow(/skills folder/)
+    await expect(componentC(A.ctx).files.copy('carol', 'shared/glossary.md', 'groups/marketing/skills/copied-glossary.md', { turnId })).rejects.toThrow(/skills folder/)
+    expect(has('skills/copied-glossary.md')).toBe(false)
+    expect(has('groups/marketing/skills/copied-glossary.md')).toBe(false)
+    await componentC(A.ctx).files.copy('carol', 'shared/glossary.md', 'skills/copied-glossary.md')
+    expect(has('skills/copied-glossary.md')).toBe(true)
+  })
+
   test('a group folder moves only for admins and owners, as on the Files screen', async () => {
     fs.mkdirSync(path.join(A.team, 'shared/elsewhere'), { recursive: true })
     const r = await call('alice', 'move_files', { paths: ['groups/marketing'], to_folder: 'shared/elsewhere' }, { person: ask(true) })
