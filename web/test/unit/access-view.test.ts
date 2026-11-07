@@ -4,8 +4,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { AccessTreeNode, PersonFolderAccess } from '@mycel/shared/api'
 import { DICTS, translate, type MessageKey, type Params } from '../../src/i18n'
-import { ancestorsOf, cleanPrefix, isSkillsPath, countRows, folderName, groupRows, isRestricted, kindText, levelOf, nearestRuleFolder, nodeName, parentOf, reasonText, riskOf, riskTexts, rulesApply, sectionOf, shortPath, skillEditorsText, skillManagersOf, skillsLockedText, sourceSaysSomething, sourceText, summaryLines, whoSeesText, type Names } from '../../src/lib/access-view'
-import { skillsVia } from '../../src/pages/admin/SkillManagers'
+import { ancestorsOf, cleanPrefix, isSkillsPath, countRows, folderName, groupRows, isRestricted, kindText, levelOf, nearestRuleFolder, nodeName, parentOf, reasonText, riskOf, riskTexts, rulesApply, sectionOf, shortPath, skillEditorsElsewhere, skillEditorsText, skillManagersOf, skillsLockedText, sourceSaysSomething, sourceText, summaryLines, whoSeesText, type Names } from '../../src/lib/access-view'
 import { personViewLink } from '../../src/pages/admin/AccessResults'
 
 const ko = (key: MessageKey, p?: Params) => translate('ko', key, p)
@@ -369,16 +368,16 @@ describe('stage 6–7: who can edit team skills, in words', () => {
     expect(skillsLockedText(ko, many, () => 'none')).toBe('skills에서는 고칠 수 있지만 여기서는 못 고치는 사람: ann 님, ben 님, cid 님 외 2명')
   })
 
-  test('Members: on through a rule that is not the person\'s own, and why', () => {
-    const p = (access: 'none' | 'read' | 'write', reason: PersonFolderAccess['reason']) => ({ user: { id: 'bob', name: 'Bob' }, role: 'member' as const, access, reason, listable: true, via: [], viaMore: false })
-    const gname = (id: string) => ({ g1: '영업팀' } as Record<string, string>)[id]
-    expect(skillsVia(p('write', rule('skills', 'everyone', [{ subjectType: 'everyone', subjectId: null, access: 'write' }])), gname)).toEqual({ kind: 'everyone' })
-    expect(skillsVia(p('write', rule('skills', 'role', [{ subjectType: 'role', subjectId: 'member', access: 'write' }])), gname)).toEqual({ kind: 'everyone' })
-    expect(skillsVia(p('write', rule('skills', 'group', [{ subjectType: 'group', subjectId: 'g1', access: 'write' }, { subjectType: 'group', subjectId: 'g2', access: 'read' }])), gname)).toEqual({ kind: 'group', names: ['영업팀'] })
-    expect(skillsVia(p('write', rule('', 'user', [{ subjectType: 'user', subjectId: 'bob', access: 'write' }])), gname)).toEqual({ kind: 'root' })
-    // their own rule on skills/ (the switch shows it), no write, or no answer: nothing to add
-    expect(skillsVia(p('write', rule('skills', 'user', [{ subjectType: 'user', subjectId: 'bob', access: 'write' }])), gname)).toBeNull()
-    expect(skillsVia(p('read', rule('skills', 'everyone', [{ subjectType: 'everyone', subjectId: null, access: 'read' }])), gname)).toBeNull()
-    expect(skillsVia(undefined, gname)).toBeNull()
+  test('the dialog: editors through a rule that is not a person\'s or group\'s own on skills/ (everyone, the team root)', () => {
+    const root = (o: Partial<Who> & Pick<Who, 'access' | 'count'>) => w({ folder: '', ...o })
+    // own rules on skills/ (the dialog lists and removes them) and read: nothing else to say
+    expect(skillEditorsElsewhere(ko, top, 12)).toEqual([])
+    // everyone writes in skills/, the old "members" row, a person's rule on the whole team folder
+    expect(skillEditorsElsewhere(ko, [staff, w({ subject: all, access: 'write', count: 12 })], 12)).toEqual(['모두'])
+    expect(skillEditorsElsewhere(ko, [staff, w({ subject: { type: 'role', id: 'member', name: null }, access: 'write', count: 12 })], 12)).toEqual(['팀원 전체'])
+    expect(skillEditorsElsewhere(ko, [staff, w({ subject: sales, access: 'write', count: 3 }), root({ subject: bob, access: 'write', count: 1 })], 12)).toEqual(['Bob 님'])
+    expect(skillEditorsElsewhere(en, [staff, root({ subject: all, access: 'write', count: 9 })], 12)).toEqual(['9 others'])
+    // a name with its own honorific keeps one
+    expect(skillEditorsElsewhere(ko, [root({ subject: { type: 'user', id: 'k', name: '김대표님' }, access: 'write', count: 1 })], 12)).toEqual(['김대표님'])
   })
 })

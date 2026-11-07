@@ -258,13 +258,25 @@ function writers(who: readonly AccessTreeWho[]): AccessTreeWho[] {
 }
 
 /** skills/ and its folders: "고칠 수 있는 사람: 팀장·관리자, 영업팀 3명, Bob 님", from the folder's people as the server
- * grouped them (the owner and admins always can; write there is "팀 스킬 관리"). */
+ * grouped them (the owner and admins always can; write there is "팀 스킬 관리"). The Team skills page's line and
+ * Admin › Folder permissions say the same. */
 export function skillEditorsText(t: T, who: readonly AccessTreeWho[], members: number): string {
   const ws = writers(who)
   if (!ws.length) return t('skillMgr.editorsAdmins')
   const parts = ws.slice(0, WHO_NAMED).map((w) => whoLabel(t, w, members))
   const rest = ws.slice(WHO_NAMED).reduce((n, w) => n + w.count, 0)
   return t('skillMgr.editors', { list: rest > 0 ? t('accessTree.who.more', { list: parts.join(', '), n: rest }) : parts.join(', ') })
+}
+
+/** A person's or a group's own rule on skills/ (or a folder in it) decided: what the team skills dialog lists and
+ * removes (PUT /api/admin/skill-managers). */
+const ownSkillsRule = (w: AccessTreeWho) => !!w.subject && (w.subject.type === 'user' || w.subject.type === 'group') && w.folder !== null && isSkillsPath(w.folder)
+
+/** skills/' editors through a rule that is not their own rule there: everyone, the old "members" row, a rule on the
+ * team root ("모두", "Bob 님"). The team skills dialog names them and links to Folder permissions, where those rules
+ * are changed. */
+export function skillEditorsElsewhere(t: T, who: readonly AccessTreeWho[], members: number): string[] {
+  return writers(who.filter((w) => !ownSkillsRule(w))).map((w) => whoLabel(t, w, members))
 }
 
 /** One person's access at a folder and what decided it, as GET /api/admin/access/folder answers. */
