@@ -13508,6 +13508,11 @@ enters a shared transcript; that check is new here, and turns never run on the c
   and Drive behind the gate, share-to-room for every viewer, a gate that checks searches after they run. Not added: a
   toggle per chat, sharing existing chats, avatars, deleting single messages, a people picker, push or Inbox notices, a
   "Shared" sidebar section, queued sends.
+- **For the approved follow-up** (a room's @트리나 reads a shared chat only when every member of the room is in its
+  project's audience; else the answer stays the asker's or a card asks): the check is one set-based function,
+  `sharedChatAudienceCovers(db, files, chatId, userIds)` on `projectSeenByAll` (also behind `visibleSharedChat` and
+  `chatFor`), and the transcript an AI gets is `labelledTranscript` / `sharedTranscriptText` in `chat/shared.ts`. The
+  room tool itself is not built here.
 - Tests: `tests/unit/b-shared-chats.test.ts`, `tests/security/shared-project-chats.test.ts` (roles × routes × states),
   rows in `permission-matrix`, `p4-route-coverage` and `safe-ops-matrix`, `web/test/e2e/shared-project-chats.spec.ts`.
 - Version impact: **minor** (a new feature, optional API fields, an add-only migration).
