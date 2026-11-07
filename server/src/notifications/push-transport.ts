@@ -11,10 +11,25 @@ export interface PushPayload { notificationId:string;subscriptionId:string;code:
 export interface PushSend {subscription:PushSubscription;payload:PushPayload;config:PushConfig;signal:AbortSignal;beforeSend:()=>boolean;ttlSeconds:number}
 export type PushTransport=(input:PushSend)=>Promise<{statusCode:number}>
 const HOSTS=new Set(['fcm.googleapis.com','updates.push.services.mozilla.com','web.push.apple.com'])
+/** Microsoft Edge subscribes through the Windows Push Notification Service: one DNS label under notify.windows.com
+ * (wns2-xxxx.notify.windows.com), never an IP literal, a deeper name or a lookalike suffix. */
+export const WNS_HOST=/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.notify\.windows\.com$/
+/** WNS's only address shape: /w/ and a single `token`, base64 letters and well-formed percent escapes (no `&`, no
+ * second parameter, no fragment). */
+export const WNS_SEARCH=/^\?token=(?:[A-Za-z0-9_.~+\/=-]|%[0-9A-Fa-f]{2}){16,4000}$/
+/** A push service address the server sends to: https on the default port, no user, password or fragment, canonical as
+ * the browser gave it, at most 4096 characters; Google's, Mozilla's and Apple's hosts with no query, or WNS with exactly
+ * /w/?token=… (the only query any of them may carry; the transport sends it as given). Every address is still resolved
+ * and checked to be public right before each send (postPinned). */
 export function validatePushEndpoint(raw:string):URL {
   let u:URL
   try {u=new URL(raw)}catch{throw new HttpError('validation')}
-  if(raw!==u.href||/[\x00-\x20]/.test(raw)||u.protocol!=='https:'||u.port||u.username||u.password||u.hash||u.search||!HOSTS.has(u.hostname)||u.pathname==='/'||raw.length>4096)throw new HttpError('validation')
+  if(raw!==u.href||/[\x00-\x20]/.test(raw)||u.protocol!=='https:'||u.port||u.username||u.password||u.hash||raw.length>4096)throw new HttpError('validation')
+  if(WNS_HOST.test(u.hostname)){
+    if(u.pathname!=='/w/'||!WNS_SEARCH.test(u.search)||[...u.searchParams.keys()].join()!=='token')throw new HttpError('validation')
+    return u
+  }
+  if(u.search||!HOSTS.has(u.hostname)||u.pathname==='/')throw new HttpError('validation')
   if(u.hostname==='fcm.googleapis.com'&&!u.pathname.startsWith('/fcm/send/'))throw new HttpError('validation')
   if(u.hostname==='updates.push.services.mozilla.com'&&!u.pathname.startsWith('/wpush/v2/'))throw new HttpError('validation')
   return u
@@ -102,7 +117,8 @@ export async function postPinned(o:{url:URL;signal:AbortSignal;beforeSend:()=>bo
       // Only while the socket itself says it is still connecting; without that, the overall bound decides.
       connectTimer=setTimeout(()=>{if(phase==='connect'&&socket?.connecting===true)failed('connect_timeout')},o.connectTimeoutMs??PUSH_CONNECT_TIMEOUT_MS)
       try {
-        const r=req=(o.request??https.request)({protocol:'https:',hostname:u.hostname,port:443,servername:u.hostname,path:u.pathname,method:'POST',headers:prepared.headers,agent:false,
+        // path with its query: a WNS address is /w/?token=… (the other providers' and the gateway's have none)
+        const r=req=(o.request??https.request)({protocol:'https:',hostname:u.hostname,port:443,servername:u.hostname,path:u.pathname+u.search,method:'POST',headers:prepared.headers,agent:false,
           // Pin this checked address, including when the runtime asks for all addresses. TLS still verifies the provider name.
           lookup:((_host:unknown,opts:any,cb:any)=>opts?.all?cb(null,[a]):cb(null,a.address,a.family)) as any},res=>{
           // No redirects, no provider body retained or logged. Status alone drives bounded retry/removal.

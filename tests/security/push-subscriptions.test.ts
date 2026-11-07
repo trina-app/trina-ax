@@ -18,6 +18,57 @@ test('endpoint allowlist refuses private/IP/credentials/redirect-shaped/noncanon
   for(const endpoint of ['http://fcm.googleapis.com/fcm/send/x','https://127.0.0.1/x','https://169.254.169.254/latest/meta-data','https://fcm.googleapis.com.evil.test/x','https://user@fcm.googleapis.com/fcm/send/x','https://fcm.googleapis.com:444/fcm/send/x','https://fcm.googleapis.com/fcm/send/x#fragment','https://fcm.googleapis.com/fcm/send/x?redirect=http://localhost','https://web.push.apple.com/ x','https://fcm.googleapis.com./fcm/send/x'])expect(()=>validatePushEndpoint(endpoint)).toThrow()
   for(const endpoint of ['https://fcm.googleapis.com/fcm/send/x','https://updates.push.services.mozilla.com/wpush/v2/x','https://web.push.apple.com/x'])expect(validatePushEndpoint(endpoint).protocol).toBe('https:')
 })
+const WNS='https://wns2-par02p.notify.windows.com/w/?token='
+const TOKEN='BQYAAABkR1f%2bgYm7ZDQoX9Kq4e6Jd8a%2fcJx0R2Jm3nYw%3d%3d'
+test('Microsoft Edge (WNS): exactly https://<one label>.notify.windows.com/w/?token=<token>, nothing looser',()=>{
+  for(const endpoint of [WNS+TOKEN,'https://db5p.notify.windows.com/w/?token=AAAAAAAAAAAAAAAAAAAA','https://wns2-bn3p.notify.windows.com/w/?token=BQYAAAA+gYm7/ZDQ=X9Kq4e6Jd8a_c-x.0~R'])expect(validatePushEndpoint(endpoint).href).toBe(endpoint)
+  for(const endpoint of [
+    'https://notify.windows.com.evil.example/w/?token='+TOKEN,            // lookalike suffix
+    'https://xnotify.windows.com/w/?token='+TOKEN,                         // no label boundary
+    'https://notify.windows.com/w/?token='+TOKEN,                          // no label at all
+    'https://a.b.notify.windows.com/w/?token='+TOKEN,                      // a deeper name
+    'https://wns2-par02p.notify.windows.com.evil.example/w/?token='+TOKEN,
+    'https://-bad.notify.windows.com/w/?token='+TOKEN,
+    WNS+TOKEN+'&redirect=http://localhost',                                // a second parameter
+    WNS+TOKEN+'&token=x',
+    'https://wns2-par02p.notify.windows.com/w/?other='+TOKEN,              // not token
+    'https://wns2-par02p.notify.windows.com/w/?token=',                    // empty token
+    'https://wns2-par02p.notify.windows.com/w/?token=abc',                 // too short
+    WNS+'%zz'+TOKEN,                                                       // a broken escape
+    WNS+'<script>'+TOKEN,
+    'https://wns2-par02p.notify.windows.com/x/?token='+TOKEN,              // another path
+    'https://wns2-par02p.notify.windows.com/w?token='+TOKEN,
+    'https://wns2-par02p.notify.windows.com/w/x?token='+TOKEN,
+    'https://wns2-par02p.notify.windows.com/w/',                           // no query
+    'https://wns2-par02p.notify.windows.com:8443/w/?token='+TOKEN,         // a port
+    'http://wns2-par02p.notify.windows.com/w/?token='+TOKEN,               // not https
+    'https://user@wns2-par02p.notify.windows.com/w/?token='+TOKEN,
+    WNS+TOKEN+'#x',                                                        // a fragment
+    'https://20.42.65.84/w/?token='+TOKEN,                                 // an IP literal
+    'https://[2603:1030::1]/w/?token='+TOKEN,
+    'https://WNS2-PAR02P.notify.windows.com/w/?token='+TOKEN,              // not canonical
+    WNS+'A'.repeat(4100),                                                  // overlong
+    'https://fcm.googleapis.com/fcm/send/x?token='+TOKEN,                  // other hosts still take no query
+  ])expect(()=>validatePushEndpoint(endpoint),endpoint).toThrow()
+})
+test('a WNS send goes to the full address, query included, pinned to a checked public address; a private one is refused',async()=>{
+  const seen:{path?:string;hostname?:string;servername?:string;pinned?:unknown}[]=[]
+  const request=((options:any,cb:any)=>{
+    const s:{path?:string;hostname?:string;servername?:string;pinned?:unknown}={path:options.path,hostname:options.hostname,servername:options.servername}
+    options.lookup(options.hostname,{},(_e:any,a:any,f:any)=>{s.pinned={address:a,family:f}});seen.push(s)
+    const req=new EventEmitter() as any;req.destroy=()=>{};req.end=()=>queueMicrotask(()=>cb({statusCode:201,destroy(){}}));return req
+  }) as unknown as typeof https.request
+  const input={...sendInput(),subscription:{...sendInput().subscription,endpoint:WNS+TOKEN}}
+  expect(await createPushTransport({request,lookup:async()=>[{address:'20.42.65.84',family:4}]})(input)).toEqual({statusCode:201})
+  expect(seen).toEqual([{path:'/w/?token='+TOKEN,hostname:'wns2-par02p.notify.windows.com',servername:'wns2-par02p.notify.windows.com',pinned:{address:'20.42.65.84',family:4}}])
+  for(const address of ['127.0.0.1','10.0.0.5','169.254.169.254','::1']){
+    await expect(createPushTransport({request,lookup:async()=>[{address,family:address.includes(':')?6:4}]})(input)).rejects.toThrow('push_address_refused')
+  }
+  expect(seen).toHaveLength(1)
+  // the other providers' addresses still go out without a query
+  await createPushTransport({request,lookup:async()=>[{address:'8.8.8.8',family:4}]})(sendInput())
+  expect(seen[1]!.path).toBe('/fcm/send/synthetic')
+})
 test('DNS public-IP check, pinned lookup, encrypted payload, redirect refusal and post-DNS revocation use no sockets',async()=>{
   let calls=0,pinned:unknown,body:Buffer|null=null
   const request=((options:any,cb:any)=>{

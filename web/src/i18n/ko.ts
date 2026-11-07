@@ -1106,7 +1106,7 @@ export const ko = {
   'push.dismissed': "알림 허용 창이 닫혔어요. 다시 누르고 '허용'을 선택해 주세요.",
   'push.service': "브라우저의 푸시 서비스가 꺼져 있거나 연결되지 않아요. 시크릿 창이라면 일반 창에서 열어 주세요.",
   'push.serviceBrave': "Brave에서는 설정 › 개인정보 및 보안에서 '푸시 메시지에 Google 서비스 사용'을 켜야 푸시가 와요.",
-  'push.browserService': "이 브라우저의 푸시 서비스는 팀 서버가 지원하지 않아요. Chrome, Firefox, Safari에서 켜 주세요.",
+  'push.browserService': "이 브라우저의 푸시 서비스는 팀 서버가 지원하지 않아요. Chrome, Edge, Firefox, Safari에서 켜 주세요.",
   'push.worker': "브라우저가 알림 준비를 마치지 못했어요. 페이지를 새로 고친 뒤 다시 켜 주세요.",
   'push.storage': "브라우저가 이 사이트의 데이터 저장을 막고 있어서 알림을 준비할 수 없어요. 이 사이트의 쿠키와 사이트 데이터를 허용해 주세요. Firefox에서 '기록을 저장하지 않음'을 쓰고 있다면 바꿔 주세요.",
   'push.busy': "이미 진행 중이에요. 열려 있는 브라우저의 알림 질문에 먼저 답해 주세요.",

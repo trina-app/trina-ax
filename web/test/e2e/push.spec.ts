@@ -52,8 +52,8 @@ test('push stays off until an explicit click and can be revoked across devices w
 
 /** A browser whose push works like Chrome's, without a push service: the question answers `answer`, subscribe gives a
  * synthetic subscription or fails with `subscribeError` (a DOMException name). */
-async function fakeBrowserPush(page: import('@playwright/test').Page, o: { answer?: NotificationPermission; subscribeError?: string } = {}) {
-  await page.addInitScript((o: { answer?: NotificationPermission; subscribeError?: string }) => {
+async function fakeBrowserPush(page: import('@playwright/test').Page, o: { answer?: NotificationPermission; subscribeError?: string; endpoint?: string } = {}) {
+  await page.addInitScript((o: { answer?: NotificationPermission; subscribeError?: string; endpoint?: string }) => {
     const calls = { permissions: 0, subscriptions: 0 }
     ;(window as any).__pushCalls = calls
     // the browser's answer outlives a reload, as a real one does
@@ -66,7 +66,7 @@ async function fakeBrowserPush(page: import('@playwright/test').Page, o: { answe
       subscribe: async (options: PushSubscriptionOptionsInit) => {
         calls.subscriptions++
         if (o.subscribeError) throw new DOMException('Registration failed - push service error', o.subscribeError)
-        subscription = { options, toJSON: () => ({ endpoint: 'https://push.example.test/synthetic', keys: { auth: 'test-auth', p256dh: 'test-p256dh' } }), unsubscribe: async () => { subscription = null; return true } }
+        subscription = { options, toJSON: () => ({ endpoint: o.endpoint ?? 'https://push.example.test/synthetic', keys: { auth: 'test-auth', p256dh: 'test-p256dh' } }), unsubscribe: async () => { subscription = null; return true } }
         return subscription
       },
     } }
@@ -186,20 +186,18 @@ test.describe('the web ask', () => {
 
   test.describe('in Microsoft Edge', () => {
     test.use({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0' })
-    test('no line (the team server refuses its push service); Settings still says why when someone tries', async ({ page }) => {
+    test('the line shows and 알림 켜기 turns push on with a WNS address (the server takes Edge\'s push service)', async ({ page }) => {
       await reset(page)
-      await fakeBrowserPush(page)
-      let asked = 0
-      await page.route('**/api/push', route => { asked++; return route.fulfill({ json: { configured: true, enabled: false, publicKey, subscriptionId: null } }) })
-      await page.route('**/api/push/subscriptions', route => route.fulfill({ status: 400, json: { error: { code: 'validation', message: '입력값을 확인해 주세요.' } } }))
+      await fakeBrowserPush(page, { endpoint: 'https://wns2-par02p.notify.windows.com/w/?token=BQYAAABkR1f%2bgYm7ZDQoX9Kq4e6Jd8a%2fcJx0R2Jm3nYw%3d%3d' })
+      let sent: { endpoint?: string } | null = null
+      await page.route('**/api/push', route => route.fulfill({ json: { configured: true, enabled: !!sent, publicKey, subscriptionId: sent ? 'own' : null } }))
+      await page.route('**/api/push/subscriptions', route => { sent = route.request().postDataJSON(); return route.fulfill({ json: { id: 'own' } }) })
       await signIn(page)
-      for (const path of ['/files', '/', '/files']) { await go(page, path); await page.waitForTimeout(300) }
-      await expect(page.getByTestId('web-push-ask-top')).toHaveCount(0)
-      expect(asked).toBe(0)
-      await page.goto('/settings/notifications')
-      await page.getByTestId('push-notifications').getByRole('button', { name: '이 기기에서 알림 받기' }).click()
-      await expect(page.getByTestId('push-failure')).toHaveAttribute('data-kind', 'browserService')
-      await expect(page.getByTestId('push-failure')).toContainText('이 브라우저의 푸시 서비스는 팀 서버가 지원하지 않아요')
+      const line = page.getByTestId('web-push-ask-top')
+      await reveal(page, line)
+      await line.getByRole('button', { name: '알림 켜기' }).click()
+      await expect(page.getByText('이 브라우저에서 알림을 켰어요.')).toBeVisible()
+      expect(sent!.endpoint).toBe('https://wns2-par02p.notify.windows.com/w/?token=BQYAAABkR1f%2bgYm7ZDQoX9Kq4e6Jd8a%2fcJx0R2Jm3nYw%3d%3d')
     })
   })
 
