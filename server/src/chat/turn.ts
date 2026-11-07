@@ -86,8 +86,7 @@ import { PATH_ARGS, ROOM_FILE_TOOLS, ROOM_READ_ONLY_TOOLS, ROOMS_SEEN_BROWSER_RE
 import type { RoomTurnContext } from './runtime'
 import { audienceOf, isSharedRow, messageFor, previousRunner, stashWrittenBy } from './shared'
 import { missingReaders } from './read-scope'
-import { launcherSockOf } from './forget'
-import { launcherForget } from '../native'
+import { clearChatFolder } from './forget'
 import { publicStep, type ProjectRow, type StoredStep } from './store'
 import { SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
 
@@ -1643,16 +1642,8 @@ export class TurnExec {
 
   /** The engine's folder of this chat, emptied (a shared chat whose person changed): through the launcher where the
    * engine account owns it (production), else here. false: it could not be. */
-  private async clearChatFolder(chatDir: string): Promise<boolean> {
-    const sock = launcherSockOf(this.rt.ctx)
-    if (sock) {
-      try {
-        const r = await launcherForget(sock, this.spec.chatId)
-        if (!r.ok) this.rt.log.warn('shared chat folder not cleared', { turn: this.id, message: r.message })
-        return r.ok
-      } catch (e) { this.rt.log.warn('shared chat folder not cleared', { turn: this.id, err: e }); return false }
-    }
-    try { fs.rmSync(chatDir, { recursive: true, force: true }); return !fs.existsSync(chatDir) } catch (e) { this.rt.log.warn('shared chat folder not cleared', { turn: this.id, err: e }); return false }
+  private clearChatFolder(chatDir: string): Promise<boolean> {
+    return clearChatFolder(this.rt.ctx, path.dirname(chatDir), this.spec.chatId)
   }
 
   /** A step of a shared chat that names team paths: stored with the words alone and the full line kept aside

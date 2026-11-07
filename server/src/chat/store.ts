@@ -155,11 +155,12 @@ export class ChatStore {
   chatRow(id: string): ChatRow | null {
     return this.db.query(`SELECT ${CHAT_COLS} FROM chats WHERE id = ?`).get(id) as ChatRow | null
   }
-  /** own chat (optionally including the trash). A room's AI session is not a chat of the person's: the chat routes
-   * answer not_found for it (it is asked, stopped and read through the room, rooms/ai.ts) */
+  /** own chat (optionally including the trash), for the server's own flows on a person's chat (drafts, merges). A room's
+   * AI session is not a chat of the person's (it is asked, stopped and read through the room, rooms/ai.ts), and a shared
+   * project chat is not theirs alone: the chat routes find both through chat/shared.ts chatFor, these flows never */
   ownChat(userId: string, id: string, o: { deleted?: boolean } = {}): ChatRow | null {
     const r = this.chatRow(id)
-    if (!r || r.user_id !== userId || r.room_id) return null
+    if (!r || r.user_id !== userId || r.room_id || r.shared_at) return null
     if (!o.deleted && r.deleted_at) return null
     return r
   }

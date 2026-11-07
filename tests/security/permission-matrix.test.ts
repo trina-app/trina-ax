@@ -162,3 +162,43 @@ describe('no self-escalation', () => {
     expect(read.status, 'admin still cannot read users/alice after trying to add a rule').toBeGreaterThanOrEqual(400)
   })
 })
+
+// ---------------------------------------------------------------- shared project chats (docs/DECISIONS.md "Shared project chats")
+// A shared chat of projects/falcon: its people (alice who made it, bob who reads the folder, the owner and an admin)
+// see it and continue it; erin (not in its audience), a person who still has to change their password and a signed-out
+// caller get nothing. Run last: it turns the project's setting on for one chat and off again.
+describe('shared project chat x every persona', () => {
+  let chat = ''
+  const CANARY = 'SEC-SHARED-MATRIX-6610'
+  beforeAll(async () => {
+    await W.as.memberIn.ok('PATCH', `/api/projects/${W.ids.projFalcon}`, { shareChats: true })
+    chat = (await W.as.memberIn.ok('POST', '/api/chats', { projectId: W.ids.projFalcon })).id
+    await W.as.memberIn.ok('PATCH', `/api/projects/${W.ids.projFalcon}`, { shareChats: false })
+    await W.as.memberIn.ok('POST', `/api/chats/${chat}/messages`, { clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [], content: `${CANARY}\n@fake ` + JSON.stringify({ say: 'shared ok' }) })
+    for (let i = 0; i < 100 && (await W.as.memberIn.get(`/api/chats/${chat}`)).json.runState !== 'idle'; i++) await Bun.sleep(100)
+  })
+  const sees = new Set(['memberIn', 'memberOut', 'owner', 'admin'])
+  for (const who of WHO) {
+    test(`${who}: view ${sees.has(who) ? 'allowed' : 'refused'}, continue and manage as the design says`, async () => {
+      // a fresh sign-in: the matrix's writes above may have ended a persona's shared session
+      const c = await freshClient(W, who)
+      const get = await c.get(`/api/chats/${chat}`)
+      const msgs = await c.get(`/api/chats/${chat}/messages`)
+      if (!sees.has(who)) {
+        expect([get.status >= 400, msgs.status >= 400], `${who} reached a shared chat outside its audience`).toEqual([true, true])
+        expect(get.text.includes(CANARY) || msgs.text.includes(CANARY), `${who} saw the shared chat's words`).toBe(false)
+        const send = await c.post(`/api/chats/${chat}/messages`, { clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [], content: 'x' })
+        expect(send.status, `${who} wrote in a shared chat outside its audience`).toBeGreaterThanOrEqual(400)
+        return
+      }
+      expect([get.status, msgs.status]).toEqual([200, 200])
+      expect(msgs.text.includes(CANARY)).toBe(true)
+      expect(get.json.shared.by.id).toBe('alice')
+      // the name and the engine are the creator's; deleting is the creator's or a project editor's
+      const rename = await c.patch(`/api/chats/${chat}`, { title: `by ${who}` })
+      expect(rename.status, `${who} rename`).toBe(who === 'memberIn' ? 200 : 403)
+      expect(get.json.shared.canDelete, `${who} canDelete`).toBe(who !== 'memberOut')
+      if (who === 'memberOut') expect((await c.del(`/api/chats/${chat}`)).status).toBe(403)
+    })
+  }
+})

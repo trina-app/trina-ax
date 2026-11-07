@@ -51,18 +51,18 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | Method | Path | Who | What it does |
 |---|---|---|---|
 | `GET` | `/api/questions/frequent` | Signed in | Own repeated questions from current branches in the last 30 days; bounded sample, never other people’s prompts. |
-| `GET` | `/api/chats` | Signed in | Own chats, newest first (search with q, trash with trash=1). |
-| `POST` | `/api/chats` | Signed in | New empty chat (optionally inside a project). |
+| `GET` | `/api/chats` | Signed in | Own chats and the shared project chats I wrote in, newest first (search with q, trash with trash=1). With projectId: my chats there and every shared chat of that project I can see. |
+| `POST` | `/api/chats` | Signed in | New empty chat (optionally inside a project). In a project that shares its chats it is a shared chat (never in a personal project or while safe operations are on). |
 | `GET` | `/api/engines` | Signed in | Whether the caller may pick the engine / model, the team default, and the engines + models they may pick. |
-| `GET` | `/api/chats/:id` | Signed in | One own chat. |
+| `GET` | `/api/chats/:id` | Signed in | One own chat, or a shared project chat I can see. |
 | `GET` | `/api/chats/:id/queue` | Signed in | Own chat queue snapshot; advisory rank and epoch/revision for reconnect recovery. |
-| `PATCH` | `/api/chats/:id` | Signed in | Rename, move to a project, change engine/model. |
-| `DELETE` | `/api/chats/:id` | Signed in | Move to chat trash (purged after 7 days). Stops a running turn. |
+| `PATCH` | `/api/chats/:id` | Signed in | Rename, move to a project, change engine/model. A shared chat: its creator only, and it never changes project (409 shared_chat_move). |
+| `DELETE` | `/api/chats/:id` | Signed in | Move to chat trash (purged after 7 days). Stops a running turn. A shared chat: its creator or an editor of its project (audited when someone else). |
 | `POST` | `/api/chats/:id/restore` | Signed in | Bring a chat back from the trash. |
 | `POST` | `/api/chats/:id/seen` | Signed in | I have this own chat on screen: its finished answers are seen (Chat.unseen goes away in every window and device). |
 | `GET` | `/api/chats/:id/messages` | Signed in | Active branch of the conversation, paged backwards. |
 | `POST` | `/api/chats/:id/messages` | Signed in | Save the message, create the empty answer, queue the turn. Send the X-Mycel-Window header so browser tools reach this window. |
-| `POST` | `/api/chats/:id/stop` | Signed in | Stop the running or queued turn of this chat. |
+| `POST` | `/api/chats/:id/stop` | Signed in | Stop the running or queued turn of this chat (a shared chat: only the person whose turn it is). |
 | `POST` | `/api/chats/:id/messages/:messageId/share-to-room` | Signed in | Post a finished answer of my own AI chat to a room I am in, as my message (my note, then the answer as a quote). When some member cannot open a file it links to, or it carries content from material some cannot see, it first answers "confirm": a row per linked file and one provenance line, as counts and places I may look myself (never who), with a confirmKey; sent again with that key it posts, attaching the linked files asked for (attach). Older clients: confirm = the number of people. Rate-limited and notified like any message; audited. |
 | `GET` | `/api/chats/:id/messages/:messageId/sources` | Signed in | The files the AI read or saw passages of for this answer, each checked against the viewer's access now (no name or path for the others). |
 | `POST` | `/api/chats/:id/messages/:messageId/regenerate` | Signed in | New answer to the same user message (sibling of :messageId, an assistant message). |
@@ -74,9 +74,9 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `GET` | `/api/projects` | Signed in | Projects whose folder the caller can read. |
 | `POST` | `/api/projects` | Signed in | New project: personal (users/<me>/projects/<slug>), on an existing folder the caller can write, or a new projects/<slug> with participants (admin or owner). |
 | `GET` | `/api/projects/:id` | Signed in | One project. |
-| `PATCH` | `/api/projects/:id` | Signed in | Edit name / instructions (the creator or an admin, with write access to the folder; audited, readers notified). folderPath: admins only, never under users/. |
+| `PATCH` | `/api/projects/:id` | Signed in | Edit name / instructions / shareChats (the creator or an admin, with write access to the folder; audited, readers notified). folderPath: admins only, never under users/. |
 | `POST` | `/api/projects/:id/share` | Signed in | Copy a personal project's folder into a team folder and point the project at it (the personal folder stays). |
-| `DELETE` | `/api/projects/:id` | Signed in | Delete the project (the creator or an admin; chats stay, without project; the folder stays). |
+| `DELETE` | `/api/projects/:id` | Signed in | Delete the project (the creator or an admin; private chats stay, without project; its shared chats are deleted for good; the folder stays). |
 
 ## Memories
 
