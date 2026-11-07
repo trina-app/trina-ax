@@ -1,21 +1,20 @@
 // Left sidebar, sized like Claude's (280 px, 14 px rows of 36 px, 16 px icons), people first (docs/DECISIONS.md "Desktop
-// sidebar: rooms first"): the team's name on top, one row for "트리나에게 묻기" (a new AI chat) and search, one row of icons
-// with tooltips (files, projects, scheduled, team skills, the inbox with its count, admin for owners and admins), then one
-// scroll with two strictly capped sections: "대화" (rooms/SidebarRooms.tsx: the five latest rooms and the room on screen,
-// "더 보기 (N)" for the rest with what is unread there) and "트리나 기록" (the AI's history: the five latest and the chat
-// on screen, "모두 보기" for the whole of it with its filters, with "답 필요 K" when hidden chats show a "?" or a dot; one
-// session marker per row from the chat list itself, chat/ChatState.tsx: "?", a spinner or a dot), so the AI never sinks
-// under many rooms. Onboarding's setup row (onboarding/SetupRow.tsx) has its own row between the two. People and the AI never share a word:
-// no bare "채팅" here. Each folds, and each one's whole list stays open or closed, remembered in this browser. Then the
-// account menu (the
-// person's email or ID, Settings, Usage (their own, in Settings), Appearance, Deleted history, Sign out), which opens
-// above the profile line. Below 768 px it is the 트리나 tab's drawer, the AI's history only (☰ in the phone's top bar on
-// Home): the AI's name on top, 검색, 프로젝트, 예약 작업, 팀 스킬, 트리나 기록, and 삭제한 기록 at the bottom. A new AI chat
-// is the 트리나 tab itself, the Inbox and Admin are in the 나 tab, 파일 is its own tab and the rooms are the 대화 tab; rows
-// are 44 px there.
+// sidebar: rooms first"): the team's name on top, then one labeled row each (the owner, 2026-11-07: no icon row):
+// "트리나에게 묻기" (a new AI chat, ⇧⌘O), 검색 (⌘K), 프로젝트, 예약 작업, 알림함 (its count on the row), 파일, 팀 스킬, and
+// 관리자 for owners and admins; then one scroll with two strictly capped sections: "대화" (rooms/SidebarRooms.tsx: the
+// five latest rooms and the room on screen, "더 보기 (N)" for the rest with what is unread there) and "트리나 기록" (the
+// AI's history: the five latest and the chat on screen, "모두 보기" for the whole of it with its filters, with "답 필요 K"
+// when hidden chats show a "?" or a dot; one session marker per row from the chat list itself, chat/ChatState.tsx: "?", a
+// spinner or a dot), so the AI never sinks under many rooms. Onboarding's setup row (onboarding/SetupRow.tsx) has its
+// own row between the two. People and the AI never share a word: no bare "채팅" here. Each folds, and each one's whole
+// list stays open or closed, remembered in this browser. Then the account menu (the person's email or ID, Settings,
+// Usage (their own, in Settings), Appearance, Deleted history, Sign out), which opens above the profile line. Below
+// 768 px it is the 트리나 tab's drawer, the AI's history only (☰ in the phone's top bar on Home): the AI's name on top,
+// 검색, 프로젝트, 예약 작업, 팀 스킬, 트리나 기록, and 삭제한 기록 at the bottom. A new AI chat is the 트리나 tab itself, the
+// Inbox and Admin are in the 나 tab, 파일 is its own tab and the rooms are the 대화 tab; rows are 44 px there.
 import clsx from 'clsx'
 import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Palette, Pencil, Search, Settings, Shield, Trash2, X } from 'lucide-react'
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import type { Chat, Theme } from '@mycel/shared/api'
@@ -306,60 +305,48 @@ export default function Sidebar() {
 function DesktopNav({ unread, onNewChat, onSearch }: { unread: number; onNewChat: () => void; onSearch: () => void }) {
   const t = useT()
   const me = useMeStrict()
-  const icon = ({ isActive }: { isActive: boolean }) => clsx('group/tip relative flex h-9 min-w-0 flex-1 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink', isActive && 'bg-hover text-ink')
-  const items: { to: string; label: string; icon: ReactNode; testId: string; badge?: number; onClick?: (e: ReactMouseEvent<HTMLAnchorElement>) => void }[] = [
-    { to: '/files', label: t('sidebar.files'), icon: <FolderOpen size={17} aria-hidden />, testId: 'nav-files' },
-    { to: '/projects', label: t('sidebar.projects'), icon: <FolderKanban size={17} aria-hidden />, testId: 'nav-projects' },
-    { to: '/scheduled', label: t('sidebar.scheduled'), icon: <CalendarClock size={17} aria-hidden />, testId: 'nav-scheduled' },
-    { to: '/skills', label: t('sidebar.skills'), icon: <BookMarked size={17} aria-hidden />, testId: 'nav-skills' },
-    { to: '/settings/notifications', label: t('inbox.title'), icon: <Bell size={17} aria-hidden />, testId: 'nav-inbox', badge: unread, onClick: (e) => settingsOpenedFrom(e.currentTarget) },
-    ...(isAdmin(me) ? [{ to: '/admin', label: t('sidebar.admin'), icon: <Shield size={17} aria-hidden />, testId: 'nav-admin' }] : []),
-  ]
-  const keys = onMac() ? '⌘K' : 'Ctrl+K'
+  const nav = 'flex h-9 items-center gap-2.5 rounded-lg px-3 text-sm text-ink hover:bg-hover'
+  const active = ({ isActive }: { isActive: boolean }) => clsx(nav, isActive && 'bg-hover font-medium')
+  const kbd = 'ml-auto hidden font-sans text-micro text-faint lg:inline'
+  // one labeled row each, in the order they had before the icon row (the owner, 2026-11-07)
   return (
-    <div className="space-y-1 px-2">
-      <div className="flex items-center gap-1">
-        <button type="button" className="flex h-9 min-w-0 flex-1 items-center gap-2.5 rounded-lg px-3 text-sm font-medium text-ink hover:bg-hover" onClick={onNewChat} data-testid="new-chat">
-          <MessageSquarePlus size={16} className="shrink-0 text-accent-text" aria-hidden /> <span className="truncate">{t('sidebar.askAi', { name: aiName(t) })}</span>
-          <kbd className="ml-auto hidden font-sans text-micro text-faint lg:inline">{onMac() ? '⇧⌘O' : 'Ctrl+Shift+O'}</kbd>
-        </button>
-        <button type="button" aria-label={t('sidebar.search')} aria-keyshortcuts={onMac() ? 'Meta+K' : 'Control+K'} onClick={onSearch} className="group/tip relative flex size-9 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-ink" data-testid="nav-search">
-          <Search size={16} aria-hidden />
-          <Tip text={`${t('sidebar.search')} (${keys})`} end />
-        </button>
-      </div>
-      <div className="flex items-center gap-0.5" data-testid="nav-icons">
-        {items.map((x, i) => (
-          <NavLink key={x.to} to={x.to} className={icon} aria-label={x.badge ? `${x.label}, ${t('notifications.unread', { count: x.badge })}` : x.label} onClick={x.onClick} data-testid={x.testId}>
-            {x.icon}
-            {!!x.badge && (
-              <span aria-hidden className="absolute top-0.5 left-1/2 ml-1 min-w-4 rounded-full bg-accent px-1 text-center text-nano leading-4 font-medium text-accent-ink" data-testid="inbox-unread">
-                {x.badge > 99 ? '99+' : x.badge}
-              </span>
-            )}
-            <Tip text={x.label} start={i === 0} end={i === items.length - 1} />
-          </NavLink>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-/** The name under an icon button, on hover and on keyboard focus (a native title shows on hover only, late). The button's
- * own label says the same, so this is for the eye only. At the row's ends it lines up with the icon's edge instead of
- * its middle, so it stays inside the sidebar. */
-function Tip({ text, start, end }: { text: string; start?: boolean; end?: boolean }) {
-  return (
-    <span
-      aria-hidden
-      className={clsx(
-        'pointer-events-none absolute top-full z-30 mt-1.5 rounded-md bg-ink px-2 py-1 text-xs whitespace-nowrap text-canvas opacity-0 shadow-sm transition-opacity group-hover/tip:opacity-100 group-hover/tip:delay-300 group-focus-visible/tip:opacity-100',
-        start ? 'left-0' : end ? 'right-0' : 'left-1/2 -translate-x-1/2',
+    <div className="space-y-0.5 px-2" data-testid="nav-rows">
+      <button type="button" className={clsx(nav, 'w-full font-medium')} onClick={onNewChat} data-testid="new-chat">
+        <MessageSquarePlus size={16} className="shrink-0 text-accent-text" aria-hidden /> <span className="truncate">{t('sidebar.askAi', { name: aiName(t) })}</span>
+        <kbd className={kbd}>{onMac() ? '⇧⌘O' : 'Ctrl+Shift+O'}</kbd>
+      </button>
+      <button type="button" className={clsx(nav, 'w-full')} aria-keyshortcuts={onMac() ? 'Meta+K' : 'Control+K'} onClick={onSearch} data-testid="nav-search">
+        <Search size={16} aria-hidden /> {t('sidebar.search')}
+        <kbd className={kbd}>{onMac() ? '⌘K' : 'Ctrl+K'}</kbd>
+      </button>
+      <NavLink to="/projects" className={active} data-testid="nav-projects">
+        <FolderKanban size={16} aria-hidden /> {t('sidebar.projects')}
+      </NavLink>
+      <NavLink to="/scheduled" className={active} data-testid="nav-scheduled">
+        <CalendarClock size={16} aria-hidden /> {t('sidebar.scheduled')}
+      </NavLink>
+      <NavLink to="/settings/notifications" className={active} onClick={(e) => settingsOpenedFrom(e.currentTarget)} data-testid="nav-inbox">
+        <Bell size={16} aria-hidden /> {t('inbox.title')}
+        {unread > 0 && (
+          // aria-label on a plain span is not read: the number is hidden from screen readers and the words are sr-only
+          <span className="ml-auto rounded-full bg-accent px-1.5 text-micro font-medium text-accent-ink" data-testid="inbox-unread">
+            <span aria-hidden>{unread > 99 ? '99+' : unread}</span>
+            <span className="sr-only">{t('notifications.unread', { count: unread })}</span>
+          </span>
+        )}
+      </NavLink>
+      <NavLink to="/files" className={active} data-testid="nav-files">
+        <FolderOpen size={16} aria-hidden /> {t('sidebar.files')}
+      </NavLink>
+      <NavLink to="/skills" className={active} data-testid="nav-skills">
+        <BookMarked size={16} aria-hidden /> {t('sidebar.skills')}
+      </NavLink>
+      {isAdmin(me) && (
+        <NavLink to="/admin" className={active} data-testid="nav-admin">
+          <Shield size={16} aria-hidden /> {t('sidebar.admin')}
+        </NavLink>
       )}
-      data-testid="nav-tip"
-    >
-      {text}
-    </span>
+    </div>
   )
 }
 
