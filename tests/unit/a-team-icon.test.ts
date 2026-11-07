@@ -1,11 +1,11 @@
-// The team logo as the tab icon (Admin › Team settings; shared/src/team-icon.ts, server/src/admin/team-icon.ts,
-// routes/web-static.ts): what an upload must be, who may set it, and that /team-icon, /favicon.ico and index.html's
-// tab icon link follow it; the manifest and the home-screen icon only for a square logo of at least 512 px; the
-// default icon back after removing it.
+// The team logo (Admin › Team settings; shared/src/team-icon.ts, server/src/admin/team-icon.ts, routes/web-static.ts):
+// what an upload must be, who may set it, and that /team-icon serves it (the sidebar header's image) and the default
+// icon after removing it. Since 2026-11-07 it shows only inside the page: index.html's icon links, /favicon.ico, the
+// home-screen addresses and the manifest stay the product's with any logo set (docs/DECISIONS.md).
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { checkTeamIcon, ICON_LINKS_END, ICON_LINKS_START, iconLinks, iconLinksHtml, imageInfo, isAppIcon, manifestWithIcon, TEAM_ICON_APP_PX, TEAM_ICON_MAX_BYTES, withIconLinks } from '@mycel/shared'
+import { checkTeamIcon, imageInfo, TEAM_ICON_MAX_BYTES } from '@mycel/shared'
 import { TEXT } from '../../server/src/admin/team-icon'
 import { WORK } from '../lib/env'
 import { makeJpeg, makePng, makeWebp, SVG } from '../lib/images'
@@ -22,7 +22,7 @@ let member: Client
 const saved = process.env.MYCEL_WEB_DIST
 
 beforeAll(async () => {
-  // a build as the server serves it: index.html with the icon block, the manifest, the default icons
+  // a build as the server serves it: index.html with the product's icon links, the manifest, the default icons
   fs.rmSync(DIST, { recursive: true, force: true })
   fs.mkdirSync(path.join(DIST, 'icons'), { recursive: true })
   fs.writeFileSync(path.join(DIST, 'index.html'), fs.readFileSync(path.join(WEB, 'index.html'), 'utf8').replace(/__PRODUCT_[A-Z_]+__/g, 'Team'))
@@ -50,6 +50,8 @@ const version = async (c: Client) => (await c.call('GET', '/api/me')).team.iconV
 const iconFile = () => path.join(h.ctx.config.dataDir, 'team-icon')
 const auditActions = async () => ((await owner.call('GET', '/api/admin/audit?source=admin&limit=200')).items as { action: string; actor: { id: string } | null; detail: Record<string, unknown> | null }[]).filter((e) => e.action.startsWith('team_icon.'))
 const bytesOf = async (r: Response) => new Uint8Array(await r.arrayBuffer())
+const built = (p: string) => new Uint8Array(fs.readFileSync(path.join(DIST, p)))
+const builtText = (p: string) => fs.readFileSync(path.join(DIST, p), 'utf8')
 function expectIconHeaders(r: Response, type: string) {
   expect(r.headers.get('content-type')).toBe(type)
   expect(r.headers.get('x-content-type-options')).toBe('nosniff')
@@ -80,31 +82,6 @@ describe('reading an image header (shared/src/team-icon.ts)', () => {
     expect(checkTeamIcon(makeWebp(4097, 64), 'image/webp')).toEqual({ ok: false, problem: 'too_large' })
     expect(checkTeamIcon(makePng(32, 32), 'image/png')).toMatchObject({ ok: true })
     expect(checkTeamIcon(makeJpeg(4096, 4096), 'image/jpeg')).toMatchObject({ ok: true })
-  })
-  test('the icon block of index.html: swapped between the markers, left alone without them', () => {
-    const html = `<head>\n    ${ICON_LINKS_START}\n${iconLinksHtml(iconLinks(null))}\n    ${ICON_LINKS_END}\n</head>`
-    const out = withIconLinks(html, iconLinks('0123456789abcdef'))
-    expect(out).toContain('<link rel="icon" href="/team-icon?v=0123456789abcdef" />')
-    expect(out).toContain('<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />')
-    expect(out).not.toContain('favicon')
-    const app = withIconLinks(html, iconLinks('0123456789abcdef', true))
-    expect(app).toContain('<link rel="icon" href="/team-icon?v=0123456789abcdef" />')
-    expect(app).toContain('<link rel="apple-touch-icon" href="/team-icon?v=0123456789abcdef" />')
-    expect(withIconLinks(out, iconLinks(null))).toBe(html)
-    expect(withIconLinks(app, iconLinks(null))).toBe(html)
-    expect(withIconLinks('<head></head>', iconLinks('0123456789abcdef'))).toBe('<head></head>')
-  })
-  test('the app icon: square and at least 512 px; the manifest takes only such a logo, as its only icon', () => {
-    expect(TEAM_ICON_APP_PX).toBe(512)
-    for (const [width, height, app] of [[512, 512, true], [4096, 4096, true], [511, 511, false], [100, 100, false], [180, 180, false], [1024, 512, false], [512, 1024, false]] as const) {
-      expect({ width, height, app: isAppIcon({ width, height }) }).toEqual({ width, height, app })
-    }
-    const built = JSON.stringify({ name: 'Team', icons: [{ src: '/icons/icon-192.png' }, { src: '/icons/icon-maskable-512.png', purpose: 'maskable' }] })
-    expect(manifestWithIcon(built, { type: 'image/png', width: 100, height: 100, version: '0123456789abcdef' })).toBe(built)
-    expect(manifestWithIcon(built, { type: 'image/png', width: 1024, height: 512, version: '0123456789abcdef' })).toBe(built)
-    expect(JSON.parse(manifestWithIcon(built, { type: 'image/webp', width: 512, height: 512, version: '0123456789abcdef' }))).toEqual({
-      name: 'Team', icons: [{ src: '/team-icon?v=0123456789abcdef', sizes: '512x512', type: 'image/webp', purpose: 'any' }],
-    })
   })
 })
 
@@ -199,27 +176,31 @@ describe('a logo set by an admin', () => {
     const again = await get('/team-icon', { 'if-none-match': `"${v}"` })
     expect(again.status).toBe(304)
   })
-  test('/favicon.ico is the logo at any size; the home-screen addresses keep the default under 512 px', async () => {
+  test('/favicon.ico and the home-screen addresses stay the product\'s icons of the build', async () => {
     const ico = await get('/favicon.ico')
-    expectIconHeaders(ico, 'image/png')
-    expect(await bytesOf(ico)).toEqual(logo)
+    expect(ico.status).toBe(200)
+    expect(ico.headers.get('content-type')).not.toContain('text/html')
+    const b = await bytesOf(ico)
+    expect(b).toEqual(built('favicon.ico'))
+    expect([...b.slice(0, 4)]).toEqual([0, 0, 1, 0])
     for (const p of ['/apple-touch-icon.png', '/apple-touch-icon-precomposed.png']) {
       const r = await get(p)
       expect({ p, status: r.status }).toEqual({ p, status: 200 })
-      expect(await bytesOf(r)).toEqual(new Uint8Array(fs.readFileSync(path.join(DIST, 'icons', 'apple-touch-icon.png'))))
+      expect(await bytesOf(r)).toEqual(built('icons/apple-touch-icon.png'))
     }
   })
-  test('index.html points its tab icon link at it from the first load (any page, signed in or not)', async () => {
+  test('index.html is served as built: the product\'s icon links, never the logo (any page, signed in or not)', async () => {
     for (const p of ['/', '/login', '/admin/settings', '/index.html']) {
       const html = await (await get(p)).text()
-      expect(html).toContain(`<link rel="icon" href="/team-icon?v=${v}" />`)
+      expect({ p, same: html === builtText('index.html') }).toEqual({ p, same: true })
+      expect(html).toContain('<link rel="icon" type="image/svg+xml" sizes="any" href="/favicon.svg" />')
       expect(html).toContain('<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />')
-      expect(html).not.toContain('/favicon.svg')
-      expect(html).toContain('<div id="root">')
+      expect(html).not.toContain('/team-icon')
     }
-    expect((await member.call('GET', '/api/me')).team.appIcon).toBeUndefined()
+    // the open page learns only the version (for the sidebar); no app-icon flag any more
+    expect(Object.keys((await member.call('GET', '/api/me')).team)).not.toContain('appIcon')
   })
-  test('the manifest of an installed app (PWA) keeps the default icons for a 256 px logo', async () => {
+  test('the manifest of an installed app (PWA) keeps the product\'s icons', async () => {
     const r = await get('/manifest.webmanifest')
     expect(r.headers.get('content-type')).toBe('application/manifest+json')
     const m = (await r.json()) as { name: string; start_url: string; icons: { src: string }[] }
@@ -239,53 +220,38 @@ describe('a logo set by an admin', () => {
   })
 })
 
-describe('the logo as the app icon (installed app, home screen): only square and at least 512 px', () => {
-  const builtIcons = ['/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-maskable-512.png']
-  const appleDefault = () => new Uint8Array(fs.readFileSync(path.join(DIST, 'icons', 'apple-touch-icon.png')))
+describe('any logo: the tab, home-screen and installed app icons stay the product\'s', () => {
   async function state() {
-    const me = (await member.call('GET', '/api/me')).team as { iconVersion: string | null; appIcon?: true }
-    const html = await (await get('/')).text()
-    const block = html.slice(html.indexOf(ICON_LINKS_START), html.indexOf(ICON_LINKS_END))
-    const manifest = (await (await get('/manifest.webmanifest')).json()) as { icons: { src: string; sizes?: string; type?: string; purpose?: string }[] }
-    return { me, block, manifest, apple: await bytesOf(await get('/apple-touch-icon.png')), precomposed: await bytesOf(await get('/apple-touch-icon-precomposed.png')), ico: await bytesOf(await get('/favicon.ico')) }
+    const me = (await member.call('GET', '/api/me')).team as Record<string, unknown>
+    return {
+      me,
+      html: await (await get('/')).text(),
+      manifest: await (await get('/manifest.webmanifest')).text(),
+      apple: await bytesOf(await get('/apple-touch-icon.png')),
+      precomposed: await bytesOf(await get('/apple-touch-icon-precomposed.png')),
+      ico: await bytesOf(await get('/favicon.ico')),
+    }
   }
+  // a square of 512 px or more was the installed app's icon until 2026-11-07; now no logo is
   for (const [name, bytes, type] of [
     ['a 100 px logo', makePng(100, 100), 'image/png'],
-    ['a 511 px logo', makePng(511, 511), 'image/png'],
     ['a wide 1024 × 512 logo', makeWebp(1024, 512), 'image/webp'],
+    ['a 512 px square', makePng(512, 512), 'image/png'],
+    ['a 1024 px square JPEG', makeJpeg(1024, 1024), 'image/jpeg'],
   ] as const) {
-    test(`${name}: the tab icon only; manifest, home-screen link and address keep the defaults`, async () => {
+    test(`${name}: served at /team-icon for the sidebar; links, manifest, ICO and home-screen addresses as built`, async () => {
       const info = (await (await put(admin, bytes, type)).json()) as { version: string }
+      expect(await bytesOf(await get(`/team-icon?v=${info.version}`))).toEqual(bytes)
       const s = await state()
-      expect(s.me).toEqual(expect.objectContaining({ iconVersion: info.version }))
-      expect(s.me.appIcon).toBeUndefined()
-      expect(s.block).toContain(`<link rel="icon" href="/team-icon?v=${info.version}" />`)
-      expect(s.block).toContain('<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />')
-      expect(s.manifest.icons.map((i) => i.src)).toEqual(builtIcons)
-      expect(s.apple).toEqual(appleDefault())
-      expect(s.precomposed).toEqual(appleDefault())
-      expect(s.ico).toEqual(bytes)
+      expect(s.me.iconVersion).toBe(info.version)
+      expect('appIcon' in s.me).toBe(false)
+      expect(s.html).toBe(builtText('index.html'))
+      expect(s.manifest).toBe(builtText('manifest.webmanifest'))
+      expect(s.apple).toEqual(built('icons/apple-touch-icon.png'))
+      expect(s.precomposed).toEqual(built('icons/apple-touch-icon.png'))
+      expect(s.ico).toEqual(built('favicon.ico'))
     })
   }
-  test('a 512 px square: the only icon of the manifest (no default maskable next to it), the home-screen link and address', async () => {
-    const logo = makePng(512, 512)
-    const info = (await (await put(admin, logo, 'image/png')).json()) as { version: string }
-    const s = await state()
-    expect(s.me).toEqual(expect.objectContaining({ iconVersion: info.version, appIcon: true }))
-    expect(s.block).toContain(`<link rel="icon" href="/team-icon?v=${info.version}" />`)
-    expect(s.block).toContain(`<link rel="apple-touch-icon" href="/team-icon?v=${info.version}" />`)
-    expect(s.manifest.icons).toEqual([{ src: `/team-icon?v=${info.version}`, sizes: '512x512', type: 'image/png', purpose: 'any' }])
-    expect(s.apple).toEqual(logo)
-    expect(s.precomposed).toEqual(logo)
-    expect(s.ico).toEqual(logo)
-    const r = await get('/manifest.webmanifest')
-    expect(r.headers.get('content-type')).toBe('application/manifest+json')
-    expect(r.headers.get('cache-control')).toBe('no-cache')
-    // a new logo is a new address in the manifest, so an installed app sees the change
-    const next = (await (await put(admin, makeJpeg(1024, 1024), 'image/jpeg')).json()) as { version: string }
-    expect(next.version).not.toBe(info.version)
-    expect((await state()).manifest.icons).toEqual([{ src: `/team-icon?v=${next.version}`, sizes: '1024x1024', type: 'image/jpeg', purpose: 'any' }])
-  })
 })
 
 describe('removing it brings the default back', () => {
@@ -294,9 +260,7 @@ describe('removing it brings the default back', () => {
     expect(r.status).toBe(204)
     expect(fs.existsSync(iconFile())).toBe(false)
     expect(await version(member)).toBeNull()
-    // the last logo was the app icon (a 1024 px square): that goes too
-    expect((await member.call('GET', '/api/me')).team.appIcon).toBeUndefined()
-    expect(await bytesOf(await get('/apple-touch-icon.png'))).toEqual(new Uint8Array(fs.readFileSync(path.join(DIST, 'icons', 'apple-touch-icon.png'))))
+    expect(await bytesOf(await get('/apple-touch-icon.png'))).toEqual(built('icons/apple-touch-icon.png'))
     const icon = await get('/team-icon')
     expectIconHeaders(icon, 'image/png')
     expect(await bytesOf(icon)).toEqual(new Uint8Array(fs.readFileSync(path.join(DIST, 'icons', 'icon-512.png'))))
@@ -305,10 +269,7 @@ describe('removing it brings the default back', () => {
     expect(ico.status).toBe(200)
     expect(ico.headers.get('content-type')).not.toContain('text/html')
     expect([...(await bytesOf(ico)).slice(0, 4)]).toEqual([0, 0, 1, 0])
-    const html = await (await get('/')).text()
-    const block = html.slice(html.indexOf(ICON_LINKS_START), html.indexOf(ICON_LINKS_END))
-    expect(block).toContain(iconLinksHtml(iconLinks(null)))
-    expect(html).not.toContain('/team-icon')
+    expect(await (await get('/')).text()).toBe(builtText('index.html'))
     const m = (await (await get('/manifest.webmanifest')).json()) as { icons: { src: string }[] }
     expect(m.icons.map((i) => i.src)).toEqual(['/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-maskable-512.png'])
     const acts = await auditActions()

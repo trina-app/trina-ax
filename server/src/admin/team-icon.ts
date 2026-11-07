@@ -1,11 +1,12 @@
-// The team's logo as the tab icon (Admin › Team settings; docs/DECISIONS.md "팀 로고"). One file, <data>/team-icon,
+// The team's logo (Admin › Team settings; docs/DECISIONS.md "Team logo as the tab icon", changed 2026-11-07): shown
+// only inside the page, in the computer's sidebar header; the tab and app icons stay the product's. One file, <data>/team-icon,
 // written atomically; its type and pixel size are read back from its header and its version is the start of its
 // SHA-256, so nothing about it lives anywhere else (a database restored from a backup cannot disagree with it).
 // Validation and the links are shared/src/team-icon.ts; the public /team-icon route is routes/web-static.ts.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { checkTeamIcon, imageInfo, isAppIcon, TEAM_ICON_MAX_BYTES, TEAM_ICON_MAX_PX, TEAM_ICON_MIN_PX, type TeamIconFile, type TeamIconProblem } from '@mycel/shared'
+import { checkTeamIcon, imageInfo, TEAM_ICON_MAX_BYTES, TEAM_ICON_MAX_PX, TEAM_ICON_MIN_PX, type TeamIconFile, type TeamIconProblem } from '@mycel/shared'
 import type { Locale, TeamIconInfo } from '@mycel/shared/api'
 import { fail, HttpError } from '../http/errors'
 import { writeAtomic } from '../system/streams'
@@ -28,8 +29,8 @@ const refuse = (problem: TeamIconProblem, locale: Locale): never =>
   })
 
 /**
- * Realtime notice: the team logo changed. Open windows ask GET /api/me again and point their icon links at the new
- * version (or back at the default). The message carries nothing.
+ * Realtime notice: the team logo changed. Open windows ask GET /api/me again and their sidebar header shows the new
+ * version (or the product's mark again). The message carries nothing.
  */
 export const TEAM_ICON_CHANGED = { type: 'notice', data: { level: 'info', code: 'team_icon_changed', message: '' } } as const
 
@@ -38,7 +39,7 @@ export const teamIconFile = (dataDir: string) => path.join(dataDir, 'team-icon')
 
 const versionOf = (b: Uint8Array) => crypto.createHash('sha256').update(b).digest('hex').slice(0, 16)
 
-// read on every page load, favicon and manifest request: kept in memory while the file's stat stays the same
+// read on every GET /api/me and /team-icon request: kept in memory while the file's stat stays the same
 const cache = new Map<string, { key: string; icon: TeamIconFile | null }>()
 
 /** The stored logo, or null (none, or a file that is no longer a logo we accept). */
@@ -61,11 +62,9 @@ export function readTeamIcon(dataDir: string): TeamIconFile | null {
   return icon
 }
 
-/** What GET /api/me says about the logo: its version (null: none), and `appIcon` when it is also the app icon of the
- * installed app and the home screen (isAppIcon: square, at least 512 px). */
-export function teamIconOfMe(dataDir: string): { iconVersion: string | null; appIcon?: true } {
-  const icon = readTeamIcon(dataDir)
-  return { iconVersion: icon?.version ?? null, ...(icon && isAppIcon(icon) ? { appIcon: true as const } : {}) }
+/** What GET /api/me says about the logo: its version (null: none). */
+export function teamIconOfMe(dataDir: string): { iconVersion: string | null } {
+  return { iconVersion: readTeamIcon(dataDir)?.version ?? null }
 }
 
 export const teamIconInfo = (i: TeamIconFile): TeamIconInfo => ({ version: i.version, type: i.type, width: i.width, height: i.height, size: i.bytes.byteLength })

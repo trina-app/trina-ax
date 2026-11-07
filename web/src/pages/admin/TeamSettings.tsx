@@ -6,7 +6,7 @@
 // with the team's key, or whisper.cpp on this server; docs/DECISIONS.md "Voice input through OpenRouter"; a saved team key
 // turns it on while no provider is chosen, "Voice input on a team's own server: the key turns it on") and whether
 // the AI's video and audio reads turn sound into text ("AI reads video and audio"), and the team
-// logo (the tab icon, and the home-screen app icon when square and at least 512 px; shared/src/team-icon.ts), the
+// logo (the computer's sidebar header; the tab and app icons stay the product's; shared/src/team-icon.ts), the
 // company profile every chat's AI is told (components/onboarding/CompanyProfileCard.tsx), the dev environment
 // (DevEnvTeam.tsx, hidden when the server has it off), and for the owner the ownership transfer
 // (TransferOwner.tsx). After the form, the team's AI settings (AI defaults, who picks the engine, members' own AI
@@ -16,7 +16,7 @@
 import clsx from 'clsx'
 import { useEffect, useRef, useState } from 'react'
 import { ExternalLink, RotateCcw, Upload } from 'lucide-react'
-import { DEFAULT_APPLE_TOUCH_ICON, TEAM_ICON_APP_PX, teamIconUrl, TEAM_ICON_TYPES } from '@mycel/shared'
+import { teamIconUrl, TEAM_ICON_TYPES } from '@mycel/shared'
 import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_SPEECH_MODEL, mediaTranscriptsDefault, mediaTranscriptsOffSmall, TeamSettings, type Locale, type SpeechHost, type SpeechProvider, DEFAULT_DECK_TIER } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
@@ -189,11 +189,11 @@ function DaysRow({ id, title, desc, value, min, max, onChange }: { id: string; t
 }
 
 /**
- * The team logo: the tab icon of everyone's browser, the sign-in page's icon, and the home-screen and installed app's
- * icon when it is square and at least 512 px (GET /api/me team.appIcon; else those keep the default mark). Uploaded
- * at once when chosen (PNG, JPEG or WebP; checked here first, the server checks again), removed back to the default
- * mark. A row with the logo now and its buttons; the previews at the sizes browsers and phones show it, on a light and
- * a dark background, behind "Show previews".
+ * The team logo: shown only inside the page, at the top left of the computer's sidebar next to the team name (the
+ * phone's menu keeps the product's mark). The browser tab, bookmarks, the home-screen and installed app's icons stay
+ * the product's (docs/DECISIONS.md "Team logo as the tab icon", changed 2026-11-07). Uploaded at once when chosen (PNG,
+ * JPEG or WebP; checked here first, the server checks again), removed back to the default mark. A row with the logo
+ * now and its buttons; behind "Show previews", the sidebar header with it in the light and the dark look.
  */
 export function TeamIconRow() {
   const t = useT()
@@ -236,16 +236,13 @@ export function TeamIconRow() {
     }
   }
 
-  // what each place shows: the logo in tabs at any size, on the home screen only when it is also the app icon; else the
-  // default mark (the SVG in tabs, the home-screen PNG)
-  const tabSrc = version ? teamIconUrl(version) : '/favicon.svg'
-  const logoSrc = version ? teamIconUrl(version) : DEFAULT_APPLE_TOUCH_ICON
-  const homeSrc = version && me.team.appIcon ? teamIconUrl(version) : DEFAULT_APPLE_TOUCH_ICON
+  // what the sidebar header shows (components/Sidebar.tsx): the logo, else the product's mark
+  const logoSrc = version ? teamIconUrl(version) : '/favicon.svg'
   return (
     <div data-testid="team-icon" data-version={version ?? ''}>
       <SettingRow heading title={t('teamIcon.title')}
-        desc={<>{t('teamIcon.desc', { n: TEAM_ICON_APP_PX })} <span data-testid="team-icon-status">{version ? t('teamIcon.custom') : t('teamIcon.default')}</span></>}
-        more={t('teamIcon.hint', { n: TEAM_ICON_APP_PX })}
+        desc={<>{t('teamIcon.desc')} <span data-testid="team-icon-status">{version ? t('teamIcon.custom') : t('teamIcon.default')}</span></>}
+        more={t('teamIcon.hint')}
         control={
           <span className="inline-flex flex-wrap items-center gap-2">
             <img src={logoSrc} alt="" width={36} height={36} className="h-9 w-9 rounded-lg border border-line object-cover" />
@@ -282,19 +279,13 @@ export function TeamIconRow() {
               {previews ? t('teamIcon.hidePreviews') : t('teamIcon.showPreviews')}
             </button>
             <div hidden={!previews} className="mt-3 flex flex-wrap gap-3">
+              {/* the sidebar header as it is drawn (the 20 px logo, cropped square, beside the team name) on the sidebar's
+                  background and text colour of each look (theme.edition.css --c-subtle, --c-ink, --c-line) */}
               {(['light', 'dark'] as const).map((scheme) => (
-                <figure key={scheme} className="m-0" data-testid={`team-icon-preview-${scheme}`}>
-                  <div className={`flex flex-wrap items-end gap-4 rounded-xl border p-3 ${scheme === 'light' ? 'border-[#d9d6cf] bg-[#ffffff]' : 'border-[#3a3835] bg-[#1f1e1c]'}`}>
-                    {[16, 32].map((n) => (
-                      <div key={n} className="flex flex-col items-center gap-1.5">
-                        <img src={tabSrc} alt="" width={n} height={n} style={{ width: n, height: n }} className="object-contain" data-testid={`team-icon-img-${n}`} />
-                        <span className={`text-[0.6875rem] ${scheme === 'light' ? 'text-[#4a4743]' : 'text-[#c9c5bd]'}`}>{t('teamIcon.sizeTab', { n })}</span>
-                      </div>
-                    ))}
-                    <div className="flex flex-col items-center gap-1.5">
-                      <img src={homeSrc} alt="" width={180} height={180} style={{ width: 180, height: 180, borderRadius: 40 }} className="object-cover" data-testid="team-icon-img-180" />
-                      <span className={`text-[0.6875rem] ${scheme === 'light' ? 'text-[#4a4743]' : 'text-[#c9c5bd]'}`}>{t('teamIcon.sizeHome', { n: 180 })}</span>
-                    </div>
+                <figure key={scheme} className="m-0 w-60 max-w-full" data-testid={`team-icon-preview-${scheme}`}>
+                  <div className={clsx('flex items-center gap-2 rounded-xl border px-4 py-3 text-[0.9375rem] font-semibold tracking-tight', scheme === 'light' ? 'border-[#e9e3d8] bg-[#f6f2ea] text-[#14110f]' : 'border-[#2c2723] bg-[#1d1916] text-[#f6f2ea]')}>
+                    <img src={logoSrc} alt="" width={20} height={20} className="size-5 shrink-0 rounded-md object-cover" data-testid="team-icon-preview-logo" />
+                    <span className="truncate">{me.team.name}</span>
                   </div>
                   <figcaption className="mt-1 text-xs text-muted">{t(scheme === 'light' ? 'teamIcon.light' : 'teamIcon.dark')}</figcaption>
                 </figure>

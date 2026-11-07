@@ -1,28 +1,44 @@
-// The tab icon (shared/src/team-icon.ts, src/lib/team-icon.ts): the default icon files and links of the app shell, the
-// links the page switches to after sign-in, and the checks before uploading a team logo.
-import { describe, expect, test } from 'bun:test'
+// The tab icon and the team logo (shared/src/team-icon.ts, src/lib/team-icon.ts): the product's icon files and links
+// of the app shell, which signing in leaves alone whatever logo the team has (since 2026-11-07 the logo shows only in
+// the computer's sidebar header; docs/DECISIONS.md), and the checks before uploading a team logo.
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { ICON_LINKS_END, ICON_LINKS_START, iconLinks, iconLinksHtml, imageInfo, TEAM_ICON_MAX_BYTES, type TeamIconProblem } from '@mycel/shared'
-import { checkIconFile, nextIconLinks } from '../../src/lib/team-icon'
+import { imageInfo, TEAM_ICON_MAX_BYTES, type TeamIconProblem } from '@mycel/shared'
+import type { Me } from '@mycel/shared/api'
+import { checkIconFile } from '../../src/lib/team-icon'
 import { DICTS } from '../../src/i18n'
+import { applyTheme } from '../../src/lib/theme'
+import { useSession } from '../../src/store/session'
 import { makeJpeg, makePng, makeWebp, SVG } from '../../../tests/lib/images'
+import { installDom, removeDom } from './dom-host'
 
 const WEB = path.resolve(import.meta.dir, '../..')
 const PUBLIC = path.join(WEB, 'public')
 
-describe('the default icon', () => {
-  test('index.html carries exactly the default links between the markers (the server swaps that block)', () => {
-    const html = fs.readFileSync(path.join(WEB, 'index.html'), 'utf8')
-    const a = html.indexOf(ICON_LINKS_START)
-    const z = html.indexOf(ICON_LINKS_END)
-    expect(a).toBeGreaterThan(0)
-    expect(html.slice(a + ICON_LINKS_START.length, z).trim()).toBe(iconLinksHtml(iconLinks(null)).trim())
-    // no other icon link outside the block (it would stay behind when a logo is set)
-    expect((html.slice(0, a) + html.slice(z)).match(/rel="(icon|apple-touch-icon)"/g)).toBeNull()
+/** the product's icon links of web/index.html, in order: PNG tab icons, the SVG last for browsers that take it, the
+ * home-screen icon */
+const PRODUCT_LINKS = [
+  { rel: 'icon', type: 'image/png', sizes: '16x16', href: '/icons/favicon-16.png' },
+  { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/icons/favicon-32.png' },
+  { rel: 'icon', type: 'image/png', sizes: '48x48', href: '/icons/favicon-48.png' },
+  { rel: 'icon', type: 'image/svg+xml', sizes: 'any', href: '/favicon.svg' },
+  { rel: 'apple-touch-icon', href: '/icons/apple-touch-icon.png' },
+]
+const linkTags = (html: string) =>
+  [...html.matchAll(/<link\s+rel="(icon|apple-touch-icon)"([^>]*)>/g)].map((m) => {
+    const attr = (n: string) => new RegExp(`${n}="([^"]*)"`).exec(m[2]!)?.[1]
+    return { rel: m[1]!, ...(attr('type') ? { type: attr('type') } : {}), ...(attr('sizes') ? { sizes: attr('sizes') } : {}), href: attr('href')! }
   })
-  test('every default link points at a file of the build, PNGs at the size they say', () => {
-    for (const l of iconLinks(null)) {
+
+describe('the product\'s icon', () => {
+  test('index.html links exactly the product\'s icons, never the team logo', () => {
+    const html = fs.readFileSync(path.join(WEB, 'index.html'), 'utf8')
+    expect(linkTags(html)).toEqual(PRODUCT_LINKS)
+    expect(html).not.toContain('/team-icon')
+  })
+  test('every link points at a file of the build, PNGs at the size they say', () => {
+    for (const l of PRODUCT_LINKS) {
       const file = path.join(PUBLIC, l.href)
       expect({ href: l.href, exists: fs.existsSync(file) }).toEqual({ href: l.href, exists: true })
       if (l.type === 'image/png') {
@@ -48,36 +64,39 @@ describe('the default icon', () => {
   })
 })
 
-describe('the links after sign-in', () => {
-  const defaults = iconLinks(null)
-  test('an older server (no iconVersion) leaves the page alone; links already right are not touched', () => {
-    expect(nextIconLinks(defaults, undefined)).toBeNull()
-    expect(nextIconLinks(defaults, null)).toBeNull()
-    expect(nextIconLinks(iconLinks('0123456789abcdef'), '0123456789abcdef')).toBeNull()
+describe('signing in leaves the page\'s icon links alone', () => {
+  const me = (team: Record<string, unknown>): Me => ({
+    user: { id: 'alice', username: 'alice', name: 'Alice', email: null, role: 'member', locale: 'en', localeChoice: 'en', mustChangePassword: false, prefs: {} },
+    team: { name: 'Acme', defaultLocale: 'en', ...team }, groups: [],
+    session: { id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', expiresAt: '2030-01-01T00:00:00.000Z' },
+    server: { version: 'test', dev: true },
+  } as Me)
+  const links = () => [...document.head.querySelectorAll('link')].map((l) => `${l.getAttribute('rel')} ${l.getAttribute('href')}`)
+
+  beforeEach(() => {
+    installDom()
+    // the theme, applied with it on sign-in, toggles a class the fake document has no list for
+    const html = document.documentElement as unknown as { classList?: unknown }
+    html.classList ??= { toggle() {} }
+    for (const l of PRODUCT_LINKS) {
+      const el = document.createElement('link')
+      for (const [k, v] of Object.entries(l)) el.setAttribute(k, v)
+      document.head.appendChild(el)
+    }
   })
-  test('a logo: the tab icon points at /team-icon?v=…, the home-screen icon only when it is the app icon', () => {
-    // under 512 px or not square (no team.appIcon): the default home-screen icon stays
-    expect(nextIconLinks(defaults, '0123456789abcdef')).toEqual([
-      { rel: 'icon', href: '/team-icon?v=0123456789abcdef' },
-      { rel: 'apple-touch-icon', href: '/icons/apple-touch-icon.png' },
-    ])
-    // a square of at least 512 px: both
-    expect(nextIconLinks(defaults, '0123456789abcdef', true)).toEqual([
-      { rel: 'icon', href: '/team-icon?v=0123456789abcdef' },
-      { rel: 'apple-touch-icon', href: '/team-icon?v=0123456789abcdef' },
-    ])
-    expect(nextIconLinks(iconLinks('0123456789abcdef', true), '0123456789abcdef', true)).toBeNull()
-    // replaced by a smaller logo: the home-screen link goes back to the default
-    expect(nextIconLinks(iconLinks('0123456789abcdef', true), 'fedcba9876543210')).toEqual([
-      { rel: 'icon', href: '/team-icon?v=fedcba9876543210' },
-      { rel: 'apple-touch-icon', href: '/icons/apple-touch-icon.png' },
-    ])
+  afterEach(() => {
+    applyTheme('system')
+    useSession.setState({ status: { kind: 'loading' } })
+    removeDom()
   })
-  test('removed: the default links again', () => {
-    expect(nextIconLinks(iconLinks('0123456789abcdef'), null)).toEqual(defaults)
-    expect(nextIconLinks(iconLinks('0123456789abcdef', true), null)).toEqual(defaults)
-    // a page whose links were changed some other way is put right
-    expect(nextIconLinks(defaults.slice(1), null)).toEqual(defaults)
+
+  test('no logo, a logo, and a logo from an older server that still says appIcon: the product\'s links stay', () => {
+    const before = links()
+    expect(before).toEqual(PRODUCT_LINKS.map((l) => `${l.rel} ${l.href}`))
+    for (const team of [{ iconVersion: null }, { iconVersion: '0123456789abcdef' }, { iconVersion: 'fedcba9876543210', appIcon: true }, {}]) {
+      useSession.getState().signedIn(me(team))
+      expect({ team, links: links() }).toEqual({ team, links: before })
+    }
   })
 })
 
