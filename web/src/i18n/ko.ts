@@ -3460,6 +3460,7 @@ export const ko = {
   "tabs.back": "뒤로",
   "sidebar.aiChats": "{name} 기록",
   "sidebar.showMore": "더 보기 ({n})",
+  "sidebar.allRooms": "모든 대화",
   "sidebar.moreUnread": "안 읽음 {n}",
   "sidebar.needsYou": "답 필요 {n}",
   "marker.card": "답을 기다려요",
