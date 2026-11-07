@@ -2,11 +2,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { ConfigContext, ExpoConfig } from 'expo/config'
-import { mobileProduct } from './src/product.ts'
+import { labelSetup, mobileProduct } from './src/product.ts'
 import { IOS_USAGE } from './src/strings.ts'
 
 /** Store version (CFBundleShortVersionString / versionName). The build number must grow with every upload. */
-const VERSION = '1.0.0'
+const VERSION = '1.0.1'
 
 /** `MYCEL_MOBILE_EDITION=<name>` reads editions/<name>/branding/mobile.json (only the fields src/product.ts accepts) and
  * the fixed asset names in editions/<name>/branding/mobile/. Without it the neutral Team AX defaults apply. */
@@ -32,6 +32,9 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
   const chosen = edition(projectRoot)
   const product = mobileProduct(chosen.values ?? config.extra?.teamAxEdition)
   const background = product.background ?? '#fcfbf8', build = buildNumber()
+  // iPhone: who and where in a room push, through a notification service extension and a keychain group shared with it
+  // (src/labels.ts); only for an edition that names its Apple team, because the group carries the team id
+  const labels = labelSetup(product)
   // Android push needs the FCM project file (owner-provided, not in the repository). Without it Android builds skip push.
   const googleServices = process.env.MYCEL_MOBILE_GOOGLE_SERVICES
   if (googleServices && !(path.basename(googleServices) === 'google-services.json' && fs.existsSync(googleServices))) throw new Error('MYCEL_MOBILE_GOOGLE_SERVICES must name an existing google-services.json')
@@ -79,7 +82,9 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
       './plugins/google-services.js',
       // local end-to-end tests only: trust MYCEL_MOBILE_TEST_CA for https://localhost (refused by the release scripts)
       './plugins/test-ca.js',
+      // the iPhone notification service extension and the keychain group the app shares with it
+      ...(labels ? [['./plugins/notification-service.js', { ...labels, teamId: product.appleTeamId, version: VERSION, build }] as [string, unknown]] : []),
     ],
-    extra: { teamAxEdition: product, pushEnabled: { ios: true, android: !!googleServices } },
+    extra: { teamAxEdition: product, pushEnabled: { ios: true, android: !!googleServices }, pushLabels: labels },
   }
 }
