@@ -15,7 +15,7 @@ import { makeCApp, type CApp } from '../lib/c-app'
 import { cutText, matchStrength, passageOf, questionTerms, STRONG_NEAR } from '../../server/src/knowledge-graph/documents'
 import type { DocHit, DocIndexOptions, DocIndexPort, DocLink, DocSearchOptions } from '../../server/src/knowledge-graph/docs-port'
 import { knowledgeGraphOf, LOOKUP_LONG, LOOKUP_LONG_CHARS, LOOKUP_SHORT, LOOKUP_SHORT_CHARS, openDocumentIndex, setKnowledgeGraphForTests, type KnowledgeGraph, type LookupResult } from '../../server/src/knowledge-graph/service'
-import { exploreText, LONG_TOKENS, TOOL_TOKENS_MAX } from '../../server/src/knowledge-graph/tool'
+import { exploreText, LONG_TOKENS, NOTHING_FOUND, TOOL_TOKENS_MAX } from '../../server/src/knowledge-graph/tool'
 import { estimateTokens } from '../../server/src/knowledge-graph/tokens'
 import { DEFAULT_DEADLINE_MS, DocSearchWorker, FAILS_MAX, PAUSE_MS } from '../../server/src/knowledge-graph/documents/search-worker'
 import os from 'node:os'
@@ -303,7 +303,7 @@ describe('the tool', () => {
     expect(out.hits.length).toBeLessThan(20)
     expect(out.text).toContain('More matches were left out')
     expect(out.text).toContain('2 folders are still being indexed')
-    expect(exploreText({ passages: [], related: [], hits: [], pending: 0 }, 'en').text).toBe('Nothing in the indexed documents or code matches, or nothing is indexed there yet. Use grep and read.')
+    expect(exploreText({ passages: [], related: [], hits: [], pending: 0 }, 'en').text).toBe(NOTHING_FOUND)
   })
   test('Korean passages are budgeted in tokens: shorter, and the whole answer still within the cap', () => {
     const ko = (i: number, long: boolean) => ({ path: `shared/회의록-${i}.md`, loc: null, text: '환불 정책은 칠일 이내로 정했습니다. '.repeat(long ? 80 : 20).slice(0, long ? LOOKUP_LONG_CHARS : LOOKUP_SHORT_CHARS), score: 10 - i / 100, long })

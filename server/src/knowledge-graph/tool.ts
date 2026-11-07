@@ -31,7 +31,7 @@ export const KnowledgeExploreInput = z.object({
 })
 
 /** the answer when nothing is found, the same whether or not anything is indexed (F1) */
-export const NOTHING_FOUND = 'Nothing in the indexed documents or code matches, or nothing is indexed there yet. Use grep and read.'
+export const NOTHING_FOUND = 'Nothing in the indexed documents or code matches, or nothing is indexed there yet. If the documents may be in another language, search again with alt_query in that language (Korean or English); look at file names with glob, and use grep for exact text.'
 
 /** the whole answer's size in estimated tokens */
 export const TOOL_TOKENS_MAX = 6_000
