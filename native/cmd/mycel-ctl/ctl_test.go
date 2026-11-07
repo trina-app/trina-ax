@@ -41,6 +41,10 @@ func newTestBase(t *testing.T, from string) *testBase {
 	t.Helper()
 	rootUID = os.Getuid()
 	t.Cleanup(func() { rootUID = 0 })
+	// no system identity (sync.go osIdentity): the tests' sync records carry no "os", on a Linux runner too
+	prevM, prevO := machineIDPath, osReleasePath
+	machineIDPath, osReleasePath = filepath.Join(t.TempDir(), "no-machine-id"), filepath.Join(t.TempDir(), "no-os-release")
+	t.Cleanup(func() { machineIDPath, osReleasePath = prevM, prevO })
 	w, _ := filepath.EvalSymlinks(t.TempDir())
 	tb := &testBase{t: t, base: filepath.Join(w, "base"), fakeBin: filepath.Join(w, "bin"), sysCalls: filepath.Join(w, "systemctl.calls")}
 	for _, d := range []string{"root", "run", "app/versions/" + from + "/bin", "config", "data", "run-launcher"} {

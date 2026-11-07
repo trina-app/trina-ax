@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -131,9 +132,9 @@ func TestUpdateSystemPackagesFailureIsANote(t *testing.T) {
 // goes on: a note, never a failure, never the app held up.
 func TestUpdateSyncDeadlineStopsTheGroup(t *testing.T) {
 	tb := syncTestBase(t)
-	prevT, prevW := syncTimeout, syncWaitDelay
-	syncTimeout, syncWaitDelay = 1500*time.Millisecond, 2*time.Second
-	t.Cleanup(func() { syncTimeout, syncWaitDelay = prevT, prevW })
+	prevT, prevW := syncInlineTimeout, syncWaitDelay
+	syncInlineTimeout, syncWaitDelay = 1500*time.Millisecond, 2*time.Second
+	t.Cleanup(func() { syncInlineTimeout, syncWaitDelay = prevT, prevW })
 	pidFile := filepath.Join(t.TempDir(), "child.pid")
 	_, arch, k := listBundle(t, "new launcher", "sleep 60 &\necho $! > '"+pidFile+"'\nwait\n")
 	start := time.Now()
@@ -329,6 +330,142 @@ func TestSyncStatusLine(t *testing.T) {
 		listRoot(t, tb, c.synced)
 		if line, _, _ := syncStatus(e, time.Now()); !strings.HasPrefix(line, c.want) {
 			t.Fatalf("%q: %q", c.synced, line)
+		}
+	}
+}
+
+// syncUnitBase is a syncTestBase on "systemd": update starts the sync as a unit (startSyncUnit, stubbed: it records its
+// arguments and starts nothing) instead of running packages.sh itself.
+func syncUnitBase(t *testing.T, startErr error, startOut string) (*testBase, *[][]string) {
+	tb := syncTestBase(t)
+	prevUnit := syncAsUnit
+	syncAsUnit = func(*updater) bool { return true }
+	t.Cleanup(func() { syncAsUnit = prevUnit })
+	started := &[][]string{}
+	prev := startSyncUnit
+	startSyncUnit = func(args []string) (string, error) {
+		*started = append(*started, args)
+		return startOut, startErr
+	}
+	t.Cleanup(func() { startSyncUnit = prev })
+	return tb, started
+}
+
+// High 2 of the review of PR #164: with systemd the sync never runs inside the update command. A packages.sh that would
+// take a minute does not delay the update, its result is "ok" with a note naming the unit, and the unit gets the
+// installed mycel-ctl, the base and the proxy settings (systemd-run passes no environment), never a bun from the
+// bundle folder the update removes.
+func TestUpdateStartsTheSyncAsAUnit(t *testing.T) {
+	tb, started := syncUnitBase(t, nil, "")
+	t.Setenv("https_proxy", "http://proxy.example:3128")
+	marker := filepath.Join(t.TempDir(), "ran")
+	_, arch, k := listBundle(t, "new launcher", "touch '"+marker+"'\nsleep 60\n")
+	start := time.Now()
+	code, r := tb.update(t, "--bundle", arch, "--pubkey", k)
+	if took := time.Since(start); code != 0 || r.Result != "ok" || !r.AppUpdated || took > 20*time.Second {
+		t.Fatalf("%d %+v after %v", code, r, took)
+	}
+	if fileExists(marker) {
+		t.Fatal("packages.sh ran inside the update command")
+	}
+	if !strings.Contains(strings.Join(r.Notes, "\n"), "the sync runs in mycel-packages-sync.service after this update") || len(*started) != 1 {
+		t.Fatalf("notes %v, started %q", r.Notes, *started)
+	}
+	args := strings.Join((*started)[0], " ")
+	for _, want := range []string{"--unit=mycel-packages-sync ", "--collect", "--no-block", "--property=RuntimeMaxSec=", "--setenv=https_proxy=http://proxy.example:3128",
+		" " + filepath.Join(tb.base, "root", "mycel-ctl") + " packages-sync --base " + tb.base} {
+		if !strings.Contains(args, want) {
+			t.Fatalf("systemd-run %s: no %q", args, want)
+		}
+	}
+	if strings.Contains(args, "--bun") || strings.Contains(args, "--setenv=PATH=") {
+		t.Fatalf("systemd-run %s", args)
+	}
+}
+
+// One sync at a time: a unit that runs already stays (no second start, a note); a unit that cannot start is an
+// "incomplete" record, so the timer tries again after syncRetry, and the update stays "ok".
+func TestSyncUnitRunningOrNotStarting(t *testing.T) {
+	tb, started := syncUnitBase(t, nil, "")
+	must(t, os.WriteFile(filepath.Join(tb.fakeBin, "systemctl"), []byte("#!/bin/sh\n[ \"$1\" = is-active ] && [ \"$2\" = mycel-packages-sync.service ] && echo active\nexit 0\n"), 0o755))
+	_, arch, k := listBundle(t, "new launcher", "exit 0\n")
+	code, r := tb.update(t, "--bundle", arch, "--pubkey", k)
+	if code != 0 || r.Result != "ok" || len(*started) != 0 || !strings.Contains(strings.Join(r.Notes, "\n"), "a sync runs already (mycel-packages-sync.service)") {
+		t.Fatalf("%d %+v started %q", code, r, *started)
+	}
+	tb, started = syncUnitBase(t, os.ErrPermission, "Failed to connect to bus")
+	_, arch, k = listBundle(t, "new launcher", "exit 0\n")
+	code, r = tb.update(t, "--bundle", arch, "--pubkey", k)
+	s := readSynced(&env{base: tb.base})
+	if code != 0 || r.Result != "ok" || len(*started) != 1 || s == nil || s.Result != "incomplete" || !strings.Contains(s.Detail, "could not start mycel-packages-sync.service") {
+		t.Fatalf("%d %+v record %+v", code, r, s)
+	}
+}
+
+// The unit's command: packages.sh sync from a private copy of root/'s list and reader (an update that replaces root/
+// meanwhile does not change the script bash reads), its lines on stdout (the journal); a second one at the same time
+// ends at once without running anything.
+func TestPackagesSyncCommand(t *testing.T) {
+	tb := syncTestBase(t)
+	marker := filepath.Join(t.TempDir(), "ran")
+	script := "printf '%s\\n' \"$0\" >> '" + marker + "'\nls \"$(dirname \"$0\")\" >> '" + marker + "'\necho 'packages: chrome-headless-shell 157.0.8103.38'\n"
+	must(t, os.WriteFile(filepath.Join(tb.base, "root", packagesSh), []byte(script), 0o644))
+	must(t, os.WriteFile(filepath.Join(tb.base, "root", packagesList), []byte(`{"format":1}`), 0o644))
+	run := func() (int, string) {
+		e := newEnv()
+		var out bytes.Buffer
+		e.stdout, e.stderr = &out, &out
+		code, err := cmdPackagesSync(e, []string{"--base", tb.base})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return code, out.String()
+	}
+	code, out := run()
+	b, _ := os.ReadFile(marker)
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if code != 0 || !strings.Contains(out, "packages: chrome-headless-shell 157.0.8103.38") || len(lines) != 3 ||
+		strings.HasPrefix(lines[0], filepath.Join(tb.base, "root", packagesSh)) || lines[1] != packagesList || lines[2] != packagesSh {
+		t.Fatalf("%d %q ran %q", code, out, lines)
+	}
+	if left, _ := filepath.Glob(filepath.Join(tb.base, "root", ".packages-sync-*")); len(left) != 0 {
+		t.Fatalf("the private copy stays: %q", left)
+	}
+	unlock, err := lockUpdate(filepath.Join(tb.base, "root", ".packages-sync.lock"))
+	must(t, err)
+	defer unlock()
+	os.Remove(marker)
+	if code, out := run(); code != 0 || !strings.Contains(out, "another sync is running") || fileExists(marker) {
+		t.Fatalf("a second sync: %d %q", code, out)
+	}
+}
+
+// Medium 1 of the review: the record names the system it was made on. A reimage (a new machine-id) or an OS upgrade
+// with the data disk kept makes the sync pending again; a record from before the field gets one catch-up sync.
+func TestSyncRecordNamesTheSystem(t *testing.T) {
+	tb := newTestBase(t, "0.1.0")
+	dir := t.TempDir()
+	prevM, prevO := machineIDPath, osReleasePath
+	machineIDPath, osReleasePath = filepath.Join(dir, "machine-id"), filepath.Join(dir, "os-release")
+	t.Cleanup(func() { machineIDPath, osReleasePath = prevM, prevO })
+	must(t, os.WriteFile(osReleasePath, []byte("PRETTY_NAME=\"Debian GNU/Linux 13 (trixie)\"\nID=debian\nVERSION_ID=\"13\"\n"), 0o644))
+	must(t, os.WriteFile(machineIDPath, []byte("0123456789abcdef0123456789abcdef\n"), 0o444))
+	if got := osIdentity(); got != "debian-13/0123456789abcdef0123456789abcdef" {
+		t.Fatalf("osIdentity %q", got)
+	}
+	e := &env{base: tb.base, now: time.Now}
+	for _, c := range []struct {
+		os      string
+		pending bool
+	}{
+		{"debian-13/0123456789abcdef0123456789abcdef", false},
+		{"debian-13/ffffffffffffffffffffffffffffffff", true}, // a reimage: the image's clone got a new machine-id
+		{"debian-12/0123456789abcdef0123456789abcdef", true}, // an OS upgrade
+		{"", true}, // a record from before the field
+	} {
+		listRoot(t, tb, `{"format":1,"list":"SUM","result":"ok","at":"2026-11-01T00:00:00Z","os":"`+c.os+`"}`)
+		if p, why := syncPending(e, time.Now(), false); p != c.pending || (p && !strings.Contains(why, "another system")) {
+			t.Fatalf("%q: %v %q", c.os, p, why)
 		}
 	}
 }
