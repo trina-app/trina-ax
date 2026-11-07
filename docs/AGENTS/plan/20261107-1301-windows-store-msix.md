@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-07 13:01
 - Branch: `feat/windows-store-msix`
-- Status: in progress
+- Status: done
 - Where: `editions/trina/microsoft-store/` (store package settings, like `editions/trina/mac-app-store/`) and small
   shared changes in `desktop/` and `web/`. Why: the store listing is Trina's, but "a store build does not update
   itself" is the same rule the Mac App Store build already follows (see docs/REPOSITORY-RULES.md)
@@ -59,4 +59,8 @@ Out:
 
 ## Result
 
-(fill in when done)
+- Steps 1–5 are in this branch: the store build turns its own update check off and shows the Microsoft Store line,
+  the MSIX config with tile images and manifest (microphone), the `Microsoft Store package` workflow, the listing
+  text. The workflow's pull-request run builds a test package with a placeholder identity.
+- Step 6 waits for Microsoft: on 2026-11-07 the account's employment check was still "reviewing" (submitted
+  2026-10-30). Then: reserve "Trina AX", copy the identity into `IDENTITY`, run the workflow, upload, submit.
