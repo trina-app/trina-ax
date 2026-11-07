@@ -506,7 +506,7 @@ export const id: Record<MessageKey, string> = {
   'devEnvQueue.full': 'Lingkungan pengembangan penuh. Coba lagi nanti.',
   'devEnvQueue.cancelled': 'Dibatalkan. Tidak dijalankan.',
   'steps.failed': 'Gagal',
-  'steps.retried': 'Tidak berhasil, jadi {ai} mencoba cara lain',
+  'steps.retried': 'Tidak berhasil, tapi {ai} melanjutkan dengan cara lain',
   'steps.retrying': 'Tidak berhasil; {ai} sedang mencoba cara lain',
   'steps.paused': 'Berhenti di sini',
   'steps.stopped': 'Dihentikan di sini',

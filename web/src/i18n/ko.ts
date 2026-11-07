@@ -505,7 +505,7 @@ export const ko = {
   'devEnvQueue.full': '개발 환경이 가득 찼어요. 나중에 다시 해 주세요.',
   'devEnvQueue.cancelled': '취소했어요. 실행하지 않았어요.',
   'steps.failed': '실패',
-  'steps.retried': '안 돼서 {ai}가 다른 방법으로 다시 했어요',
+  'steps.retried': '안 됐지만 {ai}가 다른 방법으로 이어 갔어요',
   'steps.retrying': '안 돼서 {ai}가 다른 방법을 찾고 있어요',
   'steps.paused': '여기서 멈춤',
   'steps.stopped': '여기서 중지됨',

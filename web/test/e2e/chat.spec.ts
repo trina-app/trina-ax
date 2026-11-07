@@ -185,15 +185,14 @@ test('stop: a step still running then shows as stopped, not as a failed step (li
   await expect(lastAnswer(page).getByTestId('steps').getByTestId('steps-failed')).toHaveCount(0)
 })
 
-test('a failed step the AI got past: a quiet mark with its words, no red; a failed answer keeps the red', async ({ page }) => {
+test('a failed step the AI got past: a quiet mark with its words, no red; a save nothing got past stays red', async ({ page }) => {
   // docs/DECISIONS.md "A failed step the AI got past is not red"
   await reset(page)
   await signIn(page)
   await ask(page, 'wrong-guess slow slow slow slow slow slow slow slow slow slow')
-  // while the answer runs, the failed guess is not red either (the AI may still get past it)
+  // while the answer runs, the failed guess is not red either
   const guess = (scope: ReturnType<typeof lastAnswer>) => scope.getByTestId('steps').getByRole('listitem').filter({ hasText: 'acme-profile.md' })
   await expect(guess(lastAnswer(page)).getByTestId('step-retried')).toBeVisible()
-  await expect(guess(lastAnswer(page)).getByTestId('step-retried')).toHaveAttribute('aria-label', '안 돼서 트리나가 다른 방법을 찾고 있어요')
   await expect(lastAnswer(page).getByTestId('step-failed')).toHaveCount(0)
   await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done', { timeout: 20_000 })
   const steps = lastAnswer(page).getByTestId('steps')
@@ -201,23 +200,29 @@ test('a failed step the AI got past: a quiet mark with its words, no red; a fail
   await expect(steps.getByTestId('steps-failed')).toHaveCount(0)
   await steps.getByRole('button', { name: /작업 \d+단계/ }).click()
   const mark = guess(lastAnswer(page)).getByTestId('step-retried')
-  await expect(mark).toHaveAttribute('aria-label', '안 돼서 트리나가 다른 방법으로 다시 했어요')
+  await expect(mark).toHaveAttribute('aria-label', '안 됐지만 트리나가 다른 방법으로 이어 갔어요')
   await expect(steps.getByLabel('실패', { exact: true })).toHaveCount(0)
   // the shared tooltip says what the mark means
   await mark.hover()
-  await expect(page.getByRole('tooltip')).toHaveText('안 돼서 트리나가 다른 방법으로 다시 했어요')
+  await expect(page.getByRole('tooltip')).toHaveText('안 됐지만 트리나가 다른 방법으로 이어 갔어요')
   // after a reload the stored answer shows the same
   await page.reload()
   await expect(lastAnswer(page).getByTestId('steps').getByTestId('steps-failed')).toHaveCount(0)
 
-  // the answer itself failed: the failed step and the folded list are red
+  // the answer failed later for another reason: the guess it got past stays quiet, the error box says what failed
   await ask(page, 'wrong-guess error')
   await expect(lastAnswer(page)).toHaveAttribute('data-status', 'error')
-  const failed = lastAnswer(page).getByTestId('steps')
-  await expect(failed.getByTestId('steps-failed')).toBeVisible()
-  await failed.getByRole('button', { name: /작업 \d+단계/ }).click()
-  await expect(guess(lastAnswer(page)).getByTestId('step-failed')).toHaveAttribute('aria-label', '실패')
-  await expect(failed.getByTestId('step-retried')).toHaveCount(0)
+  await expect(lastAnswer(page).getByTestId('answer-error')).toBeVisible()
+  await expect(lastAnswer(page).getByTestId('steps').getByTestId('steps-failed')).toHaveCount(0)
+
+  // a save that failed with nothing after it: red on the folded list and on its row, though the answer finished
+  await ask(page, 'save-fails')
+  await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
+  const saved = lastAnswer(page).getByTestId('steps')
+  await expect(saved.getByTestId('steps-failed')).toBeVisible()
+  await saved.getByRole('button', { name: /작업 \d+단계/ }).click()
+  await expect(saved.getByRole('listitem').filter({ hasText: 'summary.md' }).getByTestId('step-failed')).toHaveAttribute('aria-label', '실패')
+  await expect(saved.getByTestId('step-retried')).toHaveCount(0)
 })
 
 test('ask_user card: pick an option, the answer continues', async ({ page }) => {

@@ -8,7 +8,7 @@
 // at the time limit a step still running ends paused), "multi" with "ask" (a question with several answers),
 // "sub-agent" (a sub-task step with its sub-agent's steps under it, Step.parentId), "stop-cut" (a step still running
 // when the person presses Stop ends stopped, Step.stopped), "wrong-guess" (a read of a file name that does not exist
-// fails, then the AI finds and reads the right file);
+// fails, then the AI finds and reads the right file), "save-fails" (the AI's last step, a save, fails);
 // anything else gets a Markdown answer with a table, code, math, a Mermaid diagram and an external image; "long list"
 // gets a list of 400 lines, more than one room message holds (comes in big pieces).
 // "대화방에 보내기" (shareAnswerToRoom): to a room of POST /__test/rooms; an answer with recorded sources ("sources")
@@ -1021,6 +1021,14 @@ export class MockServer {
       await sleep(slow ? 600 : 60)
       put({ ...found, status: 'ok', endedAt: now() })
       put(step({ id: 'g3', kind: 'tool', tool: 'read', label: '파일 읽기 · shared/company/acme-company-profile.md', status: 'ok', endedAt: now() }))
+    }
+    if (/save-fails/i.test(prompt)) {
+      // the last thing the AI does, a save, fails and nothing after it works: a failure nobody got past (red)
+      const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
+      const save = step({ id: 'f1', kind: 'tool', tool: 'write', label: '파일 저장 · shared/company/summary.md' })
+      put(save)
+      await sleep(60)
+      put({ ...save, status: 'error', endedAt: now() })
     }
     if (/devqueue/i.test(prompt)) await this.devQueueTurn(chatId, user, prompt, assistant, pub, step)
     if (/sub-agent/i.test(prompt)) {
