@@ -13528,7 +13528,8 @@ the project's audience, the answer goes to the room; otherwise it stays private 
 - **Two read-only room tools** (`chat/room-project-chats.ts`). `project_chats` lists the shared project chats the asker
   may view, the latest activity first (default 20, at most 50), or with `query` the ones whose title, project name or
   messages hold every word, and with `project` those of a project whose name holds it: title, project, last activity,
-  chat_id, in a `<shared_chats>` block. `project_chat` gives one chat's messages on its current branch
+  chat_id, in a `<shared_chats>` block; by default in the projects everyone in the room sees, with `include_all` in all
+  the asker sees (below). `project_chat` gives one chat's messages on its current branch
   (`chats.active_leaf_id`), oldest first. Both in `ROOM_TOOLS`, `ROOM_FILE_TOOLS` (team content: a project's chats, each
   turn of them behind the shared chat's read card) and `ROOM_READ_ONLY_TOOLS` (no card), and in `PARENT_ONLY_TOOLS` (the
   main AI only; `project_chat` patches its step). A new set `ROOM_PROJECT_CHAT_TOOLS` keeps them out of `SHARED_TOOLS`,
@@ -13546,15 +13547,22 @@ the project's audience, the answer goes to the room; otherwise it stays private 
   rules resolve upward). Its readers are the chat's audience, so `decide()` keeps the answer private for any member
   outside it, exactly as for a file only some members can read: the private preview names `projects/<x>` to the asker
   and posting it is their choice with that in sight; the others see "○○ 님에게만 답했어요". A listing counts every project
-  whose shared chats the asker may view, whatever it matched or showed (review fix): a search's "no match", or a list
-  that is not full, says something about each of them, and which project names matched would tell which exist, as a
-  file search counts every folder under its start. So in a room where someone cannot see one of the asker's projects
-  with shared chats, an answer that listed stays private; reading one chat counts only its project. Team files that a
+  it looked through, whatever it matched or showed (review fix): a search's "no match", or a list that is not full,
+  says something about each of them, which project names matched would tell which exist, and which have a shared chat
+  at all would tell that too, as a file search counts every folder under its start. So a listing looks, by default,
+  only in the team projects everyone in the room sees now (its finds and its "no match" are then everyone's to know, and
+  the owner's rule holds: when everyone is in the project's audience, the answer goes to the room); with `include_all`
+  it looks in every team project in place the asker sees, with shared chats or not, and any of them some member cannot
+  see keeps the answer private. The result says which it did, in the same words whatever the asker sees (no count or
+  hint of other projects). Reading one chat counts only its project. Team files that a
   transcript's attachments name for the asker count as names (`{type:'name'}`). Rooms already decide this way for
   files, names and threads, so no card was added: the design asked for one only if rooms used a card for such a read,
   and they do not. As for a file read, the source is the rule folder above the project folder at the time of the read
-  (sources, not people, are kept): a rule added on a project folder that had none of its own, after the read, is not
-  seen when the preview is posted later. Projects made with a new folder have their own rule folder.
+  (sources, not people, are kept): for a project on a folder without a rule of its own (common: a project made on an
+  existing folder gets none), that is a folder above it, so a rule added on the project folder, or the project moved or
+  trashed, after the read is not seen when the answer is decided or its preview posted. The members it lets through
+  could read the chat when it was read. Exact would be a source of its own for a project (`{type:'project', id}`, with
+  `viewersOf`, `decide`, the labels and `history.ts`): a follow-up.
 - **Names.** A step names a chat ("Read project chat · 견적 회의") only when everyone in the room sees its project now;
   otherwise the words alone ("프로젝트 채팅 읽기"; "프로젝트 채팅 찾기" never names one). Steps go to the asker alone anyway;
   the rule keeps a title out of a line that might be shown more widely later. Titles come through the creator's
@@ -13592,7 +13600,11 @@ the project's audience, the answer goes to the room; otherwise it stays private 
   invisible characters stayed in names and titles; the comment that the chats hold nothing from outside the team (now
   says what they hold); a listing scanned the newest chats of every project before keeping the asker's (now only theirs
   in the query). Kept, written down above: the source is the project's rule folder at the time of the read, as for
-  files. Not leaking, per the review: the refusal (one text for every reason), step labels, frames and notices, the
+  files. Round 2 (on the fix): a listing still skipped projects without a live shared chat, so whether a hidden
+  project has one showed (should-fix: every team project the asker sees counts); the result's note about a cut message
+  never showed (it says so now when a kept message was shortened); the file, group and record separators break lines
+  too. The listing's default to the projects everyone in the room sees came with the round-2 fix, so that the owner's
+  rule still answers in the room. Not leaking, per the review: the refusal (one text for every reason), step labels, frames and notices, the
   session's history, threads, the readers of the source against the audience, the allowlists, the injection attempts.
 - **Not here.** Paging further back in a long chat (the newest 40,000 characters, like a fresh session's transcript);
   these tools in personal or shared chats; a card before reading. The e2e mock does not run the room's AI (rooms are

@@ -511,7 +511,7 @@ export class RoomAi implements RoomTurns {
       if (!used.length) return
       let lists = 0, shown = 0, reads = 0
       for (const u of used) {
-        const n = u.tool === 'project_chats' ? /^project_chats -> (?:list|search), (\d+) shown$/.exec(u.summary) : null
+        const n = u.tool === 'project_chats' ? /^project_chats -> (?:list|search)(?: \(all\))?, (\d+) shown$/.exec(u.summary) : null
         if (n) { lists++; shown += Number(n[1]) }
         if (u.tool === 'project_chat' && u.summary.startsWith('project_chat -> read')) reads++
       }

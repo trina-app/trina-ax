@@ -251,6 +251,7 @@ export const ProjectChatsInput = z.strictObject({
   query: z.string().min(1).max(200).optional().describe('Words to look for in a chat\'s title, its project\'s name and its messages (all of them, any case). Without query and project the chats are listed, the latest activity first.'),
   project: z.string().min(1).max(200).optional().describe('Only the chats of the project whose name is this or contains it (e.g. "견적").'),
   limit: z.number().int().min(1).max(50).optional().describe('At most this many chats (default 20).'),
+  include_all: z.boolean().optional().describe('Also look in the projects that some people in this room cannot see (default: only the projects everyone here can see). Your answer then stays private to the user when someone here cannot see one of them.'),
 })
 /** project_chat: one shared project chat's messages, its current branch (a room's own AI session) */
 export const ProjectChatInput = z.strictObject({
