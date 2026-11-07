@@ -1219,7 +1219,7 @@ owner 원칙: Team AX는 범용 제품이다(치과 전용이 아님). 저장소
 - **D9 Codex는 진짜 토큰을 받지 않는다**: 턴의 `CODEX_HOME/auth.json`은 가짜(접근 토큰·API 키 자리 = 이 턴의 프록시 토큰, refresh 자리 = `teamax-no-refresh`, account_id = `teamax-<sha256(연결 id)[:12]>`, 서명 없는 id_token에 진짜 플랜 종류만). 공급자 `teamax`(이름은 PRODUCT.displayName, "OpenAI"가 아님)가 `http://127.0.0.1:<proxy>/codex/<chatgpt|openai>`로 보내고, 프록시가 진짜 Authorization·ChatGPT-Account-ID(또는 키)를 넣는다. Codex 턴의 CONNECT 터널은 없앴다(`connect.ts`의 `codexTurns`는 F1·옛 구성에서만). `chatgpt_base_url`·갱신 주소도 프록시로: `/codex/backend/wham/config/bundle`은 `{}`, 그 밖 배경 호출은 404(Codex 0.163이 ChatGPT 턴마다 부르는 `accounts/check`·`settings/user`는 경고 없이), `/codex/oauth/token`은 400 invalid_grant + 감사.
 - **D10 갱신은 서버가**: 연결별 single-flight, 회전된 refresh token을 같은 트랜잭션에서 먼저 저장한 뒤 새 접근 토큰을 쓴다. `invalid_grant`·`refresh_token_*`·401이면 `needs_reconnect`. 일시 실패는 그 요청만 502. 하루 한 번 8일 넘게 안 쓴 연결을 갱신.
 - **D12 봉인**: 브라우저(`web/src/lib/seal.ts`)가 서버 공개키(`<secrets>/credential-sealing.jwk`, P-256)로 ECDH + HKDF-SHA256(info `mycel-seal-v1|<kid>`) + AES-256-GCM으로 봉인. 평문 `{secret, nonce, purpose}`: purpose가 엔드포인트와 다르면 거부, 같은 nonce는 10분 안에 두 번 받지 않음. 계약에 봉인 안 된 비밀값 필드가 없다. `crypto.subtle`이 없는 화면(LAN의 http)은 "https에서만"이라고 말한다.
-- **D13 권한 (대체됨: 맨 아래 「관리자도 팀 AI 연결을 한다」)**: 만들기·교체·로그인은 owner + 비밀번호 다시 입력, 이름·순서·끄기·지정·월 한도·삭제·"팀원 개인 연결" 스위치는 owner, 보기·다시 확인은 관리자도, 팀원은 자기 개인 연결만(스위치가 켜졌을 때 추가). 권한 매트릭스에 모든 경로를 넣었다.
+- **D13 권한 (대체됨: 맨 아래 「관리자도 팀 AI 연결을 한다」, 비밀번호는 「공식 AI 계정 연결에는 비밀번호를 묻지 않는다」)**: 만들기·교체·로그인은 owner + 비밀번호 다시 입력, 이름·순서·끄기·지정·월 한도·삭제·"팀원 개인 연결" 스위치는 owner, 보기·다시 확인은 관리자도, 팀원은 자기 개인 연결만(스위치가 켜졌을 때 추가). 권한 매트릭스에 모든 경로를 넣었다.
 - **D14 상태는 연결별**: 401 → 그 연결만 `invalid`(ChatGPT는 갱신 1번·재전송 1번 뒤), 긴 429 → 그 연결만 `limited_until`(DB, 재시작해도 유지). 프록시 전역 `limitedUntil`은 없앴다.
 - **D15 넘기기**: 묶인 연결이 한도·거절·월 한도에 걸리면 같은 계열 다음 연결로 새 시도(최대 2번, Claude는 새 세션, 단계·알림·감사 `engine.credential_switch`). 없으면 `rate_limited`일 때만 `limitFallback`(Claude→Codex, Codex 연결이 있을 때만), 그다음 오류.
 - **D16 비용**: `credentials/prices.ts`(2026-10-22 정가). API 키만 계산, 구독은 0(토큰은 셈). 모르는 모델은 계열 최대값 + 서버 시작 뒤 모델마다 한 번 감사.
@@ -11481,8 +11481,9 @@ fix. "Tell the owner" was a dead end when the owner is not around, and the produ
   service's trial AI credit is not a connection row (nobody edits it here), the allowed kinds come from
   `engine.credentialKinds`, and the API engine address must be public https (`apiEngineAnyUrl`). All of these apply to
   admins exactly as to the owner.
-- **Rejected:** a lighter re-auth for admins, or none (a connection is the team's money and access; the password
-  again stays); a per-connection "owner only" flag (more settings for a rule nobody asked for); sending the notice
+- **Rejected:** ~~a lighter re-auth for admins, or none (a connection is the team's money and access; the password
+  again stays)~~ (superseded 2026-11-07: see "No password for the team's official AI accounts" at the end, which drops the
+  password for official accounts and keeps it only where the caller sets the address); a per-connection "owner only" flag (more settings for a rule nobody asked for); sending the notice
   to other admins too (the owner is the one who answers for the team, and admins see the change in Activity log).
 
 ### Review round 1 of "Admins connect the team's AI too" (2026-11-06)
@@ -11572,3 +11573,36 @@ An independent review found one hole and several gaps. What changed, and why:
   saving its token (409) is neither recorded nor told.
 - **No notice for a save that changes nothing** (the same address, model, name, and no new key).
 
+
+## No password for the team's official AI accounts (2026-11-07, product owner)
+
+**Decision.** Adding or replacing a team AI connection and starting a Claude or ChatGPT sign-in no longer ask for the
+person's password (`createCredential`, `replaceCredentialSecret`, `startCredentialLogin` are plain `admin` now, and their
+bodies carry no `password`). This holds for the owner and admins alike, in the full dialog, the simple "AI 연결하기"
+dialog, replace-key and reconnect. The plan-notice acknowledgement stays. The password stays wherever the caller sets
+the address that receives the team's conversations: `putApiEngine` (`admin-reauth`, with the same rate limit, demo guard
+and https-only rule for admin-set addresses as before).
+
+**Why.** The owner asked why a password was typed to connect Claude, and the answer was that a stolen or left-open session
+could swap the team's AI account. The owner pointed out there is nothing to gain from that. For an official subscription
+(Claude Pro / Max / Team, ChatGPT) or an official provider key (Anthropic, OpenAI) the conversations go only to that
+provider. Whoever swaps in their own account pays for the team and sees nothing. The one swap that gains something is an
+address the caller chooses, because then the team's conversations go to that server. That is the team API engine's base
+URL, and any credential kind that would carry a custom address.
+
+- **Credential kinds checked.** `anthropic-oauth`, `anthropic-api-key`, `chatgpt` and `openai-api-key`
+  (`shared/src/api/credentials.ts`, `server/src/credentials/*`): none takes a caller-supplied base URL or endpoint. Each
+  goes to its provider's fixed address. An Anthropic gateway exists (`engine.anthropicGateway` in `server.json`), but it is
+  the operator's setting, not a request field, and the key is bound to it. So no kind needs the password today.
+  `CUSTOM_ADDRESS_KINDS` (shared, empty) names the place a future kind with a caller-set address must be listed, and a
+  contract test fails if a kind is added or the list changes without a decision. The server then decides from the body's
+  kind, not from the endpoint.
+- **`moveFrom` ("Move it to the team").** Its proof of possession is the re-sealed secret: the request must seal the same
+  token / key the member's personal connection holds (matched by fingerprint), and `moveFrom` must name that very
+  connection, or it stays a 409. The password never proved that, so none is required. A member still cannot call it
+  (role), and an admin may move, like the owner. A test covers a `moveFrom` naming another connection.
+- **Unchanged.** Role checks (members get 403 before anything runs), the notice to the owner for an admin's change,
+  members' own connections, the key bound to its address, the https-only rule for addresses an admin sets, the demo
+  server refusing these steps (now by name in `demo/guard.ts`, with its own message), and the speech key's password.
+- **Rejected:** keeping a lighter re-auth for official accounts (no gain, as above); dropping the password from the API
+  engine (it sets where conversations go).

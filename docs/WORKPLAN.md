@@ -59,7 +59,7 @@ CI(`.github/workflows/ci.yml`): typecheck(웹·데스크톱 포함), native 빌�
 
 규칙:
 - 엔드포인트 하나 = `endpoint({ method, path, auth, owner, query?, body?, response, status?, summary })` 객체 하나. 키 이름으로 부른다(`API.sendMessage`).
-- 인증 수준: `public` / `user` / `admin`(admin·owner) / `owner` / `owner-reauth`(owner + 본문 `password` 재확인: 업데이트·복원·연결 변경).
+- 인증 수준: `public` / `user` / `admin`(admin·owner) / `owner` / `owner-reauth`(owner + 본문 `password` 재확인: 업데이트·복원·연결 변경) / `admin-reauth`(admin·owner + 본문 `password`: 팀 API 엔진 주소 설정만; 공식 AI 계정 연결은 비밀번호 없이 `admin`).
   `must_change_password`인 사람은 `allowWhilePasswordChange: true`인 엔드포인트만 쓸 수 있다.
 - 오류는 항상 `{ error: { code, message, fields?, retryAfter?, requestId? } }`, `message`는 사용자 언어. "권한 없음"과 "없음"은 같은 `not_found`.
 - 상태를 바꾸는 요청(쿠키 세션, 로그인·초대·설정 포함)은 `x-mycel-csrf: 1` 헤더 필수 + 다른 사이트 Origin 거부. Bearer 요청은 예외.

@@ -11,7 +11,7 @@ export type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
  * - admin: role admin or owner
  * - owner: role owner
  * - owner-reauth: owner, and the body carries `password` (re-entered) — update / restore (tab 4)
- * - admin-reauth: owner or admin, and the body carries `password` (re-entered) — the team's AI connections
+ * - admin-reauth: owner or admin, and the body carries `password` (re-entered) — the team API engine (it sets where the team's conversations go)
  */
 export type AuthLevel = 'public' | 'user' | 'admin' | 'owner' | 'owner-reauth' | 'admin-reauth'
 
