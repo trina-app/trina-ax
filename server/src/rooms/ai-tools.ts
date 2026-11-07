@@ -39,6 +39,27 @@ export const ROOM_TOOLS: ReadonlySet<string> = new Set([
   'room_thread',
 ])
 
+/** A room's own tools: its files and its threads. */
+export const ROOM_OWN_TOOLS: ReadonlySet<string> = new Set(['room_file', 'save_room_file', 'room_thread'])
+
+/**
+ * The only tools a shared project chat gets (docs/DECISIONS.md "Shared project chats"): ROOM_TOOLS without the room's
+ * own tools. Its transcript is seen by everyone who sees its project, so the same allowlist as a room: no memories, no
+ * chat title, no connection's tools, no Google Drive, no schedules, nothing on a computer or in the person's signed-in
+ * browser, no room reading (room_read, rooms). A tool added later is not offered here until it is listed.
+ */
+export const SHARED_TOOLS: ReadonlySet<string> = new Set([...ROOM_TOOLS].filter((t) => !ROOM_OWN_TOOLS.has(t)))
+
+/** The arguments that name where a call writes, per tool: a shared chat's read card counts them only when something
+ * is there already (chat/turn.ts sharedSources); every other path argument counts as a read. */
+export const WRITE_TARGET_ARGS: Readonly<Record<string, readonly string[]>> = {
+  write: ['file_path'], edit: ['file_path'], make_file: ['output'], edit_hwp: ['output'], save_url: ['save_as'],
+  move_files: ['to_folder'], copy_files: ['to_folder'], rename_file: ['new_name'],
+}
+
+/** Tools that look through a folder and everything under it; in a shared chat without a path, the project folder. */
+export const SEARCH_TOOLS: ReadonlySet<string> = new Set(['grep', 'glob', 'search', 'knowledge_explore'])
+
 /**
  * Tools that change nothing (they read, search, ask the person, or answer in the session's own chat). In a room every
  * other tool of ours, connections' tools and tools added later included (fails closed), waits for the person who

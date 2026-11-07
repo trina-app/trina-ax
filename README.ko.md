@@ -4,39 +4,37 @@
 
 # 트리나 AX
 
-**Claude Code, 한 번 세팅하면 회사 전체가 씁니다.**
+**각자 쓰던 AI, 이제 팀이 같이 써요.**
 
-회사 서버 하나에서 Claude Code와 Codex가 돌아가요. 회사 파일, 팀 스킬, 사람마다 다른 폴더 권한까지 그 서버에 있어요. 팀원은 브라우저만 열면 돼요.
+회사 서버에서 Claude Code와 Codex가 회사 파일과 팀 스킬로 일해요. 팀원은 브라우저에서 트리나에게 따로 묻거나, 0.4부터는 팀 대화방에서 @트리나를 불러요.
 
 [웹사이트](https://ax.trina.app) · [10분 만에 써 보기](#10분-만에-써-보기) · [직접 설치](docs/for-admins.ko.md) · [문서](docs/README.md)
 
 [English](README.md) · 한국어 · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
-https://github.com/user-attachments/assets/f19762ef-84de-414a-9f5d-69792f319ec7
+<img src="docs/images/readme/room-quote.png" width="100%" alt="# 아이콘이 붙은 Sales 대화방에서 Mina가 '@Trina /quote Northwind Foods: 200 insulated boxes, delivery Nov 20'이라고 써요. 트리나가 견적 요약과 'Northwind Foods quote.xlsx' 파일 링크를 방에 올리고, Alex가 'Matches our price sheet. Send it.'이라고 답해요.">
 
-<sub><b>97초, 소리를 켜고 보세요.</b> 대표님이 Claude를 한 번 세팅하면, 입사 첫날 신입의 제안서도 대표님이 쓴 것처럼 나와요.<br>애니메이션이고, 1:15에 실제 앱 화면이 나와요. 회사는 가상이에요.</sub>
+<sub>실제 앱 0.4 버전의 Sales 대화방이에요(영어 화면). 회사는 가상이에요.</sub>
 
 </div>
 
-## 같은 요청, 다른 답
+- **팀장이 한 번 만든 방식대로.** 회사 자료는 `shared/`에, 팀장이 견적서 쓰는 법은 `skills/quote/SKILL.md`에 둬요. 입사 첫날인 사람도 그 방식대로 일해요.
+- **대화방에서 부르면, 결과가 방에.** 팀 대화방에서 @트리나를 부르면 팀 스킬이 내가 열 수 있는 파일로 일하고, 답과 파일이 방에 바로 올라와요.
+- **하던 일, 누구나 이어서** (곧 나와요). 같은 프로젝트 사람이면 동료가 하던 AI 대화를 이어서 하게 돼요. 메시지마다 보낸 사람의 권한으로 돌아요.
 
-<table>
-<tr>
-<td width="50%" valign="top"><b>빈 폴더에서 연 Claude Code</b><br><sub>회사를 알 수 없으니 질문 여섯 개부터 돌려줘요.</sub></td>
-<td width="50%" valign="top"><b>트리나 AX, 같은 한 줄</b><br><sub>팀 파일과 대표의 제안서 스킬에서 시작해요.</sub></td>
-</tr>
-<tr>
-<td><img src="docs/images/readme/before-empty-claude.png" alt="빈 폴더의 Claude Code가 'Write a proposal for Trina Logistics'에 회사, 고객, 형식을 묻는 질문 여섯 개로 답해요."></td>
-<td><img src="docs/images/readme/after-trina-deck.png" alt="트리나 AX는 같은 요청에 'Lead time from 2.1 to 1.4 days, within your budget'라는 표지의 7쪽 제안서로 답해요."></td>
-</tr>
-</table>
+회사 파일을 넣어도, 각자 볼 수 있는 것만 봐요. [어떻게요?](#속을-들여다보면)
 
-<sub>2026-10-31·11-01에 가상 회사 Dawnroute 자료로 실제로 돌린 결과예요. 덱 사진은 Higgsfield로 만들었어요. Claude Code가 되묻는 게 맞아요. 빈 폴더에는 우리가 누군지 알려 줄 게 없으니까요. 트리나는 그 폴더를 채워 줘요.</sub>
+```sh
+git clone https://github.com/trina-app/trina-ax.git && cd trina-ax
+bun install --frozen-lockfile && bun run demo --locale ko   # http://127.0.0.1:19760 · alice / teamax-demo-1
+```
+
+<sub>로컬 데모: 가상 팀, AI 꺼짐, 운영용 아님. Bun 1.3.12와 Go 1.27 이상이 필요해요. 대화방과 @트리나를 써 보려면 [Docker 설치](docs/INSTALL-DOCKER.md)에서 `TRINA_AX_VERSION=0.4.0-beta.10`으로 띄우고 AI 계정을 연결하세요.</sub>
 
 ## 이렇게 돌아가요
 
 1. **한 번만 넣어 두세요.** 회사 자료는 `shared/`에, 우리 회사 제안서 쓰는 법은 `skills/proposal/SKILL.md`에 둬요.
-2. **누구나 물어보면 돼요.** 컴퓨터나 휴대폰 브라우저에서 채팅으로요. 터미널도, 노트북에 따로 설치할 것도 없어요.
+2. **누구나 물어봐요. 혼자서도, 팀 대화방에서도.** 컴퓨터·휴대폰 브라우저나 아이폰 앱에서요. 터미널도, 노트북에 따로 설치할 것도 없어요. 대화방에서는 @트리나가 부른 사람으로 일해요.
 3. **권한은 사람마다 따로예요.** AI가 파일을 열 때마다 서버가 묻는 사람의 권한으로 확인해요. 내가 못 보는 폴더는 내 AI에게도 없는 폴더예요.
 
 <img src="docs/images/readme/permission-answer.png" width="100%" alt="영업팀원이 'What was our revenue last quarter?'라고 묻자, AI가 볼 수 있는 팀 파일에서는 매출 자료를 찾지 못했다고 답해요.">
@@ -53,6 +51,29 @@ bun run demo --locale ko   # → http://127.0.0.1:19760 · alice / teamax-demo-1
 
 가상 팀과 기본 스킬 여섯 개가 들어 있어요. AI는 꺼져 있어서 AI 계정이 필요 없어요. 시크릿 창에서 `bob`으로도 로그인해 보세요. 둘에게 보이는 그룹 폴더가 달라요. Git, Bun 1.3.12, Go 1.27 이상이 필요하고, **실제 운영용 설치는 아니에요**. [자세한 안내](docs/QUICKSTART.ko.md)
 
+대화방과 @트리나를 써 보려면 [Docker 설치](docs/INSTALL-DOCKER.md)에서 `TRINA_AX_VERSION=0.4.0-beta.10`(또는 그 뒤에 나온 0.4 릴리스)으로 띄우고 AI 계정을 연결하세요. 로컬 데모는 AI가 꺼져 있어서 @트리나가 답하지 않아요.
+
+## 같은 요청, 다른 답
+
+<table>
+<tr>
+<td width="50%" valign="top"><b>빈 폴더에서 연 Claude Code</b><br><sub>회사를 알 수 없으니 질문 여섯 개부터 돌려줘요.</sub></td>
+<td width="50%" valign="top"><b>트리나 AX, 같은 한 줄</b><br><sub>팀 파일과 대표의 제안서 스킬에서 시작해요.</sub></td>
+</tr>
+<tr>
+<td><img src="docs/images/readme/before-empty-claude.png" alt="빈 폴더의 Claude Code가 'Write a proposal for Trina Logistics'에 회사, 고객, 형식을 묻는 질문 여섯 개로 답해요."></td>
+<td><img src="docs/images/readme/after-trina-deck.png" alt="트리나 AX는 같은 요청에 'Lead time from 2.1 to 1.4 days, within your budget'라는 표지의 7쪽 제안서로 답해요."></td>
+</tr>
+</table>
+
+<sub>2026-10-31·11-01에 가상 회사 Dawnroute 자료로 실제로 돌린 결과예요. 덱 사진은 Higgsfield로 만들었어요. Claude Code가 되묻는 게 맞아요. 빈 폴더에는 우리가 누군지 알려 줄 게 없으니까요. 트리나는 그 폴더를 채워 줘요.</sub>
+
+**같은 방, 두 화면.** 방에 바로 올라가는 답은 방 사람 모두가 볼 수 있는 자료로 만든 답뿐이에요. 아니면 물은 사람에게만 먼저 보여요.
+
+<img src="docs/images/readme/share-check.png" width="100%" alt="같은 순간 Everyone 대화방의 두 화면. Alex에게는 트리나의 답 위에 'Only you can see this · Post'와 이유 'It read folders that some people in this room cannot open (Team folder, Finance).'가 보여요. Mina에게는 'Answered to Alex only'만 보여요.">
+
+<sub>Alex의 답에는 Mina가 열 수 없는 Finance 폴더가 쓰였어요. Alex가 직접 올릴 수는 있고, 그 전까지 Mina에게는 Alex가 답을 받았다는 것만 보여요(한국어 화면에서는 'Alex 님에게만 답했어요'). 실제 앱 0.4 버전이에요. 회사는 가상이에요.</sub>
+
 ## 이런 걸 할 수 있어요
 
 | | 실제로는 |
@@ -60,15 +81,20 @@ bun run demo --locale ko   # → http://127.0.0.1:19760 · alice / teamax-demo-1
 | **진짜 Claude Code·Codex 에이전트** | 회사 서버에서 돌아가요. 답 하나에 도구를 기본 150회까지 쓰고, 하위 에이전트를 한 번에 4개까지 띄우며, 웹 검색과 예약 작업도 해요. |
 | **회사 폴더가 곧 지식** | `shared/`, `groups/`, `projects/`, 개인 폴더에 버전 기록이 남아요. PDF, 오피스 문서, HWP/HWPX의 글자도 읽어요. |
 | **파일처럼 관리하는 팀 스킬** | 스킬은 `SKILL.md` 파일 하나예요. 누가 쓸지는 폴더 규칙이 정하고, AI가 스킬을 바꾸려면 사람의 확인을 받아야 해요. |
+| **팀 대화방 (0.4)** | 그룹방, 전체 대화방, 1:1 대화에서 인용 답장, 멘션, 파일·사진을 주고받아요. @트리나를 부르면 부른 사람으로, 그 사람이 쓸 수 있는 파일과 스킬로 답해요. 대화방은 그 방 사람만 보고, 관리자도 자기가 없는 대화방은 못 열어요. |
 | **파일을 열 때마다 권한 확인** | 볼 수 없는 파일은 파일 화면, AI 답, 검색, 미리보기, 버전 기록, 휴지통 어디에도 나오지 않아요. |
 | **AI 연결은 회사가 고르기** | 회사의 Claude나 OpenAI 계정을 한 번 연결하거나, 사람마다 자기 계정을 연결해요. 사람별 사용량을 보고 한도도 걸 수 있어요. 자체 설치라면 [Anthropic 호환 게이트웨이](docs/CONFIGURATION.md#anthropic-compatible-gateway)로 Claude Code를 DeepSeek·Kimi·GLM 같은 다른 모델로도 돌릴 수 있어요. |
-| **직접 설치 또는 호스팅** | 리눅스 서버, 사무실 맥, AWS 서울의 트리나 호스팅 중에 고르세요. 컴퓨터·휴대폰 브라우저와 Windows 설치본으로 써요. |
+| **Slack 커넥터 (0.4, 기본 꺼짐)** | owner가 팀 전용 Slack 앱을 붙이면, 각자 자기 Slack 계정을 연결하고 채널이나 DM에서 앱에게 물어요. 질문은 물은 사람으로 돌고, 채널에서는 답이 먼저 본인에게만 보여요. *Post to channel*을 눌러야 채널에 올라가요. [Slack 안내](docs/SLACK.md) |
+| **아이폰 앱** | [App Store의 Trina AX](https://apps.apple.com/app/id6829192435). 팀 서버 화면을 여는 앱이라 기능은 서버 버전을 따라요. 대화방은 0.4부터예요. |
+| **직접 설치 또는 호스팅** | 리눅스 서버([Docker](docs/INSTALL-DOCKER.md)로도), 사무실 맥, AWS 서울의 트리나 호스팅 중에 고르세요. 컴퓨터·휴대폰 브라우저, 아이폰 앱, Windows 설치본으로 써요. |
 
 ## 속을 들여다보면
 
+2026-10-21 첫 커밋에 이미 권한 함수(`server/src/policy/authorize.ts`)가 있었고, 지금도 모든 파일 호출이 그 함수를 지나요.
+
 ```mermaid
 flowchart LR
-  P["우리 팀<br/>브라우저 · 휴대폰 · Windows 앱"] --> S["트리나 서버"]
+  P["우리 팀<br/>브라우저 · 아이폰 앱 · Windows 앱"] --> S["트리나 서버"]
   E["Claude Code / Codex<br/>자체 셸·파일 도구는 꺼 둠"] -->|"유일한 길: 트리나 파일 도구"| C{"권한 확인<br/>묻는 사람 기준"}
   S --> C
   C --> D[("회사 폴더<br/>shared · groups · projects · users")]
@@ -78,7 +104,7 @@ flowchart LR
 - **에이전트는 진짜예요.** 하위 에이전트도 같은 사람으로 일해요. 같은 확인을 거치고 같은 활동 기록을 남겨요.
 - **들어가는 길은 좁아요.** 엔진 자체의 셸과 파일 도구는 꺼 두고, 엔진마다 회귀 시험으로 확인해요. 폴더에 닿는 길은 트리나 파일 도구뿐이고, 부를 때마다 권한을 봐요.
 - **키는 엔진 손에 닿지 않아요.** 토큰은 브라우저에서 봉인해서 보내요. 엔진은 턴마다 바뀌는 대리 토큰만 받고, 진짜 값은 모델 프록시가 붙여요.
-- **관리자도 남의 채팅은 못 봐요.** AI가 어떤 파일을 읽었는지만 보여요. 다만 서버를 운영하는 사람은 저장된 데이터를 볼 수 있고, 이 내용은 [아래](#데이터와-한계)에 적어 뒀어요.
+- **트리나와 나눈 대화는 나만 봐요.** 대화방은 그 방 사람만 보고, 관리자도 자기가 없는 대화방은 못 열어요. 관리자에게는 AI가 어떤 파일을 읽었는지만 보여요. 다만 서버를 운영하는 사람은 저장된 데이터를 볼 수 있고, 이 내용은 [아래](#데이터와-한계)에 적어 뒀어요.
 
 <sub>OS 격리(엔진 전용 계정)는 리눅스와 역할 계정 맥 설치에만 있어요. 사무실 맥은 로그인한 사용자로 돌고, 로컬 데모에는 OS 격리가 없어요. → <a href="docs/security-and-permissions.ko.md">보안과 권한</a> · <a href="docs/PERMISSIONS.md">권한 구조</a></sub>
 
@@ -104,10 +130,10 @@ owner 계정을 만든 다음 **권한 → AI 연결 → 팀원 초대 → 첫 �
 | 잘 맞는 팀 | IT 담당자가 없는 팀 | IT 담당자가 있는 팀 | 전용 맥이 있는 작은 사무실 | 둘러보기 |
 | 운영 | 트리나(AWS 서울) | 회사 IT | 사무실 담당자 | 직접 |
 | AI | 사용이 허용된 Claude·OpenAI 연결 | 같음 | Claude만(Codex 없음) | 꺼짐 |
-| 비용 | 3명까지 무료, 그다음 월 $39부터 + AI 사용료 | 무료 소프트웨어 + 서버 비용 | 무료 소프트웨어 | 무료 |
-| 시작 | [요금제 보기](https://ax.trina.app/#pricing) | [리눅스 안내](docs/INSTALL-LINUX.md) | [사무실 맥 안내](docs/OFFICE.md) | [빠른 체험](docs/QUICKSTART.ko.md) |
+| 비용 | 14일 무료 체험, 그다음 월 요금제 + AI 이용료 | 무료 소프트웨어 + 서버 비용 | 무료 소프트웨어 | 무료 |
+| 시작 | [요금제 보기](https://ax.trina.app/#pricing) | [리눅스 안내](docs/INSTALL-LINUX.md) · [Docker](docs/INSTALL-DOCKER.md) | [사무실 맥 안내](docs/OFFICE.md) | [빠른 체험](docs/QUICKSTART.ko.md) |
 
-트리나는 업무 공간을 드리고, AI는 드리지 않아요. Claude·OpenAI 계정과 요금제는 쓰임새에 맞게 허용된 것만 연결하세요. 호스팅 요금(2026-11-02 확인, 미국 달러, 세금 별도): **무료(3명까지, 자리 한정), Starter 월 $39(5명까지), Team $69(15명), Business $129(40명)**, 40명이 넘으면 견적이에요. AI 사용료는 따로 나가요. [최신 요금](https://ax.trina.app/#pricing)
+트리나는 업무 공간을 드리고, AI는 드리지 않아요. Claude·OpenAI 계정과 요금제는 쓰임새에 맞게 허용된 것만 연결하세요. 트리나 호스팅은 14일 무료 체험 뒤 월 요금제로 이어지고, AI 이용료는 연결한 계정으로 따로 나가요. [현재 가격](https://ax.trina.app/#pricing)
 
 리눅스 직접 설치에는 Debian 12/13 또는 Ubuntu 24.04, systemd와 cgroup v2, amd64나 arm64, RAM 4 GB(권장), 디스크 20 GB(최소)가 필요해요. 설치, 업데이트, 백업 복구는 회사 IT 담당자가 맡아요.
 
@@ -143,14 +169,14 @@ owner 계정을 만든 다음 **권한 → AI 연결 → 팀원 초대 → 첫 �
 <details>
 <summary><b>써 보려면 AI 계정이 있어야 하나요?</b></summary>
 
-<br>아니요. [로컬 데모](docs/QUICKSTART.ko.md)는 AI를 끄고 가상 자료로 돌아서, 파일·스킬·권한부터 먼저 볼 수 있어요.
+<br>아니요. [로컬 데모](docs/QUICKSTART.ko.md)는 AI를 끄고 가상 자료로 돌아서, 파일·스킬·권한부터 먼저 볼 수 있어요. 대화방에서 @트리나가 답하는 걸 보려면 AI가 연결된 서버가 필요해요([써 보기](#10분-만에-써-보기)).
 
 </details>
 
 <details>
-<summary><b>관리자가 우리 채팅을 볼 수 있나요?</b></summary>
+<summary><b>관리자가 우리 대화와 대화방을 볼 수 있나요?</b></summary>
 
-<br>아니요. 채팅은 본인만 봐요. 활동 기록에는 AI가 어떤 파일을 읽었는지만 나오고 대화 내용은 나오지 않아요. 서버나 저장소를 운영하는 사람은 저장된 데이터를 볼 수 있어요.
+<br>아니요. 트리나와 나눈 대화는 나만 봐요. 대화방은 그 방 사람만 보고, 관리자도 자기가 없는 대화방은 못 열어요. 활동 기록에는 AI가 어떤 파일을 읽었는지만 나오고 대화 내용은 나오지 않아요. 서버나 저장소를 운영하는 사람은 저장된 데이터를 볼 수 있어요.
 
 </details>
 
@@ -160,6 +186,18 @@ owner 계정을 만든 다음 **권한 → AI 연결 → 팀원 초대 → 첫 �
 <br>돼요. AI가 HWP/HWPX의 글자는 어느 서버에서나 읽어요. 선택 플러그인(한글 문서 미리보기)을 켜면 새 .hwpx 문서(제목·문단·목록·간단한 표)도 만들고, 이미 있는 .hwp·.hwpx 양식의 빈칸·표 행을 채워 같은 형식으로 저장하고(나머지는 그대로 둬요), 화면 미리보기도 보여 줘요. 이 플러그인은 Debian 12에서는 돌지 않아요. [자세히](docs/FAQ.ko.md)
 
 </details>
+
+## 97초 이야기
+
+https://github.com/user-attachments/assets/f19762ef-84de-414a-9f5d-69792f319ec7
+
+<sub><b>소리를 켜고 보세요.</b> 대표님이 Claude를 한 번 세팅하면, 입사 첫날 신입의 제안서도 대표님이 쓴 것처럼 나와요.<br>애니메이션이고, 1:15에 실제 앱 화면이 나와요. 회사는 가상이에요.</sub>
+
+## 다음에 나올 것
+
+- **동료가 하던 AI 대화 이어받기.** 공유 프로젝트 대화: 프로젝트 사람 누구나 AI 대화를 이어서 하고, 메시지마다 보낸 사람으로 돌아요. 설계만 했고 아직 만들지 않았어요.
+- **안드로이드 앱.** Google Play 심사 중이에요.
+- **트리나 호스팅의 0.4.** 호스팅은 stable 채널을 따라가서, 0.4가 stable이 되면 대화방이 들어와요. 직접 설치한 서버는 지금도 0.4 릴리스를 쓸 수 있어요.
 
 ## 함께 만들기
 

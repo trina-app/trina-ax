@@ -1,6 +1,7 @@
 // Route module "chats" — owner: component B (docs/WORKPLAN.md).
 // Implements: CHATS (chats, messages, stop, regenerate, edit, branch, turn cards, projects)
-// Contract: shared/src/api/chats.ts. Only the person's own chats; "not yours" and "missing" are both not_found.
+// Contract: shared/src/api/chats.ts. The person's own chats, and the shared project chats they see (chat/shared.ts
+// chatFor); "not yours" and "missing" are both not_found.
 import { redactorFor } from '../integrations/connections/redact'
 import { API, WINDOW_HEADER, type Attachment, type Chat, type EngineId, type Locale, type Message } from '@mycel/shared/api'
 import type { Context } from 'hono'
@@ -18,7 +19,7 @@ import { notInternalChat } from '../chat/internal-chats'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { FolderRuleInput } from '@mycel/shared/api'
-import { assertFolderFree, canRead, canSeeProject, canWrite, ensureProjectFolderEx, lookupFolder, parentFolder, projectFolderName, projectPaths } from '../chat/projects'
+import { assertFolderFree, canRead, canSeeProject, canWrite, ensureProjectFolderEx, lookupFolder, mayEditProject, parentFolder, projectFolderName, projectPaths } from '../chat/projects'
 import { badSegment } from '../policy/names'
 import { componentC } from '../team-files/component'
 import { mapErrors } from '../team-files/errors'
@@ -34,21 +35,24 @@ import { finishCard } from '../chat/connect-service'
 import { refuseDraftAttachments } from '../onboarding/draft'
 import { refuseSkillDraftAttachments } from '../onboarding/skill-draft'
 import { refuseShareJudgeAttachments } from '../skills/share-judge'
+import { Audiences, chatFor, chatView, isSharedRow, messageFor, projectCanShare, projectShare, sharesNewChats, type ChatAccess } from '../chat/shared'
+import { safeOpsEnabled } from '../safe-ops/runner'
+import { forgetPurgedChats } from '../chat/forget'
 
 const WINDOW_RE = /^[A-Za-z0-9_-]{8,64}$/
 export const windowOf = (c: Context<AppEnv>) => { const w = c.req.header(WINDOW_HEADER); return w && WINDOW_RE.test(w) ? w : null }
 const likeEscape = (s: string) => s.replace(/[\\%_]/g, (m) => '\\' + m)
 
-function ownChat(rt: ChatRuntime, auth: AuthInfo, id: string, o: { deleted?: boolean } = {}): ChatRow {
-  const r = rt.store.ownChat(auth.user.id, id, o)
-  if (!r) fail('not_found')
-  return r!
+/** The chat for this request (chat/shared.ts chatFor): the caller's own, or a shared project chat they see, with the
+ * access `mode` needs. */
+function chatOf(rt: ChatRuntime, c: Context<AppEnv>, auth: AuthInfo, id: string, mode: 'view' | 'continue' | 'manage', o: { deleted?: boolean } = {}): ChatAccess {
+  return chatFor(rt, auth.user.id, id, mode, { ...o, locale: c.get('locale') })
 }
-/** A chat as the API shows it: a stored connection secret of its person never shows in the title (a title made before
- * the key was saved, or a rename; QA B-W5-1). `hide`: one redactor for a whole list. */
-function chatOut(rt: ChatRuntime, r: ChatRow, hide: (s: string) => string = redactorFor(rt.ctx, r.user_id).hide): Chat {
-  const c = rt.store.toChat(r, rt.runState(r.id), rt.waitsForPerson(r.id))
-  return { ...c, title: hide(c.title) }
+/** A chat as the API shows it to `viewer` (chat/shared.ts chatView): a stored connection secret of its person never
+ * shows in the title (a title made before the key was saved, or a rename; QA B-W5-1). `hide` and `aud`: one each for a
+ * whole list. */
+function chatOut(rt: ChatRuntime, viewer: string, r: ChatRow, o: { hide?: (s: string) => string; aud?: Audiences } = {}): Chat {
+  return chatView(rt, viewer, r, o)
 }
 
 function principal(ctx: AppContext, auth: AuthInfo) {
@@ -63,7 +67,7 @@ const isPersonalPath = (folder: string) => folder === 'users' || folder.startsWi
  * and only while they can write the folder (design tabs 4 / 5 "지침 수정은 만든 사람과 admin 이상"). A personal
  * project under users/<me>/ is only ever reachable by its owner.
  */
-const mayEdit = (ctx: AppContext, p: Principal, r: ProjectRowT) => canWrite(ctx.files, p, r.folder_path) && (isAdmin(p) || r.created_by === p.id)
+const mayEdit = (ctx: AppContext, p: Principal, r: ProjectRowT) => mayEditProject(ctx.files, p, r)
 /** a folder made for a request goes again when a later step of it fails: nothing half-made stays behind */
 const removeMade = (top: string | null) => { if (top) try { fs.rmSync(top, { recursive: true, force: true }) } catch {} }
 
@@ -98,8 +102,8 @@ function attachments(ctx: AppContext, auth: AuthInfo, chatId: string, ids: strin
   return fail('validation', tr('attachmentsUnavailable', locale), { fields: { 'body.attachmentIds': 'unknown attachment' } })
 }
 
-/** The active branch, newest `limit` messages (or the ones before `cursor`), oldest first. */
-function messagesPage(rt: ChatRuntime, chat: ChatRow, cursor: string | undefined, limit: number): { items: Message[]; nextCursor: string | null } {
+/** The active branch, newest `limit` messages (or the ones before `cursor`), oldest first, as `viewer` sees them. */
+function messagesPage(rt: ChatRuntime, chat: ChatRow, cursor: string | undefined, limit: number, viewer: string, locale: Locale): { items: Message[]; nextCursor: string | null } {
   const pathRows = rt.store.pathTo(chat.active_leaf_id)
   let end = pathRows.length
   if (cursor) {
@@ -111,7 +115,7 @@ function messagesPage(rt: ChatRuntime, chat: ChatRow, cursor: string | undefined
   }
   const start = Math.max(0, end - limit)
   const slice = pathRows.slice(start, end)
-  return { items: slice.map((m) => rt.liveMessage(m)), nextCursor: start > 0 ? encodeCursor({ before: slice[0]!.id }) : null }
+  return { items: slice.map((m) => messageFor(rt, chat, m, viewer, locale)), nextCursor: start > 0 ? encodeCursor({ before: slice[0]!.id }) : null }
 }
 
 /** The turn's engine and model: the chat's (or the team default when the admin switched it off); a choice in the
@@ -132,6 +136,15 @@ function checkBudget(ctx: AppContext, userId: string, locale: Locale): void {
   if (b) fail('budget_exceeded', b.message)
 }
 
+/** One turn at a time per chat. A shared chat busy with someone else's question: 409 shared_chat_busy, naming them
+ * (the composer keeps the text; Chat.shared.answering shows the same line). */
+function busyCheck(rt: ChatRuntime, a: ChatAccess, locale: Locale, me: string) {
+  if (!rt.activeTurn(a.row.id)) return
+  const runner = rt.activeTurnUser(a.row.id)
+  if (a.shared && runner && runner !== me) fail('conflict', tr('sharedChatBusy', locale, { name: rt.store.userRef(runner)?.name ?? '' }), { params: { reason: 'shared_chat_busy' } })
+  fail('conflict', tr('turnInProgress', locale))
+}
+
 const isClientIdClash = (e: unknown) => /UNIQUE constraint failed: messages\.chat_id, messages\.client_message_id/.test(String((e as Error)?.message ?? e))
 
 export const chatsRoutes: RouteModule = {
@@ -144,17 +157,31 @@ export const chatsRoutes: RouteModule = {
   },
   register(kit, ctx) {
     const rt = getChatRuntime(ctx)
+    const busy = (a: ChatAccess, locale: Locale, me: string) => busyCheck(rt, a, locale, me)
+    /** a project as the API shows it, with its shared chats (chat/shared.ts projectShare) */
+    const projectOut = (r: ProjectRowT, canEdit: boolean) => rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r))
     kit.handle(API.frequentQuestions, ({ auth }) => frequentQuestions(ctx.db, auth.user.id))
 
     // ---------------- chats ----------------
     kit.handle(API.listChats, ({ query, auth }) => {
+      const me = auth.user.id
       const limit = query.limit ?? 50
       // a room's AI session (rooms/ai.ts) and the server's own draft chats (the company profile, a team skill) are not
       // the person's conversations: never listed or found by a search (chat/internal-chats.ts)
-      const where: string[] = ['user_id = ?', 'room_id IS NULL', notInternalChat(ctx.db)]
-      const args: (string | number)[] = [auth.user.id]
-      where.push(query.trash ? 'deleted_at IS NOT NULL' : 'deleted_at IS NULL')
-      if (query.projectId) { where.push('project_id = ?'); args.push(query.projectId) }
+      const where: string[] = ['room_id IS NULL', notInternalChat(ctx.db)]
+      const args: (string | number)[] = []
+      if (query.trash) {
+        // the trash holds my own chats (a deleted shared chat goes to its creator's)
+        where.push('user_id = ?', 'deleted_at IS NOT NULL'); args.push(me)
+        if (query.projectId) { where.push('project_id = ?'); args.push(query.projectId) }
+      } else if (query.projectId) {
+        // a project's page: my chats there and every shared chat of it (each only while I see the project, below)
+        where.push('deleted_at IS NULL', 'project_id = ?', '(user_id = ? OR shared_at IS NOT NULL)'); args.push(query.projectId, me)
+      } else {
+        // my chat list: my chats and the shared chats I wrote in (docs/DECISIONS.md "Shared project chats": no section
+        // of their own)
+        where.push('deleted_at IS NULL', "(user_id = ? OR (shared_at IS NOT NULL AND id IN (SELECT chat_id FROM messages WHERE role = 'user' AND author_id = ?)))"); args.push(me, me)
+      }
       const q = query.q?.trim()
       if (q) {
         const like = `%${likeEscape(q)}%`
@@ -163,40 +190,59 @@ export const chatsRoutes: RouteModule = {
       }
       const cur = decodeCursor(query.cursor, ['u', 'id'])
       if (query.cursor && !cur) fail('validation', undefined, { fields: { 'query.cursor': 'bad cursor' } })
-      if (cur) { where.push('(updated_at < ? OR (updated_at = ? AND id < ?))'); args.push(cur.u, cur.u, cur.id) }
-      const rows = ctx.db.query(`SELECT ${CHAT_COLS} FROM chats WHERE ${where.join(' AND ')} ORDER BY updated_at DESC, id DESC LIMIT ?`).all(...args, limit + 1) as ChatRow[]
-      const more = rows.length > limit
-      const items = rows.slice(0, limit)
-      const last = items[items.length - 1]
-      const hide = redactorFor(ctx, auth.user.id).hide
-      return { items: items.map((r) => chatOut(rt, r, hide)), nextCursor: more && last ? encodeCursor({ u: last.updated_at, id: last.id }) : null }
+      // a shared chat only while I see its project now (its creator too): pages are read until one is full
+      const aud = new Audiences(ctx.db, ctx.files)
+      const visible = (r: ChatRow) => { if (!isSharedRow(r)) return true; const p = rt.store.projectRow(r.project_id!); return !!p && aud.sees(me, p) }
+      const out: ChatRow[] = []
+      let after = cur
+      for (let round = 0; round < 50 && out.length <= limit; round++) {
+        const w = [...where], a = [...args]
+        if (after) { w.push('(updated_at < ? OR (updated_at = ? AND id < ?))'); a.push(after.u, after.u, after.id) }
+        const rows = ctx.db.query(`SELECT ${CHAT_COLS} FROM chats WHERE ${w.join(' AND ')} ORDER BY updated_at DESC, id DESC LIMIT ?`).all(...a, limit + 1) as ChatRow[]
+        for (const r of rows) if (visible(r)) out.push(r)
+        const last = rows[rows.length - 1]
+        if (!last || rows.length < limit + 1) break
+        after = { u: last.updated_at, id: last.id }
+      }
+      const more = out.length > limit
+      const items = out.slice(0, limit)
+      const lastItem = items[items.length - 1]
+      const hide = redactorFor(ctx, me).hide
+      return { items: items.map((r) => chatOut(rt, me, r, { aud, ...(r.user_id === me ? { hide } : {}) })), nextCursor: more && lastItem ? encodeCursor({ u: lastItem.updated_at, id: lastItem.id }) : null }
     })
 
     kit.handle(API.chatEngines, ({ c, auth }) => chatEnginesFor(ctx, auth.user, rt.engines.get().problems, c.get('locale')))
 
     kit.handle(API.createChat, ({ c, body, auth }) => {
       const { engine, model } = newChatEngine(ctx, auth.user, body, c.get('locale'))
+      // a chat made in a project that shares its chats is a shared chat, from its first moment and for good (never a
+      // personal project, never while safe operations are on: chat/shared.ts sharesNewChats)
+      let shared = false
       if (body.projectId) {
         const p = rt.store.projectRow(body.projectId)
         if (!p || !canSeeProject(ctx.files, principal(ctx, auth), p)) fail('not_found')
         // only admins see a project whose folder is in the trash, and no turn gets it: a chat there would get nothing
         if (p!.trashed_with !== null) fail('conflict', tr('projectInTrash', c.get('locale')), { fields: { 'body.projectId': 'project_in_trash' }, params: { reason: 'project_in_trash' } })
+        shared = sharesNewChats(p!)
       }
       const id = newId()
       const now = new Date().toISOString()
       // a title given here is the person's own (the AI does not rename it); none: the first message gives one
       // a stored connection secret or a secret-looking part is never kept in a title (QA B-W5-1, SEC-16, B-W47-3)
       const title = hideTitle(body.title?.trim() ?? '', redactorFor(ctx, auth.user.id).hide)
-      ctx.db.query('INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)')
-        .run(id, auth.user.id, body.projectId ?? null, title, title ? 'user' : 'auto', engine, model ?? null, now, now)
+      ctx.db.query('INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at, shared_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
+        .run(id, auth.user.id, body.projectId ?? null, title, title ? 'user' : 'auto', engine, model ?? null, now, now, shared ? now : null)
       rt.publishChat(auth.user.id, id, 'created')
-      return chatOut(rt, rt.store.chatRow(id)!)
+      return chatOut(rt, auth.user.id, rt.store.chatRow(id)!)
     })
 
-    kit.handle(API.getChat, ({ params, auth }) => chatOut(rt, ownChat(rt, auth, params.id, { deleted: true })))
-    // the person has the chat on screen: its finished answers are seen; every window and device hears it (chat.updated)
-    kit.handle(API.markChatSeen, ({ params, auth }) => {
-      const chat = ownChat(rt, auth, params.id, { deleted: true })
+    kit.handle(API.getChat, ({ c, params, auth }) => chatOut(rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view', { deleted: true }).row))
+    // the person has the chat on screen: its finished answers are seen; every window and device hears it (chat.updated).
+    // A shared chat keeps one mark, its creator's (unseen markers per viewer are not in phase 1)
+    kit.handle(API.markChatSeen, ({ c, params, auth }) => {
+      const a = chatOf(rt, c, auth, params.id, 'view', { deleted: true })
+      const chat = a.row
+      if (a.shared && !a.creator) return chatOut(rt, auth.user.id, chat)
       const was = rt.store.unseen(chat)
       rt.store.markSeen(chat.id)
       const after = rt.store.chatRow(chat.id)!
@@ -204,12 +250,24 @@ export const chatsRoutes: RouteModule = {
       // windows would ask again and again); a chat in the trash is not in any sidebar (an 'updated' would put it back
       // there). Session markers: docs/DECISIONS.md.
       if (was && !rt.store.unseen(after) && !chat.deleted_at) rt.publishChat(auth.user.id, chat.id, 'updated')
-      return chatOut(rt, after)
+      return chatOut(rt, auth.user.id, after)
     })
-    kit.handle(API.getChatQueue, ({ params, auth }) => rt.queueSnapshot(ownChat(rt, auth, params.id, { deleted: true }).id))
+    // a shared chat: the place in the queue and the turn are the runner's; the others learn only the state
+    kit.handle(API.getChatQueue, ({ c, params, auth }) => {
+      const a = chatOf(rt, c, auth, params.id, 'view', { deleted: true })
+      const snap = rt.queueSnapshot(a.row.id)
+      const runner = rt.activeTurnUser(a.row.id)
+      return a.shared && runner && runner !== auth.user.id ? { ...snap, turnId: null, messageId: null, position: null } : snap
+    })
 
     kit.handle(API.updateChat, ({ c, params, body, auth }) => {
-      const chat = ownChat(rt, auth, params.id)
+      const a = chatOf(rt, c, auth, params.id, 'view')
+      const chat = a.row
+      if (a.shared) {
+        // a shared chat's name and engine are its creator's; it stays in its project (its people see it there)
+        if (!a.creator) fail('forbidden', tr('sharedChatCreatorOnly', c.get('locale')), { params: { reason: 'shared_chat_creator' } })
+        if (body.projectId !== undefined && body.projectId !== chat.project_id) fail('conflict', tr('sharedChatMove', c.get('locale')), { fields: { 'body.projectId': 'shared_chat_move' }, params: { reason: 'shared_chat_move' } })
+      }
       checkChatEngineChange(ctx, auth.user, chat, body, c.get('locale'))
       if (body.projectId) {
         const p = rt.store.projectRow(body.projectId)
@@ -230,37 +288,42 @@ export const chatsRoutes: RouteModule = {
         ctx.db.query(`UPDATE chats SET ${sets.join(', ')} WHERE id = ?`).run(...args, chat.id)
         rt.publishChat(auth.user.id, chat.id, 'updated')
       }
-      return chatOut(rt, rt.store.chatRow(chat.id)!)
+      return chatOut(rt, auth.user.id, rt.store.chatRow(chat.id)!)
     })
 
-    kit.handle(API.deleteChat, ({ params, auth }) => {
-      const chat = ownChat(rt, auth, params.id)
+    // a shared chat: its creator or an editor of its project; someone else's deletion is audited (it leaves the
+    // creator's list for their trash)
+    kit.handle(API.deleteChat, ({ c, params, auth }) => {
+      const a = chatOf(rt, c, auth, params.id, 'manage')
+      const chat = a.row
       rt.stopChat(chat.id)
       const now = new Date()
       ctx.db.query('UPDATE chats SET deleted_at = ? WHERE id = ?').run(now.toISOString(), chat.id)
+      if (a.shared && !a.creator) audit(ctx.db, { actor: auth.user.id, action: 'chat.delete', target: chat.id, detail: { shared: true, projectId: chat.project_id } })
       rt.publishChat(auth.user.id, chat.id, 'deleted')
       return { id: chat.id, deletedAt: now.toISOString(), purgeAt: new Date(now.getTime() + rt.chatTrashDays() * 86400_000).toISOString() }
     })
 
-    kit.handle(API.restoreChat, ({ params, auth }) => {
-      const chat = ownChat(rt, auth, params.id, { deleted: true })
+    // a shared chat comes back only while its project is visible (chatFor), by its creator or an editor of the project
+    kit.handle(API.restoreChat, ({ c, params, auth }) => {
+      const chat = chatOf(rt, c, auth, params.id, 'manage', { deleted: true }).row
       if (chat.deleted_at) {
         ctx.db.query('UPDATE chats SET deleted_at = NULL, updated_at = ? WHERE id = ?').run(new Date().toISOString(), chat.id)
         rt.publishChat(auth.user.id, chat.id, 'restored')
       }
-      return chatOut(rt, rt.store.chatRow(chat.id)!)
+      return chatOut(rt, auth.user.id, rt.store.chatRow(chat.id)!)
     })
 
     // ---------------- messages ----------------
-    kit.handle(API.listMessages, ({ params, query, auth }) => {
-      const chat = ownChat(rt, auth, params.id, { deleted: true })
-      return messagesPage(rt, chat, query.cursor, query.limit ?? 50)
+    kit.handle(API.listMessages, ({ c, params, query, auth }) => {
+      const chat = chatOf(rt, c, auth, params.id, 'view', { deleted: true }).row
+      return messagesPage(rt, chat, query.cursor, query.limit ?? 50, auth.user.id, c.get('locale'))
     })
 
     // "참고한 파일" under an answer: each file checked again for this person now (files/sources.ts); a file they cannot
-    // open is only counted. The chat is the caller's own, as for every message route.
-    kit.handle(API.messageSources, ({ params, auth }) => {
-      const chat = ownChat(rt, auth, params.id, { deleted: true })
+    // open is only counted. The chat is one the caller sees, as for every message route.
+    kit.handle(API.messageSources, ({ c, params, auth }) => {
+      const chat = chatOf(rt, c, auth, params.id, 'view', { deleted: true }).row
       const m = messageInChat(rt, chat.id, params.messageId)
       if (m.role !== 'assistant') return { files: [], unavailable: 0 }
       return viewSources(ctx.db, ctx.files.fx, () => ctx.files.rules(), auth.user.id, m.id)
@@ -269,81 +332,100 @@ export const chatsRoutes: RouteModule = {
     // "대화방에 보내기": a finished answer of my own chat to a room I am in, as my message, with the linked files asked
     // for attached; "confirm" first when some member cannot open a linked file or see material it used
     // (chat/answer-share.ts). Not from a room's AI session or a deleted chat (404).
+    // A shared chat (phase 1): only the person whose question the answer was, an answer of their own turn
     kit.handle(API.shareAnswerToRoom, ({ c, params, body, auth }) => {
-      const chat = ownChat(rt, auth, params.id)
-      return shareAnswerToRoom(ctx, auth.user.id, chat, messageInChat(rt, chat.id, params.messageId), body, c.get('locale'))
+      const a = chatOf(rt, c, auth, params.id, 'view')
+      const m = messageInChat(rt, a.row.id, params.messageId)
+      if (a.shared && (!m.turn_id || rt.store.turnUser(m.turn_id) !== auth.user.id)) fail('not_found')
+      return shareAnswerToRoom(ctx, auth.user.id, a.row, m, body, c.get('locale'))
     })
 
     kit.handle(API.sendMessage, ({ c, params, body, auth }) => {
-      const chat = ownChat(rt, auth, params.id)
-      const again = rt.existingTurn(chat.id, body.clientMessageId)
+      const a = chatOf(rt, c, auth, params.id, 'continue')
+      const chat = a.row
+      const again = rt.existingTurn(chat.id, body.clientMessageId, auth.user.id)
       if (again) return again
-      if (rt.activeTurn(chat.id)) fail('conflict', tr('turnInProgress', c.get('locale')))
+      busy(a, c.get('locale'), auth.user.id)
       const parentId = body.parentId === undefined ? chat.active_leaf_id : body.parentId
       if (parentId) {
         const p = messageInChat(rt, chat.id, parentId)
         if (p.role !== 'assistant') fail('validation', tr('badParent', c.get('locale')), { fields: { 'body.parentId': 'must be an answer' } })
       }
       const atts = attachments(ctx, auth, chat.id, body.attachmentIds, c.get('locale'))
+      // a shared chat takes team files only (D3): a computer upload never reaches it
+      if (a.shared && atts.some((x) => x.source !== 'team')) fail('conflict', tr('sharedChatUpload', c.get('locale')), { params: { reason: 'shared_chat_upload' } })
       checkBudget(ctx, auth.user.id, c.get('locale'))
       const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
       try {
         return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom,
           user: { parentId, content: body.content, attachments: atts, clientMessageId: body.clientMessageId } })
       } catch (e) {
-        if (isClientIdClash(e)) { const r = rt.existingTurn(chat.id, body.clientMessageId); if (r) return r }
+        if (isClientIdClash(e)) { const r = rt.existingTurn(chat.id, body.clientMessageId, auth.user.id); if (r) return r }
         throw e
       }
     })
 
-    kit.handle(API.stop, ({ params, auth }) => {
-      const chat = ownChat(rt, auth, params.id)
-      const turnId = rt.stopChat(chat.id)
+    // a shared chat: only the person whose turn it is stops it
+    kit.handle(API.stop, ({ c, params, auth }) => {
+      const a = chatOf(rt, c, auth, params.id, 'view')
+      const runner = rt.activeTurnUser(a.row.id)
+      if (a.shared && runner && runner !== auth.user.id) fail('forbidden', tr('sharedChatRunnerOnly', c.get('locale')), { params: { reason: 'shared_chat_runner' } })
+      const turnId = rt.stopChat(a.row.id)
       return { stopped: !!turnId, turnId }
     })
 
+    // a shared chat: an answer to one's own question only
     kit.handle(API.regenerate, ({ c, params, body, auth }) => {
-      const chat = ownChat(rt, auth, params.id)
+      const a = chatOf(rt, c, auth, params.id, 'continue')
+      const chat = a.row
       const target = messageInChat(rt, chat.id, params.messageId)
       if (target.role !== 'assistant' || !target.parent_id) fail('validation', tr('notAssistantMessage', c.get('locale')))
       const question = messageInChat(rt, chat.id, target.parent_id!)
       if (question.role !== 'user') fail('validation', tr('notAssistantMessage', c.get('locale')))
-      if (rt.activeTurn(chat.id)) fail('conflict', tr('turnInProgress', c.get('locale')))
+      if (a.shared && question.author_id !== auth.user.id) fail('forbidden', tr('sharedChatOwnMessages', c.get('locale')), { params: { reason: 'shared_chat_own_messages' } })
+      busy(a, c.get('locale'), auth.user.id)
       checkBudget(ctx, auth.user.id, c.get('locale'))
       const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
       return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom, answerTo: question })
     })
 
+    // a shared chat: one's own messages only
     kit.handle(API.editMessage, ({ c, params, body, auth }) => {
-      const chat = ownChat(rt, auth, params.id)
-      const again = rt.existingTurn(chat.id, body.clientMessageId)
+      const a = chatOf(rt, c, auth, params.id, 'continue')
+      const chat = a.row
+      const again = rt.existingTurn(chat.id, body.clientMessageId, auth.user.id)
       if (again) return again
       const target = messageInChat(rt, chat.id, params.messageId)
       if (target.role !== 'user') fail('validation', tr('notUserMessage', c.get('locale')))
-      if (rt.activeTurn(chat.id)) fail('conflict', tr('turnInProgress', c.get('locale')))
+      if (a.shared && target.author_id !== auth.user.id) fail('forbidden', tr('sharedChatOwnMessages', c.get('locale')), { params: { reason: 'shared_chat_own_messages' } })
+      busy(a, c.get('locale'), auth.user.id)
       const atts = attachments(ctx, auth, chat.id, body.attachmentIds, c.get('locale'))
+      if (a.shared && atts.some((x) => x.source !== 'team')) fail('conflict', tr('sharedChatUpload', c.get('locale')), { params: { reason: 'shared_chat_upload' } })
       checkBudget(ctx, auth.user.id, c.get('locale'))
       const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
       try {
         return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom,
           user: { parentId: target.parent_id, content: body.content, attachments: atts, clientMessageId: body.clientMessageId } })
       } catch (e) {
-        if (isClientIdClash(e)) { const r = rt.existingTurn(chat.id, body.clientMessageId); if (r) return r }
+        if (isClientIdClash(e)) { const r = rt.existingTurn(chat.id, body.clientMessageId, auth.user.id); if (r) return r }
         throw e
       }
     })
 
-    kit.handle(API.selectBranch, ({ params, body, auth }) => {
-      const chat = ownChat(rt, auth, params.id)
+    kit.handle(API.selectBranch, ({ c, params, body, auth }) => {
+      const chat = chatOf(rt, c, auth, params.id, 'continue').row
       messageInChat(rt, chat.id, body.messageId)
       const leaf = rt.store.newestLeafUnder(chat.id, body.messageId)
       ctx.db.query('UPDATE chats SET active_leaf_id = ? WHERE id = ?').run(leaf, chat.id)
-      return messagesPage(rt, { ...chat, active_leaf_id: leaf }, undefined, 50)
+      return messagesPage(rt, { ...chat, active_leaf_id: leaf }, undefined, 50, auth.user.id, c.get('locale'))
     })
 
     // ---------------- cards (ask_user, browser site, connect_service) ----------------
+    // a shared chat: the cards are the runner's only (the others see "waiting for ○○'s yes", Chat.shared.answering)
     kit.handle(API.listTurnRequests, ({ c, params, auth }) => {
-      const chat = ownChat(rt, auth, params.id)
+      const a = chatOf(rt, c, auth, params.id, 'view')
+      const chat = a.row
+      if (a.shared && rt.activeTurnUser(chat.id) !== auth.user.id) return { items: [] }
       const turnId = rt.activeTurn(chat.id)
       const exec = turnId ? rt.execFor(turnId) : undefined
       if (!exec) return { items: [] }
@@ -379,7 +461,8 @@ export const chatsRoutes: RouteModule = {
     kit.handle(API.listProjects, ({ auth }) => {
       const p = principal(ctx, auth)
       const rows = ctx.db.query(`SELECT ${PROJECT_COLS} FROM projects ORDER BY name COLLATE NOCASE, id`).all() as Parameters<typeof rt.store.toProject>[0][]
-      return { items: rows.filter((r) => canSeeProject(ctx.files, p, r)).map((r) => rt.store.toProject(r, mayEdit(ctx, p, r))) }
+      const aud = new Audiences(ctx.db, ctx.files)
+      return { items: rows.filter((r) => canSeeProject(ctx.files, p, r)).map((r) => rt.store.toProject(r, mayEdit(ctx, p, r), projectShare(ctx.db, ctx.files, r, aud))) }
     })
 
     kit.handle(API.createProject, ({ c, body, auth }) => {
@@ -416,7 +499,7 @@ export const chatsRoutes: RouteModule = {
         const segs = f.path.split('/')
         if (segs[0] !== 'users' || segs[1] !== p.id || segs.length < 3) { undo(f.createdTop); fail('validation', tr('projectPersonalFolder', locale), { fields: { 'body.folderPath': 'a personal project lives in users/<me>/' } }) }
         try { db.transaction(() => { insert(f.path); audit(db, { actor: auth.user.id, action: 'project.create', target: id, detail: null }) })() } catch (e) { undo(f.createdTop); throw e }
-        return rt.store.toProject(rt.store.projectRow(id)!, true)
+        return projectOut(rt.store.projectRow(id)!, true)
       }
 
       // ① a new team project folder projects/<slug>/: admins only, with its rules (participants + creator write)
@@ -462,7 +545,7 @@ export const chatsRoutes: RouteModule = {
           })()
         } catch (e) { undo(f.createdTop); throw e }
         afterAccessChange(ctx, before, { actor: auth.user.id, target: f.path })
-        return rt.store.toProject(rt.store.projectRow(id)!, true)
+        return projectOut(rt.store.projectRow(id)!, true)
       }
 
       // ② an existing folder (or a new one inside a folder) the caller can write: rules unchanged; a rule-less
@@ -485,14 +568,14 @@ export const chatsRoutes: RouteModule = {
           audit(db, { actor: auth.user.id, action: 'project.create', target: id, detail: isPersonalPath(f.path) ? null : { name: body.name, folderPath: f.path } })
         })()
       } catch (e) { undo(f.createdTop); throw e }
-      return rt.store.toProject(rt.store.projectRow(id)!, mayEdit(ctx, p, rt.store.projectRow(id)!))
+      return projectOut(rt.store.projectRow(id)!, mayEdit(ctx, p, rt.store.projectRow(id)!))
     })
 
     kit.handle(API.getProject, ({ params, auth }) => {
       const p = principal(ctx, auth)
       const r = rt.store.projectRow(params.id)
       if (!r || !canSeeProject(ctx.files, p, r)) fail('not_found')
-      return rt.store.toProject(r!, mayEdit(ctx, p, r!))
+      return projectOut(r!, mayEdit(ctx, p, r!))
     })
 
     kit.handle(API.updateProject, ({ c, params, body, auth }) => {
@@ -502,6 +585,15 @@ export const chatsRoutes: RouteModule = {
       if (!r || !canSeeProject(ctx.files, p, r)) fail('not_found')
       if (!canWrite(ctx.files, p, r!.folder_path)) fail('forbidden', tr('projectFolderNoWrite', locale))
       if (!mayEdit(ctx, p, r!)) fail('forbidden', tr('projectCreatorOnly', locale))
+      // sharing its chats (docs/DECISIONS.md "Shared project chats"): team projects only; turning it on is refused while
+      // safe operations are on (every chat would be confidential) or while its folder is in the trash. Off keeps the
+      // chats already shared
+      const shareTo = body.shareChats === undefined || (body.shareChats ? 1 : 0) === r!.share_chats ? null : body.shareChats
+      if (shareTo !== null) {
+        if (!projectCanShare(r!)) fail('conflict', tr('sharedProjectPersonal', locale), { fields: { 'body.shareChats': 'project_personal' }, params: { reason: 'project_personal' } })
+        if (shareTo && safeOpsEnabled()) fail('conflict', tr('sharedProjectSafeOps', locale), { fields: { 'body.shareChats': 'safe_ops' }, params: { reason: 'safe_ops' } })
+        if (shareTo && r!.trashed_with !== null) fail('conflict', tr('projectInTrash', locale), { fields: { 'body.shareChats': 'project_in_trash' }, params: { reason: 'project_in_trash' } })
+      }
       let folder = r!.folder_path
       let made: string | null = null
       // a project whose folder is in the trash (or was purged from it) gets a folder again only this way: an admin
@@ -532,6 +624,10 @@ export const chatsRoutes: RouteModule = {
         if (repoint) assertFolderFree(ctx.db, ctx.files.fx.caseInsensitive, folder, locale, { except: r!.id, mayName: (f) => canRead(ctx.files, p, f) })
         ctx.db.query('UPDATE projects SET name = ?, folder_path = ?, instructions = ?, instructions_author = ?, instructions_authored = ?, trashed_with = ? WHERE id = ?')
           .run(next.name, folder, next.instructions, author.by, author.text, repoint ? null : r!.trashed_with, r!.id)
+        if (shareTo !== null) {
+          ctx.db.query('UPDATE projects SET share_chats = ? WHERE id = ?').run(shareTo ? 1 : 0, r!.id)
+          audit(ctx.db, { actor: auth.user.id, action: 'project.share_chats', target: r!.id, detail: { on: shareTo } })
+        }
         // the old folder stops being a project folder: its rule-less marker row goes (else it stays admin-only for good).
         // Not for a project whose folder is in the trash: its marker went there with the folder, and the old path may be
         // another folder's now, whose own rule-less row (an admin's "follow the folder above") must stay.
@@ -554,7 +650,7 @@ export const chatsRoutes: RouteModule = {
       try { save() } catch (e) { removeMade(made); throw e }
       const after = rt.store.projectRow(r!.id)!
       if (after.instructions !== r!.instructions) notifyInstructionsChanged(ctx, after, auth.user)
-      return rt.store.toProject(after, mayEdit(ctx, p, after))
+      return projectOut(after, mayEdit(ctx, p, after))
     })
 
     kit.handle(API.shareProject, async ({ c, params, body, auth }) => {
@@ -580,7 +676,7 @@ export const chatsRoutes: RouteModule = {
       })
       try { save() } catch (e) { componentC(ctx).files.discardCopy(p.id, out.path); throw e }
       const after = rt.store.projectRow(r!.id)!
-      return rt.store.toProject(after, mayEdit(ctx, p, after))
+      return projectOut(after, mayEdit(ctx, p, after))
     })
 
     kit.handle(API.deleteProject, ({ c, params, auth }) => {
@@ -590,15 +686,27 @@ export const chatsRoutes: RouteModule = {
       if (!canWrite(ctx.files, p, r!.folder_path)) fail('forbidden', tr('projectFolderNoWrite', c.get('locale')))
       // other people's chats lose the project context: the creator and admins only, like editing it
       if (!mayEdit(ctx, p, r!)) fail('forbidden', tr('projectCreatorOnly', c.get('locale')))
+      // its shared chats go for good (they belong to the project's people, the dialog says so): their turns stop, and
+      // everyone who saw one hears it is gone; the private chats stay, without project
+      const shared = ctx.db.query('SELECT id FROM chats WHERE project_id = ? AND shared_at IS NOT NULL').all(r!.id) as { id: string }[]
+      const told = new Map<string, string[]>()
+      const aud = new Audiences(ctx.db, ctx.files)
+      for (const x of shared) {
+        rt.stopChat(x.id)
+        told.set(x.id, aud.of(r!))
+      }
       ctx.db.transaction(() => {
+        for (const x of shared) rt.purgeChat(x.id)
         ctx.db.query('UPDATE chats SET project_id = NULL WHERE project_id = ?').run(r!.id)
         ctx.db.query('DELETE FROM projects WHERE id = ?').run(r!.id)
         // a rule-less folders row that only marked this project's folder goes with it (security review r2: it kept the
         // folder, and every folder above it, admin-only to move, rename or trash for good). Not when its folder is in the
         // trash: the marker is there with it, and the old path may be another folder's now.
         if (r!.trashed_with === null) dropProjectMarker(ctx.db, r!.folder_path)
-        audit(ctx.db, { actor: auth.user.id, action: 'project.delete', target: r!.id, detail: isPersonalPath(r!.folder_path) ? null : { name: r!.name, folderPath: r!.folder_path } })
+        audit(ctx.db, { actor: auth.user.id, action: 'project.delete', target: r!.id, detail: isPersonalPath(r!.folder_path) ? null : { name: r!.name, folderPath: r!.folder_path, ...(shared.length ? { sharedChats: shared.length } : {}) } })
       })()
+      for (const [id, people] of told) for (const uid of people) rt.hub.publish(uid, { type: 'chat.updated', data: { chatId: id, change: 'purged', chat: null } })
+      if (shared.length) void forgetPurgedChats(ctx, shared.map((x) => x.id))
     })
   },
 }

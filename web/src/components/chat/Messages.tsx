@@ -8,6 +8,8 @@
 // (copy, edit, retry) show once the message is tapped, the newest answer's always; until then they are hidden from
 // sight only (screen readers and a keyboard still reach them), and the branch switch ("‹ 1 / 2 ›") always shows.
 // A file sent with a message is a small card above the bubble: its name, its type and its size.
+// A shared project chat (docs/DECISIONS.md "Shared project chats"): someone else's message has their name above it, and
+// edit, regenerate and "대화방에 보내기" are only on what I asked myself.
 import clsx from 'clsx'
 import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, History, Loader2, MessageSquareShare, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
@@ -209,7 +211,8 @@ export function FormRun({ run, sending = false }: { run: NonNullable<ReturnType<
   )
 }
 
-export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: ViewMessage; chatId: string; busy: boolean; onEdit: (m: ViewMessage, text: string) => void; onSelectBranch: (id: string) => void }) {
+/** `author`: someone else's name above their message (a shared chat); `canEdit` false: not mine to edit (a shared chat) */
+export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, author, canEdit = true }: { m: ViewMessage; chatId: string; busy: boolean; onEdit: (m: ViewMessage, text: string) => void; onSelectBranch: (id: string) => void; author?: string; canEdit?: boolean }) {
   const t = useT()
   const [editing, setEditing] = useState(false)
   // the box shows a "#" room token as "#<title>"; what is sent again keeps its room (lib/roomRefs.ts)
@@ -231,6 +234,11 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: Vi
   const branched = m.branch.count > 1
   return (
     <div className="group flex min-w-0 flex-col items-end gap-2" data-testid="user-message" data-message-id={m.id} onClick={() => setTapped(true)}>
+      {author && (
+        <span className="-mb-1 max-w-[85%] truncate px-1 text-xs font-medium text-muted sm:max-w-[80%]" data-testid="message-author">
+          {author}
+        </span>
+      )}
       {m.attachments.length > 0 && (
         <div className="flex max-w-[85%] flex-wrap items-end justify-end gap-2">
           {m.attachments.map((a) => (
@@ -315,16 +323,18 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch }: { m: Vi
           <BranchNav m={m} onSelect={onSelectBranch} disabled={busy} />
           <span className={clsx('flex items-center gap-1 md:contents', !tapped && UNTIL_TAP)} data-testid="message-actions-tap">
             <CopyButton text={m.content} />
-            <IconButton
-              label={t('chat.edit')}
-              onClick={() => {
-                setDraft(fromWire(m.content).text)
-                setEditing(true)
-              }}
-              data-testid="edit-message"
-            >
-              <Pencil size={13} />
-            </IconButton>
+            {canEdit && (
+              <IconButton
+                label={t('chat.edit')}
+                onClick={() => {
+                  setDraft(fromWire(m.content).text)
+                  setEditing(true)
+                }}
+                data-testid="edit-message"
+              >
+                <Pencil size={13} />
+              </IconButton>
+            )}
           </span>
         </div>
       )}
@@ -458,6 +468,8 @@ export function AssistantMessage({
   onAskOwnFolder,
   onContinue,
   shareable = false,
+  canRegenerate = true,
+  canSuggest = true,
 }: {
   m: ViewMessage
   chatId: string
@@ -474,6 +486,10 @@ export function AssistantMessage({
   /** its answers may go to a room ("대화방에 보내기"): a chat known not to be confidential (Safe operations 1A keeps
    * those to themselves; the server refuses them) */
   shareable?: boolean
+  /** false: someone else asked this in a shared chat, so no new answer from me ("retry", "regenerate") */
+  canRegenerate?: boolean
+  /** false: "스킬로 제안" is not offered (a shared chat, phase 1: the server refuses it) */
+  canSuggest?: boolean
 }) {
   const t = useT()
   const locale = useLocale()
@@ -544,7 +560,7 @@ export function AssistantMessage({
             {/* at least ~12rem for the text: on a phone the buttons go to their own line instead of squeezing it; one
                 line of text is as tall as the buttons, so text, icon and buttons share a centre line */}
             <span className="min-w-0 flex-[1_1_12rem] py-1 leading-6">{errText ?? t('chat.answerFailed')}</span>
-            {isLast && (
+            {isLast && canRegenerate && (
               <span className="ml-auto flex flex-wrap justify-end gap-2">
                 {isNoAiReason(reason) && <AiAccessButton />}
                 <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRegenerate(m)} data-testid="retry">
@@ -596,12 +612,12 @@ export function AssistantMessage({
                 </IconButton>
               )}
               {/* the newest failed answer has "Try again" in its error box: one control for one action */}
-              {!(m.status === 'error' && isLast) && (
+              {!(m.status === 'error' && isLast) && canRegenerate && (
                 <IconButton label={t('chat.regenerate')} disabled={busy} onClick={() => onRegenerate(m)} className="touch-hit" data-testid="regenerate">
                   <RotateCcw size={13} />
                 </IconButton>
               )}
-              {m.content && m.status === 'done' && (
+              {canSuggest && m.content && m.status === 'done' && (
                 <IconButton label={t('suggest.button')} onClick={() => setSuggesting(true)} className="touch-hit" data-testid="suggest-skill">
                   <BookmarkPlus size={13} />
                 </IconButton>
