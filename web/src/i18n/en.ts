@@ -919,6 +919,7 @@ export const en: Record<MessageKey, string> = {
   'projects.shareChatsPersonal': "Chats of a personal project cannot be shared.",
   'projects.sharedNewChat': "{n, plural, one {# person} other {# people}} in the project can see new chats.",
   'projects.deleteShared': "{n, plural, one {# shared chat is} other {# shared chats are}} deleted with it.",
+  'projects.deleteBodyShared': "Only the project is deleted; its folder and your own chats stay.",
   'projects.repointShared': "{n, plural, one {# shared chat} other {# shared chats}} will be seen by the {m, plural, one {# person} other {# people}} who can see this folder.",
   'chat.sharedLabel': "Shared chat",
   'chat.shared': "Shared chat · {n, plural, one {# person} other {# people}} in the project can see it",
@@ -927,8 +928,8 @@ export const en: Record<MessageKey, string> = {
   'chat.sharedBusy': "{name}'s question is being answered. You can send yours when it is done.",
   'chat.sharedWaiting': "Waiting for {name} to confirm.",
   'chat.sharedSafeOps': "Safe operations mode is on, so shared chats cannot be continued. Ask in a chat of your own.",
-  'chat.sharedTeamFiles': "A shared chat takes team files only. Upload a file from your computer to the project folder first, then attach it.",
-  'chat.sharedNoMove': "A shared chat cannot move to another project.",
+  'chat.sharedTeamFiles': "Only team files can be attached to a shared chat. Upload a file from your computer to the project folder first, then attach it.",
+  'chat.sharedNoMove': "A shared chat cannot be moved to another project.",
 
   'trash.title': "Deleted history",
   'trash.desc': "Deleted history stays here for {days, plural, one {# day} other {# days}} and is then removed for good.",

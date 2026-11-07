@@ -76,7 +76,8 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await audit(page, 'project dialog, off')
       await dialog.getByText('이 프로젝트의 채팅을 프로젝트 사람들과 공유').click()
       await expect(toggle).toBeChecked()
-      await expect(hint).toHaveText('끄면 새 채팅은 다시 나만 봐요. 이미 공유한 채팅은 그대로 공유돼요.')
+      // the hint says what saving does (by the saved setting): still who will see new chats
+      await expect(hint).toHaveText(/켜면 새로 여는 채팅을 이 폴더를 볼 수 있는 4명/)
       const saved = page.waitForRequest((r) => r.method() === 'PATCH' && r.url().endsWith(`/api/projects/${id}`))
       await dialog.getByTestId('project-save').click()
       expect((await saved).postDataJSON()).toMatchObject({ shareChats: true })
@@ -91,6 +92,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await page.getByTestId('project-menu').click()
       await page.getByTestId('project-edit').click()
       await expect(toggle).toBeChecked()
+      await expect(hint).toHaveText('끄면 새 채팅은 다시 나만 봐요. 이미 공유한 채팅은 그대로 공유돼요.')
       const again = page.waitForRequest((r) => r.method() === 'PATCH' && r.url().endsWith(`/api/projects/${id}`))
       await dialog.getByTestId('project-save').click()
       expect((await again).postDataJSON()).not.toHaveProperty('shareChats')
@@ -291,6 +293,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await page.getByTestId('project-menu').click()
       await page.getByTestId('project-delete').click()
       await expect(page.getByTestId('project-delete-shared')).toHaveText('공유 채팅 1개도 함께 지워져요.')
+      await expect(page.getByRole('dialog')).toContainText('프로젝트만 지워지고 폴더와 내 채팅은 그대로 남아요.')
       await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
       // pointing it at another folder (admins) says who will see its shared chat there
       await page.getByTestId('project-menu').click()

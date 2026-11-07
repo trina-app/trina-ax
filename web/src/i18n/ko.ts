@@ -918,6 +918,7 @@ export const ko = {
   'projects.shareChatsPersonal': "개인 프로젝트의 채팅은 공유할 수 없어요.",
   'projects.sharedNewChat': "새 채팅은 프로젝트 사람 {n}명이 볼 수 있어요.",
   'projects.deleteShared': "공유 채팅 {n}개도 함께 지워져요.",
+  'projects.deleteBodyShared': "프로젝트만 지워지고 폴더와 내 채팅은 그대로 남아요.",
   'projects.repointShared': "공유 채팅 {n}개를 이 폴더를 볼 수 있는 {m}명이 보게 돼요.",
   'chat.sharedLabel': "공유 채팅",
   'chat.shared': "공유 채팅 · 프로젝트 사람 {n}명이 볼 수 있어요",

@@ -370,10 +370,10 @@ function ChatView({ chatId }: { chatId: string }) {
           {loading && <Skeleton lines={6} />}
           {loadError && !loading ? <ErrorNote onRetry={() => void load()}>{errorText(loadError, locale, t('error.network'))}</ErrorNote> : null}
           {messages.map((m, i) => {
-            if (m.role === 'user') return <UserMessage key={m.id} m={m} chatId={chatId} busy={busy} onEdit={onEdit} onSelectBranch={onSelectBranch} author={shared && m.author && m.author.id !== me.user.id ? m.author.name : undefined} canEdit={mine(m.author?.id)} />
+            if (m.role === 'user') return <UserMessage key={m.id} m={m} chatId={chatId} busy={busy || readOnly} onEdit={onEdit} onSelectBranch={onSelectBranch} author={shared && m.author && m.author.id !== me.user.id ? m.author.name : undefined} canEdit={!readOnly && mine(m.author?.id)} />
             const prevAssistant = messages.slice(0, i).reverse().find((x) => x.role === 'assistant')
             const switchedFrom = prevAssistant?.engine && m.engine && prevAssistant.engine !== m.engine ? (prevAssistant.engine as EngineId) : null
-            return <AssistantMessage key={m.id} m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt || readOnly ? undefined : onContinue} shareable={shareable && mine(askedBy(m))} canRegenerate={!readOnly && mine(askedBy(m))} canSuggest={!shared} />
+            return <AssistantMessage key={m.id} m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy || readOnly} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt || readOnly || !mine(askedBy(m)) ? undefined : onContinue} shareable={shareable && mine(askedBy(m))} canRegenerate={!readOnly && mine(askedBy(m))} canSuggest={!shared} />
           })}
           {!chat?.deletedAt && <QueuedMessages chatId={chatId} onFocusComposer={() => composer.current?.focus()} />}
         </div>

@@ -262,7 +262,7 @@ describe('the read card', () => {
     expect(r.card.kind).toBe('ask_user')
     const q = (r.card as { question: string }).question
     expect(q).toContain('groups/marketing/')
-    expect(q).toContain('Of the 4 project people who see this chat, 1 cannot see this place')
+    expect(q).toContain('Of the 4 people in the project who see this chat, 1 cannot see this place')
     expect((r.card as { options: { label: string }[] }).options.map((o) => o.label)).toEqual(['Read and share', "Don't read"])
     expect(r.done.content).toContain(CANARY)
     expect(ws.bob!.frames.slice(bobFrames).some((f) => f.type === 'turn.request')).toBe(false)

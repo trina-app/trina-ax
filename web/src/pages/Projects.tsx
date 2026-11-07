@@ -152,7 +152,7 @@ export function ProjectHome() {
     // its shared chats are deleted with it (for good): said in the dialog when it has any
     const body = p?.sharedChats ? (
       <>
-        {t('projects.deleteBody')}
+        {t('projects.deleteBodyShared')}
         <span className="mt-2 block font-medium text-danger" data-testid="project-delete-shared">{t('projects.deleteShared', { n: p.sharedChats })}</span>
       </>
     ) : t('projects.deleteBody')

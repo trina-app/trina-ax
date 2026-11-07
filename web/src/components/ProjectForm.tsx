@@ -206,7 +206,8 @@ export function ProjectForm({ project, initialFolder, initialName, onClose, onSa
             <Switch checked={shareChats} onChange={setShareChats} label={t('projects.shareChats')} disabled={safeOps} testId="project-share-chats-toggle" describedBy={shareHint} />
             {/* what flipping it does now; under safe operations why it cannot (the switch's own width + gap: under its words) */}
             <p id={shareHint} className="mt-1 pl-11 text-xs leading-5 break-keep text-faint" data-testid="project-share-chats-hint">
-              {safeOps ? t('projects.shareChatsSafeOps') : shareChats ? t('projects.shareChatsOn') : t('projects.shareChatsOff', { n: project?.audience ?? 0 })}
+              {/* what saving would do: by the saved setting, so turning it on still says who will see the chats */}
+              {safeOps ? t('projects.shareChatsSafeOps') : project?.shareChats ? t('projects.shareChatsOn') : t('projects.shareChatsOff', { n: project?.audience ?? 0 })}
             </p>
           </div>
         )}

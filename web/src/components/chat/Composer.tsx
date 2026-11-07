@@ -183,6 +183,9 @@ export default function Composer({
     })
   }, [userId, draftId])
   const [error, setError] = useState<string | null>(null)
+  // a shared chat: when someone else's turn starts or ends, the line above the text says so; a refusal shown before
+  // ("○○님의 질문에 답하는 중이에요") would only repeat it or go stale
+  useEffect(() => { setError(null) }, [hold])
   const [sending, setSending] = useState(false)
   /** the text looks like a key: sending waits for "Send anyway" or "Edit" (a changed text asks again) */
   const secret = useSecretHold(text)

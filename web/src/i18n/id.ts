@@ -919,6 +919,7 @@ export const id: Record<MessageKey, string> = {
   'projects.shareChatsPersonal': "Chat proyek pribadi tidak bisa dibagikan.",
   'projects.sharedNewChat': "Chat baru bisa dilihat oleh {n} orang di proyek.",
   'projects.deleteShared': "{n} chat bersama juga ikut terhapus.",
+  'projects.deleteBodyShared': "Hanya proyeknya yang dihapus; folder dan chat milik kamu tetap ada.",
   'projects.repointShared': "{n} chat bersama akan dilihat oleh {m} orang yang bisa melihat folder ini.",
   'chat.sharedLabel': "Chat bersama",
   'chat.shared': "Chat bersama · {n} orang di proyek bisa melihatnya",
