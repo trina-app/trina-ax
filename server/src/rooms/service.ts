@@ -248,6 +248,8 @@ export class Rooms {
     if (hidden && !me.hidden_at) {
       this.db.query('UPDATE room_members SET hidden_at = ? WHERE room_id = ? AND user_id = ? AND hidden_at IS NULL').run(nowIso(), roomId, userId)
       this.roomEvent(roomId, 'updated', new Set([userId]))
+      // a push of this room that waits or is on its way is checked again: a hidden room pushes nothing (alerts.ts)
+      cancelPushUser(this.ctx, userId)
     } else if (!hidden) this.unhide(roomId, [userId])
     return this.get(userId, roomId)
   }

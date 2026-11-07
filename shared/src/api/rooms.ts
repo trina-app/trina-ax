@@ -25,8 +25,8 @@
 // Hiding (docs/DECISIONS.md "대화 숨기기"): a member hides a DM, a team room or the everyone room from their own lists
 // (setRoomHidden; a group chat is left instead). Nobody else is told. It stays a room they are in: reachable from the
 // full list, and opening it brings it back. It comes back by itself when something for them arrives (the server decides
-// it when the message is stored: a DM's new message, a mention, a reply in a thread they follow, any message of a room
-// they set to 모든 메시지, a card of their own question to the AI).
+// it when the message is stored: a DM's new message, a mention, a reply in a thread they follow, an answer to their own
+// question, a card of their question to the AI); a room still hidden notifies them of nothing.
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
 import { PRODUCT } from '../product'

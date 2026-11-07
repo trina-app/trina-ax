@@ -29,17 +29,18 @@ export function setOwnLevel(db: Database, roomId: string, userId: string, level:
   db.query('UPDATE room_members SET notify_level = ?, muted = ? WHERE room_id = ? AND user_id = ?').run(level, level === 'off' ? 1 : 0, roomId, userId)
 }
 
-/** May this room notice still be pushed? Only while its person is in the room, outside their quiet hours now (a push that
+/** May this room notice still be pushed? Only while its person is in the room and has not hidden it since (docs/DECISIONS.md
+ * "대화 숨기기": what came for them brought it back when it was made), outside their quiet hours now (a push that
  * waited or retries into them is dropped: nothing that waited is pushed), and the room's level still asks for it: a
  * mention at any level but 'off', any other notice at 'all' or as a reply in a thread they follow (with replies on).
  * The push service asks before it sends and again after (a change in Settings or on the room's bell stops a push that
  * waits or retries). Notices made inside quiet hours never get here (they are never queued). */
 export function noticeWanted(db: Database, noticeId: string, now = Date.now()): boolean {
-  const r = db.query(`SELECT n.user_id, n.event_type, r.kind, m.muted, m.notify_level, s.thread_root_id,
+  const r = db.query(`SELECT n.user_id, n.event_type, r.kind, m.muted, m.notify_level, m.hidden_at, s.thread_root_id,
     EXISTS(SELECT 1 FROM room_thread_follows f WHERE f.root_id = s.thread_root_id AND f.user_id = n.user_id) following FROM room_notices n
     JOIN room_members m ON m.room_id = n.room_id AND m.user_id = n.user_id JOIN rooms r ON r.id = n.room_id AND r.archived_at IS NULL
-    LEFT JOIN room_messages s ON s.id = n.source_id WHERE n.id = ?`).get(noticeId) as { user_id: string; event_type: string; kind: string; muted: number; notify_level: string | null; thread_root_id: string | null; following: number } | null
-  if (!r) return false
+    LEFT JOIN room_messages s ON s.id = n.source_id WHERE n.id = ?`).get(noticeId) as { user_id: string; event_type: string; kind: string; muted: number; notify_level: string | null; thread_root_id: string | null; following: number; hidden_at: string | null } | null
+  if (!r || r.hidden_at) return false
   const prefs = getPreferences(db, r.user_id)
   if (inQuietHours(prefs.quietHours, teamTimeZone(db), now)) return false
   const level = roomLevel(r.kind, ownLevel(r), prefs.roomLevel)
