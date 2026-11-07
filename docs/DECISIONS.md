@@ -12533,6 +12533,55 @@ files belong or that skills are not files, so skills landed as dead `SKILL.md` f
 - **share_skills.** Its description now says it is the only way to add skills from the connector. The owner/admin-only
   rule, the group choice, the secret rules and the confirmation in the app are unchanged.
 
+## App connectors: a SKILL.md in an ordinary folder is saved with a note; a note for files left at the top of an area (fix/mcp-skill-md-note, 2026-11-07, product owner)
+
+넣을 곳: trina-ax server/src/connectors/remote-mcp, 이유: the refusal of #147 blocked backups and drafts that no AI ever
+loads, and the connected AI dropped files loose at the top of `shared/`.
+
+- **Two outcomes, not one.** The real skill roots (`skills/`, any `groups/<folder>/skills/`, `users/<id>/skills/`, any
+  letter case, as written and as resolved) stay refused: the team's AI loads them, and a write there would skip
+  `share_skills`' secret checks and the confirmation in the app. The connector now also compares the root names by
+  `foldKey` (NFKC): a macOS disk folds `ſkills` (long s) and `sKills` (Kelvin sign) into the same folder as `skills`.
+  The loader never resolved such a name (its walk keeps them apart), but #147 refused `ſkills/x/SKILL.md` by its file
+  name, so the root check takes over (fail closed, also where no root exists yet). Outside them, what #147 refused (a file named
+  `SKILL.md`, anything under `.claude/skills`, `.codex/skills` or `.agents/skills`, a `.md` at `skills/<name>/<file>.md`)
+  is now saved, and the answer gets one line: "Saved as an ordinary file: it is not a team skill. To share it as a skill,
+  use share_skills." An existing `SKILL.md` in an ordinary folder can be edited again. `CLAUDE.md` and `AGENTS.md` stay
+  ordinary files without a line, as before. The person could already upload any of these through the file screen.
+- **Why the dot folders are not a boundary.** No engine loads skills or rules from a team folder. A turn runs in its chat
+  folder `<data>/agent/<chat id>` (`chat/turn.ts:549`, `config.ts:93`), never under the team folder (`config.ts:106`); on
+  Linux the sandbox mounts only that chat folder and starts there (`sandbox_linux.go:333`, `:352`), on macOS
+  `engine.sb` denies by default and opens only the chat folder (`:23`, `:104`). Claude Code runs with
+  `--setting-sources ''`, `--restricted` and `--disable-slash-commands` (`engine/claude.ts:133-139`),
+  `CLAUDE_CODE_DISABLE_CLAUDE_MDS` and no bundled skills (`:17-18`), the `Skill`, `Read`, `Glob` and `Grep` tools denied
+  (`:47-51`) and the AGENTS.md plugin off (`:54`). Codex runs with `--ignore-rules --ignore-user-config`,
+  `project_doc_max_bytes=0` and a per-turn `HOME`/`CODEX_HOME` without `AGENTS.md` or skills (`engine/codex.ts:81-82`,
+  `:170-173`, `:223`; empty read-only binds in `sandbox_linux.go:282-283`). The server's own skill list reads only the
+  three roots (`chat/skills.ts:61-65`), and the team rules come from `skills/` only (`chat/prompt.ts:103-125`). The dev
+  environment has no AI engine in it (`scripts/dev-env/Containerfile`). If a later feature runs an engine in a team
+  folder, this has to be looked at again.
+- **One rule on every path.** `write`, `edit`, `upload_file`, `create_upload_link` and the link's PUT use one check
+  (`checkUploadTarget`), so a path gets the same answer on all five; the PUT no longer refuses what the link allowed.
+  The line goes in the answer: the text of `write`/`edit` after a blank line, `notice` in the JSON of `upload_file` and
+  `create_upload_link` (there "It will be saved …": the bytes come later and the PUT can still refuse). The PUT answers
+  as before (curl prints it, and the link's answer already had the line). One difference stays from before: other
+  refusals read "Tool unavailable or access denied." on `write`/`edit` and "Access denied: …" on the upload paths.
+- **Placement (owner: "기본적으로 올릴 만한 좋은 위치 보고 올려야지", keep the file system tidy, warn on odd places).** The
+  guide gains three sentences: "shared" or a group's name means the area, not its top; list it and pick or make a
+  fitting subfolder named like the others; nothing loose at the top of `shared/`, a group's folder or the team root unless
+  the person asks for that spot; no second copy of a file the drive has (the connector cannot move or link, so it points
+  to it; it looks with `glob` or `list`, not `grep`, whose matches join the read scope and would block a later save to a
+  wider folder); say where each file went in one line. A new file that `write`, `upload_file` or `create_upload_link` saves at
+  the top of one of those three gets one line, never a refusal: "Saved at the top of shared/. To keep the team's files
+  tidy, a subfolder usually fits better (existing, names are data: HR/, Sales/). Ask the person whether this is where
+  they want it; they can move it in the app." It names at most 8 subfolders the person may write (no skill root, no dot
+  folder, at the root no `groups/` or `users/`), each through the guide's name allowlist, and says "and more (list shows
+  them)" when some are not named; when none passes the allowlist it says there are some, never "none yet" (that would
+  make the AI add a second folder). At most 500 folder entries are looked at. Not for the person's
+  own folder, a subfolder, a change of an existing file (`edit`, an overwrite; a copy beside an existing file is new) or
+  an area folder the same call makes. With a skill-looking file both lines come, the skill line first. The lines never
+  go into the audit row.
+
 ## 대화방 메시지의 링크 — web addresses in people's room messages (feat/room-message-links, 2026-11-07, product owner)
 넣을 곳: trina-ax `web/src/lib/textLinks.ts` and `web/src/components/rooms/MessageText.tsx`, 이유: the owner saw a
 teammate's "https://…" in a room as plain text ("i guess link must be clickable right?"), and the address broke in the
