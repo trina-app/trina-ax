@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-07 08:19
 - Branch: `feat/knowledge-graph-fast-answers`
-- Status: draft
+- Status: in progress (wave 1 built, in review)
 - Where: this repo, `server/src/knowledge-graph/`, `server/src/chat/` (prompt, turn), `server/src/mcp/`, the Files
   search (`server/src/routes/files.ts`, `web/src/components/FileContentSearch.tsx`), and the old `server/src/search/`
   it replaces. Why: chat, files and the AI belong in the Team AX core (docs/REPOSITORY-RULES.md).

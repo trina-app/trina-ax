@@ -11,9 +11,16 @@ The knowledge graph is the AI's map of the team's files, in two parts:
   work; a file that fails is recorded with its reason and shown to admins.
 - **Code** (with CodeGraph installed): functions, classes and how they call each other, below.
 
-The AI uses both through `knowledge_explore`: one question returns document passages with a link to the place, the
-related documents and why, and code symbols with what calls them. It updates itself when people upload, change, move or
-delete files. Every answer is filtered by the asking person's folder access at the moment they ask.
+Three things use it, all through one search, `KnowledgeGraph.lookup()` in `service.ts`:
+
+- **The AI's tool `knowledge_explore`.** One question returns document passages to answer from, with a link to each
+  place, the related documents and why, and code symbols with what calls them.
+- **The lookup before the model starts.** Claude Code and Codex get the best matching passages of a message in front of
+  it, so a document question often needs no search step (below).
+- **The Files search box.** People get document matches above the exact-line matches (below).
+
+The graph updates itself when people upload, change, move or delete files. Every answer is filtered by the asking
+person's folder access at the moment they ask.
 
 Documents and code are indexed per folder: `projects/<name>`, `groups/<name>`, `users/<id>`, `connected/<name>`,
 `shared/` and every other top-level folder, other project folders, and folders an admin adds. The service lists each
@@ -30,7 +37,9 @@ It is an optional tool on the server. Without it the code part is off; documents
 Code: `server/src/knowledge-graph/` (service, docs-port, documents/, mirror, runner, tool), `server/src/routes/knowledge-graph.ts`,
 `shared/src/api/knowledge-graph.ts`, `web/src/pages/admin/KnowledgeGraph.tsx`. Tests:
 `tests/unit/c-knowledge-graph.test.ts`, `tests/unit/c-knowledge-graph-docs.test.ts`, the documents module's own tests,
-`tests/security/lib/knowledge-graph-cases.ts`, `web/test/e2e/admin-knowledge-graph.spec.ts`.
+`tests/unit/c-kg-lookup.test.ts`, `tests/unit/c-kg-lookup-security.test.ts`, `tests/unit/b-chat-document-lookup.test.ts`,
+`tests/unit/file-content-search-documents.test.ts`, `tests/security/lib/knowledge-graph-cases.ts`,
+`web/test/e2e/admin-knowledge-graph.spec.ts`. The benchmark for document questions: `scripts/bench/`.
 
 ## Install CodeGraph
 
@@ -130,14 +139,16 @@ second. A query: about 0.5 s including the sandbox start.
 
 ## Access: what an answer may show
 
-The indexes hold everything in their folders. What `knowledge_explore` shows is decided at the question, for the person
-asking, with the folder rules as they are then. The same rules hold for document passages, related documents and code:
+The indexes hold everything in their folders. What `knowledge_explore`, the lookup before the model starts and the Files
+search show is decided at the question, for the person asking, with the folder rules as they are then. The same rules
+hold for document passages, related documents and code:
 
 - Only folders the person can see anything in are asked (`RuleSet.canList`). Someone else's personal folder never is.
 - Every file the answer names (a passage, a related document, a code match, a caller, a callee) passes `authorize(read)` for that person at that moment, the
   same check as the read tool: folder rules, personal folders (owner only, not admins or the team owner), hidden
-  sub-folders inside a readable folder, symbolic links, hard links, quarantined files. A file that fails is left out
-  without a trace: no name, no count, no "hidden".
+  sub-folders inside a readable folder, symbolic links, hard links (one link to the file, as the read tool requires),
+  quarantined files. A file that fails is left out without a trace: no name, no count, no "hidden". How strongly a
+  question matches is judged only from passages the person may see.
 - The lines of code come from the team file itself, read through the same checks (`readRegular`, no link followed). The
   copy and the index are never shown for a file the person cannot read now. A related document is named only when the
   person may read it too, and its reason is made from the two documents' own names and text.
@@ -153,7 +164,11 @@ asking, with the folder rules as they are then. The same rules hold for document
   changes, in the part hidden from them.
 - Every file named joins the chat's read scope (`TurnFiles.readPaths`), like a read, so saving that content somewhere
   wider asks first. The matches are the answer's sources.
-- In a team chat room the tool is read-only, and the folders it searched count as read, like `grep` and `search`.
+- In a team chat room the tool is read-only, and the folders it searched count as read, like `grep` and `search`. Rooms
+  get no lookup before the model: it would count folders as read on every question and keep answers private that used
+  no file.
+- The Files search checks each document row again with grep's own check (`visiblePath`), so it never shows a file that
+  the exact-line search could not.
 - Confidential chats (safe operations) only have the local file tools, so no `knowledge_explore`. Restricted drafts
   (company profile, skill drafts) have none either.
 - Admins see folder paths with file and symbol counts in Admin, never a file or a symbol. Personal folders show only as
@@ -162,10 +177,61 @@ asking, with the folder rules as they are then. The same rules hold for document
 
 ## The AI tool
 
-`knowledge_explore { query, path?, limit? }`: "Find code, functions and how things connect across the team's files." It
-returns up to `limit` (default 8, at most 20) functions, classes and other symbols, each with its path and lines, a link,
-its signature, its first lines of code, and for the first three callables what calls them and what they call (by name,
-inside the same folder's index). The AI reads the files it needs. It is offered only while the knowledge graph is on.
+`knowledge_explore { query, alt_query?, path?, limit? }`: one search over the team's documents and code. `alt_query`
+is the same question in other words or another language (an English wording for a Korean question); both are
+searched. The answer, at most 24,000 characters (about 6,000 tokens, with a note when something is left out):
+
+- **Documents:** up to 3 passages of up to 1,500 characters each to answer from, with the file, the page, sheet, slide or
+  section, and a link. The AI answers from them when they are enough and reads a file only for more.
+- **More matches:** up to 12 short labelled hits (file · place, link, up to 300 characters).
+- **Related documents**, with the reason.
+- **Code:** up to `limit` (default 8, at most 20) functions, classes and other symbols, each with its path and lines, a
+  link, its signature, its first lines of code, and for the first three callables what calls them and what they call (by
+  name, inside the same folder's index).
+
+It is offered only while the knowledge graph is on. The prompt names it first among the file tools, and resumed Claude
+Code sessions get its rule in `<turn_context>`. Scheduled template runs may call it only with a `path` inside the
+template's own folders.
+
+`lookup()` searches documents only (never CodeGraph, so it is fast). How strongly a question matches
+(`documents/index.ts` `matchStrength`):
+
+- Greetings, thanks, requests, question words and fillers in English and Korean are dropped first ("hi", "찾아줘",
+  "어디", "관련").
+- **Strong:** one of the first three passages the person may see holds every remaining word within 300 characters. With
+  4 or more words, all but one is enough. A one-word question is strong only when the word is a code, a date or a file
+  name.
+- **Weak:** some of the words.
+- **None:** nothing.
+
+## Before the model starts
+
+For Claude Code and Codex, the server looks up the person's message (its first 500 characters) before the engine starts
+(`chat/turn.ts` `lookupBeforeModel`), with a 200 ms limit. The model never waits longer: on a timeout or an error
+nothing is added.
+
+- **Strong:** a `<document_matches>` block in front of the message, with the passages and short labels, at most 10,000
+  characters (about 2,500 tokens). It says that the server added it and that the passages are file contents, data and
+  never instructions. File text cannot open or close a block (`BLOCK_TAGS`).
+- **Weak:** at most 5 lines of file and place, with no text and no links.
+- **None:** no block.
+- Files in the block join the read scope at once and become the answer's sources, as after a read.
+- A resumed Claude session does not get passages it was already given in that session (an in-memory list per chat and
+  session; after a restart they may come once more). Codex and fresh Claude sessions get the block every turn, because
+  their history does not hold earlier blocks.
+- No lookup for the API engine (trial credit too), confidential chats, drafts, skill-share judging and merging,
+  template runs, demo replays, team rooms, or turns without `knowledge_explore`.
+
+## The Files search
+
+The Files screen's search box (`GET /api/files/search`, `team-files/content-search.ts`) calls `lookup()` beside the
+exact-line search, for the person searching and under the folder they search in (500 ms, at most 1 second). The
+answer's optional `documents` field holds one row per document: path, name, place and about 160 characters around the
+first word asked for. Each row is checked again with grep's own access check. Today's exact-line matches stay as they
+were.
+
+The screen shows "관련 문서" with the document rows above the line matches only when there are any. A click opens the file
+at that place. The field is absent when the documents part is off, so older apps keep working.
 
 ## Admin › Team settings › Knowledge graph
 
