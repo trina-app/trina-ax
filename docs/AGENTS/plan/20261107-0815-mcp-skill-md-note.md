@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-07 08:15
 - Branch: `fix/mcp-skill-md-note`
-- Status: in progress
+- Status: done
 - Where: trina-ax `server/src/connectors/remote-mcp/`. Why: the MCP connector's write paths and its folder guide live
   there (see docs/REPOSITORY-RULES.md).
 - Version impact: patch. A connector refusal becomes a saved file with a note; no new feature, no API shape removed.
@@ -59,4 +59,12 @@ Out:
 
 ## Result
 
-Filled in at the end.
+- Step 1: no engine loads skills or rules from a team folder (turns run in `<data>/agent/<chat id>`, the sandbox opens
+  only that folder, Claude Code and Codex run with project settings, skills, CLAUDE.md and AGENTS.md off; evidence with
+  file and line in docs/DECISIONS.md). So the dot skill folders get the note like any skill-looking file; `CLAUDE.md`
+  and `AGENTS.md` stay ordinary files without a line.
+- write and edit now use `checkUploadTarget` like the upload paths, so all five give one answer for a path. The note
+  goes after the text of write/edit and in `notice` of upload_file and create_upload_link; the PUT answers as before.
+- Differs from the request: the connector has no move or link tool, so the guide says "point to it" instead of "move
+  or link it", and the placement line says the person can move the file in the app.
+- PR: see the pull request of `fix/mcp-skill-md-note` into `dev`.
