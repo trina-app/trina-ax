@@ -255,6 +255,18 @@ describe('before the model starts', () => {
     expect(lookedUp('beta-')).toHaveLength(3)
   })
 
+  test('a weak block does not count as given: a later strong match of the same passage still brings its text', async () => {
+    const chat = await newChat('alice')
+    answer = () => result('weak', [POLICY])
+    const one = await turn('alice', chat.id, `remote work omega-1?\n${ECHO}`)
+    expect(blocks(one.done.content)).toBe(1)
+    expect(one.done.content).not.toContain('Remote work: three days a week')
+    answer = () => result('strong', [POLICY])
+    const two = await turn('alice', chat.id, `remote work omega-2?\n${ECHO}`)
+    expect(blocks(two.done.content)).toBe(1)
+    expect(two.done.content.slice(two.done.content.indexOf(OPEN))).toContain('Remote work: three days a week')
+  })
+
   test('a session that started without knowledge_explore gets the rule in <turn_context> once it has the tool', async () => {
     answer = () => STRONG()
     const chat = await newChat('alice')

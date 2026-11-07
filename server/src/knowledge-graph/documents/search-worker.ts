@@ -102,8 +102,9 @@ export class DocSearchWorker {
   }
 
   /** the documents related to one (DocumentIndex.related), with the team members' names for "people" links */
-  async related(rootId: string, relPath: string, o: { rootIds: readonly string[]; limit?: number }, people: string[]): Promise<RelatedDoc[]> {
-    const r = await this.ask({ op: 'related', rootId, relPath, o, people })
+  async related(rootId: string, relPath: string, o: { rootIds: readonly string[]; limit?: number; due?: number }, people: string[]): Promise<RelatedDoc[]> {
+    const { due, ...rest } = o
+    const r = await this.ask({ op: 'related', rootId, relPath, o: rest, people }, due)
     return Array.isArray(r) ? r as RelatedDoc[] : []
   }
 

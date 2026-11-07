@@ -1569,11 +1569,12 @@ export class TurnExec {
     const given = session?.resumed ? claudeSession(this.spec.chatId, session.id)?.given ?? null : null
     const { block, shown } = documentMatches(given ? { strength: r.strength, passages: r.passages.filter((p) => !given.has(passageKey(p))) } : r, this.spec.locale)
     if (!block) return ''
-    if (session) this.docsSent.set(session.id, [...(this.docsSent.get(session.id) ?? []), ...shown])
     if (r.strength !== 'strong') {
+      // names only: not "given", so a later strong match of the same passage still brings its text
       for (const p of shown) this.files.namePaths.add(p.path.includes('/') ? p.path.slice(0, p.path.lastIndexOf('/')) : '')
       return block
     }
+    if (session) this.docsSent.set(session.id, [...(this.docsSent.get(session.id) ?? []), ...shown])
     for (const p of shown) {
       this.files.readPaths.add(p.path)
       this.files.sources.note(p.path, 'search', { agent: null, locs: [p.loc] })

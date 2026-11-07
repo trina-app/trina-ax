@@ -38,7 +38,8 @@ export interface DocIndexPort {
   dropRoot(rootId: string): void
   /** off the main thread when it can be (documents/search-worker.ts): a search must never hold the server */
   search(query: string, o: DocSearchOptions): Promise<DocHit[]> | DocHit[]
-  related(rootId: string, relPath: string, o: { rootIds: string[]; limit: number }): Promise<DocLink[]> | DocLink[]
+  /** `due`: an epoch-ms deadline after which a worker-backed index answers [] (the in-process index ignores it) */
+  related(rootId: string, relPath: string, o: { rootIds: string[]; limit: number; due?: number }): Promise<DocLink[]> | DocLink[]
   stats(rootId: string): DocStats
   diskBytes(): number
   close(): void

@@ -123,6 +123,8 @@ export const LOOKUP_LONG_CHARS = 1500
 /** short labelled hits after them (file, place and a short part of the text) */
 export const LOOKUP_SHORT = 12
 export const LOOKUP_SHORT_CHARS = 300
+/** how long knowledge_explore waits for related documents, all of them together */
+const RELATED_MS = 1500
 /** One passage of a lookup. `long`: up to LOOKUP_LONG_CHARS of its piece, to answer from; otherwise a short label
  * (up to LOOKUP_SHORT_CHARS). */
 export interface LookupPassage { path: string; loc: SourceLoc | null; text: string; score: number; long: boolean }
@@ -795,10 +797,14 @@ export class KnowledgeGraph {
       // the documents linked to the first few, each named only when the person may read it too
       const sources = [...new Set(passages.map((x) => x.path))].slice(0, 3)
       const named = new Set(passages.map((x) => x.path))
+      // one short deadline for all of them: they queue behind each other in the one search worker, and related
+      // documents are a bonus next to the passages (review of wave 1: up to about 20 s with 5 s each)
+      const due = Date.now() + RELATED_MS
       for (const from of sources) {
+        if (Date.now() >= due) break
         const root = docRoots.filter((r) => under(from, r)).sort((a, b) => b.length - a.length)[0]!
         let links: Awaited<ReturnType<DocIndexPort['related']>> = []
-        try { links = await idx.related(root, from.slice(root.length + 1), { rootIds: docRoots, limit: 10 }) } catch { links = [] }
+        try { links = await idx.related(root, from.slice(root.length + 1), { rootIds: docRoots, limit: 10, due }) } catch { links = [] }
         for (const l of links) {
           if (related.length >= 8) break
           const tp = inDocRoot(l.rootId, l.relPath)
