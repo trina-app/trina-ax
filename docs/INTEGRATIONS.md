@@ -27,11 +27,16 @@ set. Tools: `list`, `glob`, `grep`, `read`, `skills_list`; with the `mcp:write` 
 permissions. No write reaches `skills/` (team skills and rules) or `users/<id>/skills/` (the person's own skills): the
 team app changes them only after its own confirmation, which an outside model cannot give (any letter case; the link's
 `PUT` too). With the `mcp:admin` scope an owner or admin also gets `people_list`, `groups_list`, `group_create`,
-`group_update` and `group_delete` (`remote-mcp/groups.ts`).
+`group_update` and `group_delete` (`remote-mcp/groups.ts`). With `mcp:rooms` the person's conversations: `rooms`,
+`room_read` and `room_file` (the reader of their own AI chat, `rooms/reader.ts`), and with `mcp:rooms.write` also
+`room_send`, a message as the person through `Rooms.send` (`remote-mcp/rooms.ts`; docs/DECISIONS.md "AI 앱에서 대화
+읽고 쓰기").
 
 - Consent: the person chooses, whatever the app asked (MCP clients ask for the 401 header's `mcp:read` only). Reading
   is always granted, `offline_access` when asked; **파일 쓰기** (`mcp:write`) is a checkbox for everyone, ticked at the
-  start only when the app asked for it; `mcp:admin` comes with every new connection of an active owner or admin (no
+  start only when the app asked for it; **대화 읽기** (`mcp:rooms`) is ticked at the start, **대화 쓰기**
+  (`mcp:rooms.write`) unticked and only with reading (a page without these boxes grants neither); `mcp:admin` comes
+  with every new connection of an active owner or admin (no
   box; one line on the page says so), never a member's. The token's `scope` names exactly what was granted, and a
   refresh can only narrow it, so an earlier connection without `mcp:admin` connects again (Settings › AI apps says so).
 - `upload_file`: base64 bytes in the call, at most 20 MiB, in practice files up to about 50 KB.

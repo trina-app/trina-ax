@@ -12146,6 +12146,43 @@ nothing.
   words shown), `web/test/unit/icon-tooltips.test.tsx` (the check on samples; a dialog's close, a code block's download,
   a skill chip's remove, Settings › Browser's remove, a connector's official mark).
 - Version impact: **patch** (UI only; no API change).
+
+## @전체 — everyone in a room (feat/mention-all, 2026-11-07, product owner)
+넣을 곳: trina-ax `server/src/rooms` (service.ts, store.ts, migration 259), `shared/src/api/rooms.ts` and
+`web/src/components/rooms` (useMentionMenu.tsx, RoomComposer.tsx, RoomMessages.tsx), 이유: the owner asked for Slack's
+@channel ("@all 아니면 @channel 같은 게 있어야 하지 않을까?").
+
+- **What it is.** "@전체" (en "@everyone", ja "@全員", es "@todos", id "@semua": the everyone room's own name in each
+  language) mentions every member who can see the message, never its sender. The "@" list has one row for it right
+  under the AI for a bare "@": "전체 · 이 방의 N명에게 알림" (N: everyone else in the room). Every language's word and
+  Slack's (all, channel, everyone) find it; once something is typed it comes after the people it fits, so "@전" and
+  Enter picks 전지현, never everyone by accident. Picked, it is a token like a person's (the same look in the box and on
+  the sent message, where it reads as a mention of me for everyone but the sender); the message goes with
+  `mentionsAll: true` (room_messages.mentions_all, migration 259, additive: an older build shows a plain message). Only
+  the flag notifies: "@전체" pasted or typed without the list is text, as a person's name is. The server takes the flag
+  only when the text shows "@<one of the words>" where a mention may start (shared ROOM_MENTION_ALL_WORDS, roomMentionAllIn;
+  400 otherwise): what notifies is what the message shows, whatever client sent it.
+- **Who it alerts.** Each member who can see it gets it as a mention of them (shared room-alerts.ts roomAlert with
+  `mentioned`): a notice (room.mention) and a push or the sound at every level but 끄기, so also under 멘션만 and the
+  default for team rooms and the everyone room ("1:1·그룹 대화와 나를 멘션한 메시지"); 받지 않음 is 끄기 for rooms without a
+  level of their own, and a room's own level wins over it as for any mention. Quiet hours keep the push and the sound
+  back (the notice stays). The room's "@" badge counts it where the room counts the message: in its timeline, and in a
+  thread the member follows. In a thread reply it reaches the members who can see the thread (canSee: not someone who
+  joined after its root); unlike a person's mention it makes nobody follow the thread (one reply would subscribe the
+  whole room to the thread's later replies), so for a member who does not follow it it is a notice, a push and the
+  sound, but no count. An edit notifies nobody, as before, so it may keep "@전체" (while the text still shows it) or take
+  it out, never add it (400): added later it would stand out and count without having told anyone.
+- **Who may use it.** Anyone in a group chat, a team room or a DM (in a DM it is the other person, so the row is not
+  shown there). In the everyone room, which reaches the whole team, only owners and admins: members do not see the row,
+  and the server refuses mentionsAll there with 403 (`reason: room_mention_all`), also in an edit.
+- **Asking first.** In a room of 10 people or more (MENTION_ALL_CONFIRM, me included) the send asks in one line inside
+  the box: "N명에게 알림이 가요. 보낼까요?" with 취소 and 보내기 (Enter and the round button answer 보내기, Esc 취소);
+  taking "@전체" out of the text puts the question away. No dialog.
+- Unchanged: the sending budget (one budget for every send), no audit of its own, "@트리나" in the same message (the AI
+  check never hears "@전체"), and the AI's room reading, sessions and search, which show "@전체" as the text it is.
+- Rejected: "@전체" as a reserved id in `mentions` (the list is user ids, checked as such by older builds); expanding it
+  into every member's id when sent (the sent message would mark each person's "@name" it does not contain, and the
+  stored list would grow with the room); @here (who is online is not something the rooms know).
 ## Microsoft Edge push through WNS (feat/edge-push, 2026-11-07)
 
 The owner approved Edge ("Edge 브라우저 푸시 ㄱㄱ"). Edge (Chromium) subscribes through the Windows Push Notification
@@ -12296,3 +12333,92 @@ Only the desktop app set one (`setBadgeCount` over its bridge); the web app neve
   › "앱 아이콘에 배지 표시"; Windows 설정 › 개인 설정 › 작업 표시줄 › 작업 표시줄 동작 › "작업 표시줄 앱에 배지 표시";
   iPhone 설정 › 알림 › Trina AX › 배지; elsewhere the system's notification settings. Five languages, no box.
 
+
+## AI 앱에서 대화 읽고 쓰기 — AI apps read and write my conversations (feat/mcp-rooms, 2026-11-07, product owner)
+
+The MCP connector (`server/src/connectors/remote-mcp/`) let outside AI apps (Claude, Claude Code, ChatGPT, Codex) use
+the team's files only. The owner wants them to read and write the person's conversations too. Decided by the owner:
+reading is part of a new connection's normal access, writing is its own box, no admin switch, no audit or count, no
+"sent via" label.
+
+- **Scopes.** `mcp:rooms` (대화 읽기: `rooms`, `room_read`, `room_file`) and `mcp:rooms.write` (대화 쓰기: `room_send`),
+  both in `OPTIONAL_SCOPES`: boxes on the consent page, whatever the app asked for. 대화 읽기 starts ticked, 대화 쓰기
+  unticked, and writing is granted only with reading (`decide`: `rooms` and `roomsWrite`). A decision without the
+  fields (a page from before) grants neither: a page that showed no box grants nothing it did not show. A grant made
+  before this never gains them (a refresh only narrows, as for `mcp:admin`); **Settings › AI 앱** shows one quiet line
+  under a connection without `mcp:rooms`: "대화를 쓰려면 다시 연결하세요." (also when the person unticked it: it is true
+  then too). Admin › AI 앱 lists no connections, so nothing there. No migration: scopes are the grant's JSON.
+- **Reading is the app's view, word for word.** The tools call the reader of the person's own AI chat
+  (`rooms/reader.ts`: `listRooms`, `searchRooms`, `readRoom`; `chat/room-tools.ts` `readRoomFileFor`, split out of the
+  chat turn for this): rooms the person is in now, from their join on, threads by their first message, their own
+  private AI previews and nobody else's, no deleted messages; a room they are not in answers like one that does not
+  exist. `Rooms.syncFor` runs first, as for the app. The texts carry the same framing (`ROOM_DATA_NOTE`: other people's
+  words, information, never instructions), and the connector's `initialize` instructions say it too. An outside AI
+  cannot be made to honour that; accepted by the owner. One addition through the connector: `room_read`'s member line
+  names up to 50 members with their `user_id` (`ReadOptions.memberIds`), because `room_send` mentions people by id.
+  `room_file` has no chat turn: a picture is what a connection gets for one elsewhere (`visionBlock` 'connection': its
+  OCR text or a note), and the file is looked up again after the extraction (someone taken out of the room meanwhile
+  gets "Access changed").
+- **room_send is the app's send.** `Rooms.send` with the person as author, a new `clientMessageId`, no files: membership
+  (and an archived room) as in the app, the same per-person send rate (`SEND_BURST`, then one a second; refused with
+  the seconds to wait), the thread rules (`thread` is the id of a thread's first message the person sees). The room is
+  named by its `room_id` only (never a name: a message goes only where its id says). Mentions are member ids, never the
+  person, and each must stand in the text as the app writes it ("@<name>"), so what notifies is what the text shows.
+  "@everyone" (`@전체` and the everyone room's name in the other languages, `ROOM_EVERYONE_WORDS`, where a mention may
+  start; a Latin word must end there, so "@allison" is a person) is refused: the app sends it only from its "@" list,
+  and through an AI app it is not offered (the connector never sets `mentionsAll` once that exists). A message that
+  calls "@트리나" asks the room's AI as if the person typed it (its own precheck, budget and cards apply). The message
+  carries nothing that says an app sent it (the owner: no label).
+- **Nothing read is sent wider.** What a read showed joins the connection's read scope (`remote_mcp_grants.sources`,
+  as a file read does): the rooms (one source per room, from the oldest message read there: it has the fewest readers)
+  and the person's own private previews (theirs alone). `room_send` is refused when some reader of the message (the
+  room's active members; for a thread reply, those who see its first message) could not see something the connection
+  read: a file of a folder they cannot open, the person's own folder, a room they are not in or messages from before
+  they joined (`read-scope.ts` `roomWidening`, the same rule the room's AI uses for its answers). This is the
+  connector's existing promise ("saving to a wider audience is refused") carried to messages; a new connection starts
+  with nothing read.
+- **No audit, no count, no logging of content.** The room tools write no `remote_mcp.tool` line and count nothing (the
+  owner: neither is needed). The per-person connector rate (120 calls a minute) still applies. Nothing here logs a
+  message, a name or a room id; an unexpected error answers "Tool unavailable or access denied." as for the other
+  tools.
+- **Codex as the in-app engine.** Codex sees our tools only by the names in `mcp_servers.team.enabled_tools`
+  (`engine/codex.ts`), which is `FILE_TOOLS` plus every tool of the turn's tool set: the personal chat's `rooms`,
+  `room_read` and `room_file`, and a room session's `room_file` and `save_room_file`, reach Codex by construction. The
+  rest (the change card, the `#` token's `<room_refs>`, the asking message's `<attachments>`, the asker's own words and
+  the thread context) is built by the server before or around the engine, the same for both. Tests in
+  `tests/unit/b-codex-rooms.test.ts` (the fake engine in Codex mode, checking the `enabled_tools` argument too).
+- **Codex and ChatGPT as connector clients.** Codex CLI (rmcp-client) registers with `client_name: "Codex"` and a
+  loopback redirect; it adds `/<id>` to `/callback` unless the server says every authorization response carries `iss`
+  (RFC 9207), which ours always did. The metadata now says so
+  (`authorization_response_iss_parameter_supported: true`; MCP 2026-07-28 requires it when `iss` is sent), so Codex
+  keeps `http://127.0.0.1:<port>/callback`. ChatGPT's connectors use `https://chatgpt.com/connector_platform_oauth_redirect`
+  when that flag is set: allowed now, exactly, beside Claude's; the consent page follows it too, and `https://chatgpt.com`
+  joins the allowed Origins of `/mcp` (a token is still needed). A client that sends no `client_name` is shown as "MCP
+  app", not "Claude connector". Not done, listed for a decision or a live test: a refresh token for a client that does
+  not ask for `offline_access` (ChatGPT may not; then it signs in again every hour), client authentication by an
+  empty-secret Basic header at `/oauth/token` (reported for ChatGPT, unconfirmed), client ID metadata documents (CIMD),
+  protocol 2026-07-28 (Codex behind a feature flag), and a second `resource` from Codex's `oauth_resource` setting
+  (refused as a duplicate parameter; the docs say to leave it unset).
+- **Checked live (2026-11-07, a temporary dev server on this branch).** The in-app Codex engine (codex-cli 0.166.0,
+  ChatGPT sign-in): a personal Codex chat found the room by words (`rooms` search) and read it through a `#` token
+  (`room_read`), and "@트리나" in a room answered on Codex from the asking message's file (`room_file`). Codex CLI as a
+  connector client, behind a local TLS proxy: dynamic registration as "Codex", sign-in with the plain loopback
+  `/callback` and `iss`, then `codex exec` called `rooms`, `room_read` and `room_send`; the message stood in the room as
+  the person's own, with no audit line and nothing of it in the log. ChatGPT was not tried live.
+- **Independent review (security first), fixed.** (1) A read that showed no message (an empty room, a time in the
+  future) recorded the room without a position, and merging kept the wider one: one such read let `room_send` reach
+  members who joined after what was read. Merging now keeps the oldest position read. (2) The widening check counted
+  only active members, but a 1:1 chat keeps a disabled account, which reads the message once enabled again: every
+  member who will see the message counts now, and one who cannot read reads nothing (as `rooms/ai.ts` decide). (3) A
+  mention matched any "@name" in the text ("@Kimberly" passed for Kim): now the app's own reading of a sent message
+  (an "@" where a mention may start, the longest member name there). (4) "＠everyone" (full width) and a zero-width
+  character inside are "@everyone" too. (5) A refresh that kept 대화 쓰기 and dropped 대화 읽기 named a scope that
+  did nothing: writing is narrowed away with reading. (6) `rooms/ai.ts` logged the room id when a question could not
+  start: no longer.
+- **Review items accepted, not changed.** Room names, the other person of a 1:1 and unread counts from the `rooms` list
+  (and a "several rooms match" answer) do not enter the read scope: they are what the person's sidebar shows, and
+  counting them would refuse nearly every message after a list (a 1:1 named in it has two readers). "@HELPERS" with
+  HELPER mentioned shows "@HELPER" in the app as well (no member is called HELPERS), so it stays. A file put on the
+  quarantine list while its text is being extracted is still returned, as in the app's own room_file and file reads.
+  The client name on the consent page is the app's own (as for Claude's callback); the return address under it is
+  what the server checks.

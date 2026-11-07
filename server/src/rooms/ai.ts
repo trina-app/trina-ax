@@ -155,7 +155,8 @@ export class RoomAi implements RoomTurns {
       if (t) this.publishRun(t)
       this.publishCount(roomId)
     } catch (e) {
-      this.ctx.log.warn('room question did not start', { err: e, room: roomId })
+      // no room id or text in the log (who talks where is not the log's); the person is told by room.ai.run
+      this.ctx.log.warn('room question did not start', { err: e })
       const locale = p.locale ?? rt.userLocale(userId)
       const error: ApiErrorBody = e && typeof e === 'object' && 'body' in e && typeof (e as { body: unknown }).body === 'function'
         ? (e as { body: (l: Locale) => ApiErrorBody }).body(locale) : engineError('crash', locale)
@@ -234,12 +235,12 @@ export class RoomAi implements RoomTurns {
     const fold: MessageRow[] = []
     if (q && pointsBack(asked?.content ?? '')) {
       // every one at most ROOM_FOLD_WINDOW_MS before the question; the run ends at someone else's message, an earlier
-      // @-question, or a message of the asker's that was meant for someone (a mention, a quoted reply)
+      // @-question, or a message of the asker's that was meant for someone (a mention, "@전체", a quoted reply)
       const askedAt = Date.parse(q.created_at)
       for (const m of rows) {
         if (m.author_kind !== 'user' || m.author_id !== o.userId || questions.has(m.id)) break
         if (askedAt - Date.parse(m.created_at) > ROOM_FOLD_WINDOW_MS) break
-        if (m.reply_to_id || parseMentions(m.mentions).length) break
+        if (m.reply_to_id || parseMentions(m.mentions).length || m.mentions_all) break
         fold.push(m)
       }
     }
