@@ -56,6 +56,24 @@ export function skillWriteTarget(rel: string): boolean {
   return fold(segs[0]!) === 'users' && segs.length >= 3 && fold(segs[2]!) === 'skills'
 }
 
+/** What the AI is told when it tries to save a skill as a file: the real way is a proposal (share_skills) or the app. */
+export const SKILL_POINTER = 'Use share_skills (whole team, or add "group" for one group; the owner or an admin proposes, someone confirms it in the app), or ask the user to add the skill in the team app (팀 스킬).'
+const REAL_ROOT_REFUSAL = `Skill changes require confirmation inside the team app. ${SKILL_POINTER}`
+const MISPLACED_REFUSAL = `Not saved: skills are never written as files, and a SKILL.md or a "skills" folder outside the real skill folders is not a skill. ${SKILL_POINTER}`
+
+/**
+ * The refusal for a connector write to \`rel\`, or null when it is an ordinary file. A real skill root (skills/, a group's
+ * skills/, users/<id>/skills/) keeps its refusal; a file named SKILL.md or anything below a folder named "skills" that
+ * is not a real root is a skill saved in the wrong place (the AI could not know the way), refused with the pointer.
+ */
+export function skillWriteRefusal(rel: string): string | null {
+  if (skillWriteTarget(rel)) return REAL_ROOT_REFUSAL
+  const segs = rel.replace(/\\/g, '/').split('/').filter((x) => x !== '' && x !== '.')
+  if (segs.length && fold(segs[segs.length - 1]!) === 'skill.md') return MISPLACED_REFUSAL
+  if (segs.some((x) => fold(x) === 'skills')) return MISPLACED_REFUSAL
+  return null
+}
+
 /**
  * The checks of write for a connector upload target: the current folder rules, no skills/ target, the read-scope
  * widening check with the grant's sources, not a folder, and (when the size is known) the storage check. This
@@ -64,10 +82,12 @@ export function skillWriteTarget(rel: string): boolean {
 export function checkUploadTarget(ctx: AppContext, user: Principal, filePath: string, sources: ReadSource[], size: number | null): Authorized | UploadOutcome {
   // A null turn ID normally means a human file API. An external model has no server confirmation card. The path as
   // written first, so a case-sensitive disk (Linux) gives the same answer as macOS for "Users/<id>/Skills"
-  if (skillWriteTarget(filePath)) return fail('Skill changes require confirmation inside the team app.', { path: filePath.slice(0, 500) })
+  const asGiven = skillWriteRefusal(filePath)
+  if (asGiven) return fail(asGiven, { path: filePath.slice(0, 500) })
   const target = authorize(ctx.files.fx, ctx.files.rules(), user, filePath, 'write', { createDirs: true })
   const rel = target.rel
-  if (skillWriteTarget(rel)) return fail('Skill changes require confirmation inside the team app.', { path: rel })
+  const resolved = skillWriteRefusal(rel)
+  if (resolved) return fail(resolved, { path: rel })
   if (widening(ctx.db, null, target.segs, sources)) return fail('Saving here would expose previously read material to more people. Use a folder with the same or narrower access.', { path: rel })
   if (target.exists && target.st!.isDirectory()) return fail(`'${rel}' is a folder.`, { path: rel })
   // No per-turn write budget: the grant's TurnFiles live as long as the connection is in use, so it never resets.
