@@ -128,6 +128,27 @@ export function widening(db: Database, chatId: string | null, targetSegs: string
 }
 
 /**
+ * For each source (each once, in order), the people of `audience` (user ids) who may not see what came from it under
+ * today's rules: the readers widening() goes by. An id that is not an active account reads nothing. Only sources that
+ * someone misses are returned ("대화방에 보내기", chat/answer-share.ts: the room's members who could not read what an
+ * answer used).
+ */
+export function missingReaders(db: Database, rules: RuleSet, sources: readonly ReadSource[], audience: readonly string[]): { source: ReadSource; missing: string[] }[] {
+  if (!sources.length || !audience.length) return []
+  const people = activePeople(db)
+  const seen = new Set<string>()
+  const out: { source: ReadSource; missing: string[] }[] = []
+  for (const s of sources) {
+    if (seen.has(key(s))) continue
+    seen.add(key(s))
+    const v = viewersOf(db, rules, s, people)
+    const missing = audience.filter((id) => !v.has(id))
+    if (missing.length) out.push({ source: s, missing })
+  }
+  return out
+}
+
+/**
  * Would a message sent in this room let more people see what `sources` came from (an AI app's connection sending as
  * the person, connectors/remote-mcp/rooms.ts)? Its readers are the room's members who will see it: everyone in it, or
  * for a thread reply those who see its first message (`rootSeq`). A member whose account cannot read now (disabled: a

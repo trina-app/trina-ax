@@ -289,8 +289,45 @@ export const RoomMessage = z.object({
   thread: RoomThreadSummary.optional(),
   /** the reactions on it (none: left out); never on an event line or a deleted message */
   reactions: z.array(RoomReaction).optional(),
+  /** my message that carries an answer of my own AI chat ("대화방에 보내기", chats.ts shareAnswerToRoom): body[0, at) is
+   * my note (plain text, maybe ''), body[at, …) the AI's answer as it wrote it (Markdown, shown as a quote headed "the
+   * AI's answer"; its team-file links are checked in `openable` like an AI message's). The author is still me. cut: the
+   * answer was longer than fits and ends with a line that says so. Never on a deleted message */
+  sharedAnswer: z.object({ at: z.number().int().nonnegative(), cut: z.boolean() }).optional(),
 })
 export type RoomMessage = z.infer<typeof RoomMessage>
+
+/** "대화방에 보내기": the one-line note before a shared answer, at most this long */
+export const ANSWER_NOTE_MAX = 300
+/** room left for the line that ends a cut answer (and a code fence it closes) */
+const ANSWER_CUT_RESERVE = 200
+
+/** The note as it goes into the room: one line, trimmed. */
+export const answerNote = (note: string | undefined) => (note ?? '').replace(/\s+/g, ' ').trim().slice(0, ANSWER_NOTE_MAX)
+
+/** Will this answer be cut to fit one room message (ROOM_MESSAGE_MAX) after this note? (the picker says so first) */
+export function answerShareCut(note: string | undefined, answer: string): boolean {
+  const n = answerNote(note)
+  return (n ? n.length + 2 : 0) + answer.trim().length > ROOM_MESSAGE_MAX
+}
+
+/** The room message a shared answer becomes: my note, a blank line, then the answer; too long, the answer is cut at a
+ * line's end where it can be (a code fence left open is closed) and `cutLine` ends it. `at`: where the answer starts. */
+export function answerShareBody(note: string | undefined, answer: string, cutLine: string): { body: string; at: number; cut: boolean } {
+  const n = answerNote(note)
+  const head = n ? `${n}\n\n` : ''
+  const text = answer.trim()
+  if (!answerShareCut(note, answer)) return { body: head + text, at: head.length, cut: false }
+  const room = ROOM_MESSAGE_MAX - head.length - ANSWER_CUT_RESERVE
+  let kept = text.slice(0, Math.max(0, room))
+  const nl = kept.lastIndexOf('\n')
+  if (nl > room * 0.8) kept = kept.slice(0, nl)
+  // a lone half of a surrogate pair at the end
+  if (/[\uD800-\uDBFF]$/.test(kept)) kept = kept.slice(0, -1)
+  kept = kept.trimEnd()
+  if ((kept.match(/^\s*(```|~~~)/gm) ?? []).length % 2 === 1) kept += '\n```'
+  return { body: `${head}${kept}\n\n${cutLine.slice(0, ANSWER_CUT_RESERVE - 10)}`, at: head.length, cut: true }
+}
 
 /** One question to the AI in a room, as the person who asked sees it (nobody else gets one). */
 export const RoomAiRun = z.object({

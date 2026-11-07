@@ -6,7 +6,7 @@
 // the state changes (test/unit/rooms-store.test.ts), handleEvent adds the requests they need. A reconnect the server
 // could not resume reloads through resync (components/rooms/useRoomsSync).
 import { create } from 'zustand'
-import { uuidv7, type Room, type RoomAlertSettings, type RoomNotifyLevel, type RoomAiRun, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomReactionEmoji, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
+import { uuidv7, type Room, type RoomAlertSettings, type ShareAnswerToRoomResult, type RoomNotifyLevel, type RoomAiRun, type RoomFile, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomReactionEmoji, type RoomThreadSummary, type ServerEvent } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError } from '../lib/api'
 import { mentionsMe, withRun, withRunPosition, withRunStep, type PickedMention } from '../lib/rooms'
 import { navigateTo } from '../lib/nav'
@@ -302,6 +302,10 @@ interface RoomsState extends RoomsData {
   takeReturned: (key: string) => void
   /** post my private preview of an AI answer to the room */
   shareAi: (roomId: string, messageId: string) => Promise<void>
+  /** "대화방에 보내기": a finished answer of my own AI chat to a room I am in, as my message (shared/src/api/chats.ts
+   * shareAnswerToRoom); sent, the message takes its place in the room once (the server's room.message to my windows
+   * finds it there) */
+  shareAnswer: (chatId: string, messageId: string, body: { roomId: string; note?: string; confirm?: number; clientMessageId: string }) => Promise<ShareAnswerToRoomResult>
   resync: () => Promise<void>
   handleEvent: (ev: RoomEvent) => void
   reset: () => void
@@ -664,6 +668,12 @@ export const useRooms = create<RoomsState>((set, get) => {
     async shareAi(roomId, messageId) {
       const m = await api.call(API.shareRoomMessage, { params: { id: roomId, messageId } })
       set((s) => withMessage(s, roomId, m, myId()))
+    },
+
+    async shareAnswer(chatId, messageId, body) {
+      const r = await api.call(API.shareAnswerToRoom, { params: { id: chatId, messageId }, body })
+      if (r.status === 'sent') set((s) => withMessage(s, body.roomId, r.message, myId()))
+      return r
     },
 
     async resync() {

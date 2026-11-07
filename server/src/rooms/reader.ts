@@ -21,7 +21,7 @@ import type { Database } from 'bun:sqlite'
 import { isUuid7, ROOM_MENTIONS_MAX, ROOM_REF_RE, type Room, type RoomKind, type RoomMessage } from '@mycel/shared/api'
 import { neutralizeTags } from '../chat/prompt'
 import { zonedParts, zonedToUtc } from '../system/time-zone'
-import { canSee, clipMiddle, MSG_COLS, messageRow, messagesOut, roomOut, SEE_SQL, seeArgs, seenSeq, threadable, TIMELINE_SQL, type FileRow, type MemberRow, type MessageRow, type RoomRow } from './store'
+import { canSee, clipMiddle, MSG_COLS, messageRow, messagesOut, roomOut, SEE_SQL, seeArgs, seenSeq, sharedAnswerText, threadable, TIMELINE_SQL, type FileRow, type MemberRow, type MessageRow, type RoomRow } from './store'
 
 /** messages one read gives at most, and by default */
 export const ROOM_READ_MAX = 200
@@ -210,11 +210,12 @@ function messageText(m: RoomMessage, userId: string, tz: string, o: { room?: str
   const asker = m.askedBy?.id === userId ? 'your user' : m.askedBy ? attr(m.askedBy.name, 80) : 'someone'
   const who = m.authorKind === 'ai'
     ? m.visibility === 'private' ? "the AI's answer to your user's question: a private preview only your user sees (not posted to the room)" : `the AI's answer to ${asker}'s question`
-    : m.author?.id === userId ? 'your user (an earlier message of theirs)' : 'another member'
+    : (m.author?.id === userId ? 'your user (an earlier message of theirs)' : 'another member') + (m.sharedAnswer ? ', sharing an answer of their own AI chat' : '')
+  const body = m.sharedAnswer ? sharedAnswerText(m.body, m.sharedAnswer.at) : m.body
   const reply = m.threadRootId ? ` thread_reply_of="${m.threadRootId}"${m.alsoInRoom ? ' also_in_room="yes"' : ''}` : ''
   const files = m.files.length ? `\n[files: ${m.files.map((f) => `${neutralizeTags(attr(f.name, 200))} (${f.mime.split(';')[0]}, ${SIZE(f.size)}, file_id=${f.id})`).join('; ')}]` : ''
   const reactions = m.reactions?.length ? `\n[reactions: ${m.reactions.map((r) => `${r.emoji} ${r.count}`).join(', ')}]` : ''
-  return `<room_message${where} id="${m.id}" from="${from}" who="${who}" at="${at}"${m.editedAt ? ' edited="yes"' : ''}${reply}>\n${neutralizeTags(clip(m.body, ROOM_READ_MESSAGE_CHARS))}${files}${thread}${reactions}\n</room_message>`
+  return `<room_message${where} id="${m.id}" from="${from}" who="${who}" at="${at}"${m.editedAt ? ' edited="yes"' : ''}${reply}>\n${neutralizeTags(clip(body, ROOM_READ_MESSAGE_CHARS))}${files}${thread}${reactions}\n</room_message>`
 }
 
 /** The members' names for a read's header (the app's members list), the first MEMBERS_NAMED; with `ids` (an AI app

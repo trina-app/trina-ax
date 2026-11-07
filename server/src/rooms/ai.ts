@@ -49,7 +49,7 @@ import { atLeast, loadPrincipal, type Principal, type RuleSet } from '../policy/
 import { authorize, visiblePath } from '../policy/authorize'
 import { confidentialChat } from '../safe-ops/confidential'
 import { safeOpsEnabled } from '../safe-ops/runner'
-import { canSee, clipMiddle, memberRow, parseMentions, roomAuditRef, members, messageRow, messagesOut, MSG_COLS, roomRow, SEE_SQL, setRoomAiWaiting, seeArgs, seenSeq, TIMELINE_SQL, type MemberRow, type MessageRow, type RoomRow } from './store'
+import { canSee, clipMiddle, memberRow, parseMentions, roomAuditRef, members, messageRow, messagesOut, MSG_COLS, roomRow, SEE_SQL, setRoomAiWaiting, seeArgs, seenSeq, sharedAnswerOf, sharedAnswerText, TIMELINE_SQL, type MemberRow, type MessageRow, type RoomRow } from './store'
 import { roomsOf } from './service'
 
 /** room messages before the question that go in front of it, at most */
@@ -240,7 +240,8 @@ export class RoomAi implements RoomTurns {
       for (const m of rows) {
         if (m.author_kind !== 'user' || m.author_id !== o.userId || questions.has(m.id)) break
         if (askedAt - Date.parse(m.created_at) > ROOM_FOLD_WINDOW_MS) break
-        if (m.reply_to_id || parseMentions(m.mentions).length || m.mentions_all) break
+        // an answer of their own AI chat they shared is the AI's words, not theirs: it stays in the block below, marked
+        if (m.reply_to_id || parseMentions(m.mentions).length || m.mentions_all || sharedAnswerOf(m)) break
         fold.push(m)
       }
     }
@@ -281,9 +282,10 @@ export class RoomAi implements RoomTurns {
       const mine = m.author_kind === 'user' && m.author_id === o.userId
       // a name is anyone's own to set: inside an attribute it is one line without quotes or brackets (attr), so no name
       // can open a message of its own or pass for the asker's
+      const shared = sharedAnswerOf(m)
       const who = m.author_kind === 'ai' ? `your earlier answer to ${attr(m.asked_by === o.userId ? asker : m.asked_by ? names.get(m.asked_by) ?? 'someone' : 'someone')}`
-        : mine ? 'the person asking you now (their own earlier message)' : 'another member'
-      const text = neutralizeTags(clip(m.body, ROOM_CONTEXT_MESSAGE_CHARS)) + (files.length ? `\n[files sent: ${neutralizeTags(files.join(', '))}]` : '')
+        : (mine ? 'the person asking you now (their own earlier message)' : 'another member') + (shared ? ', sharing an answer of their own AI chat' : '')
+      const text = neutralizeTags(clip(shared ? sharedAnswerText(m.body, shared.at) : m.body, ROOM_CONTEXT_MESSAGE_CHARS)) + (files.length ? `\n[files sent: ${neutralizeTags(files.join(', '))}]` : '')
       const item = `<room_message from="${attr(from)}" who="${who}"${m.id === root?.id ? ' thread_start="yes"' : ''} at="${m.created_at}">\n${text}\n</room_message>`
       // newest first until the block is full; a thread's first message is kept whatever the replies took (it says what
       // the thread is about; at most ROOM_CONTEXT_MESSAGE_CHARS over)
