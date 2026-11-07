@@ -659,6 +659,13 @@ export const id: Record<MessageKey, string> = {
   'preview.discardTitle': 'Buang perubahan Anda?',
   'preview.discard': 'Buang',
   'preview.saved': 'Tersimpan.',
+  'preview.savePdf': 'Simpan sebagai PDF',
+  'preview.savingPdf': 'Membuat PDF…',
+  'preview.pdfSaved': 'Tersimpan sebagai PDF: {name}',
+  'preview.pdfDownloaded': 'Anda tidak bisa menyimpan di folder ini, jadi PDF diunduh.',
+  'preview.pdfOpen': 'Buka',
+  'preview.pdfBlocked': '{count} alamat web atau berkas yang tidak bisa dilihat semua orang yang melihat halaman ini tidak dimasukkan.',
+  'preview.pdfScripts': 'Skrip halaman tidak dijalankan.',
   'preview.savedConflict': 'Orang lain mengubah file ini sementara itu. Versi mereka tetap; versi Anda disimpan sebagai salinan konflik ({path}).',
 
   'browser.title': 'Browser',

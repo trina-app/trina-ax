@@ -659,6 +659,13 @@ export const en: Record<MessageKey, string> = {
   'preview.discardTitle': 'Discard your changes?',
   'preview.discard': 'Discard',
   'preview.saved': 'Saved.',
+  'preview.savePdf': 'Save as PDF',
+  'preview.savingPdf': 'Making the PDF…',
+  'preview.pdfSaved': 'Saved as PDF: {name}',
+  'preview.pdfDownloaded': 'You cannot save in this folder, so the PDF was downloaded.',
+  'preview.pdfOpen': 'Open',
+  'preview.pdfBlocked': '{count} web addresses or files that not everyone who sees this page can see were left out.',
+  'preview.pdfScripts': 'The page\'s scripts did not run.',
   'preview.savedConflict': 'Someone changed this file in the meantime. Their version stays; yours was saved as a conflict copy ({path}).',
 
   'browser.title': 'Browser',
