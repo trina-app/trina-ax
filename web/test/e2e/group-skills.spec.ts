@@ -66,7 +66,8 @@ test('Team skills: a team skill replaced by a group or personal skill of the sam
   const group = (await made.json()) as { id: string }
   const md = (name: string, description: string, title?: string) => `---\nname: ${name}\n${title ? `metadata:\n  title: ${title}\n` : ''}description: ${description}\n---\n1. step\n`
   for (const [p, text] of [
-    ['skills/estimate/SKILL.md', md('estimate', 'team estimate steps')],
+    // the replaced team skill has a form: its row must still offer no run button
+    ['skills/estimate/SKILL.md', '---\nname: estimate\nmetadata:\n  inputs: |\n    [{"name":"customer","label":"고객사"}]\ndescription: team estimate steps\n---\n1. step\n'],
     ['skills/meeting-notes/SKILL.md', md('meeting-notes', 'summarise a meeting')],
     ['skills/quote/SKILL.md', md('quote', 'team quote steps')],
     ['skills/marketing/ad-copy/SKILL.md', md('ad-copy', 'write ad copy', 'Ad copy')],
@@ -88,6 +89,15 @@ test('Team skills: a team skill replaced by a group or personal skill of the sam
   const est = lost.locator('[data-path="skills/estimate/SKILL.md"]')
   await expect(est.getByTestId('skill-shadow-note')).toHaveText('Sales 그룹의 같은 이름 스킬이 대신 쓰여요')
   await expect(est).toHaveAttribute('data-shadowed', 'group')
+  const listed = (await (await page.request.get('/api/skills?shadowed=1')).json()) as { items: { path: string; inputs?: unknown[] }[] }
+  expect(listed.items.find((x) => x.path === 'skills/estimate/SKILL.md')?.inputs).toHaveLength(1)
+  // a replaced skill is not run from here: no run button, no "use" in its menu, only the file (details and path)
+  await expect(lost.getByTestId('skill-run')).toHaveCount(0)
+  await est.getByTestId('skill-more').click()
+  await expect(est.getByRole('menuitem', { name: '채팅에서 쓰기' })).toHaveCount(0)
+  await expect(est.getByTestId('skill-file')).toBeVisible()
+  await expect(est.getByTestId('skill-path')).toHaveText('skills/estimate/SKILL.md')
+  await page.keyboard.press('Escape')
   await expect(lost.locator('[data-path="skills/quote/SKILL.md"]').getByTestId('skill-shadow-note')).toHaveText('내 개인 스킬이 대신 쓰여요')
   // the one that runs is in its own group's section
   await expect(page.getByTestId(`skill-group-${group.id}`).locator('[data-path="groups/Sales/skills/estimate/SKILL.md"]')).toHaveCount(1)

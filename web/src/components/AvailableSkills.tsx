@@ -235,7 +235,9 @@ function SkillRow({ skill: s, folder, onRun }: { skill: Skill; folder: boolean; 
   // a skill another one of its name replaced: which one runs instead
   const shadow = s.shadowedBy ? (s.shadowedBy.tier === 'personal' ? t('skills.shadowedByPersonal') : t('skills.shadowedByGroup', { group: s.shadowedBy.group?.name ?? '' })) : ''
   // a skill with a form opens it; any other starts a chat with "/<name> " in the message box, as before
-  const use = () => (s.inputs?.length ? onRun(s) : navigateTo(skillChatLink(s.name)))
+  // a replaced skill is never run from here (a chat with its name runs the one that replaced it, and its form would
+  // send that name too): its row opens the file, the details
+  const use = () => (s.shadowedBy ? navigateTo(skillFileLink(s.path)) : s.inputs?.length ? onRun(s) : navigateTo(skillChatLink(s.name)))
   return (
     <li className={clsx('flex items-center gap-1 py-1', s.shadowedBy && 'opacity-70')} data-testid="skill-row" data-path={s.path} data-shadowed={s.shadowedBy ? s.shadowedBy.tier : undefined}>
       <button
@@ -258,19 +260,19 @@ function SkillRow({ skill: s, folder, onRun }: { skill: Skill; folder: boolean; 
           {line && <span className="mt-0.5 block truncate text-xs text-muted">{line}</span>}
         </span>
         {!!s.uses && <span className="shrink-0 text-xs text-faint tabular-nums" title={t('skills.usesHint')}>{t('skills.uses', { uses: s.uses })}</span>}
-        <span className="sr-only">{t('skills.use')}</span>
+        {!s.shadowedBy && <span className="sr-only">{t('skills.use')}</span>}
       </button>
-      {!!s.inputs?.length && (
+      {!!s.inputs?.length && !s.shadowedBy && (
         <IconButton label={t('skillForm.runNamed', { name: shown })} onClick={() => onRun(s)} data-testid="skill-run">
           <Play size={16} aria-hidden />
         </IconButton>
       )}
-      <SkillMenu skill={s} onUse={use} />
+      <SkillMenu skill={s} onUse={s.shadowedBy ? null : use} />
     </li>
   )
 }
 
-function SkillMenu({ skill: s, onUse }: { skill: Skill; onUse: () => void }) {
+function SkillMenu({ skill: s, onUse }: { skill: Skill; onUse: (() => void) | null }) {
   const t = useT()
   const box = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
@@ -304,9 +306,11 @@ function SkillMenu({ skill: s, onUse }: { skill: Skill; onUse: () => void }) {
       </IconButton>
       {open && (
         <div role="menu" aria-label={t('skills.moreNamed', { name: skillShown(s) ?? `/${s.name}` })} className="absolute top-full right-0 z-30 mt-1 w-64 rounded-lg border border-line bg-surface p-1 shadow-lg">
-          <button role="menuitem" type="button" className={item} onClick={() => { setOpen(false); onUse() }}>
-            <MessageSquarePlus size={14} aria-hidden /> {t('skills.use')}
-          </button>
+          {onUse && (
+            <button role="menuitem" type="button" className={item} onClick={() => { setOpen(false); onUse() }}>
+              <MessageSquarePlus size={14} aria-hidden /> {t('skills.use')}
+            </button>
+          )}
           <button role="menuitem" type="button" className={item} onClick={() => navigateTo(skillFileLink(s.path))} data-testid="skill-file">
             <FileText size={14} aria-hidden /> {t('skills.viewFile')}
           </button>

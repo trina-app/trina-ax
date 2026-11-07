@@ -509,7 +509,10 @@ export function scanSkillsWithShadowed(files: FileService, user: Principal): { s
   for (const s of out.filter((x) => skillTier(x) !== best.get(nameKey(x.name))).sort(byPath)) {
     const winners = skills.filter((w) => sameSkillName(w.name, s.name))
     const w = winners[0]!
-    shadowed.push({ skill: s, by: skillTier(w) === 0 ? { tier: 'personal' } : { tier: 'group', group: w.group ?? { id: '', name: '' } } })
+    // a group-tier winner always has its group (skillTier: personal, else group when `group` is set, else team)
+    const group = w.group
+    if (skillTier(w) === 1 && !group) continue
+    shadowed.push({ skill: s, by: skillTier(w) === 0 ? { tier: 'personal' } : { tier: 'group', group: group! } })
     for (const x of winners) if (replaces.get(x.path) !== 'team') replaces.set(x.path, skillTier(s) === 2 ? 'team' : 'group')
   }
   return { skills, capped, shadowed, replaces }

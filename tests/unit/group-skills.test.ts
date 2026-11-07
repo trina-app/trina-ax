@@ -114,6 +114,15 @@ describe('discovery and precedence (real folder rules)', () => {
     expect(bob.replaces.size).toBe(0)
   })
 
+  test('the AI\'s prompt (skill list and skill block) never carries the page-only fields', () => {
+    const text = skillsSection(e.files, who('alice')) + '\n' + buildSkillList(list('alice')).lines.join('\n')
+    expect(text).toContain('Weekly')
+    expect(text).not.toContain('shadowedBy')
+    expect(text).not.toContain('"replaces"') // the prompt's own prose says "replaces a team skill": only the field is meant
+    const weekly = list('alice').find((s) => s.path === 'groups/marketing/skills/weekly.md')!
+    expect(skillBlock(weekly, 'x')).not.toMatch(/shadowedBy|"replaces"/)
+  })
+
   test('two groups with one name: both listed, by path; "/name" picks the group whose name comes first', () => {
     e.db.query("INSERT INTO group_members (group_id, user_id) VALUES ('finance', 'erin')").run()
     try {
@@ -297,7 +306,16 @@ describe('in the app: GET /api/skills, rename, delete, the AI\'s card, skills_li
     // the running ones are the same as in the plain list
     expect(all.filter((s) => !s.shadowedBy).map((s) => s.path)).toEqual(plain.map((s) => s.path))
     // bob never sees marketing's skills, so nothing of theirs shadows his team skill
-    expect((await h.api('bob').call(API.listSkills, { query: { shadowed: '1' } })).items.some((s) => s.shadowedBy)).toBe(false)
+    const bobAll = (await h.api('bob').call(API.listSkills, { query: { shadowed: '1' } })).items
+    expect(bobAll.some((s) => s.shadowedBy)).toBe(false)
+    // nobody gets another member's personal paths or a group they are not in, in any list (the shadowed ones too)
+    expect(JSON.stringify(bobAll)).not.toContain('groups/marketing')
+    expect(JSON.stringify(bobAll)).not.toContain('users/alice')
+    const erinAll = (await h.api('erin').call(API.listSkills, { query: { shadowed: '1' } })).items
+    expect(JSON.stringify(erinAll)).not.toContain('users/alice')
+    expect(JSON.stringify(all)).not.toContain('users/erin')
+    expect(JSON.stringify(all)).not.toContain('groups/finance')
+    expect(JSON.stringify((await h.api('dana').call(API.listSkills, { query: { shadowed: '1' } })).items)).not.toContain('groups/marketing')
   })
 
   test('a rename: the group\'s new name at once (the folder stays)', async () => {
@@ -400,6 +418,8 @@ describe('the connector\'s skills_list follows the connected person\'s groups', 
       const team = h.ctx.config.teamRoot
       fs.mkdirSync(path.join(team, 'groups/Sales/skills/offer'), { recursive: true })
       fs.writeFileSync(path.join(team, 'groups/Sales/skills/offer/SKILL.md'), '---\nname: offer\ndescription: SALES-OFFER-CANARY\n---\nsteps\n')
+      // a team skill of the same name: replaced for the member, whose list must still carry no page-only field
+      fs.writeFileSync(path.join(team, 'skills/offer.md'), '---\nname: offer\ndescription: TEAM-OFFER-CANARY\n---\nteam steps\n')
       const call = async (cookie: string) => {
         const auth = (await h.auth.resolve(new Request('http://team.localhost', { headers: { cookie } }), { ip: '10.0.0.7', via: 'test' }))!
         const oauth = new RemoteOAuth(h.ctx.db, { origin: 'https://team.example' }), tools = new RemoteTools(h.ctx, () => oauth)
@@ -414,7 +434,12 @@ describe('the connector\'s skills_list follows the connected person\'s groups', 
         expect(out.isError).toBeUndefined()
         return out.content[0]!.text
       }
-      const mine = JSON.parse(await call(member.client.cookie!)) as unknown[]
+      const mineText = await call(member.client.cookie!)
+      const mine = JSON.parse(mineText) as unknown[]
+      // the page-only fields (`shadowedBy`, `replaces`) never reach the connector, and the replaced skill is not there
+      expect(mineText).not.toContain('shadowedBy')
+      expect(mineText).not.toContain('"replaces"')
+      expect(mineText).not.toContain('TEAM-OFFER-CANARY')
       expect(mine).toContainEqual({ path: 'groups/Sales/skills/offer/SKILL.md', name: 'offer', description: 'SALES-OFFER-CANARY', group: { id: g.id, name: 'Sales' } })
       expect(await call(owner.cookie!)).not.toContain('SALES-OFFER-CANARY')
     } finally { await h.close() }
