@@ -75,6 +75,8 @@ test('a personal API connection with a key: sent once, never shown again; edit s
   await expect(page.getByTestId('integration-key')).toHaveValue('')
   await page.getByTestId('integration-save').click()
   await expect(dialog).toContainText('키를 넣어 주세요.')
+  // the dialog moves focus to the field it refused on a frame later; typing before that lands the address in the key field
+  await expect(page.getByTestId('integration-key')).toBeFocused()
   await page.getByTestId('integration-url').fill('https://pm.example.com/api')
   await expect(page.getByTestId('integration-key-saved')).toBeVisible()
   // replace the key: only the new key goes out
