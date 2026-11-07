@@ -19,10 +19,14 @@
 // confidential when a message in it says "confidential"), POST /__test/artifact {type, content} (the next "artifact"
 // answer writes exactly this), POST /__test/connection {…ConnectionStatus fields} (Admin > System > Connection shows
 // them until the next reset), POST /__test/speech-host {…SpeechHost fields} (this server's cores, speed and hosting
-// for "Turn video sound into text", until the next reset), POST /__test/skill-list {…SkillsOverview.aiList} (the Team
-// skills page's "how many skills the AI sees" counts, until the next reset), POST /__test/speech {provider, key?: boolean}
-// (the team's speech provider and whether an OpenRouter key is set), GET-or-POST /__test/transcribe-chats (the chat id
-// each voice input named, null for a new chat; a confidential chat's recording with OpenRouter is refused, 403).
+// for "Turn video sound into text", and the tools Voice input lacks, until the next reset), POST /__test/skill-list
+// {…SkillsOverview.aiList} (the Team skills page's "how many skills the AI sees" counts, until the next reset),
+// POST /__test/speech {provider, key?: boolean, chosen?: false}
+// (the team's speech provider and whether an OpenRouter key is set; chosen false: not chosen, read from the key),
+// GET-or-POST /__test/transcribe-chats (the chat id each voice input named, null for a new chat; a confidential chat's
+// recording with OpenRouter is refused, 403), POST
+// /__test/transcribe-progress {message, progress, ms} (the next transcription jobs say that label first, as a server that
+// downloads its speech model does, and end after `ms`; until the next reset).
 // External services: an address on a "down." host fails its check, the key "wrong-key" is refused, the fake MCP server
 // offers two tools at the first check and a third from the next one (one on a "many." host offers 150, of which the
 // first 100 are kept), and a sign-in completes on the second poll.
@@ -34,7 +38,7 @@
 // whether pictures exist and the budget (the longer ones read the site first: phase "reading"), until the next reset.
 import { z } from 'zod'
 import type { DriveShare as MockDriveShare, DriveShareFolder as MockDriveFolder } from '@mycel/shared/api'
-import type { KnowledgeGraphStatus } from '@mycel/shared/api'
+import type { KnowledgeGraphStatus, LocalSpeechTool } from '@mycel/shared/api'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
@@ -251,10 +255,16 @@ export class MockServer {
    * {available?: boolean} says whether CodeGraph is "installed" */
   kg: KnowledgeGraphStatus = mockKnowledgeGraph(true)
   speechKey: { set: boolean; hint: string | null; updatedAt: string | null } = { set: false, hint: null, updatedAt: null }
+  /** an admin chose the speech provider (stored); false: like server/src/admin/settings.ts, it reads OpenRouter while the
+   * team's key is set and off without it (speechNow) */
+  speechChosen = true
   /** the chat id each voice input named (null: a new chat) */
   transcribeChats: (string | null)[] = []
-  /** GET /api/admin/speech-host: a 4-core self-installed server that has not measured its speed yet */
-  speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null as number | null, hostedNewSec: null as number | null }
+  /** transcription jobs report this label first and end after `ms` (POST /__test/transcribe-progress) */
+  transcribeProgress: { message: string; progress: number | null; ms: number } | null = null
+  /** GET /api/admin/speech-host: a 4-core self-installed server that has not measured its speed yet, with whisper.cpp and
+   * ffmpeg (localMissing: the tools 'local' lacks) */
+  speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null as number | null, hostedNewSec: null as number | null, localMissing: [] as LocalSpeechTool[] }
   /** every request the client made (method + path), for assertions */
   log: string[] = []
   /** team skills: "팀 스킬 관리" grants (also kept as folder rules on this.folders), suggestions, changes under skills/ */
@@ -426,8 +436,10 @@ export class MockServer {
     this.teamIcon = null
     this.kg = mockKnowledgeGraph(true)
     this.speechKey = { set: false, hint: null, updatedAt: null }
+    this.speechChosen = true
     this.transcribeChats = []
-    this.speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null, hostedNewSec: null }
+    this.transcribeProgress = null
+    this.speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null, hostedNewSec: null, localMissing: [] }
     if (o.teamLocale) this.settings.defaultLocale = o.teamLocale
     this.activeLeaf.clear()
     this.pendingAsk.clear()
@@ -789,7 +801,7 @@ export class MockServer {
     return {
       user: { id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.localeChoice ?? this.settings.defaultLocale, localeChoice: u.localeChoice, mustChangePassword: u.mustChangePassword, prefs, canChooseEngine: choose },
       groups: this.groups.filter((g) => u.groupIds.includes(g.id)).map((g) => ({ id: g.id, name: g.name })),
-      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, iconVersion: this.teamIcon?.version ?? null, voiceInput: this.settings.speechProvider === 'local' || (this.settings.speechProvider === 'openrouter' && this.speechKey.set), ...(this.settings.speechProvider === 'openrouter' && this.speechKey.set ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: this.settings.chatTrashRetentionDays },
+      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, iconVersion: this.teamIcon?.version ?? null, voiceInput: (this.speechNow() === 'local' && this.speechHost.localMissing.length === 0) || (this.speechNow() === 'openrouter' && this.speechKey.set), ...(this.speechNow() === 'openrouter' && this.speechKey.set ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: this.settings.chatTrashRetentionDays },
       session: { id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(), tempLogin: u.mustChangePassword && this.tempLogins.has(u.id) },
       server: {
         version: this.serverVersion, dev: !this.cloud, deployment: this.cloud ? 'hosted' : 'self', timeZone: this.settings.timeZone,
@@ -2360,7 +2372,7 @@ export class MockServer {
       this.budgets = this.budgets.filter((b) => b.id !== c.params.id)
       return undefined
     },
-    settings: () => this.settings,
+    settings: () => ({ ...this.settings, speechProvider: this.speechNow() }),
     // SpeechKeyStatus.hosted (0.2.17): the hosting service's free hours; none on this mock server
     speechKey: () => ({ ...this.speechKey, hosted: null }),
     speechHost: () => this.speechHost,
@@ -2372,13 +2384,14 @@ export class MockServer {
       const before = this.settings.defaultLocale
       const policyBefore = this.settings.browserAllowAll
       // like server/src/admin/settings.ts: a new speech provider starts "Turn video sound into text" from its default
-      const providerChanged = c.body.speechProvider !== undefined && c.body.speechProvider !== this.settings.speechProvider
+      const providerChanged = c.body.speechProvider !== undefined && c.body.speechProvider !== this.speechNow()
+      if (c.body.speechProvider !== undefined) this.speechChosen = true
       Object.assign(this.settings, c.body)
       if (providerChanged && c.body.aiMediaTranscripts === undefined) this.settings.aiMediaTranscripts = null
       this.syncLocales()
       if (this.settings.defaultLocale !== before) this.publish(LOCALE_CHANGED)
       if (this.settings.browserAllowAll !== policyBefore) this.publish(BROWSER_POLICY_CHANGED)
-      return this.settings
+      return { ...this.settings, speechProvider: this.speechNow() }
     },
     // like server/src/admin/team-icon.ts: the same checks (shared/src/team-icon.ts) and words
     putTeamIcon: async (c) => {
@@ -3196,6 +3209,10 @@ export class MockServer {
       redirectUri: 'https://team.example.test/api/integrations/google-drive/callback', connectedMembers: 0,
       membersCanConnect: this.driveMembers, sharesOn: configured ? this.driveShares.filter((x) => x.status === 'connected').length : 0 }
   }
+  /** the speech provider the server reads: the admin's choice, else OpenRouter while the team's key is set, else off */
+  speechNow(): 'off' | 'openrouter' | 'local' {
+    return this.speechChosen ? this.settings.speechProvider : this.speechKey.set ? 'openrouter' : 'off'
+  }
   driveTopFolders(): MockDriveFolder[] {
     return [{ id: 'drive-team', name: 'Team Drive', kind: 'drive' }, { id: 'folder-finance', name: 'Finance', kind: 'folder' }, { id: 'folder-hr', name: 'HR', kind: 'folder' }, { id: 'folder-marketing', name: 'Marketing', kind: 'folder' }]
   }
@@ -3343,7 +3360,7 @@ export class MockServer {
   transcribeGate(chatId: string | undefined) {
     this.transcribeChats.push(chatId ?? null)
     const confidential = chatId ? !!this.chats.find((x) => x.id === chatId)?.confidential : this.allConfidential
-    if (confidential && this.settings.speechProvider === 'openrouter' && this.speechKey.set) {
+    if (confidential && this.speechNow() === 'openrouter' && this.speechKey.set) {
       throw new Fail('forbidden', 403, '기밀 대화라서 녹음을 바깥 음성 서비스(OpenRouter)로 보내지 않았어요. 글로 입력해 주세요.', undefined, { reason: 'confidential' })
     }
   }
@@ -3352,10 +3369,12 @@ export class MockServer {
     const id = uuidv7()
     const job: Job = { id, kind: 'transcribe', status: 'running', progress: null, message: null, result: null, error: null, createdAt: now(), finishedAt: null }
     this.jobs.set(id, job)
+    const slow = this.transcribeProgress
+    if (slow) setTimeout(() => this.publish({ type: 'job.progress', data: { jobId: id, kind: 'transcribe', progress: slow.progress, message: slow.message } }), 50)
     setTimeout(() => {
       Object.assign(job, { status: 'done', progress: 1, result: { text: '받아쓴 문장입니다', language: 'ko', durationSec: 2 }, finishedAt: now() })
       this.publish({ type: 'job.done', data: { job } })
-    }, 150)
+    }, slow?.ms ?? 150)
     void user
     return id
   }
@@ -3480,8 +3499,10 @@ export class MockServer {
     else if (p === '/__test/speech') {
       this.settings.speechProvider = body.provider === 'openrouter' || body.provider === 'off' ? body.provider : 'local'
       this.speechKey = body.key ? { set: true, hint: 'mock', updatedAt: now() } : { set: false, hint: null, updatedAt: null }
+      this.speechChosen = body.chosen !== false
     }
     else if (p === '/__test/transcribe-chats') return Response.json(this.transcribeChats)
+    else if (p === '/__test/transcribe-progress') this.transcribeProgress = { message: String(body.message), progress: typeof body.progress === 'number' ? body.progress : null, ms: Number(body.ms ?? 3000) }
     else if (p === '/__test/file') {
       // a team file for a test (POST {path, text} or {path, base64}); its folders are made too
       const path = String(body.path)

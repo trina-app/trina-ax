@@ -44,6 +44,7 @@ import { SkillIssues } from '../components/SkillIssues'
 import { isSkillsPath } from '../lib/skillIssues'
 import { useMeStrict } from '../store/session'
 import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, TabPanel, Tabs, confirmDialog, promptDialog, useMediaQuery } from '../components/ui'
+import { Tooltip } from '../components/Tooltip'
 
 const ICONS: Record<FileIconKind, typeof FileIcon> = { folder: Folder, image: FileImage, pdf: FileText, doc: FileText, sheet: FileSpreadsheet, slides: Presentation, audio: FileAudio, video: FileVideo, code: FileCode, archive: FileArchive, text: FileText, other: FileIcon }
 
@@ -674,23 +675,29 @@ export default function Files() {
                 data-own-clear
               />
               {q && (
-                <button type="button" className="text-faint hover:text-ink" onClick={() => setQuery('')} aria-label={t('files.search.clear')} title={t('files.search.clear')}>
-                  <X size={14} aria-hidden />
-                </button>
+                <Tooltip label={t('files.search.clear')}>
+                  <button type="button" className="text-faint hover:text-ink" onClick={() => setQuery('')} aria-label={t('files.search.clear')}>
+                    <X size={14} aria-hidden />
+                  </button>
+                </Tooltip>
               )}
             </label>
             {/* phones: no refresh (the list follows changes on its own), and no new folder / upload where they are off */}
             <IconButton label={t('common.refresh')} className="max-md:hidden" onClick={() => void load()}>
               <RefreshCw size={16} />
             </IconButton>
-            <Button size="sm" variant="ghost" className={clsx(tree && !canWrite && 'max-md:hidden')} onClick={mkdir} disabled={!canWrite} aria-label={t('files.newFolder')} title={t('files.newFolder')}>
-              <FolderPlus size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.newFolder')}</span>
-            </Button>
+            <Tooltip label={t('files.newFolder')}>
+              <Button size="sm" variant="ghost" className={clsx(tree && !canWrite && 'max-md:hidden')} onClick={mkdir} disabled={!canWrite} aria-label={t('files.newFolder')}>
+                <FolderPlus size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.newFolder')}</span>
+              </Button>
+            </Tooltip>
             {canPickFolder && (
               <>
-                <Button size="sm" variant="ghost" className="max-sm:hidden" onClick={() => folderInput.current?.click()} disabled={!canWrite} aria-label={t('files.uploadFolder')} title={t('files.uploadFolder')} data-testid="folder-upload-button">
-                  <FolderUp size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.uploadFolder')}</span>
-                </Button>
+                <Tooltip label={t('files.uploadFolder')}>
+                  <Button size="sm" variant="ghost" className="max-sm:hidden" onClick={() => folderInput.current?.click()} disabled={!canWrite} aria-label={t('files.uploadFolder')} data-testid="folder-upload-button">
+                    <FolderUp size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.uploadFolder')}</span>
+                  </Button>
+                </Tooltip>
                 <input
                   ref={folderInput}
                   type="file"
@@ -705,9 +712,11 @@ export default function Files() {
                 />
               </>
             )}
-            <Button size="sm" variant="primary" className={clsx(tree && !canWrite && 'max-md:hidden')} onClick={() => fileInput.current?.click()} disabled={!canWrite} aria-label={t('files.upload')} title={t('files.upload')} data-testid="upload-button">
-              <Upload size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.upload')}</span>
-            </Button>
+            <Tooltip label={t('files.upload')}>
+              <Button size="sm" variant="primary" className={clsx(tree && !canWrite && 'max-md:hidden')} onClick={() => fileInput.current?.click()} disabled={!canWrite} aria-label={t('files.upload')} data-testid="upload-button">
+                <Upload size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.upload')}</span>
+              </Button>
+            </Tooltip>
             <input
               ref={fileInput}
               type="file"
@@ -1079,7 +1088,11 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
           )}
           {!folder && isConflictCopy(e.name) && <Badge tone="warn">{t('files.conflictCopy')}</Badge>}
           {aiOff && <span className="shrink-0" data-testid="file-download-only"><Badge>{t('files.downloadOnly')}</Badge></span>}
-          {e.access === 'read' && <Lock size={12} className="shrink-0 text-faint" aria-label={t('files.readOnly')} />}
+          {e.access === 'read' && (
+            <Tooltip label={t('files.readOnlyTip')} description>
+              <Lock size={12} className="shrink-0 text-faint" aria-label={t('files.readOnly')} />
+            </Tooltip>
+          )}
           {/* only while something is dragged over it (the pointer's job; the toast says what happened) */}
           {(dropOk || dropNo) && (
             <span className="ml-auto shrink-0" aria-hidden data-testid="drop-hint">

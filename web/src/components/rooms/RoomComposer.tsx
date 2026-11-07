@@ -6,6 +6,10 @@
 // room (not in a DM; in the everyone room only for owners and admins); in a room of MENTION_ALL_CONFIRM people or more the
 // send asks first, in one line inside the box ("N명에게 알림이 가요. 보낼까요?"). In a thread (threadRootId) it
 // writes a reply, with one quiet choice under the box: "대화방에도 보내기" (the reply goes to the room's timeline too).
+// Voice input as in the AI chat's box (lib/useVoiceInput.ts, components/VoiceBar.tsx), under the same team switch: the
+// mic next to the clip, Space held in the box on a computer, a finger held on the mic; the words go into the box as
+// text (never a voice message, never sent by themselves). A room names no chat: while every chat is confidential and
+// voice input goes to an outside service, the mic says so instead (lib/voice.ts voiceBlockedInRoom).
 // The round send button is the screen's one primary action. Phones: a flat bar under a hairline, no frame.
 import clsx from 'clsx'
 import { ArrowUp, FileText, Loader2, Paperclip, X } from 'lucide-react'
@@ -13,12 +17,16 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ROOM_FILES_MAX, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, type RoomFile, type UserRef } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { formatSize } from '../../lib/format'
+import { useVoiceInput } from '../../lib/useVoiceInput'
+import { micState, voiceBlockedInRoom } from '../../lib/voice'
 import { useLocale, useT } from '../../i18n'
+import { useMe } from '../../store/session'
 import { placeKey, roomDraftMentions, roomDrafts as drafts, useRooms } from '../../store/rooms'
 import { toast } from '../../store/ui'
 import { TokenTextarea } from '../TokenTextarea'
 import { Button, IconButton } from '../ui'
 import { Tooltip } from '../Tooltip'
+import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { useEveryone, useMentionMenu } from './useMentionMenu'
 import { useTextSize } from '../../lib/textSize'
 
@@ -57,6 +65,30 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const others = members.filter((m) => m.id !== meId).length
   const mention = useMentionMenu({ text, setText, input, members, meId, ai: true, initial: roomDraftMentions.get(key), everyone })
   const [asking, setAsking] = useState(false)
+  const me = useMe()
+  // voice input off (Admin > Team settings): no mic for members, a hint to the setting for admins
+  const mic = micState(me)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
+  const latest = useRef(text)
+  latest.current = text
+  const root = useRef<HTMLDivElement>(null)
+  const voice = useVoiceInput({
+    input,
+    root,
+    room: true,
+    text,
+    // (through the token box's own change: the mentions' ranges follow what the words replace)
+    replace: mention.inputProps.onTextChange,
+    append: (said) => {
+      const cur = latest.current
+      setText(cur.trim() ? `${cur.trimEnd()} ${said}` : said)
+    },
+    blocked: voiceBlockedInRoom(me),
+    enabled: mic === 'on',
+    menuOpen: mention.open,
+    onError: setVoiceError,
+    afterFocus: mention.inputProps.onSelect,
+  })
   // the draft keeps its mentions too
   useEffect(() => {
     if (mention.picked.length) roomDraftMentions.set(key, mention.picked)
@@ -74,14 +106,16 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [back])
 
-  // the box grows with its text, and is measured again when the person's text size changes
+  // the box grows with its text (an empty box with its placeholder: a transcription job's long label), and is measured
+  // again when the person's text size changes
   const textSize = useTextSize()
+  const placeholder = voice.transcribing ? voice.transcribingText : threadRootId ? t('rooms.threadPlaceholder') : empty ? t('rooms.placeholderEmpty') : t('rooms.placeholder')
   useLayoutEffect(() => {
     const ta = input.current
     if (!ta) return
     ta.style.height = 'auto'
     ta.style.height = Math.min(ta.scrollHeight, 200) + 'px'
-  }, [text, textSize])
+  }, [text, textSize, placeholder, voice.recording])
   // a thread just opened (from "reply in thread"): the box is where the person types next
   useEffect(() => {
     if (autoFocus) input.current?.focus({ preventScroll: true })
@@ -124,7 +158,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
 
   const body = text.trim()
   const ready = files.filter((f) => f.status === 'done')
-  const canSend = (body.length > 0 || ready.length > 0) && files.every((f) => f.status === 'done') && text.length <= ROOM_MESSAGE_MAX
+  const canSend = (body.length > 0 || ready.length > 0) && files.every((f) => f.status === 'done') && text.length <= ROOM_MESSAGE_MAX && !voice.busy
 
   const all = mention.mentionsAll()
   // the question shows while the message still has "@전체" (taken out, there is nothing to ask, and a later one asks anew)
@@ -144,12 +178,14 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     setFiles([])
     mention.reset()
     setAlsoInRoom(false)
+    setVoiceError(null)
     onSent()
     input.current?.focus()
   }
 
   return (
-    <div className="shrink-0 pb-[max(0.75rem,var(--safe-bottom))] max-sm:border-t max-sm:border-line max-sm:pt-1 sm:px-4" data-bottom-bar>
+    <div ref={root} className="shrink-0 pb-[max(0.75rem,var(--safe-bottom))] max-sm:border-t max-sm:border-line max-sm:pt-1 sm:px-4" data-bottom-bar>
+      <VoiceLive voice={voice} />
       <div
         className={clsx('mx-auto max-w-[780px] transition sm:rounded-2xl sm:border sm:bg-surface', drag ? 'sm:border-accent sm:ring-2 sm:ring-accent/30' : 'sm:border-field-border sm:focus-within:border-faint')}
         onDragOver={(e) => {
@@ -167,8 +203,9 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
         }}
         data-testid="room-composer"
       >
-        {mention.list}
-        {ask && (
+        {!voice.recording && mention.list}
+        {/* the question about "@전체" (hidden while recording, like the "@" list) */}
+        {ask && !voice.recording && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 pt-2.5 max-md:px-4" data-testid="room-mention-all-confirm">
             <p role="status" className="min-w-0 flex-1 text-sm text-ink">
               {t('rooms.mentionAllConfirm', { n: others })}
@@ -199,69 +236,87 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
             ))}
           </ul>
         )}
-        <div className="flex items-end gap-1 px-1.5 py-1.5 max-md:px-3">
-          <IconButton tip label={t('composer.attach')} onClick={() => picker.current?.click()} className="touch-hit mb-0.5" data-testid="room-attach">
-            <Paperclip size={18} />
-          </IconButton>
-          <input
-            ref={picker}
-            type="file"
-            multiple
-            hidden
-            onChange={(e) => {
-              addFiles(Array.from(e.target.files ?? []))
-              e.target.value = ''
-            }}
-          />
-          <TokenTextarea
-            ref={input}
-            rows={1}
-            value={text}
-            aria-label={t('composer.label')}
-            placeholder={threadRootId ? t('rooms.threadPlaceholder') : empty ? t('rooms.placeholderEmpty') : t('rooms.placeholder')}
-            maxLength={ROOM_MESSAGE_MAX}
-            {...mention.inputProps}
-            onPaste={(e) => {
-              const pasted = Array.from(e.clipboardData.files)
-              if (pasted.length) {
-                e.preventDefault()
-                addFiles(pasted)
-              }
-            }}
-            onKeyDown={(e) => {
-              if (mention.onKeyDown(e)) return
-              // the question about "@전체": Esc puts it away, Enter answers it as 보내기
-              if (ask && e.key === 'Escape' && !e.nativeEvent.isComposing && e.keyCode !== 229) {
-                e.preventDefault()
-                e.stopPropagation()
-                setAsking(false)
-                return
-              }
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
-                // touch screens: Enter makes a new line (the button sends)
-                if (window.matchMedia?.('(pointer: coarse)').matches) return
-                e.preventDefault()
-                submit(ask)
-              }
-            }}
-            containerClassName="min-w-0 flex-1"
-            className="max-h-[200px] resize-none px-1.5 py-2 text-reading leading-reading text-ink outline-none placeholder:text-faint"
-            data-testid="room-input"
-          />
-          <Tooltip label={t('chat.send')}>
-            <button
-              type="button"
-              onClick={() => submit(ask)}
-              disabled={!canSend}
-              aria-label={t('chat.send')}
-              className={clsx('touch-hit mb-0.5 flex size-9 shrink-0 items-center justify-center rounded-full transition max-sm:size-10', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')}
-              data-testid="room-send"
-            >
-              <ArrowUp size={18} aria-hidden />
-            </button>
-          </Tooltip>
-        </div>
+        {voice.recording ? (
+          // as tall as the box's row, so nothing around it moves
+          <VoiceBar voice={voice} className="px-1.5 py-2 max-md:px-3 max-sm:py-1.5" />
+        ) : (
+          <>
+            <VoiceProgress voice={voice} text={text} className="px-3 pt-2 max-md:px-4" />
+            <div className="flex items-end gap-1 px-1.5 py-1.5 max-md:px-3">
+              <IconButton tip label={t('composer.attach')} onClick={() => picker.current?.click()} className="touch-hit mb-0.5" data-testid="room-attach">
+                <Paperclip size={18} />
+              </IconButton>
+              <VoiceMic voice={voice} mic={mic} tip className="mb-0.5" />
+              <input
+                ref={picker}
+                type="file"
+                multiple
+                hidden
+                onChange={(e) => {
+                  addFiles(Array.from(e.target.files ?? []))
+                  e.target.value = ''
+                }}
+              />
+              <TokenTextarea
+                ref={input}
+                rows={1}
+                value={text}
+                aria-label={t('composer.label')}
+                placeholder={placeholder}
+                // not disabled: the focus stays in the box while the words are on their way
+                readOnly={voice.busy}
+                aria-busy={voice.transcribing || undefined}
+                maxLength={ROOM_MESSAGE_MAX}
+                {...mention.inputProps}
+                onPaste={(e) => {
+                  const pasted = Array.from(e.clipboardData.files)
+                  if (pasted.length) {
+                    e.preventDefault()
+                    addFiles(pasted)
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (mention.onKeyDown(e)) return
+                  if (voice.onKeyDown(e)) return
+                  // the question about "@전체": Esc puts it away, Enter answers it as 보내기
+                  if (ask && e.key === 'Escape' && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setAsking(false)
+                    return
+                  }
+                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                    // touch screens: Enter makes a new line (the button sends)
+                    if (window.matchMedia?.('(pointer: coarse)').matches) return
+                    e.preventDefault()
+                    submit(ask)
+                  }
+                }}
+                containerClassName="min-w-0 flex-1"
+                className="max-h-[200px] resize-none px-1.5 py-2 text-reading leading-reading text-ink outline-none placeholder:text-faint"
+                data-testid="room-input"
+              />
+              <Tooltip label={t('chat.send')}>
+                <button
+                  type="button"
+                  onClick={() => submit(ask)}
+                  disabled={!canSend}
+                  aria-label={t('chat.send')}
+                  className={clsx('touch-hit mb-0.5 flex size-9 shrink-0 items-center justify-center rounded-full transition max-sm:size-10', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')}
+                  data-testid="room-send"
+                >
+                  <ArrowUp size={18} aria-hidden />
+                </button>
+              </Tooltip>
+            </div>
+          </>
+        )}
       </div>
+      {voiceError && (
+        <p role="alert" className="mx-auto max-w-[780px] px-1 pt-1.5 text-xs text-danger max-sm:px-4" data-testid="room-voice-error">
+          {voiceError}
+        </p>
+      )}
       {/* a thread's reply may go to the room too: one quiet choice under the box (off again after each send) */}
       {threadRootId && (
         <label className="mx-auto flex max-w-[780px] cursor-pointer items-center gap-2 px-1 pt-1.5 text-xs text-muted select-none max-sm:px-4 max-sm:pt-0.5 max-sm:pb-1" data-testid="room-also-in-room">

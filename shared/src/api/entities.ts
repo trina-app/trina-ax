@@ -621,8 +621,9 @@ export const TeamSettings = z.object({
   /** tool rounds per answer (Claude Code `--max-turns`, default 150): at the limit the answer pauses and "continue" goes
    * on. Sub-agents keep their own 50 rounds each; the API engine keeps its own 30 */
   answerStepLimit: z.number().int().min(ANSWER_STEP_LIMIT_MIN).max(ANSWER_STEP_LIMIT_MAX),
-  /** voice input: 'off' (default; 'openrouter' on a hosted server with the hosting service's key) | 'openrouter' (the
-   * team's OpenRouter key, Admin > Team settings, else the hosting service's) | 'local' */
+  /** voice input: 'off' (default; 'openrouter' while not chosen and there is the hosting service's key or the team's own
+   * OpenRouter key) | 'openrouter' (the team's OpenRouter key, Admin > Team settings, else the hosting service's) |
+   * 'local' (whisper.cpp here; voice input needs whisper-cli and ffmpeg on the server) */
   speechProvider: SpeechProvider,
   /** the OpenRouter speech-to-text model */
   speechModel: SpeechModel,

@@ -10,6 +10,7 @@ import { dismissNotice, dismissedNotices, visibleNotices } from '../lib/managedN
 import { safeHref } from '../lib/safeLinks'
 import { useT } from '../i18n'
 import { useMe } from '../store/session'
+import { Tooltip } from './Tooltip'
 
 const RELOAD_MS = 5 * 60_000
 const TONE = {
@@ -51,9 +52,11 @@ export default function ManagedNoticesBanner() {
               </a>
             )}
             {n.dismissible && (
-              <button type="button" aria-label={t('common.close')} className="rounded p-0.5 hover:bg-hover" onClick={() => setDismissed(dismissNotice(n.id, dismissed))}>
-                <X size={13} aria-hidden />
-              </button>
+              <Tooltip label={t('common.close')}>
+                <button type="button" aria-label={t('common.close')} className="rounded p-0.5 hover:bg-hover" onClick={() => setDismissed(dismissNotice(n.id, dismissed))}>
+                  <X size={13} aria-hidden />
+                </button>
+              </Tooltip>
             )}
           </div>
         )

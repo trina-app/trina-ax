@@ -12,6 +12,7 @@ import { bannerFor, dismissedVersion, dismissVersion, onOfficeStatus, turnDate }
 import { useLocale, useT } from '../i18n'
 import { isAdmin, useMe } from '../store/session'
 import { useUi } from '../store/ui'
+import { Tooltip } from './Tooltip'
 
 export default function OfficeUpdateBanner() {
   const t = useT()
@@ -45,14 +46,16 @@ export default function OfficeUpdateBanner() {
       {b.turn?.kind === 'never' ? <span className="text-muted">{t('officeUpdate.bannerNever')}</span>
         : b.turn ? <span className="text-muted">{t('officeUpdate.bannerTurn', { date: turnDate(b.turn.date, locale), window: b.turn.window, zone: b.turn.zone })}</span>
         : b.nightly && <span className="text-muted">{t('officeUpdate.bannerNightly', b.nightly)}</span>}
-      <button
-        type="button"
-        aria-label={t('common.close')}
-        className="rounded p-0.5 hover:bg-hover"
-        onClick={() => { dismissVersion(b.version); setDismissed(b.version) }}
-      >
-        <X size={13} aria-hidden />
-      </button>
+      <Tooltip label={t('common.close')}>
+        <button
+          type="button"
+          aria-label={t('common.close')}
+          className="rounded p-0.5 hover:bg-hover"
+          onClick={() => { dismissVersion(b.version); setDismissed(b.version) }}
+        >
+          <X size={13} aria-hidden />
+        </button>
+      </Tooltip>
     </div>
   )
 }

@@ -74,3 +74,94 @@ export async function routeRoom(page: Page, o: { members: { id: string; name: st
   })
   return state
 }
+
+/** One of several rooms for routeRooms: its kind and name, the other people in it, what is unread, how long ago its
+ * last message came, and whether I hid it (docs/DECISIONS.md "대화 숨기기"). */
+export interface MockRoomSpec {
+  id: string
+  kind: 'team' | 'all' | 'dm' | 'group'
+  name: string | null
+  peers: { id: string; name: string }[]
+  unread?: number
+  mentioned?: boolean
+  muted?: boolean
+  hidden?: boolean
+  /** minutes before the fixed "now" of its last message (smaller: higher in the list) */
+  ago: number
+  last: string
+}
+
+export interface MockRooms {
+  /** PUT /api/rooms/:id/hidden, in order */
+  hidden: { roomId: string; hidden: boolean }[]
+  /** POST /api/rooms/:id/leave, in order */
+  left: string[]
+  /** PATCH /api/rooms/:id bodies, in order */
+  updated: { roomId: string; body: Record<string, unknown> }[]
+}
+
+/** Several rooms of every kind for the specs of the rooms' "⋯" and hidden rooms: GET /api/rooms and each room's own
+ * reads (one message from the first other person, the members, no AI), and the changes a person makes to a room of
+ * theirs (hide or show it, leave a group chat, its notification level), answered as the server would, contract-shaped.
+ * The signed-in owner (olga) is in all of them. */
+export async function routeRooms(page: Page, specs: MockRoomSpec[]): Promise<MockRooms> {
+  const state: MockRooms = { hidden: [], left: [], updated: [] }
+  const NOW = Date.parse('2026-11-07T09:00:00.000Z')
+  const when = (ago: number) => new Date(NOW - ago * 60_000).toISOString()
+  const live = new Map(specs.map((s) => [s.id, { ...s, own: null as null | 'all' | 'mentions' | 'off' }]))
+  const msgId = (i: number) => `019a5f00-0000-7000-8000-${String(900 + i).padStart(12, '0')}`
+  const roomOf = (s: MockRoomSpec & { own: null | 'all' | 'mentions' | 'off' }, i: number) => {
+    const byDefault = s.kind === 'team' || s.kind === 'all' ? 'mentions' : 'all'
+    const level = s.own ?? byDefault
+    return {
+      id: s.id, kind: s.kind, name: s.name, canRename: s.kind === 'group', managerId: s.kind === 'group' ? 'olga' : null,
+      groupId: s.kind === 'team' ? `019a5f00-0000-7000-8000-${String(800 + i).padStart(12, '0')}` : null,
+      memberCount: s.peers.length + 1, peers: s.peers.slice(0, 4), lastSeq: 3, unreadCount: s.unread ?? 0, threadsUnread: 0, nextThreadId: null,
+      mentioned: !!s.mentioned, lastReadSeq: 3 - Math.min(3, s.unread ?? 0),
+      lastMessage: { id: msgId(i), seq: 3, author: s.peers[0] ?? null, excerpt: s.last, fileCount: 0, deleted: false, createdAt: when(s.ago) },
+      muted: level === 'off', notify: { own: s.own, byDefault, level }, createdAt: when(600), activityAt: when(s.ago),
+      ...(s.hidden ? { hidden: true } : {}),
+    }
+  }
+  const all = () => [...live.values()].map((s) => roomOf(s, specs.findIndex((x) => x.id === s.id))).sort((a, b) => b.activityAt.localeCompare(a.activityAt))
+  const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
+  await page.route(/\/api\/rooms(\/|\?|$)/, async (route) => {
+    const req = route.request()
+    const path = new URL(req.url()).pathname
+    const method = req.method()
+    if (method === 'GET' && path === '/api/rooms') return route.fulfill(json({ items: all(), alerts: { threadReplies: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false }, timeZone: 'Asia/Seoul' } }))
+    const m = /^\/api\/rooms\/([^/]+)(?:\/(messages|members|ai|read|hidden|leave))?$/.exec(path)
+    const s = m && live.get(m[1]!)
+    if (!m || !s) return route.fulfill(json({ error: { code: 'not_found', message: 'not in this mock' } }, 404))
+    const i = specs.findIndex((x) => x.id === s.id)
+    const what = m[2]
+    if (method === 'GET' && !what) return route.fulfill(json(roomOf(s, i)))
+    if (method === 'GET' && what === 'messages') {
+      const author = s.peers[0] ?? { id: 'olga', name: 'Olga' }
+      return route.fulfill(json({ items: [{ id: msgId(i), roomId: s.id, seq: 3, authorKind: 'user', author, askedBy: null, visibility: 'room', body: s.last, replyTo: null, mentions: [], files: [], createdAt: when(s.ago), editedAt: null, deletedAt: null }], nextCursor: null }))
+    }
+    if (method === 'GET' && what === 'members') return route.fulfill(json({ items: [{ id: 'olga', name: 'Olga' }, ...s.peers].map((user) => ({ user, joinedAt: when(600) })) }))
+    if (method === 'GET' && what === 'ai') return route.fulfill(json({ answering: 0, mine: [] }))
+    if (method === 'POST' && what === 'read') return route.fulfill(json({ lastReadSeq: 3, unreadCount: 0, mentioned: false }))
+    if (method === 'PUT' && what === 'hidden') {
+      const b = req.postDataJSON() as { hidden: boolean }
+      state.hidden.push({ roomId: s.id, hidden: b.hidden })
+      if (b.hidden && s.kind === 'group') return route.fulfill(json({ error: { code: 'forbidden', message: 'leave it instead' } }, 403))
+      s.hidden = b.hidden
+      return route.fulfill(json(roomOf(s, i)))
+    }
+    if (method === 'POST' && what === 'leave') {
+      state.left.push(s.id)
+      live.delete(s.id)
+      return route.fulfill({ status: 204, body: '' })
+    }
+    if (method === 'PATCH' && !what) {
+      const b = req.postDataJSON() as Record<string, unknown>
+      state.updated.push({ roomId: s.id, body: b })
+      if ('notifyLevel' in b) s.own = (b.notifyLevel as typeof s.own) ?? null
+      return route.fulfill(json(roomOf(s, i)))
+    }
+    return route.fulfill(json({ error: { code: 'not_found', message: 'not in this mock' } }, 404))
+  })
+  return state
+}

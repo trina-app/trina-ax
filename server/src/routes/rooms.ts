@@ -59,6 +59,8 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.inviteRoomMembers, ({ auth, params, body }) => rooms.invite(auth.user.id, params.id, body.userIds))
     kit.handle(API.removeRoomMember, ({ auth, params }) => rooms.removeMember(auth.user.id, params.id, params.userId))
     kit.handle(API.leaveRoom, ({ auth, params }) => rooms.leave(auth.user.id, params.id))
+    // hiding a DM, a team room or the everyone room from my own lists (docs/DECISIONS.md "대화 숨기기"): mine only
+    kit.handle(API.setRoomHidden, ({ auth, params, body }) => rooms.setHidden(auth.user.id, params.id, body.hidden))
 
     kit.handle(API.uploadRoomFile, async ({ auth, params, body }) => {
       // the same checks as a chat attachment: the whole part arrived, there is room on the disk

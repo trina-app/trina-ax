@@ -11735,6 +11735,81 @@ URL, and any credential kind that would carry a custom address.
 - **Rejected:** keeping a lighter re-auth for official accounts (no gain, as above); dropping the password from the API
   engine (it sets where conversations go).
 
+## 대화 숨기기 — a "⋯" on every conversation, leaving and hiding (feat/room-leave-hide, 2026-11-07)
+
+넣을 곳: Team AX core (`server/src/rooms`, migration 258, `shared/src/api/rooms.ts`, `web/src/components/rooms/RoomMenu.tsx`,
+the sidebar, the conversations page, the room header), 이유: rooms are core, and the owner asked ("대화 나가기 같은 게 있어야
+할 것 같은데??"). Group chats could already be left, but only from the room's info (tap the title), which nobody found,
+and DMs, team rooms and the everyone room had no way out at all. Rooms follow Slack almost entirely.
+
+- **One "⋯" per conversation, wherever it shows** (`RoomMenu`, the tooltip "더 보기"): in the room's header beside the bell
+  (on a phone that header is the top bar); on each row of the sidebar's 대화 and of the conversations page (/rooms) on hover
+  or keyboard focus, in the place of the row's pill and time (they give way, as a chat row's marker does), and with a
+  right-click (or the keyboard's menu key) anywhere on the row (Shift + right-click keeps the browser's own menu: open in
+  a new tab, copy the address); on a touch screen a long press on a row opens it, a sheet
+  from the bottom on a phone with the room's name on top (the row is under the scrim; the finger lifting opens no room).
+  No new boxes: the "⋯" exists only while it is wanted, and the sheet is MenuButton's. A row's 알림 설정 gives the
+  keyboard back to the row's "⋯" when it closes; a finger held on a sheet's item is no new long press of the row (the
+  menu keeps its pointer events, for a message's sheet too). The tooltip "더 보기" is not read a second time where the
+  button's name holds it ("개발팀 더 보기"; `Tooltip` describes only what the name does not say). Screen reader users on a
+  phone reach a room's menu from its header (a row's "⋯" is not on touch screens).
+- **Items by kind.** 알림 설정 (opens the bell's own four levels: the header's bell, or a row's bare copy of it) and 링크
+  복사 (`<origin>/rooms/<id>`: anyone else gets "not found"), then: a group chat **대화방 나가기** (the existing leave with
+  its confirm; the others see the existing event line); a DM **대화 숨기기**; a team room and the everyone room **숨기기**
+  (membership follows the group, which also gives folder permissions, so they cannot be left). A hidden room has **다시
+  보이기** there. Hiding says where it went and how it comes back in a toast with 실행 취소; hiding the room on screen goes to
+  the conversations page.
+- **Hiding is mine only** (`PUT /api/rooms/:id/hidden {hidden}`, strict; `room_members.hidden_at`, migration 258). A DM, a
+  team room, the everyone room; hiding a group chat is 403 (it is left instead), showing one is nothing to do. The same
+  again changes nothing. Members only (404 for anyone else, admins and the owner included, as every room route). Nobody
+  else is told; my windows and devices get the room (`room.updated` to me). Not audited. `Room.hidden: true` (absent =
+  shown, so older servers never hide). It stays a room I am in: its messages, threads, unread count and notifications
+  setting are unchanged, and the AI chat's room list says ", hidden by the user".
+- **It comes back by itself when something for me arrives**, decided on the server when the message is stored
+  (`Rooms.notify` → `unhideFor`, before the notices and before the `room.message` goes out, so every device agrees and my
+  windows get the room first): a message of a DM's timeline from the other person (Slack's "close conversation"); in any
+  room a mention of me or a reply in a thread I follow; my own message there; the AI's answer to my question (a posted
+  one through `notify`, a private preview in `RoomAi.ended`: it is the asker's only); a card of my question to the AI
+  opening (`RoomAi.waiting` with `opened`: one closing while another still waits brings nothing). Nothing else: a plain message in a hidden team room or the everyone room
+  does not bring it back, **even when my level for it is 모든 메시지**, and a room still hidden makes no notice for me at
+  all (no Inbox row, push or desktop notification; a push that was waiting is dropped: `cancelPushUser` on hide and
+  `noticeWanted` refuses a hidden room). Rejected: bringing it back whenever a message alerts me by my level (a person
+  whose default is 모든 새 메시지 could never keep a team room hidden; hiding says "not in front of me"), and keeping the
+  notices of a room that stays hidden (a push for a room that is in no list). Event lines, deleted and private messages
+  never bring one back. Opening a hidden room directly (a link, a push, the full list, the people list) works as always and shows
+  it again (the room page sends `{hidden: false}` once, as it opens; `POST /api/rooms` for an existing DM does it on the
+  server). Only an open that was a choice (`openedByChoice`): not Back or Forward inside the app, and not the page
+  reloading (a refresh, or the app reloading itself after a server update while the room is on screen, which would undo
+  a hide made on another device); going back to the page's first address reads as the link that opened it. Hiding or
+  leaving the room on screen goes to the conversations page in place of the room's entry, so Back does not open it.
+- **Where hidden rooms are.** Not in the sidebar's five, not in "더 보기 (N)" or its pill (the room on screen still shows);
+  not in the 대화 tab's count or its "?", the one count n (tab title, Dock badge), the desktop app's room notifications or
+  the room sound (`totalUnread`, `roomWantsMe`, `shouldRing`). The conversations page (/rooms, "모든 대화") ends with a
+  quiet fold "숨긴 대화 N" (closed by default, remembered in this browser): one row per room, its name opening it and 다시
+  보이기 at its end; no preview or count there. "모든 대화" in the sidebar shows while nothing is behind "더 보기", and also
+  under an opened "더 보기" while some rooms are hidden (else nothing in the sidebar would lead to them).
+- **Rollback: reader 1.** Migration 258 adds one nullable column; an older build ignores it and lists every room as before
+  (nothing hidden, nothing exposed). `SCHEMA_READER_LEVEL` stays. Numbered 258: 256 is skipped and 257 is the member skill
+  contributions' (checked on origin/dev and every local and remote branch before committing).
+- **Not in this step.** Hiding a group chat (it is left); "mark as read" in the menu; hiding several at once; a separate
+  mute-and-hide. The phone app's own notifications follow the server's notices, so they need no change.
+- **Independent review (2026-11-07) fixes.** `bun run typecheck` failed on a test; Back after hiding the room on screen
+  and the app's reload after an update brought a hidden room back (replace navigation, `openedByChoice`); a row's level
+  menu dropped the keyboard on Esc; the CHANGELOG over-claimed the counts (room notices are not in the Inbox's count, as
+  before); the ⋯ drew over a row's preview on the conversations page (the preview stops before it); a card closing
+  brought a room back; a private preview did not; the tooltip was read twice; a right-click inside an open menu opened
+  the row's too; the hidden section's heading names its list (`aria-controls`) and keeps the keyboard when a row goes;
+  `unhideFor` reads only the members who hid the room.
+- **Tests.** `tests/unit/b-rooms-hide.test.ts` (hide and show per kind, the strict body, members only, realtime to my
+  windows only, what brings a room back and what does not, room.updated before room.message, no notice or push while
+  hidden, the AI's answer and card, openDm, the AI chat's room list, migration 258), `b-rooms-ai.test.ts` (a private
+  preview brings the asker's hidden room back, not the other person's), the permission matrix
+  (`setRoomHidden`), `web/test/unit/room-hide.test.tsx` (the menu by kind, 알림 설정, hiding sent and put back on a
+  refusal, the counts, the sidebar, the hidden section, a right-click and a long press) and
+  `web/test/e2e/room-leave-hide.spec.ts` (rooms-mock.ts `routeRooms`: header menus by kind, a sidebar row on hover,
+  keyboard and right-click, the hidden section, opening a hidden room, a phone's long-press sheet and the 대화 tab).
+  Checked at 1440 and 390, light and dark (the spec saves the screens with `SHOTS_DIR`).
+- Version impact: **minor** (a new endpoint, an optional `Room` field, one additive migration).
 ## Group skills (feat/group-skills, 2026-11-07, product owner)
 
 넣을 곳: trina-ax server/src/chat/skills + server/src/skills + web, 이유: each group gets its own skills, seen and used
@@ -11975,6 +12050,47 @@ core next to the theme.
   at a step's edge. The keyboard and a tap apply at once. The account is saved 400 ms after the last change, one save
   per drag; closing Settings sooner still saves it.
 
+## Icon tooltips across the app (feat/icon-tooltips, 2026-11-07, product owner)
+
+넣을 곳: Team AX core (`web/src/components/Tooltip.tsx`, `ui.tsx` `IconButton` / `CopyButton`, the screens' icon-only
+controls, `web/scripts/check-icon-tooltips.ts`), 이유: the owner asked that hovering an icon show what it does, and a
+description where the icon alone does not say it ("icon 호버하면 툴팁, 그 설명도 나와야 할 것 같아"). The rooms had the
+shared tooltip already; the rest of the app had the browser's `title` (slow, unstyled, absent on keyboard focus) or
+nothing.
+
+- **IconButton shows its label as the tooltip by default** (it was opt-in with `tip`), so every one of its ~85 call
+  sites gets it and a new one cannot forget it; `tip="…"` gives other words (they describe the button), `tip={false}`
+  is only for one inside a `<Tooltip>` of its own. `CopyButton` shows it when it shows no words. A plain `<button>`,
+  `<a>`, `Link` or `Button` with only icons is wrapped in `<Tooltip>` (about 40 places), and `title` on such a control
+  or on a meaningful icon (lock, connected check, schedule dot, the usage "+?") is gone. `title` stays where it carries
+  the full text of a cut-off name, a hint on a labelled button, or a disabled control's reason.
+- **Descriptions** only where the icon's name is not enough, in five languages: the read-only lock ("읽기 전용: 볼 수만
+  있어요") and the can-edit pencil in Files and Home, a connector's official mark ("공식: 서비스를 만든 곳이 직접
+  제공하거나 {product}에 들어 있는 연결이에요"). The admin's lock on a rule that cannot be removed already had a sentence.
+- **Two rules added to the tooltip itself**, because it now sits on dialogs' close buttons and toolbars: keyboard focus
+  means `:focus-visible` (a dialog opened with a click focuses its first button, the close X; that showed "닫기" every
+  time), and no tip while the element shows the same words (the Files toolbar's 새 폴더 / 업로드 lose their words in a
+  narrow window, and only then get the tip).
+- **The check is static** (`bun run check:tooltips`, part of `check:docs`, so CI's check job runs it): it parses every
+  `.tsx` in `web/src` and fails on an icon-only control (only Lucide icons, `<svg>`/`<img>`/thumbnails, words hidden by `sr-only` or
+  a `*:hidden` class) that is not the direct child of a `<Tooltip>`, on `title` beside a `<Tooltip>`, on `title` on an
+  icon, on `IconButton tip={false}` outside one, and on a control inside an element (of the same component) with a
+  `title`, which the browser would show beside the tooltip (the control takes `title=""`); `{/* no-tooltip: <reason> */}`
+  on the line above opts one out.
+  Rejected: a unit test over rendered main pages. The unit tests' small DOM renders a page only with its stores and API
+  mocked, and only in its first state, so menus, dialogs, row actions, error and admin-only states (most of the icon
+  buttons) would stay unseen; the static check sees every file, needs no browser or server, and names the line.
+- **The sidebar** (after PR #124 landed): the history's filter and its clear ✕, a chat's "…" and 대화's + get the
+  tooltip in place of their titles; nothing else in it moves. The team row at the top is no icon-only control (the team's
+  name from 768px, the AI's name below), so the check counts two parts hidden at opposite sides of one breakpoint as
+  words.
+- **Left out:** the desktop shell's own HTML screens (`desktop/src/ui/`), status icons inside labelled rows (a step's done /
+  failed mark, spinners), and the phone's bottom tabs (they have words; tooltips never show on touch anyway).
+- Tests: `web/test/unit/tooltip.test.tsx` (IconButton default, `tip` text and `false`, CopyButton, `:focus-visible`,
+  words shown), `web/test/unit/icon-tooltips.test.tsx` (the check on samples; a dialog's close, a code block's download,
+  a skill chip's remove, Settings › Browser's remove, a connector's official mark).
+- Version impact: **patch** (UI only; no API change).
+
 ## @전체 — everyone in a room (feat/mention-all, 2026-11-07, product owner)
 넣을 곳: trina-ax `server/src/rooms` (service.ts, store.ts, migration 259), `shared/src/api/rooms.ts` and
 `web/src/components/rooms` (useMentionMenu.tsx, RoomComposer.tsx, RoomMessages.tsx), 이유: the owner asked for Slack's
@@ -12038,3 +12154,103 @@ subscription was refused (`validation`) and the web ask left Edge out.
 - **Web.** The ask line shows in Edge like in any browser (`isEdge` is gone). The `browserService` reason stays for a
   push service the server still does not take, and names Edge among the browsers to use.
 
+## Voice input in rooms, and hold Space to talk (feat/voice-rooms-hold-space, 2026-11-07, product owner)
+
+- **Where.** The mic is in Ask Trina (as before), a room's box and a thread's box (ThreadPanel uses RoomComposer), under
+  the same team switch (Admin › Team settings › Voice input; `micState`). The words go into the box as text, appended as
+  before, and are never sent by themselves; rooms get text, not voice messages. No new setting.
+- **One piece for both boxes.** `web/src/lib/voiceInput.ts` is the state machine without React or the page (idle →
+  waiting → starting → recording (hold | toggle | press) → transcribing), unit-tested on a clock of its own;
+  `web/src/lib/useVoiceInput.ts` runs it with the recorder, the upload (`kind: 'transcribe'`, with `chatId` only in an
+  AI chat) and `waitForJob`; `web/src/components/VoiceBar.tsx` has the bar, the mic, the live region and the job label.
+- **Rooms and the server.** A room's recording names no chat. The server already treats that as a new chat
+  (`confidentialDictation(null)` = `safeOpsEnabled()`, tested in `c-speech-confidential`), so rooms need no server change
+  and no migration. The box says so first: `voiceBlockedInRoom(me)` = `me.server.allChatsConfidential &&
+  me.team.voiceInputOutside` shows a note for rooms (`voice.confidentialRoom`) instead of recording.
+- **Hold Space** (computers only: `(hover: hover) and (pointer: fine)`; never on touch, where a long Space moves the
+  caret on an iPhone). Only from the box's own key handler, after its "/", "#" or "@" list (each now says `open`), while
+  the mic shows. A plain Space (no repeat, no `isComposing` or keyCode 229, no modifier, no selection) waits 400 ms. Empty
+  box: the Space is held back; box with text: the first Space types and its repeats are held back, and at 400 ms that one
+  space is taken back (as Claude Code does). Any other key, letting go, or the window losing the focus before 400 ms ends
+  the wait and a held-back Space is typed (through `execCommand('insertText')`, so the caret, undo and the mention layer
+  follow; a plain value change when the browser has none), so typing is unchanged. The space taken back may be a
+  Japanese IME's full-width one. Letting go transcribes (Space let go before an allowed microphone was even on recorded
+  nothing: no job); Esc cancels, while transcribing too (the upload and the wait are aborted and the job is
+  cancelled), when it is aimed at the page, this box or its bar and no menu or dialog is open anywhere (Esc closes
+  those; Safari and Firefox leave the focus on the page when a menu opens on a click), never at a list or another box,
+  except during a Space hold; the window losing the focus or the tab hidden while held transcribes. Keys are read on `window` (capture) because the bar replaces the box; a held
+  Space never scrolls the page. Space let go while the browser asks for the microphone (`navigator.permissions` says it
+  is not granted yet) keeps it recording until ✓; when it was already allowed, the recording ends as soon as it is on.
+- **The mic.** A click toggles, as before. On touch screens a finger on the mic records at once: let go within 400 ms (a
+  tap) and it records until ✓; held, letting go transcribes; sliding 64 px away cancels; a finger let go while the
+  browser asks keeps it recording. The mic gives way to the bar under the finger, so its pointer events are read on the
+  mic itself (WebKit keeps sending them to the removed element) and on `window`, once each, and the click the tap makes
+  is swallowed for 600 ms so it never lands on ✕ or ✓. `touch-action: none`, no callout, no context menu on the mic.
+  One recording at a time: while one box records or transcribes, the other boxes on screen (a room's and its thread's)
+  keep their mic disabled and Space a Space.
+- **Cap.** 5 minutes per recording; the time left shows in the last 30 s; at the cap what was recorded is transcribed.
+- **On screen.** The bar as before (✕, red dot, level, timer, ✓) with one short line: "Space를 떼면 끝나요 · Esc 취소" in a
+  Space hold, "손을 떼면 끝나요 · 밀어서 취소" in a finger hold, and in a clicked recording on a computer "다음엔 입력창에서
+  Space를 길게 눌러 보세요" until this browser has held Space once (`localStorage` `mycel.voice.holdUsed`). The mic's
+  name on computers is "음성 입력 (Space 길게)". While transcribing the mic has a spinner and the box is `readOnly` with
+  `aria-busy` (not disabled: the focus stays in it). No toast, coach mark or placeholder change for teaching it.
+- **The job's own label.** While the job runs, its `job.progress` message and percentage show (an empty box as its
+  placeholder, a box with text in a line over it), e.g. "음성 인식 모델 내려받는 중 (488 MB, 처음 한 번만) · 23%" on a
+  server that downloads its whisper model for the first recording; without one, "받아쓰는 중…" as before.
+- **Accessibility.** A polite live region (always in the page) says 녹음 중, 텍스트로 바꾸는 중 and 텍스트를 넣었어요;
+  errors stay in the `role="alert"` line under the box, which a screen reader reads at once. The bar is a labelled group
+  (its old `role="status"` on a div read the timer and had its label on the div). A recording that ends with ✓ puts the
+  focus on ✓ (a keyboard start has somewhere to go). The focus goes back to the box after a recording (to where the
+  caret was after a cancel), except after a finger's cancel on a phone (no keyboard popping up), and never away from
+  another field the person went on typing in while the words were on their way. While recording the mic is only
+  `aria-disabled` (a tablet keeps it in sight under the finger, which must keep its events).
+  Ping and level movement only with `motion-safe:`.
+- Tests: `web/test/unit/voice.test.ts` (the room block; the hold: 400 ms, repeats, IME 229 and composing, modifiers, an
+  open list, a selection, empty against non-empty box, letting go early, another key, Esc while recording and
+  transcribing, the window losing the focus, the 5-minute cap, the permission question, a refused place; the finger:
+  tap, hold, slide, the question; the job label), `web/test/e2e/voice.spec.ts` (hold Space in Ask Trina and in a room and
+  a thread, a short tap and fast typing, Shift+Space, Esc, the job label, a click in a room with the hint, the room's
+  confidential note, a finger on a phone through Chromium's touch events).
+
+## Voice input on a team's own server: the key turns it on (feat/mac-speech-default, 2026-11-07, product owner)
+
+- **Question.** Should a team's own Mac turn voice input on by default with whisper.cpp on that Mac? Checked first: no
+  Mac build ships whisper-cli or ffmpeg. The office zip carries bun, rg, pandoc and cloudflared; the Mac role-account
+  bundle carries bun only (`build-bundle.ts --whisper-dir` is for Linux). Only the Linux kit has whisper-cli, and its
+  installer adds ffmpeg from apt. A Mac finds both only through Homebrew (`which()` looks in `/opt/homebrew/bin`).
+  Where they are, whisper.cpp is fast on Apple Silicon. Measured through the server's own `transcribe()` (ffmpeg, then
+  whisper-cli under sandbox-exec with the GPU) on an M1 Max with Homebrew whisper.cpp 1.9.1 and the `small` model, with
+  Korean `say -v Yuna` clips: 0.6-0.9 s for 1.6 s, 2.5 s and 9.2 s of speech, against 10-38 s for 2 s on a 2 vCPU Linux
+  server ("Voice input through OpenRouter"). The model (488 MB) took 8 s to download here.
+- **Decision (product owner).** Mac builds do not bundle whisper. A team's own server turns voice input on with an
+  OpenRouter key. With no `speechProvider` stored and the team's own key saved (`speech.openrouterKey`), the provider
+  reads `openrouter` (`getTeamSettings`), the same "not chosen reads a default" rule as the hosting key ("Hosted
+  speech-to-text"): nothing is stored, removing the key brings `off` back, and an admin's choice, `off` too, always
+  wins. "Turn video sound into text" keeps its rule: off by default with the team's own key. One change on hosted
+  servers follows from it: a hosted team that has its own key and chose nothing keeps voice input on (with its key)
+  when the hosting service takes its key away, where it went off before; a hosted team's backup restored on its own
+  server starts the same way.
+- **Settings screen.** Saving the key no longer writes `speechProvider: openrouter` when the server already reads it
+  (it re-reads the settings and writes only a provider or model that differs from what is saved), so removing the key
+  later turns voice input off again. When the server's provider then differs from the form's (removing the key), the
+  form takes it with the saved "Turn video sound into text": an admin who picked OpenRouter only to reach "Remove key"
+  keeps the saved choice for "this server" (review of the branch). Next to "Get a
+  key" one line says "OpenRouter costs about $0.1 per hour of recording" (the owner's figure, a rounded-up bound: the
+  default model's providers charged $0.012-0.04 an hour on 2026-11-01). It is not shown while the hosting key is in use.
+- **Fix: 'local' without its tools.** `Me.team.voiceInput` was true for `local` whether or not whisper-cli was there, so
+  an admin on an office Mac who picked "On this server" got a mic that failed every recording ("brew install
+  whisper-cpp", then "needs ffmpeg" for webm). `voiceInputOn(db, transcribeConfig)` is now false for `local` while
+  `missingLocalTools` (jobs/transcribe.ts) names whisper.cpp or ffmpeg. ffmpeg is required because browsers record
+  webm/opus (Safari mp4/aac), which whisper-cli does not read. `GET /api/admin/speech-host` adds `localMissing`
+  (optional for older servers), and Team settings › Voice input says in one line which program is missing while "On
+  this server" is picked. The tools come from the voice input jobs' config, which looks for them when the server
+  starts: after `brew install whisper-cpp ffmpeg` the server needs a restart.
+- **Not done.** No Mac default for `local`, no whisper or ffmpeg in the Mac builds. (The 488 MB model download on a
+  server's first `local` voice input shows its own label and percentage in the voice bar since "Voice input in rooms,
+  and hold Space to talk".)
+- **Tests.** `tests/unit/a-speech-settings.test.ts` (no key: off; key saved: openrouter, nothing stored, Me on and
+  outside; explicit off wins and the key counts again without it; key removed: off; explicit local wins; `local`
+  without whisper-cli, without ffmpeg or without both: Me off and `localMissing` names them; OpenRouter does not need
+  them). `tests/unit/c-speech-hosted.test.ts` (hosted defaults unchanged; the team's key after the hosting key goes).
+  `web/test/e2e/admin.spec.ts` (the missing line, the price line, the key alone turning voice input on and off with no
+  settings write, removing the key keeping "Turn video sound into text"); the mock server models "not chosen".
