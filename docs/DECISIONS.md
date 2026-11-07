@@ -13230,6 +13230,106 @@ PDF that looks like the HTML, directly. Placement: Team AX core (make_file in `s
 - The print budget is not in the server unit's MemoryMax (above): `mycel-ctl apply-plan` could add `printBudgetMiB` to
   it (a hosting decision).
 
+## 지식 그래프로 더 빠른 답 — the AI and the Files search answer from the knowledge graph (feat/knowledge-graph-fast-answers, 2026-11-07, product owner)
+
+Plan: [20261107-0819-knowledge-graph-fast-answers](AGENTS/plan/20261107-0819-knowledge-graph-fast-answers.md). This entry
+covers wave 1 (no embeddings yet).
+
+- **Why.**
+  - The owner asked that "the AI on the Trina AX application" work from the knowledge graph and run much faster. Then,
+    looking at the Files screen: "what I mean by knowledge graph, people use it for this one."
+  - Measured on the dev server (10 days of test traffic, 74 question turns), document questions took 13.8 s and about
+    52,000 input tokens at the median, against 7.1 s and about 20,000 without files.
+  - The tools take about 0 s; the time is model round trips, about 3.5 per answer.
+  - `knowledge_explore` was called twice in that time.
+- **One search, three users.** `KnowledgeGraph.lookup()` is the only document search. It serves `knowledge_explore`, the
+  lookup before the model starts and the Files search, with the same access rule as before (each file passes
+  `authorize(read)` for the asker at the moment they ask). It searches documents only and never runs CodeGraph, so it is
+  fast enough for every message.
+- **Owner's rule: keep the knowledge graph simple.** One index, one search, no new screens or buttons, no new server
+  tables or settings, no new dependencies.
+- **Lookup before the model: strong, weak, none.**
+  - A strong match puts up to 10,000 characters of passages in front of the message, a weak match up to 5 file names,
+    and no match nothing.
+  - Limit 200 ms, so the model never waits on it.
+  - Rejected: always putting passages in, because it costs tokens on every message, and 40 of 74 question turns on the
+    dev server touched no file.
+  - The owner chose "always, but make it fast": the search always runs, and what goes in depends on the match.
+- **Not for the API engine.** The owner wants the change only on the engines that run on the team's own server
+  ("only on the local claude team own server"). The API engine still sees the new `knowledge_explore` answer and prompt
+  rule, because it shares one tool and one prompt; a second format would be a second code path.
+- **Not in rooms.** In a room, a search counts every folder it looked in as read, and an answer that used a folder some
+  members cannot see stays private. A lookup on every room question would keep answers private that used no file.
+- **No repeats only for resumed Claude sessions.** Codex and fresh Claude sessions start without the earlier blocks in
+  their history, so they get the block again. The list of passages already given is in memory: no table for a
+  convenience.
+- **Answer-ready tool results.** Today's short snippets made the AI read whole files (often 10,000–30,000 tokens).
+  `knowledge_explore` now returns:
+  - 3 passages of up to 1,500 characters to answer from;
+  - 12 short labelled hits;
+  - an optional `alt_query` (another wording, e.g. English for a Korean question).
+
+  Research for wave 2 showed that the AI ranking a dozen short labelled hits itself costs nothing extra, while a
+  reranking model costs about 45 s per question on two cores.
+- **Parallel read-only calls.**
+  - One answer's `list`, `glob`, `grep`, `read`, `search` and `knowledge_explore` calls run side by side on its MCP
+    connection, at most 4 at once. They are `PARALLEL_READ_TOOLS` in `rooms/ai-tools.ts`, a subset of the room's
+    read-only list, so the list can only shrink.
+  - Every other call (writes, cards, room tools, unknown tools, protocol messages) runs alone and in order, so a read
+    after a write sees it.
+  - Each call now gets its own context. Before, a call that reloaded the person wrote into the context the answer's
+    other calls shared.
+- **The Files search only adds.**
+  - Document rows come above the exact-line matches and are checked again with grep's own `visiblePath`, so they never
+    show what the line search could not.
+  - The API field is optional, so older apps keep working.
+  - One new label, "관련 문서", in five languages.
+- **Hard links.** The knowledge graph's file check now also requires one link to the file, as the read tool does and as
+  this document already promised. The index never stored a hard-linked file, so nothing visible changes.
+- **Benchmark.** `scripts/bench/` has 30 questions (15 Korean, 15 English) over 22 made-up Acme documents. Baseline on
+  a Mac with real AI:
+
+  | Engine | Median time | p90 | Median input tokens (`turns.input_tokens`, cache included) | Correct |
+  |---|---|---|---|---|
+  | Claude Code | 7.4 s | 10.0 s | 116,964 | 100% |
+  | Codex | 10.5 s | 16.2 s | 76,564 | 100% |
+
+  Compare only numbers from the same machine. The set is too easy to show a drop in correctness, so harder questions
+  come before wave 2's quality test.
+- **After wave 1** (same Mac, same 30 questions, the code after the review fixes):
+  - Claude Code: 6.9 s median (was 7.4), 80,469 input tokens (−31%), 1 tool call (was 2), 30/30 correct.
+  - Codex: 7.9 s (−25%), 57,949 tokens (−24%), 1 tool call, 29/30 correct.
+  - The miss was en-08, an English question ("the September outage") about a report written in Korean (장애 보고서).
+    Codex searched and grepped, but never gave the Korean wording or looked at file names. The rule and the empty
+    answer now say to try `alt_query` in the other language and glob file names first. Search by meaning (wave 2) is
+    the real fix for such questions. With that wording, three reruns of en-08 on Codex found it in two, with one
+    `knowledge_explore` call each (8–9 s, about 59,000 tokens). The third still missed after glob and grep.
+- **How it was built.** Each phase of the plan is a wave. Five agents built wave 1 in parallel on separate files, around
+  a contract commit that fixed `lookup()`'s signature first.
+- **Review fixes (same branch).** An independent review found two must-fix problems. Neither leaked a file to the wrong
+  person.
+  - **The deadline was not real.** The document search ran synchronously on the main thread, so the 200 ms race could
+    only fire after the search had finished. A 3,000-document index held the whole server for 260–720 ms per lookup,
+    on every message and every Files search.
+    - Searches now run in one worker with its own read-only connection (WAL mode).
+    - Each word adds a bounded number of pieces.
+    - One permission answer shares one folder listing. That listing, not the search, was most of the main thread's
+      cost.
+    - Rejected: only bounding the search. It still blocks, and a 2-core server is several times slower than the Mac it
+      was measured on.
+    - The worker is a separate bundle entry (`doc-search-worker.js`). `Bun.build` does not follow `new Worker()`.
+  - **The lookup widened the read scope.** Every file named in the block, even a weak, name-only one, joined the chat's
+    read scope, so a scheduled task's save to `shared/` could be refused (nobody answers its card).
+    - Scheduled runs now get no lookup.
+    - Weak blocks count as names shown, like `list`.
+    - Strong blocks still count as read, because their text reached the model.
+  - **Should-fix:**
+    - Budgets are in tokens (`knowledge-graph/tokens.ts`, an estimate that leans high: 4 ASCII characters or 0.8 of any
+      other character per token). A 10,000-character Korean block was 5,000–8,000 tokens against the planned 2,500.
+    - The tag guard catches spaces and zero-width characters.
+    - "감사" is a word again.
+    - The Files search keeps every typed word.
+
 ## 아이폰 알림의 이름 — who and where in a room push on the iPhone, never the text (feat/ios-notification-labels, 2026-11-07, product owner)
 넣을 곳: trina-ax `push-gateway/src/apns.ts`, `server/src/notifications/push-service.ts` (migration 263),
 `shared/src/api/push.ts`, `web/src/lib/mobile*.ts` and `mobile/` (`src/labels.ts`, `plugins/notification-service*`), 이유:

@@ -47,7 +47,9 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
       return failed('Access denied: this account is disabled.')
     }
     ctx.user = user
-    const callCtx: ToolCtx = call.files === ctx.files ? ctx : { ...ctx, files: call.files }
+    // this call's own context: read-only calls of one answer run at the same time (mcp/socket.ts), so each keeps the
+    // person as loaded for it, as when calls ran one at a time, and its agent's state
+    const callCtx: ToolCtx = { ...ctx, user, files: call.files }
     const caller = { files: call.files }
     if (extra?.has(name)) {
       const out = await extra.call(name, params?.arguments ?? {}, caller).catch((e) => ({ content: [{ type: 'text' as const, text: 'Error: internal error' }], isError: true, summary: `${name} -> internal: ${String(e?.message ?? e).slice(0, 200)}` }))

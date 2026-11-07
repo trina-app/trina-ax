@@ -110,6 +110,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/notifications/text.ts': { why: 'generic push notification texts (ko next to en/id/ja/es)' },
   'server/src/connectors/remote-mcp/upload.ts': { why: "the Korean name of the app's 팀 스킬 page, quoted in English text for an outside AI (not screen text)", also: /\(팀 스킬\)/ },
   'server/src/connectors/remote-mcp/guide.ts': { why: "the Korean name of the app's 팀 스킬 page, quoted in English text for an outside AI (not screen text)", also: /\(팀 스킬\)/ },
+  'server/src/knowledge-graph/documents/index.ts': { why: 'Korean particles, fillers and endings the document search drops or matches with words (not screen text)', also: /^(const (KO_FORMS|HANGUL_WORD|HANGUL_RE|ASK_KO|KO_PAST|KO_END|KO_END_NOUNISH) = |\s+'[가-힣 ]+'( \+|\)\.split\(' '\)\))$|\s+'이고', |.*\/\^\[ㄱ-ㆎᄀ-ᇿ\]\+\$\/)/ },
   'server/src/chat/schedule-templates.ts': { why: 'template schedule names and the instruction the AI is given (ko next to en/id/ja/es)' },
   'server/src/devenv/jobs.ts': { why: 'dev environment job and box stop notices (ko next to en/id/ja/es)' },
   'desktop/src/common/i18n.ts': { why: 'the desktop dictionary (ko next to en/id/ja/es)', also: /^\s*'[\w.]+': '/ },

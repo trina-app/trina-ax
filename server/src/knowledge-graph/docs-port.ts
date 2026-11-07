@@ -6,7 +6,21 @@
 import type { SourceLoc } from '@mycel/shared/api'
 
 export interface DocFileState { size: number; mtimeMs: number; failed: string | null }
-export interface DocHit { rootId: string; relPath: string; loc: SourceLoc | null; snippet: string; score: number }
+/** snippet: about 300 characters around the match, on one line. passage: when the search asked for one, up to that many
+ * characters of the piece around the match with its line breaks, to answer from (an index without it: the snippet). */
+export interface DocHit { rootId: string; relPath: string; loc: SourceLoc | null; snippet: string; passage?: string; score: number }
+export interface DocSearchOptions {
+  rootIds: string[]
+  limit: number
+  /** also a passage of up to this many characters per hit */
+  passage?: number
+  /** only files under this folder of the root (relative to it); only given when rootIds is that one root. A narrowing
+   * for speed: the caller still filters every hit by its own path. */
+  prefix?: string
+  /** a Date.now() time: an answer not ready by then is not waited for ([] instead), and one not started is not run
+   * (none: the search worker's DEFAULT_DEADLINE_MS) */
+  due?: number
+}
 /** why two documents are linked: kind is folder · mention · link · terms · people · code; detail is made only from the
  * two documents' own names and text */
 export interface DocLink { rootId: string; relPath: string; reason: { kind: string; detail: string } }
@@ -22,8 +36,10 @@ export interface DocIndexPort {
   update(rootId: string, relPath: string, file: { bytes: Uint8Array | null; size: number; mtimeMs: number }, o?: { signal?: AbortSignal }): Promise<{ ok: true; chunks: number } | { ok: false; reason: string }>
   remove(rootId: string, relPath: string): void
   dropRoot(rootId: string): void
-  search(query: string, o: { rootIds: string[]; limit: number }): Promise<DocHit[]> | DocHit[]
-  related(rootId: string, relPath: string, o: { rootIds: string[]; limit: number }): Promise<DocLink[]> | DocLink[]
+  /** off the main thread when it can be (documents/search-worker.ts): a search must never hold the server */
+  search(query: string, o: DocSearchOptions): Promise<DocHit[]> | DocHit[]
+  /** `due`: an epoch-ms deadline after which a worker-backed index answers [] (the in-process index ignores it) */
+  related(rootId: string, relPath: string, o: { rootIds: string[]; limit: number; due?: number }): Promise<DocLink[]> | DocLink[]
   stats(rootId: string): DocStats
   diskBytes(): number
   close(): void
@@ -36,5 +52,7 @@ export interface DocIndexOptions {
   extract: (name: string, bytes: Uint8Array, signal?: AbortSignal) => Promise<string>
   /** names of the team's members, for "people" links */
   people: () => string[]
+  /** a problem worth a log line (the search worker died, or could not start) */
+  warn?: (msg: string, x?: Record<string, unknown>) => void
 }
 export type OpenDocIndex = (dir: string, o: DocIndexOptions) => DocIndexPort

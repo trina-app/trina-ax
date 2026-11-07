@@ -702,6 +702,7 @@ export const ko = {
   'files.search.label': '파일 내용 검색',
   'files.search.placeholder': '파일 내용 검색',
   'files.search.clear': '검색 지우기',
+  'files.search.documents': '관련 문서',
   'files.search.scope': '{folder}에서 “{q}”이(가) 들어 있는 줄',
   'files.search.none': '열 수 있는 파일 중에 이 내용이 든 파일이 없어요.',
   'files.search.line': '{n}번째 줄',

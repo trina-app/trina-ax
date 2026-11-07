@@ -86,6 +86,17 @@ export const ROOM_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   'room_file', 'room_thread', 'project_chats', 'project_chat',
 ])
 
+/**
+ * Tools whose calls of one answer may run at the same time on its tool connection (mcp/socket.ts CallQueue): those of
+ * ROOM_READ_ONLY_TOOLS that only read team files and add to the turn's read scope and sources (each add is done
+ * without a wait in between, files/service.ts TurnFiles). Every other tool, unknown ones and tools added later
+ * included (fails closed), runs alone and in order. Left out on purpose: ask_user, share_file, artifact, web_fetch
+ * (cards, links and chat output), room_file and room_thread (they patch their step: TurnExec.patchToolStep matches
+ * calls to steps first in, first out per tool), skill, find_skills and hwp_render (not needed side by side).
+ */
+export const PARALLEL_READ_TOOLS: ReadonlySet<string> = new Set(
+  ['list', 'glob', 'grep', 'read', 'search', 'knowledge_explore'].filter((t) => ROOM_READ_ONLY_TOOLS.has(t)))
+
 /** The arguments of our tools that name a team path (a room session counts each as a name read, chat/turn.ts). */
 export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'output', 'template', 'from', 'to', 'to_folder', 'destination', 'file_paths', 'paths', 'sources', 'images', 'save_as']
 
