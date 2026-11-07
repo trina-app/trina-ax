@@ -23,7 +23,8 @@ export function BottomTabs() {
   // under the Settings dialog the page below it is what the router shows; the bar marks "나" by the real address
   const path = useRealPath()
   const unread = useRooms((s) => totalUnread(s.rooms))
-  const aiWaits = useRooms((s) => s.rooms.some((r) => r.aiWaits))
+  // a room I hid counts nowhere (docs/DECISIONS.md "대화 숨기기": what is for me brings it back first)
+  const aiWaits = useRooms((s) => s.rooms.some((r) => r.aiWaits && !r.hidden))
   const inbox = useInboxUnread()
   if (hidesTabs(path)) return null
   const current = tabOf(path)

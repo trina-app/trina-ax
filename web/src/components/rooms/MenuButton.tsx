@@ -4,6 +4,9 @@
 // menu is a bottom sheet with 48px rows. `header`: something above the rows where there is no hover row to hold it (a
 // message's reactions on a touch screen); hidden where a mouse points. A menu of choices (a room's notifications): items
 // with `checked` are radio items (the chosen one ticked), `heading` names the menu above them and `icon` replaces the "…".
+// `openRequest`: opened from somewhere else as a click would (a right-click on a row, another menu's item), the keyboard
+// in it; `tip`: the tooltip's word when the button's name says more (a row's "⋯": "더 보기" for the eye, the room's name
+// for a screen reader).
 import clsx from 'clsx'
 import { Check, MoreHorizontal } from 'lucide-react'
 import { Tooltip } from '../Tooltip'
@@ -56,7 +59,7 @@ export function useLongPress(onLong: () => void, ms = 500) {
 
 /** `muted`: the button in the colour of the icons beside it (a panel's header) rather than the quieter one a message's
  * "…" has */
-export function MenuButton({ label, items, className, buttonClassName, testId, openSignal = 0, muted, header, heading, icon }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; testId?: string; openSignal?: number; muted?: boolean; header?: (close: () => void) => ReactNode; heading?: string; icon?: ReactNode }) {
+export function MenuButton({ label, items, className, buttonClassName, testId, openSignal = 0, openRequest = 0, muted, header, heading, icon, tip }: { label: string; items: MenuItem[]; className?: string; buttonClassName?: string; testId?: string; openSignal?: number; openRequest?: number; muted?: boolean; header?: (close: () => void) => ReactNode; heading?: string; icon?: ReactNode; tip?: string }) {
   const [open, setOpen] = useState<null | 'down' | 'up'>(null)
   const box = useRef<HTMLDivElement>(null)
   const button = useRef<HTMLButtonElement>(null)
@@ -83,6 +86,12 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
     navigator.vibrate?.(10)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openSignal])
+  useEffect(() => {
+    if (!openRequest) return
+    pressedAt.current = 0
+    setOpen(place())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openRequest])
   const onKey = (e: KeyboardEvent) => {
     if (!open) return
     if (e.key === 'Escape') {
@@ -107,7 +116,7 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
   return (
     <div ref={box} className={clsx(className?.includes('absolute') ? null : 'relative', className)} onKeyDown={onKey}>
       {/* its name as a tooltip (components/Tooltip.tsx), not while its menu is open */}
-      <Tooltip label={label}>
+      <Tooltip label={tip ?? label}>
         <button
           ref={button}
           type="button"

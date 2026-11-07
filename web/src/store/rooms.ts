@@ -190,6 +190,17 @@ export function withRoom(d: RoomsData, room: Room): RoomsData {
   return { ...d, rooms: sortRooms(rooms) }
 }
 
+/** My hidden mark on a room (docs/DECISIONS.md "대화 숨기기"), before the server answers: the room stays in the list,
+ * only marked (the sidebar, the counts and the 대화 tab leave it out; the full list shows it under "숨긴 대화"). */
+export function withHidden(d: RoomsData, roomId: string, hidden: boolean): RoomsData {
+  return { ...d, rooms: d.rooms.map((r) => {
+    if (r.id !== roomId || !!r.hidden === hidden) return r
+    if (hidden) return { ...r, hidden: true as const }
+    const { hidden: _shown, ...rest } = r
+    return rest
+  }) }
+}
+
 /** I am no longer in the room: gone from the list, and its messages and thread with it. */
 export function withoutRoom(d: RoomsData, roomId: string): RoomsData {
   return { ...d, rooms: d.rooms.filter((r) => r.id !== roomId), timeline: d.timeline?.roomId === roomId ? null : d.timeline, threadView: d.threadView?.roomId === roomId ? null : d.threadView }
@@ -276,6 +287,9 @@ interface RoomsState extends RoomsData {
   invite: (roomId: string, userIds: string[]) => Promise<void>
   /** leave a group chat: it goes from the list (and every window) */
   leave: (roomId: string) => Promise<void>
+  /** hide a DM, a team room or the everyone room from my lists, or show it again (docs/DECISIONS.md "대화 숨기기"):
+   * shown at once, the server's answer wins; hiding the room on screen goes to the conversations list */
+  setHidden: (roomId: string, hidden: boolean) => Promise<void>
   removeMember: (roomId: string, userId: string) => Promise<void>
   /** the AI's count and my own questions in a room (GET /api/rooms/:id/ai) */
   loadAi: (roomId: string) => Promise<void>
@@ -596,6 +610,20 @@ export const useRooms = create<RoomsState>((set, get) => {
         set((s) => ({ ...withoutRoom(s, roomId), members: omit(s.members, roomId), pending: omit(s.pending, roomId), ...(s.openRoomId === roomId ? { openRoomId: null } : {}) }))
       } finally {
         setTimeout(() => leaving.delete(roomId), 5000)
+      }
+    },
+
+    async setHidden(roomId, hidden) {
+      const was = get().rooms.find((r) => r.id === roomId)
+      if (!was) return
+      set((s) => withHidden(s, roomId, hidden))
+      if (hidden && get().openRoomId === roomId) navigateTo('/rooms')
+      try {
+        const room = await api.call(API.setRoomHidden, { params: { id: roomId }, body: { hidden } })
+        set((s) => withRoom(s, room))
+      } catch (e) {
+        set((s) => withHidden(s, roomId, !!was.hidden))
+        throw e
       }
     },
 

@@ -7,6 +7,10 @@
 // tab shows is lost (a muted room's count only when nothing else is unread there, as its own badge is grey). With
 // nothing hidden the same row is "모든 대화", to the whole conversations page (/rooms, with its search): the entry is
 // always there (the owner, 2026-11-07).
+// Rooms I hid (docs/DECISIONS.md "대화 숨기기") are in none of this: not in the five, not in "더 보기" or its pill (the
+// room on screen still shows); they are under "숨긴 대화" on the conversations page, which "모든 대화" leads to (also
+// below an opened "더 보기" while there are hidden ones). Each row has the room's "⋯" (RoomMenu.tsx) on hover or keyboard
+// focus, in the pill's place, and on a right-click.
 // Gone on a server without rooms (the list could not be read).
 import clsx from 'clsx'
 import { BellOff, ChevronDown, Plus } from 'lucide-react'
@@ -14,10 +18,11 @@ import { useId, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import type { Room } from '@mycel/shared/api'
 import { useT } from '../../i18n'
-import { badgeText, roomBadge, roomUnread } from '../../lib/rooms'
+import { badgeText, roomBadge, roomUnread, shownInLists } from '../../lib/rooms'
 import { useRooms } from '../../store/rooms'
 import { PeoplePicker } from './PeoplePicker'
 import { RoomIcon, useRoomTitle } from './RoomIcon'
+import { RoomMenu, useRowMenu } from './RoomMenu'
 
 const OPEN_KEY = 'mycel.sidebar.rooms'
 /** the whole list opened ("더 보기"), remembered in this browser like the fold */
@@ -60,7 +65,7 @@ export function hiddenUnread(hidden: Unread[]): { n: number; mentioned: boolean;
 
 export function SidebarRooms({ onNavigate }: { onNavigate: () => void }) {
   const t = useT()
-  const rooms = useRooms((s) => s.rooms)
+  const everyRoom = useRooms((s) => s.rooms)
   const loaded = useRooms((s) => s.loaded)
   const failed = useRooms((s) => s.failed)
   const [open, setOpen] = useState(() => remembered(OPEN_KEY, 'open') !== 'closed')
@@ -69,7 +74,10 @@ export function SidebarRooms({ onNavigate }: { onNavigate: () => void }) {
   const listId = useId()
   // the room on screen stays in the list (/rooms/:id, and its threads)
   const openId = /^\/rooms\/([^/]+)/.exec(useLocation().pathname)?.[1] ?? null
-  if (failed && !rooms.length) return null
+  if (failed && !everyRoom.length) return null
+  // the rooms I hid are in none of the rows, counts or pills here (the one on screen still shows)
+  const rooms = shownInLists(everyRoom, openId)
+  const someHidden = rooms.length < everyRoom.length
   const toggle = () => setOpen((v) => (remember(OPEN_KEY, v ? 'closed' : 'open'), !v))
   const showAll = (v: boolean) => (remember(ALL_KEY, v ? 'yes' : 'no'), setAll(v))
   // the five latest and the room on screen; "더 보기 (N)" opens the rest in place and says what is unread there
@@ -93,7 +101,7 @@ export function SidebarRooms({ onNavigate }: { onNavigate: () => void }) {
         </button>
       </div>
       <ul id={listId} hidden={!open} data-testid="sidebar-rooms-list">
-        {loaded && !rooms.length && <li className="px-3 py-2 text-sm text-faint">{t('rooms.listEmpty')}</li>}
+        {loaded && !everyRoom.length && <li className="px-3 py-2 text-sm text-faint">{t('rooms.listEmpty')}</li>}
         {shown.map((r) => (
           <RoomRow key={r.id} room={r} onNavigate={onNavigate} />
         ))}
@@ -116,8 +124,9 @@ export function SidebarRooms({ onNavigate }: { onNavigate: () => void }) {
             </button>
           </li>
         )}
-        {/* nothing hidden: the entry is still there, to the whole conversations page (its search, every room) */}
-        {more === 0 && rooms.length > 0 && (
+        {/* nothing behind "더 보기": the entry is still there, to the whole conversations page (its search, every room,
+            the ones I hid); with the rest opened in place, it is there too while some are hidden (only that page has them) */}
+        {(more === 0 ? everyRoom.length > 0 : all && someHidden) && (
           <li>
             <Link to="/rooms" onClick={onNavigate} className="flex h-8 w-full items-center rounded-lg px-3 text-xs text-muted hover:bg-hover" data-testid="rooms-all">
               <span className="truncate">{t('sidebar.allRooms')}</span>
@@ -155,16 +164,31 @@ export function UnreadBadge({ room, className, testId }: { room: Room; className
   )
 }
 
+/** While a row's "⋯" shows (a mouse on the row, the keyboard in it, its menu open), what sits at the row's right end
+ * gives way to it: the pill, the bell, and room for the "⋯" at the name's end. Touch screens have no "⋯" (a long press). */
+export const ROW_MENU_SHOWN = 'pointer-fine:group-hover:opacity-0 group-has-[:focus-visible]:opacity-0 group-has-[[aria-expanded=true]]:opacity-0'
+export const ROW_MENU_BUTTON = 'opacity-0 pointer-coarse:hidden group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 aria-expanded:opacity-100 focus-visible:opacity-100'
+
 function RoomRow({ room, onNavigate }: { room: Room; onNavigate: () => void }) {
   const t = useT()
   const title = useRoomTitle()(room)
   const unread = roomUnread(room)
+  const menu = useRowMenu()
   return (
-    <li>
+    <li className="group relative" {...menu.row} data-testid="sidebar-room-row">
       <NavLink
         to={`/rooms/${room.id}`}
-        onClick={onNavigate}
-        className={({ isActive }) => clsx('flex h-9 items-center gap-2 rounded-lg px-3 text-sm hover:bg-hover max-sm:h-10', isActive ? 'bg-hover font-medium text-ink' : unread > 0 ? 'font-semibold text-ink' : 'text-muted')}
+        onClick={(e) => {
+          menu.guard(e)
+          if (!e.defaultPrevented) onNavigate()
+        }}
+        className={({ isActive }) =>
+          clsx(
+            'flex h-9 items-center gap-2 rounded-lg px-3 text-sm hover:bg-hover max-sm:h-10 pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]',
+            'pointer-fine:group-hover:pr-9 group-has-[:focus-visible]:pr-9 group-has-[[aria-expanded=true]]:pr-9 group-has-[[aria-expanded=true]]:bg-hover',
+            isActive ? 'bg-hover font-medium text-ink' : unread > 0 ? 'font-semibold text-ink' : 'text-muted',
+          )
+        }
         data-testid="sidebar-room"
       >
         <RoomIcon room={room} size={20} />
@@ -174,12 +198,21 @@ function RoomRow({ room, onNavigate }: { room: Room; onNavigate: () => void }) {
         </span>
         {room.muted && (
           <>
-            <BellOff size={12} className="shrink-0 text-faint" aria-hidden />
+            <BellOff size={12} className={clsx('shrink-0 text-faint', ROW_MENU_SHOWN)} aria-hidden />
             <span className="sr-only">{t('rooms.muted')}</span>
           </>
         )}
-        <UnreadBadge room={room} className="ml-auto" testId="room-unread" />
+        <UnreadBadge room={room} className={clsx('ml-auto', ROW_MENU_SHOWN)} testId="room-unread" />
       </NavLink>
+      <RoomMenu
+        room={room}
+        label={t('rooms.menu.rowLabel', { name: title })}
+        className="absolute inset-y-0 right-1 flex items-center"
+        buttonClassName={clsx('hover:bg-surface', ROW_MENU_BUTTON)}
+        openSignal={menu.openSignal}
+        openRequest={menu.openRequest}
+        testId="sidebar-room-menu"
+      />
     </li>
   )
 }
