@@ -407,8 +407,10 @@ socket.once('connect', () => {
     `${syncState} ${JSON.stringify(cj?.notes)} ${JSON.stringify(syncRec)}`)
   // the record's system is this system for mycel-ctl too (packages.sh and mycel-ctl read os-release and the machine-id the
   // same way): nothing pending, so the timer does not sync again at every check
-  const stSync = lastJson(sh([CTL, 'status', '--json', '--base', BASE]).out)?.systemPackages
-  check('mycel-ctl status: the sync record is of this system and this list (nothing pending)', stSync?.pending === false && /^synced /.test(stSync?.summary ?? ''), JSON.stringify(stSync))
+  // (the text form: `status --json` is the hosting service's tenant status, without this line)
+  const stSync = sh([CTL, 'status', '--base', BASE]).out
+  check('mycel-ctl status: the sync record is of this system and this list (nothing pending)', /^ {2}system packages: synced /m.test(stSync),
+    stSync.split('\n').find((l) => l.includes('system packages')) ?? tail({ out: stSync, err: '' }))
   // an update switches app/current under the running launcher: the next turn must get the new version's bridge
   const tb4 = turn('c_t2d', 'stat', '{BRIDGE}')
   check('after an update the engine still reaches the bridge (the launcher resolves it per turn)', tb4.code === 0, JSON.stringify(tb4))
