@@ -55,13 +55,27 @@ describe('the links after sign-in', () => {
     expect(nextIconLinks(defaults, null)).toBeNull()
     expect(nextIconLinks(iconLinks('0123456789abcdef'), '0123456789abcdef')).toBeNull()
   })
-  test('a logo: tab and home-screen icon point at /team-icon?v=…; removed: the default links again', () => {
+  test('a logo: the tab icon points at /team-icon?v=…, the home-screen icon only when it is the app icon', () => {
+    // under 512 px or not square (no team.appIcon): the default home-screen icon stays
     expect(nextIconLinks(defaults, '0123456789abcdef')).toEqual([
+      { rel: 'icon', href: '/team-icon?v=0123456789abcdef' },
+      { rel: 'apple-touch-icon', href: '/icons/apple-touch-icon.png' },
+    ])
+    // a square of at least 512 px: both
+    expect(nextIconLinks(defaults, '0123456789abcdef', true)).toEqual([
       { rel: 'icon', href: '/team-icon?v=0123456789abcdef' },
       { rel: 'apple-touch-icon', href: '/team-icon?v=0123456789abcdef' },
     ])
-    expect(nextIconLinks(iconLinks('0123456789abcdef'), 'fedcba9876543210')?.[0]?.href).toBe('/team-icon?v=fedcba9876543210')
+    expect(nextIconLinks(iconLinks('0123456789abcdef', true), '0123456789abcdef', true)).toBeNull()
+    // replaced by a smaller logo: the home-screen link goes back to the default
+    expect(nextIconLinks(iconLinks('0123456789abcdef', true), 'fedcba9876543210')).toEqual([
+      { rel: 'icon', href: '/team-icon?v=fedcba9876543210' },
+      { rel: 'apple-touch-icon', href: '/icons/apple-touch-icon.png' },
+    ])
+  })
+  test('removed: the default links again', () => {
     expect(nextIconLinks(iconLinks('0123456789abcdef'), null)).toEqual(defaults)
+    expect(nextIconLinks(iconLinks('0123456789abcdef', true), null)).toEqual(defaults)
     // a page whose links were changed some other way is put right
     expect(nextIconLinks(defaults.slice(1), null)).toEqual(defaults)
   })

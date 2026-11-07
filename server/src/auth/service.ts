@@ -21,7 +21,7 @@ import { limitIp, RateLimiter, reauthKey } from './rate-limit'
 import { isLoopback } from '../http/tunnel'
 import { USER_COLS, getUser, localeChoice, parsePrefs, userRef, type UserRow } from './users'
 import { canChooseEngine } from '../admin/engine-choice'
-import { teamIconVersion } from '../admin/team-icon'
+import { teamIconOfMe } from '../admin/team-icon'
 import { deploymentOf, featuresOf } from '../system/deployment'
 import { windowsAppSourceOf } from '../system/windows-app'
 import { safeOpsEnabled } from '../safe-ops/runner'
@@ -244,7 +244,7 @@ export class AuthService implements SessionService {
         ...profileOf(this.db, u.id),
       },
       groups,
-      team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, iconVersion: teamIconVersion(this.ctx.config.dataDir), voiceInput: voiceInputOn(this.db, this.ctx.files.speech), ...(voiceInputOutside(this.db) ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: settings.chatTrashRetentionDays },
+      team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, ...teamIconOfMe(this.ctx.config.dataDir), voiceInput: voiceInputOn(this.db, this.ctx.files.speech), ...(voiceInputOutside(this.db) ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: settings.chatTrashRetentionDays },
       session: { id: s.id, client: s.client, expiresAt: s.expires_at, tempLogin: tempLoginOf(s, u) },
       // office mode runs dev's engine setup on purpose (docs/OFFICE.md): the office's desks get no DEV banner
       server: { version: this.ctx.version, dev: this.ctx.config.mode === 'dev' && !this.ctx.config.office,

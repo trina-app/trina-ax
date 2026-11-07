@@ -83,6 +83,11 @@
   --text-code-sm: 0.75rem; /* 12px */
   --text-code-file: 0.78125rem; /* 12.5px */
   --leading-reading: 1.5rem;
+  /* A message box's slot for a control beside the text (the clip, "+", the mic, send) and the recording bar: one text
+     line's box, the reading line with 8px (py-2) above and below. The row is bottom-aligned and each control sits
+     centred in its slot, so with one line the buttons and the text share one centre, and with more lines the buttons
+     stay on the last line. Follows the phone's larger line (the @media block below) and the person's text size (rem). */
+  --spacing-composer-line: calc(var(--leading-reading) + 1rem);
 
   --color-canvas: var(--c-canvas);
   --color-surface: var(--c-surface);

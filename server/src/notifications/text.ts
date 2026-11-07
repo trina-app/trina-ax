@@ -37,12 +37,22 @@ export const TEXT = {
 /** The words of a room notice's title on a device ("민준 · #마케팅 › 스레드": rooms/inbox.ts roomLabel, shown by the web
  * app's service worker), the same as the app's (rooms.thread, rooms.all, rooms.aiName, rooms.nameSep,
  * rooms.groupNamesMore). Names only, never a message's text. */
+const ROOM_WORD = {
+  thread: { ko: '스레드', en: 'Thread', id: 'Utas', ja: 'スレッド', es: 'Hilo' },
+  all: { ko: '전체', en: 'Everyone', id: 'Semua', ja: '全員', es: 'Todos' },
+  ai: { ko: '트리나', en: 'Trina', id: 'Trina', ja: 'トリナ', es: 'Trina' },
+  sep: { ko: ', ', en: ', ', id: ', ', ja: '、', es: ', ' },
+} satisfies Record<string, Record<Locale, string>>
+const ROOM_MORE: Record<Locale, (names: string, n: number) => string> = {
+  ko: (names, n) => `${names} 외 ${n}명`,
+  en: (names, n) => `${names} and ${n} more`,
+  id: (names, n) => `${names} dan ${n} lainnya`,
+  ja: (names, n) => `${names}ほか${n}人`,
+  es: (names, n) => `${names} y ${n} más`,
+}
+const roomWords = (l: Locale) => ({ thread: ROOM_WORD.thread[l], all: ROOM_WORD.all[l], ai: ROOM_WORD.ai[l], sep: ROOM_WORD.sep[l], more: ROOM_MORE[l] })
 export const ROOM_WORDS: Record<Locale, { thread: string; all: string; ai: string; sep: string; more: (names: string, n: number) => string }> = {
-  ko: { thread: '스레드', all: '전체', ai: '트리나', sep: ', ', more: (names, n) => `${names} 외 ${n}명` },
-  en: { thread: 'Thread', all: 'Everyone', ai: 'Trina', sep: ', ', more: (names, n) => `${names} and ${n} more` },
-  id: { thread: 'Utas', all: 'Semua', ai: 'Trina', sep: ', ', more: (names, n) => `${names} dan ${n} lainnya` },
-  ja: { thread: 'スレッド', all: '全員', ai: 'トリナ', sep: '、', more: (names, n) => `${names}ほか${n}人` },
-  es: { thread: 'Hilo', all: 'Todos', ai: 'Trina', sep: ', ', more: (names, n) => `${names} y ${n} más` },
+  ko: roomWords('ko'), en: roomWords('en'), id: roomWords('id'), ja: roomWords('ja'), es: roomWords('es'),
 }
 
 export function pushMessages(locale: Locale) {
