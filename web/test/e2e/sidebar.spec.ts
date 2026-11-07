@@ -83,6 +83,27 @@ test('a member has no Admin row', async ({ page }) => {
   await expect(s.getByTestId('nav-admin')).toHaveCount(0)
 })
 
+test('short lists keep their entries: "모든 대화" opens the conversations page, "모두 보기" the whole history and "접기" back', async ({ page }) => {
+  await reset(page)
+  await page.route('**/api/rooms', (r) => (r.request().method() === 'GET' ? r.fulfill({ json: { items: rooms(2) } }) : r.fallback()))
+  await signIn(page)
+  await someChats(page, 3)
+  await page.reload()
+  const s = side(page)
+  await expect(s.getByTestId('sidebar-room')).toHaveCount(2)
+  await expect(s.getByTestId('rooms-more')).toHaveCount(0)
+  await expect(s.getByTestId('ai-chats-latest').getByRole('link')).toHaveCount(3)
+  await expect(s.getByTestId('ai-chats-all')).toHaveText(t['rooms.showAll'])
+  await s.getByTestId('ai-chats-all').click()
+  await expect(s.getByTestId('ai-chats-latest')).toHaveCount(0)
+  await expect(s.getByTestId('ai-chats-less')).toBeVisible()
+  await s.getByTestId('ai-chats-less').click()
+  await expect(s.getByTestId('ai-chats-latest').getByRole('link')).toHaveCount(3)
+  await expect(s.getByTestId('rooms-all')).toHaveText(t['sidebar.allRooms'])
+  await s.getByTestId('rooms-all').click()
+  await expect(page).toHaveURL(/\/rooms$/)
+})
+
 test('both groups fold and stay folded after a reload', async ({ page }) => {
   await reset(page)
   await page.route('**/api/rooms', (r) => (r.request().method() === 'GET' ? r.fulfill({ json: { items: rooms(3) } }) : r.fallback()))
