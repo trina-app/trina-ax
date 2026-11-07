@@ -1403,6 +1403,7 @@ export const es: Record<MessageKey, string> = {
   'apps.macHow': "Abra el .dmg descargado, arrastre {product} a la carpeta Aplicaciones y abra {product} desde allí.",
   'apps.macGatekeeper': "Si macOS indica que no puede abrir la aplicación, haga clic en Listo, vaya a Ajustes del Sistema → Privacidad y seguridad, haga clic en Abrir igualmente cerca del final y confirme de nuevo.",
   'apps.macStore': "Esta aplicación se instaló desde el Mac App Store y se actualiza allí.",
+  'apps.windowsStore': "Esta aplicación se instaló desde Microsoft Store y se actualiza allí.",
   'admin.title': "Administración",
   'admin.members': "Miembros e invitaciones",
   'admin.groups': "Grupos",

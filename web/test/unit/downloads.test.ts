@@ -1,18 +1,18 @@
-// Settings → Apps: which desktop installers are shown (none at all inside a Mac App Store build, only the App Store
-// line), in which order, and the install steps under each.
+// Settings → Apps: which desktop installers are shown (none at all inside a Mac App Store or Microsoft Store build, only
+// the store's line), in which order, and the install steps under each.
 import { afterEach, describe, expect, test } from 'bun:test'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { DESKTOP_BRIDGE_GLOBAL, RELEASE_CHANNEL, type DesktopBridge } from '@mycel/shared'
 import { currentLocale, DICTS, translate } from '../../src/i18n'
-import { storeApp } from '../../src/lib/desktop'
+import { answersFileInputs, storeApp } from '../../src/lib/desktop'
 import { archNote, installSteps, offeredDownloads, orderDownloads, parseDownloads, showSteps, splitDownloads } from '../../src/lib/downloads'
 import { DesktopDownloads, downloadsSourceOf } from '../../src/pages/Settings'
 
 const win = { platform: 'windows' as const, file: 'Team-AX-Setup-0.1.0-x64.exe', version: '0.1.0', size: 114304798, signed: false }
 const mac = { platform: 'mac' as const, file: 'Team-AX-0.1.0-mac-universal.dmg', version: '0.1.0', signed: false }
 /** the desktop bridge as far as the store flag goes; without `store` = a desktop app from before the flag */
-const bridge = (o: { store?: boolean } = {}) => ({ bridgeVersion: 1, appVersion: '0.2.14', platform: 'darwin', ...o }) as unknown as DesktopBridge
+const bridge = (o: { store?: boolean; platform?: string } = {}) => ({ bridgeVersion: 1, appVersion: '0.2.14', platform: 'darwin', ...o }) as unknown as DesktopBridge
 
 afterEach(() => {
   delete (globalThis as Record<string, unknown>)[DESKTOP_BRIDGE_GLOBAL]
@@ -123,6 +123,16 @@ describe('desktop downloads', () => {
     expect(list).not.toContain(translate(currentLocale(), 'apps.macStore'))
     expect(view({ downloads: 'none' })).toContain('office-install.sh') // apps.noDownloadsOwner
   })
+  test('a Microsoft Store build on Windows shows the Microsoft Store line instead', () => {
+    type Props = Parameters<typeof DesktopDownloads>[0]
+    const view = (o: Partial<Props>) => renderToStaticMarkup(createElement(DesktopDownloads, { downloads: [win, mac], store: true, owner: true, here: 'windows', ...o }))
+    expect(view({})).toBe(`<p class="text-sm text-muted">${translate(currentLocale(), 'apps.windowsStore')}</p>`)
+    expect(view({ downloads: 'none', owner: false })).toBe(`<p class="text-sm text-muted">${translate(currentLocale(), 'apps.windowsStore')}</p>`)
+    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+      expect(DICTS[l]['apps.windowsStore']).toContain('Microsoft Store')
+      expect(DICTS[l]['apps.windowsStore']).not.toMatch(/\.exe|SmartScreen/)
+    }
+  })
   test("the owner's empty state names what this server does: an office Mac's command, a Linux server's feed or folder, nothing to run on the hosted service (Diagnostics when its feed should have brought it)", () => {
     type Props = Parameters<typeof DesktopDownloads>[0]
     const view = (o: Partial<Props>) => renderToStaticMarkup(createElement(DesktopDownloads, { downloads: 'none', store: false, owner: true, here: 'windows', ...o }))
@@ -168,6 +178,13 @@ describe('desktop downloads', () => {
     expect(storeApp()).toBe(true)
     ;(globalThis as Record<string, unknown>)[DESKTOP_BRIDGE_GLOBAL] = bridge()
     expect(storeApp()).toBe(false)
+  })
+  test('only the Mac App Store build answers the page\'s file inputs itself; the Microsoft Store build picks like a browser', () => {
+    expect(answersFileInputs(null)).toBe(false)
+    expect(answersFileInputs(bridge({ store: true }))).toBe(true)
+    expect(answersFileInputs(bridge({ store: true, platform: 'win32' }))).toBe(false)
+    expect(answersFileInputs(bridge({ store: false }))).toBe(false)
+    expect(answersFileInputs(bridge())).toBe(false)
   })
   test('the line shown instead names the App Store, in every language, and no .dmg', () => {
     for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {

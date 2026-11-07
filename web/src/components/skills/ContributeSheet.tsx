@@ -17,7 +17,7 @@ import { useEffect, useId, useRef, useState, type DragEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { CONTRIBUTE_LIMITS, readSkillTitle, skillLabel, type ContributedSkills, type ContributeRefusal, type ShareApp, type ShareCandidate, type ShareExcludedIn, type ShareSkillIn } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
-import { isDesktop, storeApp } from '../../lib/desktop'
+import { answersFileInputs, isDesktop } from '../../lib/desktop'
 import { canPickHandle, droppedFolder, fromFiles, pickClaudeFolder, scanFolder, type ScanDir } from '../../lib/skillScan'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { FolderHint } from '../onboarding/FolderHint'
@@ -46,7 +46,7 @@ export function ContributeSheet({ folder, onClose }: { folder: string | null; on
   const locale = useLocale()
   const ids = useId()
   // only the Mac App Store build answers the page's folder input with its own window (opened at .claude)
-  const app = storeApp()
+  const app = answersFileInputs()
   const handle = !app && canPickHandle()
   const source = isDesktop() ? 'desktop' : 'browser'
   const [found, setFound] = useState<Found | null>(null)

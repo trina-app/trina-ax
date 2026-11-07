@@ -3,7 +3,7 @@
 //  - a computer's browser: [내 스킬 찾기] opens the folder window (Chrome, Edge: showDirectoryPicker; Safari, Firefox:
 //    <input webkitdirectory>, whose hint asks for .claude/skills), and a folder dropped on the step works everywhere.
 //    lib/skillScan.ts reads only the known paths and filters before anything leaves the browser;
-//  - the Mac App Store app (storeApp(), the one build that answers the page's file inputs itself): [이 컴퓨터에서 찾기]
+//  - the Mac App Store app (answersFileInputs(), the one build that answers the page's file inputs itself): [이 컴퓨터에서 찾기]
 //    is an <input webkitdirectory data-open-at="claude">, which it answers with its own window opened at the home
 //    folder, .claude shown and picked; any other desktop build picks like a browser (proposals say "desktop");
 //  - Claude Code or Codex (only when this server has the connector on; both reach it as a remote MCP server with
@@ -26,7 +26,7 @@ import { ArrowRight, Check, Copy, FolderOpen, Laptop, Loader2, Terminal } from '
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { CONNECTOR_SHARE_SOURCES, type CreateSkillShare, type SkillShare, type SkillShareSource } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
-import { isDesktop, storeApp } from '../../lib/desktop'
+import { answersFileInputs, isDesktop } from '../../lib/desktop'
 import { canPickHandle, canPickInput, droppedFolder, fromFiles, pickClaudeFolder, scanFolder, type ScanDir } from '../../lib/skillScan'
 import { useLocale, useT } from '../../i18n'
 import { holdToasts, type Toast } from '../../store/ui'
@@ -100,7 +100,7 @@ export function SkillsStep({ team, nextLabel, onApplied, onNext, onSkip, onPhone
   const narrow = useMediaQuery('(max-width: 767.98px)')
   // only the Mac App Store build answers the page's folder input with its own window (opened at .claude); any other
   // desktop build picks like a browser
-  const app = storeApp()
+  const app = answersFileInputs()
   const handle = !app && canPickHandle()
   const phone = narrow || (!app && !handle && !canPickInput())
   const source = isDesktop() ? 'desktop' : 'browser'

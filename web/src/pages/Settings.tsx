@@ -648,7 +648,8 @@ function Apps() {
   const t = useT()
   const p = platform()
   const me = useMeStrict()
-  // a Mac App Store build: the store updates it, so no installer here at all (lib/downloads.ts offeredDownloads)
+  // a Mac App Store or Microsoft Store build: the store updates it, so no installer here at all (lib/downloads.ts
+  // offeredDownloads)
   const store = storeApp()
   const [downloads, setDownloads] = useState<DownloadItem[] | null | 'none'>(null)
   useEffect(() => {
@@ -687,8 +688,8 @@ export const downloadsSourceOf = (server: Pick<Me['server'], 'deployment' | 'win
 const OWNER_HINT: Record<DownloadsSource, MessageKey | null> = { office: 'apps.noDownloadsOwner', feed: 'apps.noDownloadsOwnerFeed', folder: 'apps.noDownloadsOwnerLinux', hosted: null, 'hosted-feed': 'apps.noDownloadsOwnerHosted' }
 const FEED_HOST = (() => { try { return new URL(RELEASE_CHANNEL.feed).host } catch { return RELEASE_CHANNEL.feed } })()
 
-/** The installers under Settings > Apps > Desktop app (exported for tests). Inside a Mac App Store build only the App
- * Store line: no installer, no install steps, and not the empty state either (it asks for an installer and tells the
+/** The installers under Settings > Apps > Desktop app (exported for tests). Inside a store build only the store's
+ * line (App Store on a Mac, Microsoft Store on Windows): no installer, no install steps, and not the empty state either (it asks for an installer and tells the
  * owner how to add the .dmg). On a Mac or a Windows PC only this computer's installer is in sight: without one, a line
  * says so (and, in a browser that can install the page, points at "Install as an app" above), and the other computer's
  * installers are folded under one line. A phone or Linux lists them all, as before. */
@@ -696,7 +697,7 @@ export function DesktopDownloads({ downloads, store, owner, here, server = 'offi
   const t = useT()
   const locale = useLocale()
   const [othersOpen, setOthersOpen] = useState(false)
-  if (store) return <p className="text-sm text-muted">{t('apps.macStore')}</p>
+  if (store) return <p className="text-sm text-muted">{t(here === 'windows' ? 'apps.windowsStore' : 'apps.macStore')}</p>
   const item = (d: DownloadItem, list: DownloadItem[]) => (
     <li key={d.file}>
       <a href={`/downloads/${encodeURIComponent(d.file)}`} download className="inline-flex items-center gap-2 rounded-lg border border-field-border px-3 py-2 text-sm hover:bg-hover">

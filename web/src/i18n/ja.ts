@@ -1403,6 +1403,7 @@ export const ja: Record<MessageKey, string> = {
   'apps.macHow': "ダウンロードした.dmgを開き、{product}を「アプリケーション」フォルダーにドラッグしてから、「アプリケーション」で{product}を開いてください。",
   'apps.macGatekeeper': "macOSがアプリを開けないと表示した場合は、「完了」をクリックし、「システム設定」→「プライバシーとセキュリティ」の下部にある「このまま開く」をクリックして、もう一度「このまま開く」を選んでください。",
   'apps.macStore': "このアプリはMac App Storeからインストールされています。アップデートもApp Storeで行われます。",
+  'apps.windowsStore': "このアプリはMicrosoft Storeからインストールされています。アップデートもMicrosoft Storeで行われます。",
   'admin.title': "管理",
   'admin.members': "メンバーと招待",
   'admin.groups': "グループ",
