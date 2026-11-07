@@ -17,8 +17,9 @@ import { FolderHeaderSlots } from './folder-slots'
 const AccessPeople = lazy(() => import('./AccessPeople'))
 const AccessTree = lazy(() => import('./AccessTree'))
 
-/** skills/ and its folders: write there = "팀 스킬 관리" (the Members / Groups toggle is the same rule). Compared as the
- * server compares it (any case or Unicode form of the first name), like the tree's label. */
+/** skills/ and its folders: write there = "팀 스킬 관리" (the Team skills page's "고칠 수 있는 사람" dialog adds and
+ * removes the same rule). Compared as the server compares it (any case or Unicode form of the first name), like the
+ * tree's label. */
 export const isSkillsFolder = isSkillsPath
 
 /** Rules inside a personal folder never applied (access.ts), so removing them changes nothing and the server has no

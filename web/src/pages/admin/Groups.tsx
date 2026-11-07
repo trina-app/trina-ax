@@ -1,6 +1,7 @@
 // Groups: name, description, members. Folder rules can name a group; deleting a group removes its rules too.
 // Laid out like Members (and the Claude Console): title with the count, one line, New group, a search box, then quiet
-// rows (name · members · skills switch · "…"); Edit and Delete are in the row's "…".
+// rows (name · members · "…"); Edit and Delete are in the row's "…". Who may change team skills is on the Team skills
+// page (SkillManagers.tsx), not here: a group's own skills are its members' anyway (docs/DECISIONS.md "Group skills").
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import type { Group, User } from '@mycel/shared/api'
@@ -9,7 +10,6 @@ import { useLocale, useT } from '../../i18n'
 import { Button, Field, Modal, confirmDialog, inputCls } from '../../components/ui'
 import { useMeStrict } from '../../store/session'
 import { AdminPageHeader, CountBadge, Loadable, SearchBox, matches, useAction, useActionOk, useFocusAfterRemove, useLoad } from './common'
-import { SkillManagerCell, useSkillManagers } from './SkillManagers'
 import { MemberMenu } from './RowMenu'
 
 export default function Groups() {
@@ -18,7 +18,6 @@ export default function Groups() {
   const actOk = useActionOk()
   const groups = useLoad(async () => (await api.call(API.listGroups)).items)
   const users = useLoad(async () => (await api.call(API.listUsers)).items)
-  const skillManagers = useSkillManagers()
   const [editing, setEditing] = useState<Group | 'new' | null>(null)
   const [query, setQuery] = useState('')
   const q = query.trim().toLocaleLowerCase(locale)
@@ -28,7 +27,6 @@ export default function Groups() {
     if (!(await confirmDialog({ title: t('groups.deleteTitle', { name: g.name }), body: t('groups.deleteBody'), confirm: t('common.delete'), danger: true }))) return
     if (!(await actOk(() => api.call(API.deleteGroup, { params: { id: g.id } })))) return
     focus.removed(groups.data?.findIndex((x) => x.id === g.id) ?? 0)
-    void skillManagers.reload()
     await groups.reload()
   }
   return (
@@ -63,27 +61,22 @@ export default function Groups() {
             return (
               <>
                 {/* the column names of the rows below (each row reads on its own, so this is for the eye only) */}
-                <div aria-hidden className="hidden grid-cols-[minmax(0,1.2fr)_minmax(0,1.5fr)_7rem_2.5rem] gap-4 border-b border-line py-2.5 text-label font-medium text-muted md:grid">
+                <div aria-hidden className="hidden grid-cols-[minmax(0,1.2fr)_minmax(0,1.5fr)_2.5rem] gap-4 border-b border-line py-2.5 text-label font-medium text-muted md:grid">
                   <span>{t('auth.name')}</span>
                   <span>{t('groups.members')}</span>
-                  <span className="leading-tight">{t('skillMgr.column')}</span>
                   <span />
                 </div>
                 <ul className="divide-y divide-line border-b border-line max-md:border-t" data-testid="group-list">
                   {list.map((g) => (
-                    <li key={g.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 py-3.5 text-sm md:grid-cols-[minmax(0,1.2fr)_minmax(0,1.5fr)_7rem_2.5rem]">
+                    <li key={g.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 py-3.5 text-sm md:grid-cols-[minmax(0,1.2fr)_minmax(0,1.5fr)_2.5rem]">
                       <span className="min-w-0">
                         <span className="block truncate font-medium text-ink">{g.name}</span>
                         {g.description && <span className="block truncate text-xs text-faint">{g.description}</span>}
                       </span>
-                      {/* a phone: the menu sits next to the name, the members and the switch go under them */}
+                      {/* a phone: the menu sits next to the name, the members go under them */}
                       <span className="min-w-0 text-muted max-md:col-span-2 max-md:row-start-2">
                         <span className="block text-label">{t('groups.memberCount', { n: g.memberIds.length })}</span>
                         <span className="block truncate text-xs text-faint">{g.memberIds.map(name).join(', ') || t('groups.noMembers')}</span>
-                      </span>
-                      <span className="flex items-center gap-3 max-md:col-span-2 max-md:row-start-3">
-                        <span className="text-xs text-muted md:sr-only">{t('skillMgr.column')}</span>
-                        <SkillManagerCell subject={{ type: 'group', id: g.id, name: g.name }} data={skillManagers.data} onChanged={() => void skillManagers.reload()} />
                       </span>
                       <span className="flex justify-end max-md:col-start-2 max-md:row-start-1">
                         <MemberMenu

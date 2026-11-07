@@ -1,7 +1,8 @@
 // 팀 스킬 (docs/DECISIONS.md "팀 스킬 관리"): the skills I can use (everyone, read-only: components/AvailableSkills.tsx),
 // suggestions to review for the folders I manage ([등록] writes the skill under skills/, [거절] turns it down), my own
 // suggestions with their status, and for the owner and admins every recent change under skills/ with a link to its
-// version history (where the previous version can be restored). Quiet on purpose: rows keep to a line or two, the
+// version history (where the previous version can be restored). The owner and admins also read, under the heading, who
+// can change the team skills, with [바꾸기] (admin/SkillManagers.tsx). Quiet on purpose: rows keep to a line or two, the
 // details open on demand. /skills?run=<path> opens that skill's form (components/skills/SkillForm.tsx; the invite
 // link and the welcome steps link here).
 // Members contribute (docs/DECISIONS.md "MC"): 검토 groups the suggestions by person, so three members give three
@@ -25,6 +26,7 @@ import { Markdown } from '../components/Markdown'
 import { SkillIssues } from '../components/SkillIssues'
 import { SkillListNote } from '../components/SkillListNote'
 import { SkillFormDialog } from '../components/skills/SkillForm'
+import { SkillEditorsLine } from './admin/SkillManagers'
 import { Badge, Button, EmptyState, ErrorNote, Field, Modal, Skeleton, StickyHeader, TabPanel, Tabs, inputCls, pageColumn, promptDialog } from '../components/ui'
 
 type Tab = 'skills' | 'review' | 'mine' | 'changes'
@@ -144,6 +146,8 @@ export default function Skills() {
             </div>
           )}
         </StickyHeader>
+        {/* the owner and admins: who can change the team skills, one line (members and other skill managers do not see it) */}
+        {isAdmin(me) && <SkillEditorsLine key={`editors-${me.user.id}`} className="mb-4" />}
         <SkillIssues key={`issues-${me.user.id}`} className="mb-5" />
         <SkillListNote list={overview?.aiList} className="mb-5" />
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}

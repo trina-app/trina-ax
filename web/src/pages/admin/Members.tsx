@@ -6,7 +6,7 @@
 // preview the folders someone new with that role and those groups will see.
 //
 // Laid out like the Claude Console's Members: title with the count, one line, Invite on the right, then a search box
-// and a Role filter, then a quiet table (name · username · role · skills switch · "…"). The owner changes a role right
+// and a Role filter, then a quiet table (name · username · role · "…"). The owner changes a role right
 // in the row; every other action, and "Folders they see", is in the row's "…". Below the md width each member is a
 // stacked row with the same parts. Invites (the team link and the invite links) stay under the table.
 // The owner and the admins see who asked for their account to be deleted (Settings › Profile › 계정 삭제 요청): a badge.
@@ -30,7 +30,6 @@ import { LOCALES, useLocale, useT, type MessageKey } from '../../i18n'
 import { isOwner, useMeStrict } from '../../store/session'
 import QrCode from '../../components/QrCode'
 import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../../components/ui'
-import { SkillManagerCell, skillsVia, useFolderPeople, useSkillManagers } from './SkillManagers'
 import { AdminPageHeader, Card, CountBadge, Loadable, OneLine, ReauthDialog, SearchBox, SecretBox, matches, useAction, useActionOk, useFocusAfterRemove, useLoad, useOneAtATime } from './common'
 import { FilterPill } from '../../components/usage/FilterPill'
 import { MemberMenu, type MemberMenuItem } from './RowMenu'
@@ -53,9 +52,6 @@ export default function Members() {
   const users = useLoad(() => api.call(API.listUsers, { query: { noAi: '1' } }))
   const invites = useLoad(async () => (await api.call(API.listInvites)).items)
   const groups = useLoad(async () => (await api.call(API.listGroups)).items)
-  const skillManagers = useSkillManagers()
-  // who writes in skills/ through a group's rule or everyone's: their switch is on, and says why
-  const skillsAccess = useFolderPeople('skills', users.data, skillManagers.data)
   const [inviteOpen, setInviteOpen] = useState(false)
   const [created, setCreated] = useState<CreatedInvite | null>(null)
   const [addOpen, setAddOpen] = useState(false)
@@ -90,12 +86,6 @@ export default function Members() {
   const phone = useMediaQuery('(max-width: 767.98px)')
   /** the owner and yourself have no actions here; an admin is managed by the owner only */
   const canManage = (u: User) => u.role !== 'owner' && u.id !== me.user.id && (u.role !== 'admin' || isOwner(me))
-  const skillCell = (u: User) =>
-    u.status === 'active' ? (
-      <SkillManagerCell subject={{ type: 'user', id: u.id, name: u.name, always: u.role !== 'member' }} data={skillManagers.data} via={skillsVia(skillsAccess.data?.get(u.id), (id) => groups.data?.find((g) => g.id === id)?.name)} onChanged={() => void skillManagers.reload()} />
-    ) : (
-      <span className="text-xs text-faint">—</span>
-    )
 
   const resetPassword = (u: User) => setResetting(u)
   /** One-time link (24 h) the person opens to choose a new password; no email, the admin hands it over. */
@@ -247,10 +237,6 @@ export default function Members() {
                         {roleCell(u)}
                         <AttentionBadges user={u} noAi={!!noAi?.includes(u.id)} noAiUntil={noAiUntil?.[u.id]} requested={requested(u)} />
                       </div>
-                      <div className="mt-2 flex items-start gap-3 text-xs">
-                        <span className="pt-0.5 text-muted">{t('skillMgr.column')}</span>
-                        {skillCell(u)}
-                      </div>
                     </div>
                     <MemberMenu name={u.name} items={menuItems(u)} />
                   </li>
@@ -264,8 +250,6 @@ export default function Members() {
                       <th scope="col" className="py-2.5 pr-4 font-medium">{t('auth.name')}</th>
                       <th scope="col" className="py-2.5 pr-4 font-medium">{t('auth.username')}</th>
                       <th scope="col" className="py-2.5 pr-4 font-medium">{t('members.role')}</th>
-                      {/* the only long header: it may take two lines */}
-                      <th scope="col" className="w-28 py-2.5 pr-4 font-medium whitespace-normal">{t('skillMgr.column')}</th>
                       <th scope="col" className="hidden py-2.5 pr-4 font-medium xl:table-cell">{t('members.lastSeen')}</th>
                       <th scope="col" className="w-10 py-2.5">
                         <span className="sr-only">{t('files.actions')}</span>
@@ -287,7 +271,6 @@ export default function Members() {
                           {u.email && <span className="block text-xs text-faint">{u.email}</span>}
                         </td>
                         <td className="py-3.5 pr-4">{roleCell(u)}</td>
-                        <td className="py-3.5 pr-4">{skillCell(u)}</td>
                         <td className="hidden py-3.5 pr-4 text-xs whitespace-nowrap text-muted xl:table-cell">{u.lastSeenAt ? formatDateTime(u.lastSeenAt, locale) : '—'}</td>
                         <td className="py-3.5 text-right">
                           <MemberMenu name={u.name} items={menuItems(u)} />
