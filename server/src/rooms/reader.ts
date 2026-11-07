@@ -18,7 +18,7 @@
 // The caller (chat/room-tools.ts) marks the chat (chats.rooms_seen), taints it and adds the rooms whose messages a result
 // gave (`seen`; a list of rooms gives none) to its read scope.
 import type { Database } from 'bun:sqlite'
-import { isUuid7, ROOM_REF_RE, type Room, type RoomKind, type RoomMessage } from '@mycel/shared/api'
+import { isUuid7, ROOM_MENTIONS_MAX, ROOM_REF_RE, type Room, type RoomKind, type RoomMessage } from '@mycel/shared/api'
 import { neutralizeTags } from '../chat/prompt'
 import { zonedParts, zonedToUtc } from '../system/time-zone'
 import { canSee, clipMiddle, MSG_COLS, messageRow, messagesOut, roomOut, SEE_SQL, seeArgs, seenSeq, threadable, TIMELINE_SQL, type FileRow, type MemberRow, type MessageRow, type RoomRow } from './store'
@@ -43,6 +43,8 @@ export const ROOM_SEARCH_ROOMS = 100
 export const ROOM_SEARCH_BUDGET = 100_000
 /** members named in a read's header, at most */
 const MEMBERS_NAMED = 20
+/** members named with their ids for an AI app that may send (as many as one message may mention) */
+const MEMBERS_WITH_IDS = ROOM_MENTIONS_MAX
 
 /** One of my rooms: its row and my member row. */
 export interface Mine { room: RoomRow; me: MemberRow }
@@ -215,11 +217,13 @@ function messageText(m: RoomMessage, userId: string, tz: string, o: { room?: str
   return `<room_message${where} id="${m.id}" from="${from}" who="${who}" at="${at}"${m.editedAt ? ' edited="yes"' : ''}${reply}>\n${neutralizeTags(clip(m.body, ROOM_READ_MESSAGE_CHARS))}${files}${thread}${reactions}\n</room_message>`
 }
 
-/** The members' names for a read's header (the app's members list), the first MEMBERS_NAMED. */
-function memberLine(db: Database, roomId: string, userId: string): string {
-  const names = (db.query('SELECT u.id, u.name FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? ORDER BY m.joined_at, u.name LIMIT ?').all(roomId, MEMBERS_NAMED + 1) as { id: string; name: string }[])
+/** The members' names for a read's header (the app's members list), the first MEMBERS_NAMED; with `ids` (an AI app
+ * that may send as the person: room_send mentions people by id) the first MEMBERS_WITH_IDS, each with their user_id. */
+function memberLine(db: Database, roomId: string, userId: string, ids = false): string {
+  const most = ids ? MEMBERS_WITH_IDS : MEMBERS_NAMED
+  const names = (db.query('SELECT u.id, u.name FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? ORDER BY m.joined_at, u.name LIMIT ?').all(roomId, most + 1) as { id: string; name: string }[])
   const n = (db.query('SELECT COUNT(*) n FROM room_members WHERE room_id = ?').get(roomId) as { n: number }).n
-  const shown = names.slice(0, MEMBERS_NAMED).map((u) => (u.id === userId ? `${attr(u.name, 80)} (your user)` : attr(u.name, 80)))
+  const shown = names.slice(0, most).map((u) => (u.id === userId ? `${attr(u.name, 80)} (your user)` : ids ? `${attr(u.name, 80)} (user_id=${u.id})` : attr(u.name, 80)))
   return `${n} member${n === 1 ? '' : 's'}: ${shown.join(', ')}${n > shown.length ? ` and ${n - shown.length} more` : ''}`
 }
 
@@ -362,7 +366,7 @@ function several(ref: string, many: (Mine & { view: Room })[], tz: string): stri
 }
 
 // ---------------- room_read ----------------
-export interface ReadOptions { room: string; thread?: string; since?: string; until?: string; limit?: number }
+export interface ReadOptions { room: string; thread?: string; since?: string; until?: string; limit?: number; /** the members with their user_id (an AI app that may send: room_send mentions) */ memberIds?: boolean }
 
 /** A room's messages (the timeline), or one thread's, as I see them: the newest `limit`, oldest first. */
 export function readRoom(db: Database, userId: string, tz: string, o: ReadOptions): ReadResult {
@@ -413,8 +417,8 @@ export function readRoom(db: Database, userId: string, tz: string, o: ReadOption
   const what = root ? 'the first message of a thread and its replies' : 'messages'
   const range = [since ? `from ${localTime(since, tz)}` : '', until ? `before ${localTime(until, tz)}` : ''].filter(Boolean).join(' ')
   const head = used.length
-    ? `${root ? `A thread in the ${kindLine(room.kind, attr(title, 120))}` : `The ${kindLine(room.kind, attr(title, 120))}`} (${memberLine(db, room.id, userId)}). The ${used.length} newest ${what === 'messages' ? 'messages' : 'replies'} the user can see${range ? ` ${range}` : ''}, oldest first. Times are in the team's time zone.`
-    : `${root ? `A thread in the ${kindLine(room.kind, attr(title, 120))}` : `The ${kindLine(room.kind, attr(title, 120))}`} (${memberLine(db, room.id, userId)}): no ${root ? 'replies' : 'messages'} the user can see${range ? ` ${range}` : ''}.`
+    ? `${root ? `A thread in the ${kindLine(room.kind, attr(title, 120))}` : `The ${kindLine(room.kind, attr(title, 120))}`} (${memberLine(db, room.id, userId, o.memberIds)}). The ${used.length} newest ${what === 'messages' ? 'messages' : 'replies'} the user can see${range ? ` ${range}` : ''}, oldest first. Times are in the team's time zone.`
+    : `${root ? `A thread in the ${kindLine(room.kind, attr(title, 120))}` : `The ${kindLine(room.kind, attr(title, 120))}`} (${memberLine(db, room.id, userId, o.memberIds)}): no ${root ? 'replies' : 'messages'} the user can see${range ? ` ${range}` : ''}.`
   const tail = more || full
     ? `Older ${root ? 'replies' : 'messages'} are not shown: read them with until="${oldest ? oldest.created_at : ''}".`
     : used.length ? `This is the start of the ${root ? 'thread' : 'room'} as the user can see it${range ? ' in that time' : ''}.` : ''
@@ -460,4 +464,4 @@ export function findRoomFile(db: Database, userId: string, roomRef: string, file
   const author = message.author_id ? (db.query('SELECT name FROM users WHERE id = ?').get(message.author_id) as { name: string } | null)?.name ?? null : null
   return { file: row, message, room, title: titleOf(view), author }
 }
-export { kindLine as roomKindLine, DATA_NOTE as ROOM_DATA_NOTE }
+export { kindLine as roomKindLine, DATA_NOTE as ROOM_DATA_NOTE, EVERYONE_WORDS as ROOM_EVERYONE_WORDS }

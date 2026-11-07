@@ -127,6 +127,21 @@ export function widening(db: Database, chatId: string | null, targetSegs: string
   return narrower.length ? { narrower, targetViewers: target.length } : null
 }
 
+/**
+ * Would a message sent in this room let more people see what `sources` came from (an AI app's connection sending as
+ * the person, connectors/remote-mcp/rooms.ts)? Its readers are the room's active members who will see it: everyone in
+ * it, or for a thread reply those who see its first message (`rootSeq`). null = no.
+ */
+export function roomWidening(db: Database, roomId: string, sources: ReadSource[], rootSeq?: number): Widening | null {
+  if (!sources.length) return null
+  const rules = RuleSet.load(db)
+  const people = activePeople(db)
+  const target = [...roomViewers(db, roomId, people, rootSeq)]
+  const narrower = sources.filter((s, i) => sources.findIndex((x) => key(x) === key(s)) === i)
+    .filter((s) => { const v = viewersOf(db, rules, s, people); return target.some((id) => !v.has(id)) })
+  return narrower.length ? { narrower, targetViewers: target.length } : null
+}
+
 /** Where a source is, for the confirmation card. `ownNames`: a room by the name its members gave it (the card, shown to
  * the person as text); without it by the server's name only (anything the AI reads back: any member of a group chat may
  * set its own name). */

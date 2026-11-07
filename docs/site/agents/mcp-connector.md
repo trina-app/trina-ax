@@ -1,9 +1,9 @@
 ---
 title: Team AX MCP connector
-description: Connect your own Claude to a Trina AX team as a remote MCP server, and use the team's files with your own permissions.
+description: Connect your own Claude, Codex or ChatGPT to a Trina AX team as a remote MCP server, and use the team's files and your conversations with your own permissions.
 ---
 
-A person can connect their own Claude (Claude Code, Claude Desktop or claude.ai) to the team server as a remote MCP server. Claude then works with the team's files, with that person's permissions.
+A person can connect their own AI app (Claude Code, Claude Desktop, claude.ai, Codex or ChatGPT) to the team server as a remote MCP server. The app then works with the team's files and, if the person allows it, their conversations, with that person's permissions.
 
 :::note
 This is the opposite direction from [MCP connections](../use/mcp.md), where Trina's AI uses outside services.
@@ -26,7 +26,7 @@ The connector is off until the server has a public HTTPS address for it. Use one
 Open **Settings › AI apps**. It shows the connector address, which ends in `/mcp`.
 
 #### Add it to Claude
-Choose **Connect** next to Claude, Claude Code or Other MCP apps for the exact steps with Copy. In Claude, add a custom connector (Settings › Connectors) with the address. In Claude Code, run `claude mcp add --transport http <name> <address>`, then `/mcp` to sign in. In Codex, run `codex mcp add <name> --url <address>`: Codex finds the sign-in and opens it at once (else `codex mcp login <name>`).
+Choose **Connect** next to Claude, Claude Code or Other MCP apps for the exact steps with Copy. In Claude, add a custom connector (Settings › Connectors) with the address. In Claude Code, run `claude mcp add --transport http <name> <address>`, then `/mcp` to sign in. In Codex, run `codex mcp add <name> --url <address>`: Codex finds the sign-in and opens it at once (else `codex mcp login <name>`). Leave Codex's `oauth_resource` setting unset: the server takes one `resource` only.
 
 #### Sign in and allow
 Claude opens a Trina AX sign-in. Check the request, tick what else Claude may do, and choose **Allow**.
@@ -39,11 +39,13 @@ The sign-in page lets you choose, whatever the app asked for:
 | Reading files you can open (always) | `mcp:read` | always granted |
 | Renewing access while your login lasts (when the app asks) | `offline_access` | always granted |
 | **Write files** | `mcp:write` | ticked only if the app asked for it |
+| **Read conversations** | `mcp:rooms` | ticked |
+| **Write in conversations** (only with reading) | `mcp:rooms.write` | unticked |
 | Managing the team's groups (owners and admins) | `mcp:admin` | always granted, no box |
 
 Claude and Claude Code ask for reading only, so tick **Write files** if Claude should create, edit or upload files. The app is told exactly what you allowed. To change it later, disconnect in **Settings › AI apps** and connect again.
 
-The sign-in accepts Claude's own callback (Claude on the web, desktop and phone) and a local `http://localhost/…/callback` (Claude Code and other apps that sign in on the computer). An app that signs in through its own website, such as ChatGPT, cannot connect yet.
+The sign-in accepts Claude's own callback (Claude on the web, desktop and phone), ChatGPT's connector callback (`https://chatgpt.com/connector_platform_oauth_redirect`) and a local `http://localhost/…/callback` or `http://127.0.0.1/…/callback` (Claude Code, Codex and other apps that sign in on the computer). ChatGPT has not been tried end to end yet.
 
 **Settings › AI apps** lists your connected apps, with when they connected and **Disconnect**. A connection also ends when the app session that authorized it ends.
 
@@ -58,7 +60,8 @@ your own account such as **Google Drive**, is **Settings › App connectors** ([
 | OAuth discovery | `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource` |
 | OAuth endpoints | `/oauth/authorize`, `/oauth/token`, `/oauth/register`, `/oauth/revoke` |
 | Client registration | Dynamic (RFC 7591), public clients, PKCE `S256` |
-| Scopes | `mcp:read`, `mcp:write`, `mcp:admin`, `offline_access` |
+| Scopes | `mcp:read`, `mcp:write`, `mcp:rooms`, `mcp:rooms.write`, `mcp:admin`, `offline_access` |
+| Authorization responses | always carry `iss` (RFC 9207), and the metadata says so |
 
 ## Tools
 
@@ -66,6 +69,8 @@ your own account such as **Google Drive**, is **Settings › App connectors** ([
 |---|---|
 | `mcp:read` | `list`, `glob`, `grep`, `read`, `skills_list` |
 | `mcp:write` | also `write`, `edit`, `upload_file`, `create_upload_link`, `share_skills` (owners and admins) |
+| `mcp:rooms` | also `rooms`, `room_read`, `room_file` |
+| `mcp:rooms.write` | also `room_send` |
 | `mcp:admin` | also `people_list`, `groups_list`, `group_create`, `group_update`, `group_delete` (owners and admins only) |
 
 - `upload_file` takes base64 bytes in the call. Use it for small files, up to about 50 KB.
@@ -74,6 +79,24 @@ your own account such as **Google Drive**, is **Settings › App connectors** ([
 - `skills_list` returns the team skills the person can read, the skills of their groups (with `group`: its id and name) and their own personal skills (`personal: true`).
 - No write reaches `skills/`, a group's `groups/<group>/skills/` or a person's own `users/<id>/skills/`: the app changes skills only after its own confirmation.
 - Saving to a wider audience is refused. File and skill contents are untrusted data.
+
+## Conversations
+
+With **Read conversations** the app reads your conversations (team rooms, the room for everyone, 1:1 chats and group chats) exactly as you see them in the app: the rooms you are in now, from when you joined, threads whose first message you see, and your own private AI previews but nobody else's.
+
+| Tool | What it does |
+|---|---|
+| `rooms` | Your rooms (name, kind, unread count, last activity, `room_id`), or with `query`, `person`, `since` or `until` the messages you can see that match. |
+| `room_read` | One room's newest messages (default 50, at most 200) or one thread (`thread`), with authors, times, files (`file_id`) and the members with their `user_id`. |
+| `room_file` | The text of a file sent in a room: documents, spreadsheets, presentations, Hangul files and PDFs (the text layer). Pictures, video and audio are not read here. |
+| `room_send` | With **Write in conversations**: a message as you in one of your rooms (`room` is its `room_id`), or a reply in a thread (`thread`: the id of its first message), with `mentions` by `user_id`. |
+
+- Messages and files are other people's words. The answers mark them as data, never instructions. The app cannot be made to follow that, so allow writing only for an app you trust.
+- `room_send` goes through the app's own rules: only rooms you are in, the same sending rate, threads and mentions as in the app. Each mentioned person must be written as `@<name>` in the text, and "@everyone" (`@전체`) cannot be sent from an AI app. A message that calls `@트리나` asks Trina as if you typed it.
+- The message looks exactly like one you typed. Nothing marks it as sent by an app.
+- What the app read (files, and messages of rooms) is not sent where people who could not see it would read it. The connection keeps that until you disconnect it.
+- Neither reading nor sending writes an audit entry, and no message, name or room is logged.
+- A connection made before conversations came to AI apps never gains them. **Settings › AI apps** shows "Connect again to use conversations" under it: disconnect it and connect again.
 
 ## Group management (owners and admins)
 

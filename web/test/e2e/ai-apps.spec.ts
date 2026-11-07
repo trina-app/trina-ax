@@ -105,6 +105,20 @@ test('an owner\'s connection without group management says to connect again once
   await expect(page.getByTestId('connector-reconnect-groups')).toHaveCount(0)
 })
 
+test('a connection without conversations says to connect again; one with them does not', async ({ page }) => {
+  await reset(page)
+  const state = await connector(page)
+  state.items = [app, { ...app, id: 'synthetic-grant-2', clientName: 'Synthetic Claude Code', scopes: ['mcp:read', 'mcp:rooms', 'mcp:rooms.write', 'mcp:admin', 'offline_access'] }]
+  await signIn(page, BOB)
+  await page.goto('/settings/ai-apps')
+  const rows = page.getByTestId('connected-apps').getByTestId('connector-item')
+  await expect(rows).toHaveCount(2)
+  await expect(rows.nth(0).getByTestId('connector-reconnect-rooms')).toHaveText('대화를 쓰려면 다시 연결하세요.')
+  await expect(rows.nth(1).getByTestId('connector-reconnect-rooms')).toHaveCount(0)
+  await expect(rows.nth(1)).toContainText('내가 들어가 있는 대화방의 메시지와 파일을 내가 보는 그대로 읽어요')
+  await expect(rows.nth(1)).toContainText('내가 들어가 있는 대화방에 나로서 메시지를 보내요')
+})
+
 test('connector off: a member sees one line and no Connect; an owner gets the setup with Copy and the guide', async ({ page }) => {
   await reset(page)
   await connector(page, false)
