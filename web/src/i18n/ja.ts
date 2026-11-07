@@ -2264,6 +2264,12 @@ export const ja: Record<MessageKey, string> = {
   'skills.fromTeam': "チームのスキル",
   'skills.fromGroup': "グループ「{group}」のスキル",
   'skills.groupBadge': "グループ「{group}」のスキル：このグループのメンバーだけが見て使えます",
+  'skills.shadowedTitle': "同じ名前のスキルに置き換えられたスキル",
+  'skills.shadowedByGroup': "グループ「{group}」の同じ名前のスキルが代わりに使われます",
+  'skills.shadowedByPersonal': "自分の個人スキルが代わりに使われます",
+  'skills.replacesTeam': "チームスキルの代わり",
+  'skills.replacesGroup': "グループスキルの代わり",
+  'skills.pathLine': "パス：{path}",
   'skills.search': "スキルを検索",
   'skills.uses': "{uses, plural, one {#回} other {#回}}",
   'skills.usesHint': "過去30日間",
@@ -3922,6 +3928,8 @@ export const ja: Record<MessageKey, string> = {
   "welcome.skills.gone": "この共有の提案はもうありません · 7日が過ぎたか、すでに対応済みです",
   "skillShare.page.title": "チームに共有するスキル",
   "skillShare.page.desc": "選んだものだけがチームに入ります · 「チームに共有」を押すまで何も変わりません",
+  "skillShare.page.titleGroup": "{group}に共有するスキル",
+  "skillShare.page.descGroup": "選んだものだけが{group}に入ります · 「{group}に共有」を押すまで何も変わりません",
   "skillShare.page.toSkills": "チームスキルを見る",
   // ── K end: 내 스킬 가져오기 step ──
   // ── W5: 내 스킬 exits, invite, skill form (web-o3) ──

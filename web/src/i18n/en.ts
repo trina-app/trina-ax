@@ -2301,6 +2301,12 @@ export const en: Record<MessageKey, string> = {
   'skills.fromTeam': 'From your team',
   'skills.fromGroup': 'From the group {group}',
   'skills.groupBadge': 'A skill of the group {group}: only its members see and use it',
+  'skills.shadowedTitle': "Skills replaced by one of the same name",
+  'skills.shadowedByGroup': "The {group} group skill of the same name is used instead",
+  'skills.shadowedByPersonal': "Your personal skill of the same name is used instead",
+  'skills.replacesTeam': "instead of team skill",
+  'skills.replacesGroup': "instead of group skill",
+  'skills.pathLine': "Path: {path}",
   'skills.search': 'Search skills',
   'skills.uses': '{uses, plural, one {# use} other {# uses}}',
   'skills.usesHint': 'Last 30 days',
@@ -3962,6 +3968,8 @@ export const en: Record<MessageKey, string> = {
   "welcome.skills.gone": "This share proposal is gone · It passed 7 days or was already handled",
   "skillShare.page.title": "Skills to share with the team",
   "skillShare.page.desc": "Only what you choose goes to the team · Nothing changes until you press Share with team",
+  "skillShare.page.titleGroup": "Skills to share with {group}",
+  "skillShare.page.descGroup": "Only what you choose goes to {group} · Nothing changes until you press Share with {group}",
   "skillShare.page.toSkills": "See team skills",
   // ── K end: 내 스킬 가져오기 step ──
   // ── W5: 내 스킬 exits, invite, skill form (web-o3) ──

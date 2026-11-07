@@ -288,10 +288,10 @@ test('"쓸 수 있는 스킬": every person sees the skills they can use, member
   await expect(list.getByRole('region', { name: '개인' }).getByTestId('skill-row')).toContainText('내 말투')
   // read-only: use it in a chat, or open its file
   await expect(list.getByRole('button')).toHaveCount(6)
-  await list.getByTestId('skill-row').filter({ hasText: '견적서' }).getByRole('button', { name: /^견적서 .*채팅에서 쓰기$/ }).click()
+  await list.getByTestId('skill-row').filter({ hasText: '견적서' }).getByRole('button', { name: /^\/견적서 .*채팅에서 쓰기$/ }).click()
   await expect(page.getByTestId('composer-input')).toHaveValue('/견적서 ')
   await page.goto('/skills')
-  await page.getByRole('button', { name: 'weekly 스킬 메뉴' }).click()
+  await page.getByRole('button', { name: '/weekly 스킬 메뉴' }).click()
   await page.getByRole('menuitem', { name: '파일 보기' }).click()
   await expect(page).toHaveURL(/\/files\?path=skills%2Fweekly&select=skills%2Fweekly%2FSKILL\.md/)
 
@@ -311,7 +311,7 @@ test('"쓸 수 있는 스킬": every person sees the skills they can use, member
 
 test('the skills I can use: most used first, search, "…" opens the file, the row starts a chat', async ({ page }) => {
   await reset(page)
-  await page.route('**/api/skills', (r) => r.fulfill({ json: { items: [
+  await page.route(/\/api\/skills(\?.*)?$/, (r) => r.fulfill({ json: { items: [
     { path: 'skills/proposal.md', name: 'proposal', description: 'Writes a client proposal deck' },
     { path: 'skills/weekly/SKILL.md', name: 'weekly', description: '' },
   ] } }))
@@ -323,9 +323,12 @@ test('the skills I can use: most used first, search, "…" opens the file, the r
   const rows = page.getByTestId('skill-row')
   await expect(rows).toHaveCount(2)
   await expect(page.getByTestId('skill-count')).toHaveText('2')
-  await expect(rows.first()).toContainText('weekly')
+  await expect(rows.first()).toContainText('/weekly')
   await expect(rows.first()).toContainText('4회')
-  await expect(rows.last()).toContainText('skills/ · Writes a client proposal deck')
+  // the row says the name people type and the description; the path is in the "…" menu, not before the description
+  await expect(rows.last()).toContainText('/proposal')
+  await expect(rows.last()).toContainText('Writes a client proposal deck')
+  await expect(rows.last()).not.toContainText('skills/')
 
   const search = page.getByRole('searchbox', { name: '스킬 검색' })
   await search.fill('CLIENT')
@@ -336,7 +339,7 @@ test('the skills I can use: most used first, search, "…" opens the file, the r
   await search.fill('')
   await expect(rows).toHaveCount(2)
 
-  const more = page.getByRole('button', { name: 'proposal 스킬 메뉴' })
+  const more = page.getByRole('button', { name: '/proposal 스킬 메뉴' })
   await more.click()
   await expect(page.getByRole('menuitem', { name: '채팅에서 쓰기' })).toBeFocused()
   await page.keyboard.press('Escape')
@@ -353,7 +356,7 @@ test('the skills I can use: most used first, search, "…" opens the file, the r
   await expect(page).toHaveURL(/\/files\?path=skills&select=skills%2Fproposal\.md/)
 
   await page.goto('/skills')
-  await page.getByRole('button', { name: /^proposal .*채팅에서 쓰기$/ }).click()
+  await page.getByRole('button', { name: /^\/proposal .*채팅에서 쓰기$/ }).click()
   await expect(page.getByTestId('composer-input')).toHaveValue('/proposal ')
 })
 

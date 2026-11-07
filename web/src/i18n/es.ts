@@ -2264,6 +2264,12 @@ export const es: Record<MessageKey, string> = {
   'skills.fromTeam': "De su equipo",
   'skills.fromGroup': "Del grupo {group}",
   'skills.groupBadge': "Una habilidad del grupo {group}: solo sus miembros la ven y la usan",
+  'skills.shadowedTitle': "Habilidades reemplazadas por otra del mismo nombre",
+  'skills.shadowedByGroup': "Se usa en su lugar la habilidad del grupo {group} con el mismo nombre",
+  'skills.shadowedByPersonal': "Se usa en su lugar su habilidad personal con el mismo nombre",
+  'skills.replacesTeam': "en lugar de la del equipo",
+  'skills.replacesGroup': "en lugar de la del grupo",
+  'skills.pathLine': "Ruta: {path}",
   'skills.search': "Buscar habilidades",
   'skills.uses': "{uses, plural, one {# uso} other {# usos}}",
   'skills.usesHint': "Últimos 30 días",
@@ -3922,6 +3928,8 @@ export const es: Record<MessageKey, string> = {
   "welcome.skills.gone": "Esta propuesta ya no existe · Pasaron 7 días o ya se resolvió",
   "skillShare.page.title": "Habilidades para compartir con el equipo",
   "skillShare.page.desc": "Solo lo que elija llega al equipo · Nada cambia hasta que pulse Compartir con el equipo",
+  "skillShare.page.titleGroup": "Habilidades para compartir con {group}",
+  "skillShare.page.descGroup": "Solo lo que elija llega a {group} · Nada cambia hasta que pulse Compartir con {group}",
   "skillShare.page.toSkills": "Ver habilidades del equipo",
   // ── K end: 내 스킬 가져오기 step ──
   // ── W5: 내 스킬 exits, invite, skill form (web-o3) ──

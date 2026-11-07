@@ -2300,6 +2300,12 @@ export const ko = {
   'skills.fromTeam': '우리 팀 스킬',
   'skills.fromGroup': '{group} 그룹 스킬',
   'skills.groupBadge': '{group} 그룹의 스킬: 이 그룹 멤버만 보고 써요',
+  'skills.shadowedTitle': "이름이 같아 가려진 스킬",
+  'skills.shadowedByGroup': "{group} 그룹의 같은 이름 스킬이 대신 쓰여요",
+  'skills.shadowedByPersonal': "내 개인 스킬이 대신 쓰여요",
+  'skills.replacesTeam': "팀 스킬 대신",
+  'skills.replacesGroup': "그룹 스킬 대신",
+  'skills.pathLine': "경로: {path}",
   'skills.search': '스킬 검색',
   'skills.uses': '{uses}회',
   'skills.usesHint': '최근 30일',
@@ -3962,6 +3968,8 @@ export const ko = {
   "welcome.skills.gone": "이 공유 제안은 이제 없어요 · 7일이 지났거나 이미 정리했어요",
   "skillShare.page.title": "팀에 공유할 스킬",
   "skillShare.page.desc": "고른 것만 팀에 올라가요 · 팀에 공유를 누르기 전에는 아무것도 바뀌지 않아요",
+  "skillShare.page.titleGroup": "{group} 그룹에 공유할 스킬",
+  "skillShare.page.descGroup": "고른 것만 {group} 그룹에 올라가요 · {group}에 공유를 누르기 전에는 아무것도 바뀌지 않아요",
   "skillShare.page.toSkills": "팀 스킬 보기",
   // ── K end: 내 스킬 가져오기 step ──
   // ── W5: 내 스킬 exits, invite, skill form (web-o3) ──

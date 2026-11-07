@@ -129,8 +129,8 @@ describe('Team skills page', () => {
       { path: 'skills/weekly.md', name: 'weekly', description: '' },
     ])
     expect((html.match(/data-testid="skill-run"/g) ?? []).length).toBe(1)
-    // a skill without a title is named as words, as the invite names it (shared skillLabel: "ad copy", never "ad-copy")
-    expect(html).toContain(`aria-label="${translate('en', 'skillForm.runNamed', { name: 'ad copy' })}"`)
+    // a skill without a title is named as people type it ("/ad-copy"), as the "/" menu does
+    expect(html).toContain(`aria-label="${translate('en', 'skillForm.runNamed', { name: '/ad-copy' })}"`)
     expect((html.match(/data-testid="skill-use"/g) ?? []).length).toBe(2)
   })
 })
