@@ -226,7 +226,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `PATCH` | `/api/admin/settings` | Admin | Change team settings (team name change also renames the relay address: owner only). |
 | `PUT` | `/api/admin/team-icon` | Admin | Set the team logo (tab icon, home-screen app icon): PNG, JPEG or WebP up to 1 MiB, 32–4096 px a side; audited. |
 | `DELETE` | `/api/admin/team-icon` | Admin | Remove the team logo: back to the default icon; audited. |
-| `GET` | `/api/admin/speech-host` | Admin | How this server turns video and audio sound into text itself: its cores, piece length and measured speed. |
+| `GET` | `/api/admin/speech-host` | Admin | How this server turns video and audio sound into text itself: its cores, piece length, measured speed, and the tools voice input lacks here. |
 | `GET` | `/api/admin/speech-key` | Admin | Whether the OpenRouter key for voice input is set (last 4 characters only, never the key). |
 | `PUT` | `/api/admin/speech-key` | Admin | Set (sealed in the browser) or remove (null) the OpenRouter key for voice input; asks for the password again. |
 | `GET` | `/api/admin/usage` | Admin | Usage and cost per person / engine / model / day / group / AI connection / skill. Skill rows attribute the entire turn and may overlap. |

@@ -451,6 +451,26 @@ test('settings: on a small server "Turn video sound into text" starts off, with 
   expect(realErrors(errors)).toEqual([])
 })
 
+// docs/DECISIONS.md "Voice input on a team's own server: the key turns it on": "this server" without its tools says which
+// one is missing (the mic is off), and the OpenRouter key says what it costs
+test('settings: Voice input names a missing tool for "this server" and the price of an OpenRouter key', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  // an office Mac with Homebrew's whisper-cpp but no ffmpeg
+  expect((await page.request.post('/__test/speech-host', { data: { localMissing: ['ffmpeg'] } })).ok()).toBeTruthy()
+  await signIn(page)
+  await page.goto('/admin/settings')
+  const provider = page.getByTestId('team-speech-provider')
+  await expect(provider).toHaveValue('local')
+  await expect(page.getByTestId('team-speech-local-missing')).toHaveText('이 서버에 ffmpeg 프로그램이 없어서 음성 입력이 꺼져 있어요.')
+  await provider.selectOption('openrouter')
+  await expect(page.getByTestId('team-speech-local-missing')).toHaveCount(0)
+  await expect(page.getByTestId('team-speech-price')).toHaveText('OpenRouter 요금은 녹음 1시간에 약 $0.1예요.')
+  await provider.selectOption('off')
+  await expect(page.getByTestId('team-speech-price')).toHaveCount(0)
+  expect(realErrors(errors)).toEqual([])
+})
+
 // QA R2-PERM-10: the owner gives the role to another person in Team settings, with the password again; the old owner
 // is an admin at once, so the transfer card and the team name input go away
 test('settings: the owner transfers ownership with the password again and becomes an admin', async ({ page }) => {

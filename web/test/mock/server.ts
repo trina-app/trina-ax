@@ -19,8 +19,9 @@
 // confidential when a message in it says "confidential"), POST /__test/artifact {type, content} (the next "artifact"
 // answer writes exactly this), POST /__test/connection {…ConnectionStatus fields} (Admin > System > Connection shows
 // them until the next reset), POST /__test/speech-host {…SpeechHost fields} (this server's cores, speed and hosting
-// for "Turn video sound into text", until the next reset), POST /__test/skill-list {…SkillsOverview.aiList} (the Team
-// skills page's "how many skills the AI sees" counts, until the next reset), POST /__test/speech {provider, key?: boolean}
+// for "Turn video sound into text", and the tools Voice input lacks, until the next reset), POST /__test/skill-list
+// {…SkillsOverview.aiList} (the Team skills page's "how many skills the AI sees" counts, until the next reset),
+// POST /__test/speech {provider, key?: boolean}
 // (the team's speech provider and whether an OpenRouter key is set), GET-or-POST /__test/transcribe-chats (the chat id
 // each voice input named, null for a new chat; a confidential chat's recording with OpenRouter is refused, 403), POST
 // /__test/transcribe-progress {message, progress, ms} (the next transcription jobs say that label first, as a server that
@@ -36,7 +37,7 @@
 // whether pictures exist and the budget (the longer ones read the site first: phase "reading"), until the next reset.
 import { z } from 'zod'
 import type { DriveShare as MockDriveShare, DriveShareFolder as MockDriveFolder } from '@mycel/shared/api'
-import type { KnowledgeGraphStatus } from '@mycel/shared/api'
+import type { KnowledgeGraphStatus, LocalSpeechTool } from '@mycel/shared/api'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
@@ -257,8 +258,9 @@ export class MockServer {
   transcribeChats: (string | null)[] = []
   /** transcription jobs report this label first and end after `ms` (POST /__test/transcribe-progress) */
   transcribeProgress: { message: string; progress: number | null; ms: number } | null = null
-  /** GET /api/admin/speech-host: a 4-core self-installed server that has not measured its speed yet */
-  speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null as number | null, hostedNewSec: null as number | null }
+  /** GET /api/admin/speech-host: a 4-core self-installed server that has not measured its speed yet, with whisper.cpp and
+   * ffmpeg (localMissing: the tools 'local' lacks) */
+  speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null as number | null, hostedNewSec: null as number | null, localMissing: [] as LocalSpeechTool[] }
   /** every request the client made (method + path), for assertions */
   log: string[] = []
   /** team skills: "팀 스킬 관리" grants (also kept as folder rules on this.folders), suggestions, changes under skills/ */
@@ -432,7 +434,7 @@ export class MockServer {
     this.speechKey = { set: false, hint: null, updatedAt: null }
     this.transcribeChats = []
     this.transcribeProgress = null
-    this.speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null, hostedNewSec: null }
+    this.speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null, hostedNewSec: null, localMissing: [] }
     if (o.teamLocale) this.settings.defaultLocale = o.teamLocale
     this.activeLeaf.clear()
     this.pendingAsk.clear()
@@ -794,7 +796,7 @@ export class MockServer {
     return {
       user: { id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.localeChoice ?? this.settings.defaultLocale, localeChoice: u.localeChoice, mustChangePassword: u.mustChangePassword, prefs, canChooseEngine: choose },
       groups: this.groups.filter((g) => u.groupIds.includes(g.id)).map((g) => ({ id: g.id, name: g.name })),
-      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, iconVersion: this.teamIcon?.version ?? null, voiceInput: this.settings.speechProvider === 'local' || (this.settings.speechProvider === 'openrouter' && this.speechKey.set), ...(this.settings.speechProvider === 'openrouter' && this.speechKey.set ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: this.settings.chatTrashRetentionDays },
+      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, iconVersion: this.teamIcon?.version ?? null, voiceInput: (this.settings.speechProvider === 'local' && this.speechHost.localMissing.length === 0) || (this.settings.speechProvider === 'openrouter' && this.speechKey.set), ...(this.settings.speechProvider === 'openrouter' && this.speechKey.set ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: this.settings.chatTrashRetentionDays },
       session: { id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(), tempLogin: u.mustChangePassword && this.tempLogins.has(u.id) },
       server: {
         version: this.serverVersion, dev: !this.cloud, deployment: this.cloud ? 'hosted' : 'self', timeZone: this.settings.timeZone,

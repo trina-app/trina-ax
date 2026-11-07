@@ -1,7 +1,10 @@
 // Voice input settings (docs/DECISIONS.md "Voice input through OpenRouter"): the speech provider is 'off' by default
 // and Me.team.voiceInput says so; the team's OpenRouter key arrives sealed in the browser, asks for the password again
 // (owner and admins), is stored encrypted, never comes back (only set + last 4) and is never in an audit entry or a log
-// line; credentials-rekey keeps it readable.
+// line; credentials-rekey keeps it readable. With no provider chosen, a saved team key turns voice input on (OpenRouter)
+// and removing it turns it off; 'local' without whisper-cli or ffmpeg keeps the mic hidden and says which is missing
+// (docs/DECISIONS.md "Voice input on a team's own server: the key turns it on"). The tools are set here
+// (ctx.files.speech), so the tests do not depend on what the machine has installed.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { SealingKey } from '@mycel/shared/api'
 import { createLogger } from '../../server/src/log'
@@ -38,6 +41,8 @@ describe('speech provider setting', () => {
     expect(await owner.call('GET', '/api/admin/speech-key')).toEqual({ set: false, hint: null, updatedAt: null, hosted: null })
   })
   test("an admin picks 'local': audited as settings.update, everyone is told, voice input on", async () => {
+    // this server has whisper-cli and ffmpeg (the CI runner has neither)
+    Object.assign(h.ctx.files.speech, { whisperBin: '/usr/bin/true', ffmpegBin: '/usr/bin/true' })
     h.hub.events.length = 0
     const s = await admin.client.call('PATCH', '/api/admin/settings', { speechProvider: 'local' })
     expect(s.speechProvider).toBe('local')
@@ -110,5 +115,80 @@ describe('the OpenRouter key', () => {
     for (const k of [KEY, KEY2, 'SPEECH-CANARY']) expect(dump).not.toContain(k)
     const details = (h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'speech.key' ORDER BY rowid").all() as { detail: string }[]).map((r) => JSON.parse(r.detail))
     expect(details).toEqual([{ key: 'set', hint: 'WXYZ' }, { key: 'set', hint: 'ABCD' }, { key: 'removed' }])
+  })
+})
+
+describe('not chosen: the team key turns voice input on', () => {
+  const stored = () => h.ctx.db.query("SELECT value FROM settings WHERE key = 'speechProvider'").get()
+  const voice = async () => (await member.client.call('GET', '/api/me')).team as { voiceInput: boolean; voiceInputOutside?: true }
+  const putKey = async (k: string | null) => owner.call('PUT', '/api/admin/speech-key', { sealed: k === null ? null : await sealSecret(seal, k, 'speech.key'), password: OWNER_PW })
+
+  test('no choice and no key: off, the mic hidden', async () => {
+    h.ctx.db.query("DELETE FROM settings WHERE key = 'speechProvider'").run()
+    expect((await owner.call('GET', '/api/admin/speech-key')).set).toBe(false)
+    expect((await owner.call('GET', '/api/admin/settings')).speechProvider).toBe('off')
+    expect((await voice()).voiceInput).toBe(false)
+  })
+  test('the key saved: OpenRouter, voice input on, nothing stored for the provider', async () => {
+    h.hub.events.length = 0
+    await putKey(KEY)
+    expect((await owner.call('GET', '/api/admin/settings')).speechProvider).toBe('openrouter')
+    expect(await voice()).toMatchObject({ voiceInput: true, voiceInputOutside: true })
+    expect(h.hub.events.some((e) => (e.data as any)?.data?.code === 'speech_changed')).toBe(true)
+    expect(stored()).toBeNull()
+    // saving another setting does not store it either; "Turn video sound into text" keeps its rule (off with the team's key)
+    const s = await owner.call('PATCH', '/api/admin/settings', { auditRetentionDays: 120 })
+    expect(s.speechProvider).toBe('openrouter')
+    expect(s.aiMediaTranscripts).toBeNull()
+    expect(stored()).toBeNull()
+  })
+  test("an admin's 'off' wins over the key; without the choice the key counts again", async () => {
+    await admin.client.call('PATCH', '/api/admin/settings', { speechProvider: 'off' })
+    expect((await owner.call('GET', '/api/admin/settings')).speechProvider).toBe('off')
+    expect((await voice()).voiceInput).toBe(false)
+    h.ctx.db.query("DELETE FROM settings WHERE key = 'speechProvider'").run()
+    expect((await owner.call('GET', '/api/admin/settings')).speechProvider).toBe('openrouter')
+    expect((await voice()).voiceInput).toBe(true)
+  })
+  test('the key removed with no choice: off again', async () => {
+    await putKey(null)
+    expect((await owner.call('GET', '/api/admin/settings')).speechProvider).toBe('off')
+    expect((await voice()).voiceInput).toBe(false)
+    expect((await voice()).voiceInputOutside).toBeUndefined()
+    expect(stored()).toBeNull()
+  })
+  test("an admin's 'local' wins over the key", async () => {
+    await putKey(KEY)
+    await owner.call('PATCH', '/api/admin/settings', { speechProvider: 'local' })
+    expect((await owner.call('GET', '/api/admin/settings')).speechProvider).toBe('local')
+    expect((await voice()).voiceInputOutside).toBeUndefined()
+    await putKey(null)
+  })
+})
+
+describe("'local' needs whisper-cli and ffmpeg on this server", () => {
+  const voice = async () => (await member.client.call('GET', '/api/me')).team.voiceInput
+  const tools = (whisperBin: string | null, ffmpegBin: string | null) => Object.assign(h.ctx.files.speech, { whisperBin, ffmpegBin })
+
+  test('without either the mic stays hidden (it used to show and fail every recording), and the settings screen names what is missing', async () => {
+    await owner.call('PATCH', '/api/admin/settings', { speechProvider: 'local' })
+    tools(null, '/usr/bin/true')
+    expect(await voice()).toBe(false)
+    expect((await owner.call('GET', '/api/admin/speech-host')).localMissing).toEqual(['whisper.cpp'])
+    tools('/usr/bin/true', null)
+    expect(await voice()).toBe(false)
+    expect((await owner.call('GET', '/api/admin/speech-host')).localMissing).toEqual(['ffmpeg'])
+    tools(null, null)
+    expect(await voice()).toBe(false)
+    expect((await owner.call('GET', '/api/admin/speech-host')).localMissing).toEqual(['whisper.cpp', 'ffmpeg'])
+    tools('/usr/bin/true', '/usr/bin/true')
+    expect(await voice()).toBe(true)
+    expect((await owner.call('GET', '/api/admin/speech-host')).localMissing).toEqual([])
+  })
+  test('the tools do not matter for OpenRouter', async () => {
+    tools(null, null)
+    await owner.call('PATCH', '/api/admin/settings', { speechProvider: 'openrouter' })
+    await owner.call('PUT', '/api/admin/speech-key', { sealed: await sealSecret(seal, KEY, 'speech.key'), password: OWNER_PW })
+    expect(await voice()).toBe(true)
   })
 })

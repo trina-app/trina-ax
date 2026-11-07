@@ -79,7 +79,7 @@ async function voice(bytes: Uint8Array = wav(3)) {
 describe('defaults with the hosting key', () => {
   test('not chosen: voice input on OpenRouter; "Turn video sound into text" on by default for it', () => {
     expect(getTeamSettings(A.ctx.db).speechProvider).toBe('openrouter')
-    expect(voiceInputOn(A.ctx.db)).toBe(true)
+    expect(voiceInputOn(A.ctx.db, F().speech)).toBe(true)
     expect(speechKeySource(A.ctx.db)).toBe('hosted')
     expect(mediaTranscriptsDefault('openrouter', 2, true)).toBe(true)
     expect(mediaTranscriptsDefault('openrouter', 16, false)).toBe(false)
@@ -90,11 +90,11 @@ describe('defaults with the hosting key', () => {
   test("an admin's choice wins, 'off' too; without the hosting key the default is 'off' again", () => {
     updateTeamSettings(A.ctx.db, { speechProvider: 'off' })
     expect(getTeamSettings(A.ctx.db).speechProvider).toBe('off')
-    expect(voiceInputOn(A.ctx.db)).toBe(false)
+    expect(voiceInputOn(A.ctx.db, F().speech)).toBe(false)
     A.ctx.db.query("DELETE FROM settings WHERE key = 'speechProvider'").run()
     writeHostedSpeechKey(credentialsOf(A.ctx), null)
     expect(getTeamSettings(A.ctx.db).speechProvider).toBe('off')
-    expect(voiceInputOn(A.ctx.db)).toBe(false)
+    expect(voiceInputOn(A.ctx.db, F().speech)).toBe(false)
   })
   test('GET /api/admin/speech-key: no team key, the free hours, never the hosting key', async () => {
     chargeHostedSpeech(A.ctx.db, 5400)
