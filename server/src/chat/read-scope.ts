@@ -18,14 +18,16 @@
 //                        that message (rooms/store.ts seesFrom) and to whom no old answer from there on is hidden
 //                        (room_hidden_answers, rooms/history.ts), but for the person who read it: what is hidden from
 //                        them was never given to them
-//   {type:'name', path}  a room session only (chat/turn.ts noteRoomTool): a team path whose name the tools showed or
+//   {type:'name', path}  a room session (chat/turn.ts noteRoomTool) and a Slack chat (the sub-folders its listings
+//                        showed): a team path whose name the tools showed or
 //                        answered about (a sub-folder in a listing, a path a call named: there, a folder, not there),
 //                        nothing of its content. Its viewers are the people who would see the same name in a listing
 //                        (RuleSet.canList: they may read it, or something below it). Kept as the path: it lives for
 //                        one question (rooms/ai.ts), and a folder renamed meanwhile is judged by the rules at its
 //                        old path
 // null (no sources yet) = no limit. read and grep results count; list / glob (names only), skills, memories and the
-// person's own messages do not (in a room session names count too, rooms/ai.ts).
+// person's own messages do not (in a room session names count too, rooms/ai.ts, and in a Slack chat what list and glob
+// showed, integrations/slack/post-check.ts).
 // Stored as {sources, v: 2, unlisted}: a scope started by this build (v 2) also keeps the keys of the file-type sources
 // (folder, root, own folder) that came at least once from something other than a read the answer's source list records
 // (message_sources, files/sources.ts): an attachment, project instructions, a skill, make_file's inputs, more than the

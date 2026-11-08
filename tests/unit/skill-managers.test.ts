@@ -210,11 +210,12 @@ describe('the AI never saves under skills/ without the person confirming (fail c
 })
 
 describe('change tracking of people\'s changes', () => {
-  test('save, move and delete under skills/ are audited with who and which file, with a history / trash link', async () => {
+  test('save, move and delete under skills/ are audited with who and which file, with a history / files trash link', async () => {
     await save('carol', 'skills/tracked.md', '# v1\n')
     await h.api('carol').call(API.move, { body: { from: 'skills/tracked.md', to: 'skills/moved.md' } })
     await h.api('carol').call(API.remove, { query: { path: 'skills/moved.md' } })
-    await socks.dana!.next('notice', (f) => f.data.code === 'skill_changed' && f.data.link === '/trash')
+    // a deleted file is in 파일 › 휴지통 (/trash is the deleted AI chats)
+    await socks.dana!.next('notice', (f) => f.data.code === 'skill_changed' && f.data.link === '/files?view=trash')
     const page = await h.api('dana').call(API.listSkillChanges, { query: { limit: 10 } })
     const mine = page.items.filter((x) => x.actor?.id === 'carol' && ['skills/tracked.md', 'skills/moved.md'].includes(x.path))
     expect(mine.map((x) => [x.change, x.path, x.from])).toEqual([['delete', 'skills/moved.md', null], ['move', 'skills/moved.md', 'skills/tracked.md'], ['create', 'skills/tracked.md', null]])
