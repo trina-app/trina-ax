@@ -1,7 +1,7 @@
 // A connection's monthly limit (docs/DECISIONS.md "AI 연결" D17): USD and/or tokens per month of the team's time
-// zone (admin/settings.ts teamTimeZone), from the per-request counts (credential_usage_daily). "block": the resolver skips the connection once it is
-// used up (store.ts unusable 'over_limit') and the proxy refuses its next request, so the turn moves to another
-// connection. Both actions tell the owner and admins at 80% and 100%, once each per month (credential_notices).
+// zone (admin/settings.ts teamTimeZone), from the per-request counts (credential_usage_daily). "block": the resolver
+// skips the connection once it is used up (store.ts unusable 'over_limit') and the proxy refuses its next request, so
+// the turn moves to another connection. Both actions tell the owner and admins at 80% and 100%, once each per month (credential_notices).
 import { ctAll } from './i18n'
 import { admins, getRow, monthUsage, teamMonthKey, type CredCtx } from './store'
 
