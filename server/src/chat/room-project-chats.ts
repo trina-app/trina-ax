@@ -30,8 +30,10 @@ import { z } from 'zod'
 import type { ChatRow, ProjectRow } from './store'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
-import { addSources, sourceOf, type ReadSource } from './read-scope'
+import { addSources, sourceKey, sourceOf, viewersOf, type ReadSource } from './read-scope'
+import { loadPrincipal } from '../policy/access'
 import { Audiences, chatFor, INVISIBLE_RE, labelName, projectCanShare, readTranscript, sharedChatAudienceCovers } from './shared'
+import { AnswerSight, answerRecords } from './shared-answers'
 import { neutralizeTags } from './prompt'
 import { confidentialChat } from '../safe-ops/confidential'
 import { safeOpsEnabled } from '../safe-ops/runner'
@@ -97,6 +99,26 @@ export function projectChatTools(exec: TurnExec): Tool[] {
     for (const p of names) add.push({ type: 'name', path: p })
     addSources(db, spec.chatId, add)
   }
+  /**
+   * An answer given to the AI that someone in the room may not see in the chat (chat/shared-answers.ts: it used what
+   * they may not read, and they did not see the chat then): the room's answer must stay the asker's. What those
+   * answers read joins the question's read scope (rooms/ai.ts decide() then names the folders some members cannot
+   * open); when that alone would not keep it private (they read nothing some member misses: not all of it known, or
+   * built on another hidden answer), the question counts as using something outside the team files. When everyone
+   * here sees every one of them, nothing more than the project counts (as before).
+   */
+  const hiddenFromSomeone = (sight: AnswerSight, chatId: string, answers: readonly string[]) => {
+    if (!answers.length) return
+    const here = members(db, roomId).map((m) => m.user_id)
+    if (!here.some((u) => { const w = sight.withheld(chatId, u); return answers.some((id) => w.has(id)) })) return
+    const records = answerRecords(db, chatId)
+    const add = new Map<string, ReadSource>()
+    for (const id of answers) for (const g of records.get(id)?.reads ?? []) if (!g.x) for (const s of g.s) add.set(sourceKey(s), s)
+    addSources(db, spec.chatId, [...add.values()])
+    const people = here.map((u) => loadPrincipal(db, u))
+    const posts = people.every((p) => !!p && [...add.values()].every((s) => viewersOf(db, sight.rules, s, [p], spec.userId).has(p.id)))
+    if (posts) db.query('UPDATE chats SET room_outside = 1 WHERE id = ? AND room_outside = 0').run(spec.chatId)
+  }
   /** "<verb> · <title>" only when everyone in the room sees the chat's project, else the verb alone */
   const named = (r: Readable | null, locale: Locale) => {
     const verb = FILE_STEP_VERB.project_chat![locale]
@@ -149,11 +171,18 @@ export function projectChatTools(exec: TurnExec): Tool[] {
         const rows = visible.size ? db.query(`SELECT c.id, c.user_id, c.project_id, c.title, c.updated_at FROM chats c JOIN projects p ON p.id = c.project_id
           WHERE ${where.join(' AND ')} ORDER BY c.updated_at DESC, c.id DESC LIMIT ${PROJECT_CHATS_SCAN}`).all(...params) as Pick<ChatRow, 'id' | 'user_id' | 'project_id' | 'title' | 'updated_at'>[] : []
         const shown: { row: (typeof rows)[number]; project: ProjectRow }[] = []
+        // a word found only in an answer hidden from the asker does not count (chat/shared-answers.ts): no hint of it
+        const sight = new AnswerSight(db, rt.files)
+        const words = (a.data.query ?? '').split(/\s+/).filter(Boolean).slice(0, 8).map((w) => `%${likeEscape(w)}%`)
+        const matches = (r: (typeof rows)[number], p: ProjectRow) => words.every((like) =>
+          !!db.query("SELECT 1 FROM chats c JOIN projects p ON p.id = c.project_id WHERE c.id = ?1 AND p.id = ?2 AND (c.title LIKE ?3 ESCAPE '\\' OR p.name LIKE ?3 ESCAPE '\\')").get(r.id, p.id, like)
+          || (db.query("SELECT message_id AS id FROM messages_fts WHERE chat_id = ? AND content LIKE ? ESCAPE '\\'").all(r.id, like) as { id: string }[]).some((m) => !sight.withheld(r.id, spec.userId).has(m.id)))
         for (const r of rows) {
           if (shown.length >= limit) break
           // never a confidential one
           const p = visible.get(r.project_id!)
           if (!p || confidentialChat(db, r.id)) continue
+          if (words.length && !matches(r, p)) continue
           shown.push({ row: r, project: p })
         }
         const asker = labelName(rt.store, spec.userId)
@@ -182,9 +211,12 @@ export function projectChatTools(exec: TurnExec): Tool[] {
         if (safeOpsEnabled()) { patch(null); return { ...text(SAFE_OPS, true), summary: 'project_chat -> refused: safe operations' } }
         const r = readable(a.data.chat)
         if (!r) { patch(null); return { ...text(NOT_FOUND), summary: 'project_chat -> not found' } }
-        const t = readTranscript(rt.store, r.row.active_leaf_id, spec.userId)
+        // as the asker sees it: an answer hidden from them is one line (chat/shared-answers.ts)
+        const sight = new AnswerSight(db, rt.files)
+        const t = readTranscript(rt.store, r.row.active_leaf_id, spec.userId, sight.withheld(r.row.id, spec.userId))
         // the chat's audience (its project folder's readers) and the team files its messages name for the asker
         record([r.project], t.paths)
+        hiddenFromSomeone(sight, r.row.id, t.answers)
         patch(r)
         const asker = labelName(rt.store, spec.userId)
         const by = labelName(rt.store, r.row.user_id)

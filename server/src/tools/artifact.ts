@@ -8,7 +8,8 @@ import type { z } from 'zod'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { HttpError } from '../http/errors'
-import { visibleSharedChat } from '../chat/shared'
+import { isSharedChat, visibleSharedChat } from '../chat/shared'
+import { withheldFrom } from '../chat/shared-answers'
 import { ToolError } from '../policy/errors'
 import { normIso } from '../team-files/service'
 
@@ -36,9 +37,19 @@ export class Artifacts {
     return this.ctx.db.query(`SELECT ${COLS} FROM artifacts WHERE chat_id = ? AND key = ? ORDER BY version DESC LIMIT 1`).get(chatId, key) as Row | null
   }
 
+  /** The answers of a shared chat hidden from `userId` (chat/shared-answers.ts): their artifacts are not theirs to see
+   * (an empty set for a chat of one person). */
+  private hiddenFrom(userId: string, chatId: string): ReadonlySet<string> {
+    return isSharedChat(this.ctx.db, chatId) ? withheldFrom(this.ctx.db, this.ctx.files.rules(), chatId, userId) : new Set()
+  }
+
   /** The artifact tool. Throws ToolError with a message the model can act on. */
   apply(t: ArtifactTurn, a: z.output<typeof ArtifactInput>): ArtifactSummary {
-    const prev = this.latest(t.chatId, a.key)
+    const latest = this.latest(t.chatId, a.key)
+    // a shared chat: a version made by an answer hidden from this person is not theirs: an update finds nothing, and a
+    // new version takes nothing from it (its number goes on)
+    const hidden = !!latest?.message_id && this.hiddenFrom(t.userId, t.chatId).has(latest.message_id)
+    const prev = hidden ? null : latest
     let content: string
     if (a.action === 'update') {
       if (!prev) throw new ToolError(`no artifact with key '${a.key}' in this chat yet; use action "create"`)
@@ -56,9 +67,9 @@ export class Artifacts {
       content = a.content
     }
     if (Buffer.byteLength(content, 'utf8') > MAX_ARTIFACT_BYTES) throw new ToolError(`artifact is too large (max ${MAX_ARTIFACT_BYTES / 1024 / 1024} MB)`)
-    if (prev && prev.version >= MAX_VERSIONS_PER_KEY) throw new ToolError(`too many versions of '${a.key}'; create a new key`)
+    if (latest && latest.version >= MAX_VERSIONS_PER_KEY) throw new ToolError(`too many versions of '${a.key}'; create a new key`)
     const row: Row = {
-      id: newId(), chat_id: t.chatId, message_id: t.messageId, key: a.key, version: (prev?.version ?? 0) + 1,
+      id: newId(), chat_id: t.chatId, message_id: t.messageId, key: a.key, version: (latest?.version ?? 0) + 1,
       type: (a.action === 'update' ? prev!.type : a.type) ?? prev?.type ?? 'markdown',
       title: a.title ?? prev?.title ?? null, language: a.language ?? (a.action === 'update' ? prev?.language ?? null : null),
       content, created_at: new Date().toISOString(),
@@ -84,7 +95,9 @@ export class Artifacts {
   /** GET /api/chats/:id/artifacts — every key with its versions, newest first. */
   list(userId: string, chatId: string): { items: { key: string; versions: ArtifactSummary[] }[] } {
     this.ownChat(userId, chatId)
-    const rows = this.ctx.db.query(`SELECT ${COLS} FROM artifacts WHERE chat_id = ? ORDER BY key, version DESC`).all(chatId) as Row[]
+    // (a shared chat: none of an answer hidden from the caller)
+    const hidden = this.hiddenFrom(userId, chatId)
+    const rows = (this.ctx.db.query(`SELECT ${COLS} FROM artifacts WHERE chat_id = ? ORDER BY key, version DESC`).all(chatId) as Row[]).filter((r) => !r.message_id || !hidden.has(r.message_id))
     const groups = new Map<string, ArtifactSummary[]>()
     for (const r of rows) { const g = groups.get(r.key) ?? []; g.push(summary(r)); groups.set(r.key, g) }
     // keys in the order they were first created
@@ -98,6 +111,7 @@ export class Artifacts {
     const r = this.ctx.db.query(`SELECT a.${COLS.split(', ').join(', a.')} FROM artifacts a WHERE a.id = ?`).get(id) as Row | null
     if (!r) throw new HttpError('not_found')
     this.ownChat(userId, r.chat_id)
+    if (r.message_id && this.hiddenFrom(userId, r.chat_id).has(r.message_id)) throw new HttpError('not_found')
     return full(r)
   }
 }

@@ -209,6 +209,12 @@ export const TEXT = {
     'AI ingin membaca {sources}. Dari {n} orang proyek yang melihat obrolan ini, {m} tidak bisa melihat tempat ini. Jika dibaca, semua orang melihat isinya di obrolan ini.',
     "AIが{sources}を読もうとしています。このチャットを見るプロジェクトの{n}人のうち{m}人はこの場所を見られません。読むと、全員がこのチャットで内容を見ることになります。",
     "La IA quiere leer {sources}. De las {n, plural, one {# persona} other {# personas}} del proyecto que ven este chat, {m} no pueden ver este lugar. Si lo lee, todos verán el contenido en este chat."),
+  // a group's skill someone who sees the chat may not use (not in the group: the owner and admins read its folder)
+  sharedSkillConfirm: t('AI가 {sources}의 스킬을 쓰려고 해요. 이 채팅을 보는 프로젝트 사람 {n}명 중 {m}명은 이 스킬을 쓸 수 없어요. 쓰면 모두가 이 채팅에서 내용을 보게 돼요.',
+    'The AI wants to use a skill in {sources}. Of the {n, plural, one {# person} other {# people}} in the project who see this chat, {m} cannot use this skill. If it does, everyone sees its content in this chat.',
+    'AI ingin memakai skill di {sources}. Dari {n} orang proyek yang melihat obrolan ini, {m} tidak bisa memakai skill ini. Jika dipakai, semua orang melihat isinya di obrolan ini.',
+    "AIが{sources}のスキルを使おうとしています。このチャットを見るプロジェクトの{n}人のうち{m}人はこのスキルを使えません。使うと、全員がこのチャットで内容を見ることになります。",
+    "La IA quiere usar una habilidad de {sources}. De las {n, plural, one {# persona} other {# personas}} del proyecto que ven este chat, {m} no pueden usar esta habilidad. Si la usa, todos verán su contenido en este chat."),
   sharedReadYes: t('읽고 공유하기', 'Read and share', 'Baca dan bagikan', "読んで共有する", "Leer y compartir"),
   sharedReadNo: t('읽지 않기', "Don't read", 'Jangan baca', "読まない", "No leer"),
   sharedReadSkipped: t('프로젝트 사람 모두가 볼 수는 없는 곳이라 읽지 않았어요', 'Not read: not everyone in the project can see that place', 'Tidak dibaca: tidak semua orang di proyek bisa melihat tempat itu', "プロジェクトの全員が見られる場所ではないため、読みませんでした", "No se leyó: no todas las personas del proyecto pueden ver ese lugar"),
