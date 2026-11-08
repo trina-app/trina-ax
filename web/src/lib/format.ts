@@ -36,6 +36,12 @@ export function formatShortDateTime(iso: string | null | undefined, locale: Loca
   return new Intl.DateTimeFormat(TAG[locale], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(iso))
 }
 
+/** A day without its year: "11월 8일", "November 8". */
+export function formatMonthDay(iso: string | null | undefined, locale: Locale): string {
+  if (!iso) return ''
+  return new Intl.DateTimeFormat(TAG[locale], { month: 'long', day: 'numeric' }).format(new Date(iso))
+}
+
 export function formatDate(iso: string | null | undefined, locale: Locale): string {
   if (!iso) return ''
   return new Intl.DateTimeFormat(TAG[locale], { dateStyle: 'medium' }).format(new Date(iso))

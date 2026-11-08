@@ -136,6 +136,11 @@ export const AskUserRequest = z.object({
   preview: SkillWritePreview.optional(),
   /** a server check: exactly what is about to go out, each block in full (ConfirmDetail) */
   details: z.array(ConfirmDetail).max(8).optional(),
+  /** a server check whose three choices are buttons in this order, the first the main one and the last the "no" (a
+   * room's change card: 이번만 허용, 이 방에서는 항상 허용, 허용 안 함); absent: two choices are buttons, more are radios */
+  buttons: z.literal(true).optional(),
+  /** a server check: one line under its buttons, what a choice covers */
+  note: z.string().max(300).optional(),
 })
 /** browser wants to open an office-network (private) address: ask once / always / deny */
 export const BrowserSiteRequest = z.object({ kind: z.literal('browser_site'), requestId: z.string(), url: z.string(), host: z.string(), reason: z.string().optional() })
