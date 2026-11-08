@@ -64,3 +64,12 @@ export function useAvatarOf(ref: UserRef | null | undefined): { id: string; name
   if (!ref) return null
   return { id: ref.id, name: ref.name, avatarVersion: person?.avatarVersion }
 }
+
+/** A face for someone a list names by id and name (Admin › Folder permissions, Groups, the Team skills page's editors):
+ * the name as the list has it, with the directory's photo version (the directory is read the first time a screen asks);
+ * someone not in it (switched off) gets the letter. */
+export function useFaceOf(): (ref: { id: string; name: string }) => { id: string; name: string; avatarVersion?: number } {
+  usePeopleList()
+  const byId = usePeople((s) => s.byId)
+  return useCallback((ref) => ({ id: ref.id, name: ref.name, avatarVersion: byId[ref.id]?.avatarVersion }), [byId])
+}

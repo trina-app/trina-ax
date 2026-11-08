@@ -9,7 +9,7 @@
 // changes; lib/access-edit.ts says why). A save carries the hash of the rules it started from: when another admin
 // changed them meanwhile the server refuses it (409), and the panel asks again, says so and keeps the draft.
 import clsx from 'clsx'
-import { ArrowLeft, ArrowRight, Check, Info, TriangleAlert, UserRound, UsersRound, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, Info, TriangleAlert, X } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react'
 import type { Access, Folder, FolderEditChange, FolderEditPreview, FolderEditWarning, Group, User } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
@@ -17,6 +17,9 @@ import { addNamed, basicChoices, draftKey, draftOf, removeNamed, rootNoneRow, ru
 import { folderName, isSkillsPath, skillEditorsText, skillManagersOf, skillsLockedText, sourceText, whoSeesText } from '../../lib/access-view'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { Badge, Button, ErrorNote, IconButton, Skeleton, confirmDialog, useFocusTrap, useMediaQuery } from '../../components/ui'
+import { Avatar } from '../../components/Avatar'
+import { GroupTile } from '../../components/GroupTile'
+import { useFaceOf } from '../../store/people'
 import { toast } from '../../store/ui'
 import { useFolderPeople } from './SkillManagers'
 import { AddNamed, type ListControl } from './AddNamed'
@@ -483,6 +486,10 @@ function HowRules() {
 
 // ---------------- people and groups ----------------
 
+/** a person's picture or a group's tile before each name (20 px; with the gap, a phone's access switch line starts
+ * under the name: pl-7) */
+const FACE = 20
+
 function NamedList({ draft, users, groups, allUsers, allGroups, list, onChange }: {
   draft: Draft
   users: Map<string, User>
@@ -507,6 +514,7 @@ function NamedList({ draft, users, groups, allUsers, allGroups, list, onChange }
     ;(row?.querySelector<HTMLElement>('input:checked') ?? search.current)?.focus()
   })
   const taken = new Set(draft.named.map((n) => `${n.subjectType}:${n.subjectId}`))
+  const faceOf = useFaceOf()
   return (
     <section aria-labelledby={titleId} data-testid="edit-people">
       <h4 id={titleId} className="text-sm font-semibold text-ink">
@@ -526,11 +534,10 @@ function NamedList({ draft, users, groups, allUsers, allGroups, list, onChange }
             const u = n.subjectType === 'user' ? users.get(n.subjectId) : undefined
             const g = n.subjectType === 'group' ? groups.get(n.subjectId) : undefined
             const label = u?.name ?? g?.name ?? '?'
-            const Icon = n.subjectType === 'group' ? UsersRound : UserRound
             const always = u && (u.role === 'owner' || u.role === 'admin')
             return (
               <li key={`${n.subjectType}:${n.subjectId}`} className="flex flex-wrap items-center gap-x-2 gap-y-1.5 py-2" data-testid="edit-named" data-subject={`${n.subjectType}:${n.subjectId}`}>
-                <Icon size={15} className="shrink-0 text-faint" aria-hidden />
+                {n.subjectType === 'group' ? <GroupTile size={FACE} /> : <Avatar user={faceOf({ id: n.subjectId, name: label })} size={FACE} />}
                 <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-1.5">
                   {/* a phone: the whole name shows (it wraps); the access switch goes to its own line below */}
                   <span className="min-w-0 text-sm font-medium break-words text-ink sm:truncate">{label}</span>
@@ -542,7 +549,7 @@ function NamedList({ draft, users, groups, allUsers, allGroups, list, onChange }
                   )}
                   {always && <span className="text-xs text-faint">· {t('accessEdit.always')}</span>}
                 </span>
-                <div className="flex shrink-0 items-center gap-x-2 max-sm:basis-full max-sm:pl-[23px]">
+                <div className="flex shrink-0 items-center gap-x-2 max-sm:basis-full max-sm:pl-7">
                   <AccessChoice
                     name={label}
                     value={n.access}
