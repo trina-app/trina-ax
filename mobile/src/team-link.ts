@@ -92,7 +92,7 @@ const isIpHost = (h: string) => h.startsWith('[') || /^\d{1,3}(?:\.\d{1,3}){3}$/
 export function linkInText(raw: string): string | null {
   const s = raw.trim()
   // one word that is not an address with something glued in front ("링크:https://…")
-  if (!/\s/.test(s) && !/.https?:\/\//i.test(s)) return trimTrailing(cutGlued(s))
+  if (!/\s/.test(s) && !/.https?:\/\//i.test(s)) return trimTrailing(cutGlued(trimTrailing(s)))
   const found = (s.match(URL_IN_TEXT) ?? []).map(trimTrailing)
   const isLink = (u: string) => /^https?:\/\/[^/]+\/(?:invite\/[A-Za-z0-9_-]|join#)/i.test(u)
   return found.find(isLink) ?? found[0] ?? null

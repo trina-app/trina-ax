@@ -14898,9 +14898,10 @@ accounts, relay names); nothing about plans or billing.
   outside note when it applies, [취소] (focus) [바꾸기]. Only [바꾸기] runs the leave (`leaveTeam`, the label key, the
   delivered notifications), and only after the new team was saved (a refused save leaves the phone in its team). If the app stops between the
   two, the next start finds the old team's device record (`startRemovals`: a device for another origin than the saved
-  team) and makes it a removal still owed, so the old team's push does not stay on the phone. Every change of the stored
-  devices (the start, a leave, a retry) runs one at a time, so a slow removal cannot write back an older owed list over
-  the old team's entry. The new team's push starts only after sign-in there, so the question promises nothing about
+  team) and makes it a removal still owed, so the old team's push does not stay on the phone. The stored devices change one
+  short storage step at a time with no network inside (the start, a leave, a registration, a retry), and a retry takes
+  out only what it removed: a slow removal can neither write an older owed list over the old team's entry nor hold back
+  a leave or the new team's device. The new team's push starts only after sign-in there, so the question promises nothing about
   it. The same team again opens the link's page in place.
 - **Desktop**: a pasted link opens its page in the app (`openTeam(id, entryPath)`; a team already open loads it where it
   is, the office-network address included); the 팀 menu's "팀 추가…" and "팀 목록…" (the same screen) are one "팀

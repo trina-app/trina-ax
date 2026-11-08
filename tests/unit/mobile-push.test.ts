@@ -523,19 +523,49 @@ test('a switch cut short (the new team saved, the old one not left yet): the old
   expect(app).not.toContain('retryRemovals(')
 })
 
-test('a slow network cannot make two runs drop an owed removal: every change of the stored devices waits its turn', async () => {
-  // x's removal is owed and its first try is slow (it fails late); meanwhile the start finds a's device (the app
-  // stopped mid-switch). Side by side, the slow run would write back its old list [x] last and drop a.
-  let slow: ((ok: boolean) => void) | null = null, first = true
-  const m = memory(() => { if (!first) return Promise.resolve(false); first = false; return new Promise<boolean>(r => { slow = r }) })
+// x's removal is owed and its first try is slow; every other try answers at once
+function slowFirst(ok = false) {
+  let release: ((ok: boolean) => void) | null = null, first = true
+  const m = memory(() => { if (!first) return Promise.resolve(ok); first = false; return new Promise<boolean>(r => { release = r }) })
+  return { m, release: (v: boolean) => release!(v) }
+}
+const owedIds = (m: ReturnType<typeof memory>) => JSON.parse(m.store.get('pending') ?? '[]').map((d: TeamDevice) => d.deviceId).sort()
+const tick = () => new Promise(r => setTimeout(r, 10))
+
+test('a slow network cannot make two runs drop an owed removal: a retry takes out only what it removed', async () => {
+  // meanwhile the start finds a's device (the app stopped mid-switch) and a switch leaves b; side by side, the slow
+  // run used to write back its old list [x] last and drop a
+  const { m, release } = slowFirst()
   await m.deps.pending.set(JSON.stringify([{ ...dev('https://x.example', 'dev_x'), at: m.deps.now() }]))
   await rememberDevice(m.deps, dev('https://a.example', 'dev_a'))
   const runs = [retryRemovals(m.deps), startRemovals(m.deps, 'https://b.example'), leaveTeam(m.deps, 'https://b.example')]
-  await new Promise(r => setTimeout(r, 20))
-  slow!(false)
+  await tick()
+  release(false)
   await Promise.all(runs)
-  expect(JSON.parse(m.store.get('pending')!).map((d: TeamDevice) => d.deviceId).sort()).toEqual(['dev_a', 'dev_x'])
+  expect(owedIds(m)).toEqual(['dev_a', 'dev_x'])
   expect(m.store.get('current')).toBeUndefined()
+})
+
+test('a slow removal holds back neither a leave nor the new team\'s device', async () => {
+  const { m, release } = slowFirst()
+  await m.deps.pending.set(JSON.stringify([{ ...dev('https://x.example', 'dev_x'), at: m.deps.now() }]))
+  await rememberDevice(m.deps, dev('https://a.example', 'dev_a'))
+  const retry = retryRemovals(m.deps)
+  await tick()
+  const leave = leaveTeam(m.deps, 'https://a.example')
+  await tick()
+  // the leave is stored while x's removal is still out
+  expect(m.store.get('current')).toBeUndefined()
+  expect(owedIds(m)).toEqual(['dev_a', 'dev_x'])
+  // the new team registers this phone meanwhile; x's removal then succeeds late
+  await rememberDevice(m.deps, dev('https://b.example', 'dev_b'))
+  release(true)
+  await Promise.all([retry, leave])
+  expect((await currentDevice(m.deps, 'https://b.example'))?.deviceId).toBe('dev_b')
+  expect(owedIds(m)).toEqual(['dev_a'])
+  // leaving a team that is not the current one keeps the current device
+  await leaveTeam(m.deps, 'https://a.example')
+  expect((await currentDevice(m.deps, 'https://b.example'))?.deviceId).toBe('dev_b')
 })
 
 test('the session check: the page answers GET /api/me with the check number; anything else is not an answer', () => {

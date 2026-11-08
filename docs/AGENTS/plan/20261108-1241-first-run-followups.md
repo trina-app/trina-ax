@@ -23,9 +23,9 @@ In:
 3. The desktop host strip and the phone footer no longer make the page jump on every team open: while `/api/me` has
    not answered yet on a page that is not a sign-in page, the line waits 300 ms before it takes space (`hostLineNow`,
    shared); a sign-in page and a signed-out answer show it at once. Test.
-4. The phone's start: the start's device check and the owed-removal retry run one after the other, and every change of
-   the stored devices waits its turn (a slow removal could write the owed
-   list over the old team's new entry). Test with a slow network.
+4. The phone's start: the start's device check and the owed-removal retry run one after the other; the stored devices
+   change one storage step at a time (no network inside), and a retry takes out only what it removed (a slow removal
+   could write the owed list over the old team's new entry). Test with a slow network.
 5. DECISIONS: the host line is a hint (a page script can hide the phone footer; a fake server can answer its own
    `/api/me`); the protection is ④ and the outside-trina.app question.
 
