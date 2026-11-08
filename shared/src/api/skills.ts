@@ -88,7 +88,7 @@ export function skillLabel(s: { name: string; title?: string | null }): string {
   if (title && title !== s.name) return title
   return s.name.replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim() || s.name
 }
-/** A skill's description without a lead that only repeats its title: the marketing pack writes "광고 문구 — 알릴 제품과
+/** A skill's description without a lead that only repeats its title: the packs write "회사 소개서 — 회사 소개 자료나
  * …" so the AI and older screens read the plain name; next to the title the rest is enough. The rest starts as a
  * sentence: "Ad copy — takes what to promote …" reads "Takes what to promote …". */
 export function skillSummary(s: { name: string; title?: string | null; description: string }): string {
