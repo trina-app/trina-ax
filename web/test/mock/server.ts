@@ -1628,6 +1628,17 @@ export class MockServer {
       const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
       return { items: this.roomMessages.get(room.id) ?? [], nextCursor: null }
     },
+    // ⌘K: the messages of the rooms here that hold the text (one page, newest first), like the server's
+    searchRoomMessages: (c) => {
+      const q = String(c.query.q ?? '').trim().toLowerCase()
+      const items = this.rooms.flatMap((room) => (this.roomMessages.get(room.id) ?? []).filter((m) => !m.deletedAt && !m.event && m.body.toLowerCase().includes(q)).map((m) => ({ m, room })))
+        .sort((a, b) => b.m.createdAt.localeCompare(a.m.createdAt)).slice(0, Number(c.query.limit ?? 20))
+      const rooms = [...new Set(items.map((x) => x.room))].map((r) => ({ id: r.id, kind: r.kind, name: r.name, peers: r.peers, memberCount: r.memberCount }))
+      return {
+        items: items.map(({ m }) => ({ id: m.id, roomId: m.roomId, threadRootId: m.threadRootId ?? null, authorKind: m.authorKind, author: m.authorKind === 'ai' ? null : m.author, askedBy: m.authorKind === 'ai' ? m.askedBy : null, markdown: m.authorKind === 'ai' || !!m.sharedAnswer, snippet: m.body.slice(0, 200), createdAt: m.createdAt })),
+        rooms, nextCursor: null,
+      }
+    },
     listRoomMembers: (c) => {
       const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
       return { items: [{ id: c.user.id, name: c.user.name }, ...room.peers].map((user) => ({ user, joinedAt: room.createdAt })) }

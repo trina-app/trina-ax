@@ -26,7 +26,7 @@
 // answer is the other writer of room_messages (author_kind 'ai', asked_by = who asked); a private preview (visibility
 // 'private', visible_to = who asked) is filtered everywhere (canSee / SEE_SQL) and makes no notice (notify()).
 import type { Database } from 'bun:sqlite'
-import { DEFAULT_LOCALE, inQuietHours, roomAlert, roomLevel, ROOM_GROUP_MAX, type Locale, type RoomAlertSettings, type RoomNotifyLevel, type Room, type RoomMember, type RoomMessage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, inQuietHours, roomAlert, roomLevel, ROOM_GROUP_MAX, type Locale, type RoomAlertSettings, type RoomNotifyLevel, type Room, type RoomMember, type RoomMessage, type RoomMessagesPage, type RoomReaction, type RoomReactionEmoji, type RoomReadState, type RoomSearchPage, type RoomThreadPage, type RoomThreadReadState, type ServerEventInput } from '@mycel/shared/api'
 import { decodeCursor, encodeCursor } from '../chat/store'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
@@ -46,6 +46,7 @@ import {
 import { roomFilesOf } from './files'
 import { historyKinds, openHistories } from './history'
 import { countedUnreadIn } from './inbox'
+import { searchRoomMessages, type SearchInput } from './search'
 import { roomAiOf, type AskOptions } from './ai'
 import { tr } from '../chat/i18n'
 import { roomAiCalled, roomMentionAllIn } from '@mycel/shared/api'
@@ -434,17 +435,48 @@ export class Rooms {
   }
 
   // ---------------- messages ----------------
-  messages(userId: string, roomId: string, o: { cursor?: string; limit?: number }) {
+  /** A page of the timeline: the newest, one older than a cursor ({s}), one newer than a cursor ({n}: newerCursor), or
+   * the page around a message I can see (`around`: a link or a search result older than the newest page). */
+  messages(userId: string, roomId: string, o: { cursor?: string; limit?: number; around?: string }): RoomMessagesPage {
     const { me } = this.mine(userId, roomId)
-    const cur = decodeCursor(o.cursor, ['s'])
-    if (o.cursor && (!cur || !/^\d+$/.test(cur.s))) fail('validation', undefined, { fields: { 'query.cursor': 'invalid cursor' } })
+    const older = decodeCursor(o.cursor, ['s'])
+    const newer = older ? null : decodeCursor(o.cursor, ['n'])
+    if (o.cursor && !(older && /^\d+$/.test(older.s)) && !(newer && /^\d+$/.test(newer.n))) fail('validation', undefined, { fields: { 'query.cursor': 'invalid cursor' } })
     const limit = Math.min(200, Math.max(1, o.limit ?? 50))
     // the timeline: replies that stay in their thread are not in it (listThread)
     // an old answer hidden from me is in it as one line (LIST_SQL, messagesOut), never what is in its thread
-    const rows = this.db.query(`SELECT ${MSG_COLS} FROM room_messages m WHERE m.room_id = ? AND ${LIST_SQL} AND ${TIMELINE_SQL} ${cur ? 'AND m.seq < ?' : ''} ORDER BY m.seq DESC LIMIT ?`)
-      .all(...(cur ? [roomId, ...seeArgs(me), Number(cur.s), limit + 1] : [roomId, ...seeArgs(me), limit + 1])) as MessageRow[]
+    const timeline = (where: string, order: 'ASC' | 'DESC', ...args: number[]) => this.db.query(`SELECT ${MSG_COLS} FROM room_messages m WHERE m.room_id = ? AND ${LIST_SQL} AND ${TIMELINE_SQL} ${where} ORDER BY m.seq ${order} LIMIT ?`)
+      .all(roomId, ...seeArgs(me), ...args) as MessageRow[]
+    const olderCursor = (first: MessageRow | undefined, more: boolean) => (more && first ? encodeCursor({ s: String(first.seq) }) : null)
+    const newerCursor = (last: MessageRow | undefined, more: boolean) => (more && last ? encodeCursor({ n: String(last.seq) }) : null)
+    if (newer) {
+      const rows = timeline('AND m.seq > ?', 'ASC', Number(newer.n), limit + 1)
+      const page = rows.slice(0, limit)
+      return { items: messagesOut(this.db, page, me), nextCursor: null, newerCursor: newerCursor(page.at(-1), rows.length > limit) }
+    }
+    // around a message: only one I can see (anything else is not looked for: the newest page, as for an id that is not
+    // there); its place in the timeline, or its thread's first message's for a reply that stays in its thread
+    const target = !older && o.around ? messageRow(this.db, roomId, o.around) : null
+    if (target && canSee(this.db, target, me)) {
+      const at = target.thread_root_id && !target.also_in_room ? target.thread_root_seq ?? target.seq : target.seq
+      const after = Math.floor(limit / 2), upTo = limit - after
+      const before = timeline('AND m.seq <= ?', 'DESC', at, upTo + 1)
+      const later = timeline('AND m.seq > ?', 'ASC', at, after + 1)
+      const head = before.slice(0, upTo).reverse(), tail = later.slice(0, after)
+      // (newer ones after the page's last: with a page of one, the message itself)
+      return { items: messagesOut(this.db, [...head, ...tail], me), nextCursor: olderCursor(head[0], before.length > upTo), newerCursor: newerCursor(tail.at(-1) ?? head.at(-1), later.length > after) }
+    }
+    const rows = older ? timeline('AND m.seq < ?', 'DESC', Number(older.s), limit + 1) : timeline('', 'DESC', limit + 1)
     const page = rows.slice(0, limit).reverse()
-    return { items: messagesOut(this.db, page, me), nextCursor: rows.length > limit && page[0] ? encodeCursor({ s: String(page[0].seq) }) : null }
+    return { items: messagesOut(this.db, page, me), nextCursor: olderCursor(page[0], rows.length > limit) }
+  }
+
+  // ---------------- search ----------------
+  /** ⌘K: the messages I can see in my rooms that hold the text (rooms/search.ts). My team rooms and the everyone room are
+   * put right first, and their histories opened, as before my AI chat reads them (syncFor). */
+  search(userId: string, o: SearchInput): RoomSearchPage {
+    this.syncFor(userId)
+    return searchRoomMessages(this.db, userId, o)
   }
 
   /** Send as `userId` (the author is always the signed-in person). Same clientMessageId again: the first message. A

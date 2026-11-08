@@ -463,9 +463,49 @@ export const SetRoomHiddenBody = z.object({ hidden: z.boolean() }).strict()
  * now on, never what was said before. */
 export const InviteRoomBody = z.object({ userIds: z.array(UserId).min(1).max(ROOM_GROUP_MAX - 1) }).strict()
 
-/** Without a cursor: the newest `limit` messages, oldest first; nextCursor fetches older ones (prepend). */
-export const ListRoomMessagesQuery = PageQuery
-export const RoomMessagesPage = page(RoomMessage)
+/** Without a cursor: the newest `limit` messages, oldest first; nextCursor fetches older ones (prepend).
+ * around: the page around this message of the timeline (a thread reply: its thread's first message), for a link or a
+ * search result older than the newest page; newerCursor then fetches newer ones (append) until it is null (the page
+ * reaches the newest). A message I cannot see is not looked for: the newest page, as without it. A cursor from
+ * newerCursor gives the next newer page (and nextCursor null). */
+export const ListRoomMessagesQuery = PageQuery.extend({ around: Uuid7.optional() })
+/** newerCursor: present only for a page that does not reach the newest message (around, or a newer page) */
+export const RoomMessagesPage = page(RoomMessage).extend({ newerCursor: z.string().nullable().optional() })
+export type RoomMessagesPage = z.infer<typeof RoomMessagesPage>
+
+/** ⌘K search of the room messages I can see (docs/DECISIONS.md "⌘K에서 대화방 메시지 찾기"): the text as one part, in
+ * any case, newest first. */
+export const ROOM_SEARCH_PAGE_MAX = 30
+export const ROOM_SEARCH_SNIPPET_MAX = 200
+export const RoomSearchQuery = z.object({
+  /** (no NUL: it would end the index's query) */
+  q: z.string().trim().min(1).max(200).refine((s) => !s.includes('\u0000'), { message: 'invalid character' }),
+  cursor: z.string().max(500).optional(),
+  limit: z.coerce.number().int().min(1).max(ROOM_SEARCH_PAGE_MAX).optional(),
+})
+/** A message found: who wrote it and when, and the text around the first match (at most ROOM_SEARCH_SNIPPET_MAX
+ * characters, … where it is cut, a room link as #name). threadRootId: a reply in that message's thread (it opens the
+ * thread). The text is the message's own, as the room shows it to me: never a quote, a file or an answer hidden from me. */
+export const RoomSearchHit = z.object({
+  id: Uuid7,
+  roomId: Uuid7,
+  threadRootId: Uuid7.nullable(),
+  authorKind: z.enum(['user', 'ai']),
+  /** the person who wrote it (null: the AI's answer, or someone no longer here) */
+  author: UserRef.nullable(),
+  /** an AI answer: who asked it */
+  askedBy: UserRef.nullable(),
+  /** the text is Markdown (an AI answer, or an answer someone sent from their own AI chat) */
+  markdown: z.boolean(),
+  snippet: z.string(),
+  createdAt: IsoTime,
+})
+export type RoomSearchHit = z.infer<typeof RoomSearchHit>
+/** The rooms of the hits on a page, as much as their titles need (the app names them as in its lists) */
+export const RoomSearchRoom = z.object({ id: Uuid7, kind: RoomKind, name: z.string().nullable(), peers: z.array(UserRef), memberCount: z.number().int().nonnegative() })
+export type RoomSearchRoom = z.infer<typeof RoomSearchRoom>
+export const RoomSearchPage = z.object({ items: z.array(RoomSearchHit), rooms: z.array(RoomSearchRoom), nextCursor: z.string().nullable() })
+export type RoomSearchPage = z.infer<typeof RoomSearchPage>
 
 export const SendRoomMessageBody = z.object({
   body: z.string().max(ROOM_MESSAGE_MAX),
@@ -513,7 +553,8 @@ export const ROOMS = {
   createRoom: endpoint({ method: 'POST', path: '/api/rooms', auth: 'user', owner: 'B', status: 201, body: CreateRoomBody, response: Room, summary: 'Open the DM with a person (the existing one when there is one), or make a group chat with two or more people. Not audited: admins do not learn who talks to whom.' }),
   getRoom: endpoint({ method: 'GET', path: '/api/rooms/:id', auth: 'user', owner: 'B', response: Room, summary: 'One room I am in (404 for anyone else, admins included).' }),
   updateRoom: endpoint({ method: 'PATCH', path: '/api/rooms/:id', auth: 'user', owner: 'B', body: UpdateRoomBody, response: Room, summary: 'Set my notification level for a room (all, mentions, off, or my default), or rename it (group chats: any member; team and everyone rooms: owner or admin members; never a DM).' }),
-  listRoomMessages: endpoint({ method: 'GET', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomMessagesPage, summary: 'The timeline of a room I am in from my join on (thread replies only when sent to the room too), newest page first, oldest first within it.' }),
+  listRoomMessages: endpoint({ method: 'GET', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomMessagesPage, summary: 'The timeline of a room I am in from my join on (thread replies only when sent to the room too), newest page first, oldest first within it. With around: the page around that message, and newerCursor for the newer ones.' }),
+  searchRoomMessages: endpoint({ method: 'GET', path: '/api/room-messages', auth: 'user', owner: 'B', query: RoomSearchQuery, response: RoomSearchPage, summary: 'Search the messages I can see in the rooms, 1:1 and group chats I am in now (q: the text as one part, any case; Korean by part of a word), newest first, with the text around the match and the rooms of the hits.' }),
   sendRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', status: 201, body: SendRoomMessageBody, response: RoomMessage, summary: 'Send a message as myself (never another author), or a reply in a thread, with @mentions (or @everyone, written as the everyone room word of each language: mentionsAll; in the everyone room owners and admins only) and files; DMs, group chats, mentions and followed threads notify.' }),
   listRoomThread: endpoint({ method: 'GET', path: '/api/rooms/:id/messages/:messageId/thread', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomThreadPage, summary: 'A thread in a room I am in: its root and the replies I can see (none of it when I cannot see the root).' }),
   markRoomThreadRead: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/thread/read', auth: 'user', owner: 'B', body: MarkRoomReadBody, response: RoomThreadReadState, summary: 'Move my read position in a thread I follow forward to seq; its notices count as read.' }),

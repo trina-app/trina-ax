@@ -279,8 +279,9 @@ export const threadClosing = (roomId: string, fromRoom: boolean): -1 | { path: s
 
 /** "99+" past 99, like the Inbox count. */
 export const badgeText = (n: number) => (n > 99 ? '99+' : String(n))
-/** How many older pages a linked message (an Inbox row's ?m=) is looked for in a room or a thread: pages of 50, so its
- * last 500 messages. */
+/** How many older pages a linked reply (an Inbox row's or a search result's ?m=) is looked for in a thread: pages of
+ * 50, so its last 500 replies. (In a room's timeline the page around the message is asked for: store/rooms.ts
+ * loadAround.) */
 export const TARGET_PAGES = 10
 
 // ---------------- the AI in a room (docs/DECISIONS.md "대화방의 트리나") ----------------
