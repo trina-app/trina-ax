@@ -14631,8 +14631,9 @@ accounts, relay names); nothing about plans or billing.
   주소(예: acme)를 알면 주소만 넣어도 돼요." It reads an invite link (`/invite/<t>`), a team link (`/join#t=<t>`, the
   fragment kept), a full address, a bare name (`acme` → `https://acme.<teamDomain>`) and any pasted text: the first
   invite or team link in it, else its first http(s) address (a KakaoTalk long-press copies the whole bubble, sentences
-  around the link; a Korean word glued to the link ends it). Another page of the team (an address copied from a
-  browser) opens the team's start. Rejected: a "처음이세요?" question (ambiguous), a name-only box (nobody is told the
+  around the link; a Korean word, punctuation or a zero-width character glued right after the link ends it; input is
+  NFKC-normalized first, so fullwidth `ｈｔｔｐｓ：／／` reads as ASCII; `/invite` and `/join` match in any letter case).
+  Another page of the team (an address copied from a browser) opens the team's start. Rejected: a "처음이세요?" question (ambiguous), a name-only box (nobody is told the
   name), an email lookup (no central member list, and it would say who is a customer).
 - **One parser, two copies.** `shared/src/team-link.ts` is pure (no imports). The phone app cannot import `shared/` (its
   own npm project and Metro), so `mobile/src/team-link.ts` is a byte-identical copy; `tests/unit/team-link.test.ts` fails
@@ -14671,10 +14672,14 @@ accounts, relay names); nothing about plans or billing.
   another address. The phone opens the guide in the browser sheet; closing it returns to ③.
 - **The app draws the host, not the page.** A fake server can draw any address on its own sign-in page, and the desktop
   app may show the page from the office-network address (direct.ts), so `location.host` is not the team address there.
-  Desktop: a 36 px strip above the team's sign-in pages (`/login`, `/invite/…`, `/join`, `/setup`, `/reset-password/…`,
-  watched with `did-navigate` and `did-navigate-in-page`), "팀 주소 acme.trina.app [다른 팀]", in its own UI view
-  (`hostbar.html`, its IPC answered only for that view). Phone: the footer on `/login`, `/invite/…` and now `/join`
-  shows the host above "다른 팀에 연결". Always the team address the app connected to, in punycode with its port. The
+  Both apps show it on the sign-in pages (`/login`, `/invite/…`, `/join`, `/setup`, `/reset-password/…`) **and on every
+  page until the team answered GET /api/me for a signed-in person** (`hostLineShown`, shared), because a fake sign-in
+  page can sit at `/` or `/signin`. Desktop: a 36 px strip above the page, "팀 주소 acme.trina.app [다른 팀]", in its
+  own UI view (`hostbar.html`, its IPC answered only for that view); signed in = the main process's own `/api/me` read
+  (`fetchTeamInfo`, after every load and in-page navigation). Phone: the footer shows the host above "다른 팀에
+  연결"; the app injects one `/api/me` fetch into the page after each load and route change (`src/session-check.ts`)
+  and hides the footer only on a yes. A fake server can answer its own `/api/me`; the line is for the person on a real
+  team who meets a look-alike page, not a proof. Always the team address the app connected to, in punycode with its port. The
   web login page gets no host line.
 - **The first connect to an address the hosted service does not run asks once**: "트리나가 운영하는 주소가 아니에요.
   회사에서 직접 설치한 서버인지 확인하세요." [취소] [연결], the focus on [취소]. Not for this machine, not for a team
@@ -14685,7 +14690,9 @@ accounts, relay names); nothing about plans or billing.
   mounted, hidden from screen readers) with [{old}(으)로 돌아가기]; the new address must answer `/api/health`, then
   "{old}에서 나가고 {new}에 연결할까요? 이제 {old} 알림은 이 휴대폰으로 오지 않아요." with the new host and the
   outside note when it applies, [취소] (focus) [바꾸기]. Only [바꾸기] runs the leave (`leaveTeam`, the label key, the
-  delivered notifications), and only after the new team was saved (a refused save leaves the phone in its team). The new team's push starts only after sign-in there, so the question promises nothing about
+  delivered notifications), and only after the new team was saved (a refused save leaves the phone in its team). If the app stops between the
+  two, the next start finds the old team's device record (`settleDevice`: a device for another origin than the saved
+  team) and makes it a removal still owed, so the old team's push does not stay on the phone. The new team's push starts only after sign-in there, so the question promises nothing about
   it. The same team again opens the link's page in place.
 - **Desktop**: a pasted link opens its page in the app (`openTeam(id, entryPath)`; a team already open loads it where it
   is, the office-network address included); the 팀 menu's "팀 추가…" and "팀 목록…" (the same screen) are one "팀

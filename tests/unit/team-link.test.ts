@@ -42,6 +42,21 @@ const TABLE: [string, unknown, unknown?][] = [
   [`링크:https://acme.trina.app/invite/${INVITE}입니다`, acme(`/invite/${INVITE}`)],
   [`see https://example.org/blog and https://acme.trina.app/join#t=${JOIN}`, acme(`/join#t=${JOIN}`)],
   ['우리 팀 주소는 https://acme.trina.app 이에요', acme()],
+  // a word, punctuation or an invisible character glued right after the link (no space in between)
+  [`https://acme.trina.app/invite/${INVITE}입니다`, acme(`/invite/${INVITE}`)],
+  [`https://acme.trina.app/join#t=${JOIN}입니다`, acme(`/join#t=${JOIN}`)],
+  [`https://acme.trina.app/invite/${INVITE}.`, acme(`/invite/${INVITE}`)],
+  [`https://acme.trina.app/invite/${INVITE})`, acme(`/invite/${INVITE}`)],
+  [`https://acme.trina.app/invite/${INVITE}」`, acme(`/invite/${INVITE}`)],
+  [`https://acme.trina.app/invite/${INVITE}\u200b`, acme(`/invite/${INVITE}`)],
+  [`\ufeffhttps://acme.trina.app/join#t=${JOIN}\u200b`, acme(`/join#t=${JOIN}`)],
+  [`acme.trina.app/invite/${INVITE},`, acme(`/invite/${INVITE}`)],
+  ['acme.', acme()],
+  // fullwidth letters (an IME's full-width mode) read as ASCII; the path in any letter case
+  ['ｈｔｔｐｓ：／／ａｃｍｅ．ｔｒｉｎａ．ａｐｐ', acme()],
+  ['ａｃｍｅ', acme()],
+  [`https://acme.trina.app/INVITE/${INVITE}`, acme(`/invite/${INVITE}`)],
+  [`https://acme.trina.app/Join#t=${JOIN}`, acme(`/join#t=${JOIN}`)],
   // hints
   ['ㅁ츼', err('hangul')],
   ['트리나', err('hangul')],
@@ -101,6 +116,19 @@ describe('the first-run box (one table, desktop and phone)', () => {
     const t0 = performance.now()
     expect(shared.parseTeamInput(`see https://acme.trina.app${'.'.repeat(8000)}`, DESKTOP)).toEqual(acme() as never)
     expect(performance.now() - t0).toBeLessThan(50)
+  })
+})
+
+describe('where the apps show the team address', () => {
+  test('the sign-in pages in any letter case, and every page until the team said someone is signed in', () => {
+    for (const m of [shared, phone]) {
+      for (const p of ['/login', '/LOGIN', '/join', '/join/', '/setup', '/invite/abc', '/Invite/abc', '/reset-password/abc']) expect(m.isSignInPath(p)).toBe(true)
+      for (const p of ['/', '/signin', '/chats/1', '/invite', '/joined', '/login/x', '']) expect(m.isSignInPath(p)).toBe(false)
+      // a fake sign-in page at "/" or "/signin" still gets the address until /api/me answers for a signed-in person
+      for (const p of ['/', '/signin', '/login']) expect(m.hostLineShown(p, false)).toBe(true)
+      expect(m.hostLineShown('/', true)).toBe(false)
+      expect(m.hostLineShown('/login', true)).toBe(true)
+    }
   })
 })
 

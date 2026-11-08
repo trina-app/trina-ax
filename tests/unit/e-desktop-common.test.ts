@@ -114,9 +114,15 @@ describe('first run: what the team address answered, the help screens, the host 
     expect(win).toMatch(/if \(origin !== p\.origin && !known\) return \{ ok: false, error: 'renamed'/)
     expect(t('ko', 'err.renamed', { host: 'acme-corp.trina.app' })).toBe('팀 주소가 acme-corp.trina.app(으)로 바뀌었어요. 새 주소로 연결할까요?')
   })
-  test('the host strip shows on the team\'s sign-in pages only, in punycode', () => {
+  test('the host strip: the sign-in pages, and every page until /api/me answers for a signed-in person; in punycode', () => {
     for (const p of ['/login', '/join', '/setup', '/invite/abc', '/reset-password/abc']) expect(isSignInPath(p)).toBe(true)
     for (const p of ['/', '/chats/1', '/invite', '/joined', '/settings/apps']) expect(isSignInPath(p)).toBe(false)
+    const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
+    expect(win).toContain('const top = hostLineShown(this.pagePath, this.signedIn) ? HOSTBAR_HEIGHT : 0')
+    // signed in only when /api/me answered with a person; a 401, another answer or a new team page start without
+    expect(win).toMatch(/if \(res\.status === 401\) \{\n\s*if \(this\.team\?\.id === team\.id\) \{\n\s*this\.setSignedIn\(false\)/)
+    expect(win).toContain('if (this.team?.id === team.id) this.setSignedIn(me.success)')
+    expect(win).toMatch(/this\.pagePath = ''\n\s*this\.signedIn = false/)
     expect(hostOf('https://xn--bcher-kva.de')).toBe('xn--bcher-kva.de')
     expect(hostOf('http://acme.localhost:19883')).toBe('acme.localhost:19883')
     expect(parseTeamAddress('https://bücher.de')).toMatchObject({ ok: true, host: 'xn--bcher-kva.de' })

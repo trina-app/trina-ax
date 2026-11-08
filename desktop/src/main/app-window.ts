@@ -10,7 +10,7 @@ import { app as electronApp, BaseWindow, dialog, net, Notification, session, Web
 import { join } from 'node:path'
 import { PRODUCT, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
 import { Health, Me } from '@mycel/shared/api'
-import { asksOutside, firstRunLinks, healthVerdict, hostOf, isSignInPath, originOf, parseTeamAddress, teamLabel, type AddressError, type HealthAnswer } from '../common/address'
+import { asksOutside, firstRunLinks, healthVerdict, hostLineShown, hostOf, originOf, parseTeamAddress, teamLabel, type AddressError, type HealthAnswer } from '../common/address'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { teamHostnames } from '../common/browser-block'
 import { SitePermissions, type SiteSettings } from '../common/site-permissions'
@@ -128,8 +128,11 @@ export class AppWindow {
   private allowAllUntil = 0
   /** the open dialog for the team page's file input is showing (one at a time) */
   private choosingFiles = false
-  /** the team page shows one of its sign-in pages (common/address.ts isSignInPath): the host strip is on */
-  private signInPage = false
+  /** the path of the team page on screen ('' before it loads): its sign-in pages get the host strip */
+  private pagePath = ''
+  /** the team answered GET /api/me for a signed-in person (fetchTeamInfo); until then the host strip is on, on every
+   * page (a page can look like a sign-in page at any address) */
+  private signedIn = false
 
   constructor(private o: AppWindowOptions) {
     this.teams = o.store.load()
@@ -303,7 +306,8 @@ export class AppWindow {
     this.team = findTeam(this.teams, id)!
     this.fingerprintMismatch = false
     this.directOrigin = null
-    this.signInPage = false
+    this.pagePath = ''
+    this.signedIn = false
     this.sendHostbar()
 
     const appSes = session.fromPartition(partitionFor(id, 'app'))
@@ -571,13 +575,18 @@ export class AppWindow {
       const res = await this.app.webContents.session.fetch(`${this.currentOrigin}/api/me`, { signal: AbortSignal.timeout(5000) })
       if (res.status === 401) {
         if (this.team?.id === team.id) {
+          this.setSignedIn(false)
           this.folderPerson({ signedIn: false })
           await this.checkBrowserOwner(team.id, pane, { signedIn: false })
         }
         return false
       }
-      if (!res.ok) return false
+      if (!res.ok) {
+        if (this.team?.id === team.id) this.setSignedIn(false)
+        return false
+      }
       const me = Me.safeParse(await res.json())
+      if (this.team?.id === team.id) this.setSignedIn(me.success)
       if (!me.success || this.team?.id !== team.id || this.pane !== pane) return false
       this.folderPerson({ signedIn: true, userId: me.data.user.id })
       await this.checkBrowserOwner(team.id, pane, { signedIn: true, userId: me.data.user.id })
@@ -842,8 +851,9 @@ export class AppWindow {
     const paneOpen = Boolean(this.pane?.open)
     let pw = 0
     if (paneOpen) pw = w < MIN_PANE + MIN_APP ? w : clamp(Math.round(w * this.paneFraction), MIN_PANE, w - MIN_APP)
-    // the sign-in pages get the team address above them (drawn by the app)
-    const top = this.signInPage ? HOSTBAR_HEIGHT : 0
+    // the team address above the page (drawn by the app): on the sign-in pages, and on every page until the team said
+    // who is signed in
+    const top = hostLineShown(this.pagePath, this.signedIn) ? HOSTBAR_HEIGHT : 0
     if (top) show(this.hostbar, { x: 0, y: 0, width: Math.max(0, w - pw), height: top })
     else hide(this.hostbar)
     show(this.app, { x: 0, y: top, width: Math.max(0, w - pw), height: Math.max(0, h - top) })
@@ -867,7 +877,7 @@ export class AppWindow {
     this.updateTitle()
   }
 
-  /** The team page moved: the host strip shows on its sign-in pages only. */
+  /** The team page moved: the host strip shows on its sign-in pages, and on every page until /api/me answered. */
   private pageAt(url: string) {
     let path = ''
     try {
@@ -875,10 +885,16 @@ export class AppWindow {
     } catch {
       path = ''
     }
-    const signIn = Boolean(originOf(url)) && isSignInPath(path)
-    if (signIn === this.signInPage) return
-    this.signInPage = signIn
+    const page = originOf(url) ? path : ''
+    if (page === this.pagePath) return
+    this.pagePath = page
     this.sendHostbar()
+    this.layout()
+  }
+
+  private setSignedIn(signedIn: boolean) {
+    if (signedIn === this.signedIn) return
+    this.signedIn = signedIn
     this.layout()
   }
 
