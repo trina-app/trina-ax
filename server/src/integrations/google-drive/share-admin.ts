@@ -160,6 +160,7 @@ export async function endShareSignIn(ctx: AppContext, actor: string, id: string)
   const changed = ctx.db.query("UPDATE drive_team_shares SET secret_enc=NULL,status='needs_reconnect',reason='signed_out',version=version+1,updated_at=? WHERE id=? AND version=? AND secret_enc IS NOT NULL")
     .run(new Date(svc.now()).toISOString(), id, r.version).changes
   if (!changed) return null
+  ctx.db.query("DELETE FROM team_sign_ins WHERE kind = 'drive_share' AND target_id = ?").run(id)
   svc.abort(`share:${id}`)
   notifyDriveShareReconnect(ctx, id, `${id}.v${r.version + 1}`)
   const first = await svc.revoke(token).catch(() => 'unavailable' as const)

@@ -64,10 +64,10 @@ export function HandoverNoticeExtras({ item, onRead, onChanged }: { item: InboxN
   const t = useT()
   const act = useAction()
   const [open, setOpen] = useState(false)
+  const [ending, setEnding] = useState(false)
   const h = item.handover
   if (!h) return null
   const lines = handoverNoticeLines(t, h)
-  const [ending, setEnding] = useState(false)
   // 아직 끊지 못한 연결 (the new owner): what the old owner asked to end and is still connected, ended from here
   const endPending = async (transferId: string) => {
     setEnding(true)

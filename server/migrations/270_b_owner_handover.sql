@@ -18,8 +18,14 @@
 --     owner.lead_joined (source: the invite) to the owner who flagged it; owner.transferred (source: the transfer) to
 --     the new owner, the old owner and every other admin; owner.reauth_locked (source: the lock's 15-minute window) to
 --     the owner whose 팀장 넘기기 password check locked. Metadata only.
---   handover_push_deliveries: owner.lead_joined also goes to the owner's phones and browsers (push-service.ts SOURCES),
---     the same columns as push_deliveries.
+--   handover_push_deliveries: owner.lead_joined and owner.reauth_locked also go to the owner's phones and browsers
+--     (push-service.ts SOURCES), the same columns as push_deliveries.
+--   team_sign_ins: who signed a team connection (integrations, OAuth) or a Drive shared with the team in, and when:
+--     set by the sign-in itself (integrations/connections/service.ts callback, google-drive/oauth.ts), cleared when that
+--     sign-in ends. 팀장 넘기기 decides whose sign-in it is from this alone (never from the audit log, whose details hold
+--     names an admin or a service chooses). A connection signed in before this table has no row: unknown, so it is
+--     neither listed nor ended (fail closed). A column on integrations cannot be added here: migration 313 makes that
+--     table after this one runs on a new database; no foreign key for the same reason (the code joins on the id).
 -- Additive only (reader 1): an older build ignores the columns (a lead invite then reads as a plain member invite) and
 -- does not know the tables.
 ALTER TABLE invites ADD COLUMN lead_hint INTEGER NOT NULL DEFAULT 0;
@@ -65,3 +71,11 @@ CREATE TABLE handover_push_deliveries (
   PRIMARY KEY(notification_id,subscription_id)
 );
 CREATE INDEX handover_push_deliveries_due ON handover_push_deliveries(state,next_at);
+
+CREATE TABLE team_sign_ins (
+  kind TEXT NOT NULL CHECK(kind IN ('team_connection','drive_share')),
+  target_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  at TEXT NOT NULL,
+  PRIMARY KEY(kind, target_id)
+);

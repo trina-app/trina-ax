@@ -73,7 +73,7 @@ export function handoverNoticeOut(ctx: { db: Database; config: AppConfig }, row:
       setupUnfinished: me === 'to' && owner === row.user_id && welcomeUnfinishedFor(ctx, row.user_id),
       recovery: hosted && me !== 'other' ? 'hosted' : null,
       ended: endedCounts(t.ended),
-      ...(me === 'to' && owner === row.user_id ? { pending: pendingList(t) } : {}),
+      ...(me === 'to' && owner === row.user_id && owner !== t.from_user ? { pending: pendingList(t) } : {}),
     } }
   }
   if (row.event_type === 'owner.reauth_locked') return { ...base, handover: { kind: 'reauth_locked' } }

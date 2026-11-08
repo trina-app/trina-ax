@@ -14236,7 +14236,8 @@ transferOwnership, `auth/accounts.ts` invites, `shared/src/api/handover.ts`, mig
   goes to Admin › 멤버): 받는 사람, what moves (팀 이름, 관리자 지정, 업데이트·백업; admins already manage the team AI), the
   connections made with the leaver's own accounts (team AI sign-ins: a Claude or ChatGPT subscription made by them;
   Drive shares signed in with their Google account; team connections to services, an MCP server such as Higgsfield,
-  whose last OAuth sign-in was theirs, read from the audit of sign-ins; team API keys and keys typed into a connection
+  whose OAuth sign-in is theirs, read from `team_sign_ins` alone (written by the sign-in, cleared when it ends; a sign-in
+  from before that record is unknown and neither listed nor ended); team API keys and keys typed into a connection
   are the team's and never listed), each ticked "넘기면
   끊어요" (untick the company's own seat), the line on who can still reset passwords (hosted, the office server Mac, a
   self-installed server), and the password. The rule: settings move with the role; connections in a person's own name
@@ -14245,8 +14246,10 @@ transferOwnership, `auth/accounts.ts` invites, `shared/src/api/handover.ts`, mig
   a Drive share or a team connection keeps its settings and rule, loses its tokens, and the service is asked to revoke
   them; the Drive admins are asked to sign in again); a failure never undoes the transfer, and the result goes to both
   people. What is not ended (a service failed, or the server stopped right after the commit) is tried again at the
-  server's next start, and the new owner sees it in the transfer's notice as "아직 끊지 못한 연결" with [끊기] (`POST
-  /api/admin/handover/end-pending`), so the old owner's tokens never keep serving the team unnoticed.
+  server's next start (audited with no actor, `retry: true`), and the new owner sees it in the transfer's notice as "아직
+  끊지 못한 연결" with [끊기] (`POST /api/admin/handover/end-pending`), so the old owner's tokens never keep serving the team
+  unnoticed. Neither ends a sign-in made after the transfer (a new decision) or anything once the old owner is the owner
+  again, and an ended result is never overwritten by a later try.
 - **The password** is today's `owner-reauth`: 5 wrong tries per person per 15 minutes, `auth.reauth_failed`. The limit is
   shared by every re-check of the person (updates, restore, the API engine, the current password), so a wrong try that
   locks **any** of the owner's re-checks gives the owner one note `owner.reauth_locked` per window, in the Inbox and as a
@@ -14291,7 +14294,9 @@ transferOwnership, `auth/accounts.ts` invites, `shared/src/api/handover.ts`, mig
   line, and the web isolates it); an open lead link outlived the transfer; a lead notice stayed open after the flag was
   turned off. Round 2 (PR review): the lock note's push could be stopped by marking the note read; it sent the owner to
   a password change that is locked too; what to end was only in memory until the commit's aftermath ran; team OAuth
-  connections were not listed. Kept, written down: admins see an open lead invite's words in the invites list; a backup
+  connections were not listed. Round 3: whose sign-in a team connection is came from the audit log, whose details hold
+  the connection's and its tools' names (an admin, or the MCP server, could name one "signIn" and become its signer);
+  now `team_sign_ins` only. Kept, written down: admins see an open lead invite's words in the invites list; a backup
   from before a transfer can still be restored, and the team exported, by whoever runs those on the hosting side (the
   reset-link lock does not cover them); the joiner picks the name and username the card shows, and only the owner's
   words and the join time come from the owner's side (the card says so by showing them side by side).

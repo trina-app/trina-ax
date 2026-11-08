@@ -300,6 +300,7 @@ export class Integrations {
     const old = row.secret_enc ? this.tryOpen(row) : null
     // local first: the tokens are gone even when the service cannot be told
     this.db.query('DELETE FROM integrations WHERE id = ?').run(id)
+    this.db.query("DELETE FROM team_sign_ins WHERE kind = 'team_connection' AND target_id = ?").run(id)
     this.dropClient(id)
     this.recent.delete(id)
     toolListsOf(this.db).drop(id)
@@ -334,23 +335,25 @@ export class Integrations {
     if (wait) await revoking
   }
 
-  /** Who last signed a team connection in (the audit of its OAuth sign-ins: the flow rows are swept after a day), or
-   * null when none is on record. 팀장 넘기기 (admin/handover.ts) lists the ones signed in with the owner's own account. */
+  /** Who signed a team connection in (team_sign_ins, migration 270: set by the sign-in, cleared when it ends), or null
+   * when that is not known (signed in before the record existed). 팀장 넘기기 (admin/handover.ts) lists the ones signed in
+   * with the owner's own account; never read from the audit log, whose details hold names an admin or a service picks. */
   teamSigner(id: string): string | null {
-    return (this.db.query(`SELECT actor_id FROM audit_log WHERE action = 'integration.update' AND target = ? AND detail LIKE '%"signIn"%' ORDER BY id DESC LIMIT 1`).get(id) as { actor_id: string | null } | null)?.actor_id ?? null
+    return (this.db.query("SELECT user_id FROM team_sign_ins WHERE kind = 'team_connection' AND target_id = ?").get(id) as { user_id: string } | null)?.user_id ?? null
   }
 
   /** 팀장 넘기기 (admin/handover.ts): a team connection signed in with the account of the person handing the team over
    * ends that sign-in. The connection stays (its address, rule and tools: an admin signs in again with another account);
    * its tokens go at once, calls under way get a fresh client, then the service is told. Only a team OAuth connection
    * whose last sign-in was `signer`'s and that still holds tokens; null otherwise (nothing changed). */
-  async endTeamSignIn(id: string, signer: string, actor: string): Promise<'revoked' | 'unavailable' | null> {
+  async endTeamSignIn(id: string, signer: string, actor: string | null): Promise<'revoked' | 'unavailable' | null> {
     const row = getRow(this.db, id)
     if (!row || row.scope !== 'team' || row.auth !== 'oauth' || !row.secret_enc || this.teamSigner(id) !== signer) return null
     const old = this.tryOpen(row)
     const n = this.db.query("UPDATE integrations SET secret_enc=NULL, status='needs_auth', last_error=NULL, version=version+1, updated_at=? WHERE id=? AND version=? AND secret_enc IS NOT NULL")
       .run(iso(this.now()), id, row.version).changes
     if (!n) return null
+    this.db.query("DELETE FROM team_sign_ins WHERE kind = 'team_connection' AND target_id = ?").run(id)
     this.dropClient(id)
     audit(this.db, { actor, action: 'integration.update', target: id, detail: { ...auditDetail(row), changed: ['signOut'], secret: 'removed', reason: 'owner_handover' } })
     if (old?.type !== 'oauth') return 'unavailable'
@@ -710,6 +713,8 @@ export class Integrations {
         this.db.query("UPDATE integrations SET secret_enc=?, key_version=?, status='needs_auth', last_error=NULL, version=version+1, updated_at=? WHERE id=? AND version=?")
           .run(sealed.enc, sealed.keyVersion, iso(this.now()), cur.id, cur.version)
         this.db.query("UPDATE integration_oauth_flows SET state='completed', secret_enc=NULL WHERE id=?").run(f.id)
+        // whose sign-in a team connection serves on (팀장 넘기기 reads it; a personal one is its owner's anyway)
+        if (cur.scope === 'team') this.db.query("INSERT INTO team_sign_ins (kind, target_id, user_id, at) VALUES ('team_connection', ?, ?, ?) ON CONFLICT(kind, target_id) DO UPDATE SET user_id = excluded.user_id, at = excluded.at").run(cur.id, viewer.id, iso(this.now()))
       })()
       this.dropClient(cur.id)
       audit(this.db, { actor: viewer.id, action: 'integration.update', target: cur.id, detail: { ...auditDetail(cur), changed: ['signIn'], secret: 'replaced' } })
