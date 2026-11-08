@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-08 09:30
 - Branch: `fix/skill-trash-room-unread`
-- Status: in progress
+- Status: done
 - Where: Team AX core (web app, `server/src/skills/changes.ts`). Why: team skills, files and rooms are core (see
   docs/REPOSITORY-RULES.md)
 - Version impact: patch, two bug fixes with no contract or migration change
@@ -59,4 +59,15 @@ skills and files.
 
 ## Result
 
-Filled in at the end.
+Built as planned, plus what the review found:
+
+- 파일 › 휴지통 is `/files?view=trash`. The tabs and the "folder gone" climb read the tab from the address itself
+  (`window.location`, as Admin › Folder permissions does): the listing's callback lives as long as the folder and held
+  the address from before a tab switch, so the climb could leave the trash. Clicking the tab already selected adds no
+  Back step.
+- 최근 변경's 삭제 row reads 휴지통 with the trash icon and opens the files trash; so does the server's notice (button
+  열기). Old `/trash` notices are unchanged.
+- `withMessage` counts what the server sends me (no visibility test) after my read position. The dock badge follows
+  the room's notify level, so in a team room at the default (mentions) a private answer shows on the room's row only,
+  as after a reload.
+- PR: see the pull request for this branch.
