@@ -14,7 +14,7 @@
 // The AI's answers (docs/DECISIONS.md "대화방의 트리나") are the one exception to plain text: written by the AI, shown
 // like an answer in the AI chat (Markdown, the files it used) without its steps, with who asked ("○○ 님이 물어봄", a
 // click goes to the question). A private preview, seen only by the person who asked, says so at the top ("나만 볼 수
-// 있어요"), and above its one action (post it to the room, an outline button) who would see it then. An event line (a
+// 있어요 · 방에 올리기…") with why in one plain line; the action asks first, with what some members cannot see. An event line (a
 // rename, people invited, someone left or taken out: RoomMessage.event) is one quiet line in the middle, nothing more:
 // no avatar, menu, reaction or thread.
 // An answer someone sent here from their own AI chat ("대화방에 보내기", RoomMessage.sharedAnswer) is their message: their
@@ -472,44 +472,98 @@ function AskedBy({ roomId, m, onJump }: { roomId: string; m: RoomMessage; onJump
 
 /** The folders of a private preview as people know them: the last part of each path ("마케팅팀", not
  * "shared/경영/팀별/마케팅팀/"), the top of the team folder in words; never the skills folders (the team rules and
- * skills the AI was given: how it works, not what it found). */
-export function previewFolderNames(p: NonNullable<RoomMessage['preview']>, words: { root: string }): string[] {
-  const names = p.folders.filter((f) => f !== 'skills' && !f.startsWith('skills/')).map((f) => (f === '' ? words.root : f.split('/').filter(Boolean).at(-1) ?? f))
-  return [...new Set(names)]
+ * skills the AI was given: how it works, not what it found). Each with how many members (not me) cannot see it
+ * (`unable`; a name of two folders keeps the larger count; undefined: a preview decided before the counts). */
+const isSkills = (f: string) => f === 'skills' || f.startsWith('skills/')
+function previewFolders(p: NonNullable<RoomMessage['preview']>, words: { root: string }): { name: string; n: number | undefined }[] {
+  const out = new Map<string, number | undefined>()
+  for (const f of p.folders) {
+    if (isSkills(f)) continue
+    const name = f === '' ? words.root : f.split('/').filter(Boolean).at(-1) ?? f
+    const n = p.unable?.[f]
+    const had = out.get(name)
+    out.set(name, out.has(name) ? (had === undefined || n === undefined ? undefined : Math.max(had, n)) : n)
+  }
+  return [...out].map(([name, n]) => ({ name, n }))
 }
 
-/** Why a private preview did not go to the room, one short sentence per reason (the folders it read that some members
- * cannot open, named when the person may open them; their own folder; messages from before someone joined; the web or
- * a connected service). Without a reason (an older preview): that everyone would see it. `dm`: a 1:1 room, where "some
- * people in this room" is the other person. */
-export function previewWhy(p: RoomMessage['preview'], t: ReturnType<typeof useT>, dm = false): string {
+/** Why a private preview is mine only, in one plain line: material some members cannot see (folders, my own folder,
+ * messages from before someone joined, an earlier answer hidden from someone whose sources could be named), or the web
+ * or a connected service alone; a preview that cannot be posted (it used an earlier answer hidden from someone and what
+ * that used cannot all be shown to me) says so. Without a reason (an older preview): that everyone would see it. `dm`:
+ * a 1:1 room, where "some people in this room" is the other person. What each reason is, with how many cannot see it,
+ * is in the confirm (previewReasons). */
+export function previewLine(p: RoomMessage['preview'], t: ReturnType<typeof useT>, dm = false): string {
   if (!p) return t(dm ? 'rooms.aiPrivateAllDm' : 'rooms.aiPrivateAll')
-  const why: string[] = []
-  const folders = previewFolderNames(p, { root: t('rooms.aiRootFolder') })
-  // folders the person cannot open themselves, and the skills folders, are never named
-  if (folders.length) why.push(t(dm ? 'rooms.aiWhyFoldersDm' : 'rooms.aiWhyFolders', { folders: folders.join(', ') }))
-  else if (p.folders.length || p.otherFolders) why.push(t(dm ? 'rooms.aiWhySomeFoldersDm' : 'rooms.aiWhySomeFolders'))
-  if (p.personal) why.push(t('rooms.aiWhyMine'))
-  if (p.joinedLater?.length) why.push(t('rooms.aiWhyJoined', { names: p.joinedLater.join(', ') }))
-  // not postable: the person cannot see what is at stake for the others (the server refuses it too)
-  if (p.hidden) why.push(t('rooms.aiWhyHidden'))
-  if (p.outside) why.push(t('rooms.aiWhyOutside'))
-  return why.length ? why.join(' ') : t(dm ? 'rooms.aiPrivateAllDm' : 'rooms.aiPrivateAll')
+  // not postable: the server refuses it too (docs/DECISIONS.md "방에 올리기…")
+  if (p.hidden) return t('rooms.aiWhyHidden')
+  const material = p.folders.length > 0 || !!p.otherFolders || p.personal || !!p.joinedLater?.length || !!p.earlier
+  if (material) return t(dm ? 'rooms.aiPrivateWhyDm' : 'rooms.aiPrivateWhy')
+  if (p.outside) return t('rooms.aiPrivateWhyOutside')
+  return t(dm ? 'rooms.aiPrivateAllDm' : 'rooms.aiPrivateAll')
 }
 
-/** My private preview of an AI answer, at its top and nowhere else: one line, "🔒 나만 볼 수 있어요 · 올리기" (a text
- * action: not posting is the default), and under it, small, why it stayed with me. Posting leaves out the sources some
- * member cannot read; the server decides that again. Putting it away is in the message's "…" menu. */
+/** What posting a private preview would show to people who cannot see it now, one row per reason, for the confirm: each
+ * folder I may open by its last part with how many members cannot see it (never who, as the share-to-room dialog);
+ * folders I cannot open myself (and the skills folders) as one row without names; my own folder; messages from before
+ * someone joined; the web or a connected service. `others`: the members besides me (a count of all of them reads "no
+ * one else"). */
+export function previewReasons(p: RoomMessage['preview'], t: ReturnType<typeof useT>, o: { dm?: boolean; others?: number } = {}): string[] {
+  if (!p) return []
+  const rows: string[] = []
+  const folders = previewFolders(p, { root: t('rooms.aiRootFolder') })
+  for (const f of folders) {
+    rows.push(o.dm ? t('rooms.aiPostFolderDm', { folder: f.name })
+      : f.n === undefined || f.n === 0 ? t('rooms.aiPostFolderSome', { folder: f.name })
+        : o.others !== undefined && f.n >= o.others ? t('rooms.aiPostFolderAll', { folder: f.name })
+          : t('rooms.aiPostFolder', { folder: f.name, n: f.n }))
+  }
+  // folders I cannot open myself, and the skills folders, are never named
+  if (p.otherFolders || p.folders.some(isSkills)) rows.push(t(o.dm ? 'rooms.aiPostOtherFoldersDm' : 'rooms.aiPostOtherFolders'))
+  if (p.personal) rows.push(t(o.dm ? 'rooms.aiPostMineDm' : 'rooms.aiPostMine'))
+  if (p.joinedLater?.length) rows.push(t('rooms.aiPostJoined', { names: p.joinedLater.join(', ') }))
+  if (p.outside) rows.push(t('rooms.aiPostOutside'))
+  return rows
+}
+
+/** My private preview of an AI answer, at its top and nowhere else: one line, "🔒 나만 볼 수 있어요 · 방에 올리기…" (a
+ * text action: not posting is the default), and under it, small, why it stayed with me in one plain line. The action
+ * shows exactly when the server would post it (`!preview.hidden`, RoomAi.share) and first asks, in the app's confirm,
+ * with what some members cannot see (previewReasons) and whether it went through an earlier answer hidden from someone.
+ * Posting leaves out the sources some member cannot read; the server decides that again and, when the reasons changed
+ * meanwhile, answers 409 with why (a toast) and sends the preview again (the line and the button follow). Putting it
+ * away is in the message's "…" menu. */
 function PreviewLine({ roomId, m }: { roomId: string; m: RoomMessage }) {
   const t = useT()
   const locale = useLocale()
-  const dm = useRooms((s) => s.rooms.find((r) => r.id === roomId)?.kind === 'dm')
+  const room = useRooms((s) => s.rooms.find((r) => r.id === roomId))
+  const dm = room?.kind === 'dm'
   const [busy, setBusy] = useState(false)
-  const share = async () => {
+  const post = async () => {
+    const rows = previewReasons(m.preview, t, { dm, others: room ? Math.max(0, room.memberCount - 1) : undefined })
+    const ok = await confirmDialog({
+      title: t('rooms.aiPostTitle'),
+      body: rows.length ? (
+        <div data-testid="room-ai-post-confirm">
+          <p>{t(dm ? 'rooms.aiPostIntroDm' : 'rooms.aiPostIntro')}</p>
+          <ul className="mt-2 space-y-1 text-ink" data-testid="room-ai-post-reasons">
+            {rows.map((r) => (
+              <li key={r} className="break-keep">{r}</li>
+            ))}
+          </ul>
+          {m.preview?.earlier && <p className="mt-2" data-testid="room-ai-post-earlier">{t('rooms.aiPostEarlier')}</p>}
+        </div>
+      ) : (
+        <p data-testid="room-ai-post-confirm">{t(dm ? 'rooms.aiPrivateAllDm' : 'rooms.aiPrivateAll')}</p>
+      ),
+      confirm: t('rooms.aiPostConfirm'),
+    })
+    if (!ok) return
     setBusy(true)
     try {
       await useRooms.getState().shareAi(roomId, m.id)
     } catch (e) {
+      // the reasons changed meanwhile (or it can no longer be posted): the server says why, and sends the preview again
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
       setBusy(false)
     }
@@ -527,17 +581,18 @@ function PreviewLine({ roomId, m }: { roomId: string; m: RoomMessage }) {
       <p className="flex flex-wrap items-center gap-x-1" data-testid="room-ai-private">
         <Lock size={12} className="shrink-0" aria-hidden />
         {t('rooms.aiPrivate')}
-        {/* it used an old answer hidden from someone here: not postable (docs/DECISIONS.md "지난 대화") */}
+        {/* it used an old answer hidden from someone here and what that used cannot all be shown: not postable
+            (docs/DECISIONS.md "방에 올리기…") */}
         {!m.preview?.hidden && (
           <>
             <span aria-hidden>·</span>
-            <button type="button" disabled={busy} onClick={() => void share()} className="touch-hit rounded font-medium text-accent-text hover:underline disabled:opacity-50" data-testid="room-ai-share">
+            <button type="button" disabled={busy} onClick={() => void post()} className="touch-hit rounded font-medium text-accent-text hover:underline disabled:opacity-50" data-testid="room-ai-share">
               {t('rooms.aiPost')}
             </button>
           </>
         )}
       </p>
-      <p className="mt-0.5" data-testid="room-ai-preview">{previewWhy(m.preview, t, dm)}</p>
+      <p className="mt-0.5 break-keep" data-testid="room-ai-preview">{previewLine(m.preview, t, dm)}</p>
     </div>
   )
 }

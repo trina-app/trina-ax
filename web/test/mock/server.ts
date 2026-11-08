@@ -3560,6 +3560,9 @@ export class MockServer {
     const body = (await req.json().catch(() => ({}))) as Json
     if (p === '/__test/reset') this.reset({ setup: !!body.setup, teamLocale: Locale.safeParse(body.teamLocale).data, usersFollowTeam: !!body.usersFollowTeam, mustChange: typeof body.mustChange === 'string' ? body.mustChange : undefined, withAdmin: !!body.withAdmin })
     else if (p === '/__test/drop-ws') for (const ws of this.sockets) ws.close(WsClose.serviceRestart, 'restart')
+    // one event as the server would send it (checked against the contract), for a spec whose REST answers come from
+    // page.route (e.g. a room's room.message.updated after a refused post)
+    else if (p === '/__test/publish') this.publish(body as unknown as ServerEventInput)
     else if (p === '/__test/presence' && req.method === 'GET') return Response.json({ sent: this.presenceSent })
     else if (p === '/__test/presence') {
       // {people: [{id, state}]}: a change, told to every socket like the server's presence frame ('offline' takes one out)
