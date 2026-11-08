@@ -3662,9 +3662,6 @@ export class MockServer {
     const body = (await req.json().catch(() => ({}))) as Json
     if (p === '/__test/reset') this.reset({ setup: !!body.setup, teamLocale: Locale.safeParse(body.teamLocale).data, usersFollowTeam: !!body.usersFollowTeam, mustChange: typeof body.mustChange === 'string' ? body.mustChange : undefined, withAdmin: !!body.withAdmin })
     else if (p === '/__test/drop-ws') for (const ws of this.sockets) ws.close(WsClose.serviceRestart, 'restart')
-    // one event as the server would send it (checked against the contract), for a spec whose REST answers come from
-    // page.route (e.g. a room's room.message.updated after a refused post)
-    else if (p === '/__test/publish') this.publish(body as unknown as ServerEventInput)
     else if (p === '/__test/presence' && req.method === 'GET') return Response.json({ sent: this.presenceSent })
     else if (p === '/__test/presence') {
       // {people: [{id, state}]}: a change, told to every socket like the server's presence frame ('offline' takes one out)
@@ -3706,7 +3703,8 @@ export class MockServer {
     else if (p === '/__test/speech-host') this.speechHost = { ...this.speechHost, ...(body as unknown as Partial<typeof this.speechHost>) }
     else if (p === '/__test/memory') this.memories.push({ id: uuidv7(), text: String(body.text), sourceChatId: null, createdAt: now() })
     else if (p === '/__test/ai-allowances') this.aiAllowances = ((body.items as unknown[]) ?? []).map((a) => AiAllowance.parse(a))
-    // a server event as the server would send it (a room's change card for a turn the spec's page.route answers)
+    // a server event as the server would send it (a room's change card for a turn the spec's page.route answers; a
+    // room's room.message.updated after a refused post)
     else if (p === '/__test/publish') this.publish(body.event as unknown as ServerEventInput)
     else if (p === '/__test/schedule') {
       // a scheduled task the owner confirmed on its card (or a template: templateId), for Settings › Scheduled tasks

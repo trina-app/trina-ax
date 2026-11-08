@@ -95,7 +95,7 @@ test('reasons that changed meanwhile: the server says why, the notice follows, a
     if (n === 1) {
       // what the server does: the preview again (now three cannot see the folder), then 409 with why
       const update = { type: 'room.message.updated', data: { roomId: ROOM_ID, message: { ...posted(), seq: 3, visibility: 'private', preview: { ...ASKABLE, unable: { 'groups/영업/단가표': 3 } } } } }
-      expect((await page.request.post('/__test/publish', { data: update })).ok()).toBeTruthy()
+      expect((await page.request.post('/__test/publish', { data: { event: update } })).ok()).toBeTruthy()
       return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: { code: 'conflict', message: '그 사이에 대화방 멤버나 권한이 바뀌었어요. 바뀐 이유를 확인하고 다시 올려 주세요.', params: { reason: 'room_ai_reasons_changed' } } }) })
     }
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(posted()) })
