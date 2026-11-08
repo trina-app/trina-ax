@@ -482,5 +482,34 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await audit(b, 'safe operations')
       await b.context().close()
     })
+
+    test('an answer hidden from a later reader: one faint line in its place, nothing else of it', async ({ page, browser }) => {
+      await reset(page)
+      await signIn(page)
+      const id = await project(page)
+      const chatId = await sharedChat(page, id, '예산 정리해 줘')
+      // Bob joined later and cannot open what the answer used: the server sends it withheld (Message.withheld; the mock
+      // keeps no read records, so the answer is made so here, in the server's shape: docs/DECISIONS.md "People who see a
+      // shared chat later")
+      const b = await bob(browser)
+      await b.route(new RegExp(`/api/chats/${chatId}/messages(\\?.*)?$`), async (r) => {
+        if (r.request().method() !== 'GET') return r.fallback()
+        const res = await r.fetch()
+        const body = (await res.json()) as { items: Record<string, unknown>[] }
+        for (const m of body.items) if (m.role === 'assistant') { Object.assign(m, { content: '', steps: [], files: null, model: null, engine: null, error: null, withheld: true }); delete m.sourceCount; delete m.receipt }
+        await r.fulfill({ response: res, json: body })
+      })
+      await b.goto(`/c/${chatId}`)
+      await expect(b.getByTestId('user-message')).toHaveCount(1)
+      await expect(b.getByTestId('answer-withheld')).toHaveText('볼 수 없는 자료를 참고한 답이라 가려졌어요')
+      const answer = b.getByTestId('assistant-message')
+      for (const id of ['answer-actions', 'regenerate', 'share-to-room', 'suggest-skill', 'answer-sources']) await expect(answer.getByTestId(id)).toHaveCount(0)
+      // the question stays, with who asked
+      await expect(b.getByTestId('user-message').getByTestId('message-author')).toHaveText('Olga')
+      await audit(b, 'shared chat, an answer hidden from me')
+      const dir = process.env.SHOT_DIR
+      if (dir) await b.screenshot({ path: `${dir}/withheld-${vp.name}.png` })
+      await b.context().close()
+    })
   })
 }
