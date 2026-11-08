@@ -3,6 +3,7 @@
 // ticked), who is in it (GET /api/rooms/:id/members: names only, never anyone's read position; photo and title from
 // the people directory; the manager marked, and "…" › 내보내기 on a row for the manager and owners or admins in it), and
 // last "대화방 나가기" (a group chat, after a confirm). Rows and hairlines, no boxes. A bottom sheet on phones (Modal).
+// Each picture carries the person's online dot, mine too (components/Presence.tsx; docs/DECISIONS.md "접속 상태").
 import clsx from 'clsx'
 import { Pencil, Plus, UserMinus } from 'lucide-react'
 import { useState } from 'react'
@@ -13,7 +14,7 @@ import { usePeople } from '../../store/people'
 import { useRooms } from '../../store/rooms'
 import { useMe } from '../../store/session'
 import { toast } from '../../store/ui'
-import { Avatar } from '../Avatar'
+import { PresenceFace, PresenceText } from '../Presence'
 import { Button, confirmDialog, inputCls, Modal, Skeleton } from '../ui'
 import { MenuButton } from './MenuButton'
 import { useRoomTitle } from './RoomIcon'
@@ -62,16 +63,17 @@ export function MembersDialog({ open, onClose, room, members, meId, onInvite }: 
             <Skeleton lines={4} />
           </div>
         ) : (
-          <ul className="divide-y divide-line" data-testid="room-members">
+          <ul className="divide-y divide-line [--presence-bg:var(--c-surface)]" data-testid="room-members">
             {sorted.map(({ user }) => {
               const p = byId[user.id]
               const name = p?.name ?? user.name
               return (
                 <li key={user.id} className={clsx(row, 'group')} data-testid="room-member">
-                  <Avatar user={{ ...user, name, avatarVersion: p?.avatarVersion }} size={32} />
+                  <PresenceFace user={{ ...user, name, avatarVersion: p?.avatarVersion }} size={32} />
                   <span className="min-w-0 flex-1">
                     <span className="flex min-w-0 items-baseline gap-1 text-sm">
                       <span className="truncate font-medium text-ink">{name}</span>
+                      <PresenceText userId={user.id} offline />
                       {user.id === meId && <span className="shrink-0 text-faint">· {t('rooms.you')}</span>}
                       {group && user.id === room?.managerId && <span className="shrink-0 text-faint" data-testid="room-manager">· {t('rooms.info.manager')}</span>}
                     </span>

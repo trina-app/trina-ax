@@ -73,9 +73,10 @@ CI(`.github/workflows/ci.yml`): typecheck(웹·데스크톱 포함), native 빌�
 
 - 연결: `/api/ws?windowId=<창 id>[&epoch=<E>&after=<N>]`, 쿠키 세션(모바일 껍데기는 subprotocol `mycel.bearer.<token>`, 기본 `mycel.v1`). 서버는 Origin을 확인한다.
 - 서버 → `hello {epoch, seq, resumed}`; epoch가 다르면 `reset`, 버퍼에서 밀려났으면 `resync` → 클라이언트는 REST로 다시 받는다.
+- 서버 → `presence {full, people: [{id, state}]}`(접속 상태, seq 없음·다시 보내지 않음): hello 뒤 전체 목록, 그다음 바뀐 사람만(docs/DECISIONS.md "접속 상태").
 - 이벤트 `{type, seq, at, data}`: `message.created/delta/step/done`, `queue.position`, `artifact.updated`, `chat.updated`, `files.changed`, `turn.request`, `turn.request.closed`, `job.progress/done`, `browser.call/cancel`, `memory.changed`, `notice`, `session.ended`.
 - `message.delta.offset`은 답변 본문의 글자 위치. REST로 받은 본문 길이보다 앞이면 버린다(0.3초마다 DB 저장).
-- 클라이언트 → `ping`, `browser.ack`, `browser.result`. 닫기 코드 `WsClose`(4401 로그인 필요 → 재연결 금지, 4409 다른 곳에서 같은 창 연결, 1012 서버 재시작 → 재연결).
+- 클라이언트 → `ping`, `browser.ack`, `browser.result`, `presence {state: active|idle}`(이 창을 쓰는 중인지, 바뀔 때와 hello 뒤에만). 닫기 코드 `WsClose`(4401 로그인 필요 → 재연결 금지, 4409 다른 곳에서 같은 창 연결, 1012 서버 재시작 → 재연결).
 - 재연결: 0–1초 무작위 후 1·2·4…초, 최대 약 10초.
 
 ## 3. 서버 골격 (server/src)

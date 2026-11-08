@@ -58,6 +58,8 @@ type SessionEndReason = Parameters<RealtimeHub['disconnectUser']>[1]
 
 export type ClientFrameHandler = (s: { userId: string; windowId: string }, f: ClientFrame) => void
 export type WindowListener = (userId: string, windowId: string, state: 'open' | 'closed') => void
+/** every session of a person was ended (logout everywhere, password changed, disabled, deleted), open windows or not */
+export type UserEndedListener = (userId: string, reason: SessionEndReason) => void
 
 export interface HubOptions {
   pingIntervalMs?: number
@@ -73,6 +75,7 @@ export class Hub implements RealtimeHub {
   private sweeper: ReturnType<typeof setInterval> | null = null
   private frameHandlers: ClientFrameHandler[] = []
   private windowListeners: WindowListener[] = []
+  private userEndedListeners: UserEndedListener[] = []
   private o: Required<HubOptions>
   private stopping = false
 
@@ -239,6 +242,9 @@ export class Hub implements RealtimeHub {
         for (const e of replay) if (!this.send(s, JSON.stringify(e.ev))) break
       }
     }
+    // dropped while its hello or replay went out (too slow, gone): 'closed' was already told, so 'open' must not follow
+    // (presence would keep the window forever)
+    if (s.closed) return
     s.ready = true
     for (const l of this.windowListeners) try { l(userId, windowId, 'open') } catch (e) { this.ctx.log.error('window listener failed', { err: e }) }
   }
@@ -326,9 +332,12 @@ export class Hub implements RealtimeHub {
 
   disconnectUser(userId: string, reason: SessionEndReason): void {
     const u = this.users.get(userId)
-    if (!u) return
-    for (const s of [...u.sockets.values()]) this.endSocket(u, s, reason)
-    u.sockets.clear()
+    if (u) {
+      for (const s of [...u.sockets.values()]) this.endSocket(u, s, reason)
+      u.sockets.clear()
+    }
+    // also with no window open (presence: an account turned off while its last window's grace runs)
+    for (const l of this.userEndedListeners) try { l(userId, reason) } catch (e) { this.ctx.log.error('user ended listener failed', { err: e }) }
   }
 
   /** Close sockets that belong to one session (logout of one device, the other sessions after a password change). */
@@ -353,6 +362,30 @@ export class Hub implements RealtimeHub {
     for (const l of this.windowListeners) try { l(s.userId, s.windowId, 'closed') } catch {}
   }
 
+  /**
+   * A control frame (no seq, never buffered or replayed: a state like `presence`, realtime/presence.ts) to a person's
+   * open windows, or to one of them. Windows still replaying get nothing (they are told when they open); a window whose
+   * session has expired is ended first, as before an event.
+   */
+  sendControl(userId: string, frame: ControlFrame, windowId?: string): void {
+    const u = this.users.get(userId)
+    if (!u) return
+    this.expire(u, this.o.now())
+    const json = JSON.stringify(frame)
+    for (const s of [...u.sockets.values()]) {
+      if (!s.ready || s.closed) continue
+      if (windowId && s.windowId !== windowId) continue
+      this.send(s, json)
+    }
+  }
+
+  /** The people with at least one open window. */
+  connectedUsers(): string[] {
+    const out: string[] = []
+    for (const [id, u] of this.users) for (const s of u.sockets.values()) if (s.ready && !s.closed) { out.push(id); break }
+    return out
+  }
+
   // ---------------- queries for other parts of B ----------------
   isWindowOpen(userId: string, windowId: string): boolean {
     const s = this.users.get(userId)?.sockets.get(windowId)
@@ -362,6 +395,7 @@ export class Hub implements RealtimeHub {
   lastSeq(userId: string): number { return this.users.get(userId)?.seq ?? 0 }
   onClientFrame(h: ClientFrameHandler) { this.frameHandlers.push(h) }
   onWindow(l: WindowListener) { this.windowListeners.push(l) }
+  onUserEnded(l: UserEndedListener) { this.userEndedListeners.push(l) }
 
   // ---------------- housekeeping ----------------
   /**

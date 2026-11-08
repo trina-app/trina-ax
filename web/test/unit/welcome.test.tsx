@@ -35,6 +35,7 @@ import { chatActivity } from '../../src/store/live'
 import { useSession } from '../../src/store/session'
 import { useUi } from '../../src/store/ui'
 import { useWelcome } from '../../src/store/welcome'
+import { forgetFolderUploads } from '../../src/lib/folderRuns'
 import { FakeEvent, installDom, mount, removeDom, type FakeElement, type Mounted } from './dom-host'
 
 const CHAT = '01900000-0000-7000-8000-0000000000c1'
@@ -957,21 +958,21 @@ describe('the later steps and the end', () => {
     forgetPatched()
   })
 
-  test('팀 파일 가져오기: files into the team\'s folder with its who-sees line; the next step (도구 연결) once in', async () => {
+  test('팀 파일: hand-picked files go up as the step\'s run into the team\'s folder, with its who-sees line; the first one records the step; the next step (도구 연결) once in', async () => {
     signIn('owner')
     progress = ran({ steps: { profile: 'done', result: null, skills: 'skipped', files: null, tools: null, invite: null } })
-    const saved = routes['GET /api/admin/groups']!
-    routes['GET /api/admin/groups'] = () => json(200, { items: [{ id: TEAM.id, name: 'Acme', description: null, memberIds: ['olga'] }, { id: '01900000-0000-7000-8000-0000000000e2', name: '영업', description: null, memberIds: [] }] })
-    routes['GET /api/admin/folders'] = () => json(200, { items: [{ id: '01900000-0000-7000-8000-0000000000f2', path: 'groups/영업', exists: true, rules: [], createdAt: '2026-11-04T00:00:00.000Z', groupId: '01900000-0000-7000-8000-0000000000e2', keep: 'group' }] })
+    routes['POST /api/onboarding/files/landed'] = () => json(200, { recorded: true })
     const m = await app()
     try {
-      await m.until(() => m.find('welcome-team-files-pick'), '팀 파일')
+      await m.until(() => m.find('welcome-team-files-pick-files'), '팀 파일')
       expect(m.get('welcome-files-who').textContent).toContain('Acme')
       expect(m.find('welcome-team-files-next')).toBeNull()
-      await m.until(() => m.find('welcome-team-files-place'), 'the folder choice')
       await choose(m, [note('2025 보고서.md'), note('견적 양식.md')], 'welcome-team-files-input')
       await m.until(() => m.find('welcome-team-files-next'), 'the files went in')
-      expect(called('POST /api/files/upload').map((c) => `${c.body.folder}/${c.body.name}`)).toEqual(['groups/Acme/2025 보고서.md', 'groups/Acme/견적 양식.md'])
+      expect(called('POST /api/files/upload').map((c) => `${c.body.folder}/${c.body.name}`).sort()).toEqual(['groups/Acme/2025 보고서.md', 'groups/Acme/견적 양식.md'])
+      // the run's first landed file told the server (팀 파일 done there, whoever of the owners and admins started it)
+      expect(called('POST /api/onboarding/files/landed')).toHaveLength(1)
+      expect(m.get('welcome-team-files-run-title').textContent).toBe('Acme 폴더에 2개를 올렸어요')
       expect(m.get('welcome-team-files-next').textContent).toBe('다음: 도구 연결')
       await m.click('welcome-team-files-next')
       await m.until(() => stepOf(m) === 'tools', '도구 연결')
@@ -979,8 +980,8 @@ describe('the later steps and the end', () => {
       expect(m.find('where')).toBeNull()
     } finally {
       await m.unmount()
-      routes['GET /api/admin/groups'] = saved
-      routes['GET /api/admin/folders'] = () => json(200, { items: [] })
+      delete routes['POST /api/onboarding/files/landed']
+      forgetFolderUploads()
     }
   })
 
