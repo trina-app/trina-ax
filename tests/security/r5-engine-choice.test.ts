@@ -1,7 +1,7 @@
 // Security round 5 (owner decision 2026-10-21): the AI engine and model are the admin's choice. With the shipped
 // default ("팀원이 엔진 고르기 허용" off) a member cannot pick an engine or model by any route — not by naming one in a
 // send / regenerate / new chat / chat change, not by storing an own default in their preferences, not by changing the
-// admin setting — and cannot turn on "Claude 한도에 닿으면 Codex로 넘기기" (which sends conversations to OpenAI).
+// admin setting — and cannot turn on "다른 AI로 대신 답하기" (which sends conversations to the other AI's company).
 // Real session service and personas (tests/security/lib): owner dana, admin carol, members alice / erin / bob.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { startInstance, type Instance } from './lib/instance'
