@@ -1,6 +1,6 @@
 // A conversation's "⋯" and hidden conversations in the browser (docs/DECISIONS.md "대화 숨기기";
-// components/rooms/RoomMenu.tsx): the menu in a room's header by kind (a group chat's 대화방 나가기, a DM's 대화 숨기기,
-// a team room's 숨기기, 알림 설정 opening the bell's levels, 링크 복사), on a sidebar row (hover, keyboard, right-click),
+// components/rooms/RoomMenu.tsx): the menu in a room's header by kind (a group chat's 이름 바꾸기 and 대화방 나가기, a DM's
+// 대화 숨기기, a team room's 숨기기, 알림 설정 opening the bell's levels, 링크 복사), on a sidebar row (hover, keyboard, right-click),
 // on a phone a long press on a row of the 대화 list; hidden rooms out of the sidebar and the counts, under "숨긴 대화 N"
 // on the conversations page with 다시 보이기, and shown again when opened. The rooms are answered through page.route
 // (rooms-mock.ts routeRooms). With SHOTS_DIR set, the last test saves the screens for review (1440 and 390, light and
@@ -80,14 +80,35 @@ test('sidebar: a hidden room is in no row or count; a row\'s "⋯" on hover, foc
   await expect(team.getByTestId('sidebar-room-menu')).toBeFocused()
 })
 
-test('the room header\'s "⋯" by kind; 알림 설정 opens the bell\'s levels; 링크 복사', async ({ page }) => {
+test('the room header\'s "⋯" by kind; 알림 설정 opens the bell\'s levels; 이름 바꾸기; 링크 복사', async ({ page }) => {
   const state = await start(page)
   const items = page.getByRole('menu').getByRole('menuitem')
-  // a group chat: leave (with the confirm)
+  // a group chat: rename (its members may), leave (with the confirm)
   await page.goto(`/rooms/${GROUP}`)
   await expect(page.getByTestId('room-title')).toHaveText('디자인 리뷰')
   await page.getByTestId('room-menu').click()
-  await expect(items).toHaveText(['알림 설정', '링크 복사', '대화방 나가기'])
+  await expect(items).toHaveText(['알림 설정', '이름 바꾸기', '링크 복사', '대화방 나가기'])
+  // 이름 바꾸기: the info's name field in a prompt, the members' names where it is empty; the room's info has no 나가기
+  await page.getByTestId('room-menu-rename').click()
+  const prompt = page.getByRole('dialog', { name: '이름 바꾸기' })
+  await expect(prompt.getByText('비우면 멤버 이름으로 보여요.')).toBeVisible()
+  const field = prompt.getByRole('textbox', { name: '대화방 이름' })
+  await expect(field).toHaveValue('디자인 리뷰')
+  await expect(field).toBeFocused()
+  await expect(field).toHaveAttribute('placeholder', '김소라, 이민수')
+  await field.fill('디자인 리뷰 2차')
+  await field.press('Enter')
+  await expect.poll(() => state.updated).toEqual([{ roomId: GROUP, body: { name: '디자인 리뷰 2차' } }])
+  await expect(page.getByTestId('room-title')).toHaveText('디자인 리뷰 2차')
+  // the keyboard is back on the "⋯"
+  await expect(page.getByTestId('room-menu')).toBeFocused()
+  state.updated.length = 0
+  await page.getByTestId('room-members-button').click()
+  await expect(page.getByTestId('room-info')).toBeVisible()
+  await expect(page.getByTestId('room-leave')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await page.getByTestId('room-menu').click()
+  await expect(items).toHaveText(['알림 설정', '이름 바꾸기', '링크 복사', '대화방 나가기'])
   // 알림 설정: the bell's own four levels, the keyboard in them
   await page.getByTestId('room-menu-notify').click()
   await expect(page.getByRole('menuitemradio')).toHaveCount(4)

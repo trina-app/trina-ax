@@ -108,7 +108,8 @@ export interface MockRooms {
 
 /** Several rooms of every kind for the specs of the rooms' "⋯" and hidden rooms: GET /api/rooms and each room's own
  * reads (one message from the first other person, the members, no AI), and the changes a person makes to a room of
- * theirs (hide or show it, leave a group chat, its notification level), answered as the server would, contract-shaped.
+ * theirs (hide or show it, leave a group chat, its notification level, its name), answered as the server would,
+ * contract-shaped.
  * The signed-in owner (olga) is in all of them. */
 export async function routeRooms(page: Page, specs: MockRoomSpec[]): Promise<MockRooms> {
   const state: MockRooms = { hidden: [], left: [], updated: [] }
@@ -165,6 +166,7 @@ export async function routeRooms(page: Page, specs: MockRoomSpec[]): Promise<Moc
       const b = req.postDataJSON() as Record<string, unknown>
       state.updated.push({ roomId: s.id, body: b })
       if ('notifyLevel' in b) s.own = (b.notifyLevel as typeof s.own) ?? null
+      if ('name' in b) s.name = (b.name as string | null) ?? null
       return route.fulfill(json(roomOf(s, i)))
     }
     return route.fulfill(json({ error: { code: 'not_found', message: 'not in this mock' } }, 404))
