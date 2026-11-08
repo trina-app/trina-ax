@@ -1,7 +1,9 @@
 // The desktop app's notifications for the team page (desktop/src/common/notify.ts, docs/DECISIONS.md "Session
 // markers"): only while the window is not focused, at most 10 a minute, one per tag, and a click shows the window AND
 // opens the chat the page named (before, it only focused the window); a team switch closes them all. The dock badge's
-// number. Settings › Notifications' test notification: shown while focused too, and it says what the system answered.
+// number. Settings › Notifications' test notification: shown while focused too, and it says what the system answered
+// (on macOS "taken" proves nothing: unknown). macOS's one question about notifications is asked while the window is in
+// front (ask), not with the first notification, which only comes while it is in the back.
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -20,10 +22,11 @@ class FakeNote implements NoteLike {
   click() { this.emit('click') }
 }
 
-function setup(o: { focused?: boolean; supported?: boolean; testWaitMs?: number } = {}) {
+function setup(o: { focused?: boolean; supported?: boolean; testWaitMs?: number; ask?: boolean | 'throws'; showIsSeen?: boolean } = {}) {
   const notes: FakeNote[] = []
   const opened: string[] = []
   let revealed = 0
+  let asked = 0
   let focused = o.focused ?? false
   let clock = 1_000_000
   const notifier = makeNotifier({
@@ -34,8 +37,10 @@ function setup(o: { focused?: boolean; supported?: boolean; testWaitMs?: number 
     open: (p) => opened.push(p),
     now: () => clock,
     testWaitMs: o.testWaitMs,
+    ask: o.ask ? () => { asked++; if (o.ask === 'throws') throw new Error('no notifications') } : undefined,
+    showIsSeen: o.showIsSeen,
   })
-  return { notify: notifier.notify, test: notifier.test, closeAll: notifier.closeAll, notes, opened, revealed: () => revealed, focus: (v: boolean) => { focused = v }, tick: (ms: number) => { clock += ms } }
+  return { notify: notifier.notify, test: notifier.test, closeAll: notifier.closeAll, ask: notifier.ask, asked: () => asked, notes, opened, revealed: () => revealed, focus: (v: boolean) => { focused = v }, tick: (ms: number) => { clock += ms } }
 }
 
 const CHAT = '01a1b10f-4c39-7478-a2d8-f2d048b335df'
@@ -220,5 +225,53 @@ describe('the test notification (Settings › Notifications)', () => {
       expect(STRINGS[l]['notify.test.title']).toContain('{app}')
       expect(STRINGS[l]['notify.test.body'].length).toBeGreaterThan(5)
     }
+  })
+})
+
+describe("macOS's question about notifications", () => {
+  test('asked once, and only while the window is focused: a team page opened in the back asks at the next focus', () => {
+    const s = setup({ ask: true, focused: false })
+    s.ask()
+    expect(s.asked()).toBe(0)
+    s.focus(true)
+    s.ask()
+    expect(s.asked()).toBe(1)
+    // a team switch, a reload, every focus after that: the system answers itself (macOS asks only once)
+    s.closeAll()
+    s.ask()
+    s.focus(false)
+    s.focus(true)
+    s.ask()
+    expect(s.asked()).toBe(1)
+    // the notifications themselves are unchanged
+    expect(s.notify({ title: 't', body: 'b' })).toBe(false)
+    s.focus(false)
+    expect(s.notify({ title: 't', body: 'b' })).toBe(true)
+  })
+
+  test('nothing to ask (Windows, Linux) does nothing; a system without notifications does not throw', () => {
+    const none = setup({ focused: true })
+    expect(() => none.ask()).not.toThrow()
+    const s = setup({ ask: 'throws', focused: true })
+    expect(() => s.ask()).not.toThrow()
+    expect(s.asked()).toBe(1)
+  })
+
+  test('macOS takes a notification it will not show (off, or the question unanswered): the test says unknown, never shown', async () => {
+    const s = setup({ focused: true, showIsSeen: false, testWaitMs: 1000 })
+    const taken = s.test({ title: 't', body: 'b' })
+    s.notes[0]!.emit('show')
+    expect(await taken).toBe('unknown')
+    const refused = s.test({ title: 't', body: 'b' })
+    s.notes[1]!.emit('failed')
+    expect(await refused).toBe('off')
+  })
+
+  test('the window asks after the team page loads and at focus with a team open; macOS only; the test knows macOS', () => {
+    const win = fs.readFileSync(path.join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
+    expect(win).toContain("ask: () => { if (process.platform === 'darwin') Notification.isSupported() },")
+    expect(win).toContain("showIsSeen: process.platform !== 'darwin',")
+    expect(win).toMatch(/await this\.loadOrigin\(origin, '\/'\)\n[\s\S]{0,240}if \(this\.app === app\) this\.notifier\.ask\(\)/)
+    expect(win).toMatch(/this\.win\.on\('focus', \(\) => \{[\s\S]{0,400}if \(this\.app\) this\.notifier\.ask\(\)/)
   })
 })

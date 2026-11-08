@@ -97,6 +97,11 @@ export class AppWindow {
       this.win.focus()
     },
     open: (path) => this.send(this.app, 'bridge:open', path),
+    // macOS asks about notifications once, when Electron first touches them (its presenter asks the system): touching
+    // them is the question, while the window is in front (common/notify.ts ask)
+    ask: () => { if (process.platform === 'darwin') Notification.isSupported() },
+    // macOS also takes a notification it will not show (notifications off, or its question not answered yet)
+    showIsSeen: process.platform !== 'darwin',
   })
   /** team id + code -> last LAN failure report (at most one an hour; the server counts once per session per hour) */
   private lanReported = new Map<string, number>()
@@ -134,6 +139,8 @@ export class AppWindow {
       void this.recheck(false)
       // "visible" for the team page's session markers is this window's focus (the in-app browser may hold the keys)
       this.send(this.app, 'bridge:focus', true)
+      // a team opened while the window was in the back: the system's question now, while the person looks
+      if (this.app) this.notifier.ask()
     })
     this.win.on('blur', () => this.send(this.app, 'bridge:focus', false))
     this.win.on('close', () => {
@@ -360,6 +367,9 @@ export class AppWindow {
     const origin = await this.pickOrigin()
     if (this.app !== app) return
     await this.loadOrigin(origin, '/')
+    // the team page is on screen: macOS's one question about notifications comes now, not with the first notification
+    // (that one only comes while the window is in the back, when nobody sees the question)
+    if (this.app === app) this.notifier.ask()
     this.scheduleRecheck()
     void this.learnDirect()
   }
