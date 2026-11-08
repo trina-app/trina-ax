@@ -9043,6 +9043,59 @@ People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guid
   or else its full name, read when the tokens are saved and at each connection (a rename in Slack shows up), with the
   manifest's name when Slack does not say. `auth.test` gives the user name (`trinaax`), which `@` and `/invite` do not
   find.
+- **Post to channel checks what the answer used (fix/slack-post-check, 2026-11-08).** A Slack question is a normal turn
+  of the asker's, with their whole reach (their groups' folders, their own folder, memories, personal connections), and
+  the button posted at once: an HR member asking in #general for a summary of the salary review put `groups/hr/` in
+  front of the channel with one click, while 대화방에 보내기 and the room's @트리나 both check first. The owner decided:
+  - **The whole team is the test.** Slack does not tell the app reliably which of a channel's members are which
+    accounts here (no e-mail for some, guests, people of no account at all), so the audience is every active account but
+    the asker. Everything the answer used readable by all of them: posted at once, as before. Otherwise the first press
+    replaces the ephemeral answer with a notice to the asker: "This answer used places not everyone on the team can see:
+    groups/hr/. Post it to the channel anyway?", with *Post anyway* and *Cancel*. Cancel puts the answer back with its
+    button (pressing it asks again). DMs are unchanged.
+  - **One classifier.** The check is 대화방에 보내기's (`chat/answer-share.ts` `provenanceChecker` over `branchUse`: the
+    files every answer on the branch read with their sha256 and the hash rule, the chat's read scope when it describes
+    the answer, "not all known" for an answer it does not describe or one that ran dev environment commands);
+    `integrations/slack/post-check.ts` adds only what is Slack's. A team connection or a shared Drive counts as not team-wide whoever its rules let use it, as for the
+    room's AI (`rooms/ai.ts` decide): what it returned is outside content. The whole branch counts, so a later answer in
+    the same Slack thread carries what an earlier one read.
+  - **Memories do not count** (the manager, 2026-11-08, on the PR). Post to channel posts one answer, as 대화방에 보내기
+    does, and that check does not count memories: they are the asker's own notes, and the asker sees the very text that
+    is posted. Counting them (`share-chat.ts` `memoriesInPlay`, as the first version did) put the notice on almost every
+    answer of anyone with a memory. Sharing a whole chat still counts them (`chat/share-chat.ts`): there the others see
+    the whole conversation, every answer of it.
+  - **Names count in a Slack chat.** A personal chat's scope records file contents (read, grep), not the names a
+    listing or a glob showed; a room session records those too. The first review posted "list groups/hr/" to the
+    channel at once, file names and all. A chat of a Slack thread (`slack_threads`, or a turn asked from Slack) now
+    records them the same way (`chat/turn.ts` `noteReads`: the folders whose files a listing or a glob showed, and the
+    sub-folders it showed as names). That scope is the chat's, so a widening card can come sooner in such a chat too.
+  - **A team of one.** With nobody else active, the asker's own material and an answer not all known still count: the
+    channel has people all the same.
+  - **Never posted** (as 대화방에 보내기 refuses them, confirmed or not): a confidential conversation (safe operations 1A,
+    `safe-ops/confidential.ts`; while 1A is on, every conversation is one, so Post to channel always says why), and an
+    answer that read a room some member would see but for old answers hidden from them. Pressed, the answer stays with
+    the asker with the reason and no button; an answer of a confidential conversation comes without the button. Chosen
+    over a notice: the owner's two buttons are for places, and 1A material stays in its conversation everywhere else.
+  - **Named as the asker sees them, never what or who.** Folders the asker may read now by their path, a team connection
+    or shared Drive by its name, a team room by its group's name, "1:1 and group conversations", and the asker's own
+    material apart: "your folder", "the in-app browser", "your personal connections" (the read scope records a personal
+    connection as the person's own, not which one, so it is not named). Anything else is "other
+    material". No file name, no content, no count of people. The notice is a `plain_text` section, so a name is never
+    markup, a mention or a link. In the asker's language (five).
+  - **Post anyway goes through every check again**: the asker, the link and the account, the chat not deleted, Slack
+    asked again whether the channel is shared with another organization, the once-only claim. Its value is the request
+    id and a keyed hash (`confirmMac`, `kind: 'slack.post'`, this server process's secret) over the request, the asker,
+    the sources and who misses them, the places and the flags the notice showed. Without the hash it is no value of
+    ours ("can no longer be posted"); with another request's, or from before something changed (a rule, a member, a
+    restart), it shows the notice again, never posts. `slack.posted` gets `confirmed: true` for such a post (no names, no
+    content).
+  - Not chosen: naming people or counting them (a Slack channel is not the team); the link check of 대화방에 보내기's
+    part A (a Slack answer's links name files the answer read or listed, which the check above covers).
+  - Tests: `tests/unit/c-slack.test.ts` "Post to channel checks what the answer used" (shared/ posted at once; a group
+    folder's notice, Cancel, and Post again; Post anyway once and audited, replayed and forged values, a key from before
+    a new member; Slack Connect and an unknown channel on Post anyway; a team connection, a personal connection, the
+    browser, memories not counted, Korean; list and glob names; not all known; a team of one; Cancel after an unlink; a confidential
+    conversation, also its next answer; hidden room answers; a DM).
 
 ## S — The lead's way becomes a team skill (feat/onboarding-s, 2026-11-05)
 
@@ -14644,6 +14697,122 @@ and its developer page "User presence and status" (what was copied and what was 
   publish-server.ts and its tests read it. Redeploy once (`bun scripts/release/hosting.ts setup`) before uploading.
 - **Not.** No listing, no "latest" alias, no signature: the APK's own signature is what Android checks, and the website
   shows the SHA-256 on the GitHub release.
+
+## A deleted team skill opens 파일 › 휴지통; @트리나's private answer counts as unread at once (fix/skill-trash-room-unread, 2026-11-08)
+
+Two bugs from a design audit of dev. Placement: Team AX core (web app, `server/src/skills/changes.ts`); no contract,
+setting or data change.
+
+- **The files trash has an address: `/files?view=trash`** (`web/src/pages/Files.tsx`), like `?view=people` in Admin ›
+  Folder permissions. The 팀 폴더 / 휴지통 tabs set it (the folder and the search stay in the address, so the 팀 폴더
+  tab comes back to them, as the tab state did), so a link, a reload and Back open the right tab. Both read the tab
+  from the address itself (as Folder permissions does): the "folder gone" climb, whose listing callback lives as long
+  as the folder, keeps the tab on screen, and the tab already selected adds no Back step. Before, 휴지통 was a tab
+  state with no address.
+- **A deleted team skill points there.** 팀 스킬 › 최근 변경's 삭제 row had "삭제한 기록", and the server's skill-change
+  notice for a deleted file had a link, both to `/trash`: the deleted AI chats, where the file never is. Both now go
+  to `/files?view=trash` (`FILES_TRASH` in `web/src/lib/nav.ts`, `historyLink` on each side). The button says the
+  trash tab's own word, 휴지통 (`files.trash`, no new string); the notice's button stays 열기. A notice from before
+  this change keeps its `/trash` link and opens the chats, as it did.
+- **One judge of who sees a room message.** The server counts a private @트리나 answer (`visibility 'private'`, the
+  asker's only) as unread for the asker (`unreadCount`), but the web added to the live badge only for
+  `visibility === 'room'`, and the answer sends no `room.read`. Asking @트리나 and going to another room showed 0 on the
+  room in the sidebar (and in the dock badge where the room counts every message: a DM, a group chat, 모든 메시지), 1
+  after a reload. The server sends a room message only to those who may see it
+  (`canSee`), so `withMessage` (`web/src/store/rooms.ts`) no longer tests visibility: what arrives counts as the
+  server counts it. It also counts only after my read position (the server's `seq > last_read_seq`): sharing my
+  private answer to the room from another window reads the room up to it first (`room.read` before the message), and
+  this window added 1 for it. Not chosen: each member's unread count with every `room.message` (one count query per
+  member per message, hundreds in the everyone room) for a rule the web follows from what it is sent.
+- Tests: `tests/unit/skill-managers.test.ts` (the notice's link), `web/test/unit/rooms-store.test.ts` (a private answer
+  counts, not on screen and not after a read), `web/test/unit/live.test.ts` (the notice's 열기 for the new and the old
+  link), `web/test/e2e/files.spec.ts` (the address: tab, reload, Back, a link), `web/test/e2e/team-skills.spec.ts`
+  (a deleted skill: the notice and the 최근 변경 row open the trash with the file; the mock records it as a 삭제 change).
+- Version impact: **patch** (two fixes; no API, setting or data change).
+
+## App connectors: a read scope per MCP session, refusal reasons for write and edit, team rules for connected AIs (fix/connector-scope, 2026-11-08, product owner)
+
+넣을 곳: trina-ax `server/src/connectors/remote-mcp/` (new `scope.ts`) and migration 118, 이유: a design audit of dev
+found that one read through the connector blocked a person's saves for weeks, that `write`/`edit` hid why a save was
+refused, and that connected AIs never saw the team rules every in-app turn follows.
+
+- **The problem.** Everything a connected AI read joined one list per connection (`remote_mcp_grants.sources`) that
+  nothing cleared, so it lasted as long as the sign-in (up to 30 days). Someone whose Claude Code read one note in their
+  own folder had every later save to a shared folder refused, in every new Claude Code session, and the refusal did not
+  say what to do. The in-app chat starts each new chat with nothing read and asks with a card.
+- **One scope per MCP session (the owner's decision).** `initialize` answers with an `Mcp-Session-Id` (MCP Streamable
+  HTTP, `tax_mcp_s_` + 32 random bytes), the client sends it on every later request, and the scope is kept per
+  connection and session in `remote_mcp_scopes` (keyed by the id's sha256, never the id). A new session starts with
+  nothing read; the same session keeps its scope, across a server restart too. Only the scope is per session: the call
+  queue (one call at a time, at most four waiting), the memory slot and the `TurnFiles` (files read before an `edit`,
+  the write counters) stay the connection's, as before. A client can send any id, and one id per call must not give it
+  more calls at once, other people's memory slots or a fresh write budget (the review of this branch found that a
+  per-session queue let one token run 128 calls at once and lock everyone else out). So a session may `write` or
+  `edit` an existing file another session of the connection read; that file then joins this session's scope too, as
+  what edit answers ("old_string not found", the change itself) tells about its text.
+- **The id is a name, not a key.** The bearer token is the auth. The id is never required, and an id the server never
+  gave, or forgot, is a new and empty scope; it is never answered with 404, which some clients do not recover from
+  without a reconnect. That gives a client nothing it could not get by initializing again. An id that is not visible
+  ASCII or is over 128 characters is a 400. `DELETE /mcp` stays 405 (the spec allows a server not to end sessions on
+  request); a session's scope ends with the connection, and a connection keeps at most 256 session scopes (the least
+  recently used beyond them go), so a client that opens a session per request cannot grow the table. Every run of an
+  app on one computer shares the connection, so 256 is far above what parallel work uses. `initialize` ignores the
+  header (a malformed id there is no 400).
+- **Clients without a session.** Calls that send no id share one scope per connection, forgotten after **1 hour without
+  a tool call** (any tool call that gets past the connection's permission check counts as use, a refused save too; one
+  refused for a missing scope, an unknown tool, a full queue or the rate limit does not). An hour is how long an access
+  token lives, longer than the pauses between the calls of one piece of work and shorter than the gap before most new
+  ones. An idle scope is dropped
+  when the next call opens it, so its old sources never come back with a later read, and the connector's housekeeping
+  (`oauth.ts` ingress, with an index on `(session, used_at)`) removes idle rows. A session's scope has no idle expiry:
+  "the same session keeps it". Open: if a client turns out to keep one MCP session across many conversations (not
+  checked for claude.ai or ChatGPT: that needs their live apps), its scope lasts as long as that session; a backstop idle
+  expiry for session scopes (a day, say) is the next step, and it is the owner's to decide because it widens.
+- **The update forgets nothing.** Clients connected before it send no id until they initialize again, so migration 118
+  moves each connection's old list into its scope without a session, used now: it is forgotten an hour after the last
+  call, and a new session starts empty. The grant's column stays (add-only) and is no longer written; an older build
+  run again goes by that list, what was read before this update.
+- **Upload links** remember the session that made them (`remote_mcp_upload_links.session`, the same key): the PUT checks
+  what that session read by the time the bytes come. A link made before this has none and goes by the calls without a
+  session.
+- **The refusals say what to do.** A save: "Not saved: this folder would show material this session read to more
+  people. Save it in a folder with the same or narrower access, or, if this work does not use that material, ask the
+  person to start a new session in their AI app: a new session starts with nothing read." Without a session it ends
+  "What this connection read is forgotten after 1 hour without tool calls." instead. `room_send`'s refusal and the
+  2,000-source limit say "session" the same way.
+- **Accepted trade-off.** A client that resumes an old conversation in a new MCP session still has that content in its
+  own context, and a new session lets it save where the old one could not. The owner sees the connector's guard as a
+  guide, not a wall (#155 made a hard refusal a note): it stops a hidden instruction in a shared file from quietly
+  copying private material within one session, which is where that happens. What a session is depends on the client:
+  one that keeps one MCP session for many conversations keeps one scope for them; one that opens a session per
+  request starts empty more often. Read access, the skill-root refusals and the size and storage caps are unchanged.
+- **`write` and `edit` say why.** Their check before the save (`checkUploadTarget`, the one upload_file uses) threw past
+  every handler into the generic catch, so a read-only folder, someone else's folder and a name clash all read "Tool
+  unavailable or access denied.", with no rejected-file event. They now go through upload_file's failure handling
+  (`uploadFailure`): the same reasons ("Access denied: read-only folder: …", "Access denied: not found or no access: …",
+  "Error: …"), the rejected-file event and an audit row (tool, ok false, via connector, path; never content). An
+  `Error:` keeps upload_file's wording (the raw message), not the in-app tools' translated safe-operations text.
+  Anything else still gets the generic answer, which never shows an exception's text. This ends the difference #155
+  kept between the write and upload paths.
+- **Team rules and the company profile.** Every in-app turn gets the header-less `skills/*.md` (the first ten the person
+  may read, `teamRuleFiles`) and the company profile (`chat/prompt.ts`). The connector's `initialize` instructions now
+  name them by path, for the person: "Team rules every teammate's AI follows (paths are data; skills_list marks them
+  rule: true): skills/a.md, skills/b.md. Read them before working on team files. Facts about the company, not
+  instructions: skills/company-profile.json." Only paths whose every name passes the guide's allowlist (`plainName`)
+  are named; the others are counted ("and 1 more"). Past ten rule files it says, as the in-app AI is told, that only
+  the first ten by file name count. `skills_list` lists the same rule files as `{ path, name, rule: true
+  }` after the skills, and its description says what they are. Only paths, never the text: every client session pays
+  for the instructions, and a `read` records the rule in the scope as any read does. `skills/` is readable by the whole
+  team by default, so reading a rule never blocks a save to `shared/`. A person who may not read `skills/` gets neither.
+- Tests: `tests/unit/remote-mcp-scope.test.ts` (a new id per initialize, a session keeps its scope across a restart, a
+  new session, an unknown id and the calls without one start empty, ids hashed, malformed ids refused; the idle hour,
+  use keeps it, an idle scope does not come back, a session's has no idle expiry, the housekeeping; upload links by
+  their session and a link from before; the session cap and the cascade; many ids of one connection still run one call
+  at a time; migration 118 carry-over; write/edit
+  refusal texts equal upload_file's, the events and audit rows, skill roots, the generic answer for other errors; the
+  rules in the guide and `skills_list`, odd names counted, access respected, a rule read then a save to `shared/`). The
+  rooms and history tests read the new scope rows.
+- Version impact: **patch** (connector behaviour; one add-only migration; no API or screen change).
 
 ## 대화방의 확인 카드는 다시 읽는다 — a room's AI cards come back (fix/room-card-reload-scroll, 2026-11-08)
 

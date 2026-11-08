@@ -5,9 +5,8 @@
 //   room_send                     scope mcp:rooms.write (with mcp:rooms): a message as the person through Rooms.send, the
 //                                 app's own path (membership, the send rate, thread rules, the AI's own checks when it
 //                                 calls "@<AI name>"). It looks like one they typed: no label (the owner's decision).
-// What was read joins the connection's read scope (remote_mcp_grants.sources, as a file read does): a message is not sent
-// where people who could not see that material would read it, as a file is not saved there (chat/read-scope.ts
-// roomWidening). No audit line and no count for these tools (the owner's decision); nothing here writes a message, a
+// What was read joins the session's read scope (scope.ts, as a file read does): a message is not sent where people who
+// could not see that material would read it, as a file is not saved there (chat/read-scope.ts roomWidening). No audit line and no count for these tools (the owner's decision); nothing here writes a message, a
 // name or a room id to the log.
 import crypto from 'node:crypto'
 import type { Database } from 'bun:sqlite'
@@ -25,6 +24,7 @@ import { canSee, memberRow, members, messageRow, roomOut, threadable } from '../
 import { readRoomFileFor } from '../../chat/room-tools'
 import { roomWidening, sourceKey, type ReadSource } from '../../chat/read-scope'
 import type { McpContent } from '../../turns'
+import type { WriteScope } from './upload'
 
 export const ROOMS_READ_TOOLS: ReadonlySet<string> = new Set(['rooms', 'room_read', 'room_file'])
 export const ROOM_SEND = 'room_send'
@@ -99,10 +99,10 @@ export function mergeSources(have: ReadSource[], add: ReadSource[]): ReadSource[
 }
 
 /**
- * One room tool for `user` (active now: tools.ts loaded them) with the connection's scopes already checked. `sources`:
- * what the connection read before (room_send checks against them). Never throws for the person's own mistakes.
+ * One room tool for `user` (active now: tools.ts loaded them) with the connection's scopes already checked. `scope`:
+ * what the session read before (room_send checks against it). Never throws for the person's own mistakes.
  */
-export async function roomTool(ctx: AppContext, user: Principal, name: string, args: unknown, files: TurnFiles, sources: ReadSource[], signal?: AbortSignal): Promise<RoomToolOut> {
+export async function roomTool(ctx: AppContext, user: Principal, name: string, args: unknown, files: TurnFiles, scope: WriteScope, signal?: AbortSignal): Promise<RoomToolOut> {
   const db = ctx.db, userId = user.id, tz = teamTimeZone(db)
   // rooms follow groups and accounts: a person taken out of a group a moment ago is out of its room before anything
   // is read or sent (GET /api/rooms does the same). The read itself goes by the member rows as they are.
@@ -135,7 +135,7 @@ export async function roomTool(ctx: AppContext, user: Principal, name: string, a
     if (seen.length && 'text' in findRoomFile(db, userId, a.data.room, a.data.file, tz)) return out('Access changed during the call. Please retry.', true)
     return { content: r.content, ...(r.isError ? { isError: true } : {}), seen }
   }
-  if (name === ROOM_SEND) return send(ctx, userId, args, sources, tz)
+  if (name === ROOM_SEND) return send(ctx, userId, args, scope, tz)
   return out('Unknown tool.', true)
 }
 
@@ -154,8 +154,8 @@ function shownMentions(db: Database, roomId: string, text: string): Set<string> 
   return out
 }
 
-function send(ctx: AppContext, userId: string, args: unknown, sources: ReadSource[], tz: string): RoomToolOut {
-  const db = ctx.db
+function send(ctx: AppContext, userId: string, args: unknown, scope: WriteScope, tz: string): RoomToolOut {
+  const db = ctx.db, sources = scope.sources
   const a = RoomSendInput.safeParse(args ?? {})
   if (!a.success) return out(zodText(a.error), true)
   const { room: roomRef, text, thread, mentions = [] } = a.data
@@ -184,7 +184,7 @@ function send(ctx: AppContext, userId: string, args: unknown, sources: ReadSourc
     root = { id: r.id, seq: r.seq }
   }
   const rootSeq = root?.seq
-  if (roomWidening(db, roomId, sources, root, userId)) return out('Not sent: this connection has read material (files, or messages of rooms) that some people in this room cannot see, and the message would show it to them. Send it where everyone can see that material, or let the user send it themselves. A new connection starts with nothing read.', true)
+  if (roomWidening(db, roomId, sources, root, userId)) return out(`Not sent: this ${scope.session ? 'session' : 'connection'} has read material (files, or messages of rooms) that some people in this room cannot see, and the message would show it to them. Send it where everyone can see that material, or let the user send it themselves. ${scope.session ? 'A new session starts with nothing read.' : 'What this connection read is forgotten after 1 hour without tool calls.'}`, true)
   let sent
   try {
     // what the connection had read goes with the message (room_messages.source_scope): someone who joins a team room or
