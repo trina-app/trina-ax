@@ -14,6 +14,7 @@ import { msg } from '../auth/messages'
 import { audit } from './audit'
 import { afterAccessChange, captureState, ensureFolderRow, resolveFolderPath, type SeenStates } from './folders'
 import { notifyTemplateOffers } from '../notifications/service'
+import { afterPrune, pruneAssignments, type Pruned } from '../credentials/assignees'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -139,12 +140,14 @@ export function deleteGroup(c: Context<AppEnv>, ctx: AppContext, id: string): vo
   deleteGroupAs(ctx, c.get('auth')!.user.id, id)
 }
 
-/** deleteGroup as `actorId` (Admin › Groups, the connector). */
-export function deleteGroupAs(ctx: AppContext, actorId: string, id: string, from: ChangeFrom = {}): void {
+/** deleteGroup as `actorId` (Admin › Groups, the connector). Returns the team AI connections that named the group: one
+ * it was the last group or person of is switched off (credentials/assignees.ts), never left to serve the whole team. */
+export function deleteGroupAs(ctx: AppContext, actorId: string, id: string, from: ChangeFrom = {}): Pruned[] {
   const auth = { user: { id: actorId } }
   const g = ctx.db.query('SELECT id, name FROM groups WHERE id = ?').get(id) as { id: string; name: string } | null
   if (!g) fail('not_found')
   const before = captureState(ctx.db)
+  let pruned: Pruned[] = []
   ctx.db.transaction(() => {
     ctx.db.query("DELETE FROM folder_rules WHERE subject_type = 'group' AND subject_id = ?").run(id)
     ctx.db.query('DELETE FROM groups WHERE id = ?').run(id)
@@ -153,7 +156,12 @@ export function deleteGroupAs(ctx: AppContext, actorId: string, id: string, from
     ctx.db.query("DELETE FROM integration_access WHERE subject_type = 'group' AND subject_id = ?").run(id)
     ctx.db.query("DELETE FROM integration_template_access WHERE subject_type = 'group' AND subject_id = ?").run(id)
     ctx.db.query("DELETE FROM drive_team_share_access WHERE subject_type = 'group' AND subject_id = ?").run(id)
-    audit(ctx.db, { actor: auth.user.id, action: 'group.delete', target: id, detail: { name: g!.name, ...viaOf(from) } })
+    // AI connections assigned to it: the rows go; one left with no group or person is switched off, not team-wide
+    pruned = pruneAssignments(ctx.db, auth.user.id, new Date().toISOString())
+    const off = pruned.filter((p) => p.switchedOff).map((p) => ({ id: p.id, label: p.label }))
+    audit(ctx.db, { actor: auth.user.id, action: 'group.delete', target: id, detail: { name: g!.name, ...(off.length ? { aiConnectionsOff: off } : {}), ...viaOf(from) } })
   })()
+  afterPrune(ctx, auth.user.id, pruned)
   afterAccessChange(ctx, before, byOf(auth.user.id, id, from))
+  return pruned
 }

@@ -1540,6 +1540,7 @@ export const id: Record<MessageKey, string> = {
   'members.resetLinkNote': 'Berlaku sekali, sampai {date}. Setelah jendela ini ditutup, tautan tidak bisa dilihat lagi.',
   'members.removeTitle': 'Hapus {name}?',
   'members.removeBody': 'Chat dan memorinya dihapus setelah {days} hari. File pribadinya dipindahkan ke arsip di dalam folder pribadi owner. Hanya owner yang bisa membaca file yang diarsipkan.',
+  'members.removeAiOff': 'Koneksi AI yang hanya dipakai orang ini dimatikan: {names}',
   'members.editTitle': 'Ubah {name}',
   'members.ownerChangesAdmins': 'Hanya owner yang bisa mengubah peran.',
   'members.invites': 'Link undangan',
@@ -1586,6 +1587,7 @@ export const id: Record<MessageKey, string> = {
   'groups.noMembers': 'Belum ada anggota',
   'groups.deleteTitle': 'Hapus grup "{name}"?',
   'groups.deleteBody': 'Izin folder untuk grup ini ikut dihapus.',
+  'groups.deleteAiOff': 'Koneksi AI yang hanya dipakai grup ini dimatikan: {names}',
 
   'rules.desc': 'Tentukan siapa yang bisa melihat dan mengubah tiap folder. Subfolder tanpa aturan mengikuti folder di atasnya.',
   'rules.addFolder': 'Tambah folder',
@@ -2447,6 +2449,7 @@ export const id: Record<MessageKey, string> = {
   'credentials.target': 'Dipakai oleh',
   'credentials.target.team': 'Seluruh tim',
   'credentials.target.pick': 'Grup dan orang tertentu',
+  'credentials.target.pickNone': 'Pilih setidaknya satu grup atau orang.',
   'credentials.target.groups': 'Grup',
   'credentials.target.people': 'Orang',
   'credentials.target.personal': '{name} (pribadi)',

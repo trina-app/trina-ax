@@ -370,9 +370,12 @@ function groupDelete(ctx: AppContext, user: Principal, args: unknown): GroupOutc
   // read before the group and the rows that name it are gone
   const also = alsoWords(alsoIndex(ctx)(g.id))
   const seen: SeenStates = {}
-  deleteGroupAs(ctx, user.id, g.id, { via: 'connector', seen })
+  const pruned = deleteGroupAs(ctx, user.id, g.id, { via: 'connector', seen })
   const lines = [`Deleted group ${quote(g.name)} (id ${g.id}) and the folder rules that named it.${folder ? ` Its folder ${folder} and its files stay.` : ''}`, accessText(ctx, seen, members)]
   if (also && members.length) lines.push(`Its members also lose what this group gave them (unless they get it another way): ${also}.`)
+  // a team AI connection it was the last group or person of is switched off, not given to the whole team
+  const off = pruned.filter((p) => p.switchedOff)
+  if (off.length) lines.push(`Switched off the AI connections only this group could use (an admin can give them to other groups or people and switch them on again): ${listOf(off.map((p) => quote(p.label)))}.`)
   return ok(lines.join('\n'), { group: g.id, name: g.name })
 }
 

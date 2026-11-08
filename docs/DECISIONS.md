@@ -15071,3 +15071,78 @@ refused, and that connected AIs never saw the team rules every in-app turn follo
   admin's off stays, Codex off; the notice), `web/test/e2e/engine-choice.spec.ts` (the new label and warning).
 - Version impact: **patch** (a scheduled run follows its owner's engine; the switch's wording and its no-connection
   case; no API or data shape change).
+
+## What a deleted member or group leaves behind (fix/removal-leftovers, 2026-11-08)
+
+넣을 곳: trina-ax core (`server/src/credentials/assignees.ts`, `server/src/admin/groups.ts`, `server/src/admin/users.ts`,
+`server/src/credentials/service.ts`, `server/src/team-files/service.ts`, migration 117, the group and member delete
+dialogs), 이유: a design audit of dev found what deleting a member or a group left in place; members, groups, AI
+connections and files are core. Plan: `docs/AGENTS/plan/20261108-0930-removal-leftovers.md`.
+
+- **AI connection assignments go with the group or person, and never widen access.** A team connection with any
+  assignment serves only the groups and people it names (`credentials/resolve.ts` `candidates`); one with none serves
+  the whole team. Deleting a group or a person now removes their `engine_credential_assignments` rows inside the
+  delete's transaction (`pruneAssignments`, which removes every row whose group or person is gone). A connection that
+  would be left with none is **switched off** (`disabled`), the state a connection already has, rather than left to
+  serve everyone: a paid key for one group must not suddenly be the whole team's. It is also **marked**
+  (`meta.assigneesGone`, also when it was off already), so a later click cannot widen it either: the row says "쓰던
+  그룹·사람이 삭제돼서 꺼졌어요. '대상 바꾸기'에서 그룹이나 사람을 고른 뒤 켜 주세요.", the bare switch-on (`PATCH
+  {disabled: false}`) is refused with that text (409 `assignees_gone`), and a save that picks a group or person clears
+  the mark. The edit dialog always sends its list, and for such a connection that is the empty "팀 전체" it opens with,
+  so an empty list is not a choice (a rename keeps the mark); the whole team counts only when the same request also
+  switches it on (`{assignments: [], disabled: false}`, never the dialog's save). Through the screens the way to the
+  whole team is the one for any connection: pick someone, then change it to the whole team. The token-file sync
+  (`credentials/migrate.ts`), which rewrites `meta`, keeps the mark. Each connection changed gets its own
+  `credential.update` line (reason `assignees_deleted`, before and after), `group.delete` / `user.delete` list the
+  connections switched off (`aiConnectionsOff`), an admin's delete tells the owner like any admin's switch-off
+  (`noticeOwners` 'disabled'), the engines' state is read again, and the connector's `group_delete` names them.
+- **The confirmation names them.** The group delete and member delete dialogs add one line, "이 그룹만 쓰던 AI 연결이
+  꺼져요: …" / "이 사람만 쓰던 AI 연결이 꺼져요: …", for the switched-on team connections assigned to that group or
+  person alone. The list is read with the page (`GET /api/admin/credentials`, which owners and admins see), so the
+  dialog opens as fast as before and keeps its focus return; when it cannot be read the line is left out (the server
+  switches them off either way).
+- **Saving a connection that names a group or person that is gone.** The edit dialog sends its whole form, and a dead
+  id has no checkbox to untick, so every save of such a connection failed with `unknownAssignee`. `updateCredential`
+  now drops ids whose group or person is gone; when none of the ones sent is left, the connection is switched off and
+  marked in the same write (also when the request says `disabled: false`), never saved as team-wide. A person who is
+  disabled but not deleted still counts: their rows stay everywhere. An empty list sent on
+  purpose still means the whole team. Adding a connection keeps refusing an unknown id: there is nothing to keep.
+- **"Chosen groups and people" with none ticked.** In the add and the edit dialog, picking that option and ticking
+  nobody used to save an empty list, which the API reads as the whole team. Neither dialog saves it now: the button
+  stays off and one line under the list says "그룹이나 사람을 하나 이상 골라 주세요." The server cannot refuse it
+  too: the request body has one list, and an empty list is how the whole team is asked for, so "chosen, none" and
+  "team" look the same there. Telling them apart would need a new field in the contract; not done.
+- **Rows earlier deletes left: migration 117.** Data only (reader 1). The same rule once: a team connection every one
+  of whose assignments is gone served nobody, so it is switched off before its rows go, with an Activity log line
+  without an actor (`via: upgrade`), like migration 216 did for paused schedules. A migration rather than the sweeper:
+  this is a one-time repair of what older builds wrote, and the delete paths keep it from coming back.
+- **A deleted person's profile and own AI connections.** Users are tombstones, so the `ON DELETE CASCADE` of
+  `user_profiles` (migration 115) and of `engine_credentials.owner_user_id` never ran: the photo, title and status, and
+  the person's own Claude or ChatGPT token or API key, stayed (Admin › AI providers still listed the connection). Both
+  are deleted inside `deleteUser`'s transaction now, like their own service connections already were; migration 117
+  does it for people deleted before. The photo is a BLOB in `user_profiles`, so there is no file to remove. App Store
+  account deletion (5.1.1(v)) needs the profile gone.
+- **The personal folder's transfer is a move.** `personalFolder=transfer` (the default, kept: owner decision
+  2026-11-08) used a raw rename. It now runs `TeamFiles.archiveFolder`, the database and disk part of `move` (now one
+  private step, `relocate`, that both use): version rows, folders rows, projects and the text cache follow the folder,
+  two file events say where it went (`tool: member-delete`), and the Files screen and the knowledge graph hear of it.
+  The chat attachments (`.attachments/`) are still removed first. No access check: nobody can open a deleted
+  account's folder, and the delete was the decision. So the member's personal projects (name and instructions, which
+  live only in the database) follow too and the owner sees them in the archive, as the task asked; before, they pointed
+  at a path nobody had. Two rules of `move` stay as they are: items the member had put in the trash do not follow
+  across the edge of a personal folder, and a version saved where only the member could read stays theirs
+  (`versionVisible` judges it by `path_at_save`; a version whose folders row moved with it is judged by that row, a
+  rare case), so the owner mostly sees the files and their history from the transfer on, not the member's earlier
+  versions. Changing that would show the owner drafts the member never shared: left for the owner to decide. The
+  archive name now also skips a name a folders row or a project already holds.
+- **A photo upload during the delete.** `saveAvatar` reads the whole upload before it writes; it now refuses (401) when
+  the account was deleted meanwhile, so the photo does not come back after `deleteUser` removed it.
+- **Docs.** `docs/security-and-permissions.md` (and the Korean copy) said only owners remove members; owners and
+  admins do (admins plain members, after their password). `docs/PERMISSIONS.md` says the personal folder moves to the
+  owner's archive on delete, what happens to AI connection assignments, and has a table of who reviews each kind of
+  skill proposal as the code works today (documentation only: nobody's review changed).
+- Tests: `tests/unit/a-removal-leftovers.test.ts` (group delete by an admin: a connection only for it switched off and
+  not team-wide, a mixed one keeps the person, audit lines and the owner's notice; team-wide and already-off
+  connections untouched; saving with dead ids; member delete: profile, own connection, assignment; the transfer's
+  history, project and file events; migration 117 on an older database).
+- Version impact: **patch** (fixes what deletes left behind; one data-only migration, no API change).
