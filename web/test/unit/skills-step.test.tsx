@@ -404,7 +404,7 @@ describe('a picked folder', () => {
       expect(m.find('skills-tools')).toBeNull()
       expect(text(m, 'skills-who')).toBe(ko('welcome.skills.who', { team: 'Acme' }))
       expect(m.get('skills-primary').getAttribute('data-state')).toBe('put')
-      expect(text(m, 'skills-primary')).toBe(ko('welcome.skills.putN', { n: 3 }))
+      expect(text(m, 'skills-primary')).toBe('주간 업무 보고·견적서 초안·회의록 정리 넣기')
       expect(m.find('skills-share')).toBeNull()
     } finally { await m.unmount() }
   })
@@ -419,7 +419,7 @@ describe('a picked folder', () => {
       await tick(m, checkOf(m, 'weekly-report'))
       await tick(m, checkOf(m, 'weekly-report'))
       await tick(m, checkOf(m, 'quote-draft'))
-      expect(text(m, 'skills-primary')).toBe(ko('welcome.skills.putN', { n: 3 }))
+      expect(text(m, 'skills-primary')).toBe('주간 업무 보고·회의록 정리·내 일정 정리 넣기')
       // only rows with a similar or same-named team skill choose
       expect(rows(m).filter((r) => r.querySelector('select')).map((r) => r.getAttribute('data-name'))).toEqual(['meeting-notes'])
       const pill = rowOf(m, 'meeting-notes').querySelector('select')!
@@ -653,7 +653,7 @@ describe('phones', () => {
       // titles only on a phone: no /slug
       expect(rowOf(m, 'weekly-report').textContent).toBe(`주간 업무 보고${ko('welcome.skills.reason.team_any')}`)
       // the step's primary covers the list on a phone too
-      expect(text(m, 'skills-primary')).toBe(ko('welcome.skills.putN', { n: 3 }))
+      expect(text(m, 'skills-primary')).toBe('주간 업무 보고·견적서 초안·회의록 정리 넣기')
       await m.click('skills-later')
       expect(events).toEqual(['skip'])
       expect(called(`POST /api/skill-shares/${CC_ID}/dismiss`)).toHaveLength(1)
