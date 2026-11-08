@@ -36,7 +36,7 @@ import { finishCard } from '../chat/connect-service'
 import { refuseDraftAttachments } from '../onboarding/draft'
 import { refuseSkillDraftAttachments } from '../onboarding/skill-draft'
 import { refuseShareJudgeAttachments } from '../skills/share-judge'
-import { Audiences, chatFor, chatView, isSharedRow, messageFor, projectCanShare, projectShare, sharesNewChats, type ChatAccess } from '../chat/shared'
+import { Audiences, chatFor, chatPeople, chatView, isSharedRow, messageFor, projectCanShare, projectShare, sharesNewChats, type ChatAccess, type ChatPeople } from '../chat/shared'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { forgetPurgedChats } from '../chat/forget'
 
@@ -51,8 +51,8 @@ function chatOf(rt: ChatRuntime, c: Context<AppEnv>, auth: AuthInfo, id: string,
 }
 /** A chat as the API shows it to `viewer` (chat/shared.ts chatView): a stored connection secret of its person never
  * shows in the title (a title made before the key was saved, or a rename; QA B-W5-1). `hide` and `aud`: one each for a
- * whole list. */
-function chatOut(rt: ChatRuntime, viewer: string, r: ChatRow, o: { hide?: (s: string) => string; aud?: Audiences } = {}): Chat {
+ * whole list; `people`: a project's list, who wrote in its shared chats. */
+function chatOut(rt: ChatRuntime, viewer: string, r: ChatRow, o: { hide?: (s: string) => string; aud?: Audiences; people?: Map<string, ChatPeople> } = {}): Chat {
   return chatView(rt, viewer, r, o)
 }
 
@@ -209,7 +209,10 @@ export const chatsRoutes: RouteModule = {
       const items = out.slice(0, limit)
       const lastItem = items[items.length - 1]
       const hide = redactorFor(ctx, me).hide
-      return { items: items.map((r) => chatOut(rt, me, r, { aud, ...(r.user_id === me ? { hide } : {}) })), nextCursor: more && lastItem ? encodeCursor({ u: lastItem.updated_at, id: lastItem.id }) : null }
+      // a project's page: who wrote in each of its shared chats listed here (all of them visible to me, above), in one
+      // query for the page
+      const people = query.projectId && !query.trash ? chatPeople(ctx.db, items.filter(isSharedRow).map((r) => r.id)) : undefined
+      return { items: items.map((r) => chatOut(rt, me, r, { aud, ...(r.user_id === me ? { hide } : {}), ...(people ? { people } : {}) })), nextCursor: more && lastItem ? encodeCursor({ u: lastItem.updated_at, id: lastItem.id }) : null }
     })
 
     kit.handle(API.chatEngines, ({ c, auth }) => chatEnginesFor(ctx, auth.user, rt.engines.get().problems, c.get('locale')))

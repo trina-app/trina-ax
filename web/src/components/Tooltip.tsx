@@ -19,8 +19,11 @@
 //   does not: by default when the element's aria-label does not already hold `label` (a row's "가나 더 보기" with the tip
 //   "더 보기" is not read twice), or always with `description`.
 // - No animation beyond a short fade, none with reduced motion.
+// - `focusFrom`: for something that takes no focus itself inside a control that does (the faces in a project page's
+//   chat row, inside the row's link): that control's keyboard focus shows the tip as well, its blur and a press on it
+//   hide it.
 import clsx from 'clsx'
-import { cloneElement, isValidElement, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type PointerEvent, type ReactElement, type Ref } from 'react'
+import { cloneElement, isValidElement, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type PointerEvent, type ReactElement, type Ref, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 
 /** ms a mouse rests on the element before the tip shows */
@@ -66,7 +69,7 @@ export function placeTip(anchor: { top: number; bottom: number; left: number; wi
   return { top, left, below }
 }
 
-export function Tooltip({ label, children, description = false, disabled = false }: { label: string; children: ReactElement; description?: boolean; disabled?: boolean }) {
+export function Tooltip({ label, children, description = false, disabled = false, focusFrom }: { label: string; children: ReactElement; description?: boolean; disabled?: boolean; focusFrom?: RefObject<HTMLElement | null> }) {
   const id = useId()
   const anchor = useRef<HTMLElement | null>(null)
   const tipRef = useRef<HTMLDivElement | null>(null)
@@ -84,15 +87,36 @@ export function Tooltip({ label, children, description = false, disabled = false
     setOpen(false)
     setPos(null)
   }, [])
-  const show = () => {
+  const show = useCallback(() => {
     if (disabled || !label || !finePointer()) return
     // a menu of its own is open: the menu is what the person looks at
     if (anchor.current?.getAttribute('aria-expanded') === 'true') return
     if (!description && saysIt(anchor.current, label)) return
     setOpen(true)
-  }
+  }, [disabled, label, description])
   useEffect(() => () => clear(), [])
   useEffect(() => { if (disabled) hide() }, [disabled, hide])
+  // the control around it that takes the focus for it: its keyboard focus shows the tip too (not the focus a click
+  // gives), its blur and a press on it hide it
+  useEffect(() => {
+    const el = focusFrom?.current
+    if (!el) return
+    const focus = () => {
+      if (Date.now() - pointerAt.current > 500 && keyboardFocus(el)) { clear(); show() }
+    }
+    const down = () => {
+      pointerAt.current = Date.now()
+      hide()
+    }
+    el.addEventListener('focusin', focus)
+    el.addEventListener('focusout', hide)
+    el.addEventListener('pointerdown', down)
+    return () => {
+      el.removeEventListener('focusin', focus)
+      el.removeEventListener('focusout', hide)
+      el.removeEventListener('pointerdown', down)
+    }
+  }, [focusFrom, show, hide])
   // the element's own ref, kept: one stable callback (a new one each render would detach and attach it every commit)
   const childRef = isValidElement(children) ? (children as Child).props.ref : undefined
   const setRef = useCallback((el: HTMLElement | null) => {

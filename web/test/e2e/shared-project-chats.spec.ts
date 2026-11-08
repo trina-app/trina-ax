@@ -2,7 +2,8 @@
 // project's edit dialog (its hints: who will see new chats, what turning it off does, why it is off under safe
 // operations; none for a personal project); a new chat in that project is seen and continued by the project's people.
 // The chat's header has the people icon, the line under the box says how many see it, every question carries its
-// sender's picture and name (mine too; a private chat neither), and only what the person may do is offered. While
+// sender's picture and name (mine too; a private chat neither), the project page's row has the faces of who wrote in it
+// (the names on hover and keyboard focus), and only what the person may do is offered. While
 // someone else's question is answered the box keeps the text with a line saying whose; the read card goes to the person
 // who asked, the others see that it waits for them.
 // At 1440 and 390 px wide, with axe on each screen. The mock (test/mock/server.ts, "shared project chats"): "hold" keeps
@@ -253,6 +254,95 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(page.getByTestId('message-author-row')).toHaveCount(0)
       await expect(page.getByTestId('message-author')).toHaveCount(0)
       await expect(page.getByTestId('user-message').locator('img')).toHaveCount(0)
+      await b.context().close()
+    })
+
+    test('the project page: the faces of who wrote in a shared chat, the names on hover and focus; my private chat has none', async ({ page, browser }) => {
+      await reset(page)
+      await signIn(page)
+      await bobHasPhoto(page.context())
+      const id = await project(page)
+      const chatId = await sharedChat(page, id, '출시 일정과 안내 문구, 담당자별 할 일까지 한 번에 정리해 줘')
+      const b = await bob(browser)
+      await bobHasPhoto(b.context())
+      expect((await post(b, `/api/chats/${chatId}/messages`, { content: '안내 문구도 써 줘', clientMessageId: uuidv7() })).status()).toBe(202)
+      await expect.poll(async () => ((await (await b.request.get(`/api/chats/${chatId}`)).json()) as { runState: string }).runState).toBe('idle')
+      // a chat of Olga's alone in the same project (made before the setting would share it: moved in)
+      const own = ((await (await post(page, '/api/chats', { projectId: null, title: '내 메모 정리' })).json()) as { id: string }).id
+      expect((await patch(page, `/api/chats/${own}`, { projectId: id })).ok()).toBeTruthy()
+
+      await page.goto(`/projects/${id}`)
+      const shared = page.getByTestId('project-chat').filter({ has: page.getByTestId('shared-icon') })
+      const faces = shared.getByTestId('project-chat-people')
+      // the most recent first: Bob's photo, then Olga's letter; no name beside them, no "+N" for two
+      await expect(faces.locator('img')).toHaveAttribute('src', /\/api\/people\/bob\/avatar\?v=3$/)
+      await expect(faces.locator(':scope > *')).toHaveCount(2)
+      await expect(faces.locator(':scope > span').first()).toHaveText('O')
+      await expect(faces).toHaveAttribute('aria-hidden', 'true')
+      await expect(shared.getByTestId('project-chat-by')).toHaveCount(0)
+      await expect(shared.getByTestId('project-chat-more')).toHaveCount(0)
+      // the row reads the names once, the pictures say nothing
+      await expect(shared).toHaveAccessibleName(/^(?!.*Olga.*Olga)(?!.*Bob.*Bob)공유 채팅\s*출시 일정.*Bob, Olga 참여\s*\S/)
+      // the title gives way, the faces and the time keep their room; the faces overlap
+      const box = (l: ReturnType<Page['getByTestId']>) => l.boundingBox().then((x) => x!)
+      const [row, stack] = [await box(shared), await box(faces)]
+      expect(stack.width).toBeLessThan(40)
+      expect(stack.width).toBeGreaterThan(30)
+      expect(row.height).toBeLessThanOrEqual(48)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      // the private chat: no faces, no name
+      const mine = page.getByTestId('project-chat').filter({ hasText: '내 메모 정리' })
+      await expect(mine.getByTestId('shared-icon')).toHaveCount(0)
+      await expect(mine.locator('img, [data-testid="project-chat-people"], [data-testid="project-chat-by"]')).toHaveCount(0)
+      if (vp.phone) {
+        // the title truncates rather than squeezing the faces
+        const title = shared.locator('span.truncate').first()
+        expect(await title.evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true)
+        expect((await box(faces)).width).toBeGreaterThan(30)
+      } else {
+        // a mouse on the faces: the names; keyboard focus on the row: the same
+        await faces.hover()
+        await expect(page.getByRole('tooltip')).toHaveText('Bob, Olga')
+        await page.mouse.move(0, 0)
+        await expect(page.getByRole('tooltip')).toHaveCount(0)
+        await shared.focus()
+        await page.keyboard.press('Shift+Tab')
+        await page.keyboard.press('Tab')
+        await expect(shared).toBeFocused()
+        await expect(page.getByRole('tooltip')).toHaveText('Bob, Olga')
+        await page.keyboard.press('Tab')
+        await expect(page.getByRole('tooltip')).toHaveCount(0)
+      }
+      await audit(page, 'project page, faces')
+
+      // five writers (the list as a server with more people answers it): 3 faces and "+2" on a computer, 2 and "+3" on
+      // a phone, the title still the one that gives way
+      const projectList = /\/api\/chats\?.*projectId=/
+      await page.route(projectList, async (r) => {
+        const res = await r.fetch()
+        const body = (await res.json()) as { items: { id: string; shared?: object }[] }
+        for (const c of body.items) if (c.id === chatId) c.shared = { ...c.shared, people: [{ id: 'eve', name: 'Eve' }, { id: 'dev', name: 'Dev' }, { id: 'cho', name: 'Cho' }], peopleCount: 5 }
+        await r.fulfill({ response: res, json: body })
+      })
+      await page.reload()
+      const five = shared.getByTestId('project-chat-people')
+      await expect(five.locator(':scope > :visible')).toHaveCount(vp.phone ? 3 : 4)
+      await expect(shared.getByTestId(vp.phone ? 'project-chat-more-phone' : 'project-chat-more')).toHaveText(vp.phone ? '+3' : '+2')
+      await expect(shared.getByTestId(vp.phone ? 'project-chat-more' : 'project-chat-more-phone')).toBeHidden()
+      await expect(shared.getByTestId('project-chat-people-label')).toHaveText('Eve, Dev, Cho 외 2명 참여')
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      if (vp.phone) expect(await shared.locator('span.truncate').first().evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true)
+      await page.unroute(projectList)
+
+      // Bob's page: the same faces; one person's chat: that face and the name
+      const solo = await sharedChat(b, id, '회의록 요약해 줘')
+      await b.goto(`/projects/${id}`)
+      await expect(b.getByTestId('project-chat').filter({ hasText: '출시 일정' }).getByTestId('project-chat-people').locator(':scope > *')).toHaveCount(2)
+      const one = b.getByTestId('project-chats').locator(`a[href="/c/${solo}"]`)
+      await expect(one.getByTestId('project-chat-by')).toHaveText('Bob')
+      await expect(one.locator('img')).toHaveCount(1)
+      await expect(one).toHaveAccessibleName(/^(?!.*Bob.*Bob)(?!.*참여)공유 채팅\s*회의록 요약해 줘\s*Bob\s*\S/)
+      await audit(b, 'project page, faces, a member')
       await b.context().close()
     })
 

@@ -880,6 +880,7 @@ export const en: Record<MessageKey, string> = {
   'projects.deleteShared': "{n, plural, one {# shared chat is} other {# shared chats are}} deleted with it.",
   'projects.deleteBodyShared': "Only the project is deleted; its folder and your own chats stay.",
   'projects.repointShared': "{n, plural, one {# shared chat} other {# shared chats}} will be seen by the {m, plural, one {# person} other {# people}} who can see this folder.",
+  'projects.chatPeople': "Participants: {names}",
   'chat.sharedLabel': "Shared chat",
   'chat.shared': "Shared chat · {n, plural, one {# person} other {# people}} in the project can see it",
   'chat.footerShared': "AI can make mistakes. Check important information. {n, plural, one {# person} other {# people}} in the project can see this chat.",
