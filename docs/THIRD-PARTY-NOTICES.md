@@ -10,6 +10,7 @@
 | 외부 서비스 로고 | `web/public/icons/connectors`의 40개(MCP 서버 39개와 앱 커넥터의 Google Drive). 파일별 출처는 아래 [외부 서비스 로고](#외부-서비스-로고-webpubliciconsconnectors) 표 | 각 로고는 그 소유자의 상표이고 서비스를 가리키는 데만 쓴다. 이 저장소의 라이선스가 로고에 권리를 주지 않는다. 파일별 출처와 이용 조건은 아직 확인되지 않았다 |
 | 사이트 글꼴 | 사이트(ax.trina.app)와 함께 비공개 `trina-ax-core`로 옮김. OFL 원문·Trina UI 변경 기록도 그쪽에 있다 | 사이트 배포물에 함께 넣는다 |
 | 사이트 정적 출력 | 비공개 `trina-ax-core`의 `editions/trina/website/public/licenses/` | 실제 dist의 바이트 확인 필요; 대응 소스 제공과 별개 |
+| 자연스러운 글 스킬(영어) | `resources/skill-packs/work/en/humanizer/`: 오픈소스 "humanizer" 스킬(MIT, Copyright (c) 2025 Siqi Chen)을 고쳐 쓴 것. MIT 고지는 [LICENSE](../resources/skill-packs/work/en/humanizer/LICENSE)와 팀이 받는 SKILL.md 끝에 둔다 | 한국어판은 회사가 쓴 것이라 해당 없음 |
 
 Saram/chat-proto 12개 명시 파일과 ee/cloud는 [PUBLICATION](PUBLICATION.md)의 권리 근거를 따른다. PowerPoint 미리보기는 2026-10-28부터 `@aiden0z/pptx-renderer@1.4.0`(Apache-2.0)을 쓴다. 패키지 `LICENSE`·`THIRD_PARTY_NOTICES.md`와 설치된 `mtx-decompressor`(MPL-2.0)의 `LICENSE`는 웹 빌드의 `web/dist/licenses/`에 복사된다. 남은 항목: 패키지 `licenses/ECMA-text-copyright-notice.txt`는 자동 복사되지 않는다. 앱 번들은 패키지 ESM이 가져오는 설치본 `mtx-decompressor@1.8.0`을 묶으며, 패키지 고지의 1.4.2는 패키지 자체 standalone 번들 기준이다. 이전 `pptx-preview@1.0.7`(저자 LICENSE가 소스 게시를 제한)은 의존성에서 뺐다.
 

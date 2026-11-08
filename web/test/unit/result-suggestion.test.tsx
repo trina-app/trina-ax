@@ -5,7 +5,7 @@
 // closing one asks the server to keep it closed for this person.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
-import { WELCOME_RESULT_SKILL, type ResultSuggestion as Suggestion, type WelcomeProgress } from '@mycel/shared/api'
+import { GENERAL_CARDNEWS_SKILL, type ResultSuggestion as Suggestion, type WelcomeProgress } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { ResultSuggestion, weeklyAt } from '../../src/components/onboarding/ResultSuggestion'
 import { forgetSkillDrafts } from '../../src/components/onboarding/SkillShareCard'
@@ -69,7 +69,7 @@ const called = (key: string) => calls.filter((c) => c.key === key)
 describe('the suggestion under a result', () => {
   test('the 2nd run of a skill: "every week at this time?" asks the AI to schedule the same request, then goes away', async () => {
     signIn('member')
-    suggestion = { kind: 'schedule', key: `schedule:${WELCOME_RESULT_SKILL}`, skill: { path: WELCOME_RESULT_SKILL, name: 'ad-copy' } }
+    suggestion = { kind: 'schedule', key: `schedule:${GENERAL_CARDNEWS_SKILL}`, skill: { path: GENERAL_CARDNEWS_SKILL, name: 'card-news' } }
     const sent: string[] = []
     const m = await mount(<MemoryRouter><ResultSuggestion chatId={CHAT} messages={thread()} busy={false} onSend={(t) => sent.push(t)} /></MemoryRouter>)
     try {
@@ -184,7 +184,7 @@ describe('the suggestion under a result', () => {
     suggestion = { kind: 'ppt', key: 'ppt' }
     progress = {
       startedAt: '2026-11-04T00:00:00.000Z', updatedAt: '2026-11-04T00:00:00.000Z', teamType: 'marketing', steps: { profile: 'done', result: null, skills: null, files: null, invite: null },
-      pack: { id: 'marketing', at: '2026-11-04T00:00:00.000Z', skillPath: WELCOME_RESULT_SKILL }, resultChatId: CHAT, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
+      resultChatId: CHAT, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
     }
     const m = await mount(<MemoryRouter><ResultSuggestion chatId={CHAT} messages={thread()} busy={false} onSend={() => {}} /></MemoryRouter>)
     try {

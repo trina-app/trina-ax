@@ -400,51 +400,29 @@ describe('on screen', () => {
   })
 })
 
-// docs/DECISIONS.md "M — One meeting note, everyone's own tasks": a link can carry the lead's files (a starter); its
-// message then says what is waiting; the team's own group (from the welcome steps) is a new link's default group; the
-// invite with files changes an open link that leads elsewhere (PATCH, same address).
-describe('the starter and the team\'s group', () => {
+// docs/DECISIONS.md "M — One meeting note, everyone's own tasks": the team's own group (from the welcome steps) is a new
+// link's default group; the invite that points at a skill changes an open link that leads elsewhere (PATCH, same
+// address). The link's starter (the lead's files and a question) is gone with 할 일 정리 (docs/DECISIONS.md "DS3").
+describe('the team\'s group and the invite\'s skill', () => {
   const GROUP = '01900000-0000-7000-8000-0000000000e1'
-  const TASKS = 'skills/general/meeting-tasks/SKILL.md'
-  const FILES = ['groups/Acme/회의록/a.md', 'groups/Acme/회의록/b.md']
-  const STARTER = { kind: 'tasks' as const, files: FILES }
+  const QUOTES = 'skills/sales/quote-maker/SKILL.md'
 
-  test('the message of a link with a starter: what is waiting, in the lead\'s own voice, the link on its own line', () => {
-    const ko = (k: MessageKey, p?: Record<string, string | number>) => translate('ko', k, p)
-    expect(teamLinkMessage(ko, { name: '김하나', team: 'Acme', url: URL_, skill: '할 일 정리', starter: 'tasks' })).toBe(`이번 주 팀 회의록 올려 뒀어요. 링크 열면 내 할 일이 바로 나와요.\n${URL_}`)
-    expect(teamLinkMessage(ko, { name: '김하나', team: 'Acme', url: URL_, skill: '핵심 정리', starter: 'brief' })).toBe(`팀 자료 올려 뒀어요. 링크 열면 나한테 필요한 것만 바로 볼 수 있어요.\n${URL_}`)
-    for (const { id } of LOCALES) {
-      const t = (k: MessageKey, p?: Record<string, string | number>) => translate(id, k, p)
-      for (const starter of ['tasks', 'brief'] as const) expect({ id, starter, ok: teamLinkMessage(t, { name: 'Ana', team: 'Acme', url: URL_, starter }).endsWith(`\n${URL_}`) }).toEqual({ id, starter, ok: true })
-    }
-  })
-
-  test('whether the open link leads elsewhere: the file list itself, and a wish already sent for this link is not sent again', () => {
+  test('whether the open link leads elsewhere: its skill and the team\'s group; a wish already sent for this link is not sent again', () => {
     forgetPatched()
-    const want = { skillPath: TASKS, starter: STARTER, groupId: GROUP }
-    const there = { ...LINK.link!, groupIds: [GROUP], skill: { path: TASKS, name: 'meeting-tasks', title: '할 일 정리' }, starter: { kind: 'tasks' as const, files: 2, paths: [...FILES].reverse() } }
+    const want = { skillPath: QUOTES, groupId: GROUP }
+    const there = { ...LINK.link!, groupIds: [GROUP], skill: { path: QUOTES, name: 'quote-maker', title: '견적서 쓰기' } }
     expect(linkDiffers(there, want)).toBe(false)
-    // the same number of files, other files: it differs
-    expect(linkDiffers({ ...there, starter: { kind: 'tasks', files: 2, paths: ['groups/Acme/회의록/a.md', 'groups/Acme/회의록/c.md'] } }, want)).toBe(true)
-    // the server kept one file (a newcomer could not read the other): it differs, until that wish was sent once
-    const kept = { ...there, starter: { kind: 'tasks' as const, files: 1, paths: [FILES[0]!] } }
-    expect(linkDiffers(kept, want)).toBe(true)
-    markPatched(kept, want)
-    expect(linkDiffers(kept, want)).toBe(false)
+    // another skill, or the team's group missing: it differs, until that wish was sent once
+    const other = { ...there, skill: { path: 'skills/other/SKILL.md', name: 'other', title: null } }
+    expect(linkDiffers(other, want)).toBe(true)
+    expect(linkDiffers({ ...there, groupIds: [] }, want)).toBe(true)
+    markPatched(other, want)
+    expect(linkDiffers(other, want)).toBe(false)
     // another wish for the same link is still sent
-    expect(linkDiffers(kept, { ...want, starter: { kind: 'brief', files: FILES } })).toBe(true)
+    expect(linkDiffers(other, { ...want, skillPath: 'skills/third/SKILL.md' })).toBe(true)
     // a link that cannot be shared is not changed (a new one is made instead)
     expect(linkDiffers({ ...there, state: 'expired', skill: null }, want)).toBe(false)
     forgetPatched()
-  })
-
-  test('the panel shows the starter\'s message and one quiet line; a starter with no file left is the usual message', () => {
-    const html = view({ ...LINK, link: { ...LINK.link!, starter: { kind: 'tasks', files: 2 } } })
-    expect(html).toContain('I&#x27;ve shared this week&#x27;s team meeting notes. Open the link to see your tasks right away.')
-    expect(html).toContain('data-testid="team-link-starter">When they join: their own tasks · 2 files<')
-    const none = view({ ...LINK, link: { ...LINK.link!, starter: { kind: 'tasks', files: 0 } } })
-    expect(none).toContain('invited you to')
-    expect(none).not.toContain('data-testid="team-link-starter"')
   })
 
   describe('on screen', () => {
@@ -455,8 +433,8 @@ describe('the starter and the team\'s group', () => {
     const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
     const owner = { user: { id: 'olga', username: 'olga', name: 'Olga', email: null, role: 'owner', locale: 'ko', localeChoice: null, mustChangePassword: false, prefs: {} }, groups: [], team: { name: 'Acme', defaultLocale: 'ko' } }
     const progress = {
-      startedAt: '2026-11-04T00:00:00.000Z', updatedAt: '2026-11-04T00:00:00.000Z', teamType: null, steps: { profile: 'done', result: 'done', invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
-      general: { at: '2026-11-04T00:00:00.000Z', tasksPath: TASKS, briefPath: null }, teamGroup: { id: GROUP, name: 'Acme', folder: 'groups/Acme', notesFolder: 'groups/Acme/회의록' },
+      startedAt: '2026-11-04T00:00:00.000Z', updatedAt: '2026-11-04T00:00:00.000Z', teamType: null, steps: { profile: 'done', result: 'done', invite: null }, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
+      general: { at: '2026-11-04T00:00:00.000Z' }, teamGroup: { id: GROUP, name: 'Acme', folder: 'groups/Acme', notesFolder: 'groups/Acme/회의록' },
     }
     const groups = [{ id: GROUP, name: 'Acme', description: null, memberIds: ['olga'] }]
     beforeAll(() => {
@@ -479,12 +457,12 @@ describe('the starter and the team\'s group', () => {
     })
     const called = (key: string) => calls.filter((c) => c.key === key)
 
-    test('a new link starts with the team\'s group and carries the starter; a link before keeps its own groups', async () => {
+    test('a new link starts with the team\'s group and the skill; a link before keeps its own groups', async () => {
       const made: unknown[] = []
-      let m = await mount(<TeamLinkView data={{ link: null, seats: { used: 1, limit: null } }} inviter="Olga" team="Acme" groups={groups} skills={null} fixedSkillPath={TASKS} starter={STARTER} defaultGroupIds={[GROUP]} busy={false} folded onCreate={(b) => made.push(b)} onRevoke={noop} />)
+      let m = await mount(<TeamLinkView data={{ link: null, seats: { used: 1, limit: null } }} inviter="Olga" team="Acme" groups={groups} skills={null} fixedSkillPath={QUOTES} defaultGroupIds={[GROUP]} busy={false} folded onCreate={(b) => made.push(b)} onRevoke={noop} />)
       try {
         await m.click('team-link-create')
-        expect(made).toEqual([{ groupIds: [GROUP], expiresInDays: 14, skillPath: TASKS, starter: STARTER }])
+        expect(made).toEqual([{ groupIds: [GROUP], expiresInDays: 14, skillPath: QUOTES }])
       } finally { await m.unmount() }
       made.length = 0
       m = await mount(<TeamLinkView data={{ ...LINK, link: { ...LINK.link!, state: 'expired' } }} inviter="Olga" team="Acme" groups={groups} skills={null} defaultGroupIds={[GROUP]} busy={false} onCreate={(b) => made.push(b)} onRevoke={noop} />)
@@ -515,29 +493,28 @@ describe('the starter and the team\'s group', () => {
       } finally { await m.unmount() }
     })
 
-    test('the invite with the lead\'s files and an open link that leads elsewhere: changed once (same address), then its message', async () => {
+    test('the invite that points at a skill and an open link that leads elsewhere: changed once (same address), then its message', async () => {
       let link: TeamLinkResponse = LINK
       routes = {
         'GET /api/onboarding/welcome': () => json(200, { progress }),
         'GET /api/admin/groups': () => json(200, { items: groups }),
         'GET /api/admin/team-link': () => json(200, link),
         'PATCH /api/admin/team-link': (b) => {
-          // the server keeps only the files a newcomer could read: here one of the two
-          link = { ...LINK, link: { ...LINK.link!, groupIds: [...LINK.link!.groupIds, ...b.addGroupIds], skill: { path: b.skillPath, name: 'meeting-tasks', title: '할 일 정리' }, starter: { kind: b.starter.kind, files: 1, paths: [b.starter.files[0]] } } }
+          link = { ...LINK, link: { ...LINK.link!, groupIds: [...LINK.link!.groupIds, ...b.addGroupIds], skill: { path: b.skillPath, name: 'quote-maker', title: '견적서 쓰기' } } }
           return json(200, link)
         },
       }
       forgetPatched()
-      let m = await mount(<MemoryRouter><InviteStep title={null} skillPath={TASKS} starter={STARTER} onDone={noop} /></MemoryRouter>)
+      let m = await mount(<MemoryRouter><InviteStep title={null} skillPath={QUOTES} retarget onDone={noop} /></MemoryRouter>)
       try {
         await m.until(() => m.find('team-link-message'), 'the message')
-        expect(called('PATCH /api/admin/team-link').map((c) => c.body)).toEqual([{ skillPath: TASKS, starter: STARTER, addGroupIds: [GROUP] }])
-        expect(m.get('team-link-message').textContent).toBe(`이번 주 팀 회의록 올려 뒀어요. 링크 열면 내 할 일이 바로 나와요.\n${URL_}`)
+        expect(called('PATCH /api/admin/team-link').map((c) => c.body)).toEqual([{ skillPath: QUOTES, addGroupIds: [GROUP] }])
+        expect(m.get('team-link-message').textContent).toContain("'견적서 쓰기' 스킬을 같이 써 보자고 해요")
         expect(called('POST /api/admin/team-link')).toEqual([])
       } finally { await m.unmount() }
-      // opened again: the same wish was sent for this link already (the server kept what it could), nothing to change
+      // opened again: the link leads there now, nothing to change
       calls = []
-      m = await mount(<MemoryRouter><InviteStep title={null} skillPath={TASKS} starter={STARTER} onDone={noop} /></MemoryRouter>)
+      m = await mount(<MemoryRouter><InviteStep title={null} skillPath={QUOTES} retarget onDone={noop} /></MemoryRouter>)
       try {
         await m.until(() => m.find('team-link-message'), 'the message')
         await m.settle(30)

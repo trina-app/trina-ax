@@ -20,7 +20,7 @@ const me = (role: 'owner' | 'admin'): Me => ({
 /** everything answered on the phone, 내 스킬 put off for a computer */
 const later = (o: Partial<WelcomeProgress> = {}): WelcomeProgress => ({
   startedAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z', teamType: null,
-  steps: { profile: 'done', result: null, skills: 'skipped', files: 'done', invite: 'done' }, pack: null, resultChatId: '01900000-0000-7000-8000-0000000000c1', inviteShownAt: null,
+  steps: { profile: 'done', result: null, skills: 'skipped', files: 'done', invite: 'done' }, resultChatId: '01900000-0000-7000-8000-0000000000c1', inviteShownAt: null,
   site: null, dismissedAt: null, finishedAt: null, skillsLater: true, doneShownAt: '2026-11-01T00:10:00.000Z', ...o,
 })
 

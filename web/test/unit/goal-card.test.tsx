@@ -158,6 +158,17 @@ describe('the card: a title, one line, one button', () => {
       expect(copied).toEqual([`'광고 문구' 한 번 눌러 보세요: ${RUN}`])
     } finally { await m.unmount() }
   })
+  test('nobody ran a skill yet and the team link still opens the intro deck: the deck is never named (the owner\'s own run, docs/DECISIONS.md "DS3")', async () => {
+    const deck = { ...LINK, link: { ...LINK.link!, skill: { path: 'skills/general/intro-deck/SKILL.md', name: 'intro-deck', title: '회사 소개서' } } }
+    const m = await card(goal({ skill: null, joined: 3, waiting: { first: '민지', more: 2 } }), deck)
+    try {
+      expect(m.html()).not.toContain('회사 소개서')
+      expect(m.html()).toContain('같은 스킬')
+      await m.click('team-goal-resend')
+      expect(copied[0]).not.toContain('회사 소개서')
+      expect(copied[0]).not.toContain('intro-deck')
+    } finally { await m.unmount() }
+  })
   test('one more person: the line and [초대 문구 복사] (the team link\'s message)', async () => {
     const m = await card(goal({ joined: 1, skill: { path: AD, name: '광고 문구', runners: 2, people: ['김하나', '민지'] } }), LINK)
     try {
@@ -216,7 +227,7 @@ describe('the card: a title, one line, one button', () => {
     function Welcome() { const l = useLocation(); return <p data-testid="where">{`${l.pathname} ${JSON.stringify(l.state)}`}</p> }
     const unfinished = {
       startedAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z', teamType: 'marketing',
-      steps: { profile: 'done', result: null, invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
+      steps: { profile: 'done', result: null, invite: null }, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
     } as unknown as WelcomeProgress
     useWelcome.setState({ loaded: true, progress: unfinished })
     const expired = { ...LINK, link: { ...LINK.link!, state: 'expired' as const } }
@@ -293,7 +304,7 @@ describe('the top of Home: one thing', () => {
   const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
   const fresh = (steps: Partial<WelcomeProgress['steps']> = {}, o: Partial<WelcomeProgress> = {}): WelcomeProgress => ({
     startedAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z', teamType: 'marketing',
-    steps: { profile: 'done', result: null, invite: null, ...steps }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null, ...o,
+    steps: { profile: 'done', result: null, invite: null, ...steps }, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null, ...o,
   })
   const locale = useLocaleStore.getState().locale
   beforeAll(() => {

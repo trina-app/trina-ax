@@ -287,24 +287,24 @@ describe('the onboarding paths on the trial credit', () => {
     expect(JSON.stringify(orSeen[1]!.body.messages.at(-1))).toContain('Only pages of acme.co.kr')
     expect(launches).toEqual([])
   })
-  test('a marketing pack skill run from its form (the welcome steps\' first result): the skill goes with the message', async () => {
+  test('a pack skill run from its form: the skill goes with the message', async () => {
     grant()
-    const pack = installSkillPack(h.ctx, 'dana', 'marketing')
-    const skill = pack.skills.find((x) => x.name === 'ad-copy')!
+    const pack = installSkillPack(h.ctx, 'dana', 'work')
+    const skill = pack.skills.find((x) => x.name === 'humanizer')!
     expect(skill).toBeTruthy()
     const body = fs.readFileSync(path.join(h.team, skill.path), 'utf8')
     // what SkillForm sends (web/src/lib/skillForm.ts composeSkillMessage): "/<name>" and one line per field
-    const { done } = await ask(h, alice, 'alice', (await newChat()).id, '/ad-copy\nProduct: Acme desk fan', { ms: 30_000 })
+    const { done } = await ask(h, alice, 'alice', (await newChat()).id, '/humanizer\nText: Acme desk fan, quiet and small', { ms: 30_000 })
     expect(done.status).toBe('done')
     expect(done.model).toBe(HOSTED_CHAT_MODEL)
     const sent = orSeen[0]!.body.messages.at(-1)!.content!
-    expect(sent).toContain('Product: Acme desk fan')
+    expect(sent).toContain('Text: Acme desk fan, quiet and small')
     // the skill's own instructions (a line from its body) reach the model
     const instructions = body.replace(/^---\n[\s\S]*?\n---\n/, '').trim()
     const line = instructions.split('\n').find((l) => l.trim().length > 30)!
     expect(line).toBeTruthy()
     expect(sent).toContain(line)
-    expect(sent).toContain('<team_skill name="ad-copy"')
+    expect(sent).toContain('<team_skill name="humanizer"')
     expect(launches).toEqual([])
   })
 })

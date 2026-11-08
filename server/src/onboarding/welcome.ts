@@ -1,24 +1,24 @@
 // The welcome steps' progress (docs/DECISIONS.md "W — Welcome steps", "X — Lean onboarding"; contract
 // shared/src/api/onboarding-welcome.ts):
 // one settings row of the team, so the steps resume on another device. The owner writes it, owners and admins read
-// it. The marketing pack is installed here at most once: the row records that it ran, and a second call (the same
-// choice again, a resume, two windows) does not install again, since installing again would restore skills someone
-// deleted on purpose (stream C). Everything below is synchronous, so a check and its write never interleave with
-// another request's. A `team` step of a row written before the team type stopped being a step is kept, not read.
+// it. Everything below is synchronous, so a check and its write never interleave with another request's. A `team` step
+// of a row written before the team type stopped being a step is kept, not read; so is a `pack` (the marketing pack an
+// earlier version's steps installed, docs/DECISIONS.md "DS3").
 //
 // The row is read field by field: a field that does not read (a later release changed it, a hand edit) falls back to
 // its default for display, and a write changes only the fields it sets, keeping everything else of the stored object
-// as it was (unknown fields too). A recorded pack counts as installed whatever its shape, so nothing resets it. A
-// row that is not a JSON object at all is refused for writes (never replaced by a fresh one).
+// as it was (unknown fields too). A recorded general pack counts as installed whatever its shape, so nothing resets
+// it. A row that is not a JSON object at all is refused for writes (never replaced by a fresh one).
 //
 // Every team's start (docs/DECISIONS.md "M — One meeting note, everyone's own tasks", setupWelcomeTeam): the general
-// pack (할 일 정리, 핵심 정리) installed once like the marketing pack, and the team's own group named after the team, with
-// its folder groups/<name>/ (the group's members read and write it, as every group folder) and the meeting notes folder
-// in it, made once with the owner in it. Both are recorded in the row, so the steps never make them again by themselves.
+// pack (the intro deck, the card news, the promo video) installed at most once, since installing again would restore
+// skills someone deleted on purpose (stream C), and the team's own group named after the team, with its folder
+// groups/<name>/ (the group's members read and write it, as every group folder) and the meeting notes folder in it,
+// made once with the owner in it. Both are recorded in the row, so the steps never make them again by themselves.
 import { z } from 'zod'
 import {
-  BRAND_IMAGES_FOLDER, GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, GENERAL_DECK_SKILL, GENERAL_PROMO_SKILL, GENERAL_TASKS_SKILL, NOTES_FOLDER, PACK_FOLDERS, TeamGroupRef, TeamType, WELCOME_RESULT_SKILL, WELCOME_STEPS, WelcomeProgress, WelcomeStepState, normalizeWebsite,
-  type Locale, type WelcomePackResult, type WelcomeTeamResult, type WelcomeUpdate,
+  BRAND_FOLDER, BRAND_IMAGES_FOLDER, GENERAL_CARDNEWS_SKILL, GENERAL_DECK_SKILL, GENERAL_PROMO_SKILL, NOTES_FOLDER, TeamGroupRef, TeamType, WELCOME_STEPS, WelcomeProgress, WelcomeStepState, normalizeWebsite,
+  type Locale, type WelcomeTeamResult, type WelcomeUpdate,
 } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { getTeamSettings, setSetting, teamDefaultLocale } from '../admin/settings'
@@ -28,15 +28,14 @@ import { authorize } from '../policy/authorize'
 import { listTeamSkills, sameSkillName } from '../chat/skills'
 import { componentC } from '../team-files/component'
 import { installSkillPack } from './skill-packs'
-import { seedDefaultSkills } from './default-skills'
+import { retireLegacyDefaultSkills } from './retired-skills'
 
 export const WELCOME_SETTING = 'onboarding.welcome'
 
 type Raw = Record<string, unknown>
 const isObj = (v: unknown): v is Raw => !!v && typeof v === 'object' && !Array.isArray(v)
-const PackShape = WelcomeProgress.shape.pack.unwrap()
 const SharedShape = WelcomeProgress.shape.shared.unwrap().unwrap()
-const GeneralShape = z.object({ at: z.string(), tasksPath: z.string().nullable(), briefPath: z.string().nullable(), cardNewsPath: z.string().nullable().optional(), promoVideoPath: z.string().nullable().optional(), introDeckPath: z.string().nullable().optional() })
+const GeneralShape = z.object({ at: z.string(), cardNewsPath: z.string().nullable().optional(), promoVideoPath: z.string().nullable().optional(), introDeckPath: z.string().nullable().optional() })
 
 /** The stored row: none, an object, or something that is not an object (`raw` null with `row` true). */
 function stored(ctx: Pick<AppContext, 'db'>): { row: boolean; raw: Raw | null } {
@@ -60,7 +59,6 @@ const opt = z.string().nullable()
 /** The progress as the API shows it: each field read on its own, defaults where one does not read. */
 function view(raw: Raw, now: string): WelcomeProgress {
   const steps = isObj(raw.steps) ? raw.steps : {}
-  const rawPack = raw.pack
   return {
     startedAt: pick(str, raw.startedAt, now),
     updatedAt: pick(str, raw.updatedAt, now),
@@ -68,23 +66,17 @@ function view(raw: Raw, now: string): WelcomeProgress {
     // the AI step only when it was ever recorded (a row from before it, or an owner whose AI answered from the start,
     // reads as it did)
     steps: Object.fromEntries(WELCOME_STEPS.map((s) => [s, pick(WelcomeStepState.nullable(), steps[s], null)]).filter(([s, v]) => s !== 'ai' || v !== null)) as WelcomeProgress['steps'],
-    // recorded in any shape: installed (the steps never install again because of a field they cannot read)
-    pack: rawPack === null || rawPack === undefined ? null : pick(PackShape, rawPack, {
-      id: 'marketing',
-      at: isObj(rawPack) ? pick(str, rawPack.at, '') : '',
-      skillPath: isObj(rawPack) ? pick(str, rawPack.skillPath, WELCOME_RESULT_SKILL) : WELCOME_RESULT_SKILL,
-    }),
     resultChatId: pick(opt, raw.resultChatId, null),
     inviteShownAt: pick(opt, raw.inviteShownAt, null),
     site: pick(opt, raw.site, null),
     dismissedAt: pick(opt, raw.dismissedAt, null),
     finishedAt: pick(opt, raw.finishedAt, null),
     ...(typeof raw.doneShownAt === 'string' ? { doneShownAt: raw.doneShownAt } : {}),
-    // the three-step version's team step, put off and never answered since: the pack is not installed by itself
+    // the three-step version's team step, put off and never answered since
     ...(steps.team === 'skipped' && pick(TeamType.nullable(), raw.teamType, null) === null ? { teamSkipped: true } : {}),
-    // recorded in any shape: installed (as for the marketing pack), the paths falling back to the pack's own; absent
+    // recorded in any shape: installed (the steps never install again because of a field they cannot read); absent
     // until then, so rows from before read exactly as they did
-    ...(raw.general === null || raw.general === undefined ? {} : { general: pick(GeneralShape, raw.general, { at: '', tasksPath: GENERAL_TASKS_SKILL, briefPath: GENERAL_BRIEF_SKILL }) }),
+    ...(raw.general === null || raw.general === undefined ? {} : { general: pick(GeneralShape, raw.general, { at: '' }) }),
     ...(() => { const g = pick(TeamGroupRef.nullable(), raw.teamGroup ?? null, null); return g ? { teamGroup: g } : {} })(),
     ...(raw.skillsLater === true ? { skillsLater: true } : {}),
     ...(() => { const sh = pick(SharedShape.nullable(), raw.shared ?? null, null); return sh ? { shared: sh } : {} })(),
@@ -92,7 +84,8 @@ function view(raw: Raw, now: string): WelcomeProgress {
 }
 
 // `result` stays null: the first result is no longer a step (docs/DECISIONS.md "W5"), but the stored row is still a
-// WelcomeProgress, and an older build that reads it after a rollback reads it as before
+// WelcomeProgress, and an older build that reads it after a rollback reads it as before (`pack` too: null, nothing
+// installed by the steps)
 const fresh = (now: string): Raw => ({
   startedAt: now, updatedAt: now, teamType: null,
   steps: { profile: null, result: null, skills: null, files: null, invite: null },
@@ -100,7 +93,8 @@ const fresh = (now: string): Raw => ({
 })
 
 /** The stored object to change: the row as it is (the deck's chat settled, settleDeck), or a fresh one when there is
- * none. A row that is not an object is refused: it is never replaced by a fresh one (that would forget the pack). */
+ * none. A row that is not an object is refused: it is never replaced by a fresh one (that would forget the general
+ * pack and the team group). */
 function forWrite(ctx: Pick<AppContext, 'db'>, now: string): Raw {
   const s = stored(ctx)
   if (s.row && !s.raw) fail('conflict')
@@ -253,7 +247,7 @@ export function updateWelcome(ctx: Pick<AppContext, 'db' | 'log'> & Partial<AppC
   // the end screen shows once
   if (u.doneShown && !p.doneShownAt) raw.doneShownAt = now
   if (u.finish) {
-    // "자료 없이 해 볼게요" without the marketing pack: what is still open is put off, and the steps are over
+    // "자료 없이 해 볼게요": what is still open is put off, and the steps are over
     for (const s of WELCOME_STEPS) if (s !== 'ai' && p.steps[s] === null) steps[s] = 'skipped'
     delete raw.skillsLater
     if (!p.finishedAt) raw.finishedAt = now
@@ -316,50 +310,18 @@ function skillThere(ctx: AppContext, userId: string | null, rel: string): boolea
 
 /**
  * The skill everything points at (docs/DECISIONS.md "W5"): the invite link, the goal card, the end screen. The shared
- * skill the invite opens (`shared.landing`) while it is there, else the general pack's 할 일 정리 (`general.tasksPath`)
- * while it is there, else null. Never the intro deck: it is the owner's own first run, not the team's skill.
- * `as`: whose view of the files decides "there" (default: the first owner).
+ * skill the invite opens (`shared.landing`) while it is there, else null: the invite link then lands on Home and the
+ * end screen offers 홈으로 only (docs/DECISIONS.md "DS3": no pack skill stands in, a row's old 할 일 정리 included).
+ * Never the intro deck: it is the owner's own first run, not the team's skill. `as`: whose view of the files decides
+ * "there" (default: the first owner).
  */
 export function landingSkill(ctx: AppContext, as?: string): string | null {
   const p = readWelcome(ctx)
-  if (!p) return null
+  const path = p?.shared?.landing
+  if (!p || !path) return null
   const who = as ?? ((ctx.db.query("SELECT id FROM users WHERE role = 'owner' AND deleted_at IS NULL ORDER BY created_at LIMIT 1").get() as { id: string } | null)?.id ?? null)
   const deck = new Set([GENERAL_DECK_SKILL, p.general?.introDeckPath].filter((x): x is string => !!x))
-  for (const path of [p.shared?.landing, p.general?.tasksPath]) {
-    if (path && !deck.has(path) && skillThere(ctx, who, path)) return path
-  }
-  return null
-}
-
-/** The ad copy skill "/ad-copy" runs for the team: the pack's own file, else another team skill of that name. */
-function adCopyPath(ctx: AppContext, userId: string, skills = listTeamSkills(ctx.files, ctx.files.principal(userId))): string | null {
-  return skills.find((s) => s.path === WELCOME_RESULT_SKILL)?.path ?? skills.find((s) => sameSkillName(s.name, 'ad-copy'))?.path ?? null
-}
-
-/**
- * Install the marketing pack for these steps, once:
- * - recorded before (by these steps): nothing runs (`already`);
- * - the team already has skills under skills/marketing/ (the Skills page installed the pack): recorded without
- *   installing, so a skill deleted there on purpose is not brought back (`already`);
- * - else it installs; it is recorded only when the first-result skill is there afterwards (written now, already there,
- *   or another team skill of its name); when the folder rules blocked it nothing is recorded (`blocked`).
- */
-export function installWelcomePack(ctx: AppContext, userId: string): WelcomePackResult {
-  const now = new Date().toISOString()
-  const raw = forWrite(ctx, now)
-  if (view(raw, now).pack) return { progress: view(raw, now), install: null, outcome: 'already' }
-  const skills = listTeamSkills(ctx.files, ctx.files.principal(userId))
-  if (skills.some((s) => s.path.startsWith('skills/marketing/'))) {
-    raw.pack = { id: 'marketing', at: now, skillPath: adCopyPath(ctx, userId, skills) ?? WELCOME_RESULT_SKILL }
-    return { progress: save(ctx, raw, now), install: null, outcome: 'already' }
-  }
-  const install = installSkillPack(ctx, userId, 'marketing')
-  const adCopy = install.skills.find((s) => s.path === WELCOME_RESULT_SKILL)
-  // when another team skill already has its name, "/ad-copy" runs that one: point there
-  const skillPath = adCopy?.status === 'blocked' ? (adCopy.sameNameAs ?? null) : adCopy ? WELCOME_RESULT_SKILL : null
-  if (!skillPath) return { progress: save(ctx, raw, now), install, outcome: 'blocked' }
-  raw.pack = { id: 'marketing', at: now, skillPath }
-  return { progress: save(ctx, raw, now), install, outcome: 'installed' }
+  return !deck.has(path) && skillThere(ctx, who, path) ? path : null
 }
 
 /** The skill "/<name>" runs for the team: the pack's own file, else another team skill of that name. */
@@ -367,8 +329,13 @@ function generalPath(skills: { path: string; name: string }[], own: string, name
   return skills.find((s) => s.path === own)?.path ?? skills.find((s) => sameSkillName(s.name, name))?.path ?? null
 }
 
+/** Written into every new `general` record although nothing reads them: an older build (after a rollback) requires both
+ * to read the record, and would otherwise fall back to its defaults and lose the intro deck's path (docs/DECISIONS.md
+ * "DS3"; the skills they named no longer ship). */
+const OLD_GENERAL_FIELDS = { tasksPath: null, briefPath: null } as const
+
 /** Where an install left one of its skills: the pack's file, another team skill of its name, or nowhere (blocked). */
-function placed(install: WelcomePackResult['install'], own: string): string | null {
+function placed(install: WelcomeTeamResult['install'], own: string): string | null {
   const s = install?.skills.find((x) => x.path === own)
   if (!s) return null
   return s.status === 'blocked' ? (s.sameNameAs ?? null) : own
@@ -385,7 +352,7 @@ function ensureNotesFolder(ctx: AppContext, userId: string, rel: string): void {
 export function brandFoldersOf(ctx: AppContext, userId: string, folder: string, recorded?: string): { brandFolder: string; imagesFolder: string } {
   const locale = teamDefaultLocale(ctx.db)
   // the one recorded keeps its name when the team's language changes later (the page uploads into it)
-  const brandFolder = recorded && recorded.startsWith(`${folder}/`) ? recorded : `${folder}/${PACK_FOLDERS.brand[locale]}`
+  const brandFolder = recorded && recorded.startsWith(`${folder}/`) ? recorded : `${folder}/${BRAND_FOLDER[locale]}`
   const imagesFolder = `${brandFolder}/${BRAND_IMAGES_FOLDER[locale]}`
   ensureNotesFolder(ctx, userId, brandFolder)
   ensureNotesFolder(ctx, userId, imagesFolder)
@@ -422,12 +389,16 @@ function teamGroupFor(ctx: AppContext, userId: string, recorded: TeamGroupRef | 
  * Every team's start, once (owner; the welcome steps call it when the first step is left, and the result step when an
  * older row has none):
  * - the general pack: recorded before → nothing runs; the team already has skills under skills/general/ → recorded
- *   without installing (nothing deleted on purpose comes back); else installed, and recorded when "할 일 정리" is there
- *   afterwards (written now, already there, or another team skill of its name), `blocked` (nothing recorded) otherwise;
+ *   without installing (nothing deleted on purpose comes back); else installed, and recorded when any of its skills is
+ *   there afterwards (written now, already there, or another team skill of its name), `blocked` (nothing recorded) when
+ *   the folder rules kept every one out. No one skill of it decides (docs/DECISIONS.md "DS3": 할 일 정리, which used to,
+ *   is gone), so a skill missing never holds the start back;
  * - the team group: the recorded one while it exists, else a new one named after the team ("Acme 2" when the name is
  *   taken: a group these steps did not make is never taken over) with the owner in it; its folder and the meeting notes
  *   folder in it (made when missing, through the file layer).
- * The pack's record is saved before the group is made, so a failure there never installs the pack twice.
+ * The pack's record is saved before the group is made, so a failure there never installs the pack twice. Nothing else
+ * is installed here: no other pack is added by itself. The old seeder's settings row gets its keys recorded as retired
+ * (a settings write, no files: onboarding/retired-skills.ts).
  */
 export function setupWelcomeTeam(ctx: AppContext, userId: string, locale: Locale): WelcomeTeamResult {
   const now = new Date().toISOString()
@@ -437,25 +408,22 @@ export function setupWelcomeTeam(ctx: AppContext, userId: string, locale: Locale
   let outcome: WelcomeTeamResult['outcome'] = 'already'
   if (!p.general) {
     const skills = listTeamSkills(ctx.files, ctx.files.principal(userId))
-    const tasks = generalPath(skills, GENERAL_TASKS_SKILL, 'meeting-tasks')
     // an install of these steps that was blocked before may run again (it only adds what is missing); a team that has
-    // the pack's skills from the Skills page is recorded as it is, and without "할 일 정리" it stays blocked (a skill
-    // deleted there on purpose is not brought back)
+    // the pack's skills from the Skills page is recorded as it is (a skill deleted there on purpose is not brought back)
     const tried = typeof raw.generalBlockedAt === 'string'
     if (!tried && skills.some((s) => s.path.startsWith('skills/general/'))) {
-      if (tasks) {
-        // the intro deck not there yet stays unrecorded: the first result adds it on its own once (introDeckSkill)
-        const cardNewsPath = generalPath(skills, GENERAL_CARDNEWS_SKILL, 'card-news')
-        const promoVideoPath = generalPath(skills, GENERAL_PROMO_SKILL, 'promo-video')
-        const introDeckPath = generalPath(skills, GENERAL_DECK_SKILL, 'intro-deck')
-        raw.general = { at: now, tasksPath: tasks, briefPath: generalPath(skills, GENERAL_BRIEF_SKILL, 'doc-brief'), ...(cardNewsPath ? { cardNewsPath } : {}), ...(promoVideoPath ? { promoVideoPath } : {}), ...(introDeckPath ? { introDeckPath } : {}) }
-      }
-      else outcome = 'blocked'
+      // the intro deck not there yet stays unrecorded: the first result adds it on its own once (introDeckSkill)
+      const cardNewsPath = generalPath(skills, GENERAL_CARDNEWS_SKILL, 'card-news')
+      const promoVideoPath = generalPath(skills, GENERAL_PROMO_SKILL, 'promo-video')
+      const introDeckPath = generalPath(skills, GENERAL_DECK_SKILL, 'intro-deck')
+      raw.general = { at: now, ...OLD_GENERAL_FIELDS, ...(cardNewsPath ? { cardNewsPath } : {}), ...(promoVideoPath ? { promoVideoPath } : {}), ...(introDeckPath ? { introDeckPath } : {}) }
     } else {
       install = installSkillPack(ctx, userId, 'general')
-      const tasksPath = placed(install, GENERAL_TASKS_SKILL)
-      if (tasksPath) {
-        raw.general = { at: now, tasksPath, briefPath: placed(install, GENERAL_BRIEF_SKILL), cardNewsPath: placed(install, GENERAL_CARDNEWS_SKILL), promoVideoPath: placed(install, GENERAL_PROMO_SKILL), introDeckPath: placed(install, GENERAL_DECK_SKILL) }
+      const cardNewsPath = placed(install, GENERAL_CARDNEWS_SKILL)
+      const promoVideoPath = placed(install, GENERAL_PROMO_SKILL)
+      const introDeckPath = placed(install, GENERAL_DECK_SKILL)
+      if (cardNewsPath || promoVideoPath || introDeckPath) {
+        raw.general = { at: now, ...OLD_GENERAL_FIELDS, cardNewsPath, promoVideoPath, introDeckPath }
         delete raw.generalBlockedAt
         outcome = 'installed'
       } else {
@@ -465,9 +433,9 @@ export function setupWelcomeTeam(ctx: AppContext, userId: string, locale: Locale
     }
     p = save(ctx, raw, now)
   }
-  // the other default skills (marketing, work) right away for a new team, not at the server's next run; a failure here
-  // never stops the steps (the server's own runs try again)
-  try { seedDefaultSkills(ctx, userId) } catch (e) { ctx.log.warn('adding the default skills failed in the welcome steps', { err: e }) }
+  // an older build's seeder, run again later, adds none of the skills it knew (onboarding/retired-skills.ts); a settings
+  // write that fails never stops the team's start (the server's start writes it too)
+  try { retireLegacyDefaultSkills(ctx.db) } catch (e) { ctx.log.warn('the old default skills not recorded as retired in the welcome steps', { err: e }) }
   raw.teamGroup = teamGroupFor(ctx, userId, p.teamGroup ?? null, locale)
   return { progress: save(ctx, raw, now), install, outcome }
 }

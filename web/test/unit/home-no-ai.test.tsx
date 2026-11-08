@@ -27,7 +27,7 @@ const meOf = (role: 'owner' | 'admin' | 'member') => ({
 /** after "나중에 하기" on the AI step: shown and put off, nothing else done */
 const putOff = (): WelcomeProgress => ({
   startedAt: '2026-11-05T00:00:00.000Z', updatedAt: '2026-11-05T00:00:00.000Z', teamType: null,
-  steps: { ai: 'skipped', profile: null, result: null, invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
+  steps: { ai: 'skipped', profile: null, result: null, invite: null }, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
 })
 
 let access = { usable: false, action: 'connect_team', requested: false }

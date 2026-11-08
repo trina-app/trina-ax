@@ -1,11 +1,11 @@
 // Route module "onboarding-welcome" (docs/DECISIONS.md "W — Welcome steps", "X — Lean onboarding", "M — One meeting
 // note, everyone's own tasks"). Implements WELCOME
-// (shared/src/api/onboarding-welcome.ts): the progress of the welcome steps and their one-time pack install, and the
-// one suggestion under a result.
+// (shared/src/api/onboarding-welcome.ts): the progress of the welcome steps, every team's start (the general pack and
+// the team group, once), the first result, and the one suggestion under a result.
 import { API } from '@mycel/shared/api'
 import { fail } from '../http/errors'
 import { dismissSuggestion, resultSuggestion } from '../onboarding/suggestions'
-import { installWelcomePack, readWelcome, setupWelcomeTeam, updateWelcome, welcomeOut } from '../onboarding/welcome'
+import { readWelcome, setupWelcomeTeam, updateWelcome, welcomeOut } from '../onboarding/welcome'
 import { startFirstResult } from '../onboarding/welcome-result'
 import { getChatRuntime } from '../chat/runtime'
 import type { RouteModule } from './module'
@@ -17,12 +17,6 @@ export const onboardingWelcomeRoutes: RouteModule = {
     // every answer that carries the progress carries the facts the screens read with it (deckStarted, landingSkill)
     kit.handle(API.getWelcome, () => ({ progress: welcomeOut(ctx, readWelcome(ctx)) }))
     kit.handle(API.updateWelcome, ({ body, auth }) => ({ progress: welcomeOut(ctx, updateWelcome(ctx, auth.user.id, body)) }))
-    kit.handle(API.installWelcomePack, ({ auth }) => {
-      // the pack is written as the owner through the file layer (their folder rules)
-      try { ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }
-      const r = installWelcomePack(ctx, auth.user.id)
-      return { ...r, progress: welcomeOut(ctx, r.progress)! }
-    })
     kit.handle(API.setupWelcomeTeam, ({ auth, c }) => {
       // the pack and the team folder are written as the owner through the file layer (their folder rules)
       try { ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }

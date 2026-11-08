@@ -5,20 +5,22 @@
 //   - the intro deck starts once per team: its chat is kept for it and counts (resultChatId, deckStarted) only once its
 //     message is in; a second start is then refused (409 deck_started) before anything is written; two at once get one
 //     chat and their sends one message; a chat made whose message never went is handed out again;
-//   - the skill everything points at (landingSkill): the first shared skill, else 할 일 정리, never the intro deck; the
-//     goal card names it (focusSkill) unless another skill that is not the deck has more people;
+//   - the skill everything points at (landingSkill): the first shared skill, else none (docs/DECISIONS.md "DS3": no
+//     pack skill stands in), never the intro deck; the goal card names it (focusSkill) unless another skill that is
+//     not the deck has more people; without one, the skill most people ran, never one the steps ran themselves (the
+//     owner's deck);
 //   - old open invite links to the intro deck are pointed once at the landing skill (once used up only when it could act);
 //   - what AI a person who joins through the link has (memberAi), and a skill's own example (SkillInfo.example).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, deckMessageId, GENERAL_DECK_SKILL, GENERAL_TASKS_SKILL, skillExample, type WelcomeProgress } from '@mycel/shared/api'
+import { API, deckMessageId, GENERAL_DECK_SKILL, skillExample, type WelcomeProgress } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { getSetting, setSetting } from '../../server/src/admin/settings'
 import { landingSkill, profileAnswered, readWelcome, recordShared, WELCOME_SETTING, welcomeFinished } from '../../server/src/onboarding/welcome'
 import { focusSkill, goalProgress } from '../../server/src/onboarding/goal'
-import { DECK_LINKS_KEY, repointDeckLinks } from '../../server/src/auth/team-links'
+import { DECK_LINKS_CLEARED_KEY, DECK_LINKS_KEY, repointDeckLinks } from '../../server/src/auth/team-links'
 import { newMemberAi } from '../../server/src/credentials/access'
 import { MEMBER_OWN_KEY } from '../../server/src/credentials/policy'
 
@@ -38,7 +40,7 @@ const post = (user: string, p: string, body: unknown) => h.req(user, p, { method
 const patch = async (b: unknown) => (await h.api('dana').call(API.updateWelcome, { body: b as never })).progress!
 const chatsOf = (user: string) => (h.ctx.db.query('SELECT COUNT(*) AS n FROM chats WHERE user_id = ?').get(user) as { n: number }).n
 const progress = (o: Partial<WelcomeProgress> & { steps: WelcomeProgress['steps'] }): WelcomeProgress => ({
-  startedAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z', teamType: null, pack: null, resultChatId: null, inviteShownAt: null,
+  startedAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z', teamType: null, resultChatId: null, inviteShownAt: null,
   site: null, dismissedAt: null, finishedAt: null, ...o,
 })
 
@@ -183,40 +185,63 @@ describe('the skill everything points at', () => {
     fs.mkdirSync(path.join(h.team, path.dirname(rel)), { recursive: true })
     fs.writeFileSync(path.join(h.team, rel), `---\nname: ${name}\ndescription: ${title} for the team\nmetadata:\n  title: ${title}\n---\n# ${title}\n`)
   }
-  test('the first shared skill while it is there, else 할 일 정리, never the intro deck; the progress carries the server\'s choice', async () => {
+  test('the first shared skill while it is there, else none, never the intro deck nor an old row\'s 할 일 정리; the progress carries the server\'s choice', async () => {
     const raw = getSetting<Record<string, unknown>>(h.ctx.db, WELCOME_SETTING)!
-    expect(landingSkill(h.ctx)).toBe(GENERAL_TASKS_SKILL)
+    // nothing shared yet: none (the invite link lands on Home)
+    expect(landingSkill(h.ctx)).toBeNull()
+    expect((await h.api('dana').call(API.getWelcome)).progress!.landingSkill).toBeNull()
     skill('skills/weekly-report/SKILL.md', 'weekly-report', 'Weekly report')
     recordShared(h.ctx, 'dana', [{ path: 'skills/weekly-report/SKILL.md', title: 'Weekly report', recommended: true }])
     expect(landingSkill(h.ctx)).toBe('skills/weekly-report/SKILL.md')
     expect((await h.api('dana').call(API.getWelcome)).progress!.landingSkill).toBe('skills/weekly-report/SKILL.md')
     fs.rmSync(path.join(h.team, 'skills/weekly-report'), { recursive: true })
-    expect(landingSkill(h.ctx)).toBe(GENERAL_TASKS_SKILL)
+    expect(landingSkill(h.ctx)).toBeNull()
     // the web read `shared.landing` itself before and named the deleted skill; now every answer with the progress says
     // which skill the server points at (GET, PATCH)
     const got = (await h.api('dana').call(API.getWelcome)).progress!
     expect(got.shared!.landing).toBe('skills/weekly-report/SKILL.md')
-    expect(got.landingSkill).toBe(GENERAL_TASKS_SKILL)
-    expect((await patch({})).landingSkill).toBe(GENERAL_TASKS_SKILL)
+    expect(got.landingSkill).toBeNull()
+    expect((await patch({})).landingSkill).toBeNull()
     // a row pointing the landing at the deck (an old row) never makes it the landing skill
-    setSetting(h.ctx.db, WELCOME_SETTING, { ...raw, shared: { at: 'x', skills: [], landing: GENERAL_DECK_SKILL }, general: { ...(raw.general as object), tasksPath: GENERAL_DECK_SKILL } })
+    setSetting(h.ctx.db, WELCOME_SETTING, { ...raw, shared: { at: 'x', skills: [], landing: GENERAL_DECK_SKILL } })
     expect(landingSkill(h.ctx)).toBeNull()
-    setSetting(h.ctx.db, WELCOME_SETTING, raw)
-    expect(landingSkill(h.ctx)).toBe(GENERAL_TASKS_SKILL)
+    // an old row whose general pack recorded 할 일 정리, its file still there: never the landing skill now
+    skill('skills/general/meeting-tasks/SKILL.md', 'meeting-tasks', '할 일 정리')
+    setSetting(h.ctx.db, WELCOME_SETTING, { ...raw, general: { ...(raw.general as object), tasksPath: 'skills/general/meeting-tasks/SKILL.md' } })
+    expect(landingSkill(h.ctx)).toBeNull()
+    fs.rmSync(path.join(h.team, 'skills/general/meeting-tasks'), { recursive: true })
+    setSetting(h.ctx.db, WELCOME_SETTING, { ...raw, shared: got.shared })
+    expect(landingSkill(h.ctx)).toBeNull()
   })
-  test('the goal card: the landing skill even with nobody yet, the owner\'s deck runs never take its place, another skill with more people does', async () => {
-    const goal = async () => (await h.api('dana').call(API.getTeamGoal)).goal!
-    // dana ran the deck above; carol runs it too: two people on the deck, nobody on 할 일 정리
+  const goal = async () => (await h.api('dana').call(API.getTeamGoal)).goal!
+  test('the goal card without a landing skill: never the owner\'s deck, whose runs count nowhere in the goal, so no skill until another one is run', async () => {
+    expect(landingSkill(h.ctx)).toBeNull()
+    // dana ran the deck above (in the steps\' own chat); carol runs it too: two people on the deck, nothing else run
     await send('carol', (await h.api('carol').call(API.createChat, { body: {} })).id, `/intro-deck\n${fake({ say: 'A deck' })}`)
-    expect(focusSkill(h.ctx, goalProgress(h.ctx.db)!)!.path).toBe(GENERAL_TASKS_SKILL)
-    expect((await goal()).skill).toMatchObject({ path: GENERAL_TASKS_SKILL, runners: 0 })
-    // another team skill (not the deck) with more people than the landing one wins, as before
+    expect(focusSkill(h.ctx, goalProgress(h.ctx.db)!)).toBeNull()
+    expect((await goal()).skill).toBeNull()
+    // nor do the deck's runs count anywhere else in the goal: not as the best skill, not as people who ran one
+    const p = goalProgress(h.ctx.db)!
+    expect(p.best).toBeNull()
+    expect(p.runnerIds.has('carol')).toBe(false)
+    expect(p.peopleWithRun).toBe(0)
+    // another team skill: the one most people ran
     skill('skills/quote/SKILL.md', 'quote', 'Quote')
     await send('carol', (await h.api('carol').call(API.createChat, { body: {} })).id, `/quote\n${fake({ say: 'A quote' })}`)
     expect((await goal()).skill).toMatchObject({ path: 'skills/quote/SKILL.md', runners: 1 })
-    // as many people on the landing skill: the landing skill again
-    await send('bob', (await h.api('bob').call(API.createChat, { body: {} })).id, `/meeting-tasks\n${fake({ say: 'Tasks' })}`)
-    expect((await goal()).skill).toMatchObject({ path: GENERAL_TASKS_SKILL, runners: 1 })
+  })
+  test('the goal card with a landing skill: it even with nobody yet unless another skill has more people; the deck runs never take its place', async () => {
+    skill('skills/notes/SKILL.md', 'notes', 'Notes')
+    recordShared(h.ctx, 'dana', [{ path: 'skills/notes/SKILL.md', title: 'Notes', recommended: true }])
+    await patch({ landing: 'skills/notes/SKILL.md' })
+    expect(landingSkill(h.ctx)).toBe('skills/notes/SKILL.md')
+    // quote has carol, the landing skill nobody: quote wins, as before
+    expect((await goal()).skill).toMatchObject({ path: 'skills/quote/SKILL.md', runners: 1 })
+    // as many people on the landing skill: the landing skill
+    await send('bob', (await h.api('bob').call(API.createChat, { body: {} })).id, `/notes\n${fake({ say: 'Notes' })}`)
+    expect((await goal()).skill).toMatchObject({ path: 'skills/notes/SKILL.md', runners: 1 })
+    // two people on the deck never outrank it
+    expect(focusSkill(h.ctx, goalProgress(h.ctx.db)!)!.path).toBe('skills/notes/SKILL.md')
   })
 })
 
@@ -225,34 +250,72 @@ describe('old invite links to the intro deck', () => {
     const group = readWelcome(h.ctx)!.teamGroup!.id
     const made = await h.api('dana').call(API.createTeamLink, { body: { groupIds: [group], expiresInDays: 14, skillPath: GENERAL_DECK_SKILL } })
     expect(made.link!.skill).toMatchObject({ path: GENERAL_DECK_SKILL })
-    h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(DECK_LINKS_KEY)
+    h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(DECK_LINKS_CLEARED_KEY)
     expect(repointDeckLinks(h.ctx)).toBe(1)
     const after = await h.api('dana').call(API.getTeamLink)
     expect(after.link!.url).toBe(made.link!.url)
-    expect(after.link!.skill).toMatchObject({ path: GENERAL_TASKS_SKILL })
+    expect(after.link!.skill).toMatchObject({ path: 'skills/notes/SKILL.md' })
     expect(h.ctx.db.query("SELECT actor_id, detail FROM audit_log WHERE action = 'team_link.update' ORDER BY id DESC LIMIT 1").get()).toMatchObject({ actor_id: null })
     // once: the owner points it at the deck again on purpose, it stays
     await h.api('dana').call(API.updateTeamLink, { body: { skillPath: GENERAL_DECK_SKILL } })
     expect(repointDeckLinks(h.ctx)).toBe(0)
     expect((await h.api('dana').call(API.getTeamLink)).link!.skill).toMatchObject({ path: GENERAL_DECK_SKILL })
-    // a link to another skill is never touched; a landing skill a newcomer cannot open: the link stays
-    h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(DECK_LINKS_KEY)
-    const tasks = path.join(h.team, GENERAL_TASKS_SKILL)
-    const text = fs.readFileSync(tasks)
-    fs.rmSync(tasks)
+    // no landing skill (nothing shared, or the shared skill gone: an older version's welcome link to the deck after the
+    // update, docs/DECISIONS.md "DS3"): the link names no skill any more, so people who join land on Home, keeping its
+    // address; the run is recorded (never a link left on the deck for good)
+    h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(DECK_LINKS_CLEARED_KEY)
+    const notes = path.join(h.team, 'skills/notes/SKILL.md')
+    const text = fs.readFileSync(notes)
+    fs.rmSync(notes)
+    expect(landingSkill(h.ctx)).toBeNull()
+    expect(repointDeckLinks(h.ctx)).toBe(1)
+    const home = (await h.api('dana').call(API.getTeamLink)).link!
+    expect(home.skill).toBeNull()
+    expect(home.url).toBe(made.link!.url)
+    expect(getSetting(h.ctx.db, DECK_LINKS_CLEARED_KEY)).toBeTruthy()
+    expect(JSON.parse((h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'team_link.update' ORDER BY id DESC LIMIT 1").get() as { detail: string }).detail))
+      .toEqual({ skillPath: null, from: GENERAL_DECK_SKILL, reason: 'intro_deck_link' })
+    // who joins now lands on Home, never on the deck's form
+    const token = new URL(home.url!).hash.replace(/^#t=/, '')
+    const joined = await h.req(null, '/api/team-link/join', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token, username: 'deck-joiner', name: 'Deck Joiner', password: 'tulip meadow 2026' }) })
+    expect(joined.status).toBe(201)
+    expect(((await joined.json()) as { next: string | null }).next).toBeNull()
+    // the next start: nothing again; the landing skill back: the owner's deck link from then on stays as it is
+    fs.writeFileSync(notes, text)
+    await h.api('dana').call(API.updateTeamLink, { body: { skillPath: GENERAL_DECK_SKILL } })
     expect(repointDeckLinks(h.ctx)).toBe(0)
     expect((await h.api('dana').call(API.getTeamLink)).link!.skill).toMatchObject({ path: GENERAL_DECK_SKILL })
-    // no landing skill at that start: the once is not used up, the next start tries again (the review of PR #100: the
-    // links stayed on the deck for good)
-    expect(getSetting(h.ctx.db, DECK_LINKS_KEY)).toBeFalsy()
-    fs.writeFileSync(tasks, text)
-    expect(repointDeckLinks(h.ctx)).toBe(1)
-    expect((await h.api('dana').call(API.getTeamLink)).link!.skill).toMatchObject({ path: GENERAL_TASKS_SKILL })
-    expect(getSetting(h.ctx.db, DECK_LINKS_KEY)).toBeTruthy()
-    h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(DECK_LINKS_KEY)
+    h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(DECK_LINKS_CLEARED_KEY)
     await h.api('dana').call(API.updateTeamLink, { body: { skillPath: 'skills/quote/SKILL.md' } })
     expect(repointDeckLinks(h.ctx)).toBe(0)
     expect((await h.api('dana').call(API.getTeamLink)).link!.skill).toMatchObject({ path: 'skills/quote/SKILL.md' })
+  })
+  test('a server whose earlier release recorded the first run\'s mark (v0.4.0-beta.10) before its welcome steps made a deck link: the link is still cleared once, under its own mark', async () => {
+    // beta.10 started with no deck link and recorded its mark; then the owner walked its welcome steps with nothing
+    // shared, which made a link to the deck
+    const old = '2026-11-06T00:00:00.000Z'
+    setSetting(h.ctx.db, DECK_LINKS_KEY, old)
+    h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(DECK_LINKS_CLEARED_KEY)
+    const notes = path.join(h.team, 'skills/notes/SKILL.md')
+    const text = fs.readFileSync(notes)
+    fs.rmSync(notes)
+    try {
+      expect(landingSkill(h.ctx)).toBeNull()
+      await h.api('dana').call(API.updateTeamLink, { body: { skillPath: GENERAL_DECK_SKILL } })
+      const before = (await h.api('dana').call(API.getTeamLink)).link!
+      expect(before.skill).toMatchObject({ path: GENERAL_DECK_SKILL })
+      // the update's first start
+      expect(repointDeckLinks(h.ctx)).toBe(1)
+      const after = (await h.api('dana').call(API.getTeamLink)).link!
+      expect(after.skill).toBeNull()
+      expect(after.url).toBe(before.url)
+      expect(h.ctx.db.query("SELECT actor_id, target, detail FROM audit_log WHERE action = 'team_link.update' ORDER BY id DESC LIMIT 1").get())
+        .toEqual({ actor_id: null, target: after.id, detail: JSON.stringify({ skillPath: null, from: GENERAL_DECK_SKILL, reason: 'intro_deck_link' }) })
+      expect(getSetting(h.ctx.db, DECK_LINKS_CLEARED_KEY)).toBeTruthy()
+      // the old mark is left as it was; the next start does nothing
+      expect(getSetting<string>(h.ctx.db, DECK_LINKS_KEY)).toBe(old)
+      expect(repointDeckLinks(h.ctx)).toBe(0)
+    } finally { fs.writeFileSync(notes, text) }
   })
 })
 
@@ -295,7 +358,7 @@ describe('what a newcomer gets', () => {
     expect(of('list-example')!.example).toBeUndefined()
     expect(skillExample(of('no-example')!)).toBe('no-example 해 줘')
     expect(skillExample(of('with-example')!)).toBe('이번 주 회의록으로 내 할 일 정리해 줘')
-    // the general pack's 할 일 정리 quotes its requests
-    expect(skillExample(items.find((s) => s.path === GENERAL_TASKS_SKILL)!)).toBeTruthy()
+    // the general pack's intro deck quotes its requests
+    expect(skillExample(items.find((s) => s.path === GENERAL_DECK_SKILL)!)).toBeTruthy()
   })
 })

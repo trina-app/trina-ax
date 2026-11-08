@@ -1,16 +1,15 @@
 // Onboarding wave 2 (welcome steps, docs/DECISIONS.md "W — Welcome steps", "X — Lean onboarding"): the progress is one
-// settings row of the team that the owner writes and owners and admins read, so the steps resume on another device; the
-// marketing pack is installed once by these steps and never again by themselves (installing again would restore what
-// someone deleted). v5 (docs/DECISIONS.md "W5"): 회사 소개, 내 스킬, 팀 파일 and the invite are counted, the first result
-// is no step any more; a `team` step of an older row is kept, not read.
+// settings row of the team that the owner writes and owners and admins read, so the steps resume on another device. v5
+// (docs/DECISIONS.md "W5"): 회사 소개, 내 스킬, 팀 파일 and the invite are counted, the first result is no step any more;
+// a `team` step of an older row is kept, not read. The steps' marketing pack install is gone (docs/DECISIONS.md "DS3"):
+// its route is not found, and a `pack` an older row holds is kept as it is and no longer read.
 import { afterEach, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
 import { recordShared, WELCOME_SETTING } from '../../server/src/onboarding/welcome'
 import { getSetting, setSetting } from '../../server/src/admin/settings'
-import { SKILL_PACKS } from '../../server/src/onboarding/skill-packs'
-import { WELCOME_PACK_SKILLS, WELCOME_RESULT_SKILL, WelcomeProgress } from '@mycel/shared/api'
+import { WelcomeProgress } from '@mycel/shared/api'
 
 let h: Harness
 afterEach(async () => { await h?.close() })
@@ -28,7 +27,6 @@ const chatOf = (userId: string) => {
   h.ctx.db.query('INSERT INTO chats (id, user_id) VALUES (?, ?)').run(id, userId)
   return id
 }
-const readPack = () => (getSetting<any>(h.ctx.db, WELCOME_SETTING) ?? {}).pack ?? null
 const installs = () => (h.ctx.db.query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'onboarding.pack_install'").get() as { n: number }).n
 
 test('nothing until the steps start; then each step is kept on the server and read back on any device', async () => {
@@ -60,7 +58,8 @@ test('nothing until the steps start; then each step is kept on the server and re
   // members cannot read it; only the owner writes it
   expect((await mia.client.try('GET', '/api/onboarding/welcome')).status).toBe(403)
   expect((await ada.client.try('PATCH', '/api/onboarding/welcome', { dismissed: true })).status).toBe(403)
-  expect((await ada.client.try('POST', '/api/onboarding/welcome/pack')).status).toBe(403)
+  // the steps' own pack install is gone, for everyone
+  for (const c of [owner, ada.client]) expect((await c.try('POST', '/api/onboarding/welcome/pack')).status).toBe(404)
   expect((await mia.client.try('PATCH', '/api/onboarding/welcome', {})).status).toBe(403)
   // unknown fields are refused (a typo never silently records nothing)
   expect((await owner.try('PATCH', '/api/onboarding/welcome', { step: 'profile' })).status).toBe(400)
@@ -107,41 +106,7 @@ test('done stays done; the result chat must be the owner\'s own; finished once �
   expect((await patch({ dismissed: false })).dismissedAt).toBeNull()
 })
 
-test('the pack is installed once: a second choice, a resume or another window does not install again', async () => {
-  const { owner, root } = await setup()
-  const first = await owner.call('POST', '/api/onboarding/welcome/pack')
-  expect(first.outcome).toBe('installed')
-  expect(first.install.pack).toBe('marketing')
-  expect(first.install.skills.find((s: any) => s.name === 'ad-copy')).toEqual({ name: 'ad-copy', path: WELCOME_RESULT_SKILL, status: 'created' })
-  expect(first.progress.pack).toMatchObject({ id: 'marketing', skillPath: WELCOME_RESULT_SKILL })
-  expect(fs.existsSync(path.join(root, WELCOME_RESULT_SKILL))).toBe(true)
-  expect(installs()).toBe(1)
-
-  // someone deletes a pack skill on purpose; the steps run again (same choice, another device): nothing comes back
-  fs.rmSync(path.join(root, 'skills/marketing/seo-brief'), { recursive: true })
-  const second = await owner.call('POST', '/api/onboarding/welcome/pack')
-  expect(second.outcome).toBe('already')
-  expect(second.install).toBeNull()
-  expect(second.progress.pack).toEqual(first.progress.pack)
-  const [a, b] = await Promise.all([owner.call('POST', '/api/onboarding/welcome/pack'), owner.call('POST', '/api/onboarding/welcome/pack')])
-  expect([a.install, b.install]).toEqual([null, null])
-  expect(installs()).toBe(1)
-  expect(fs.existsSync(path.join(root, 'skills/marketing/seo-brief'))).toBe(false)
-  // the record survives the other changes
-  const later = (await owner.call('PATCH', '/api/onboarding/welcome', { step: { id: 'profile', state: 'done' }, teamType: 'marketing' })).progress
-  expect(later.pack).toEqual(first.progress.pack)
-})
-
-test('when another team skill already has the name, the first result points at the one "/ad-copy" runs', async () => {
-  const { owner, root } = await setup()
-  fs.mkdirSync(path.join(root, 'skills/ours/ad-copy'), { recursive: true })
-  fs.writeFileSync(path.join(root, 'skills/ours/ad-copy/SKILL.md'), '---\nname: ad-copy\ndescription: our own ad copy\n---\nWrite ads.\n')
-  const r = await owner.call('POST', '/api/onboarding/welcome/pack')
-  expect(r.install.skills.find((s: any) => s.name === 'ad-copy')).toMatchObject({ status: 'blocked', sameNameAs: 'skills/ours/ad-copy/SKILL.md' })
-  expect(r.progress.pack.skillPath).toBe('skills/ours/ad-copy/SKILL.md')
-})
-
-test('a stored row a later release changed: read field by field, the pack never reset, nothing installed again', async () => {
+test('a stored row a later release (or an earlier one) changed: read field by field, an old pack kept as stored and not read, nothing installed', async () => {
   const { owner, ada } = await setup()
   // a step this release does not know, a pack in another shape, a field it never heard of
   setSetting(h.ctx.db, WELCOME_SETTING, {
@@ -151,7 +116,7 @@ test('a stored row a later release changed: read field by field, the pack never 
   })
   const read = (await ada.client.call('GET', '/api/onboarding/welcome')).progress
   expect(read.steps).toEqual({ profile: null, result: null, skills: null, files: null, invite: null })
-  expect(read.pack).toEqual({ id: 'marketing', at: '', skillPath: WELCOME_RESULT_SKILL })
+  expect(read.pack).toBeUndefined()
   expect(read.site).toBeNull()
 
   // a write changes only its own field and keeps the rest of the row as it was
@@ -160,11 +125,9 @@ test('a stored row a later release changed: read field by field, the pack never 
   expect(row.pack).toEqual({ id: 'marketing', version: 2, installedAt: '2026-11-04T00:00:00.000Z' })
   expect(row.goal).toEqual({ people: 3 })
   expect(row.steps).toEqual({ team: 'done', profile: 'done', result: null, invite: null, goal: 'done' })
-  // the pack counts as installed: nothing runs
-  const again = await owner.call('POST', '/api/onboarding/welcome/pack')
-  expect(again.outcome).toBe('already')
+  // nothing installs a pack because of it
   expect(installs()).toBe(0)
-  expect(getSetting<any>(h.ctx.db, WELCOME_SETTING).pack).toEqual(row.pack)
+  expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'skills/marketing'))).toBe(false)
 })
 
 test('a stored row that is not an object: shown as none, and writes refuse instead of starting over', async () => {
@@ -173,49 +136,18 @@ test('a stored row that is not an object: shown as none, and writes refuse inste
     h.ctx.db.query('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(WELCOME_SETTING, bad)
     expect((await owner.call('GET', '/api/onboarding/welcome')).progress).toBeNull()
     expect((await owner.try('PATCH', '/api/onboarding/welcome', {})).status).toBe(409)
-    expect((await owner.try('POST', '/api/onboarding/welcome/pack')).status).toBe(409)
+    expect((await owner.try('POST', '/api/onboarding/welcome/team')).status).toBe(409)
     expect((h.ctx.db.query('SELECT value FROM settings WHERE key = ?').get(WELCOME_SETTING) as { value: string }).value).toBe(bad)
   }
   expect(installs()).toBe(0)
 })
 
-test('the first-result skill blocked by what is in the way: nothing recorded, the answer says blocked', async () => {
-  const { owner, root } = await setup()
-  // a file where the pack's folder goes: every pack skill is blocked
-  fs.writeFileSync(path.join(root, 'skills/marketing'), 'not a folder')
-  const r = await owner.call('POST', '/api/onboarding/welcome/pack')
-  expect(r.outcome).toBe('blocked')
-  expect(r.install.skills.every((s: any) => s.status === 'blocked')).toBe(true)
-  expect(r.progress.pack).toBeNull()
-  expect(readPack()).toBeNull()
-  // once the way is clear, the next choice installs (nothing was recorded)
-  fs.rmSync(path.join(root, 'skills/marketing'))
-  const ok = await owner.call('POST', '/api/onboarding/welcome/pack')
-  expect(ok.outcome).toBe('installed')
-  expect(ok.progress.pack.skillPath).toBe(WELCOME_RESULT_SKILL)
-})
-
-test('the pack already installed from the Skills page: recorded without installing, a deleted skill stays deleted', async () => {
-  const { owner, root } = await setup()
-  expect((await owner.call('POST', '/api/onboarding/packs/marketing/install')).skills.length).toBe(7)
-  fs.rmSync(path.join(root, 'skills/marketing/seo-brief'), { recursive: true })
-  expect((await owner.call('GET', '/api/onboarding/welcome')).progress).toBeNull()
-
-  const r = await owner.call('POST', '/api/onboarding/welcome/pack')
-  expect(r.outcome).toBe('already')
-  expect(r.install).toBeNull()
-  expect(r.progress.pack).toMatchObject({ id: 'marketing', skillPath: WELCOME_RESULT_SKILL })
-  expect(installs()).toBe(1) // the Skills page's own
-  expect(fs.existsSync(path.join(root, 'skills/marketing/seo-brief'))).toBe(false)
-})
-
-test('"마케팅 스킬 7개": the number the first step says is the pack\'s own; a row from before (team step) finishes once its later steps are answered', async () => {
-  for (const texts of Object.values(SKILL_PACKS.marketing.skills)) expect(Object.keys(texts!).length).toBe(WELCOME_PACK_SKILLS)
+test('a row from before (team step) finishes once its later steps are answered', async () => {
   const { owner, ownerId } = await setup()
   // a row written while the team type was a step: its `team` step is kept and no longer read
   setSetting(h.ctx.db, WELCOME_SETTING, {
     startedAt: '2026-11-04T00:00:00.000Z', updatedAt: '2026-11-04T00:00:00.000Z', teamType: 'marketing',
-    steps: { team: null, profile: 'done', result: null, invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
+    steps: { team: null, profile: 'done', result: null, invite: null }, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
   })
   const patch = async (b: unknown) => (await owner.call('PATCH', '/api/onboarding/welcome', b)).progress
   await patch({ step: { id: 'result', state: 'done' }, resultChatId: chatOf(ownerId) })
@@ -231,12 +163,12 @@ test('a row from the three-step version whose team step was put off: that "later
   const { owner } = await setup()
   const row = (o: Record<string, unknown> = {}) => setSetting(h.ctx.db, WELCOME_SETTING, {
     startedAt: '2026-11-04T00:00:00.000Z', updatedAt: '2026-11-04T00:00:00.000Z', teamType: null,
-    steps: { team: 'skipped', profile: null, result: null, invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null, ...o,
+    steps: { team: 'skipped', profile: null, result: null, invite: null }, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null, ...o,
   })
   const read = async () => (await owner.call('GET', '/api/onboarding/welcome')).progress
   row()
-  // the client reads it as "do not install the pack by itself" (web/src/lib/welcome.ts wantsPack)
-  expect(await read()).toMatchObject({ teamType: null, teamSkipped: true, pack: null })
+  // kept readable for those rows; nothing installs a pack because of it
+  expect(await read()).toMatchObject({ teamType: null, teamSkipped: true })
   // a team type picked since answers the question: no longer skipped
   row({ teamType: 'marketing' })
   expect((await read()).teamSkipped).toBeUndefined()

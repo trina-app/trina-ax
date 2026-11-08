@@ -117,7 +117,7 @@ function route(method: string, path: string, body: any): Response {
 
 const WELCOME_ROW = {
   startedAt: '2026-11-06T00:00:00.000Z', updatedAt: '2026-11-06T00:00:00.000Z', teamType: null,
-  steps: { profile: 'done', result: null, skills: null, files: null, invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null,
+  steps: { profile: 'done', result: null, skills: null, files: null, invite: null }, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null,
 }
 
 // ---- a picked .claude folder (Chrome's handle)

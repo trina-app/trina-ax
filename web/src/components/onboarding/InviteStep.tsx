@@ -4,7 +4,7 @@
 // (`prepare`) the link is made as the step opens, so the message is there at once (docs/DECISIONS.md "W2"). Skipping
 // asks once, softly, whether to invite one or two people first, because a team skill is only a team's once others use it.
 import { useState } from 'react'
-import type { TeamLinkStarter, WelcomeProgress } from '@mycel/shared/api'
+import type { WelcomeProgress } from '@mycel/shared/api'
 import { t as tNow, useT } from '../../i18n'
 import { toast } from '../../store/ui'
 import { useWelcome } from '../../store/welcome'
@@ -16,7 +16,7 @@ import { TeamLinkPanel } from './TeamLinkPanel'
 export interface InviteShared { landing: string; options: { path: string; title: string }[]; onLanding: (path: string) => void }
 
 /** The invite's shared skills from the welcome progress; null when nothing was shared, or when the skill the server
- * points at (`landingSkill`) is none of them (the shared one was deleted: 할 일 정리 alone, no 바꾸기 among gone skills). */
+ * points at (`landingSkill`) is none of them (the shared one was deleted: no 바꾸기 among gone skills). */
 export function sharedForInvite(progress: WelcomeProgress | null): InviteShared | null {
   const sh = progress?.shared
   const landing = progress?.landingSkill !== undefined ? progress.landingSkill : sh?.landing
@@ -34,14 +34,11 @@ export interface InviteStepProps {
   onSkip?: () => void
   /** the skill the first result used: people who join land on its form (skills/…). Omitted: none. */
   skillPath?: string | null
-  /** the lead's team files and what people who join get from them (needs `skillPath`): a new link carries it, and an
-   * open link is changed to carry it (TeamLinkPanel) */
-  starter?: TeamLinkStarter | null
   /** `skillPath` is a team skill the lead just made from their own work (docs/DECISIONS.md "S"): an open link is changed
    * to lead there, and the message says the skill was made for the team */
   made?: boolean
   /** `skillPath` is the skill that made the welcome steps' first result, shared as it is: an open link that leads
-   * elsewhere is changed to lead there alone (no files), keeping its address */
+   * elsewhere is changed to lead there, keeping its address */
   retarget?: boolean
   /** the owner walking the welcome steps: with no link that could let anyone in, one is made as the step opens (the
    * message and its copy button at once); never a link that still works replaced. Ignored for anyone but an owner. */
@@ -54,7 +51,7 @@ export interface InviteStepProps {
   shared?: InviteShared | null
 }
 
-export function InviteStep({ onDone, onSkip, skillPath, starter, made, retarget, prepare, title, shared }: InviteStepProps) {
+export function InviteStep({ onDone, onSkip, skillPath, made, retarget, prepare, title, shared }: InviteStepProps) {
   const t = useT()
   const [asking, setAsking] = useState(false)
   return (
@@ -64,7 +61,7 @@ export function InviteStep({ onDone, onSkip, skillPath, starter, made, retarget,
         <p className="text-sm text-muted">{t('teamLink.stepDesc')}</p>
       </div>
       {/* folded: the message and "메시지 복사"; the link and its settings wait under "링크 관리" (no "링크 끄기" here) */}
-      <TeamLinkPanel skillPicker={false} skillPath={skillPath} starter={starter} made={made} retarget={retarget} prepare={prepare} shared={shared} folded />
+      <TeamLinkPanel skillPicker={false} skillPath={skillPath} made={made} retarget={retarget} prepare={prepare} shared={shared} folded />
       <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-4">
         {onSkip && (
           <Button variant="ghost" onClick={() => setAsking(true)} data-testid="invite-step-skip">

@@ -16,7 +16,7 @@ import { readSetupLink, rememberSetupSite } from '../lib/setupLink'
 import { setAfterSetup } from '../lib/welcome'
 import { landingPath } from '../lib/tabs'
 import { joinNext, readJoinToken, setAfterJoin } from '../lib/team-link'
-import { holdMadeBy, holdStarter } from '../lib/starter'
+import { holdMadeBy } from '../lib/starter'
 import { SourceCodeLink } from '../components/SourceCodeLink'
 import { Button, Field, IconButton, inputCls } from '../components/ui'
 import { browserTimeZone } from '../lib/time-zones'
@@ -464,16 +464,13 @@ export function TeamJoin() {
   const submit = (v: JoinValues) =>
     void run(async () => {
       const r = await api.call(API.joinTeamLink, { body: { token: link.token!, ...v, locale: storedLocale() ?? undefined, client: clientKind(), tokenMode: 'cookie' } })
-      // the lead's files waiting for them (docs/DECISIONS.md "M"): Home fills the box with them and the question. A
-      // starter without files (kind 'skill') is not one: every skill opens on its form, whose box starts with the
-      // skill's own example when it has no fields (docs/DECISIONS.md "W5")
-      const files = r.starter && r.starter.kind !== 'skill' ? r.starter : null
-      if (files) holdStarter(r.me.user.id, files)
-      const next = files ? '/' : joinNext(r.next)
+      // every skill opens on its form, whose box starts with the skill's own example when it has no fields
+      // (docs/DECISIONS.md "W5"); no skill: Home
+      const next = joinNext(r.next)
       // a team skill a person made: its form says who ("지훈님이 만든 팀 스킬이에요", docs/DECISIONS.md "S")
-      const by = r.skillBy ?? (r.starter?.kind === 'skill' ? r.starter.by : null)
-      const formPath = !files && by && next.startsWith('/skills?run=') ? new URLSearchParams(next.slice('/skills?'.length)).get('run') : null
-      if (formPath) holdMadeBy(r.me.user.id, formPath, by!)
+      const by = r.skillBy ?? null
+      const formPath = by && next.startsWith('/skills?run=') ? new URLSearchParams(next.slice('/skills?'.length)).get('run') : null
+      if (formPath && by) holdMadeBy(r.me.user.id, formPath, by)
       setAfterJoin(next)
       signedIn(r.me)
       navigate(next, { replace: true })
