@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-08 01:46
 - Branch: `feat/skills-known-origin`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`resources/skill-packs`, `server/src/onboarding`, `server/src/auth/team-links.ts`,
   `shared/src/api`, `web/src`). Why: the packs and the default-skills seeder are core onboarding code
   (see docs/REPOSITORY-RULES.md).
@@ -72,4 +72,19 @@ e2e (`bunx playwright test --project=chromium`).
 
 ## Result
 
-Filled in at the end.
+Built as planned, plus two must-fixes from an independent flow review:
+
+- **Goal card:** without a landing skill it took the most-run skill, usually the owner's own `/intro-deck`. `focusSkill`
+  now leaves out every skill the welcome steps ran (`onboardingRuns`: the deck's paths and the first-result chat's runs).
+- **Rollback guard:** `server/src/onboarding/retired-skills.ts` records the old seeder's 19 keys as `retired` in
+  `onboarding.defaultSkills` (missing keys only) at every start and in `setupWelcomeTeam`, so an older build adds nothing.
+
+Differs from the plan: the brand folder's names are kept as `BRAND_FOLDER` (was `PACK_FOLDERS.brand`); the install
+result lost its always-empty `folders`; `skills/author.ts` also knows the names of packs that no longer ship
+(`LEGACY_PACK_SKILL_NAMES`), so an old copy installed before install marks still has no maker; the demo company uses
+`work/humanizer`. `NOTES_FOLDER` stays (the team group's notes folder, step labels and the skill card read it).
+
+Checks: typecheck, check:i18n (0 issues), check:docs pass; server unit tests of the area 892 pass / 5 fail (all five in
+`skills.test.ts`, failing the same on a clean origin/dev); web unit 1657 pass / 1 fail / 1 error (a send-queue timing
+test that passes alone, and the suite-level unhandled error origin/dev has too); full chromium e2e 806 passed, 13
+skipped, 0 failed. PR: see the pull request for this branch.
