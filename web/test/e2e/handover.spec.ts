@@ -162,9 +162,11 @@ test('"…" › 팀장 넘기기: only for someone who signed in and changed the
   await expect(page.getByTestId('toast').filter({ hasText: '이미 팀장이 바뀌었어요' })).toHaveCount(1)
   await expect(confirm).toBeHidden()
 
-  // the real one, by Enter in the password field
+  // the real one, by Enter in the password field: once the dialog has listed my connections (what is ended comes from
+  // that list, so until then [넘기기] is disabled and Enter does nothing)
   await menuOf(page, 'Bob')
   await page.getByTestId('handover-member-bob').click()
+  await expect(confirm.getByTestId('handover-conn-team_ai-cred-claude')).toBeChecked()
   await confirm.getByTestId('handover-password').fill(OWNER.password)
   await confirm.getByTestId('handover-password').press('Enter')
   await expect(page.getByTestId('toast').filter({ hasText: 'Bob님이 팀장이 되었어요 · 나는 관리자예요' })).toHaveCount(1)
