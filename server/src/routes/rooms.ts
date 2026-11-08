@@ -13,6 +13,7 @@ import { hashFile, writeTemp } from '../team-files/place'
 import { roomsOf } from '../rooms/service'
 import { roomFilesOf } from '../rooms/files'
 import { roomAiOf } from '../rooms/ai'
+import { redecideHidden } from '../rooms/ai-redecide'
 import { getChatRuntime } from '../chat/runtime'
 import { windowOf } from './chats'
 
@@ -30,6 +31,8 @@ export const roomsRoutes: RouteModule = {
     try {
       getChatRuntime(ctx).rooms = roomAiOf(ctx)
       roomAiOf(ctx).reconcile()
+      // previews kept as not postable before what a hidden answer used could be named (rooms/earlier-sources.ts)
+      redecideHidden(ctx)
     } catch (e) { ctx.log.error('room AI start failed', { err: e }) }
     const tick = setInterval(() => { rooms.syncSoon(); try { roomFilesOf(ctx).sweep() } catch (e) { ctx.log.warn('room file sweep failed', { err: e }) } }, 60_000)
     ;(tick as { unref?: () => void }).unref?.()

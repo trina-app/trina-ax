@@ -273,8 +273,16 @@ export const RoomMessage = z.object({
     /** members who were not in the room yet when a message the AI was given was written (their names) */
     joinedLater: z.array(z.string()).optional(),
     /** an old answer hidden from some member (one who joined a team room or the everyone room later and cannot open
-     * what it used) was among the messages the AI was given; never who */
-    hidden: z.literal(true).optional() }).optional(),
+     * what it used) was among the messages the AI was given and what it used cannot all be shown to the person who
+     * asked (or a member's history is not worked out yet); never who. Not postable: the app shows no button and the
+     * server refuses it (409 room_ai_hidden) */
+    hidden: z.literal(true).optional(),
+    /** such old answers were given and what they were built on is in `folders` / `personal`: postable like them
+     * (docs/DECISIONS.md "방에 올리기…") */
+    earlier: z.literal(true).optional(),
+    /** for each folder of `folders`, how many members (not the person who asked) cannot see it; counts only, never
+     * who. Absent: a preview decided before the counts */
+    unable: z.record(z.string(), z.number().int().nonnegative()).optional() }).optional(),
   /** an AI answer: the team files it links to or shows that the viewer may open now; the app shows the others as plain
    * text (no link, no picture loaded) */
   openable: z.array(z.string()).optional(),
