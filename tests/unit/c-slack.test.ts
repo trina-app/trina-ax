@@ -13,6 +13,7 @@ import { appIdOfToken, normEmail, slackOf } from '../../server/src/integrations/
 import { questionText, refusal, say as sayText } from '../../server/src/integrations/slack/text'
 import { isWebAddress, plainOf, richBlocks, richText, slackAnswer } from '../../server/src/integrations/slack/rich-text'
 import { slackManifest } from '../../server/src/integrations/slack/manifest'
+import { roomsOf } from '../../server/src/rooms/service'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { nextTs, startFakeSlack, type FakeSlack } from '../lib/fake-slack'
 import { waitFor } from '../lib/wait'
@@ -1006,17 +1007,46 @@ describe('"Post to channel" checks what the answer used, against the whole team'
     } finally {
       db.query('INSERT INTO slack_links (id, user_id, team_id, enterprise_id, slack_user_id, slack_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(link.id!, 'alice', link.team_id!, link.enterprise_id!, link.slack_user_id!, link.slack_name!, link.created_at!)
     }
-    // a 1A conversation: refused, before or after the notice
+    // a 1A conversation: refused, before or after the notice; the answer stays, to the asker, with the reason and no
+    // button, and a later answer of that conversation comes without one
+    const confidential = 'This is a confidential conversation, so its answers cannot be posted to the channel.'
     db.query('INSERT INTO safe_ops_chats (chat_id, material) VALUES (?, 1)').run(chatOf(q.id))
     try {
       for (const [action, value] of [['trina_post', q.id], ['trina_post_anyway', anyway]] as const) {
         const r = await press(action, value, q.channel)
-        expect(r.text).toContain('This is a confidential conversation, so its answers cannot be posted to the channel.')
+        expect(r.text).toBe('Unlinked before cancel.')
+        expect(JSON.stringify(r.blocks)).toContain(confidential)
         expect(buttonsOf(r)).toEqual([])
       }
+      const root = (h.ctx.db.query('SELECT thread_ts FROM slack_requests WHERE id = ?').get(q.id) as { thread_ts: string }).thread_ts
+      mention('U0ALICE', say('Confidential follow-up.'), { channel: q.channel, thread: root })
+      const later = await waitFor(() => ephemeralsTo('U0ALICE').find((c) => c.args.channel === q.channel && blocksOf(c).includes('Confidential follow-up.')), { timeoutMs: 30_000 })
+      expect(blocksOf(later!)).toContain(confidential)
+      expect(blocksOf(later!)).not.toContain('trina_post')
     } finally { db.query('DELETE FROM safe_ops_chats WHERE chat_id = ?').run(chatOf(q.id)) }
     expect(postsTo(q.channel)).toEqual([])
     expect(stateOf(q.id)).toBe('delivered')
+  })
+
+  test('an answer that read a room with an old answer hidden from someone is never posted, not even after the notice', async () => {
+    const db = h.ctx.db
+    const rooms = roomsOf(h.ctx)
+    const all = rooms.list('alice').find((r) => r.kind === 'all')!.id
+    const m = rooms.send('alice', all, { body: 'Hello, everyone.', mentions: [], fileIds: [], clientMessageId: 'cm-slack-hidden-1' })
+    expect(m.seq).toBeGreaterThan(0)
+    const q = await ask([], 'Read the room.')
+    db.query('UPDATE chats SET session_read_scope = ? WHERE id = ?').run(JSON.stringify({ sources: [{ type: 'room', id: all, fromSeq: m.seq }], v: 2, unlisted: [] }), chatOf(q.id))
+    db.query('INSERT INTO room_hidden_answers (room_id, user_id, message_id, see_seq) VALUES (?, ?, ?, ?)').run(all, 'bob', m.id, m.seq)
+    try {
+      const r = await press('trina_post', q.id, q.channel)
+      expect(r.text).toBe('Read the room.')
+      expect(JSON.stringify(r.blocks)).toContain('This answer cannot be posted: it used an earlier answer in a room that some people on the team cannot see.')
+      expect(JSON.stringify(r)).not.toContain('bob')
+      expect(buttonsOf(r)).toEqual([])
+    } finally { db.query('DELETE FROM room_hidden_answers WHERE message_id = ?').run(m.id) }
+    expect(postsTo(q.channel)).toEqual([])
+    // nothing hidden any more: every member sees that room from there on, so it is posted at once
+    expect((await press('trina_post', q.id, q.channel)).text).toBe('Posted to the thread.')
   })
 
   test('in a DM nothing changes: the answer comes in the thread, no button, no notice', async () => {

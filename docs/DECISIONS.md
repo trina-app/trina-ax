@@ -9070,9 +9070,9 @@ People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guid
     channel has people all the same.
   - **Never posted** (as 대화방에 보내기 refuses them, confirmed or not): a confidential conversation (safe operations 1A,
     `safe-ops/confidential.ts`; while 1A is on, every conversation is one, so Post to channel always says why), and an
-    answer that read a room some member would see but for old answers hidden from them. Both say why, with the link to
-    the chat. Chosen over a notice: the owner's two buttons are for places, and 1A material stays in its conversation
-    everywhere else.
+    answer that read a room some member would see but for old answers hidden from them. Pressed, the answer stays with
+    the asker with the reason and no button; an answer of a confidential conversation comes without the button. Chosen
+    over a notice: the owner's two buttons are for places, and 1A material stays in its conversation everywhere else.
   - **Named as the asker sees them, never what or who.** Folders the asker may read now by their path, a team connection
     or shared Drive by its name, a team room by its group's name, "1:1 and group conversations", and the asker's own
     material apart: "your folder", "the in-app browser", "your personal connections" (the read scope records a personal
@@ -9092,7 +9092,7 @@ People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guid
     folder's notice, Cancel, and Post again; Post anyway once and audited, replayed and forged values, a key from before
     a new member; Slack Connect and an unknown channel on Post anyway; a team connection, a personal connection, the
     browser, memories, Korean; list and glob names; not all known; a team of one; Cancel after an unlink; a confidential
-    conversation; a DM).
+    conversation, also its next answer; hidden room answers; a DM).
 
 ## S — The lead's way becomes a team skill (feat/onboarding-s, 2026-11-05)
 

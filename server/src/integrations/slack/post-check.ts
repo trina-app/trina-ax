@@ -46,8 +46,9 @@ export async function postCheck(ctx: AppContext, r: { id: string; user_id: strin
   // nobody else on the team (one account, or every other one disabled): the asker's own material and an answer not all
   // known are not team-wide either (the channel has people all the same)
   const alone = audience.length === 0
-  const ownFiles = use.files.some((f) => { const [top, id] = f.path.split('/'); return top === 'users' && id === me })
-  const ownUse = ownFiles || use.other.some((s) => s.type === 'user' && s.id === me)
+  const mineAt = (p: string) => { const [top, id] = p.split('/').filter(Boolean); return top === 'users' && id === me }
+  const ownFiles = use.files.some((f) => mineAt(f.path))
+  const ownUse = ownFiles || use.other.some((s) => (s.type === 'user' && s.id === me) || (s.type === 'name' && mineAt(s.path)))
   const memories = memoriesInPlay(db, r.chat_id, me)
   // a team connection or a shared Drive: not team-wide, whatever its rules (named by its name, as 대화방에 보내기 does)
   const outside = use.other.filter((s) => s.type === 'integration' || s.type === 'drive_share')
