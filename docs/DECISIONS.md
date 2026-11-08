@@ -14056,8 +14056,11 @@ menu with cmd+k". The owner approved it on 2026-11-08.
   lean screens), Slack's from:/in:/date filters (not asked for; the AI's own `rooms` tool has them).
 - **Who sees a hit: the rooms' one rule, not a copy.** A hit is a message the person would see by opening its room now.
   Candidates come only from `reader.ts myRooms` (the rooms they are in now, not archived: what the rooms list holds,
-  hidden rooms included as its "숨긴 대화"), and each is kept only when `store.ts canSee(db, row, member)` says so, with
-  the member row of its room: where they see the room from (a later member of a group chat or a 1:1 from their join,
+  hidden rooms included as its "숨긴 대화"), and who sees which is decided in the query itself: `store.ts
+  SEE_MEMBER_SQL` is `SEE_SQL` filled with the values of the member row of each message's room (from the same list of
+  parameters as `seeArgs`, `seeParts`; a test checks it against `canSee` for every member and message of the suite's
+  rooms), and `canSee` runs again on each row. So the page, its LIMIT and its cursor only count or name messages they
+  see. What the rule gives: where they see the room from (a later member of a group chat or a 1:1 from their join,
   per member; a team room's and the everyone room's whole history once it is opened, `Rooms.syncFor` before each
   search, as for the person's own AI chat), others' private previews never (their own, yes, as in the room), the old
   answers hidden from them (#161) and everything in their threads never. Leaving or being taken out ends it at once (no
@@ -14087,9 +14090,8 @@ menu with cmd+k". The owner approved it on 2026-11-08.
   `threadSummaries`, whose grouped count takes the room's `(room_id, seq)` index over the whole room (about 5 ms on
   50,000 messages; the same in every timeline page of such a room; left for its own change). Migration 267 backfills
   about 2–3 s per 100,000 messages, once.
-- **Pages.** At most 30 a page (20 by default), newest first, a cursor below the last one looked at. One request looks
-  at 2,000 candidates of the person's rooms at most (a room full of others' private previews, say); then it answers with
-  what it has and a cursor to go on.
+- **Pages.** At most 30 a page (20 by default), newest first, the cursor below the page's last hit (a message they
+  see). The index is walked past matches they do not see until the page is full.
 - **API.** `GET /api/room-messages?q=&cursor=&limit=` (`searchRoomMessages`; `/api/rooms/search` would be taken by
   `/api/rooms/:id`): `items` (id, roomId, threadRootId, authorKind, author, askedBy, markdown, snippet, createdAt),
   `rooms` (each hit's room: kind, name, peers, memberCount, from `store.ts roomNaming`, which `roomOut` now uses too),
@@ -14110,14 +14112,37 @@ menu with cmd+k". The owner approved it on 2026-11-08.
 - **Not here.** Room file names and file contents, filters, results in the 기록 tab, highlighting more than the first
   match, searching the AI's steps. Known limits: a word that spans a room link (`#[name](room:…)`) or Markdown marks in
   the middle ("견적**서**") is not found as typed; the order is the order the messages were written (an AI answer posted
-  from a preview later sorts by when the preview was made).
+  from a preview later sorts by when the preview was made). The time a search takes grows with the matches the index
+  walks past, those in rooms the person is not in too: a word written thousands of times only in other rooms takes
+  tens of milliseconds more, and a 1–2 character word scans the index's text (as the chat records' search does); the
+  same for matches in their own rooms they do not see (from before they joined, others' previews). A request has no
+  upper bound: at worst one pass over every match in the index (a row budget whose cursor went on from the last row
+  looked at would bring the cursor leak below back). Over a network that tells little (one match or none is
+  microseconds); scoping the index walk to the person's rooms (a room column FTS5 can filter on) is left for its own
+  change.
+- **Independent review (security, 2026-11-08) fixes.** The first version filtered with `canSee` after the query and
+  looked at 2,000 candidates a request at most; a page that ran out answered with a cursor at the last candidate looked
+  at, often a message the person does not see: an empty page with a cursor told that unseen messages held the word, the
+  cursor gave its position, and a cursor made by hand one above and at an unseen message told whether it held a word
+  (reproduced on a group chat joined late). Now visibility is decided in the query (above) and the cursor is always
+  the page's last hit; a test makes cursors at, above and below an unseen message. A NUL in the text ended the index's
+  query (500): refused by the contract (400) and dropped by the function. `around` with `limit=1` gave no
+  `newerCursor`: fixed. Deleted and edited text stays in the index's pages, so in the database file and its backups,
+  until its segment is merged (found by the review; the chat records' `messages_fts` is the same): FTS5
+  `secure-delete` would take it out at once, but SQLite before 3.42 refuses the option, so 267 would stop a server on
+  macOS 13 (whose own SQLite 3.39 bun uses there) from starting, and an index that used it cannot be read by such a
+  SQLite again (a database moved there would refuse every room message). Left as a known limit; the round-2 review
+  found this. Not leaking, per the review: `around` for an id they cannot see (the same newest page as for
+  none), which rooms, hidden answers and their threads, private previews, the rowid join (a stale index row cannot
+  show another message's text), the FTS query quoting (operators, wildcards, odd Unicode), the web.
 - **Tests.** `tests/unit/b-rooms-search.test.ts` (a non-member, an owner and an admin get nothing; after leaving a group
   chat and after being taken out of a team room, nothing; a later member of a group chat finds nothing from before their
   join nor a later reply in an older thread; a later member of a team room finds the history; a hidden answer never
   matches, nor its thread, and its words are in no response, a quote of it is found by its own words; a DM only by its
   two people; a private preview only by its person; archived rooms; thread replies; edited and deleted text gone, from
-  the index too; Korean parts, case, `%` and `_`; the snippet; pages and the scan cap; 50,000 messages and the plan; a
-  backup copy and VACUUM; the migration's backfill; `around`), `web/test/unit/search-room-messages.test.tsx`,
+  the index too; Korean parts, case, `%` and `_`, NUL; the snippet; pages; no cursor at an unseen message, also made by
+  hand; `SEE_MEMBER_SQL` against `canSee`; 50,000 messages and the plan; a backup copy and VACUUM; the migration's
+  backfill; `around`, also with a page of one), `web/test/unit/search-room-messages.test.tsx`,
   `web/test/e2e/search-room-messages.spec.ts` (⌘K → a word → Enter opens an old message in its room with the pill; a
   thread hit opens the thread; nothing found; axe light and dark; the phone; `SHOTS_DIR` for 1440 and 390, light and
   dark).

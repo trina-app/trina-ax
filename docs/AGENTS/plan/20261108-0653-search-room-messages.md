@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-08 06:53
 - Branch: `feat/search-room-messages`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/rooms/search.ts`, `server/src/rooms/service.ts`, `server/src/routes/rooms.ts`,
   migration 267, `shared/src/api/rooms.ts`, `web/src/components/SearchDialog.tsx`, `web/src/store/rooms.ts`,
   `web/src/pages/Room.tsx`). Why: rooms, their visibility rule and the search palette are core chat (see
@@ -23,7 +23,8 @@ In:
   taken by `/api/rooms/:id`). The newest matches first, at most 30 a page (default 20), a cursor for more.
 - **Visibility: the rooms' own rule, not a copy.** Candidates only from `reader.ts myRooms` (rooms I am in now, not
   archived: what the rooms list shows; hidden rooms count, as in the list's "숨긴 대화"), each kept only when
-  `store.ts canSee(db, row, me)` says so (the check `SEE_SQL` writes in SQL: where I see the room from, later members of
+  `store.ts canSee(db, row, me)` says so (after the review: decided in the query with `SEE_SQL` filled from each
+  message's member row, then `canSee`; the check `SEE_SQL` writes in SQL: where I see the room from, later members of
   group chats and 1:1s from their join, team rooms and the everyone room their whole history once opened, others'
   private previews never, hidden old answers and everything in their threads never). Before searching, my team rooms'
   histories are opened as `Rooms.list` does. Deleted messages and event lines never match. The row given is
@@ -87,4 +88,18 @@ server suite and the rooms suites it touches, web unit tests in Docker, `bun run
 
 ## Result
 
-Filled in at the end.
+Built as planned. Server: `rooms/search.ts searchRoomMessages` (myRooms → FTS stream → `canSee` → `messagesOut`),
+`Rooms.search` (after `syncFor`), `Rooms.messages` `around` and newer pages, `store.ts roomNaming`, migration 267, the
+route `GET /api/room-messages`. Web: the 대화방 메시지 section and `MessageHit` in `SearchDialog.tsx`, `loadAround` /
+`loadNewer` and the window in `store/rooms.ts` and `pages/Room.tsx` (the Inbox's links use it too), five languages,
+the mock server. Measured on a 50,000-message room: 0.08–13.5 ms a query (details in DECISIONS). Differs from the
+plan: a DM row says "1:1 대화" (with the other person's name only when they did not write it; "지호 · 지호" read
+twice in the first screenshots); "메시지 더 보기" keeps the keys in the box. An independent security review found that
+filtering with `canSee` after a capped query let the cursor point at a message the person does not see (existence,
+position and, with a cursor made by hand, content); visibility is now decided in the query (`store.ts SEE_MEMBER_SQL`,
+`SEE_SQL` filled from the member row, checked against `canSee`), and NUL in the text (500) and `around` with a page
+of one were fixed. Deleted text left in the index's pages stays a known limit: FTS5 `secure-delete` would stop the
+server on macOS 13 (SQLite 3.39), found in the second review round. Found on the way, left for its own change:
+`threadSummaries` counts a page's threads over the room's `(room_id, seq)` index (about 5 ms a page on 50,000
+messages, every timeline page too). Tests: `tests/unit/b-rooms-search.test.ts`, `web/test/unit/search-room-messages.test.tsx`,
+`web/test/e2e/search-room-messages.spec.ts`. PR: see the PR that links this plan.
