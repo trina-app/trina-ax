@@ -70,4 +70,4 @@ Built as planned, plus what the review found:
 - `withMessage` counts what the server sends me (no visibility test) after my read position. The dock badge follows
   the room's notify level, so in a team room at the default (mentions) a private answer shows on the room's row only,
   as after a reload.
-- PR: see the pull request for this branch.
+- PR: https://github.com/trina-app/trina-ax/pull/205
