@@ -2110,6 +2110,7 @@ export class MockServer {
         if (c.body?.password !== this.passwords.get(me.username)) fail('forbidden', 403, 'wrong password')
       }
       this.users = this.users.filter((u) => u.id !== c.params.id)
+      this.dropAssignee('user', c.params.id)
       return undefined
     },
     resetPassword: (c) => {
@@ -2426,6 +2427,7 @@ export class MockServer {
     updateGroup: (c) => Object.assign(this.groups.find((g) => g.id === c.params.id) ?? fail('not_found', 404), Object.fromEntries(Object.entries(c.body).filter(([, v]) => v !== undefined))),
     deleteGroup: (c) => {
       this.groups = this.groups.filter((g) => g.id !== c.params.id)
+      this.dropAssignee('group', c.params.id)
       // its rules go; its folder row stays, no longer a group's (the server's deleteGroup)
       for (const f of this.folders) {
         f.rules = f.rules.filter((r) => !(r.subjectType === 'group' && r.subjectId === c.params.id))
@@ -3325,6 +3327,16 @@ export class MockServer {
     return !c.owner && !c.disabled && (c.kind === 'anthropic-oauth' || c.kind === 'chatgpt') && !this.credSharedSubscriptions
       ? { ...c, state: 'sharing_off', detail: 'Shared subscriptions are off.' } : c
   }
+  /** A group or person deleted: their AI connection assignments go, and a team connection left with none is switched
+   * off rather than serving the whole team (the server's credentials/assignees.ts). */
+  dropAssignee(subjectType: 'group' | 'user', subjectId: string) {
+    for (const c of this.credentials) {
+      if (!c.assignments.some((a) => a.subjectType === subjectType && a.subjectId === subjectId)) continue
+      c.assignments = c.assignments.filter((a) => !(a.subjectType === subjectType && a.subjectId === subjectId))
+      if (!c.assignments.length && c.scope === 'team' && !c.disabled) { c.disabled = true; c.state = 'disabled' }
+    }
+  }
+
   async addCredential(user: User, body: { kind: CredentialKind; label: string; sealed: never; acknowledgedPlanNotice?: boolean; assignments?: { subjectType: 'group' | 'user'; subjectId: string }[] }, personal: boolean): Promise<Credential> {
     if (!personal && (body.kind === 'anthropic-oauth' || body.kind === 'chatgpt') && !this.credSharedSubscriptions) fail('forbidden', 403)
     const secret = await this.sealer.unseal(body.sealed, 'credential.create').catch(() => fail('validation', 400, '보낸 값을 열 수 없어요.'))
