@@ -60,12 +60,27 @@ describe('a new message', () => {
     expect(open.rooms[0]!.unreadCount).toBe(0)
   })
 
-  test('mentioning me marks the room "mentioned"; a deleted or private message counts nothing', () => {
+  test('mentioning me marks the room "mentioned"; a deleted message counts nothing', () => {
     const r = room()
     const d = withMessage(data({ rooms: [r] }), r.id, message({ roomId: r.id, seq: 1, mentions: [ME.id] }), ME.id)
     expect(d.rooms[0]).toMatchObject({ unreadCount: 1, mentioned: true })
-    const priv = withMessage(data({ rooms: [r] }), r.id, message({ roomId: r.id, seq: 1, visibility: 'private' }), ME.id)
-    expect(priv.rooms[0]!.unreadCount).toBe(0)
+    const gone = withMessage(data({ rooms: [r] }), r.id, message({ roomId: r.id, seq: 1, deletedAt: at(2) }), ME.id)
+    expect(gone.rooms[0]!.unreadCount).toBe(0)
+  })
+
+  test("@트리나's private answer to my question counts for me, as the server counts it (it is sent to me only)", () => {
+    // I asked in this room and went to another one: the sidebar and the dock badge said 0, a reload 1
+    const r = room({ lastSeq: 1, lastReadSeq: 1 })
+    const answer = message({ roomId: r.id, seq: 2, authorKind: 'ai', author: null, askedBy: ME, visibility: 'private' })
+    const d = withMessage(data({ rooms: [r] }), r.id, answer, ME.id)
+    expect(d.rooms[0]).toMatchObject({ unreadCount: 1, mentioned: false, lastSeq: 2, lastMessage: { id: answer.id } })
+    // the room on screen: nothing (the screen reads it)
+    expect(withMessage(data({ rooms: [r], openRoomId: r.id }), r.id, answer, ME.id).rooms[0]!.unreadCount).toBe(0)
+    // shared to the room from my phone: the server read the room up to it first (room.read before the message)
+    const shared = { ...answer, seq: 3, visibility: 'room' as const }
+    let other = withReadState(data({ rooms: [r] }), r.id, { lastReadSeq: 3, unreadCount: 0, mentioned: false })
+    other = withMessage(other, r.id, shared, ME.id)
+    expect(other.rooms[0]).toMatchObject({ unreadCount: 0, lastReadSeq: 3, lastSeq: 3, lastMessage: { id: answer.id } })
   })
 
   test('the badge stops at 999 like the server', () => {
