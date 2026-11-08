@@ -9,8 +9,8 @@ export const APP_LINKS = {
   /** <Apple developer team>.<bundle id> */
   iosAppIds: ['YWW96288YY.app.trina.ax'] as readonly string[],
   androidPackage: 'app.trina.ax',
-  /** SHA-256 of the certificates the app is signed with, "AA:BB:…". Now: the upload key (CN=Trina AX upload,
-   * O=Trina Inc.), which signs the APK published at updates.trina.app. The app is not public on Google Play yet; once
+  /** SHA-256 of the certificates the app is signed with, "AA:BB:…". Now: the edition's upload key, which signs the APK
+   * published on the release channel's update feed. The app is not public on Google Play yet; once
    * Play signs it, installs from Play carry Play's app signing key instead, so add that key's fingerprint here too
    * (Play Console › Test and release › App integrity › App signing). An empty list makes /.well-known/assetlinks.json
    * answer 404. */
