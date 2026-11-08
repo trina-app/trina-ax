@@ -53,4 +53,4 @@ step, `REDECIDE_STEP_MS` (250 ms, at least one preview) a step, `REDECIDE_ROOM_G
 `REDECIDE_ROOM_MAX` lowered from 20 to 10. Rooms with nothing to decide are looked past (at most 50 in one step), so a
 burst of rooms without refused previews costs a few queries, not a gap each.
 
-PR: PR_LINK
+PR: https://github.com/trina-app/trina-ax/pull/215
