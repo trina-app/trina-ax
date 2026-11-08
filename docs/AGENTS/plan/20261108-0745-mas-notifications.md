@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-08 07:45
 - Branch: `feat/mas-notifications`
-- Status: in progress
+- Status: done
 - Where: trina-ax `desktop/` (main process, `common/notify.ts`). Why: the Mac App Store app showed no notifications,
   because macOS asked its one question at a moment nobody saw it (see docs/REPOSITORY-RULES.md)
 - Version impact: patch (the desktop app asks earlier and the macOS test answer is worded truthfully; no API change)
@@ -72,4 +72,17 @@ opens the room, the Dock badge.
 
 ## Result
 
-(to fill in)
+Built as planned (`makeNotifier().ask()`, `showIsSeen`), no new UI words. Checks: `bun run typecheck`,
+`bun run check:i18n` (0 issues), `bun run check:docs` pass; desktop unit tests `tests/unit/e-*.test.ts` 219 pass, 0
+fail (`e-notify` 19, 4 new). One independent review: no must-fix.
+
+Local check on macOS 26.6.2: this branch packaged as a sandboxed Mac App Store development build (Electron 44.7.2 MAS
+runtime, Apple Development signing, a fresh test bundle id, from an Applications folder) against a local dev server
+with the demo team (fake data):
+- before the fix (same build from `dev`): the first notification came while the window was in the back; after the app
+  quit, System Settings showed "Allow notifications" off, the next run logged "Notifications are not allowed for this
+  application", nothing showed, and 테스트 알림 still answered "shown";
+- with the fix: macOS's question "“Trina AX” Notifications" appeared when the team page opened, before any
+  notification; after Allow, a DM while the window was in the back showed a banner ("Bob" / "새 메시지가 왔어요"), the
+  Dock showed 1, a click on the banner brought the window up on `/rooms/<id>` and the badge cleared; 테스트 알림
+  answered `unknown` and showed.
