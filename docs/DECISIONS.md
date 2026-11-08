@@ -14017,3 +14017,49 @@ the project's audience, the answer goes to the room; otherwise it stays private 
   instructions, the audit), `tests/security/room-reads-shared-chats.test.ts` (people × states, a member outside the
   audience, a planted instruction), `b-shared-chats`, `step-labels-tools`, `b-codex-rooms`.
 - Version impact: **minor** (two AI tools in rooms and an audit action; no API or database change).
+
+## W6 — Desktop: the folder window (feat/onb6-desktop, 2026-11-08)
+
+Onboarding v6 asks the owner to pick folders (the .claude, .codex or .agents folder for skills; a company-documents
+folder for 팀 파일). The owner decided (OPEN Q1) to fix only the desktop app's folder window now; the one-press read of
+~/.claude comes later. Placement: Team AX core (`desktop/src/main/security.ts`, `desktop/src/common/folder-access.ts`).
+
+- **What was blocked (checked in Electron 44.7.2's source and with the real binary, walk review M6).** The direct-download
+  app (dmg, Windows) is Chromium, so the team page calls `showDirectoryPicker`. The window opened and the person picked,
+  then:
+  - the team session's request handler refused `fileSystem` (not in the page's permission list), and with a check
+    handler set Electron answers every read of a handle from the check handler alone, which refused it too. The pick
+    ended as the page's `AbortError`, which the page reads as Cancel: nothing happened, with no message.
+  - a pick of a folder Chromium's blocklist refuses (the home folder, Desktop, Documents and Downloads themselves;
+    ~/Library, ~/.ssh, app data) fires the session event `file-system-access-restricted`. Nothing listened, so the
+    pick never answered at all.
+  - `<input webkitdirectory>` (the file screen's folder upload) was never affected: Electron's own dialog answers it,
+    with no permission. The Mac App Store build answers the page's file inputs with its own window (`answerFileChoosers`)
+    and never calls the folder window.
+- **What is allowed now.** `fileSystem` with `fileAccessType: 'readable'` only:
+  - the request (sent right after a pick, for the picked folder): the team page's top frame at the team address or its
+    office address. The folder is remembered for that origin while the app runs (`FolderGrants`);
+  - the check (before every read): an allowed origin, and the folder is one picked for that origin, or inside one;
+  - `writable` is refused in both, so nothing can be written, created or removed;
+  - `file-system-access-restricted`: `allow` for exactly the home folder, Desktop, Documents and Downloads
+    (`app.getPath`), as a folder, from the top frame at an allowed origin; `deny` (the page's `AbortError`) for
+    everything else. Lifting the block grants nothing by itself: the request and the check still decide, read only.
+- **Why this is safe.** The person picks every folder in the system window; the pick is the consent (on macOS the open
+  panel counts as consent for Desktop, Documents and Downloads, and Info.plist now says why if macOS asks anyway). A
+  handle that did not come from the window is not readable: a dropped folder (the page's drops use `webkitGetAsEntry`,
+  which needs no permission) and one the page saved in an earlier run need a new pick. A page's own
+  `requestPermission()` never reaches the request handler (Electron answers it from the check), so a page cannot widen
+  what it has. Artifacts and previews (sandboxed frames, no origin), other origins, the in-app browser pane and the app's
+  own screens get nothing; no other permission changed (the page list, the pane's list and the net guard are as before).
+  A pick of the home folder lets the page read what Chromium does not block under it: Chromium still refuses every file
+  in ~/.ssh, ~/.gnupg, ~/Library (except the cloud folders) and app data, checked per file; other dot folders (~/.aws,
+  ~/.codex …) are readable once home is picked. The page itself reads only the known paths (`lib/skillScan.ts`) or the
+  documents the person ticks.
+- **Not here.** The one-press read with no window (OPEN Q1, later; it needs the main process's own confirm, the fixed
+  path list and key removal, walk M5). The page's hint when macOS refuses a folder anyway. Single files picked with
+  `showOpenFilePicker` stay unreadable (only folders are remembered; the page picks files with `<input type=file>`).
+- Tests: `tests/unit/e-desktop-folder-window.test.ts` (the request, the check and the restricted folder, every refusal,
+  Windows paths, the wiring, the pane and the store build), `desktop/e2e/folder-window.spec.ts` (the real Electron with a
+  hidden window: a dropped folder and the request a pick sends, reads, a file, a write, a folder inside, home and app
+  data, another origin; fails on the previous rules).
+- Version impact: **patch** (a desktop fix; no API, database or setting change).

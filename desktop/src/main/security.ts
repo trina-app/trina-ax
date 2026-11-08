@@ -4,12 +4,25 @@
 // (anything else opens in the person's browser), subframes may only show srcdoc / blob / data / the team origin
 // (artifact and preview frames cannot navigate away), WebRTC limited to proxied UDP, and RTCPeerConnection removed
 // from every subframe before its scripts run (an artifact must not leak data over WebRTC, which CSP doesn't cover).
-import { shell, type Session, type WebContents } from 'electron'
+import { app, shell, type Session, type WebContents } from 'electron'
 import { originOf } from '../common/address'
+import { FolderGrants, restrictedFolderAction, type FolderCheck, type FolderRequest } from '../common/folder-access'
 import { isOwnUiUrl } from '../common/trust'
 
-/** Permissions the team page may ask for (voice input, notifications, copy button, fullscreen video). */
+/** Permissions the team page may ask for (voice input, notifications, copy button, fullscreen video). The folder
+ * window ('fileSystem') has rules of its own: common/folder-access.ts. */
 const PAGE_PERMISSIONS = new Set(['media', 'notifications', 'clipboard-sanitized-write', 'fullscreen'])
+
+/** The folders Chromium refuses as a pick but the team page may read (docs/DECISIONS.md "W6"). */
+function folderRoots(): string[] {
+  return (['home', 'desktop', 'documents', 'downloads'] as const).map((name) => {
+    try {
+      return app.getPath(name)
+    } catch {
+      return ''
+    }
+  })
+}
 
 export const APP_WEB_PREFERENCES = {
   contextIsolation: true,
@@ -35,13 +48,32 @@ export function openExternal(url: string) {
   if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
 }
 
-/** Team session: permissions only for the team origin(s), top frame. */
+/**
+ * Team session: permissions only for the team origin(s), top frame. The folder window (showDirectoryPicker): a folder
+ * the person picks is readable by the team page, never writable (common/folder-access.ts); without this the pick ended
+ * as the page's AbortError (Cancel), and a pick of the home folder, Desktop, Documents or Downloads never answered.
+ */
 export function hardenAppSession(ses: Session, allowedOrigins: () => readonly string[]) {
+  const folders = new FolderGrants(process.platform)
   ses.setPermissionRequestHandler((_wc, permission, done, details) => {
+    if (permission === 'fileSystem') return done(folders.request(details as FolderRequest, allowedOrigins()))
     done(details.isMainFrame && allowedOrigins().includes(originOf(details.requestingUrl)) && PAGE_PERMISSIONS.has(permission))
   })
-  ses.setPermissionCheckHandler((_wc, permission, requestingOrigin) => allowedOrigins().includes(requestingOrigin) && PAGE_PERMISSIONS.has(permission))
+  ses.setPermissionCheckHandler((_wc, permission, requestingOrigin, details) => {
+    if (permission === 'fileSystem') return folders.check(requestingOrigin, details as FolderCheck, allowedOrigins())
+    return allowedOrigins().includes(requestingOrigin) && PAGE_PERMISSIONS.has(permission)
+  })
   ses.setDevicePermissionHandler(() => false)
+  // a folder Chromium's blocklist refuses: with no listener the page's pick never settles
+  ses.on('file-system-access-restricted', (_e, d, callback) => {
+    let isTopFrame = false
+    try {
+      isTopFrame = !!d.frame && d.frame.parent === null
+    } catch {
+      isTopFrame = false // the frame went away meanwhile
+    }
+    callback(restrictedFolderAction({ origin: d.origin, path: d.path, isDirectory: d.isDirectory, isTopFrame }, allowedOrigins(), folderRoots(), process.platform))
+  })
 }
 
 /** Install the guards. Resolves once the subframe script is registered (call after the view has a renderer). */
