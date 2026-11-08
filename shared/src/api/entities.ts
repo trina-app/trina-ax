@@ -653,6 +653,10 @@ export const TeamSettings = z.object({
    * same tools as the AI (minus asking the person, memories, the chat title, schedules, video and the browser) and the
    * same person's access. Off: the AI does everything itself (docs/DECISIONS.md "Sub-agents") */
   aiSubagents: z.boolean(),
+  /** "대화방에서 '항상 허용' 쓰기" (default on): a room's change card may offer "이 방에서는 항상 허용" (new team files in
+   * one folder, docs/DECISIONS.md "대화방에서 새 파일은 미리 허용"). Off: the card never offers it and the grants people
+   * made are ignored (kept: they work again when it is turned back on, if nothing else changed) */
+  roomAlwaysAllow: z.boolean(),
   /** tool rounds per answer (Claude Code `--max-turns`, default 150): at the limit the answer pauses and "continue" goes
    * on. Sub-agents keep their own 50 rounds each; the API engine keeps its own 30 */
   answerStepLimit: z.number().int().min(ANSWER_STEP_LIMIT_MIN).max(ANSWER_STEP_LIMIT_MAX),

@@ -4,7 +4,9 @@
 // and screen readers. The AI's own questions can also be answered from the message box (lib/askAnswer.ts): what is
 // ticked here goes along with that answer when the question takes several. The same card outside a turn (a scheduled
 // task's card shown again in Settings, "다시 확인") passes its own `onAnswer`. The server's yes/no cards are two buttons
-// ([하지 않기] [하게 하기]) with what they let happen as plain lines; radios and [답하기] are for real choices.
+// ([허용 안 함] [이번만 허용]) with what they let happen as plain lines; a server card that says its three choices are
+// buttons (`buttons`: a room's change card, [이번만 허용] [이 방에서는 항상 허용] [허용 안 함]) shows them in one row (stacked
+// on a phone) with its one line under them (`note`); radios and [답하기] are for real choices.
 import clsx from 'clsx'
 import { Globe, MessageCircleQuestion, ShieldAlert } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
@@ -139,6 +141,38 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
             {yes.label}
           </Button>
         </div>
+        {r.note && <p className="mt-2 text-right text-xs text-muted" data-testid="ask-note">{r.note}</p>}
+      </div>
+    )
+  }
+  // a server card whose three choices are buttons (a room's change card): once, always here, no. The same compact card,
+  // the buttons in the server's order (the first the main one, the last the quiet "no"), one row on a computer and
+  // stacked full width on a phone, where three labels do not fit side by side; the line under them says what "always"
+  // covers
+  if (fromServer && !allowText && !r.multiple && r.buttons && options.length === 3) {
+    const pick = (v: string) => {
+      setPicked([v])
+      void run({ kind: 'ask_user', answer: v })
+    }
+    const look = ['primary', 'secondary', 'ghost'] as const
+    return (
+      <div className="my-3 rounded-2xl border border-warn/40 px-4 py-3" role="group" aria-labelledby={`${name}-q`} data-testid="ask-card" data-origin="server" data-kind="buttons">
+        <p className="flex items-center gap-1.5 text-xs font-medium text-warn">
+          <ShieldAlert size={14} aria-hidden /> {t('ask.serverTitle')}
+        </p>
+        <p id={`${name}-q`} className="mt-1 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">
+          {r.question}
+        </p>
+        {r.details?.length ? <Details items={r.details} plain /> : null}
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          {options.map((o, i) => (
+            <Button key={o.value} size="sm" variant={look[i]} className="max-sm:w-full" disabled={busy} busy={busy && picked[0] === o.value} onClick={() => pick(o.value)} data-testid="ask-choice" data-value={o.value}>
+              {o.label}
+            </Button>
+          ))}
+          {error && <span role="alert" className="text-xs text-danger sm:ml-auto">{error}</span>}
+        </div>
+        {r.note && <p className="mt-2 text-xs text-muted" data-testid="ask-note">{r.note}</p>}
       </div>
     )
   }

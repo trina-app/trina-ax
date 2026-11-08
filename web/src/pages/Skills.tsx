@@ -10,13 +10,13 @@
 // skill of the same name) and is registered as skills/<folder name>/ with its files. /skills?batch=<id> (the Inbox
 // line of a batch) opens 검토 at that person.
 import clsx from 'clsx'
-import { Bot, History, Lightbulb, Search, Users } from 'lucide-react'
+import { Bot, History, Lightbulb, Search, Trash2, Users } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { skillLabel, type SkillChange, type SkillShare, type SkillSuggestion, type SkillsOverview } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
-import { navigateTo } from '../lib/nav'
+import { FILES_TRASH, navigateTo } from '../lib/nav'
 import { useLocale, useT } from '../i18n'
 import { skillsChanged } from '../store/live'
 import { isAdmin, useMeStrict } from '../store/session'
@@ -31,8 +31,10 @@ import { Badge, Button, EmptyState, ErrorNote, Field, Modal, Skeleton, StickyHea
 
 type Tab = 'skills' | 'review' | 'mine' | 'changes'
 
+/** a changed file's version history, a folder; a deleted one is in 파일 › 휴지통 (as the server's notice links:
+ * server/src/skills/changes.ts historyLink) */
 const historyLink = (c: SkillChange) => {
-  if (c.change === 'delete') return '/trash'
+  if (c.change === 'delete') return FILES_TRASH
   const dir = c.path.includes('/') ? c.path.slice(0, c.path.lastIndexOf('/')) : ''
   if (c.kind === 'folder') return `/files?path=${encodeURIComponent(c.path)}`
   return `/files?path=${encodeURIComponent(dir)}&select=${encodeURIComponent(c.path)}&history=${encodeURIComponent(c.path)}`
@@ -321,7 +323,7 @@ function ChangeList({ items }: { items: SkillChange[] | null }) {
             </Badge>
           )}
           <Button size="sm" variant="ghost" onClick={() => navigateTo(historyLink(c))}>
-            <History size={13} aria-hidden /> {c.change === 'delete' ? t('sidebar.trash') : t('skills.change.history')}
+            {c.change === 'delete' ? <><Trash2 size={13} aria-hidden /> {t('files.trash')}</> : <><History size={13} aria-hidden /> {t('skills.change.history')}</>}
           </Button>
         </li>
       ))}

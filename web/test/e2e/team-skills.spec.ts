@@ -355,7 +355,7 @@ test('the AI saving under skills/: the server card with the diff; 저장 saves a
   await ask(page, 'skillsave this workflow')
   let card = page.getByTestId('ask-card')
   await expect(card).toHaveAttribute('data-origin', 'server')
-  await expect(card).toContainText('팀 서버의 안전 확인')
+  await expect(card).toContainText('확인해 주세요')
   await expect(card).toContainText('팀 스킬/규칙으로 저장할까요? 팀 전체 AI가 따라요')
   await card.getByRole('button', { name: '저장하지 않기', exact: true }).click()
   await expect(lastAnswer(page)).toContainText('Not saved')
@@ -381,6 +381,30 @@ test('the AI saving under skills/: the server card with the diff; 저장 saves a
   const change = page.getByTestId('skill-change').first()
   await expect(change).toContainText('skills/weekly.md')
   await expect(change).toContainText('AI가 저장')
+  expect(realErrors(errors)).toEqual([])
+})
+
+test('a deleted team skill: 최근 변경 and the notice open 파일 › 휴지통, where the file is, not the deleted chats', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  await signIn(page, OWNER)
+  // the file to the trash, as the file screen's 휴지통으로 does; the notice (owners and admins: the mock tells the person
+  // who did it too) opens the files trash
+  expect((await page.request.delete('/api/files?path=skills%2Fteam-rules.md', { headers: { [CSRF_HEADER]: '1' } })).ok()).toBeTruthy()
+  await page.getByTestId('toast').filter({ hasText: 'skills/team-rules.md' }).getByRole('button', { name: '열기', exact: true }).click()
+  await expect(page).toHaveURL(/\/files\?view=trash$/)
+  await expect(page.getByTestId('trash-list')).toContainText('skills/team-rules.md')
+  // 팀 스킬 › 최근 변경: the 삭제 row's button is the trash tab's word and goes there too
+  await page.goto('/skills')
+  await page.getByRole('tab', { name: '최근 변경' }).click()
+  const change = page.getByTestId('skill-change').first()
+  await expect(change).toContainText('skills/team-rules.md')
+  await expect(change).toContainText('삭제')
+  await expect(change.getByRole('button', { name: '삭제한 기록' })).toHaveCount(0)
+  await change.getByRole('button', { name: '휴지통', exact: true }).click()
+  await expect(page).toHaveURL(/\/files\?view=trash$/)
+  await expect(page.getByRole('tab', { name: '휴지통' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByTestId('trash-list')).toContainText('skills/team-rules.md')
   expect(realErrors(errors)).toEqual([])
 })
 

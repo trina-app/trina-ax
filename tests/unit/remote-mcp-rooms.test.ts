@@ -13,6 +13,7 @@ import { RemoteOAuth } from '../../server/src/connectors/remote-mcp/oauth'
 import { RemoteTools } from '../../server/src/connectors/remote-mcp/tools'
 import { challenge, OAuthError } from '../../server/src/connectors/remote-mcp/policy'
 import { mentionsEveryone, ROOM_TOOLS } from '../../server/src/connectors/remote-mcp/rooms'
+import { scopeSources } from '../../server/src/connectors/remote-mcp/scope'
 import { listRooms, readRoom, searchRooms } from '../../server/src/rooms/reader'
 import { roomFilesOf } from '../../server/src/rooms/files'
 import { SEND_BURST } from '../../server/src/rooms/service'
@@ -134,7 +135,8 @@ test("reads are the person's own view, word for word what their own AI chat read
   expect(text(search)).toBe(searchRooms(db, f.reader.id, f.tz(), { query: '이야기' }).text)
   expect(text(search)).not.toContain('리더는 모르는 이야기')
   // what was shown is in the connection's read scope; a list alone adds nothing
-  const sources = JSON.parse(c.grant().sources) as { type: string; id: string }[]
+  // (these calls send no session id: the connection's one scope without a session)
+  const sources = scopeSources(db, c.grant().id, '', Date.now()) as { type: string; id: string }[]
   expect(sources.filter(s => s.type === 'room').map(s => s.id)).toEqual([team])
   // someone invited later reads from their join on, as in the app
   await f.reader.client.call('POST', `/api/rooms/${team}/members`, { userIds: [f.outsider.id] })
@@ -264,7 +266,7 @@ test('nothing read through the connection is sent where people who could not see
   expect((await f.call(c.token, 'room_send', { room: team, text: '스레드에 답해요', thread: root.id })).isError).toBeUndefined()
   // the read scope holds one source per room, from the oldest message read there
   await f.call(c.token, 'room_read', { room: team })
-  const rooms = (JSON.parse(c.grant().sources) as { type: string; id: string; fromSeq?: number }[]).filter(s => s.type === 'room')
+  const rooms = (scopeSources(f.h.ctx.db, c.grant().id, '', Date.now()) as { type: string; id: string; fromSeq?: number }[]).filter(s => s.type === 'room')
   expect(rooms.length).toBe(1)
 })
 
