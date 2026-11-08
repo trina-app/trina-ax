@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-08 06:43
 - Branch: `feat/room-ai-allowances`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/chat/`, `server/src/rooms/`, `shared/src/api/`, `web/src/`). Why: rooms, the AI's
   confirmation cards, permissions and settings are core (see docs/REPOSITORY-RULES.md)
 - Version impact: minor. A new card choice, a new personal settings section, a new team setting and a migration
@@ -85,4 +85,18 @@ renames, save_url, schedules or connections in rooms.
 
 ## Result
 
-Filled in at the end.
+Built as planned, with the security re-check's changes (writers check per member at offer and use, the merged card
+carrying the room card's details with the widening need computed first, "made in this answer" from the turn's
+`file_events` creates, coverage stopping at a ruled subfolder, the created files named under the answer).
+
+Differs from the brief, and why:
+- [이번만 허용] is held to the same path and writers checks as "always" (otherwise it covers that one call, as before):
+  the steering risk the writers check closes exists within one answer too.
+- The merged card also applies in the person's own chat after a room read (the same two cards per save), with the
+  rooms-seen line in front of the wider-audience question.
+- Lapsed grants are deleted when found (audited) so a change back does not revive them; the admin switch only ignores.
+- Settings section label follows `PRODUCT_NAMED_AFTER_AI` ("AI에게 허용한 것" in the core edition).
+- Known limit, for the owner: a room question with earlier messages in its context counts the room as a source, so a
+  save where people outside the room can read (the owner and admins) still shows the wider-audience card, once.
+
+PR: filled in when opened.
