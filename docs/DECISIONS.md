@@ -15685,14 +15685,16 @@ settings screens, which are core. Plan: `docs/AGENTS/plan/20261108-1241-web-tidy
   "대화". The project page's list heading is now the sidebar's own message, "{AI name} 기록", in every language (the
   key `projects.myChats` is gone). Korean lines that name the list or a past chat say 기록: the trash banner and the
   team setting row (삭제한 기록), the project's empty list and its project dialog, scheduled runs (기록 열기, 새 기록에
-  남아요), a memory's source, member and account deletion, Slack, the secret warning, the row menu's name (기록 메뉴).
+  남아요), a memory's source, member and account deletion, Slack, the secret warning, the row menu's name (기록 메뉴),
+  and the delete confirms (기록을 삭제할까요?, 기록을 삭제했어요, and the project's "폴더와 (내) 기록은 그대로 남아요";
+  its "공유 채팅은 … 휴지통" line keeps the feature's name). The confirms were changed by `fix/shared-chat-trash-live`
+  at the same time and done here after it merged.
   Left as 채팅, because 기록 would not read: verbs and the chat in front of the person (새 채팅, 채팅에서 물어볼 때, 이
   프로젝트에서 채팅, 채팅 입력창, 채팅에 추가, 채팅에서 쓰기, the footer under a chat, whose shared twin says 이 채팅, and
   the skill form's line in a chat), chats that go on (the access change lines: "채팅 N개는 … 이어가요"), the dev
   environment's and engine settings' lines about chats as they run, admin lines where 기록 reads like "the log"
-  (restore, export, Drive sharing's stop), the 공유 채팅 family (a feature's name), and the chat delete confirm
-  (`chat.deleteTitle`, `chat.deleteBody`, `chat.deleted`) and project delete confirm, which
-  `fix/shared-chat-trash-live` changes. Server messages other than the confidential one keep their words.
+  (restore, export, Drive sharing's stop) and the 공유 채팅 family (a feature's name). Server messages other than the
+  confidential one keep their words.
 - **Confidential mode stays 기밀 대화** (the owner: "기밀 기록" sounds odd): the two artifact notices and the server's
   share refusal said 기밀 채팅.
 - **Admin's audit log is 활동 로그.** It read "기록", like chat history. One key gives its menu row, page title and
