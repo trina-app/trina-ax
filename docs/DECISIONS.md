@@ -15541,6 +15541,27 @@ not postable, 409 `room_ai_hidden`, because its asker could not see what was at 
   (reload, the asker's phone and another member, the card in view at 1440 and 390 with the race forced, button order).
 - Version impact: **patch** (fixes; one read-only endpoint, additive).
 
+### Follow-up after review (fix/askcard-order-a11y, 2026-11-08)
+
+- **Reading order of the three buttons.** `ChoiceRow` put the main button last in the page and showed it on top on a
+  phone with `flex-col-reverse`, so on a phone Tab went bottom to top (WCAG 2.4.3). Now the page holds the server's
+  order (main, "always", "no"): the phone stacks them so, and from `sm` the row is reversed (`sm:flex-row-reverse`), so
+  a computer still shows [허용 안 함] [이 방에서는 항상 허용] [이번만 허용]. One page order cannot match both layouts; the
+  phone's stack is where position and reading order must agree, and on a computer Tab now starts at the main button on
+  the right. A failed answer's reason comes after the buttons (under the row), not before them in the row. The address
+  and dev-environment cards are the same `ChoiceRow`. Buttons are keyed by their place, not their label.
+- **No chat id in a room's card list.** `GET /api/rooms/:id/ai/requests` answers `RoomTurnRequest` (turn, message,
+  question): the room's AI session is a chat that is never listed or opened as a chat, and the room finds a card by its
+  turn, so the chat id told the web nothing. `OpenRequest.chatId` is optional in the web store; the socket's
+  `turn.request` still carries it.
+- **A turn that ended between the two reads.** `loadAi` reads the runs and the cards side by side. A turn that ended
+  between them and that the window does not know is outside the list's scope: its listed card is not merged and a copy
+  the socket brought is not dropped by that read; the turn's `turn.request.closed` removes it (the end of a turn closes
+  its cards first). Commented in `store/rooms.ts` and tested (`room-ai-cards.test.ts`).
+- **People no longer there.** Tested in `b-rooms-ai-cards.test.ts`: a member taken out of the room gets 404; the asker
+  taken out has their question stopped (`stopFor`), its card closed, 404 for the list and 409 for an answer; a disabled
+  account's question stops (`stopTurnsOf`), it leaves the team room (404) and nobody else gets its card.
+
 ## W6 — Onboarding v6: easy owner handover (feat/onb6-handover, 2026-11-08)
 
 The owner: "이거 너가 같이 고려해서 만들어줘" (onboarding v6 §12), then decided: the first account stays the owner and

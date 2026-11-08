@@ -64,7 +64,7 @@ export const seenHere = (chatId: string) => {
   return s.visible && s.onScreen === chatId
 }
 /** the chats with a card open in this window (a card one desktop window shows alone is in no list) */
-export const cardChats = (requests: Record<string, OpenRequest>): Set<string> => new Set(Object.values(requests).map((r) => r.chatId))
+export const cardChats = (requests: Record<string, OpenRequest>): Set<string> => new Set(Object.values(requests).flatMap((r) => (r.chatId ? [r.chatId] : [])))
 
 // ---------------- /seen ----------------
 const inFlight = new Set<string>()

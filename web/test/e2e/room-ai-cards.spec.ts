@@ -180,7 +180,7 @@ for (const [width, height] of [[1440, 900], [390, 844]] as const) {
   })
 }
 
-test('button order: the main button last, on the right, on the two-button and the three-button card; on a phone the three stack with the main one on top', async ({ page }) => {
+test('button order: the main button last, on the right, on the two-button and the three-button card; on a phone the three stack with the main one on top, in reading order', async ({ page }) => {
   const { ai } = await openRoom(page)
   // two buttons: [저장하지 않기] [저장하기]
   await raise(page, ai, 1, twoCard(1))
@@ -197,17 +197,15 @@ test('button order: the main button last, on the right, on the two-button and th
   const three = page.getByTestId('ask-card')
   await expect(three).toHaveAttribute('data-kind', 'buttons')
   const buttons = three.getByTestId('ask-choice')
-  await expect(buttons).toHaveText(['허용 안 함', '이 방에서는 항상 허용', '이번만 허용'])
-  const boxes = await Promise.all([0, 1, 2].map(async (i) => (await buttons.nth(i).boundingBox())!))
-  expect(new Set(boxes.map((b) => Math.round(b.y))).size).toBe(1)
-  expect(boxes[0]!.x).toBeLessThan(boxes[1]!.x)
-  expect(boxes[1]!.x).toBeLessThan(boxes[2]!.x)
-  expect(Math.abs(boxes[2]!.x + boxes[2]!.width - twoRight)).toBeLessThan(1.5)
-  await expect(buttons.nth(2)).toHaveClass(/bg-accent/)
-  // keyboard order follows what is seen: "no" first, the main one last
-  await buttons.nth(0).focus()
-  await page.keyboard.press('Tab')
-  await expect(buttons.nth(1)).toBeFocused()
+  // in the page: the main one first (the reading order of the phone's stack below)
+  await expect(buttons).toHaveText(['이번만 허용', '이 방에서는 항상 허용', '허용 안 함'])
+  const [mainBox, alwaysBox, noBox] = await Promise.all([0, 1, 2].map(async (i) => (await buttons.nth(i).boundingBox())!))
+  expect(new Set([mainBox, alwaysBox, noBox].map((b) => Math.round(b!.y))).size).toBe(1)
+  // on screen the row reversed: "no" on the left, the main one on the right, ending where the two-button card's do
+  expect(noBox!.x).toBeLessThan(alwaysBox!.x)
+  expect(alwaysBox!.x).toBeLessThan(mainBox!.x)
+  expect(Math.abs(mainBox!.x + mainBox!.width - twoRight)).toBeLessThan(1.5)
+  await expect(buttons.nth(0)).toHaveClass(/bg-accent/)
 
   // a phone: stacked full width, the main one on top, "no" at the bottom
   await page.setViewportSize({ width: 390, height: 844 })
@@ -215,6 +213,12 @@ test('button order: the main button last, on the right, on the two-button and th
   const stacked = await Promise.all(['이번만 허용', '이 방에서는 항상 허용', '허용 안 함'].map(async (name) => (await three.getByRole('button', { name, exact: true }).boundingBox())!))
   expect(stacked[0]!.y).toBeLessThan(stacked[1]!.y)
   expect(stacked[1]!.y).toBeLessThan(stacked[2]!.y)
+  // the keyboard goes top to bottom (WCAG 2.4.3): 이번만 허용 → 이 방에서는 항상 허용 → 허용 안 함
+  await three.getByRole('button', { name: '이번만 허용', exact: true }).focus()
+  await page.keyboard.press('Tab')
+  await expect(three.getByRole('button', { name: '이 방에서는 항상 허용', exact: true })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(three.getByRole('button', { name: '허용 안 함', exact: true })).toBeFocused()
   for (const b of stacked) {
     // the card's inner width: its 1px border and 16px padding on each side
     expect(b.width).toBeGreaterThanOrEqual(card.width - 2 * 17 - 0.5)

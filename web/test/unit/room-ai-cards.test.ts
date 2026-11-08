@@ -9,6 +9,7 @@ import { uuidv7, type Me, type OpenTurnRequest, type RoomAiRun } from '@mycel/sh
 import { mergeOpenRequests, useChats } from '../../src/store/chats'
 import { useRooms } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
+import { cardChats } from '../../src/store/sessionMarkers'
 import { at, ME, room } from './rooms-fixtures'
 
 const realFetch = globalThis.fetch
@@ -43,18 +44,20 @@ const card = (turnId: string, requestId: string, chatId = CHAT): OpenTurnRequest
   request: { kind: 'ask_user', origin: 'server', requestId, question: '트리나가 영업/견적서에 새 파일을 저장하려고 해요: 견적서_acme.md.', multiple: false, allowText: false, buttons: true, options: [{ label: '이번만 허용', value: 'allow' }, { label: '이 방에서는 항상 허용', value: 'always' }, { label: '허용 안 함', value: 'skip' }] },
 })
 const ids = () => Object.keys(useChats.getState().requests).sort()
+/** a card as GET /api/rooms/:id/ai/requests lists it: without the room session's chat id */
+const listed = (c: OpenTurnRequest) => { const { chatId: _session, ...rest } = c; return rest }
 
 test('opening the room brings back the open card of my question (a reload, another browser)', async () => {
   const r = room()
   const run = runOf(r.id)
   const open = card(run.turnId, 'room-card-1')
   routes[`/api/rooms/${r.id}/ai`] = { answering: 1, mine: [run] }
-  routes[`/api/rooms/${r.id}/ai/requests`] = { items: [open] }
+  routes[`/api/rooms/${r.id}/ai/requests`] = { items: [listed(open)] }
   await useRooms.getState().loadAi(r.id)
   expect(calls).toEqual([`GET /api/rooms/${r.id}/ai`, `GET /api/rooms/${r.id}/ai/requests`])
   expect(useRooms.getState().ai[r.id]!.runs.map((x) => x.turnId)).toEqual([run.turnId])
   // where RoomAiStatus finds it: by the run's turn
-  expect(useChats.getState().requests['room-card-1']).toEqual(open)
+  expect(useChats.getState().requests['room-card-1']).toEqual(listed(open))
 })
 
 test("read again (a reconnect): a card the server no longer lists goes; another room's card and a chat's stay", async () => {
@@ -66,7 +69,7 @@ test("read again (a reconnect): a card the server no longer lists goes; another 
   useRooms.setState({ ai: { [r.id]: { answering: 1, runs: [run] }, [other.id]: { answering: 1, runs: [elsewhere] } } })
   useChats.setState({ requests: { gone: card(run.turnId, 'gone'), 'other-room': card(elsewhere.turnId, 'other-room'), 'chat-card': chatCard } })
   routes[`/api/rooms/${r.id}/ai`] = { answering: 1, mine: [run] }
-  routes[`/api/rooms/${r.id}/ai/requests`] = { items: [card(run.turnId, 'next')] }
+  routes[`/api/rooms/${r.id}/ai/requests`] = { items: [listed(card(run.turnId, 'next'))] }
   await useRooms.getState().loadAi(r.id)
   expect(ids()).toEqual(['chat-card', 'next', 'other-room'])
 })
@@ -78,7 +81,7 @@ test('a card that opens or closes over the socket while the list is on its way i
   const gate = new Promise<void>((x) => (release = x))
   routes[`/api/rooms/${r.id}/ai`] = { answering: 1, mine: [run] }
   // computed before "closing" was answered in another window and before "new" opened
-  routes[`/api/rooms/${r.id}/ai/requests`] = async () => { await gate; return { items: [card(run.turnId, 'closing')] } }
+  routes[`/api/rooms/${r.id}/ai/requests`] = async () => { await gate; return { items: [listed(card(run.turnId, 'closing'))] } }
   const loading = useRooms.getState().loadAi(r.id)
   await new Promise((x) => setTimeout(x, 0))
   const h = useChats.getState().handleEvent
@@ -103,6 +106,40 @@ test('another member: no questions of mine, no cards (the server lists none); an
   routes[`/api/rooms/${r.id}/ai`] = { answering: 1, mine: [run] }
   await useRooms.getState().loadAi(r.id)
   expect(ids()).toEqual(['live'])
+})
+
+test('a turn that ended between the two reads (its card listed, its run not) and that the window does not know: its card is neither merged nor dropped, and goes when the turn ends', async () => {
+  const r = room()
+  const ended = runOf(r.id)
+  // the socket brought one card of that turn before; the list (read before the turn ended) has another
+  const held = card(ended.turnId, 'held')
+  useChats.setState({ requests: { held } })
+  routes[`/api/rooms/${r.id}/ai`] = { answering: 0, mine: [] }
+  routes[`/api/rooms/${r.id}/ai/requests`] = { items: [listed(card(ended.turnId, 'listed')), listed(held)] }
+  await useRooms.getState().loadAi(r.id)
+  expect(ids()).toEqual(['held'])
+  expect(useChats.getState().requests.held).toBe(held)
+  // the turn's end closes its cards
+  const h = useChats.getState().handleEvent
+  h({ type: 'turn.request.closed', seq: 1, at: 0, data: { turnId: ended.turnId, requestId: 'held', reason: 'turn_ended' } })
+  expect(ids()).toEqual([])
+  // read again later: the server lists nothing of it, and a card it closed does not come back
+  routes[`/api/rooms/${r.id}/ai/requests`] = { items: [] }
+  await useRooms.getState().loadAi(r.id)
+  expect(ids()).toEqual([])
+})
+
+test("a room's card read again has no chat id: it is found by its turn, and counts for no chat", async () => {
+  const r = room()
+  const run = runOf(r.id)
+  const one = listed(card(run.turnId, 'room-card'))
+  routes[`/api/rooms/${r.id}/ai`] = { answering: 1, mine: [run] }
+  // a chat id the server would no longer send is not taken either (the response is read through its schema)
+  routes[`/api/rooms/${r.id}/ai/requests`] = { items: [{ ...one, chatId: CHAT }] }
+  await useRooms.getState().loadAi(r.id)
+  expect(useChats.getState().requests['room-card']).toEqual(one)
+  expect(useChats.getState().requests['room-card']!.chatId).toBeUndefined()
+  expect(cardChats(useChats.getState().requests).size).toBe(0)
 })
 
 test('mergeOpenRequests: a chat by its id, or the cards a scope speaks for', () => {
