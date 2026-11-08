@@ -355,7 +355,7 @@ test('the AI saving under skills/: the server card with the diff; 저장 saves a
   await ask(page, 'skillsave this workflow')
   let card = page.getByTestId('ask-card')
   await expect(card).toHaveAttribute('data-origin', 'server')
-  await expect(card).toContainText('팀 서버의 안전 확인')
+  await expect(card).toContainText('확인해 주세요')
   await expect(card).toContainText('팀 스킬/규칙으로 저장할까요? 팀 전체 AI가 따라요')
   await card.getByRole('button', { name: '저장하지 않기', exact: true }).click()
   await expect(lastAnswer(page)).toContainText('Not saved')

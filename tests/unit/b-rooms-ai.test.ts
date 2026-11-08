@@ -420,7 +420,9 @@ describe('changes asked for in a room', () => {
     const q = await send('alice', roomId, `@트리나 hi\n${fake({ say: 'ok' })}`)
     const turnId = (await ws.alice!.next('room.ai.run', (f) => f.data.run.questionId === q.id)).data.run.turnId
     const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user' && f.data.request.question.includes(target), 15_000)
-    expect(card.data.request).toMatchObject({ origin: 'server', options: [{ value: 'allow' }, { value: 'skip' }] })
+    // erin's words are in the read scope and shared/ is wider than the room: the wider-audience card is the one card,
+    // and it shows what the call writes (docs/DECISIONS.md "대화방에서 새 파일은 미리 허용": one card per call)
+    expect(card.data.request).toMatchObject({ origin: 'server', options: [{ value: 'save' }, { value: 'skip' }], details: [{ text: 'PWNED BY ERIN' }] })
     // erin is never asked, and no card reaches her
     expect(ws.erin!.frames.some((f) => f.type === 'turn.request' && f.data.turnId === card.data.turnId)).toBe(false)
     await h.api('alice').call(API.answerTurn, { params: { id: card.data.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'skip' } })

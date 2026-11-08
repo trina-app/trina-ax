@@ -12,7 +12,7 @@
 --     its segment is merged, as in messages_fts (docs/DECISIONS.md, known limits).
 -- Backfilled here, then merged into one segment ('optimize': new messages are written without merge work later).
 -- An older build ignores the table; the triggers are in the database and keep it right while it runs.
--- Numbered 267: 266 is the room AI grants branch's (not on dev yet).
+-- Numbered 267: 266 is the room AI grants' (feat/room-ai-allowances); applied after 272 on a database that has it.
 CREATE VIRTUAL TABLE room_messages_fts USING fts5(body, tokenize = 'trigram');
 CREATE TRIGGER room_messages_fts_insert AFTER INSERT ON room_messages WHEN new.body <> '' BEGIN
   INSERT INTO room_messages_fts (rowid, body) VALUES (new.rowid, new.body);

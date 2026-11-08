@@ -364,6 +364,9 @@ describe('migration 267', () => {
     const db = openDb(path.join(dir, 'app.db'), { migrationsDir: before })
     try {
       expect(db.query("SELECT 1 FROM sqlite_master WHERE name = 'room_messages_fts'").get()).toBeNull()
+      // a database already at the numbers after it (266 room grants, 272 onboarding files): 267 still applies
+      const applied = () => (db.query('SELECT version FROM schema_migrations WHERE version IN (266, 267, 272) ORDER BY version').all() as { version: number }[]).map((r) => r.version)
+      expect(applied()).toEqual([266, 272])
       db.exec("INSERT INTO users (id, username, name, role, password_hash) VALUES ('u1', 'u1', 'U1', 'member', 'x')")
       db.exec("INSERT INTO rooms (id, kind, created_at, activity_at, last_seq) VALUES ('019a5f00-0000-7000-8000-0000000000a1', 'group', '2026-11-01T00:00:00Z', '2026-11-01T00:00:00Z', 3)")
       db.exec("INSERT INTO room_members (room_id, user_id, joined_at, visible_from_seq) VALUES ('019a5f00-0000-7000-8000-0000000000a1', 'u1', '2026-11-01T00:00:00Z', 0)")
@@ -373,6 +376,7 @@ describe('migration 267', () => {
       ins.run(uuidv7(), 3, '', '2026-11-01T00:01:00Z', null)
       // (as at a start after the update: the copy before migrating a database with data, then 267)
       migrate(db, { backupDir: path.join(dir, 'backups') })
+      expect(applied()).toEqual([266, 267, 272])
       expect(db.query('SELECT body FROM room_messages_fts').all()).toEqual([{ body: '지난주 견적서를 보냈어요' }])
       expect(searchRoomMessages(db, 'u1', { q: '견적' }).items.map((i) => i.snippet)).toEqual(['지난주 견적서를 보냈어요'])
       // no secure-delete: SQLite before 3.42 (macOS 13's) refuses it and cannot read an index that used it

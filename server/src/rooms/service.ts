@@ -32,6 +32,7 @@ import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
 import { fail } from '../http/errors'
 import { audit } from '../admin/audit'
+import { dropGrantsOf } from './ai-grants'
 import { notificationsOf, type RoomNoticeEvent } from '../notifications/service'
 import { getPreferences, getPreferencesOf } from '../notifications/preferences'
 import { cancelPushUser } from '../notifications/push-events'
@@ -395,10 +396,12 @@ export class Rooms {
     for (const id of r.lines) this.messageEvent('room.message', messageRow(this.db, roomId, id)!)
   }
 
-  /** Someone is out of a room: their member row, notices, the threads they followed and their reactions there go. */
+  /** Someone is out of a room: their member row, notices, the threads they followed and their reactions there go, and
+   * so do the folders they let @트리나 save new files in there ("이 방에서는 항상 허용", rooms/ai-grants.ts). */
   private forgetMember(roomId: string, userId: string) {
     // their rows of the room leave the Inbox (rooms/inbox.ts): when one counted, the count is read again
     const counted = countedUnreadIn(this.db, userId, roomId)
+    dropGrantsOf(this.db, { id: roomId }, userId)
     // (and the old answers hidden from them: joining again works them out again, rooms/history.ts)
     for (const t of ['room_members', 'room_notices', 'room_thread_follows', 'room_reactions', 'room_hidden_answers']) this.db.query(`DELETE FROM ${t} WHERE room_id = ? AND user_id = ?`).run(roomId, userId)
     if (counted) this.notifySignal(userId)
