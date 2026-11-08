@@ -4,7 +4,9 @@
 // public/ folder, so she is not in its audience). States: as it is, in the trash, while safe operations (1A) are on,
 // after bob lost the folder, and while the project's folder is in the trash (only admins and the owner see it then).
 // A person outside the audience gets the same 404 as for a chat that does not exist, and no response carries the
-// chat's canary to anyone who may not see it.
+// chat's canary to anyone who may not see it. An existing private chat shared later (POST /api/chats/:id/share,
+// chat/share-chat.ts): only its creator may ask, the check names nobody and nothing she may not look at, nothing is
+// shared without her yes on the confirm, and afterwards it follows the same rules (its earlier steps the words alone).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, CSRF_HEADER, uuidv7 } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
@@ -200,5 +202,74 @@ describe('realtime', () => {
     expect(bob.some((f) => f.type === 'message.delta' || f.type === 'message.step' || f.type === 'turn.request' || f.type === 'message.done' || f.type === 'queue.position')).toBe(false)
     expect(bob.some((f) => f.type === 'chat.updated' && f.data.chatId === chatId)).toBe(true)
     expect(JSON.stringify(bob).includes('todo.md')).toBe(false)
+  })
+})
+
+describe('an existing private chat shared later', () => {
+  const NAMES = ['bob', 'carol', 'dana', 'erin', 'Bob', 'Carol', 'Dana', 'Erin']
+  const PRIVATE = 'SEC-PRIVATE-CANARY-8812'
+  test('POST /api/chats/:id/share on a shared chat: already shared for its audience, 404 for erin', async () => {
+    await idle()
+    for (const w of PEOPLE) {
+      const r = await hit(w, `/api/chats/${chatId}/share`, J({}))
+      expect({ w, status: r.status, reason: r.status === 409 ? JSON.parse(r.text).error?.params?.reason : undefined })
+        .toEqual({ w, status: w === 'erin' ? 404 : 409, reason: w === 'erin' ? undefined : 'already_shared' })
+      expect(r.text.includes(CANARY)).toBe(false)
+    }
+  })
+
+  test('only its creator may ask; the check names nobody; nothing is shared without the key; then the audience sees it, erin never', async () => {
+    // alice's private chat, moved into the project, that read her own folder
+    const own = (await h.api('alice').call(API.createChat, { body: {} })).id
+    await h.api('alice').call(API.updateChat, { params: { id: own }, body: { projectId } })
+    const r = await h.api('alice').call(API.sendMessage, { params: { id: own }, body: { content: `${PRIVATE}\n${fake({ tool: 'read', args: { file_path: 'users/alice/todo.md' } }, { say: `done ${PRIVATE}` })}`, clientMessageId: cm(), attachmentIds: [] } })
+    await ws.alice!.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 30_000)
+    await waitFor(() => !h.rt().activeTurn(own), { timeoutMs: 30_000 })
+    // anyone but alice: the 404 of a chat that does not exist, also people who will see it once shared
+    const missing = await hit('bob', `/api/chats/${uuidv7()}/share`, J({}))
+    for (const w of ['bob', 'carol', 'dana', 'erin'] as const) {
+      const x = await hit(w, `/api/chats/${own}/share`, J({}))
+      expect({ w, status: x.status, code: JSON.parse(x.text).error?.code }).toEqual({ w, status: 404, code: JSON.parse(missing.text).error.code })
+      expect(x.text.includes(PRIVATE)).toBe(false)
+      expect((await hit(w, `/api/chats/${own}/messages`)).status).toBe(404)
+    }
+    // alice: a confirm that names her own folder and nobody
+    const ask = await hit('alice', `/api/chats/${own}/share`, J({}))
+    const c = JSON.parse(ask.text)
+    expect(c).toMatchObject({ status: 'confirm', audience: 3, provenance: { people: 3, places: [{ kind: 'mine' }] } })
+    expect(NAMES.filter((n) => ask.text.includes(n))).toEqual([])
+    expect(ask.text.includes(PRIVATE)).toBe(false)
+    expect(ask.text.includes('todo.md')).toBe(false)
+    // a key of another chat, or a made-up one: asked again, nothing shared
+    for (const key of ['x'.repeat(43), c.confirmKey.replace(/.$/, (ch: string) => (ch === 'A' ? 'B' : 'A'))]) {
+      const again = JSON.parse((await hit('alice', `/api/chats/${own}/share`, J({ confirmKey: key }))).text)
+      expect(again).toMatchObject({ status: 'confirm', reason: 'changed' })
+      expect((await hit('bob', `/api/chats/${own}`)).status).toBe(404)
+    }
+    // bob cannot use alice's key
+    expect((await hit('bob', `/api/chats/${own}/share`, J({ confirmKey: c.confirmKey }))).status).toBe(404)
+    const at = { erin: ws.erin!.frames.length, bob: ws.bob!.frames.length }
+    const done = JSON.parse((await hit('alice', `/api/chats/${own}/share`, J({ confirmKey: c.confirmKey }))).text)
+    expect(done.status).toBe('shared')
+    await Bun.sleep(300)
+    // the audience sees it; the step that read her folder is the words alone for them; erin: 404, nothing on her socket
+    for (const w of ['bob', 'carol', 'dana'] as const) {
+      const msgs = await hit(w, `/api/chats/${own}/messages`)
+      expect({ w, status: msgs.status }).toEqual({ w, status: 200 })
+      expect(msgs.text.includes(PRIVATE)).toBe(true)
+      // (alice's own message typed the path: the fake engine's directive)
+      const answers = (JSON.parse(msgs.text).items as { role: string }[]).filter((m) => m.role === 'assistant')
+      expect(JSON.stringify(answers).includes('users/alice')).toBe(false)
+    }
+    for (const p of [`/api/chats/${own}`, `/api/chats/${own}/messages`, `/api/chats?projectId=${projectId}`]) {
+      const x = await hit('erin', p)
+      expect(x.text.includes(PRIVATE)).toBe(false)
+      expect(x.text.includes(own)).toBe(false)
+    }
+    expect(JSON.stringify(ws.erin!.frames.slice(at.erin)).includes(own)).toBe(false)
+    expect(ws.bob!.frames.slice(at.bob).some((f) => f.type === 'chat.updated' && f.data.chatId === own)).toBe(true)
+    // the audit row: counts, no names
+    const row = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'chat.share' AND target = ?").get(own) as { detail: string }
+    expect(JSON.parse(row.detail)).toEqual({ audience: 3, people: 3, unknown: false, memories: false, confirmed: true })
   })
 })

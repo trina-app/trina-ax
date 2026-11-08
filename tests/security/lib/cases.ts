@@ -182,6 +182,16 @@ export const SPECS: Record<string, Spec> = {
       if (who !== 'memberIn' && r.status < 400) throw new Error(`${who} shared alice's answer`)
       if (r.status < 300 && r.json?.status === 'confirm' && /erin|Erin/.test(r.text)) throw new Error(`the confirm answer names a member: ${r.text}`)
     } },
+  // "프로젝트 사람들과 공유" (chat/share-chat.ts): only alice reaches her private chat (everyone else the 404 of a missing
+  // chat); it is in no project that shares chats, so even she is refused (409) and nothing is shared. A confirm, if one
+  // came, names nobody
+  shareChat: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/share`, {}), scope: 'own-alice-chat',
+    check: (r, _w, who) => {
+      if (who !== 'memberIn' && r.status < 400) throw new Error(`${who} shared alice's chat`)
+      if (who !== 'memberIn' && who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found" about alice's chat: ${r.status}`)
+      if (r.status < 300 && r.json?.status === 'shared') throw new Error('alice\'s chat was shared without a project that shares chats')
+      if (r.status < 300 && r.json?.status === 'confirm' && /bob|carol|dana|erin|Bob|Carol|Dana|Erin/.test(r.text)) throw new Error(`the confirm answer names a person: ${r.text}`)
+    } },
   regenerate: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/regenerate`, { clientMessageId: cm() }), scope: 'own-alice-chat' },
   editMessage: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages/${w.ids.userMsg}/edit`, { clientMessageId: cm(), content: 'x' }), scope: 'own-alice-chat' },
   selectBranch: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/branch`, { messageId: w.ids.userMsg }), scope: 'own-alice-chat' },
