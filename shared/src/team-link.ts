@@ -161,3 +161,74 @@ export function relayRename(fromOrigin: string, location: string | null | undefi
     return null
   }
 }
+
+/**
+ * A link that opens the app from outside (docs/DECISIONS.md "First run, phase 2"): `<scheme>://open?url=<encoded team
+ * link>` (the web's "앱에서 열기", the desktop's protocol handler, the phone's scheme) and, where `universal` is set
+ * (the phone), the team's own invite or team link at `https://<name>.<teamDomain>` (a universal link / app link). The
+ * address inside goes through parseTeamInput's rules, so no `javascript:`, `file:`, plain http to another machine,
+ * user:password or text around it; a numeric host is shown as the URL parser writes it (`https://0x7f.1` is
+ * 127.0.0.1). null: not a link for the app. Whatever comes back, the app asks first (screen ④, LinkGate).
+ */
+export function readAppLink(raw: string, o: TeamInputOptions & { scheme: string; universal: boolean }): TeamInput | null {
+  if (typeof raw !== 'string' || raw.length > 4096 || /\s/.test(raw)) return null
+  const prefix = `${o.scheme.toLowerCase()}:`
+  if (raw.toLowerCase().startsWith(prefix)) {
+    let u: URL
+    try {
+      u = new URL(raw)
+    } catch {
+      return null
+    }
+    if (u.protocol !== prefix || u.hostname !== 'open' || u.username || u.password || u.port || (u.pathname !== '' && u.pathname !== '/') || u.hash) return null
+    const keys = [...u.searchParams.keys()]
+    const inner = u.searchParams.get('url') ?? ''
+    if (keys.length !== 1 || keys[0] !== 'url' || !/^https?:\/\/[^\s]+$/i.test(inner)) return null
+    return parseTeamInput(inner, o)
+  }
+  if (o.universal && /^https:\/\//i.test(raw)) {
+    const p = parseTeamInput(raw, o)
+    // only a hosted team's invite or team link opens the app this way (the domains the app declares)
+    return p.ok && p.hosted && p.entryPath !== '/' ? p : null
+  }
+  return null
+}
+
+/** What screen ④ shows for a link: the host the app would connect to (punycode, with its port) and whether the hosted
+ * service runs it. */
+export interface LinkOffer { origin: string; host: string; entryPath: string; hosted: boolean; name: string | null }
+
+/**
+ * Screen ④'s gate: a link from outside is only remembered here; nothing is fetched or loaded until the person said yes
+ * on ④. The yes counts only for the host ④ showed (a second link that arrived meanwhile is not confirmed by a click
+ * meant for the first) and only after ④ was on screen for `minMs` (no yes right under a click that opened it); the
+ * offer is used once.
+ */
+export class LinkGate {
+  private offer: (LinkOffer & { at: number }) | null = null
+  constructor(private minMs = 600) {}
+  /** a new link replaces the one waiting */
+  put(link: TeamInputOk, now: number): LinkOffer {
+    const offer = { origin: link.origin, host: link.host, entryPath: link.entryPath, hosted: link.hosted, name: link.name }
+    this.offer = { ...offer, at: now }
+    return offer
+  }
+  pending(): LinkOffer | null {
+    if (!this.offer) return null
+    const { at: _at, ...offer } = this.offer
+    return offer
+  }
+  /** the person's answer on ④: the link to connect to, or null (no, another host, too soon, nothing waiting) */
+  answer(yes: boolean, host: string, now: number): LinkOffer | null {
+    const o = this.offer
+    if (!o) return null
+    if (!yes) {
+      this.offer = null
+      return null
+    }
+    if (o.host !== host || now - o.at < this.minMs) return null
+    this.offer = null
+    const { at: _at, ...offer } = o
+    return offer
+  }
+}
