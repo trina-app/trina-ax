@@ -18,7 +18,7 @@ test('a connected service write: the whole payload, the recipient first, its siz
   await ask(page, 'sendcard please')
   const card = page.getByTestId('ask-card')
   await expect(card).toHaveAttribute('data-origin', 'server')
-  await expect(card).toContainText('팀 서버의 안전 확인')
+  await expect(card).toContainText('확인해 주세요')
   const detail = card.getByTestId('ask-detail')
   await expect(detail).toContainText('보낼 내용')
   await expect(detail.getByTestId('ask-detail-fields')).toContainText('to')

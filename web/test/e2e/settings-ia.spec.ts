@@ -17,7 +17,7 @@ const ADMIN: [MessageKey, MessageKey[]][] = [
   ['admin.group.team', ['admin.settings', 'admin.system']],
 ]
 const SETTINGS: [string, MessageKey[]][] = [
-  ['account', ['settings.profile', 'settings.security', 'settings.usage', 'settings.memory']],
+  ['account', ['settings.profile', 'settings.security', 'settings.usage', 'settings.memory', 'settings.allowances']],
   ['connections', ['settings.providers', 'integrations.title', 'aiApps.title']],
   ['app', ['notifications.title', 'settings.apps', 'settings.about']],
 ]

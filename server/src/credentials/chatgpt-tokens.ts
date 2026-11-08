@@ -8,7 +8,7 @@
 import { audit } from '../admin/audit'
 import { memberOwnAllowed, sharedSubscriptionsAllowed } from './policy'
 import { accessExpiry, CODEX_CLIENT_ID, idClaims, REFRESH_BEFORE_EXP_MS, REFRESH_EVERY_MS, REFRESH_PATH } from './openai-oauth'
-import { getRow, localDay, markNeedsReconnect, metaOf, secretOf, writeSecret, type CredCtx, type CredRow, type Secrets } from './store'
+import { getRow, markNeedsReconnect, metaOf, secretOf, teamDay, writeSecret, type CredCtx, type CredRow, type Secrets } from './store'
 
 const REFRESH_TIMEOUT_MS = 15_000
 const PERMANENT_CODES = new Set(['invalid_grant', 'refresh_token_expired', 'refresh_token_reused', 'refresh_token_invalidated'])
@@ -83,7 +83,7 @@ async function refresh(cc: CredCtx, row: CredRow, s: Secrets['chatgpt'], fedramp
     const newMeta = { ...meta, planType: claims?.planType ?? meta.planType ?? null, lastRefreshAt: now.toISOString(), accessExpiresAt: exp ? new Date(exp).toISOString() : null }
     // the new refresh token is in the database before anything uses the new access token
     cc.db.transaction(() => writeSecret(cc, row.id, 'chatgpt', next, { meta: JSON.stringify(newMeta), ...(row.status === 'invalid' ? {} : { status: 'ok', status_code: null }) }))()
-    const day = localDay(now)
+    const day = teamDay(cc.db, now)
     if (st.auditedDay.get(row.id) !== day) {
       st.auditedDay.set(row.id, day)
       audit(cc.db, { actor: null, action: 'credential.refreshed', target: row.id, detail: { rotated } })

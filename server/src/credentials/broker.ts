@@ -13,7 +13,7 @@ import { costOf, setUnknownPriceHook, type ClaudeUsage, type OpenAiUsage } from 
 import { candidates, familyOfKind, teamCredentialSummary, type Family } from './resolve'
 import { memberOwnAllowed } from './policy'
 import {
-  admins, getRow, localDay, markInvalid, notifyOnce, ownerAndAdminsPlusOwnerOf, secretOf, unusable,
+  admins, getRow, markInvalid, notifyOnce, ownerAndAdminsPlusOwnerOf, secretOf, teamDay, unusable,
   type CredCtx, type CredRow, type Secrets,
 } from './store'
 
@@ -158,7 +158,7 @@ export function createBroker(cc: CredCtx): CredentialBroker {
       }
       const now = new Date(cc.now())
       add.run(input, output, cost, turnId)
-      day.run(credentialId, localDay(now), input, output, cost)
+      day.run(credentialId, teamDay(cc.db, now), input, output, cost)
       used.run(now.toISOString(), now.toISOString(), credentialId)
       const userId = (cc.db.query('SELECT user_id FROM turns WHERE id = ?').get(turnId) as { user_id: string } | null)?.user_id
       if (userId) for (const fn of (cc.extra.afterUsage ?? []) as ((u: string, c: string) => void)[]) { try { fn(userId, credentialId) } catch (e) { cc.log.warn('usage hook failed', { err: e }) } }

@@ -38,6 +38,7 @@ import { roomReadTools, roomSessionTools } from './room-tools'
 import { projectChatTools } from './room-project-chats'
 import { hideUrls } from '../tools/audit-url'
 import { SHARE_JUDGE_REFUSAL } from '../skills/share-judge'
+import { FILE_RANK_REFUSAL } from '../onboarding/file-rank'
 import { mergeTargets, SHARE_MERGE_REFUSAL } from '../skills/share-merge'
 
 export interface Tool {
@@ -108,8 +109,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // draft from pasted text has none
     if (exec.profileDraft && (t.name !== 'web_fetch' || exec.profileDraft.scope.source !== 'website')) return false
     // a team skill draft (onboarding/skill-draft.ts), a skill share's judgement (skills/share-judge.ts) or its merge
-    // (skills/share-merge.ts): no tool at all besides the file tools (refused, or for a merge only on its team skills)
-    if (exec.skillDraft || exec.shareJudge || exec.shareMerge) return false
+    // (skills/share-merge.ts), 팀 파일's picks (onboarding/file-rank.ts): no tool at all besides the file tools (refused,
+    // or for a merge only on its team skills)
+    if (exec.skillDraft || exec.shareJudge || exec.shareMerge || exec.fileRank) return false
     if(confidential && !localTool(t.name)) return false
     // a team chat room's AI session (rooms/ai.ts): only the tools rooms/ai-tools.ts allows there
     if (exec.room && !ROOM_TOOLS.has(t.name)) return false
@@ -183,6 +185,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // a profile draft: the same site and at most 4 pages per answer, counted before the call starts
       if (exec.skillDraft) return { ...text(SKILL_DRAFT_FILE_REFUSAL, true), summary: `${name} -> refused: team skill draft (no tools)` }
       if (exec.shareJudge) return { ...text(SHARE_JUDGE_REFUSAL, true), summary: `${name} -> refused: skill share judgement (no tools)` }
+      if (exec.fileRank) return { ...text(FILE_RANK_REFUSAL, true), summary: `${name} -> refused: team file picks (no tools)` }
       if (exec.shareMerge) return { ...text(SHARE_MERGE_REFUSAL, true), summary: `${name} -> refused: skill share merge (no tools)` }
       const draftNo = exec.profileDraft ? draftToolRefusal(exec.profileDraft, name, args) : null
       if (draftNo) return { ...text(draftNo, true), summary: `${name} -> refused: company profile draft (${draftNo.slice(0, 80)})` }
@@ -208,8 +211,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       }
       exec.noteTaint(name, args)
       exec.noteRoomTool(name, args)
-      // a room's AI session: anything that may change something waits for the person's yes (rooms/ai-tools.ts)
-      const roomNo = await exec.confirmRoomChange(name, args)
+      // a room's AI session: anything that may change something waits for the person's yes (rooms/ai-tools.ts); a call
+      // that also needs the wider-audience card below gets that one card (widenOf: where it saves, what it copies)
+      const roomNo = await exec.confirmRoomChange(name, args, { widen: widenOf(name, args), main: files === exec.files })
       if (roomNo) return { ...text(roomNo, true), summary: `${name} -> not allowed by the user (${exec.room ? 'room' : 'after a room read'})` }
       // what the AI sends leaves marks, so an address that a connection repeats back is not taken as the service's own
       // (tools/connection-urls.ts; before the call: its own answer is checked against them)
@@ -235,6 +239,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         const refusal = typeof target === 'string' ? await exec.confirmWidening(target, typeof a.output === 'string' && typeof a.file_path === 'string' ? [a.file_path] : []) : null
         if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, summary: 'edit_hwp -> not allowed by the user (wider audience)' }
       }
+      // a call a room grant or [이번만] let through: checked again now that any card above has waited (chat/turn.ts)
+      const again = await exec.recheckRoomCover(name, args, { main: files === exec.files })
+      if (again) return { ...text(again, true), summary: `${name} -> not allowed by the user (room)` }
       const out = await t.call(args, files)
       // a room session: a link share_file made says the path exists; the path as the server resolved it (actual case and
       // Unicode form) counts like a name read (turn.ts noteReads), besides the path as given (noteRoomTool)
@@ -266,6 +273,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (exec.profileDraft) return { refusal: DRAFT_FILE_REFUSAL, summary: `${name} -> refused: company profile draft (no team files)` }
       if (exec.skillDraft) return { refusal: SKILL_DRAFT_FILE_REFUSAL, summary: `${name} -> refused: team skill draft (no team files)` }
       if (exec.shareJudge) return { refusal: SHARE_JUDGE_REFUSAL, summary: `${name} -> refused: skill share judgement (no team files)` }
+      if (exec.fileRank) return { refusal: FILE_RANK_REFUSAL, summary: `${name} -> refused: team file picks (no team files)` }
       // a skill share's merge: read, write and edit of exactly the team skills it merges into; write and edit go on to the
       // skill-write card below like anywhere else
       if (exec.shareMerge && !mergeAllows(exec, name, args)) return { refusal: SHARE_MERGE_REFUSAL, summary: `${name} -> refused: skill share merge (only its team skills)` }
@@ -280,17 +288,37 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         if (sharedNo) return { refusal: sharedNo, summary: `${name} -> not read: not shared by the user (shared chat)` }
       }
       recordSent(exec.rt.db, exec.spec.chatId, args)
-      // a room's AI session: a write or edit waits for the person's yes on a card first (rooms/ai-tools.ts)
-      const roomNo = await exec.confirmRoomChange(name, args)
+      // a room's AI session: a write or edit waits for the person's yes on a card first (rooms/ai-tools.ts); one that
+      // also needs the wider-audience card below gets that one card
+      const roomNo = await exec.confirmRoomChange(name, args, { widen: widenOf(name, args), main: !caller || caller.files === exec.files })
       if (roomNo) return { refusal: roomNo, summary: `${name} -> not allowed by the user (${exec.room ? 'room' : 'after a room read'})` }
       if (name !== 'write' && name !== 'edit') return null
       // skills/ first (team skills and rules: the person confirms what changes), then the wider-audience check
       const no = await exec.confirmSkillWrite(name, args, caller?.files)
       if (no) return no
       const p = (args as { file_path?: unknown } | null)?.file_path
-      return typeof p === 'string' ? exec.confirmWidening(p) : null
+      const widen = typeof p === 'string' ? await exec.confirmWidening(p) : null
+      if (widen) return widen
+      // a call a room grant or [이번만] let through: checked again now that any card above has waited (chat/turn.ts)
+      const again = await exec.recheckRoomCover(name, args, { main: !caller || caller.files === exec.files })
+      return again ? { refusal: again, summary: `${name} -> not allowed by the user (room)` } : null
     },
   }
+}
+
+/** Where a call's wider-audience check (below the room card) saves, and the files it copies bytes from: the same
+ * arguments as the checks in call() and beforeFileTool (write and edit: the file; make_file: its output and source;
+ * edit_hwp: the new file and the document, or the document itself). undefined for any other tool. */
+export function widenOf(name: string, args: unknown): { target: string; extra: string[] } | undefined {
+  const a = args && typeof args === 'object' && !Array.isArray(args) ? args as Record<string, unknown> : null
+  if (!a) return undefined
+  if (name === 'write' || name === 'edit') return typeof a.file_path === 'string' ? { target: a.file_path, extra: [] } : undefined
+  if (name === 'make_file') return typeof a.output === 'string' ? { target: a.output, extra: typeof a.source === 'string' ? [a.source] : [] } : undefined
+  if (name === 'edit_hwp') {
+    const target = typeof a.output === 'string' ? hwpOutputPath(a.output, typeof a.file_path === 'string' ? a.file_path : '') : a.file_path
+    return typeof target === 'string' ? { target, extra: typeof a.output === 'string' && typeof a.file_path === 'string' ? [a.file_path] : [] } : undefined
+  }
+  return undefined
 }
 
 /** A merge chat's file call: read, write or edit, on one of the team skill files it merges into (the path as the file
@@ -331,7 +359,9 @@ export function turnPerson(exec: TurnExec): TurnPerson {
   }
 }
 
-function toolContext(exec: TurnExec, files: TurnFiles): TurnToolContext {
+/** `call`: the tool call this context is for: a room call a grant or [이번만] let through is checked again after the
+ * tool's own wider-audience card (it may have waited: make_file's pictures and template) */
+function toolContext(exec: TurnExec, files: TurnFiles, call?: { tool: string; args: unknown }): TurnToolContext {
   return {
     turnId: exec.spec.turnId, chatId: exec.spec.chatId, userId: exec.spec.userId, messageId: exec.spec.assistantId, locale: exec.spec.locale,
     signal: exec.abort.signal,
@@ -339,7 +369,11 @@ function toolContext(exec: TurnExec, files: TurnFiles): TurnToolContext {
       signal: exec.abort.signal,
       user: exec.livePrincipal(), turnId: exec.spec.turnId, files, person: turnPerson(exec),
       // files a tool copies bytes from (make_file's embedded images and template), checked before the new file is placed
-      confirmWidening: (target, sources, binding) => exec.confirmWidening(target, sources, binding),
+      confirmWidening: async (target, sources, binding) => {
+        const no = await exec.confirmWidening(target, sources, binding)
+        if (no || !call) return no
+        return exec.recheckRoomCover(call.tool, call.args, { main: files === exec.files })
+      },
     },
   }
 }
@@ -348,7 +382,7 @@ function wrapRegistered(exec: TurnExec, t: TurnTool): Tool {
   return {
     name: t.name, description: t.description, inputSchema: t.inputSchema,
     async call(args, files) {
-      const r = await t.call(args, toolContext(exec, files))
+      const r = await t.call(args, toolContext(exec, files, { tool: t.name, args }))
       return { content: r.content, isError: r.isError, ...(r.summary ? { summary: r.summary } : {}) }
     },
   }

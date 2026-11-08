@@ -1,5 +1,5 @@
 // The sections of the personal Settings dialog (components/settings/SettingsDialog.tsx): profile, language, theme and text size, password, signed-in devices, the in-app browser's site setting (desktop
-// app only: BrowserSettings.tsx), what the AI remembers, apps (the guide to add the app to the home
+// app only: BrowserSettings.tsx), what the AI remembers, what I allowed the AI in advance (AiAllowances.tsx), apps (the guide to add the app to the home
 // screen, components/settings/InstallGuide.tsx, in a web browser only / desktop app download, none inside a Mac App
 // Store build: only the App Store line),
 // about (version, license, source code), the member's own AI connections when the team allows them (the team's
@@ -35,6 +35,7 @@ import { Avatar } from '../components/Avatar'
 import { squarePhoto, type Photo } from '../lib/avatar'
 import { Notifications } from '../components/settings/Notifications'
 import { DevEnvSites } from '../components/settings/DevEnvSites'
+import { AiAllowances } from '../components/settings/AiAllowances'
 import { AccountDeletion } from '../components/settings/AccountDeletion'
 import { InstallGuide } from '../components/settings/InstallGuide'
 import { MemoryForm } from '../components/settings/MemoryForm'
@@ -54,6 +55,7 @@ export default function SettingsPane({ tab }: { tab: string }) {
       {tab === 'usage' && <MyUsage key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'browser' && browser && <BrowserSettings bridge={browser} />}
       {tab === 'memory' && <Memories />}
+      {tab === 'allowances' && <AiAllowances key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'connectors' && <Integrations key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'ai-apps' && <AiApps key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'dev-env-sites' && <DevEnvSites key={`${me.user.id}:${me.session.id}`} />}

@@ -57,6 +57,7 @@ import { safeOpsEnabled } from '../safe-ops/runner'
 import { historyKinds, openHistories } from './history'
 import { canSee, clipMiddle, memberRow, parseMentions, roomAuditRef, members, messageRow, messagesOut, MSG_COLS, roomRow, SEE_SQL, seesFrom, setRoomAiWaiting, seeArgs, seenSeq, sharedAnswerOf, TIMELINE_SQL, type MemberRow, type MessageRow, type RoomRow } from './store'
 import { roomsOf } from './service'
+import { grantMadeFiles } from './ai-grants'
 import { AI_SHOWN_SQL, attr, filesOf as messageFiles, namesOf, roomItem, ROOM_THREAD_CHARS, ROOM_THREAD_REPLIES_TOTAL, ROOM_THREAD_REPLY_CHARS, threadAttrs, threadsOf, whoseWords, type Speaker, type ThreadPeek } from './ai-context'
 
 /** How long deciding where an answer goes may spend working out waiting members' histories (rooms/history.ts); one still
@@ -472,7 +473,11 @@ export class RoomAi implements RoomTurns {
     // a question in a thread: who sees it is who sees the root (seenSeq)
     const root0 = q?.thread_root_id && q.thread_root_seq !== null ? { id: q.thread_root_id, seq: q.thread_root_seq } : undefined
     const d = this.decide(t.room_id, t.chat_id, scope, q ? seenSeq(q) : undefined, root0, q?.seq)
-    const body = msg.content.length > ROOM_AI_ANSWER_MAX ? `${msg.content.slice(0, ROOM_AI_ANSWER_MAX).trimEnd()}\n\n${tr('roomAiCut', locale)}` : msg.content
+    // the files a grant or [이번만 허용] let it save without a card (rooms/ai-grants.ts) are named under the answer,
+    // as links (each viewer gets a chip only for a file they may open), so the room sees what was saved
+    const made = grantMadeFiles(db, turnId)
+    const madeLine = made.length ? `\n\n${tr('roomGrantFiles', locale, { files: made.map((p) => `[${p.split('/').at(-1)!.replace(/[[\]\\]/g, '\\$&')}](/files/view?path=${encodeURIComponent(p)})`).join(', ') })}` : ''
+    const body = (msg.content.length > ROOM_AI_ANSWER_MAX ? `${msg.content.slice(0, ROOM_AI_ANSWER_MAX).trimEnd()}\n\n${tr('roomAiCut', locale)}` : msg.content) + madeLine
     const id = newId(), now = nowIso()
     // asked in a thread: answered in it (a reply, not in the timeline; the room keeps its place in the list)
     const root = q?.thread_root_id ? messageRow(db, t.room_id, q.thread_root_id) : null

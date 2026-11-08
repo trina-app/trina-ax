@@ -1,16 +1,20 @@
 // 내 스킬 가져오기 (docs/DECISIONS.md "SK"), the welcome step (components/onboarding/SkillsStep.tsx), its list
 // (SkillShareReview.tsx) and /skills/share/:id (pages/SkillSharePage.tsx), rendered and clicked against a small fake of
-// the server (GET/POST /api/skill-shares…, GET /api/connectors/remote):
+// the server (GET/POST /api/skill-shares…, GET /api/connectors/remote; GET /api/onboarding/packs answers with every
+// kept skill in the team, so the kept part of the step is absent here: test/unit/onb6-skills.test.tsx covers it):
 // - the computer's empty step: [내 스킬 찾기], the hidden-folder hint (⌘ ⇧ . read as words), the promise; the Claude
-//   Code line only with the connector on ([복사] → "복사했어요" and the waiting line; 연결 방법 with the command);
+//   Code line only with the connector on, behind one disclosure ([복사] → "복사했어요" and the waiting line; 연결 방법
+//   with the command);
 // - a picked folder: what is sent; while checking, the names with skeleton reasons and nothing to tick; then the list:
 //   the recommended rows ticked, 그 밖에 and 빠진 것 folded, 빠진 것 without checkboxes, 합치기/따로 두기 on a
-//   similar skill, the CLAUDE.md line unticked (보기 shows it); [팀에 공유 · N개] sends the ticked rows and their action;
-//   then what went in (열기, 함께, 확인하기, the rule) and the parent's primary;
-// - a closed folder window changes nothing; a folder without skills says so, twice: 나중에 하기 becomes the primary;
-//   그만 찾기 and 나중에 하기 drop the proposal; an apply that fails offers 다시 시도;
+//   similar skill, the CLAUDE.md line unticked (보기 shows it); the list is embedded (docs/DECISIONS.md "W6"): the
+//   step's one primary [팀에 넣기 · N개] sends the ticked rows and their action, then the toast and onNext; what went
+//   in (열기, 함께, 확인하기, the rule) and the step's 다음;
+// - a closed folder window changes nothing; a folder without skills says so; with nothing to put in 나중에 하기 has
+//   the primary style; 그만 찾기 and 나중에 하기 drop the proposal; an apply that fails offers 다시 시도;
 // - a Claude Code proposal that arrives while the step waits shows itself (its source line, the tools line);
-// - phones: the phone version ([다음] puts the step off), and a Claude Code proposal there too.
+// - phones: the phone version (one line that own skills go in on a computer, 나중에 하기 puts the step off as on a
+//   computer), and a Claude Code proposal there too.
 // docs/DECISIONS.md "W5" (the step's exits): the hint and the one-line block name Claude Code and Codex (both
 // commands under 연결 방법); a Codex proposal shows like Claude Code's; the live notice about a proposal is held back
 // only while the step is on screen; a share applied elsewhere since the step opened shows as done; during the setup
@@ -75,6 +79,11 @@ let mergeLater = false
 let welcome: { finishedAt: string | null } | null = null
 /** the next proposal the server makes (a second folder: its own id and skills); null: the usual one */
 let nextShare: Partial<SkillShare> | null = null
+/** the kept skills (GET /api/onboarding/packs): every one in the team already, so the step shows no kept rows */
+const KEPT_ALL_IN = { profile: true, skills: (['intro-deck', 'card-news', 'promo-video', 'humanizer'] as const).map((name) => ({
+  pack: name === 'humanizer' ? 'work' : 'general', name, path: `skills/${name === 'humanizer' ? 'work' : 'general'}/${name}/SKILL.md`, title: name, description: name,
+  inTeam: true, visual: name !== 'humanizer', example: null, locale: 'ko', source: { kind: 'team' },
+})) }
 let calls: { key: string; url: string; body: any }[] = []
 const called = (key: string) => calls.filter((c) => c.key === key)
 const applyTo = (s: SkillShare, b: ApplySkillShare): SkillShare => ({
@@ -97,7 +106,10 @@ function route(method: string, path: string, body: any): Response {
     return json(201, created)
   }
   if (method === 'GET' && path === '/api/skill-shares') return json(200, { items: ccItems })
-  const m = /^\/api\/skill-shares\/([^/]+)(\/apply|\/dismiss)?$/.exec(path)
+  if (method === 'GET' && path === '/api/onboarding/packs') return json(200, KEPT_ALL_IN)
+  const install = /^\/api\/onboarding\/packs\/([^/]+)\/install$/.exec(path)
+  if (method === 'POST' && install) return json(200, { pack: install[1], locale: 'ko', skills: (body.skills as string[]).map((name) => ({ name, path: `skills/${install[1]}/${name}/SKILL.md`, status: 'created' })) })
+  const m = /^\/api\/skill-shares\/([^/]+)(\/apply|\/dismiss|\/stop-check)?$/.exec(path)
   if (m) {
     const s = [created, ...ccItems].find((x) => x?.id === m[1]) ?? null
     if (!s) return json(404, { error: { code: 'not_found', message: '없어요' } })
@@ -107,6 +119,8 @@ function route(method: string, path: string, body: any): Response {
       return json(200, out)
     }
     if (m[2] === '/dismiss') return json(204, null)
+    // the page ends a check (SHARE_CHECK_LIMIT_MS): ready, nothing recommended
+    if (m[2] === '/stop-check') return json(200, { ...s, status: 'ready', ai: 'failed', candidates: s.candidates.map((c) => (c.group === 'excluded' ? c : { ...c, group: 'other', reason: 'unjudged' })) })
     if (failApply-- > 0) return json(500, { error: { code: 'internal', message: '지금은 넣지 못했어요' } })
     return json(200, applyTo(s, body))
   }
@@ -189,7 +203,7 @@ const step = async () => {
   const m = await mount(
     <MemoryRouter initialEntries={['/welcome']}>
       <Routes>
-        <Route path="/welcome" element={<SkillsStep team="Acme" nextLabel="다음: 팀 파일 가져오기" onApplied={(s) => events.push(`applied:${s.id}`)} onNext={() => events.push('next')} onSkip={() => events.push('skip')} onPhoneNext={() => events.push('phoneNext')} />} />
+        <Route path="/welcome" element={<SkillsStep team="Acme" nextLabel="다음: 팀 파일 가져오기" onApplied={(s) => events.push(`applied:${s.id}`)} onNext={() => events.push('next')} onSkip={() => events.push('skip')} />} />
         <Route path="*" element={<Where />} />
       </Routes>
     </MemoryRouter>,
@@ -243,11 +257,18 @@ describe('the empty step on a computer', () => {
     } finally { await m.unmount() }
   })
 
-  test('the Claude Code line: [복사] copies the prompt, then "복사했어요" and the waiting line; 연결 방법 unfolds the command', async () => {
+  test('the Claude Code line, behind one disclosure: [복사] copies the prompt, then "복사했어요" and the waiting line; 연결 방법 unfolds the command', async () => {
     chrome()
     const m = await step()
     try {
       await m.until(() => m.find('skills-cc'), 'the Claude Code line')
+      // folded: one line names both apps; nothing to copy until it opens
+      expect(text(m, 'skills-cc-toggle')).toBe(ko('welcome.skills.ccFold'))
+      expect(m.get('skills-cc-toggle').getAttribute('aria-expanded')).toBe('false')
+      expect(m.find('skills-cc-prompt')).toBeNull()
+      expect(m.find('skills-cc-copy')).toBeNull()
+      await m.click('skills-cc-toggle')
+      expect(m.get('skills-cc-toggle').getAttribute('aria-expanded')).toBe('true')
       expect(text(m, 'skills-cc')).toContain(ko('welcome.skills.cc.lead'))
       expect(text(m, 'skills-cc-prompt')).toBe(ko('welcome.skills.cc.prompt'))
       expect(m.find('skills-cc-waiting')).toBeNull()
@@ -346,6 +367,11 @@ describe('a picked folder', () => {
       expect(text(m, 'skill-review')).toContain(ko('welcome.skills.scanningMore', { n: 5 }))
       expect(text(m, 'skill-review')).toContain(ko('welcome.skills.scanningNote'))
       expect(m.find('skill-review-stop')).not.toBeNull()
+      // the step's one primary waits for the check; the list has none of its own
+      expect(m.get('skills-primary').getAttribute('data-state')).toBe('checking')
+      expect(m.get('skills-primary').hasAttribute('disabled')).toBe(true)
+      expect(text(m, 'skills-primary')).toContain(ko('welcome.skills.checking'))
+      expect(m.find('skills-share')).toBeNull()
       // the server's next read: ready
       await m.until(() => m.find('skill-review')?.getAttribute('data-status') === 'ready', 'the list', 6000)
       expect(text(m, 'skill-review-source')).toContain(ko('welcome.skills.found', { n: 10 }).replace('{where}', '.claude'))
@@ -377,11 +403,13 @@ describe('a picked folder', () => {
       expect(text(m, 'skills-rule')).toContain(ko('welcome.skills.ruleNote', { m: 12 }))
       expect(m.find('skills-tools')).toBeNull()
       expect(text(m, 'skills-who')).toBe(ko('welcome.skills.who', { team: 'Acme' }))
-      expect(text(m, 'skills-share')).toContain(ko('welcome.skills.share', { n: 3 }))
+      expect(m.get('skills-primary').getAttribute('data-state')).toBe('put')
+      expect(text(m, 'skills-primary')).toBe('주간 업무 보고·견적서 초안·회의록 정리 넣기')
+      expect(m.find('skills-share')).toBeNull()
     } finally { await m.unmount() }
   })
 
-  test('tick, untick, 합치기 → 따로 두기, the rule (보기 shows it): what [팀에 공유] sends; then what went in, onApplied once, the primary', async () => {
+  test('tick, untick, 합치기 → 따로 두기, the rule (보기 shows it): what the step\'s [팀에 넣기] sends; the toast and onNext; then what went in, onApplied once, 다음', async () => {
     chrome()
     const m = await step()
     try {
@@ -391,7 +419,7 @@ describe('a picked folder', () => {
       await tick(m, checkOf(m, 'weekly-report'))
       await tick(m, checkOf(m, 'weekly-report'))
       await tick(m, checkOf(m, 'quote-draft'))
-      expect(text(m, 'skills-share')).toContain(ko('welcome.skills.share', { n: 3 }))
+      expect(text(m, 'skills-primary')).toBe('주간 업무 보고·회의록 정리·내 일정 정리 넣기')
       // only rows with a similar or same-named team skill choose
       expect(rows(m).filter((r) => r.querySelector('select')).map((r) => r.getAttribute('data-name'))).toEqual(['meeting-notes'])
       const pill = rowOf(m, 'meeting-notes').querySelector('select')!
@@ -400,13 +428,18 @@ describe('a picked folder', () => {
       await m.click('skills-rule-view')
       expect(text(m, 'skills-rule-text')).toBe('- 보고서는 결론부터 써요\n- 숫자는 표로 정리해요')
       await tick(m, m.get('skills-rule-check'))
-      await m.click('skills-share')
+      // the rule is one more item
+      expect(text(m, 'skills-primary')).toBe(ko('welcome.skills.putN', { n: 4 }))
+      await m.click('skills-primary')
       await m.until(() => m.find('skill-review')?.getAttribute('data-status') === 'applied', 'what went in')
       expect(called(`POST /api/skill-shares/${ID}/apply`).map((c) => c.body)).toEqual([{
         skills: [{ name: 'weekly-report', action: 'add' }, { name: 'meeting-notes', action: 'separate' }, { name: 'my-schedule', action: 'add' }],
         rule: true, tools: [],
       }])
-      expect(events).toEqual([`applied:${ID}`])
+      // all went in: one toast (three skills and the rule), and on; no kept skill to install (the team has them all)
+      expect(events).toEqual([`applied:${ID}`, 'next'])
+      expect(useUi.getState().toasts.map((x) => [x.level, x.text])).toEqual([['success', ko('welcome.skills.installed', { n: 4 })]])
+      expect(calls.filter((c) => c.key.endsWith('/install'))).toEqual([])
       expect(text(m, 'skills-done')).toBe(ko('welcome.skills.done'))
       const done = (globalThis.document as any).body.querySelectorAll('[data-testid="skill-done-row"]') as FakeElement[]
       expect(done.map((r) => `${r.getAttribute('data-kind')}:${r.getAttribute('data-name') ?? ''}`)).toEqual(['added:weekly-report', 'added:meeting-notes', 'added:my-schedule', 'rule:'])
@@ -417,9 +450,12 @@ describe('a picked folder', () => {
       expect(done[3]!.textContent).toContain(ko('welcome.skills.ruleName'))
       await m.until(() => m.find('skills-done-who'), 'the who line')
       expect(text(m, 'skills-done-who')).toBe(ko('welcome.skills.doneWho', { team: 'Acme' }))
-      expect(text(m, 'skills-done-next')).toBe('다음: 팀 파일 가져오기')
-      await m.click('skills-done-next')
-      expect(events).toEqual([`applied:${ID}`, 'next'])
+      // the embedded list has no primary of its own: the step's reads 다음
+      expect(m.find('skills-done-next')).toBeNull()
+      expect(m.get('skills-primary').getAttribute('data-state')).toBe('next')
+      expect(text(m, 'skills-primary')).toBe('다음: 팀 파일 가져오기')
+      await m.click('skills-primary')
+      expect(events).toEqual([`applied:${ID}`, 'next', 'next'])
     } finally { await m.unmount() }
   })
 
@@ -429,9 +465,11 @@ describe('a picked folder', () => {
     const m = await step()
     try {
       await findAndList(m)
-      await m.click('skills-share')
-      await m.until(() => m.find('skill-review')?.querySelector('[role="alert"]'), 'the error')
-      expect(text(m, 'skill-review')).toContain('지금은 넣지 못했어요')
+      await m.click('skills-primary')
+      // the step says it, under both parts (the list has no primary of its own)
+      await m.until(() => m.get('skills-step').querySelector('[role="alert"]'), 'the error')
+      expect(m.get('skills-step').querySelector('[role="alert"]')!.textContent).toContain('지금은 넣지 못했어요')
+      expect(m.get('skill-review').querySelector('[role="alert"]')).toBeNull()
       expect(events).toEqual([])
       const retry = (globalThis.document as any).body.querySelectorAll('button').find((b: FakeElement) => b.textContent === ko('common.retry'))
       await m.click(retry)
@@ -445,24 +483,25 @@ describe('a picked folder', () => {
       expect(done[1]!.textContent).toContain(ko('welcome.skills.doneWithFile', { file: '견적 양식' }))
       expect(done[2]!.textContent).toContain(ko('welcome.skills.merged', { x: '할 일 정리' }))
       expect(m.get('skill-done-review').getAttribute('href')).toBe(`/c/${MERGE_CHAT}`)
-      expect(events).toEqual([`applied:${ID}`])
+      expect(events).toEqual([`applied:${ID}`, 'next'])
     } finally { await m.unmount() }
   })
 
-  test('nothing ticked: [팀에 공유] waits; the rule alone can go', async () => {
+  test('nothing ticked: the primary hides and 나중에 하기 takes its style; the rule alone can go', async () => {
     chrome()
     const m = await step()
     try {
       await findAndList(m)
       for (const n of ['weekly-report', 'quote-draft', 'meeting-notes']) await tick(m, checkOf(m, n))
-      expect(m.get('skills-share').hasAttribute('disabled')).toBe(true)
+      expect(m.find('skills-primary')).toBeNull()
+      expect(m.get('skills-later').className).toContain('bg-accent')
       await tick(m, m.get('skills-rule-check'))
-      expect(m.get('skills-share').hasAttribute('disabled')).toBe(false)
-      expect(text(m, 'skills-share')).toContain(ko('welcome.skills.shareOnly'))
+      expect(text(m, 'skills-primary')).toBe(ko('welcome.skills.putN', { n: 1 }))
+      expect(m.get('skills-later').className).not.toContain('bg-accent')
     } finally { await m.unmount() }
   })
 
-  test('the folder window closed: nothing happens; a folder without skills says so, and after the second 나중에 하기 is the primary', async () => {
+  test('the folder window closed: nothing happens; a folder without skills says so; the folder button stays secondary, 나중에 하기 the primary while nothing is to go in', async () => {
     chrome()
     picker = async () => { throw Object.assign(new Error('closed'), { name: 'AbortError' }) }
     const m = await step()
@@ -477,11 +516,14 @@ describe('a picked folder', () => {
       await m.click('skills-find')
       await m.until(() => m.find('skills-none'), 'the note')
       expect(text(m, 'skills-none')).toBe(ko('welcome.skills.none'))
-      expect(m.get('skills-find').className).toContain('bg-accent')
-      expect(m.get('skills-later').className).not.toContain('bg-accent')
-      await m.click('skills-find')
-      await m.until(() => m.get('skills-later').className.includes('bg-accent'), 'later as the primary')
       expect(m.get('skills-find').className).not.toContain('bg-accent')
+      expect(m.find('skills-primary')).toBeNull()
+      expect(m.get('skills-later').className).toContain('bg-accent')
+      await m.click('skills-find')
+      await m.settle(30)
+      expect(m.find('skills-none')).not.toBeNull()
+      expect(m.get('skills-find').className).not.toContain('bg-accent')
+      expect(m.get('skills-later').className).toContain('bg-accent')
       expect(called('POST /api/skill-shares')).toHaveLength(0)
     } finally { await m.unmount() }
   })
@@ -532,7 +574,9 @@ describe('Claude Code', () => {
       // each address is shown as it will be stored, so a key in it can be seen
       expect(text(m, 'skills-tools-urls')).toContain('Notion · ')
       await tick(m, m.get('skills-tools-check'))
-      await m.click('skills-share')
+      // three skills and the tools: one more item
+      expect(text(m, 'skills-primary')).toBe(ko('welcome.skills.putN', { n: 4 }))
+      await m.click('skills-primary')
       await m.until(() => m.find('skill-review')?.getAttribute('data-status') === 'applied', 'what went in')
       expect(called(`POST /api/skill-shares/${CC_ID}/apply`)[0]!.body).toEqual({ skills: [{ name: 'weekly-report', action: 'add' }, { name: 'quote-draft', action: 'add' }, { name: 'meeting-notes', action: 'merge' }], rule: false, tools: ['Notion', 'Linear'] })
       const done = (globalThis.document as any).body.querySelectorAll('[data-testid="skill-done-row"]') as FakeElement[]
@@ -542,21 +586,25 @@ describe('Claude Code', () => {
 })
 
 describe('phones', () => {
-  test('the phone version: why it waits, the Claude Code line, [다음] puts the step off; no folder button', async () => {
+  test('the phone version: one line that own skills go in on a computer, the Claude Code line behind its disclosure, no folder button; 나중에 하기 puts the step off as on a computer', async () => {
     chrome()
     phoneWidth()
     const m = await step()
     try {
       await m.until(() => m.find('skills-cc'), 'the Claude Code line')
       expect(m.get('skills-step').getAttribute('data-state')).toBe('phone')
-      expect(text(m, 'skills-step')).toContain(ko('welcome.skills.descPhone'))
+      expect(text(m, 'skills-phone-own')).toBe(ko('welcome.skills.phoneOwn'))
+      expect(text(m, 'skills-cc-toggle')).toBe(ko('welcome.skills.ccFoldPhone'))
+      await m.click('skills-cc-toggle')
       expect(text(m, 'skills-cc')).toContain(ko('welcome.skills.cc.leadPhone'))
-      expect(text(m, 'skills-step')).toContain(ko('welcome.skills.laterPhone'))
       expect(m.find('skills-find')).toBeNull()
       expect(m.find('skills-input')).toBeNull()
-      expect(text(m, 'skills-phone-next')).toContain('다음: 팀 파일 가져오기')
-      await m.click('skills-phone-next')
-      expect(events).toEqual(['phoneNext'])
+      expect(m.find('skills-drop')).toBeNull()
+      // the phone's own 다음 that only put the step off is gone (FLOW-v6 §2.4): 나중에 하기 does that
+      expect(m.find('skills-phone-next')).toBeNull()
+      expect(m.find('skills-primary')).toBeNull()
+      await m.click('skills-later')
+      expect(events).toEqual(['skip'])
     } finally { await m.unmount() }
   })
 
@@ -567,8 +615,8 @@ describe('phones', () => {
     const m = await step()
     try {
       await m.until(() => m.find('skills-cc'), 'the Claude Code line')
+      await m.click('skills-cc-toggle')
       const all = text(m, 'skills-step')
-      expect(all).toContain(`컴퓨터에서 ${PRODUCT.displayName}에 들어오면`)
       expect(text(m, 'skills-cc-prompt')).toBe(`내 스킬 중 팀에 공유할 만한 걸 ${PRODUCT.displayName}에 올려 줘`)
       expect(all).toContain(`Claude Code나 Codex에 ${PRODUCT.displayName}부터 연결해요`)
       expect(all).not.toContain('트리나')
@@ -593,7 +641,7 @@ describe('phones', () => {
     } finally { await m.unmount() }
   })
 
-  test('a Claude Code proposal shows on a phone, titles only; 나중에 하기 there waits for the computer (the proposal stays)', async () => {
+  test('a Claude Code proposal shows on a phone, titles only; 나중에 하기 there puts the step off and drops the list, as on a computer (FLOW-v6 §2.5)', async () => {
     chrome()
     phoneWidth()
     ccItems = [shareOf({ id: CC_ID, source: 'claude_code', where: null, projects: 0 })]
@@ -604,9 +652,11 @@ describe('phones', () => {
       expect(text(m, 'skill-review-source')).not.toContain('프로젝트')
       // titles only on a phone: no /slug
       expect(rowOf(m, 'weekly-report').textContent).toBe(`주간 업무 보고${ko('welcome.skills.reason.team_any')}`)
+      // the step's primary covers the list on a phone too
+      expect(text(m, 'skills-primary')).toBe('주간 업무 보고·견적서 초안·회의록 정리 넣기')
       await m.click('skills-later')
-      expect(events).toEqual(['phoneNext'])
-      expect(called(`POST /api/skill-shares/${CC_ID}/dismiss`)).toHaveLength(0)
+      expect(events).toEqual(['skip'])
+      expect(called(`POST /api/skill-shares/${CC_ID}/dismiss`)).toHaveLength(1)
     } finally { await m.unmount() }
   })
 })
@@ -743,8 +793,13 @@ describe('the exits of the step (docs/DECISIONS.md "W5")', () => {
       await m.until(() => m.find('skill-review')?.getAttribute('data-status') === 'applied', 'the share as done', 6000)
       expect(text(m, 'skills-done')).toBe(ko('welcome.skills.done'))
       expect(m.find('skill-done-open')).toBeNull()
-      await m.click('skills-done-next')
-      expect(events).toEqual(['next'])
+      // the embedded list has no primary of its own; nothing is offered to put in again
+      expect(m.find('skills-done-next')).toBeNull()
+      expect(m.get('skills-primary').getAttribute('data-state')).toBe('next')
+      expect(called('POST /api/skill-shares')).toHaveLength(0)
+      // something went in (the share applied elsewhere): 다음 goes on, 내 스킬 done
+      await m.click('skills-primary')
+      expect(events).toContain('next')
     } finally { await m.unmount() }
   })
 
@@ -754,7 +809,7 @@ describe('the exits of the step (docs/DECISIONS.md "W5")', () => {
     const m = await step()
     try {
       await findAndList(m)
-      await m.click('skills-share')
+      await m.click('skills-primary')
       await m.until(() => m.find('skill-review')?.getAttribute('data-status') === 'applied', 'what went in')
       const done = (globalThis.document as any).body.querySelectorAll('[data-testid="skill-done-row"]') as FakeElement[]
       const later = done.find((r) => r.getAttribute('data-name') === 'meeting-notes')!
@@ -871,8 +926,13 @@ describe('coming back to the step (walk M3, SHOULD 10)', () => {
       const done = (globalThis.document as any).body.querySelectorAll('[data-testid="skill-done-row"]') as FakeElement[]
       expect(done.map((r) => r.getAttribute('data-name'))).toEqual(['weekly-report', 'quote-draft'])
       expect(m.find('skills-find')).toBeNull()
-      expect(m.get('skills-done-next').className).toContain('bg-accent')
-      await m.click('skills-done-next')
+      expect(m.find('skills-done-next')).toBeNull()
+      expect(m.get('skills-primary').getAttribute('data-state')).toBe('next')
+      expect(text(m, 'skills-primary')).toBe('다음: 팀 파일 가져오기')
+      expect(m.get('skills-primary').className).toContain('bg-accent')
+      // done: no 나중에 하기
+      expect(m.find('skills-later')).toBeNull()
+      await m.click('skills-primary')
       expect(events).toEqual(['next'])
     } finally { await m.unmount() }
   })
@@ -882,23 +942,26 @@ describe('coming back to the step (walk M3, SHOULD 10)', () => {
     const m = await step()
     try {
       await findAndList(m)
-      await m.click('skills-share')
+      await m.click('skills-primary')
       await m.until(() => m.find('skill-review')?.getAttribute('data-status') === 'applied', 'what went in')
       // the server: the share applied, 내 스킬 done
       await act(async () => { stepDone() })
       ccItems = [{ ...created!, status: 'applied', candidates: candidates().map(addedRow) }]
       expect(text(m, 'skills-more')).toBe(ko('welcome.skills.more'))
       expect(m.get('skills-more').className).not.toContain('bg-accent')
-      expect(m.get('skills-done-next').className).toContain('bg-accent')
+      expect(m.get('skills-primary').getAttribute('data-state')).toBe('next')
+      expect(m.get('skills-primary').className).toContain('bg-accent')
       const looks = called('GET /api/skill-shares').length
       await m.click('skills-more')
       expect(m.get('skills-step').getAttribute('data-state')).toBe('empty')
-      expect(m.get('skills-find').className).toContain('bg-accent')
+      // the picker again, its button secondary; the primary stays 다음
+      expect(m.get('skills-find').className).not.toContain('bg-accent')
+      expect(m.get('skills-primary').getAttribute('data-state')).toBe('next')
       // the next look (the connector is on) leaves the picker: the applied share does not come back
       await m.until(() => called('GET /api/skill-shares').length > looks, 'the next look', 6000)
       await m.settle(30)
       expect(m.get('skills-step').getAttribute('data-state')).toBe('empty')
-      expect(events).toEqual([`applied:${ID}`])
+      expect(events).toEqual([`applied:${ID}`, 'next'])
     } finally { await m.unmount() }
     phoneWidth()
     stepDone()
@@ -924,7 +987,7 @@ describe('what went in lists every skill shared in the setup', () => {
     const m = await step()
     try {
       await findAndList(m)
-      await m.click('skills-share')
+      await m.click('skills-primary')
       await applied(m)
       const first = [{ path: 'skills/weekly-report/SKILL.md', title: '주간 업무 보고' }, { path: 'skills/quote-draft/SKILL.md', title: '견적서 초안' }]
       // read again after the apply: this share's own skills are not listed twice
@@ -934,7 +997,7 @@ describe('what went in lists every skill shared in the setup', () => {
       // Codex's folder: one skill of its own, no title from the AI (the server records it as words)
       nextShare = { id: SECOND, app: 'codex', where: '.agents', rule: null, candidates: [cand('standup-notes', '', 'recommended', 'team_any', { title: null })] }
       await findAndList(m)
-      await m.click('skills-share')
+      await m.click('skills-primary')
       await applied(m)
       // before the progress is read again, and after it: the same list, nothing twice
       expect(doneRows()).toEqual(['added:weekly-report', 'added:quote-draft', 'added:standup-notes'])

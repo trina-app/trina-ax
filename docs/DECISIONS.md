@@ -364,7 +364,7 @@
 인증·세션·CSRF, 권한 함수와 파일 경로 입구(REST·도구), web_fetch, 아티팩트·CSP, 데스크톱, 중계, 설치, 비밀값을 다시 봤다. 고친 것:
 
 - **공개 범위 확대 확인**(7번 탭 "공용 폴더를 거친 유출"): `chats.session_read_scope`(마이그레이션 202)에 모델 문맥에 들어간 출처를 모은다. read·grep 결과 파일마다 가장 가까운 규칙 폴더(`folders.id`, 없으면 `{type:'root'}`), `users/<id>/`(첨부 포함)는 `{type:'user'}`, 앱 안 브라우저 결과는 요청한 사람, 프로젝트 지침은 그 폴더. write·edit·make_file(source 파일 포함) 앞에서 대상 폴더를 읽을 수 있는 사람이 출처마다의 읽을 수 있는 사람보다 많으면 서버가 도구 호출 안에서 카드를 띄운다. 거절하면 쓰지 않고 감사 기록. 허용한 폴더는 그 턴에서 다시 묻지 않는다. 확인 자체가 실패하면 저장하지 않는다. **설계와 다른 점**: 다시 생성·수정으로 만든 가지도 채팅의 C를 그대로 쓴다(메시지별 `read_scope_snapshot` 없음, 더 묻는 쪽). 관리자의 '표시만' 설정과 파일 요약의 '공개 범위 넓어짐' 표시는 아직 없다.
-- **서버가 띄운 확인 카드 표시**: web_fetch 주소·공개 범위·remember 확인은 `AskUserRequest.origin = 'server'`이고 화면은 "팀 서버의 안전 확인" 머리글로 그린다. AI의 ask_user는 이 값을 넣을 수 없다(입력 스키마에 없음).
+- **서버가 띄운 확인 카드 표시**: web_fetch 주소·공개 범위·remember 확인은 `AskUserRequest.origin = 'server'`이고 화면은 "팀 서버의 안전 확인" 머리글로 그린다(2026-11-08부터 "확인해 주세요": "대화방에서 새 파일은 미리 허용"). AI의 ask_user는 이 값을 넣을 수 없다(입력 스키마에 없음).
 - **API 응답에 `Cross-Origin-Resource-Policy: same-origin`**: 팀 주소는 모두 같은 사이트(`*.treesoop.com`)라 다른 팀 페이지의 `<img>`·`<video>`가 SameSite=Lax 쿠키를 싣고 이 팀의 API·다운로드를 불러올 수 있었다(내용은 못 읽어도 존재·크기·이미지 치수가 샌다).
 - **사무실 공인 출구 IP**(7번 탭 "내부망 공격"): 중계의 핸드셰이크 응답 `AuthOk.seenIp`(제어 연결이 온 주소, 운영은 CF-Connecting-IP, 기록하지 않음)를 서버가 최근 8개까지 기억하고(`server/src/tools/egress.ts`) web_fetch가 모든 홉에서 거부한다. 서버가 시작된 뒤 아직 받은 적이 없으면(중계 없음·연결 전) 모든 web_fetch 주소에 확인 카드.
 - **모델 프록시 전달 규칙**(7번 탭 "모델 프록시를 통한 외부 전송"): POST `/v1/messages`·`/v1/messages/count_tokens`(쿼리 `beta=true`만), `claude-*` 모델, 사용자 정의 도구 + `web_search_*` 서버 도구, 데이터가 본문에 든 블록만(이미지·문서의 url·file 출처, mcp_servers, container, 모르는 블록은 403 + `proxy.refused` 감사). 허용 모양은 Claude Code 2.1.305가 실제로 보내는 요청을 기록용 가짜 상위 서버로 잡아 정했다. 엔진 버전 피드 policy로 옮기는 것은 후속.
@@ -8394,7 +8394,9 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   - Every change waits for the asker: in a room session any call outside `ROOM_READ_ONLY_TOOLS` (writes, edits, moves,
     make_file, save_url, schedules, connections' tools, tools added later) raises a server card to the asker first
     (`confirmRoomChange`), whatever the room's messages said; no answer or "don't" changes nothing. Always, not only when
-    other people's words are in the context: simpler, and it fails closed.
+    other people's words are in the context: simpler, and it fails closed. (Amended 2026-11-08: new team files in a
+    folder every member may write can be allowed for the rest of an answer or in advance for the room, and a call that
+    also needs the wider-audience card gets that one card: "대화방에서 새 파일은 미리 허용" below.)
   - Answer file links: `RoomMessage.openable` lists the team files an AI answer links to or shows that the viewer may
     open now; the app shows the others as plain text (no chip, no picture loaded).
   - An account that cannot be loaded (disabled, deleted, still listed) fails every check.
@@ -11361,7 +11363,8 @@ deleted and the auto-add removed ("자동 추가가 있다고?? … 굳이 물�
 - **No auto-add, and nothing in its place.** `server/src/onboarding/default-skills.ts` (the seeder, 5 s after the
   start and every 10 minutes) and its call in `setupWelcomeTeam` are gone; no "new skills, add them?" prompt. The
   welcome steps still install the general pack once (now 3 skills); the empty Team skills page's one admin button
-  ("추천 스킬 4개 넣기") installs the general and work packs. Members keep their line.
+  ("추천 스킬 4개 넣기") installs the general and work packs. Members keep their line. (Superseded by W6: the button
+  became the catalog fold "트리나가 준비한 스킬 · N개 더", and each skill goes in by name.)
 - **할 일 정리 gone:** the skill everything points at (`landingSkill`) is the shared skill only, else none: the invite
   link lands on Home and the end screen offers 홈으로 alone. The general pack is recorded once any of its skills is
   there (no one skill decides), so a missing 할 일 정리 never holds the team's start back or makes the page ask again.
@@ -14052,6 +14055,198 @@ the project's audience, the answer goes to the room; otherwise it stays private 
   audience, a planted instruction), `b-shared-chats`, `step-labels-tools`, `b-codex-rooms`.
 - Version impact: **minor** (two AI tools in rooms and an audit action; no API or database change).
 
+## 대화방에서 새 파일은 미리 허용 — "이 방에서는 항상 허용" (feat/room-ai-allowances, 2026-11-08, product owner)
+
+Amends "Every change waits for the asker" ("대화방의 트리나"). The owner (2026-11-08): in a room every change @트리나 makes
+raises the server card, so a daily job such as "@트리나 /견적서 만들어줘" stops one to three times on every answer, and one
+save could raise two cards (the room card, then the wider-audience card). The card remembered only the identical call
+(tool and JSON arguments) within one answer. The plan went through a UX review and a security review (the security
+re-check added the writers rule, the merged card's details and "made in this answer" from the file layer). One principle:
+**creating new team files can be allowed in advance; anything that cannot be undone or reaches more people still asks
+every time.** Team files keep their versions and a trash bin.
+
+- **The room card's choices.** [이번만 허용] [이 방에서는 항상 허용] [허용 안 함], with one line under them: "내가 부를 때, 이
+  폴더에 새 파일을 만들 때만 적용돼요." (`AskUserRequest.buttons`, `note`; the web shows the three in one row, stacked full
+  width on a phone; the address card and the schedule card keep their radios). The second is offered only when the call
+  can be covered (`TurnExec.roomGrantTarget`, all of these):
+  - the session is a room's (not the person's own chat after a room read, not a scheduled run, not a confidential chat);
+  - the tool is write, make_file or edit_hwp making a new file, or edit, write or edit_hwp of a file this same answer
+    made. Never edit_files, moves, copies, renames, save_url, save_room_file or any other tool;
+  - the path as the file layer resolves it for the person (`authorize(…, 'write')`: letter case, NFC/NFD, ".." and
+    links refused there), in a folder that is there, below the top folders: never the team root, a top folder, a group's
+    or a person's own folder (`groups/<g>`, `users/<id>`), a plugin's folder, a skills folder (`inSkills`), a hidden
+    folder, or an instruction-like file (`instructionLike`);
+  - **every member of the room may write it** (the same `authorize` for each member, security re-check): a grant adds
+    nothing anyone in the room could not do. A read-only member or a guest who cannot write there means two buttons
+    and no grant; otherwise any member's message could steer the AI into making files that member could not make
+    (a planted "단가표_v2.md" a skill later reads);
+  - the team's switch is on;
+  - the question used nothing from outside the team files (`chats.room_outside`: a web page or a search, review of
+    PR #198): such a page's author is no member, and a planted link could steer new files into a granted folder. Then
+    no grant and no [이번만] cover apply, and the card is the two-button one, as before.
+- **"Made in this answer"** comes from the file layer's create events of this turn (`file_events` `create`, not a move
+  into place), and nobody else (a person, another answer) changed the file since. Not `filesWritten`, which also holds
+  updated files: one allowed edit of an existing file must not let a later edit of it through.
+- **[이번만 허용]** covers the rest of this answer for that folder and its subfolders, for the same kind of calls only (new
+  files, files made in this answer), and only when the card offered "always" (every check above passed: the switch on,
+  the folder there, every member writing, nothing from outside). On any other card it is that call only (review of
+  PR #198: with the switch off one yes let later files through with no card and no audit row). Each call it lets
+  through is audited like a grant's use (`room.ai_grant_use` with `once`, no grant), its step line ends "이번만 허용으로
+  진행", and its file is named under the answer. Anything else keeps the exact-call memory, and an edit of a file that
+  was there before the answer always gets its own card.
+- **make_file** is checked where it saves: its output with the format's extension (`tools/make-file.ts`); an output
+  that ends in "/" gets the card.
+- **Checked again right before the write** (`TurnExec.recheckRoomCover`, from `chat/tools.ts` after the wider-audience
+  card): a call a grant or [이번만] let through still needs every member writing the target and nothing from outside;
+  otherwise the room card is asked then, without any cover. make_file's own wider-audience card for the pictures or the
+  template it embeds (`tools/make-file.ts confirmSources`, known only after parsing) can wait after that check, so the
+  same check runs again after that card (`chat/tools.ts toolContext`, before anything is placed).
+- **Subfolders.** Coverage stops at the first subfolder with folder rules of its own, and the target's own folder must
+  have the same readers and writers as the granted folder (`folderAudience`: the active people with access there and
+  theirs, hashed like `tools/file-moves.ts` compares audiences; people with no access are left out, so a new account
+  that cannot open the folder changes nothing).
+- **The grant** (migration 266, `room_ai_grants`): asker × room × folder (and subfolders) × new files, 30 days
+  (`ROOM_GRANT_DAYS`). With a good grant `confirmRoomChange` asks nothing; the step line ends "항상 허용으로 진행" and the
+  room's answer ends with "미리 허용한 폴더에 저장한 파일: …" (links; each viewer gets a chip only for a file they may open),
+  so the room sees what was saved. Checked again **when it is used** (`rooms/ai-grants.ts grantFor`): 30 days not passed;
+  the person still in the room and the room not archived; nobody joined at or after its card was raised
+  (`members_since`: a writer who joins while the card is open counts); the folder's readers and writers the same; the
+  person may still write the folder; the same folder on disk (`folder_id`, its device and inode: a folder renamed away
+  and another made with its name is not it); then for the target the subfolder rule, its folder's audience and every
+  member writing it. A lapse deletes the grant (audited, a later change back does not revive it);
+  the team's switch off only ignores grants (kept). Leaving a room deletes the person's grants there
+  (`Rooms.forgetMember`). Making another grant for the same folder renews it.
+- **Audit.** `room.ai_grant` (made), `room.ai_grant_revoke` (reason: person, left, expired, member_joined, audience,
+  no_write, folder_changed) and `room.ai_grant_use` (the file, the tool, the turn; `once` for [이번만]). A DM or a group chat is named by its kind only
+  (`roomAuditRef`), a team room or the everyone room by its id, as the other room audits do.
+- **One card per call.** For write, edit, make_file and edit_hwp the wider-audience need is computed before the room
+  card is raised (`TurnExec.widenNeed`; `chat/tools.ts widenOf` passes where the call saves and what it copies). When the
+  call needs both, only the wider-audience card is shown, with the room card's details (what it writes; an instruction
+  file's whole text) and no "항상"; its yes is the room yes of that call, its no refuses it. In the person's own chat after
+  a room read the same, with the rooms-seen line in front. make_file's later card (pictures, a template known only after
+  parsing) is never the room's yes. The checks keep their order (room, skill-write card, wider audience); only the asking
+  is merged. A granted folder still gets the wider-audience card when the answer read something fewer people can see.
+- **Unchanged.** The skill-write card (`confirmSkillWrite`, exact bytes), the caller's permission check (`authorize`),
+  the room-share decision (`RoomAi.decide`), edit_files' one card per batch, and every other tool's card.
+- **Words.** Every server card is titled "확인해 주세요" (was "팀 서버의 안전 확인"). The room card says what the AI will do
+  and that changed files can be restored ("트리나가 영업/견적서에 새 파일을 저장하려고 해요: 견적서_A사.hwpx. 바뀐 파일은
+  기록에서 되돌릴 수 있어요."); "대화방에는 다른 사람의 메시지도 있어요" is gone (it read as distrust of teammates). Buttons:
+  이번만 허용 / 이 방에서는 항상 허용 / 허용 안 함 (also the own chat's card: 이번만 허용 / 허용 안 함). Five languages.
+- **Settings › 트리나에게 허용한 것** (account group; "AI에게 허용한 것" where the product is not named after its AI):
+  one row per grant, "디자인 리뷰 → 영업/견적서" over "새 파일 저장 · 11월 8일", with [지우기] (no confirm: deleting only means
+  being asked again); a room as the person sees it (a 1:1 as "소라님 · 1:1"); an empty list is one line. `GET` and
+  `DELETE /api/ai-allowances[/:id]` (`shared/src/api/ai-allowances.ts`): one's own only, another person's id answers 404
+  like one that is not there. A union by `kind` so the sites allowed for a conversation can join it later (PR 2).
+- **Admin › Team settings › AI: "대화방에서 '항상 허용' 쓰기"** (`TeamSettings.roomAlwaysAllow`, on by default), one line of
+  help. Off: no third button, grants ignored at use (kept).
+- **A team room's words and the owner and admins** (design change after the review of PR #198). A room question whose
+  context holds earlier messages adds the room to the read scope (its members are its readers), so a save from a team
+  room to the group's own folder raised the wider-audience card on every answer: the owner and admins read every group
+  folder and are seldom in its room. They may add themselves to any group (`PATCH /api/admin/groups/:id`), which puts them
+  in its team room, and a team room shows its history to a later member except the old answers built on what they cannot
+  read (rooms/history.ts). So `TurnExec.widenNeed` drops a narrower source that is a team room when every person who
+  could read the target and not the room (`missingReaders`) is an active owner or admin who would see the room from the
+  context's first message if they joined now (`wouldSeeFrom`, the history walk, at most `WOULD_SEE_MS` = 100 ms per
+  owner or admin and save; out of time is no, so the card shows). An answer built on a DM there, or a member who is not
+  an owner or admin who can read the folder, keeps the card. The rule sits in `widenNeed`, so it applies to every save
+  that asks the wider-audience question there: from a room session, from the person's own chat after a room read,
+  save_url, save_room_file, and make_file's sources (its source, pictures and template). DMs, group chats and the everyone room
+  are unchanged, and so is who reads a room (`viewersOf`, `roomViewers`). The owner and admins get no join line and no
+  audit row for this read: acceptable, as they already read every group folder without one.
+- **Known limit.** Outside that case (a folder people outside the room read who are not owners or admins, a DM or a
+  group chat), saving where people outside the room can read still raises the wider-audience card on every such
+  answer, a grant or not: one card instead of two.
+- Tests: `tests/unit/b-room-ai-grants.test.ts` (the card's words and buttons; a grant and the next file without a card,
+  the step line and the answer's file list; an existing file; one allowed edit not letting a second through; [이번만] for
+  a second new file and a made file but not an existing one; NFC/NFD and letter case; a ruled subfolder; top, group,
+  personal, skills, instruction, plugin and hidden folders; edit_files and moves; the merged card and its no; a granted
+  save with the wider-audience card alone; each lapse, a writer who joins while the card is open, a new account and a
+  folder made again under the same name; a read-only member, apart from the join; the switch, and [이번만] on a card
+  without "always"; a web search in the question; make_file's real path; the check again at write time; a team room to
+  its group folder without the card, and with it for an answer built on a DM, a non-admin reader, a DM and a group
+  chat; the own chat and a scheduled run; DM, group and team audit rows; the list and delete endpoints), updated `b-rooms-ai` and
+  `b-chat-rooms` (the merged card), `web/test/unit/ask-card-confirm.test.tsx`, `web/test/e2e/room-ai-allow.spec.ts`
+  (the three buttons and their answers, a phone, "항상" and the next answer without a card, the merged card, the settings
+  list and delete, the admin switch).
+
+## W6 — Onboarding v6: skills catalog and 내 스킬 (feat/onb6-catalog, 2026-11-08, product owner)
+
+넣을 곳: trina-ax `server/src/onboarding/skill-packs.ts`, `server/src/routes/onboarding-packs.ts`,
+`server/src/skills/share.ts`, `shared/src/api`, `web/src/components` (onboarding/SkillsStep.tsx, AvailableSkills.tsx,
+skills/), 이유: onboarding v6.2 (FLOW-v6 §2, §2.2, §2.5, §4.1, §4.2, §6): nothing goes into a team without a press that
+names it, and the four kept skills (DS3) are chosen, not installed for the owner.
+
+- **The catalog** (`GET /api/onboarding/packs`, owners and admins; `skillPackCatalog`): every kept skill in `CATALOG`'s
+  order (회사 소개서, 카드뉴스, 홍보 영상, 자연스러운 글), with its title (the SKILL.md's, in the language of the text the
+  team gets), one line in the caller's language (`SUMMARY`, five languages; the SKILL.md description is written for the
+  AI), `inTeam` (its path, or another team skill of its name: `/<name>` would run either one, so `placeSkill` blocks
+  it), `visual` (made from the company profile), its example, its locale and its source; and `profile` (a company profile
+  is saved). A test holds `CATALOG` to `SKILL_PACKS`, so a skill shipped later is one more row: it only raises "N개 더",
+  with no notice, Inbox line, dot, toast or prompt.
+- **Install by name.** `POST /api/onboarding/packs/:id/install` takes `skills` (absent: the whole pack, as before). A name
+  not in the pack is refused before anything is written. An install holding a visual skill runs the hooks of
+  `onVisualSkillInstall` first; a hook that throws is logged and the skill still goes in. The route registers the brand
+  action there (welcome-result.ts `ensureBrand`: the website's pictures and 회사 소개.md in the brand folder, FLOW-v6
+  §1A), **on the team owner's own press only**. An admin's press leaves the brand not done: run under the admin's
+  account it would be marked done (`brandAt`) with whatever that account reaches, and nothing would fill it again. Left
+  open, the owner's next 회사 소개 save, the server's run on a read, or the owner's own install places it as the owner.
+  The simpler of the two ways (running it as the owner instead would write the owner's files on an admin's press and
+  name the owner in the audit for it). An owner's install
+  that put anything in marks 내 스킬 done while the steps are under way (not finished), like a share applied anywhere
+  (`recordShared`); an admin's does not. A skill the team deleted goes in again on a press that names it.
+- **Sources** (`PackSkillSource`): `team` "트리나 팀이 만들었어요" for the three visual skills; `team_writing` for the Korean
+  자연스러운 글 (the company's own Korean writing skill); `adapted` for the English one (Siqi Chen's MIT "humanizer",
+  rewritten), the only link out ("원본 보기 ↗" → github.com/blader/humanizer). Teams in id, ja and es get the English text,
+  so its source line and example.
+- **Examples** (EXAMPLES-PLAN.md): registered in `PACK_EXAMPLES` by the language of the skill text and the skill name
+  once their files exist; none yet, so the viewer says "예시를 준비하고 있어요". An image is
+  `web/public/skill-examples/<locale>/<name>.webp` (≤ 90 KB, `PACK_EXAMPLE_LIMITS`), loaded only when the viewer opens;
+  a text is `resources/skill-packs/<pack>/<locale>/<name>/EXAMPLE.md`, imported as text like the SKILL.md (front matter
+  `fictional: true`, `company`, `made`, `engine`, `skillHash`, then a before → after excerpt in Markdown, ≤ 900 / 1,200
+  characters), sent without its front matter and drawn in the page's own theme. EXAMPLE.md is never installed. A test
+  checks every registered example's file and size.
+- **The viewer** (`skills/SkillExampleViewer.tsx`): one dialog, the phone's sheet on phones, one example per open: no ‹ ›
+  to the next row and no "넣기" mirror (FLOW-v6 §2.4; the row has the checkbox, and the owner prefers lean screens).
+  "가상의 회사 '예시커피'로 만든 예시예요 …" only when an example is shown; an image that fails shows the line and "예시를
+  불러오지 못했어요". ✕, Esc and a tap outside close it, the focus back on that row's 예시.
+- **내 스킬** (`onboarding/SkillsStep.tsx`): the kept skills the team lacks, snapshotted when the step first gets them
+  (rows and checks never move under the pointer), then bring-your-own (`SkillShareReview` embedded: no primary of its
+  own), under ONE primary that names what goes in: every skill, kept and own alike, up to three items ("회사 소개서·카드뉴스·
+  홍보 영상 넣기", "카드뉴스·주간 업무 보고 넣기"; the team rule and the tools, which have no skill name, as "… 외 {n}개"),
+  "팀에 넣기 · {n}개" from four on. Pre-checks without AI: the visual three when a profile is saved,
+  never 자연스러운 글, none on a revisit of a done step. On press the own skills go in first (their apply records the step),
+  then the kept ones per pack; all in: a toast and 팀 파일. When anything of the press failed, either part, the step stays:
+  it marks what went in and says why for the rest (a name taken, folder rules, a request that failed, with 다시 for only
+  those; "내 스킬 {k}개는 넣었어요 · 준비한 스킬은 넣지 못했어요" when own skills went in and kept ones did not). An own
+  skill's error stays on screen until the press is sent again (its 다시 or the primary, which also sends the kept skills
+  that failed); the kept skills' 다시 never moves the step on while it stands. With nothing left to send the primary
+  reads 다음. 나중에 하기 installs
+  nothing and drops an open own list; on a phone too (`skillsLater` is no longer set; old rows still read it). The
+  Claude Code·Codex line is behind one disclosure. A phone: the same rows with their one line (how a person chooses), and
+  one line that own skills go in on a computer.
+- **A real 30-second end for the own-skill check** (walk review M2). While own skills are checked the primary is disabled
+  ("내 스킬 살펴보는 중…"). A share still checking 30 seconds after the page showed it is ended by
+  `POST /api/skill-shares/:id/stop-check` (the proposer only; anyone else 404): an answer already in is read first;
+  otherwise the judge's turn is stopped and the share is `ready` with `ai: failed` (nothing recommended), so it can be
+  applied, and a late answer changes nothing (`finish` writes once). Audited `skills.share_stop_check`. A failed request
+  shows the network error with 다시; 그만 찾기 still drops the list. The server's own 10-minute limit stays for proposals
+  nobody watches (Claude Code, Codex). The Team skills sheet uses the same 30 seconds; `/skills/share/:id` does not.
+- **Team skills** (`AvailableSkills.tsx`): the empty page's "추천 스킬 4개 넣기" (DS3) becomes the fold "트리나가 준비한 스킬 ·
+  N개 더" under the lists, owners and admins only, nothing pre-checked, [팀에 넣기 · n개]; the rows that went in move up
+  into the list (the catalog is read again on `skillsChanged`). Hidden while the search box has text, absent when nothing
+  is missing; a failed read says "준비한 스킬을 불러오지 못했어요" with 다시. Then "내 스킬 가져오기" for everyone on a
+  computer: owners and admins pick a folder and apply it (`skills/BringSkillsSheet.tsx`: the same picker as 내 스킬,
+  [팀에 넣기 · n개] with [닫기] beside it, not 나중에 하기); members get `ContributeSheet` (스킬로 제안). On a phone one plain line: "쓰던 스킬은
+  컴퓨터에서 넣어요". A member's empty page: "아직 팀 스킬이 없어요 · 팀장이나 관리자가 넣으면 여기에 보여요" and the
+  스킬로 제안 hint. Members see 회사 소개서 when the team put it in: an ordinary team skill (OPEN Q3).
+- **Left to the other v6 parts:** the brand action itself and `brandAt` (`ensureBrand`, registered here), the
+  general pack leaving `setupWelcomeTeam`, 준비 끝's first result, 팀 파일, 도구 연결, the handover, the member suggestion's
+  new trigger, the desktop folder window and the example files.
+- Tests: `tests/unit/b-skill-catalog.test.ts` (the catalog, install by name, the hook, the brand on the owner's press
+  only, the welcome record, stop-check),
+  the web unit tests of the step, the viewer and the fold, and `web/test/e2e/onb6-skills.spec.ts`.
+- Version impact: **minor** (two endpoints, an optional request body, new screens; no migration).
+
 ## W6 — Onboarding v6: steps, 회사 소개 without a deck, 도구 연결, 준비 끝 (feat/onb6-core, 2026-11-08, product owner)
 
 Plan: `docs/AGENTS/plan/20261108-0508-onb6-core.md`. The owner's v6.2 decisions: nothing goes into a team without a press
@@ -14199,6 +14394,85 @@ folder for 팀 파일). The owner decided (OPEN Q1) to fix only the desktop app'
   (`bunx playwright test -c e2e/rtc-native.config.ts` in `desktop/`): it pins Electron behaviour these rules rely on,
   and CI does not run the desktop e2e.
 - Version impact: **patch** (a desktop fix; no API, database or setting change).
+
+## W6 — Onboarding v6: 팀 파일 recommendations (feat/onb6-files, 2026-11-08, product owner)
+
+The owner's decisions (2026-11-08): the AI recommends from file names and metadata, the person confirms once, then the
+files upload. Never fully automatic; no file content leaves before the upload. The 팀 파일 step becomes a folder pick, a
+local list, the AI's picks, one confirm and the upload (FLOW v6 §3). `web/src/components/onboarding/TeamFilesStep.tsx`
+(moved out of `pages/Welcome.tsx`, which only mounts it and passes the next step's label), `web/src/lib/teamFiles.ts`.
+
+- **F1 start.** [폴더 고르기]: Chrome, Edge and the desktop app open `showDirectoryPicker({ id: 'team-files', mode: 'read', startIn:
+  'documents' })` (never `webkitdirectory`, whose Chrome dialog says "Upload # files"); Safari and Firefox the folder
+  input, with "폴더를 살펴보는 중…" once the window has gone until the files or a cancel arrive. The hint says the
+  browser does not open 문서·데스크탑·다운로드 themselves ("바탕 화면" on Windows); the folder input's says big folders take a
+  while. A cancel, a folder Chrome refuses and "허용 안 함" are all `AbortError`: nothing happens. Quiet "파일 직접 올리기"
+  (hand-picked files go up at once) and 나중에 하기. A dropped folder goes to the list, dropped files go up.
+- **The local walk** (in the page, before anything leaves): breadth first, it stops at 5,000 documents or 50,000
+  entries walked, 6 folders down or 15 s, with the cut line. Never listed: dot entries, system names, app bundles,
+  node_modules, .git, Library (and AppData, Office's `~$` lock files). Documents: pdf, doc(x), hwp(x), xls(x), csv,
+  ppt(x), key, pages, numbers, txt, md, rtf; png and jpg only under a folder named like logo, brand, 브랜드 or 로고. A file
+  is opened (for its size and date) only when it is a document; over 50 MB it is counted, not offered. The walk reads no
+  content; the upload reads only the ticked files.
+- **Personal-looking names** (a word list, Korean and English, matched against every part of the path, the picked
+  folder's own name included: 인사/급여/2026-10.xlsx) are never sent to the AI and never ticked by default; they sit in their own group, and a ticked
+  one says "{팀} 모두가 봐요". FLOW §3.2 sent them to the AI; the build brief (2026-11-08) said never, and that is what is
+  built (fewer personal names leave). When every file looks personal no AI call is made, that group opens, and the line
+  reads "개인 정보일 수 있는 파일이 많아요 · 직접 골라 주세요".
+- **The AI's picks: `POST /api/onboarding/files/rank`** (owners and admins; the Files screen offers the step to admins
+  too). At most 500 entries, chosen by name words first (양식, 템플릿, 서식, 규정, 소개서, 매뉴얼, 가이드 and English ones), then
+  office files before text and pictures, then newest: id, name, the folder inside the picked one, type, size, date.
+  The pick IS a chat turn of the caller (there is no AI call outside a turn), run like the skill share's judgement:
+  `server/src/onboarding/file-rank.ts` marks the chat in `onboarding_file_ranks` (migration 272), its turns have no
+  tool (the file tools are refused), no team rules, skills, memories, project, attachments, browser, sub-agents or web
+  search, and their own instructions with the entries as one JSON line each inside `<material>` (its closing tag broken
+  in names). The request waits at most 30 s; then, or when the page drops it ([그만 보기], its own 30 s), the turn is
+  stopped and the answer is ignored. The answer is read defensively (known ids once, a known reason word, at most 200).
+  The chat is never listed and is deleted after (a leftover of a restart within minutes); its turns stay (the usage is
+  the caller's). No AI, a timeout or an
+  error: the list shows unticked with "AI 없이 살펴봤어요 · 직접 골라 주세요".
+- **F3 the list.** The AI's top 20 ticked with their reason word (양식 · 회사 소개 · 보고서 · 회의록 · 브랜드 자료 · 규정·정책 · 교육
+  자료 · 제안서); "이미 있어요" (the same path in the target folder with the same size, or in a run of the step: never
+  ticked, a renamed "(1)" copy never matches; only folders that are there are listed, from the target down); the
+  personal group; "다른 파일도 보기" (the AI's further picks, then the rest newest first; a search above 30 rows; the
+  50 MB line in its footer); the personal group has its own search above 30 rows. "폴더 더 고르기" merges (a file listed twice shows once), ranks again, keeps the ticks; new
+  picks arrive unticked. "넣을 곳" only with more than one place. At most 100 ticked: "한 번에 100개까지 올려요". The
+  primary reads "추천 N개 올리기" while the ticks are the AI's, "{n}개 올리기" after a change, "다른 폴더 고르기" with none.
+  The list, the answer and the ticks stay in the tab while it is open (← 이전 and 다음, another page and back: no second
+  AI call); sign-out forgets them.
+- **F4/F5 run on the file screen's folder runs** (MUST 3 / MUST A): `startFolderUpload` gained a tag (`welcome-files`)
+  and an `onLanded` callback; `lib/folderRuns.ts` keeps the newest run of a tag after its row leaves the file screen,
+  until sign-out. Runs go on across pages, guard reload and close (`beforeunload`), upload 3 at a time, make folders
+  parent first, each picked folder's own name first. The step opens on its newest run (F4 while it runs, F5 after),
+  never on F1; a finished step without a run in the tab opens on F1 with "다음: …" as the primary and 폴더 고르기 beside
+  it. Hand-picked and dropped files run the same way with no folder level, skipping a file of the same name and size
+  in the target folder or in a run of the step ("이미 올린 파일 n개는 건너뛰었어요"). [그만 올리기] stops a run (what went up
+  stays, the server drops the unfinished files). F5: "Acme 폴더에 k개를 올렸어요", the next step, quiet "폴더 더 고르기";
+  failed or stopped files show their reason and 다시 goes back to F3 with them ticked (a hand-picked run sends them again).
+- **팀 파일 recorded by the run: `POST /api/onboarding/files/landed`** (owners and admins), called by the run with its
+  first landed file's path. The server records the step done once, only on a team whose steps were opened, only for a
+  file written within the hour that is there in a group's folder and readable by the caller (`server/src/onboarding/team-files.ts`), with the
+  current owner as the one whose steps end. Not `PATCH /welcome`, which is the owner's: after a transfer the old owner is
+  an admin and their run still records the step (review M5). FLOW said "the upload carries the run's tag"; a call of its
+  own keeps the upload contract (component C) as it is, and the run makes it from any page.
+- **Phone:** no folders. "휴대폰에서는 폴더째 살펴볼 수 없어요…" with [파일 직접 올리기], then F4/F5.
+- **After setup:** on a computer's Files screen, owners and admins see one quiet line "폴더에서 회사 문서 추천받기" at the top
+  and in the team folder while the team folder holds no file (its own folders do not count). It opens the same steps in
+  a dialog ("닫기" instead of the next step, no 나중에 하기).
+- **Desktop app:** the folder window, as in Chrome (its File System Access works since "W6 — Desktop: the folder
+  window"), without the browser's hint (the app opens Documents, Desktop and Downloads themselves); the Mac App Store
+  build answers the folder input with its own window (`answersFileInputs`).
+- **Not here / said out loud.** `FolderUploads` still shows only on the file screen: on another page a run goes on and
+  its guard holds, without a row. ← 이전 stays enabled during F4 (the run goes on; coming back shows it). The step plan,
+  the tools step and the "다음:" wording belong to the step-plan branch: the label is a prop here.
+- Tests: `tests/unit/b-onboarding-file-rank.test.ts` (the answer read defensively, the fence, the turn on the fake
+  engine: not listed, its own instructions, no tool, a refused tool call, a JSON answer, the timeout and a dropped
+  request, the route's roles and body checks, the landed record), `tests/security/lib/onboarding-files-cases.ts`,
+  `web/test/unit/team-files.test.ts` (the walk and its limits, never-listed names, types, personal names, what goes to the
+  AI, the groups, the cap, merge and dedupe, "이미 있어요", hand-picked skips, the tagged run), `web/test/unit/welcome.test.tsx`,
+  `web/test/e2e/welcome-team-files.spec.ts` (F1–F5, leaving during F4 and coming back, 0 recommendations and no AI, the
+  phone, the Files screen's dialog).
+- Version impact: **minor** (two API routes, migration 272, a new step screen).
 
 ## 접속 상태 — online status, a dot on a person's picture (feat/presence-dots, 2026-11-08, product owner)
 
@@ -14377,3 +14651,70 @@ accounts, relay names); nothing about plans or billing.
   punycode, the store links, the merged menu), `mobile-security` (stored addresses, bare names, the edition's domain and
   guide, the phone strings and the switch copy, no signup link, leaving only in `connect`), `f-frames` (reserved names),
   `a-team-address` (the `/api/me` field), `web/test/unit/first-run.test.tsx`, `web/test/e2e/first-run.spec.ts`.
+
+## Migrations that would be skipped say so (chore/migration-guard, 2026-11-08)
+
+- **Why.** The runner (`server/src/db.ts` `readMigrations`) applies only `NNN_<lower-case letters, digits, _>.sql`
+  and skipped any other file without a word, while the builds ship every `.sql` file. Applied migrations are known by
+  number only, and three numbers were on dev under another name before a rename (214 `b_schedule_sources` → 215, 222
+  `b_onboarding_notices` → 231, 326 `b_chat_skill_lists` → 217). A database that ran the old file skips the new file
+  at that number, and runs the moved one again: for 214 and 222 that fails ("duplicate column", "already exists") and
+  the server does not start.
+- **CI catches a misnamed file.** `tests/unit/p1-migration-files.test.ts`: every file in `server/migrations/` matches
+  `MIGRATION_FILE` (now exported, the runner's own pattern), `readMigrations` returns every `.sql` file, and no two
+  files share a number (`readMigrations` already throws on that at start).
+- **A warning, not a refusal.** At start-up the server logs one warning per recorded migration whose file was renamed
+  since (`renamedMigrations`): the file now at that number never runs on this database, or the recorded name is now
+  under another number, or both, each named. It comes before pending migrations run, so a failure after it has its
+  reason in the log. The server still starts: dev and customer databases already hold renamed entries. A recorded
+  number with no file and no file of the same name is a newer build's migration after a downgrade: no warning. Only the
+  server passes its log (`openDb(file, { log })`); the CLIs stay quiet.
+- **B gets a second range, 400–499** (owner, 2026-11-08). 200–299 had 27 numbers left after 272 at about ten a day.
+  D and E have no server DB, so 400–599 was free, and 4xx files sort after B's 2xx files, so they may build on them.
+  docs/WORKPLAN.md §4 and the `db.ts` header say so. **A number already on dev is never renamed**: a clash is fixed by
+  renumbering the newer branch before it merges. No file is renumbered here.
+- Tests: `tests/unit/p1-migration-files.test.ts` (the folder checks; the runner skipping a hyphen, a capital, four digits
+  and `.SQL`; two files with one number; a new file at the old number, a move with a new file at the old number before
+  the "duplicate column" failure, a move with none, a downgrade and a matching database without a warning).
+- Version impact: **patch** (a server log line and a test; no API, setting or data change).
+
+## Budget notices and connection limits count in the team's time zone (fix/team-time-zone, 2026-11-08)
+
+- **Why.** A hosted server runs in UTC. Budgets' spend (`checkBudgets`, which blocks a send) and the Usage page already
+  counted the team's day and month (`teamTimeZone`, see "팀 시간대(명세 D16)"), but three places still used the process's
+  zone: the once-per-period key of `budget_notices` (`periodStart` without a zone in `admin/budget-watch.ts`),
+  `periodEnd` without a zone, and a connection's monthly limit (`localDay`, `monthStart`, `nextMonthStart` in
+  `credentials/store.ts`, whose comment still said "like budgets and usage"). A Korean team's daily block budget used up
+  at 14:00 KST and again at 08:00 KST the next day was one UTC day: the second notice was ignored while the person was
+  blocked. A connection's month reset at 09:00 KST on the 1st, and its "this month" differed from the Usage page.
+- **The rule.** Every day or month that limits someone or that they see is the team's. `periodStart` and `periodEnd`
+  take the zone as a required argument (the process-zone branch is gone). A budget notice is keyed by the start of the
+  team's day or month. `credential_usage_daily.day` is the team's day (`teamDay`), a connection's month sums from the
+  team's `YYYY-MM-01` (`teamMonthKey`, also the `credential_notices` key), and a used-up monthly limit comes back at
+  00:00 on the team's 1st (`nextMonthStart(db, now)`, through `periodEnd`). The ChatGPT refresh audit (once a day) uses
+  the team's day too, so budgets and connections keep no server-zone helper. The monthly limit's hint says "팀 시간대"
+  (five languages). `zonedParts` keeps one formatter per zone (building one took about 0.2 ms, and the model proxy now
+  asks for the team's day on every request).
+- **Stored formats unchanged, no migration.** The keys are still an ISO instant, `YYYY-MM-DD` and `YYYY-MM-01`. On a Mac
+  whose zone is the team's nothing changes: the same instants and day strings come out.
+- **At the switch-over** (only where the process zone differs from the team's: hosted servers, a self-hosted Linux
+  server in UTC, a Mac whose team zone was set to another one): a budget notice already sent for the current day or
+  month under the old key (midnight in the process's zone) may be sent once more under the new one (midnight in the
+  team's); none is skipped, because the two keys differ unless both zones have the same offset that day, and then the
+  key is the same. Requests counted before the update
+  stay on the UTC day they were filed under, so one month boundary of a connection sits where it was (for Seoul, a
+  request between 00:00 and 09:00 KST on the 1st, filed before the update, counts to the previous month). For a team
+  behind UTC whose update lands in the hours between the UTC 1st and its own, that month's connection notice can be
+  skipped (the UTC month already used its `YYYY-MM-01` key). Accepted: once, on one server, and the limit itself still
+  blocks. Changing the team's zone in Admin › Team settings later has the same one-off effect.
+- **Not changed.** Schedules (already `rt.timeZone`). Hosted voice input's free hours keep Korea's month on purpose
+  (`credentials/hosted-speech.ts`). Log file names (`log.ts`), the TLS stamp and the export's UTC dates are not a count.
+  Follow-ups, names and times that show but do not count: connection notices and details (`credentials/i18n.ts`
+  `fmtTime`/`fmtDate`) and two dates in diagnostics (`system/ops.ts`) are formatted in the process's zone, and
+  `conflictCopyName` still falls back to it where a caller gives no zone (`devenv/track.ts`). `zonedToUtc` gives 23:00
+  the day before in a zone whose clocks jump forward at midnight (America/Santiago); older than this change.
+- Tests: `tests/unit/a-budget-watch.test.ts` (process in UTC, team in Asia/Seoul: a daily block budget crossed on two
+  Seoul days of one UTC day notifies both days with Seoul-day keys; a connection's month resets at 00:00 KST, files a
+  request at 01:00 KST on the 1st under November, shows November's "this month" and sends November's notice);
+  `tests/unit/g-timezone.test.ts` drops the "without a zone" case.
+- Version impact: **patch** (a fix and one hint string; no API, setting or data format change).

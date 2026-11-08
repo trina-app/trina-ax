@@ -25,6 +25,7 @@ import { ONBOARDING_PACKS } from './onboarding-packs'
 import { ONBOARDING } from './onboarding'
 import { TEAM_LINKS } from './team-links'
 import { WELCOME } from './onboarding-welcome'
+import { ONBOARDING_FILES } from './onboarding-files'
 import { ONBOARDING_GOAL } from './onboarding-goal'
 import { DEMO } from './demo'
 import { PEOPLE } from './people'
@@ -35,13 +36,14 @@ import { PROMO_VIDEO } from './promo-video'
 import { INTRO_DECK } from './intro-deck'
 import { KNOWLEDGE_GRAPH } from './knowledge-graph'
 import { SKILL_SHARES } from './skill-shares'
+import { AI_ALLOWANCES } from './ai-allowances'
 import type { Endpoint } from './endpoint'
 
-export const API = { ...AUTH, ...CHATS, ...MEMORIES, ...SKILLS, ...SCHEDULES, ...CONNECTED, ...FILES, ...ARTIFACTS, ...JOBS, ...BROWSER, ...ADMIN, ...CREDENTIALS, ...DRIVE, ...INTEGRATIONS, ...NOTIFICATIONS, ...PUSH, ...REMOTE_MCP, ...SYSTEM, ...OFFICE_UPDATE, ...PLUGINS, ...DEV_ENV, ...ONBOARDING_PACKS, ...ONBOARDING, ...TEAM_LINKS, ...WELCOME, ...ONBOARDING_GOAL, ...DEMO, ...PEOPLE, ...ROOMS, ...ACCOUNT_DELETION, ...SLACK, ...PROMO_VIDEO, ...INTRO_DECK, ...KNOWLEDGE_GRAPH, ...SKILL_SHARES } as const
+export const API = { ...AUTH, ...CHATS, ...MEMORIES, ...SKILLS, ...SCHEDULES, ...CONNECTED, ...FILES, ...ARTIFACTS, ...JOBS, ...BROWSER, ...ADMIN, ...CREDENTIALS, ...DRIVE, ...INTEGRATIONS, ...NOTIFICATIONS, ...PUSH, ...REMOTE_MCP, ...SYSTEM, ...OFFICE_UPDATE, ...PLUGINS, ...DEV_ENV, ...ONBOARDING_PACKS, ...ONBOARDING, ...TEAM_LINKS, ...WELCOME, ...ONBOARDING_FILES, ...ONBOARDING_GOAL, ...DEMO, ...PEOPLE, ...ROOMS, ...ACCOUNT_DELETION, ...SLACK, ...PROMO_VIDEO, ...INTRO_DECK, ...KNOWLEDGE_GRAPH, ...SKILL_SHARES, ...AI_ALLOWANCES } as const
 export type Api = typeof API
 export type ApiName = keyof Api
 
-export const API_GROUPS = { AUTH, CHATS, MEMORIES, SKILLS, SCHEDULES, CONNECTED, FILES, ARTIFACTS, JOBS, BROWSER, ADMIN, CREDENTIALS, DRIVE, INTEGRATIONS, NOTIFICATIONS, PUSH, REMOTE_MCP, SYSTEM, OFFICE_UPDATE, PLUGINS, DEV_ENV, ONBOARDING_PACKS, ONBOARDING, TEAM_LINKS, WELCOME, ONBOARDING_GOAL, DEMO, PEOPLE, ROOMS, ACCOUNT_DELETION, SLACK, PROMO_VIDEO, INTRO_DECK, KNOWLEDGE_GRAPH, SKILL_SHARES } as const
+export const API_GROUPS = { AUTH, CHATS, MEMORIES, SKILLS, SCHEDULES, CONNECTED, FILES, ARTIFACTS, JOBS, BROWSER, ADMIN, CREDENTIALS, DRIVE, INTEGRATIONS, NOTIFICATIONS, PUSH, REMOTE_MCP, SYSTEM, OFFICE_UPDATE, PLUGINS, DEV_ENV, ONBOARDING_PACKS, ONBOARDING, TEAM_LINKS, WELCOME, ONBOARDING_FILES, ONBOARDING_GOAL, DEMO, PEOPLE, ROOMS, ACCOUNT_DELETION, SLACK, PROMO_VIDEO, INTRO_DECK, KNOWLEDGE_GRAPH, SKILL_SHARES, AI_ALLOWANCES } as const
 
 /** All endpoints with their registry key. */
 export function listEndpoints(): { name: ApiName; ep: Endpoint }[] {
@@ -80,6 +82,7 @@ export * from './onboarding'
 export * from './onboarding-skill'
 export * from './team-links'
 export * from './onboarding-welcome'
+export * from './onboarding-files'
 export * from './onboarding-goal'
 export * from './demo'
 export * from './people'
@@ -90,6 +93,7 @@ export * from './slack'
 export * from './promo-video'
 export * from './intro-deck'
 export * from './skill-shares'
+export * from './ai-allowances'
 export * from './knowledge-graph'
 export * from './ws'
 export * from './client'

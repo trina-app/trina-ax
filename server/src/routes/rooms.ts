@@ -1,6 +1,7 @@
 // Route module "rooms" — owner: component B. Team chat rooms ("대화방" v1, docs/DECISIONS.md "대화방 v1").
-// Implements: ROOMS (shared/src/api/rooms.ts). Logic: server/src/rooms/*. Every handler takes the person from the
-// session; the request never names an author or another member's read position.
+// Implements: ROOMS (shared/src/api/rooms.ts) and AI_ALLOWANCES (shared/src/api/ai-allowances.ts: what I allowed @트리나
+// in advance, rooms/ai-grants.ts). Logic: server/src/rooms/*. Every handler takes the person from the session; the
+// request never names an author or another member's read position.
 import fs from 'node:fs'
 import path from 'node:path'
 import { API } from '@mycel/shared/api'
@@ -13,6 +14,7 @@ import { hashFile, writeTemp } from '../team-files/place'
 import { roomsOf } from '../rooms/service'
 import { roomFilesOf } from '../rooms/files'
 import { roomAiOf } from '../rooms/ai'
+import { deleteGrant, listGrants } from '../rooms/ai-grants'
 import { getChatRuntime } from '../chat/runtime'
 import { windowOf } from './chats'
 
@@ -62,6 +64,9 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.leaveRoom, ({ auth, params }) => rooms.leave(auth.user.id, params.id))
     // hiding a DM, a team room or the everyone room from my own lists (docs/DECISIONS.md "대화 숨기기"): mine only
     kit.handle(API.setRoomHidden, ({ auth, params, body }) => rooms.setHidden(auth.user.id, params.id, body.hidden))
+    // "이 방에서는 항상 허용" (rooms/ai-grants.ts): my own only; another person's id answers like one that is not there
+    kit.handle(API.listAiAllowances, ({ c, auth }) => { c.header('Cache-Control', 'no-store'); return { items: listGrants(ctx.db, auth.user.id) } })
+    kit.handle(API.deleteAiAllowance, ({ auth, params }) => { if (!deleteGrant(ctx.db, auth.user.id, params.id)) fail('not_found') })
 
     kit.handle(API.uploadRoomFile, async ({ auth, params, body }) => {
       // the same checks as a chat attachment: the whole part arrived, there is room on the disk
