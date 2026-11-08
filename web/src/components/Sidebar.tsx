@@ -13,9 +13,11 @@
 // 검색, 프로젝트, 예약 작업, 팀 스킬, 트리나 기록, and 삭제한 기록 at the bottom. A new AI chat is the 트리나 tab itself, the
 // Inbox and Admin are in the 나 tab, 파일 is its own tab and the rooms are the 대화 tab; rows are 44 px there.
 // A shared project chat I made or wrote in (docs/DECISIONS.md "Shared project chats") is a row like any other, with the
-// people icon before its title (no section of its own); its "···" offers only what I may do there.
+// people icon before its title (no section of its own); its "···" offers only what I may do there. A chat of my own has
+// "프로젝트로 옮기기…" ("프로젝트 바꾸기…" in a project) there too, the dialog of the chat's title menu; a shared chat stays
+// in its project.
 import clsx from 'clsx'
-import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Palette, Pencil, Search, Settings, Shield, Trash2, X } from 'lucide-react'
+import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderInput, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Palette, Pencil, Search, Settings, Shield, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
@@ -37,6 +39,7 @@ import { isAdmin, useMeStrict, useSession } from '../store/session'
 import { useUi } from '../store/ui'
 import { Avatar } from './Avatar'
 import { useChatActions } from './chat/chatActions'
+import { MoveToProjectDialog } from './chat/ChatProject'
 import { isUnused, SessionMarker, useChatMarker } from './chat/ChatState'
 import { SidebarRooms } from './rooms/SidebarRooms'
 import { SetupRow } from './onboarding/SetupRow'
@@ -381,10 +384,13 @@ function DesktopNav({ unread, onNewChat, onSearch }: { unread: number; onNewChat
 function ChatItem({ chat, onNavigate, peek }: { chat: Chat; onNavigate: () => void; peek: ChatPeek }) {
   const t = useT()
   const [menu, setMenu] = useState(false)
+  const [moving, setMoving] = useState(false)
+  const more = useRef<HTMLButtonElement>(null)
   const actions = useChatActions()
-  // a shared chat: rename for its creator, delete for its creator or a project editor; nothing to offer, no "···"
+  // a shared chat: rename for its creator, delete for its creator or a project editor, never a move; nothing to offer,
+  // no "···"
   const rights = sharedRights(chat, useMeStrict().user.id)
-  const hasMenu = rights.creator || rights.canDelete
+  const hasMenu = rights.creator || rights.canMove || rights.canDelete
   // "?" your turn, a grey ring while it runs, a dot for a new answer; nothing on an idle row. A row that needs me ("?" or
   // the dot: what "답 필요" and the one count hold) reads in ink, the others stay muted
   const { marker, reason } = useChatMarker(chat)
@@ -400,65 +406,97 @@ function ChatItem({ chat, onNavigate, peek }: { chat: Chat; onNavigate: () => vo
     setMenu(false)
     void actions.rename(chat)
   }
+  const move = () => {
+    setMenu(false)
+    // the item goes with the menu: the dialog gives the keyboard back to "···" when it closes
+    more.current?.focus()
+    setMoving(true)
+  }
   const del = () => {
     setMenu(false)
     void actions.remove(chat)
   }
 
   return (
-    <li ref={ref} className="group relative" onMouseEnter={(e) => peek.soon(chat, e.currentTarget, 400)} onMouseLeave={peek.hide} data-marker={marker?.kind}>
-      <NavLink
-        to={`/c/${chat.id}`}
-        onClick={() => {
-          peek.hide()
-          onNavigate()
+    <>
+      <li
+        ref={ref}
+        className="group relative"
+        onMouseEnter={(e) => peek.soon(chat, e.currentTarget, 400)}
+        onMouseLeave={peek.hide}
+        // Esc closes the open menu only (not the phone's drawer or the side panel) and gives the keyboard back to "···"
+        onKeyDown={(e) => {
+          if (!menu || e.key !== 'Escape') return
+          e.preventDefault()
+          e.stopPropagation()
+          setMenu(false)
+          more.current?.focus()
         }}
-        onFocus={(e) => e.currentTarget.matches(':focus-visible') && peek.soon(chat, ref.current!, 600)}
-        onBlur={peek.hide}
-        onKeyDown={(e) => e.key === 'Escape' && peek.hide()}
-        className={({ isActive }) =>
-          clsx('flex h-9 items-center gap-2 rounded-lg pl-3 text-sm hover:bg-hover max-md:h-11', hasMenu ? 'pr-9 max-md:pr-11' : marker ? 'pr-9' : 'pr-3', hasMenu && marker && 'max-md:pr-17', isActive ? 'bg-hover font-medium text-ink' : needsMe(marker) ? 'font-medium text-ink' : 'text-muted')
-        }
+        data-marker={marker?.kind}
       >
-        {rights.shared && <SharedIcon className="text-faint" />}
-        <span className="truncate">{chat.title || t('chat.untitled')}</span>
-        {marker && (
-          // one marker at the right end (session markers): its reason is part of the link's name. On a computer it sits in
-          // the "···" spot, its right edge in line with the rooms' pills above, and gives way to "···" on hover and focus;
-          // on a phone "···" always shows and it sits left of it
-          <span className={clsx('pointer-events-none absolute top-1/2 right-3 flex -translate-y-1/2 items-center', hasMenu && 'max-md:right-11', menu ? 'opacity-0' : hasMenu && 'md:group-focus-within:opacity-0 md:group-hover:opacity-0')} data-testid="chat-marker">
-            <SessionMarker marker={marker} label={reason} />
-          </span>
-        )}
-      </NavLink>
-      {hasMenu && (
-      <Tooltip label={t('chat.menu')}>
-        <button
-          type="button"
-          aria-label={t('chat.menu')}
-          aria-expanded={menu}
-          onClick={() => setMenu((v) => !v)}
-          className={clsx('absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-1 text-faint hover:bg-surface hover:text-ink max-md:right-0 max-md:inline-flex max-md:size-11 max-md:items-center max-md:justify-center', menu ? 'opacity-100' : 'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 max-md:opacity-100')}
+        <NavLink
+          to={`/c/${chat.id}`}
+          onClick={() => {
+            peek.hide()
+            onNavigate()
+          }}
+          onFocus={(e) => e.currentTarget.matches(':focus-visible') && peek.soon(chat, ref.current!, 600)}
+          onBlur={peek.hide}
+          onKeyDown={(e) => e.key === 'Escape' && peek.hide()}
+          className={({ isActive }) =>
+            clsx('flex h-9 items-center gap-2 rounded-lg pl-3 text-sm hover:bg-hover max-md:h-11', hasMenu ? 'pr-9 max-md:pr-11' : marker ? 'pr-9' : 'pr-3', hasMenu && marker && 'max-md:pr-17', isActive ? 'bg-hover font-medium text-ink' : needsMe(marker) ? 'font-medium text-ink' : 'text-muted')
+          }
         >
-          <MoreHorizontal size={15} aria-hidden />
-        </button>
-      </Tooltip>
-      )}
-      {menu && hasMenu && (
-        <div role="menu" className="absolute top-8 right-1 z-30 w-40 rounded-lg border border-line bg-surface p-1 shadow-lg">
-          {rights.creator && (
-            <button role="menuitem" type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-hover" onClick={rename}>
-              <Pencil size={14} aria-hidden /> {t('chat.rename')}
-            </button>
+          {rights.shared && <SharedIcon className="text-faint" />}
+          <span className="truncate">{chat.title || t('chat.untitled')}</span>
+          {marker && (
+            // one marker at the right end (session markers): its reason is part of the link's name. On a computer it sits in
+            // the "···" spot, its right edge in line with the rooms' pills above, and gives way to "···" on hover and focus;
+            // on a phone "···" always shows and it sits left of it
+            <span className={clsx('pointer-events-none absolute top-1/2 right-3 flex -translate-y-1/2 items-center', hasMenu && 'max-md:right-11', menu ? 'opacity-0' : hasMenu && 'md:group-focus-within:opacity-0 md:group-hover:opacity-0')} data-testid="chat-marker">
+              <SessionMarker marker={marker} label={reason} />
+            </span>
           )}
-          {rights.canDelete && (
-            <button role="menuitem" type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-danger hover:bg-danger-soft" onClick={del}>
-              <Trash2 size={14} aria-hidden /> {t('common.delete')}
-            </button>
-          )}
-        </div>
-      )}
-    </li>
+        </NavLink>
+        {/* 24 px at least (WCAG 2.2 target size: it sits on the row's link), 44 px on a phone */}
+        {hasMenu && (
+        <Tooltip label={t('chat.menu')}>
+          <button
+            ref={more}
+            type="button"
+            aria-label={t('chat.menu')}
+            aria-expanded={menu}
+            onClick={() => setMenu((v) => !v)}
+            className={clsx('absolute top-1/2 right-1.5 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded text-faint hover:bg-surface hover:text-ink max-md:right-0 max-md:size-11', menu ? 'opacity-100' : 'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 max-md:opacity-100')}
+          >
+            <MoreHorizontal size={15} aria-hidden />
+          </button>
+        </Tooltip>
+        )}
+        {menu && hasMenu && (
+          <div role="menu" className="absolute top-8 right-1 z-30 w-max min-w-40 rounded-lg border border-line bg-surface p-1 shadow-lg">
+            {rights.creator && (
+              <button role="menuitem" type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-hover" onClick={rename} data-testid="chat-row-rename">
+                <Pencil size={14} aria-hidden /> {t('chat.rename')}
+              </button>
+            )}
+            {rights.canMove && (
+              <button role="menuitem" type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-hover" onClick={move} data-testid="chat-row-move">
+                <FolderInput size={14} aria-hidden /> {t(chat.projectId ? 'chat.project.change' : 'chat.project.add')}
+              </button>
+            )}
+            {rights.canDelete && (
+              <button role="menuitem" type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-danger hover:bg-danger-soft" onClick={del} data-testid="chat-row-delete">
+                <Trash2 size={14} aria-hidden /> {t('common.delete')}
+              </button>
+            )}
+          </div>
+        )}
+      </li>
+      {/* beside the row, not in it: the dialog is in <body>, and React would still pass its pointer events to the row's
+          hover peek */}
+      {moving && <MoveToProjectDialog chat={chat} onClose={() => setMoving(false)} onMoved={(c) => useChats.getState().upsertChat(c)} />}
+    </>
   )
 }
 

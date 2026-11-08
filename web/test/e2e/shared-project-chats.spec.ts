@@ -1,13 +1,14 @@
 // Shared project chats, phase 1 (docs/DECISIONS.md "Shared project chats"): a project editor turns the setting on in the
 // project's edit dialog (its hints: who will see new chats, what turning it off does, why it is off under safe
 // operations; none for a personal project); a new chat in that project is seen and continued by the project's people.
-// The chat's header has the people icon, the line under the box says how many see it, other people's messages carry
-// their names, and only what the person may do is offered. While someone else's question is answered the box keeps the
-// text with a line saying whose; the read card goes to the person who asked, the others see that it waits for them.
+// The chat's header has the people icon, the line under the box says how many see it, every question carries its
+// sender's picture and name (mine too; a private chat neither), and only what the person may do is offered. While
+// someone else's question is answered the box keeps the text with a line saying whose; the read card goes to the person
+// who asked, the others see that it waits for them.
 // At 1440 and 390 px wide, with axe on each screen. The mock (test/mock/server.ts, "shared project chats"): "hold" keeps
 // an answer running until POST /__test/shared-release, "readcard" raises the read card first.
 import AxeBuilder from '@axe-core/playwright'
-import { expect, test, type Browser, type Page } from '@playwright/test'
+import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { CSRF_HEADER, uuidv7 } from '@mycel/shared/api'
 import { reset, signIn } from './helpers'
 
@@ -43,6 +44,20 @@ async function sharedChat(page: Page, projectId: string, question: string) {
 }
 
 const reason = async (r: { json: () => Promise<unknown> }) => ((await r.json()) as { error: { params?: { reason?: string } } }).error.params?.reason
+
+/** a 1×1 PNG: Bob's photo */
+const PHOTO = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64')
+/** Bob has a profile photo in this window (the mock keeps none): the people directory lists its version and the photo
+ * route answers with it */
+async function bobHasPhoto(ctx: BrowserContext) {
+  await ctx.route(/\/api\/people$/, async (r) => {
+    const res = await r.fetch()
+    const body = (await res.json()) as { people: { id: string; avatarVersion?: number }[] }
+    for (const p of body.people) if (p.id === 'bob') p.avatarVersion = 3
+    await r.fulfill({ response: res, json: body })
+  })
+  await ctx.route(/\/api\/people\/bob\/avatar\?v=3$/, (r) => r.fulfill({ status: 200, contentType: 'image/png', body: PHOTO }))
+}
 
 // reduced motion: a message's actions fade in and out (Messages.tsx); axe must not catch one halfway
 for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' as const } }, { name: '390', phone: true, use: { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, reducedMotion: 'reduce' as const } }]) {
@@ -132,8 +147,9 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
       await expect(page.getByTestId('chat-shared')).toHaveAccessibleName('공유 채팅 · 프로젝트 사람 2명이 볼 수 있어요')
       await expect(seenLine(page)).toHaveText(vp.phone ? '프로젝트 사람 2명이 이 채팅을 볼 수 있어요.' : `${FOOTER_START} 프로젝트 사람 2명이 이 채팅을 볼 수 있어요.`)
-      // my own message carries no name; the creator renames and deletes, nobody moves it
-      await expect(page.getByTestId('message-author')).toHaveCount(0)
+      // my own message carries my name too (a screenshot passed around still says who asked); the creator renames and
+      // deletes, nobody moves it
+      await expect(page.getByTestId('message-author')).toHaveText('Olga')
       await page.getByTestId('chat-menu').click()
       await expect(page.getByTestId('chat-rename')).toBeVisible()
       await expect(page.getByTestId('chat-delete')).toBeVisible()
@@ -178,6 +194,65 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(page.getByTestId('user-message')).toHaveCount(2)
       await expect(page.getByTestId('user-message').last().getByTestId('message-author')).toHaveText('Bob')
       await expect(page.getByTestId('assistant-message').last()).toHaveAttribute('data-status', 'done')
+      await b.context().close()
+    })
+
+    test('who asked: a picture and a name above every question, mine too; a private chat has neither', async ({ page, browser }) => {
+      await reset(page)
+      await signIn(page)
+      await bobHasPhoto(page.context())
+      const id = await project(page)
+      const chatId = await sharedChat(page, id, '출시 일정 정리해 줘')
+      const b = await bob(browser)
+      await bobHasPhoto(b.context())
+      expect((await post(b, `/api/chats/${chatId}/messages`, { content: '안내 문구도 써 줘', clientMessageId: uuidv7() })).status()).toBe(202)
+      await expect.poll(async () => ((await (await b.request.get(`/api/chats/${chatId}`)).json()) as { runState: string }).runState).toBe('idle')
+
+      // the owner's window and the member's: the same two rows, each person's own name included
+      for (const [who, p] of [['Olga', page], ['Bob', b]] as const) {
+        await p.goto(`/c/${chatId}`)
+        const questions = p.getByTestId('user-message')
+        await expect(questions).toHaveCount(2)
+        await expect(p.getByTestId('message-author-row')).toHaveCount(2)
+        const olga = questions.first().getByTestId('message-author-row')
+        const bobs = questions.last().getByTestId('message-author-row')
+        await expect(olga.getByTestId('message-author'), who).toHaveText('Olga')
+        await expect(bobs.getByTestId('message-author'), who).toHaveText('Bob')
+        // Bob's photo is a decorative image that loaded; Olga has none: her letter on a tile
+        const photo = bobs.locator('img')
+        await expect(photo).toHaveAttribute('alt', '')
+        await expect(photo).toHaveAttribute('aria-hidden', 'true')
+        await expect(photo).toHaveAttribute('src', /\/api\/people\/bob\/avatar\?v=3$/)
+        await expect.poll(() => photo.evaluate((e: HTMLImageElement) => e.complete ? e.naturalWidth : 0)).toBeGreaterThan(0)
+        await expect(olga.locator('img')).toHaveCount(0)
+        await expect(olga.locator('[aria-hidden="true"]')).toHaveText('O')
+        // one line on the right like the bubble, the picture at its edge, just above it
+        const row = (await bobs.boundingBox())!
+        const bubble = (await questions.last().getByTestId('user-text').boundingBox())!
+        const face = (await photo.boundingBox())!
+        expect(row.height).toBeLessThanOrEqual(24)
+        expect(face.width).toBe(20)
+        expect(Math.abs(face.x + face.width - (bubble.x + bubble.width))).toBeLessThanOrEqual(4)
+        expect(bubble.y - (row.y + row.height)).toBeLessThanOrEqual(8)
+        // the name is real text read once with the question (the picture says nothing)
+        await expect(questions.last()).toContainText('Bob')
+        expect((await questions.last().innerText()).match(/Bob/g)).toHaveLength(1)
+        // no page that scrolls sideways on a phone
+        expect(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      }
+      await audit(page, 'author rows, the owner')
+      await audit(b, 'author rows, a member')
+
+      // a private chat of Olga's stays as it was: no name, no picture
+      const own = ((await (await post(page, '/api/chats', { projectId: null })).json()) as { id: string; shared?: unknown })
+      expect(own.shared).toBeFalsy()
+      expect((await post(page, `/api/chats/${own.id}/messages`, { content: '회의록 요약해 줘', clientMessageId: uuidv7() })).status()).toBe(202)
+      await expect.poll(async () => ((await (await page.request.get(`/api/chats/${own.id}`)).json()) as { runState: string }).runState).toBe('idle')
+      await page.goto(`/c/${own.id}`)
+      await expect(page.getByTestId('user-message')).toHaveCount(1)
+      await expect(page.getByTestId('message-author-row')).toHaveCount(0)
+      await expect(page.getByTestId('message-author')).toHaveCount(0)
+      await expect(page.getByTestId('user-message').locator('img')).toHaveCount(0)
       await b.context().close()
     })
 
