@@ -253,7 +253,7 @@ function Setup({ current, onDone, onBack, onSame }: { current: string | null; on
         <Text style={[s.linkText, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">·</Text>
         <Pressable onPress={() => setView('none')} style={s.helpLink} testID="no-team" accessibilityRole="button"><Text style={[s.linkText, s.underline, { color: c.ink }]}>{t.noTeam}</Text></Pressable>
       </View>
-      {current && onBack && <Pressable onPress={onBack} style={s.link} testID="setup-back" accessibilityRole="button"><Text style={[s.linkText, { color: c.ink }]}>{fill(t.backTo, { team: hostOf(current) })}</Text></Pressable>}
+      {current && onBack && <Pressable onPress={onBack} style={[s.link, s.centered]} testID="setup-back" accessibilityRole="button"><Text style={[s.linkText, s.underline, { color: c.ink }]}>{fill(t.backTo, { team: hostOf(current) })}</Text></Pressable>}
     </View>
   return <View style={[s.fill, { backgroundColor: c.canvas, paddingTop: i.top, paddingBottom: keyboard ? keyboard + i.bottom : i.bottom, paddingLeft: i.left, paddingRight: i.right }]}><KeyboardAvoidingView style={s.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
     <ScrollView contentContainerStyle={s.setup} keyboardShouldPersistTaps="handled">{body}</ScrollView>
@@ -444,7 +444,7 @@ const s = StyleSheet.create({
   hint: { fontSize: 15, marginBottom: 16, lineHeight: 21 }, input: { borderWidth: 1, borderRadius: 10, padding: 14, fontSize: 16 },
   error: { marginTop: 10, lineHeight: 20 }, button: { marginTop: 16, backgroundColor: product.accent, borderRadius: 10, padding: 14, alignItems: 'center', minWidth: 160 },
   buttonText: { color: accentInk(product.accent), fontSize: 16, fontWeight: '600' }, link: { marginTop: 16, padding: 8 }, footer: { alignItems: 'center', paddingTop: 8 }, footerButton: { paddingVertical: 8, paddingHorizontal: 16 },
-  linkText: { fontSize: 15 }, centerText: { textAlign: 'center' }, underline: { textDecorationLine: 'underline' },
+  linkText: { fontSize: 15 }, centerText: { textAlign: 'center' }, underline: { textDecorationLine: 'underline' }, centered: { alignSelf: 'center' },
   secondary: { marginTop: 12, alignItems: 'center' }, secondaryText: { fontSize: 16, fontWeight: '500', borderWidth: 1, borderRadius: 10, padding: 13, minWidth: 160, width: '100%', textAlign: 'center', overflow: 'hidden' },
   helpRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', marginTop: 16, gap: 4 }, helpLink: { paddingVertical: 8, paddingHorizontal: 4 },
   step: { flexDirection: 'row', gap: 8, marginBottom: 12 }, stepNo: { fontSize: 15, lineHeight: 22, minWidth: 18 }, stepText: { flex: 1, fontSize: 15, lineHeight: 22 },
