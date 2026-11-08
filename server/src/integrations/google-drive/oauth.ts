@@ -317,6 +317,7 @@ export class GoogleDrive {
       const changed = db.query("UPDATE drive_team_shares SET secret_enc=NULL,status='needs_reconnect',reason='owner_gone',version=version+1,updated_at=? WHERE id=? AND version=?")
         .run(new Date(this.now()).toISOString(), r.id, r.version).changes
       if (!changed) continue
+      db.query("DELETE FROM team_sign_ins WHERE kind = 'drive_share' AND target_id = ?").run(r.id)
       this.abort(`share:${r.id}`)
       audit(db, { actor: null, action: 'drive.share_owner_gone', target: r.id })
       notifyDriveShareReconnect(this.ctx, r.id, `${r.id}.v${r.version + 1}`)

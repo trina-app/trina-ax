@@ -14403,7 +14403,9 @@ transferOwnership, `auth/accounts.ts` invites, `shared/src/api/handover.ts`, mig
   itself, never from an address with a user id.
 - **The confirm** (card, Inbox, Admin › 멤버 › ··· › 팀장 넘기기; the Admin › 팀 설정 card is gone, Account deletion's link
   goes to Admin › 멤버): 받는 사람, what moves (팀 이름, 관리자 지정, 업데이트·백업; admins already manage the team AI), the
-  connections made with the leaver's own accounts (team AI sign-ins: a Claude or ChatGPT subscription made by them;
+  connections made with the leaver's own accounts (team AI sign-ins: a Claude or ChatGPT subscription whose token is
+  theirs on record, written when the connection is made, its token replaced or signed in again, or a member's own one
+  moved to the team;
   Drive shares signed in with their Google account; team connections to services, an MCP server such as Higgsfield,
   whose OAuth sign-in is theirs, read from `team_sign_ins` alone (written by the sign-in, cleared when it ends; a sign-in
   from before that record is unknown and neither listed nor ended); team API keys and keys typed into a connection
@@ -14465,7 +14467,11 @@ transferOwnership, `auth/accounts.ts` invites, `shared/src/api/handover.ts`, mig
   a password change that is locked too; what to end was only in memory until the commit's aftermath ran; team OAuth
   connections were not listed. Round 3: whose sign-in a team connection is came from the audit log, whose details hold
   the connection's and its tools' names (an admin, or the MCP server, could name one "signIn" and become its signer);
-  now `team_sign_ins` only. Kept, written down: admins see an open lead invite's words in the invites list; a backup
+  now `team_sign_ins` only. Round 4: team AI sign-ins were still matched by `created_by` and `created_at`, which a token
+  replaced or reconnected later does not change (an admin's token in an owner-made connection listed as the owner's; a
+  reconnect after the transfer looked older); they are on `team_sign_ins` too now (`team_ai`), with unknown ones failing
+  closed. Every place that ends a sign-in clears its record (an end, a removal, a stop, an owner gone, a moved address),
+  and the callback writes it only when its tokens were stored. Kept, written down: admins see an open lead invite's words in the invites list; a backup
   from before a transfer can still be restored, and the team exported, by whoever runs those on the hosting side (the
   reset-link lock does not cover them); the joiner picks the name and username the card shows, and only the owner's
   words and the join time come from the owner's side (the card says so by showing them side by side).

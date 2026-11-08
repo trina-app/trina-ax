@@ -212,11 +212,16 @@ test('the rule is checked again on every call; changes are audited without file 
   expect(JSON.stringify(log)).not.toMatch(/budget|Finance|IN-FOLDER|carol@/)
 })
 
+const signIn = (id: string) => (a.ctx.db.query("SELECT user_id FROM team_sign_ins WHERE kind = 'drive_share' AND target_id = ?").get(id) as { user_id: string } | null)?.user_id
+
 test('stop sharing deletes the tokens at once and revokes them at Google', async () => {
+  // completeShare recorded whose Google sign-in it is (팀장 넘기기 reads only that); stopping it clears it
+  expect(signIn(shareId)).toBe('carol')
   const r = await a.json(`/api/admin/google-drive/shares/${shareId}`, { method: 'DELETE', as: 'carol' })
   expect(r.status).toBe(200); expect(r.body).toEqual({ stopped: true, revocation: 'revoked' })
   expect(fake.revoked).toBe(true)
   expect(shareRow(a.ctx.db, shareId)).toBeNull()
+  expect(signIn(shareId)).toBeUndefined()
   expect(a.ctx.db.query('SELECT count(*) n FROM drive_team_share_access WHERE share_id=?').get(shareId)).toEqual({ n: 0 })
   expect((await text('drive_read', { fileId: 'in-1' })).isError).toBe(true)
   expect(svc.status('alice').teamShares).toEqual([])
@@ -228,6 +233,8 @@ test('when its admin is disabled the share stops, its tokens go, and the admins 
   checkDriveShareOwners(a.ctx)
   const row = shareRow(a.ctx.db, shareId)!
   expect(row).toMatchObject({ status: 'needs_reconnect', reason: 'owner_gone', secret_enc: null })
+  // the gone admin's sign-in is no one's live sign-in any more
+  expect(signIn(shareId)).toBeUndefined()
   await new Promise((r) => setTimeout(r, 5))
   expect(fake.revoked).toBe(true)
   expect((await text('drive_read', { fileId: 'in-1' })).isError).toBe(true)
@@ -238,6 +245,7 @@ test('when its admin is disabled the share stops, its tokens go, and the admins 
   const f = svc.authorize('dana', 'dana-session', { shareId })
   await svc.callback(fake.authorize(f.authorizationUrl, 'dana'), { userId: 'dana', sessionId: 'dana-session' })
   svc.completeShare('dana', 'dana-session', f.flowId)
+  expect(signIn(shareId)).toBe('dana')
   expect(listShares(a.ctx, 'dana')[0]).toMatchObject({ status: 'connected', reason: null, owner: { id: 'dana' }, folders: [{ id: 'F-shared' }] })
   expect((await text('drive_read', { fileId: 'in-1' })).text).toContain('IN-FOLDER budget')
 })

@@ -254,6 +254,8 @@ export class Integrations {
           next.tools_updated_at, next.status, next.last_error, now, id, row.version)
       if (!r.changes) fail('conflict')
       if (patch.access) setAccess(this.db, id, patch.access)
+      // the sign-in is gone (removed, or moved with the address or the way in): so is the record of whose it was
+      if (secret !== 'kept') this.db.query("DELETE FROM team_sign_ins WHERE kind = 'team_connection' AND target_id = ?").run(id)
     })()
     this.dropClient(id)
     // one entry per change; who may use a team connection is part of it (before and after)
@@ -710,11 +712,12 @@ export class Integrations {
       const sealed = this.box.seal(connectionAad(cur), { type: 'oauth', server: s.server, client: s.client, resource: s.resource, scope: s.scope, tokens } satisfies OAuthSecret)
       const old = cur.secret_enc ? this.tryOpen(cur) : null
       this.db.transaction(() => {
-        this.db.query("UPDATE integrations SET secret_enc=?, key_version=?, status='needs_auth', last_error=NULL, version=version+1, updated_at=? WHERE id=? AND version=?")
-          .run(sealed.enc, sealed.keyVersion, iso(this.now()), cur.id, cur.version)
+        const stored = this.db.query("UPDATE integrations SET secret_enc=?, key_version=?, status='needs_auth', last_error=NULL, version=version+1, updated_at=? WHERE id=? AND version=?")
+          .run(sealed.enc, sealed.keyVersion, iso(this.now()), cur.id, cur.version).changes
         this.db.query("UPDATE integration_oauth_flows SET state='completed', secret_enc=NULL WHERE id=?").run(f.id)
-        // whose sign-in a team connection serves on (팀장 넘기기 reads it; a personal one is its owner's anyway)
-        if (cur.scope === 'team') this.db.query("INSERT INTO team_sign_ins (kind, target_id, user_id, at) VALUES ('team_connection', ?, ?, ?) ON CONFLICT(kind, target_id) DO UPDATE SET user_id = excluded.user_id, at = excluded.at").run(cur.id, viewer.id, iso(this.now()))
+        // whose sign-in a team connection serves on (팀장 넘기기 reads it; a personal one is its owner's anyway), only when
+        // these tokens are the ones stored now
+        if (stored && cur.scope === 'team') this.db.query("INSERT INTO team_sign_ins (kind, target_id, user_id, at) VALUES ('team_connection', ?, ?, ?) ON CONFLICT(kind, target_id) DO UPDATE SET user_id = excluded.user_id, at = excluded.at").run(cur.id, viewer.id, iso(this.now()))
       })()
       this.dropClient(cur.id)
       audit(this.db, { actor: viewer.id, action: 'integration.update', target: cur.id, detail: { ...auditDetail(cur), changed: ['signIn'], secret: 'replaced' } })

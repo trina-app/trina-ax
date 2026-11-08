@@ -27,6 +27,7 @@ import { memberOwnAllowed, sharedSubscriptionsAllowed } from './policy'
 import { accessExpiry, accountRef, idClaims, maskEmail } from './openai-oauth'
 import { createCredential, duplicateOf, insertRow, replaceSecret } from './service'
 import { fingerprintOf, getRow, metaOf, noticeMember, noticeOwners, toCredential, writeSecret, type CredCtx, type Secrets } from './store'
+import { recordSignIn } from '../auth/team-sign-ins'
 
 export const LOGIN_TIMEOUT_MS = 16 * 60_000
 /** forget finished sign-ins after this (GET of an old one = 404) */
@@ -276,7 +277,8 @@ class Logins {
       const r = getRow(cc.db, l.reconnectId)
       if (!r) return { ok: false, reason: 'gone' }
       if (metaOf(r).accountRef !== meta.accountRef) return { ok: false, reason: 'other_account' }
-      cc.db.transaction(() => writeSecret(cc, r.id, 'chatgpt', secret, { meta: JSON.stringify({ ...metaOf(r), ...meta }), status: 'ok', status_code: null, limited_until: null, checked_at: now, fingerprint: fp }))()
+      // a new sign-in into the team's connection: whose it is now (팀장 넘기기, auth/team-sign-ins.ts)
+      cc.db.transaction(() => { if (!r.owner_user_id) recordSignIn(cc.db, 'team_ai', r.id, l.userId, now); writeSecret(cc, r.id, 'chatgpt', secret, { meta: JSON.stringify({ ...metaOf(r), ...meta }), status: 'ok', status_code: null, limited_until: null, checked_at: now, fingerprint: fp }) })()
       audit(cc.db, { actor: l.userId, action: 'credential.secret_replaced', target: r.id, detail: { kind: 'chatgpt', planType: meta.planType, verified: true } })
       if (!r.owner_user_id) noticeOwners(cc, l.userId, 'replaced', r.label)
       return { ok: true, id: r.id }

@@ -254,12 +254,18 @@ describe('admins change the team\'s AI like the owner; the owner is told, but no
     expect((await admin.call('PATCH', `/api/admin/credentials/${ownersId}`, { disabled: true })).state).toBe('disabled')
     expect(mine()).toHaveLength(1)
     expect(mine()[0]!.message.en).toBe("ADAM turned off the team AI connection 'Renamed by admin'.")
+    // whose token it runs on is recorded by the write itself (팀장 넘기기 reads it: auth/team-sign-ins.ts)
+    const signer = () => (h.ctx.db.query("SELECT user_id FROM team_sign_ins WHERE kind = 'team_ai' AND target_id = ?").get(ownersId) as { user_id: string } | null)?.user_id
+    expect(signer()).toBe(ownerId)
     // the new key needs no password
     const rep = await admin.try('POST', `/api/admin/credentials/${ownersId}/secret`, { sealed: await sealed(AKEY('adminswap'), 'credential.replace') })
     expect(rep.status).toBe(200)
+    // the owner made it, but it runs on the admin's key now
+    expect(signer()).toBe(adminId)
     expect(mine()).toHaveLength(2)
     expect(mine()[1]!.message.en).toContain('replaced the token or key')
     expect((await admin.try('DELETE', `/api/admin/credentials/${ownersId}`)).status).toBe(204)
+    expect(signer()).toBeUndefined()
     expect(mine()).toHaveLength(3)
     expect(mine()[2]!.message.en).toBe("ADAM removed the team AI connection 'Renamed by admin'.")
     expect(mine().every((m) => m.to!.length === 1 && m.to![0] === ownerId)).toBe(true)

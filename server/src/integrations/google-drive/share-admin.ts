@@ -139,6 +139,7 @@ export async function stopShare(ctx: AppContext, actor: string, id: string) {
   const token = svc.shareToken(r)
   ctx.db.transaction(() => {
     ctx.db.query('DELETE FROM drive_team_shares WHERE id=?').run(id)
+    ctx.db.query("DELETE FROM team_sign_ins WHERE kind = 'drive_share' AND target_id = ?").run(id)
     ctx.db.query("UPDATE drive_oauth_flows SET state='failed',reason='cancelled',secret_enc=NULL,account=NULL WHERE share_id=? AND state NOT IN ('completed','failed','expired')").run(id)
   })()
   svc.abort(`share:${id}`)

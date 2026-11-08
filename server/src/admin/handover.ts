@@ -38,6 +38,7 @@ import { deleteCredential } from '../credentials/service'
 import { engineStatusCache } from './engines'
 import { maskEmail } from '../credentials/openai-oauth'
 import { currentOwnerId, leadHolds, shownName } from './handover-notices'
+import { signInOf } from '../auth/team-sign-ins'
 
 // ---------------- words ----------------
 const TEXT = {
@@ -165,7 +166,10 @@ export function dismissLead(c: Context<AppEnv>, ctx: AppContext, inviteId: strin
  * connection is the team's). */
 export function ownConnections(ctx: AppContext, userId: string): HandoverConnection[] {
   const out: HandoverConnection[] = []
-  const creds = ctx.db.query("SELECT id, kind, label, meta FROM engine_credentials WHERE owner_user_id IS NULL AND created_by = ? ORDER BY created_at, id").all(userId) as { id: string; kind: string; label: string; meta: string }[]
+  // whose token a team AI connection runs on: team_sign_ins alone (set when it is made or its token replaced or signed in
+  // again, auth/team-sign-ins.ts); created_by says only who made the row, and an admin may have put their token in since
+  const creds = ctx.db.query(`SELECT c.id, c.kind, c.label, c.meta FROM engine_credentials c JOIN team_sign_ins s ON s.kind = 'team_ai' AND s.target_id = c.id
+    WHERE c.owner_user_id IS NULL AND s.user_id = ? ORDER BY c.created_at, c.id`).all(userId) as { id: string; kind: string; label: string; meta: string }[]
   for (const r of creds) {
     if (!SUBSCRIPTION.has(r.kind as never)) continue
     out.push({ kind: 'team_ai', id: r.id, label: r.label, provider: r.kind === 'chatgpt' ? 'chatgpt' : 'claude', account: metaOf(r).emailMasked ?? null })
@@ -203,8 +207,7 @@ export function toEndOf(ctx: AppContext, owner: string, refs: readonly HandoverC
 /** A sign-in made after `since` (the transfer): a new decision, never ended by a retry or the new owner's [끊기]. A
  * team AI connection made after it, a share or a connection signed in again after it. Unknown times are not newer. */
 function signedInAfter(ctx: AppContext, ref: HandoverConnectionRef, since: string): boolean {
-  if (ref.kind === 'team_ai') return ((ctx.db.query('SELECT created_at FROM engine_credentials WHERE id = ?').get(ref.id) as { created_at: string } | null)?.created_at ?? '') > since
-  const at = (ctx.db.query('SELECT at FROM team_sign_ins WHERE kind = ? AND target_id = ?').get(ref.kind, ref.id) as { at: string } | null)?.at
+  const at = signInOf(ctx.db, ref.kind, ref.id)?.at
   return !!at && at > since
 }
 
@@ -227,7 +230,7 @@ export async function endConnections(ctx: AppContext, owner: string, refs: reado
     else if (ref.kind === 'team_ai') {
       try {
         const row = getCredential(ctx.db, ref.id)
-        if (!row || row.owner_user_id || row.created_by !== owner) e = { kind: ref.kind, id: ref.id, label: conn.label, result: 'gone' }
+        if (!row || row.owner_user_id || signInOf(ctx.db, 'team_ai', ref.id)?.userId !== owner) e = { kind: ref.kind, id: ref.id, label: conn.label, result: 'gone' }
         else { deleteCredential(credentialsOf(ctx), ref.id, actor ?? owner); aiChanged = true; e = { kind: ref.kind, id: ref.id, label: conn.label, result: 'ended' } }
       } catch (err) { ctx.log.warn('a team AI sign-in was not ended at the handover', { err }); e = { kind: ref.kind, id: ref.id, label: conn.label, result: 'failed' } }
     } else if (ref.kind === 'drive_share') {

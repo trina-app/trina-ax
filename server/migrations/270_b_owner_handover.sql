@@ -20,9 +20,11 @@
 --     the owner whose 팀장 넘기기 password check locked. Metadata only.
 --   handover_push_deliveries: owner.lead_joined and owner.reauth_locked also go to the owner's phones and browsers
 --     (push-service.ts SOURCES), the same columns as push_deliveries.
---   team_sign_ins: who signed a team connection (integrations, OAuth) or a Drive shared with the team in, and when:
---     set by the sign-in itself (integrations/connections/service.ts callback, google-drive/oauth.ts), cleared when that
---     sign-in ends. 팀장 넘기기 decides whose sign-in it is from this alone (never from the audit log, whose details hold
+--   team_sign_ins: who signed a team connection (integrations, OAuth), a Drive shared with the team or a team AI
+--     connection (engine_credentials, a subscription token) in, and when: set by the sign-in itself (integrations/
+--     connections/service.ts callback, google-drive/oauth.ts completeShare, credentials/service.ts createCredential and
+--     replaceSecret), cleared when that sign-in ends (the end, a removal, a stop, an owner gone, a moved address), so a
+--     row always means a live sign-in. 팀장 넘기기 decides whose sign-in it is from this alone (never from the audit log, whose details hold
 --     names an admin or a service chooses). A connection signed in before this table has no row: unknown, so it is
 --     neither listed nor ended (fail closed). A column on integrations cannot be added here: migration 313 makes that
 --     table after this one runs on a new database; no foreign key for the same reason (the code joins on the id).
@@ -73,7 +75,7 @@ CREATE TABLE handover_push_deliveries (
 CREATE INDEX handover_push_deliveries_due ON handover_push_deliveries(state,next_at);
 
 CREATE TABLE team_sign_ins (
-  kind TEXT NOT NULL CHECK(kind IN ('team_connection','drive_share')),
+  kind TEXT NOT NULL CHECK(kind IN ('team_connection','drive_share','team_ai')),
   target_id TEXT NOT NULL,
   user_id TEXT NOT NULL,
   at TEXT NOT NULL,

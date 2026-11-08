@@ -206,6 +206,14 @@ describe('the transfer itself: connections, notices, realtime, audit', () => {
     cred.run('cred-key', 'anthropic-api-key', '팀 API 키', 'fp2', now, now)
     cred.run('cred-admin', 'chatgpt', '아담 ChatGPT', 'fp3', now, now)
     db.query("UPDATE engine_credentials SET created_by = 'adam' WHERE id = 'cred-admin'").run()
+    // whose token each runs on, as the real create and replace record it (auth/team-sign-ins.ts)
+    const signed = db.query("INSERT INTO team_sign_ins (kind, target_id, user_id, at) VALUES ('team_ai', ?, ?, ?)")
+    signed.run('cred-claude', 'olga', now); signed.run('cred-key', 'olga', now); signed.run('cred-admin', 'adam', now)
+    // made by the owner, but an admin put their own token in since: the admin's, not listed for the owner
+    cred.run('cred-swapped', 'anthropic-oauth', '바뀐 토큰', 'fp4', now, now)
+    signed.run('cred-swapped', 'adam', now)
+    // made before the record existed: unknown, never listed or ended
+    cred.run('cred-unknown', 'anthropic-oauth', '예전 토큰', 'fp5', now, now)
     db.query("INSERT INTO drive_team_shares (id, name, owner_user_id, config_key, account, scopes, secret_enc, key_version, folders, status, version, expires_at, created_at, updated_at) VALUES ('share-1', '영업 자료', 'olga', 'k', ?, 'drive.readonly', 'sealed', 1, '[]', 'connected', 1, '2099-01-01', ?, ?)")
       .run(JSON.stringify({ name: 'Jisu', email: 'jisu@acme.example' }), now, now)
   })
@@ -221,14 +229,14 @@ describe('the transfer itself: connections, notices, realtime, audit', () => {
     const wrong = await t.owner.try('POST', '/api/admin/transfer-ownership', { userId: lead.id, password: 'nope', end: [] })
     expect(wrong.status).toBe(403)
     t.h.hub.events = []
-    const r = await t.owner.call('POST', '/api/admin/transfer-ownership', { userId: lead.id, password: OWNER_PW, end: [{ kind: 'team_ai', id: 'cred-claude' }, { kind: 'drive_share', id: 'share-1' }, { kind: 'team_ai', id: 'cred-admin' }, { kind: 'team_ai', id: 'cred-key' }] })
+    const r = await t.owner.call('POST', '/api/admin/transfer-ownership', { userId: lead.id, password: OWNER_PW, end: [{ kind: 'team_ai', id: 'cred-claude' }, { kind: 'drive_share', id: 'share-1' }, { kind: 'team_ai', id: 'cred-admin' }, { kind: 'team_ai', id: 'cred-key' }, { kind: 'team_ai', id: 'cred-swapped' }, { kind: 'team_ai', id: 'cred-unknown' }] })
     expect(r.ok).toBe(true)
     // only the caller's own are kept with the transfer and ended; another admin's sign-in and the team's API key are not touched
     expect(Object.fromEntries(r.ended.map((e: any) => [e.id, e.result]))).toEqual({ 'cred-claude': 'ended', 'share-1': 'ended' })
     const db = t.h.ctx.db
     expect(owners(t.h)).toEqual([lead.id])
     expect(roleOf(t.h, 'olga')).toBe('admin')
-    expect(db.query("SELECT id FROM engine_credentials ORDER BY id").all()).toEqual([{ id: 'cred-admin' }, { id: 'cred-key' }])
+    expect(db.query("SELECT id FROM engine_credentials ORDER BY id").all()).toEqual([{ id: 'cred-admin' }, { id: 'cred-key' }, { id: 'cred-swapped' }, { id: 'cred-unknown' }])
     expect(db.query("SELECT secret_enc, status FROM drive_team_shares WHERE id = 'share-1'").get()).toEqual({ secret_enc: null, status: 'needs_reconnect' })
     // audit: the transfer (via the card, decided on the server), each disconnect
     const tr = JSON.parse(audits(t.h, 'owner.transfer').at(-1)!.detail!)
@@ -489,6 +497,8 @@ describe('after the second review', () => {
       const cred = db.query("INSERT INTO engine_credentials (id, kind, label, owner_user_id, secret_enc, key_version, fingerprint, meta, created_by, created_at, updated_at) VALUES (?, 'anthropic-oauth', ?, NULL, 'x', 1, ?, '{}', 'olga', ?, ?)")
       cred.run('cred-a', '지수 Claude A', 'fa', now, now)
       cred.run('cred-b', '지수 Claude B', 'fb', now, now)
+      const signed = db.query("INSERT INTO team_sign_ins (kind, target_id, user_id, at) VALUES ('team_ai', ?, 'olga', ?) ON CONFLICT(kind, target_id) DO UPDATE SET user_id = excluded.user_id, at = excluded.at")
+      signed.run('cred-a', now); signed.run('cred-b', now)
       // the transfer keeps both on its record in its own write
       await t.owner.call('POST', '/api/admin/transfer-ownership', { userId: lead.id, password: OWNER_PW, end: [{ kind: 'team_ai', id: 'cred-a' }, { kind: 'team_ai', id: 'cred-b' }] })
       const row = db.query('SELECT id, to_end, ended FROM owner_transfers').get() as { id: string; to_end: string; ended: string }
@@ -497,6 +507,7 @@ describe('after the second review', () => {
       // a stop after the commit: as if nothing had been ended (the tokens are back, the results lost)
       cred.run('cred-a', '지수 Claude A', 'fa', now, now)
       cred.run('cred-b', '지수 Claude B', 'fb', now, now)
+      signed.run('cred-a', now); signed.run('cred-b', now)
       db.query("UPDATE owner_transfers SET ended = '[]' WHERE id = ?").run(row.id)
       const n = (await handoverItems(lead.client)).find((i) => i.code === 'owner.transferred')
       expect(n.handover.pending.map((x: any) => x.id).sort()).toEqual(['cred-a', 'cred-b'])
@@ -514,6 +525,7 @@ describe('after the second review', () => {
       expect(JSON.parse((db.query('SELECT ended FROM owner_transfers WHERE id = ?').get(row.id) as { ended: string }).ended).find((e: any) => e.id === 'cred-a').result).toBe('ended')
       // (the other failed meanwhile: put back as failed)
       cred.run('cred-b', '지수 Claude B', 'fb', now, now)
+      signed.run('cred-b', now)
       db.query('UPDATE owner_transfers SET ended = ? WHERE id = ?').run(JSON.stringify([{ kind: 'team_ai', id: 'cred-a', label: 'A', result: 'ended' }, { kind: 'team_ai', id: 'cred-b', label: 'B', result: 'failed' }]), row.id)
       expect((await handoverItems(lead.client)).find((i) => i.code === 'owner.transferred').handover.pending.map((x: any) => x.id)).toEqual(['cred-b'])
       // the new owner's [끊기]
@@ -578,11 +590,15 @@ describe('after the third review', () => {
       const old = new Date(Date.now() - 60_000).toISOString()
       const cred = db.query("INSERT INTO engine_credentials (id, kind, label, owner_user_id, secret_enc, key_version, fingerprint, meta, created_by, created_at, updated_at) VALUES (?, 'anthropic-oauth', ?, NULL, 'x', 1, ?, '{}', 'olga', ?, ?)")
       cred.run('cred-old', 'Before', 'f1', old, old)
+      const signed = db.query("INSERT INTO team_sign_ins (kind, target_id, user_id, at) VALUES ('team_ai', 'cred-old', 'olga', ?) ON CONFLICT(kind, target_id) DO UPDATE SET user_id = excluded.user_id, at = excluded.at")
+      signed.run(old)
       await t.owner.call('POST', '/api/admin/transfer-ownership', { userId: lead.id, password: OWNER_PW, end: [{ kind: 'team_ai', id: 'cred-old' }] })
       const row = db.query('SELECT id, at FROM owner_transfers').get() as { id: string; at: string }
-      // the old owner, now an admin, connects a team AI again after the handover (same id here: a new sign-in)
+      // the old owner, now an admin, signs the team AI in again after the handover (a reconnect into the same row: only
+      // the sign-in record says it is newer; created_at does not change)
       const later = new Date(Date.parse(row.at) + 1000).toISOString()
-      cred.run('cred-old', 'After', 'f2', later, later)
+      cred.run('cred-old', 'After', 'f2', old, later)
+      signed.run(later)
       db.query("UPDATE owner_transfers SET ended = '[]' WHERE id = ?").run(row.id)
       expect(await retryPendingEnds(t.h.ctx)).toBe(0)
       expect(db.query("SELECT label FROM engine_credentials WHERE id = 'cred-old'").get()).toEqual({ label: 'After' })
@@ -590,7 +606,7 @@ describe('after the third review', () => {
       expect((await lead.client.call('POST', '/api/admin/handover/end-pending', { transferId: row.id })).ended).toEqual([{ kind: 'team_ai', id: 'cred-old', label: 'After', result: 'gone' }])
       expect(db.query('SELECT COUNT(*) n FROM engine_credentials').get()).toEqual({ n: 1 })
       // the role came back to the old owner: nothing of theirs is ended, by the retry or by them
-      db.query("UPDATE engine_credentials SET created_at = ? WHERE id = 'cred-old'").run(old)
+      signed.run(old)
       db.query("UPDATE owner_transfers SET ended = '[]' WHERE id = ?").run(row.id)
       await lead.client.call('POST', '/api/admin/transfer-ownership', { userId: 'olga', password: PW })
       expect(await retryPendingEnds(t.h.ctx)).toBe(0)
