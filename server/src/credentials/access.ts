@@ -9,7 +9,7 @@ import { allowedCredentialKinds, isManaged, type AllowedKinds } from '../app-con
 import type { AppContext } from '../context'
 import { canChooseEngine, choosableEngines, engineOn, limitFallbackOn, teamDefault, type Person } from '../admin/engine-choice'
 import type { EngineConfs } from '../chat/engines'
-import { credentialBackAt, hasCredentialSoonFor, resolveCredential, type CredEngine } from './resolve'
+import { credentialBackAt, hasCredentialFor, hasCredentialSoonFor, resolveCredential, type CredEngine } from './resolve'
 import { hostedChatState } from './hosted-chat'
 import { memberOwnAllowed } from './policy'
 
@@ -34,7 +34,17 @@ export function enginesAnswering(ctx: Ctx, p: Person, problems: EngineConfs['pro
 export function canUseAi(ctx: Ctx, p: Person, o: AccessOptions = {}, allowed = allowedCredentialKinds(ctx.config)): boolean {
   const now = o.now ?? new Date()
   return enginesAnswering(ctx, p, o.problems).some((e) => e === 'api' || hasCredentialSoonFor(ctx.db, p.id, e, allowed, now)
-    || (isManaged(ctx.config) && connectionRoute(ctx, p, e, { now, problems: o.problems, allowed }) !== 'own'))
+    || (isManaged(ctx.config) && (connectionRoute(ctx, p, e, { now, problems: o.problems, allowed }) !== 'own'
+      || (e === 'claude-code' && claudeLimitGoesToCodex(ctx, p, o.problems, allowed, now)))))
+}
+
+/** The switch's limit case (chat/turn.ts limitFallback, codexFallbackReady): a Claude turn whose connections all wait
+ * out a limit ends as a rate limit, and Codex finishes it when "다른 AI로 대신 답하기" is on and the person has a Codex
+ * connection, so that person is not "No AI" either. */
+function claudeLimitGoesToCodex(ctx: Ctx, p: Person, problems: EngineConfs['problems'] | undefined, allowed: AllowedKinds, now: Date): boolean {
+  if (!limitFallbackOn(ctx) || !otherOn(ctx, 'claude-code', problems)) return false
+  const r = resolveCredential(ctx.db, { userId: p.id, engine: 'claude-code', allowedKinds: allowed, now })
+  return !r.ok && r.retryAt !== null && hasCredentialFor(ctx.db, p.id, 'codex', allowed)
 }
 
 const OTHER: Record<CredEngine, CredEngine> = { 'claude-code': 'codex', codex: 'claude-code' }
@@ -84,9 +94,14 @@ export function newMemberAi(ctx: Ctx, groups: readonly string[], o: AccessOption
   const p: Person = { id: '\u0000new-person', role: 'member' }
   const engines = enginesAnswering(ctx, p, o.problems)
   const has = (e: CredEngine) => hasCredentialSoonFor(ctx.db, p.id, e, allowed, now, groups)
-  const other = limitFallbackOn(ctx)
-  const ready = engines.some((e) => e === 'api' || has(e) || (other && otherOn(ctx, e, o.problems) && has(OTHER[e])))
-    || (engines.some((e) => e !== 'api') && hostedChatState(ctx.db, now) === 'active')
+  const fallback = limitFallbackOn(ctx)
+  const trial = hostedChatState(ctx.db, now) === 'active'
+  const ready = engines.some((e) => {
+    if (e === 'api' || has(e)) return true
+    // the other engine has one: it answers while the switch is on, and the credit never does (connectionRoute)
+    if (otherOn(ctx, e, o.problems) && has(OTHER[e])) return fallback
+    return trial
+  })
   if (ready) return 'ready'
   return memberOwnAllowed(ctx.db) ? 'connect_own' : 'ask_owner'
 }

@@ -292,10 +292,27 @@ describe('the team\'s own AI comes first, on either engine (connectionRoute, the
     // a team connection for everyone on Codex only; a new member gets the team default (Claude Code)
     addCred(t.cc, 'openai-api-key', OPENAI_KEY, { label: 'codex' })
     expect(newMemberAi(ctx, [])).toBe('ask_owner')
+    // an active credit does not answer while the team has AI of its own (the turn would say "no AI connection")
+    grant()
+    expect(newMemberAi(ctx, [])).toBe('ask_owner')
     otherAi(true)
     expect(newMemberAi(ctx, [])).toBe('ready')
+    // Codex switched off: it cannot take over, and the credit answers again
     setEnginesEnabled(env.db, { codex: false })
+    expect(newMemberAi(ctx, [])).toBe('ready')
+    writeHostedChatKey(t.cc, null)
     expect(newMemberAi(ctx, [])).toBe('ask_owner')
+  })
+  test('the switch\'s limit case: a Claude connection at a long limit and a Codex connection is not "No AI" while the switch is on', () => {
+    const member = { id: 'alice', role: 'member' }
+    const claude = addCred(t.cc, 'anthropic-api-key', TEAM_KEY, { label: 'team' })
+    limit(claude)
+    addCred(t.cc, 'openai-api-key', OPENAI_KEY, { label: 'codex' })
+    expect(canUseAi(ctx, member)).toBe(false) // a 4-hour limit: the usual wait
+    otherAi(true)
+    expect(canUseAi(ctx, member)).toBe(true) // Codex finishes those answers (chat/turn.ts limitFallback)
+    setEnginesEnabled(env.db, { codex: false })
+    expect(canUseAi(ctx, member)).toBe(false)
   })
   test('/api/me/ai-access says the same: usable exactly when something will answer', () => {
     // a member who cannot pick engines: the team default (Claude Code) answers their chats

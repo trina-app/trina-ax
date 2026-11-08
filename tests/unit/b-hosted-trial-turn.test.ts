@@ -235,6 +235,12 @@ describe('the composer while the credit answers (GET /api/engines)', () => {
       expect(await ids()).toEqual([])
       grant()
       expect(await ids()).toEqual(['claude-code', 'codex'])
+      // a Codex connection: the credit no longer answers Claude Code chats; Codex does while "다른 AI로 대신 답하기" is on
+      addCred(credentialsOf(h.ctx), 'openai-api-key', OKEY, { label: 'codex' })
+      expect(await ids()).toEqual(['codex'])
+      setSetting(h.ctx.db, LIMIT_FALLBACK_KEY, true)
+      try { expect(await ids()).toEqual(['claude-code', 'codex']) } finally { setSetting(h.ctx.db, LIMIT_FALLBACK_KEY, false) }
+      h.ctx.db.query('DELETE FROM engine_credentials').run()
       grant({ enabled: false })
       expect(await ids()).toEqual([])
     } finally { engine.authMode = was }

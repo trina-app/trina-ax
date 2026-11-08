@@ -210,13 +210,20 @@ export async function chatEnginesFor(ctx: AppContext, p: Person, problems: Engin
   // the same cached checks as Admin > AI engines; managed: an engine this person has no usable AI connection for is
   // left out (an engine whose only connection is assigned to a group shows only for that group's members), unless the
   // hosting service's trial credit answers its turns now (credentials/hosted-chat.ts; chat/turn.ts runs them on the API
-  // engine)
+  // engine) or, while it is active, the other engine does ("다른 AI로 대신 답하기"); as credentials/access.ts
+  // connectionRoute, the credit never answers while the other engine has a connection of the person
   const cache = engineStatusCache(ctx)
   const managed = isManaged(ctx.config)
   const allowed = allowedCredentialKinds(ctx.config)
   const trial = managed && hostedChatState(ctx.db, new Date()) === 'active'
+  const fallback = limitFallbackOn(ctx)
   const ready = await readyEngines(choosableEngines(ctx, p), problems, async (id) => {
-    if (managed && id !== 'api') return trial || hasCredentialFor(ctx.db, p.id, id, allowed) ? 'ok' : 'not_logged_in'
+    if (managed && id !== 'api') {
+      if (hasCredentialFor(ctx.db, p.id, id, allowed)) return 'ok'
+      const other: EngineId = id === 'claude-code' ? 'codex' : 'claude-code'
+      const otherHas = engineOn(ctx, other) && !problems[other] && hasCredentialFor(ctx.db, p.id, other, allowed)
+      return trial && (fallback || !otherHas) ? 'ok' : 'not_logged_in'
+    }
     return (await cache.get(id, true, locale)).status
   }, () => ctx.services.realtime.publishEach(() => ENGINE_CHOICE_CHANGED))
   return { canChoose, defaultEngine: def.engine, defaultModel: def.model, engines: ready.map((id) => ({ id, ...of(id) })) }

@@ -14843,8 +14843,14 @@ refused, and that connected AIs never saw the team rules every in-app turn follo
   works on either engine: a team that has AI of its own never spends it, the switch on or off (so with the switch off
   and only ChatGPT connected, a Claude Code chat gets "no AI connection", not the credit). A connection only at its
   limit while the other engine has one: the usual wait, or, for Claude with the switch on, the limit case as before.
-  `newMemberAi` (the invite link's line) counts the other engine the same way. Servers whose engines sign in on their own
-  (`authMode` other than managed) have no per-person connections: there the switch has only its limit case, as before.
+  The same rule everywhere that says who has AI: `newMemberAi` (the invite link's line) counts the other engine while
+  the switch is on and the credit only when the other engine has no connection either; the composer
+  (`chatEnginesFor`) offers an engine without a connection of the person while the credit is active only when the
+  credit or the other engine would answer it; Admin › Members does not count as "No AI" someone whose Claude
+  connections all wait out a limit while the switch is on and they have a Codex connection (Codex finishes those
+  answers). Switching it tells open windows (`engine_choice_changed`), so the "no AI" banner follows. Servers whose
+  engines sign in on their own (`authMode` other than managed) have no per-person connections: there the switch has
+  only its limit case, as before.
 - **The default: what keeps hosted teams and does not surprise self-hosted ones.** Hosted teams relied on the
   no-connection case (it came with the trial key, whatever the switch said); a self-hosted team never had it, and
   turning it on sends a team's conversations to a second AI company, which a team must choose. So: a server that is not
@@ -14864,9 +14870,9 @@ refused, and that connected AIs never saw the team rules every in-app turn follo
   this change.
 - Tests: `tests/unit/schedules.test.ts` (a run on its owner's own default, the team default when they may not pick,
   the team default at run time, a switched-off engine), `tests/unit/a-hosted-trial-credit.test.ts` (the switch, not the
-  key; off with a credit: never the credit; Members "No AI" after the key goes; the invite line),
-  `tests/unit/b-hosted-trial-turn.test.ts` (turns with and without a key, the switch on and off),
+  key; off with a credit: never the credit; Members "No AI" after the key goes and in the limit case; the invite
+  line), `tests/unit/b-hosted-trial-turn.test.ts` (turns with and without a key, the switch on and off, the composer),
   `tests/unit/engine-choice.test.ts` (the hosted default: self-hosted untouched, on once over a stored false, an
-  admin's off stays, Codex off), `web/test/e2e/engine-choice.spec.ts` (the new label and warning).
+  admin's off stays, Codex off; the notice), `web/test/e2e/engine-choice.spec.ts` (the new label and warning).
 - Version impact: **patch** (a scheduled run follows its owner's engine; the switch's wording and its no-connection
   case; no API or data shape change).

@@ -187,7 +187,10 @@ describe('Claude limit -> Codex fallback', () => {
   })
 
   test('on: the turn continues with Codex, says so in a step, and is audited', async () => {
+    // switching it tells open windows (it decides who has AI too: the "no AI" banner follows)
+    alice.frames.length = 0
     await h.api('dana').call(API.updateEngines, { body: { limitFallback: true } })
+    await alice.next('notice', (f) => f.data.code === 'engine_choice_changed')
     try {
       const chat = await h.api('alice').call(API.createChat, { body: {} })
       const { started, done } = await ask(h, alice, 'alice', chat.id, fake({ claudeFail: 'rate limit exceeded' }, { say: 'from codex' }))

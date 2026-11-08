@@ -1830,7 +1830,7 @@ export const es: Record<MessageKey, string> = {
   'engines.fallback': "Responder con la otra IA",
   'engines.fallbackDesc': "Cuando la IA de un chat no tiene una conexión que funcione, o Claude alcanza su límite de uso, la otra IA conectada (Claude Code o Codex) responde en su lugar. La respuesta indica el cambio.",
   'engines.fallbackUnavailable': "No está disponible mientras Codex esté desactivado (el modo oficina no usa Codex).",
-  'engines.fallbackWarning': "Al activarlo, las conversaciones que responda la otra IA (pregunta, conversación anterior y contenido adjunto) también se envían a su empresa (OpenAI o Anthropic). Verifique antes que su equipo pueda enviar sus datos a ambas.",
+  'engines.fallbackWarning': "Al activarlo, las conversaciones que responda la otra IA (pregunta, conversación anterior y contenido adjunto) también se envían a la empresa de esa IA (OpenAI o Anthropic). Verifique antes que su equipo pueda enviar sus datos a ambas.",
   'budgets.title': "Límites de uso",
   'budgets.desc': "Sin límites de forma predeterminada. Limite los tokens diarios o mensuales de una persona, un grupo o el equipo.",
   'budgets.new': "Añadir límite",
