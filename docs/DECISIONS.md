@@ -14912,8 +14912,11 @@ not postable, 409 `room_ai_hidden`, because its asker could not see what was at 
     may have been given; a hidden person's message other than a shared answer without a note, as the note or a message
     an AI app sent is their own words; a deleted person's message, whose content is gone) and files on a hidden message
     (no team file to name), too deep or too many, and a team room's or the everyone room's member whose history is not
-    worked out yet (what they will see is not known). Shared project chats are kept as their project folder
-    (`chat/room-project-chats.ts`: its readers are the chat's audience), so they are judged as that folder. No "ask
+    worked out yet (what they will see is not known). Also an answer of the room's AI that read shared project chats
+    (`project_chats` / `project_chat` in its turn's tool lines): the scope keeps such a read as the project's folder
+    (`chat/room-project-chats.ts`), whose rule can be wider than the chat's audience, so the confirm would name a folder
+    where a private chat was read (naming the chat would need the chats it read, which nothing records by design). And a
+    name that is not there now (moved or renamed): it would be judged on a path that no longer says what it was. No "ask
     again" hint: asking again in the same place brings the same messages back.
 - **Counts.** `Decision.unable` (in `room_ai_turns.decision`, JSON, no migration) keeps for each named folder how many
   members other than the asker cannot see it (read, or list for a name); `RoomMessage.preview.unable` and
@@ -14936,10 +14939,22 @@ not postable, 409 `room_ai_hidden`, because its asker could not see what was at 
   cannot see a folder joined), is saved, sent as `room.message.updated` and answered 409 `room_ai_reasons_changed`; the
   app shows the server's sentence as a toast and the notice follows the update. A decision kept before the counts is
   compared without them (`reasonsChanged`), so it is not asked again for that alone.
-- **Previews kept as not postable before this.** At start the newest 500 private previews whose decision says `hidden`
-  are decided again, on their own question's scope, for at most 2 seconds (`rooms/ai-redecide.ts`): one that now
-  qualifies gets its button. Nothing is posted and nobody is told. Once per database: a pass that went through all of
-  them is kept in `settings` (`rooms.redecideHidden.v1`); one cut off by the time limit goes on at the next start.
+- **Previews kept as not postable before this** (`rooms/ai-redecide.ts`, amended after the PR review). Every private
+  preview whose decision says `hidden` and that was made before this build's first start (`until`) is decided again
+  once, on its own question's scope, oldest first, in steps (20 rows or 250 ms, at least one row, 2 s apart, the first
+  5 s after start, when the server listens): never in the way of start-up. Where it got to (`after`: the last row by
+  creation time and turn id) is kept in `settings` (`rooms.redecideHidden.v2`) after every row, so a restart goes on
+  from there, a row is never tried twice and the pass ends when no row is left (not after a fixed number). A row's own
+  cost is decide()'s (`DECIDE_HISTORY_MS`, `EARLIER_DEPTH`, `EARLIER_MAX`). One that now qualifies gets its button: its
+  decision is saved and the preview sent to the asker's windows again. Nothing is posted. Previews made after `until`
+  were decided by this build.
+- **When people leave.** A member out of a team room or the everyone room (`Rooms.forgetMember`), or members' view of
+  its history changing (a later member's hidden answers checked again, `historiesOpened`), decides that room's refused
+  previews of the last 14 days again (at most 20), right after and off the request (`redecideRoomSoon`, through the
+  `Rooms.onAccessChanged` hook set at start: `service.ts` does not import it, which would be a cycle). Known limit: a
+  folder rule change that makes a refused preview postable without changing anyone's hidden answers (e.g. the asker
+  gets read access to a folder the earlier answer used) is not followed; that preview gets its button only when it is
+  sent again (the asker asks anew, or someone leaves).
 - **Independent review (2026-11-08) fixes.** A shared answer's note and a reply deleted from a hidden answer's thread
   were let through unnamed (both are people's words); a name the asker could only list showed as "다른 폴더" instead of
   by name (now a name must be readable by the asker); the start-up pass ran at every start; a preview whose only reason
@@ -14950,5 +14965,6 @@ not postable, 409 `room_ai_hidden`, because its asker could not see what was at 
   deleted reply, files and an AI answer in a hidden thread refused, a shared answer without a note followed; a hidden
   reply through its hidden first message; the asker's own folder and a name; a chain to `EARLIER_DEPTH` and past it; a
   member whose history cannot be worked out refused; a count that changed answered 409 and then posted; a thread; the
-  start pass once per database; `reasonsChanged`), `b-rooms-ai.test.ts`, `web/test/unit/room-messages.test.tsx`,
-  `web/test/e2e/room-answer-post.spec.ts`.
+  start pass in steps over more rows than one step takes, each tried once, done when none is left; someone leaving;
+  project chats and a name no longer there refused; `reasonsChanged`), `b-rooms-ai.test.ts`,
+  `web/test/unit/room-messages.test.tsx`, `web/test/e2e/room-answer-post.spec.ts`.

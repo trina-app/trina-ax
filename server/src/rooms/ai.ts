@@ -616,7 +616,7 @@ export class RoomAi implements RoomTurns {
         // what those answers were built on joins this answer's sources when the asker may open all of it, so it is named
         // to them; else it is not postable (rooms/earlier-sources.ts)
         if (hiddenFor.length) {
-          const more = earlierSources(db, rules, { roomId, users: hiddenFor, fromSeq: s.fromSeq ?? 0, exempt, rootId: inThread ? threadRoot!.id : undefined, asker: who })
+          const more = earlierSources(db, rules, { roomId, users: hiddenFor, fromSeq: s.fromSeq ?? 0, exempt, rootId: inThread ? threadRoot!.id : undefined, asker: who, fx: this.ctx.files.fx })
           if (more) { earlier = true; sources.push(...more) } else hidden = true
         }
         continue

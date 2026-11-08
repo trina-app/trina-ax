@@ -15,19 +15,23 @@
 // - another room (a 1:1, a group chat, another team room), a connection, a shared Drive, the web or any tool outside
 //   the team files, a source type this build does not know, nothing kept;
 // - someone else's own folder, or a folder or name the asker cannot open now (a name counts only where the asker may
-//   read it, so it is named to them like a folder);
+//   read it, so it is named to them like a folder, and only when it is still there: a moved or renamed one would be
+//   judged on a path that no longer says what it was);
+// - an answer of the room's AI that read shared project chats (project_chats / project_chat in its turn's tool lines):
+//   the scope keeps such a read as the project's folder (chat/room-project-chats.ts), whose rule can be wider than the
+//   chat's audience, and the confirm would name a folder where a private chat was read;
 // - people's words: messages in a hidden answer's thread (deleted ones too: they were given while they were there), a
 //   hidden person's message other than a shared answer without a note (the note, or a message an AI app sent, is their
 //   own words), a deleted person's message (what it had is gone), and files on a hidden message (uploads are no team
 //   file the asker could be shown by name);
 // - more than EARLIER_DEPTH levels or EARLIER_MAX answers.
-// Shared project chats are kept as their project folder (chat/room-project-chats.ts: its readers are the chat's
-// audience), so they are judged as that folder. Following more than an answer used (an answer of the room it did not
+// Following more than an answer used (an answer of the room it did not
 // see) only names more folders the asker may open, or refuses. A member whose history is not worked out yet is not
 // judged here: decide() keeps that unpostable on its own.
 import type { Database } from 'bun:sqlite'
 import { atLeast, type Principal, type RuleSet } from '../policy/access'
-import { nameSegs, sourceKey, type ReadSource } from '../chat/read-scope'
+import { authorize } from '../policy/authorize'
+import { sourceKey, type ReadSource } from '../chat/read-scope'
 
 /** levels of answers built on hidden answers followed, at most */
 export const EARLIER_DEPTH = 8
@@ -46,6 +50,8 @@ export interface EarlierAsk {
   rootId?: string
   /** the person who asked, as they are now */
   asker: Principal | null
+  /** the team folder on disk (a name is followed only while it is there) */
+  fx: Parameters<typeof authorize>[0]
 }
 
 type Row = { id: string; seq: number; author_kind: 'user' | 'ai'; thread_root_id: string | null; source_scope: string | null; answer_at: number | null; deleted_at: string | null; ai_scope: string | null; files: number }
@@ -83,8 +89,13 @@ export function earlierSources(db: Database, rules: RuleSet, o: EarlierAsk): Rea
       FROM room_messages m WHERE m.id = ? AND m.room_id = ?`).get(id, o.roomId) as Row | null
     if (!m || m.files > 0) return null
     // a person's message: only a shared answer without a note is the AI's words alone (its kept scope says what they
-    // came from); a note or a message an AI app sent is the person's own, and a deleted one's content is not known
+    // came from). answer_at is where the answer starts (rooms/store.ts sharedAnswerOf): 0 is no note before it; NULL is
+    // no shared answer at all (a message an AI app sent: the person's own words), and a note is theirs too. A deleted
+    // one's content is not known
     if (m.author_kind === 'user' && (m.answer_at !== 0 || m.deleted_at)) return null
+    // an answer that read shared project chats: kept as their project's folder, not the chat it read
+    if (m.author_kind === 'ai' && db.query(`SELECT 1 FROM room_ai_turns t JOIN tool_events e ON e.turn_id = t.turn_id
+      WHERE t.answer_id = ? AND e.tool IN ('project_chats', 'project_chat') LIMIT 1`).get(m.id)) return null
     // its thread: people's words there are hidden with it and are no file to name (deleted ones too: they may have been
     // given); the answers there are followed
     const replies = db.query(`SELECT id, (author_kind = 'ai' OR answer_at IS NOT NULL OR source_scope IS NOT NULL) answer FROM room_messages
@@ -106,8 +117,9 @@ export function earlierSources(db: Database, rules: RuleSet, o: EarlierAsk): Rea
           if (s.id !== asker.id) return null
           break
         case 'name':
-          // named to the asker like a folder: only where they may read it (decide() names a folder they may read)
-          if (!atLeast(rules.access(asker, nameSegs(s.path)), 'read')) return null
+          // named to the asker like a folder: only where they may read it (decide() names a folder they may read), and
+          // only while it is there (authorize answers a missing path and a hidden one alike: refused)
+          try { authorize(o.fx, rules, asker, s.path, 'read') } catch { return null }
           break
         case 'root':
           if (!atLeast(rules.access(asker, []), 'read')) return null

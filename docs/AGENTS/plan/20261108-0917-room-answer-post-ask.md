@@ -114,4 +114,9 @@ Independent review fixes: a shared answer's note, a reply deleted from a hidden 
 refused (people's words); a name must be readable by the asker so it is named; the start-up pass runs once per database
 (`settings`); a confirm whose only reason is the hidden earlier answer says so instead of "everyone will see it".
 
+PR review fixes: the start-up pass keeps a cursor in settings and runs after start in small steps until no row is
+left (it could re-scan the same rows at every start, and left older ones out); a room's refused previews are decided
+again when someone leaves it or its history changes for a member; an earlier answer that read shared project chats,
+and a name no longer there, are refused.
+
 PR: https://github.com/trina-app/trina-ax/pull/212
