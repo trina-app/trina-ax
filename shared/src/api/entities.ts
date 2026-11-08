@@ -148,7 +148,8 @@ export const Project = z.object({
   /** how many active people see this project now (who can read its folder, owner and admins included; while its folder
    * is in the trash, the owner and admins): the people a shared chat of it is shown to. A count, never names. */
   audience: z.number().int().nonnegative().optional(),
-  /** how many shared chats it has (not in the trash): the delete and repoint dialogs say they go or move with it */
+  /** how many shared chats it has (not in the trash): the delete dialog says they go to their creators' trash, the
+   * repoint dialog who will see them */
   sharedChats: z.number().int().nonnegative().optional(),
 })
 export type Project = z.infer<typeof Project>

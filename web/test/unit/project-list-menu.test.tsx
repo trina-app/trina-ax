@@ -2,8 +2,9 @@
 // - what it offers: 이름 바꾸기 and 삭제 only to people who may edit the project (Project.canEdit), 링크 복사 to everyone;
 // - 링크 복사 copies the project page's full address on this origin and says so;
 // - 이름 바꾸기 is the chat rename's small prompt, and the card shows the new name;
-// - 삭제 is the project page's own confirm: the line with the number of shared chats that go with it only when it has
-//   any (by the server's count now, not the list's), then the delete, and the card goes; the history forgets the
+// - 삭제 is the project page's own confirm: the sentence that says its shared chats go to their creators' trash (by the
+//   trash's own name, no red line) only when it has any (by the server's count now, not the list's), then the delete,
+//   and the card goes; the history forgets the
 //   project on its private chats; a project that is not found any more (deleted by someone else, or no longer mine to
 //   see) just leaves the list, and my chats keep it, as the server does.
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
@@ -168,16 +169,19 @@ describe('the Projects list', () => {
     }
   })
 
-  test('delete with shared chats: the line that says they go too; cancel keeps the project', async () => {
+  test('delete with shared chats: the sentence that says they go to their creators\' trash, by its name; cancel keeps the project', async () => {
     const m = await page()
     try {
       await loaded(m)
       await open(m, 'Acme sales')
       await m.click(within(card(m, 'Acme sales'), 'project-card-delete')!)
-      const line = await m.until(() => m.find('project-delete-shared'), 'the shared chats line')
-      expect(line.textContent).toBe(ko('projects.deleteShared', { n: 2 }))
-      const dialog = m.container.ownerDocument!.body.querySelector('[role="dialog"]')!
-      expect(dialog.textContent).toContain(ko('projects.deleteBodyShared'))
+      const dialog = await m.until(() => m.container.ownerDocument!.body.querySelector('[role="dialog"]'), 'the confirm')
+      // the trash by the sidebar's name for it (no copy of it in the sentence), the team's days (the default here)
+      expect(dialog.textContent).toContain(ko('projects.deleteBodyShared', { days: 7, trash: ko('sidebar.trash') }))
+      expect(dialog.textContent).toContain(`"${ko('sidebar.trash')}"`)
+      // no red line that says they are deleted for good
+      expect(m.find('project-delete-shared')).toBeNull()
+      expect(dialog.querySelectorAll('span').some((e) => (e.getAttribute('class') ?? '').includes('text-danger'))).toBe(false)
       const cancel = ([...dialog.querySelectorAll('button')] as unknown as FakeElement[]).find((b) => b.textContent?.trim() === ko('common.cancel'))!
       await m.click(cancel)
       await m.settle()
@@ -188,18 +192,17 @@ describe('the Projects list', () => {
     }
   })
 
-  test('the shared chats line goes by the count the server gives now: one started since the list loaded is said', async () => {
+  test('the shared chats sentence goes by the count the server gives now: one started since the list loaded is said', async () => {
     now = { [MINE]: project(MINE, 'Acme launch', { sharedChats: 1 }) }
     const m = await page()
     try {
       await loaded(m)
       await open(m, 'Acme launch')
       await m.click(within(card(m, 'Acme launch'), 'project-card-delete')!)
-      const line = await m.until(() => m.find('project-delete-shared'), 'the shared chats line')
-      expect(line.textContent).toBe(ko('projects.deleteShared', { n: 1 }))
+      const dialog = await m.until(() => m.container.ownerDocument!.body.querySelector('[role="dialog"]'), 'the confirm')
+      expect(dialog.textContent).toContain(ko('projects.deleteBodyShared', { days: 7, trash: ko('sidebar.trash') }))
       expect(calls.map((c) => c.key)).toContain(`GET /api/projects/${MINE}`)
       // closed, so the next page does not start with it
-      const dialog = m.container.ownerDocument!.body.querySelector('[role="dialog"]')!
       await m.click(([...dialog.querySelectorAll('button')] as unknown as FakeElement[]).find((b) => b.textContent?.trim() === ko('common.cancel'))!)
     } finally {
       await m.unmount()

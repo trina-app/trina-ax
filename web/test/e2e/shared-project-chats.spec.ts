@@ -413,6 +413,103 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await b.context().close()
     })
 
+    test('live lists: the project page shows, renames and drops a chat someone else starts; a folder taken away drops it from Bob\'s lists', async ({ page, browser }) => {
+      await reset(page)
+      await signIn(page)
+      const id = await project(page)
+      await page.goto(`/projects/${id}`)
+      await expect(page.getByTestId('project-chats')).toContainText('아직 이 프로젝트에서 연 채팅이 없어요.')
+      // Bob's window, with every frame it receives kept (from its first socket on)
+      const frames: string[] = []
+      const b = await (await browser.newContext({ baseURL: test.info().project.use.baseURL, locale: 'ko-KR', ...vp.use })).newPage()
+      b.on('websocket', (ws) => ws.on('framereceived', (f) => { if (typeof f.payload === 'string') frames.push(f.payload) }))
+      await signIn(b, BOB)
+      // Bob starts a shared chat: Olga's open page shows it at once, with the shared mark
+      const chatId = await sharedChat(b, id, '출시 체크리스트 만들어 줘')
+      const row = page.getByTestId('project-chats').locator(`a[href="/c/${chatId}"]`)
+      await expect(row).toBeVisible()
+      await expect(row.getByTestId('shared-icon')).toHaveCount(1)
+      // renamed, deleted and brought back by Bob: the row follows each
+      expect((await patch(b, `/api/chats/${chatId}`, { title: '출시 체크리스트 v2' })).ok()).toBeTruthy()
+      await expect(row).toContainText('출시 체크리스트 v2')
+      expect((await del(b, `/api/chats/${chatId}`)).ok()).toBeTruthy()
+      await expect(row).toHaveCount(0)
+      expect((await post(b, `/api/chats/${chatId}/restore`, {})).ok()).toBeTruthy()
+      await expect(row).toBeVisible()
+      await audit(page, 'project page, a chat added live')
+
+      // the folder is taken from everyone: Bob's project page and his chat list drop the chat (he wrote in it) without a
+      // reload, and nothing of it is sent to him
+      await b.goto(`/projects/${id}`)
+      const bobRow = b.getByTestId('project-chats').locator(`a[href="/c/${chatId}"]`)
+      await expect(bobRow).toBeVisible()
+      // his chat list (he wrote in the chat) in a second window of his: the drawer on a phone
+      const b2 = await b.context().newPage()
+      await b2.goto('/')
+      if (vp.phone) await b2.getByTestId('menu-open').click()
+      const inList = b2.locator(vp.phone ? '[data-drawer]' : 'body').getByTestId('recents-list').getByRole('listitem').filter({ hasText: '출시 체크리스트 v2' })
+      await expect(inList).toHaveCount(1)
+      const from = frames.length
+      expect((await post(page, '/__test/revoke', { path: 'marketing' })).ok()).toBeTruthy()
+      await expect(bobRow).toHaveCount(0)
+      await expect(inList).toHaveCount(0)
+      const after = frames.slice(from).map((f) => JSON.parse(f) as { type: string; data?: { chatId?: string; change?: string; chat?: unknown } }).filter((f) => f.data?.chatId === chatId)
+      expect(after.map((f) => [f.type, f.data!.change, f.data!.chat])).toEqual([['chat.updated', 'deleted', null]])
+      await b.context().close()
+    })
+
+    test('the trash: a shared chat I deleted is in mine too, and comes back from there; a deleted project\'s shared chat goes to its creator\'s', async ({ page, browser }) => {
+      await reset(page)
+      await signIn(page)
+      const id = await project(page)
+      const b = await bob(browser)
+      const chatId = await sharedChat(b, id, '회의록 요약해 줘')
+      expect((await patch(b, `/api/chats/${chatId}`, { title: 'Bob의 회의록 요약' })).ok()).toBeTruthy()
+      // Olga (she made the project) deletes Bob's shared chat from its title menu: the confirm names the trash by its name
+      await page.goto(`/c/${chatId}`)
+      await page.getByTestId('chat-menu').click()
+      await page.getByTestId('chat-delete').click()
+      await expect(page.getByRole('dialog')).toContainText('7일 동안 "삭제한 기록"에 있다가 완전히 지워져요.')
+      await page.getByTestId('dialog-confirm').click()
+      await expect(page.getByRole('dialog')).toHaveCount(0)
+      // her trash has it (once), and so does Bob's
+      await page.goto('/trash')
+      const rows = page.getByTestId('trash-list').getByRole('listitem').filter({ hasText: 'Bob의 회의록 요약' })
+      await expect(rows).toHaveCount(1)
+      await audit(page, 'trash, a shared chat I deleted')
+      await b.goto('/trash')
+      await expect(b.getByTestId('trash-list').getByRole('listitem').filter({ hasText: 'Bob의 회의록 요약' })).toHaveCount(1)
+      // she brings it back: it leaves both trashes, and is in the project again
+      await rows.getByRole('button', { name: '되돌리기' }).click()
+      await expect(rows).toHaveCount(0)
+      await b.reload()
+      // loaded: its rows or the empty line
+      await expect(b.getByText('삭제한 기록이 없어요').or(b.getByTestId('trash-list').getByRole('listitem').first())).toBeVisible()
+      await expect(b.getByTestId('trash-list').getByRole('listitem').filter({ hasText: 'Bob의 회의록 요약' })).toHaveCount(0)
+      expect(((await (await b.request.get(`/api/chats/${chatId}`)).json()) as { projectId: string | null }).projectId).toBe(id)
+
+      // the project is deleted: the shared chat goes to Bob's trash (not Olga's), his own without project; brought back,
+      // Olga cannot open it any more
+      await page.goto(`/projects/${id}`)
+      await page.getByTestId('project-menu').click()
+      await page.getByTestId('project-delete').click()
+      await page.getByTestId('dialog-confirm').click()
+      await expect(page).toHaveURL(/\/projects$/)
+      await page.goto('/trash')
+      // loaded: its rows or the empty line
+      await expect(page.getByText('삭제한 기록이 없어요').or(page.getByTestId('trash-list').getByRole('listitem').first())).toBeVisible()
+      await expect(page.getByTestId('trash-list').getByRole('listitem').filter({ hasText: 'Bob의 회의록 요약' })).toHaveCount(0)
+      await b.goto('/trash')
+      const his = b.getByTestId('trash-list').getByRole('listitem').filter({ hasText: 'Bob의 회의록 요약' })
+      await expect(his).toHaveCount(1)
+      await his.getByRole('button', { name: '되돌리기' }).click()
+      await expect(his).toHaveCount(0)
+      const back = (await (await b.request.get(`/api/chats/${chatId}`)).json()) as { projectId: string | null; shared?: unknown; deletedAt: string | null }
+      expect([back.projectId, back.shared, back.deletedAt]).toEqual([null, undefined, null])
+      expect((await page.request.get(`/api/chats/${chatId}`)).status()).toBe(404)
+      await b.context().close()
+    })
+
     test('the refusals: what someone may not do is not offered, and the server refuses it too', async ({ page, browser }) => {
       await reset(page)
       await signIn(page)
@@ -453,12 +550,12 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await audit(page, 'refused send')
       await page.unroute(`**/api/chats/${chatId}/messages`)
 
-      // deleting the project says its shared chat goes too
+      // deleting the project says its shared chat goes to its creator's trash, by the trash's name; no red line
       await page.goto(`/projects/${id}`)
       await page.getByTestId('project-menu').click()
       await page.getByTestId('project-delete').click()
-      await expect(page.getByTestId('project-delete-shared')).toHaveText('공유 채팅 1개도 함께 지워져요.')
-      await expect(page.getByRole('dialog')).toContainText('프로젝트만 지워지고 폴더와 내 채팅은 그대로 남아요.')
+      await expect(page.getByRole('dialog')).toContainText('프로젝트만 지워지고 폴더와 내 채팅은 그대로 남아요. 공유 채팅은 7일 동안 만든 사람의 "삭제한 기록"에 있어요.')
+      await expect(page.getByTestId('project-delete-shared')).toHaveCount(0)
       await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
       // pointing it at another folder (admins) says who will see its shared chat there
       await page.getByTestId('project-menu').click()
