@@ -271,6 +271,8 @@ export class GoogleDrive {
           .run(shareId, wanted, user, this.key, JSON.stringify(s.account), JSON.stringify(s.scopes), sealed.enc, sealed.keyVersion, expires, now, now)
       }
       db.query("UPDATE drive_oauth_flows SET state='completed',secret_enc=NULL WHERE id=?").run(id)
+      // when this share was signed in, and by whom (팀장 넘기기 never ends a sign-in made after the handover)
+      db.query("INSERT INTO team_sign_ins (kind, target_id, user_id, at) VALUES ('drive_share', ?, ?, ?) ON CONFLICT(kind, target_id) DO UPDATE SET user_id = excluded.user_id, at = excluded.at").run(shareId, user, now)
     })()
     this.abort(`share:${shareId}`)
     // the account's email is not in the log: who did it and which share
@@ -315,6 +317,7 @@ export class GoogleDrive {
       const changed = db.query("UPDATE drive_team_shares SET secret_enc=NULL,status='needs_reconnect',reason='owner_gone',version=version+1,updated_at=? WHERE id=? AND version=?")
         .run(new Date(this.now()).toISOString(), r.id, r.version).changes
       if (!changed) continue
+      db.query("DELETE FROM team_sign_ins WHERE kind = 'drive_share' AND target_id = ?").run(r.id)
       this.abort(`share:${r.id}`)
       audit(db, { actor: null, action: 'drive.share_owner_gone', target: r.id })
       notifyDriveShareReconnect(this.ctx, r.id, `${r.id}.v${r.version + 1}`)

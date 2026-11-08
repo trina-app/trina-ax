@@ -19,6 +19,7 @@ import {
 } from './store'
 import { formatProblem, verifySecret } from './validate'
 import { ensureFresh } from './chatgpt-tokens'
+import { forgetSignIn, recordSignIn } from '../auth/team-sign-ins'
 
 type ApiKind = Exclude<CredentialKind, 'chatgpt'>
 const secretOfKind = (kind: ApiKind, s: string): Secrets[ApiKind] => (kind === 'anthropic-oauth' ? { token: s } : { key: s })
@@ -95,6 +96,9 @@ export function insertRow(cc: CredCtx, n: NewRow): string {
       .run(id, n.kind, n.label, n.ownerUserId, n.priority, n.status ?? 'ok', n.statusCode ?? null, enc, keyVersion, fingerprintOf(main),
         n.kind === 'chatgpt' ? null : hintOf(n.kind, main), JSON.stringify(n.meta ?? {}), n.expiresAt ?? null, n.checkedAt ?? null, n.createdBy, now, now)
     setAssignments(cc, id, n.ownerUserId ? [] : n.assignments)
+    // a team connection made with someone's own token or sign-in: whose it is (팀장 넘기기); the server's own imports
+    // (createdBy null) are nobody's on record
+    if (!n.ownerUserId && n.createdBy) recordSignIn(cc.db, 'team_ai', id, n.createdBy, now)
   })()
   cc.cache.set(id, { updatedAt: now, value: n.secret })
   return id
@@ -159,6 +163,8 @@ export async function createCredential(cc: CredCtx, i: CreateInput, locale: Loca
       cc.db.query('UPDATE engine_credentials SET last_used_at = ?, limited_until = ?, status_code = ? WHERE id = ?')
         .run(d.last_used_at, limited ? d.limited_until : null, limited ? d.status_code : null, id)
       cc.db.query('DELETE FROM engine_credentials WHERE id = ?').run(d.id)
+      // the member's own subscription, now serving the team: theirs on record (팀장 넘기기), not the mover's
+      if (d.owner_user_id) recordSignIn(cc.db, 'team_ai', id, d.owner_user_id, new Date(now).toISOString())
     }
     const r = getRow(cc.db, id)!
     const detail = {
@@ -211,7 +217,7 @@ export async function replaceSecret(cc: CredCtx, id: string, secret: string, act
   if (check.result === 'refused') fail('validation', ct(kind === 'anthropic-oauth' ? 'refusedClaude' : 'refusedKey', locale), { fields: { 'body.sealed': 'refused by the provider' } })
   const now = cc.now()
   const meta = metaOf(row)
-  cc.db.transaction(() => { ensure?.(); writeSecret(cc, id, kind, secretOfKind(kind, secret), {
+  cc.db.transaction(() => { ensure?.(); if (!row.owner_user_id) recordSignIn(cc.db, 'team_ai', id, actor, new Date(now).toISOString()); writeSecret(cc, id, kind, secretOfKind(kind, secret), {
     fingerprint: fingerprintOf(secret), hint: hintOf(kind, secret), status: 'ok', status_code: null, limited_until: null,
     checked_at: check.result === 'ok' ? new Date(now).toISOString() : null,
     ...(kind === 'anthropic-oauth' ? { expires_at: new Date(now + CLAUDE_TOKEN_LIFETIME_MS).toISOString(), meta: JSON.stringify({ ...meta, issuedAt: new Date(now).toISOString() }) } : {}),
@@ -283,6 +289,7 @@ export function deleteCredential(cc: CredCtx, id: string, actor: string, onlyOwn
   if (!row || (onlyOwnerId !== undefined && row.owner_user_id !== onlyOwnerId)) return fail('not_found')
   personalGuard(cc, row, actor, 'delete', locale)
   cc.db.query('DELETE FROM engine_credentials WHERE id = ?').run(id)
+  forgetSignIn(cc.db, 'team_ai', id)
   cc.cache.delete(id)
   audit(cc.db, { actor, action: 'credential.delete', target: id, detail: { kind: row.kind, label: row.label, scope: row.owner_user_id ? 'personal' : 'team' } })
   if (!row.owner_user_id) noticeOwners(cc, actor, 'removed', row.label)

@@ -46,6 +46,7 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   SKILL_SHARES: 'Bring my skills to the team (share proposals)',
   KNOWLEDGE_GRAPH: 'Knowledge graph: the code map of the team folders (CodeGraph), its folders, rebuild',
   AI_ALLOWANCES: 'What I allowed the AI in advance',
+  HANDOVER: 'Owner handover (the lead link\'s card and the owner\'s own connections)',
 }
 
 const WHO: Record<Endpoint['auth'], string> = {

@@ -12,6 +12,8 @@
 // then the three latest AI chats as plain rows ("트리나 기록"; the whole history is behind ☰ in the top bar). The greeting and the box sit a third of
 // the way down and the rows hang below them, so opening a row moves nothing above it. A project's new
 // chat ("/?project=") shows neither: the goal and the setup row are about the team.
+// The owner whose lead link someone joined with gets that card as the one thing at the top instead (components/handover/
+// HandoverCard.tsx, docs/DECISIONS.md "W6"), on a phone the first row under the box.
 // The owner who ended the welcome steps without files gets one line (docs/DECISIONS.md "M — One meeting note,
 // everyone's own tasks"): "회의록이 생기면 {팀} 폴더에 놓아 주세요". (The member's start from a link's files, "M", went
 // with 할 일 정리: docs/DECISIONS.md "DS3".)
@@ -39,6 +41,7 @@ import { PopularSkills } from '../components/PopularSkills'
 import { SkillsOnComputer, useResumeOnLanding, WelcomeResume } from '../components/onboarding/WelcomeResume'
 import { HomeGoal } from '../components/onboarding/GoalCard'
 import { NoAiCard } from '../components/onboarding/ConnectAi'
+import { HandoverCard, useLeadCard } from '../components/handover/HandoverCard'
 import { DemoIntro, DemoQuestions, useDemoPersona } from '../components/demo/Demo'
 import { Tooltip } from '../components/Tooltip'
 
@@ -81,6 +84,10 @@ export default function Home() {
   const suggest = extras && !projectId && ai.loaded && ai.usable
   // a project's new chat is about that project: the team's goal and setup row stay on Home itself
   const top = !noAi && extras && isAdmin(me) && !projectId && ai.loaded && <HomeTop owner={isOwner(me)} />
+  // someone joined with the owner's lead link (docs/DECISIONS.md "W6"): while its card shows, it is the one thing at the
+  // top, in place of the setup row or the goal and of the no-AI card
+  const lead = useLeadCard(extras && !projectId)
+  const leadCard = lead && <HandoverCard card={lead} />
 
   if (elsewhere) return <Navigate to={landingPath(true)} state={LANDING_STATE} replace />
   if (resuming) return <div className="h-full" data-testid="home-resuming" />
@@ -93,7 +100,7 @@ export default function Home() {
         <div className="w-full max-w-[720px] max-md:grid max-md:min-h-0 max-md:flex-1 max-md:grid-cols-1 max-md:grid-rows-[minmax(0,1fr)_auto_minmax(0,2fr)]" data-testid="home-column">
           <div className="md:hidden" aria-hidden />
           <div className="md:contents" data-testid="home-head">
-            {noAi ? <NoAiCard /> : !phone && top}
+            {leadCard ? !phone && leadCard : noAi ? <NoAiCard /> : !phone && top}
             {project && (
               <p className="mb-2 text-center text-sm text-muted">
                 <Link to={`/projects/${project.id}`} className="font-medium text-accent-text hover:underline">
@@ -117,7 +124,7 @@ export default function Home() {
           <div className="max-md:pb-6 md:contents" data-testid="home-tail">
             {demo && !projectId && <DemoQuestions info={demo.info} persona={demo.persona} />}
             {/* phones: the top row is the first row under the box */}
-            {phone && top && <div className="mt-3">{top}</div>}
+            {phone && (leadCard || top) && <div className="mt-3">{leadCard || top}</div>}
             {phone && extras && !projectId && <RecentChats />}
             {suggest && firstTime && <FirstTime onExample={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
             {suggest && <FrequentQuestions key={me.user.id} onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}

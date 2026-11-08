@@ -27,6 +27,7 @@ import { isValidTimeZone } from '../system/time-zone'
 import { isHosted } from '../system/deployment'
 import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, getUserByUsername, insertUser, usernameTaken, userRef, type UserRow } from './users'
 import { notifyTemplateOffers } from '../notifications/service'
+import { afterLeadJoin, handoverText, leadInviteBeforeInsert, leadInviteShape, resetLinkRefused } from '../admin/handover'
 
 export const RESET_TTL_MS = 24 * 3600_000
 /** A temporary password (admin "add member" / "new temporary password") stops working this long after it was set. */
@@ -231,8 +232,9 @@ export async function changePassword(c: Context<AppEnv>, ctx: AppContext, b: In<
 }
 
 // ---------------- invites ----------------
-interface InviteRow { id: string; role: Exclude<Role, 'owner'>; group_ids: string; created_by: string | null; created_at: string | null; expires_at: string; used_at: string | null; used_by: string | null; revoked_at: string | null }
-const INVITE_COLS = 'id, role, group_ids, created_by, created_at, expires_at, used_at, used_by, revoked_at'
+/** lead_hint / lead_for / lead_hint_by: "이 사람이 팀장이에요" (admin/handover.ts, migration 270) */
+interface InviteRow { id: string; role: Exclude<Role, 'owner'>; group_ids: string; created_by: string | null; created_at: string | null; expires_at: string; used_at: string | null; used_by: string | null; revoked_at: string | null; lead_hint: number; lead_for: string | null; lead_hint_by: string | null }
+const INVITE_COLS = 'id, role, group_ids, created_by, created_at, expires_at, used_at, used_by, revoked_at, lead_hint, lead_for, lead_hint_by'
 
 function parseIds(s: string): string[] { try { const v = JSON.parse(s); return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [] } catch { return [] } }
 
@@ -240,6 +242,7 @@ export function toInvite(db: Database, r: InviteRow): Invite {
   return {
     id: r.id, role: r.role, groupIds: parseIds(r.group_ids), createdBy: userRef(db, r.created_by), createdAt: r.created_at ?? r.expires_at,
     expiresAt: r.expires_at, usedAt: r.used_at, usedBy: userRef(db, r.used_by),
+    leadFor: r.lead_hint ? r.lead_for : null,
   }
 }
 
@@ -251,23 +254,36 @@ export function createInvite(c: Context<AppEnv>, ctx: AppContext, b: In<typeof C
   const auth = c.get('auth')!
   const locale = c.get('locale')
   if (b.role === 'admin' && auth.user.role !== 'owner') fail('forbidden', msg('ownerOnlyAdmins', locale))
-  const groups = existingGroups(ctx.db, b.groupIds)
-  if (groups.length !== new Set(b.groupIds).size) fail('validation', msg('unknownGroups', locale), { fields: { 'body.groupIds': 'unknown group' } })
+  // a lead invite ("이 사람이 팀장이에요"): the owner only, and what it carries is decided on the server (admin/handover.ts)
+  const lead = b.leadFor !== undefined ? leadInviteShape(c, ctx, b) : null
+  const asked = lead ? lead.groupIds : b.groupIds
+  const groups = existingGroups(ctx.db, asked)
+  if (groups.length !== new Set(asked).size) fail('validation', msg('unknownGroups', locale), { fields: { 'body.groupIds': 'unknown group' } })
   // the plan's seats (system/limits.ts): no new link while every seat is taken; accepting checks again
   assertSeatFree(ctx.db, locale)
   const token = newToken()
   const now = authOf(ctx).now()
-  const row: InviteRow = { id: newId(), role: b.role, group_ids: JSON.stringify(groups), created_by: auth.user.id, created_at: new Date(now).toISOString(), expires_at: new Date(now + b.expiresInHours * 3600_000).toISOString(), used_at: null, used_by: null, revoked_at: null }
-  ctx.db.query('INSERT INTO invites (id, role, group_ids, token_hash, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(row.id, row.role, row.group_ids, hashToken(token), row.created_by, row.created_at, row.expires_at)
-  audit(ctx.db, { actor: auth.user.id, action: 'invite.create', target: row.id, detail: { role: row.role, groupIds: groups, expiresAt: row.expires_at } })
-  return { invite: toInvite(ctx.db, row), token, url: `${linkBase(c, ctx)}/invite/${token}` }
+  const hours = lead ? lead.hours : b.expiresInHours
+  const row: InviteRow = { id: newId(), role: lead ? 'member' : b.role, group_ids: JSON.stringify(groups), created_by: auth.user.id, created_at: new Date(now).toISOString(), expires_at: new Date(now + hours * 3600_000).toISOString(), used_at: null, used_by: null, revoked_at: null,
+    lead_hint: lead ? 1 : 0, lead_for: lead ? b.leadFor! : null, lead_hint_by: lead ? auth.user.id : null }
+  let replaced = 0
+  ctx.db.transaction(() => {
+    // one open lead invite: the one before stops in the same write (two creates at once cannot leave two; the partial
+    // unique index invites_one_open_lead holds it too), and the caller is read again as the owner
+    if (lead) replaced = leadInviteBeforeInsert(c, ctx, row.created_at!)
+    ctx.db.query('INSERT INTO invites (id, role, group_ids, token_hash, created_by, created_at, expires_at, lead_hint, lead_for, lead_hint_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(row.id, row.role, row.group_ids, hashToken(token), row.created_by, row.created_at, row.expires_at, row.lead_hint, row.lead_for, row.lead_hint_by)
+    audit(ctx.db, { actor: auth.user.id, action: 'invite.create', target: row.id, detail: { role: row.role, groupIds: groups, expiresAt: row.expires_at, ...(lead ? { leadHint: true, ...(replaced ? { replacedLead: replaced } : {}) } : {}) } })
+  }).immediate()
+  return { invite: toInvite(ctx.db, row), token, url: `${linkBase(c, ctx)}/invite/${token}`, ...(lead ? { replacedLead: replaced > 0 } : {}) }
 }
 
 export function revokeInvite(c: Context<AppEnv>, ctx: AppContext, id: string): void {
   const r = ctx.db.query(`SELECT ${INVITE_COLS} FROM invites WHERE id = ? AND revoked_at IS NULL`).get(id) as InviteRow | null
   if (!r) fail('not_found')
   if (r!.used_at) fail('conflict', msg('inviteUsed', c.get('locale')))
+  // the owner's lead invite is the owner's to stop (a new lead invite or a transfer stops it too)
+  if (r!.lead_hint && c.get('auth')!.user.role !== 'owner') fail('forbidden', handoverText('leadOwnerRevoke', c.get('locale')))
   ctx.db.query('UPDATE invites SET revoked_at = ? WHERE id = ?').run(new Date().toISOString(), id)
   audit(ctx.db, { actor: c.get('auth')!.user.id, action: 'invite.revoke', target: id })
 }
@@ -326,7 +342,7 @@ export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: s
     const res = ctx.db.query('UPDATE invites SET used_at = ?, used_by = ? WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?').run(now, id, r!.id, now)
     if (res.changes !== 1) return 'gone'
     insertUser(ctx.db, { id, username: b.username, name: b.name, passwordHash, role: r!.role, locale: b.locale ?? null, mustChangePassword: false, groupIds: groups })
-    audit(ctx.db, { actor: id, action: 'invite.accept', target: r!.id, detail: { userId: id, role: r!.role, groupIds: groups } })
+    audit(ctx.db, { actor: id, action: 'invite.accept', target: r!.id, detail: { userId: id, role: r!.role, groupIds: groups, ...(fresh.lead_hint ? { leadHint: true } : {}) } })
     return 'ok'
   })
   let ok: string
@@ -337,6 +353,8 @@ export async function acceptInvite(c: Context<AppEnv>, ctx: AppContext, token: s
   if (ok! === 'gone') fail('gone', msg('linkInvalid', locale))
   ensurePersonalFolder(ctx.files.fx.root, id)
   notifyTemplateOffers(ctx, { userId: id })
+  // a lead invite: the owner who flagged it gets the card's notice (only a hint: the role stays member)
+  afterLeadJoin(ctx, r!.id)
   return a.signIn(c, id, b.client, b.tokenMode)
 }
 class UsernameTaken extends Error {}
@@ -370,7 +388,10 @@ function resetByToken(db: Database, token: string): ResetRow | null {
  */
 function resetUsable(db: Database, r: ResetRow, u: UserRow | null, now: number): u is UserRow {
   if (!u || u.status !== 'active' || r.used_at || Date.parse(r.expires_at) <= now) return false
-  if (r.created_by === null) return true
+  // a link made by nobody (the server's own CLI, the hosted control plane's reset-link): not for an owner or an admin
+  // while a hosted handover's recovery lock holds (admin/handover.ts), whenever it was made (a link minted for the lead
+  // while still a member, redeemed after they became the owner, is refused too)
+  if (r.created_by === null) return !resetLinkRefused(db, u)
   const by = getUser(db, r.created_by)
   if (!by || by.status !== 'active' || by.id === u.id) return false
   if (by.role === 'owner') return u.role !== 'owner'

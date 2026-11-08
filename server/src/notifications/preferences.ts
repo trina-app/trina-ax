@@ -80,5 +80,7 @@ export function eventEnabled(p: NotificationPreferences, event: NotificationEven
     case 'drive.share_reconnect': return true
     // an admin changed the team's AI (told to the owners), or switched off / removed a member's own connection (told to them)
     case 'credential.change': return true
+    // 팀장 넘기기 (admin/handover.ts): a join with the owner's lead link (also pushed), a transfer, a locked password check
+    case 'owner.lead_joined': case 'owner.transferred': case 'owner.reauth_locked': return true
   }
 }

@@ -78,6 +78,9 @@ export const Invite = z.object({
   expiresAt: IsoTime,
   usedAt: IsoTime.nullable(),
   usedBy: UserRef.nullable(),
+  /** a lead invite ("이 사람이 팀장이에요", docs/DECISIONS.md "W6"): the owner's words for whom it is, while it is still
+   * flagged (a transfer clears every flag); absent or null otherwise and from older servers */
+  leadFor: z.string().nullable().optional(),
 })
 export type Invite = z.infer<typeof Invite>
 

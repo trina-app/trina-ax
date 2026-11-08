@@ -32,6 +32,18 @@ export const TEXT = {
     en: 'Someone mentioned you in a room.',
     id: 'Seseorang menyebut Anda di ruang obrolan.', ja: "ルームであなたがメンションされました。", es: "Alguien le mencionó en una sala.",
   },
+  // 팀장 넘기기: someone joined with the owner's lead link; who it was stays in the app
+  'owner.lead_joined': {
+    ko: '팀장 링크로 누군가 들어왔어요. 앱에서 확인해 주세요.',
+    en: 'Someone joined with your team lead link. Check it in the app.',
+    id: 'Seseorang bergabung lewat tautan ketua tim. Periksa di aplikasi.', ja: "リーダー用リンクで誰かが参加しました。アプリで確認してください。", es: "Alguien entró con su enlace para el responsable. Revíselo en la aplicación.",
+  },
+  // the owner's password re-check locked after too many wrong tries: what to do is in the app
+  'owner.reauth_locked': {
+    ko: '비밀번호 확인이 여러 번 틀렸어요. 앱에서 확인해 주세요.',
+    en: 'Your password was entered wrong several times. Check it in the app.',
+    id: 'Kata sandi Anda beberapa kali salah dimasukkan. Periksa di aplikasi.', ja: "パスワードの確認で何度も間違いがありました。アプリで確認してください。", es: "Su contraseña se introdujo mal varias veces. Revíselo en la aplicación.",
+  },
 } satisfies Record<'title' | PushEventType, Record<Locale, string>>
 
 /** The words of a room notice's title on a device ("민준 · #마케팅 › 스레드": rooms/inbox.ts roomLabel, shown by the web
@@ -62,5 +74,7 @@ export function pushMessages(locale: Locale) {
     'connection.reconnect': TEXT['connection.reconnect'][locale],
     'room.dm': TEXT['room.dm'][locale],
     'room.mention': TEXT['room.mention'][locale],
+    'owner.lead_joined': TEXT['owner.lead_joined'][locale],
+    'owner.reauth_locked': TEXT['owner.reauth_locked'][locale],
   } }
 }

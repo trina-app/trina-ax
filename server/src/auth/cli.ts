@@ -20,6 +20,7 @@ import { getTeamSettings } from '../admin/settings'
 import { passwordProblem } from './passwords'
 import { installAuth } from './service'
 import { getUserByUsername } from './users'
+import { resetLinkRefused } from '../admin/handover'
 
 export class CliError extends Error {}
 
@@ -72,6 +73,8 @@ export async function runCli(argv: string[], o: { config?: AppConfig; stdin?: ()
         const user = row ? getUserByUsername(ctx.db, row.username) : null
         if (!user) throw new CliError(u ? `no account "${u}"` : 'no owner yet (run create-owner)')
         if (user.status !== 'active') throw new CliError(`account "${user.username}" is disabled`)
+        // a hosted handover's recovery lock (admin/handover.ts): no link for an owner or an admin until the claim
+        if (resetLinkRefused(ctx.db, user)) throw new CliError('owner_recovery_locked: the team changed hands; owners and admins get no reset link until the new owner claims recovery')
         const base = cfg.publicOrigins[0] ?? `http://localhost:${cfg.listen.port}`
         const link = createResetLink(ctx, user.id, null, base)
         return `one-time password reset link for "${user.username}" (valid until ${link.expiresAt}):\n${link.url}`

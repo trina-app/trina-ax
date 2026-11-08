@@ -38,6 +38,10 @@ const roomPath: PushPath = (ctx, id) => {
   return r ? (r.thread_root_id ? `/rooms/${r.room_id}/t/${r.thread_root_id}` : `/rooms/${r.room_id}`) : null
 }
 for (const code of ROOM_PUSH_EVENTS) pushPaths.set(code, roomPath)
+// a lead join opens Home, where the owner's handover card is (the card checks again that it still holds)
+pushPaths.set('owner.lead_joined', () => '/')
+// the owner's locked password check opens the Inbox (the notice there says what to do), as the older events do
+pushPaths.set('owner.reauth_locked', () => '/settings/notifications')
 export function registerPushPath(code: string, path: PushPath) { pushPaths.set(code, path) }
 export function pushPathOf(ctx: AppContext, code: string, notificationId: string): string | undefined {
   try {

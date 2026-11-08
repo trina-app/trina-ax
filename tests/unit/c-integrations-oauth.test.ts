@@ -114,6 +114,30 @@ test('a code exchanged without the matching verifier fails; expired flows and ch
   expect(everything()).not.toContain(MCP_KEY)
 })
 
+test('a team connection records whose sign-in it is (팀장 넘기기 reads only that); a personal one does not; a moved address or a removal clears it', async () => {
+  const signer = (id: string) => (h.ctx.db.query("SELECT user_id FROM team_sign_ins WHERE kind = 'team_connection' AND target_id = ?").get(id) as { user_id: string } | null)?.user_id
+  const mine = await connect()
+  expect(signer(mine.id)).toBeUndefined()
+  const team = await create({ scope: 'team' })
+  const f = await olga.call('POST', `/api/integrations/${team.id}/authorize`, {})
+  expect((await olga.raw('GET', callback(fake.authorize(f.authorizationUrl)))).status).toBe(200)
+  const owner = (h.ctx.db.query("SELECT id FROM users WHERE role = 'owner'").get() as { id: string }).id
+  expect(signer(team.id)).toBe(owner)
+  // a name or a tool called "signIn" in the audit changes nothing: the record is written by the sign-in alone
+  await olga.call('PATCH', `/api/integrations/${team.id}`, { name: 'signIn' })
+  expect(signer(team.id)).toBe(owner)
+  // moved to another address: the sign-in goes, and so does the record
+  await olga.call('PATCH', `/api/integrations/${team.id}`, { url: `${fake.base}/mcp-oauth?tenant=9` })
+  expect(getRow(h.ctx.db, team.id)!.secret_enc).toBeNull()
+  expect(signer(team.id)).toBeUndefined()
+  // signed in again, then removed: gone with it
+  const g = await olga.call('POST', `/api/integrations/${team.id}/authorize`, {})
+  expect((await olga.raw('GET', callback(fake.authorize(g.authorizationUrl)))).status).toBe(200)
+  expect(signer(team.id)).toBe(owner)
+  await olga.call('DELETE', `/api/integrations/${team.id}`)
+  expect(signer(team.id)).toBeUndefined()
+})
+
 test('refresh: ahead of expiry and once for many calls; after a 401; a refused refresh asks to sign in again', async () => {
   const { id } = await connect()
   const row = () => getRow(h.ctx.db, id)!
