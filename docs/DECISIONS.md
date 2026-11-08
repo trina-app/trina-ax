@@ -14644,3 +14644,32 @@ and its developer page "User presence and status" (what was copied and what was 
   publish-server.ts and its tests read it. Redeploy once (`bun scripts/release/hosting.ts setup`) before uploading.
 - **Not.** No listing, no "latest" alias, no signature: the APK's own signature is what Android checks, and the website
   shows the SHA-256 on the GitHub release.
+
+## A deleted team skill opens 파일 › 휴지통; @트리나's private answer counts as unread at once (fix/skill-trash-room-unread, 2026-11-08)
+
+Two bugs from a design audit of dev. Placement: Team AX core (web app, `server/src/skills/changes.ts`); no contract,
+setting or data change.
+
+- **The files trash has an address: `/files?view=trash`** (`web/src/pages/Files.tsx`), like `?view=people` in Admin ›
+  Folder permissions. The 팀 폴더 / 휴지통 tabs set it (the folder and the search stay in the address, so the 팀 폴더
+  tab comes back to them, as the tab state did), so a link, a reload and Back open the right tab; the "folder gone"
+  climb keeps the trash on screen. Before, 휴지통 was a tab state with no address.
+- **A deleted team skill points there.** 팀 스킬 › 최근 변경's 삭제 row had "삭제한 기록", and the server's skill-change
+  notice for a deleted file had a link, both to `/trash`: the deleted AI chats, where the file never is. Both now go
+  to `/files?view=trash` (`FILES_TRASH` in `web/src/lib/nav.ts`, `historyLink` on each side). The button says the
+  trash tab's own word, 휴지통 (`files.trash`, no new string); the notice's button stays 열기. A notice from before
+  this change keeps its `/trash` link and opens the chats, as it did.
+- **One judge of who sees a room message.** The server counts a private @트리나 answer (`visibility 'private'`, the
+  asker's only) as unread for the asker (`unreadCount`), but the web added to the live badge only for
+  `visibility === 'room'`, and the answer sends no `room.read`. Asking @트리나 and going to another room showed 0 in the
+  sidebar and the dock badge, 1 after a reload. The server sends a room message only to those who may see it
+  (`canSee`), so `withMessage` (`web/src/store/rooms.ts`) no longer tests visibility: what arrives counts as the
+  server counts it. It also counts only after my read position (the server's `seq > last_read_seq`): sharing my
+  private answer to the room from another window reads the room up to it first (`room.read` before the message), and
+  this window added 1 for it. Not chosen: each member's unread count with every `room.message` (one count query per
+  member per message, hundreds in the everyone room) for a rule the web follows from what it is sent.
+- Tests: `tests/unit/skill-managers.test.ts` (the notice's link), `web/test/unit/rooms-store.test.ts` (a private answer
+  counts, not on screen and not after a read), `web/test/unit/live.test.ts` (the notice's 열기 for the new and the old
+  link), `web/test/e2e/files.spec.ts` (the address: tab, reload, Back, a link), `web/test/e2e/team-skills.spec.ts`
+  (a deleted skill: the notice and the 최근 변경 row open the trash with the file; the mock records it as a 삭제 change).
+- Version impact: **patch** (two fixes; no API, setting or data change).
