@@ -28,7 +28,7 @@ import { Markdown } from '../components/Markdown'
 import { DisclosureRow } from '../components/DisclosureRow'
 import { TitleMenu } from '../components/TitleMenu'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
-import { ChatPeople, SharedIcon } from '../components/chat/SharedChat'
+import { ChatFaces, SharedIcon } from '../components/chat/SharedChat'
 import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
 import { ProjectForm } from '../components/ProjectForm'
 import { ProjectTrashNote } from '../components/ProjectTrashNote'
@@ -216,7 +216,7 @@ export function ProjectList() {
 }
 
 /** A chat on a project's page: its title and when it last changed. A shared chat has the people icon before the title
- * and the faces of the people who wrote in it before the time (ChatPeople: one person with the name); a chat of mine
+ * and the faces of the people who wrote in it before the time (ChatFaces: one person with the name); a chat of mine
  * has neither. The title gives way first: the faces and the time keep their room. */
 export function ProjectChatRow({ chat: c }: { chat: Chat }) {
   const t = useT()
@@ -224,7 +224,7 @@ export function ProjectChatRow({ chat: c }: { chat: Chat }) {
   // the row's keyboard focus shows the names on the faces (they take no focus of their own inside the link)
   const row = useRef<HTMLAnchorElement>(null)
   return (
-    <Link ref={row} to={`/c/${c.id}`} className="-mx-2 flex items-center gap-4 rounded-md px-2 py-3 text-sm hover:bg-hover" data-shared={c.shared ? 'true' : undefined} data-testid="project-chat">
+    <Link ref={row} to={`/c/${c.id}`} className="group -mx-2 flex items-center gap-4 rounded-md px-2 py-3 text-sm hover:bg-hover" data-shared={c.shared ? 'true' : undefined} data-testid="project-chat">
       <span className="flex min-w-0 flex-1 items-center gap-2">
         {c.shared && <SharedIcon className="text-faint" />}
         <span className="truncate">{c.title || t('chat.untitled')}</span>
@@ -232,7 +232,7 @@ export function ProjectChatRow({ chat: c }: { chat: Chat }) {
       <span className="flex max-w-[45%] shrink-0 items-center gap-1.5 text-xs text-faint">
         {c.shared && (
           <>
-            <ChatPeople shared={c.shared} focusFrom={row} />
+            <ChatFaces shared={c.shared} focusFrom={row} />
             <span aria-hidden>·</span>
           </>
         )}

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-08 05:31
 - Branch: `feat/project-chat-faces`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/chat/shared.ts`, `server/src/routes/chats.ts`, `shared/src/api/entities.ts`,
   `web/src/pages/Projects.tsx`, `web/src/components/chat/SharedChat.tsx`). Why: shared project chats are core chat
   (see docs/REPOSITORY-RULES.md); the people directory, `Avatar` and the shared tooltip are already there.
@@ -41,7 +41,7 @@ reads the list once, as now).
 1. `shared/src/api/entities.ts`: the two optional fields; `bun run docs:api`.
 2. `chat/shared.ts`: `chatPeople(db, chatIds)`; `routes/chats.ts` passes it to the project list's chats.
 3. Mock (`web/test/mock/server.ts`): the same fields for `?projectId=`.
-4. `SharedChat.tsx`: `ChatPeople`; `Projects.tsx`: `ProjectChatRow` with it; `Tooltip.tsx`: `focusFrom`.
+4. `SharedChat.tsx`: `ChatFaces`; `Projects.tsx`: `ProjectChatRow` with it; `Tooltip.tsx`: `focusFrom`.
 5. Tests: server unit (order, cap, count, only visible chats, one query and its index), web unit (1, 2, 3 and 5
    people, tooltip names, the label), e2e (two authors at 1440 and 390, axe).
 6. ui-polish pass, light and dark, 1440 and 390; CHANGELOG; docs/DECISIONS.md "Shared project chats".
@@ -61,4 +61,13 @@ shared-project-chats and project-list-menu specs, and the full web e2e once (sha
 
 ## Result
 
-Filled in at the end.
+Built as planned. Server: `chat/shared.ts chatPeople` (one query per list page: users × the page's chats, each a seek
+on the covering `messages_author_chat`; the order by rowid), passed through `chatView` only by the project list.
+Web: `SharedChat.tsx ChatFaces` and `Projects.tsx ProjectChatRow` (20 px faces, 4 px overlap, the first on top, a ring
+in the row's colour; "+N" as a tile; 2 faces on a phone), `Tooltip` `focusFrom`, `projects.chatPeople` in five
+languages, the mock. From the visual pass and the review: the overlap is 4 px (with 6 px a
+letter tile under the next face showed only half its letter), the "+N" tile keeps its count clear of the face over it,
+and the rings take the hover colour on a hovered row. Private rows keep no face. The left people icon stays; removing
+it (titles of shared and private chats would line up) is a question for the owner. Tests:
+`tests/unit/b-shared-chat-people.test.ts`, `web/test/unit/project-chat-faces.test.tsx`, a new test in
+`web/test/e2e/shared-project-chats.spec.ts`. PR: see the PR that links this plan.

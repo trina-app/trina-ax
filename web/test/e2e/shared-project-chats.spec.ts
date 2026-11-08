@@ -315,6 +315,25 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       }
       await audit(page, 'project page, faces')
 
+      // five writers (the list as a server with more people answers it): 3 faces and "+2" on a computer, 2 and "+3" on
+      // a phone, the title still the one that gives way
+      const projectList = /\/api\/chats\?.*projectId=/
+      await page.route(projectList, async (r) => {
+        const res = await r.fetch()
+        const body = (await res.json()) as { items: { id: string; shared?: object }[] }
+        for (const c of body.items) if (c.id === chatId) c.shared = { ...c.shared, people: [{ id: 'eve', name: 'Eve' }, { id: 'dev', name: 'Dev' }, { id: 'cho', name: 'Cho' }], peopleCount: 5 }
+        await r.fulfill({ response: res, json: body })
+      })
+      await page.reload()
+      const five = shared.getByTestId('project-chat-people')
+      await expect(five.locator(':scope > :visible')).toHaveCount(vp.phone ? 3 : 4)
+      await expect(shared.getByTestId(vp.phone ? 'project-chat-more-phone' : 'project-chat-more')).toHaveText(vp.phone ? '+3' : '+2')
+      await expect(shared.getByTestId(vp.phone ? 'project-chat-more' : 'project-chat-more-phone')).toBeHidden()
+      await expect(shared.getByTestId('project-chat-people-label')).toHaveText('Eve, Dev, Cho 외 2명 참여')
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      if (vp.phone) expect(await shared.locator('span.truncate').first().evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true)
+      await page.unroute(projectList)
+
       // Bob's page: the same faces; one person's chat: that face and the name
       const solo = await sharedChat(b, id, '회의록 요약해 줘')
       await b.goto(`/projects/${id}`)

@@ -1,4 +1,4 @@
-// A shared chat's row on a project page (pages/Projects.tsx ProjectChatRow, components/chat/SharedChat.tsx ChatPeople;
+// A shared chat's row on a project page (pages/Projects.tsx ProjectChatRow, components/chat/SharedChat.tsx ChatFaces;
 // docs/DECISIONS.md "Shared project chats", "The faces on the project page"): the faces of the people who wrote in it,
 // the most recent first, overlapping, at most 3 and then "+N" (2 on a phone); one person (or nobody yet: its creator)
 // with the name. The pictures say nothing to a screen reader: the row reads "Bob, Alex 참여"; on a computer the shared
