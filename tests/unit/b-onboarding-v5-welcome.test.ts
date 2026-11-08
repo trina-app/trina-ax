@@ -20,7 +20,7 @@ import { waitFor } from '../lib/wait'
 import { getSetting, setSetting } from '../../server/src/admin/settings'
 import { landingSkill, profileAnswered, readWelcome, recordShared, WELCOME_SETTING, welcomeFinished } from '../../server/src/onboarding/welcome'
 import { focusSkill, goalProgress } from '../../server/src/onboarding/goal'
-import { DECK_LINKS_KEY, repointDeckLinks } from '../../server/src/auth/team-links'
+import { DECK_LINKS_CLEARED_KEY, DECK_LINKS_KEY, repointDeckLinks } from '../../server/src/auth/team-links'
 import { newMemberAi } from '../../server/src/credentials/access'
 import { MEMBER_OWN_KEY } from '../../server/src/credentials/policy'
 
@@ -250,7 +250,7 @@ describe('old invite links to the intro deck', () => {
     const group = readWelcome(h.ctx)!.teamGroup!.id
     const made = await h.api('dana').call(API.createTeamLink, { body: { groupIds: [group], expiresInDays: 14, skillPath: GENERAL_DECK_SKILL } })
     expect(made.link!.skill).toMatchObject({ path: GENERAL_DECK_SKILL })
-    h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(DECK_LINKS_KEY)
+    h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(DECK_LINKS_CLEARED_KEY)
     expect(repointDeckLinks(h.ctx)).toBe(1)
     const after = await h.api('dana').call(API.getTeamLink)
     expect(after.link!.url).toBe(made.link!.url)
@@ -263,7 +263,7 @@ describe('old invite links to the intro deck', () => {
     // no landing skill (nothing shared, or the shared skill gone: an older version's welcome link to the deck after the
     // update, docs/DECISIONS.md "DS3"): the link names no skill any more, so people who join land on Home, keeping its
     // address; the run is recorded (never a link left on the deck for good)
-    h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(DECK_LINKS_KEY)
+    h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(DECK_LINKS_CLEARED_KEY)
     const notes = path.join(h.team, 'skills/notes/SKILL.md')
     const text = fs.readFileSync(notes)
     fs.rmSync(notes)
@@ -272,7 +272,7 @@ describe('old invite links to the intro deck', () => {
     const home = (await h.api('dana').call(API.getTeamLink)).link!
     expect(home.skill).toBeNull()
     expect(home.url).toBe(made.link!.url)
-    expect(getSetting(h.ctx.db, DECK_LINKS_KEY)).toBeTruthy()
+    expect(getSetting(h.ctx.db, DECK_LINKS_CLEARED_KEY)).toBeTruthy()
     expect(JSON.parse((h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'team_link.update' ORDER BY id DESC LIMIT 1").get() as { detail: string }).detail))
       .toEqual({ skillPath: null, from: GENERAL_DECK_SKILL, reason: 'intro_deck_link' })
     // who joins now lands on Home, never on the deck's form
@@ -285,10 +285,37 @@ describe('old invite links to the intro deck', () => {
     await h.api('dana').call(API.updateTeamLink, { body: { skillPath: GENERAL_DECK_SKILL } })
     expect(repointDeckLinks(h.ctx)).toBe(0)
     expect((await h.api('dana').call(API.getTeamLink)).link!.skill).toMatchObject({ path: GENERAL_DECK_SKILL })
-    h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(DECK_LINKS_KEY)
+    h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(DECK_LINKS_CLEARED_KEY)
     await h.api('dana').call(API.updateTeamLink, { body: { skillPath: 'skills/quote/SKILL.md' } })
     expect(repointDeckLinks(h.ctx)).toBe(0)
     expect((await h.api('dana').call(API.getTeamLink)).link!.skill).toMatchObject({ path: 'skills/quote/SKILL.md' })
+  })
+  test('a server whose earlier release recorded the first run\'s mark (v0.4.0-beta.10) before its welcome steps made a deck link: the link is still cleared once, under its own mark', async () => {
+    // beta.10 started with no deck link and recorded its mark; then the owner walked its welcome steps with nothing
+    // shared, which made a link to the deck
+    const old = '2026-11-06T00:00:00.000Z'
+    setSetting(h.ctx.db, DECK_LINKS_KEY, old)
+    h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(DECK_LINKS_CLEARED_KEY)
+    const notes = path.join(h.team, 'skills/notes/SKILL.md')
+    const text = fs.readFileSync(notes)
+    fs.rmSync(notes)
+    try {
+      expect(landingSkill(h.ctx)).toBeNull()
+      await h.api('dana').call(API.updateTeamLink, { body: { skillPath: GENERAL_DECK_SKILL } })
+      const before = (await h.api('dana').call(API.getTeamLink)).link!
+      expect(before.skill).toMatchObject({ path: GENERAL_DECK_SKILL })
+      // the update's first start
+      expect(repointDeckLinks(h.ctx)).toBe(1)
+      const after = (await h.api('dana').call(API.getTeamLink)).link!
+      expect(after.skill).toBeNull()
+      expect(after.url).toBe(before.url)
+      expect(h.ctx.db.query("SELECT actor_id, target, detail FROM audit_log WHERE action = 'team_link.update' ORDER BY id DESC LIMIT 1").get())
+        .toEqual({ actor_id: null, target: after.id, detail: JSON.stringify({ skillPath: null, from: GENERAL_DECK_SKILL, reason: 'intro_deck_link' }) })
+      expect(getSetting(h.ctx.db, DECK_LINKS_CLEARED_KEY)).toBeTruthy()
+      // the old mark is left as it was; the next start does nothing
+      expect(getSetting<string>(h.ctx.db, DECK_LINKS_KEY)).toBe(old)
+      expect(repointDeckLinks(h.ctx)).toBe(0)
+    } finally { fs.writeFileSync(notes, text) }
   })
 })
 

@@ -253,7 +253,14 @@ export function updateTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.output<
 }
 
 /** Set once the open links to the intro deck were looked at (repointDeckLinks). */
+/** The first run's mark (docs/DECISIONS.md "W5"), set by earlier releases, v0.4.0-beta.10 among them, also when a server
+ * started with no deck link yet: it never stops the run below, which has a mark of its own (DECK_LINKS_CLEARED_KEY).
+ * Kept so the name stays reserved; nothing reads it. */
 export const DECK_LINKS_KEY = 'onboarding.deckLinksRepointedAt'
+/** Set once the open links to the intro deck were pointed at the landing skill or cleared (repointDeckLinks,
+ * docs/DECISIONS.md "DS3"). A new name, so a server whose earlier release recorded DECK_LINKS_KEY before its welcome
+ * steps made a deck link still has that link cleared once after the update (an owner's own deck link included). */
+export const DECK_LINKS_CLEARED_KEY = 'onboarding.deckLinksClearedAt'
 
 /**
  * Old open invite links that lead to the intro deck (the first result of docs/DECISIONS.md "D2" was what the invite
@@ -261,17 +268,17 @@ export const DECK_LINKS_KEY = 'onboarding.deckLinksRepointedAt'
  * skill everything points at now (onboarding/welcome.ts landingSkill), keeping its address, when someone joining with
  * its groups can open that skill; otherwise (no landing skill: nothing shared from 내 스킬 가져오기, or that skill
  * deleted or out of their reach) it names no skill any more, so people who join land on Home (docs/DECISIONS.md "DS3":
- * no pack skill stands in, and a link never stays on the owner's deck). Once per server (DECK_LINKS_KEY), recorded
+ * no pack skill stands in, and a link never stays on the owner's deck). Once per server (DECK_LINKS_CLEARED_KEY), recorded
  * whatever it found: a link the owner points at the deck again later stays. Audited. Returns how many changed.
  */
 export function repointDeckLinks(ctx: AppContext): number {
-  if (getSetting(ctx.db, DECK_LINKS_KEY)) return 0
+  if (getSetting(ctx.db, DECK_LINKS_CLEARED_KEY)) return 0
   const general = readWelcome(ctx)?.general
   const deck = [...new Set([GENERAL_DECK_SKILL, general?.introDeckPath].filter((x): x is string => !!x))]
   const landing = landingSkill(ctx)
   let n = 0
   ctx.db.transaction(() => {
-    if (getSetting(ctx.db, DECK_LINKS_KEY)) return
+    if (getSetting(ctx.db, DECK_LINKS_CLEARED_KEY)) return
     const rows = ctx.db.query(`SELECT ${COLS} FROM team_links WHERE revoked_at IS NULL AND skill_path IN (${deck.map(() => '?').join(',')})`).all(...deck) as Row[]
     for (const r of rows) {
       const groups = existingGroups(ctx.db, parseIds(r.group_ids))
@@ -281,7 +288,7 @@ export function repointDeckLinks(ctx: AppContext): number {
       audit(ctx.db, { actor: null, action: 'team_link.update', target: r.id, detail: { skillPath: to, from: r.skill_path, reason: 'intro_deck_link' } })
       n++
     }
-    setSetting(ctx.db, DECK_LINKS_KEY, new Date().toISOString())
+    setSetting(ctx.db, DECK_LINKS_CLEARED_KEY, new Date().toISOString())
   }).immediate()
   return n
 }

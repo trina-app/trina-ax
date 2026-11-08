@@ -80,9 +80,10 @@ test('no seeder and no timer: the module is gone and the server starts none', ()
   expect(welcome).not.toMatch(/seedDefaultSkills|'.\/default-skills'/)
 })
 
-test('nothing installs a pack skill on its own: the installers are called only by the install route, the welcome steps and the first result', () => {
-  // every call of the three installers in the server's code: a seeder, a timer or a start hook that adds skills would
-  // have to call one of them, and fails here (the installers themselves call placeSkill inside skill-packs.ts)
+test('the pack installers are called only from the install route, the welcome steps, the first result (and inside skill-packs.ts): a new caller elsewhere, a start hook or a timer in another file, fails here', () => {
+  // every file in the server's code that calls one of the three installers: a seeder, a timer or a start hook in
+  // another file would add one and fail here. A new call inside these four files is not caught (they are listed by file,
+  // not by call); the source checks above cover main.ts and welcome.ts by name
   const calls: string[] = []
   const walk = (dir: string) => {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {

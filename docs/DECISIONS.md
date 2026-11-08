@@ -11359,6 +11359,9 @@ deleted and the auto-add removed ("자동 추가가 있다고?? … 굳이 물�
 - **Invite links that open the intro deck** (older versions' welcome steps made them, v0.4.0-beta.10 among them) are
   pointed once, at the server's start, at the landing skill when someone joining can open it, else at no skill, so
   people who join land on Home; recorded either way (`repointDeckLinks`), so no link stays on the deck for good. The
+  run has a mark of its own, `onboarding.deckLinksClearedAt`: earlier releases (beta.10 among them) also set the first
+  run's `onboarding.deckLinksRepointedAt` when a server started with no deck link, before its welcome steps made one,
+  and that mark must not stop this run. An owner's own deck link from such a release is cleared once too (accepted). The
   welcome steps' own link, made when nothing was shared, never copies a ran-out link's skill.
 - **The goal never counts the intro deck.** Without a landing skill the card took the skill most people ran, which
   right after the steps is the owner's own intro deck: its [다시 보내기] would have sent members to the 회사 소개서 form.
