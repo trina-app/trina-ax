@@ -79,3 +79,5 @@ Differs from the plan:
   "대화방에 보내기"); the title menu asks first (`ask`); turns from before the share are marked `shared_checked = 2` and
   the scope's order is rowid (no clock); earlier steps lose a connection's tool name; the memory note counts with nobody
   else in the project.
+
+PR: https://github.com/trina-app/trina-ax/pull/185
