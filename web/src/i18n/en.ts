@@ -124,6 +124,8 @@ export const en: Record<MessageKey, string> = {
   'auth.passwordMismatch': "The two passwords don't match.",
   'auth.name': 'Name',
   'auth.forgot': 'Forgot your password? Ask the team owner or an admin to reset it.',
+  'auth.alreadyJoined': "If you already joined, sign in.",
+  'auth.haveAccount': "Already joined?",
   'auth.sessionEnded': 'You were signed out because you signed out elsewhere or your password changed.',
   'auth.sessionExpired': 'Your sign-in expired. Please sign in again.',
   'auth.changePassword': 'Change password',
@@ -1338,6 +1340,8 @@ export const en: Record<MessageKey, string> = {
   'memory.updated': "Memory updated.",
   'memory.editLabel': "Edit this memory",
 
+  'apps.teamAddress': "Team address",
+  'apps.teamAddressHint': "Open the app on a new device and enter this address.",
   'apps.installTitle': 'Install as an app',
   'apps.installDesc': 'Install it on your phone or computer and open it like an app.',
   'apps.install': 'Install app',

@@ -27,6 +27,13 @@ export async function leaveTeam(deps: DeviceDeps, origin: string): Promise<void>
   await deps.pending.set(JSON.stringify([...owed, { ...d, at: deps.now() }].slice(-MAX_PENDING)))
   await retryRemovals(deps)
 }
+/** At start: a device kept for another team than the one saved is a removal still owed. The app saves the new team
+ * before it leaves the old one (a refused save leaves the phone in its team); if it stopped in between, the old team's
+ * device is found here and removed now or at a later start. */
+export async function settleDevice(deps: DeviceDeps, savedOrigin: string | null): Promise<void> {
+  const d = await read<unknown>(deps.current, null)
+  if (valid(d) && d.origin !== savedOrigin) await leaveTeam(deps, d.origin)
+}
 /** Tries every owed removal once (app start, team switch); drops what is done or older than 30 days. */
 export async function retryRemovals(deps: DeviceDeps): Promise<void> {
   const owed = (await read<unknown[]>(deps.pending, [])).filter(valid).filter(p => deps.now() - p.at < KEEP_MS)

@@ -54,19 +54,19 @@ describe('registry: schema steps', () => {
 describe('registry: operator-made teams', () => {
   test('createByOperator: signature checked, no proof of work, idempotent by externalRef + key', async () => {
     const r = new Registry(await openSqlite(':memory:'))
-    const a = op('acme', 'cp-team-1')
+    const a = op('acme-inc', 'cp-team-1')
     expect(code(() => r.createByOperator({ ...a.req, sig: signed('other', a.kp).sig }))).toBe('bad_signature')
-    expect(code(() => r.createByOperator({ ...a.req, ts: Date.now() - 3600_000, sig: signed('acme', a.kp, Date.now() - 3600_000).sig }))).toBe('invalid_request')
+    expect(code(() => r.createByOperator({ ...a.req, ts: Date.now() - 3600_000, sig: signed('acme-inc', a.kp, Date.now() - 3600_000).sig }))).toBe('invalid_request')
     const first = r.createByOperator(a.req)
     expect(first.created).toBe(true)
-    expect(first.team).toMatchObject({ name: 'acme', origin: 'cloud', external_ref: 'cp-team-1', region: 'kr-seoul-1' })
+    expect(first.team).toMatchObject({ name: 'acme-inc', origin: 'cloud', external_ref: 'cp-team-1', region: 'kr-seoul-1' })
     // the same request again (a retried provisioning job): the same team, nothing new
-    const again = r.createByOperator(op('acme', 'cp-team-1', a.kp).req)
+    const again = r.createByOperator(op('acme-inc', 'cp-team-1', a.kp).req)
     expect(again).toMatchObject({ created: false, team: { id: first.team.id } })
     // same reference, another key: refused
-    expect(code(() => r.createByOperator(op('acme', 'cp-team-1').req))).toBe('conflict')
+    expect(code(() => r.createByOperator(op('acme-inc', 'cp-team-1').req))).toBe('conflict')
     // another reference for a taken name / a used key
-    expect(code(() => r.createByOperator(op('acme', 'cp-team-2').req))).toBe('name_taken')
+    expect(code(() => r.createByOperator(op('acme-inc', 'cp-team-2').req))).toBe('name_taken')
     expect(code(() => r.createByOperator(op('acme2', 'cp-team-2', a.kp).req))).toBe('key_in_use')
   })
   test('temporary holds are ignored by the operator API, permanent reservations and name holds are not', async () => {
@@ -93,12 +93,12 @@ describe('registry: operator-made teams', () => {
     const r = new Registry(await openSqlite(':memory:'), { now: () => now })
     expect(code(() => r.hold('www', 1000))).toBe('name_reserved')
     expect(code(() => r.hold('A b', 1000))).toBe('invalid_name')
-    const until = r.hold('acme', 60_000)
+    const until = r.hold('acme-inc', 60_000)
     expect(Date.parse(until)).toBe(now + 60_000)
-    expect(r.hold('acme', 120_000)).toBe(new Date(now + 120_000).toISOString())
+    expect(r.hold('acme-inc', 120_000)).toBe(new Date(now + 120_000).toISOString())
     expect(r.unhold('www')).toBe(false)
-    expect(r.unhold('acme')).toBe(true)
-    expect(r.unhold('acme')).toBe(false)
+    expect(r.unhold('acme-inc')).toBe(true)
+    expect(r.unhold('acme-inc')).toBe(false)
     r.hold('later', 1000)
     now += 2000
     expect(r.nameProblem('later')).toBeNull() // expired hold
@@ -138,7 +138,7 @@ describe('registry: claim codes', () => {
   })
   test('a claim for a reference that already has a team is refused', async () => {
     const r = new Registry(await openSqlite(':memory:'))
-    r.createByOperator(op('acme', 'ref-1').req)
+    r.createByOperator(op('acme-inc', 'ref-1').req)
     expect(code(() => r.createClaim({ name: 'acme-2', ttlMs: 1000, externalRef: 'ref-1' }))).toBe('conflict')
   })
 })
@@ -147,7 +147,7 @@ describe('registry: status, maintenance, renamed addresses, audit', () => {
   test('suspension keeps its reason and first time; unsuspend clears both', async () => {
     let now = Date.now()
     const r = new Registry(await openSqlite(':memory:'), { now: () => now })
-    const t = r.createByOperator(op('acme', 'ref-1').req).team
+    const t = r.createByOperator(op('acme-inc', 'ref-1').req).team
     r.setStatus(t.id, 'suspended', 'billing')
     const at = r.team(t.id)!.suspended_at
     now += 5000
@@ -164,17 +164,17 @@ describe('registry: status, maintenance, renamed addresses, audit', () => {
   test('renamedTo: the old name points at the team for 90 days; not after, not for a released team', async () => {
     let now = Date.now()
     const r = new Registry(await openSqlite(':memory:'), { now: () => now })
-    const t = r.createByOperator(op('acme', 'ref-1').req).team
+    const t = r.createByOperator(op('acme-inc', 'ref-1').req).team
     r.rename(t.id, 'acme-corp')
-    expect(r.renamedTo('acme')?.name).toBe('acme-corp')
+    expect(r.renamedTo('acme-inc')?.name).toBe('acme-corp')
     r.rename(t.id, 'acme-co')
-    expect(r.renamedTo('acme')?.name).toBe('acme-co')
+    expect(r.renamedTo('acme-inc')?.name).toBe('acme-co')
     expect(r.renamedTo('acme-corp')?.name).toBe('acme-co')
     now += 91 * 86_400_000
-    expect(r.renamedTo('acme')).toBeUndefined()
-    expect(r.nameProblem('acme')).toBe('taken') // still held for a year
+    expect(r.renamedTo('acme-inc')).toBeUndefined()
+    expect(r.nameProblem('acme-inc')).toBe('taken') // still held for a year
     now += NAME_HOLD_MS
-    expect(r.nameProblem('acme')).toBeNull()
+    expect(r.nameProblem('acme-inc')).toBeNull()
     const u = r.createByOperator(op('bravo', 'ref-2', undefined, now).req).team
     r.rename(u.id, 'bravo2')
     r.release(u.id)

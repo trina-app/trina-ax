@@ -97,6 +97,15 @@ bun run demo
 [Follow the quickstart](../get-started/quickstart.md).
 :::
 
+## Apps with your own server
+
+People join from the desktop and phone apps by pasting the invite link or the team link into the first screen. A bare name such as `acme` means `acme.trina.app`; a server of your own is entered as its full address, and the apps ask once before they connect to an address Trina does not run. For a server you run yourself:
+
+- **Desktop app**: the address needs a certificate the computer trusts. A self-signed certificate fails the first check. On the office network the app can still pin the office certificate after it first connected through the team address.
+- **Phone app**: https with a certificate from a public certificate authority (self-signed certificates and user-installed authorities are not trusted), and `GET /api/health` must answer directly, without a redirect.
+- **Phone notifications** work only when the server sets `MYCEL_PUSH_GATEWAY`.
+- **Where people find the address**: Settings › Apps shows the team address to everyone signed in, with a copy button.
+
 ## After installing
 
 Follow the first-week order: **permissions → AI connection → invite the team → first skill → first backup**. [Read the admin guide](../use/admin.md).

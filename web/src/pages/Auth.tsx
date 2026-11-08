@@ -388,6 +388,36 @@ export function JoinForm({ submitLabel, busy, error, onSubmit, onTooShort }: { s
   )
 }
 
+/**
+ * A used, expired or unknown invite or team link: the person may well have joined with it already (the link worked
+ * once, then they opened it again from the chat), so the page leads to signing in, with a real button.
+ */
+function SignInInstead() {
+  const t = useT()
+  const navigate = useNavigate()
+  return (
+    <>
+      <p className="mt-3 text-sm text-ink">{t('auth.alreadyJoined')}</p>
+      <Button variant="primary" className="mt-4 w-full" onClick={() => navigate('/login')} data-testid="invalid-signin">
+        {t('auth.signIn')}
+      </Button>
+    </>
+  )
+}
+
+/** Under both join forms: someone who already has an account here signs in instead of making a second one. */
+function HaveAccount() {
+  const t = useT()
+  return (
+    <p className="mt-4 text-center text-sm text-muted" data-testid="join-have-account">
+      {t('auth.haveAccount')}{' '}
+      <Link to="/login" className="text-accent-text underline" data-testid="join-signin">
+        {t('auth.signIn')}
+      </Link>
+    </p>
+  )
+}
+
 export function AcceptInvite() {
   const t = useT()
   const locale = useLocale()
@@ -423,14 +453,13 @@ export function AcceptInvite() {
     return (
       <AuthFrame title={t('invite.title')}>
         <p className="text-sm text-muted">{t('invite.invalid')}</p>
-        <Link to="/login" className="mt-4 inline-block text-sm text-accent-text underline">
-          {t('auth.signIn')}
-        </Link>
+        <SignInInstead />
       </AuthFrame>
     )
   return (
     <AuthFrame title={t('invite.joinTeam', { team: info.teamName })} sub={t('invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
       <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
+      <HaveAccount />
     </AuthFrame>
   )
 }
@@ -485,14 +514,13 @@ export function TeamJoin() {
     return (
       <AuthFrame title={t('invite.title')}>
         <p className="text-sm text-muted" data-testid="join-problem">{t(info === 'missing' ? 'teamLink.problem.missing' : `teamLink.problem.${info.problem === 'stopped' || !info.problem ? 'revoked' : info.problem}`)}</p>
-        <Link to="/login" className="mt-4 inline-block text-sm text-accent-text underline">
-          {t('auth.signIn')}
-        </Link>
+        <SignInInstead />
       </AuthFrame>
     )
   return (
     <AuthFrame title={t('invite.joinTeam', { team: info.teamName })} sub={info.skillName ? t('teamLink.joinSubSkill', { skill: skillLabel({ name: info.skillName, title: info.skillTitle }) }) : t('teamLink.joinSub', { date: formatDateTime(info.expiresAt, locale) })}>
       <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
+      <HaveAccount />
     </AuthFrame>
   )
 }

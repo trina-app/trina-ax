@@ -2,7 +2,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { ConfigContext, ExpoConfig } from 'expo/config'
-import { labelSetup, mobileProduct } from './src/product.ts'
+import { labelSetup, mobileProduct, mobileService } from './src/product.ts'
 import { IOS_USAGE } from './src/strings.ts'
 
 /** Store version (CFBundleShortVersionString / versionName). The build number must grow with every upload. */
@@ -10,16 +10,19 @@ const VERSION = '1.0.2'
 
 /** `MYCEL_MOBILE_EDITION=<name>` reads editions/<name>/branding/mobile.json (only the fields src/product.ts accepts) and
  * the fixed asset names in editions/<name>/branding/mobile/. Without it the neutral Team AX defaults apply. */
-function edition(projectRoot: string): { values: unknown; assets: Record<'icon' | 'adaptive' | 'splash' | 'notification', string> | null } {
+function edition(projectRoot: string): { values: unknown; service: unknown; source: unknown; assets: Record<'icon' | 'adaptive' | 'splash' | 'notification', string> | null } {
   const name = process.env.MYCEL_MOBILE_EDITION
-  if (!name) return { values: undefined, assets: null }
+  if (!name) return { values: undefined, service: undefined, source: undefined, assets: null }
   if (!/^[a-z][a-z0-9-]{0,30}$/.test(name)) throw new Error('MYCEL_MOBILE_EDITION must be an edition folder name')
   // Relative to the project: the resolved config is embedded in the app, so no build machine path ends up there.
   const dir = path.join('..', 'editions', name, 'branding')
   const values = JSON.parse(fs.readFileSync(path.join(projectRoot, dir, 'mobile.json'), 'utf8')) as unknown
+  // the hosted team domain and the source repository (src/product.ts mobileService keeps only what looks right)
+  const optional = (f: string) => fs.existsSync(path.join(projectRoot, dir, f)) ? JSON.parse(fs.readFileSync(path.join(projectRoot, dir, f), 'utf8')) as unknown : undefined
+  const service = optional('service.json'), source = optional('source.json')
   const file = (n: string) => path.join(dir, 'mobile', n)
   const assets = { icon: file('icon.png'), adaptive: file('adaptive-icon.png'), splash: file('splash-icon.png'), notification: file('notification-icon.png') }
-  return { values, assets: Object.values(assets).every(f => fs.existsSync(path.join(projectRoot, f))) ? assets : null }
+  return { values, service, source, assets: Object.values(assets).every(f => fs.existsSync(path.join(projectRoot, f))) ? assets : null }
 }
 
 function buildNumber(): string {
@@ -85,6 +88,6 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
       // the iPhone notification service extension and the keychain group the app shares with it
       ...(labels ? [['./plugins/notification-service.js', { ...labels, teamId: product.appleTeamId, version: VERSION, build }] as [string, unknown]] : []),
     ],
-    extra: { teamAxEdition: product, pushEnabled: { ios: true, android: !!googleServices }, pushLabels: labels },
+    extra: { teamAxEdition: product, teamAxService: mobileService(chosen.service, chosen.source), pushEnabled: { ios: true, android: !!googleServices }, pushLabels: labels },
   }
 }

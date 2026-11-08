@@ -30,7 +30,7 @@ for (const locale of ['ko', 'en', 'id', 'ja', 'es'] as const) {
     try {
       const shell = await welcome(app)
       await shell.locator('#address').fill(server.url)
-      await shell.getByRole('button', { name: 'Connect', exact: true }).click()
+      await shell.getByRole('button', { name: 'Continue', exact: true }).click()
       let page = await teamPage(app, server.url)
       await signInOfflineTeam(page, server.url, locale)
       const before = await account(page)
@@ -101,7 +101,7 @@ for (const locale of ['ko', 'en', 'id', 'ja', 'es'] as const) {
       })
       const shell = await welcome(app)
       await shell.locator('#address').fill(server.url)
-      await shell.getByRole('button', { name: 'Connect', exact: true }).click()
+      await shell.getByRole('button', { name: 'Continue', exact: true }).click()
       let page = await teamPage(app, server.url)
       await test.step('sign in to production web', () => signInOfflineTeam(page, server.url, locale))
       expect(await guardedWorkers.jsonValue(), 'the subframe guard must not attach service/shared workers').toEqual([])

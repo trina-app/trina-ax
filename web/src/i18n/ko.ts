@@ -123,6 +123,8 @@ export const ko = {
   'auth.passwordMismatch': '두 비밀번호가 서로 달라요.',
   'auth.name': '이름',
   'auth.forgot': '비밀번호를 잊었다면 팀장이나 관리자에게 재설정을 요청하세요.',
+  'auth.alreadyJoined': "이미 가입했다면 로그인하세요.",
+  'auth.haveAccount': "이미 가입했어요?",
   'auth.sessionEnded': '다른 곳에서 로그아웃했거나 비밀번호가 바뀌어 로그인이 끝났어요.',
   'auth.sessionExpired': '로그인이 만료됐어요. 다시 로그인해 주세요.',
   'auth.changePassword': '비밀번호 바꾸기',
@@ -1337,6 +1339,8 @@ export const ko = {
   'memory.updated': "메모리를 고쳤어요.",
   'memory.editLabel': "이 메모리 수정",
 
+  'apps.teamAddress': "팀 주소",
+  'apps.teamAddressHint': "새 기기에서 앱을 열고 이 주소를 넣으세요.",
   'apps.installTitle': '앱으로 설치',
   'apps.installDesc': '휴대폰이나 컴퓨터에 앱처럼 설치해서 바로 열 수 있어요.',
   'apps.install': '앱으로 설치',

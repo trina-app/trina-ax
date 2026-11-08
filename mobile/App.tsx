@@ -4,26 +4,36 @@ import Constants from 'expo-constants'
 import * as Crypto from 'expo-crypto'
 import * as WebBrowser from 'expo-web-browser'
 import { getLocales } from 'expo-localization'
-import { createContext, useContext, useEffect, useRef, useState, type ComponentType, type RefAttributes, type ReactNode } from 'react'
-import { ActivityIndicator, Alert, Appearance, AppState, BackHandler, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, StyleSheet, Text, TextInput, TurboModuleRegistry, View, type TurboModule } from 'react-native'
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ComponentRef, type ComponentType, type RefAttributes, type ReactNode } from 'react'
+import { AccessibilityInfo, ActivityIndicator, Alert, Appearance, AppState, BackHandler, findNodeHandle, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TurboModuleRegistry, View, type TurboModule } from 'react-native'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView as NativeWebView, type WebViewProps } from 'react-native-webview'
 import { FileTransfers, MobileReceiver, StuckLoad, stillStuck } from './src/bridge'
 import { clearDownloadCache, fileTransferIO } from './src/files'
 import { APPEARANCE_CAPABILITY, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
-import { accentInk, mobileProduct } from './src/product'
+import { accentInk, installGuide, mobileProduct, mobileService } from './src/product'
 import { devicePushToken, devices, forgetDelivered, labels, notificationPermission, onNotificationTap, openAppSettings, quietForeground } from './src/push'
 import { DARK, LIGHT, frame, insetScript, isDark, padding, pageInsets, type Insets, type Padding, type Palette } from './src/look'
-import { currentDevice, leaveTeam, rememberDevice, retryRemovals } from './src/device'
-import { offlineError, stringsFor } from './src/strings'
-import { checkTeam, parseTeamAddress, rememberSelfPadded, savedTeamSince, savedTeamUrl, saveTeamUrl, selfPaddedTeam } from './src/team'
+import { currentDevice, leaveTeam, rememberDevice, retryRemovals, settleDevice } from './src/device'
+import { fill, inputError, offlineError, stringsFor } from './src/strings'
+import { checkTeam, readTeamInput, rememberSelfPadded, savedTeamSince, savedTeamUrl, saveTeamUrl, selfPaddedTeam } from './src/team'
 import { ReinstallSignOut, reinstallDone, wasReinstalled } from './src/install'
 import { reinstallDeps } from './src/files'
 import type { TeamAddress } from './src/address'
+import { hostLineShown } from './src/team-link'
+import { readSessionCheck, sessionCheckScript } from './src/session-check'
 
 const product = mobileProduct(Constants.expoConfig?.extra?.teamAxEdition)
+/** the hosted team domain (bare names) and the install guide link of ③, from the edition (app.config.ts) */
+const service = mobileService(Constants.expoConfig?.extra?.teamAxService, Constants.expoConfig?.extra?.teamAxService)
 const VERSION = Constants.expoConfig?.version ?? '1.0.0'
-const t = stringsFor(getLocales()[0]?.languageCode)
+const language = getLocales()[0]?.languageCode
+const t = stringsFor(language)
+/** ③'s "install it yourself" page: the repository's guide, which links no paid plan (App Review 3.1.1, Google Play
+ * payments); phones have no "create a team" button for the same reason */
+const INSTALL_GUIDE = installGuide(service.repository, language?.toLowerCase().startsWith('ko') ?? false)
+/** The host to show for a team address: punycode with its port, as the app connected to it (never Unicode). */
+const hostOf = (origin: string) => { try { return new URL(origin).host } catch { return origin } }
 quietForeground()
 type WebHandle = { goBack(): void; reload(): void; injectJavaScript(script: string): void }
 // WebView 14's public component declaration omits the forwarded ref; native implementations expose these methods.
@@ -71,6 +81,9 @@ const bootstrap = (config: MobileConfig, ready = false) => `if(window.top===wind
 
 export default function App() {
   const [team, setTeam] = useState<TeamAddress | null | undefined>()
+  // the first-run box over the team that is still connected ("다른 팀에 연결"): the team stays until another one answered
+  // and the person said yes
+  const [adding, setAdding] = useState(false)
   // A tapped notification's path on the current team, with a counter so the same path can be opened twice.
   const [opened, setOpened] = useState<{ path: string; n: number } | null>(null)
   const since = useRef(Date.now()), hasTeam = useRef(false), device = useRef<string | null>(null), padsAtLaunch = useRef<string | null>(null)
@@ -93,6 +106,8 @@ export default function App() {
       // the keychain outlived the deleted app: its notification extension names nobody until this install registers
       if (reinstalled) await labels?.forget().catch(() => {})
       if (reinstalled && origin) signOut.current = new ReinstallSignOut(origin, () => reinstallDone(deps), () => Crypto.randomUUID())
+      // the app stopped between saving a new team and leaving the old one: that team's device is still owed a removal
+      await settleDevice(devices, origin).catch(() => {})
       let deviceRead = true
       device.current = origin ? (await currentDevice(devices, origin).catch(() => { deviceRead = false; return null }))?.deviceId ?? null : null
       // what the extension may use belongs to this team and this device, or it goes (not when the device could not be read)
@@ -104,18 +119,37 @@ export default function App() {
   }, [])
   // Android: the status bar icons and the three-button bar's contrast scrim follow the look (React Native set the scrim
   // once, from the phone's look at launch)
+  /** Leave the team on this phone: notifications stop, the phone is removed from the team (now, or at a later start if
+   * that server cannot be reached). Only after the person chose another team that answered and it was saved. */
+  async function leave(origin: string) {
+    device.current = null; forgetDelivered()
+    // the notification extension stops asking the team left for names
+    await labels?.forget().catch(() => {})
+    void leaveTeam(devices, origin).catch(() => {})
+  }
+  // one function for the box's [{old}(으)로 돌아가기]: Android back's handler is registered once, not on every render
+  const closeAdding = useCallback(() => setAdding(false), [])
+  async function connect(address: TeamAddress) {
+    const old = team && team.origin !== address.origin ? team.origin : null
+    // the new team is saved first: if that fails (an address the store refuses), the phone is still in the old team
+    await saveTeamUrl(address.origin); since.current = Date.now(); hasTeam.current = true
+    if (old) await leave(old)
+    // the new team's page starts at the link's page (TeamWeb's first address)
+    setOpened(null); setPage(null); setAdding(false); setTeam(address)
+  }
+  // Android: the status bar icons and the three-button bar's contrast scrim follow the look (React Native set the scrim
+  // once, from the phone's look at launch)
   return <SafeAreaProvider><Look.Provider value={dark ? DARK : LIGHT}>{Platform.OS === 'android' && <><StatusBar style={dark ? 'light' : 'dark'} /><NavigationBar style={dark ? 'light' : 'dark'} /></>}
     {team === undefined ? <Center><ActivityIndicator color={product.accent} /></Center>
-      : team === null ? <Setup onDone={async address => { await saveTeamUrl(address.origin); since.current = Date.now(); hasTeam.current = true; setOpened(null); setTeam(address) }} />
-      : <TeamWeb key={team.origin} address={team} pads={padsAtLaunch.current === team.origin} signOut={signOut.current} opened={opened} onDevice={id => { device.current = id }} onAppearance={look => setPage(p => p?.dark === look.dark && p.system === look.system ? p : look)}
-        onChangeTeam={async () => {
-          hasTeam.current = false; device.current = null; forgetDelivered()
-          // the notification extension stops asking the team left for names (before anything else of the switch)
-          await labels?.forget().catch(() => {})
-          // remove this phone from the team it leaves (now, or at a later start if that server cannot be reached)
-          void leaveTeam(devices, team.origin).catch(() => {})
-          await saveTeamUrl(null); setOpened(null); setPage(null); setTeam(null)
-        }} />}
+      : team === null ? <Setup current={null} onDone={connect} />
+      : <>
+        <TeamWeb key={team.origin} address={team} hidden={adding} pads={padsAtLaunch.current === team.origin} signOut={signOut.current} opened={opened} onDevice={id => { device.current = id }} onAppearance={look => setPage(p => p?.dark === look.dark && p.system === look.system ? p : look)}
+          onChangeTeam={() => setAdding(true)} />
+        {adding && <View style={StyleSheet.absoluteFill}><Setup current={team.origin} onBack={closeAdding}
+          // the same team again: its page opens there (a link's join page, or its start)
+          onSame={address => { setAdding(false); setOpened(o => ({ path: address.entryPath, n: (o?.n ?? 0) + 1 })) }}
+          onDone={connect} /></View>}
+      </>}
   </Look.Provider></SafeAreaProvider>
 }
 // Insets as explicit padding on every native screen: with edge-to-edge (Android, targetSdk 36) the app draws under the
@@ -124,37 +158,122 @@ function Center({ children }: { children: ReactNode }) {
   const i = useSafeAreaInsets(), c = useContext(Look)
   return <View style={[s.fill, s.center, { backgroundColor: c.canvas, paddingTop: i.top + 24, paddingBottom: i.bottom + 24, paddingLeft: i.left + 24, paddingRight: i.right + 24 }]}>{children}</View>
 }
-function Setup({ onDone }: { onDone: (address: TeamAddress) => Promise<void> }) {
+/** A question before connecting: an address the hosted service does not run (once, on the first connect), a renamed
+ * team, or leaving the team this phone is in. [취소] has the focus. */
+type Ask = { kind: 'outside' | 'renamed' | 'switch'; address: TeamAddress; host: string; hosted: boolean }
+/**
+ * The first-run screen: ① one box for an invite link, a team link, an address or a pasted message; ② no address; ③ no
+ * team yet (docs/DECISIONS.md "First run: one box"). `current`: the team this phone is in, while another is being added
+ * over it ([{team}(으)로 돌아가기]); it is left only when the new address answered and the person said yes.
+ */
+function Setup({ current, onDone, onBack, onSame }: { current: string | null; onDone: (address: TeamAddress) => Promise<void>; onBack?: () => void; onSame?: (address: TeamAddress) => void }) {
   const [value, setValue] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState('')
-  async function connect() {
+  const [view, setView] = useState<'main' | 'unknown' | 'none'>('main'), [ask, setAsk] = useState<Ask | null>(null)
+  const cancelRef = useRef<ComponentRef<typeof Pressable>>(null)
+  async function submit() {
     if (busy) return
-    const address = parseTeamAddress(value)
-    if (!address) { setError(t.invalidAddress); return }
-    setBusy(true); setError('')
+    const r = readTeamInput(value, service.teamDomain)
+    if (!r.ok) { setError(inputError(t, r.error)); return }
+    if (current === r.origin) { onSame?.({ origin: r.origin, entryPath: r.entryPath }); return }
+    setBusy(true); setError(''); setAsk(null)
     try {
-      if (!(await checkTeam(address.origin))) { setError(t.unreachableSetup); return }
-      await onDone(address)
+      // the name is checked only here, on the button, and only under the team domain
+      const c = await checkTeam(r.origin, service.teamDomain)
+      if (!c.ok) {
+        setError(c.reason === 'unknown' ? fill(t.teamUnknown, { name: r.name ?? r.host }) : c.reason === 'suspended' ? t.suspended : c.reason === 'notTeam' ? t.notTeam : t.unreachableSetup)
+        return
+      }
+      const address = { origin: c.origin, entryPath: r.entryPath }
+      if (current === c.origin) { onSame?.(address); return }
+      // a build without a hosted service has nothing to compare with: no "not run by" question there
+      const hosted = c.renamed || r.hosted || !service.teamDomain
+      if (current) setAsk({ kind: 'switch', address, host: hostOf(c.origin), hosted })
+      else if (c.renamed) setAsk({ kind: 'renamed', address, host: hostOf(c.origin), hosted })
+      else if (!hosted) setAsk({ kind: 'outside', address, host: hostOf(c.origin), hosted })
+      else await onDone(address)
     } catch { setError(t.saveFailed) }
     finally { setBusy(false) }
   }
+  async function yes(a: Ask) {
+    setBusy(true)
+    try { await onDone(a.address) } catch { setError(t.saveFailed); setAsk(null) } finally { setBusy(false) }
+  }
+  // screen readers start on [취소] (the safe answer)
+  useEffect(() => {
+    if (!ask) return
+    const id = setTimeout(() => { const n = cancelRef.current && findNodeHandle(cancelRef.current); if (n) AccessibilityInfo.setAccessibilityFocus(n) }, 300)
+    return () => clearTimeout(id)
+  }, [ask])
+  // Android back: the question, then ② / ③, then back to the team this phone is in
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (ask) { setAsk(null); return true }
+      if (view !== 'main') { setView('main'); return true }
+      if (onBack) { onBack(); return true }
+      return false
+    })
+    return () => sub.remove()
+  }, [ask, view, onBack])
   // iOS: KeyboardAvoidingView; Android: the form is lifted by the keyboard (it covered the Connect button)
   const i = useSafeAreaInsets(), c = useContext(Look), keyboard = useAndroidKeyboard()
-  return <View style={[s.fill, { backgroundColor: c.canvas, paddingTop: i.top, paddingBottom: keyboard ? keyboard + i.bottom : i.bottom, paddingLeft: i.left, paddingRight: i.right }]}><KeyboardAvoidingView style={[s.fill, s.setup]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-    <Text style={[s.title, { color: c.ink }]}>{product.name}</Text><Text style={[s.hint, { color: c.muted }]}>{t.setupHint}</Text>
-    <TextInput style={[s.input, { borderColor: c.field, backgroundColor: c.surface, color: c.ink }]} value={value} onChangeText={setValue} placeholder={t.setupPlaceholder} placeholderTextColor={c.field}
-      autoCapitalize="none" autoCorrect={false} keyboardAppearance={c === DARK ? 'dark' : 'light'}
-      keyboardType="url" returnKeyType="go" onSubmitEditing={() => void connect()} editable={!busy} testID="team-url" />
-    {!!error && <Text accessibilityRole="alert" style={[s.error, { color: c.danger }]}>{error}</Text>}
-    <Pressable style={s.button} onPress={() => void connect()} disabled={busy} testID="team-connect">
-      {busy ? <ActivityIndicator color={accentInk(product.accent)} /> : <Text style={s.buttonText}>{t.connect}</Text>}
+  const back = (label: string, onPress: () => void, testID: string, primary = false) =>
+    <Pressable style={primary ? s.button : s.secondary} onPress={onPress} testID={testID} accessibilityRole="button">
+      <Text style={primary ? s.buttonText : [s.secondaryText, { color: c.ink, borderColor: c.field }]}>{label}</Text>
     </Pressable>
+  const body = view === 'unknown'
+    ? <View testID="no-address-view">
+      <Text style={[s.title, { color: c.ink }]} accessibilityRole="header">{t.noAddress}</Text>
+      {[t.noAddressPaste, t.noAddressDevice, t.noAddressAsk].map((line, n) => <View key={n} style={s.step}><Text style={[s.stepNo, { color: c.muted }]}>{n + 1}.</Text><Text style={[s.stepText, { color: c.ink }]}>{line}</Text></View>)}
+      {back(t.back, () => setView('main'), 'view-back')}
+    </View>
+    : view === 'none'
+    ? <View testID="no-team-view">
+      <Text style={[s.title, { color: c.ink }]} accessibilityRole="header">{t.noTeam}</Text>
+      <Text style={[s.hint, { color: c.muted }]}>{t.noTeamBody}</Text>
+      {/* no "create a team" here: it leads to a paid plan outside the app (App Review 3.1.1, Google Play payments) */}
+      {INSTALL_GUIDE && back(`${t.noTeamDocs} ↗`, () => { void WebBrowser.openBrowserAsync(INSTALL_GUIDE).catch(() => Alert.alert(product.name, t.browserFailed)) }, 'install-docs')}
+      {back(t.noTeamEnter, () => setView('main'), 'view-back', true)}
+    </View>
+    : <View>
+      <Text style={[s.title, { color: c.ink }]} accessibilityRole="header">{t.setupTitle}</Text><Text style={[s.hint, { color: c.muted }]}>{t.setupHint}</Text>
+      <TextInput style={[s.input, { borderColor: c.field, backgroundColor: c.surface, color: c.ink }]} value={value} onChangeText={v => { setValue(v); if (ask) setAsk(null) }} placeholder={t.setupPlaceholder} placeholderTextColor={c.field}
+        autoCapitalize="none" autoCorrect={false} keyboardAppearance={c === DARK ? 'dark' : 'light'} accessibilityLabel={t.setupPlaceholder}
+        keyboardType="url" returnKeyType="go" onSubmitEditing={() => void submit()} editable={!busy} testID="team-url" />
+      {!!error && <Text accessibilityRole="alert" style={[s.error, { color: c.danger }]} testID="setup-error">{error}</Text>}
+      {ask ? <View style={[s.ask, { borderColor: c.field, backgroundColor: c.surface }]} testID="setup-ask" accessibilityViewIsModal>
+        {ask.kind === 'switch' && current && <Text style={[s.askTitle, { color: c.ink }]}>{fill(t.switchTitle, { old: hostOf(current), new: ask.host })}</Text>}
+        <Text style={[s.askHost, { color: c.ink }]} testID="setup-ask-host">{ask.host}</Text>
+        {ask.kind === 'renamed' && <Text style={[s.askText, { color: c.ink }]}>{fill(t.renamed, { host: ask.host })}</Text>}
+        {!ask.hosted && <Text style={[s.askText, { color: c.ink }]}>{t.outsideBody}</Text>}
+        {ask.kind === 'switch' && current && <Text style={[s.askText, { color: c.muted }]}>{fill(t.switchBody, { old: hostOf(current) })}</Text>}
+        <View style={s.askRow}>
+          <Pressable ref={cancelRef} style={[s.secondary, s.askButton]} onPress={() => setAsk(null)} testID="setup-ask-cancel" accessibilityRole="button"><Text style={[s.secondaryText, { color: c.ink, borderColor: c.field }]}>{t.cancel}</Text></Pressable>
+          <Pressable style={[s.button, s.askButton]} onPress={() => void yes(ask)} disabled={busy} testID="setup-ask-yes" accessibilityRole="button">
+            {busy ? <ActivityIndicator color={accentInk(product.accent)} /> : <Text style={s.buttonText}>{ask.kind === 'switch' ? t.switchYes : t.outsideConnect}</Text>}</Pressable>
+        </View>
+      </View>
+      : <Pressable style={s.button} onPress={() => void submit()} disabled={busy} testID="team-connect" accessibilityRole="button">
+        {busy ? <ActivityIndicator color={accentInk(product.accent)} /> : <Text style={s.buttonText}>{t.connect}</Text>}
+      </Pressable>}
+      <View style={s.helpRow}>
+        <Pressable onPress={() => setView('unknown')} style={s.helpLink} testID="no-address" accessibilityRole="button"><Text style={[s.linkText, s.underline, { color: c.ink }]}>{t.noAddress}</Text></Pressable>
+        <Text style={[s.linkText, { color: c.muted }]} accessibilityElementsHidden importantForAccessibility="no">·</Text>
+        <Pressable onPress={() => setView('none')} style={s.helpLink} testID="no-team" accessibilityRole="button"><Text style={[s.linkText, s.underline, { color: c.ink }]}>{t.noTeam}</Text></Pressable>
+      </View>
+      {current && onBack && <Pressable onPress={onBack} style={[s.link, s.centered]} testID="setup-back" accessibilityRole="button"><Text style={[s.linkText, s.underline, { color: c.ink }]}>{fill(t.backTo, { team: hostOf(current) })}</Text></Pressable>}
+    </View>
+  return <View style={[s.fill, { backgroundColor: c.canvas, paddingTop: i.top, paddingBottom: keyboard ? keyboard + i.bottom : i.bottom, paddingLeft: i.left, paddingRight: i.right }]}><KeyboardAvoidingView style={s.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <ScrollView contentContainerStyle={s.setup} keyboardShouldPersistTaps="handled">{body}</ScrollView>
   </KeyboardAvoidingView></View>
 }
 type Failure = 'offline' | 'unreachable'
-function TeamWeb({ address, pads, signOut, opened, onDevice, onAppearance, onChangeTeam }: { address: TeamAddress; pads: boolean; signOut: ReinstallSignOut | null; opened: { path: string; n: number } | null; onDevice: (id: string) => void; onAppearance: (look: PageLook) => void; onChangeTeam: () => Promise<void> }) {
+function TeamWeb({ address, hidden, pads, signOut, opened, onDevice, onAppearance, onChangeTeam }: { address: TeamAddress; hidden: boolean; pads: boolean; signOut: ReinstallSignOut | null; opened: { path: string; n: number } | null; onDevice: (id: string) => void; onAppearance: (look: PageLook) => void; onChangeTeam: () => void }) {
   const web = useRef<WebHandle>(null), navigation = useRef(0), loadFailed = useRef(false), cleanup = useRef(Promise.resolve()), ready = useRef(false)
   const [canBack, setCanBack] = useState(false), [pathname, setPathname] = useState(address.entryPath), [failed, setFailed] = useState<Failure | null>(null)
   const [source, setSource] = useState(address.origin + address.entryPath)
+  // the team answered GET /api/me for a signed-in person (src/session-check.ts); until then the address stays under the page
+  const [signedIn, setSignedIn] = useState(false), sessionCheck = useRef(0)
+  const checkSession = () => { sessionCheck.current++; web.current?.injectJavaScript(sessionCheckScript(sessionCheck.current)) }
   const insets = useSafeAreaInsets(), c = useContext(Look)
   // Does the page on screen pad itself (src/look.ts padding)? Predicted from this team's last page, confirmed by the
   // page (appearance-v1). Until a page of this team has said so, the app keeps its own padding, so a team server that
@@ -194,9 +313,11 @@ function TeamWeb({ address, pads, signOut, opened, onDevice, onAppearance, onCha
   const r = receiver.current
   useEffect(() => () => { navigation.current++; stuck.current.cancel(); void r.disable() }, [r])
   useEffect(() => {
+    // under the first-run box ("다른 팀에 연결"), the box answers Android back
+    if (hidden) return
     const back = BackHandler.addEventListener('hardwareBackPress', () => { if (!canBack) return false; web.current?.goBack(); return true })
     return () => back.remove()
-  }, [canBack])
+  }, [canBack, hidden])
   useEffect(() => {
     // A tapped notification: same-origin path only (checked in src/push.ts), opened in this team's page.
     if (!opened) return
@@ -231,7 +352,9 @@ function TeamWeb({ address, pads, signOut, opened, onDevice, onAppearance, onCha
     web.current?.injectJavaScript(bootstrap(r.config, true))
     return true
   }
-  async function changeTeam() { await clear(); await onChangeTeam() }
+  // "다른 팀에 연결" / "팀 주소 바꾸기": the first-run box over this team, which stays connected until another team answered
+  // and the person said yes (App connect)
+  function changeTeam() { onChangeTeam() }
   function external(url: string) {
     try {
       const u = new URL(url)
@@ -244,6 +367,7 @@ function TeamWeb({ address, pads, signOut, opened, onDevice, onAppearance, onCha
   function settle(url: string) {
     void loaded(url).then(installed => {
       ready.current = installed && !loadFailed.current
+      if (ready.current) checkSession()
       // after a reinstall: only on this team's own page, the one on screen, whose bridge was just installed
       const end = ready.current && sameTeam(address.origin, currentUrl.current) ? signOut?.script(address.origin, currentUrl.current) : null
       if (end) web.current?.injectJavaScript(end)
@@ -259,14 +383,17 @@ function TeamWeb({ address, pads, signOut, opened, onDevice, onAppearance, onCha
     <Text style={[s.title, s.centerText, { color: c.ink }]} accessibilityRole="header">{failed === 'offline' ? t.offlineTitle : t.unreachableTitle}</Text>
     <Text style={[s.hint, s.centerText, { color: c.muted }]}>{failed === 'offline' ? t.offlineHint : t.unreachableHint}</Text>
     <Pressable style={s.button} onPress={() => setFailed(null)} testID="retry"><Text style={s.buttonText}>{t.retry}</Text></Pressable>
-    <Pressable style={s.link} onPress={() => void changeTeam()} testID="failed-change-team"><Text style={[s.linkText, { color: c.ink }]}>{t.changeTeam}</Text></Pressable></Center>
-  const showFooter = pathname === '/login' || pathname.startsWith('/invite')
+    <Pressable style={s.link} onPress={changeTeam} testID="failed-change-team"><Text style={[s.linkText, { color: c.ink }]}>{t.changeTeam}</Text></Pressable></Center>
+  // the team address the app connected to (drawn here: a page can draw anything) and "another team": on the sign-in
+  // pages, and on every page until the team said someone is signed in
+  const showFooter = hostLineShown(pathname, signedIn)
   // Edge to edge for a page that pads itself: it fills the screen under the status bar and the home indicator /
   // navigation bar in its own colours (env(safe-area-inset-*), and --app-inset-* from insetScript for WebViews that
   // report none). Any other page keeps the app's padding (src/look.ts frame). The sign-in pages end above the app's own
   // "another team" footer.
   const edges = frame({ selfPadded, android: Platform.OS === 'android', footer: showFooter, keyboard, insets })
-  return <View style={[s.fill, { backgroundColor: c.canvas, paddingTop: edges.top, paddingLeft: insets.left, paddingRight: insets.right, paddingBottom: edges.bottom }]}><View style={s.fill}>
+  return <View style={[s.fill, { backgroundColor: c.canvas, paddingTop: edges.top, paddingLeft: insets.left, paddingRight: insets.right, paddingBottom: edges.bottom }]}
+    accessibilityElementsHidden={hidden} importantForAccessibility={hidden ? 'no-hide-descendants' : 'auto'}><View style={s.fill}>
     <WebView ref={web} source={{ uri: source }} style={[s.fill, { backgroundColor: c.canvas }]}
       injectedJavaScriptBeforeContentLoaded={insetJs}
       originWhitelist={['*']} applicationNameForUserAgent={`${product.userAgent}/${VERSION}`}
@@ -299,10 +426,20 @@ function TeamWeb({ address, pads, signOut, opened, onDevice, onAppearance, onCha
           saved => stillStuck({ saved, current: currentUrl.current, origin: address.origin, ready: ready.current, failed: loadFailed.current }), settle)
       }}
       onLoadEnd={event => { stuck.current.cancel(); settle(event.nativeEvent.url) }}
-      onNavigationStateChange={state => { currentUrl.current = state.url; setCanBack(state.canGoBack); if (sameTeam(address.origin, state.url)) setPathname(new URL(state.url).pathname) }}
+      onNavigationStateChange={state => {
+        currentUrl.current = state.url; setCanBack(state.canGoBack)
+        if (!sameTeam(address.origin, state.url)) return
+        const next = new URL(state.url).pathname
+        // the page moved (a sign-in or a sign-out changes the route without a load): ask again
+        if (next !== pathname && ready.current) checkSession()
+        setPathname(next)
+      }}
       onMessage={event => {
         // the reinstall sign-out's answer (its one-time token), not a bridge message
         if (signOut && sameTeam(address.origin, event.nativeEvent.url) && signOut.answer(event.nativeEvent.data)) return
+        // the answer to the app's own session check, not a bridge message
+        const session = sameTeam(address.origin, event.nativeEvent.url) ? readSessionCheck(event.nativeEvent.data, sessionCheck.current) : null
+        if (session !== null) { setSignedIn(session); return }
         void r.receive(event.nativeEvent.data, event.nativeEvent.url).then(reply => {
           if (!reply) return
           const script = (reply.nextGeneration ? bootstrap(r.config) : '') + `window.dispatchEvent(new CustomEvent('mycel:mobile',{detail:${JSON.stringify(reply)}}));true;`
@@ -317,16 +454,24 @@ function TeamWeb({ address, pads, signOut, opened, onDevice, onAppearance, onCha
       testID="team-web" />
     </View>
     {showFooter && <View style={[s.footer, { backgroundColor: c.canvas, paddingBottom: insets.bottom + 8 }]}>
-      <Pressable onPress={() => void changeTeam()} style={s.footerButton} testID="change-team"><Text style={[s.linkText, { color: c.ink }]}>{t.otherTeam}</Text></Pressable>
+      <Text style={[s.footerHost, { color: c.muted }]} testID="team-host" numberOfLines={1} ellipsizeMode="middle">{hostOf(address.origin)}</Text>
+      <Pressable onPress={changeTeam} style={s.footerButton} testID="change-team" accessibilityRole="button"><Text style={[s.linkText, s.underline, { color: c.ink }]}>{t.otherTeam}</Text></Pressable>
     </View>}
   </View>
 }
 // layout only; the colours come from the look (src/look.ts: the web app's light and dark tokens)
 const s = StyleSheet.create({
   fill: { flex: 1 }, center: { alignItems: 'center', justifyContent: 'center', padding: 24 },
-  setup: { justifyContent: 'center', paddingHorizontal: 24 }, title: { fontSize: 24, fontWeight: '600', marginBottom: 8 },
+  setup: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 24 }, title: { fontSize: 24, fontWeight: '600', marginBottom: 8 },
   hint: { fontSize: 15, marginBottom: 16, lineHeight: 21 }, input: { borderWidth: 1, borderRadius: 10, padding: 14, fontSize: 16 },
   error: { marginTop: 10, lineHeight: 20 }, button: { marginTop: 16, backgroundColor: product.accent, borderRadius: 10, padding: 14, alignItems: 'center', minWidth: 160 },
   buttonText: { color: accentInk(product.accent), fontSize: 16, fontWeight: '600' }, link: { marginTop: 16, padding: 8 }, footer: { alignItems: 'center', paddingTop: 8 }, footerButton: { paddingVertical: 8, paddingHorizontal: 16 },
-  linkText: { fontSize: 15 }, centerText: { textAlign: 'center' },
+  linkText: { fontSize: 15 }, centerText: { textAlign: 'center' }, underline: { textDecorationLine: 'underline' }, centered: { alignSelf: 'center' },
+  secondary: { marginTop: 12, alignItems: 'center' }, secondaryText: { fontSize: 16, fontWeight: '500', borderWidth: 1, borderRadius: 10, padding: 13, minWidth: 160, width: '100%', textAlign: 'center', overflow: 'hidden' },
+  helpRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', marginTop: 16, gap: 4 }, helpLink: { paddingVertical: 8, paddingHorizontal: 4 },
+  step: { flexDirection: 'row', gap: 8, marginBottom: 12 }, stepNo: { fontSize: 15, lineHeight: 22, minWidth: 18 }, stepText: { flex: 1, fontSize: 15, lineHeight: 22 },
+  ask: { marginTop: 16, borderWidth: 1, borderRadius: 12, padding: 16 }, askTitle: { fontSize: 16, fontWeight: '600', lineHeight: 22, marginBottom: 6 },
+  askHost: { fontSize: 15, fontWeight: '600', marginBottom: 6 }, askText: { fontSize: 15, lineHeight: 21, marginBottom: 6 },
+  askRow: { flexDirection: 'row', gap: 10, marginTop: 8 }, askButton: { flex: 1, minWidth: 0, marginTop: 0 },
+  footerHost: { fontSize: 13, paddingHorizontal: 16 },
 })
