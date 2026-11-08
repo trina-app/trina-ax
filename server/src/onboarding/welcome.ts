@@ -7,14 +7,14 @@
 //
 // The row is read field by field: a field that does not read (a later release changed it, a hand edit) falls back to
 // its default for display, and a write changes only the fields it sets, keeping everything else of the stored object
-// as it was (unknown fields too). A recorded general pack counts as installed whatever its shape, so nothing resets
-// it. A row that is not a JSON object at all is refused for writes (never replaced by a fresh one).
+// as it was (unknown fields too). A recorded general pack counts as handled whatever its shape, so nothing resets it.
+// A row that is not a JSON object at all is refused for writes (never replaced by a fresh one).
 //
-// Every team's start (docs/DECISIONS.md "M — One meeting note, everyone's own tasks", setupWelcomeTeam): the general
-// pack (the intro deck, the card news, the promo video) installed at most once, since installing again would restore
-// skills someone deleted on purpose (stream C), and the team's own group named after the team, with its folder
-// groups/<name>/ (the group's members read and write it, as every group folder) and the meeting notes folder in it,
-// made once with the owner in it. Both are recorded in the row, so the steps never make them again by themselves.
+// Every team's start (docs/DECISIONS.md "M — One meeting note, everyone's own tasks", "W6", setupWelcomeTeam): the
+// team's own group named after the team, with its folder groups/<name>/ (the group's members read and write it, as
+// every group folder) and the meeting notes and brand folders in it, made once with the owner in it, and recorded in
+// the row, so the steps never make them again by themselves. No skill is installed (docs/DECISIONS.md "W6": a skill
+// goes in only on a press that names it); the general pack's record is written with no paths for older builds.
 import { z } from 'zod'
 import {
   BRAND_FOLDER, BRAND_IMAGES_FOLDER, GENERAL_CARDNEWS_SKILL, GENERAL_DECK_SKILL, GENERAL_PROMO_SKILL, NOTES_FOLDER, TeamGroupRef, TeamType, WELCOME_STEPS, WelcomeProgress, WelcomeStepState, normalizeWebsite,
@@ -27,7 +27,6 @@ import { fail } from '../http/errors'
 import { authorize } from '../policy/authorize'
 import { listTeamSkills, sameSkillName } from '../chat/skills'
 import { componentC } from '../team-files/component'
-import { installSkillPack } from './skill-packs'
 import { retireLegacyDefaultSkills } from './retired-skills'
 
 export const WELCOME_SETTING = 'onboarding.welcome'
@@ -88,7 +87,7 @@ function view(raw: Raw, now: string): WelcomeProgress {
 // installed by the steps)
 const fresh = (now: string): Raw => ({
   startedAt: now, updatedAt: now, teamType: null,
-  steps: { profile: null, result: null, skills: null, files: null, invite: null },
+  steps: { profile: null, result: null, skills: null, files: null, tools: null, invite: null },
   pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
 })
 
@@ -115,10 +114,9 @@ export function readWelcome(ctx: Pick<AppContext, 'db'>): WelcomeProgress | null
 }
 
 // ---------------------------------------------------------------- the intro deck's chat (docs/DECISIONS.md "W5")
-// The chat POST …/first-result makes is kept in the row's own field `deckChatId` (never shown), and becomes
-// `resultChatId` only once it holds a message: 회사 소개 counts as saved with a deck only when the deck's message really
-// went in. A tab closed or a send that failed after "저장하고 계속" leaves 회사 소개 open, and its next "저장하고 계속"
-// gets the same chat again (review of PR #100: the chat used to be recorded as the deck before the page sent).
+// Rows whose deck started on an earlier version (v6.1 or before; docs/DECISIONS.md "W6": nothing starts one now): the
+// chat that version made is kept in the row's own field `deckChatId` (never shown), and became `resultChatId` once it
+// held a message. Still read, so the end screen's deck line and the goal stay right for those rows.
 const DECK_CHAT = 'deckChatId'
 const chatThere = (ctx: Pick<AppContext, 'db'>, id: string, userId?: string) =>
   !!(userId ? ctx.db.query('SELECT 1 FROM chats WHERE id = ? AND user_id = ? AND deleted_at IS NULL').get(id, userId) : ctx.db.query('SELECT 1 FROM chats WHERE id = ? AND deleted_at IS NULL').get(id))
@@ -170,16 +168,14 @@ export function welcomeOut(ctx: AppContext, p: WelcomeProgress | null): WelcomeP
   return { ...p, deckStarted: deckStarted(ctx), landingSkill: landing }
 }
 
-/**
- * 회사 소개 answered (docs/DECISIONS.md "W5"): put off, or saved with the intro deck started (`resultChatId`) or, on a
- * row from before, its first result answered either way. A row from before whose profile was saved but whose first
- * result never ran (old row (a)) is still open: 회사 소개's "저장하고 계속" starts the deck there.
- */
-export const profileAnswered = (p: WelcomeProgress) => p.steps.profile === 'skipped' || (p.steps.profile === 'done' && (p.resultChatId !== null || p.steps.result !== null))
 const answered = (v: WelcomeStepState | null | undefined) => v === 'done' || v === 'skipped'
-/** 회사 소개 answered, and 내 스킬, 팀 파일 and the invite each done or put off; not while 내 스킬 waits for a computer
- * (skillsLater). The deck is a fact, not a step. */
-export const welcomeFinished = (p: WelcomeProgress) => profileAnswered(p) && answered(p.steps.skills) && answered(p.steps.files) && answered(p.steps.invite) && !p.skillsLater
+/** 회사 소개 answered (docs/DECISIONS.md "W6"): saved or put off. No deck is waited for any more: a row from before whose
+ * profile was saved without a deck (old row (a)) is answered too, and gets its brand files once (brandOnRead). */
+export const profileAnswered = (p: WelcomeProgress) => answered(p.steps.profile)
+/** 회사 소개 answered, and 내 스킬, 팀 파일, 도구 연결 and the invite each done or put off; not while 내 스킬 waits for a
+ * computer (skillsLater). A row already finished stays finished (`finishedAt`): 도구 연결, added later, never reopens
+ * it. */
+export const welcomeFinished = (p: WelcomeProgress) => profileAnswered(p) && answered(p.steps.skills) && answered(p.steps.files) && answered(p.steps.tools) && answered(p.steps.invite) && !p.skillsLater
 
 /** What runs when a save ends the steps, or the owner's ✕ on them held (the merges that waited for them:
  * skills/share-merge.ts). Registered by the module that owns it, so this file needs no import of the chat runtime; a
@@ -222,10 +218,6 @@ export function updateWelcome(ctx: Pick<AppContext, 'db' | 'log'> & Partial<AppC
     // done stays done: going back to a step and putting it off again does not undo it. The AI step: `skipped` when it
     // was shown (AI was needed), `done` once AI answers the owner after that (docs/DECISIONS.md "W2")
     if (u.step.state === 'done' || p.steps[u.step.id] !== 'done') steps[u.step.id] = u.step.state
-    // 회사 소개 put off on a row whose profile was saved before without a deck (old row (a), docs/DECISIONS.md "W5"): the
-    // profile stays saved and the deck is put off (`result: skipped`, old row (d)), so the step is answered and the
-    // steps do not come back to it
-    if (u.step.id === 'profile' && u.step.state === 'skipped' && p.steps.profile === 'done' && !p.resultChatId && (p.steps.result ?? null) === null) steps.result = 'skipped'
     // 내 스킬 가져오기 done or put off on a computer: no longer waiting for one
     if (u.step.id === 'skills') delete raw.skillsLater
   }
@@ -330,16 +322,9 @@ function generalPath(skills: { path: string; name: string }[], own: string, name
 }
 
 /** Written into every new `general` record although nothing reads them: an older build (after a rollback) requires both
- * to read the record, and would otherwise fall back to its defaults and lose the intro deck's path (docs/DECISIONS.md
- * "DS3"; the skills they named no longer ship). */
+ * to read the record, and would otherwise fall back to its defaults and install the pack (docs/DECISIONS.md "DS3",
+ * "W6"; the skills they named no longer ship). */
 const OLD_GENERAL_FIELDS = { tasksPath: null, briefPath: null } as const
-
-/** Where an install left one of its skills: the pack's file, another team skill of its name, or nowhere (blocked). */
-function placed(install: WelcomeTeamResult['install'], own: string): string | null {
-  const s = install?.skills.find((x) => x.path === own)
-  if (!s) return null
-  return s.status === 'blocked' ? (s.sameNameAs ?? null) : own
-}
 
 /** The meeting notes folder inside the team folder: made through the file screen's own "new folder" when missing. */
 function ensureNotesFolder(ctx: AppContext, userId: string, rel: string): void {
@@ -348,7 +333,8 @@ function ensureNotesFolder(ctx: AppContext, userId: string, rel: string): void {
 }
 
 /** The brand folder inside the team folder (groups/<team>/브랜드, localized) and its images folder, made when missing:
- * the company intro, 회사 소개.md and the pictures of the first result go there (docs/DECISIONS.md "N"). */
+ * the company intro, 회사 소개.md and the website's pictures go there (docs/DECISIONS.md "N", "W6"); 회사 소개서, 카드뉴스
+ * and 홍보 영상 read them. */
 export function brandFoldersOf(ctx: AppContext, userId: string, folder: string, recorded?: string): { brandFolder: string; imagesFolder: string } {
   const locale = teamDefaultLocale(ctx.db)
   // the one recorded keeps its name when the team's language changes later (the page uploads into it)
@@ -386,107 +372,76 @@ function teamGroupFor(ctx: AppContext, userId: string, recorded: TeamGroupRef | 
 }
 
 /**
- * Every team's start, once (owner; the welcome steps call it when the first step is left, and the result step when an
- * older row has none):
- * - the general pack: recorded before → nothing runs; the team already has skills under skills/general/ → recorded
- *   without installing (nothing deleted on purpose comes back); else installed, and recorded when any of its skills is
- *   there afterwards (written now, already there, or another team skill of its name), `blocked` (nothing recorded) when
- *   the folder rules kept every one out. No one skill of it decides (docs/DECISIONS.md "DS3": 할 일 정리, which used to,
- *   is gone), so a skill missing never holds the start back;
+ * Every team's start, once (owner; the welcome steps call it when 회사 소개 is left, and the brand action when the group
+ * is missing; docs/DECISIONS.md "W6"):
+ * - no skill is installed. The general pack's record is written once so an older build (after a rollback) reads the
+ *   pack as handled and installs nothing: a team that has skills under skills/general/ (an earlier version's steps, or
+ *   the Skills page) is recorded as it is, with the paths it has; any other team gets `{ at, tasksPath: null,
+ *   briefPath: null }` with no skill paths (`introDeckPath` absent: no deck is started);
  * - the team group: the recorded one while it exists, else a new one named after the team ("Acme 2" when the name is
  *   taken: a group these steps did not make is never taken over) with the owner in it; its folder and the meeting notes
- *   folder in it (made when missing, through the file layer).
- * The pack's record is saved before the group is made, so a failure there never installs the pack twice. Nothing else
- * is installed here: no other pack is added by itself. The old seeder's settings row gets its keys recorded as retired
- * (a settings write, no files: onboarding/retired-skills.ts).
+ *   and brand folders in it (made when missing, through the file layer).
+ * The old seeder's settings row gets its keys recorded as retired (a settings write, no files:
+ * onboarding/retired-skills.ts).
  */
 export function setupWelcomeTeam(ctx: AppContext, userId: string, locale: Locale): WelcomeTeamResult {
   const now = new Date().toISOString()
   const raw = forWrite(ctx, now)
   let p = view(raw, now)
-  let install: WelcomeTeamResult['install'] = null
-  let outcome: WelcomeTeamResult['outcome'] = 'already'
   if (!p.general) {
     const skills = listTeamSkills(ctx.files, ctx.files.principal(userId))
-    // an install of these steps that was blocked before may run again (it only adds what is missing); a team that has
-    // the pack's skills from the Skills page is recorded as it is (a skill deleted there on purpose is not brought back)
-    const tried = typeof raw.generalBlockedAt === 'string'
-    if (!tried && skills.some((s) => s.path.startsWith('skills/general/'))) {
-      // the intro deck not there yet stays unrecorded: the first result adds it on its own once (introDeckSkill)
+    if (skills.some((s) => s.path.startsWith('skills/general/'))) {
+      // recorded as it is (the paths an older build reads); nothing is installed or brought back
       const cardNewsPath = generalPath(skills, GENERAL_CARDNEWS_SKILL, 'card-news')
       const promoVideoPath = generalPath(skills, GENERAL_PROMO_SKILL, 'promo-video')
       const introDeckPath = generalPath(skills, GENERAL_DECK_SKILL, 'intro-deck')
       raw.general = { at: now, ...OLD_GENERAL_FIELDS, ...(cardNewsPath ? { cardNewsPath } : {}), ...(promoVideoPath ? { promoVideoPath } : {}), ...(introDeckPath ? { introDeckPath } : {}) }
-    } else {
-      install = installSkillPack(ctx, userId, 'general')
-      const cardNewsPath = placed(install, GENERAL_CARDNEWS_SKILL)
-      const promoVideoPath = placed(install, GENERAL_PROMO_SKILL)
-      const introDeckPath = placed(install, GENERAL_DECK_SKILL)
-      if (cardNewsPath || promoVideoPath || introDeckPath) {
-        raw.general = { at: now, ...OLD_GENERAL_FIELDS, cardNewsPath, promoVideoPath, introDeckPath }
-        delete raw.generalBlockedAt
-        outcome = 'installed'
-      } else {
-        raw.generalBlockedAt = now
-        outcome = 'blocked'
-      }
-    }
+    } else raw.general = { at: now, ...OLD_GENERAL_FIELDS }
+    delete raw.generalBlockedAt
     p = save(ctx, raw, now)
   }
   // an older build's seeder, run again later, adds none of the skills it knew (onboarding/retired-skills.ts); a settings
   // write that fails never stops the team's start (the server's start writes it too)
   try { retireLegacyDefaultSkills(ctx.db) } catch (e) { ctx.log.warn('the old default skills not recorded as retired in the welcome steps', { err: e }) }
   raw.teamGroup = teamGroupFor(ctx, userId, p.teamGroup ?? null, locale)
-  return { progress: save(ctx, raw, now), install, outcome }
+  return { progress: save(ctx, raw, now), install: null, outcome: 'already' }
 }
 
-/**
- * The intro deck's chat, once per team (docs/DECISIONS.md "W5": 회사 소개's "저장하고 계속" starts it; saving again only
- * saves). `started`: the deck's chat is the owner's, not deleted, and holds a message (recorded as `resultChatId` now if
- * it was not yet). `reuse`: the chat made for the deck is theirs and holds none (the page was closed, or its send
- * failed): it is handed out again. Otherwise `make` creates the chat and it is kept for the deck (`deckChatId`, not yet
- * `resultChatId`) in the same synchronous step, so two requests at once get one chat.
- */
-export function deckChatFor(ctx: Pick<AppContext, 'db'>, userId: string, make: () => string): { kind: 'started'; chatId: string } | { kind: 'reuse' | 'new'; chatId: string } {
-  const now = new Date().toISOString()
-  const raw = forWrite(ctx, now)
-  const recorded = view(raw, now).resultChatId
-  if (recorded && chatThere(ctx, recorded, userId)) {
-    // a deck that started; or a first result's chat of a row from before that never got its message: sent into again
-    return holdsMessage(ctx, recorded) ? { kind: 'started', chatId: recorded } : { kind: 'reuse', chatId: recorded }
-  }
-  const kept = typeof raw[DECK_CHAT] === 'string' ? raw[DECK_CHAT] as string : null
-  if (kept && chatThere(ctx, kept, userId)) {
-    if (!holdsMessage(ctx, kept)) return { kind: 'reuse', chatId: kept }
-    // its message is in while `resultChatId` still names a deleted chat: this one is the deck
-    raw.resultChatId = kept
-    save(ctx, raw, now)
-    return { kind: 'started', chatId: kept }
-  }
-  const chatId = make()
-  raw[DECK_CHAT] = chatId
-  // a recorded chat that is gone (deleted) is no deck any more: the new one becomes it once its message is in
-  raw.resultChatId = null
-  save(ctx, raw, now)
-  return { kind: 'new', chatId }
+// ---------------------------------------------------------------- the brand mark (docs/DECISIONS.md "W6")
+// `brandAt`: the brand action (welcome-result.ts placeBrand) ran through once (the folders made, the website's pictures
+// placed, 회사 소개.md written or the owner's files given). `brandTriedAt`: the server's own run on a read (brandOnRead)
+// was tried once, whatever came of it. `brandOwnFiles`: the owner gave intro files once, so no 회사 소개.md is written
+// beside them later (a 고치기 save after a reload sends none). All live in the row only (never shown).
+export const BRAND_AT = 'brandAt'
+export const BRAND_TRIED_AT = 'brandTriedAt'
+export const BRAND_OWN_FILES = 'brandOwnFiles'
+
+/** Record a mark of the brand action in the row (a row that is not an object is left alone). */
+export function markBrand(ctx: Pick<AppContext, 'db'>, key: typeof BRAND_AT | typeof BRAND_TRIED_AT | typeof BRAND_OWN_FILES): void {
+  const s = stored(ctx)
+  if (!s.raw) return
+  setSetting(ctx.db, WELCOME_SETTING, { ...s.raw, [key]: new Date().toISOString() })
 }
 
-/** "/intro-deck" for the first result (docs/DECISIONS.md "D2"; the promo video of "V" and the card news of "N" before
- * it, both still installed with the pack): the recorded path, or once, for a row whose general pack was recorded before
- * the skill existed, the skill installed on its own and recorded (null when blocked). `install` runs only then; a skill
- * recorded and deleted on purpose afterwards is not brought back. */
-export function introDeckSkill(ctx: AppContext, userId: string, install: () => { path: string; status: string; sameNameAs?: string }): string | null {
-  const now = new Date().toISOString()
-  const raw = forWrite(ctx, now)
-  const general = isObj(raw.general) ? raw.general : null
-  if (!general) return null
-  if (typeof general.introDeckPath === 'string') return general.introDeckPath
-  if (general.introDeckPath === null) return null
-  const r = install()
-  const path = r.status === 'blocked' ? (r.sameNameAs ?? null) : r.path
-  raw.general = { ...general, introDeckPath: path }
-  save(ctx, raw, now)
-  return path
+/** The owner gave intro files on 회사 소개 once (`brandOwnFiles`). */
+export function brandOwnFiles(ctx: Pick<AppContext, 'db'>): boolean {
+  return typeof stored(ctx).raw?.[BRAND_OWN_FILES] === 'string'
+}
+
+/** The brand action ran through for this team (`brandAt`). */
+export function brandDone(ctx: Pick<AppContext, 'db'>): boolean {
+  return typeof stored(ctx).raw?.[BRAND_AT] === 'string'
+}
+
+/** The row the server runs the brand action for on a read, once (docs/DECISIONS.md "W6", review M6): unfinished, 회사
+ * 소개 saved without a deck and without a first result, no brand mark, not tried on a read before. That is old row (a)
+ * (saved on an earlier version), and a row of this version whose brand action failed at 저장하고 계속 (tried again once). */
+export function wantsBrandOnRead(ctx: Pick<AppContext, 'db'>): boolean {
+  const s = stored(ctx)
+  const raw = s.raw
+  if (!raw || typeof raw[BRAND_AT] === 'string' || typeof raw[BRAND_TRIED_AT] === 'string') return false
+  const p = view({ ...raw, steps: isObj(raw.steps) ? { ...raw.steps } : {} }, new Date().toISOString())
+  return !p.finishedAt && p.steps.profile === 'done' && !p.resultChatId && typeof raw[DECK_CHAT] !== 'string' && (p.steps.result ?? null) === null
 }
 
 /**
