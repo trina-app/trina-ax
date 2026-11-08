@@ -1,6 +1,6 @@
 // A member and a team skill someone made from their own work (docs/DECISIONS.md "S"):
 // - joining with a link to a skill with a form: the join page keeps who made it for that form, which says so on top
-//   ("김지훈님이 만든 팀 스킬이에요 · 이 채팅은 민지님만 봐요"), until the form goes away;
+//   ("김지훈님이 만든 팀 스킬이에요 · 이 기록은 민지님만 봐요"), until the form goes away;
 // - a skill without fields lands on its form too (its box starts with the skill's own example, docs/DECISIONS.md
 //   "W5"), never on Home (the link's starter is gone: docs/DECISIONS.md "DS3");
 // - the answer's receipt names the maker: "김지훈님의 팀 스킬 '견적서 쓰기' · 팀 파일 1개".
@@ -138,7 +138,7 @@ describe('a member and a team skill someone made', () => {
     const m = await mount(<MemoryRouter><SkillFormDialog path={QUOTE.path} onClose={() => {}} /></MemoryRouter>)
     try {
       await m.until(() => m.find('skill-form-by'), 'the line')
-      expect(m.get('skill-form-by').textContent).toBe('김지훈님이 만든 팀 스킬이에요 · 이 채팅은 민지님만 봐요')
+      expect(m.get('skill-form-by').textContent).toBe('김지훈님이 만든 팀 스킬이에요 · 이 기록은 민지님만 봐요')
       expect(m.get('skill-form').textContent).not.toContain('팀 양식으로 견적서를 만들어요')
       expect(m.find('skill-input-customer')).not.toBeNull()
     } finally { await m.unmount() }

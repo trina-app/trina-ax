@@ -4325,7 +4325,7 @@ export class MockServer {
       const chat = chatOf(c.params.id!)
       if (this.sharedChats.has(chat.id)) { view(chat, c.user); no('already_shared', '이미 프로젝트 사람들과 공유한 채팅이에요.') }
       if (othersPrivate(chat.id, c.user) || chat.deletedAt) fail('not_found', 404)
-      if (this.allConfidential || chat.confidential) no('safe_ops', '안전 작업 모드이거나 기밀 채팅이라 공유할 수 없어요.')
+      if (this.allConfidential || chat.confidential) no('safe_ops', '안전 작업 모드이거나 기밀 대화라 공유할 수 없어요.')
       const p = chat.projectId ? this.projects.find((x) => x.id === chat.projectId) : undefined
       if (!p || this.access(p.folderPath, c.user) === 'none') return no('project_not_sharing', '이 채팅은 채팅을 공유하는 팀 프로젝트에 있지 않아요. 그런 프로젝트로 옮긴 뒤에 공유해 주세요.')
       if (p.folderPath.startsWith('users/')) no('project_personal', '개인 프로젝트의 채팅은 공유할 수 없어요.')

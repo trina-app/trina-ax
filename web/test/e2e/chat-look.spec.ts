@@ -29,7 +29,7 @@ async function chatWithTwoAnswers(page: Page, projectId?: string) {
   return id
 }
 
-const NOTE = 'AI는 실수할 수 있어요. 중요한 내용은 확인해 주세요. 내 채팅은 나만 볼 수 있어요.'
+const NOTE = 'AI는 실수할 수 있어요. 중요한 내용은 확인해 주세요. 내 기록은 나만 볼 수 있어요.'
 
 /** The box holds the text, the mic and the send key (the mic right before send, as in ChatGPT); attach and the engine
  * are in the row under it. */

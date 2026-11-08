@@ -18,6 +18,7 @@ import { api, API, errorText, isApiError } from '../lib/api'
 import { formatRelative } from '../lib/format'
 import { firstParagraph } from '../lib/markdown'
 import { openTeamFile } from '../lib/sidePanel'
+import { aiName } from '../lib/tabs'
 import { useLocale, useT } from '../i18n'
 import { toast } from '../store/ui'
 import { useChats } from '../store/chats'
@@ -414,8 +415,9 @@ export function ProjectHome() {
             </p>
           </aside>
           <section aria-labelledby="pj-chats" className="min-w-0 lg:col-start-1" data-testid="project-chats">
+            {/* the sidebar's name for the AI's history ("트리나 기록"): one name for it on every screen */}
             <h2 id="pj-chats" className="mb-1 text-sm text-muted">
-              {t('projects.myChats')}
+              {t('sidebar.aiChats', { name: aiName(t) })}
             </h2>
             {!chats && <Skeleton lines={3} />}
             {chats && !chats.length && <p className="py-2 text-sm text-faint">{t('projects.noChats')}</p>}

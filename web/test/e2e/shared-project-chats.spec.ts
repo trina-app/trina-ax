@@ -163,7 +163,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       expect(((await (await b.request.get('/api/chats')).json()) as { items: { id: string }[] }).items.map((c) => c.id)).not.toContain(chatId)
       await b.goto(`/projects/${id}`)
       const section = b.getByTestId('project-chats')
-      await expect(section.getByRole('heading', { name: '채팅' })).toBeVisible()
+      await expect(section.getByRole('heading', { name: '트리나 기록' })).toBeVisible()
       const row = section.getByRole('link', { name: /출시 일정/ })
       await expect(row.getByTestId('shared-icon')).toBeVisible()
       await expect(row.getByTestId('project-chat-by')).toHaveText('Olga')

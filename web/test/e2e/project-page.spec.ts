@@ -31,7 +31,7 @@ test('the box on a project page starts a chat in the project, which is then list
   await expect(page.getByRole('heading', { level: 1, name: 'Launch' })).toBeVisible()
   // the instructions as one quiet line under the name, without their markdown
   await expect(page.getByTestId('project-summary')).toHaveText('Answer in short bullet points.')
-  await expect(page.getByTestId('project-chats')).toContainText('아직 이 프로젝트에서 연 채팅이 없어요.')
+  await expect(page.getByTestId('project-chats')).toContainText('아직 이 프로젝트의 기록이 없어요.')
   // the draft is the project's: the same one as "/?project=<id>"
   await page.getByTestId('composer-input').fill('half a question')
   await page.goto(`/?project=${id}`)
