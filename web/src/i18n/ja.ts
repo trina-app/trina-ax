@@ -3019,8 +3019,6 @@ export const ja: Record<MessageKey, string> = {
   "skillPack.source.adapted": "{author}のオープンソース「{project}」をもとに{product}チームが書き直しました · {license}ライセンス",
   "skillPack.source.original": "オリジナルを見る",
   "skillPack.newTab": "新しいタブで開きます",
-  "skillPack.prev": "前のスキルの例",
-  "skillPack.next": "次のスキルの例",
   "skillPack.loadFailed": "用意したスキルを読み込めませんでした",
   "skillPack.taken": "{n, plural, one {#個は追加できませんでした} other {#個は追加できませんでした}} · 同じ名前のスキルがすでにあります",
   "skillPack.takenOne": "同じ名前のスキルがすでにあります",

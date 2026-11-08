@@ -131,9 +131,11 @@ export interface SkillShareReviewProps {
   checkLimitMs?: number
   /** the primary's words for n ticked skills (default "팀에 공유 · N개") */
   shareLabel?: (n: number) => string
+  /** the words of the list's secondary button (default "나중에 하기"; the Team skills sheet: "닫기") */
+  laterLabel?: string
 }
 
-export function SkillShareReview({ share: given, team, doneLabel, onDone, onApplied, onLater, onStopped, onOtherFolder, onMore, busy, inSetup = false, earlier, pickTarget = false, onTarget, embedded = false, onState, handle, checkLimitMs, shareLabel: labelFor }: SkillShareReviewProps) {
+export function SkillShareReview({ share: given, team, doneLabel, onDone, onApplied, onLater, onStopped, onOtherFolder, onMore, busy, inSetup = false, earlier, pickTarget = false, onTarget, embedded = false, onState, handle, checkLimitMs, shareLabel: labelFor, laterLabel }: SkillShareReviewProps) {
   const t = useT()
   const locale = useLocale()
   const phone = useMediaQuery('(max-width: 767.98px)')
@@ -572,7 +574,7 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
           <Button variant="primary" className={phone ? 'w-full' : undefined} busy={applying} disabled={!anything || busy || moving || !canApply} onClick={() => void apply()} data-testid="skills-share">
             {!applying && <Users size={15} aria-hidden />} {shareLabel}
           </Button>
-          <Button variant="ghost" className={phone ? 'w-full' : undefined} onClick={onLater} disabled={applying || busy} data-testid="skills-later">{t('welcome.later')}</Button>
+          <Button variant="ghost" className={phone ? 'w-full' : undefined} onClick={onLater} disabled={applying || busy} data-testid="skills-later">{laterLabel ?? t('welcome.later')}</Button>
         </div>
       )}
       {rule && (

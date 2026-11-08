@@ -94,8 +94,8 @@ test('내 스킬 with a company profile: four kept skills, the visual three chec
   await packRow(packs, 'humanizer').getByTestId('skill-pack-check').uncheck()
   await expect(primary).toHaveText('회사 소개서·카드뉴스·홍보 영상 넣기')
 
-  // 예시: the viewer at that row (no example made yet: it says so), ‹ › and the arrow keys along the rows, Esc closes
-  // and the focus goes back to the 예시 of the row it shows
+  // 예시: that row's example, one per open (no example made yet: it says so; no stepping to the next row), Esc closes and
+  // the focus goes back to that row's 예시
   await packRow(packs, 'card-news').getByTestId('skill-pack-example').click()
   const viewer = page.getByTestId('skill-example')
   await expect(viewer).toHaveAttribute('data-name', 'card-news')
@@ -104,22 +104,20 @@ test('내 스킬 with a company profile: four kept skills, the visual three chec
   await expect(viewer.getByTestId('skill-example-fictional')).toHaveCount(0)
   await expect(viewer.getByTestId('skill-example-source')).toHaveText(`${PRODUCT.displayName} 팀이 만들었어요`)
   await expect(page.getByRole('dialog')).toContainText("'카드뉴스' 예시")
-  await viewer.getByTestId('skill-example-next').click()
-  await expect(viewer).toHaveAttribute('data-name', 'promo-video')
-  await viewer.getByTestId('skill-example-next').click()
+  await expect(viewer.getByTestId('skill-example-next')).toHaveCount(0)
+  await expect(viewer.getByTestId('skill-example-prev')).toHaveCount(0)
+  await page.keyboard.press('ArrowRight')
+  await expect(viewer).toHaveAttribute('data-name', 'card-news')
+  await page.keyboard.press('Escape')
+  await expect(viewer).toHaveCount(0)
+  await expect(packRow(packs, 'card-news').getByTestId('skill-pack-example')).toBeFocused()
+  await packRow(packs, 'humanizer').getByTestId('skill-pack-example').click()
   await expect(viewer).toHaveAttribute('data-name', 'humanizer')
   await expect(viewer.getByTestId('skill-example-source')).toHaveText(`${PRODUCT.displayName} 팀이 쓰던 한국어 글쓰기 스킬을 바탕으로 만들었어요`)
   await expect(viewer.getByTestId('skill-example-original')).toHaveCount(0)
-  // past the last row: the first
-  await viewer.getByTestId('skill-example-next').click()
-  await expect(viewer).toHaveAttribute('data-name', 'intro-deck')
-  await viewer.getByTestId('skill-example-prev').click()
-  await expect(viewer).toHaveAttribute('data-name', 'humanizer')
-  await page.keyboard.press('ArrowLeft')
-  await expect(viewer).toHaveAttribute('data-name', 'promo-video')
   await page.keyboard.press('Escape')
   await expect(viewer).toHaveCount(0)
-  await expect(packRow(packs, 'promo-video').getByTestId('skill-pack-example')).toBeFocused()
+  await expect(packRow(packs, 'humanizer').getByTestId('skill-pack-example')).toBeFocused()
   // the checks never moved
   expect(await checks(packs)).toEqual([true, true, true, false])
 
@@ -142,7 +140,7 @@ test('내 스킬 with a company profile: four kept skills, the visual three chec
   expect(realErrors(errors)).toEqual([])
 })
 
-test('내 스킬, own skills and a kept one: the primary waits while they are checked; past 30 seconds the list shows unticked; one own + 카드뉴스 → "카드뉴스 외 1개 넣기", both go in', async ({ page }) => {
+test('내 스킬, own skills and a kept one: the primary waits while they are checked; past 30 seconds the list shows unticked; one own + 카드뉴스 → "카드뉴스·주간 업무 보고 넣기" (own skills named too), both go in', async ({ page }) => {
   const errors = watchConsole(page)
   // the page's own clock (time still runs): the 30 seconds are skipped instead of waited for
   await page.clock.install()
@@ -178,7 +176,7 @@ test('내 스킬, own skills and a kept one: the primary waits while they are ch
   await expect(primary).toHaveAttribute('data-state', 'put')
   await expect(primary).toHaveText('카드뉴스 넣기')
   await review.locator('[data-testid="skill-row"][data-name="weekly-report"]').getByTestId('skill-check').check()
-  await expect(primary).toHaveText('카드뉴스 외 1개 넣기')
+  await expect(primary).toHaveText('카드뉴스·주간 업무 보고 넣기')
   await primary.click()
   // own first, then the kept one: both in, one toast, 팀 파일
   await expect(page.getByTestId('toast').filter({ hasText: '스킬 2개를 팀에 넣었어요' })).toBeVisible()
@@ -328,14 +326,15 @@ test('Team skills (owner): a catalog that does not load says so with 다시 시�
   await expect(viewer).toHaveAttribute('data-state', 'shown')
   await expect(viewer.getByTestId('skill-example-image')).toBeVisible()
   await expect(viewer.getByTestId('skill-example-fictional')).toHaveText("가상의 회사 '예시커피'로 만든 예시예요. 우리 팀 자료로 쓰면 결과도 우리 회사 것으로 나와요.")
-  await viewer.getByTestId('skill-example-next').click()
+  await page.keyboard.press('Escape')
+  await packRow(fold, 'card-news').getByTestId('skill-pack-example').click()
   await expect(viewer).toHaveAttribute('data-name', 'card-news')
   await expect(viewer).toHaveAttribute('data-state', 'failed')
   await expect(viewer).toContainText('예시를 불러오지 못했어요')
   await expect(viewer).toContainText('회사 소개로 정사각형 카드 5장을 만들어요')
   await expect(viewer.getByTestId('skill-example-fictional')).toHaveCount(0)
-  await viewer.getByTestId('skill-example-prev').click()
-  await viewer.getByTestId('skill-example-prev').click()
+  await page.keyboard.press('Escape')
+  await packRow(fold, 'humanizer').getByTestId('skill-pack-example').click()
   await expect(viewer).toHaveAttribute('data-name', 'humanizer')
   await expect(viewer).toHaveAttribute('data-state', 'shown')
   await expect(viewer).toContainText('이 선풍기는 조용해요.')
@@ -368,7 +367,9 @@ test('Team skills, an English team: 자연스러운 글 names the open-source or
   await expect(original).toHaveAttribute('target', '_blank')
   await expect(original).toHaveAttribute('rel', /noopener/)
   // the others were made by the product's team: no link out
-  await viewer.getByTestId('skill-example-prev').click()
+  await page.keyboard.press('Escape')
+  await packRow(fold, 'promo-video').getByTestId('skill-pack-example').click()
+  await expect(viewer).toHaveAttribute('data-name', 'promo-video')
   await expect(viewer.getByTestId('skill-example-source')).toHaveAttribute('data-kind', 'team')
   await expect(viewer.getByTestId('skill-example-original')).toHaveCount(0)
   expect(realErrors(errors)).toEqual([])
@@ -403,14 +404,15 @@ test('Team skills (member): no catalog; 내 스킬 가져오기 opens the sugges
 test.describe('a phone (390 × 844, dark)', () => {
   test.use({ viewport: { width: 390, height: 844 }, colorScheme: 'dark' })
 
-  test('내 스킬: compact rows, one line that own skills go in on a computer, the primary full width and working; Team skills says the same in one line', async ({ page }) => {
+  test('내 스킬: the rows with their one line, one line that own skills go in on a computer, the primary full width and working; Team skills says the same in one line', async ({ page }) => {
     const errors = watchConsole(page)
     await reset(page)
     await toSkillsStep(page, { profile: true })
     const packs = page.getByTestId('skill-packs')
     await expect(packs.getByTestId('skill-pack-title')).toHaveText(TITLES)
-    // compact: the title alone (the line is in the example)
-    await expect(packs.getByTestId('skill-pack-line')).toHaveCount(0)
+    // each row keeps its one line on a phone too
+    await expect(packs.getByTestId('skill-pack-line')).toHaveCount(4)
+    await expect(packRow(packs, 'card-news').getByTestId('skill-pack-line')).toHaveText('회사 소개로 정사각형 카드 5장을 만들어요')
     expect(await checks(packs)).toEqual([true, true, true, false])
     await expect(page.getByTestId('skills-phone-own')).toHaveText('쓰던 스킬은 컴퓨터에 있어요 · 컴퓨터의 팀 스킬 › 내 스킬 가져오기에서 넣어요')
     await expect(page.getByTestId('skills-find')).toHaveCount(0)

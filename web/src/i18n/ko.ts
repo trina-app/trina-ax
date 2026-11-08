@@ -3058,8 +3058,6 @@ export const ko = {
   "skillPack.source.adapted": "{author}의 오픈소스 '{project}'를 바탕으로 {product} 팀이 고쳐 썼어요 · {license} 라이선스",
   "skillPack.source.original": "원본 보기",
   "skillPack.newTab": "새 탭에서 열려요",
-  "skillPack.prev": "이전 스킬 예시",
-  "skillPack.next": "다음 스킬 예시",
   "skillPack.loadFailed": "준비한 스킬을 불러오지 못했어요",
   "skillPack.taken": "{n}개는 넣지 못했어요 · 같은 이름의 스킬이 이미 있어요",
   "skillPack.takenOne": "같은 이름의 스킬이 이미 있어요",

@@ -3019,8 +3019,6 @@ export const es: Record<MessageKey, string> = {
   "skillPack.source.adapted": "Basado en '{project}', de código abierto, de {author}; reescrito por el equipo de {product} · licencia {license}",
   "skillPack.source.original": "Ver el original",
   "skillPack.newTab": "Se abre en una pestaña nueva",
-  "skillPack.prev": "Ejemplo de la habilidad anterior",
-  "skillPack.next": "Ejemplo de la habilidad siguiente",
   "skillPack.loadFailed": "No se pudieron cargar las habilidades preparadas",
   "skillPack.taken": "{n, plural, one {# no se pudo añadir} other {# no se pudieron añadir}} · ya hay una habilidad con el mismo nombre",
   "skillPack.takenOne": "Ya hay una habilidad con el mismo nombre",

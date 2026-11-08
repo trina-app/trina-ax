@@ -3059,8 +3059,6 @@ export const en: Record<MessageKey, string> = {
   "skillPack.source.adapted": "Based on {author}'s open-source '{project}', rewritten by the {product} team · {license} license",
   "skillPack.source.original": "See the original",
   "skillPack.newTab": "Opens in a new tab",
-  "skillPack.prev": "Previous skill's example",
-  "skillPack.next": "Next skill's example",
   "skillPack.loadFailed": "The prepared skills could not be loaded",
   "skillPack.taken": "{n, plural, one {# could not go in} other {# could not go in}} · a skill with the same name is already there",
   "skillPack.takenOne": "A skill with the same name is already there",

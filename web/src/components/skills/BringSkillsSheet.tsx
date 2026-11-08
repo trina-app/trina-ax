@@ -1,7 +1,7 @@
 // "내 스킬 가져오기" on the Team skills page for owners and admins (docs/DECISIONS.md "W6"; FLOW-v6 §4.2): the lasting
 // way in for skills from Claude Code or Codex, also for an owner who finished 내 스킬 on a phone. One sheet: pick a
 // folder (the same window, hint and checks as 내 스킬: SkillsStep.tsx useSkillPick) → the list (SkillShareReview, which
-// applies directly: [팀에 넣기 · n개]) → what went in, [닫기]. A check still running after 30 seconds is ended, as on 내
+// applies directly: [팀에 넣기 · n개], its secondary [닫기]) → what went in, [닫기]. A check still running after 30 seconds is ended, as on 내
 // 스킬. Closing the sheet with a list open drops that list (nothing went in). Members get ContributeSheet instead.
 import { FolderOpen, Laptop } from 'lucide-react'
 import { useRef, useState } from 'react'
@@ -54,6 +54,7 @@ export function BringSkillsSheet({ team, onClose }: { team: string; onClose: () 
             busy={pick.reading}
             checkLimitMs={SHARE_CHECK_LIMIT_MS}
             shareLabel={(n) => t('skills.catalog.install', { n })}
+            laterLabel={t('common.close')}
           />
         ) : (
           <div

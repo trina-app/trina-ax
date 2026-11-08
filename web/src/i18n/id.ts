@@ -3059,8 +3059,6 @@ export const id: Record<MessageKey, string> = {
   "skillPack.source.adapted": "Berdasarkan '{project}' sumber terbuka milik {author}, ditulis ulang oleh tim {product} · lisensi {license}",
   "skillPack.source.original": "Lihat aslinya",
   "skillPack.newTab": "Terbuka di tab baru",
-  "skillPack.prev": "Contoh skill sebelumnya",
-  "skillPack.next": "Contoh skill berikutnya",
   "skillPack.loadFailed": "Skill yang disiapkan tidak dapat dimuat",
   "skillPack.taken": "{n} tidak dapat ditambahkan · sudah ada skill dengan nama yang sama",
   "skillPack.takenOne": "Sudah ada skill dengan nama yang sama",

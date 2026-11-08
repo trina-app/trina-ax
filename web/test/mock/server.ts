@@ -2180,8 +2180,11 @@ export class MockServer {
       const names: string[] = (c.body as { skills?: string[] }).skills ?? all.map((k) => k.name)
       const ko = this.settings.defaultLocale === 'ko'
       const at = now()
+      // a name not in the pack is refused before anything is written (server: installSkillPack)
+      const unknown = names.find((name) => !all.some((x) => x.name === name))
+      if (unknown !== undefined) fail('validation', 400, `${unknown}: 이 묶음의 스킬이 아니에요`)
       const skills = names.map((name) => {
-        const k = all.find((x) => x.name === name) ?? fail('validation', 400, `${name}: 이 묶음의 스킬이 아니에요`)
+        const k = all.find((x) => x.name === name)!
         const path = `skills/${id}/${name}/SKILL.md`
         if (this.files.has(path)) return { name, path, status: 'present' as const }
         const other = this.skillsFor(c.user).find((x) => x.path.startsWith('skills/') && x.name.toLowerCase() === name)

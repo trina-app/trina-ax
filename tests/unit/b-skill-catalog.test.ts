@@ -157,6 +157,17 @@ describe('over the API', () => {
     expect((await h.api('dana').call(API.listSkillPacks)).profile).toBe(true)
   })
 
+  test('the brand materials before a visual skill (a profile saved): on the owner\'s press they are placed (brandAt); an admin\'s press leaves them not done, for the owner', async () => {
+    setSetting(h.ctx.db, WELCOME_SETTING, { startedAt: new Date().toISOString(), steps: { profile: 'skipped', result: null, skills: null, files: null, invite: null } })
+    const brandAt = () => (getSetting<Record<string, unknown>>(h.ctx.db, WELCOME_SETTING) ?? {}).brandAt
+    await h.api('carol').call(API.installSkillPack, { params: { id: 'general' }, body: { skills: ['promo-video'] } })
+    expect(brandAt()).toBeUndefined()
+    await h.api('dana').call(API.installSkillPack, { params: { id: 'general' }, body: { skills: ['card-news'] } })
+    expect(typeof brandAt()).toBe('string')
+    rm('skills/general')
+    h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(WELCOME_SETTING)
+  })
+
   test('an owner\'s install marks 내 스킬 done while the steps are under way; an admin\'s, an all-blocked one\'s and a finished row\'s do not', async () => {
     const row = (o: Record<string, unknown> = {}) => setSetting(h.ctx.db, WELCOME_SETTING, { startedAt: new Date().toISOString(), steps: { profile: 'skipped', result: null, skills: null, files: null, invite: null }, ...o })
     const skills = () => (getSetting<{ steps: Record<string, unknown> }>(h.ctx.db, WELCOME_SETTING)!).steps.skills ?? null

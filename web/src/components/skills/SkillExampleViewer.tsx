@@ -1,18 +1,19 @@
 // The example of a kept skill (docs/DECISIONS.md "W6"; FLOW-v6 §2.2, EXAMPLES-PLAN.md), opened by a row's "예시" on 내
-// 스킬 and in the Team skills catalog: one dialog (on phones the sheet the dialogs are there), ‹ › to the next row's.
+// 스킬 and in the Team skills catalog: one dialog (on phones the sheet the dialogs are there), one example per open (no
+// stepping to the next row's: FLOW-v6 §2.4, lean).
 // It shows an image the web build serves (a result that is a picture anyway: the deck, the cards, the video's frames)
 // or a short before → after text drawn in the page's own theme, the line that the company in it is invented, and where
 // the skill comes from (only skills with a known origin ship; only the English 자연스러운 글 links out). Until an
 // example is made the viewer says so ("예시를 준비하고 있어요"); one that does not load says that, under the skill's line.
 // ✕, Esc and a tap outside close it, and the focus goes back to the 예시 of the row it shows.
 import clsx from 'clsx'
-import { ChevronLeft, ChevronRight, ExternalLink, ImageOff } from 'lucide-react'
+import { ExternalLink, ImageOff } from 'lucide-react'
 import { useState } from 'react'
 import type { PackCatalogSkill } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { Markdown } from '../Markdown'
 import { quietLink } from '../onboarding/SkillShareReview'
-import { IconButton, Modal } from '../ui'
+import { Modal } from '../ui'
 
 /** The invented company the examples are made on (EXAMPLES-PLAN.md §1), by the language of the example. */
 export const EXAMPLE_COMPANY: Record<'ko' | 'en', string> = { ko: '예시커피', en: 'Example Coffee' }
@@ -37,29 +38,17 @@ export function SourceLine({ skill }: { skill: Pick<PackCatalogSkill, 'source'> 
 }
 
 export interface SkillExampleViewerProps {
-  /** the rows it was opened from, in their order (‹ › go along them) */
-  items: readonly PackCatalogSkill[]
-  /** the one shown */
-  index: number
-  onIndex: (i: number) => void
+  /** the row's skill */
+  skill: PackCatalogSkill
   onClose: () => void
   /** where the focus goes back to (the shown row's 예시) */
   returnTo?: HTMLElement | null
 }
 
-export function SkillExampleViewer({ items, index, onIndex, onClose, returnTo }: SkillExampleViewerProps) {
+export function SkillExampleViewer({ skill, onClose, returnTo }: SkillExampleViewerProps) {
   const t = useT()
-  const skill = items[index]
-  // an image is loading until it says otherwise; one that fails shows the error state; another row starts over
+  // an image is loading until it says otherwise; one that fails shows the error state
   const [state, setState] = useState<'loading' | 'shown' | 'failed'>('loading')
-  const [shownName, setShownName] = useState(skill?.name)
-  if (shownName !== skill?.name) {
-    setShownName(skill?.name)
-    setState('loading')
-  }
-  if (!skill) return null
-  const many = items.length > 1
-  const go = (step: number) => onIndex((index + step + items.length) % items.length)
   const e = skill.example
   const shown = e ? (e.kind === 'text' ? 'shown' : state) : 'placeholder'
 
@@ -109,11 +98,6 @@ export function SkillExampleViewer({ items, index, onIndex, onClose, returnTo }:
         data-testid="skill-example"
         data-name={skill.name}
         data-state={shown}
-        onKeyDown={(ev) => {
-          if (!many || (ev.target as HTMLElement).closest('a,input,textarea')) return
-          if (ev.key === 'ArrowLeft') { ev.preventDefault(); go(-1) }
-          else if (ev.key === 'ArrowRight') { ev.preventDefault(); go(1) }
-        }}
       >
         {body}
         <div className="space-y-1">
@@ -122,17 +106,6 @@ export function SkillExampleViewer({ items, index, onIndex, onClose, returnTo }:
           )}
           <SourceLine skill={skill} />
         </div>
-        {many && (
-          <div className="flex items-center justify-between gap-2 border-t border-line pt-3">
-            <IconButton label={t('skillPack.prev')} onClick={() => go(-1)} data-testid="skill-example-prev">
-              <ChevronLeft size={18} aria-hidden />
-            </IconButton>
-            <span className="text-xs text-faint tabular-nums" aria-live="polite">{index + 1}/{items.length}</span>
-            <IconButton label={t('skillPack.next')} onClick={() => go(1)} data-testid="skill-example-next">
-              <ChevronRight size={18} aria-hidden />
-            </IconButton>
-          </div>
-        )}
       </div>
     </Modal>
   )

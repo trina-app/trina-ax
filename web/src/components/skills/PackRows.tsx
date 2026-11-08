@@ -1,7 +1,7 @@
 // The kept skills a person can put in the team (docs/DECISIONS.md "W6"; FLOW-v6 §2.1, §4.2): the catalog (GET
 // /api/onboarding/packs, owners and admins), its rows (checkbox · title · one line · 예시, the example viewer behind
 // 예시) and the install of what was checked (POST /api/onboarding/packs/:id/install, one call per pack with the names).
-// Used by the owner's 내 스킬 step (components/onboarding/SkillsStep.tsx) and by the Team skills page's fold
+// Each row keeps its one line on phones too (what the skill makes is how a person chooses). Used by the owner's 내 스킬 step (components/onboarding/SkillsStep.tsx) and by the Team skills page's fold
 // (components/AvailableSkills.tsx). Nothing here installs without a press, and nothing tells anyone that a skill is new:
 // a skill shipped later is one more row.
 import clsx from 'clsx'
@@ -86,22 +86,20 @@ export interface PackRowsProps {
   /** after a press: what went in (a check mark), what did not (why) */
   outcome?: PackInstallOutcome | null
   disabled?: boolean
-  /** phones: the title alone (the line is in the example) */
-  compact?: boolean
   className?: string
 }
 
-/** The rows: checkbox · title · one line · 예시. 예시 opens the viewer at that row; ‹ › there go along these rows. */
-export function PackRows({ items, checked, onToggle, outcome, disabled, compact, className }: PackRowsProps) {
+/** The rows: checkbox · title · one line · 예시. 예시 opens that row's example; closing it returns to the row. */
+export function PackRows({ items, checked, onToggle, outcome, disabled, className }: PackRowsProps) {
   const t = useT()
   const ids = useId()
-  const [viewing, setViewing] = useState<number | null>(null)
+  const [viewing, setViewing] = useState<string | null>(null)
   const buttons = useRef(new Map<string, HTMLButtonElement>())
-  const shown = viewing === null ? null : items[viewing]
+  const shown = viewing === null ? null : items.find((s) => s.name === viewing) ?? null
   return (
     <>
       <ul className={clsx('divide-y divide-line', className)} data-testid="skill-pack-rows">
-        {items.map((s, i) => {
+        {items.map((s) => {
           const id = `${ids}-${s.name}`
           const went = outcome?.went.includes(s.name)
           const why = outcome?.taken.includes(s.name) ? t('skillPack.takenOne') : outcome?.blocked.includes(s.name) ? t('skillPack.blockedOne') : null
@@ -124,7 +122,7 @@ export function PackRows({ items, checked, onToggle, outcome, disabled, compact,
                 <span className="block text-sm font-medium break-words text-ink" data-testid="skill-pack-title">{s.title}</span>
                 {went ? <span className="mt-0.5 block text-label text-muted">{t('skillPack.inNow')}</span>
                   : why ? <span className="mt-0.5 flex items-center gap-1 text-label text-muted"><CircleAlert size={13} className="shrink-0 text-faint" aria-hidden />{why}</span>
-                  : !compact && s.description && <span className="mt-0.5 block text-label text-muted" data-testid="skill-pack-line">{s.description}</span>}
+                  : s.description && <span className="mt-0.5 block text-label text-muted" data-testid="skill-pack-line">{s.description}</span>}
               </label>
               <button
                 ref={(el) => { if (el) buttons.current.set(s.name, el); else buttons.current.delete(s.name) }}
@@ -132,7 +130,7 @@ export function PackRows({ items, checked, onToggle, outcome, disabled, compact,
                 className={clsx(quietLink, 'touch-hit mt-px shrink-0 text-label')}
                 aria-haspopup="dialog"
                 aria-label={t('skillPack.exampleNamed', { title: s.title })}
-                onClick={() => setViewing(i)}
+                onClick={() => setViewing(s.name)}
                 data-testid="skill-pack-example"
               >
                 {t('skillPack.example')}
@@ -141,9 +139,7 @@ export function PackRows({ items, checked, onToggle, outcome, disabled, compact,
           )
         })}
       </ul>
-      {shown && viewing !== null && (
-        <SkillExampleViewer items={items} index={viewing} onIndex={setViewing} onClose={() => setViewing(null)} returnTo={buttons.current.get(shown.name) ?? null} />
-      )}
+      {shown && <SkillExampleViewer skill={shown} onClose={() => setViewing(null)} returnTo={buttons.current.get(shown.name) ?? null} />}
     </>
   )
 }

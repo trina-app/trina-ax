@@ -13,13 +13,16 @@
 //    on a phone too, and holds back the live notice about it meanwhile. The list is SkillShareReview, embedded: no
 //    primary of its own. A check still running after SHARE_CHECK_LIMIT_MS is ended (stop-check): the list then shows
 //    with nothing ticked.
-// The one primary names what goes in ("회사 소개서·카드뉴스·홍보 영상 넣기"; "카드뉴스 외 1개 넣기"; from four on "팀에 넣기 ·
-// n개"); it waits ("내 스킬 살펴보는 중…") while own skills are checked, and hides when nothing is ticked (나중에 하기 takes
-// its style). On press: the ticked own skills go in first (their apply records 내 스킬 done), then the checked kept
-// skills (POST …/packs/:id/install per pack; the server runs the brand action first and records the step too). All in:
-// a toast and the next step. Otherwise the step stays with what went in marked and the reason for the rest (a name
-// taken, folder rules, a request that failed with 다시 for only those), and the primary reads 다음. 나중에 하기 installs
-// nothing and drops an open own list. A phone: the rows the same, and one line that own skills go in on a computer.
+// The one primary names what goes in, the kept skills and the own ones alike, up to three ("회사 소개서·카드뉴스·홍보 영상
+// 넣기", "카드뉴스·주간 업무 보고 넣기"; from four on "팀에 넣기 · n개"); it waits ("내 스킬 살펴보는 중…") while own skills
+// are checked, and hides when nothing is ticked (나중에 하기 takes its style). On press: the ticked own skills go in first
+// (their apply records 내 스킬 done), then the checked kept skills (POST …/packs/:id/install per pack; the server runs
+// the brand action first on the owner's press and records the step too). All in: a toast and the next step. When
+// anything of the press failed, either part, the step stays: what went in is marked, the rest says why (a name taken,
+// folder rules, a request that failed, with 다시 for only those; an own skill's error stays on screen until its own 다시
+// or the primary sends the press again), and once nothing is left to send the primary reads 다음. 나중에 하기 installs
+// nothing and drops an open own list. A phone: the same rows with their lines, and one line that own skills go in on
+// a computer.
 // The step opens on what the person already has (GET /api/skill-shares, newest first; shownShare): the newest proposal
 // still open, a share applied elsewhere since the step opened, and once 내 스킬 is done the newest share applied.
 import clsx from 'clsx'
@@ -44,7 +47,7 @@ export const CLAUDE_CODE_POLL_MS = 3000
 export const CLOCK_SLACK_MS = 30_000
 /** How long the step waits for the AI's check of own skills before it ends it (walk review M2). */
 export const SHARE_CHECK_LIMIT_MS = 30_000
-/** The primary names the kept skills while it covers at most this many items. */
+/** The primary names what it puts in while it covers at most this many items. */
 const NAMED_MAX = 3
 
 const fromConnector = (s: SkillShareSource) => (CONNECTOR_SHARE_SOURCES as readonly SkillShareSource[]).includes(s)
@@ -81,14 +84,15 @@ export function preChecked(rows: readonly Pick<PackCatalogSkill, 'name' | 'visua
   return new Set(o.done || !o.profile ? [] : rows.filter((r) => r.visual).map((r) => r.name))
 }
 
-/** The primary's words (null: nothing to put in). `kept`: the titles of the checked kept skills; `own`: own skills, the
- * team rule and the tools ticked. Up to NAMED_MAX items the kept ones are named. */
-export function primaryLabel(t: ReturnType<typeof useT>, kept: readonly string[], own: number): string | null {
-  const n = kept.length + own
+/** The primary's words (null: nothing to put in). `kept`: the titles of the checked kept skills; `own`: the titles of
+ * the own skills ticked; `extras`: the team rule and the tools when ticked (they have no skill name). Up to NAMED_MAX
+ * items every skill is named, kept and own alike ("…외 n개" for the extras); more: "팀에 넣기 · n개". */
+export function primaryLabel(t: ReturnType<typeof useT>, kept: readonly string[], own: readonly string[] = [], extras = 0): string | null {
+  const names = [...kept, ...own]
+  const n = names.length + extras
   if (!n) return null
-  if (n > NAMED_MAX || !kept.length) return t('welcome.skills.putN', { n })
-  const names = kept.join('·')
-  return own ? t('welcome.skills.putMore', { names, n: own }) : t('welcome.skills.put', { names })
+  if (n > NAMED_MAX || !names.length) return t('welcome.skills.putN', { n })
+  return extras ? t('welcome.skills.putMore', { names: names.join('·'), n: extras }) : t('welcome.skills.put', { names: names.join('·') })
 }
 
 /** Picking a skill folder (the folder window, the folder input, a drop) and reading it here: what both 내 스킬 and the
@@ -307,22 +311,30 @@ export function SkillsStep({ team, nextLabel, onApplied, onNext, onSkip, busy, n
   // share this step was handed is only where it started
   const ownList = own && share && own.id === share.id ? own : null
   const ownStatus = ownList?.status ?? share?.status ?? null
-  const ownCount = ownStatus === 'ready' && ownList ? ownList.count + ownList.extras : 0
+  const ownReady = ownStatus === 'ready' && ownList ? ownList : null
+  const ownCount = ownReady ? ownReady.count + ownReady.extras : 0
   const checking = ownStatus === 'checking'
-  const label = primaryLabel(t, keptChecked.map((r) => r.title), ownCount)
+  // what failed on the press before: the kept skills to send again (a 다시, or the primary)
+  const keptFailed = (rows ?? []).filter((r) => outcome?.failed.includes(r.name))
+  const label = primaryLabel(t, keptChecked.map((r) => r.title), ownReady?.names ?? [], ownReady?.extras ?? 0)
   // something went in: on this press, before (내 스킬 done), or a share applied elsewhere since the step opened
   const anythingIn = ownIn > 0 || !!outcome?.went.length || done || ownStatus === 'applied'
 
-  /** the kept skills of a press (or of 다시), and what then: all in → the toast and on (`advance`: nothing else of the
-   * press failed) */
-  const putKept = async (items: PackCatalogSkill[], ownNow: number, advance = true) => {
+  /** the kept skills of a press (or of 다시), and what then: on with a toast only when nothing of the press failed
+   * (`ownFailed`: the own part's error still stands; it stays on screen) */
+  const putKept = async (items: PackCatalogSkill[], ownNow: number, ownFailed: boolean) => {
     const r = items.length ? await installPacks(items) : outcomeEmpty()
-    // a retry keeps what the press before it said about the others (a name taken stays said)
-    const all = { ...r, went: [...(outcome?.went ?? []), ...r.went], taken: [...(outcome?.taken ?? []), ...r.taken], blocked: [...(outcome?.blocked ?? []), ...r.blocked] }
+    // a retry keeps what the press before it said about the others (a name taken stays said, a failure not retried stays)
+    const tried = new Set(items.map((s) => s.name))
+    const failedBefore = (outcome?.failed ?? []).filter((n) => !tried.has(n))
+    const all: PackInstallOutcome = {
+      went: [...(outcome?.went ?? []), ...r.went], taken: [...(outcome?.taken ?? []), ...r.taken], blocked: [...(outcome?.blocked ?? []), ...r.blocked],
+      failed: [...failedBefore, ...r.failed], error: r.failed.length ? r.error : failedBefore.length ? outcome?.error ?? null : null,
+    }
     setOutcome(all)
     // what a press tried leaves the checks: what went in is marked, the rest says why (and 다시 retries the failed ones)
     setChecked((x) => { const next = new Set(x); for (const s of items) next.delete(s.name); return next })
-    if (advance && !all.failed.length && !all.taken.length && !all.blocked.length) {
+    if (!ownFailed && !all.failed.length && !all.taken.length && !all.blocked.length) {
       const n = ownNow + all.went.length
       if (n > 0) toast({ level: 'success', text: t('welcome.skills.installed', { n }) })
       onNext()
@@ -333,7 +345,9 @@ export function SkillsStep({ team, nextLabel, onApplied, onNext, onSkip, busy, n
     setPressing(true)
     setPressError(null)
     try {
-      let ownNow = 0
+      let ownNow = ownIn
+      // the checked kept skills and the ones that failed before: a press is also the retry of both parts
+      const items = [...keptChecked, ...keptFailed.filter((r) => !keptChecked.includes(r))]
       if (ownCount > 0 && review.current) {
         try {
           const s = await review.current.apply()
@@ -341,9 +355,9 @@ export function SkillsStep({ team, nextLabel, onApplied, onNext, onSkip, busy, n
           setOwnIn(ownNow)
           const failedOwn = s.candidates.filter((c) => c.applied?.status === 'failed')
           if (failedOwn.length) {
-            // some own skills did not go in: the step stays and says why (the kept ones still go in)
+            // some own skills did not go in: the step stays and says why (the kept ones still go in, and never move on)
             setPressError(failedOwn[0]!.applied!.error ?? t('error.network'))
-            if (keptChecked.length) await putKept(keptChecked, ownNow, false)
+            await putKept(items, ownNow, true)
             return
           }
         } catch (e) {
@@ -352,17 +366,16 @@ export function SkillsStep({ team, nextLabel, onApplied, onNext, onSkip, busy, n
           return
         }
       }
-      await putKept(keptChecked, ownNow)
+      await putKept(items, ownNow, false)
     } finally {
       setPressing(false)
     }
   }
+  /** 다시 under the kept skills' note: only those again; the own part's error, when there is one, stays and holds the step */
   const retryKept = () => {
-    const items = (rows ?? []).filter((r) => outcome?.failed.includes(r.name))
-    if (!items.length) return
+    if (!keptFailed.length || pressing) return
     setPressing(true)
-    setOutcome((o) => (o ? { ...o, failed: [], error: null } : o))
-    void putKept(items, ownIn).finally(() => setPressing(false))
+    void putKept(keptFailed, ownIn, !!pressError).finally(() => setPressing(false))
   }
 
   const ccBlock = remote?.configured ? (
@@ -432,7 +445,6 @@ export function SkillsStep({ team, nextLabel, onApplied, onNext, onSkip, busy, n
           onToggle={(name, on) => setChecked((x) => { const next = new Set(x); if (on) next.add(name); else next.delete(name); return next })}
           outcome={outcome}
           disabled={pressing || busy}
-          compact={phone}
         />
         <div className="space-y-2 pt-1">
           {/* own skills went in and the kept ones did not: one note says both, with 다시 for only the kept ones */}

@@ -21,6 +21,7 @@ import { translate, useLocaleStore, useT, type MessageKey } from '../../src/i18n
 import { preChecked, primaryLabel, SHARE_CHECK_LIMIT_MS, SkillsStep } from '../../src/components/onboarding/SkillsStep'
 import { SkillShareReview, type ShareReviewState } from '../../src/components/onboarding/SkillShareReview'
 import { PackRows } from '../../src/components/skills/PackRows'
+import { BringSkillsSheet } from '../../src/components/skills/BringSkillsSheet'
 import { useUi } from '../../src/store/ui'
 import { useWelcome } from '../../src/store/welcome'
 import { FakeElement, FakeEvent, installDom, mount, removeDom, type Mounted } from './dom-host'
@@ -58,6 +59,8 @@ let installs: Partial<Record<'general' | 'work', (names: string[]) => Response>>
 /** the person's proposals (GET /api/skill-shares); a share's own reads come from here too */
 let shares: SkillShare[] = []
 let stopFail = 0
+/** own skills whose apply fails this time (the share stays ready with that row failed) */
+let applyFail: string[] = []
 let calls: { key: string; body: any }[] = []
 const called = (key: string) => calls.filter((c) => c.key === key)
 const posts = () => calls.filter((c) => c.key.startsWith('POST'))
@@ -75,6 +78,7 @@ function route(method: string, path: string, body: any): Response {
     return json(200, { pack: id, locale: 'ko', skills: body.skills.map((name: string) => ({ name, path: `skills/${id}/${name}/SKILL.md`, status: 'created' })) })
   }
   if (key === 'GET /api/skill-shares') return json(200, { items: shares })
+  if (key === 'POST /api/skill-shares') { const made = ownShare(); shares = [made]; return json(201, made) }
   const m = /^\/api\/skill-shares\/([^/]+)(\/apply|\/dismiss|\/stop-check)?$/.exec(path)
   const s = m && shares.find((x) => x.id === m[1])
   if (m && s) {
@@ -86,7 +90,8 @@ function route(method: string, path: string, body: any): Response {
       shares = shares.map((x) => (x.id === s.id ? stopped : x))
       return json(200, stopped)
     }
-    const applied: SkillShare = { ...s, status: 'applied', candidates: s.candidates.map((c) => (body.skills.some((x: { name: string }) => x.name === c.name) ? { ...c, applied: { status: 'added', path: `skills/${c.name}/SKILL.md`, chatId: null, error: null } } : c)), landing: `skills/${body.skills[0]?.name}/SKILL.md` }
+    const failing = applyFail.filter((n) => body.skills.some((x: { name: string }) => x.name === n))
+    const applied: SkillShare = { ...s, status: failing.length ? 'ready' : 'applied', candidates: s.candidates.map((c) => (failing.includes(c.name) ? { ...c, applied: { status: 'failed', path: null, chatId: null, error: '팀 스킬에 넣지 못했어요' } } : body.skills.some((x: { name: string }) => x.name === c.name) ? { ...c, applied: { status: 'added', path: `skills/${c.name}/SKILL.md`, chatId: null, error: null } } : c)), landing: `skills/${body.skills[0]?.name}/SKILL.md` }
     shares = shares.map((x) => (x.id === s.id ? applied : x))
     return json(200, applied)
   }
@@ -114,6 +119,7 @@ afterEach(() => {
   installs = {}
   shares = []
   stopFail = 0
+  applyFail = []
   calls = []
   useWelcome.getState().reset()
   useUi.setState({ toasts: [] })
@@ -169,15 +175,17 @@ describe('the pre-checks and the primary\'s words (no AI decides)', () => {
     expect([...preChecked(rows, { profile: true, done: true })]).toEqual([])
   })
 
-  test('primaryLabel: kept titles named up to three items, with own skills "… 외 n개"; from four on, or own skills alone, "팀에 넣기 · n개"; nothing: none', () => {
-    expect(primaryLabel(t, ['회사 소개서', '카드뉴스', '홍보 영상'], 0)).toBe('회사 소개서·카드뉴스·홍보 영상 넣기')
-    expect(primaryLabel(t, ['카드뉴스'], 0)).toBe('카드뉴스 넣기')
-    expect(primaryLabel(t, ['카드뉴스'], 1)).toBe('카드뉴스 외 1개 넣기')
-    expect(primaryLabel(t, ['카드뉴스', '자연스러운 글'], 1)).toBe('카드뉴스·자연스러운 글 외 1개 넣기')
-    expect(primaryLabel(t, ['회사 소개서', '카드뉴스', '홍보 영상', '자연스러운 글'], 0)).toBe(ko('welcome.skills.putN', { n: 4 }))
-    expect(primaryLabel(t, ['회사 소개서', '카드뉴스', '홍보 영상'], 1)).toBe(ko('welcome.skills.putN', { n: 4 }))
-    expect(primaryLabel(t, [], 2)).toBe(ko('welcome.skills.putN', { n: 2 }))
-    expect(primaryLabel(t, [], 0)).toBeNull()
+  test('primaryLabel: every skill named up to three items, kept and own alike; the rule and tools "… 외 n개"; from four on (or the rule alone) "팀에 넣기 · n개"; nothing: none', () => {
+    expect(primaryLabel(t, ['회사 소개서', '카드뉴스', '홍보 영상'])).toBe('회사 소개서·카드뉴스·홍보 영상 넣기')
+    expect(primaryLabel(t, ['카드뉴스'])).toBe('카드뉴스 넣기')
+    expect(primaryLabel(t, ['카드뉴스'], ['주간 업무 보고'])).toBe('카드뉴스·주간 업무 보고 넣기')
+    expect(primaryLabel(t, [], ['주간 업무 보고', '견적서 초안'])).toBe('주간 업무 보고·견적서 초안 넣기')
+    expect(primaryLabel(t, ['카드뉴스'], [], 1)).toBe('카드뉴스 외 1개 넣기')
+    expect(primaryLabel(t, ['회사 소개서', '카드뉴스', '홍보 영상', '자연스러운 글'])).toBe(ko('welcome.skills.putN', { n: 4 }))
+    expect(primaryLabel(t, ['회사 소개서', '카드뉴스', '홍보 영상'], ['주간 업무 보고'])).toBe(ko('welcome.skills.putN', { n: 4 }))
+    expect(primaryLabel(t, [], ['a', 'b', 'c', 'd'])).toBe(ko('welcome.skills.putN', { n: 4 }))
+    expect(primaryLabel(t, [], [], 1)).toBe(ko('welcome.skills.putN', { n: 1 }))
+    expect(primaryLabel(t, [])).toBeNull()
   })
 
   test('a company profile saved: the rows the team lacks, 회사 소개서·카드뉴스·홍보 영상 checked, 자연스러운 글 not; the primary names them', async () => {
@@ -242,19 +250,19 @@ describe('the pre-checks and the primary\'s words (no AI decides)', () => {
     } finally { await m.unmount() }
   })
 
-  test('the primary follows the checks and the own list: "카드뉴스 외 1개 넣기", three items named, then "팀에 넣기 · 4개"; own skills alone: "팀에 넣기 · 1개"', async () => {
+  test('the primary follows the checks and the own list: own skills named like kept ones, three items named, then "팀에 넣기 · 4개"', async () => {
     computer()
     profile = false
     shares = [ownShare()]
     const m = await step()
     try {
       await ownListReady(m)
-      // the own list's recommended row is ticked: one own skill
-      expect(text(m, 'skills-primary')).toBe(ko('welcome.skills.putN', { n: 1 }))
+      // the own list's recommended row is ticked: one own skill, named
+      expect(text(m, 'skills-primary')).toBe('주간 업무 보고 넣기')
       await tick(m, checkOf('card-news')!)
-      expect(text(m, 'skills-primary')).toBe('카드뉴스 외 1개 넣기')
+      expect(text(m, 'skills-primary')).toBe('카드뉴스·주간 업무 보고 넣기')
       await tick(m, checkOf('humanizer')!)
-      expect(text(m, 'skills-primary')).toBe('카드뉴스·자연스러운 글 외 1개 넣기')
+      expect(text(m, 'skills-primary')).toBe('카드뉴스·자연스러운 글·주간 업무 보고 넣기')
       await tick(m, checkOf('intro-deck')!)
       expect(text(m, 'skills-primary')).toBe(ko('welcome.skills.putN', { n: 4 }))
       // the embedded list has no primary and no 나중에 하기 of its own
@@ -263,14 +271,14 @@ describe('the pre-checks and the primary\'s words (no AI decides)', () => {
     } finally { await m.unmount() }
   })
 
-  test('a phone: the same rows without their line, one line that own skills go in on a computer, no folder button', async () => {
+  test('a phone: the same rows with their line, one line that own skills go in on a computer, no folder button', async () => {
     computer()
     phoneWidth()
     const m = await step()
     try {
       expect(packRows()).toHaveLength(4)
       expect(checkedNames()).toEqual(['intro-deck', 'card-news', 'promo-video'])
-      expect(body().querySelectorAll('[data-testid="skill-pack-line"]')).toHaveLength(0)
+      expect(body().querySelectorAll('[data-testid="skill-pack-line"]').map((l) => l.textContent)).toEqual(['회사 소개서 한 줄', '카드뉴스 한 줄', '홍보 영상 한 줄', '자연스러운 글 한 줄'])
       expect(packRows().every((r) => r.querySelector('[data-testid="skill-pack-example"]'))).toBe(true)
       expect(text(m, 'skills-phone-own')).toBe(ko('welcome.skills.phoneOwn'))
       expect(m.find('skills-find')).toBeNull()
@@ -369,6 +377,43 @@ describe('the press', () => {
       expect(called(`POST /api/skill-shares/${OWN}/apply`)).toHaveLength(1)
       expect(toasts()).toEqual([['success', ko('welcome.skills.installed', { n: 2 })]])
       expect(rowOf('card-news').getAttribute('data-state')).toBe('in')
+    } finally { await m.unmount() }
+  })
+
+  test('both parts failed on one press: both notes; the kept 다시 sends only the kept ones and never moves on while the own error stands; the primary sends the press again and then goes on', async () => {
+    computer()
+    profile = false
+    shares = [ownShare()]
+    applyFail = ['weekly-report']
+    let fails = 1
+    installs.general = () => (fails-- > 0 ? failed('지금은 넣지 못했어요') : undefined as never)
+    const m = await step()
+    try {
+      await ownListReady(m)
+      await tick(m, checkOf('card-news')!)
+      await m.click('skills-primary')
+      await m.until(() => m.find('skill-pack-failed'), 'the kept note')
+      // the own skill's error and the kept skills' note, both on screen; nothing moved on
+      expect(body().querySelectorAll('[role="alert"]').map((a) => a.textContent).some((x) => x?.includes('팀 스킬에 넣지 못했어요'))).toBe(true)
+      expect(events).toEqual([])
+      expect(toasts()).toEqual([])
+      // the kept 다시: card-news goes in, but the own error still stands: no toast, no next step
+      installs.general = undefined
+      await m.click(retryIn(m.get('skill-pack-failed')))
+      await m.until(() => rowOf('card-news').getAttribute('data-state') === 'in', 'card-news in')
+      expect(called('POST /api/onboarding/packs/general/install').map((c) => c.body)).toEqual([{ skills: ['card-news'] }, { skills: ['card-news'] }])
+      expect(m.find('skill-pack-failed')).toBeNull()
+      expect(body().querySelectorAll('[role="alert"]').map((a) => a.textContent).some((x) => x?.includes('팀 스킬에 넣지 못했어요'))).toBe(true)
+      expect(events).toEqual([])
+      expect(toasts()).toEqual([])
+      // the primary sends the press again: the own skill now goes in, nothing is left failing: the toast and on
+      applyFail = []
+      expect(text(m, 'skills-primary')).toBe('주간 업무 보고 넣기')
+      await m.click('skills-primary')
+      await m.until(() => events.includes('next'), 'on to the next step')
+      expect(called(`POST /api/skill-shares/${OWN}/apply`)).toHaveLength(2)
+      expect(called('POST /api/onboarding/packs/general/install')).toHaveLength(2)
+      expect(toasts()).toEqual([['success', ko('welcome.skills.installed', { n: 2 })]])
     } finally { await m.unmount() }
   })
 
@@ -473,9 +518,9 @@ describe('the example viewer', () => {
       expect(m.find('skill-example-fictional')).toBeNull()
       expect(m.get('skill-example-source').getAttribute('data-kind')).toBe('team')
       expect(text(m, 'skill-example-source')).toBe(ko('skillPack.source.team'))
-      expect(viewer(m).textContent).toContain('1/3')
-      // ›: the cards, an image loading, then failing
-      await m.click('skill-example-next')
+      await key(viewer(m), 'Escape')
+      // the cards: an image loading, then failing
+      await m.click(exampleOf('card-news'))
       expect(viewer(m).getAttribute('data-name')).toBe('card-news')
       expect(viewer(m).getAttribute('data-state')).toBe('loading')
       const img = m.get('skill-example-image')
@@ -486,8 +531,9 @@ describe('the example viewer', () => {
       expect(text(m, 'skill-example-body')).toBe(`카드뉴스 한 줄${ko('skillPack.exampleFailed')}`)
       expect(m.find('skill-example-image')).toBeNull()
       expect(m.find('skill-example-fictional')).toBeNull()
-      // ›: the text example, drawn in the page; English text: the invented company in English; the open-source origin
-      await m.click('skill-example-next')
+      await key(viewer(m), 'Escape')
+      // the text example, drawn in the page; English text: the invented company in English; the open-source origin
+      await m.click(exampleOf('humanizer'))
       expect(viewer(m).getAttribute('data-state')).toBe('shown')
       expect(m.get('skill-example-body').getAttribute('data-kind')).toBe('text')
       expect(text(m, 'skill-example-body')).toContain('Our beans are fresh.')
@@ -504,20 +550,14 @@ describe('the example viewer', () => {
     } finally { await m.unmount() }
   })
 
-  test('‹ › and the arrow keys go along the rows and wrap; an image comes back loading, then shown with the invented company; Esc closes, the focus back on the 예시 of the row shown', async () => {
+  test('one example per open (FLOW-v6 §2.4): no stepping to the next row, the arrow keys do nothing; an image loads, then the invented company; Esc closes, the focus back on that row\'s 예시', async () => {
     const m = await rows()
     try {
       await m.click(exampleOf('card-news'))
-      expect(viewer(m).textContent).toContain('2/3')
-      await m.click('skill-example-next')
-      await m.click('skill-example-next')
-      // past the last: the first
-      expect(viewer(m).getAttribute('data-name')).toBe('intro-deck')
-      await m.click('skill-example-prev')
-      expect(viewer(m).getAttribute('data-name')).toBe('humanizer')
+      expect(m.find('skill-example-prev')).toBeNull()
+      expect(m.find('skill-example-next')).toBeNull()
+      expect(viewer(m).textContent).not.toContain('2/3')
       await key(viewer(m), 'ArrowRight')
-      expect(viewer(m).getAttribute('data-name')).toBe('intro-deck')
-      await key(viewer(m), 'ArrowLeft')
       await key(viewer(m), 'ArrowLeft')
       expect(viewer(m).getAttribute('data-name')).toBe('card-news')
       expect(viewer(m).getAttribute('data-state')).toBe('loading')
@@ -530,17 +570,13 @@ describe('the example viewer', () => {
     } finally { await m.unmount() }
   })
 
-  test('one row: no ‹ ›; a Korean 자연스러운 글 reads that it grew from the team\'s own writing skill, with no link out', async () => {
+  test('a Korean 자연스러운 글 reads that it grew from the team\'s own writing skill, with no link out', async () => {
     const m = await rows([kept('work', 'humanizer', '자연스러운 글', { source: { kind: 'team_writing' }, example: { kind: 'text', markdown: '예시 글' } })])
     try {
       await m.click(exampleOf('humanizer'))
-      expect(m.find('skill-example-prev')).toBeNull()
-      expect(m.find('skill-example-next')).toBeNull()
       expect(m.get('skill-example-source').getAttribute('data-kind')).toBe('team_writing')
       expect(text(m, 'skill-example-source')).toBe(ko('skillPack.source.teamWriting'))
       expect(m.find('skill-example-original')).toBeNull()
-      await key(viewer(m), 'ArrowRight')
-      expect(viewer(m).getAttribute('data-name')).toBe('humanizer')
     } finally { await m.unmount() }
   })
 })
@@ -603,6 +639,30 @@ describe('the end of an own-skills check (walk M2)', () => {
       await m.until(() => m.find('skill-review')?.getAttribute('data-status') === 'ready', 'the list')
       expect(called(`POST /api/skill-shares/${HELD}/stop-check`)).toHaveLength(2)
       expect(m.get('skill-review').querySelector('[role="alert"]')).toBeNull()
+    } finally { await m.unmount() }
+  })
+})
+
+describe('내 스킬 가져오기 on Team skills (owners, admins)', () => {
+  test('the sheet: pick a folder → the list with [팀에 넣기 · n개] and [닫기] (not 나중에 하기); 닫기 drops the list and closes', async () => {
+    type Tree = { [name: string]: Tree | string }
+    const dir = (name: string, tree: Tree): unknown => ({
+      kind: 'directory', name,
+      async getDirectoryHandle(n: string) { const v = tree[n]; if (v && typeof v === 'object') return dir(n, v); throw Object.assign(new Error('nf'), { name: 'NotFoundError' }) },
+      async getFileHandle(n: string) { const v = tree[n]; if (typeof v === 'string') return { name: n, getFile: async () => new File([v], n) }; throw Object.assign(new Error('nf'), { name: 'NotFoundError' }) },
+      async *entries() { for (const [k, v] of Object.entries(tree)) yield [k, { kind: typeof v === 'string' ? 'file' : 'directory' }] },
+    })
+    g.showDirectoryPicker = async () => dir('.claude', { skills: { 'weekly-report': { 'SKILL.md': '---\nname: weekly-report\ndescription: 주간 업무 보고\n---\n# 주간 업무 보고\n' } } })
+    let closed = 0
+    const m = await mount(<MemoryRouter><BringSkillsSheet team="Acme" onClose={() => { closed++ }} /></MemoryRouter>)
+    try {
+      await m.click('bring-find')
+      await m.until(() => m.find('skill-review')?.getAttribute('data-status') === 'ready', 'the list')
+      expect(text(m, 'skills-share')).toContain(ko('skills.catalog.install', { n: 1 }))
+      expect(text(m, 'skills-later')).toBe(ko('common.close'))
+      await m.click('skills-later')
+      expect(closed).toBe(1)
+      expect(called(`POST /api/skill-shares/${OWN}/dismiss`)).toHaveLength(1)
     } finally { await m.unmount() }
   })
 })
