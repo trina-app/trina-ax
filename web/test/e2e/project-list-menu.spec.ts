@@ -32,12 +32,22 @@ async function chat(page: Page, title: string, projectId?: string) {
 }
 
 const card = (page: Page, name: string) => page.getByTestId('project-card').filter({ has: page.getByRole('link', { name: new RegExp(`^${name}`) }) })
-/** the card's "…" opened (a menu at the button on a computer, a sheet on a phone) */
-async function openCard(page: Page, name: string) {
-  await card(page, name).hover()
-  await card(page, name).getByTestId('project-card-menu').click()
+/** the card's "…" opened: on a computer it shows on hover and opens a menu at the button; on a touch phone it always
+ * shows and opens a bottom sheet with the project's name on top */
+async function openCard(page: Page, name: string, phone: boolean) {
+  const more = card(page, name).getByTestId('project-card-menu')
+  if (phone) {
+    await expect(more).toHaveCSS('opacity', '1')
+  } else {
+    await page.mouse.move(0, 0)
+    await expect(more).toHaveCSS('opacity', '0')
+    await card(page, name).hover()
+    await expect(more).toHaveCSS('opacity', '1')
+  }
+  await more.click()
   const menu = card(page, name).getByRole('menu')
   await expect(menu).toBeVisible()
+  if (phone) await expect(card(page, name).getByTestId('menu-sheet-title')).toHaveText(name)
   return menu
 }
 
@@ -50,7 +60,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await signIn(page)
       const id = await project(page, 'Launch', 'marketing')
       await page.goto('/projects')
-      const menu = await openCard(page, 'Launch')
+      const menu = await openCard(page, 'Launch', vp.phone)
       await expect(menu.getByRole('menuitem')).toHaveText([t['chat.rename'], t['rooms.menu.copyLink'], t['common.delete']])
       await audit(page, 'card menu open')
       await menu.getByRole('menuitem', { name: t['chat.rename'] }).click()
@@ -76,7 +86,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await signIn(page)
       const id = await project(page, 'Launch', 'marketing')
       await page.goto('/projects')
-      const menu = await openCard(page, 'Launch')
+      const menu = await openCard(page, 'Launch', vp.phone)
       await menu.getByRole('menuitem', { name: t['rooms.menu.copyLink'] }).click()
       await expect(page.getByText(t['rooms.menu.linkCopied'])).toBeVisible()
       await expect(menu).toHaveCount(0)
@@ -95,7 +105,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(page.getByTestId('project-card')).toHaveCount(2)
 
       // no shared chats: the plain confirm; cancel keeps it
-      let menu = await openCard(page, 'Budget')
+      let menu = await openCard(page, 'Budget', vp.phone)
       await menu.getByRole('menuitem', { name: t['common.delete'] }).click()
       let dialog = page.getByRole('dialog')
       await expect(dialog.getByRole('heading')).toHaveText(translate('ko', 'projects.deleteTitle', { name: 'Budget' }))
@@ -106,7 +116,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(page.getByTestId('project-card')).toHaveCount(2)
 
       // shared chats: the line that says they go too; delete
-      menu = await openCard(page, 'Launch')
+      menu = await openCard(page, 'Launch', vp.phone)
       await menu.getByRole('menuitem', { name: t['common.delete'] }).click()
       dialog = page.getByRole('dialog')
       await expect(dialog).toContainText(t['projects.deleteBodyShared'])

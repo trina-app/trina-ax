@@ -419,7 +419,21 @@ function ChatItem({ chat, onNavigate, peek }: { chat: Chat; onNavigate: () => vo
 
   return (
     <>
-      <li ref={ref} className="group relative" onMouseEnter={(e) => peek.soon(chat, e.currentTarget, 400)} onMouseLeave={peek.hide} data-marker={marker?.kind}>
+      <li
+        ref={ref}
+        className="group relative"
+        onMouseEnter={(e) => peek.soon(chat, e.currentTarget, 400)}
+        onMouseLeave={peek.hide}
+        // Esc closes the open menu only (not the phone's drawer or the side panel) and gives the keyboard back to "···"
+        onKeyDown={(e) => {
+          if (!menu || e.key !== 'Escape') return
+          e.preventDefault()
+          e.stopPropagation()
+          setMenu(false)
+          more.current?.focus()
+        }}
+        data-marker={marker?.kind}
+      >
         <NavLink
           to={`/c/${chat.id}`}
           onClick={() => {

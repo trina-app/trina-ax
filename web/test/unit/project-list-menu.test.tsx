@@ -3,13 +3,15 @@
 // - 링크 복사 copies the project page's full address on this origin and says so;
 // - 이름 바꾸기 is the chat rename's small prompt, and the card shows the new name;
 // - 삭제 is the project page's own confirm: the line with the number of shared chats that go with it only when it has
-//   any, then the delete, and the card goes.
+//   any (by the server's count now, not the list's), then the delete, and the card goes; the history forgets the
+//   project on its private chats; a project someone else deleted first just goes.
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
-import type { Project } from '@mycel/shared/api'
+import type { Chat, Project } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { ProjectList } from '../../src/pages/Projects'
 import { DialogHost } from '../../src/components/ui'
+import { useChats } from '../../src/store/chats'
 import { useProjects } from '../../src/store/projects'
 import { useUi } from '../../src/store/ui'
 import { installDom, mount, removeDom, type FakeElement, type Mounted } from './dom-host'
@@ -22,6 +24,8 @@ const project = (id: string, name: string, o: Partial<Project> = {}): Project =>
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 
 let list: Project[] = []
+/** the server's own view of a project now, where it differs from the list (null: gone) */
+let now: Record<string, Project | null> = {}
 const calls: { key: string; body: unknown }[] = []
 const copied: string[] = []
 const realFetch = globalThis.fetch
@@ -38,7 +42,9 @@ beforeAll(() => {
     calls.push({ key, body: init?.body ? JSON.parse(String(init.body)) : undefined })
     if (key === 'GET /api/projects') return json(200, { items: list })
     const id = key.split('/').at(-1)!
-    const p = list.find((x) => x.id === id)
+    const p = id in now ? now[id] : list.find((x) => x.id === id)
+    if (!p && key.startsWith('GET /api/projects/')) return json(404, { error: { code: 'not_found', message: 'not found' } })
+    if (key.startsWith('GET /api/projects/')) return json(200, p)
     if (key.startsWith('PATCH /api/projects/') && p) return json(200, { ...p, ...(JSON.parse(String(init!.body)) as object) })
     if (key.startsWith('DELETE /api/projects/') && p) return new Response(null, { status: 204 })
     return json(500, { error: { code: 'internal', message: `no route ${key}` } })
@@ -53,6 +59,7 @@ afterAll(() => {
 })
 beforeEach(() => {
   list = [project(MINE, 'Acme launch'), project(SHARED, 'Acme sales', { sharedChats: 2 }), project(READ_ONLY, 'Acme finance', { canEdit: false })]
+  now = {}
   calls.length = 0
   copied.length = 0
 })
@@ -136,6 +143,9 @@ describe('the Projects list', () => {
   })
 
   test('delete without shared chats: the project page\'s confirm, then the card goes', async () => {
+    const chatsBefore = useChats.getState().chats
+    const c = (title: string, projectId: string, shared?: boolean): Chat => ({ id: `c-${title}`, projectId, title, engine: 'claude-code', model: null, createdAt: '2026-11-03T00:00:00.000Z', updatedAt: '2026-11-03T00:00:00.000Z', deletedAt: null, runState: 'idle', ...(shared ? { shared: { by: { id: 'u-bob', name: 'Bob' }, audience: 3, answering: null, mine: true, canDelete: true } } : {}) })
+    useChats.setState({ chats: [c('mine', MINE), c('shared', MINE, true), c('elsewhere', SHARED)] })
     const m = await page()
     try {
       await loaded(m)
@@ -149,8 +159,11 @@ describe('the Projects list', () => {
       await m.until(() => cards(m).length === 2, 'the card to go')
       expect(calls.map((c) => c.key)).toContain(`DELETE /api/projects/${MINE}`)
       expect(cards(m).some((c) => c.textContent?.includes('Acme launch'))).toBe(false)
+      // the history forgets the project on my chats there (the server took it off them); a shared chat goes by its own event
+      expect(useChats.getState().chats.map((c) => [c.title, c.projectId])).toEqual([['mine', null], ['shared', MINE], ['elsewhere', SHARED]])
     } finally {
       await m.unmount()
+      useChats.setState({ chats: chatsBefore })
     }
   })
 
@@ -169,6 +182,40 @@ describe('the Projects list', () => {
       await m.settle()
       expect(calls.some((c) => c.key.startsWith('DELETE'))).toBe(false)
       expect(cards(m).length).toBe(3)
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('the shared chats line goes by the count the server gives now: one started since the list loaded is said', async () => {
+    now = { [MINE]: project(MINE, 'Acme launch', { sharedChats: 1 }) }
+    const m = await page()
+    try {
+      await loaded(m)
+      await open(m, 'Acme launch')
+      await m.click(within(card(m, 'Acme launch'), 'project-card-delete')!)
+      const line = await m.until(() => m.find('project-delete-shared'), 'the shared chats line')
+      expect(line.textContent).toBe(ko('projects.deleteShared', { n: 1 }))
+      expect(calls.map((c) => c.key)).toContain(`GET /api/projects/${MINE}`)
+      // closed, so the next page does not start with it
+      const dialog = m.container.ownerDocument!.body.querySelector('[role="dialog"]')!
+      await m.click(([...dialog.querySelectorAll('button')] as unknown as FakeElement[]).find((b) => b.textContent?.trim() === ko('common.cancel'))!)
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('a project someone else deleted first: no confirm, the card goes with a line that says so', async () => {
+    now = { [MINE]: null }
+    const m = await page()
+    try {
+      await loaded(m)
+      await open(m, 'Acme launch')
+      await m.click(within(card(m, 'Acme launch'), 'project-card-delete')!)
+      await m.until(() => cards(m).length === 2, 'the card to go')
+      expect(m.container.ownerDocument!.body.querySelector('[role="dialog"]')).toBeNull()
+      expect(calls.some((c) => c.key.startsWith('DELETE'))).toBe(false)
+      expect(useUi.getState().toasts.at(-1)?.text).toBe(ko('projects.missing'))
     } finally {
       await m.unmount()
     }

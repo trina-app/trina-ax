@@ -565,6 +565,29 @@ describe('a chat row\'s "…"', () => {
     }
   })
 
+  test('Esc closes the menu only, and the keyboard is back on "…"', async () => {
+    useChats.setState({ chats: [chat(1)] })
+    const closed: boolean[] = []
+    const onKey = (e: { key?: string }) => { if (e.key === 'Escape') closed.push(true) }
+    window.addEventListener('keydown', onKey as never)
+    const m = await render()
+    try {
+      const row = m.get('recents-list').querySelector('li')!
+      const more = row.querySelector(`button[aria-label="${ko('chat.menu')}"]`)!
+      await m.click(more)
+      const item = m.get('chat-row-move')
+      item.focus()
+      await act(async () => { item.dispatchEvent(new FakeEvent('keydown', { bubbles: true, cancelable: true, key: 'Escape' })) })
+      expect(m.find('chat-row-move')).toBeNull()
+      expect(document.activeElement).toBe(more as never)
+      // not on to the page's own Esc (Layout: the phone's drawer, the side panel)
+      expect(closed).toEqual([])
+    } finally {
+      window.removeEventListener('keydown', onKey as never)
+      await m.unmount()
+    }
+  })
+
   test('the move opens the title menu\'s dialog; a save moves the chat and the list has it', async () => {
     const id = chat(1).id
     const sent: unknown[] = []

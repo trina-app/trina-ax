@@ -9,7 +9,7 @@
 // Each card on the list has a "…" (the rooms lists' row menu): 이름 바꾸기 and 삭제 for people who may edit the project
 // (the same rename prompt as a chat's, the same delete confirm as on the project page), 링크 복사 for everyone.
 import { FileText, FolderKanban, Folder, Link2, Pencil, Plus, ScrollText, Share2, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Chat, FileEntry, Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
@@ -18,6 +18,7 @@ import { firstParagraph } from '../lib/markdown'
 import { openTeamFile } from '../lib/sidePanel'
 import { useLocale, useT } from '../i18n'
 import { toast } from '../store/ui'
+import { useChats } from '../store/chats'
 import { useProjects } from '../store/projects'
 import { useMe } from '../store/session'
 import FolderPicker from '../components/FolderPicker'
@@ -29,7 +30,7 @@ import { SharedIcon } from '../components/chat/SharedChat'
 import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
 import { ProjectForm } from '../components/ProjectForm'
 import { ProjectTrashNote } from '../components/ProjectTrashNote'
-import { Button, EmptyState, ErrorNote, PageHeader, Skeleton, StickyHeader, confirmDialog, pageColumn, promptDialog, useCopy } from '../components/ui'
+import { Button, EmptyState, ErrorNote, PageHeader, Skeleton, StickyHeader, confirmDialog, menuOpener, pageColumn, promptDialog, useCopy } from '../components/ui'
 import { useFocusAfterRemove } from './admin/common'
 import { DevEnvRow } from './DevEnvSection'
 
@@ -37,23 +38,47 @@ import { DevEnvRow } from './DevEnvSection'
 const projectLink = (id: string) => `${typeof location === 'undefined' ? '' : location.origin}/projects/${id}`
 
 /** Deleting a project, from its page and from its card on the list: one confirm (its shared chats are deleted with it,
- * for good: said when it has any) and one call. True when it was deleted. */
+ * for good: said when it has any, by the count the server gives now, not the one the page loaded with) and one call.
+ * True when it is gone (also when someone else deleted it first). */
 function useDeleteProject() {
   const t = useT()
   const locale = useLocale()
+  const gone = (id: string) => {
+    useProjects.getState().drop(id)
+    // the server takes the project off its private chats (its shared chats go with their own event): the history must
+    // not offer "프로젝트 바꾸기…" for a project that is not there any more
+    useChats.setState((s) => ({ chats: s.chats.map((c) => (c.projectId === id && !c.shared ? { ...c, projectId: null } : c)) }))
+  }
   return async (p: Project): Promise<boolean> => {
-    const body = p.sharedChats ? (
+    // the menu is gone once the count below has arrived: the keyboard goes back to its button
+    const opener = menuOpener() ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
+    let now = p
+    try {
+      now = await api.call(API.getProject, { params: { id: p.id } })
+    } catch (e) {
+      if (isApiError(e, 'not_found')) {
+        gone(p.id)
+        toast({ level: 'info', text: t('projects.missing') })
+        return true
+      }
+    }
+    if (opener?.isConnected) opener.focus()
+    const body = now.sharedChats ? (
       <>
         {t('projects.deleteBodyShared')}
-        <span className="mt-2 block font-medium text-danger" data-testid="project-delete-shared">{t('projects.deleteShared', { n: p.sharedChats })}</span>
+        <span className="mt-2 block font-medium text-danger" data-testid="project-delete-shared">{t('projects.deleteShared', { n: now.sharedChats })}</span>
       </>
     ) : t('projects.deleteBody')
-    if (!(await confirmDialog({ title: t('projects.deleteTitle', { name: p.name }), body, confirm: t('common.delete'), danger: true }))) return false
+    if (!(await confirmDialog({ title: t('projects.deleteTitle', { name: now.name }), body, confirm: t('common.delete'), danger: true }))) return false
     try {
       await api.call(API.deleteProject, { params: { id: p.id } })
-      useProjects.getState().drop(p.id)
+      gone(p.id)
       return true
     } catch (e) {
+      if (isApiError(e, 'not_found')) {
+        gone(p.id)
+        return true
+      }
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
       return false
     }
@@ -67,6 +92,12 @@ function ProjectCardMenu({ project: p, onRenamed, onDeleted }: { project: Projec
   const locale = useLocale()
   const { copy } = useCopy()
   const remove = useDeleteProject()
+  // the item goes with the menu: the keyboard waits on "…", and a dialog an item opens gives it back there
+  const more = useRef<HTMLButtonElement>(null)
+  const select = (fn: () => unknown) => () => {
+    more.current?.focus()
+    void fn()
+  }
   const rename = async () => {
     const name = await promptDialog({ title: t('chat.rename'), label: t('projects.name'), initial: p.name, confirm: t('common.save') })
     if (!name || name === p.name) return
@@ -83,9 +114,9 @@ function ProjectCardMenu({ project: p, onRenamed, onDeleted }: { project: Projec
     toast({ level: 'success', text: t('rooms.menu.linkCopied') })
   }
   const items: MenuItem[] = [
-    ...(p.canEdit ? [{ label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: () => void rename(), testId: 'project-card-rename' }] : []),
-    { label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: () => void copyLink(), testId: 'project-card-copy-link' },
-    ...(p.canEdit ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: () => void remove(p).then((gone) => gone && onDeleted()), testId: 'project-card-delete' }] : []),
+    ...(p.canEdit ? [{ label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: select(rename), testId: 'project-card-rename' }] : []),
+    { label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: select(copyLink), testId: 'project-card-copy-link' },
+    ...(p.canEdit ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: select(() => remove(p).then((gone) => gone && onDeleted())), testId: 'project-card-delete' }] : []),
   ]
   return (
     <MenuButton
@@ -95,7 +126,9 @@ function ProjectCardMenu({ project: p, onRenamed, onDeleted }: { project: Projec
       sheetTitle={p.name}
       // in line with the name's first line, its right edge at the card's padding
       className="absolute top-3.5 right-2.5"
-      buttonClassName="pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-has-[:focus-visible]:opacity-100 aria-expanded:opacity-100 focus-visible:opacity-100"
+      // phones: taps from a 44 px box around it
+      buttonClassName="touch-hit pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-has-[:focus-visible]:opacity-100 aria-expanded:opacity-100 focus-visible:opacity-100"
+      buttonRef={more}
       testId="project-card-menu"
     />
   )
