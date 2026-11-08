@@ -10,7 +10,7 @@ import { app as electronApp, BaseWindow, dialog, Notification, session, WebConte
 import { join } from 'node:path'
 import { PRODUCT, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
 import { Health, Me } from '@mycel/shared/api'
-import { isGatewayDown, originOf, parseTeamAddress, teamLabel, type AddressError } from '../common/address'
+import { asksOutside, firstRunLinks, healthVerdict, hostOf, isSignInPath, originOf, parseTeamAddress, teamLabel, type AddressError } from '../common/address'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { teamHostnames } from '../common/browser-block'
 import { SitePermissions, type SiteSettings } from '../common/site-permissions'
@@ -37,7 +37,15 @@ export interface WelcomeState {
   offline: { address: string } | null
   /** a kit build's team address, filled in on the first-run screen while no team is remembered (common/kit.ts) */
   suggested: string | null
+  /** the "no team yet" screen offers [팀 만들기] (not in the Mac App Store build: App Review 3.1.1) */
+  signup: boolean
 }
+
+/** What adding a team from the first-run screen came to. `confirmOutside`: the address answered but is not run by the
+ * hosted service and not remembered yet: the screen asks once, then calls again with `confirmed`. */
+export type AddTeamResult =
+  | { ok: true; teamId: string }
+  | { ok: false; error: AddressError | 'unreachable' | 'notTeamServer' | 'teamUnknown' | 'suspended' | 'confirmOutside'; message: string; host?: string }
 
 /**
  * How a request from the team page's Settings > Browser to turn on "Allow all websites" ended (bridge
@@ -57,11 +65,15 @@ export interface AppWindowOptions {
   suggestedTeam?: string | null
   /** the app answers the team page's file input with its own dialog (common/file-chooser.ts answersFileChoosers) */
   answerFileChoosers?: boolean
+  /** the Mac App Store build: no signup link on the first-run screen (common/address.ts firstRunLinks) */
+  macAppStore?: boolean
   /** the team list changed (the menu is rebuilt) */
   onTeamsChanged(): void
 }
 
 const MIN_PANE = 360
+/** the host strip above the team's sign-in pages (hostbar.html) */
+const HOSTBAR_HEIGHT = 36
 const MIN_APP = 420
 const RECHECK_MS = 60_000
 /** a settings read from the team page re-reads the team's policy at most this often */
@@ -73,6 +85,8 @@ export class AppWindow {
   readonly win: BaseWindow
   readonly shell: WebContentsView
   readonly chrome: WebContentsView
+  /** the team address above the team's sign-in pages, drawn by the app (hostbar.html): a page cannot fake it */
+  readonly hostbar: WebContentsView
   app?: WebContentsView
   pane?: BrowserPane
   team?: TeamEntry
@@ -114,6 +128,8 @@ export class AppWindow {
   private allowAllUntil = 0
   /** the open dialog for the team page's file input is showing (one at a time) */
   private choosingFiles = false
+  /** the team page shows one of its sign-in pages (common/address.ts isSignInPath): the host strip is on */
+  private signInPage = false
 
   constructor(private o: AppWindowOptions) {
     this.teams = o.store.load()
@@ -131,10 +147,12 @@ export class AppWindow {
     const uiPrefs = { preload: join(o.distDir, 'preload-ui.cjs'), ...APP_WEB_PREFERENCES, partition: 'mycel-ui' }
     this.shell = new WebContentsView({ webPreferences: uiPrefs })
     this.chrome = new WebContentsView({ webPreferences: uiPrefs })
-    for (const v of [this.shell, this.chrome]) guardUiView(v.webContents)
+    this.hostbar = new WebContentsView({ webPreferences: uiPrefs })
+    for (const v of [this.shell, this.chrome, this.hostbar]) guardUiView(v.webContents)
     this.chrome.setBackgroundColor('#ECEAE4')
     void this.shell.webContents.loadURL(`${UI_ORIGIN}/welcome.html`)
     void this.chrome.webContents.loadURL(`${UI_ORIGIN}/pane.html`)
+    void this.hostbar.webContents.loadURL(`${UI_ORIGIN}/hostbar.html`)
     this.win.on('resize', () => this.layout())
     this.win.on('focus', () => {
       void this.recheck(false)
@@ -149,7 +167,7 @@ export class AppWindow {
       o.store.saveWindow({ width, height, paneFraction: this.paneFraction })
       // close the views while the window still exists (WebContentsView contents are not closed with it)
       this.disposeTeam()
-      for (const v of [this.shell, this.chrome]) if (!v.webContents.isDestroyed()) v.webContents.close()
+      for (const v of [this.shell, this.chrome, this.hostbar]) if (!v.webContents.isDestroyed()) v.webContents.close()
       debug('window closed, team disposed')
     })
     this.layout()
@@ -176,15 +194,32 @@ export class AppWindow {
       canGoBack: Boolean(this.team && this.app),
       offline: this.mode === 'offline' && this.team ? { address: this.team.origin } : null,
       suggested: this.teamList().length ? null : (this.o.suggestedTeam ?? null),
+      signup: firstRunLinks({ macAppStore: this.o.macAppStore === true, korean: false }).signup !== null,
     }
+  }
+
+  /** The "no team yet" screen's buttons: the address is chosen here, never taken from the screen. */
+  firstRunLink(kind: 'signup' | 'docs'): string | null {
+    const links = firstRunLinks({ macAppStore: this.o.macAppStore === true, korean: this.o.locale() === 'ko' })
+    return kind === 'signup' ? links.signup : links.docs
+  }
+
+  /** The host strip's state: the team address the app connected to (punycode), never the office-network address. */
+  hostbarState(): { host: string } | null {
+    return this.team ? { host: hostOf(this.team.origin) } : null
   }
 
   private sendWelcome() {
     if (!this.shell.webContents.isDestroyed()) this.shell.webContents.send('ui:welcome-state', this.welcomeState())
   }
 
-  /** Check an address, remember it, open it. */
-  async addTeam(address: string): Promise<{ ok: true; teamId: string } | { ok: false; error: AddressError | 'unreachable' | 'notTeamServer'; message: string }> {
+  /**
+   * Check what was put in the first-run box, remember the team, open it on the link's page (an invite or team link opens
+   * its join page in the app). The address answers GET /api/health first; the relay's own answers (an unknown name, a
+   * suspended team, a rename) are told apart. The first connect to an address the hosted service does not run asks once
+   * (`confirmed` is the person's yes).
+   */
+  async addTeam(address: string, confirmed = false): Promise<AddTeamResult> {
     const p = parseTeamAddress(address)
     const L = this.o.locale()
     if (!p.ok) return { ok: false, error: p.error, message: t(L, `err.${p.error}` as UiKey) }
@@ -194,18 +229,21 @@ export class AppWindow {
     } catch {
       return { ok: false, error: 'unreachable', message: t(L, 'err.unreachable') }
     }
-    // a tunnel / relay error page (e.g. Cloudflare 530 while the office's Mac is off) is "cannot reach", not "not a team server"
-    if (isGatewayDown(health.status)) return { ok: false, error: 'unreachable', message: t(L, 'err.unreachable') }
-    let body: unknown = null
+    let bodyOk = false
     try {
-      body = await health.json()
+      bodyOk = Health.safeParse(await health.json()).success
     } catch {
-      body = null
+      bodyOk = false
     }
-    if (!health.ok || !Health.safeParse(body).success) return { ok: false, error: 'notTeamServer', message: t(L, 'err.notTeamServer') }
-    const r = addTeam(this.teams, p.origin, teamLabel(p.origin), this.o.store.newTeamId(), new Date().toISOString())
+    const v = healthVerdict(p.origin, { status: health.status, finalUrl: health.url, relayError: health.headers.get('x-relay-error'), bodyOk })
+    if (!v.ok) return { ok: false, error: v.error, message: t(L, `err.${v.error}` as UiKey, { name: p.name ?? p.host }) }
+    const origin = v.origin
+    const known = this.teams.teams.find((x) => x.origin === origin)
+    // a renamed team's new address is under the team domain too (healthVerdict follows nothing else)
+    if (asksOutside({ hosted: p.hosted, dev: p.dev, known: Boolean(known), confirmed })) return { ok: false, error: 'confirmOutside', message: t(L, 'outside.body'), host: hostOf(origin) }
+    const r = addTeam(this.teams, origin, teamLabel(origin), this.o.store.newTeamId(), new Date().toISOString())
     if (!r.existed) this.saveTeams(r.file)
-    await this.openTeam(r.team.id)
+    await this.openTeam(r.team.id, p.entryPath)
     return { ok: true, teamId: r.team.id }
   }
 
@@ -248,10 +286,15 @@ export class AppWindow {
     else this.showWelcome()
   }
 
-  async openTeam(id: string) {
+  /** Open a remembered team; `entryPath` is the page a pasted link leads to ('/invite/<t>', '/join#t=<t>'), else '/'. */
+  async openTeam(id: string, entryPath = '/') {
     const team = findTeam(this.teams, id)
     if (!team) return
-    if (this.team?.id === id && this.app && this.mode !== 'offline') return this.back()
+    if (this.team?.id === id && this.app && this.mode !== 'offline') {
+      // the team is open already: a link opens its page there (the address it shows now, office network or not)
+      if (entryPath !== '/' && this.currentOrigin) await this.app.webContents.loadURL(this.currentOrigin + entryPath).catch(() => {})
+      return this.back()
+    }
     debug('open team', id)
     this.disposeTeam()
     this.team = team
@@ -259,6 +302,8 @@ export class AppWindow {
     this.team = findTeam(this.teams, id)!
     this.fingerprintMismatch = false
     this.directOrigin = null
+    this.signInPage = false
+    this.sendHostbar()
 
     const appSes = session.fromPartition(partitionFor(id, 'app'))
     this.configureAppSession(appSes)
@@ -324,8 +369,14 @@ export class AppWindow {
     })
     app.webContents.on('page-title-updated', () => this.updateTitle())
     // the team page is one app: signing in or out changes the route without a new page load
-    app.webContents.on('did-navigate-in-page', (_e, _url, isMainFrame) => {
-      if (isMainFrame && this.app === app) void this.ensureBrowserOwner()
+    app.webContents.on('did-navigate-in-page', (_e, url, isMainFrame) => {
+      if (isMainFrame && this.app === app) {
+        void this.ensureBrowserOwner()
+        this.pageAt(url)
+      }
+    })
+    app.webContents.on('did-navigate', (_e, url) => {
+      if (this.app === app) this.pageAt(url)
     })
 
     const browserSes = session.fromPartition(partitionFor(id, 'browser'))
@@ -367,7 +418,7 @@ export class AppWindow {
     // office network first when it answers with the pinned certificate within 1 s
     const origin = await this.pickOrigin()
     if (this.app !== app) return
-    await this.loadOrigin(origin, '/')
+    await this.loadOrigin(origin, entryPath)
     // the team page is on screen: macOS's one question about notifications comes now, not with the first notification
     // (that one only comes while the window is in the back, when nobody sees the question)
     if (this.app === app) this.notifier.ask()
@@ -781,6 +832,7 @@ export class AppWindow {
     }
     if (this.mode !== 'team' || !this.app) {
       hide(this.app)
+      hide(this.hostbar)
       this.pane?.setBounds(null)
       show(this.shell, { x: 0, y: 0, width: w, height: h })
       return
@@ -789,7 +841,11 @@ export class AppWindow {
     const paneOpen = Boolean(this.pane?.open)
     let pw = 0
     if (paneOpen) pw = w < MIN_PANE + MIN_APP ? w : clamp(Math.round(w * this.paneFraction), MIN_PANE, w - MIN_APP)
-    show(this.app, { x: 0, y: 0, width: Math.max(0, w - pw), height: h })
+    // the sign-in pages get the team address above them (drawn by the app)
+    const top = this.signInPage ? HOSTBAR_HEIGHT : 0
+    if (top) show(this.hostbar, { x: 0, y: 0, width: Math.max(0, w - pw), height: top })
+    else hide(this.hostbar)
+    show(this.app, { x: 0, y: top, width: Math.max(0, w - pw), height: Math.max(0, h - top) })
     this.pane?.setBounds(paneOpen ? { x: w - pw, y: 0, width: pw, height: h } : null)
   }
 
@@ -806,7 +862,27 @@ export class AppWindow {
   localeChanged(payload: { locale: UiLocale; strings: Record<UiKey, string> }) {
     this.send(this.shell, 'ui:locale', payload)
     this.send(this.chrome, 'ui:locale', payload)
+    this.send(this.hostbar, 'ui:locale', payload)
     this.updateTitle()
+  }
+
+  /** The team page moved: the host strip shows on its sign-in pages only. */
+  private pageAt(url: string) {
+    let path = ''
+    try {
+      path = new URL(url).pathname
+    } catch {
+      path = ''
+    }
+    const signIn = Boolean(originOf(url)) && isSignInPath(path)
+    if (signIn === this.signInPage) return
+    this.signInPage = signIn
+    this.sendHostbar()
+    this.layout()
+  }
+
+  private sendHostbar() {
+    this.send(this.hostbar, 'ui:hostbar', this.hostbarState())
   }
 
   // ----------------------------------------------------------- messaging

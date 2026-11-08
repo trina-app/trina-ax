@@ -12,7 +12,10 @@ export interface WelcomeState {
   offline: { address: string } | null
   /** a kit build's team address to fill in on the first run */
   suggested?: string | null
+  /** the "no team yet" screen offers [팀 만들기] (not in the Mac App Store build) */
+  signup?: boolean
 }
+export type AddTeamResult = { ok: true; teamId: string } | { ok: false; error: string; message: string; host?: string }
 export interface PanePrompt {
   id: string
   scope: 'site' | 'private'
@@ -40,11 +43,20 @@ export interface MycelUi {
   welcome: {
     state(): Promise<WelcomeState | null>
     onState(cb: (s: WelcomeState) => void): () => void
-    add(address: string): Promise<{ ok: true; teamId: string } | { ok: false; error: string; message: string } | null>
+    /** `confirmed`: the person said yes to an address the hosted service does not run (error 'confirmOutside') */
+    add(address: string, confirmed?: boolean): Promise<AddTeamResult | null>
+    /** the "no team yet" screen's buttons; the main process picks the address */
+    openLink(kind: 'signup' | 'docs'): void
     open(id: string): void
     remove(id: string): Promise<void>
     back(): void
     retry(): void
+  }
+  /** the team address above the team's sign-in pages */
+  hostbar: {
+    state(): Promise<{ host: string } | null>
+    onState(cb: (s: { host: string } | null) => void): () => void
+    teams(): void
   }
   pane: {
     state(): Promise<DesktopPaneState | null>

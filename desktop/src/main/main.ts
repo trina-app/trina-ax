@@ -16,7 +16,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, extname, join, normalize, sep } from 'node:path'
-import { app, Menu, protocol, session, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions } from 'electron'
+import { app, Menu, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions } from 'electron'
 import { DESKTOP_BRIDGE_GLOBAL, DESKTOP_BRIDGE_VERSION, PRODUCT } from '@mycel/shared'
 import { BrowserCall } from '@mycel/shared/api'
 import { errorResult } from '../common/browser-result'
@@ -152,6 +152,7 @@ function serveUi(req: Request): Response {
 
 const fromShell = (e: IpcMainEvent | IpcMainInvokeEvent) => Boolean(win && e.sender === win.shell.webContents && e.senderFrame && isOwnUiUrl(e.senderFrame.url))
 const fromChrome = (e: IpcMainEvent | IpcMainInvokeEvent) => Boolean(win && e.sender === win.chrome.webContents && e.senderFrame && isOwnUiUrl(e.senderFrame.url))
+const fromHostbar = (e: IpcMainEvent | IpcMainInvokeEvent) => Boolean(win && e.sender === win.hostbar.webContents && e.senderFrame && isOwnUiUrl(e.senderFrame.url))
 const fromApp = (e: IpcMainEvent | IpcMainInvokeEvent) =>
   Boolean(
     win &&
@@ -164,11 +165,20 @@ const fromApp = (e: IpcMainEvent | IpcMainInvokeEvent) =>
 function registerIpc() {
   ipcMain.on('ui:strings', (e) => {
     const L = locale()
-    e.returnValue = fromShell(e) || fromChrome(e) ? { locale: L, strings: STRINGS[L] } : null
+    e.returnValue = fromShell(e) || fromChrome(e) || fromHostbar(e) ? { locale: L, strings: STRINGS[L] } : null
   })
   // welcome / team list
   ipcMain.handle('ui:welcome-state', (e) => (fromShell(e) ? win!.welcomeState() : null))
-  ipcMain.handle('ui:add-team', (e, address: string) => (fromShell(e) ? win!.addTeam(String(address)) : null))
+  ipcMain.handle('ui:add-team', (e, address: string, confirmed: unknown) => (fromShell(e) ? win!.addTeam(String(address), confirmed === true) : null))
+  // the "no team yet" screen: the address is the app's own (AppWindow.firstRunLink), the screen only names which
+  ipcMain.on('ui:open-link', (e, kind: unknown) => {
+    if (!fromShell(e) || (kind !== 'signup' && kind !== 'docs')) return
+    const url = win!.firstRunLink(kind)
+    if (url) void shell.openExternal(url).catch(() => {})
+  })
+  // the host strip above the team's sign-in pages
+  ipcMain.handle('ui:hostbar-state', (e) => (fromHostbar(e) ? win!.hostbarState() : null))
+  ipcMain.on('ui:hostbar-teams', (e) => fromHostbar(e) && win!.showWelcome())
   ipcMain.handle('ui:remove-team', (e, id: string) => (fromShell(e) ? win!.removeTeam(String(id)) : null))
   ipcMain.on('ui:open-team', (e, id: string) => fromShell(e) && void win!.openTeam(String(id)))
   ipcMain.on('ui:back', (e) => fromShell(e) && win!.back())
@@ -295,7 +305,8 @@ function buildMenu() {
         ...(dev ? [{ label: tr('menu.devtools'), accelerator: 'Alt+CmdOrCtrl+I', click: () => win?.app?.webContents.toggleDevTools() } as MenuItemConstructorOptions] : []),
       ],
     },
-    { label: tr('menu.team'), submenu: [...teamItems, ...(teamItems.length ? [{ type: 'separator' as const }] : []), { label: tr('menu.addTeam'), click: () => win?.showWelcome() }, { label: tr('menu.teams'), click: () => win?.showWelcome() }] },
+    // one item for the list and adding a team: both were the same screen
+    { label: tr('menu.team'), submenu: [...teamItems, ...(teamItems.length ? [{ type: 'separator' as const }] : []), { label: tr('menu.teams'), click: () => win?.showWelcome() }] },
     // a downloaded update (Windows): installs on quit, or now from here
     ...(updater.ready ? [{ label: tr('update.ready.menu'), click: () => updater.restartNow() }] : []),
     {
@@ -325,6 +336,7 @@ async function createWindow() {
     classifier: new HostClassifier(testPublic, testMapped),
     suggestedTeam: kit.team,
     answerFileChoosers: answersFileChoosers(process.mas === true, app.isPackaged, process.env.MYCEL_DESKTOP_TEST_FILE_CHOOSER),
+    macAppStore: process.mas === true,
     onTeamsChanged: () => buildMenu(),
   })
   win.win.on('closed', () => {
@@ -334,7 +346,8 @@ async function createWindow() {
   })
   buildMenu()
   const initial = dev ? process.env.MYCEL_DESKTOP_TEAM : undefined
-  if (initial) await win.addTeam(initial)
+  // set by the developer for this run: no "not run by us" question
+  if (initial) await win.addTeam(initial, true)
   else await win.openLast()
 }
 
