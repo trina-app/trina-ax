@@ -34,6 +34,8 @@ import { RoomNotifyMenu } from '../components/rooms/RoomNotifyMenu'
 import { ThreadPanel } from '../components/rooms/ThreadPanel'
 import { EmptyState, ErrorNote, IconButton, Skeleton } from '../components/ui'
 import { Tooltip } from '../components/Tooltip'
+import { PresenceDot, PresenceText } from '../components/Presence'
+import { usePresenceOf } from '../store/presence'
 
 /** Was the room opened by a choice (a tap, a link, a notice: a room I hid is shown again), not by the history's back or
  * forward inside the app or by the page reloading itself (an update, a refresh: docs/DECISIONS.md "대화 숨기기")?
@@ -155,6 +157,10 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // the AI at work here (components/rooms/RoomAiStatus.tsx): the bottom follows its steps too
   const aiKey = useRooms((s) => { const a = s.ai[roomId]; return a ? `${a.answering}:${a.runs.map((r) => `${r.state}${r.steps.length}`).join(',')}` : '' })
   const peerTitle = usePeople((s) => (room?.kind === 'dm' && room.peers[0] ? s.byId[room.peers[0].id]?.title : undefined)) || null
+  // a DM: the other person's online status (docs/DECISIONS.md "접속 상태"), on their picture on a computer and as a dot
+  // before the name on a phone (which shows no picture here)
+  const peerId = room?.kind === 'dm' ? (room.peers[0]?.id ?? null) : null
+  const peerState = usePresenceOf(peerId)
   const scroller = useRef<HTMLDivElement>(null)
   const content = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
@@ -235,17 +241,19 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
             person's messages) */}
         {room && (
           <span className="flex shrink-0 max-md:hidden">
-            <RoomIcon room={room} size={24} />
+            <RoomIcon room={room} size={24} presence />
           </span>
         )}
         {/* the name opens the room's info (its name, 초대하기, the members, 나가기); beside it how many are in it, and
             for a DM the other person's title (직함) small under their name, as the people list shows it */}
         <div className="min-w-0 flex-1">
           <h1 className="flex min-w-0 text-base font-medium text-ink">
-            <button type="button" disabled={!room} onClick={() => setShowMembers(true)} className="touch-hit -mx-1 flex max-w-full min-w-0 items-baseline gap-2 rounded-md px-1 text-left hover:bg-hover" data-testid="room-members-button">
+            <button type="button" disabled={!room} onClick={() => setShowMembers(true)} className="touch-hit -mx-1 flex max-w-full min-w-0 items-baseline gap-2 rounded-md px-1 text-left hover:bg-hover [--presence-bg:var(--c-canvas)] hover:[--presence-bg:var(--c-hover)]" data-testid="room-members-button">
+              {peerId && peerState !== 'offline' && <PresenceDot state={peerState} className="self-center md:hidden" />}
               <span className="truncate" data-testid="room-title">
                 {room ? title(room) : ''}
               </span>
+              {peerId && <PresenceText userId={peerId} offline />}
               {room && room.kind !== 'dm' && (
                 <span className="shrink-0 text-xs font-normal text-faint" data-testid="room-member-count">
                   {t('rooms.members', { n: room.memberCount })}

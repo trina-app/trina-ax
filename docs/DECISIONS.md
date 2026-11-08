@@ -14278,3 +14278,93 @@ local list, the AI's picks, one confirm and the upload (FLOW v6 §3). `web/src/c
   `web/test/e2e/welcome-team-files.spec.ts` (F1–F5, leaving during F4 and coming back, 0 recommendations and no AI, the
   phone, the Files screen's dialog).
 - Version impact: **minor** (two API routes, migration 272, a new step screen).
+
+## 접속 상태 — online status, a dot on a person's picture (feat/presence-dots, 2026-11-08, product owner)
+
+넣을 곳: trina-ax core (`server/src/realtime/presence.ts`, `server/src/realtime/hub.ts`, `server/src/routes/people.ts`,
+`shared/src/api/ws.ts`, `shared/src/api/people.ts`, `web/src/lib/presence.ts`, `web/src/store/presence.ts`,
+`web/src/components/Presence.tsx` and the rooms screens), 이유: a team member asked "Online status: see if someone is
+online, away, or offline (a dot on their picture)"; the owner approved it on 2026-11-08. Plan:
+`docs/AGENTS/plan/20261108-0649-presence-dots.md`. Reference: Slack's help page "Set your Slack status and availability"
+and its developer page "User presence and status" (what was copied and what was not: the plan).
+
+- **Three states, from the windows the app already has open.** No table and no second channel: the realtime hub's
+  windows (`/api/ws`) are the source. Each window says `active` or `idle` (client frame `presence`); a window that has
+  just connected counts as active until it says otherwise, which it does right after `hello`. A person is **online**
+  when a window of theirs is active and they did not set themselves away, **away** when windows are open but none is
+  active (or they set themselves away), **offline** when none is open. Several devices: the most online one, as Slack's
+  "at least one client connected".
+- **When a window is idle (lib/presence.ts).** A computer: 10 minutes without input (pointer, keys, touch, wheel, the
+  window's focus), Slack's desktop rule. A page cannot see the rest of the computer, so a hidden tab simply gets no
+  input: away 10 minutes after the last; coming back to it counts as input. A phone (the phone app, or a browser whose
+  only pointer is a finger): visible is in use and hidden is idle at once, whatever the time since the last touch, as
+  Slack's "away when you leave the app" (the screen locks by itself). The phone app needs no native change: its WebView
+  tells the page it is hidden when the app goes to the background, before the system stops it, so the frame still goes
+  out; offline follows when the socket drops (a suspended iPhone app's socket can stay until the WebSocket idle timeout,
+  120 s).
+- **No flood, no flicker.** The page sends only changes (input only notes the time, at most once a second), and its
+  current state again after each `hello`; nothing is queued while disconnected (only the newest state matters). The
+  server tells a change once it has held 1.5 s (an idle tab that reconnects says "idle" within milliseconds: nobody sees
+  it flick to online; a quick back and forth tells nobody) and offline only after 30 s without any window (a reload or a
+  relay reconnect is not "offline"). One person's changes are told at most once per 5 s, the newest winning, so a page
+  that flips its state on purpose cannot keep every window of the team busy. Changes within 250 ms go out as one frame
+  (a reconnect wave after a restart).
+- **A restart or a deploy does not blink the dots.** The state is in memory, so after a start everyone is offline until
+  their windows come back (the reconnect backoff is at most about 10 s). For the first 15 s after a start a window gets
+  its whole list only at the end of it; changes still go out as they come. An early list would take every dot off a
+  screen that had them, and the dev server installs every build.
+- **On the wire: a control frame, not an event.** `presence {full, people: [{id, state}]}` has no seq and is never kept
+  in the replay buffer: it is a state, and a replay of old states would only be wrong. `full: true` (the whole list:
+  everyone who is online or away; anyone not in it is offline) goes to each window right after its `hello` and any
+  replay, on every connection; then `full: false` with changes, to every open window. Only ids and states: no device,
+  window count, client kind or time. The page reads the frame person by person: an entry it cannot read (a state a
+  later server adds) is skipped, not the whole frame, so an older page keeps every other dot. An old page ignores the unknown frame (not a known event, so no reload) and sends
+  no state (its windows count as in use while open); a new page on an old server gets an `error` frame for its state,
+  which it ignores.
+- **Who sees it.** Everyone signed in to this team's server (one team per server), and nobody else: the hub's sockets
+  are its signed-in sessions (a session that must change its temporary password gets none, as before). Only active
+  accounts are listed online or away (`users.status = 'active'`, not deleted); offline is told about anyone, so an
+  account turned off never stays on screen as online: the account is changed before its sockets close, and then
+  offline is told at once, without the grace (nobody waits for it to come back). Turned off while the grace of its last
+  window already runs (no window left to close), the hub's "every session ended" (`Hub.onUserEnded`, from
+  `disconnectUser`) makes presence look again, so it is offline at once there too; an active account's grace (a password
+  change ends every session as well) is left as it was. The accounts are read once for a whole list or a batch of
+  changes, not once per person. The
+  AI (@트리나) is no account and has no dot; there are no other bot or service accounts (Slack: auto presence does not
+  apply to bots). Admins learn nothing members do not; nothing is written to the audit log.
+- **No "last seen".** Slack shows none for offline, and it would tell when someone worked. `users.last_seen_at` stays
+  an admin's column (Admin › Members) and is not on the wire.
+- **Set yourself away** (Slack's "Set yourself as away"): one item at the top of the computer's account menu, "자리
+  비움으로 표시", and "접속 중으로 표시" while it is set; its mark is the dot it leads to. `PUT /api/me/away {away}`
+  (strict body: only the caller's own), kept in `users.prefs` JSON as `away` (no migration) until changed, across
+  sign-ins and devices, as Slack's "persists between connections"; it wins over windows in use. `Me.user.prefs.away`
+  shows it; `PATCH /api/me` cannot set or clear it (dropped from its body). The person's other windows read their
+  account again (`my_profile_changed`). Not on the phone: the phone app has no account menu (a settings page or a second
+  control was out of scope).
+- **Where the dot shows.** The sidebar's DM rows, the DM rows of the conversations page (the phone's 대화 tab), the DM
+  header (on the 24 px picture on a computer; on a phone, which shows no picture there, a dot before the name), each
+  person in a room's member list (me too), and my own picture in the account row. Not on message avatars (the request
+  and Slack), not on team rooms, the everyone room or group chats (Slack shows none on a group DM: whose would it be?
+  Their member list has each one's), not in the people picker or the @ menu. There is no profile card to put it in.
+- **Look.** Online: a filled dot in the `ok` green; away: hollow, a 2 px `faint` ring with the background inside;
+  offline: none. Filled, hollow or none, so the state never hangs on colour alone; forced colours draw it in the
+  system's colours. A 2 px ring in the colour behind the picture, as Slack draws it: `.presence-dot` in `index.css`
+  reads `--presence-bg`, which a row sets to its own colour, its hover and the current row included. 8 px on 20–28 px
+  pictures (the sidebar, the account row, the header), 10 px from 32 px (the member list, the phone's 40 px list
+  pictures), on the picture's lower right. The picture is decorative (the name is beside it): the state is said after
+  the name for screen readers (", 접속 중"; offline only in the header and the member list, where it is news, not in
+  lists) and is the shared tooltip on the picture with a mouse. Five languages.
+- **The hub tells `open` only for a window that is still there** (review of this branch): a socket dropped while its
+  `hello` or replay went out (too slow, gone) was already told `closed`, and its `open` came after it, so presence kept
+  that window for good. `attach` now stops there. The browser relay, the only listener before, did not care.
+- **Out:** last seen, a do-not-disturb mark, status text (the owner's "한 줄 상태는 쓰지 않는다" stands), presence on
+  message avatars, group chats, the picker or the @ menu, a history of states, any native change.
+- Tests: `tests/unit/b-presence.test.ts` (the state machine on a fake clock: devices merge, idle → away, the grace and a
+  reload inside it, settle, the min gap, batching, the warm-up, manual away, team scoping and non-accounts; on the real
+  app and hub: the frame after hello, its exact keys, changes to others, the client frame, nothing replayed,
+  `PUT /api/me/away` and PATCH not setting it, a disabled account offline at once, a window dropped during its hello), `web/test/unit/presence.test.tsx` (the tracker on a computer and a phone, the frame
+  in the realtime client and its never-queued state, the store, the dot, its words and tooltip, RoomIcon and the AI
+  without one), `web/test/e2e/presence.spec.ts` (a second member's dot online → away → offline in the sidebar and the
+  DM header, the list again after a reload, the member list with axe, the account menu's item, the phone's list and
+  header).
+- Version impact: **minor** (a visible feature, a WebSocket control frame each way and one endpoint; no migration).

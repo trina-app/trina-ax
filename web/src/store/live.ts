@@ -8,6 +8,7 @@ import { navigateTo } from '../lib/nav'
 import { keepUnsentAsDrafts } from '../lib/reload-guard'
 import { Emitter } from '../lib/emitter'
 import { defaultWsBase, RealtimeClient, type ConnState } from '../lib/realtime'
+import { startActivity } from '../lib/presence'
 import { t } from '../i18n'
 import { useChats } from './chats'
 import { useDeckBuilds } from './deckBuilds'
@@ -15,6 +16,7 @@ import { useAiAccess } from './aiAccess'
 import { useEngines } from './engines'
 import { useJobs } from './jobs'
 import { usePeople } from './people'
+import { usePresence } from './presence'
 import { useRooms } from './rooms'
 import { roomMessageSound, startRoomSound, stopRoomSound } from './roomSound'
 import { useSession } from './session'
@@ -42,6 +44,8 @@ export const chatActivity = new Emitter<string>()
 
 let client: RealtimeClient | null = null
 let relay: BrowserRelay | null = null
+/** this window's own activity for the team's online status (lib/presence.ts) */
+let activity: ReturnType<typeof startActivity> | null = null
 let firstServerVersion: string | null = null
 
 /** replay: the server sent it again after a reconnect (lib/realtime.ts); it is applied, but nothing rings for it */
@@ -209,12 +213,18 @@ export function startLive() {
       void useSession.getState().refreshMe() // a language change may have happened while we were away
       reloadAsked.emit(reason)
     },
+    // who is online or away (docs/DECISIONS.md "접속 상태"): the whole list after each hello, then changes
+    onPresence: (f) => usePresence.getState().apply(f),
     onState: (s: ConnState) => {
       useUi.getState().setConn(s)
+      // the server out of reach for a while: the dots would be guesses (the list comes again after the next hello)
+      if (s === 'offline' || s === 'signed-out') usePresence.getState().clear()
       // session.ended (handled above) comes before the close and already says why
       if (s === 'signed-out' && useSession.getState().status.kind === 'signed-in') useSession.getState().signedOut('expired')
     },
     onHello: ({ serverVersion }) => {
+      // the server takes a window that has just connected as in use: say how this one is
+      activity?.connected()
       if (firstServerVersion === null) firstServerVersion = serverVersion
       else if (serverVersion !== firstServerVersion) {
         useUi.getState().setUpdateReady(true)
@@ -223,6 +233,7 @@ export function startLive() {
     },
   })
   relay = new BrowserRelay((f) => client?.send(f))
+  activity = startActivity((state) => client?.send({ type: 'presence', state }))
   client.start()
   // neither the session markers nor the room sound ever stop the live updates
   try { startSessionMarkers() } catch { /* no markers' extras in this window */ }
@@ -237,9 +248,12 @@ const onVisible = () => document.visibilityState === 'visible' && client?.nudge(
 export function stopLive() {
   stopRoomSound()
   stopSessionMarkers()
+  activity?.detach()
+  activity = null
   client?.stop()
   client = null
   relay = null
+  usePresence.getState().clear()
   window.removeEventListener('online', nudge)
   document.removeEventListener('visibilitychange', onVisible)
 }

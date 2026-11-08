@@ -20,7 +20,7 @@
 // files asked for go as room files. "share files" answers with a quote in my folder, a shared file and one nobody opens.
 // The rooms answer their own reads (the room, its messages, members, AI, read) from what was sent.
 // Test-only controls: POST /__test/file {path, text | base64} (a team file and its folders), POST /__test/rmdir {path} (a folder gone from disk; its rule rows stay), POST /__test/download-only {path} (a generated, quarantined file: FileEntry.downloadOnly), POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
-// boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password), withAdmin?: boolean (admins dana / 'dana password 1' and eve)}, POST /__test/drop-ws, POST /__test/server-version, POST /__test/upload-delay {ms} (an upload's answer comes that late, until the next reset), POST /__test/file-rank {ai, delayMs} (팀 파일's AI picks answer that way; GET lists what each pick was sent),
+// boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password), withAdmin?: boolean (admins dana / 'dana password 1' and eve)}, POST /__test/drop-ws, POST /__test/presence {people: [{id, state}]} (who is online or away: a change to every socket; GET it for the frames the pages sent), POST /__test/server-version, POST /__test/upload-delay {ms} (an upload's answer comes that late, until the next reset), POST /__test/file-rank {ai, delayMs} (팀 파일's AI picks answer that way; GET lists what each pick was sent),
 // POST /__test/revoke {path} (a folder becomes invisible to everyone + access_changed notice), POST /__test/skills
 // {files: [{path, name, description}]} (skill files; skills/임원/ is for admins only),
 // POST /__test/schedule-review (the owner gets a scheduled task nobody confirmed, paused for review; "siteask" with
@@ -55,7 +55,7 @@ import type { KnowledgeGraphStatus, LocalSpeechTool } from '@mycel/shared/api'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
-  ApiErrorResponse, CSRF_HEADER, Room, RoomMessage, answerFilePaths, answerShareBody, ROOM_FILES_MAX, SMALL_UPLOAD_MAX, TeamGoal, type AnswerShareFile, type AnswerSharePlace, type RoomFile, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
+  ApiErrorResponse, CSRF_HEADER, Room, RoomMessage, answerFilePaths, answerShareBody, ROOM_FILES_MAX, SMALL_UPLOAD_MAX, TeamGoal, type AnswerShareFile, type AnswerSharePlace, type RoomFile, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, PresenceFrame, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type SkillInput, type DevEnvRun, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
   MemberEngineChoice, GENERAL_CARDNEWS_SKILL, CARD_NEWS_ARTIFACT_KEY, GENERAL_PROMO_SKILL, PROMO_ARTIFACT_KEY, PROMO_STYLES, GENERAL_DECK_SKILL, DECK_ARTIFACT_KEY, NOTES_FOLDER, BRAND_FOLDER, BRAND_IMAGES_FOLDER, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule, type DeckBuild,
 } from '@mycel/shared/api'
@@ -194,6 +194,11 @@ export class MockServer {
   seq = 0
   buffer: { seq: number; text: string }[] = []
   sockets = new Set<Bun.ServerWebSocket<WsData>>()
+  /** who is online or away (docs/DECISIONS.md "접속 상태"), as POST /__test/presence sets it; the whole list goes to
+   * each socket after its hello, changes to every socket */
+  presence = new Map<string, 'online' | 'away'>()
+  /** the `presence` frames the pages sent (their own window's state), oldest first; GET /__test/presence reads them */
+  presenceSent: { user: string; windowId: string; state: string }[] = []
   sessions = new Map<string, string>() // token -> user id
   /** people whose latest sign-in used a temporary password (Me.session.tempLogin while they must change it) */
   tempLogins = new Set<string>()
@@ -380,6 +385,8 @@ export class MockServer {
 
   reset(o: { setup?: boolean; teamLocale?: Locale; usersFollowTeam?: boolean; mustChange?: string; withAdmin?: boolean } = {}) {
     this.generation++
+    this.presence = new Map()
+    this.presenceSent = []
     this.uploadDelayMs = 0
     this.fileRank = { ai: 'done', delayMs: 0 }
     this.fileRankCalls = []
@@ -1416,6 +1423,15 @@ export class MockServer {
       signIn: false, redirectUrl: null,
     }),
     listPeople: () => ({ people: this.users.filter((u) => u.status === 'active').map((u) => ({ id: u.id, name: u.name })) }),
+    // set myself away (server/src/routes/people.ts): kept in my prefs; the team's dot is what /__test/presence says here
+    setMyAway: (c) => {
+      const u = c.user as User & { prefs?: Me['user']['prefs'] }
+      const next: Record<string, unknown> = { ...u.prefs }
+      if (c.body.away) next.away = true
+      else delete next.away
+      u.prefs = next as Me['user']['prefs']
+      return { away: !!c.body.away }
+    },
     updateMe: (c) => {
       const u = c.user as User & { prefs?: Me['user']['prefs'] }
       if (c.body.name) u.name = c.body.name
@@ -3574,6 +3590,17 @@ export class MockServer {
     const body = (await req.json().catch(() => ({}))) as Json
     if (p === '/__test/reset') this.reset({ setup: !!body.setup, teamLocale: Locale.safeParse(body.teamLocale).data, usersFollowTeam: !!body.usersFollowTeam, mustChange: typeof body.mustChange === 'string' ? body.mustChange : undefined, withAdmin: !!body.withAdmin })
     else if (p === '/__test/drop-ws') for (const ws of this.sockets) ws.close(WsClose.serviceRestart, 'restart')
+    else if (p === '/__test/presence' && req.method === 'GET') return Response.json({ sent: this.presenceSent })
+    else if (p === '/__test/presence') {
+      // {people: [{id, state}]}: a change, told to every socket like the server's presence frame ('offline' takes one out)
+      const people = (body.people as { id: string; state: 'online' | 'away' | 'offline' }[]) ?? []
+      for (const x of people) {
+        if (x.state === 'offline') this.presence.delete(x.id)
+        else this.presence.set(x.id, x.state)
+      }
+      const frame = JSON.stringify(PresenceFrame.parse({ type: 'presence', full: false, people }))
+      for (const ws of this.sockets) ws.send(frame)
+    }
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
     else if (p === '/__test/upload-delay') this.uploadDelayMs = Number(body.ms)
     else if (p === '/__test/file-rank' && req.method === 'GET') return Response.json(this.fileRankCalls)
@@ -4140,10 +4167,13 @@ export class MockServer {
               for (const b of self.buffer) if (b.seq > after) ws.send(b.text)
             }
           } else ws.send(hello(false))
+          // who is online or away: the whole list after the hello and any replay (server/src/realtime/presence.ts)
+          ws.send(JSON.stringify(PresenceFrame.parse({ type: 'presence', full: true, people: [...self.presence].map(([id, state]) => ({ id, state })) })))
         },
         message(ws, msg) {
-          const f = JSON.parse(String(msg)) as { type: string; t?: number }
+          const f = JSON.parse(String(msg)) as { type: string; t?: number; state?: string }
           if (f.type === 'ping') ws.send(JSON.stringify({ type: 'pong', t: f.t ?? 0 }))
+          if (f.type === 'presence') self.presenceSent.push({ user: ws.data.user, windowId: ws.data.windowId, state: String(f.state) })
         },
         close(ws) {
           self.sockets.delete(ws)

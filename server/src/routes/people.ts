@@ -4,7 +4,8 @@ import { API } from '@mycel/shared/api'
 import type { RouteModule } from './module'
 import { audit } from '../admin/audit'
 import { fail } from '../http/errors'
-import { listPeople, profileChangedFor, profileOf, readAvatar, removeAvatar, saveAvatar, updateProfile } from '../auth/profiles'
+import { listPeople, MY_PROFILE_CHANGED, profileChangedFor, profileOf, readAvatar, removeAvatar, saveAvatar, updateProfile } from '../auth/profiles'
+import { presenceFor } from '../realtime/presence'
 
 // the photo is an image only, never a document that runs anything (the same headers as the team logo)
 const IMAGE_HEADERS = { 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox", 'content-disposition': 'inline' }
@@ -41,6 +42,26 @@ export const peopleRoutes: RouteModule = {
       audit(ctx.db, { actor: auth.user.id, action: 'profile.avatar_set', target: auth.user.id, detail: { size: r.size, before: r.before } })
       ctx.services.realtime.publishEach(profileChangedFor(auth.user.id))
       return { avatarVersion: r.version }
+    })
+
+    // set yourself away, or back to automatic (docs/DECISIONS.md "접속 상태"): kept in the account's prefs until changed,
+    // the team told at once (realtime/presence.ts); the person's other windows read their account again (the menu's word)
+    kit.handle(API.setMyAway, ({ auth, body }) => {
+      const row = ctx.db.query('SELECT prefs FROM users WHERE id = ? AND deleted_at IS NULL').get(auth.user.id) as { prefs: string | null } | null
+      if (!row) fail('unauthorized')
+      let prefs: Record<string, unknown> = {}
+      try {
+        const v: unknown = JSON.parse(row!.prefs || '{}')
+        if (v && typeof v === 'object' && !Array.isArray(v)) prefs = v as Record<string, unknown>
+      } catch { /* unreadable: start over, as PATCH /api/me does */ }
+      if ((prefs.away === true) !== body.away) {
+        if (body.away) prefs.away = true
+        else delete prefs.away
+        ctx.db.query('UPDATE users SET prefs = ? WHERE id = ?').run(JSON.stringify(prefs), auth.user.id)
+        presenceFor(ctx)?.setAway(auth.user.id, body.away)
+        ctx.services.realtime.publish(auth.user.id, MY_PROFILE_CHANGED)
+      }
+      return { away: body.away }
     })
 
     kit.handle(API.deleteMyAvatar, ({ auth }) => {
