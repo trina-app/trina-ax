@@ -110,6 +110,7 @@ export async function runExport(db: Database, teamRoot: string, req: ExportReque
         .filter((c) => !c.shared_at || !!req.sharedVisible?.(c.id))
       yield { name: `${root}/chats`, type: 'dir' }
       const q = db.query('SELECT id, parent_id, role, content, created_at, status, engine, model FROM messages WHERE chat_id = ?')
+      const others = db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1")
       const used = new Set<string>()
       const hide = req.hide ?? ((t: string) => t)
       for (const raw of chats) {
@@ -117,8 +118,9 @@ export async function runExport(db: Database, teamRoot: string, req: ExportReque
         let base = `${c.created_at.slice(0, 10)} ${slug(c.title)}`
         if (used.has(base)) base += ` ${c.id.slice(-6)}`
         used.add(base)
-        // a shared chat: the answers hidden from the person are one line (without the check, every answer is)
-        const hidden = c.shared_at ? req.sharedWithheld?.(c.id) ?? null : undefined
+        // a shared chat, or one others wrote in before it stopped being shared (chat/shared.ts severalAuthors): the
+        // answers hidden from the person are one line (without the check, every answer is)
+        const hidden = c.shared_at || others.get(c.id, req.ownerId) ? req.sharedWithheld?.(c.id) ?? null : undefined
         const withheld = hidden === undefined ? () => false : (id: string) => !hidden || hidden.has(id)
         yield { name: `${root}/chats/${base}.md`, type: 'file', data: enc(chatMarkdown(c, chatPath(q.all(c.id) as MsgRow[], c.active_leaf_id), req.locale, withheld)) }
       }

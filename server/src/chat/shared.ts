@@ -17,7 +17,7 @@ import { composeMessage } from './turn'
 import { HISTORY_MAX_CHARS, historyBlock, historyWindow } from './prompt'
 import { roomRefsByIdOnly } from '@mycel/shared/api'
 import type { FileService } from '../files/service'
-import { atLeast, loadPrincipal, type Principal, type RuleSet } from '../policy/access'
+import { atLeast, loadPrincipal, RuleSet, type Principal } from '../policy/access'
 import { isPersonalFolder, mayEditProject } from './projects'
 import { fail } from '../http/errors'
 import { tr } from './i18n'
@@ -81,14 +81,31 @@ export const audienceOf = (db: Database, files: FileService, p: ProjectRow): str
 const seesUnder = (rules: RuleSet, p: Pick<ProjectRow, 'folder_path' | 'trashed_with'>, x: Principal): boolean =>
   (p.trashed_with === null || x.role === 'owner' || x.role === 'admin') && atLeast(rules.access(x, p.folder_path === '' ? [] : p.folder_path.split('/')), 'read')
 
-/** Does this account see the project now, whatever its status: a disabled account counts as if it were enabled again (it
- * then sees its shared chats again), a deleted one never. For a deleted project's shared chats (routes/chats.ts
- * deleteProject): one goes to its creator's trash only when they would see it. */
-export function accountSeesProject(db: Database, files: FileService, p: Pick<ProjectRow, 'folder_path' | 'trashed_with'>, userId: string): boolean {
+/**
+ * The folder rules a project is judged by as if its folder were in place: the team's rules now, or while its folder is in
+ * the files trash the rules parked with it put back at its old path (rules of a folder that took that path since do not
+ * count), as the files trash judges who may restore it (team-files/service.ts trashVisible). A folder purged from the
+ * trash: the rules now (its own are gone).
+ */
+export function rulesInPlace(db: Database, files: FileService, p: Pick<ProjectRow, 'trashed_with'>): RuleSet {
+  const t = p.trashed_with ? db.query('SELECT original_path, storage_path FROM trash_items WHERE id = ?').get(p.trashed_with) as { original_path: string; storage_path: string } | null : null
+  if (!t) return files.rules()
+  return new RuleSet(db.query(`SELECT CASE WHEN f.path = ?1 OR substr(f.path, 1, length(?1) + 1) = ?1 || '/'
+      THEN ?2 || substr(f.path, length(?1) + 1) ELSE f.path END AS path, r.subject_type, r.subject_id, r.access
+    FROM folder_rules r JOIN folders f ON f.id = r.folder_id
+    WHERE NOT (f.path = ?2 OR substr(f.path, 1, length(?2) + 1) = ?2 || '/')`).all(t.storage_path, t.original_path) as ConstructorParameters<typeof RuleSet>[0])
+}
+
+/** Would this account see the project, by its folder's rules: whatever its status (a disabled account counts as if it
+ * were enabled again: it then sees its shared chats again; a deleted one never), and as if its folder were in place
+ * (while it is in the trash only the owner and admins see the project; its people again once it is back: `rules` from
+ * rulesInPlace). For a deleted project's shared chats (routes/chats.ts deleteProject): one goes to its creator's trash
+ * only when they would see it. */
+export function accountSeesProject(db: Database, rules: RuleSet, p: Pick<ProjectRow, 'folder_path'>, userId: string): boolean {
   const u = db.query('SELECT id, name, role FROM users WHERE id = ? AND deleted_at IS NULL').get(userId) as Pick<Principal, 'id' | 'name' | 'role'> | null
   if (!u) return false
   const groups = (db.query('SELECT group_id FROM group_members WHERE user_id = ?').all(userId) as { group_id: string }[]).map((r) => r.group_id)
-  return seesUnder(files.rules(), p, { ...u, groups })
+  return seesUnder(rules, { folder_path: p.folder_path, trashed_with: null }, { ...u, groups })
 }
 
 /** Who sees what, as admin/folders.ts AccessState holds it: the active people (role, groups) and the folder rules. */
@@ -98,9 +115,13 @@ export interface AccessView { principals: readonly Principal[]; rules: RuleSet }
  * Who stopped seeing which shared chats in an access change (admin/folders.ts afterAccessChange: rules, groups, roles,
  * accounts): for each person who saw a project with shared chats (not in the trash) before the change and does not now,
  * those chats, so their windows drop them (chat.updated 'deleted' without the chat: nothing of a chat they no longer
- * see). One read of the shared chats, every project's audience worked out under both states.
+ * see). One read of the shared chats; each project judged under both states for `who` only (the people whose access
+ * changed or who are gone: nobody else can have lost one).
  */
-export function sharedChatsHidden(db: Database, before: AccessView, after: AccessView): Map<string, string[]> {
+export function sharedChatsHidden(db: Database, before: AccessView, after: AccessView, who: ReadonlySet<string>): Map<string, string[]> {
+  const out = new Map<string, string[]>()
+  const was = before.principals.filter((x) => who.has(x.id))
+  if (!was.length) return out
   const rows = db.query(`SELECT c.id, p.id AS project, p.folder_path, p.trashed_with FROM chats c JOIN projects p ON p.id = c.project_id
     WHERE c.shared_at IS NOT NULL AND c.deleted_at IS NULL AND c.room_id IS NULL`).all() as { id: string; project: string; folder_path: string; trashed_with: string | null }[]
   const projects = new Map<string, { p: Pick<ProjectRow, 'folder_path' | 'trashed_with'>; chats: string[] }>()
@@ -109,10 +130,15 @@ export function sharedChatsHidden(db: Database, before: AccessView, after: Acces
     if (!x) projects.set(r.project, (x = { p: { folder_path: r.folder_path, trashed_with: r.trashed_with }, chats: [] }))
     x.chats.push(r.id)
   }
-  const out = new Map<string, string[]>()
+  const nowOf = new Map(after.principals.filter((x) => who.has(x.id)).map((x) => [x.id, x]))
   for (const { p, chats } of projects.values()) {
-    const now = new Set(after.principals.filter((x) => seesUnder(after.rules, p, x)).map((x) => x.id))
-    for (const x of before.principals) if (!now.has(x.id) && seesUnder(before.rules, p, x)) out.set(x.id, [...(out.get(x.id) ?? []), ...chats])
+    for (const x of was) {
+      const now = nowOf.get(x.id)
+      if ((now && seesUnder(after.rules, p, now)) || !seesUnder(before.rules, p, x)) continue
+      let list = out.get(x.id)
+      if (!list) out.set(x.id, (list = []))
+      list.push(...chats)
+    }
   }
   return out
 }
@@ -223,7 +249,8 @@ export function sharedOf(rt: ChatRuntime, viewer: string, r: ChatRow, aud: Audie
 export function chatView(rt: ChatRuntime, viewer: string, r: ChatRow, o: { aud?: Audiences; hide?: (s: string) => string; people?: Map<string, ChatPeople> } = {}): Chat {
   const hide = o.hide ?? redactorFor(rt.ctx, r.user_id).hide
   if (!isSharedRow(r)) {
-    const c = rt.store.toChat(r, rt.runState(r.id), rt.waitsForPerson(r.id))
+    // a chat that stopped being shared after others wrote in it: its marker and last outcome are its creator's answers'
+    const c = rt.store.toChat(r, rt.runState(r.id), rt.waitsForPerson(r.id), severalAuthors(rt.db, r.id) ? { answersOf: r.user_id } : {})
     return { ...c, title: hide(c.title) }
   }
   const runner = rt.activeTurnUser(r.id)

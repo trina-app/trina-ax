@@ -348,7 +348,9 @@ export function afterAccessChange(ctx: AppContext, before: AccessState, by: { ac
   // their lists and project pages, by its id alone (the chat's details never go to someone who cannot see it). After
   // the replay buffers above were emptied, so a window resuming gets these too. Never throws: the change is saved
   try {
-    for (const [userId, chats] of sharedChatsHidden(ctx.db, before, after)) for (const chatId of chats) ctx.services.realtime.publish(userId, { type: 'chat.updated', data: { chatId, change: 'deleted', chat: null } })
+    const afterIds = new Set(after.principals.map((p) => p.id))
+    const who = new Set([...accessChanged, ...before.principals.filter((p) => !afterIds.has(p.id)).map((p) => p.id)])
+    for (const [userId, chats] of sharedChatsHidden(ctx.db, before, after, who)) for (const chatId of chats) ctx.services.realtime.publish(userId, { type: 'chat.updated', data: { chatId, change: 'deleted', chat: null } })
   } catch (e) { ctx.log.warn('shared chat removals failed', { err: e }) }
   // every narrowing is audited, whatever caused it (rules, group membership, role, group deletion); admins only read it
   if (out.length) audit(ctx.db, { actor: by.actor, action: 'folder.access_lost', target: by.target, detail: { losing: out, ...(by.via ? { via: by.via } : {}) } })

@@ -38,7 +38,7 @@ export default function Trash() {
         {error && <ErrorNote onRetry={load}>{error}</ErrorNote>}
         {!items && !error && <Skeleton lines={4} />}
         {items && !items.length && <EmptyState icon={<Trash2 size={28} />} title={t('trash.empty')} />}
-        <ul className="divide-y divide-line">
+        <ul className="divide-y divide-line" data-testid="trash-list">
           {items?.map((c) => (
             <li key={c.id} className="flex items-center gap-3 py-2.5 text-sm">
               <span className="min-w-0 flex-1">

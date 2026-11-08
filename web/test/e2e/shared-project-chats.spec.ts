@@ -443,9 +443,11 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await b.goto(`/projects/${id}`)
       const bobRow = b.getByTestId('project-chats').locator(`a[href="/c/${chatId}"]`)
       await expect(bobRow).toBeVisible()
-      // the phone: the drawer with the chat list stays open over the page
-      if (vp.phone) await b.getByTestId('menu-open').click()
-      const inList = b.locator(vp.phone ? '[data-drawer]' : 'body').getByTestId('recents-list').getByRole('listitem').filter({ hasText: '출시 체크리스트 v2' })
+      // his chat list (he wrote in the chat) in a second window of his: the drawer on a phone
+      const b2 = await b.context().newPage()
+      await b2.goto('/')
+      if (vp.phone) await b2.getByTestId('menu-open').click()
+      const inList = b2.locator(vp.phone ? '[data-drawer]' : 'body').getByTestId('recents-list').getByRole('listitem').filter({ hasText: '출시 체크리스트 v2' })
       await expect(inList).toHaveCount(1)
       const from = frames.length
       expect((await post(page, '/__test/revoke', { path: 'marketing' })).ok()).toBeTruthy()
@@ -472,16 +474,18 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(page.getByRole('dialog')).toHaveCount(0)
       // her trash has it (once), and so does Bob's
       await page.goto('/trash')
-      const rows = page.getByRole('listitem').filter({ hasText: 'Bob의 회의록 요약' })
+      const rows = page.getByTestId('trash-list').getByRole('listitem').filter({ hasText: 'Bob의 회의록 요약' })
       await expect(rows).toHaveCount(1)
       await audit(page, 'trash, a shared chat I deleted')
       await b.goto('/trash')
-      await expect(b.getByRole('listitem').filter({ hasText: 'Bob의 회의록 요약' })).toHaveCount(1)
+      await expect(b.getByTestId('trash-list').getByRole('listitem').filter({ hasText: 'Bob의 회의록 요약' })).toHaveCount(1)
       // she brings it back: it leaves both trashes, and is in the project again
       await rows.getByRole('button', { name: '되돌리기' }).click()
       await expect(rows).toHaveCount(0)
       await b.reload()
-      await expect(b.getByRole('listitem').filter({ hasText: 'Bob의 회의록 요약' })).toHaveCount(0)
+      // loaded: its rows or the empty line
+      await expect(b.getByText('삭제한 기록이 없어요').or(b.getByTestId('trash-list').getByRole('listitem').first())).toBeVisible()
+      await expect(b.getByTestId('trash-list').getByRole('listitem').filter({ hasText: 'Bob의 회의록 요약' })).toHaveCount(0)
       expect(((await (await b.request.get(`/api/chats/${chatId}`)).json()) as { projectId: string | null }).projectId).toBe(id)
 
       // the project is deleted: the shared chat goes to Bob's trash (not Olga's), his own without project; brought back,
@@ -492,9 +496,11 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await page.getByTestId('dialog-confirm').click()
       await expect(page).toHaveURL(/\/projects$/)
       await page.goto('/trash')
-      await expect(page.getByRole('listitem').filter({ hasText: 'Bob의 회의록 요약' })).toHaveCount(0)
+      // loaded: its rows or the empty line
+      await expect(page.getByText('삭제한 기록이 없어요').or(page.getByTestId('trash-list').getByRole('listitem').first())).toBeVisible()
+      await expect(page.getByTestId('trash-list').getByRole('listitem').filter({ hasText: 'Bob의 회의록 요약' })).toHaveCount(0)
       await b.goto('/trash')
-      const his = b.getByRole('listitem').filter({ hasText: 'Bob의 회의록 요약' })
+      const his = b.getByTestId('trash-list').getByRole('listitem').filter({ hasText: 'Bob의 회의록 요약' })
       await expect(his).toHaveCount(1)
       await his.getByRole('button', { name: '되돌리기' }).click()
       await expect(his).toHaveCount(0)

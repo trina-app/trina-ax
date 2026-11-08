@@ -36,7 +36,7 @@ import { finishCard } from '../chat/connect-service'
 import { refuseDraftAttachments } from '../onboarding/draft'
 import { refuseSkillDraftAttachments } from '../onboarding/skill-draft'
 import { refuseShareJudgeAttachments } from '../skills/share-judge'
-import { Audiences, accountSeesProject, chatFor, chatPeople, chatView, isSharedRow, messageFor, messageView, projectCanShare, projectShare, sharesNewChats, type ChatAccess, type ChatPeople } from '../chat/shared'
+import { Audiences, accountSeesProject, chatFor, chatPeople, chatView, isSharedRow, messageFor, messageView, projectCanShare, projectShare, rulesInPlace, severalAuthors, sharesNewChats, type ChatAccess, type ChatPeople } from '../chat/shared'
 import { AnswerSight, sharedHits, type ChatHit } from '../chat/shared-answers'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { forgetPurgedChats } from '../chat/forget'
@@ -205,8 +205,8 @@ export const chatsRoutes: RouteModule = {
       const found = (r: ChatRow) => {
         const like = `%${likeEscape(q!)}%`
         if (ctx.db.query("SELECT 1 FROM chats WHERE id = ? AND title LIKE ? ESCAPE '\\'").get(r.id, like)) return true
-        hits ??= sharedHits(ctx.db, like)
-        const hit = hits.get(r.id)
+        // a chat that stopped being shared (its creator's now) is not among the shared ones: its own search
+        const hit = isSharedRow(r) ? (hits ??= sharedHits(ctx.db, like)).get(r.id) : sharedHits(ctx.db, like, [r.id]).get(r.id)
         if (!hit) return false
         if (hit.question) return true
         const hidden = sight.withheld(r.id, me)
@@ -219,7 +219,9 @@ export const chatsRoutes: RouteModule = {
         return !!who && mayEdit(ctx, who, p)
       }
       const visible = (r: ChatRow) => {
-        if (!isSharedRow(r)) return true
+        // a chat of mine that others wrote in while it was shared (a deleted project's, the rollback guard): found only
+        // through what I see of it, as when it was shared
+        if (!isSharedRow(r)) return !q || !severalAuthors(ctx.db, r.id) || found(r)
         const p = rt.store.projectRow(r.project_id!)
         return !!p && aud.sees(me, p) && (!q || found(r)) && (!query.trash || mayRestore(r, p))
       }
@@ -372,7 +374,8 @@ export const chatsRoutes: RouteModule = {
     kit.handle(API.shareAnswerToRoom, ({ c, params, body, auth }) => {
       const a = chatOf(rt, c, auth, params.id, 'view')
       const m = messageInChat(rt, a.row.id, params.messageId)
-      if (a.shared && (!m.turn_id || rt.store.turnUser(m.turn_id) !== auth.user.id)) fail('not_found')
+      // (also once it stopped being shared after others wrote in it: their answers are not mine to post)
+      if ((a.shared || severalAuthors(ctx.db, a.row.id)) && (!m.turn_id || rt.store.turnUser(m.turn_id) !== auth.user.id)) fail('not_found')
       return shareAnswerToRoom(ctx, auth.user.id, a.row, m, body, c.get('locale'))
     })
 
@@ -730,11 +733,13 @@ export const chatsRoutes: RouteModule = {
       // as a single delete does (docs/DECISIONS.md "Shared project chats: the trash and live lists"): each stops being
       // shared and, restored, is its creator's chat without project, keeping the several-authors rules (chat/turn.ts
       // othersWrote, chat/shared.ts messageView). One whose creator would not see the project now (they lost its folder,
-      // or the account was deleted) goes for good, as before: nobody could restore it, and giving it back would show its
-      // creator what was said after they lost it. Their turns stop; everyone else who saw one hears it is gone.
+      // or the account was deleted; a folder in the trash is judged by its own rules, as if it were back) goes for good,
+      // as before: nobody could restore it, and giving it back would show its creator what was said after they lost it.
+      // Their turns stop; everyone else who saw one hears it is gone.
       const shared = ctx.db.query('SELECT id, user_id, deleted_at FROM chats WHERE project_id = ? AND shared_at IS NOT NULL').all(r!.id) as { id: string; user_id: string; deleted_at: string | null }[]
       const audience = new Audiences(ctx.db, ctx.files).of(r!)
-      const kept = shared.filter((x) => accountSeesProject(ctx.db, ctx.files, r!, x.user_id))
+      const rules = rulesInPlace(ctx.db, ctx.files, r!)
+      const kept = shared.filter((x) => accountSeesProject(ctx.db, rules, r!, x.user_id))
       const purged = shared.filter((x) => !kept.includes(x))
       for (const x of shared) rt.stopChat(x.id)
       const now = new Date().toISOString()

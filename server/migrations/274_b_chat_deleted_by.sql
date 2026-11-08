@@ -4,6 +4,6 @@
 --     build). A shared project chat deleted by an editor of its project is in their trash too, beside its creator's,
 --     while they may still restore it. Cleared on restore.
 -- Additive only (reader 1): an older build ignores the column (its trash shows the creator's chats, as before).
--- Numbered 274: 272 is the highest on dev, 273 is taken by fix/shared-chat-audience.
+-- Numbered 274: 273 (shared_answer_reads) is the highest on dev.
 ALTER TABLE chats ADD COLUMN deleted_by TEXT;
 CREATE INDEX chats_deleted_by ON chats(deleted_by) WHERE deleted_by IS NOT NULL;

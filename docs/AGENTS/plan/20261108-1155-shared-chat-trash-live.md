@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-08 11:55
 - Branch: `fix/shared-chat-trash-live`
-- Status: in progress
+- Status: done
 - Where: trina-ax `server/src/routes/chats.ts`, `server/src/chat/shared.ts`, `server/src/admin/folders.ts`, `web/src/`.
   Why: shared project chats are Team AX core chat behaviour (see docs/REPOSITORY-RULES.md)
 - Version impact: minor, an add-only migration (`chats.deleted_by`) and changed behaviour of project delete and the
@@ -65,4 +65,11 @@ same files (`chat/shared.ts`): rebase on it if it lands first.
 
 ## Result
 
-Filled in at the end.
+Built as planned, with one addition after fix/shared-chat-audience (#213) landed: a chat that stopped being shared keeps
+#213's hidden answers hidden from its creator everywhere (screen, sources, search, their AI, export, artifacts), and
+"대화방에 보내기" and "스킬로 제안" treat it as a chat several people wrote in (`chat/shared.ts severalAuthors`). A turn of
+someone else that ends after the delete tells only the creator (`publishChat`). A disabled creator keeps their chats in
+their trash, and a project whose folder is in the files trash is judged by that folder's own rules; only a creator
+who would not see the project (or a deleted account) loses them for good. The independent review's must-fix (the
+wider-audience card named places other people's turns read) and should-fixes are fixed. Decisions and
+what is left out: docs/DECISIONS.md "Shared project chats: the trash and live lists". PR: (linked in the PR).
