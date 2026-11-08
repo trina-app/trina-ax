@@ -79,3 +79,4 @@ Built as planned, with these differences:
 - Past ten rule files the guide says, as the in-app AI is told, that only the first ten count.
 - Left open for the owner: an idle backstop for session scopes, if a client turns out to keep one MCP session across
   many conversations (it would widen what "the same session keeps it" decided).
+- PR: https://github.com/trina-app/trina-ax/pull/206
