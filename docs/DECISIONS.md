@@ -5741,6 +5741,16 @@ in the permission, let the user allow it". srt runner only (`MYCEL_DEV_ENV_RUNNE
   a run, only the owner answers the card in a real turn), `web/test/e2e/dev-env-sites.spec.ts`, attack cases A12c,
   A12e, A13f, A14f and A27f in `tests/linux/srt-attack.ts`.
 
+### Dev environment: no line on the project page (chore/remove-project-devenv-row, 2026-11-08)
+
+Owner: "프로젝트에서 이제 dev environment 저거 필요없지 않아?" The project page's 개발 환경 line (`DevEnvSection.tsx`) is
+removed; the feature stays. Why: on srt the setting is the team's and any chat can use it, yet the line's modal saved
+that team setting from inside one project; admins edit it in Team settings › Dev environment; a chat shows its own runs
+(the queue line with Cancel, the command step); there is no preview without a preview domain; shared project chats
+have no dev environment. The `/api/projects/:id/dev-env*` endpoints stay for older clients, with no web caller now.
+What only the line had: the project's run list with Stop for other people's runs, the activity, the preview, and on the
+box runner the per-project on/off and the box (stop, restart, processes).
+
 ## Folder upload on the file screen (feat/dev-env-video, 2026-11-02)
 
 A team copied 118 clips (1.9 GB) with tar over SSH. A customer needs a way with no SSH.

@@ -1,9 +1,9 @@
 // "Dev environment" in Team settings (EXPERIMENT, docs/research/srt-dev-env.md 3.2): the team setting devEnv.team
 // (GET and PUT /api/admin/dev-env). Hidden when the feature flag is off (Me.server.devEnv) or the API answers 404. On the srt runner the
 // setting is the whole team's: on or off, who may use it, network, limits per run, extra sites, and the warning to accept
-// when it is turned on. A team with no projects turns it on here (the project page's modal saves the same setting). On
-// the box runner each project turns it on in its own settings, so only the extra sites are here. Its own Save: the
-// page's Save sends the other team settings to another endpoint.
+// when it is turned on. This is the one place in the app for it: the project page has no dev environment line since
+// 2026-11-08. On the box runner each project has its own setting (PUT /api/projects/:id/dev-env, no screen any more),
+// so only the extra sites are here. Its own Save: the page's Save sends the other team settings to another endpoint.
 import { TerminalSquare } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { DevEnvTeamResponse, Group } from '@mycel/shared/api'

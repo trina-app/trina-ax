@@ -40,7 +40,8 @@
 // External services: an address on a "down." host fails its check, the key "wrong-key" is refused, the fake MCP server
 // offers two tools at the first check and a third from the next one (one on a "many." host offers 150, of which the
 // first 100 are kept), and a sign-in completes on the second poll.
-// POST /__test/dev-env {box?: 'running', srt?: true} turns the dev environment (experiment) on for every project until the next reset.
+// POST /__test/dev-env {srt?: true, network?: 'offline', sites?: string[]} turns the dev environment (experiment) on until
+// the next reset (sites: the first person's own allowed sites).
 // POST /__test/html-pdf {on: boolean} says whether this server prints HTML to PDF (Me.server.htmlPdf; off by default, as
 // a server without a headless browser) until the next reset; GET /__test/html-pdf lists the pages printed so far.
 // "/intro-deck …" builds the deck like round 2 of docs/DECISIONS.md "D2": an outline, one intro_deck call per slide (the
@@ -332,11 +333,10 @@ export class MockServer {
   teamGoal: TeamGoal | null = null
   /** Home's frequent skills (GET /api/skills/popular): none unless /__test/popular-skills names some by path */
   popular: { path: string; uses: number; users: number }[] = []
-  /** POST /__test/dev-env {box?: 'running'}: the dev environment (experiment) of every project is on until the next
-   * reset, with a stopped box (or a running one) and a few lines of activity; srt: true is the srt runner (no box, a
-   * running dev server and a waiting job, warning version 2); otherwise its endpoints answer 404, like
-   * a server without MYCEL_DEV_ENV */
-  devEnv: { box: 'stopped' | 'running'; srt?: { running: DevEnvRun[]; waiting: DevEnvRun[] } } | null = null
+  /** POST /__test/dev-env: the dev environment (experiment) is on until the next reset (Me.server.devEnv, Team settings
+   * › Dev environment); srt: true is the srt runner (warning version 2, the queue of the chat's runs); otherwise its
+   * endpoints answer 404, like a server without MYCEL_DEV_ENV */
+  devEnv: { srt?: { running: DevEnvRun[]; waiting: DevEnvRun[] } } | null = null
   /** POST /__test/html-pdf: the server prints HTML to PDF ("PDF로 저장" in an .html preview); the pages printed, with how */
   htmlPdf = false
   htmlPdfCalls: { path: string; how: 'save' | 'download' }[] = []
@@ -871,29 +871,6 @@ export class MockServer {
     return `${DEV_SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax`
   }
 
-  devEnvOf(user: User, projectId: string) {
-    if (!this.devEnv || !this.projects.some((p) => p.id === projectId)) fail('not_found', 404)
-    const running = this.devEnv!.box === 'running'
-    const srt = this.devEnv!.srt
-    if (srt) return {
-      availability: { available: true },
-      setting: { enabled: true, scope: { mode: 'writers' as const, groupIds: [], userIds: [] }, network: 'open' as const, limits: { cpus: 1, memoryMiB: 1536, pids: 512, diskGiB: 4, idleStopMin: 30 }, consent: { by: null, at: now(), warningVersion: 2 } },
-      warningVersion: 2, mayUse: true, mayManage: user.role !== 'member', needsFolder: false, box: null, jobs: [], runs: srt, runner: 'srt' as const,
-    }
-    return {
-      availability: { available: true },
-      setting: { enabled: true, scope: { mode: 'writers' as const, groupIds: [], userIds: [] }, network: 'open' as const, limits: { cpus: 1, memoryMiB: 2560, pids: 512, diskGiB: 4, idleStopMin: 30 }, consent: { by: null, at: now(), warningVersion: 1 } },
-      warningVersion: 1,
-      mayUse: true,
-      mayManage: user.role !== 'member',
-      needsFolder: false,
-      box: { state: this.devEnv!.box, startedAt: running ? now() : null, lastActiveAt: now(), memoryMiB: running ? 412 : null, processes: running ? [{ pid: 41, seconds: 120, command: 'npx remotion studio --port 5173' }] : [], stopCode: null },
-      jobs: [],
-      runs: { running: [], waiting: [] },
-      runner: 'box' as const,
-    }
-  }
-
   userOf(req: Request): User | null {
     const cookie = req.headers.get('cookie') ?? ''
     const m = cookie.match(new RegExp(`${DEV_SESSION_COOKIE}=([^;]+)`))
@@ -964,7 +941,7 @@ export class MockServer {
    * holds 4 s; "devqueuefull": it waits too long and ends with the dev environment full; "devqueuejob": a job that
    * waits (#1) after the answer ends. */
   async devQueueTurn(chatId: string, user: User, prompt: string, assistant: Message, pub: (ev: ServerEventInput) => void, step: (s: Partial<Step> & Pick<Step, 'id' | 'kind' | 'label'>) => Step) {
-    this.devEnv ??= { box: 'stopped' }
+    this.devEnv ??= {}
     const srt = (this.devEnv.srt ??= { running: [], waiting: [] })
     const id = `dq-${assistant.id.slice(-8)}`
     const by = { id: user.id, name: user.name }
@@ -1681,30 +1658,6 @@ export class MockServer {
       this.projects = this.projects.filter((p) => p.id !== c.params.id)
       return undefined
     },
-    // the dev environment (experiment) of a project, on after POST /__test/dev-env
-    devEnv: (c) => this.devEnvOf(c.user, c.params.id!),
-    devEnvActivity: (c) => {
-      this.devEnvOf(c.user, c.params.id!)
-      const by = { id: c.user.id, name: c.user.name }
-      return { items: [
-        { at: now(), by, kind: 'command' as const, text: 'npx remotion render src/index.ts Teaser out/teaser.mp4', detail: null },
-        { at: now(), by, kind: 'files' as const, text: 'created out/teaser.mp4', detail: null },
-        { at: now(), by: null, kind: 'box' as const, text: 'box stopped (idle)', detail: null },
-      ] }
-    },
-    devEnvBox: (c) => {
-      this.devEnvOf(c.user, c.params.id!)
-      this.devEnv!.box = c.body.action === 'stop' ? 'stopped' : 'running'
-      return this.devEnvOf(c.user, c.params.id!)
-    },
-    devEnvRunStop: (c) => {
-      this.devEnvOf(c.user, c.params.id!)
-      const srt = this.devEnv!.srt
-      if (!srt) fail('not_found', 404)
-      srt!.running = srt!.running.filter((r) => r.id !== c.params.runId)
-      srt!.waiting = srt!.waiting.filter((r) => r.id !== c.params.runId)
-      return this.devEnvOf(c.user, c.params.id!)
-    },
     // the team setting (Team settings › Dev environment): like server/src/routes/dev-env.ts, turning on (srt) needs the
     // current warning accepted
     devEnvTeam: () => this.devEnvTeamView(),
@@ -1732,10 +1685,6 @@ export class MockServer {
       }
       this.devEnvTeam = after
       return this.devEnvTeamView()
-    },
-    devEnvPreview: (c) => {
-      this.devEnvOf(c.user, c.params.id!)
-      return { url: `https://preview.example.invalid/${c.body.port}/`, expiresAt: new Date(Date.now() + 600_000).toISOString() }
     },
     // srt: the caller's runs and their cancel (the chat's waiting line, "devqueue" turns)
     myDevEnvRuns: (c) => {
@@ -3617,11 +3566,9 @@ export class MockServer {
     else if (p === '/__test/html-pdf' && req.method === 'GET') return Response.json(this.htmlPdfCalls)
     else if (p === '/__test/html-pdf') this.htmlPdf = body.on !== false
     else if (p === '/__test/dev-env') {
-      const by = this.users[0] ? { id: this.users[0].id, name: this.users[0].name } : null
-      const run = (id: string, kind: 'job' | 'server', name: string, position: number | null, lastLine: string) => ({ id, kind, name, by, startedAt: now(), runAt: position === null ? now() : null, position, memoryMiB: position === null ? 320 : null, lastLine })
       if (body.network === 'offline') this.devEnvTeam.network = 'offline'
       if (Array.isArray(body.sites)) this.devEnvSites.set(this.users[0]!.id, { sites: (body.sites as string[]).map((host) => ({ host, createdAt: now() })), full: false })
-      this.devEnv = { box: body.box === 'running' ? 'running' : 'stopped', ...(body.srt ? { srt: { running: [run('r1', 'server', 'npm run dev', null, 'ready on http://localhost:3000')], waiting: [run('r2', 'job', 'render', 1, '')] } } : {}) }
+      this.devEnv = body.srt ? { srt: { running: [], waiting: [] } } : {}
     }
     else if (p === '/__test/skill-list') this.aiList = SkillsOverview.shape.aiList.parse(body)
     else if (p === '/__test/connection') this.connection = { ...this.connection, ...(body as unknown as Partial<ConnectionStatus>) }
