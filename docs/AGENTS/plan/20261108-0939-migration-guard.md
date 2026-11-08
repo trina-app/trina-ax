@@ -17,8 +17,7 @@ both visible, for developers in CI and for whoever runs a server in its log.
 
 In: a unit test that fails on a file the runner skips, a `.sql` file `readMigrations` misses, or two files with one
 number; at start-up one warning per recorded migration whose file was renamed since, naming both.
-Out: refusing to start on a mismatch (dev and customer databases already hold renamed entries), renumbering files,
-changing the number ranges (B's next range is a proposal in the PR for the owner).
+Out: refusing to start on a mismatch (dev and customer databases already hold renamed entries), renumbering files.
 
 ## Steps
 
@@ -43,5 +42,6 @@ and no file of the same name gets none. Other `openDb` callers (CLIs, tests) pas
 
 Built as planned. The warning also covers a migration moved away with no file left at its old number (the 326
 case), and says whether the moved file still runs on that database (review). The test is
-`tests/unit/p1-migration-files.test.ts` (foundation tests use `p1-`). Nothing renumbered; B's next range is a proposal
-in the PR: https://github.com/trina-app/trina-ax/pull/201
+`tests/unit/p1-migration-files.test.ts` (foundation tests use `p1-`). Nothing renumbered. Added after the owner approved
+the proposal in the PR: B's second range 400–499 and "a number on dev is never renamed" in docs/WORKPLAN.md §4 and the
+`db.ts` header. PR: https://github.com/trina-app/trina-ax/pull/201

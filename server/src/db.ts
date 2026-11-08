@@ -3,7 +3,9 @@
 // Migrations are numbered SQL files in server/migrations/, applied once each, in numeric order:
 //   NNN_<component>_<name>.sql   e.g. 002_foundation.sql, 101_a_login_attempts.sql, 201_b_message_index.sql
 // Number ranges per component (docs/WORKPLAN.md): 001–099 foundation, 100–199 A, 200–299 B, 300–399 C,
-// 600–699 F, 700–799 G. A file may only depend on tables from 001–099 and its own range.
+// 600–699 F, 700–799 G. B uses 400–499 once 200–299 is full. A file may only depend on tables from 001–099 and its
+// own range(s). A number already on dev is never renamed; a clash is fixed by renumbering the newer branch before it
+// merges.
 //
 // Forward compatibility (tab 6 "업데이트": rolling back the app does not roll back the DB):
 // - Only additive changes (new tables, new nullable / defaulted columns, indexes). Always named columns in SQL.

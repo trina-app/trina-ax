@@ -14465,8 +14465,10 @@ and its developer page "User presence and status" (what was copied and what was 
   reason in the log. The server still starts: dev and customer databases already hold renamed entries. A recorded
   number with no file and no file of the same name is a newer build's migration after a downgrade: no warning. Only the
   server passes its log (`openDb(file, { log })`); the CLIs stay quiet.
-- **Not changed.** No file is renumbered and no number range moves. B's range 200–299 (docs/WORKPLAN.md §4) has 27
-  numbers left after 272 at about ten a day; the next range for B is the owner's call (see the PR).
+- **B gets a second range, 400–499** (owner, 2026-11-08). 200–299 had 27 numbers left after 272 at about ten a day.
+  D and E have no server DB, so 400–599 was free, and 4xx files sort after B's 2xx files, so they may build on them.
+  docs/WORKPLAN.md §4 and the `db.ts` header say so. **A number already on dev is never renamed**: a clash is fixed by
+  renumbering the newer branch before it merges. No file is renumbered here.
 - Tests: `tests/unit/p1-migration-files.test.ts` (the folder checks; the runner skipping a hyphen, a capital, four digits
   and `.SQL`; two files with one number; a new file at the old number, a move with a new file at the old number before
   the "duplicate column" failure, a move with none, a downgrade and a matching database without a warning).
