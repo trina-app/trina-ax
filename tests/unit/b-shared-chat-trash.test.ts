@@ -51,14 +51,17 @@ type Updated = Extract<ServerFrame, { type: 'chat.updated' }>
 // they reach the test. A frame an earlier step sent (alice's delete, a turn's run state) can land on a slow socket after
 // the HTTP answer that came after it, and is not this step's (CI on PR #217, twice).
 const seqOf = (f: ServerFrame) => ('seq' in f && typeof f.seq === 'number' ? f.seq : 0)
-const since = (user: string, from: number) => ws[user]!.frames.filter((f) => seqOf(f) > from)
+// a frame without a seq (presence) has no place in that count: kept, so a check that something is absent sees it too
+const since = (user: string, from: number) => ws[user]!.frames.filter((f) => !('seq' in f) || seqOf(f) > from)
 const updates = (user: string, chatId: string, from: number) => since(user, from).filter((f): f is Updated => f.type === 'chat.updated' && f.data.chatId === chatId)
 const mark = () => Object.fromEntries(Object.keys(ws).map((u) => [u, h.rt().hub.lastSeq(u)])) as Record<string, number>
-// before "hears nothing": every frame the server has sent each person so far reached their socket
+// before "hears nothing": every frame the server has sent each person so far reached their socket (hello counts: it
+// carries the seq at connecting)
 async function caughtUp() {
   const to = mark()
-  const seen = (u: string) => ws[u]!.frames.reduce((n, f) => Math.max(n, seqOf(f)), 0)
-  expect(await waitFor(() => Object.keys(to).every((u) => seen(u) >= to[u]!), { timeoutMs: 10_000 })).toBe(true)
+  const behind = () => Object.keys(to).filter((u) => ws[u]!.frames.reduce((n, f) => Math.max(n, seqOf(f)), 0) < to[u]!)
+  await waitFor(() => !behind().length, { timeoutMs: 10_000 })
+  expect(behind()).toEqual([])
 }
 
 describe('deleting a project', () => {
@@ -323,7 +326,8 @@ describe('access changes', () => {
     const toBob = updates('bob', chat.id, from.bob)
     const purgedAt = toBob.findIndex((f) => f.data.change === 'purged')
     expect(toBob.slice(purgedAt + 1).filter((f) => f.data.chat !== null)).toEqual([])
-    // dana's: in her trash; whatever she hears of it says so
+    // dana's: in her trash; she is told so, and whatever she hears of it says so
+    expect(updates('dana', chat.id, from.dana).map((f) => f.data.change)).toContain('deleted')
     for (const f of updates('dana', chat.id, from.dana)) if (f.data.chat) expect(f.data.chat.deletedAt).not.toBeNull()
     expect(await trashIds('dana')).toContain(chat.id)
   })
