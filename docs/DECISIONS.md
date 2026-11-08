@@ -11198,6 +11198,9 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
 - Tests: `web/test/unit/sidebar.test.tsx`, `web/test/e2e/sidebar.spec.ts`, `tests/unit/b-chat-seen.test.ts`, a matrix
   case for the new route.
 - Version impact: **minor** (a new endpoint, two optional fields, one additive migration).
+- **Appearance leaves the account menu (2026-11-08, the owner's request).** The theme (system, light, dark) is chosen in
+  Settings › Profile only, so there is one place for it and the menu is shorter (lean UI). The menu keeps 자리 비움으로
+  표시, Settings, Usage, Deleted chats and Sign out. No API or data change; the stored `theme` preference is unchanged.
 ## Session markers (feat/session-status-v2, 2026-11-07)
 
 넣을 곳: Team AX core (`web/src/lib/sessionMarkers.ts`, `store/sessionMarkers.ts`, `components/chat/ChatState.tsx`,
@@ -12173,7 +12176,7 @@ core next to the theme.
 
 - **One control, next to the theme.** Settings › Profile › 글자 크기: a native range slider from a small 가 to a large
   가 (the letter follows the language: A, あ), five steps 작게 · 기본 · 크게 · 더 크게 · 아주 크게, and one sample line in
-  the reading size of chats. No reset button: 기본 is a step. Not in the account menu's Appearance (one place, lean UI).
+  the reading size of chats. No reset button: 기본 is a step. Not in the account menu (one place, lean UI: Appearance left the menu on 2026-11-08).
 - **What it does: the root font size.** The step sets `font-size` on `<html>` (90%, none at 기본, 112.5%, 125%, 140%), a
   percentage so a larger default font in the browser still counts. Tailwind's sizes and spacing and the app's own tokens
   are rem, so text, rows, buttons and gaps grow together and nothing gets cut, unlike scaling only the text. The app's

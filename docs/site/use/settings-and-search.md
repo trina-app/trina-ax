@@ -9,13 +9,12 @@ Everything about your own account is one click away, at the bottom of the sideba
 
 Click your name at the bottom of the sidebar.
 
-![The account menu: the signed-in user, then Settings, Usage, Appearance, Deleted chats and Sign out](../images/settings/account-menu.webp "The account menu")
+![The account menu: the signed-in user, then Settings, Usage, Deleted chats and Sign out](../images/settings/account-menu.webp "The account menu")
 
 | Item | Opens |
 |---|---|
 | **Settings** | The Settings window, at your profile |
 | **Usage** | Your own usage and limits |
-| **Appearance** | Light, dark, or follow the system |
 | **Deleted chats** | Chats you deleted, to bring back |
 | **Sign out** | Ends this session |
 
