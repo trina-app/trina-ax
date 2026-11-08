@@ -819,6 +819,9 @@ describe('an answer built on an old answer hidden from someone', () => {
     const D = aiAnswer(roomId, 'alice', 'H-DM-REFUSED', { sources: [{ type: 'room', id: dm.id }] })
     const H = aiAnswer(roomId, 'alice', 'H-OLD-REFUSED', { sources: [folder('groups/marketing')] })
     await setMembers(groupId, ['alice', 'erin', 'bob'])
+    // bob's history opening decides the room's refused previews again right after (redecideRoomSoon): let it pass
+    // before the older build's rows are put in, which only the pass after an upgrade may try here
+    await new Promise((r) => setTimeout(r, 50))
     // more than one step takes: seven that now qualify, two that still do not; all as an older build kept them
     const ok = Array.from({ length: 7 }, (_, i) => preview(roomId, `RECAP-OK-${i}`, { sources: [{ type: 'room', id: roomId, fromSeq: H.seq - 1 }, folder('shared')] }))
     const no = Array.from({ length: 2 }, (_, i) => preview(roomId, `RECAP-NO-${i}`, { sources: [{ type: 'room', id: roomId, fromSeq: D.seq - 1 }] }))
