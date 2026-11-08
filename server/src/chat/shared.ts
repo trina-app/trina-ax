@@ -84,12 +84,14 @@ const seesUnder = (rules: RuleSet, p: Pick<ProjectRow, 'folder_path' | 'trashed_
 /**
  * The folder rules a project is judged by as if its folder were in place: the team's rules now, or while its folder is in
  * the files trash the rules parked with it put back at its old path (rules of a folder that took that path since do not
- * count), as the files trash judges who may restore it (team-files/service.ts trashVisible). A folder purged from the
- * trash: the rules now (its own are gone).
+ * count), as the files trash judges who may restore it (team-files/service.ts trashVisible). null: its folder was purged
+ * from the trash (its own rules are gone, and the folder above may let in people it kept out): only the owner and
+ * admins see the project, as canSeeProject says.
  */
-export function rulesInPlace(db: Database, files: FileService, p: Pick<ProjectRow, 'trashed_with'>): RuleSet {
-  const t = p.trashed_with ? db.query('SELECT original_path, storage_path FROM trash_items WHERE id = ?').get(p.trashed_with) as { original_path: string; storage_path: string } | null : null
-  if (!t) return files.rules()
+export function rulesInPlace(db: Database, files: FileService, p: Pick<ProjectRow, 'trashed_with'>): RuleSet | null {
+  if (!p.trashed_with) return files.rules()
+  const t = db.query('SELECT original_path, storage_path FROM trash_items WHERE id = ?').get(p.trashed_with) as { original_path: string; storage_path: string } | null
+  if (!t) return null
   return new RuleSet(db.query(`SELECT CASE WHEN f.path = ?1 OR substr(f.path, 1, length(?1) + 1) = ?1 || '/'
       THEN ?2 || substr(f.path, length(?1) + 1) ELSE f.path END AS path, r.subject_type, r.subject_id, r.access
     FROM folder_rules r JOIN folders f ON f.id = r.folder_id
@@ -101,9 +103,10 @@ export function rulesInPlace(db: Database, files: FileService, p: Pick<ProjectRo
  * (while it is in the trash only the owner and admins see the project; its people again once it is back: `rules` from
  * rulesInPlace). For a deleted project's shared chats (routes/chats.ts deleteProject): one goes to its creator's trash
  * only when they would see it. */
-export function accountSeesProject(db: Database, rules: RuleSet, p: Pick<ProjectRow, 'folder_path'>, userId: string): boolean {
+export function accountSeesProject(db: Database, rules: RuleSet | null, p: Pick<ProjectRow, 'folder_path'>, userId: string): boolean {
   const u = db.query('SELECT id, name, role FROM users WHERE id = ? AND deleted_at IS NULL').get(userId) as Pick<Principal, 'id' | 'name' | 'role'> | null
   if (!u) return false
+  if (!rules) return u.role === 'owner' || u.role === 'admin'
   const groups = (db.query('SELECT group_id FROM group_members WHERE user_id = ?').all(userId) as { group_id: string }[]).map((r) => r.group_id)
   return seesUnder(rules, { folder_path: p.folder_path, trashed_with: null }, { ...u, groups })
 }

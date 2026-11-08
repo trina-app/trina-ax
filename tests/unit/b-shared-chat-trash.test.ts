@@ -134,6 +134,19 @@ describe('deleting a project', () => {
     // judged by the folder's own rules, as if it were back: bob would see it
     expect(row(chat.id)).toMatchObject({ user_id: 'bob', project_id: null, shared_at: null })
     expect(await trashIds('bob')).toContain(chat.id)
+
+    // the same under shared/ (everyone reads it), the folder's own rule keeping erin out, and the folder purged from the
+    // files trash before the project is deleted: its rules are gone, so nobody but admins counts (not erin by shared/'s)
+    const q = await h.api('dana').call(API.createProject, { body: { name: 'Purged', folderPath: 'shared/acme-purged', scope: 'team', participants: [], instructions: '' } })
+    await h.api('dana').call(API.updateProject, { params: { id: q.id }, body: { shareChats: true } })
+    const erins = await h.api('erin').call(API.createChat, { body: { projectId: q.id } })
+    await ask('erin', erins.id, 'erin asks\n' + fake({ say: 'ok' }))
+    const fid = (db().query("SELECT id FROM folders WHERE path = 'shared/acme-purged'").get() as { id: string }).id
+    db().query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('acme-purged-erin', ?, 'user', 'erin', 'none')").run(fid)
+    const { trashId } = await h.api('dana').call(API.remove, { query: { path: 'shared/acme-purged' } })
+    await h.api('dana').call(API.purgeTrash, { params: { id: trashId } })
+    await h.api('dana').call(API.deleteProject, { params: { id: q.id } })
+    expect(row(erins.id)).toBeNull()
   })
 
   test('a shared chat whose creator would not see the project goes for good, as before; a disabled creator keeps theirs', async () => {

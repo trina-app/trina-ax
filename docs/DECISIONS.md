@@ -14121,7 +14121,9 @@ A design audit of dev found three problems. Plan: `docs/AGENTS/plan/20261108-115
     "대화방에 보내기" takes their own turns' answers only, and "스킬로 제안" refuses the chat (someone else's words), as in
     a shared chat; so do the server's own flows on a person's chat (`ChatStore.ownChat`: skill drafts, merges). The
     wider-audience card names a place the chat read only when its creator may see it ("이 채팅에서 다른 사람이 연 곳"), an
-    attachment is judged as they see it, and the URL gate counts only addresses they typed (`url-gate.ts sharedChat`).
+    attachment is judged as they see it, and the URL gate counts only addresses they typed (`url-gate.ts sharedChat`;
+    an address allowed on a card there is learned, within the link budget, since the record does not say who allowed
+    it).
     Its marker and last outcome come from the creator's own answers. This applies to the rollback guard's chats too: an
     answer of another person there with no record (an older build ran it) is hidden from the creator (fails closed;
     rare: only after a rollback).
@@ -14131,8 +14133,9 @@ A design audit of dev found three problems. Plan: `docs/AGENTS/plan/20261108-115
     A disabled account counts as if enabled again (it would see its shared chats again then): its chats go to its
     trash. A project whose folder is in the files trash (only admins see it then) is judged by the folder's own rules
     as if it were back (`rulesInPlace`: the parked rules at its old path, as the files trash judges a restore), so an
-    admin who trashes the folder and then deletes the project does not purge its people's chats. The dialog does not
-    say the rare purge.
+    admin who trashes the folder and then deletes the project does not purge its people's chats. A folder purged from
+    the files trash since has no rules of its own any more (the folder above may let in people it kept out): then only
+    the owner and admins count. The dialog does not say the rare purge.
   - **The confirm** drops the red "공유 채팅 N개도 함께 지워져요." line (`projects.deleteShared` removed). With shared chats:
     "프로젝트만 지워지고 폴더와 내 채팅은 그대로 남아요. 공유 채팅은 {days}일 동안 만든 사람의 "{trash}"에 있어요.", the
     days the team's chat retention, `{trash}` the sidebar's name of the trash (`sidebar.trash`, "삭제한 기록"), so a
@@ -14159,7 +14162,8 @@ A design audit of dev found three problems. Plan: `docs/AGENTS/plan/20261108-115
   people's turns read (fixed above). Should-fix, fixed: a project whose folder was in the trash purged its members'
   chats; the URL gate took addresses others typed as the creator's; `ownChat` (skill drafts, merges) took the chat.
   Nits fixed: the removal check runs for the people whose access changed only; a late notice of another person's turn
-  is not told to the creator; the marker and last outcome. Kept: the confirms name the trash by the sidebar's label
+  is not told to the creator; the marker and last outcome. Round 2 (on the fixes): no must-fix; a project whose folder
+  was purged from the trash judged its creators by the folder above (should-fix: owner and admins only). Kept: the confirms name the trash by the sidebar's label
   (`sidebar.trash`, what one clicks to get there; the page's heading `trash.title` reads the same).
 - **Not here.** A project repoint or its folder moved to the trash also change who sees its chats, outside
   `afterAccessChange`: no removal is sent then (the next list load drops them, as before). Unsharing by hand.
