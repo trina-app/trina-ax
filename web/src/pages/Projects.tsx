@@ -6,7 +6,8 @@
 // in Team settings, and a chat shows its own runs (docs/DECISIONS.md "Dev environment: no line on the project page").
 // Shared project chats (docs/DECISIONS.md "Shared project chats"): the setting is in the edit dialog (ProjectForm), the
 // list is "채팅" (my chats there and every shared chat of the project I can see, those with the people icon and the
-// name of who made them), the box says who sees a new chat, and deleting the project says its shared chats go too.
+// faces of who wrote in them: ProjectChatRow), the box says who sees a new chat, and deleting the project says its
+// shared chats go too.
 // Each card on the list has a "…" (the rooms lists' row menu): 이름 바꾸기 and 삭제 for people who may edit the project
 // (the same rename prompt as a chat's, the same delete confirm as on the project page), 링크 복사 for everyone.
 import { FileText, FolderKanban, Folder, Link2, Pencil, Plus, ScrollText, Share2, Trash2 } from 'lucide-react'
@@ -27,7 +28,7 @@ import { Markdown } from '../components/Markdown'
 import { DisclosureRow } from '../components/DisclosureRow'
 import { TitleMenu } from '../components/TitleMenu'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
-import { SharedIcon } from '../components/chat/SharedChat'
+import { ChatPeople, SharedIcon } from '../components/chat/SharedChat'
 import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
 import { ProjectForm } from '../components/ProjectForm'
 import { ProjectTrashNote } from '../components/ProjectTrashNote'
@@ -214,6 +215,33 @@ export function ProjectList() {
   )
 }
 
+/** A chat on a project's page: its title and when it last changed. A shared chat has the people icon before the title
+ * and the faces of the people who wrote in it before the time (ChatPeople: one person with the name); a chat of mine
+ * has neither. The title gives way first: the faces and the time keep their room. */
+export function ProjectChatRow({ chat: c }: { chat: Chat }) {
+  const t = useT()
+  const locale = useLocale()
+  // the row's keyboard focus shows the names on the faces (they take no focus of their own inside the link)
+  const row = useRef<HTMLAnchorElement>(null)
+  return (
+    <Link ref={row} to={`/c/${c.id}`} className="-mx-2 flex items-center gap-4 rounded-md px-2 py-3 text-sm hover:bg-hover" data-shared={c.shared ? 'true' : undefined} data-testid="project-chat">
+      <span className="flex min-w-0 flex-1 items-center gap-2">
+        {c.shared && <SharedIcon className="text-faint" />}
+        <span className="truncate">{c.title || t('chat.untitled')}</span>
+      </span>
+      <span className="flex max-w-[45%] shrink-0 items-center gap-1.5 text-xs text-faint">
+        {c.shared && (
+          <>
+            <ChatPeople shared={c.shared} focusFrom={row} />
+            <span aria-hidden>·</span>
+          </>
+        )}
+        <span className="shrink-0">{formatRelative(c.updatedAt, locale)}</span>
+      </span>
+    </Link>
+  )
+}
+
 export function ProjectHome() {
   const t = useT()
   const locale = useLocale()
@@ -382,22 +410,7 @@ export function ProjectHome() {
             <ul className="divide-y divide-line">
               {chats?.map((c) => (
                 <li key={c.id}>
-                  <Link to={`/c/${c.id}`} className="-mx-2 flex items-center gap-4 rounded-md px-2 py-3 text-sm hover:bg-hover" data-shared={c.shared ? 'true' : undefined}>
-                    <span className="flex min-w-0 flex-1 items-center gap-2">
-                      {c.shared && <SharedIcon className="text-faint" />}
-                      <span className="truncate">{c.title || t('chat.untitled')}</span>
-                    </span>
-                    {/* a shared chat: who made it, before when it last changed */}
-                    <span className="flex max-w-[45%] shrink-0 items-center gap-1.5 text-xs text-faint">
-                      {c.shared && (
-                        <>
-                          <span className="truncate" data-testid="project-chat-by">{c.shared.by.name}</span>
-                          <span aria-hidden>·</span>
-                        </>
-                      )}
-                      <span className="shrink-0">{formatRelative(c.updatedAt, locale)}</span>
-                    </span>
-                  </Link>
+                  <ProjectChatRow chat={c} />
                 </li>
               ))}
             </ul>

@@ -3709,6 +3709,14 @@ export class MockServer {
       },
     }
   }
+  /** Who wrote in a shared chat, for its project's page (chat/shared.ts chatPeople): the most recent writer first, at
+   * most 3, and how many */
+  sharedPeople(chatId: string): { people: { id: string; name: string }[]; peopleCount: number } {
+    const last = new Map<string, number>()
+    this.messages.forEach((m, i) => { if (m.chatId === chatId && m.role === 'user' && m.author) last.set(m.author.id, i) })
+    const ids = [...last].sort((a, b) => b[1] - a[1]).map(([id]) => id)
+    return { people: ids.slice(0, 3).map((id) => ({ id, name: this.users.find((u) => u.id === id)?.name ?? id })), peopleCount: ids.length }
+  }
   /** One event per window, each made for that window's person (null: none for them); seq goes on as for any event. */
   sharedSend(make: (userId: string) => ServerEventInput | null) {
     for (const ws of this.sockets) {
@@ -3802,7 +3810,8 @@ export class MockServer {
         const v = this.sharedView(x, c.user)
         if (!v) return []
         if (x.deletedAt) return v.shared!.canDelete ? [v] : []
-        return c.query.projectId || v.shared!.mine ? [v] : []
+        if (!c.query.projectId) return v.shared!.mine ? [v] : []
+        return [{ ...v, shared: { ...v.shared!, ...this.sharedPeople(x.id) } }]
       })
       return { ...out, items }
     })
