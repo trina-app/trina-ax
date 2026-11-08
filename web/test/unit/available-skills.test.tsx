@@ -74,36 +74,50 @@ describe('Available skills', () => {
     expect(skillFileLink('users/bob/skills/my-tone.md')).toBe('/files?path=users%2Fbob%2Fskills&select=users%2Fbob%2Fskills%2Fmy-tone.md')
   })
 
-  test('none yet: says so and how one gets there; nothing while loading', () => {
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
-      setLocale(l)
-      const html = render([])
-      expect(html).toContain(translate(l, 'skills.noSkills'))
-      expect(html).not.toContain('skill-row')
-    }
+  test('none yet: says so (owners and admins: none yet; members: the owner or an admin puts them in, and how one gets there); nothing while loading', () => {
+    try {
+      for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+        setLocale(l)
+        for (const role of ['owner', 'admin'] as const) {
+          as(role)
+          const html = render([])
+          expect(html).toContain(translate(l, 'skills.noSkills'))
+          expect(html).not.toContain('skill-none-member')
+          expect(html).not.toContain('skill-row')
+        }
+        as('member')
+        const member = render([])
+        expect(member).toContain(translate(l, 'skills.catalog.memberEmpty'))
+        expect(member).toContain('data-testid="skill-none-member"')
+        expect(member).toContain(translate(l, 'skills.noSkillsHint').replace(/'/g, '&#x27;').replace(/"/g, '&quot;'))
+        expect(member).not.toContain('skill-row')
+      }
+    } finally { as(null) }
     expect(render(null)).not.toContain('skill-row')
   })
 
-  test('a team with skills: no pack line or install button for anyone (nothing offers a pack but the empty page: docs/DECISIONS.md "DS3")', () => {
+  test('nothing installs by itself and no install button sits on the page (docs/DECISIONS.md "DS3", "W6"): the kept skills wait in the fold, read after the page shows', () => {
     setLocale('ko')
     const general: SkillInfo[] = [{ path: 'skills/general/card-news/SKILL.md', name: 'card-news', title: '카드뉴스', description: '' }]
     try {
       for (const role of ['owner', 'admin', 'member'] as const) {
         as(role)
-        const html = render(general)
-        expect(html).not.toContain('skill-pack')
-        expect(html).not.toContain(translate('ko', 'skillPack.adminHint'))
+        for (const list of [general, []]) {
+          const html = render(list)
+          expect(html).not.toContain('skill-pack')
+          expect(html).not.toContain('skill-catalog')
+        }
       }
     } finally { as(null) }
   })
 
-  test('the empty page names the four skills that ship: its words in every language hold no pack that is gone', () => {
+  test('the catalog\'s words name no pack that is gone, in any language', () => {
     for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
-      const hint = translate(l, 'skillPack.adminHint')
-      expect(hint).not.toMatch(/7|seven|sieben|siete|tujuh|７|マーケティング|marketing|마케팅|pemasaran/i)
-      expect(translate(l, 'skillPack.install', { n: 4 })).toContain('4')
+      for (const k of ['skills.catalog.title', 'skills.catalog.more', 'skills.catalog.install', 'skills.catalog.memberEmpty', 'skillPack.installed', 'skillPack.taken'] as const) {
+        expect(translate(l, k, { n: 4 })).not.toMatch(/seven|sieben|siete|tujuh|マーケティング|marketing|마케팅|pemasaran/i)
+      }
+      expect(translate(l, 'skills.catalog.more', { n: 4 })).toContain('4')
+      expect(translate(l, 'skills.catalog.install', { n: 2 })).toContain('2')
     }
-    expect(translate('ko', 'skillPack.adminHint')).toContain('회사 소개서')
-    expect(translate('ko', 'skillPack.adminHint')).toContain('자연스러운 글')
   })
 })

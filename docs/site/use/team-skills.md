@@ -15,14 +15,20 @@ A skill is a reusable procedure in a `SKILL.md` file. It tells the AI how your t
 
 ## Recommended skills
 
-Four ready-made skills ship with the product, in the team's language (Korean or English; other languages get the English text). Nothing adds them by itself:
+Four ready-made skills ship with the product, in the team's language (Korean or English; other languages get the English text). Nothing adds them by itself: each goes in only when someone presses a button that names it.
 
 | Folder | Skills | How they get in |
 |---|---|---|
-| `skills/general/` | Company profile, Promo cards, Promo video | **Add 4 recommended skills** on an empty **Available skills** page (owners and admins) |
-| `skills/work/` | Natural writing | The same button |
+| `skills/general/` | Company profile, Promo cards, Promo video | The owner picks them in the setup step **Choose the skills your team will use**, or an owner or admin adds them later on **Available skills** |
+| `skills/work/` | Natural writing | The same |
 
-The welcome steps add none of them by themselves: a skill goes in only on a press that names it. The button on the empty page adds all four; it adds only what is missing. When the team has one of them at the end of the welcome steps, the last screen offers to make a first result with it (Promo cards first): the press opens the skill's form and nothing runs until you press **Run**. They are your team's own files: skill managers can edit, move or delete them. A skill you edited is never replaced, one you deleted never comes back by itself, and one whose name another team skill already uses is skipped.
+- **In the setup steps** each skill has one line and **Example**. Company profile, Promo cards and Promo video come checked when the company profile was saved (they are made from it); Natural writing starts unchecked. The button names what goes in, for example **Add Company profile·Promo cards·Promo video**.
+- **On Available skills**, owners and admins see one folded line under the list, **Skills prepared by Trina AX · 2 more**, with the ones the team does not have yet. Open it, tick what you want (nothing is ticked first) and press **Add to the team**. The line is hidden while you search and gone when the team has them all. A skill that ships in a later version only raises the count: there is no notice.
+- **Example** shows what the skill makes for an invented company, Example Coffee, and where the skill comes from.
+
+When the team has one of them at the end of the setup steps, the last screen offers to make a first result with it (Promo cards first): the press opens the skill's form and nothing runs until you press **Run**.
+
+They are your team's own files: skill managers can edit, move or delete them. Adding again only adds what is missing; a skill you edited is never replaced, and one whose name another team skill already uses is skipped. A skill you deleted comes back only when someone adds it again by name.
 
 **Natural writing** rewrites text that reads as AI-written so it sounds like a person wrote it, without changing any fact. The Korean version was written by the company and knows Korean genres (blog, Shorts titles, Instagram, proposals, notices); the English one is adapted from the open-source "humanizer" skill (MIT License, its notice is inside the skill).
 
@@ -78,7 +84,7 @@ Return decisions, an action table and open questions. Cite the source paths.
 
 ## Bring your skills from Claude Code or Codex
 
-Owners and admins can bring the skills they already use to the team, in the setup steps or from a proposal link:
+Owners and admins can bring the skills they already use to the team: in the setup steps (under the ready-made skills), with **Bring my skills** under the list on **Available skills**, or from a proposal link. On a phone the page says this is done on a computer.
 
 | From | Pick or drop | What is read |
 |---|---|---|
@@ -88,7 +94,7 @@ Owners and admins can bring the skills they already use to the team, in the setu
 Or, once Claude Code or Codex is connected to the team ([the MCP connector](../agents/mcp-connector.md)), paste one line into it and it sends a proposal.
 
 - Nothing else in those folders is opened. A skill that holds a key or token never leaves your computer; only its name is listed.
-- The server checks every skill again and suggests the ones the whole team can use. Nothing reaches the team before you press **Share with the team**.
+- The server checks every skill again and suggests the ones the whole team can use. If that check takes longer than 30 seconds, the list shows with nothing ticked and you pick yourself. Nothing reaches the team before you press the button that adds it.
 - The rule file becomes one team rule. Remote MCP servers become connection templates without keys: each member connects with their own.
 - A skill with the same name as a team skill is merged in a chat that can only read the two and save the team skill, after you confirm.
 - **To one of your groups instead.** On the proposal's page, **Share with** picks the whole team (the default) or one of your groups; Claude Code and Codex can name the group too. A proposal to a group adds skills only (no team rule, no connections) and never changes a team skill: a skill named like one of the group's is merged into it or kept beside it, and one named like a team skill becomes the group's own copy. The group's members see it under **Team skills › Review** (only what goes to the group) and any of them can add it to the group. The setup steps always share with the team.
@@ -111,7 +117,7 @@ Members and other skill managers do not see the line.
 
 ## Members bring their own skills
 
-After a member's first good result with the skill their invite opened, one line under the answer asks whether they want to bring the skills or files they use to the team too. **Bring them** opens one sheet on a computer:
+Members use **Bring my skills** under the list on **Available skills** (on a computer), or the one line under the answer after a first good result, which asks whether they want to bring the skills or files they use to the team too. Both open one sheet:
 
 - The member picks or drops their `.claude`, `.codex` or `.agents` folder, read the same way as above. A skill that holds a key never leaves their computer.
 - Nothing is ticked first. They tick up to 10 skills and send them as suggestions; up to 20 of their suggestions can wait at a time. Rule files and MCP servers are not sent.
