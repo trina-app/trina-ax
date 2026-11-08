@@ -10,7 +10,8 @@ import { app as electronApp, BaseWindow, dialog, Notification, session, WebConte
 import { join } from 'node:path'
 import { PRODUCT, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
 import { Health, Me } from '@mycel/shared/api'
-import { asksOutside, firstRunLinks, healthVerdict, hostOf, isSignInPath, originOf, parseTeamAddress, teamLabel, type AddressError } from '../common/address'
+import { asksOutside, firstRunLinks, healthVerdict, hostOf, isSignInPath, originOf, parseTeamAddress, readDesktopLink, teamLabel, type AddressError } from '../common/address'
+import { LinkGate } from '@mycel/shared/team-link'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { teamHostnames } from '../common/browser-block'
 import { SitePermissions, type SiteSettings } from '../common/site-permissions'
@@ -39,6 +40,11 @@ export interface WelcomeState {
   suggested: string | null
   /** the "no team yet" screen offers [팀 만들기] (not in the Mac App Store build: App Review 3.1.1) */
   signup: boolean
+  /** screen ④: a link from outside waits for the person's yes (the host it would connect to; hosted: run by the hosted
+   * service). Nothing is fetched before the yes. */
+  link: { host: string; hosted: boolean } | null
+  /** a link from outside that cannot open a team: said once on ① */
+  linkError: string | null
 }
 
 /** What adding a team from the first-run screen came to. `confirmOutside`: the address answered but is not run by the
@@ -130,6 +136,9 @@ export class AppWindow {
   private choosingFiles = false
   /** the team page shows one of its sign-in pages (common/address.ts isSignInPath): the host strip is on */
   private signInPage = false
+  /** screen ④: the link from outside that waits for a yes (shared/src/team-link.ts LinkGate) */
+  private linkGate = new LinkGate()
+  private linkError: string | null = null
 
   constructor(private o: AppWindowOptions) {
     this.teams = o.store.load()
@@ -195,7 +204,38 @@ export class AppWindow {
       offline: this.mode === 'offline' && this.team ? { address: this.team.origin } : null,
       suggested: this.teamList().length ? null : (this.o.suggestedTeam ?? null),
       signup: firstRunLinks({ macAppStore: this.o.macAppStore === true, korean: false }).signup !== null,
+      link: (() => { const l = this.linkGate.pending(); return l ? { host: l.host, hosted: l.hosted } : null })(),
+      linkError: this.linkError,
     }
+  }
+
+  /**
+   * A link from outside (`trina-ax://open?url=…`, main.ts: open-url, a second instance's or this one's command line):
+   * screen ④ asks "{host}에 연결할까요?" first. Nothing is fetched or loaded until the person's yes (answerLink); a
+   * link that cannot open a team says so on ①.
+   */
+  offerLink(raw: string) {
+    const p = readDesktopLink(raw)
+    if (p?.ok) {
+      this.linkGate.put(p, Date.now())
+      this.linkError = null
+    } else this.linkError = t(this.o.locale(), 'link.bad')
+    this.showWelcome()
+    this.linkError = null
+  }
+
+  /** The person's answer on ④ for the host it showed: yes connects (the phase-1 path, the outside question answered by
+   * ④ itself); no goes back to the open team, if any. null: nothing to do (no link waiting, too soon, another host). */
+  async answerLink(yes: boolean, host: string): Promise<AddTeamResult | null> {
+    const offer = this.linkGate.answer(yes, host, Date.now())
+    if (!yes) {
+      this.sendWelcome()
+      if (this.team && this.app) this.back()
+      return null
+    }
+    if (!offer) return null
+    this.sendWelcome()
+    return this.addTeam(offer.origin + offer.entryPath, true)
   }
 
   /** The "no team yet" screen's buttons: the address is chosen here, never taken from the screen. */

@@ -258,6 +258,10 @@ button.link {
 .confirm p {
   margin: 0;
 }
+/* ④'s question names a host: a long one wraps instead of running out of the card */
+.host-title {
+  overflow-wrap: anywhere;
+}
 
 /* ---------------- host strip above the team's sign-in pages ---------------- */
 body.hostbar {

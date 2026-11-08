@@ -3,8 +3,8 @@
 // here it gets the desktop's rules: the hosted team domain, and plain http only for this machine (development).
 // Pure: no Electron, unit-tested in tests/unit/e-desktop-common.test.ts and tests/unit/team-link.test.ts.
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
-import { SOURCE_CODE } from '@mycel/shared'
-import { parseTeamInput, relayAnswer, relayRename, type RelayAnswer, type TeamInputError, type TeamInputOptions } from '@mycel/shared/team-link'
+import { PRODUCT, SOURCE_CODE } from '@mycel/shared'
+import { parseTeamInput, readAppLink, relayAnswer, relayRename, type RelayAnswer, type TeamInput, type TeamInputError, type TeamInputOptions } from '@mycel/shared/team-link'
 
 export { isLoopbackHost } from '@mycel/shared/team-link'
 
@@ -21,6 +21,22 @@ export function parseTeamAddress(raw: string): ParsedAddress {
   const p = parseTeamInput(raw, DESKTOP_INPUT)
   if (!p.ok) return p
   return { ok: true, origin: p.origin, host: p.host, dev: p.loopback, entryPath: p.entryPath, name: p.name, hosted: p.hosted }
+}
+
+/** The link scheme this app answers (`trina-ax://open?url=…`): PRODUCT.linkScheme, the phone app's scheme too. */
+export const LINK_SCHEME: string = PRODUCT.linkScheme
+
+/** A link that opened the app from outside: `<scheme>://open?url=<team link>` only (the desktop declares no web
+ * domains), read with the box's rules (https; http only to this machine). null: not a link for this app. */
+export function readDesktopLink(raw: string): TeamInput | null {
+  return readAppLink(raw, { ...DESKTOP_INPUT, scheme: LINK_SCHEME, universal: false })
+}
+
+/** The link in a command line: Windows and Linux start the app (or its second instance) with the link as an argument.
+ * Anything else on the command line (Chromium switches, the app's path) is ignored. */
+export function linkFromArgv(argv: readonly string[], scheme = LINK_SCHEME): string | null {
+  const prefix = `${scheme.toLowerCase()}:`
+  return argv.find((a) => typeof a === 'string' && a.length <= 4096 && a.toLowerCase().startsWith(prefix)) ?? null
 }
 
 /** How the team address answered GET /api/health (the main process fetches it, following redirects). */
