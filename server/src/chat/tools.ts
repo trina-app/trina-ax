@@ -236,6 +236,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         const refusal = typeof target === 'string' ? await exec.confirmWidening(target, typeof a.output === 'string' && typeof a.file_path === 'string' ? [a.file_path] : []) : null
         if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, summary: 'edit_hwp -> not allowed by the user (wider audience)' }
       }
+      // a call a room grant or [이번만] let through: checked again now that any card above has waited (chat/turn.ts)
+      const again = await exec.recheckRoomCover(name, args, { main: files === exec.files })
+      if (again) return { ...text(again, true), summary: `${name} -> not allowed by the user (room)` }
       const out = await t.call(args, files)
       // a room session: a link share_file made says the path exists; the path as the server resolved it (actual case and
       // Unicode form) counts like a name read (turn.ts noteReads), besides the path as given (noteRoomTool)
@@ -290,7 +293,11 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       const no = await exec.confirmSkillWrite(name, args, caller?.files)
       if (no) return no
       const p = (args as { file_path?: unknown } | null)?.file_path
-      return typeof p === 'string' ? exec.confirmWidening(p) : null
+      const widen = typeof p === 'string' ? await exec.confirmWidening(p) : null
+      if (widen) return widen
+      // a call a room grant or [이번만] let through: checked again now that any card above has waited (chat/turn.ts)
+      const again = await exec.recheckRoomCover(name, args, { main: !caller || caller.files === exec.files })
+      return again ? { refusal: again, summary: `${name} -> not allowed by the user (room)` } : null
     },
   }
 }

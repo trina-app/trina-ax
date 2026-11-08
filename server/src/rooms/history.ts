@@ -86,6 +86,25 @@ export function openHistory(ctx: AppContext, roomId: string, userId: string, o: 
   return true
 }
 
+/**
+ * Would `userId` see this team room from `fromSeq` on if they joined it now (an owner or admin may add themselves to any
+ * group, and so to its room: docs/DECISIONS.md "대화방에서 새 파일은 미리 허용")? The same walk as a later member's
+ * (walk): the room's whole history but the old answers hidden from them, none of which may be at or after `fromSeq`.
+ * Only a team room; anything that cannot be worked out (an account not loaded, an error, a room gone or archived) is no.
+ */
+export function wouldSeeFrom(ctx: AppContext, roomId: string, userId: string, fromSeq: number): boolean {
+  try {
+    const room = roomRow(ctx.db, roomId)
+    if (!room || room.archived_at || room.kind !== 'team') return false
+    const who = loadPrincipal(ctx.db, userId)
+    if (!who) return false
+    return !walk(ctx, ctx.files.rules(), roomId, userId, room.last_seq, who).some((h) => h.see >= fromSeq)
+  } catch (e) {
+    ctx.log.warn('room history: would-see not worked out', { err: e })
+    return false
+  }
+}
+
 /** A walk that ran out of the time its caller had (`deadline`): nothing was written, the member keeps waiting (they see
  * the room from their join on, and an answer decided meanwhile counts them as not known: rooms/ai.ts decide). */
 export class HistoryOutOfTime extends Error {}

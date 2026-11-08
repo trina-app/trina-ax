@@ -89,14 +89,22 @@ Built as planned, with the security re-check's changes (writers check per member
 carrying the room card's details with the widening need computed first, "made in this answer" from the turn's
 `file_events` creates, coverage stopping at a ruled subfolder, the created files named under the answer).
 
+Review of PR #198 (fixed on the branch): [이번만 허용] covers the folder only on a card that offered "always" (its
+uses audited and listed like a grant's); a member who joins while the card is open lapses the grant (`members_since`);
+nothing is covered once the question used the web (`room_outside`); the audience hash leaves out people with no access;
+a grant is bound to the folder on disk (`folder_id`); make_file is checked at its real path; a covered call is checked
+again right before it writes. Design change: a team room as a source does not count as narrower when only owners and
+admins who would see it on joining are missing (`wouldSeeFrom`).
+
 Differs from the brief, and why:
-- [이번만 허용] is held to the same path and writers checks as "always" (otherwise it covers that one call, as before):
-  the steering risk the writers check closes exists within one answer too.
+- [이번만 허용] is held to the same checks as "always" (otherwise it covers that one call, as before): the steering risk
+  the writers check closes exists within one answer too.
 - The merged card also applies in the person's own chat after a room read (the same two cards per save), with the
   rooms-seen line in front of the wider-audience question.
 - Lapsed grants are deleted when found (audited) so a change back does not revive them; the admin switch only ignores.
 - Settings section label follows `PRODUCT_NAMED_AFTER_AI` ("AI에게 허용한 것" in the core edition).
 - Known limit, for the owner: a room question with earlier messages in its context counts the room as a source, so a
-  save where people outside the room can read (the owner and admins) still shows the wider-audience card, once.
+  save where people outside the room can read still shows the wider-audience card, once, unless (team rooms) only
+  owners and admins who would see the room on joining are missing.
 
 PR: https://github.com/trina-app/trina-ax/pull/198

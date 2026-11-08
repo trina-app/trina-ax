@@ -6,16 +6,20 @@
 // keeps the rows and checks, every time one is used, that nothing it was given under has changed:
 // - 30 days have not passed;
 // - the person is still in the room and the room is not archived;
-// - nobody joined the room after the grant (their words were never weighed when it was given);
-// - who may read and who may write the folder is the same (folderAudience: every active person's access);
+// - nobody joined the room since its card was raised (their words were never weighed when it was given);
+// - who may read and who may write the folder is the same (folderAudience: the people with access there and theirs);
+// - it is the same folder (a folder renamed away and another made with its name is not it: folderId);
 // - every member of the room, the person too, may write the target (a grant adds nothing a member could not do);
 // - the target's own folder has no folder rules of its own below the granted folder, and the same readers and writers;
 // - the team's switch (TeamSettings.roomAlwaysAllow) is on: off, grants are ignored, not deleted.
 // A lapsed grant is deleted when it is found so (any later change back does not bring it back); leaving the room deletes
 // the person's grants there (rooms/service.ts forgetMember). Audit: room.ai_grant (made), room.ai_grant_revoke (deleted:
-// the person, a lapse, leaving), room.ai_grant_use (a card skipped), each naming a DM or a group chat by its kind only.
+// the person, a lapse, leaving), room.ai_grant_use (a card skipped by a grant, or by this answer's [이번만 허용]: `once`),
+// each naming a DM or a group chat by its kind only.
 import type { Database } from 'bun:sqlite'
 import crypto from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
 import type { AiAllowance } from '@mycel/shared/api'
 import { audit } from '../admin/audit'
 import { getTeamSettings } from '../admin/settings'
@@ -28,8 +32,8 @@ import { members, memberRow, roomAuditRef, roomOut, roomRow, type RoomRow } from
 export const ROOM_GRANT_DAYS = 30
 const DAY_MS = 86_400_000
 
-export type GrantLapse = 'expired' | 'left' | 'member_joined' | 'audience' | 'no_write'
-export interface GrantRow { id: string; user_id: string; room_id: string; folder: string; scope: 'new_files'; audience: string; turn_id: string | null; created_at: string; expires_at: string }
+export type GrantLapse = 'expired' | 'left' | 'member_joined' | 'audience' | 'no_write' | 'folder_changed'
+export interface GrantRow { id: string; user_id: string; room_id: string; folder: string; folder_id: string; scope: 'new_files'; audience: string; members_since: string; turn_id: string | null; created_at: string; expires_at: string }
 
 /** May the team's rooms offer "항상" and use grants (the admin switch, on by default)? */
 export const grantsOn = (db: Database): boolean => getTeamSettings(db).roomAlwaysAllow !== false
@@ -42,11 +46,26 @@ function activePeople(db: Database): Principal[] {
   return users.map((u) => ({ ...u, groups: groups.get(u.id) ?? [] }))
 }
 
-/** Who may read and who may write `segs` (a folder, actual names), as one hash: every active person's access there,
- * like tools/file-moves.ts compares audiences (identities, never names, leave this module). */
+/** Who may read and who may write `segs` (a folder, actual names), as one hash: the active people with access there and
+ * what access, like tools/file-moves.ts compares audiences (identities, never names, leave this module). People with no
+ * access are left out: a new account that cannot open the folder changes nothing. */
 export function folderAudience(db: Database, rules: RuleSet, segs: readonly string[]): string {
-  const rows = activePeople(db).map((p) => `${p.id}\u0000${rules.access(p, segs)}`).sort()
+  const rows = activePeople(db).flatMap((p) => { const a = rules.access(p, segs); return a === 'none' ? [] : [`${p.id}\u0000${a}`] }).sort()
   return crypto.createHash('sha256').update(JSON.stringify(rows)).digest('hex')
+}
+
+/** The active people who may read `segs` (the wider-audience check's target readers, chat/turn.ts widenNeed). */
+export function readersOf(db: Database, rules: RuleSet, segs: readonly string[]): string[] {
+  return activePeople(db).filter((p) => rules.access(p, segs) !== 'none').map((p) => p.id)
+}
+
+/** Which folder on disk `segs` (actual names) is: its device and inode, so a folder renamed away and another made with
+ * the same name is told apart from it. null: not a folder there. */
+export function folderId(fx: FsCtx, segs: readonly string[]): string | null {
+  try {
+    const st = fs.lstatSync(path.join(fx.root, ...segs))
+    return st.isDirectory() ? `${st.dev}:${st.ino}` : null
+  } catch { return null }
 }
 
 /** A folder below `from` (exclusive) on the way to `to` (inclusive) that has folder rules of its own: coverage stops
@@ -80,8 +99,9 @@ function lapse(db: Database, fx: FsCtx, rules: RuleSet, g: GrantRow, now = Date.
   if (Date.parse(g.expires_at) <= now) return 'expired'
   const room = roomRow(db, g.room_id)
   if (!room || room.archived_at || !memberRow(db, g.room_id, g.user_id)) return 'left'
-  // someone joined at or after it: their messages were not there when it was given (fails closed on the same ms)
-  if (db.query('SELECT 1 FROM room_members WHERE room_id = ? AND joined_at >= ? LIMIT 1').get(g.room_id, g.created_at)) return 'member_joined'
+  // someone joined at or after its card was raised: their messages were not there when it was given (a writer who joined
+  // while the card waited counts too; fails closed on the same ms)
+  if (db.query('SELECT 1 FROM room_members WHERE room_id = ? AND joined_at >= ? LIMIT 1').get(g.room_id, g.members_since)) return 'member_joined'
   const segs = g.folder.split('/')
   if (folderAudience(db, rules, segs) !== g.audience) return 'audience'
   const me = loadPrincipal(db, g.user_id)
@@ -90,6 +110,7 @@ function lapse(db: Database, fx: FsCtx, rules: RuleSet, g: GrantRow, now = Date.
     const r = authorize(fx, rules, me, g.folder, 'write', { mustExist: true })
     if (!r.st?.isDirectory() || r.rel !== g.folder) return 'no_write'
   } catch { return 'no_write' }
+  if (folderId(fx, segs) !== g.folder_id) return 'folder_changed'
   return null
 }
 
@@ -100,19 +121,22 @@ function revoke(db: Database, g: GrantRow, reason: GrantLapse | 'person' | 'left
 }
 
 /** Make (or renew for another 30 days) the grant of `userId` in `roomId` for `folder` (actual names, a folder that is
- * there). Audited room.ai_grant. */
-export function createGrant(db: Database, rules: RuleSet, o: { userId: string; roomId: string; folder: string; turnId: string | null }): GrantRow {
+ * there). `since`: when its card was raised (anyone who joined the room at or after it lapses the grant). Audited
+ * room.ai_grant. */
+export function createGrant(db: Database, fx: FsCtx, rules: RuleSet, o: { userId: string; roomId: string; folder: string; turnId: string | null; since: string }): GrantRow {
   const room = roomRow(db, o.roomId)
   if (!room) throw new Error('no such room')
+  const id = folderId(fx, o.folder.split('/'))
+  if (!id) throw new Error('not a folder')
   const now = new Date()
   const row: GrantRow = {
-    id: newId(), user_id: o.userId, room_id: o.roomId, folder: o.folder, scope: 'new_files', audience: folderAudience(db, rules, o.folder.split('/')),
-    turn_id: o.turnId, created_at: now.toISOString(), expires_at: new Date(now.getTime() + ROOM_GRANT_DAYS * DAY_MS).toISOString(),
+    id: newId(), user_id: o.userId, room_id: o.roomId, folder: o.folder, folder_id: id, scope: 'new_files', audience: folderAudience(db, rules, o.folder.split('/')),
+    members_since: o.since, turn_id: o.turnId, created_at: now.toISOString(), expires_at: new Date(now.getTime() + ROOM_GRANT_DAYS * DAY_MS).toISOString(),
   }
   db.transaction(() => {
     db.query("DELETE FROM room_ai_grants WHERE user_id = ? AND room_id = ? AND folder = ? AND scope = 'new_files'").run(o.userId, o.roomId, o.folder)
-    db.query('INSERT INTO room_ai_grants (id, user_id, room_id, folder, scope, audience, turn_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(row.id, row.user_id, row.room_id, row.folder, row.scope, row.audience, row.turn_id, row.created_at, row.expires_at)
+    db.query('INSERT INTO room_ai_grants (id, user_id, room_id, folder, folder_id, scope, audience, members_since, turn_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(row.id, row.user_id, row.room_id, row.folder, row.folder_id, row.scope, row.audience, row.members_since, row.turn_id, row.created_at, row.expires_at)
     audit(db, { actor: o.userId, action: 'room.ai_grant', target: row.id, detail: { ...roomAuditRef(room), folder: o.folder, days: ROOM_GRANT_DAYS, turnId: o.turnId } })
   })()
   return row
@@ -144,8 +168,16 @@ export function grantFor(db: Database, fx: FsCtx, rules: RuleSet, o: { userId: s
   return null
 }
 
-/** The files this answer saved through a grant (its room.ai_grant_use rows whose file the turn then created or
- * changed), in the order they were used: the room's answer names them (rooms/ai.ts). */
+/** A call this answer's [이번만 허용] for its folder let through without a card: audited like a grant's use (`once`, no
+ * grant), so the room's answer names its file too (grantMadeFiles). */
+export function auditOnceUse(db: Database, o: { userId: string; roomId: string; folder: string; segs: readonly string[]; tool: string; turnId: string | null }) {
+  const room = roomRow(db, o.roomId)
+  if (!room) return
+  audit(db, { actor: o.userId, action: 'room.ai_grant_use', target: null, detail: { ...roomAuditRef(room), folder: o.folder, path: o.segs.join('/'), tool: o.tool, turnId: o.turnId, once: true } })
+}
+
+/** The files this answer saved without a card through a grant or its own [이번만 허용] (its room.ai_grant_use rows whose
+ * file the turn then created or changed), in the order they were used: the room's answer names them (rooms/ai.ts). */
 export function grantMadeFiles(db: Database, turnId: string): string[] {
   const rows = db.query(`SELECT json_extract(a.detail, '$.path') path FROM audit_log a WHERE a.action = 'room.ai_grant_use' AND json_extract(a.detail, '$.turnId') = ?1
     AND EXISTS (SELECT 1 FROM file_events e WHERE e.turn_id = ?1 AND e.path = json_extract(a.detail, '$.path') AND e.action IN ('create', 'update')) ORDER BY a.id`).all(turnId) as { path: string | null }[]

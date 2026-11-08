@@ -473,7 +473,7 @@ export class RoomAi implements RoomTurns {
     // a question in a thread: who sees it is who sees the root (seenSeq)
     const root0 = q?.thread_root_id && q.thread_root_seq !== null ? { id: q.thread_root_id, seq: q.thread_root_seq } : undefined
     const d = this.decide(t.room_id, t.chat_id, scope, q ? seenSeq(q) : undefined, root0, q?.seq)
-    // the files a grant let it make without a card ("이 방에서는 항상 허용", rooms/ai-grants.ts) are named under the answer,
+    // the files a grant or [이번만 허용] let it save without a card (rooms/ai-grants.ts) are named under the answer,
     // as links (each viewer gets a chip only for a file they may open), so the room sees what was saved
     const made = grantMadeFiles(db, turnId)
     const madeLine = made.length ? `\n\n${tr('roomGrantFiles', locale, { files: made.map((p) => `[${p.split('/').at(-1)!.replace(/[[\]\\]/g, '\\$&')}](/files/view?path=${encodeURIComponent(p)})`).join(', ') })}` : ''

@@ -149,8 +149,10 @@ export const TEXT = {
   roomAiConfirmNote: t('내가 부를 때, 이 폴더에 새 파일을 만들 때만 적용돼요.', 'Applies only when you call it, to new files in this folder.', 'Berlaku hanya saat Anda memanggilnya, untuk berkas baru di folder ini.', "自分が呼んだとき、このフォルダーに新しいファイルを作る場合だけです。", "Solo se aplica cuando usted la llama, a archivos nuevos en esta carpeta."),
   /** the step of a call a room grant let through, after its own words */
   roomGrantStep: t('항상 허용으로 진행', 'allowed: always in this room', 'diizinkan: selalu di ruang ini', "常に許可で実行", "permitido: siempre en esta sala"),
-  /** under a room answer: the files a grant let the AI make (links) */
-  roomGrantFiles: t('항상 허용으로 저장한 파일: {files}', 'Saved with "always allow": {files}', 'Disimpan dengan "selalu izinkan": {files}', "「常に許可」で保存したファイル：{files}", "Guardado con «permitir siempre»: {files}"),
+  /** the step of a call this answer's [이번만 허용] for its folder let through */
+  roomOnceStep: t('이번만 허용으로 진행', 'allowed once in this answer', 'diizinkan sekali di jawaban ini', "今回だけ許可で実行", "permitido esta vez en esta respuesta"),
+  /** under a room answer: the files a grant or [이번만 허용] let the AI save without a card (links) */
+  roomGrantFiles: t('미리 허용한 폴더에 저장한 파일: {files}', 'Saved in a folder allowed in advance: {files}', 'Disimpan di folder yang sudah diizinkan: {files}', "事前に許可したフォルダーに保存したファイル：{files}", "Guardado en una carpeta permitida de antemano: {files}"),
   roomAiConfirmFiles: t('바꿀 파일', 'Files', 'Berkas', "変更するファイル", "Archivos"),
   roomAiConfirmInput: t('바꿀 내용', 'What it would change', 'Yang akan diubah', "変更する内容", "Lo que cambiaría"),
   roomAiChangeAction: t('하는 일', 'Action', 'Tindakan', "操作", "Acción"),

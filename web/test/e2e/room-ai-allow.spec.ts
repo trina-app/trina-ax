@@ -125,10 +125,10 @@ test('"항상" allows the folder: the next new file there comes without a card, 
   // the next question: the folder is allowed, so no card; the answer names the file it saved
   await publish(page, run(2, 'running'))
   const path = `${FOLDER}/견적서_B사.md`
-  await publish(page, aiAnswer(2, `B사 견적서도 만들었어요.\n\n항상 허용으로 저장한 파일: [견적서_B사.md](/files/view?path=${encodeURIComponent(path)})`, [path]))
+  await publish(page, aiAnswer(2, `B사 견적서도 만들었어요.\n\n미리 허용한 폴더에 저장한 파일: [견적서_B사.md](/files/view?path=${encodeURIComponent(path)})`, [path]))
   await publish(page, run(2, 'done'))
   await expect(page.getByText('B사 견적서도 만들었어요.')).toBeVisible()
-  await expect(page.getByText('항상 허용으로 저장한 파일:')).toBeVisible()
+  await expect(page.getByText('미리 허용한 폴더에 저장한 파일:')).toBeVisible()
   await expect(page.getByTestId('ask-card')).toHaveCount(0)
   expect(answers).toHaveLength(1)
 

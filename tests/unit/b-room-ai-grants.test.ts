@@ -87,7 +87,7 @@ async function send(user: string, roomId: string, body: string): Promise<RoomMes
 
 /** Ask in a room and answer each card with `answer` (null: leave it until it closes); the cards in order. The
  * wider-audience card is answered "save" unless `answer` says otherwise. */
-async function ask(user: string, roomId: string, steps: unknown[], answer: (c: Ask, i: number) => string | null = (c) => (isWiden(c) ? 'save' : 'skip')) {
+async function ask(user: string, roomId: string, steps: unknown[], answer: (c: Ask, i: number) => string | null | Promise<string | null> = (c) => (isWiden(c) ? 'save' : 'skip')) {
   const q = await send(user, roomId, `@트리나 do it\n${fake(...steps, { say: 'done' })}`)
   const turnId = (await ws[user]!.next('room.ai.run', (f) => f.data.run.questionId === q.id, 20_000)).data.run.turnId
   const cards: Ask[] = []
@@ -99,7 +99,7 @@ async function ask(user: string, roomId: string, steps: unknown[], answer: (c: A
       answered.add(f.data.request.requestId)
       const c = f.data.request as Ask
       cards.push(c)
-      const v = answer(c, cards.length - 1)
+      const v = await answer(c, cards.length - 1)
       if (v !== null) await h.api(user).call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: c.requestId, answer: v } })
     }
     let end: RoomAiRun | null = null
@@ -148,7 +148,7 @@ describe('the room card', () => {
     for (const f of ws.alice!.frames) if (f.type === 'room.ai.step' && f.data.turnId === next.turnId && f.data.step.tool === 'write') steps.push(f.data.step.label)
     expect(steps.some((l) => l.endsWith('allowed: always in this room'))).toBe(true)
     const answer = await answerTo('alice', roomId, next.q)
-    expect(answer!.body).toContain('Saved with "always allow": [견적서_B사.md]')
+    expect(answer!.body).toContain('Saved in a folder allowed in advance: [견적서_B사.md]')
     expect(answer!.body).toContain(encodeURIComponent(`${dir}/2026/11/견적서_C사.md`))
     expect(audits('room.ai_grant_use', g!.id).map((a) => a.detail.path)).toEqual([`${dir}/견적서_B사.md`, `${dir}/2026/11/견적서_C사.md`])
   })
@@ -191,9 +191,70 @@ describe('the room card', () => {
     expect(r.roomCards.map(values)).toEqual([['allow', 'always', 'skip'], ['allow', 'skip']])
     expect([read(`${dir}/a.md`), read(`${dir}/sub/b.md`), read(`${dir}/there.md`)]).toEqual(['A again\n', 'b\n', 'there\n'])
     expect(grantsOf('alice', roomId)).toHaveLength(0)
+    // each file it let through without a card is audited (once, no grant) and named under the answer
+    const once = audits('room.ai_grant_use').filter((a) => a.detail.turnId === r.turnId)
+    expect(once.map((a) => [a.target, a.detail.once, a.detail.path])).toEqual([[null, true, `${dir}/sub/b.md`], [null, true, `${dir}/a.md`], [null, true, `${dir}/a.md`]])
+    const body = (await answerTo('alice', roomId, r.q))!.body
+    expect(body).toContain('Saved in a folder allowed in advance: [b.md]')
+    expect(body).toContain('[a.md]')
+    const steps: string[] = []
+    for (const f of ws.alice!.frames) if (f.type === 'room.ai.step' && f.data.turnId === r.turnId && f.data.step.tool === 'write') steps.push(f.data.step.label)
+    expect(steps.some((l) => l.endsWith('allowed once in this answer'))).toBe(true)
     // the next answer asks again: [이번만] was for that answer only
     const again = await ask('alice', roomId, [write(`${dir}/c.md`)])
     expect(again.roomCards.map(values)).toEqual([['allow', 'always', 'skip']])
+  })
+
+  test('[이번만 허용] on a card that did not offer "always" (the switch off) is that call only: the next new file gets a card', async () => {
+    const roomId = await teamRoom()
+    const dir = folder()
+    await h.api('dana').call(API.updateSettings, { body: { roomAlwaysAllow: false } })
+    try {
+      const r = await ask('alice', roomId, [write(`${dir}/one.md`, '1\n'), write(`${dir}/two.md`, '2\n')], (c, i) => (i === 0 ? 'allow' : 'skip'))
+      expect(r.roomCards.map(values)).toEqual([['allow', 'skip'], ['allow', 'skip']])
+      expect(read(`${dir}/one.md`)).toBe('1\n')
+      expect(exists(`${dir}/two.md`)).toBe(false)
+      expect(audits('room.ai_grant_use').some((a) => a.detail.turnId === r.turnId)).toBe(false)
+    } finally { await h.api('dana').call(API.updateSettings, { body: { roomAlwaysAllow: true } }) }
+    // a folder that is not there yet: no "always", so [이번만] is that call only too
+    const fresh = `${dir}/new-sub`
+    const r2 = await ask('alice', roomId, [write(`${fresh}/x.md`, 'x\n'), write(`${fresh}/y.md`, 'y\n')], (c, i) => (i === 0 ? 'allow' : 'skip'))
+    expect(r2.roomCards.map(values)).toEqual([['allow', 'skip'], ['allow', 'always', 'skip']])
+    expect(exists(`${fresh}/y.md`)).toBe(false)
+  })
+
+  test('something from outside the team files in the question (a web search): no grant, no [이번만] cover, the card as before', async () => {
+    const { roomId, dir, grant } = await granted()
+    const r = await ask('alice', roomId, [{ webSearch: { query: 'quote template', hits: [{ title: 'Quotes', url: 'https://quotes.example/a' }] } }, write(`${dir}/from-web.md`, 'w\n'), write(`${dir}/from-web-2.md`, 'w2\n')], (c, i) => (i === 0 ? 'allow' : 'skip'))
+    expect(r.roomCards.map(values)).toEqual([['allow', 'skip'], ['allow', 'skip']])
+    expect(read(`${dir}/from-web.md`)).toBe('w\n')
+    expect(exists(`${dir}/from-web-2.md`)).toBe(false)
+    expect(audits('room.ai_grant_use', grant.id).some((a) => a.detail.turnId === r.turnId)).toBe(false)
+    // the grant itself is kept: the next question without outside content uses it
+    const next = await ask('alice', roomId, [write(`${dir}/after-web.md`)])
+    expect(next.cards).toHaveLength(0)
+  })
+
+  test('make_file is checked where it saves (its output with the extension): an existing file there gets the card', async () => {
+    const { roomId, dir } = await granted()
+    put(`${dir}/sheet.xlsx`, 'not really a sheet')
+    const r = await ask('alice', roomId, [{ tool: 'make_file', args: { output: `${dir}/sheet`, format: 'xlsx', content: 'a,b\n1,2' } }])
+    expect(r.roomCards.map(values)).toEqual([['allow', 'skip']])
+    expect(read(`${dir}/sheet.xlsx`)).toBe('not really a sheet')
+  })
+
+  test('a granted call is checked again right before it writes: a member who can no longer write there brings the card back', async () => {
+    const { roomId, dir } = await granted()
+    let undo: (() => void) | null = null
+    try {
+      const r = await ask('alice', roomId, [{ tool: 'read', args: { file_path: 'projects/falcon/plan.md' } }, write(`${dir}/late.md`, 'late\n')], (c) => {
+        // while the wider-audience card waits, erin may only read the folder now
+        if (isWiden(c)) { undo = rule(dir, 'user', 'erin', 'read'); return 'save' }
+        return 'skip'
+      })
+      expect(r.cards.map(values)).toEqual([['save', 'skip'], ['allow', 'skip']])
+      expect(exists(`${dir}/late.md`)).toBe(false)
+    } finally { (undo as (() => void) | null)?.() }
   })
 
   test('NFC / NFD and letter case: one folder, one grant', async () => {
@@ -285,7 +346,7 @@ describe('when a grant lapses', () => {
   const fresh = async (roomId?: string) => {
     roomId ??= await teamRoom()
     const dir = folder()
-    return createGrant(h.ctx.db, h.ctx.files.rules(), { userId: 'alice', roomId, folder: dir, turnId: null })
+    return createGrant(h.ctx.db, h.ctx.files.fx, h.ctx.files.rules(), { userId: 'alice', roomId, folder: dir, turnId: null, since: new Date().toISOString() })
   }
   const revoked = (g: GrantRow) => audits('room.ai_grant_revoke', g.id).map((a) => a.detail.reason)
 
@@ -304,6 +365,32 @@ describe('when a grant lapses', () => {
     await h.api('dana').call(API.updateGroup, { params: { id: groupId }, body: { memberIds: [...ALL, 'bob'] } })
     expect(use(g)).toBeNull()
     expect(revoked(g)).toEqual(['member_joined'])
+  })
+
+  test('a writer who joins while the card is open lapses the grant it makes', async () => {
+    const t = await teamRoomOf(['alice', 'erin', 'dana'])
+    const dir = folder()
+    const r = await ask('alice', t.roomId, [write(`${dir}/joined.md`)], async (c) => {
+      // carol (an admin, who may write there) joins the room before the click
+      await h.api('dana').call(API.updateGroup, { params: { id: t.groupId }, body: { memberIds: ['alice', 'erin', 'dana', 'carol'] } })
+      return values(c)?.includes('always') ? 'always' : 'skip'
+    })
+    expect(r.roomCards.map(values)).toEqual([['allow', 'always', 'skip']])
+    const [g] = grantsOf('alice', t.roomId)
+    expect(g).toBeDefined()
+    expect(use(g!)).toBeNull()
+    expect(revoked(g!)).toEqual(['member_joined'])
+  })
+
+  test('a new account that cannot open the folder changes nothing; the same folder name on another folder is not it', async () => {
+    const g = await fresh()
+    h.ctx.db.query("INSERT INTO users (id, username, name, role) VALUES ('newbie-g', 'newbie-g', 'New Person', 'member')").run()
+    try { expect(use(g)?.id).toBe(g.id) } finally { h.ctx.db.query("UPDATE users SET status = 'disabled' WHERE id = 'newbie-g'").run() }
+    expect(use(g)?.id).toBe(g.id)
+    fs.renameSync(path.join(h.team, g.folder), path.join(h.team, g.folder + '-old'))
+    fs.mkdirSync(path.join(h.team, g.folder))
+    expect(use(g)).toBeNull()
+    expect(revoked(g)).toEqual(['folder_changed'])
   })
 
   test('a member who may only read: no "always" on the card, and a grant does not apply (checked apart from the join)', async () => {
@@ -365,6 +452,67 @@ describe('when a grant lapses', () => {
   })
 })
 
+describe('a team room as a source: owners and admins who would see it are not "more people"', () => {
+  /** a team room of alice and erin (not carol the admin nor dana the owner, who may read groups/marketing) with a grant
+   * for a folder there, made in its first question (no context yet, so no wider-audience card) */
+  const pairRoom = async () => {
+    const t = await teamRoomOf(['alice', 'erin'])
+    const dir = folder()
+    const r = await ask('alice', t.roomId, [write(`${dir}/first.md`)], (c) => (values(c)?.includes('always') ? 'always' : 'skip'))
+    expect(r.cards.map(values)).toEqual([['allow', 'always', 'skip']])
+    return { ...t, dir }
+  }
+  /** an AI answer posted in the room that was built on `from` (another room): what an admin's history walk judges */
+  const answerBuiltOn = (roomId: string, from: string) => {
+    const db = h.ctx.db, id = uuidv7(), now = new Date().toISOString()
+    const seq = (db.query('UPDATE rooms SET last_seq = last_seq + 1 WHERE id = ? RETURNING last_seq').get(roomId) as { last_seq: number }).last_seq
+    db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, asked_by, visibility, body, mentions, created_at) VALUES (?, ?, ?, 'ai', NULL, 'erin', 'room', 'an answer from our DM', '[]', ?)`).run(id, roomId, seq, now)
+    db.query(`INSERT INTO room_ai_turns (turn_id, room_id, user_id, chat_id, question_id, status, answer_id, created_at, scope) VALUES (?, ?, 'erin', 'c', 'q', 'posted', ?, ?, ?)`).run(uuidv7(), roomId, id, now, JSON.stringify({ sources: [{ type: 'room', id: from }], outside: false }))
+  }
+
+  test('team room to its group folder: no wider-audience card when only owners and admins could not read the room', async () => {
+    const { roomId, dir } = await pairRoom()
+    // the second question holds the first in its context (the room is a source: alice and erin read it)
+    const r = await ask('alice', roomId, [write(`${dir}/second.md`, 's\n')])
+    expect(r.cards).toHaveLength(0)
+    expect(read(`${dir}/second.md`)).toBe('s\n')
+  })
+
+  test('the card stays when the room holds an answer built on a DM (hidden from an admin who joined)', async () => {
+    const { roomId, dir } = await pairRoom()
+    const dm = (await h.api('alice').call(API.createRoom, { body: { kind: 'dm', userId: 'erin' } })).id
+    answerBuiltOn(roomId, dm)
+    const r = await ask('alice', roomId, [write(`${dir}/after-dm.md`)])
+    expect(r.cards.map(values)).toEqual([['save', 'skip']])
+  })
+
+  test('the card stays when someone who is not an owner or admin could read the folder and not the room', async () => {
+    const t = await teamRoomOf(['alice', 'erin'])
+    const dir = folder()
+    const undo = rule(dir, 'user', 'bob', 'read')
+    try {
+      await ask('alice', t.roomId, [write(`${dir}/first.md`)], (c) => (values(c)?.includes('always') ? 'always' : 'skip'))
+      const r = await ask('alice', t.roomId, [write(`${dir}/bob-reads.md`)])
+      expect(r.cards.map(values)).toEqual([['save', 'skip']])
+    } finally { undo() }
+  })
+
+  test('a DM and a group chat are unchanged: the card when owners and admins could not read them', async () => {
+    const dm = (await h.api('erin').call(API.createRoom, { body: { kind: 'dm', userId: 'alice' } })).id
+    const group = await groupChat('erin', ['alice', 'bob'])
+    for (const roomId of [dm, group]) {
+      const dir = folder()
+      // bob is in the group chat and may not write there: give him write on the folder so the room may get a grant
+      const undo = rule(dir, 'user', 'bob', 'write')
+      try {
+        await ask('alice', roomId, [write(`${dir}/first.md`)], (c) => (values(c)?.includes('always') ? 'always' : 'skip'))
+        const r = await ask('alice', roomId, [write(`${dir}/second.md`)])
+        expect({ roomId, cards: r.cards.map(values) }).toEqual({ roomId, cards: [['save', 'skip']] })
+      } finally { undo() }
+    }
+  })
+})
+
 describe('where grants never apply', () => {
   test("the person's own chat after reading the room, and a scheduled run there: the card (or nothing), never a grant", async () => {
     const { roomId, dir } = await granted()
@@ -407,7 +555,7 @@ describe('audit rows and the settings list', () => {
     expect(rows[2]!.detail.reason).toBe('person')
     // a group chat's rows name its kind; a team room's its id
     const group = await groupChat('carol', ['alice', 'erin', 'dana'])
-    const gg = createGrant(h.ctx.db, h.ctx.files.rules(), { userId: 'alice', roomId: group, folder: folder(), turnId: null })
+    const gg = createGrant(h.ctx.db, h.ctx.files.fx, h.ctx.files.rules(), { userId: 'alice', roomId: group, folder: folder(), turnId: null, since: new Date().toISOString() })
     expect(audits('room.ai_grant', gg.id)[0]!.detail).toMatchObject({ kind: 'group', folder: gg.folder })
     expect(audits('room.ai_grant', gg.id)[0]!.detail.roomId).toBeUndefined()
     const { grant } = await granted()
