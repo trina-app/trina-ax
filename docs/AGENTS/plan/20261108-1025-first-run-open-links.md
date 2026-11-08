@@ -43,9 +43,10 @@ In:
    the Play signing certificate's SHA-256; the file answers 404 until the fingerprint is known), JSON, no redirect, no
    cookie needed. Self-hosted servers serve them too (harmless); universal links cannot cover their domains, so for
    them "앱에서 열기" is the path (documented).
-6. **Web**: one line "앱에서 열기" on the invite and team-link join pages, a `trina-ax://open?url=…` link built from
-   the page's own address (the team link's token from memory: the page has already taken it out of the address bar),
-   shown on iPhone, Android, Mac and Windows browsers, never inside the apps themselves or on other systems.
+6. **Web**: one line "앱에서 열기" on the invite and team-link join pages, built from the page's own link (the team
+   link's token from memory: the page has already taken it out of the address bar), only where our own app receives
+   the token (review must-fix): an `intent://…;package=app.trina.ax;end` link on Android, `trina-ax://open?url=…` on
+   Mac and Windows, none on an iPhone (any app can claim a custom scheme there), never inside the apps or elsewhere.
 
 Out: deferred deep links (install, then open), opening a room or a chat from a link, links for self-hosted domains
 other than the custom scheme.
@@ -91,4 +92,5 @@ relay rename found after the yes is asked again with the new host; a cut-off uni
 a scheme link must be the address alone; a bad link never covers a waiting ④. Walked in the built desktop app
 (links handed over as macOS does, `open-url`, and as a second instance's argv) and on the iPhone simulator with
 `simctl`/Maestro links, light and dark. Associated domains and app links cannot be checked without the store setup
-above.
+above. After the first PR review: "앱에서 열기" carries a token only where our own app receives it (above); links from
+outside never point the desktop app at this machine; ④'s [연결] is greyed until it counts.
