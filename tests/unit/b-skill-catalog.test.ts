@@ -69,7 +69,7 @@ describe('the catalog (no server)', () => {
 
   test('every kept skill has its example in Korean and English, made from the SKILL.md it ships with, within the limits (an image: WebP 1280 px wide, ≤ 90 KB; a text: ≤ 900 / 1,200 characters, its front matter complete)', () => {
     /** what an example records of its SKILL.md: the first 12 hex digits of its sha256 */
-    const skillHash = (text: string) => createHash('sha256').update(text).digest('hex').slice(0, 12)
+    const skillHash = (text: string) => createHash('sha256').update(text.replace(/\r\n/g, '\n')).digest('hex').slice(0, 12)
     const stale = (locale: string, name: string) => `${locale}/${name}: its SKILL.md changed after the example was made. Make the example again (examples/data/example-coffee/README.md) and record the new skillHash.`
     for (const locale of ['ko', 'en'] as const) {
       expect(Object.keys(PACK_EXAMPLES[locale]).sort()).toEqual(CATALOG.map((c) => c.name).sort())
