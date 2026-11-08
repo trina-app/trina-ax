@@ -23,7 +23,7 @@ const TREE = {
   commands: { 'standup.md': '어제, 오늘, 막힌 일을 한 줄씩.\n' },
 }
 
-test('[내 스킬 찾기] → the list (kept across a trip away) → [팀에 넣기 · N개] → 팀 파일; 이전 shows what went in; 팀 파일 put off; the invite names one shared skill and opens it; 준비 끝났어요 → its form', async ({ page }) => {
+test('[내 스킬 찾기] → the list (kept across a trip away) → [the primary naming them] → 팀 파일; 이전 shows what went in; 팀 파일 put off; the invite names one shared skill and opens it; 준비 끝났어요 → its form', async ({ page }) => {
   const errors = watchConsole(page)
   await page.addInitScript((tree) => {
     const opened: string[] = []
@@ -57,10 +57,10 @@ test('[내 스킬 찾기] → the list (kept across a trip away) → [팀에 넣
   await expect(page.getByTestId('setup-row')).toHaveCount(0)
   await page.getByTestId('skills-find').click()
   // the list: recommended ones ticked with a reason each, the folded rows, CLAUDE.md as a rule; the step's one primary
-  // counts what is ticked (the list has no button of its own here)
+  // names what is ticked, up to three (the list has no button of its own here)
   await expect(page.getByTestId('skills-recommended')).toBeVisible()
   await expect(primary).toHaveAttribute('data-state', 'put')
-  await expect(primary).toHaveText(/^팀에 넣기 · \d+개$/)
+  await expect(primary).toHaveText('주간 업무 보고·견적서 초안·회의록 정리 넣기')
   await expect(primary).toBeEnabled()
   await expect(page.getByTestId('skills-share')).toHaveCount(0)
   const opened = await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened)
@@ -74,7 +74,8 @@ test('[내 스킬 찾기] → the list (kept across a trip away) → [팀에 넣
   await expect(primary).toBeEnabled()
   await expect(page.getByTestId('skills-find')).toHaveCount(0)
   expect(await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened.length)).toBe(opened.length)
-  const n = Number(/(\d+)개/.exec(await primary.innerText())![1])
+  // the three named skills
+  const n = 3
   await primary.click()
   // all in: a toast with the count and on to 3/5 팀 파일; the server recorded 내 스킬 done itself
   await expect(page.getByTestId('toast').filter({ hasText: `스킬 ${n}개를 팀에 넣었어요` })).toBeVisible()
