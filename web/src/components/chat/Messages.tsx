@@ -8,13 +8,13 @@
 // (copy, edit, retry) show once the message is tapped, the newest answer's always; until then they are hidden from
 // sight only (screen readers and a keyboard still reach them), and the branch switch ("‹ 1 / 2 ›") always shows.
 // A file sent with a message is a small card above the bubble: its name, its type and its size.
-// A shared project chat (docs/DECISIONS.md "Shared project chats"): someone else's message has their name above it, and
-// edit, regenerate and "대화방에 보내기" are only on what I asked myself.
+// A shared project chat (docs/DECISIONS.md "Shared project chats"): every question, mine too, has its sender's picture
+// and name above it, and edit, regenerate and "대화방에 보내기" are only on what I asked myself.
 import clsx from 'clsx'
 import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, History, Loader2, MessageSquareShare, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, isDefaultErrorMessage, skillLabel, type Attachment, type EngineId, type Step } from '@mycel/shared/api'
+import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, isDefaultErrorMessage, skillLabel, type Attachment, type EngineId, type Step, type UserRef } from '@mycel/shared/api'
 import { thumbnailUrl } from '../../lib/api'
 import { answerHtml } from '../../lib/richCopy'
 import { formAnswers } from '../../lib/skillForm'
@@ -29,8 +29,10 @@ import { useMessageBuild } from '../../store/deckBuilds'
 import { readsForDeck } from '../../lib/deckProgress'
 import { useAiAccess } from '../../store/aiAccess'
 import { useMe } from '../../store/session'
+import { useAvatarOf, useNameOf, usePeopleList } from '../../store/people'
 import type { ViewMessage } from '../../store/thread'
 import { TYPE_LABEL } from '../artifactLabels'
+import { Avatar } from '../Avatar'
 import { Markdown } from '../Markdown'
 import AiAccessButton from './AiAccessButton'
 import { isNoAiReason, noAiErrorKey } from '../../lib/aiAccess'
@@ -211,8 +213,34 @@ export function FormRun({ run, sending = false }: { run: NonNullable<ReturnType<
   )
 }
 
-/** `author`: someone else's name above their message (a shared chat); `canEdit` false: not mine to edit (a shared chat) */
-export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, author, canEdit = true }: { m: ViewMessage; chatId: string; busy: boolean; onEdit: (m: ViewMessage, text: string) => void; onSelectBranch: (id: string) => void; author?: string; canEdit?: boolean }) {
+/** Who asked, above a question of a shared chat: one quiet line on the right like the bubble, their name as it is (no
+ * "님" added, and mine is my name, not "나": a screenshot passed around still says who asked) and their picture at the
+ * edge. The picture is the people directory's (as in rooms; every role may read it), read here once a shared chat
+ * shows; without a photo, or while the directory is not there, the letter. It is decorative: a screen reader reads the
+ * name once, then the question. A question without an author (the server sends none only for a message with no author
+ * id) gets an empty tile and "알 수 없는 사용자", so it never reads as the previous person's or as mine. */
+export function MessageAuthor({ author }: { author: UserRef | null }) {
+  const t = useT()
+  const me = useMe()
+  usePeopleList()
+  const listed = useAvatarOf(author)
+  const nameOf = useNameOf()
+  // the name as it is now (a rename shows at once, as in rooms); my own photo from /api/me while the directory has none
+  // for me (not read yet, or it failed)
+  const user = listed && { ...listed, name: nameOf(listed) ?? listed.name, avatarVersion: listed.avatarVersion ?? (listed.id === me?.user.id ? me.user.avatarVersion : undefined) }
+  return (
+    <div className="-mb-1 flex max-w-[85%] min-w-0 items-center gap-1.5 sm:max-w-[80%]" data-testid="message-author-row">
+      <span className="min-w-0 truncate text-xs font-medium text-muted" data-testid="message-author">
+        {user ? user.name : t('rooms.goneUser')}
+      </span>
+      {user ? <Avatar user={user} size={20} /> : <span aria-hidden className="size-5 shrink-0 rounded-full bg-hover" data-testid="message-author-unknown" />}
+    </div>
+  )
+}
+
+/** `showAuthor`: a shared chat, every question shows who asked (MessageAuthor); `canEdit` false: not mine to edit (a
+ * shared chat) */
+export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAuthor = false, canEdit = true }: { m: ViewMessage; chatId: string; busy: boolean; onEdit: (m: ViewMessage, text: string) => void; onSelectBranch: (id: string) => void; showAuthor?: boolean; canEdit?: boolean }) {
   const t = useT()
   const [editing, setEditing] = useState(false)
   // the box shows a "#" room token as "#<title>"; what is sent again keeps its room (lib/roomRefs.ts)
@@ -234,11 +262,7 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, author, c
   const branched = m.branch.count > 1
   return (
     <div className="group flex min-w-0 flex-col items-end gap-2" data-testid="user-message" data-message-id={m.id} onClick={() => setTapped(true)}>
-      {author && (
-        <span className="-mb-1 max-w-[85%] truncate px-1 text-xs font-medium text-muted sm:max-w-[80%]" data-testid="message-author">
-          {author}
-        </span>
-      )}
+      {showAuthor && <MessageAuthor author={m.author} />}
       {m.attachments.length > 0 && (
         <div className="flex max-w-[85%] flex-wrap items-end justify-end gap-2">
           {m.attachments.map((a) => (
