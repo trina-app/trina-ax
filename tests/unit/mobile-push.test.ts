@@ -475,7 +475,7 @@ test('the reinstall sign-out: once per launch, only on the team page saved at la
 test('Android team-address screen: the form is lifted by the keyboard (it covered the Connect button)', () => {
   const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
   // the setup screen pads itself by the keyboard on Android (KeyboardAvoidingView only works on iOS here)
-  expect(app).toMatch(/keyboard = useAndroidKeyboard\(\)\s+return <View style=\{\[s\.fill, \{ backgroundColor: c\.canvas, paddingTop: i\.top, paddingBottom: keyboard \? keyboard \+ i\.bottom : i\.bottom/)
+  expect(app).toMatch(/keyboard = useAndroidKeyboard\(\)[\s\S]{0,8000}?return <View style=\{\[s\.fill, \{ backgroundColor: c\.canvas, paddingTop: i\.top, paddingBottom: keyboard \? keyboard \+ i\.bottom : i\.bottom/)
 })
 
 test('Android: the look around an older team page is read from the OS each time, not a stale cache', () => {
