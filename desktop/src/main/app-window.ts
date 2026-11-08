@@ -18,7 +18,7 @@ import { browserOwnerChange, type MeResult } from '../common/browser-owner'
 import { addTeam, findTeam, partitionFor, removeTeam, sortedTeams, touchTeam, updateTeam, type DirectInfo, type TeamEntry, type TeamsFile } from '../common/teams'
 import { isTrustedAppSender, UI_ORIGIN } from '../common/trust'
 import { openDialogChoice } from '../common/file-chooser'
-import { makeNotifier, type NotifyInput } from '../common/notify'
+import { makeNotifier, platformNotifyDeps, type NotifyInput } from '../common/notify'
 import { directFromConnectInfo, fetchConnectInfo, lanFailureCode, lanFailureToReport, mirrorSessionCookie, pinCertificates, probeDirect, reportLanFailure, type ProbeResult } from './direct'
 import { BrowserPane, type PaneActivity, type PanePrompt } from './pane/pane'
 import { HostClassifier, sessionResolver } from './pane/classify'
@@ -100,6 +100,9 @@ export class AppWindow {
       this.win.focus()
     },
     open: (path) => this.send(this.app, 'bridge:open', path),
+    // macOS asks about notifications once, when Electron first touches them: touching them is the question, while the
+    // window is in front (common/notify.ts ask); and it takes a notification it will not show (off, or not answered yet)
+    ...platformNotifyDeps(process.platform, () => Notification.isSupported()),
   })
   /** team id + code -> last LAN failure report (at most one an hour; the server counts once per session per hour) */
   private lanReported = new Map<string, number>()
@@ -137,6 +140,8 @@ export class AppWindow {
       void this.recheck(false)
       // "visible" for the team page's session markers is this window's focus (the in-app browser may hold the keys)
       this.send(this.app, 'bridge:focus', true)
+      // a team opened while the window was in the back: the system's question now, while the person looks
+      if (this.app) this.notifier.ask()
     })
     this.win.on('blur', () => this.send(this.app, 'bridge:focus', false))
     this.win.on('close', () => {
@@ -363,6 +368,9 @@ export class AppWindow {
     const origin = await this.pickOrigin()
     if (this.app !== app) return
     await this.loadOrigin(origin, '/')
+    // the team page is on screen: macOS's one question about notifications comes now, not with the first notification
+    // (that one only comes while the window is in the back, when nobody sees the question)
+    if (this.app === app) this.notifier.ask()
     this.scheduleRecheck()
     void this.learnDirect()
   }
