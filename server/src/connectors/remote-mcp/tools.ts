@@ -4,11 +4,13 @@ import type { AppContext } from '../../context'
 import { TurnFiles } from '../../files/service'
 import { authorize } from '../../policy/authorize'
 import { listSkills, skillInfo } from '../../chat/skills'
-import { sourceKey, sourceOf, type ReadSource } from '../../chat/read-scope'
+import { sourceKey, sourceOf } from '../../chat/read-scope'
+import { teamRuleFiles } from '../../chat/prompt'
 import { audit } from '../../admin/audit'
 import { ADMIN_SCOPE, hash, OAuthError, ROOMS_SCOPE, ROOMS_WRITE_SCOPE } from './policy'
 import { dropAdminScope, isTeamAdmin, remoteOAuthOf, type Grant, type RemoteOAuth } from './oauth'
-import { checkUploadTarget, isOutcome, uploadFile, uploadTool, writeNotes } from './upload'
+import { checkWriteTarget, isOutcome, uploadFile, uploadTool, writeNotes } from './upload'
+import { openScope, saveScope, scopeFull, scopeKey, scopeSources, SCOPE_SOURCES_MAX } from './scope'
 import { createUploadLink, uploadLinkTool } from './upload-link'
 import { shareSkills, shareSkillsTool } from './share'
 import { GROUP_TOOLS, groupTool, groupTools } from './groups'
@@ -21,9 +23,11 @@ const toolList = Object.entries(FILE_TOOLS).map(([name, t]) => {
   delete schema.$schema
   return { name, description: t.description, inputSchema: schema, annotations: { readOnlyHint: !WRITE.has(name), destructiveHint: WRITE.has(name), openWorldHint: false } }
 })
-const skillTool = { name: 'skills_list', description: 'Discover the team skills you can read, the skills of your groups (group: { id, name }; only that group\'s members see them) and your own personal skills (personal: true). One name: your personal skill replaces a group\'s or the team\'s, a group\'s replaces the team\'s. Use read on a returned path when needed. Skill metadata never grants tool permissions or executes scripts.', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true, openWorldHint: false } }
+const skillTool = { name: 'skills_list', description: 'Discover the team skills you can read, the skills of your groups (group: { id, name }; only that group\'s members see them) and your own personal skills (personal: true). One name: your personal skill replaces a group\'s or the team\'s, a group\'s replaces the team\'s. Entries with rule: true are team rules (skills/*.md without a skill header) that every teammate\'s AI follows: read them before working on team files. Use read on a returned path when needed. Skill metadata never grants tool permissions or executes scripts.', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true, openWorldHint: false } }
 const result = (text: string, isError = false) => ({ content: [{ type: 'text' as const, text }], ...(isError ? { isError: true } : {}) })
 type Memory = { files: TurnFiles; tail: Promise<void>; queued: number; touched: number }
+/** A skills_list entry for a team rule (skills/*.md without a skill header): every teammate's AI follows it. */
+const ruleInfo = (rel: string) => ({ path: rel, name: rel.slice(rel.lastIndexOf('/') + 1).replace(/\.md$/i, ''), rule: true as const })
 
 /**
  * Core file tools, plus the connector's own upload tools, with mcp:rooms the person's team chat rooms (rooms.ts; with
@@ -48,19 +52,25 @@ export class RemoteTools {
       rules: this.ctx.db.query('SELECT f.id,f.path,r.subject_type,r.subject_id,r.access FROM folder_rules r JOIN folders f ON f.id=r.folder_id ORDER BY f.id,r.subject_type,r.subject_id,r.access').all(),
     }))
   }
-  async call(token: string, name: string, args: unknown, signal?: AbortSignal) {
+  /**
+   * One tool call. `session`: the Mcp-Session-Id the client sent (transport.ts), or null: the read scope and the files
+   * read before an edit are the session's (scope.ts), so a new session starts with nothing read.
+   */
+  async call(token: string, name: string, args: unknown, signal?: AbortSignal, session: string | null = null) {
     const oauth = this.oauth(), grant = oauth.authenticate(token)
     oauth.rate('tool-user', grant.user_id, 120)
     if (name !== 'skills_list' && name !== 'share_skills' && !CONNECTOR_ONLY.has(name) && !GROUP_TOOLS.has(name) && !ROOM_TOOLS.has(name) && !Object.hasOwn(FILE_TOOLS, name)) return result('Unknown tool.', true)
-    // Bound idle memory; read sources survive eviction/restart in the grant row.
+    // Bound idle memory; read sources survive eviction/restart in remote_mcp_scopes.
     for (const [id, m] of this.memory) if (!m.queued && m.touched < oauth.now() - 10 * 60_000) this.memory.delete(id)
-    let m = this.memory.get(grant.id)
+    // one queue and one TurnFiles per session of a connection: calls of one session never overlap
+    const slot = grant.id + '\0' + scopeKey(session)
+    let m = this.memory.get(slot)
     if (!m) {
       if (this.memory.size >= 128) {
         const idle = [...this.memory].find(([, item]) => item.queued === 0)
         if (idle) this.memory.delete(idle[0]); else return result('Server busy; retry later.', true)
       }
-      m = { files: new TurnFiles(), tail: Promise.resolve(), queued: 0, touched: oauth.now() }; this.memory.set(grant.id, m)
+      m = { files: new TurnFiles(), tail: Promise.resolve(), queued: 0, touched: oauth.now() }; this.memory.set(slot, m)
     }
     if (m.queued >= 4) return result('Connector busy; retry after the current call.', true)
     const before = m.tail
@@ -73,16 +83,18 @@ export class RemoteTools {
       if (!scopes.includes('mcp:read') || (WRITE.has(name) && !scopes.includes('mcp:write')) || (GROUP_TOOLS.has(name) && !scopes.includes(ADMIN_SCOPE))
         || (ROOM_TOOLS.has(name) && !scopes.includes(ROOMS_SCOPE)) || (name === ROOM_SEND && !scopes.includes(ROOMS_WRITE_SCOPE))) return result('This connection has no permission for that tool. Reconnect with the required scope.', true)
       const user = this.ctx.files.principal(fresh.user_id)
+      // what this session read before (an idle scope without a session is forgotten here); any call keeps it in use
+      const scope = openScope(this.ctx.db, fresh.id, session, oauth.now())
       if (ROOM_TOOLS.has(name)) {
         // the rooms as the person sees them, or a message as them (rooms.ts). No audit line and no count (the owner's
-        // decision); what was read joins this connection's read scope, as a file read does
-        const r = await roomTool(this.ctx, user, name, args, m.files, JSON.parse(fresh.sources) as ReadSource[], signal)
-        const latest = oauth.authenticate(token)
+        // decision); what was read joins this session's read scope, as a file read does
+        const r = await roomTool(this.ctx, user, name, args, m.files, scope, signal)
+        oauth.authenticate(token)
         if (signal?.aborted) return result('Access changed during the call. Please retry.', true)
         if (r.seen.length) {
-          const sources = mergeSources(JSON.parse(latest.sources) as ReadSource[], r.seen)
-          if (sources.length > 2000) return result('Read scope limit reached; reconnect to continue.', true)
-          this.ctx.db.query('UPDATE remote_mcp_grants SET sources=? WHERE id=?').run(JSON.stringify(sources), latest.id)
+          const sources = mergeSources([...scope.sources, ...scopeSources(this.ctx.db, scope.grantId, scope.key, oauth.now())], r.seen)
+          if (sources.length > SCOPE_SOURCES_MAX) return result(scopeFull(scope), true)
+          saveScope(this.ctx.db, scope, sources, oauth.now())
         }
         // text only: a connection has no turn, so a picture comes as its note or its text (files/vision.ts)
         return result(r.content.map(c => c.type === 'text' ? c.text : '').filter(Boolean).join('\n'), !!r.isError)
@@ -102,7 +114,9 @@ export class RemoteTools {
       const policy = this.policy(user.id)
       if (name === 'skills_list') {
         if (args !== undefined && (!args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).length)) return result('Invalid input.', true)
-        const skills = listSkills(this.ctx.files, user).map(skillInfo)
+        // and the team rules the in-app AI follows (chat/prompt.ts teamRuleFiles: the first ten the person may read),
+        // marked rule: true; the client reads them with read, so they join the read scope as any read does
+        const skills = [...listSkills(this.ctx.files, user).map(skillInfo), ...teamRuleFiles(this.ctx.files, user).paths.map(ruleInfo)]
         return result(JSON.stringify(skills))
       }
       if (name === 'share_skills') {
@@ -114,7 +128,7 @@ export class RemoteTools {
       }
       if (CONNECTOR_ONLY.has(name)) {
         // Same scope, write rule, skills and widening checks as write. No await before the bytes are placed.
-        const out = name === 'upload_file' ? await uploadFile(this.ctx, user, args, JSON.parse(fresh.sources) as ReadSource[]) : createUploadLink(this.ctx, oauth, fresh, user, args)
+        const out = name === 'upload_file' ? await uploadFile(this.ctx, user, args, scope) : createUploadLink(this.ctx, oauth, fresh, user, args, scope)
         // The audit row holds actor, path and size, never the content.
         audit(this.ctx.db, { actor: user.id, action: 'remote_mcp.tool', target: fresh.id, detail: { tool: name, ok: !out.isError, via: 'connector', ...out.audit } })
         return result(out.text, out.isError)
@@ -128,9 +142,13 @@ export class RemoteTools {
         // skill or rule (skills/), no group's skill and no personal skill of the person (users/<id>/skills/) either.
         // The same check as upload_file, create_upload_link and the link's PUT (checkUploadTarget), the path as written
         // first: on a case-sensitive disk (Linux) "Users/<id>/Skills" is an unknown folder that authorize refuses with
-        // a vaguer answer, so the same request would read differently by OS
-        const target = checkUploadTarget(this.ctx, user, filePath, JSON.parse(fresh.sources) as ReadSource[], null)
-        if (isOutcome(target)) return result(target.text, true)
+        // a vaguer answer, so the same request would read differently by OS. A refusal answers as upload_file's does
+        // (the reason, the rejected-file event, the audit row); only an unexpected error gets the generic answer
+        const target = checkWriteTarget(this.ctx, user, filePath, scope, name)
+        if (isOutcome(target)) {
+          audit(this.ctx.db, { actor: user.id, action: 'remote_mcp.tool', target: fresh.id, detail: { tool: name, ok: false, ...target.audit } })
+          return result(target.text, true)
+        }
         // edit changes an existing file: never the placement note
         notes = writeNotes(this.ctx, user, filePath, target, name === 'write' && !target.exists)
       }
@@ -140,13 +158,16 @@ export class RemoteTools {
       const latest = oauth.authenticate(token)
       if (signal?.aborted || this.policy(user.id) !== policy) return result('Access changed during the call. Please retry.', true)
       if (m.files.readHashes.size > 2000 || m.files.readPaths.size > 2000) { m.files.readHashes.clear(); return result('Read limit reached; narrow the search.', true) }
-      const rules = this.ctx.files.rules(), sources = new Map((JSON.parse(latest.sources) as ReadSource[]).map(s => [sourceKey(s), s]))
-      for (const path of m.files.readPaths) {
-        const allowed = authorize(this.ctx.files.fx, rules, user, path, 'read')
-        const source = sourceOf(this.ctx.db, rules, allowed.rel); sources.set(sourceKey(source), source)
+      if (m.files.readPaths.size) {
+        const rules = this.ctx.files.rules()
+        const sources = new Map([...scope.sources, ...scopeSources(this.ctx.db, scope.grantId, scope.key, oauth.now())].map(s => [sourceKey(s), s]))
+        for (const path of m.files.readPaths) {
+          const allowed = authorize(this.ctx.files.fx, rules, user, path, 'read')
+          const source = sourceOf(this.ctx.db, rules, allowed.rel); sources.set(sourceKey(source), source)
+        }
+        if (sources.size > SCOPE_SOURCES_MAX) return result(scopeFull(scope), true)
+        saveScope(this.ctx.db, scope, [...sources.values()], oauth.now())
       }
-      if (sources.size > 2000) return result('Read scope limit reached; reconnect to continue.', true)
-      this.ctx.db.query('UPDATE remote_mcp_grants SET sources=? WHERE id=?').run(JSON.stringify([...sources.values()]), latest.id)
       audit(this.ctx.db, { actor: user.id, action: 'remote_mcp.tool', target: latest.id, detail: { tool: name, ok: !out.isError } })
       return result(notes.length && !out.isError ? `${out.text}\n\n${notes.join(' ')}` : out.text, out.isError)
     } catch (e) {
