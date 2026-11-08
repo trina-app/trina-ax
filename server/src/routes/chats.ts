@@ -36,7 +36,7 @@ import { finishCard } from '../chat/connect-service'
 import { refuseDraftAttachments } from '../onboarding/draft'
 import { refuseSkillDraftAttachments } from '../onboarding/skill-draft'
 import { refuseShareJudgeAttachments } from '../skills/share-judge'
-import { Audiences, chatFor, chatPeople, chatView, isSharedRow, messageFor, messageView, projectCanShare, projectShare, sharesNewChats, type ChatAccess, type ChatPeople } from '../chat/shared'
+import { Audiences, accountSeesProject, chatFor, chatPeople, chatView, isSharedRow, messageFor, messageView, projectCanShare, projectShare, rulesInPlace, severalAuthors, sharesNewChats, type ChatAccess, type ChatPeople } from '../chat/shared'
 import { AnswerSight, sharedHits, type ChatHit } from '../chat/shared-answers'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { forgetPurgedChats } from '../chat/forget'
@@ -175,8 +175,9 @@ export const chatsRoutes: RouteModule = {
       const where: string[] = ['room_id IS NULL', notInternalChat(ctx.db)]
       const args: (string | number)[] = []
       if (query.trash) {
-        // the trash holds my own chats (a deleted shared chat goes to its creator's)
-        where.push('user_id = ?', 'deleted_at IS NOT NULL'); args.push(me)
+        // the trash holds my own chats (a deleted shared chat goes to its creator's) and the shared chats I deleted (an
+        // editor of the project finds someone else's there too), each once and only while I may restore it (below)
+        where.push('deleted_at IS NOT NULL', '(user_id = ? OR (deleted_by = ? AND shared_at IS NOT NULL AND project_id IS NOT NULL))'); args.push(me, me)
         if (query.projectId) { where.push('project_id = ?'); args.push(query.projectId) }
       } else if (query.projectId) {
         // a project's page: my chats there and every shared chat of it (each only while I see the project, below)
@@ -195,7 +196,8 @@ export const chatsRoutes: RouteModule = {
       const cur = decodeCursor(query.cursor, ['u', 'id'])
       if (query.cursor && !cur) fail('validation', undefined, { fields: { 'query.cursor': 'bad cursor' } })
       // a shared chat only while I see its project now (its creator too): pages are read until one is full. A search
-      // finds a shared chat by its title or a message I see: never by an answer hidden from me (chat/shared-answers.ts)
+      // finds a shared chat by its title or a message I see: never by an answer hidden from me (chat/shared-answers.ts).
+      // In the trash only what I may restore (chatFor 'manage'): its creator, or an editor of its project now
       const aud = new Audiences(ctx.db, ctx.files)
       const sight = new AnswerSight(ctx.db, ctx.files)
       // the messages of shared chats that hold the words: one search for the request (the chat id is not indexed)
@@ -203,14 +205,26 @@ export const chatsRoutes: RouteModule = {
       const found = (r: ChatRow) => {
         const like = `%${likeEscape(q!)}%`
         if (ctx.db.query("SELECT 1 FROM chats WHERE id = ? AND title LIKE ? ESCAPE '\\'").get(r.id, like)) return true
-        hits ??= sharedHits(ctx.db, like)
-        const hit = hits.get(r.id)
+        // a chat that stopped being shared (its creator's now) is not among the shared ones: its own search
+        const hit = isSharedRow(r) ? (hits ??= sharedHits(ctx.db, like)).get(r.id) : sharedHits(ctx.db, like, [r.id]).get(r.id)
         if (!hit) return false
         if (hit.question) return true
         const hidden = sight.withheld(r.id, me)
         return hit.answers.some((id) => !hidden.has(id))
       }
-      const visible = (r: ChatRow) => { if (!isSharedRow(r)) return true; const p = rt.store.projectRow(r.project_id!); return !!p && aud.sees(me, p) && (!q || found(r)) }
+      let who: Principal | null | undefined
+      const mayRestore = (r: ChatRow, p: ProjectRowT) => {
+        if (r.user_id === me) return true
+        if (who === undefined) { try { who = ctx.files.principal(me) } catch { who = null } }
+        return !!who && mayEdit(ctx, who, p)
+      }
+      const visible = (r: ChatRow) => {
+        // a chat of mine that others wrote in while it was shared (a deleted project's, the rollback guard): found only
+        // through what I see of it, as when it was shared
+        if (!isSharedRow(r)) return !q || !severalAuthors(ctx.db, r.id) || found(r)
+        const p = rt.store.projectRow(r.project_id!)
+        return !!p && aud.sees(me, p) && (!q || found(r)) && (!query.trash || mayRestore(r, p))
+      }
       const out: ChatRow[] = []
       let after = cur
       for (let round = 0; round < 50 && out.length <= limit; round++) {
@@ -313,13 +327,14 @@ export const chatsRoutes: RouteModule = {
     })
 
     // a shared chat: its creator or an editor of its project; someone else's deletion is audited (it leaves the
-    // creator's list for their trash)
+    // creator's list for their trash, and is in the deleter's trash too while they may restore it)
     kit.handle(API.deleteChat, ({ c, params, auth }) => {
       const a = chatOf(rt, c, auth, params.id, 'manage')
       const chat = a.row
       rt.stopChat(chat.id)
       const now = new Date()
-      ctx.db.query('UPDATE chats SET deleted_at = ? WHERE id = ?').run(now.toISOString(), chat.id)
+      // who deleted it: a shared chat is in their trash too while they may restore it (listChats)
+      ctx.db.query('UPDATE chats SET deleted_at = ?, deleted_by = ? WHERE id = ?').run(now.toISOString(), auth.user.id, chat.id)
       if (a.shared && !a.creator) audit(ctx.db, { actor: auth.user.id, action: 'chat.delete', target: chat.id, detail: { shared: true, projectId: chat.project_id } })
       rt.publishChat(auth.user.id, chat.id, 'deleted')
       return { id: chat.id, deletedAt: now.toISOString(), purgeAt: new Date(now.getTime() + rt.chatTrashDays() * 86400_000).toISOString() }
@@ -329,7 +344,7 @@ export const chatsRoutes: RouteModule = {
     kit.handle(API.restoreChat, ({ c, params, auth }) => {
       const chat = chatOf(rt, c, auth, params.id, 'manage', { deleted: true }).row
       if (chat.deleted_at) {
-        ctx.db.query('UPDATE chats SET deleted_at = NULL, updated_at = ? WHERE id = ?').run(new Date().toISOString(), chat.id)
+        ctx.db.query('UPDATE chats SET deleted_at = NULL, deleted_by = NULL, updated_at = ? WHERE id = ?').run(new Date().toISOString(), chat.id)
         rt.publishChat(auth.user.id, chat.id, 'restored')
       }
       return chatOut(rt, auth.user.id, rt.store.chatRow(chat.id)!)
@@ -359,7 +374,8 @@ export const chatsRoutes: RouteModule = {
     kit.handle(API.shareAnswerToRoom, ({ c, params, body, auth }) => {
       const a = chatOf(rt, c, auth, params.id, 'view')
       const m = messageInChat(rt, a.row.id, params.messageId)
-      if (a.shared && (!m.turn_id || rt.store.turnUser(m.turn_id) !== auth.user.id)) fail('not_found')
+      // (also once it stopped being shared after others wrote in it: their answers are not mine to post)
+      if ((a.shared || severalAuthors(ctx.db, a.row.id)) && (!m.turn_id || rt.store.turnUser(m.turn_id) !== auth.user.id)) fail('not_found')
       return shareAnswerToRoom(ctx, auth.user.id, a.row, m, body, c.get('locale'))
     })
 
@@ -713,27 +729,40 @@ export const chatsRoutes: RouteModule = {
       if (!canWrite(ctx.files, p, r!.folder_path)) fail('forbidden', tr('projectFolderNoWrite', c.get('locale')))
       // other people's chats lose the project context: the creator and admins only, like editing it
       if (!mayEdit(ctx, p, r!)) fail('forbidden', tr('projectCreatorOnly', c.get('locale')))
-      // its shared chats go for good (they belong to the project's people, the dialog says so): their turns stop, and
-      // everyone who saw one hears it is gone; the private chats stay, without project
-      const shared = ctx.db.query('SELECT id FROM chats WHERE project_id = ? AND shared_at IS NOT NULL').all(r!.id) as { id: string }[]
-      const told = new Map<string, string[]>()
-      const aud = new Audiences(ctx.db, ctx.files)
-      for (const x of shared) {
-        rt.stopChat(x.id)
-        told.set(x.id, aud.of(r!))
-      }
+      // the private chats stay, without project. Its shared chats (those in the trash too) go to their creators' trash,
+      // as a single delete does (docs/DECISIONS.md "Shared project chats: the trash and live lists"): each stops being
+      // shared and, restored, is its creator's chat without project, keeping the several-authors rules (chat/turn.ts
+      // othersWrote, chat/shared.ts messageView). One whose creator would not see the project now (they lost its folder,
+      // or the account was deleted; a folder in the trash is judged by its own rules, as if it were back) goes for good,
+      // as before: nobody could restore it, and giving it back would show its creator what was said after they lost it.
+      // Their turns stop; everyone else who saw one hears it is gone.
+      const shared = ctx.db.query('SELECT id, user_id, deleted_at FROM chats WHERE project_id = ? AND shared_at IS NOT NULL').all(r!.id) as { id: string; user_id: string; deleted_at: string | null }[]
+      const audience = new Audiences(ctx.db, ctx.files).of(r!)
+      const rules = rulesInPlace(ctx.db, ctx.files, r!)
+      const kept = shared.filter((x) => accountSeesProject(ctx.db, rules, r!, x.user_id))
+      const purged = shared.filter((x) => !kept.includes(x))
+      for (const x of shared) rt.stopChat(x.id)
+      const now = new Date().toISOString()
       ctx.db.transaction(() => {
-        for (const x of shared) rt.purgeChat(x.id)
+        for (const x of purged) rt.purgeChat(x.id)
+        // one already in the trash keeps its time there (and who put it there)
+        for (const x of kept) ctx.db.query('UPDATE chats SET shared_at = NULL, project_id = NULL, deleted_at = COALESCE(deleted_at, ?), deleted_by = CASE WHEN deleted_at IS NULL THEN ? ELSE deleted_by END WHERE id = ?').run(now, auth.user.id, x.id)
         ctx.db.query('UPDATE chats SET project_id = NULL WHERE project_id = ?').run(r!.id)
         ctx.db.query('DELETE FROM projects WHERE id = ?').run(r!.id)
         // a rule-less folders row that only marked this project's folder goes with it (security review r2: it kept the
         // folder, and every folder above it, admin-only to move, rename or trash for good). Not when its folder is in the
         // trash: the marker is there with it, and the old path may be another folder's now.
         if (r!.trashed_with === null) dropProjectMarker(ctx.db, r!.folder_path)
-        audit(ctx.db, { actor: auth.user.id, action: 'project.delete', target: r!.id, detail: isPersonalPath(r!.folder_path) ? null : { name: r!.name, folderPath: r!.folder_path, ...(shared.length ? { sharedChats: shared.length } : {}) } })
+        audit(ctx.db, { actor: auth.user.id, action: 'project.delete', target: r!.id, detail: isPersonalPath(r!.folder_path) ? null : { name: r!.name, folderPath: r!.folder_path, ...(shared.length ? { sharedChats: shared.length } : {}), ...(purged.length ? { sharedChatsPurged: purged.length } : {}) } })
       })()
-      for (const [id, people] of told) for (const uid of people) rt.hub.publish(uid, { type: 'chat.updated', data: { chatId: id, change: 'purged', chat: null } })
-      if (shared.length) void forgetPurgedChats(ctx, shared.map((x) => x.id))
+      const gone = (id: string, uid: string) => rt.hub.publish(uid, { type: 'chat.updated', data: { chatId: id, change: 'purged', chat: null } })
+      for (const x of kept) {
+        // its creator: now in their trash (a chat of theirs); one already there was out of their lists
+        if (!x.deleted_at) rt.publishChat(x.user_id, x.id, 'deleted')
+        for (const uid of audience) if (uid !== x.user_id) gone(x.id, uid)
+      }
+      for (const x of purged) for (const uid of audience) gone(x.id, uid)
+      if (purged.length) void forgetPurgedChats(ctx, purged.map((x) => x.id))
     })
   },
 }

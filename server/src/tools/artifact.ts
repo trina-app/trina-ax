@@ -8,7 +8,7 @@ import type { z } from 'zod'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { HttpError } from '../http/errors'
-import { isSharedChat, visibleSharedChat } from '../chat/shared'
+import { isSharedChat, severalAuthors, visibleSharedChat } from '../chat/shared'
 import { withheldFrom } from '../chat/shared-answers'
 import { ToolError } from '../policy/errors'
 import { normIso } from '../team-files/service'
@@ -45,7 +45,8 @@ export class Artifacts {
    * (apply).
    */
   private hiddenVersions(userId: string, chatId: string): ReadonlySet<string> {
-    if (!isSharedChat(this.ctx.db, chatId)) return new Set()
+    // (also a chat others wrote in before it stopped being shared: chat/shared.ts severalAuthors)
+    if (!isSharedChat(this.ctx.db, chatId) && !severalAuthors(this.ctx.db, chatId)) return new Set()
     const hidden = withheldFrom(this.ctx.db, this.ctx.files.rules(), chatId, userId)
     const rows = this.ctx.db.query(`SELECT a.id, a.key, a.message_id, t.user_id AS runner FROM artifacts a LEFT JOIN messages m ON m.id = a.message_id
       LEFT JOIN turns t ON t.id = m.turn_id WHERE a.chat_id = ? ORDER BY a.key, a.version`).all(chatId) as { id: string; key: string; message_id: string | null; runner: string | null }[]

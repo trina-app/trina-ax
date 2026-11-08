@@ -94,7 +94,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`${origin}/projects/${id}`)
     })
 
-    test('delete from the list: the project page\'s confirm, with the shared chats line only when it has some', async ({ page }) => {
+    test('delete from the list: the project page\'s confirm, with the shared chats sentence only when it has some', async ({ page }) => {
       await reset(page)
       await signIn(page)
       const launch = await project(page, 'Launch', 'marketing', true)
@@ -115,19 +115,21 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(dialog).toHaveCount(0)
       await expect(page.getByTestId('project-card')).toHaveCount(2)
 
-      // shared chats: the line that says they go too; delete
+      // shared chats: the sentence that says they go to their creators' trash, by the trash's name (no red line); delete
       menu = await openCard(page, 'Launch', vp.phone)
       await menu.getByRole('menuitem', { name: t['common.delete'] }).click()
       dialog = page.getByRole('dialog')
-      await expect(dialog).toContainText(t['projects.deleteBodyShared'])
-      await expect(dialog.getByTestId('project-delete-shared')).toHaveText(translate('ko', 'projects.deleteShared', { n: 1 }))
+      await expect(dialog).toContainText(translate('ko', 'projects.deleteBodyShared', { days: 7, trash: t['sidebar.trash'] }))
+      await expect(dialog.getByTestId('project-delete-shared')).toHaveCount(0)
       await audit(page, 'delete confirm with shared chats')
       await dialog.getByTestId('dialog-confirm').click()
       await expect(dialog).toHaveCount(0)
       await expect(page.getByTestId('project-card')).toHaveCount(1)
       await expect(card(page, 'Launch')).toHaveCount(0)
       expect((await page.request.get(`/api/projects/${launch}`)).status()).toBe(404)
-      expect((await page.request.get(`/api/chats/${shared.id}`)).status()).toBe(404)
+      // the shared chat (mine) is in my trash now, mine alone and without project
+      const trash = ((await (await page.request.get('/api/chats?trash=1')).json()) as { items: { id: string; projectId: string | null; shared?: unknown }[] }).items
+      expect(trash.filter((c) => c.id === shared.id).map((c) => [c.projectId, c.shared])).toEqual([[null, undefined]])
       // the keyboard is on the card that is left, not lost on the page
       if (!vp.phone) await expect(card(page, 'Budget').getByRole('link')).toBeFocused()
     })

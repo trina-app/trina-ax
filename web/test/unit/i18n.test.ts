@@ -22,11 +22,15 @@ describe('translations', () => {
   })
   test('chat trash and account deletion guidance show the team chat retention, not a fixed 7 days', () => {
     for (const loc of ['ko', 'en', 'id', 'ja', 'es'] as const) {
-      for (const key of ['trash.desc', 'members.removeBody', 'chat.deleteBody'] as const) {
-        expect(placeholders(DICTS[loc][key])).toEqual(['days'])
+      for (const key of ['trash.desc', 'members.removeBody', 'chat.deleteBody', 'projects.deleteBodyShared'] as const) {
+        // the chat delete confirms name the trash by the sidebar's name for it (a rename there follows)
+        const trash = key === 'chat.deleteBody' || key === 'projects.deleteBodyShared'
+        expect(placeholders(DICTS[loc][key])).toEqual(trash ? ['days', 'trash'] : ['days'])
         expect(DICTS[loc][key]).not.toMatch(/\d/)
-        expect(translate(loc, key, { days: 3 })).toContain('3')
-        expect(translate(loc, key, { days: 3 })).not.toContain('7')
+        const p = { days: 3, ...(trash ? { trash: translate(loc, 'sidebar.trash') } : {}) }
+        expect(translate(loc, key, p)).toContain('3')
+        expect(translate(loc, key, p)).not.toContain('7')
+        if (trash) expect(translate(loc, key, p)).toContain(translate(loc, 'sidebar.trash'))
       }
     }
     expect(translate('en', 'trash.desc', { days: 1 })).toContain('for 1 day ')

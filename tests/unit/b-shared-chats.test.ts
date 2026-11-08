@@ -479,7 +479,8 @@ describe('what each viewer sees', () => {
 
 // ---------------- project delete, rollback, URL gate, export, purge ----------------
 describe('around shared chats', () => {
-  test('deleting a project purges its shared chats and keeps its private ones without project', async () => {
+  // (the trash and its events in detail: b-shared-chat-trash.test.ts)
+  test("deleting a project moves its shared chats to their creators' trash and keeps its private ones without project", async () => {
     const p = await h.api('dana').call(API.createProject, { body: { name: 'Temp', folderPath: 'shared/temp-share', scope: 'team', participants: [], instructions: '' } })
     await h.api('dana').call(API.updateProject, { params: { id: p.id }, body: { shareChats: true } })
     const shared = await h.api('dana').call(API.createChat, { body: { projectId: p.id } })
@@ -487,7 +488,7 @@ describe('around shared chats', () => {
     const own = await h.api('dana').call(API.createChat, { body: { projectId: p.id } })
     expect((await h.api('dana').call(API.getProject, { params: { id: p.id } })).sharedChats).toBe(1)
     await h.api('dana').call(API.deleteProject, { params: { id: p.id } })
-    expect(db().query('SELECT id FROM chats WHERE id = ?').get(shared.id)).toBeNull()
+    expect(db().query('SELECT project_id, shared_at, deleted_at IS NOT NULL AS trashed FROM chats WHERE id = ?').get(shared.id)).toEqual({ project_id: null, shared_at: null, trashed: 1 })
     expect(db().query('SELECT project_id FROM chats WHERE id = ?').get(own.id)).toEqual({ project_id: null })
     await ws.bob!.next('chat.updated', (f) => f.data.chatId === shared.id && f.data.change === 'purged')
   })

@@ -215,6 +215,9 @@ export class TurnExec {
   private sharedReads = new Map<string, { c: string[]; s: Map<string, ReadSource> }>()
   /** a shared chat: the answers hidden from this person when the turn started (none of them reaches the engine) */
   sharedWithheld: ReadonlySet<string> = new Set()
+  /** someone other than this person wrote in this chat: a shared chat, or one that stopped being shared (a deleted
+   * project's, the rollback guard) whose read scope still holds what their turns read */
+  private othersWrote = false
 
   private resolveDone!: () => void
   private handle: LaunchHandle | null = null
@@ -462,6 +465,7 @@ export class TurnExec {
     // sees it now may see what the chat read (the session holds file contents the transcript does not: someone who
     // joined the project since would otherwise be answered from them without a card)
     const othersWrote = !this.room && !!rt.db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1").get(spec.chatId, spec.userId)
+    this.othersWrote = othersWrote
     let resume = !!claude && !this.room && !!sid && chat.engine_session_leaf_id === userMsg.parent_id && fs.existsSync(stash)
       && (!(this.shared || othersWrote) || stashWrittenBy(rt.db, chat, spec.userId))
       && (!this.shared || !this.scopeHiddenFromAudience())
@@ -475,13 +479,16 @@ export class TurnExec {
     // a shared chat: the answers hidden from this person (chat/shared-answers.ts) never reach the engine (the transcript
     // has a line in their place), and the answer records which ones above it were not in its context: a fresh session
     // has none of them; a resumed one (this person's own session) none of those its last answer had left out. A
-    // failure: no turn (fails closed)
-    if (this.shared) {
+    // failure: no turn (fails closed). A chat that stopped being shared after others wrote in it (a deleted project's,
+    // now its creator's; the rollback guard) keeps them from its creator's engine too; its answers get no record
+    if (this.shared || othersWrote) {
       try {
         const hidden = withheldFrom(rt.db, rt.files.rules(), spec.chatId, spec.userId)
-        const above = rt.store.pathTo(userMsg.parent_id).filter((m) => hidden.has(m.id)).map((m) => m.id)
-        const before = resume && userMsg.parent_id ? answerRecord(rt.db, userMsg.parent_id)?.left ?? [] : null
-        setLeftOut(rt.db, spec.chatId, spec.assistantId, before ? above.filter((id) => before.includes(id)) : above)
+        if (this.shared) {
+          const above = rt.store.pathTo(userMsg.parent_id).filter((m) => hidden.has(m.id)).map((m) => m.id)
+          const before = resume && userMsg.parent_id ? answerRecord(rt.db, userMsg.parent_id)?.left ?? [] : null
+          setLeftOut(rt.db, spec.chatId, spec.assistantId, before ? above.filter((id) => before.includes(id)) : above)
+        }
         this.sharedWithheld = hidden
       } catch (e) {
         rt.log.warn('shared answer record failed', { err: e, turn: this.id })
@@ -1922,8 +1929,8 @@ export class TurnExec {
   /** a team-file attachment of an earlier message on the branch is no longer available to the person */
   private branchLostAttachment(leafId: string | null): boolean {
     const store = this.rt.store
-    // a shared chat: as this person may see them (chat/shared.ts)
-    const viewer = this.shared ? this.spec.userId : undefined
+    // a shared chat (or one others wrote in before it stopped being shared): as this person may see them (chat/shared.ts)
+    const viewer = this.shared || this.othersWrote ? this.spec.userId : undefined
     return store.pathTo(leafId).some((m) => m.role === 'user' && hasAttachments(m) && store.attachmentsOf(m, viewer).some((a) => a.source === 'team' && a.unavailable))
   }
 
@@ -2055,9 +2062,9 @@ export class TurnExec {
     const labels = { mine: tr('scopeMine', L), root: tr('scopeRoot', L), room: tr('scopeRoom', L) }
     // the card names a room by its own name (shown to the person as text); the refusal the AI reads back by the
     // server's name only (any member of a group chat may set its own name)
-    // a shared chat's read scope also holds what other people's turns read there: a place this person cannot see
-    // themselves is not named to them
-    const label = (s: ReadSource, own: boolean) => (this.shared && !this.seesSource(s, me) ? tr('sharedScopeOther', L) : sourceLabel(this.rt.db, s, this.spec.userId, labels, own ? { ownNames: true } : {}))
+    // a shared chat's read scope also holds what other people's turns read there (also once it stopped being shared: a
+    // deleted project's chat, the rollback guard): a place this person cannot see themselves is not named to them
+    const label = (s: ReadSource, own: boolean) => ((this.shared || this.othersWrote) && !this.seesSource(s, me) ? tr('sharedScopeOther', L) : sourceLabel(this.rt.db, s, this.spec.userId, labels, own ? { ownNames: true } : {}))
     const from = [...new Set(need.narrower.map((s) => label(s, true)))].join(', ')
     const fromForAi = [...new Set(need.narrower.map((s) => label(s, false)))].join(', ')
     const answer = await this.waitForPerson({
