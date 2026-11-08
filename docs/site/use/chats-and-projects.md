@@ -73,7 +73,7 @@ Start a chat from the project's page, or move a chat in from the chat title's me
 
 ## Find anything
 
-Press ⌘K (Ctrl+K on Windows) or choose **Search** in the sidebar to find chats, projects, files, skills, scheduled tasks and MCP connections. [Read about search and settings](settings-and-search.md).
+Press ⌘K (Ctrl+K on Windows) or choose **Search** in the sidebar to find chats, messages in your conversations, projects, files, skills, scheduled tasks and MCP connections. [Read about search and settings](settings-and-search.md).
 
 ## Deleted chats
 
