@@ -4,7 +4,7 @@
 import { expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { translate } from '../../src/i18n'
-import { previewLine, previewReasons, RoomMessages, sameTimeAsAbove } from '../../src/components/rooms/RoomMessages'
+import { previewConfirm, previewLine, previewReasons, RoomMessages, sameTimeAsAbove } from '../../src/components/rooms/RoomMessages'
 import { groupRuns } from '../../src/lib/rooms'
 import { useRooms } from '../../src/store/rooms'
 import { FakeEvent, installDom, mount, removeDom } from './dom-host'
@@ -131,6 +131,19 @@ test('the confirm before posting names each folder I may open with how many cann
   // a folder the asker cannot open themselves: one row, no name
   expect(previewReasons({ folders: [], otherFolders: true, personal: false, outside: false }, t)).toEqual([translate('en', 'rooms.aiPostOtherFolders')])
   expect(previewReasons(undefined, t)).toEqual([])
+})
+
+test('the confirm: who will see it, the rows, and a line when it went through a hidden earlier answer, also with no row left', () => {
+  const t = ((k: string, p?: Record<string, string | number>) => translate('ko', k as never, p as never)) as never
+  const withFolder = previewConfirm({ folders: ['groups/sales/prices'], unable: { 'groups/sales/prices': 2 }, personal: false, outside: false, earlier: true }, t, { others: 3 })
+  expect(withFolder).toEqual({ intro: translate('ko', 'rooms.aiPostIntro'), rows: [translate('ko', 'rooms.aiPostFolder', { folder: 'prices', n: 2 })], earlier: translate('ko', 'rooms.aiPostEarlier') })
+  // what the hidden answer used is readable by everyone now (an old hidden row): no row, but the line still says so,
+  // never "everyone will see it" as if nothing were behind it
+  const none = previewConfirm({ folders: [], personal: false, outside: false, earlier: true }, t, { others: 3 })
+  expect(none).toEqual({ intro: translate('ko', 'rooms.aiPostIntro'), rows: [], earlier: translate('ko', 'rooms.aiPostEarlierNone') })
+  // nothing named (an older preview): everyone would see it, no list
+  expect(previewConfirm(undefined, t)).toEqual({ intro: translate('ko', 'rooms.aiPrivateAll'), rows: [], earlier: null })
+  expect(previewConfirm({ folders: [], personal: true, outside: false }, t, { dm: true }).intro).toBe(translate('ko', 'rooms.aiPostIntroDm'))
 })
 
 test('the one line: the web alone has its own, a preview without reasons says everyone would see it', () => {

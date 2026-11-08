@@ -527,6 +527,16 @@ export function previewReasons(p: RoomMessage['preview'], t: ReturnType<typeof u
   return rows
 }
 
+/** What the confirm before posting a preview says: who will see it, one row per reason (previewReasons), and a line
+ * when it went through an earlier answer hidden from someone (its sources are among the rows; when none is left, every
+ * member can see them now). Nothing to name (an older preview): that everyone would see it. */
+export function previewConfirm(p: RoomMessage['preview'], t: ReturnType<typeof useT>, o: { dm?: boolean; others?: number } = {}): { intro: string; rows: string[]; earlier: string | null } {
+  const rows = previewReasons(p, t, o)
+  const earlier = p?.earlier ? t(rows.length ? 'rooms.aiPostEarlier' : 'rooms.aiPostEarlierNone') : null
+  if (!rows.length && !earlier) return { intro: t(o.dm ? 'rooms.aiPrivateAllDm' : 'rooms.aiPrivateAll'), rows, earlier }
+  return { intro: t(o.dm ? 'rooms.aiPostIntroDm' : 'rooms.aiPostIntro'), rows, earlier }
+}
+
 /** My private preview of an AI answer, at its top and nowhere else: one line, "🔒 나만 볼 수 있어요 · 방에 올리기…" (a
  * text action: not posting is the default), and under it, small, why it stayed with me in one plain line. The action
  * shows exactly when the server would post it (`!preview.hidden`, RoomAi.share) and first asks, in the app's confirm,
@@ -541,21 +551,21 @@ function PreviewLine({ roomId, m }: { roomId: string; m: RoomMessage }) {
   const dm = room?.kind === 'dm'
   const [busy, setBusy] = useState(false)
   const post = async () => {
-    const rows = previewReasons(m.preview, t, { dm, others: room ? Math.max(0, room.memberCount - 1) : undefined })
+    const c = previewConfirm(m.preview, t, { dm, others: room ? Math.max(0, room.memberCount - 1) : undefined })
     const ok = await confirmDialog({
       title: t('rooms.aiPostTitle'),
-      body: rows.length ? (
+      body: (
         <div data-testid="room-ai-post-confirm">
-          <p>{t(dm ? 'rooms.aiPostIntroDm' : 'rooms.aiPostIntro')}</p>
-          <ul className="mt-2 space-y-1 text-ink" data-testid="room-ai-post-reasons">
-            {rows.map((r) => (
-              <li key={r} className="break-keep">{r}</li>
-            ))}
-          </ul>
-          {m.preview?.earlier && <p className="mt-2" data-testid="room-ai-post-earlier">{t('rooms.aiPostEarlier')}</p>}
+          <p>{c.intro}</p>
+          {c.rows.length > 0 && (
+            <ul className="mt-2 space-y-1 text-ink" data-testid="room-ai-post-reasons">
+              {c.rows.map((r) => (
+                <li key={r} className="break-keep">{r}</li>
+              ))}
+            </ul>
+          )}
+          {c.earlier && <p className="mt-2" data-testid="room-ai-post-earlier">{c.earlier}</p>}
         </div>
-      ) : (
-        <p data-testid="room-ai-post-confirm">{t(dm ? 'rooms.aiPrivateAllDm' : 'rooms.aiPrivateAll')}</p>
       ),
       confirm: t('rooms.aiPostConfirm'),
     })

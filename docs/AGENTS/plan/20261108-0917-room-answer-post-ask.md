@@ -110,4 +110,8 @@ room is followed through its hidden answers instead. Also found while building: 
 answer's thread are refused (they are no team file the confirm could name), and previews kept as refused before this
 build are decided again at start, so the owner's own preview gets its button.
 
+Independent review fixes: a shared answer's note, a reply deleted from a hidden thread and a deleted person's message are
+refused (people's words); a name must be readable by the asker so it is named; the start-up pass runs once per database
+(`settings`); a confirm whose only reason is the hidden earlier answer says so instead of "everyone will see it".
+
 PR: PR_LINK

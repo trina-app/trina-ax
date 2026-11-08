@@ -14580,7 +14580,8 @@ not postable, 409 `room_ai_hidden`, because its asker could not see what was at 
   the answer could have seen (before its own seq), a hidden thread reply through its thread's first message when that is
   hidden too, a hidden answer through the answers in its thread; at most 8 levels (`EARLIER_DEPTH`) and 100 answers
   (`EARLIER_MAX`), each once. When every source reached is one the asker may open now (a team folder or the top of the
-  team folder they may read, a name they may list, their own folder), those sources join the answer's own in `decide()`
+  team folder they may read, a name where they may read it, so it is named like a folder, their own folder), those
+  sources join the answer's own in `decide()`
   and are judged as its own are: named folders, `personal`. `hidden` is then cleared and `earlier` set; such an answer
   never goes to the room by itself (`post` is false even when every member could read all of it now, e.g. a hidden row
   not checked again yet): its asker decides.
@@ -14593,7 +14594,9 @@ not postable, 409 `room_ai_hidden`, because its asker could not see what was at 
   - **Still refused** (no button, 409 `room_ai_hidden`, the reason alone: "가려진 예전 답을 참고해서 방에 올릴 수 없어요."):
     a source in another room (a 1:1, a group chat, another team room), a connection, a shared Drive, the web or any tool
     outside the team files, nothing kept, a source type this build does not know, someone else's own folder, a folder or
-    name the asker cannot open now, people's words or files in a hidden answer's thread or files on a hidden message
+    name the asker cannot open now, people's words (a message in a hidden answer's thread, deleted ones too since they
+    may have been given; a hidden person's message other than a shared answer without a note, as the note or a message
+    an AI app sent is their own words; a deleted person's message, whose content is gone) and files on a hidden message
     (no team file to name), too deep or too many, and a team room's or the everyone room's member whose history is not
     worked out yet (what they will see is not known). Shared project chats are kept as their project folder
     (`chat/room-project-chats.ts`: its readers are the chat's audience), so they are judged as that folder. No "ask
@@ -14609,7 +14612,9 @@ not postable, 409 `room_ai_hidden`, because its asker could not see what was at 
   it posts as the person from their own chat and attaches copies): "이 답을 방에 올릴까요?", one row per reason ("단가표 · 방
   사람 중 2명은 못 봐요", "… · 다른 사람은 못 봐요" when nobody else can, "다른 폴더 · 방 사람 중 일부는 못 봐요" for folders
   the asker cannot open and the skills folders, "내 폴더 · 다른 사람은 못 봐요", "들어오기 전 대화 · ○○ 님은 못 봤어요", "웹이나
-  연결된 서비스의 내용"), a line when it went through a hidden earlier answer, then [방에 올리기] / [취소]. 취소 changes
+  연결된 서비스의 내용"), a line when it went through a hidden earlier answer ("… 위 목록에는 그 답이 참고한 자료도 들어
+  있어요."; with no row left, as when every member can now read what it used: "… 그 답이 참고한 자료는 이제 방 사람 모두가
+  볼 수 있어요.", never "올리면 대화방 모두가 …" as if nothing were behind it), then [방에 올리기] / [취소]. 취소 changes
   nothing. Every postable preview asks this way, also the ones one click posted before: posting something some members
   cannot see always shows what is at stake first. Posting is `share()` as before (the AI's message, "○○ 님이 물어봄", the
   sources some cannot read leave its list, `room.ai_share` audited, now with `earlier: true` when it applies).
@@ -14618,10 +14623,18 @@ not postable, 409 `room_ai_hidden`, because its asker could not see what was at 
   app shows the server's sentence as a toast and the notice follows the update. A decision kept before the counts is
   compared without them (`reasonsChanged`), so it is not asked again for that alone.
 - **Previews kept as not postable before this.** At start the newest 500 private previews whose decision says `hidden`
-  are decided again once, on their own question's scope, for at most 2 seconds (`rooms/ai-redecide.ts`): one that now
-  qualifies gets its button. Nothing is posted and nobody is told.
+  are decided again, on their own question's scope, for at most 2 seconds (`rooms/ai-redecide.ts`): one that now
+  qualifies gets its button. Nothing is posted and nobody is told. Once per database: a pass that went through all of
+  them is kept in `settings` (`rooms.redecideHidden.v1`); one cut off by the time limit goes on at the next start.
+- **Independent review (2026-11-08) fixes.** A shared answer's note and a reply deleted from a hidden answer's thread
+  were let through unnamed (both are people's words); a name the asker could only list showed as "다른 폴더" instead of
+  by name (now a name must be readable by the asker); the start-up pass ran at every start; a preview whose only reason
+  was the hidden earlier answer had a confirm saying everyone would see it with nothing behind it.
 - Tests: `tests/unit/b-rooms-history.test.ts` ("an answer built on an old answer hidden from someone": followed through
   two answers to the folder with its count, 404 for anyone else, posted and audited; another room, a connection,
-  someone else's folder, a folder the asker cannot open and people's words in its thread refused with 409; a member
-  whose history cannot be worked out refused; a count that changed answered 409 and then posted; a thread; the start
-  pass), `b-rooms-ai.test.ts`, `web/test/unit/room-messages.test.tsx`, `web/test/e2e/room-answer-post.spec.ts`.
+  someone else's folder, a folder the asker cannot open and people's words in its thread refused with 409; a note, a
+  deleted reply, files and an AI answer in a hidden thread refused, a shared answer without a note followed; a hidden
+  reply through its hidden first message; the asker's own folder and a name; a chain to `EARLIER_DEPTH` and past it; a
+  member whose history cannot be worked out refused; a count that changed answered 409 and then posted; a thread; the
+  start pass once per database; `reasonsChanged`), `b-rooms-ai.test.ts`, `web/test/unit/room-messages.test.tsx`,
+  `web/test/e2e/room-answer-post.spec.ts`.
