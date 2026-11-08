@@ -385,10 +385,10 @@ export class TurnExec {
     // the chat's engine was switched off by an admin: this answer comes from the team default
     if (spec.substitutedFrom) this.addStep({ kind: 'tool', tool: 'engine', label: tr('engineOffDefault', spec.locale, { from: ENGINE_LABELS[spec.substitutedFrom], to: ENGINE_LABELS[spec.engine] }), status: 'ok' })
     const confs = rt.engines.get()
-    // on a server with the hosting service's trial credit (credentials/hosted-chat.ts, docs/DECISIONS.md "Z"): a Claude
-    // Code or Codex turn that no AI connection of this person can answer goes to the other of the two when the team
-    // connected that one (a step says so), else, while the credit is active, runs on the app's own API engine with the
-    // trial key. Claude Code and Codex never run on the credit (Anthropic's terms for products that run Claude Code)
+    // a Claude Code or Codex turn that no AI connection of this person can answer goes to the other of the two while
+    // "다른 AI로 대신 답하기" is on and the team connected that one (a step says so), else, while the hosting service's
+    // trial credit is active (credentials/hosted-chat.ts, docs/DECISIONS.md "Z"), runs on the app's own API engine with
+    // the trial key. Claude Code and Codex never run on the credit (Anthropic's terms for products that run Claude Code)
     const route = this.route(confs)
     const trial = route === 'trial'
     const engine: EngineId = route === 'claude-code' || route === 'codex' ? route : spec.engine
@@ -764,8 +764,8 @@ export class TurnExec {
         this.error = engineError(err.code, spec.locale, undefined, err.status)
       }
     }
-    // "Claude 한도에 닿으면 Codex로 넘기기" (Admin > AI engines, off by default): only after the subscription limit /
-    // 429 path reported a limit, never for budgets, refusals or crashes
+    // "다른 AI로 대신 답하기" (Team settings), its limit case: only after the subscription limit / 429 path reported a
+    // limit, never for budgets, refusals or crashes
     if (claude && !this.stopReason && this.error?.code === 'rate_limited') await this.limitFallback(core, { chatDir, token, systemPrompt: () => prompt(true, false), message, extraTools })
   }
 
@@ -879,7 +879,7 @@ export class TurnExec {
   }
 
   /**
-   * Claude hit the subscription limit and the admin turned on "Claude 한도에 닿으면 Codex로 넘기기": the same question
+   * Claude hit the subscription limit and the admin turned on "다른 AI로 대신 답하기": the same question
    * goes to Codex (a fresh session with the branch history), with a step saying so and an audit entry. Not while
    * Codex is off (switched off, office mode, not set up) or, in production, for someone outside the Codex beta.
    */
@@ -917,10 +917,10 @@ export class TurnExec {
     return codex.auth !== 'managed' || hasCredentialFor(rt.db, spec.userId, 'codex', credentialsOf(rt.ctx).allowedKinds)
   }
 
-  /** Where this turn goes on a server with the hosting service's trial credit (credentials/access.ts connectionRoute,
-   * the same rule as /api/me/ai-access): its own engine, the other connection engine when only that one has a working
-   * connection of this person, or the credit (on the API engine). Only Claude Code and Codex turns on AI connections
-   * (managed), and only to an engine set up the same way here. The API engine has its own key. */
+  /** Where this turn goes (credentials/access.ts connectionRoute, the same rule as /api/me/ai-access): its own engine,
+   * the other connection engine when "다른 AI로 대신 답하기" is on and only that one has a working connection of this
+   * person, or the hosting service's trial credit (on the API engine). Only Claude Code and Codex turns on AI
+   * connections (managed), and only to an engine set up the same way here. The API engine has its own key. */
   private route(confs: EngineConfs): 'own' | 'trial' | CredEngine {
     const { rt, spec } = this
     const engine = spec.engine

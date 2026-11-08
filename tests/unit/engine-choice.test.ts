@@ -1,13 +1,13 @@
 // Admin-controlled engine / model choice (owner decision 2026-10-21, admin/engine-choice.ts): the team default
 // answers everyone; owner and admins always pick; others only when "팀원이 엔진 고르기 허용" lets them (everyone or
 // chosen groups / people). Requests naming an engine or model the person may not pick are refused (403); a chat whose
-// engine the admin switched off is answered by the team default with a step note; "Claude 한도에 닿으면 Codex로
-// 넘기기" (off by default, never while Codex is off) answers a Claude turn that hit the limit with Codex.
+// engine the admin switched off is answered by the team default with a step note; "다른 AI로 대신 답하기" (off by
+// default, on once for hosted servers, never while Codex is off) answers a Claude turn that hit the limit with Codex.
 // Fake engine through the real launcher; fixture: alice, erin = marketing; bob = finance; carol = admin; dana = owner.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, ApiError, type MemberEngineChoice } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
-import { canChooseEngine, filterEnginePrefs, personalDefault, readyEngines, turnEngine } from '../../server/src/admin/engine-choice'
+import { canChooseEngine, filterEnginePrefs, HOSTED_FALLBACK_SET_KEY, LIMIT_FALLBACK_KEY, limitFallbackSetting, personalDefault, readyEngines, settleHostedFallback, turnEngine } from '../../server/src/admin/engine-choice'
 
 setDefaultTimeout(30_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -214,6 +214,45 @@ describe('Claude limit -> Codex fallback', () => {
     } finally {
       await h.api('dana').call(API.updateEngines, { body: { limitFallback: false } })
     }
+  })
+})
+
+describe('"다른 AI로 대신 답하기" on hosted servers (settleHostedFallback, at start)', () => {
+  const cleared = () => h.ctx.db.query('DELETE FROM settings WHERE key IN (?, ?)').run(LIMIT_FALLBACK_KEY, HOSTED_FALLBACK_SET_KEY)
+  const audits = () => (h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'engines.update' AND actor_id IS NULL").all() as { detail: string }[]).map((r) => JSON.parse(r.detail))
+  const as = (deployment: 'self' | 'hosted') => ({ db: h.ctx.db, config: { ...h.ctx.config, deployment } })
+  test('a self-hosted server: never touched (off until an admin turns it on)', () => {
+    cleared()
+    expect(settleHostedFallback(as('self'))).toBe(false)
+    expect(limitFallbackSetting(h.ctx)).toBe(false)
+    expect(h.ctx.db.query('SELECT 1 FROM settings WHERE key = ?').get(HOSTED_FALLBACK_SET_KEY)).toBeNull()
+  })
+  test('hosted: on once, also over a "false" an earlier save wrote (it meant the limit case only), audited; an admin\'s later "off" stays', async () => {
+    cleared()
+    h.ctx.db.query('DELETE FROM audit_log').run()
+    h.ctx.db.query('INSERT INTO settings (key, value) VALUES (?, ?)').run(LIMIT_FALLBACK_KEY, 'false')
+    expect(settleHostedFallback(as('hosted'))).toBe(true)
+    expect(limitFallbackSetting(h.ctx)).toBe(true)
+    expect(audits()).toEqual([{ limitFallback: true, reason: 'hosted_default' }])
+    expect((await h.api('dana').call(API.engines)).limitFallback).toBe(true)
+    // the admin turns it off: the next start leaves it off
+    await h.api('dana').call(API.updateEngines, { body: { limitFallback: false } })
+    expect(settleHostedFallback(as('hosted'))).toBe(false)
+    expect(limitFallbackSetting(h.ctx)).toBe(false)
+    expect(audits().length).toBe(1)
+  })
+  test('hosted with Codex off here: left off (switching Codex on later does not quietly turn it on)', () => {
+    cleared()
+    h.ctx.db.query(`INSERT OR REPLACE INTO settings (key, value) VALUES ('engines.enabled', '{"claude-code":true,"codex":false}')`).run()
+    try {
+      expect(settleHostedFallback(as('hosted'))).toBe(false)
+      expect(limitFallbackSetting(h.ctx)).toBe(false)
+      expect(settleHostedFallback(as('hosted'))).toBe(false) // once
+    } finally {
+      h.ctx.db.query(`INSERT OR REPLACE INTO settings (key, value) VALUES ('engines.enabled', '{"claude-code":true,"codex":true}')`).run()
+      cleared()
+    }
+    expect(limitFallbackSetting(h.ctx)).toBe(false)
   })
 })
 

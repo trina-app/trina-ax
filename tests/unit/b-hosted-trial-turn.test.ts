@@ -179,26 +179,49 @@ describe('a turn on the trial credit runs on the API engine, never in Claude Cod
     expect(orSeen).toEqual([])
     expect(hostedChatUsedUsd(h.ctx.db)).toBe(0)
   })
-  test('only ChatGPT / Codex connected: a Claude Code chat is answered by Codex (a step says so), not by the credit, also once it is used up', async () => {
+  test('only ChatGPT / Codex connected, "다른 AI로 대신 답하기" on: a Claude Code chat is answered by Codex (a step says so), not by the credit, also once it is used up', async () => {
     grant()
     addCred(credentialsOf(h.ctx), 'openai-api-key', OKEY, { label: 'codex' })
+    setSetting(h.ctx.db, LIMIT_FALLBACK_KEY, true)
+    try {
+      const chat = await newChat('claude-code', 'opus')
+      for (const used of [false, true]) {
+        if (used) chargeHostedChat(h.ctx.db, 1)
+        seen.length = 0
+        const { started, done } = await ask(h, alice, 'alice', chat.id, fake({ modelAny: 'hi' }), { ms: 30_000 })
+        expect(done.status).toBe('done')
+        expect(done.content).toContain('codex answered')
+        expect(done.engine).toBe('codex')
+        expect(done.steps.map((x: { label: string }) => x.label)).toContain('No AI connection for Claude Code; answering with Codex, which is connected')
+        expect(seen.map((x) => x.key)).toEqual(['openai'])
+        // a Claude model name means nothing to Codex: its default
+        expect(turnRow(started.turnId)).toMatchObject({ engine: 'codex', model: null })
+      }
+      expect(orSeen).toEqual([])
+      expect(hostedChatUsedUsd(h.ctx.db)).toBe(1)
+      // the chat keeps its engine: a Claude connection added later answers it again
+      expect((await h.api('alice').call(API.getChat, { params: { id: chat.id } })).engine).toBe('claude-code')
+    } finally { setSetting(h.ctx.db, LIMIT_FALLBACK_KEY, false) }
+  })
+  test('no trial key at all (taken away, or the team\'s own server): the switch alone decides; off, the usual "no AI connection" and never the credit', async () => {
+    addCred(credentialsOf(h.ctx), 'openai-api-key', OKEY, { label: 'codex' })
     const chat = await newChat('claude-code', 'opus')
-    for (const used of [false, true]) {
-      if (used) chargeHostedChat(h.ctx.db, 1)
-      seen.length = 0
-      const { started, done } = await ask(h, alice, 'alice', chat.id, fake({ modelAny: 'hi' }), { ms: 30_000 })
-      expect(done.status).toBe('done')
+    setSetting(h.ctx.db, LIMIT_FALLBACK_KEY, true)
+    try {
+      const { done } = await ask(h, alice, 'alice', chat.id, fake({ modelAny: 'hi' }), { ms: 30_000 })
+      expect(done).toMatchObject({ status: 'done', engine: 'codex' })
       expect(done.content).toContain('codex answered')
-      expect(done.engine).toBe('codex')
-      expect(done.steps.map((x: { label: string }) => x.label)).toContain('No AI connection for Claude Code; answering with Codex, which is connected')
-      expect(seen.map((x) => x.key)).toEqual(['openai'])
-      // a Claude model name means nothing to Codex: its default
-      expect(turnRow(started.turnId)).toMatchObject({ engine: 'codex', model: null })
-    }
+    } finally { setSetting(h.ctx.db, LIMIT_FALLBACK_KEY, false) }
+    seen.length = 0
+    const off = await ask(h, alice, 'alice', chat.id, 'hi', { ms: 30_000 })
+    expect(off.done.status).toBe('error')
+    expect(off.done.error).toMatchObject({ params: { reason: 'no_credential' } })
+    expect(seen).toEqual([])
+    // the same with an active credit: the team has AI of its own, so the credit does not answer
+    grant()
+    const credit = await ask(h, alice, 'alice', chat.id, 'hi', { ms: 30_000 })
+    expect(credit.done.error).toMatchObject({ params: { reason: 'no_credential' } })
     expect(orSeen).toEqual([])
-    expect(hostedChatUsedUsd(h.ctx.db)).toBe(1)
-    // the chat keeps its engine: a Claude connection added later answers it again
-    expect((await h.api('alice').call(API.getChat, { params: { id: chat.id } })).engine).toBe('claude-code')
   })
 })
 
