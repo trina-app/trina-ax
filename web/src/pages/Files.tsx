@@ -66,6 +66,11 @@ interface DropOver {
 type DropHandlers = Pick<React.DOMAttributes<HTMLElement>, 'onDragEnter' | 'onDragOver' | 'onDragLeave' | 'onDrop'>
 /** the screen's two tabs: the team folder, or 휴지통 (its address is lib/nav.ts FILES_TRASH) */
 type FilesView = 'files' | 'trash'
+const viewOf = (q: URLSearchParams): FilesView => (q.get('view') === 'trash' ? 'trash' : 'files')
+/** The tab the address shows now. Read from the address itself, as Admin › Folder permissions does: the router shows a
+ * change in a transition, and a callback made earlier (the listing's `load`, kept while the folder stays) holds the
+ * address of the render that made it. */
+const viewNow = () => viewOf(new URLSearchParams(window.location.search))
 
 /** The picture under the pointer while several rows are dragged ("4 items"), instead of the one row grabbed. */
 function dragBadge(dt: DataTransfer, text: string) {
@@ -105,14 +110,15 @@ export default function Files() {
   // the trash has its own address (`?view=trash`, like Admin › Folder permissions' `?view=people`): a deleted team
   // skill's link opens it, and Back and a reload keep the tab. The folder and the search stay in the address, so the
   // files tab comes back to them
-  const view: FilesView = params.get('view') === 'trash' ? 'trash' : 'files'
-  const setView = (v: FilesView) =>
-    setParams((prev) => {
-      const n = new URLSearchParams(prev)
-      if (v === 'trash') n.set('view', 'trash')
-      else n.delete('view')
-      return n
-    })
+  const view = viewOf(params)
+  const setView = (v: FilesView) => {
+    // the tab already on screen: no second Back step to the same address
+    if (v === viewNow()) return
+    const n = new URLSearchParams(window.location.search)
+    if (v === 'trash') n.set('view', 'trash')
+    else n.delete('view')
+    setParams(n)
+  }
   const viewTabs = useId()
   const [tree, setTree] = useState<TreeResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -189,8 +195,8 @@ export default function Files() {
           }
         }
         toast({ level: 'warn', text: t(wasShown ? 'files.accessChanged' : 'files.folderNotFound') })
-        // (the trash tab, if that is the one on screen, stays)
-        setParams((prev) => ({ ...(up ? { path: up } : {}), ...(prev.get('view') === 'trash' ? { view: 'trash' } : {}) }), { replace: true })
+        // (the tab on screen stays: the trash one too)
+        setParams({ ...(up ? { path: up } : {}), ...(viewNow() === 'trash' ? { view: 'trash' } : {}) }, { replace: true })
         return
       }
       setError(errorText(e, locale, t('error.network')))

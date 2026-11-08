@@ -252,7 +252,8 @@ test('the trash has its own address: the tab sets ?view=trash, a link and a relo
   await page.reload()
   await expect(page.getByRole('tab', { name: '휴지통' })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByText('삭제 예정일은', { exact: false })).toBeVisible()
-  // Back: the folder it was in, on the files tab
+  // the tab already selected again: no second Back step. Back: the folder it was in, on the files tab
+  await page.getByRole('tab', { name: '휴지통' }).click()
   await page.goBack()
   await expect(page.getByRole('tab', { name: '팀 폴더' })).toHaveAttribute('aria-selected', 'true')
   await expect(row(page, 'plan.md')).toBeVisible()
@@ -261,6 +262,12 @@ test('the trash has its own address: the tab sets ?view=trash, a link and a relo
   await page.getByRole('tab', { name: '팀 폴더' }).click()
   await expect(page).toHaveURL(/\/files\?path=marketing$/)
   await expect(row(page, 'plan.md')).toBeVisible()
+  // the folder goes (access taken away) while the trash is on screen: the trash stays, the folder climbs
+  await page.getByRole('tab', { name: '휴지통' }).click()
+  await expect(page).toHaveURL(/\/files\?path=marketing&view=trash$/)
+  expect((await page.request.post('/__test/revoke', { data: { path: 'marketing' } })).ok()).toBeTruthy()
+  await expect(page).toHaveURL(/\/files\?view=trash$/)
+  await expect(page.getByRole('tab', { name: '휴지통' })).toHaveAttribute('aria-selected', 'true')
   // the address alone (a deleted team skill's link)
   await page.goto('/files?view=trash')
   await expect(page.getByRole('tab', { name: '휴지통' })).toHaveAttribute('aria-selected', 'true')

@@ -14652,8 +14652,10 @@ setting or data change.
 
 - **The files trash has an address: `/files?view=trash`** (`web/src/pages/Files.tsx`), like `?view=people` in Admin ›
   Folder permissions. The 팀 폴더 / 휴지통 tabs set it (the folder and the search stay in the address, so the 팀 폴더
-  tab comes back to them, as the tab state did), so a link, a reload and Back open the right tab; the "folder gone"
-  climb keeps the trash on screen. Before, 휴지통 was a tab state with no address.
+  tab comes back to them, as the tab state did), so a link, a reload and Back open the right tab. Both read the tab
+  from the address itself (as Folder permissions does): the "folder gone" climb, whose listing callback lives as long
+  as the folder, keeps the tab on screen, and the tab already selected adds no Back step. Before, 휴지통 was a tab
+  state with no address.
 - **A deleted team skill points there.** 팀 스킬 › 최근 변경's 삭제 row had "삭제한 기록", and the server's skill-change
   notice for a deleted file had a link, both to `/trash`: the deleted AI chats, where the file never is. Both now go
   to `/files?view=trash` (`FILES_TRASH` in `web/src/lib/nav.ts`, `historyLink` on each side). The button says the
@@ -14661,8 +14663,9 @@ setting or data change.
   this change keeps its `/trash` link and opens the chats, as it did.
 - **One judge of who sees a room message.** The server counts a private @트리나 answer (`visibility 'private'`, the
   asker's only) as unread for the asker (`unreadCount`), but the web added to the live badge only for
-  `visibility === 'room'`, and the answer sends no `room.read`. Asking @트리나 and going to another room showed 0 in the
-  sidebar and the dock badge, 1 after a reload. The server sends a room message only to those who may see it
+  `visibility === 'room'`, and the answer sends no `room.read`. Asking @트리나 and going to another room showed 0 on the
+  room in the sidebar (and in the dock badge where the room counts every message: a DM, a group chat, 모든 메시지), 1
+  after a reload. The server sends a room message only to those who may see it
   (`canSee`), so `withMessage` (`web/src/store/rooms.ts`) no longer tests visibility: what arrives counts as the
   server counts it. It also counts only after my read position (the server's `seq > last_read_seq`): sharing my
   private answer to the room from another window reads the room up to it first (`room.read` before the message), and
