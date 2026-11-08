@@ -110,3 +110,33 @@ test('the phone has no "create a team" link (App Review 3.1.1, Google Play payme
   expect(leave).not.toContain('saveTeamUrl(null)')
   expect(app).toMatch(/onChangeTeam=\{\(\) => setAdding\(true\)\}/)
 })
+
+test('links open the app only through screen ④ (phase 2): the hosted domain\'s links, the scheme, nothing loads before the yes', () => {
+  const fs = require('node:fs') as typeof import('node:fs'), path = require('node:path') as typeof import('node:path')
+  const root = path.join(import.meta.dir, '../../mobile')
+  // the Trina edition declares its team domain's invite and team links; the neutral app declares none
+  const appConfig = require('../../mobile/app.config.ts').default as (c: unknown) => { ios?: { associatedDomains?: string[] }; android?: { intentFilters?: unknown[] }; scheme?: string; extra?: { teamAxService?: unknown } }
+  process.env.MYCEL_MOBILE_EDITION = 'trina'
+  try {
+    const c = appConfig({ config: {}, projectRoot: root })
+    expect(c.scheme).toBe('trina-ax')
+    expect(c.ios?.associatedDomains).toEqual(['applinks:*.trina.app'])
+    expect(c.android?.intentFilters).toEqual([{ action: 'VIEW', autoVerify: true, category: ['BROWSABLE', 'DEFAULT'], data: [{ scheme: 'https', host: '*.trina.app', pathPrefix: '/invite/' }, { scheme: 'https', host: '*.trina.app', path: '/join' }] }])
+    expect(c.extra?.teamAxService).toEqual({ teamDomain: 'trina.app', repository: 'https://github.com/trina-app/trina-ax' })
+  } finally { delete process.env.MYCEL_MOBILE_EDITION }
+  const neutral = appConfig({ config: {}, projectRoot: root })
+  expect(neutral.ios?.associatedDomains).toBeUndefined()
+  expect(neutral.android?.intentFilters).toBeUndefined()
+  // every link the OS hands over is read, then only offered to ④; LinkAsk connects only with the gate's answer
+  const app = fs.readFileSync(path.join(root, 'App.tsx'), 'utf8') as string
+  expect(app).toMatch(/const p = readAppLink\(url, LINKS\)\n\s*if \(!p\) return\n\s*if \(!p\.ok\) \{ Alert\.alert\(product\.name, t\.linkBad\); return \}\n\s*setLink\(gate\.current\.put\(p\)\)/)
+  // ④ reports itself on screen (the yes counts only a while after), keeps its state per link, and asks again for a rename
+  expect(app).toContain('gate.shown(offer.id, Date.now())')
+  expect(app).toContain('<LinkAsk key={link.id}')
+  // [연결] is off until ④ has been on screen as long as the gate wants
+  expect(app).toContain('const on = setTimeout(() => setReady(true), 650)')
+  expect(app).toContain('disabled={busy || !ready}')
+  expect(app).toMatch(/if \(r\.renamed\) \{ setMoved\(\{ origin: r\.origin, entryPath: o\.entryPath \}\); return \}/)
+  expect(app).toMatch(/const o = gate\.answer\(true, offer\.host, Date\.now\(\)\)\n\s*if \(!o\) return\n[\s\S]{0,80}const r = await checkTeam\(o\.origin, service\.teamDomain\)/)
+  expect(app.match(/Linking\.(getInitialURL|addEventListener)\(/g)?.length).toBe(2)
+})

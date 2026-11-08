@@ -126,6 +126,7 @@ export const en: Record<MessageKey, string> = {
   'auth.forgot': 'Forgot your password? Ask the team owner or an admin to reset it.',
   'auth.alreadyJoined': "If you already joined, sign in.",
   'auth.haveAccount': "Already joined?",
+  'auth.openInApp': "Open in the app",
   'auth.sessionEnded': 'You were signed out because you signed out elsewhere or your password changed.',
   'auth.sessionExpired': 'Your sign-in expired. Please sign in again.',
   'auth.changePassword': 'Change password',

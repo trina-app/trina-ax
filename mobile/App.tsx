@@ -17,6 +17,7 @@ import { DARK, LIGHT, frame, insetScript, isDark, padding, pageInsets, type Inse
 import { currentDevice, leaveTeam, rememberDevice, retryRemovals, settleDevice } from './src/device'
 import { fill, inputError, offlineError, stringsFor } from './src/strings'
 import { checkTeam, readTeamInput, rememberSelfPadded, savedTeamSince, savedTeamUrl, saveTeamUrl, selfPaddedTeam } from './src/team'
+import { LinkGate, readAppLink, type LinkOffer } from './src/team-link'
 import { ReinstallSignOut, reinstallDone, wasReinstalled } from './src/install'
 import { reinstallDeps } from './src/files'
 import type { TeamAddress } from './src/address'
@@ -32,6 +33,9 @@ const t = stringsFor(language)
 /** ③'s "install it yourself" page: the repository's guide, which links no paid plan (App Review 3.1.1, Google Play
  * payments); phones have no "create a team" button for the same reason */
 const INSTALL_GUIDE = installGuide(service.repository, language?.toLowerCase().startsWith('ko') ?? false)
+/** Links that open the app: `<scheme>://open?url=…` and the hosted team domain's invite and team links (universal
+ * links, app links). Every one goes through screen ④ (LinkAsk) before anything is fetched. */
+const LINKS = { teamDomain: service.teamDomain, loopbackHttp: false, scheme: product.scheme, universal: !!service.teamDomain }
 /** The host to show for a team address: punycode with its port, as the app connected to it (never Unicode). */
 const hostOf = (origin: string) => { try { return new URL(origin).host } catch { return origin } }
 quietForeground()
@@ -84,6 +88,21 @@ export default function App() {
   // the first-run box over the team that is still connected ("다른 팀에 연결"): the team stays until another one answered
   // and the person said yes
   const [adding, setAdding] = useState(false)
+  // screen ④: a link from outside waits for the person's yes (nothing is fetched before it)
+  const gate = useRef(new LinkGate()), [link, setLink] = useState<LinkOffer | null>(null), linkRef = useRef<LinkOffer | null>(null)
+  linkRef.current = link
+  useEffect(() => {
+    const take = (url: string | null | undefined) => {
+      if (!url) return
+      const p = readAppLink(url, LINKS)
+      if (!p) return
+      if (!p.ok) { Alert.alert(product.name, t.linkBad); return }
+      setLink(gate.current.put(p))
+    }
+    void Linking.getInitialURL().then(take, () => {})
+    const sub = Linking.addEventListener('url', e => take(e.url))
+    return () => sub.remove()
+  }, [])
   // A tapped notification's path on the current team, with a counter so the same path can be opened twice.
   const [opened, setOpened] = useState<{ path: string; n: number } | null>(null)
   const since = useRef(Date.now()), hasTeam = useRef(false), device = useRef<string | null>(null), padsAtLaunch = useRef<string | null>(null)
@@ -143,13 +162,18 @@ export default function App() {
     {team === undefined ? <Center><ActivityIndicator color={product.accent} /></Center>
       : team === null ? <Setup current={null} onDone={connect} />
       : <>
-        <TeamWeb key={team.origin} address={team} hidden={adding} pads={padsAtLaunch.current === team.origin} signOut={signOut.current} opened={opened} onDevice={id => { device.current = id }} onAppearance={look => setPage(p => p?.dark === look.dark && p.system === look.system ? p : look)}
+        <TeamWeb key={team.origin} address={team} hidden={adding || !!link} pads={padsAtLaunch.current === team.origin} signOut={signOut.current} opened={opened} onDevice={id => { device.current = id }} onAppearance={look => setPage(p => p?.dark === look.dark && p.system === look.system ? p : look)}
           onChangeTeam={() => setAdding(true)} />
         {adding && <View style={StyleSheet.absoluteFill}><Setup current={team.origin} onBack={closeAdding}
           // the same team again: its page opens there (a link's join page, or its start)
           onSame={address => { setAdding(false); setOpened(o => ({ path: address.entryPath, n: (o?.n ?? 0) + 1 })) }}
           onDone={connect} /></View>}
       </>}
+    {team !== undefined && link && <View style={StyleSheet.absoluteFill}><LinkAsk key={link.id} offer={link} gate={gate.current} current={team?.origin ?? null}
+      // an answer counts only while its link is still the one on screen (a newer link replaced it otherwise)
+      onClose={() => { if (linkRef.current?.id === link.id) setLink(null) }}
+      onSame={path => { if (linkRef.current?.id !== link.id) return; setLink(null); setAdding(false); setOpened(o => ({ path, n: (o?.n ?? 0) + 1 })) }}
+      onDone={async address => { if (linkRef.current?.id !== link.id) return; await connect(address); setLink(null) }} /></View>}
   </Look.Provider></SafeAreaProvider>
 }
 // Insets as explicit padding on every native screen: with edge-to-edge (Android, targetSdk 36) the app draws under the
@@ -265,6 +289,64 @@ function Setup({ current, onDone, onBack, onSame }: { current: string | null; on
   return <View style={[s.fill, { backgroundColor: c.canvas, paddingTop: i.top, paddingBottom: keyboard ? keyboard + i.bottom : i.bottom, paddingLeft: i.left, paddingRight: i.right }]}><KeyboardAvoidingView style={s.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
     <ScrollView contentContainerStyle={s.setup} keyboardShouldPersistTaps="handled">{body}</ScrollView>
   </KeyboardAvoidingView></View>
+}
+/**
+ * ④ A link from outside: "{host}에 연결할까요? 직접 받은 링크가 맞을 때만 연결하세요.", the outside note when the hosted
+ * service does not run it, and when this phone is in another team the switch line. [취소] has the focus; [연결] (or
+ * [바꾸기]) only then checks the address and connects: the same path as the box, leaving the old team only now.
+ */
+function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: LinkOffer; gate: LinkGate; current: string | null; onClose: () => void; onSame: (path: string) => void; onDone: (address: TeamAddress) => Promise<void> }) {
+  const [busy, setBusy] = useState(false), [error, setError] = useState('')
+  // [연결] is on only once ④ has been on screen a while (the gate counts 600 ms from gate.shown)
+  const [ready, setReady] = useState(false)
+  // the team moved at its relay: its new address, asked once more before anything is saved
+  const [moved, setMoved] = useState<TeamAddress | null>(null)
+  const cancelRef = useRef<ComponentRef<typeof Pressable>>(null)
+  const i = useSafeAreaInsets(), c = useContext(Look)
+  const switching = !!current && current !== offer.origin
+  const host = moved ? hostOf(moved.origin) : offer.host
+  function no() { gate.answer(false, offer.host, Date.now()); onClose() }
+  async function yes() {
+    if (busy) return
+    if (moved) {
+      setBusy(true)
+      try { if (current === moved.origin) onSame(moved.entryPath); else await onDone(moved) } catch { setError(t.saveFailed) } finally { setBusy(false) }
+      return
+    }
+    // the yes counts for this host only, and not right after ④ appeared
+    const o = gate.answer(true, offer.host, Date.now())
+    if (!o) return
+    setBusy(true); setError('')
+    try {
+      const r = await checkTeam(o.origin, service.teamDomain)
+      if (!r.ok) { setError(r.reason === 'unknown' ? fill(t.teamUnknown, { name: o.name ?? o.host }) : r.reason === 'suspended' ? t.suspended : r.reason === 'notTeam' ? t.notTeam : t.unreachableSetup); return }
+      if (r.renamed) { setMoved({ origin: r.origin, entryPath: o.entryPath }); return }
+      if (current === r.origin) onSame(o.entryPath)
+      else await onDone({ origin: r.origin, entryPath: o.entryPath })
+    } catch { setError(t.saveFailed) } finally { setBusy(false) }
+  }
+  useEffect(() => {
+    gate.shown(offer.id, Date.now())
+    const on = setTimeout(() => setReady(true), 650)
+    const id = setTimeout(() => { const n = cancelRef.current && findNodeHandle(cancelRef.current); if (n) AccessibilityInfo.setAccessibilityFocus(n) }, 300)
+    const back = BackHandler.addEventListener('hardwareBackPress', () => { no(); return true })
+    return () => { clearTimeout(id); clearTimeout(on); back.remove() }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offer])
+  return <View style={[s.fill, s.center, { backgroundColor: c.canvas, paddingTop: i.top + 24, paddingBottom: i.bottom + 24, paddingLeft: i.left + 24, paddingRight: i.right + 24 }]} accessibilityViewIsModal testID="link-ask">
+    <View style={s.linkCard}>
+      <Text style={[s.title, { color: c.ink }]} accessibilityRole="header" testID="link-title">{fill(t.linkTitle, { host })}</Text>
+      <Text style={[s.hint, { color: c.muted }]}>{moved ? fill(t.renamed, { host }) : t.linkBody}</Text>
+      {!offer.hosted && <Text style={[s.askText, { color: c.ink }]} testID="link-outside">{t.outsideBody}</Text>}
+      {switching && <Text style={[s.askText, { color: c.muted }]}>{fill(t.switchBody, { old: hostOf(current!) })}</Text>}
+      {!!error && <Text accessibilityRole="alert" style={[s.error, { color: c.danger }]} testID="link-error">{error}</Text>}
+      <View style={s.askRow}>
+        <Pressable ref={cancelRef} style={[s.secondary, s.askButton]} onPress={no} testID="link-cancel" accessibilityRole="button"><Text style={[s.secondaryText, { color: c.ink, borderColor: c.field }]}>{t.cancel}</Text></Pressable>
+        {!error && <Pressable style={[s.button, s.askButton, !ready && s.off]} onPress={() => void yes()} disabled={busy || !ready} testID="link-connect" accessibilityRole="button" accessibilityState={{ disabled: busy || !ready }}>
+          {busy ? <ActivityIndicator color={accentInk(product.accent)} /> : <Text style={s.buttonText}>{switching ? t.switchYes : t.outsideConnect}</Text>}</Pressable>}
+      </View>
+    </View>
+  </View>
 }
 type Failure = 'offline' | 'unreachable'
 function TeamWeb({ address, hidden, pads, signOut, opened, onDevice, onAppearance, onChangeTeam }: { address: TeamAddress; hidden: boolean; pads: boolean; signOut: ReinstallSignOut | null; opened: { path: string; n: number } | null; onDevice: (id: string) => void; onAppearance: (look: PageLook) => void; onChangeTeam: () => void }) {
@@ -473,5 +555,5 @@ const s = StyleSheet.create({
   ask: { marginTop: 16, borderWidth: 1, borderRadius: 12, padding: 16 }, askTitle: { fontSize: 16, fontWeight: '600', lineHeight: 22, marginBottom: 6 },
   askHost: { fontSize: 15, fontWeight: '600', marginBottom: 6 }, askText: { fontSize: 15, lineHeight: 21, marginBottom: 6 },
   askRow: { flexDirection: 'row', gap: 10, marginTop: 8 }, askButton: { flex: 1, minWidth: 0, marginTop: 0 },
-  footerHost: { fontSize: 13, paddingHorizontal: 16 },
+  footerHost: { fontSize: 13, paddingHorizontal: 16 }, linkCard: { width: '100%', maxWidth: 480 }, off: { opacity: 0.5 },
 })

@@ -158,3 +158,91 @@ describe('what the relay answered', () => {
     }
   })
 })
+
+describe('links from outside (phase 2): the reader and screen ④\'s gate', () => {
+  const enc = encodeURIComponent
+  const link = (inner: string) => `trina-ax://open?url=${enc(inner)}`
+  const DESK = { ...DESKTOP, scheme: 'trina-ax', universal: false }
+  const PHONE_LINKS = { ...PHONE, scheme: 'trina-ax', universal: true }
+  test('the scheme link: the team link or invite link inside, with its page', () => {
+    for (const m of [shared, phone]) for (const o of [DESK, PHONE_LINKS]) {
+      expect(m.readAppLink(link(`https://acme.trina.app/join#t=${JOIN}`), o)).toEqual(acme(`/join#t=${JOIN}`) as never)
+      expect(m.readAppLink(link(`https://acme.trina.app/invite/${INVITE}`), o)).toEqual(acme(`/invite/${INVITE}`) as never)
+      expect(m.readAppLink(`TRINA-AX://open/?url=${enc('https://acme.trina.app')}`, o)).toEqual(acme() as never)
+    }
+  })
+  test('a crafted link cannot load http to another machine, javascript:, file:, data:, user:password', () => {
+    for (const m of [shared, phone]) for (const o of [DESK, PHONE_LINKS]) {
+      expect(m.readAppLink(link('http://evil.example/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk'), o)).toEqual(err('insecure') as never)
+      expect(m.readAppLink(link('https://trina.app@evil.example'), o)).toEqual(err('credentials') as never)
+      for (const inner of ['javascript:alert(1)', 'JavaScript:alert(1)', 'file:///etc/passwd', 'data:text/html,hi', 'vbscript:x', '//evil.example', 'acme', 'https://a b'])
+        expect(m.readAppLink(link(inner), o)).toBeNull()
+      for (const raw of ['trina-ax://evil?url=' + enc('https://acme.trina.app'), 'trina-ax://open?url=a&url=b', `trina-ax://open?url=${enc('https://acme.trina.app')}&then=x`, `trina-ax://open?url=${enc('https://acme.trina.app')}#x`,
+        `trina-ax://u:p@open?url=${enc('https://acme.trina.app')}`, `trina-ax://open:1?url=${enc('https://acme.trina.app')}`, `trina-ax:open?url=${enc('https://acme.trina.app')}`, `trina-ax://open/x?url=${enc('https://acme.trina.app')}`,
+        `teamax-mobile://open?url=${enc('https://acme.trina.app')}`, ` trina-ax://open?url=${enc('https://acme.trina.app')}`, `trina-ax://open?url=${'a'.repeat(5000)}`])
+        expect(m.readAppLink(raw, o)).toBeNull()
+    }
+  })
+  test('an IP-literal or look-alike host shows as what the app would connect to, never as hosted', () => {
+    for (const m of [shared, phone]) {
+      for (const inner of ['https://0x7f.1/', 'https://2130706433/', 'https://127.1/', 'https://[::ffff:7f00:1]/']) {
+        const r = m.readAppLink(link(inner), DESK) as { ok: boolean; host: string; hosted: boolean }
+        expect({ inner, ok: r.ok, hosted: r.hosted, numeric: /^(127\.0\.0\.1|\[::ffff:7f00:1\])$/.test(r.host) }).toEqual({ inner, ok: true, hosted: false, numeric: true })
+      }
+      expect(m.readAppLink(link('https://evil.example\\@acme.trina.app'), DESK)).toMatchObject({ ok: true, host: 'evil.example', hosted: false })
+      expect(m.readAppLink(link('https://acme.trina.app.evil.example/join#t=' + JOIN), DESK)).toMatchObject({ ok: true, host: 'acme.trina.app.evil.example', hosted: false })
+      expect(m.readAppLink(link('https://bücher.de/'), DESK)).toMatchObject({ host: 'xn--bcher-kva.de', hosted: false })
+    }
+  })
+  test('a universal link / app link: only a hosted team\'s invite or team link, only on the phone', () => {
+    for (const m of [shared, phone]) {
+      expect(m.readAppLink(`https://acme.trina.app/join#t=${JOIN}`, PHONE_LINKS)).toEqual(acme(`/join#t=${JOIN}`) as never)
+      expect(m.readAppLink(`https://acme.trina.app/invite/${INVITE}`, PHONE_LINKS)).toEqual(acme(`/invite/${INVITE}`) as never)
+      for (const raw of ['https://acme.trina.app/', 'https://acme.trina.app/chats/1', `https://team.example.com/join#t=${JOIN}`, `https://acme.trina.app.evil.example/invite/${INVITE}`, `http://acme.trina.app/invite/${INVITE}`])
+        expect(m.readAppLink(raw, PHONE_LINKS)).toBeNull()
+      expect(m.readAppLink(`https://acme.trina.app/join#t=${JOIN}`, DESK)).toBeNull()
+    }
+  })
+  test('④ cannot be skipped: nothing without a yes, a yes for the host it showed, only once ④ has been on screen a while, once', () => {
+    for (const m of [shared, phone]) {
+      const g = new m.LinkGate(600)
+      const a = m.readAppLink(link(`https://acme.trina.app/join#t=${JOIN}`), DESK) as never
+      const evil = m.readAppLink(link('https://evil.example/'), DESK) as never
+      expect(g.answer(true, 'acme.trina.app', 10_000)).toBeNull() // nothing offered
+      const first = g.put(a)
+      expect(first).toMatchObject({ origin: 'https://acme.trina.app', host: 'acme.trina.app', entryPath: `/join#t=${JOIN}`, hosted: true, name: 'acme' })
+      expect(g.pending()?.host).toBe('acme.trina.app')
+      // not on screen yet (a cold start still loading): no yes counts, however late
+      expect(g.answer(true, 'acme.trina.app', 99_000)).toBeNull()
+      g.shown(first.id, 100_000)
+      g.shown(first.id, 200_000) // the first display counts
+      expect(g.answer(true, 'acme.trina.app', 100_200)).toBeNull() // too soon after ④ appeared
+      expect(g.answer(true, 'evil.example', 101_000)).toBeNull() // not the host ④ showed
+      // a second link arrived while ④ was up: the yes meant for the first one does not confirm it
+      const second = g.put(evil)
+      expect(second.id).not.toBe(first.id)
+      g.shown(first.id, 101_100) // an old screen's report does not count for the new offer
+      expect(g.answer(true, 'evil.example', 102_000)).toBeNull()
+      g.shown(second.id, 102_000)
+      expect(g.answer(true, 'acme.trina.app', 103_000)).toBeNull()
+      expect(g.answer(true, 'evil.example', 102_300)).toBeNull()
+      expect(g.answer(true, 'evil.example', 102_700)).toMatchObject({ host: 'evil.example', id: second.id })
+      expect(g.answer(true, 'evil.example', 109_000)).toBeNull() // used once
+      // the person went elsewhere: the offer is gone
+      const third = g.put(a); g.shown(third.id, 110_000); g.clear()
+      expect(g.answer(true, 'acme.trina.app', 111_000)).toBeNull()
+      g.put(a)
+      expect(g.answer(false, 'acme.trina.app', 120_001)).toBeNull()
+      expect(g.pending()).toBeNull()
+    }
+  })
+  test('a tapped universal link that was cut off says so; text around the address inside a scheme link is refused', () => {
+    for (const m of [shared, phone]) {
+      expect(m.readAppLink('https://acme.trina.app/invite/abc', PHONE_LINKS)).toEqual(err('link') as never)
+      expect(m.readAppLink('https://acme.trina.app/join', PHONE_LINKS)).toEqual(err('link') as never)
+      expect(m.readAppLink('https://team.example.com/invite/abc', PHONE_LINKS)).toBeNull()
+      expect(m.readAppLink(link(`https://x.example'https://acme.trina.app/invite/${INVITE}`), DESK)).toBeNull()
+      expect(m.readAppLink(link(`x.https://acme.trina.app/invite/${INVITE}`), DESK)).toBeNull()
+    }
+  })
+})

@@ -3,8 +3,8 @@
 // here it gets the desktop's rules: the hosted team domain, and plain http only for this machine (development).
 // Pure: no Electron, unit-tested in tests/unit/e-desktop-common.test.ts and tests/unit/team-link.test.ts.
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
-import { SOURCE_CODE } from '@mycel/shared'
-import { parseTeamInput, relayAnswer, relayRename, type RelayAnswer, type TeamInputError, type TeamInputOptions } from '@mycel/shared/team-link'
+import { PRODUCT, SOURCE_CODE } from '@mycel/shared'
+import { parseTeamInput, readAppLink, relayAnswer, relayRename, type RelayAnswer, type TeamInput, type TeamInputError, type TeamInputOptions } from '@mycel/shared/team-link'
 
 export { hostLineShown, isLoopbackHost, isSignInPath } from '@mycel/shared/team-link'
 
@@ -21,6 +21,25 @@ export function parseTeamAddress(raw: string): ParsedAddress {
   const p = parseTeamInput(raw, DESKTOP_INPUT)
   if (!p.ok) return p
   return { ok: true, origin: p.origin, host: p.host, dev: p.loopback, entryPath: p.entryPath, name: p.name, hosted: p.hosted }
+}
+
+/** The link scheme this app answers (`trina-ax://open?url=…`): PRODUCT.linkScheme, the phone app's scheme too. */
+export const LINK_SCHEME: string = PRODUCT.linkScheme
+
+/** A link that opened the app from outside: `<scheme>://open?url=<team link>` only (the desktop declares no web
+ * domains), read with the box's rules but stricter: https only, and never this machine (a link from a web page must
+ * not point the app, its team view and its bridge at a local port). Typed addresses keep http to this machine for
+ * development. null: not a link for this app. */
+export function readDesktopLink(raw: string): TeamInput | null {
+  const p = readAppLink(raw, { ...DESKTOP_INPUT, loopbackHttp: false, scheme: LINK_SCHEME, universal: false })
+  return p?.ok && p.loopback ? { ok: false, error: 'insecure' } : p
+}
+
+/** The link in a command line: Windows and Linux start the app (or its second instance) with the link as an argument.
+ * Anything else on the command line (Chromium switches, the app's path) is ignored. */
+export function linkFromArgv(argv: readonly string[], scheme = LINK_SCHEME): string | null {
+  const prefix = `${scheme.toLowerCase()}:`
+  return argv.find((a) => typeof a === 'string' && a.length <= 4096 && a.toLowerCase().startsWith(prefix)) ?? null
 }
 
 /** One answer of GET /api/health, read without following redirects (main/app-window.ts fetchHealth). */

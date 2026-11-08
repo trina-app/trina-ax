@@ -1,6 +1,7 @@
 // The first-run screen (①: one box for an invite link, a team link or a team address, with the remembered teams),
 // its two help views (②: no address, ③: no team yet), the one-time question for an address the hosted service does
-// not run, and the "cannot reach the team server" screen. docs/DECISIONS.md "First run: one box".
+// not run, screen ④ for a link from outside, and the "cannot reach the team server" screen. docs/DECISIONS.md
+// "First run: one box" and "First run, phase 2".
 import { UI_LOCALES } from '../common/locales'
 import { h, locale, onLocaleChange, tr, ui, type WelcomeState } from './dom'
 
@@ -18,7 +19,15 @@ let view: 'main' | 'unknown' | 'none' = 'main'
 /** a kit build's address is filled in once; after that the field is the person's */
 let suggestedUsed = false
 function takeState(s: WelcomeState) {
+  // ④ appears: an error from before (a refused link, an address that failed) is not about this link
+  if (s.link && s.link.id !== state.link?.id) error = ''
+  const newLinkError = s.linkError && s.linkError !== state.linkError && !s.link
   state = s
+  // a link from outside that cannot open a team: said on ① (never over ④)
+  if (newLinkError) {
+    error = s.linkError!
+    view = 'main'
+  }
   if (s.suggested && !suggestedUsed && !draft) {
     draft = s.suggested
     suggestedUsed = true
@@ -27,7 +36,7 @@ function takeState(s: WelcomeState) {
 
 function render() {
   const focused = document.activeElement?.id
-  root.replaceChildren(state.mode === 'offline' && state.offline ? offline() : view === 'unknown' ? noAddress() : view === 'none' ? noTeam() : welcome())
+  root.replaceChildren(state.link ? linkAsk(state.link) : state.mode === 'offline' && state.offline ? offline() : view === 'unknown' ? noAddress() : view === 'none' ? noTeam() : welcome())
   if (focused) document.getElementById(focused)?.focus()
 }
 
@@ -40,7 +49,9 @@ function show(next: typeof view) {
 
 addEventListener('keydown', (e: KeyboardEvent) => {
   if (e.key !== 'Escape') return
-  if (outside) {
+  if (state.link) {
+    void ui.welcome.answerLink(false, state.link.host)
+  } else if (outside) {
     outside = null
     render()
     document.getElementById('address')?.focus()
@@ -166,6 +177,76 @@ function outsideBox(o: { kind: 'outside' | 'renamed'; host: string; address: str
   )
 }
 
+/**
+ * ④ A link from outside (`trina-ax://open?url=…`): "{host}에 연결할까요? 직접 받은 링크가 맞을 때만 연결하세요.", the
+ * outside note when the hosted service does not run it, [취소] (focus) [연결]. Nothing was fetched yet; [연결] runs the
+ * address check, then opens the link's page (the main process holds the link: this screen only names the host).
+ */
+/** ④'s [연결] is on only after this long on screen (the main process's LinkGate counts 600 ms from linkShown) */
+const LINK_READY_MS = 650
+let linkSeen = 0
+let linkReady = false
+function linkAsk(link: { id: number; host: string; hosted: boolean }) {
+  // the yes counts only some time after ④ is on screen (the main process's LinkGate); until then [연결] is off
+  if (link.id !== linkSeen) {
+    linkSeen = link.id
+    linkReady = false
+    queueMicrotask(() => ui.welcome.linkShown(link.id))
+    setTimeout(() => {
+      if (linkSeen !== link.id) return
+      linkReady = true
+      render()
+    }, LINK_READY_MS)
+  }
+  return h(
+    'section',
+    { class: 'card', role: 'alertdialog', 'aria-labelledby': 'link-title', 'aria-describedby': 'link-body', 'data-testid': 'link-ask' },
+    h('div', { class: 'brand' }, tr('app.name')),
+    h('h1', { id: 'link-title', class: 'host-title' }, tr('link.title', { host: link.host })),
+    h('p', { class: 'sub', id: 'link-body' }, tr('link.body')),
+    link.hosted ? null : h('div', { class: 'confirm', 'data-testid': 'link-outside' }, h('p', {}, tr('outside.body'))),
+    h('p', { id: 'address-error', class: 'error', role: 'alert', 'data-testid': 'address-error' }, error),
+    h(
+      'div',
+      { class: 'actions' },
+      h('button', { type: 'button', id: 'link-cancel', 'data-testid': 'link-cancel', onclick: () => void ui.welcome.answerLink(false, link.host) }, tr('welcome.cancel')),
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'primary',
+          'data-testid': 'link-connect',
+          disabled: busy || !linkReady,
+          onclick: async () => {
+            if (busy) return
+            busy = true
+            error = ''
+            render()
+            try {
+              const r = await ui.welcome.answerLink(true, link.host)
+              // the team moved at its relay: its new address is asked on ① before anything is remembered
+              if (r && !r.ok && r.error === 'renamed' && r.next) {
+                outside = { kind: 'renamed', host: r.host ?? '', address: r.next }
+                draft = r.next
+                view = 'main'
+              } else if (r && !r.ok) {
+                error = r.message
+                view = 'main'
+              }
+            } catch {
+              error = tr('err.unreachable')
+            } finally {
+              busy = false
+              render()
+            }
+          },
+        },
+        busy ? tr('welcome.checking') : tr('outside.connect'),
+      ),
+    ),
+  )
+}
+
 /** ② "주소를 모르겠어요": where the address is. */
 function noAddress() {
   return h(
@@ -287,8 +368,11 @@ onLocaleChange(render)
 ui.welcome.onState((s) => {
   // the screen shown again from the 팀 menu or the host strip: start at the box
   if (s.mode === 'welcome' && state.mode !== 'welcome') view = 'main'
+  const asked = !state.link && s.link
   takeState(s)
   render()
+  // ④ appeared: the safe answer has the focus
+  if (asked) document.getElementById('link-cancel')?.focus()
 })
 void ui.welcome.state().then((s) => {
   if (s) takeState(s)

@@ -122,6 +122,7 @@ export const es: Record<MessageKey, string> = {
   'auth.forgot': "¿Olvidó su contraseña? Pida al propietario del equipo o a un administrador que la restablezca.",
   'auth.alreadyJoined': "Si ya se unió, inicie sesión.",
   'auth.haveAccount': "¿Ya se unió?",
+  'auth.openInApp': "Abrir en la app",
   'auth.sessionEnded': "Se cerró la sesión porque la cerró en otro lugar o cambió su contraseña.",
   'auth.sessionExpired': "Su sesión venció. Vuelva a iniciar sesión.",
   'auth.changePassword': "Cambiar contraseña",

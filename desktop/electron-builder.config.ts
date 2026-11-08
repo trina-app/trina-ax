@@ -17,6 +17,10 @@ export default {
   directories: { output: 'release', buildResources: 'build-resources' },
   files: ['dist/**/*', '!dist/**/*.map', 'package.json'],
   asar: true,
+  // links from outside, `<linkScheme>://open?url=<team link>` (the web's "앱에서 열기"; docs/DECISIONS.md "First run, phase
+  // 2"): the dmg's and the Mac App Store build's Info.plist (CFBundleURLTypes) and the Microsoft Store package's
+  // manifest (a windows.protocol extension, its template's ${extensions}) declare the scheme from here
+  protocols: [{ name: PRODUCT.displayName, schemes: [PRODUCT.linkScheme] }],
   electronFuses: {
     runAsNode: false,
     enableCookieEncryption: true,

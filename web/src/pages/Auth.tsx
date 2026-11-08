@@ -15,7 +15,9 @@ import { clearLocalData } from '../lib/localData'
 import { readSetupLink, rememberSetupSite } from '../lib/setupLink'
 import { setAfterSetup } from '../lib/welcome'
 import { landingPath } from '../lib/tabs'
-import { joinNext, readJoinToken, setAfterJoin } from '../lib/team-link'
+import { joinNext, openInAppHref, openInAppShown, readJoinToken, setAfterJoin } from '../lib/team-link'
+import { platform } from '../lib/pwa'
+import { APP_LINKS } from '@mycel/shared/app-links'
 import { holdMadeBy } from '../lib/starter'
 import { SourceCodeLink } from '../components/SourceCodeLink'
 import { Button, Field, IconButton, inputCls } from '../components/ui'
@@ -405,6 +407,21 @@ function SignInInstead() {
   )
 }
 
+/** "앱에서 열기": the same join page in the desktop or phone app (its screen ④ asks first). Web browsers on the apps'
+ * systems only. */
+function OpenInApp({ path }: { path: string }) {
+  const t = useT()
+  const href = openInAppHref({ scheme: PRODUCT.linkScheme, origin: window.location.origin, path, platform: platform(), androidPackage: APP_LINKS.androidPackage })
+  if (!openInAppShown(clientKind(), href)) return null
+  return (
+    <p className="mt-2 text-center text-sm">
+      <a href={href} className="text-accent-text underline" data-testid="open-in-app">
+        {t('auth.openInApp')}
+      </a>
+    </p>
+  )
+}
+
 /** Under both join forms: someone who already has an account here signs in instead of making a second one. */
 function HaveAccount() {
   const t = useT()
@@ -460,6 +477,7 @@ export function AcceptInvite() {
     <AuthFrame title={t('invite.joinTeam', { team: info.teamName })} sub={t('invite.sub', { role: t(`role.${info.role}`), date: formatDateTime(info.expiresAt, locale) })}>
       <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
       <HaveAccount />
+      <OpenInApp path={`/invite/${token}`} />
     </AuthFrame>
   )
 }
@@ -521,6 +539,7 @@ export function TeamJoin() {
     <AuthFrame title={t('invite.joinTeam', { team: info.teamName })} sub={info.skillName ? t('teamLink.joinSubSkill', { skill: skillLabel({ name: info.skillName, title: info.skillTitle }) }) : t('teamLink.joinSub', { date: formatDateTime(info.expiresAt, locale) })}>
       <JoinForm submitLabel={t('invite.accept')} busy={busy} error={error} onSubmit={submit} onTooShort={() => setError('auth.passwordRule')} />
       <HaveAccount />
+      <OpenInApp path={`/join#t=${link.token}`} />
     </AuthFrame>
   )
 }

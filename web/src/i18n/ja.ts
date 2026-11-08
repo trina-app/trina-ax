@@ -122,6 +122,7 @@ export const ja: Record<MessageKey, string> = {
   'auth.forgot': "パスワードをお忘れですか？チームオーナーまたは管理者にリセットを依頼してください。",
   'auth.alreadyJoined': "すでに参加している場合はログインしてください。",
   'auth.haveAccount': "すでに参加していますか？",
+  'auth.openInApp': "アプリで開く",
   'auth.sessionEnded': "別の場所でログアウトしたか、パスワードが変更されたため、ログアウトしました。",
   'auth.sessionExpired': "ログインの有効期限が切れました。再度ログインしてください。",
   'auth.changePassword': "パスワードを変更",

@@ -6,7 +6,7 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { runInNewContext } from 'node:vm'
-import { asksOutside, firstRunLinks, healthVerdict, hostOf, INSTALL_DOCS, isGatewayDown, isLoopbackHost, isSignInPath, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
+import { asksOutside, firstRunLinks, healthVerdict, linkFromArgv, LINK_SCHEME, readDesktopLink, hostOf, INSTALL_DOCS, isGatewayDown, isLoopbackHost, isSignInPath, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
 import { errorResult, MAX_ITEMS, toBrowserResult } from '../../desktop/src/common/browser-result'
 import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, UI_LOCALES, type UiKey, type UiLocale } from '../../desktop/src/common/i18n'
 import { parseKeyCombo, redactUrl } from '../../desktop/src/common/input'
@@ -152,6 +152,89 @@ describe('first run: what the team address answered, the help screens, the host 
     const main = readFileSync(join(import.meta.dir, '../../desktop/src/main/main.ts'), 'utf8')
     expect(main).not.toContain("menu.addTeam")
     expect(STRINGS.ko['menu.teams']).toBe('팀 목록·추가…')
+  })
+})
+
+describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
+  const enc = encodeURIComponent
+  const link = (inner: string) => `${LINK_SCHEME}://open?url=${enc(inner)}`
+  test('the scheme is the product\'s and the phone app\'s', () => {
+    expect(LINK_SCHEME).toBe(PRODUCT.linkScheme)
+    expect(LINK_SCHEME).toBe(JSON.parse(readFileSync(join(import.meta.dir, '../../editions/trina/branding/mobile.json'), 'utf8')).scheme)
+  })
+  test('a team link or invite link inside opens its page; the host shown is the one connected to', () => {
+    expect(readDesktopLink(link(`https://acme.${TEAM_DOMAIN}/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E`))).toMatchObject({ ok: true, host: `acme.${TEAM_DOMAIN}`, hosted: true, entryPath: '/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E' })
+    expect(readDesktopLink(link('https://team.example.com/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk'))).toMatchObject({ ok: true, host: 'team.example.com', hosted: false, entryPath: '/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk' })
+    // a link from outside never points the app at this machine, http or https (typed addresses still may: development)
+    for (const inner of ['http://127.0.0.1:19100/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk', 'https://127.0.0.1:19100/', 'http://localhost:19100/', 'https://localhost/', 'http://acme.localhost:19883/', 'https://[::1]:8443/', 'https://127.1/'])
+      expect(readDesktopLink(link(inner))).toEqual({ ok: false, error: 'insecure' })
+    expect(parseTeamAddress('http://127.0.0.1:19100')).toMatchObject({ ok: true, dev: true })
+  })
+  test('a crafted link cannot load http to another machine, javascript:, file:, data:, user:password, or hide its host', () => {
+    expect(readDesktopLink(link('http://evil.example'))).toEqual({ ok: false, error: 'insecure' })
+    expect(readDesktopLink(link(`https://${TEAM_DOMAIN}@evil.example`))).toEqual({ ok: false, error: 'credentials' })
+    expect(readDesktopLink(link(`https://acme.${TEAM_DOMAIN}:x@evil.example`))).toEqual({ ok: false, error: 'credentials' })
+    for (const inner of ['javascript:alert(1)', 'file:///etc/passwd', 'data:text/html,<script>x</script>', 'acme', `acme.${TEAM_DOMAIN}`, 'https://a b'])
+      expect(readDesktopLink(link(inner))).toBeNull()
+    // the host ④ shows is the URL parser's: a numeric trick for this machine is refused, a backslash ends the host,
+    // another numeric address is shown as numbers and never counts as hosted
+    expect(readDesktopLink(link('https://0x7f.1/'))).toEqual({ ok: false, error: 'insecure' })
+    expect(readDesktopLink(link('https://2130706433/'))).toEqual({ ok: false, error: 'insecure' })
+    expect(readDesktopLink(link('https://0xc0a8000a/'))).toMatchObject({ ok: true, host: '192.168.0.10', hosted: false })
+    expect(readDesktopLink(link(`https://evil.example\\@acme.${TEAM_DOMAIN}`))).toMatchObject({ ok: true, host: 'evil.example', hosted: false })
+    expect(readDesktopLink(link(`https://acme.${TEAM_DOMAIN}.evil.example/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E`))).toMatchObject({ ok: true, host: `acme.${TEAM_DOMAIN}.evil.example`, hosted: false })
+    expect(readDesktopLink(link('https://xn--bcher-kva.de'))).toMatchObject({ host: 'xn--bcher-kva.de' })
+    // the link itself: only open?url=<one address>
+    for (const raw of [`${LINK_SCHEME}://evil?url=${enc('https://acme.trina.app')}`, `${LINK_SCHEME}://open?url=a&url=b`, `${LINK_SCHEME}://open?url=${enc('https://acme.trina.app')}&next=/x`,
+      `${LINK_SCHEME}://open?url=${enc('https://acme.trina.app')}#x`, `${LINK_SCHEME}://u:p@open?url=${enc('https://acme.trina.app')}`, `${LINK_SCHEME}://open:99?url=${enc('https://acme.trina.app')}`,
+      `${LINK_SCHEME}://open/x?url=${enc('https://acme.trina.app')}`, `other://open?url=${enc('https://acme.trina.app')}`, `https://acme.${TEAM_DOMAIN}/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E`, 'x'.repeat(5000)])
+      expect(readDesktopLink(raw)).toBeNull()
+  })
+  test('the link in a command line (Windows, Linux; a second instance)', () => {
+    const l = link('https://acme.trina.app/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk')
+    expect(linkFromArgv(['/Applications/X.app/Contents/MacOS/X', '--allow-file-access-from-files', l])).toBe(l)
+    expect(linkFromArgv(['C:\\x\\app.exe', l.toUpperCase().replace('OPEN?URL', 'open?url')])).not.toBeNull()
+    expect(linkFromArgv(['app', '--flag', 'https://acme.trina.app'])).toBeNull()
+    expect(linkFromArgv(['app', `${LINK_SCHEME}:${'x'.repeat(5000)}`])).toBeNull()
+  })
+  test('every link goes through ④: the handlers only offer it, and only the answer connects', () => {
+    const main = readFileSync(join(import.meta.dir, '../../desktop/src/main/main.ts'), 'utf8')
+    const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
+    expect(main).toMatch(/app\.on\('open-url', \(e, url\) => \{\n\s*e\.preventDefault\(\)\n\s*onLink\(url\)/)
+    expect(main).toMatch(/const link = linkFromArgv\(argv\)\n\s*if \(link\) onLink\(link\)/)
+    // onLink and the launch link reach the window only through offerLink
+    const onLink = main.slice(main.indexOf('function onLink('), main.indexOf("app.on('open-url'"))
+    expect(onLink).toContain('win.offerLink(url)')
+    expect(onLink).not.toMatch(/addTeam|openTeam|loadURL/)
+    // offerLink fetches nothing; answerLink connects only with the gate's offer
+    const offer = win.slice(win.indexOf('  offerLink(raw: string) {'), win.indexOf('  async answerLink('))
+    expect(offer).not.toMatch(/fetch|addTeam|openTeam|loadURL/)
+    expect(win).toMatch(/const offer = this\.linkGate\.answer\(yes, host, Date\.now\(\)\)[\s\S]{0,200}if \(!offer\) return null[\s\S]{0,80}return this\.addTeam\(offer\.origin \+ offer\.entryPath, true\)/)
+    // ④ counts from when the screen says it is up, and a team view taking over drops a waiting link
+    expect(win).toContain('this.linkGate.shown(id, Date.now())')
+    expect(win).toMatch(/async openTeam\(id: string, entryPath = '\/'\) \{[\s\S]{0,200}this\.linkGate\.clear\(\)/)
+    const welcome = readFileSync(join(import.meta.dir, '../../desktop/src/ui/welcome.ts'), 'utf8')
+    expect(welcome).toContain('ui.welcome.linkShown(link.id)')
+    // [연결] is off until ④ has been on screen as long as the gate wants (no click that silently does nothing)
+    expect(welcome).toContain('const LINK_READY_MS = 650')
+    expect(welcome).toContain('disabled: busy || !linkReady,')
+    // a development run never takes the scheme over by itself
+    expect(main).toContain("if (app.isPackaged) app.setAsDefaultProtocolClient(LINK_SCHEME)")
+  })
+  test('the dmg, Mac App Store and Microsoft Store builds declare the scheme', async () => {
+    const base = (await import('../../desktop/electron-builder.config')).default as { protocols?: { name: string; schemes: string[] }[] }
+    expect(base.protocols).toEqual([{ name: PRODUCT.displayName, schemes: [PRODUCT.linkScheme] }])
+    // the store configs build on the base config and leave its protocols as they are
+    for (const f of ['editions/trina/mac-app-store/electron-builder.mas.config.ts', 'editions/trina/microsoft-store/electron-builder.msix.config.ts']) {
+      const src = readFileSync(join(import.meta.dir, '../..', f), 'utf8')
+      expect(src).toContain('...base,')
+      expect(src).not.toContain('protocols')
+    }
+    expect(readFileSync(join(import.meta.dir, '../../editions/trina/microsoft-store/build-resources/appxmanifest.xml'), 'utf8')).toContain('${extensions}')
+  })
+  test('④ strings name the host and never the page', () => {
+    expect(t('ko', 'link.title', { host: 'acme.trina.app' })).toBe('acme.trina.app에 연결할까요?')
+    expect(t('ko', 'link.body')).toBe('직접 받은 링크가 맞을 때만 연결하세요.')
   })
 })
 
