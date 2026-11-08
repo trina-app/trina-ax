@@ -14039,3 +14039,87 @@ the project's audience, the answer goes to the room; otherwise it stays private 
   instructions, the audit), `tests/security/room-reads-shared-chats.test.ts` (people × states, a member outside the
   audience, a planted instruction), `b-shared-chats`, `step-labels-tools`, `b-codex-rooms`.
 - Version impact: **minor** (two AI tools in rooms and an audit action; no API or database change).
+
+## ⌘K에서 대화방 메시지 찾기 — room, 1:1 and group chat messages in the search palette (feat/search-room-messages, 2026-11-08, product owner)
+넣을 곳: trina-ax `server/src/rooms` (search.ts, service.ts, store.ts), migration 267, `shared/src/api/rooms.ts`,
+`web/src/components/SearchDialog.tsx`, `web/src/store/rooms.ts`, `web/src/pages/Room.tsx`, 이유: rooms, their visibility
+rule and the search palette are core chat.
+
+From the team chat: "Chat search: search the messages in rooms and DMs", "search chat must be included on the search
+menu with cmd+k". The owner approved it on 2026-11-08.
+
+- **Where: the palette there is.** No new screen, no new tab, no filter chips. On the 전체 tab, after the chat records
+  (기록), a "대화방 메시지" section: the first 5 hits, then "메시지 더 보기", which shows more in place and asks for the
+  next page when those run out (the dialog stays, the keys stay with the box). Arrows, Enter, Esc, ← → as before. The
+  placeholder says it: "기록·대화 메시지, 파일, 프로젝트 등 검색", shorter than the one before, so it still fits a 390 px
+  phone; five languages. Rejected: a 대화 tab (one more chip in a row that already scrolls on a phone; the owner wants
+  lean screens), Slack's from:/in:/date filters (not asked for; the AI's own `rooms` tool has them).
+- **Who sees a hit: the rooms' one rule, not a copy.** A hit is a message the person would see by opening its room now.
+  Candidates come only from `reader.ts myRooms` (the rooms they are in now, not archived: what the rooms list holds,
+  hidden rooms included as its "숨긴 대화"), and each is kept only when `store.ts canSee(db, row, member)` says so, with
+  the member row of its room: where they see the room from (a later member of a group chat or a 1:1 from their join,
+  per member; a team room's and the everyone room's whole history once it is opened, `Rooms.syncFor` before each
+  search, as for the person's own AI chat), others' private previews never (their own, yes, as in the room), the old
+  answers hidden from them (#161) and everything in their threads never. Leaving or being taken out ends it at once (no
+  member row). Deleted messages and event lines have body '' and never match. The hit is built from `messagesOut`'s own
+  row (a `withheld` one is dropped), so the snippet is the message's own visible text: never a quote, a file name or a
+  hidden answer's words. A thread reply is found by whoever sees its thread; its hit names the thread and opens it.
+- **The text as one part**, as the chat records' search: `LIKE '%text%'` (A–Z in any case; `%` and `_` as themselves),
+  NFC. "견적" finds "견적서를"; "견적 보내" finds that phrase, not two words apart.
+- **Index: FTS5 trigram, migration 267**, as `messages_fts` (201) for the chat records. `room_messages_fts(body)`, its
+  rowid the message's rowid, kept by triggers: insert (body not ''), `UPDATE OF body` (an edit replaces it, a delete
+  empties it: the row goes) and delete (a room deleted with its messages); backfilled and `optimize`d in the migration
+  (without it the first new messages paid 2–4 ms of merge work each). 3+ characters: a phrase `MATCH` (the index);
+  1–2 characters ("견적"): the trigram `LIKE`, a scan of the index's text. Both read newest first by rowid and stop when a
+  page is full; `CROSS JOIN` keeps SQLite on the index first (a test reads the plan). Every candidate's own body is
+  matched again with `LIKE … ESCAPE`, so an index row out of step can never show a message without the text. Rowids of
+  `room_messages` survive VACUUM and VACUUM INTO (the backups; a test checks a backup copy and a VACUUM). Note: the chat
+  records' `LIKE … ESCAPE` is never handed to FTS5 (an ESCAPE is a 3-argument `like()`), so that search scans
+  `messages_fts`; here the phrase `MATCH` is used instead.
+- **Why not the bounded LIKE** (what the person's own AI chat's `rooms` tool does, `reader.ts searchRooms`: the newest
+  20,000 positions of each room, 100,000 in all). Measured on this Mac before choosing (150,000 messages in 20 rooms,
+  the person in 5, one of 50,000): a newest-first LIKE over the person's rooms took 85–345 ms per query (a rare word or
+  none walks everything); the FTS stream 0.1–1.7 ms, a 2-character word that matches nothing 17 ms over 100,000 rows.
+  The AI tool keeps its own scan (its filters by person and date are not this).
+- **Measured in the suite** (`b-rooms-search.test.ts`, a 50,000-message team room, the whole `searchRoomMessages`
+  call, median of 5): "견적" 8.8 ms, "네" 8.9, "견적서" 9.2, "budget" 9.1, "특별견적" (1 in 1,000) 10.1, a 6-character word
+  that matches nothing 0.08, a 2-character word that matches nothing 13.5. Most of a page with hits is `messagesOut`'s
+  `threadSummaries`, whose grouped count takes the room's `(room_id, seq)` index over the whole room (about 5 ms on
+  50,000 messages; the same in every timeline page of such a room; left for its own change). Migration 267 backfills
+  about 2–3 s per 100,000 messages, once.
+- **Pages.** At most 30 a page (20 by default), newest first, a cursor below the last one looked at. One request looks
+  at 2,000 candidates of the person's rooms at most (a room full of others' private previews, say); then it answers with
+  what it has and a cursor to go on.
+- **API.** `GET /api/room-messages?q=&cursor=&limit=` (`searchRoomMessages`; `/api/rooms/search` would be taken by
+  `/api/rooms/:id`): `items` (id, roomId, threadRootId, authorKind, author, askedBy, markdown, snippet, createdAt),
+  `rooms` (each hit's room: kind, name, peers, memberCount, from `store.ts roomNaming`, which `roomOut` now uses too),
+  `nextCursor`. The snippet: room links as `#name`, one line, at most 200 characters, up to 60 before the match.
+- **Opening a hit: the room at that message.** `/rooms/:id?m=<message>`, a reply `/rooms/:id/t/:root?m=<reply>` (as the
+  Inbox). The room used to look 10 older pages back for `?m=` (500 messages); a search hit can be years back, so
+  `ListRoomMessagesQuery.around=<id>` now gives the page around a message the person can see (a reply that stays in its
+  thread: around its first message; anything else is not looked for: the newest page, as for an id that is not there)
+  and `newerCursor` while the page does not reach the newest. The timeline is then a window: newer pages load on
+  scrolling down; new messages are not added to it until it reaches the newest (no gap); nothing in it is marked read; a
+  "최근 메시지로" pill goes back to the newest, and so does sending. The Inbox's links use the same (one request). A thread
+  still looks 10 pages back for its reply.
+- **The row.** The sender's picture (32 px; the AI's face for its answer), name (14 px), the room (12 px: `#name` for a
+  team room and the everyone room, "1:1 대화" for a DM, with the other person when they did not write it, a group chat's
+  name), "· 스레드" for a reply, the time (12 px, as the rooms list) and one line of the text (14 px, an answer's Markdown
+  as plain text) from a little before the match, the match marked as elsewhere in the palette. On a phone the room name
+  gives way first.
+- **Not here.** Room file names and file contents, filters, results in the 기록 tab, highlighting more than the first
+  match, searching the AI's steps. Known limits: a word that spans a room link (`#[name](room:…)`) or Markdown marks in
+  the middle ("견적**서**") is not found as typed; the order is the order the messages were written (an AI answer posted
+  from a preview later sorts by when the preview was made).
+- **Tests.** `tests/unit/b-rooms-search.test.ts` (a non-member, an owner and an admin get nothing; after leaving a group
+  chat and after being taken out of a team room, nothing; a later member of a group chat finds nothing from before their
+  join nor a later reply in an older thread; a later member of a team room finds the history; a hidden answer never
+  matches, nor its thread, and its words are in no response, a quote of it is found by its own words; a DM only by its
+  two people; a private preview only by its person; archived rooms; thread replies; edited and deleted text gone, from
+  the index too; Korean parts, case, `%` and `_`; the snippet; pages and the scan cap; 50,000 messages and the plan; a
+  backup copy and VACUUM; the migration's backfill; `around`), `web/test/unit/search-room-messages.test.tsx`,
+  `web/test/e2e/search-room-messages.spec.ts` (⌘K → a word → Enter opens an old message in its room with the pill; a
+  thread hit opens the thread; nothing found; axe light and dark; the phone; `SHOTS_DIR` for 1440 and 390, light and
+  dark).
+- Version impact: **minor** (a new result type in search, one endpoint, an optional query field and response field,
+  one additive migration).
