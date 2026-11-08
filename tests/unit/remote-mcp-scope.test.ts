@@ -80,11 +80,15 @@ test('initialize gives each new session its own id; a session keeps what it read
   expect((await f.tool('write', { file_path: 'shared/none.txt', content: 'synthetic' })).isError).toBeUndefined()
   // an id the server never gave is a scope of its own, empty (initializing again gives the same)
   expect((await f.tool('write', { file_path: 'shared/other.txt', content: 'synthetic' }, 'client-made-id')).isError).toBeUndefined()
+  // the files read before an edit are the connection's: session b may edit what a read, and then has it in its scope
+  const b2 = await f.initialize()
+  expect(text(await f.tool('edit', { file_path: f.mine, old_string: 'not in the file', new_string: 'x' }, b2.session))).toContain('not found')
+  expect((await f.tool('write', { file_path: 'shared/after-edit.txt', content: 'synthetic' }, b2.session)).isError).toBe(true)
   // still refused in session a
   expect((await f.tool('upload_file', { path: 'shared/leak.pdf', content_base64: Buffer.from('x').toString('base64') }, a.session)).isError).toBe(true)
   // the rows hold the ids' hashes, never the ids
   const rows = f.h.ctx.db.query('SELECT session FROM remote_mcp_scopes WHERE grant_id = ?').all(f.grantId) as { session: string }[]
-  expect(rows.map((r) => r.session)).toEqual([scopeKey(a.session)])
+  expect(rows.map((r) => r.session).sort()).toEqual([scopeKey(a.session), scopeKey(b2.session)].sort())
   expect(JSON.stringify(rows)).not.toContain(a.session)
   // a session id that is not visible ASCII or is too long is refused; other methods take it
   for (const bad of ['has space', 'x'.repeat(129)]) expect((await f.rpc({ jsonrpc: '2.0', id: 3, method: 'ping' }, { 'mcp-session-id': bad })).status).toBe(400)

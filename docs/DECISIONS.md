@@ -14747,7 +14747,9 @@ refused, and that connected AIs never saw the team rules every in-app turn follo
   queue (one call at a time, at most four waiting), the memory slot and the `TurnFiles` (files read before an `edit`,
   the write counters) stay the connection's, as before. A client can send any id, and one id per call must not give it
   more calls at once, other people's memory slots or a fresh write budget (the review of this branch found that a
-  per-session queue let one token run 128 calls at once and lock everyone else out).
+  per-session queue let one token run 128 calls at once and lock everyone else out). So a session may `write` or
+  `edit` an existing file another session of the connection read; that file then joins this session's scope too, as
+  what edit answers ("old_string not found", the change itself) tells about its text.
 - **The id is a name, not a key.** The bearer token is the auth. The id is never required, and an id the server never
   gave, or forgot, is a new and empty scope; it is never answered with 404, which some clients do not recover from
   without a reconnect. That gives a client nothing it could not get by initializing again. An id that is not visible

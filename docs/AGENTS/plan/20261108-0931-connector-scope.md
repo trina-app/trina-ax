@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-08 09:31
 - Branch: `fix/connector-scope`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/connectors/remote-mcp/`, one migration in the A range). Why: the remote MCP
   connector is the core's "AI 연결" (see docs/REPOSITORY-RULES.md).
 - Version impact: patch. Connector behaviour fixes; one add-only migration; no API or screen change.
@@ -68,4 +68,14 @@ rule files in the guide and in `skills_list`.
 
 ## Result
 
-Filled in at the end.
+Built as planned, with these differences:
+
+- Migration number 118 (117 is another open branch's), with an index for the idle housekeeping.
+- Only the read scope is per session. The independent security review found that a per-session call queue let one
+  token run 128 calls at once (a client can send any id) and lock everyone else out, so the queue, the memory slot and
+  the files read before an edit stay the connection's; a file one session edits after another session read it joins
+  the editing session's scope.
+- At most 256 session scopes per connection (64 at first: every app run on one computer shares the connection).
+- Past ten rule files the guide says, as the in-app AI is told, that only the first ten count.
+- Left open for the owner: an idle backstop for session scopes, if a client turns out to keep one MCP session across
+  many conversations (it would widen what "the same session keeps it" decided).

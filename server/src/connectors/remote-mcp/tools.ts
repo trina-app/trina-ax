@@ -135,7 +135,7 @@ export class RemoteTools {
       }
       const input = FILE_TOOLS[name as FileToolName].input.safeParse(args ?? {})
       if (!input.success) return result('Invalid tool input.', true)
-      let notes: string[] = []
+      let notes: string[] = [], changed: string | null = null
       if (WRITE.has(name)) {
         const filePath = (input.data as { file_path: string }).file_path
         // A null turn ID normally means a human file API. An external model has no server confirmation card: no team
@@ -151,9 +151,13 @@ export class RemoteTools {
         }
         // edit changes an existing file: never the placement note
         notes = writeNotes(this.ctx, user, filePath, target, name === 'write' && !target.exists)
+        // an existing file passes only when this connection read it, maybe in another session (the files read before an
+        // edit are the connection's): what edit answers tells about its text, so it joins this session's scope too
+        if (target.exists && m.files.readHashes.has(target.rel)) changed = target.rel
       }
       m.files.readPaths.clear()
       const out = await this.ctx.files.call(name, input.data, { user, turnId: null, files: m.files, signal })
+      if (changed) m.files.readPaths.add(changed)
       // File extraction/search may await. Never release a stale result after access, scope or session changes.
       const latest = oauth.authenticate(token)
       if (signal?.aborted || this.policy(user.id) !== policy) return result('Access changed during the call. Please retry.', true)
