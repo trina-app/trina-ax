@@ -158,6 +158,11 @@ and an independent code review's findings fixed after it:
 - The phone saves the new team before it leaves the old one (a refused save used to leave it in no team).
 - Trailing punctuation is trimmed with a loop (the regex was quadratic on a long paste).
 
+After the first PR review: the host line shows on every page until `/api/me` answers for a signed-in person (not only
+the listed sign-in paths: a fake sign-in page can sit at `/`); text glued after a link, zero-width characters and
+fullwidth input are handled, `/invite` and `/join` match in any case; the phone owes the old team's device a removal
+if it stopped between saving the new team and leaving the old one.
+
 Differences from the plan: no web login host line (the review: a fake server can draw any host; the apps draw it);
 the outside question moved into phase 1; phones have no [팀 만들기] on Android either (Google Play's payments
 policy), and neither has the Mac App Store build; [팀 만들기] opens `https://account.trina.app/` because the repository
