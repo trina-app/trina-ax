@@ -14563,3 +14563,29 @@ and its developer page "User presence and status" (what was copied and what was 
   DM header, the list again after a reload, the member list with axe, the account menu's item, the phone's list and
   header).
 - Version impact: **minor** (a visible feature, a WebSocket control frame each way and one endpoint; no migration).
+
+## Migrations that would be skipped say so (chore/migration-guard, 2026-11-08)
+
+- **Why.** The runner (`server/src/db.ts` `readMigrations`) applies only `NNN_<lower-case letters, digits, _>.sql`
+  and skipped any other file without a word, while the builds ship every `.sql` file. Applied migrations are known by
+  number only, and three numbers were on dev under another name before a rename (214 `b_schedule_sources` → 215, 222
+  `b_onboarding_notices` → 231, 326 `b_chat_skill_lists` → 217). A database that ran the old file skips the new file
+  at that number, and runs the moved one again: for 214 and 222 that fails ("duplicate column", "already exists") and
+  the server does not start.
+- **CI catches a misnamed file.** `tests/unit/p1-migration-files.test.ts`: every file in `server/migrations/` matches
+  `MIGRATION_FILE` (now exported, the runner's own pattern), `readMigrations` returns every `.sql` file, and no two
+  files share a number (`readMigrations` already throws on that at start).
+- **A warning, not a refusal.** At start-up the server logs one warning per recorded migration whose file was renamed
+  since (`renamedMigrations`): the file now at that number never runs on this database, or the recorded name is now
+  under another number, or both, each named. It comes before pending migrations run, so a failure after it has its
+  reason in the log. The server still starts: dev and customer databases already hold renamed entries. A recorded
+  number with no file and no file of the same name is a newer build's migration after a downgrade: no warning. Only the
+  server passes its log (`openDb(file, { log })`); the CLIs stay quiet.
+- **B gets a second range, 400–499** (owner, 2026-11-08). 200–299 had 27 numbers left after 272 at about ten a day.
+  D and E have no server DB, so 400–599 was free, and 4xx files sort after B's 2xx files, so they may build on them.
+  docs/WORKPLAN.md §4 and the `db.ts` header say so. **A number already on dev is never renamed**: a clash is fixed by
+  renumbering the newer branch before it merges. No file is renumbered here.
+- Tests: `tests/unit/p1-migration-files.test.ts` (the folder checks; the runner skipping a hyphen, a capital, four digits
+  and `.SQL`; two files with one number; a new file at the old number, a move with a new file at the old number before
+  the "duplicate column" failure, a move with none, a downgrade and a matching database without a warning).
+- Version impact: **patch** (a server log line and a test; no API, setting or data change).

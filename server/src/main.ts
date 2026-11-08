@@ -78,7 +78,7 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   setupServerCgroups({ log, mode: cfg.mode }) // Linux production: S/main + S/conv before any child process (no-op elsewhere)
   fs.mkdirSync(cfg.dataDir, { recursive: true, mode: 0o700 })
   applyPendingRestore(cfg.dataDir, log) // a DB restore staged by POST /api/admin/restore (component G) swaps in here
-  const db = openDb(path.join(cfg.dataDir, 'app.db'))
+  const db = openDb(path.join(cfg.dataDir, 'app.db'), { log }) // log: a warning per migration renamed after this DB ran it
   syncFollowingLocales(db) // people without their own language see the current team default (a restored DB may differ)
   // the hosting service's speech key belongs to its hosted servers only (a hosted team's backup restored here keeps none)
   if (!isHosted(cfg) && dropHostedSpeechKey(db)) log.info('removed the hosting service\'s speech-to-text key: this server is not hosted')
