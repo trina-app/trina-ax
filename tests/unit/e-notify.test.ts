@@ -7,7 +7,7 @@
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { badgeCountOf, makeNotifier, NOTIFY_PER_MINUTE, openPathOf, tagOf, TEST_PER_MINUTE, TEST_WAIT_MS, type NoteLike } from '../../desktop/src/common/notify'
+import { badgeCountOf, makeNotifier, NOTIFY_PER_MINUTE, openPathOf, platformNotifyDeps, tagOf, TEST_PER_MINUTE, TEST_WAIT_MS, type NoteLike } from '../../desktop/src/common/notify'
 import { STRINGS } from '../../desktop/src/common/i18n'
 
 class FakeNote implements NoteLike {
@@ -267,10 +267,36 @@ describe("macOS's question about notifications", () => {
     expect(await refused).toBe('off')
   })
 
-  test('the window asks after the team page loads and at focus with a team open; macOS only; the test knows macOS', () => {
+  test('macOS: touching notifications is the question and "taken" proves nothing; elsewhere nothing to ask', async () => {
+    let touched = 0
+    const mac = platformNotifyDeps('darwin', () => { touched++; return true })
+    expect(mac.showIsSeen).toBe(false)
+    mac.ask!()
+    expect(touched).toBe(1)
+    for (const p of ['win32', 'linux']) {
+      const other = platformNotifyDeps(p, () => { touched++; return true })
+      expect(other).toEqual({ showIsSeen: true })
+    }
+    expect(touched).toBe(1)
+    // with the notifier: a Mac asks once while focused and its test says unknown; Windows asks nothing and says shown
+    const note = () => { const x = new FakeNote({ title: '', body: '' }); queueMicrotask(() => x.emit('show')); return x }
+    let macAsked = 0
+    const onMac = makeNotifier({ create: note, supported: () => true, focused: () => true, reveal() {}, open() {}, ...platformNotifyDeps('darwin', () => { macAsked++; return true }) })
+    onMac.ask()
+    onMac.ask()
+    expect(macAsked).toBe(1)
+    expect(await onMac.test({ title: 't', body: 'b' })).toBe('unknown')
+    const onWindows = makeNotifier({ create: note, supported: () => true, focused: () => true, reveal() {}, open() {}, ...platformNotifyDeps('win32', () => { throw new Error('never asked') }) })
+    expect(() => onWindows.ask()).not.toThrow()
+    expect(await onWindows.test({ title: 't', body: 'b' })).toBe('shown')
+  })
+
+  // Deliberately textual: AppWindow needs a running Electron (BaseWindow, WebContentsView), so where it calls ask() is
+  // pinned by its source, as the other wiring checks in this file do. What ask() and the platform part do is tested
+  // above for real.
+  test('the window asks after the team page loads and at focus with a team open, with the platform part', () => {
     const win = fs.readFileSync(path.join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
-    expect(win).toContain("ask: () => { if (process.platform === 'darwin') Notification.isSupported() },")
-    expect(win).toContain("showIsSeen: process.platform !== 'darwin',")
+    expect(win).toContain('...platformNotifyDeps(process.platform, () => Notification.isSupported()),')
     expect(win).toMatch(/await this\.loadOrigin\(origin, '\/'\)\n[\s\S]{0,240}if \(this\.app === app\) this\.notifier\.ask\(\)/)
     expect(win).toMatch(/this\.win\.on\('focus', \(\) => \{[\s\S]{0,400}if \(this\.app\) this\.notifier\.ask\(\)/)
   })

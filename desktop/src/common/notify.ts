@@ -9,7 +9,8 @@
 // before the answer is left with them off for good. The first notification only comes while the window is in the back,
 // so the question would come while nobody looks: ask() touches them while the window is in front (a team page has
 // loaded, or the window got focus). And macOS takes a notification it will not show (off, or the question still
-// waiting) without an error, so there the test says "sent; if you do not see it, turn it on" (unknown), never "shown".
+// waiting) without an error, so there the test answers unknown, never shown (the page's desktopNotify.unknown: "Test
+// notification sent. If it does not show, turn notifications on in System Settings › Notifications › Trina AX.").
 // Pure (Electron is passed in): unit-tested in tests/unit/e-notify.test.ts; used by main/app-window.ts.
 
 /** at most this many notifications a minute (a page cannot flood the system's list) */
@@ -78,6 +79,13 @@ export interface Notifier {
   /** a team page is open and may be in front: the system's question about notifications, while the person looks.
    * Once per app run, and only while the window is focused (else at a later call). */
   ask(): void
+}
+
+/** The platform's part of NotifierDeps. macOS: touching notifications is the system's question (Electron's presenter
+ * asks when it is created, by isSupported() too), and its 'show' proves nothing. Elsewhere nothing to ask, and 'show'
+ * means it showed. */
+export function platformNotifyDeps(platform: string, isSupported: () => boolean): Pick<NotifierDeps, 'ask' | 'showIsSeen'> {
+  return platform === 'darwin' ? { ask: () => { isSupported() }, showIsSeen: false } : { showIsSeen: true }
 }
 
 export function makeNotifier(d: NotifierDeps): Notifier {

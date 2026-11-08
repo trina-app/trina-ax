@@ -26,8 +26,9 @@ The sandbox and the entitlements are not the cause: local notifications need no 
 build shows them once allowed. The Dock badge shows with notifications off too.
 
 What changes for the person: the system's question appears right after a team page opens in the app (the window in
-front), where they see it. The test notification on a Mac says "sent; if you do not see it, turn it on in System
-Settings › Notifications › Trina AX" instead of claiming it was shown.
+front), where they see it. On a Mac, Settings › Notifications › Desktop app notifications › Test notification says
+"Test notification sent. If it does not show, turn notifications on in System Settings › Notifications › Trina AX."
+(`desktopNotify.unknown`) instead of reporting it as shown.
 
 ## Scope
 
@@ -35,9 +36,9 @@ In:
 - `makeNotifier().ask()`: touches the system's notifications once per app run, only while the window is focused.
   `AppWindow` calls it when a team page has loaded and when the window gets focus with a team open. macOS only
   (`Notification.isSupported()` creates Electron's presenter, which asks); elsewhere it does nothing.
-- macOS: the test notification answers `unknown` (the existing words "테스트 알림을 보냈어요. 보이지 않으면 …에서 켜
-  주세요.") when the system took it, because taking it does not mean it shows. `failed` stays `off`. Windows keeps
-  `shown`.
+- macOS: the test notification answers `unknown` (the existing `desktopNotify.unknown`, "Test notification sent. If it
+  does not show, turn notifications on in {where}.") when the system took it, because taking it does not mean it
+  shows. `failed` stays `off`. Windows keeps `shown`. The platform part is one helper, `platformNotifyDeps`.
 - Unit tests in `tests/unit/e-notify.test.ts`; the Mac App Store README gets one line on where a person turns
   notifications on; DECISIONS "Session markers" gets a bullet.
 
@@ -86,3 +87,7 @@ with the demo team (fake data):
   notification; after Allow, a DM while the window was in the back showed a banner ("Bob" / "새 메시지가 왔어요"), the
   Dock showed 1, a click on the banner brought the window up on `/rooms/<id>` and the badge cleared; 테스트 알림
   answered `unknown` and showed.
+
+Follow-ups after review (no must-fix): the platform part moved into `platformNotifyDeps` with a real test (the call
+sites in `AppWindow` stay a textual check, marked as such); CHANGELOG, DECISIONS and README quote `desktopNotify.unknown`
+exactly.
