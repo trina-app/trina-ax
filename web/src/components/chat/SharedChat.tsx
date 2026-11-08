@@ -1,15 +1,16 @@
 // The mark of a shared project chat (docs/DECISIONS.md "Shared project chats"): one people icon, the same in the
 // sidebar row, the project page's row and the chat header (there with how many see it as its tooltip). The project
-// page's row also has the faces of the people who wrote in it (ChatFaces).
+// page's row also has the faces of the people who wrote in it (ChatFaces, their stack: FaceStack.tsx).
 import clsx from 'clsx'
 import { ShieldAlert, Users } from 'lucide-react'
 import type { RefObject } from 'react'
-import { CHAT_PEOPLE_SHOWN, type Chat } from '@mycel/shared/api'
+import type { Chat } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { reactionWho } from '../../lib/rooms'
 import { usePeople, usePeopleList } from '../../store/people'
 import { useMe } from '../../store/session'
 import { Avatar } from '../Avatar'
+import { FaceStack } from '../FaceStack'
 import { Tooltip } from '../Tooltip'
 
 /** The icon in a list row: named "공유 채팅" for a screen reader, so the row's link says it. */
@@ -42,16 +43,6 @@ export function SharedReadOnly() {
     </p>
   )
 }
-
-/** A face in the stack: a ring of the row's colour around it (the page's, the hover colour on a hovered row), the next
- * face tucked 4 px under it (each one sits a step lower), so a letter on its tile still shows whole. */
-const FACE = 'ring-2 ring-canvas group-hover:ring-hover'
-const STACK = ['relative z-[3]', 'relative z-[2] -ml-1', 'relative z-[1] -ml-1 max-sm:hidden'] as const satisfies { length: typeof CHAT_PEOPLE_SHOWN }
-/** faces on a phone: the third one (STACK) hides there */
-const PHONE_SHOWN = 2
-/** the "+N" after the faces: a tile like a face's (as high, in px like the pictures), tucked under the last face like
- * the others, its count kept clear of that face's edge (the wider padding on the left) */
-const MORE = '-ml-1 flex h-[20px] min-w-[20px] shrink-0 items-center justify-center rounded-full bg-hover pr-[5px] pl-[7px] text-[0.6875rem] leading-none font-semibold text-muted tabular-nums ring-2 ring-canvas group-hover:ring-hover'
 
 /**
  * Who wrote in a shared chat, on its project page's row (Chat.shared.people, the most recent first; docs/DECISIONS.md
@@ -88,13 +79,7 @@ export function ChatFaces({ shared, focusFrom }: { shared: NonNullable<Chat['sha
   return (
     <>
       <Tooltip label={names} focusFrom={focusFrom}>
-        <span className="isolate flex shrink-0 items-center" aria-hidden data-testid="project-chat-people">
-          {people.map((p, i) => (
-            <Avatar key={p.id} user={p} size={20} className={clsx(FACE, STACK[i])} />
-          ))}
-          {count > CHAT_PEOPLE_SHOWN && <span className={clsx(MORE, 'max-sm:hidden')} data-testid="project-chat-more">+{count - CHAT_PEOPLE_SHOWN}</span>}
-          {count > PHONE_SHOWN && <span className={clsx(MORE, 'sm:hidden')} data-testid="project-chat-more-phone">+{count - PHONE_SHOWN}</span>}
-        </span>
+        <FaceStack people={people} count={count} hoverRing testId="project-chat" />
       </Tooltip>
       <span className="sr-only" data-testid="project-chat-people-label">{t('projects.chatPeople', { names })}</span>
     </>
