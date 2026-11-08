@@ -82,6 +82,9 @@ export class Rooms {
   private sendBudget = new Map<string, { tokens: number; at: number }>()
   /** the sending budget's clock (tests fix it) */
   clock: () => number = () => Date.now()
+  /** someone left this room, or members' view of its history changed: its refused AI previews are decided again
+   * (rooms/ai-redecide.ts redecideRoomSoon, set at start; not imported here, which would be a cycle) */
+  onAccessChanged?: (roomId: string) => void
   /** when each person made their group chats in the last hour (GROUPS_PER_HOUR) */
   private groupsMade = new Map<string, number[]>()
   constructor(readonly ctx: AppContext) {}
@@ -399,6 +402,7 @@ export class Rooms {
   /** Someone is out of a room: their member row, notices, the threads they followed and their reactions there go, and
    * so do the folders they let @트리나 save new files in there ("이 방에서는 항상 허용", rooms/ai-grants.ts). */
   private forgetMember(roomId: string, userId: string) {
+    this.onAccessChanged?.(roomId)
     // their rows of the room leave the Inbox (rooms/inbox.ts): when one counted, the count is read again
     const counted = countedUnreadIn(this.db, userId, roomId)
     dropGrantsOf(this.db, { id: roomId }, userId)
@@ -970,6 +974,7 @@ export class Rooms {
    * ('members' is the change that makes an open room load its newest page and thread again). */
   private historiesOpened(opened: readonly { roomId: string; userId: string }[], added?: ReadonlyMap<string, string[]>) {
     for (const o of opened) if (!added?.get(o.roomId)?.includes(o.userId)) this.roomEvent(o.roomId, 'members', new Set([o.userId]))
+    for (const roomId of new Set(opened.map((o) => o.roomId))) this.onAccessChanged?.(roomId)
   }
 
   private drainTimer: ReturnType<typeof setTimeout> | null = null

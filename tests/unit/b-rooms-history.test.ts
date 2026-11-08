@@ -13,7 +13,9 @@ import { createHash } from 'node:crypto'
 import { API, uuidv7, type Room, type RoomMessage } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { roomsOf } from '../../server/src/rooms/service'
-import { roomAiOf } from '../../server/src/rooms/ai'
+import { decisionJson, roomAiOf } from '../../server/src/rooms/ai'
+import { pendingRedecide, REDECIDE_KEY, redecideRoomSoon, redecideRoomStep, redecideState, redecideStep, stopRedecide } from '../../server/src/rooms/ai-redecide'
+import { EARLIER_DEPTH, reasonsChanged } from '../../server/src/rooms/earlier-sources'
 import { roomFilesOf } from '../../server/src/rooms/files'
 import { openHistories } from '../../server/src/rooms/history'
 import { countedUnreadIn } from '../../server/src/rooms/inbox'
@@ -248,21 +250,23 @@ describe('the room AI after a later member joined', () => {
     const bobs = contextOf(roomId, 'bob')
     expect(bobs).toContain('people talk')
     expect(bobs).not.toContain('HIDDEN-FROM-BOB-9')
-    // alice asks: her AI saw the old answer, which bob cannot: private, and why without naming him
+    // alice asks: her AI saw the old answer, which bob cannot: private, and why without naming him. What the old
+    // answer was built on (the marketing folder, which she may open) is named to her with how many cannot see it
     const a = await ask('alice', roomId, `@트리나 what was said\n${fake({ echo: 'message' })}`)
     const forAlice = (await answerTo('alice', roomId, a))!
     expect(forAlice.body).toContain('HIDDEN-FROM-BOB-9')
-    expect(forAlice).toMatchObject({ visibility: 'private', preview: { hidden: true, joinedLater: [] } })
+    expect(forAlice).toMatchObject({ visibility: 'private', preview: { earlier: true, folders: ['groups/marketing'], unable: { 'groups/marketing': 1 }, joinedLater: [] } })
+    expect(forAlice.preview).not.toHaveProperty('hidden')
     expect(JSON.stringify(forAlice.preview)).not.toContain('Bob')
-    // she cannot see what is at stake for him, so it cannot be posted
-    const post = await h.req('alice', `/api/rooms/${roomId}/messages/${forAlice.id}/share`, { method: 'POST' })
-    expect(post.status).toBe(409)
-    expect(await post.text()).toContain('room_ai_hidden')
     // bob asks: what is hidden from him was never given, so it keeps nothing private
     const b = await ask('bob', roomId, `@트리나 what was said\n${fake({ echo: 'message' })}`)
     const forBob = (await answerTo('bob', roomId, b))!
     expect(forBob.body).not.toContain('HIDDEN-FROM-BOB-9')
     expect(forBob.visibility).toBe('room')
+    // shown what is at stake, she may post hers (docs/DECISIONS.md "방에 올리기…"): then bob sees it, asked by her
+    const post = await h.req('alice', `/api/rooms/${roomId}/messages/${forAlice.id}/share`, { method: 'POST' })
+    expect(post.status).toBe(200)
+    expect((await timeline('bob', roomId)).find((m) => m.id === forAlice.id)).toMatchObject({ visibility: 'room', askedBy: { id: 'alice' }, body: expect.stringContaining('HIDDEN-FROM-BOB-9') })
   })
 })
 
@@ -477,11 +481,14 @@ describe('what an answer may not carry past a hidden answer', () => {
     // the reasons kept from before (as an older decision would have said: bob joined later)
     db.query(`INSERT INTO room_ai_turns (turn_id, room_id, user_id, chat_id, question_id, status, answer_id, scope, decision, created_at, ended_at) VALUES (?, ?, 'alice', ?, ?, 'private', ?, ?, ?, ?, ?)`)
       .run(uuidv7(), roomId, chatId, qid, pid, JSON.stringify(scope), JSON.stringify({ folders: [], otherFolders: false, personal: false, outside: false, joinedLater: ['Bob Lee'] }), now, now)
+    // worked out first: what the answer hidden from him used (marketing, which alice may open) is named to her now, so
+    // the new reasons are shown before anything is posted (docs/DECISIONS.md "방에 올리기…")
     const post = await h.req('alice', `/api/rooms/${roomId}/messages/${pid}/share`, { method: 'POST' })
     expect(post.status).toBe(409)
-    expect(await post.text()).toContain('room_ai_hidden')
+    expect(await post.text()).toContain('room_ai_reasons_changed')
     expect(hiddenRows(roomId, 'bob')).toContain(H.answerId)
     expect(JSON.stringify(await timeline('bob', roomId))).not.toContain('H-MKT-SECRET')
+    expect((await timeline('alice', roomId)).find((m) => m.id === pid)?.preview).toMatchObject({ earlier: true, folders: ['groups/marketing'], unable: { 'groups/marketing': 1 } })
   })
 
   test('an answer of my own AI chat that used a hidden answer is not sent to the room, confirmed or not', async () => {
@@ -649,5 +656,397 @@ describe('found in the second PR review', () => {
     expect(r.status).toBe(409)
     expect(await r.text()).toContain('answer_share_hidden')
     expect(db.query('SELECT COUNT(*) n FROM room_files WHERE room_id = ? AND name = ?').get(roomId, 'restated-h4.md')).toEqual({ n: 0 })
+  })
+})
+
+// ---------------- 방에 올리기… (2026-11-08, product owner): an answer built on a hidden one, shown what it used ----------------
+describe('an answer built on an old answer hidden from someone', () => {
+  /** alice's private preview of a question with this scope, straight into the database and decided as a turn's end
+   * decides it (the engine is not the point): the question, the preview, the turn row with scope and decision */
+  function preview(roomId: string, body: string, scope: { sources: ReadSource[]; outside?: boolean }, o: { threadRootId?: string; asker?: string } = {}) {
+    const db = h.ctx.db, now = new Date().toISOString(), asker = o.asker ?? 'alice'
+    const root = o.threadRootId ? db.query('SELECT id, seq FROM room_messages WHERE id = ?').get(o.threadRootId) as { id: string; seq: number } : null
+    const next = () => (db.query('UPDATE rooms SET last_seq = last_seq + 1 WHERE id = ? RETURNING last_seq').get(roomId) as { last_seq: number }).last_seq
+    const qid = uuidv7(), pid = uuidv7(), turnId = uuidv7()
+    // the asker's one AI session in this room (chats_room_session)
+    db.query('INSERT OR IGNORE INTO chats (id, user_id, room_id) VALUES (?, ?, ?)').run(uuidv7(), asker, roomId)
+    const chatId = (db.query('SELECT id FROM chats WHERE room_id = ? AND user_id = ?').get(roomId, asker) as { id: string }).id
+    const qseq = next()
+    db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, mentions, created_at, thread_root_id, thread_root_seq) VALUES (?, ?, ?, 'user', ?, 'room', '@트리나 recap', '[]', ?, ?, ?)`)
+      .run(qid, roomId, qseq, asker, now, root?.id ?? null, root?.seq ?? null)
+    db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, asked_by, visibility, visible_to, body, reply_to_id, mentions, created_at, thread_root_id, thread_root_seq) VALUES (?, ?, ?, 'ai', NULL, ?, 'private', ?, ?, ?, '[]', ?, ?, ?)`)
+      .run(pid, roomId, next(), asker, asker, body, qid, now, root?.id ?? null, root?.seq ?? null)
+    const full = { outside: false, ...scope }
+    const d = roomAiOf(h.ctx).decide(roomId, chatId, full, root?.seq ?? qseq, root ?? undefined, qseq)
+    db.query(`INSERT INTO room_ai_turns (turn_id, room_id, user_id, chat_id, question_id, status, answer_id, scope, decision, created_at, ended_at) VALUES (?, ?, ?, ?, ?, 'private', ?, ?, ?, ?, ?)`)
+      .run(turnId, roomId, asker, chatId, qid, pid, JSON.stringify(full), d.post ? null : decisionJson(d), now, now)
+    return { id: pid, questionId: qid, decision: d }
+  }
+  const share = (user: string, roomId: string, id: string) => h.req(user, `/api/rooms/${roomId}/messages/${id}/share`, { method: 'POST' })
+  const mine = async (roomId: string, id: string, rootId?: string) => (rootId ? (await h.api('alice').call(API.listRoomThread, { params: { id: roomId, messageId: rootId }, query: {} })).items : await timeline('alice', roomId)).find((m) => m.id === id)
+  const fromSeq = (roomId: string, id: string) => (h.ctx.db.query('SELECT seq FROM room_messages WHERE room_id = ? AND id = ?').get(roomId, id) as { seq: number }).seq
+
+  test('followed through the answers it was built on: the folders named with counts, posted only by the asker, after they say yes; audited', async () => {
+    const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+    // H1 read marketing; H2 (erin's) was built on H1 alone: both hidden from bob, who cannot open marketing
+    const H1 = aiAnswer(roomId, 'alice', 'H1-SECRET', { sources: [folder('groups/marketing')] })
+    const H2 = aiAnswer(roomId, 'erin', 'H2 repeats H1-SECRET', { sources: [{ type: 'room', id: roomId, fromSeq: H1.seq - 1 }] })
+    await setMembers(groupId, ['alice', 'erin', 'bob'])
+    expect(hiddenRows(roomId, 'bob').sort()).toEqual([H1.answerId, H2.answerId].sort())
+    // alice's question saw H2 only (its context starts after H1): what H2 was built on is followed to H1's folder
+    const p = preview(roomId, 'RECAP: H1-SECRET', { sources: [{ type: 'room', id: roomId, fromSeq: H2.seq }] })
+    expect(p.decision).toMatchObject({ post: false, hidden: false, earlier: true, folders: ['groups/marketing'], unable: { 'groups/marketing': 1 }, personal: false, outside: false })
+    expect((await mine(roomId, p.id))!.preview).toEqual({ folders: ['groups/marketing'], personal: false, outside: false, joinedLater: [], earlier: true, unable: { 'groups/marketing': 1 } })
+    // never anyone else's to post: erin and bob get the same 404 as a message that does not exist
+    for (const u of ['erin', 'bob']) expect((await share(u, roomId, p.id)).status).toBe(404)
+    expect(JSON.stringify(await timeline('bob', roomId))).not.toContain('RECAP: H1-SECRET')
+    // the asker posts it: everyone sees it, asked by her; audited with `earlier`
+    const r = await share('alice', roomId, p.id)
+    expect(r.status).toBe(200)
+    for (const u of ['bob', 'erin']) expect((await timeline(u, roomId)).find((m) => m.id === p.id)).toMatchObject({ visibility: 'room', askedBy: { id: 'alice' }, body: 'RECAP: H1-SECRET' })
+    const a = h.ctx.db.query("SELECT actor_id, detail FROM audit_log WHERE action = 'room.ai_share' AND target = ?").get(p.id) as { actor_id: string; detail: string }
+    expect(a.actor_id).toBe('alice')
+    expect(JSON.parse(a.detail)).toMatchObject({ roomId, earlier: true, sourcesLeftOut: 0 })
+    expect(a.detail).not.toContain('bob')
+  })
+
+  test('one that used another room, a connection, someone else\'s folder, a folder the asker cannot open, or people\'s words in its thread: no button, refused', async () => {
+    const db = h.ctx.db
+    // a 1:1 of alice and erin that a team room answer read
+    const dm = await h.api('alice').call(API.createRoom, { body: { kind: 'dm', userId: 'erin' } })
+    const cases: { name: string; asker: string; sources: ReadSource[]; members: string[]; later: string; reply?: boolean }[] = [
+      { name: 'a 1:1', asker: 'alice', sources: [{ type: 'room', id: dm.id }], members: ['alice', 'erin'], later: 'bob' },
+      { name: 'a connection', asker: 'alice', sources: [{ type: 'integration', id: uuidv7() }], members: ['alice', 'erin'], later: 'bob' },
+      { name: "erin's own folder", asker: 'erin', sources: [{ type: 'user', id: 'erin' }], members: ['alice', 'erin'], later: 'bob' },
+      // carol (admin) read finance, which alice cannot open: erin, joining later, cannot either
+      { name: 'a folder alice cannot open', asker: 'carol', sources: [folder('groups/finance')], members: ['alice', 'carol'], later: 'erin' },
+      { name: "people's words in its thread", asker: 'alice', sources: [folder('groups/marketing')], members: ['alice', 'erin'], later: 'bob', reply: true },
+    ]
+    for (const c of cases) {
+      const { roomId, groupId } = await teamRoom(c.members)
+      const H = aiAnswer(roomId, c.asker, `H-${c.name}`, { sources: c.sources })
+      if (c.reply) await send(c.members[1]!, roomId, 'a word in its thread', { threadRootId: H.answerId })
+      await setMembers(groupId, [...c.members, c.later])
+      expect(hiddenRows(roomId, c.later), c.name).toContain(H.answerId)
+      const p = preview(roomId, `RECAP ${c.name}`, { sources: [{ type: 'room', id: roomId, fromSeq: H.seq - 1 }] })
+      expect(p.decision, c.name).toMatchObject({ post: false, hidden: true, earlier: false })
+      expect((await mine(roomId, p.id))!.preview, c.name).toMatchObject({ hidden: true })
+      expect((await mine(roomId, p.id))!.preview, c.name).not.toHaveProperty('earlier')
+      const r = await share('alice', roomId, p.id)
+      expect(r.status, c.name).toBe(409)
+      expect((await r.json()).error.params.reason, c.name).toBe('room_ai_hidden')
+      expect(JSON.stringify(await timeline(c.later, roomId)), c.name).not.toContain(`RECAP ${c.name}`)
+    }
+    expect(db.query("SELECT COUNT(*) n FROM audit_log WHERE action = 'room.ai_share' AND json_extract(detail, '$.earlier') = 1 AND target IN (SELECT id FROM room_messages WHERE body LIKE 'RECAP %')").get()).toEqual({ n: 0 })
+  })
+
+  test('a team room member whose history cannot be worked out yet keeps it unpostable, whatever the hidden answer used', async () => {
+    const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+    const db = h.ctx.db
+    const H = aiAnswer(roomId, 'alice', 'H-WAIT-SECRET', { sources: [folder('groups/marketing')] })
+    await setMembers(groupId, ['alice', 'erin', 'bob'])
+    // his history as after an upgrade, and its pass failing (tried again only minutes later)
+    db.query('UPDATE room_members SET history_from_seq = NULL WHERE room_id = ? AND user_id = ?').run(roomId, 'bob')
+    db.query('DELETE FROM room_hidden_answers WHERE room_id = ? AND user_id = ?').run(roomId, 'bob')
+    db.exec(`CREATE TEMP TRIGGER bob_history_fails BEFORE UPDATE OF history_from_seq ON room_members WHEN NEW.user_id = 'bob' AND NEW.room_id = '${roomId}' BEGIN SELECT RAISE(ABORT, 'test: history fails'); END`)
+    try {
+      openHistories(h.ctx, { roomId })
+      const p = preview(roomId, 'RECAP: H-WAIT-SECRET', { sources: [{ type: 'room', id: roomId, fromSeq: H.seq - 1 }] })
+      expect(p.decision).toMatchObject({ post: false, hidden: true, earlier: false })
+      const r = await share('alice', roomId, p.id)
+      expect(r.status).toBe(409)
+      expect((await r.json()).error.params.reason).toBe('room_ai_hidden')
+      expect(JSON.stringify(await timeline('bob', roomId))).not.toContain('RECAP: H-WAIT-SECRET')
+    } finally { db.exec('DROP TRIGGER IF EXISTS bob_history_fails') }
+  })
+
+  test('reasons that changed since (one more member who cannot see the folder) are shown first: 409, the preview updated, then it goes', async () => {
+    const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+    const db = h.ctx.db
+    const H = aiAnswer(roomId, 'alice', 'H-COUNT-SECRET', { sources: [folder('groups/marketing')] })
+    await setMembers(groupId, ['alice', 'erin', 'bob'])
+    const p = preview(roomId, 'RECAP: H-COUNT-SECRET', { sources: [{ type: 'room', id: roomId, fromSeq: H.seq - 1 }] })
+    expect(p.decision.unable).toEqual({ 'groups/marketing': 1 })
+    db.query("INSERT OR IGNORE INTO users (id, username, name, role, status) VALUES ('frank', 'frank', 'Frank Ode', 'member', 'active')").run()
+    await setMembers(groupId, ['alice', 'erin', 'bob', 'frank'])
+    const updated = ws.alice!.next('room.message.updated', (x) => x.data.message.id === p.id && x.data.message.preview?.unable?.['groups/marketing'] === 2)
+    const r = await share('alice', roomId, p.id)
+    expect(r.status).toBe(409)
+    expect((await r.json()).error.params.reason).toBe('room_ai_reasons_changed')
+    expect((await updated).data.message.preview).toMatchObject({ earlier: true, unable: { 'groups/marketing': 2 } })
+    const visibility = () => (db.query('SELECT visibility FROM room_messages WHERE id = ?').get(p.id) as { visibility: string }).visibility
+    expect(visibility()).toBe('private')
+    // asked again with the new count in sight: it goes
+    expect((await share('alice', roomId, p.id)).status).toBe(200)
+    expect(visibility()).toBe('room')
+    expect((await timeline('bob', roomId)).find((m) => m.id === p.id)).toMatchObject({ visibility: 'room' })
+  })
+
+  test('in a thread: the hidden answer there is followed the same way, and the answer is posted into the thread', async () => {
+    const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+    const T = await send('erin', roomId, 'thread start (bob will see this)')
+    const H = aiAnswer(roomId, 'alice', 'TH-SECRET', { sources: [folder('groups/marketing')] }, { threadRootId: T.id })
+    await setMembers(groupId, ['alice', 'erin', 'bob'])
+    expect(hiddenRows(roomId, 'bob')).toContain(H.answerId)
+    const p = preview(roomId, 'THREAD RECAP: TH-SECRET', { sources: [{ type: 'room', id: roomId, fromSeq: T.seq }] }, { threadRootId: T.id })
+    expect(p.decision).toMatchObject({ post: false, hidden: false, earlier: true, folders: ['groups/marketing'], unable: { 'groups/marketing': 1 } })
+    expect((await mine(roomId, p.id, T.id))!.preview).toMatchObject({ earlier: true })
+    expect((await share('alice', roomId, p.id)).status).toBe(200)
+    const forBob = (await h.api('bob').call(API.listRoomThread, { params: { id: roomId, messageId: T.id }, query: {} })).items
+    expect(forBob.find((m) => m.id === p.id)).toMatchObject({ visibility: 'room', askedBy: { id: 'alice' }, threadRootId: T.id })
+    // not in the timeline (an answer in a thread stays there)
+    expect((await timeline('bob', roomId)).some((m) => m.id === p.id)).toBe(false)
+    expect(fromSeq(roomId, p.id)).toBeGreaterThan(H.seq)
+  })
+
+  /** the pass after an upgrade begun again over everything in the database (as at a first start with these rows) */
+  const beginPass = () => h.ctx.db.query('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+    .run(REDECIDE_KEY, JSON.stringify({ until: '9999-12-31T00:00:00.000Z', after: null, done: false }))
+  const asOlderBuild = (id: string) => h.ctx.db.query('UPDATE room_ai_turns SET decision = ? WHERE answer_id = ?')
+    .run(JSON.stringify({ folders: [], otherFolders: false, personal: false, outside: false, joinedLater: [], hidden: true }), id)
+
+  test('after an upgrade, previews kept as refused are tried again in steps, each once, oldest first, until none is left (nothing posted)', async () => {
+    stopRedecide(h.ctx)
+    const db = h.ctx.db
+    // the harness's start began the pass (`until` = then): nothing was made before it, so a step finishes it, and the
+    // previews of the tests since (made by this build) are never its to try
+    expect(redecideState(db).until <= new Date().toISOString()).toBe(true)
+    expect(redecideStep(h.ctx)).toEqual({ tried: 0, changed: 0, done: true })
+    expect(redecideState(db)).toMatchObject({ done: true })
+    const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+    const dm = await h.api('alice').call(API.createRoom, { body: { kind: 'dm', userId: 'erin' } })
+    // (the one that read a 1:1 first: the ones that qualify see only the one after it)
+    const D = aiAnswer(roomId, 'alice', 'H-DM-REFUSED', { sources: [{ type: 'room', id: dm.id }] })
+    const H = aiAnswer(roomId, 'alice', 'H-OLD-REFUSED', { sources: [folder('groups/marketing')] })
+    await setMembers(groupId, ['alice', 'erin', 'bob'])
+    // bob's history opening decides the room's refused previews again right after (redecideRoomSoon): let it pass
+    // before the older build's rows are put in, which only the pass after an upgrade may try here
+    await new Promise((r) => setTimeout(r, 50))
+    // more than one step takes: seven that now qualify, two that still do not; all as an older build kept them
+    const ok = Array.from({ length: 7 }, (_, i) => preview(roomId, `RECAP-OK-${i}`, { sources: [{ type: 'room', id: roomId, fromSeq: H.seq - 1 }, folder('shared')] }))
+    const no = Array.from({ length: 2 }, (_, i) => preview(roomId, `RECAP-NO-${i}`, { sources: [{ type: 'room', id: roomId, fromSeq: D.seq - 1 }] }))
+    for (const p of ok) expect(p.decision).toMatchObject({ earlier: true })
+    for (const p of no) expect(p.decision).toMatchObject({ hidden: true })
+    for (const p of [...ok, ...no]) asOlderBuild(p.id)
+    expect((await mine(roomId, ok[0]!.id))!.preview).toMatchObject({ hidden: true })
+    beginPass()
+    // every decide() of the pass, by the preview's question (its seq in the room)
+    const ai = roomAiOf(h.ctx), decide = ai.decide.bind(ai), calls = new Map<string, number>()
+    ai.decide = (rid, chatId, scope, questionSeq, ...rest) => { const k = `${rid}:${questionSeq}`; calls.set(k, (calls.get(k) ?? 0) + 1); return decide(rid, chatId, scope, questionSeq, ...rest) }
+    try {
+      // a step with no time left still tries one, and keeps where it got to (a restart goes on after it)
+      expect(redecideStep(h.ctx, { max: 3, budgetMs: 0 })).toMatchObject({ tried: 1, done: false })
+      const after = redecideState(db).after
+      expect(after).not.toBeNull()
+      let steps = 1, last
+      do { last = redecideStep(h.ctx, { max: 3 }); steps++ } while (!last.done && steps < 100)
+      expect(last.done).toBe(true)
+      expect(steps).toBeGreaterThan(2)
+      // each of ours tried exactly once; a later step tries nothing again
+      const chatOf = (id: string) => `${roomId}:${(db.query('SELECT q.seq FROM room_ai_turns t JOIN room_messages q ON q.id = t.question_id WHERE t.answer_id = ?').get(id) as { seq: number }).seq}`
+      for (const p of [...ok, ...no]) expect(calls.get(chatOf(p.id))).toBe(1)
+      expect(redecideStep(h.ctx, { max: 3 })).toEqual({ tried: 0, changed: 0, done: true })
+      for (const p of [...ok, ...no]) expect(calls.get(chatOf(p.id))).toBe(1)
+    } finally { ai.decide = decide }
+    for (const p of ok) expect((await mine(roomId, p.id))!.preview, p.id).toMatchObject({ earlier: true, folders: ['groups/marketing'] })
+    for (const p of no) expect((await mine(roomId, p.id))!.preview).toMatchObject({ hidden: true })
+    for (const p of [...ok, ...no]) expect((await mine(roomId, p.id))!.visibility).toBe('private')
+    expect(JSON.stringify(await timeline('bob', roomId))).not.toContain('RECAP-OK')
+  })
+
+  test('someone leaving the room decides its refused previews again: the asker gets the preview with its button', async () => {
+    stopRedecide(h.ctx)
+    const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+    const dm = await h.api('alice').call(API.createRoom, { body: { kind: 'dm', userId: 'erin' } })
+    const D = aiAnswer(roomId, 'alice', 'H-LEAVE-SECRET', { sources: [{ type: 'room', id: dm.id }] })
+    await setMembers(groupId, ['alice', 'erin', 'bob'])
+    const p = preview(roomId, 'RECAP leave', { sources: [{ type: 'room', id: roomId, fromSeq: D.seq - 1 }] })
+    expect(p.decision).toMatchObject({ hidden: true })
+    const updated = ws.alice!.next('room.message.updated', (x) => x.data.message.id === p.id && !x.data.message.preview?.hidden)
+    // bob, from whom it was hidden, leaves: nothing is hidden from anyone left
+    await setMembers(groupId, ['alice', 'erin'])
+    expect((await updated).data.message.preview).not.toHaveProperty('hidden')
+    expect((await mine(roomId, p.id))!).toMatchObject({ visibility: 'private' })
+    expect((await mine(roomId, p.id))!.preview).not.toHaveProperty('hidden')
+    expect((await share('alice', roomId, p.id)).status).toBe(200)
+  })
+
+  test('an answer that read shared project chats, and a name that is no longer there, are refused', async () => {
+    const db = h.ctx.db
+    // project chats are kept as their project's folder, which can be wider than the chat's audience
+    {
+      const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+      const H = aiAnswer(roomId, 'alice', 'H-PROJECT-CHAT', { sources: [folder('groups/marketing')] })
+      const turn = (db.query('SELECT turn_id FROM room_ai_turns WHERE answer_id = ?').get(H.answerId) as { turn_id: string }).turn_id
+      db.query("INSERT INTO tool_events (turn_id, user_id, tool, summary, ok) VALUES (?, 'alice', 'project_chat', 'project_chat -> read', 1)").run(turn)
+      await setMembers(groupId, ['alice', 'erin', 'bob'])
+      expect(preview(roomId, 'RECAP project chat', { sources: [{ type: 'room', id: roomId, fromSeq: H.seq - 1 }] }).decision).toMatchObject({ hidden: true, earlier: false })
+    }
+    // a name moved or renamed since: not judged on a path that no longer says what it was
+    {
+      const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+      const H = aiAnswer(roomId, 'alice', 'H-GONE-NAME', { sources: [{ type: 'name', path: 'groups/marketing/moved-away.md' }] })
+      await setMembers(groupId, ['alice', 'erin', 'bob'])
+      expect(hiddenRows(roomId, 'bob')).toContain(H.answerId)
+      expect(preview(roomId, 'RECAP gone name', { sources: [{ type: 'room', id: roomId, fromSeq: H.seq - 1 }] }).decision).toMatchObject({ hidden: true, earlier: false })
+    }
+  })
+
+  /** a person's message straight into the database: a shared answer (`answerAt`: where the answer starts, 0 without a
+   * note) with what it used kept, as "대화방에 보내기" keeps it */
+  function shared(roomId: string, author: string, body: string, answerAt: number, sources: ReadSource[], root?: { id: string; seq: number }) {
+    const db = h.ctx.db
+    const seq = (db.query('UPDATE rooms SET last_seq = last_seq + 1 WHERE id = ? RETURNING last_seq').get(roomId) as { last_seq: number }).last_seq
+    const id = uuidv7()
+    db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, mentions, created_at, answer_at, source_scope, thread_root_id, thread_root_seq) VALUES (?, ?, ?, 'user', ?, 'room', ?, '[]', ?, ?, ?, ?, ?)`)
+      .run(id, roomId, seq, author, body, new Date().toISOString(), answerAt, JSON.stringify({ sources, unknown: false }), root?.id ?? null, root?.seq ?? null)
+    return { id, seq }
+  }
+
+  test("people's words are never followed: a shared answer's note, a deleted reply in a hidden answer's thread, files on a hidden message", async () => {
+    const db = h.ctx.db
+    const cases: { name: string; build: (roomId: string) => Promise<number> }[] = [
+      // (each returns where the question's context starts: the hidden message itself, or an AI answer's question)
+      { name: 'a note', build: async (roomId) => shared(roomId, 'erin', 'my note\n\nSHARED-SECRET', 9, [folder('groups/marketing')]).seq },
+      { name: 'a deleted reply', build: async (roomId) => {
+        const H = aiAnswer(roomId, 'alice', 'H-DEL-SECRET', { sources: [folder('groups/marketing')] })
+        const r = await send('erin', roomId, 'a word that went to the AI', { threadRootId: H.answerId })
+        expect((await h.req('erin', `/api/rooms/${roomId}/messages/${r.id}`, { method: 'DELETE' })).status).toBe(204)
+        return H.seq
+      } },
+      { name: 'files', build: async (roomId) => {
+        const src = path.join(h.dataDir, `upload-${uuidv7()}`), bytes = new TextEncoder().encode('UPLOAD-SECRET\n')
+        fs.writeFileSync(src, bytes)
+        const file = await roomFilesOf(h.ctx).create('erin', roomId, 'upload.md', src, createHash('sha256').update(bytes).digest('hex'))
+        const m = await send('erin', roomId, 'SHARED-WITH-FILE', { fileIds: [file.id] })
+        db.query('UPDATE room_messages SET answer_at = 0, source_scope = ? WHERE id = ?').run(JSON.stringify({ sources: [folder('groups/marketing')], unknown: false }), m.id)
+        return m.seq
+      } },
+      // an AI answer in a hidden answer's thread: the question that asked it there is a person's words
+      { name: 'an AI answer in its thread', build: async (roomId) => {
+        const R = aiAnswer(roomId, 'alice', 'ROOT-SECRET', { sources: [folder('groups/marketing')] })
+        aiAnswer(roomId, 'erin', 'REPLY repeats ROOT-SECRET', { sources: [{ type: 'room', id: roomId, fromSeq: R.seq }] }, { threadRootId: R.answerId })
+        return R.seq
+      } },
+    ]
+    for (const c of cases) {
+      const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+      const from = await c.build(roomId)
+      await setMembers(groupId, ['alice', 'erin', 'bob'])
+      expect(hiddenRows(roomId, 'bob').length, c.name).toBeGreaterThan(0)
+      const p = preview(roomId, `RECAP ${c.name}`, { sources: [{ type: 'room', id: roomId, fromSeq: from }] })
+      expect(p.decision, c.name).toMatchObject({ hidden: true, earlier: false })
+      expect((await share('alice', roomId, p.id)).status, c.name).toBe(409)
+    }
+    // a shared answer without a note is the AI's words alone: what it used is followed
+    const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+    const S = shared(roomId, 'erin', 'SHARED-NO-NOTE', 0, [folder('groups/marketing')])
+    await setMembers(groupId, ['alice', 'erin', 'bob'])
+    expect(preview(roomId, 'RECAP no note', { sources: [{ type: 'room', id: roomId, fromSeq: S.seq }] }).decision).toMatchObject({ hidden: false, earlier: true, folders: ['groups/marketing'] })
+  })
+
+  test("a hidden reply in a hidden answer's thread goes through that answer; the asker's own folder and a name are named; too deep is refused", async () => {
+    // the reply (an answer shared there without a note) and its thread's first message are both hidden from bob: the
+    // reply is followed, and through it the first message and what each used
+    {
+      const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+      const R = aiAnswer(roomId, 'alice', 'ROOT-SECRET', { sources: [{ type: 'user', id: 'alice' }] })
+      const reply = shared(roomId, 'erin', 'REPLY from marketing', 0, [folder('groups/marketing')], { id: R.answerId, seq: R.seq })
+      await setMembers(groupId, ['alice', 'erin', 'bob'])
+      expect(hiddenRows(roomId, 'bob')).toEqual(expect.arrayContaining([R.answerId, reply.id]))
+      expect(preview(roomId, 'RECAP thread', { sources: [{ type: 'room', id: roomId, fromSeq: R.seq }] }).decision)
+        .toMatchObject({ hidden: false, earlier: true, personal: true, folders: ['groups/marketing'], unable: { 'groups/marketing': 1 } })
+    }
+    // her own folder: the "my folder" reason; a name she may read: its folder named with its count
+    {
+      const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+      const own = aiAnswer(roomId, 'alice', 'OWN-SECRET', { sources: [{ type: 'user', id: 'alice' }] })
+      const name = aiAnswer(roomId, 'alice', 'NAME-SECRET', { sources: [{ type: 'name', path: BRIEF }] })
+      await setMembers(groupId, ['alice', 'erin', 'bob'])
+      expect(hiddenRows(roomId, 'bob')).toEqual(expect.arrayContaining([own.answerId, name.answerId]))
+      expect(preview(roomId, 'RECAP own and name', { sources: [{ type: 'room', id: roomId, fromSeq: own.seq - 1 }] }).decision)
+        .toMatchObject({ hidden: false, earlier: true, personal: true, folders: ['groups/marketing'], unable: { 'groups/marketing': 1 } })
+    }
+    // a chain of answers each built on the one before: followed to EARLIER_DEPTH levels, refused past them
+    for (const [length, refused] of [[EARLIER_DEPTH, false], [EARLIER_DEPTH + 2, true]] as const) {
+      const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+      let last = aiAnswer(roomId, 'alice', 'CHAIN-0', { sources: [folder('groups/marketing')] })
+      for (let i = 1; i < length; i++) last = aiAnswer(roomId, 'erin', `CHAIN-${i}`, { sources: [{ type: 'room', id: roomId, fromSeq: last.seq }] })
+      await setMembers(groupId, ['alice', 'erin', 'bob'])
+      expect(hiddenRows(roomId, 'bob').length).toBe(length)
+      const d = preview(roomId, `RECAP chain ${length}`, { sources: [{ type: 'room', id: roomId, fromSeq: last.seq }] }).decision
+      expect(d, `chain of ${length}`).toMatchObject(refused ? { hidden: true, earlier: false } : { hidden: false, earlier: true, folders: ['groups/marketing'] })
+    }
+  })
+
+  test('a decision kept before the counts is compared without them; any other change is a change', () => {
+    const before = JSON.stringify({ folders: ['groups/marketing'], otherFolders: false, personal: false, outside: false, joinedLater: [] })
+    const now = JSON.stringify({ folders: ['groups/marketing'], otherFolders: false, personal: false, outside: false, joinedLater: [], unable: { 'groups/marketing': 2 } })
+    expect(reasonsChanged(before, now)).toBe(false)
+    expect(reasonsChanged(now, now)).toBe(false)
+    expect(reasonsChanged(now, now.replace('"groups/marketing":2', '"groups/marketing":3'))).toBe(true)
+    expect(reasonsChanged(before, now.replace('"joinedLater":[]', '"joinedLater":["Bob Lee"]'))).toBe(true)
+    expect(reasonsChanged(before, now.replace('"joinedLater":[]', '"joinedLater":[],"earlier":true'))).toBe(true)
+    expect(reasonsChanged(null, now)).toBe(true)
+  })
+
+  /** the room queue empty again (what people joining or leaving set off has run) */
+  const settle = async () => {
+    for (let i = 0; i < 200 && pendingRedecide(h.ctx); i++) await new Promise((r) => setTimeout(r, 50))
+    await new Promise((r) => setTimeout(r, 10))
+    expect(pendingRedecide(h.ctx)).toBe(0)
+  }
+
+  test('deciding a refused preview again never writes over one its asker posted meanwhile', async () => {
+    stopRedecide(h.ctx)
+    const db = h.ctx.db
+    const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+    const H = aiAnswer(roomId, 'alice', 'H-RACE-SECRET', { sources: [folder('groups/marketing')] })
+    await setMembers(groupId, ['alice', 'erin', 'bob'])
+    await settle()
+    const p = preview(roomId, 'RECAP race', { sources: [{ type: 'room', id: roomId, fromSeq: H.seq - 1 }] })
+    asOlderBuild(p.id)
+    const before = (db.query('SELECT decision FROM room_ai_turns WHERE answer_id = ?').get(p.id) as { decision: string }).decision
+    // the asker posts it while it is decided again (between reading the row and saving the new decision)
+    const ai = roomAiOf(h.ctx), decide = ai.decide.bind(ai)
+    ai.decide = (...args) => {
+      db.query("UPDATE room_ai_turns SET status = 'posted' WHERE answer_id = ?").run(p.id)
+      db.query("UPDATE room_messages SET visibility = 'room', visible_to = NULL WHERE id = ?").run(p.id)
+      return decide(...args)
+    }
+    try {
+      redecideRoomSoon(h.ctx, roomId)
+      expect(redecideRoomStep(h.ctx)).toEqual({ roomId, tried: 1, changed: 0 })
+    } finally { ai.decide = decide }
+    expect(db.query('SELECT status, decision FROM room_ai_turns WHERE answer_id = ?').get(p.id)).toEqual({ status: 'posted', decision: before })
+    await settle()
+  })
+
+  test('many rooms at once (people removed in bulk) are worked through one room a step, off the request, each once', async () => {
+    stopRedecide(h.ctx)
+    const rooms: { roomId: string; id: string }[] = []
+    for (let i = 0; i < 5; i++) {
+      const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+      const H = aiAnswer(roomId, 'alice', `H-BURST-${i}`, { sources: [folder('groups/marketing')] })
+      await setMembers(groupId, ['alice', 'erin', 'bob'])
+      rooms.push({ roomId, id: preview(roomId, `RECAP burst ${i}`, { sources: [{ type: 'room', id: roomId, fromSeq: H.seq - 1 }] }).id })
+    }
+    await settle()
+    for (const r of rooms) asOlderBuild(r.id)
+    const ai = roomAiOf(h.ctx), decide = ai.decide.bind(ai), calls = new Map<string, number>()
+    ai.decide = (rid, ...rest) => { calls.set(rid, (calls.get(rid) ?? 0) + 1); return decide(rid, ...rest) }
+    try {
+      // as Rooms.sync removing people from five rooms calls the hook: nothing runs inside it
+      for (const r of rooms) redecideRoomSoon(h.ctx, r.roomId)
+      expect(calls.size).toBe(0)
+      expect(pendingRedecide(h.ctx)).toBe(5)
+      // the first step: one room, the others wait their steps (REDECIDE_ROOM_GAP_MS apart)
+      await new Promise((r) => setTimeout(r, 0))
+      expect(calls.size).toBe(1)
+      expect(pendingRedecide(h.ctx)).toBe(4)
+      await settle()
+      expect(rooms.map((r) => calls.get(r.roomId))).toEqual([1, 1, 1, 1, 1])
+    } finally { ai.decide = decide }
+    for (const r of rooms) expect((await mine(r.roomId, r.id))!.preview).toMatchObject({ earlier: true, folders: ['groups/marketing'] })
   })
 })

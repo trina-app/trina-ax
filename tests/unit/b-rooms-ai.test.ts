@@ -151,11 +151,15 @@ describe('the AI in a room', () => {
       // (docs/DECISIONS.md "지난 대화")
       expect((await messages('bob', r2)).find((m) => m.authorKind === 'ai' && m.replyTo?.id === first.q.id)).toMatchObject({ withheld: true, body: '' })
       // the members changed, so the conversation starts anew; the first answer hidden from bob in its context (and the
-      // fake engine following the first question's directive again) keep the answer private, saying why
+      // fake engine following the first question's directive again) keep the answer private, saying why: what the
+      // hidden answer used (marketing, which alice may open) is named to her, so she may post it (docs/DECISIONS.md
+      // "방에 올리기…")
       const second = await ask('alice', r2, `@트리나 and now?\n${fake({ say: 'second' })}`)
       expect(await answerTo('bob', r2, second.q)).toBeUndefined()
       expect(await answerTo('erin', r2, second.q)).toBeUndefined()
-      expect(await answerTo('alice', r2, second.q)).toMatchObject({ visibility: 'private', preview: { folders: ['groups/marketing'], joinedLater: [], hidden: true } })
+      const mine = (await answerTo('alice', r2, second.q))!
+      expect(mine).toMatchObject({ visibility: 'private', preview: { folders: ['groups/marketing'], joinedLater: [], earlier: true, unable: { 'groups/marketing': 1 } } })
+      expect(mine.preview).not.toHaveProperty('hidden')
     } finally { h.ctx.db.query("DELETE FROM folder_rules WHERE id = 'rooms-ai-bob-none'").run() }
   })
 

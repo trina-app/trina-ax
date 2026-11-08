@@ -10,7 +10,7 @@ import { app as electronApp, BaseWindow, dialog, net, Notification, session, Web
 import { join } from 'node:path'
 import { PRODUCT, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
 import { Health, Me } from '@mycel/shared/api'
-import { asksOutside, firstRunLinks, healthVerdict, hostLineShown, hostOf, originOf, parseTeamAddress, readDesktopLink, teamLabel, type AddressError, type HealthAnswer } from '../common/address'
+import { asksOutside, firstRunLinks, healthVerdict, hostLineNow, hostOf, originOf, parseTeamAddress, readDesktopLink, teamLabel, type AddressError, type HealthAnswer } from '../common/address'
 import { LinkGate } from '@mycel/shared/team-link'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { teamHostnames } from '../common/browser-block'
@@ -80,6 +80,8 @@ export interface AppWindowOptions {
 const MIN_PANE = 360
 /** the host strip above the team's sign-in pages (hostbar.html) */
 const HOSTBAR_HEIGHT = 36
+/** how long the strip waits for /api/me after a team page loaded before it takes space anyway */
+const HOSTBAR_WAIT_MS = 300
 const MIN_APP = 420
 const RECHECK_MS = 60_000
 /** a settings read from the team page re-reads the team's policy at most this often */
@@ -139,6 +141,11 @@ export class AppWindow {
   /** the team answered GET /api/me for a signed-in person (fetchTeamInfo); until then the host strip is on, on every
    * page (a page can look like a sign-in page at any address) */
   private signedIn = false
+  /** /api/me answered for this team page (either way), and the short wait after the page loaded is over: until one of
+   * them, a page that is not a sign-in page gets no strip yet, so a signed-in open does not jump (shared hostLineNow) */
+  private meAnswered = false
+  private stripWaited = false
+  private stripTimer?: NodeJS.Timeout
   /** screen ④: the link from outside that waits for a yes (shared/src/team-link.ts LinkGate) */
   private linkGate = new LinkGate()
   private linkError: string | null = null
@@ -358,6 +365,10 @@ export class AppWindow {
     this.directOrigin = null
     this.pagePath = ''
     this.signedIn = false
+    this.meAnswered = false
+    this.stripWaited = false
+    clearTimeout(this.stripTimer)
+    this.stripTimer = undefined
     this.sendHostbar()
 
     const appSes = session.fromPartition(partitionFor(id, 'app'))
@@ -417,6 +428,15 @@ export class AppWindow {
       // A request started before navigation may still carry the signed-out/previous session.
       void this.ensureBrowserOwner()
       void this.measureClock()
+      // the strip waits a moment for /api/me before it takes space (a signed-in open then never shows it)
+      if (originOf(url) && !this.meAnswered && !this.stripWaited && !this.stripTimer) {
+        this.stripTimer = setTimeout(() => {
+          this.stripTimer = undefined
+          if (this.app !== app) return
+          this.stripWaited = true
+          this.layout()
+        }, HOSTBAR_WAIT_MS)
+      }
     })
     app.webContents.on('render-process-gone', (_e, d) => {
       debug('team page renderer gone', d.reason)
@@ -903,7 +923,7 @@ export class AppWindow {
     if (paneOpen) pw = w < MIN_PANE + MIN_APP ? w : clamp(Math.round(w * this.paneFraction), MIN_PANE, w - MIN_APP)
     // the team address above the page (drawn by the app): on the sign-in pages, and on every page until the team said
     // who is signed in
-    const top = hostLineShown(this.pagePath, this.signedIn) ? HOSTBAR_HEIGHT : 0
+    const top = hostLineNow({ path: this.pagePath, signedIn: this.signedIn, answered: this.meAnswered, waited: this.stripWaited }) ? HOSTBAR_HEIGHT : 0
     if (top) show(this.hostbar, { x: 0, y: 0, width: Math.max(0, w - pw), height: top })
     else hide(this.hostbar)
     show(this.app, { x: 0, y: top, width: Math.max(0, w - pw), height: Math.max(0, h - top) })
@@ -943,8 +963,9 @@ export class AppWindow {
   }
 
   private setSignedIn(signedIn: boolean) {
-    if (signedIn === this.signedIn) return
+    if (signedIn === this.signedIn && this.meAnswered) return
     this.signedIn = signedIn
+    this.meAnswered = true
     this.layout()
   }
 
