@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-08 09:39
 - Branch: `chore/migration-guard`
-- Status: in progress
+- Status: done
 - Where: trina-ax `server/src/db.ts`, `tests/unit/`. Why: the migration runner is core server code (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a server log line and a test; no API, setting or data change
 
@@ -41,4 +41,7 @@ and no file of the same name gets none. Other `openDb` callers (CLIs, tests) pas
 
 ## Result
 
-Filled in at the end.
+Built as planned. The warning also covers a migration moved away with no file left at its old number (the 326
+case), and says whether the moved file still runs on that database (review). The test is
+`tests/unit/p1-migration-files.test.ts` (foundation tests use `p1-`). Nothing renumbered; B's next range is a proposal
+in the PR.

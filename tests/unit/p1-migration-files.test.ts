@@ -8,7 +8,7 @@ import path from 'node:path'
 import { MIGRATIONS_DIR, MIGRATION_FILE, openDb, readMigrations, renamedMigrations } from '../../server/src/db'
 import { WORK } from '../lib/env'
 
-const W = path.join(WORK, 'migration-files')
+const W = path.join(WORK, 'p1-migration-files')
 
 function folder(name: string, files: Record<string, string>): string {
   const dir = path.join(W, name)
@@ -82,7 +82,7 @@ describe('a migration renamed after a database ran it', () => {
     expect(() => openDb(file, { migrationsDir: v2, log })).toThrow(/duplicate column/)
     expect(warnings.map((w) => w.fields)).toEqual([{ version: 2, recorded: '002_b_sources.sql', file: '002_b_agents.sql', movedTo: '003_b_sources.sql' }])
     expect(warnings[0]!.msg).toContain('002_b_agents.sql')
-    expect(warnings[0]!.msg).toContain('003_b_sources.sql')
+    expect(warnings[0]!.msg).toContain('003_b_sources.sql, which runs on this database again')
   })
 
   test('moved with no file left at the old number: a warning names both', () => {
@@ -91,10 +91,15 @@ describe('a migration renamed after a database ran it', () => {
     const lists = 'CREATE TABLE IF NOT EXISTS lists (id INTEGER);'
     openDb(file, { migrationsDir: folder('moved-away-v1', { '001_init.sql': INIT, '005_b_lists.sql': lists }) }).close()
     const { warnings, log } = logged()
-    openDb(file, { migrationsDir: folder('moved-away-v2', { '001_init.sql': INIT, '003_b_lists.sql': lists }), log }).close()
+    const v2 = folder('moved-away-v2', { '001_init.sql': INIT, '003_b_lists.sql': lists })
+    openDb(file, { migrationsDir: v2, log }).close()
     expect(warnings.map((w) => w.fields)).toEqual([{ version: 5, recorded: '005_b_lists.sql', file: null, movedTo: '003_b_lists.sql' }])
     expect(warnings[0]!.msg).toContain('005_b_lists.sql')
-    expect(warnings[0]!.msg).toContain('003_b_lists.sql')
+    expect(warnings[0]!.msg).toContain('003_b_lists.sql, which runs on this database again')
+    // the next start: 003 has run, the warning stays and says so
+    openDb(file, { migrationsDir: v2, log }).close()
+    expect(warnings).toHaveLength(2)
+    expect(warnings[1]!.msg).toContain('003_b_lists.sql, whose number this database has recorded too, so it does not run')
   })
 
   test('no warning for a newer build\'s migration after a downgrade, nor for a database that matches its files', () => {

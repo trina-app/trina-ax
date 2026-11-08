@@ -40,7 +40,7 @@ export class SchemaTooNewError extends Error {
 export interface MigrationFile { version: number; name: string; sql: string; minCompatibleReader: number }
 
 /** The file names the runner applies. Any other file in the folder is skipped, yet the builds ship every .sql file:
- * tests/unit/migration-files.test.ts fails on one. */
+ * tests/unit/p1-migration-files.test.ts fails on one. */
 export const MIGRATION_FILE = /^\d{3}_[a-z0-9_]+\.sql$/
 
 export function readMigrations(dir = MIGRATIONS_DIR): MigrationFile[] {
@@ -86,7 +86,7 @@ export function migrate(db: Database, o: OpenDbOptions = {}) {
   // A first look without the lock: the copy before migrating (VACUUM INTO) cannot run inside a transaction.
   const before = appliedVersions(db)
   // before applying anything: when a pending migration then fails ("duplicate column"), the reason is in the log
-  if (before && o.log) for (const r of renamedMigrations(db, all)) o.log.warn(renamedMessage(r), { ...r })
+  if (before && o.log) for (const r of renamedMigrations(db, all)) o.log.warn(renamedMessage(r, before), { ...r })
   if (before && before.size && o.backupDir && all.some((m) => !before.has(m.version))) {
     checkReadable(db, readerLevel)
     backupBeforeMigrate(db, o.backupDir, before)
@@ -122,7 +122,7 @@ export interface RenamedMigration {
   recorded: string
   /** the file with that number now (it never runs on this DB), or null */
   file: string | null
-  /** the file that has the recorded name under another number now (it runs on this DB as well), or null */
+  /** the file that has the recorded name under another number now, or null */
   movedTo: string | null
 }
 
@@ -142,9 +142,12 @@ export function renamedMigrations(db: Database, files: MigrationFile[]): Renamed
   return out
 }
 
-function renamedMessage(r: RenamedMigration): string {
+function renamedMessage(r: RenamedMigration, applied: Set<number>): string {
   const now = r.file ? `the file with that number is now ${r.file}, which never runs on this database` : 'no file has that number now'
-  return `migration ${r.version} on this database was ${r.recorded}, but ${now}${r.movedTo ? `; ${r.recorded} is now ${r.movedTo}, which runs here as well` : ''}`
+  const moved = !r.movedTo ? ''
+    : applied.has(parseInt(r.movedTo, 10)) ? `; ${r.recorded} is now ${r.movedTo}, whose number this database has recorded too, so it does not run`
+    : `; ${r.recorded} is now ${r.movedTo}, which runs on this database again`
+  return `migration ${r.version} on this database was ${r.recorded}, but ${now}${moved}`
 }
 
 /** How long a process waits for another one that is migrating the same database. */

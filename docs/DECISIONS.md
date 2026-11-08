@@ -14456,7 +14456,7 @@ and its developer page "User presence and status" (what was copied and what was 
   `b_onboarding_notices` → 231, 326 `b_chat_skill_lists` → 217). A database that ran the old file skips the new file
   at that number, and runs the moved one again: for 214 and 222 that fails ("duplicate column", "already exists") and
   the server does not start.
-- **CI catches a misnamed file.** `tests/unit/migration-files.test.ts`: every file in `server/migrations/` matches
+- **CI catches a misnamed file.** `tests/unit/p1-migration-files.test.ts`: every file in `server/migrations/` matches
   `MIGRATION_FILE` (now exported, the runner's own pattern), `readMigrations` returns every `.sql` file, and no two
   files share a number (`readMigrations` already throws on that at start).
 - **A warning, not a refusal.** At start-up the server logs one warning per recorded migration whose file was renamed
@@ -14467,7 +14467,7 @@ and its developer page "User presence and status" (what was copied and what was 
   server passes its log (`openDb(file, { log })`); the CLIs stay quiet.
 - **Not changed.** No file is renumbered and no number range moves. B's range 200–299 (docs/WORKPLAN.md §4) has 27
   numbers left after 272 at about ten a day; the next range for B is the owner's call (see the PR).
-- Tests: `tests/unit/migration-files.test.ts` (the folder checks; the runner skipping a hyphen, a capital, four digits
+- Tests: `tests/unit/p1-migration-files.test.ts` (the folder checks; the runner skipping a hyphen, a capital, four digits
   and `.SQL`; two files with one number; a new file at the old number, a move with a new file at the old number before
   the "duplicate column" failure, a move with none, a downgrade and a matching database without a warning).
 - Version impact: **patch** (a server log line and a test; no API, setting or data change).
