@@ -13,6 +13,8 @@ import path from 'node:path'
 import { API, uuidv7, type RoomAiRun, type RoomMessage, type TurnRequest } from '@mycel/shared/api'
 import { ask as askChat, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { createGrant, grantFor, listGrants, ROOM_GRANT_DAYS, type GrantRow } from '../../server/src/rooms/ai-grants'
+import { wouldSeeFrom } from '../../server/src/rooms/history'
+import { makePng } from '../lib/images'
 
 setDefaultTimeout(120_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -257,6 +259,21 @@ describe('the room card', () => {
     } finally { (undo as (() => void) | null)?.() }
   })
 
+  test("and again after make_file's own card for its pictures: a member who can no longer write there brings the card back", async () => {
+    const { roomId, dir } = await granted()
+    fs.writeFileSync(path.join(h.team, 'projects/falcon/rg-pic.png'), makePng())
+    let undo: (() => void) | null = null
+    try {
+      const r = await ask('alice', roomId, [{ tool: 'make_file', args: { output: `${dir}/report`, format: 'docx', content: '# Report\n\n![pic](projects/falcon/rg-pic.png)\n' } }], (c) => {
+        // the picture is one erin cannot read: make_file's own wider-audience card; while it waits, erin may only read
+        if (isWiden(c)) { undo = rule(dir, 'user', 'erin', 'read'); return 'save' }
+        return 'skip'
+      })
+      expect(r.cards.map(values)).toEqual([['save', 'skip'], ['allow', 'skip']])
+      expect(exists(`${dir}/report.docx`)).toBe(false)
+    } finally { (undo as (() => void) | null)?.(); fs.rmSync(path.join(h.team, 'projects/falcon/rg-pic.png'), { force: true }) }
+  })
+
   test('NFC / NFD and letter case: one folder, one grant', async () => {
     const { roomId, dir } = await granted()
     const nfc = `${dir}/견적서`
@@ -495,6 +512,24 @@ describe('a team room as a source: owners and admins who would see it are not "m
       const r = await ask('alice', t.roomId, [write(`${dir}/bob-reads.md`)])
       expect(r.cards.map(values)).toEqual([['save', 'skip']])
     } finally { undo() }
+  })
+
+  test("the history walk has a time budget: out of time is no (the card shows)", async () => {
+    const { roomId } = await teamRoomOf(['alice', 'erin'])
+    // 300 old answers, each built on nothing (visible to anyone who joins): the walk looks at the clock at the 256th
+    const db = h.ctx.db, now = new Date().toISOString()
+    for (let i = 0; i < 300; i++) {
+      const id = uuidv7()
+      const seq = (db.query('UPDATE rooms SET last_seq = last_seq + 1 WHERE id = ? RETURNING last_seq').get(roomId) as { last_seq: number }).last_seq
+      db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, asked_by, visibility, body, mentions, created_at) VALUES (?, ?, ?, 'ai', NULL, 'erin', 'room', 'old answer', '[]', ?)`).run(id, roomId, seq, now)
+      db.query(`INSERT INTO room_ai_turns (turn_id, room_id, user_id, chat_id, question_id, status, answer_id, created_at, scope) VALUES (?, ?, 'erin', 'c', 'q', 'posted', ?, ?, ?)`).run(uuidv7(), roomId, id, now, JSON.stringify({ sources: [], outside: false }))
+    }
+    expect(wouldSeeFrom(h.ctx, roomId, 'carol', 0)).toBe(true)
+    // no time left: no, whatever the room holds
+    expect(wouldSeeFrom(h.ctx, roomId, 'carol', 0, -1)).toBe(false)
+    // and a DM or group chat is never judged this way
+    const dm = (await h.api('erin').call(API.createRoom, { body: { kind: 'dm', userId: 'alice' } })).id
+    expect(wouldSeeFrom(h.ctx, dm, 'carol', 0)).toBe(false)
   })
 
   test('a DM and a group chat are unchanged: the card when owners and admins could not read them', async () => {

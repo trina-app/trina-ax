@@ -14097,7 +14097,9 @@ every time.** Team files keep their versions and a trash bin.
   that ends in "/" gets the card.
 - **Checked again right before the write** (`TurnExec.recheckRoomCover`, from `chat/tools.ts` after the wider-audience
   card): a call a grant or [이번만] let through still needs every member writing the target and nothing from outside;
-  otherwise the room card is asked then, without any cover.
+  otherwise the room card is asked then, without any cover. make_file's own wider-audience card for the pictures or the
+  template it embeds (`tools/make-file.ts confirmSources`, known only after parsing) can wait after that check, so the
+  same check runs again after that card (`chat/tools.ts toolContext`, before anything is placed).
 - **Subfolders.** Coverage stops at the first subfolder with folder rules of its own, and the target's own folder must
   have the same readers and writers as the granted folder (`folderAudience`: the active people with access there and
   theirs, hashed like `tools/file-moves.ts` compares audiences; people with no access are left out, so a new account
@@ -14143,8 +14145,11 @@ every time.** Team files keep their versions and a trash bin.
   in its team room, and a team room shows its history to a later member except the old answers built on what they cannot
   read (rooms/history.ts). So `TurnExec.widenNeed` drops a narrower source that is a team room when every person who
   could read the target and not the room (`missingReaders`) is an active owner or admin who would see the room from the
-  context's first message if they joined now (`wouldSeeFrom`, the history walk). An answer built on a DM there, or a
-  member who is not an owner or admin who can read the folder, keeps the card. DMs, group chats and the everyone room
+  context's first message if they joined now (`wouldSeeFrom`, the history walk, at most `WOULD_SEE_MS` = 100 ms per
+  owner or admin and save; out of time is no, so the card shows). An answer built on a DM there, or a member who is not
+  an owner or admin who can read the folder, keeps the card. The rule sits in `widenNeed`, so it applies to every save
+  that asks the wider-audience question there: from a room session, from the person's own chat after a room read,
+  save_url, save_room_file, and make_file's sources (its source, pictures and template). DMs, group chats and the everyone room
   are unchanged, and so is who reads a room (`viewersOf`, `roomViewers`). The owner and admins get no join line and no
   audit row for this read: acceptable, as they already read every group folder without one.
 - **Known limit.** Outside that case (a folder people outside the room read who are not owners or admins, a DM or a

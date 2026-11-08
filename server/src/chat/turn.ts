@@ -1552,7 +1552,8 @@ export class TurnExec {
   }
 
   /**
-   * Right before a call a grant or [이번만] let through writes (after a wider-audience card may have waited): every member
+   * Right before a call a grant or [이번만] let through writes (after a wider-audience card may have waited, and again
+   * after make_file's own card for its pictures or template, chat/tools.ts toolContext): every member
    * of the room must still be able to write there and nothing from outside the team files may have come in since; else
    * the room card is asked now, as for any call (no cover). Returns the refusal, or null. Calls nothing let through: null.
    */
@@ -1563,7 +1564,6 @@ export class TurnExec {
     const key = `${tool}\u0000${args}`
     const rel = this.roomCovered.get(key)
     if (rel === undefined) return null
-    this.roomCovered.delete(key)
     let still = false
     try { still = !this.roomOutside() && everyoneWrites(this.rt.db, this.rt.files.fx, this.rt.files.rules(), this.room.roomId, rel) } catch { still = false }
     return still ? null : this.confirmRoomChange(tool, input, { ...o, noCover: true })

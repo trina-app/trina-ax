@@ -355,7 +355,9 @@ export function turnPerson(exec: TurnExec): TurnPerson {
   }
 }
 
-function toolContext(exec: TurnExec, files: TurnFiles): TurnToolContext {
+/** `call`: the tool call this context is for: a room call a grant or [이번만] let through is checked again after the
+ * tool's own wider-audience card (it may have waited: make_file's pictures and template) */
+function toolContext(exec: TurnExec, files: TurnFiles, call?: { tool: string; args: unknown }): TurnToolContext {
   return {
     turnId: exec.spec.turnId, chatId: exec.spec.chatId, userId: exec.spec.userId, messageId: exec.spec.assistantId, locale: exec.spec.locale,
     signal: exec.abort.signal,
@@ -363,7 +365,11 @@ function toolContext(exec: TurnExec, files: TurnFiles): TurnToolContext {
       signal: exec.abort.signal,
       user: exec.livePrincipal(), turnId: exec.spec.turnId, files, person: turnPerson(exec),
       // files a tool copies bytes from (make_file's embedded images and template), checked before the new file is placed
-      confirmWidening: (target, sources, binding) => exec.confirmWidening(target, sources, binding),
+      confirmWidening: async (target, sources, binding) => {
+        const no = await exec.confirmWidening(target, sources, binding)
+        if (no || !call) return no
+        return exec.recheckRoomCover(call.tool, call.args, { main: files === exec.files })
+      },
     },
   }
 }
@@ -372,7 +378,7 @@ function wrapRegistered(exec: TurnExec, t: TurnTool): Tool {
   return {
     name: t.name, description: t.description, inputSchema: t.inputSchema,
     async call(args, files) {
-      const r = await t.call(args, toolContext(exec, files))
+      const r = await t.call(args, toolContext(exec, files, { tool: t.name, args }))
       return { content: r.content, isError: r.isError, ...(r.summary ? { summary: r.summary } : {}) }
     },
   }
