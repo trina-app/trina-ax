@@ -80,6 +80,7 @@ import { editPreview, rulesHash } from '../../../server/src/admin/access-edit'
 import os from 'node:os'
 import path from 'node:path'
 import { MockPlugins } from './plugins'
+import { packExample } from '../../../server/src/onboarding/skill-examples'
 
 type Json = Record<string, unknown>
 const sha256Hex = (d: Uint8Array) => new Bun.CryptoHasher('sha256').update(d).digest('hex')
@@ -233,10 +234,12 @@ export class MockServer {
   }
   /** the saved company profile, and the website readings (server/src/onboarding/draft.ts, short: no chat of the list) */
   companyProfile: import('@mycel/shared/api').CompanyProfile | null = null
-  /** the kept skills' catalog (server/src/onboarding/skill-packs.ts, docs/DECISIONS.md "W6"): the examples registered
-   * (/__test/pack-examples), the catalog read failing (/__test/packs-fail), the next installs failing
-   * (/__test/pack-install-fail: that many requests), and share checks held until stop-check (/__test/share-hold) */
-  packExamples: Partial<Record<string, import('@mycel/shared/api').PackExample>> = {}
+  /** the kept skills' catalog (server/src/onboarding/skill-packs.ts, docs/DECISIONS.md "W6"): the examples are the
+   * server's own (skill-examples.ts: the web build's pictures, the EXAMPLE.md texts) unless a test sets one by name
+   * (/__test/pack-examples; null: none, the viewer's "예시를 준비하고 있어요"), the catalog read failing
+   * (/__test/packs-fail), the next installs failing (/__test/pack-install-fail: that many requests), and share checks
+   * held until stop-check (/__test/share-hold) */
+  packExamples: Partial<Record<string, import('@mycel/shared/api').PackExample | null>> = {}
   packsFail = false
   packInstallFails = 0
   shareHold = false
@@ -2205,7 +2208,8 @@ export class MockServer {
     trialCredit: () => ({ credit: null }),
     getCompanyProfile: () => ({ profile: this.companyProfile }),
     // the kept skills (server/src/onboarding/skill-packs.ts skillPackCatalog, short): every one in CATALOG's order, in
-    // the team's language (Korean, else English), whether the team has it (its path, or a team skill of its name)
+    // the team's language (Korean, else English), whether the team has it (its path, or a team skill of its name), its
+    // example (the server's own, packExample, unless a test set one)
     listSkillPacks: (c) => {
       if (this.packsFail) fail('internal', 500, '지금은 불러오지 못했어요')
       const ko = this.settings.defaultLocale === 'ko'
@@ -2217,7 +2221,7 @@ export class MockServer {
           return {
             pack: k.pack, name: k.name, path, title: ko ? k.ko : k.en, description: ko ? k.lineKo : k.lineEn,
             inTeam: this.files.has(path) || team.some((x) => x.name.toLowerCase() === k.name), visual: k.visual,
-            example: this.packExamples[k.name] ?? null, locale: ko ? 'ko' : 'en',
+            example: Object.hasOwn(this.packExamples, k.name) ? this.packExamples[k.name] ?? null : packExample(ko ? 'ko' : 'en', k.name), locale: ko ? 'ko' : 'en',
             source: k.name !== 'humanizer' ? { kind: 'team' } : ko ? { kind: 'team_writing' } : { kind: 'adapted', author: 'Siqi Chen', project: 'humanizer', license: 'MIT', url: 'https://github.com/blader/humanizer' },
           }
         }),

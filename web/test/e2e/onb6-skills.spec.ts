@@ -1,7 +1,8 @@
 // The kept skills in a real browser against the mock (docs/DECISIONS.md "W6 — Onboarding v6: skills catalog and 내 스킬";
 // FLOW-v6 §2, §4.2): the owner's 내 스킬 step (components/onboarding/SkillsStep.tsx) lists the kept skills the team does
 // not have (회사 소개서, 카드뉴스, 홍보 영상 checked when a company profile is saved, 자연스러운 글 never) above
-// bring-your-own, under ONE primary that names what goes in; 예시 opens the viewer (‹ ›, Esc back to the row). Own skills
+// bring-your-own, under ONE primary that names what goes in; 예시 opens the viewer with the example made on the invented
+// 예시커피 / Example Coffee (one per open, Esc back to the row). Own skills
 // still being checked hold the primary, and a check past 30 seconds is ended (the list then shows unticked, "AI 없이").
 // A press that does not all go in stays with the reason (a request that failed with 다시 시도; a name already taken) and
 // a 다음. The Team skills page (components/AvailableSkills.tsx): for owners and admins the kept skills folded under the
@@ -94,14 +95,18 @@ test('내 스킬 with a company profile: four kept skills, the visual three chec
   await packRow(packs, 'humanizer').getByTestId('skill-pack-check').uncheck()
   await expect(primary).toHaveText('회사 소개서·카드뉴스·홍보 영상 넣기')
 
-  // 예시: that row's example, one per open (no example made yet: it says so; no stepping to the next row), Esc closes and
-  // the focus goes back to that row's 예시
+  // 예시: that row's example, one per open (the picture the skill made on the invented 예시커피; no stepping to the next
+  // row), Esc closes and the focus goes back to that row's 예시
   await packRow(packs, 'card-news').getByTestId('skill-pack-example').click()
   const viewer = page.getByTestId('skill-example')
   await expect(viewer).toHaveAttribute('data-name', 'card-news')
-  await expect(viewer).toHaveAttribute('data-state', 'placeholder')
-  await expect(viewer).toContainText('예시를 준비하고 있어요')
-  await expect(viewer.getByTestId('skill-example-fictional')).toHaveCount(0)
+  await expect(viewer).toHaveAttribute('data-state', 'shown')
+  const picture = viewer.getByTestId('skill-example-image')
+  await expect(picture).toHaveAttribute('src', '/skill-examples/ko/card-news.webp')
+  await expect(picture).toBeVisible()
+  expect(await picture.evaluate((i: HTMLImageElement) => i.naturalWidth)).toBe(1280)
+  await expect(viewer).not.toContainText('예시를 준비하고 있어요')
+  await expect(viewer.getByTestId('skill-example-fictional')).toHaveText("가상의 회사 '예시커피'로 만든 예시예요. 우리 팀 자료로 쓰면 결과도 우리 회사 것으로 나와요.")
   await expect(viewer.getByTestId('skill-example-source')).toHaveText(`${PRODUCT.displayName} 팀이 만들었어요`)
   await expect(page.getByRole('dialog')).toContainText("'카드뉴스' 예시")
   await expect(viewer.getByTestId('skill-example-next')).toHaveCount(0)
@@ -113,6 +118,11 @@ test('내 스킬 with a company profile: four kept skills, the visual three chec
   await expect(packRow(packs, 'card-news').getByTestId('skill-pack-example')).toBeFocused()
   await packRow(packs, 'humanizer').getByTestId('skill-pack-example').click()
   await expect(viewer).toHaveAttribute('data-name', 'humanizer')
+  // the before → after text, drawn in the page: the AI-sounding notice quoted, its rewrite under it
+  await expect(viewer).toHaveAttribute('data-state', 'shown')
+  await expect(viewer.getByTestId('skill-example-body').locator('blockquote')).toContainText('이번 공지에서는 사무실 구독 배송 일정 변경에 대해 자세히 알아보겠습니다')
+  await expect(viewer.getByTestId('skill-example-body')).toContainText('지금처럼 수요일에 받고 싶으시면 11월 25일까지 hello@coffee.example로 알려 주세요.')
+  await expect(viewer).not.toContainText('예시를 준비하고 있어요')
   await expect(viewer.getByTestId('skill-example-source')).toHaveText(`${PRODUCT.displayName} 팀이 쓰던 한국어 글쓰기 스킬을 바탕으로 만들었어요`)
   await expect(viewer.getByTestId('skill-example-original')).toHaveCount(0)
   await page.keyboard.press('Escape')
@@ -301,7 +311,7 @@ test('Team skills (owner): the kept skills folded under the list, nothing checke
   expect(realErrors(errors)).toEqual([])
 })
 
-test('Team skills (owner): a catalog that does not load says so with 다시 시도; examples show, or say they did not load', async ({ page }) => {
+test('Team skills (owner): a catalog that does not load says so with 다시 시도; examples show, or say they did not load, or are still being made', async ({ page }) => {
   const errors = watchConsole(page)
   await reset(page)
   await signIn(page)
@@ -311,11 +321,10 @@ test('Team skills (owner): a catalog that does not load says so with 다시 시�
   await expect(failed).toContainText('준비한 스킬을 불러오지 못했어요')
   await expect(page.getByTestId('skill-catalog')).toHaveCount(0)
   await post(page, '/__test/packs-fail', { on: false })
-  // an image that loads, one that is missing, a text before → after
+  // the examples that ship for the deck and the text (the server's own); a picture that is missing; one not made yet
   await post(page, '/__test/pack-examples', { examples: {
-    'intro-deck': { kind: 'image', url: '/favicon.svg' },
     'card-news': { kind: 'image', url: '/examples/missing-card-news.png' },
-    humanizer: { kind: 'text', markdown: '**전**: 본 솔루션은 혁신적인 가치를 제공합니다.\n\n**후**: 이 선풍기는 조용해요.' },
+    'promo-video': null,
   } })
   await failed.getByRole('button', { name: '다시 시도' }).click()
   await expect(failed).toHaveCount(0)
@@ -325,6 +334,7 @@ test('Team skills (owner): a catalog that does not load says so with 다시 시�
   const viewer = page.getByTestId('skill-example')
   await expect(viewer).toHaveAttribute('data-state', 'shown')
   await expect(viewer.getByTestId('skill-example-image')).toBeVisible()
+  await expect(viewer.getByTestId('skill-example-image')).toHaveAttribute('src', '/skill-examples/ko/intro-deck.webp')
   await expect(viewer.getByTestId('skill-example-fictional')).toHaveText("가상의 회사 '예시커피'로 만든 예시예요. 우리 팀 자료로 쓰면 결과도 우리 회사 것으로 나와요.")
   await page.keyboard.press('Escape')
   await packRow(fold, 'card-news').getByTestId('skill-pack-example').click()
@@ -334,10 +344,17 @@ test('Team skills (owner): a catalog that does not load says so with 다시 시�
   await expect(viewer).toContainText('회사 소개로 정사각형 카드 5장을 만들어요')
   await expect(viewer.getByTestId('skill-example-fictional')).toHaveCount(0)
   await page.keyboard.press('Escape')
+  // a skill whose example is not made yet still says so
+  await packRow(fold, 'promo-video').getByTestId('skill-pack-example').click()
+  await expect(viewer).toHaveAttribute('data-name', 'promo-video')
+  await expect(viewer).toHaveAttribute('data-state', 'placeholder')
+  await expect(viewer).toContainText('예시를 준비하고 있어요')
+  await expect(viewer.getByTestId('skill-example-fictional')).toHaveCount(0)
+  await page.keyboard.press('Escape')
   await packRow(fold, 'humanizer').getByTestId('skill-pack-example').click()
   await expect(viewer).toHaveAttribute('data-name', 'humanizer')
   await expect(viewer).toHaveAttribute('data-state', 'shown')
-  await expect(viewer).toContainText('이 선풍기는 조용해요.')
+  await expect(viewer).toContainText('예시커피, 12월 1일부터 사무실 구독 배송일 목요일로 변경')
   await expect(viewer.getByTestId('skill-example-fictional')).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(packRow(fold, 'humanizer').getByTestId('skill-pack-example')).toBeFocused()
@@ -348,7 +365,7 @@ test('Team skills (owner): a catalog that does not load says so with 다시 시�
   expect(realErrors(errors).filter((e) => /status of 404/.test(e))).toHaveLength(1)
 })
 
-test('Team skills, an English team: 자연스러운 글 names the open-source original it was adapted from, in a new tab', async ({ page }) => {
+test('Team skills, an English team: the English examples (Example Coffee); 자연스러운 글 names the open-source original it was adapted from, in a new tab', async ({ page }) => {
   const errors = watchConsole(page)
   await reset(page, { teamLocale: 'en' })
   await signIn(page)
@@ -359,6 +376,10 @@ test('Team skills, an English team: 자연스러운 글 names the open-source or
   await packRow(fold, 'humanizer').getByTestId('skill-pack-example').click()
   const viewer = page.getByTestId('skill-example')
   await expect(viewer).toHaveAttribute('data-name', 'humanizer')
+  await expect(viewer).toHaveAttribute('data-state', 'shown')
+  await expect(viewer.getByTestId('skill-example-body').locator('blockquote')).toContainText("In today's fast-paced world")
+  await expect(viewer.getByTestId('skill-example-body')).toContainText('Offices can now get a free tasting kit from us.')
+  await expect(viewer.getByTestId('skill-example-fictional')).toContainText('Example Coffee')
   await expect(viewer.getByTestId('skill-example-source')).toHaveAttribute('data-kind', 'adapted')
   await expect(viewer.getByTestId('skill-example-source')).toContainText('Siqi Chen')
   await expect(viewer.getByTestId('skill-example-source')).toContainText('MIT')
@@ -370,6 +391,8 @@ test('Team skills, an English team: 자연스러운 글 names the open-source or
   await page.keyboard.press('Escape')
   await packRow(fold, 'promo-video').getByTestId('skill-pack-example').click()
   await expect(viewer).toHaveAttribute('data-name', 'promo-video')
+  await expect(viewer).toHaveAttribute('data-state', 'shown')
+  await expect(viewer.getByTestId('skill-example-image')).toHaveAttribute('src', '/skill-examples/en/promo-video.webp')
   await expect(viewer.getByTestId('skill-example-source')).toHaveAttribute('data-kind', 'team')
   await expect(viewer.getByTestId('skill-example-original')).toHaveCount(0)
   expect(realErrors(errors)).toEqual([])
@@ -422,6 +445,23 @@ test.describe('a phone (390 × 844, dark)', () => {
     expect(Math.round(p!.width)).toBe(Math.round(s!.width))
     // nothing wider than the screen
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+    // the examples on a phone, dark: the tallest picture (the video's frames) fits the sheet; the text in the page's
+    // own colours, as wide as the screen at most
+    await packRow(packs, 'promo-video').getByTestId('skill-pack-example').click()
+    const viewer = page.getByTestId('skill-example')
+    await expect(viewer).toHaveAttribute('data-state', 'shown')
+    const pic = (await viewer.getByTestId('skill-example-image').boundingBox())!
+    expect(pic.x).toBeGreaterThanOrEqual(0)
+    expect(pic.x + pic.width).toBeLessThanOrEqual(390)
+    await page.keyboard.press('Escape')
+    await expect(viewer).toHaveCount(0)
+    await packRow(packs, 'humanizer').getByTestId('skill-pack-example').click()
+    await expect(viewer).toHaveAttribute('data-state', 'shown')
+    const words = (await viewer.getByTestId('skill-example-body').boundingBox())!
+    expect(words.x + words.width).toBeLessThanOrEqual(390)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+    await page.keyboard.press('Escape')
+    await expect(viewer).toHaveCount(0)
     await primary.click()
     await expect(page.getByTestId('toast').filter({ hasText: '스킬 3개를 팀에 넣었어요' })).toBeVisible()
     await expect(page.getByTestId('welcome-team-files')).toBeVisible()
