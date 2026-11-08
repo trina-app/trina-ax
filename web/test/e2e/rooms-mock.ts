@@ -19,8 +19,13 @@ export interface MockRoom {
  * more contract fields as they are (reactions, a thread's summary, …). */
 export interface MockMessage { id: string; author: { id: string; name: string }; body: string; mentions?: string[]; threadRootId?: string; extra?: Record<string, unknown> }
 
-/** `kind`: the room's kind ('group' by default; 'all' for the everyone room, 'dm' for a 1:1 chat) */
-export async function routeRoom(page: Page, o: { members: { id: string; name: string }[]; messages?: MockMessage[]; kind?: 'group' | 'team' | 'all' | 'dm' }): Promise<MockRoom> {
+/** The AI in the room as GET /api/rooms/:id/ai and GET /api/rooms/:id/ai/requests answer it, read at each request (a
+ * spec changes it as the server would: a question of mine running, its card open, answered). */
+export interface MockRoomAi { answering: number; mine: unknown[]; requests: unknown[] }
+
+/** `kind`: the room's kind ('group' by default; 'all' for the everyone room, 'dm' for a 1:1 chat); `ai`: the AI's state
+ * (none by default) */
+export async function routeRoom(page: Page, o: { members: { id: string; name: string }[]; messages?: MockMessage[]; kind?: 'group' | 'team' | 'all' | 'dm'; ai?: MockRoomAi }): Promise<MockRoom> {
   const state: MockRoom = { sent: [], reacted: [] }
   // the reactions each message has now (mine only: olga is the only one reacting here)
   const mine = new Map<string, string[]>()
@@ -48,7 +53,8 @@ export async function routeRoom(page: Page, o: { members: { id: string; name: st
     if (method === 'GET' && path === `/api/rooms/${ROOM_ID}`) return route.fulfill(json(room))
     if (method === 'GET' && path === `/api/rooms/${ROOM_ID}/messages`) return route.fulfill(json({ items: messages, nextCursor: null }))
     if (method === 'GET' && path === `/api/rooms/${ROOM_ID}/members`) return route.fulfill(json({ items: members.map((user) => ({ user, joinedAt: at(-60) })) }))
-    if (method === 'GET' && path === `/api/rooms/${ROOM_ID}/ai`) return route.fulfill(json({ answering: 0, mine: [] }))
+    if (method === 'GET' && path === `/api/rooms/${ROOM_ID}/ai`) return route.fulfill(json({ answering: o.ai?.answering ?? 0, mine: o.ai?.mine ?? [] }))
+    if (method === 'GET' && path === `/api/rooms/${ROOM_ID}/ai/requests`) return route.fulfill(json({ items: o.ai?.requests ?? [] }))
     if (method === 'POST' && path === `/api/rooms/${ROOM_ID}/read`) return route.fulfill(json({ lastReadSeq: room.lastSeq, unreadCount: 0, mentioned: false }))
     const react = /^\/api\/rooms\/[^/]+\/messages\/([^/]+)\/reactions$/.exec(path)
     if (react && method === 'PUT') {

@@ -124,12 +124,15 @@ const rememberClosed = (id: string) => {
 /**
  * This chat's open cards after a listTurnRequests answer: the server's list, plus cards that arrived over the socket
  * while the request was on its way (not in `before`); cards closed meanwhile stay closed; other chats untouched.
+ * `scope` is the chat's id, or which cards the list speaks for (a room's: those of my questions there, store/rooms.ts
+ * loadAi with listRoomAiRequests).
  */
-export function mergeOpenRequests(current: Record<string, OpenRequest>, chatId: string, open: OpenRequest[], before: ReadonlySet<string>): Record<string, OpenRequest> {
+export function mergeOpenRequests(current: Record<string, OpenRequest>, scope: string | ((r: OpenRequest) => boolean), open: OpenRequest[], before: ReadonlySet<string>): Record<string, OpenRequest> {
+  const ours = typeof scope === 'string' ? (r: OpenRequest) => r.chatId === scope : scope
   const listed = new Set(open.map((r) => r.request.requestId))
   const next: Record<string, OpenRequest> = {}
-  for (const [id, r] of Object.entries(current)) if (r.chatId !== chatId || listed.has(id) || !before.has(id)) next[id] = r
-  for (const r of open) if (r.chatId === chatId && !closedRequests.has(r.request.requestId)) next[r.request.requestId] = r
+  for (const [id, r] of Object.entries(current)) if (!ours(r) || listed.has(id) || !before.has(id)) next[id] = r
+  for (const r of open) if (ours(r) && !closedRequests.has(r.request.requestId)) next[r.request.requestId] = r
   return next
 }
 export const PENDING_MESSAGES_MAX = 50

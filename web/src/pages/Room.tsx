@@ -18,7 +18,7 @@ import { errorText, isApiError } from '../lib/api'
 import { lookingAt } from '../lib/attention'
 import { newestSeq, TARGET_PAGES, threadClosing, threadOpening } from '../lib/rooms'
 import { useBackLink } from '../lib/back'
-import { stickToBottom } from '../lib/stickToBottom'
+import { followsAfterScroll, stickToBottom } from '../lib/stickToBottom'
 import { useLocale, useT } from '../i18n'
 import { usePeople, usePeopleList } from '../store/people'
 import { useRooms, type PendingSend } from '../store/rooms'
@@ -164,6 +164,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const scroller = useRef<HTMLDivElement>(null)
   const content = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
+  /** where the last scroll event left the list (followsAfterScroll) */
+  const lastTop = useRef(0)
   const last = messages.at(-1)
 
   // follow new messages while the reader is at the bottom (and always after my own send)
@@ -171,7 +173,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     const el = scroller.current
     if (el && stick.current) el.scrollTop = el.scrollHeight
   }, [last?.id, messages.length, pending.length, aiKey])
-  // thumbnails load after the text, and a phone's keyboard shrinks the list: stay at the bottom if we were there
+  // thumbnails load after the text, a card of the AI's appears or grows (its preview), and a phone's keyboard shrinks
+  // the list: stay at the bottom if we were there, so the whole card is in sight above the message box
   useEffect(() => {
     const s = scroller.current, c = content.current
     if (!s || !c) return
@@ -207,7 +210,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const onScroll = () => {
     const el = scroller.current
     if (!el) return
-    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    stick.current = followsAfterScroll(el, stick.current, lastTop.current)
+    lastTop.current = el.scrollTop
     const th = useRooms.getState().timeline
     if (el.scrollTop < 200 && th?.roomId === roomId && th.nextCursor && !th.loading) {
       const before = el.scrollHeight

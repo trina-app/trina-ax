@@ -25,7 +25,7 @@ import { useBackLink } from '../lib/back'
 import { aiName } from '../lib/tabs'
 import { formatDate } from '../lib/format'
 import { chatPurgeAt, chatTrashDays } from '../lib/chat-trash'
-import { stickToBottom } from '../lib/stickToBottom'
+import { followsAfterScroll, stickToBottom } from '../lib/stickToBottom'
 import { useWaitingMerge } from '../lib/mergeStart'
 import { useLocale, useT } from '../i18n'
 import { useChats } from '../store/chats'
@@ -79,6 +79,8 @@ function ChatView({ chatId }: { chatId: string }) {
   const scroller = useRef<HTMLDivElement>(null)
   const composer = useRef<ComposerHandle>(null)
   const stick = useRef(true)
+  /** where the last scroll event left the list (followsAfterScroll) */
+  const lastTop = useRef(0)
   const [olderBusy, setOlderBusy] = useState(false)
   const models = useEngines((s) => s.models)
   const engines = useEngines((s) => s.engines)
@@ -190,7 +192,8 @@ function ChatView({ chatId }: { chatId: string }) {
   const onScroll = async () => {
     const el = scroller.current
     if (!el) return
-    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    stick.current = followsAfterScroll(el, stick.current, lastTop.current)
+    lastTop.current = el.scrollTop
     if (el.scrollTop < 200 && thread.nextCursor && !olderBusy) {
       setOlderBusy(true)
       const before = el.scrollHeight

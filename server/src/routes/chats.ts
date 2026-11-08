@@ -437,11 +437,7 @@ export const chatsRoutes: RouteModule = {
       const turnId = rt.activeTurn(chat.id)
       const exec = turnId ? rt.execFor(turnId) : undefined
       if (!exec) return { items: [] }
-      const w = windowOf(c)
-      return {
-        items: exec.openRequests().filter((r) => !r.window || r.window === w)
-          .map((r) => ({ turnId: exec.id, chatId: chat.id, messageId: exec.spec.assistantId, request: r.request })),
-      }
+      return { items: exec.cardsFor(windowOf(c)) }
     })
 
     /** the caller's own turn (another person's and a missing one are both not_found) */
