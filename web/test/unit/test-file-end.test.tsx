@@ -3,6 +3,8 @@
 //   In a browser that does nothing. Here its file's fake document is gone by then, and React DOM reads `window.event`
 //   for the update's priority: that was a ReferenceError in whichever file ran next (CI: "0 fail, 1 error", "Unhandled
 //   error between tests"). Now it does nothing here either, and tests without a document still see no `window`.
+// - A file that sets TZ and puts it back leaves the next file in the zone the run started in (Bun 1.3: a deleted TZ
+//   kept the last zone for the rest of the run).
 import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { act, useState } from 'react'
 import { domInstalled, installDom, mount, removeDom } from './dom-host'
@@ -47,6 +49,24 @@ test('with a document again, state updates render as before', async () => {
     await act(async () => setLater!(4))
     expect(page.get('n').textContent).toBe('4')
   } finally { await page.unmount() }
+})
+
+test('a file that set TZ and put back what it found leaves the run\'s zone for the next file', () => {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone
+  // the preload set TZ, so a file puts back a value and never deletes it (Bun 1.3 would then keep the last zone)
+  const previous = process.env.TZ
+  expect(previous).toBeTruthy()
+  const other = zone === 'America/New_York' ? 'Asia/Seoul' : 'America/New_York'
+  try {
+    process.env.TZ = other
+    expect(Intl.DateTimeFormat().resolvedOptions().timeZone).toBe(other)
+  } finally { if (previous === undefined) delete process.env.TZ; else process.env.TZ = previous }
+  expect(Intl.DateTimeFormat().resolvedOptions().timeZone).toBe(zone)
+  // one that did not put it back: the next file starts in the run's zone again
+  process.env.TZ = other
+  ;(globalThis as Record<symbol, () => void>)[Symbol.for('mycel.web-test.file-start')]!()
+  expect(process.env.TZ).toBe(previous!)
+  expect(Intl.DateTimeFormat().resolvedOptions().timeZone).toBe(zone)
 })
 
 // after the last test, as CI met it: a component's state set once its file has ended and the document is gone (an

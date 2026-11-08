@@ -12,7 +12,13 @@
 //   for) stays loaded in the next, which then never asks.
 // - The globals tests replace (fetch, location, history, matchMedia, the fake DOM's) are put back, a fake document a
 //   file left installed is taken away (dom-host.removeDom, which also unmounts what is still mounted), and Bun's clock is
-//   the real one again.
+//   the real one again. A component that sets its state after its file ended does nothing (dom-host: "A component can
+//   set its state after it is gone").
+// - The time zone is the one the run started in. Bun 1.3 applies `process.env.TZ` when it is set, but once TZ is
+//   deleted the zone stays the last one, and setting TZ again changes nothing for the rest of the run. A file that set
+//   TZ and deleted it to put back "no TZ" (audit-dates, usage-range) left every later file in New York. So TZ is set to
+//   the zone the run started in (a file puts back that value, never deletes it), and at the start of each file it is
+//   that zone again.
 //
 // The start of a file is a beforeAll that a loader plugin puts in front of each test file's own code, on its first line
 // (line numbers in errors stay right). Tests without installDom still see no `window`: the fake document is taken away
@@ -51,9 +57,17 @@ const g = globalThis as Record<string, unknown>
 const before = new Map(GLOBALS.map((k) => [k, Object.getOwnPropertyDescriptor(g, k)]))
 const same = (a?: PropertyDescriptor, b?: PropertyDescriptor) => (!a && !b) || (!!a && !!b && a.value === b.value && a.get === b.get && a.set === b.set)
 
+const zoneNow = () => Intl.DateTimeFormat().resolvedOptions().timeZone
+/** the run's time zone, as TZ names it */
+const TZ = process.env.TZ || zoneNow()
+process.env.TZ = TZ
+const ZONE = zoneNow()
+
 /** Where every test file starts. */
 export function fileStart() {
   if (domInstalled()) removeDom()
+  if (process.env.TZ !== TZ) process.env.TZ = TZ
+  if (zoneNow() !== ZONE) throw new Error(`the time zone is ${zoneNow()}, not the run's ${ZONE}, and cannot be put back: a file deleted process.env.TZ (Bun then keeps the last zone). Put back the value it had instead.`)
   for (const [k, d] of before) {
     if (same(Object.getOwnPropertyDescriptor(g, k), d)) continue
     try {
