@@ -1068,7 +1068,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 - **이미 있는 채팅은 쓰던 엔진을 그대로 쓴다.** 그 엔진을 관리자가 껐으면(또는 설치가 끔: 사무실 모드의 Codex) 엔진을 적지 않은 다음 턴은 팀 기본값으로 돌고, 답변에 단계 "{from} 엔진이 꺼져 있어 팀 기본 엔진({to})으로 답합니다"(`tool: 'engine'`, 화면 언어로 다시 그림)가 남고 채팅의 엔진도 기본값으로 바뀐다.
 - **내 기본 엔진/모델**(설정 > 프로필): 고를 수 있는 사람만 보고 저장한다(`prefs.engine/model`, null이면 팀 기본값으로). 고를 수 없는 사람의 요청에서는 이 두 값을 빼고(테마 등은 저장), `/api/me`도 돌려주지 않는다. 새 채팅은 서버에서도 이 값(켜진 엔진일 때) → 팀 기본값 순. 채팅 안에서 엔진을 바꿔도 내 기본값은 더 이상 바뀌지 않는다(전에는 "마지막에 쓴 엔진"을 저장).
 - **"다른 모델로 다시 시도"**: 실패·거절된 답 옆, 고를 수 있는 사람에게만 `다시 시도`와 함께 보인다(켜진 엔진·모델 목록, 다시 생성 요청에 engine/model). 다른 사람은 `다시 시도`만.
-- **"Claude 한도에 닿으면 Codex로 넘기기"**(`engines.limitFallback`, 기본 꺼짐): 켜면 관리자 화면에 "대화가 OpenAI로도 보내진다"는 경고가 뜬다. Codex가 꺼져 있으면(관리자가 끔, 또는 사무실 모드 `codexBin: ''`) 켤 수 없고(409), Codex를 끄면 이 설정도 꺼진다(다시 켤 때 조용히 살아나지 않게). 턴에서는 **Claude가 구독 한도/429를 보고했을 때만**(모델 프록시의 한도 알림 또는 엔진의 rate_limit 오류 → `rate_limited`) 같은 질문을 Codex로 새 세션(분기 기록 포함)에서 답한다. 예산 초과·거절·충돌·문맥 초과에는 넘기지 않는다. 운영 설치의 Codex 베타(owner + `codexUsers`) 밖의 사람에게도 넘기지 않는다. 답변에 단계 "Claude Code 사용 한도에 닿아 Codex 엔진으로 이어서 답합니다", 알림, 감사 기록 `engine.limit_fallback`(행위자 = 그 사람, 대상 = 턴, detail `{from, to, model}`, 내용 없음)을 남기고 그 답변·턴의 엔진은 codex로 적는다(사용량이 Codex로 잡힘). 채팅의 엔진은 Claude 그대로라 다음 질문은 다시 Claude가 받는다. Claude 세션에는 Codex의 답이 없으므로 채팅의 엔진 세션을 지워 다음 Claude 턴은 기록으로 새로 시작한다.
+- **"Claude 한도에 닿으면 Codex로 넘기기"**(`engines.limitFallback`, 기본 꺼짐; 2026-11-08부터 "다른 AI로 대신 답하기", 아래 그 항목): 켜면 관리자 화면에 "대화가 OpenAI로도 보내진다"는 경고가 뜬다. Codex가 꺼져 있으면(관리자가 끔, 또는 사무실 모드 `codexBin: ''`) 켤 수 없고(409), Codex를 끄면 이 설정도 꺼진다(다시 켤 때 조용히 살아나지 않게). 턴에서는 **Claude가 구독 한도/429를 보고했을 때만**(모델 프록시의 한도 알림 또는 엔진의 rate_limit 오류 → `rate_limited`) 같은 질문을 Codex로 새 세션(분기 기록 포함)에서 답한다. 예산 초과·거절·충돌·문맥 초과에는 넘기지 않는다. 운영 설치의 Codex 베타(owner + `codexUsers`) 밖의 사람에게도 넘기지 않는다. 답변에 단계 "Claude Code 사용 한도에 닿아 Codex 엔진으로 이어서 답합니다", 알림, 감사 기록 `engine.limit_fallback`(행위자 = 그 사람, 대상 = 턴, detail `{from, to, model}`, 내용 없음)을 남기고 그 답변·턴의 엔진은 codex로 적는다(사용량이 Codex로 잡힘). 채팅의 엔진은 Claude 그대로라 다음 질문은 다시 Claude가 받는다. Claude 세션에는 Codex의 답이 없으므로 채팅의 엔진 세션을 지워 다음 Claude 턴은 기록으로 새로 시작한다.
 - **API**: `GET /api/engines`(누구나: `canChoose`, 팀 기본값, 고를 수 있으면 켜진 엔진과 모델), `/api/me`의 `user.canChooseEngine`, `GET/PATCH /api/admin/engines`에 `memberChoice`·`limitFallback`·`limitFallbackAvailable`. 없는 그룹·사람은 400. 바뀌면 모두에게 `notice engine_choice_changed`를 보내 열린 창이 새로 고침 없이 선택기를 보이거나 숨긴다. 마이그레이션은 필요 없다(설정은 키/값 표).
 - **시험**: `tests/unit/engine-choice.test.ts`(가짜 엔진: 기본은 owner·관리자만, 모두/그룹/사람, 보내기·수정·다시 생성·새 채팅·채팅 바꾸기 거부, 꺼진 엔진 거부, 꺼진 엔진의 채팅이 기본값으로 + 단계, 내 기본값, 한도 대체 꺼짐/켜짐/Codex 꺼짐/사무실 모드, 다른 오류에는 안 넘김), `tests/security/r5-engine-choice.test.ts`(실제 세션: 팀원은 고를 수 없음, 거부되면 턴 없음, prefs에 저장 안 됨, 스스로 허용하거나 한도 대체를 켤 수 없음), 권한 매트릭스에 `GET /api/engines`와 바뀐 `PATCH /api/admin/engines`, `web/test/e2e/engine-choice.spec.ts`(팀원: 선택기·다른 모델로 다시 시도·내 기본 엔진 없음, 요청에 엔진 없음 / owner: 모두 있음 / 관리자가 허용하면 열린 창에 바로 보임, OpenAI 경고, Codex를 끄면 한도 대체 꺼지고 못 켬). 기존 채팅 시험들은 팀원이 엔진을 고르므로 시험 하네스(`tests/lib/b-harness.ts`)는 기본으로 `everyone`을 켠다.
 
@@ -7657,7 +7657,8 @@ that case. Ordinary API use of the app's own agent falls under the Commercial Te
   chose the API engine, so the chat shows no "switched to API" divider and back; the answer's model names the trial
   model. Nothing else changes (no engine-api.json is written, the team default stays). A turn decided on its connection
   that loses it mid-answer is not handed to the credit (B did that inside Claude Code); the next message is.
-- **The team's own AI first, on either engine (review of the branch).** One rule, `credentials/access.ts
+- **The team's own AI first, on either engine (review of the branch).** (Since 2026-11-08 the other engine answers only
+  while "다른 AI로 대신 답하기" is on, with or without a trial key: that entry below.) One rule, `credentials/access.ts
   connectionRoute`, decides a managed Claude Code or Codex turn on a server that holds a trial credit (any state), and
   `canUseAi` (A's `/api/me/ai-access` `usable`, Admin › Members "No AI", the profile step) uses the same rule, so the
   banner and the answer agree: its own engine when a connection of the person works there; the other of the two when
@@ -14813,6 +14814,69 @@ refused, and that connected AIs never saw the team rules every in-app turn follo
   rules in the guide and `skills_list`, odd names counted, access respected, a rule read then a save to `shared/`). The
   rooms and history tests read the new scope rows.
 - Version impact: **patch** (connector behaviour; one add-only migration; no API or screen change).
+
+## 다른 AI로 대신 답하기 — which AI answers, decided in one place (fix/engine-choice, 2026-11-08, product owner)
+
+- **Why.** Two places decided which AI answers on their own. (1) A scheduled run took the team default engine and model
+  (`ChatRuntime.defaultEngine()`), not its owner's: someone whose own default is Codex and who has only a ChatGPT
+  connection got every scheduled run on Claude Code, which failed with "no AI connection" each time. (2) "A Claude
+  Code chat answered by Codex when only Codex has a working connection" (and the other way, "Z" above) happened only on
+  a server that held the hosting service's trial key, in any state. When the key was cleared, or the team moved to its
+  own server (a server that is not hosted drops the key at start), the same chats failed and Admin › Members showed
+  "No AI", with no setting changed. The owner: independent of the trial key, one visible admin setting.
+- **Scheduled runs** (`chat/schedules.ts start`): the owner's engine and model through `newChatEngine` (their own
+  default when they may pick and it is on, else the team default) and `turnEngine` (a switched-off engine: the team
+  default with the usual step), the same as Slack and rooms, decided at each run, so a later change of either applies.
+  Every run is a new chat ("<title> · <date>"), so there is never an existing chat whose engine a run keeps.
+- **One switch.** The existing `engines.limitFallback` (Team settings, the row under "팀원이 엔진 고르기 허용") is now
+  **"다른 AI로 대신 답하기"**: "채팅의 AI에 쓸 수 있는 연결이 없거나 Claude 사용 한도에 닿으면, 연결된 다른 AI(Claude
+  Code 또는 Codex)가 대신 답해요. 답변에 넘어갔다는 표시가 남아요." One label and description cover both cases
+  honestly, because both are "the chat's AI cannot answer now, the other one does, and the conversation goes to that
+  AI's company"; the description names the limit case as Claude's (there is no Codex-limit fallback). The warning names
+  both companies (OpenAI or Anthropic). Same key, same API fields (`limitFallback`, `limitFallbackAvailable`), same
+  rules: never while Codex is off (409, and switching Codex off turns it off). No new card or section.
+- **The no-connection case** (`credentials/access.ts connectionRoute`, used by the turn, `/api/me/ai-access` and
+  Admin › Members): with the switch on, a managed Claude Code or Codex turn whose engine has no working connection of
+  the person goes to the other engine when that one is on here and has one (the step "No AI connection for Claude Code;
+  answering with Codex, which is connected"). The trial key plays no part. With the switch off, the chat's own engine
+  answers or gives its usual "no AI connection". The trial credit still answers only when no connection of the person
+  works on either engine: a team that has AI of its own never spends it, the switch on or off (so with the switch off
+  and only ChatGPT connected, a Claude Code chat gets "no AI connection", not the credit). A connection only at its
+  limit while the other engine has one: the usual wait, or, for Claude with the switch on, the limit case as before.
+  The same rule everywhere that says who has AI: `newMemberAi` (the invite link's line) counts the other engine while
+  the switch is on and the credit only when the other engine has no connection either; the composer
+  (`chatEnginesFor`) offers an engine without a connection of the person while the credit is active only when the
+  credit or the other engine would answer it; Admin › Members does not count as "No AI" someone whose Claude
+  connections all wait out a limit while the switch is on and they have a Codex connection (Codex finishes those
+  answers). Switching it tells open windows (`engine_choice_changed`), so the "no AI" banner follows. Servers whose
+  engines sign in on their own (`authMode` other than managed) have no per-person connections: there the switch has
+  only its limit case, as before.
+- **The default: what keeps hosted teams and does not surprise self-hosted ones.** Hosted teams relied on the
+  no-connection case (it came with the trial key, whatever the switch said); a self-hosted team never had it, and
+  turning it on sends a team's conversations to a second AI company, which a team must choose. So: a server that is not
+  hosted keeps the switch as it is (off unless an admin turned it on: unchanged behaviour). A hosted server
+  (`deployment: "hosted"`) turns it on once, at its first start with this version (`admin/engine-choice.ts
+  settleHostedFallback`, called in `main.ts`; marker `engines.limitFallbackHostedSet`; an audit row `engines.update`
+  `{ limitFallback: true, reason: 'hosted_default' }` without an actor), while Codex is on there. It is written down, so
+  Team settings shows it, it stays when the key goes, and the team's backup takes it to its own server, where its chats
+  go on working. It is set over a stored `false`: Team settings' save sent `limitFallback: false` with every "who may
+  pick" change, and that `false` only ever meant the limit case. The one visible change for hosted teams: the Claude
+  limit case comes on with it (a Claude answer at its limit is finished by Codex when the person has a Codex
+  connection; the owner accepted this, 2026-11-08); an admin who does not want either turns the switch off, and it
+  stays off. A hosted server with Codex
+  off at that start is left off (switching Codex on later does not quietly turn it on, as before).
+- **Not changed.** No API shape, no migration file (settings rows), no Codex-limit fallback to Claude Code, no audit
+  row for a no-connection answer (the step says it; an audit row on every turn of a ChatGPT-only team would drown the
+  log). Earlier entries above ("Claude 한도에 닿으면 Codex로 넘기기", "Z") describe the switch and the route before
+  this change.
+- Tests: `tests/unit/schedules.test.ts` (a run on its owner's own default, the team default when they may not pick,
+  the team default at run time, a switched-off engine), `tests/unit/a-hosted-trial-credit.test.ts` (the switch, not the
+  key; off with a credit: never the credit; Members "No AI" after the key goes and in the limit case; the invite
+  line), `tests/unit/b-hosted-trial-turn.test.ts` (turns with and without a key, the switch on and off, the composer),
+  `tests/unit/engine-choice.test.ts` (the hosted default: self-hosted untouched, on once over a stored false, an
+  admin's off stays, Codex off; the notice), `web/test/e2e/engine-choice.spec.ts` (the new label and warning).
+- Version impact: **patch** (a scheduled run follows its owner's engine; the switch's wording and its no-connection
+  case; no API or data shape change).
 
 ## 대화방의 확인 카드는 다시 읽는다 — a room's AI cards come back (fix/room-card-reload-scroll, 2026-11-08)
 

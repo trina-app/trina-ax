@@ -2,7 +2,9 @@
 // /admin/providers?tab=team and /admin/engines?tab=team open them at #ai, a usage-limits link at #ai-limits):
 // - AI defaults (#ai): the engine and model of new chats, and how many answers run at the same time.
 // - Who picks the engine: whether members may pick another engine ("팀원이 엔진 고르기 허용", off: owner and admins
-//   only) and the optional Claude-limit fallback to Codex (off; warns that data then also goes to OpenAI).
+//   only) and "다른 AI로 대신 답하기" (the other of Claude Code and Codex answers when a chat's engine has no working
+//   connection or Claude hits its limit; off on self-hosted servers, on for hosted ones; warns that data then also goes
+//   to that AI's company).
 // - Members' own AI accounts: whether members may add their own Claude or Codex account, whether a subscription may be
 //   shared (it warns first), and the accounts members connected.
 // - Usage limits (#ai-limits).
@@ -123,7 +125,7 @@ function Defaults({ data, onSaved, headingRef }: { data: EnginesData; onSaved: (
   )
 }
 
-/** "팀원이 엔진 고르기 허용" and "Claude 한도에 닿으면 Codex로 넘기기". */
+/** "팀원이 엔진 고르기 허용" and "다른 AI로 대신 답하기". */
 function MemberChoice({ data, onSaved }: { data: EnginesData; onSaved: (r: EnginesData) => void }) {
   const t = useT()
   const act = useAction()
