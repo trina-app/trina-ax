@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-08 00:49
 - Branch: `feat/shared-chat-authors`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`web/src/components/chat/Messages.tsx`, `web/src/pages/Chat.tsx`). Why: shared project chats
   are core chat (see docs/REPOSITORY-RULES.md); the people directory and the `Avatar` already exist there.
 - Version impact: minor. A visible UI change in shared chats; no API, server or data change.
@@ -58,4 +58,11 @@ e2e (`--project=chromium`).
 
 ## Result
 
-Filled in at the end.
+Built as planned: `MessageAuthor` in `Messages.tsx` (name, then a 20 px `Avatar` at the bubble's edge, `-mb-1` so 4 px
+above the bubble), `UserMessage` takes `showAuthor`, `Chat.tsx` passes it for a shared chat. Differences from the plan,
+from the ui-polish and impeccable review: the name is the directory's current one (`useNameOf`, as rooms do), and the
+picture sits flush with the bubble's edge (no inset). Left as they are, with the reason in docs/DECISIONS.md "Who
+asked": the letter tile's faint fill (the same tile as the sidebar's account row and rooms) and a picture sized in px.
+No new strings (the unknown author reuses `rooms.goneUser`). Tests: `web/test/unit/shared-chat-authors.test.tsx` (new)
+and a new test in `web/test/e2e/shared-project-chats.spec.ts`, whose "my own message carries no name" check now expects
+my name. PR: see the pull request that links this plan.
