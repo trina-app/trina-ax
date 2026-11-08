@@ -273,3 +273,38 @@ describe('an existing private chat shared later', () => {
     expect(JSON.parse(row.detail)).toEqual({ audience: 3, people: 3, unknown: false, memories: false, confirmed: true })
   })
 })
+
+describe('a later reader (docs/DECISIONS.md "People who see a shared chat later")', () => {
+  test('no reading route, search or the AI of their turn carries an answer hidden from them', async () => {
+    const LATER = 'Autumn Upgrade'
+    // bob is out of the project while alice reads groups/marketing in a chat of it (alice, carol and dana read it: no
+    // card), then joins again: he did not see the chat then, and cannot read the place
+    h.ctx.db.query("DELETE FROM group_members WHERE group_id = 'finance' AND user_id = 'bob'").run()
+    let later: string, hidden: string
+    try {
+      later = (await h.api('alice').call(API.createChat, { body: { projectId } })).id
+      // (the words come from the file, never from the question, which everyone sees)
+      const r = await h.api('alice').call(API.sendMessage, { params: { id: later }, body: { content: fake({ tool: 'artifact', args: { action: 'create', key: 'k', type: 'markdown', content: 'made' } }, { tool: 'read', args: { file_path: 'groups/marketing/campaign-brief.md' }, sayResult: true }), clientMessageId: cm(), attachmentIds: [] } })
+      hidden = r.assistantMessage.id
+      await ws.alice!.next('message.done', (f) => f.data.messageId === hidden, 30_000)
+      await waitFor(() => !h.rt().activeTurn(later), { timeoutMs: 30_000 })
+    } finally { h.ctx.db.query("INSERT INTO group_members VALUES ('finance', 'bob')").run() }
+    const routes = [`/api/chats/${later}`, `/api/chats/${later}/messages`, `/api/chats/${later}/artifacts`, `/api/chats/${later}/messages/${hidden}/sources`,
+      `/api/chats?projectId=${projectId}&q=${encodeURIComponent('Autumn')}`, `/api/chats?q=${encodeURIComponent('Autumn')}`]
+    for (const p of routes) {
+      const b = await hit('bob', p)
+      expect({ p, status: b.status }).toEqual({ p, status: 200 })
+      expect({ p, leaks: b.text.includes(LATER) }).toEqual({ p, leaks: false })
+      // carol saw the chat then: hers as it is
+      if (p.endsWith('/messages')) expect((await hit('carol', p)).text.includes(LATER)).toBe(true)
+    }
+    expect(JSON.parse((await hit('bob', `/api/chats/${later}/messages`)).text).items.find((m: { id: string }) => m.id === hidden)).toMatchObject({ withheld: true, content: '', steps: [] })
+    expect(JSON.parse((await hit('bob', `/api/chats/${later}/artifacts`)).text).items).toEqual([])
+    expect(JSON.parse((await hit('carol', `/api/chats/${later}/artifacts`)).text).items.map((a: { key: string }) => a.key)).toEqual(['k'])
+    // his own turn there: the engine gets a line in place of the answer, nothing of it
+    const t = await h.api('bob').call(API.sendMessage, { params: { id: later }, body: { content: fake({ echo: 'system' }), clientMessageId: cm(), attachmentIds: [] } })
+    const d = await ws.bob!.next('message.done', (f) => f.data.messageId === t.assistantMessage.id, 30_000)
+    expect(d.data.message.content).not.toContain(LATER)
+    expect(d.data.message.content).toContain('that the person asking you now cannot see')
+  })
+})

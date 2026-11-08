@@ -17,6 +17,7 @@ import { roomsOf, SEND_BURST } from '../../server/src/rooms/service'
 import { addSources, type ReadSource } from '../../server/src/chat/read-scope'
 import { unshareUncheckedChats } from '../../server/src/chat/shared'
 import { getChatRuntime } from '../../server/src/chat/runtime'
+import { newAnswerRecord } from '../../server/src/chat/shared-answers'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -91,6 +92,8 @@ function dbAnswer(chatId: string, user: string, parent: string | null, content: 
   db().query("INSERT INTO turns (id, chat_id, user_id, engine, status, message_id, user_message_id, shared_checked, schedule_id) VALUES (?, ?, ?, 'claude-code', 'done', ?, ?, ?, ?)")
     .run(turnId, chatId, user, answerId, askId, o.checked ?? 1, o.scheduled ? 'sched-1' : null)
   db().query('UPDATE chats SET active_leaf_id = ? WHERE id = ?').run(answerId, chatId)
+  // an answer of a shared chat has its record from the moment it is made (ChatRuntime.createTurn), as this build makes it
+  if (sharedAt(chatId)) newAnswerRecord(db(), chatId, answerId)
   ;(o.read ?? []).forEach((r, i) => {
     const f = typeof r === 'string' ? { path: r, sha256: null } : r
     db().query("INSERT INTO message_sources (message_id, ord, path, sha256, locs, via, by_main, by_subagent) VALUES (?, ?, ?, ?, '[]', 'read', 1, 0)").run(answerId, i, f.path, f.sha256)

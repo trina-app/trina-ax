@@ -216,10 +216,11 @@ export function CredentialRow({ c, target, owner, checking, personal, ownDelete,
   )
 }
 
-/** Groups / people a connection is assigned to (empty = the whole team). */
-function TargetPicker({ value, onChange, groups, users }: { value: CredentialAssignment[]; onChange: (v: CredentialAssignment[]) => void; groups: Group[]; users: User[] }) {
+/** Groups / people a connection is assigned to (empty = the whole team). `pick` is the dialog's: "chosen groups and
+ * people" with none ticked would be saved as the whole team (the API has no other way to say it), so the dialog does
+ * not save until one is ticked, and the line under the list says so. */
+function TargetPicker({ value, onChange, pick, setPick, groups, users }: { value: CredentialAssignment[]; onChange: (v: CredentialAssignment[]) => void; pick: boolean; setPick: (v: boolean) => void; groups: Group[]; users: User[] }) {
   const t = useT()
-  const [pick, setPick] = useState(value.length > 0)
   const has = (a: CredentialAssignment) => value.some((x) => x.subjectType === a.subjectType && x.subjectId === a.subjectId)
   const toggle = (a: CredentialAssignment) => onChange(has(a) ? value.filter((x) => !(x.subjectType === a.subjectType && x.subjectId === a.subjectId)) : [...value, a])
   return (
@@ -239,6 +240,7 @@ function TargetPicker({ value, onChange, groups, users }: { value: CredentialAss
           </div>
         </div>
       )}
+      {pick && !value.length && <p className="pl-6 text-xs text-warn" role="status" data-testid="target-pick-none">{t('credentials.target.pickNone')}</p>}
     </fieldset>
   )
 }
@@ -266,6 +268,8 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
   const [label, setLabel] = useState(replace?.label ?? '')
   const [secret, setSecret] = useState('')
   const [assignments, setAssignments] = useState<CredentialAssignment[]>([])
+  /** the target picker's "chosen groups and people" (TargetPicker) */
+  const [pick, setPick] = useState(false)
   const [ack, setAck] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -289,7 +293,9 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
   /** a subscription signed in from the browser (ChatGPT always, Claude unless the terminal paste is open) */
   const signIn = kind === 'chatgpt' || (kind === 'anthropic-oauth' && !manual)
   const name = simple && kind && !replace ? simpleLabel(kind, gateway) : label.trim()
-  const ready = kind !== null && !sharingBlocked && (replace || name.length > 0) && (signIn || formatOk(kind, secret.trim(), gateway)) && (!subscription || replace || ack)
+  /** the target picker shows, set to chosen groups and people with none ticked: not ready (it would be the whole team) */
+  const pickNone = kind !== null && !replace && !personal && !simple && pick && !assignments.length
+  const ready = kind !== null && !sharingBlocked && (replace || name.length > 0) && (signIn || formatOk(kind, secret.trim(), gateway)) && (!subscription || replace || ack) && !pickNone
 
   // sign-in progress: the WebSocket event, and a poll in case the socket is down
   useEffect(() => {
@@ -442,7 +448,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
                 <input className={inputCls} type="password" autoComplete="off" spellCheck={false} value={secret} onChange={(e) => { setSecret(e.target.value); if (move) { setMove(null); setError(null) } }} data-testid="credential-secret" />
               </Field>
             )}
-            {kind && !replace && !personal && !simple && <TargetPicker value={assignments} onChange={setAssignments} groups={groups} users={users} />}
+            {kind && !replace && !personal && !simple && <TargetPicker value={assignments} onChange={setAssignments} pick={pick} setPick={setPick} groups={groups} users={users} />}
             {subscription && !replace && simple && (
               // the provider's terms in one line: the server still needs this yes (acknowledgedPlanNotice, D23)
               <label className="flex items-start gap-2 text-sm" data-testid="plan-notice">
@@ -573,13 +579,15 @@ function EditCredential({ c, groups, users, onClose, onSaved }: { c: Credential;
   const act = useAction()
   const [label, setLabel] = useState(c.label)
   const [assignments, setAssignments] = useState<CredentialAssignment[]>(c.assignments.map(({ subjectType, subjectId }) => ({ subjectType, subjectId })))
+  const [pick, setPick] = useState(c.assignments.length > 0)
   const [usd, setUsd] = useState(c.spendLimit.usd === null ? '' : String(c.spendLimit.usd))
   const [tokens, setTokens] = useState(c.spendLimit.tokens === null ? '' : String(c.spendLimit.tokens))
   const [action, setAction] = useState(c.spendLimit.action)
   const [busy, setBusy] = useState(false)
   const apiKey = c.kind === 'anthropic-api-key' || c.kind === 'openai-api-key'
   const num = (s: string) => (s.trim() === '' ? null : Math.max(0, Number(s)))
-  const valid = label.trim().length > 0 && (usd.trim() === '' || Number.isFinite(Number(usd))) && (tokens.trim() === '' || Number.isInteger(Number(tokens)))
+  // "chosen groups and people" with none ticked would save as the whole team: not until one is ticked
+  const valid = label.trim().length > 0 && (usd.trim() === '' || Number.isFinite(Number(usd))) && (tokens.trim() === '' || Number.isInteger(Number(tokens))) && !(pick && !assignments.length)
   return (
     <Modal open onClose={onClose} title={c.label} width={520}
       footer={<>
@@ -593,7 +601,7 @@ function EditCredential({ c, groups, users, onClose, onSaved }: { c: Credential;
       </>}>
       <div className="space-y-4">
         <Field label={t('credentials.label')}><input className={inputCls} value={label} maxLength={60} onChange={(e) => setLabel(e.target.value)} /></Field>
-        <TargetPicker value={assignments} onChange={setAssignments} groups={groups} users={users} />
+        <TargetPicker value={assignments} onChange={setAssignments} pick={pick} setPick={setPick} groups={groups} users={users} />
         <fieldset className="space-y-2">
           <legend className="text-xs font-medium text-muted">{t('credentials.spendLimit')}</legend>
           <p className="text-xs text-faint">{t('credentials.spendLimitHint')}</p>

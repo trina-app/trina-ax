@@ -27,6 +27,16 @@ HWP/HWPX text extraction is available. Visual previews are the optional HWP Prev
 
 Korean, Japanese and Chinese in PDFs: the PDFs the AI makes are drawn with the Noto Sans CJK fonts in the kit (`app/<version>/fonts/`, OFL-1.1, notice in `licenses/noto-sans-cjk/`). A Linux server has no font for these characters, so up to 0.2.15 they came out as empty boxes. Nothing to install on the server: an installed server gets the fonts with its normal update (no root step, no apt). PDFs made before that need to be made again. The fonts add about 32 MB to the kit (40 MB unpacked).
 
+## Joining from the phone and desktop apps
+
+People join by pasting the invite link (or the team link) into the app's first screen. Enter a server of your own as its full address; the apps ask once before they first connect to an address Trina does not run.
+
+- **Desktop app**: needs a certificate the computer trusts. A self-signed certificate fails the first check.
+- **Phone app**: needs https with a certificate from a public certificate authority (self-signed certificates and user-installed authorities are not trusted), and `GET /api/health` must answer directly, without a redirect.
+- **Phone notifications** work only when the server sets `MYCEL_PUSH_GATEWAY`.
+- **The team address** is in Settings › Apps for everyone signed in, with a copy button.
+- **Tapped links**: the apps open `*.trina.app` invite links directly (universal links, app links). On a domain of your own a tapped link opens the browser; the join page's **Open in the app** (`trina-ax://open?url=…`) opens the desktop or phone app. Either way the app first asks "Connect to {host}?" and loads nothing before the answer.
+
 ## Download, verify, check
 
 Use a new download directory. Resolve the latest release once and use the same version for all files:

@@ -1,7 +1,7 @@
 // The AI engine and model are the admin's choice (Admin › 제공자, and its team settings in Admin › 팀 설정): the composer's picker, "다른 모델로 다시 시도" and
 // "내 기본 엔진/모델" only for the owner, admins and the people the admin allows; everyone else never sends a choice
-// (the mock refuses it like the server). The admin screen sets who may pick and the Claude-limit fallback to Codex,
-// with its OpenAI warning, unavailable while Codex is off.
+// (the mock refuses it like the server). The admin screen sets who may pick and "다른 AI로 대신 답하기", with its
+// warning that data also goes to the other AI's company, unavailable while Codex is off.
 import { expect, test, type Page } from '@playwright/test'
 import { OWNER, realErrors, reset, signIn, watchConsole } from './helpers'
 
@@ -75,12 +75,12 @@ test('the admin lets a member pick; the member sees the picker without reloading
   await expect(page.getByTestId('engine-choice-off')).toHaveAttribute('aria-checked', 'true')
   await page.getByTestId('engine-choice-selected').click()
   await card.getByLabel('Bob').check()
-  // the fallback: off by default; turning it on shows the OpenAI warning before saving
-  const fallback = card.getByLabel('Claude 한도에 닿으면 Codex로 넘기기')
+  // the fallback: off by default (a self-hosted server); turning it on shows the OpenAI / Anthropic warning before saving
+  const fallback = card.getByLabel('다른 AI로 대신 답하기')
   await expect(fallback).not.toBeChecked()
   await expect(page.getByTestId('fallback-warning')).toHaveCount(0)
-  await card.getByText('Claude 한도에 닿으면 Codex로 넘기기').click()
-  await expect(page.getByTestId('fallback-warning')).toContainText('OpenAI')
+  await card.getByText('다른 AI로 대신 답하기').click()
+  await expect(page.getByTestId('fallback-warning')).toContainText('OpenAI 또는 Anthropic')
   await page.getByTestId('engine-choice-save').click()
 
   // bob's open window switches to showing the picker (realtime notice -> /api/me again)
@@ -90,14 +90,14 @@ test('the admin lets a member pick; the member sees the picker without reloading
 
   // Codex off: the fallback is off and cannot be turned on
   await page.reload()
-  await expect(card.getByLabel('Claude 한도에 닿으면 Codex로 넘기기')).toBeChecked()
+  await expect(card.getByLabel('다른 AI로 대신 답하기')).toBeChecked()
   // the switch is on Admin › Providers; back in Team settings the fallback follows it
   await page.goto('/admin/providers')
   await page.locator('[data-engine="codex"] label').filter({ has: page.getByTestId('engine-switch-codex') }).click()
   await expect(page.getByTestId('engine-switch-codex')).not.toBeChecked()
   await page.goto('/admin/settings#ai')
-  await expect(card.getByLabel('Claude 한도에 닿으면 Codex로 넘기기')).toBeDisabled()
-  await expect(card.getByLabel('Claude 한도에 닿으면 Codex로 넘기기')).not.toBeChecked()
+  await expect(card.getByLabel('다른 AI로 대신 답하기')).toBeDisabled()
+  await expect(card.getByLabel('다른 AI로 대신 답하기')).not.toBeChecked()
   await expect(card).toContainText('Codex가 꺼져 있어 켤 수 없어요')
   await ctx2.close()
 })

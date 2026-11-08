@@ -378,6 +378,11 @@ export const Message = z.object({
    * skill (its file's first version), when that is someone else than the person who asked and not a starter pack's
    * text: "김지훈님의 팀 스킬 '견적서 쓰기' · 팀 파일 1개" */
   receipt: z.object({ skill: z.object({ path: z.string(), name: z.string(), by: z.string().optional() }), teamFiles: z.number().int().nonnegative() }).optional(),
+  /** a shared project chat's answer hidden from me (docs/DECISIONS.md "People who see a shared chat later"): it used
+   * something I cannot open, and I did not see the chat when it did. Shown as one line in its place: content is '' and
+   * nothing of it comes (no steps, files, sources, artifacts, model or error); its place in the branch stays. Never on
+   * an answer of my own question */
+  withheld: z.literal(true).optional(),
 })
 export type Message = z.infer<typeof Message>
 

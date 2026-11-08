@@ -88,6 +88,9 @@ export async function saveAvatar(db: Database, userId: string, body: AsyncIterab
     if (e instanceof HttpError && e.code === 'payload_too_large') refuse('too_big', locale)
     throw e
   }
+  // the upload took a while: an account deleted meanwhile gets no photo back (admin/users.ts deleteUser removed it;
+  // nothing below waits, so the check holds until the write)
+  if (!db.query('SELECT 1 FROM users WHERE id = ? AND deleted_at IS NULL').get(userId)) fail('unauthorized')
   const r = prepareAvatar(new Uint8Array(Buffer.concat(parts)), declared)
   if (!r.ok) return refuse(r.problem, locale)
   const prev = db.query('SELECT avatar_version FROM user_profiles WHERE user_id = ?').get(userId) as { avatar_version: number | null } | null

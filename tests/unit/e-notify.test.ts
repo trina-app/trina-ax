@@ -297,7 +297,7 @@ describe("macOS's question about notifications", () => {
   test('the window asks after the team page loads and at focus with a team open, with the platform part', () => {
     const win = fs.readFileSync(path.join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
     expect(win).toContain('...platformNotifyDeps(process.platform, () => Notification.isSupported()),')
-    expect(win).toMatch(/await this\.loadOrigin\(origin, '\/'\)\n[\s\S]{0,240}if \(this\.app === app\) this\.notifier\.ask\(\)/)
+    expect(win).toMatch(/await this\.loadOrigin\(origin, entryPath\)\n[\s\S]{0,240}if \(this\.app === app\) this\.notifier\.ask\(\)/)
     expect(win).toMatch(/this\.win\.on\('focus', \(\) => \{[\s\S]{0,400}if \(this\.app\) this\.notifier\.ask\(\)/)
   })
 })

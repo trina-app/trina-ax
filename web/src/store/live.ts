@@ -5,7 +5,7 @@ import { renewWindowId, windowId } from '../lib/api'
 import { BrowserRelay } from '../lib/browserRelay'
 import { browserSettingsBridge, desktop } from '../lib/desktop'
 import { openTeamFile } from '../lib/sidePanel'
-import { navigateTo } from '../lib/nav'
+import { FILES_TRASH, navigateTo } from '../lib/nav'
 import { keepUnsentAsDrafts } from '../lib/reload-guard'
 import { Emitter } from '../lib/emitter'
 import { defaultWsBase, RealtimeClient, type ConnState } from '../lib/realtime'
@@ -196,9 +196,11 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
         return
       }
       if (ev.data.link) {
-        // team skills: a change (owner and admins: open its version history), a suggestion to review, a review result
+        // team skills: a change (owner and admins: open its version history; a deleted file: open 파일 › 휴지통, or
+        // the chats' /trash in a notice from before), a suggestion to review, a review result
         const link = ev.data.link
-        const label = ev.data.code === 'skill_changed' ? (link.startsWith('/trash') ? t('notice.open') : t('notice.openHistory')) : ev.data.code.startsWith('skill_') ? t('notice.openSkills') : t('notice.open')
+        const toTrash = link === FILES_TRASH || link.startsWith('/trash')
+        const label = ev.data.code === 'skill_changed' ? (toTrash ? t('notice.open') : t('notice.openHistory')) : ev.data.code.startsWith('skill_') ? t('notice.openSkills') : t('notice.open')
         if (ev.data.code.startsWith('skill_')) skillsChanged.emit()
         // not sticky: it would sit over the composer; the same changes and suggestions stay on the 팀 스킬 screen
         toast({ level: ev.data.level, text: ev.data.message, action: { label, run: () => navigateTo(link) } })

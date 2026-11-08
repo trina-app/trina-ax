@@ -431,10 +431,11 @@ export const EnginesResponse = z.object({
   /** deprecated (company keys are AI connections now, shared/src/api/credentials.ts): always empty; removed next release */
   accounts: z.array(EngineAccount),
   memberChoice: MemberEngineChoice,
-  /** "Claude 한도에 닿으면 Codex로 넘기기" (off by default): a turn that hits the Claude subscription limit is answered by
-   * Codex instead, so the conversation also goes to OpenAI */
+  /** "다른 AI로 대신 답하기" (off by default; on for hosted servers): the other of Claude Code and Codex answers a turn
+   * whose engine has no working AI connection of the person, and Codex a turn that hits the Claude subscription limit,
+   * so the conversation also goes to that AI's company. In effect now: false while Codex is off */
   limitFallback: z.boolean(),
-  /** false while Codex is off (switched off here, or by the installation: office mode): the fallback cannot be on */
+  /** false while Codex is off (switched off here, or by the installation: office mode): the switch cannot be on */
   limitFallbackAvailable: z.boolean(),
 })
 export type EnginesResponse = z.infer<typeof EnginesResponse>
@@ -574,7 +575,7 @@ export const ADMIN = {
   engines: endpoint({ method: 'GET', path: '/api/admin/engines', auth: 'admin', owner: 'A', response: EnginesResponse, summary: 'Engine install/login/lockdown status, models, defaults, concurrency.' }),
   getApiEngine: endpoint({ method: 'GET', path: '/api/admin/engines/api-config', auth: 'admin', owner: 'A', response: ApiEngineConfig, summary: 'The team API engine settings (the key is never returned, only whether one is set).' }),
   putApiEngine: endpoint({ method: 'PUT', path: '/api/admin/engines/api-config', auth: 'admin-reauth', owner: 'A', body: ApiEngineBody, response: ApiEngineConfig, summary: 'Set the team API engine (the caller\'s own password again): OpenAI-compatible base URL, model, label; key: a new one, null to remove, absent to keep it. A changed address (scheme, host or port) never keeps the old key: send a key for it, or null (400 otherwise). An admin cannot set a private, loopback or link-local address (403; the owner can).' }),
-  updateEngines: endpoint({ method: 'PATCH', path: '/api/admin/engines', auth: 'admin', owner: 'A', body: UpdateEnginesBody, response: EnginesResponse, summary: 'Defaults, concurrency, enable/disable, who else may pick the engine, Claude-limit fallback to Codex.' }),
+  updateEngines: endpoint({ method: 'PATCH', path: '/api/admin/engines', auth: 'admin', owner: 'A', body: UpdateEnginesBody, response: EnginesResponse, summary: 'Defaults, concurrency, enable/disable, who else may pick the engine, answering with the other AI (no working connection, Claude limit).' }),
   checkEngine: endpoint({ method: 'POST', path: '/api/admin/engines/:id/check', auth: 'admin', owner: 'A', response: EngineStatus, summary: 'Re-check one engine now (bounded, no model call unless needed).' }),
 
   listBudgets: endpoint({ method: 'GET', path: '/api/admin/budgets', auth: 'admin', owner: 'A', response: z.object({ items: z.array(Budget) }), summary: 'Budgets with current spend.' }),

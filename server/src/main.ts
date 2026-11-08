@@ -23,6 +23,7 @@ import { exitAddressCheckOff, startEgressLearning } from './tools/egress'
 import { isHosted } from './system/deployment'
 import { dropHostedSpeechKey } from './credentials/speech-key'
 import { dropHostedChatKey } from './credentials/hosted-chat'
+import { settleHostedFallback } from './admin/engine-choice'
 import { repointDeckLinks } from './auth/team-links'
 import { retireLegacyDefaultSkills } from './onboarding/retired-skills'
 
@@ -84,6 +85,8 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   if (!isHosted(cfg) && dropHostedSpeechKey(db)) log.info('removed the hosting service\'s speech-to-text key: this server is not hosted')
   // the same for its trial AI credit
   if (!isHosted(cfg) && dropHostedChatKey(db)) log.info('removed the hosting service\'s trial AI key: this server is not hosted')
+  // a hosted server turns "다른 AI로 대신 답하기" on once (it used to come with the trial key, whatever the switch said)
+  if (settleHostedFallback({ db, config: cfg })) log.info('turned on "answer with the other AI" for this hosted server')
   const ctx = createContext({ config: cfg, db, log })
   ctx.onClose(() => db.close())
   guardOfficeClaudeJson(ctx, 'start') // office: no MCP servers in the Mac user's ~/.claude.json (an engine may write it)

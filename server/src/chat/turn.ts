@@ -33,7 +33,7 @@ import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlo
 import { looseArea, placementNote } from './file-placement'
 import { buildAgentDefinitions, initProblem, LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS, PARENT_ONLY_TOOLS, SUBTASK_STEPS_KEPT, subtaskSummary } from './subagents'
 import { getTeamSettings } from '../admin/settings'
-import { invokedSkill, listSkills, skillFolder } from './skills'
+import { everyoneMayUse, invokedSkill, isGroupSkill, listSkills, mayNotUse, skillFolder } from './skills'
 import { buildSkillList, chatSkillOrder, descriptionOrder, hintSkills, listedFor, recordListed, skillChanges, skillChangesText, usageScores } from './skill-list'
 import { describeSchedule, scheduledRunBlock, type ScheduleRow } from './schedules'
 import { safeModel, type EngineConfs } from './engines'
@@ -90,6 +90,7 @@ import { isOwnerOrAdmin, roomRow } from '../rooms/store'
 import { ext } from '../files/extract'
 import type { RoomTurnContext } from './runtime'
 import { audienceOf, isSharedRow, messageFor, stashWrittenBy } from './shared'
+import { answerRecord, setAnswerReads, setLeftOut, withheldFrom, type ReadGroup } from './shared-answers'
 import { missingReaders, readScope } from './read-scope'
 import { clearChatFolder } from './forget'
 import { publicStep, type ProjectRow, type StoredStep } from './store'
@@ -189,6 +190,12 @@ export class TurnExec {
   /** a team chat room's AI session (rooms/ai.ts, chats.room_id): its steps go to the person through the room, it has
    * no memories, and what it uses decides whether its answer may go to the room */
   room: { roomId: string } | null = null
+  private slackMemo: boolean | null = null
+  /** a chat of a Slack thread (slack_threads, or a turn asked from Slack): its answers may be posted to a channel
+   * (integrations/slack/post-check.ts), so the names the AI saw count like a room session's (noteReads) */
+  private get slackChat(): boolean {
+    return this.slackMemo ??= this.spec.clientKind === 'slack' || !!this.rt.db.query('SELECT 1 FROM slack_threads WHERE chat_id = ? LIMIT 1').get(this.spec.chatId)
+  }
   /** a room session: may every member read this team path (the skills the AI is shown there); null elsewhere */
   roomReadable: ((rel: string) => boolean) | null = null
   /** changes the person allowed on a card in this room turn (confirmRoomChange), by tool and input */
@@ -203,6 +210,11 @@ export class TurnExec {
   private sharedPending = new Map<string, Promise<boolean>>()
   /** steps of calls refused on the read card: they keep the neutral line, not a red one */
   private sharedSkipped = new Set<string>()
+  /** a shared chat: what this answer read, by the people who saw the chat then (chat/shared-answers.ts; one group per
+   * set of people, its places by sourceKey) */
+  private sharedReads = new Map<string, { c: string[]; s: Map<string, ReadSource> }>()
+  /** a shared chat: the answers hidden from this person when the turn started (none of them reaches the engine) */
+  sharedWithheld: ReadonlySet<string> = new Set()
 
   private resolveDone!: () => void
   private handle: LaunchHandle | null = null
@@ -379,10 +391,10 @@ export class TurnExec {
     // the chat's engine was switched off by an admin: this answer comes from the team default
     if (spec.substitutedFrom) this.addStep({ kind: 'tool', tool: 'engine', label: tr('engineOffDefault', spec.locale, { from: ENGINE_LABELS[spec.substitutedFrom], to: ENGINE_LABELS[spec.engine] }), status: 'ok' })
     const confs = rt.engines.get()
-    // on a server with the hosting service's trial credit (credentials/hosted-chat.ts, docs/DECISIONS.md "Z"): a Claude
-    // Code or Codex turn that no AI connection of this person can answer goes to the other of the two when the team
-    // connected that one (a step says so), else, while the credit is active, runs on the app's own API engine with the
-    // trial key. Claude Code and Codex never run on the credit (Anthropic's terms for products that run Claude Code)
+    // a Claude Code or Codex turn that no AI connection of this person can answer goes to the other of the two while
+    // "다른 AI로 대신 답하기" is on and the team connected that one (a step says so), else, while the hosting service's
+    // trial credit is active (credentials/hosted-chat.ts, docs/DECISIONS.md "Z"), runs on the app's own API engine with
+    // the trial key. Claude Code and Codex never run on the credit (Anthropic's terms for products that run Claude Code)
     const route = this.route(confs)
     const trial = route === 'trial'
     const engine: EngineId = route === 'claude-code' || route === 'codex' ? route : spec.engine
@@ -460,6 +472,23 @@ export class TurnExec {
       resume = false
       fs.rmSync(stash, { force: true })
     }
+    // a shared chat: the answers hidden from this person (chat/shared-answers.ts) never reach the engine (the transcript
+    // has a line in their place), and the answer records which ones above it were not in its context: a fresh session
+    // has none of them; a resumed one (this person's own session) none of those its last answer had left out. A
+    // failure: no turn (fails closed)
+    if (this.shared) {
+      try {
+        const hidden = withheldFrom(rt.db, rt.files.rules(), spec.chatId, spec.userId)
+        const above = rt.store.pathTo(userMsg.parent_id).filter((m) => hidden.has(m.id)).map((m) => m.id)
+        const before = resume && userMsg.parent_id ? answerRecord(rt.db, userMsg.parent_id)?.left ?? [] : null
+        setLeftOut(rt.db, spec.chatId, spec.assistantId, before ? above.filter((id) => before.includes(id)) : above)
+        this.sharedWithheld = hidden
+      } catch (e) {
+        rt.log.warn('shared answer record failed', { err: e, turn: this.id })
+        this.error = engineError('crash', spec.locale)
+        return
+      }
+    }
     if (!resume && userMsg.parent_id === null) this.newSession()
     // a shared project chat: other people's messages on this branch are outside content (remember protection; no
     // memories are kept here anyway), and the folder lists, skills, team rules and company profile the AI is shown are
@@ -467,7 +496,14 @@ export class TurnExec {
     if (this.shared || othersWrote) {
       if (rt.store.pathTo(userMsg.parent_id).some((m) => m.role === 'user' && m.author_id !== spec.userId)) this.taint()
     }
-    if (this.shared) this.roomReadable = this.audienceReadable()
+    if (this.shared) {
+      this.roomReadable = this.audienceReadable()
+      // the team rules and the company profile in the instructions are read too, as in a room (only those everyone who
+      // sees the chat may use are there: chat/prompt.ts)
+      const rules = rt.files.rules()
+      const shown = instructionFiles(rt.files, this.principal).filter((p) => this.roomReadable!(p))
+      if (!this.noteSharedReads(shown.map((p) => sourceOf(rt.db, rules, p)), this.sharedAudience())) { this.error = engineError('crash', spec.locale); return }
+    }
     // a room's AI session: the room's latest messages the person can see go in front of the question (rooms/ai.ts).
     // Other people's words are outside content (remember protection) and the room is where they came from (tab 7)
     let roomCtx: RoomTurnContext | null = null
@@ -522,7 +558,7 @@ export class TurnExec {
       // personal memories are not part of a room (docs/DECISIONS.md "대화방의 트리나") or of a shared project chat
       memories: this.room || this.shared ? [] : rt.memoriesForPrompt(spec.userId), project, browser: this.browser, tools: extraTools,
       // a shared chat's transcript says who wrote each message (chat/shared.ts)
-      history: fresh ? rt.history(userMsg.parent_id, !!this.room, this.shared || othersWrote ? { runner: spec.userId } : null) : null, connected: toolSet.prompt.join('\n\n') || null, subagents, skillList,
+      history: fresh ? rt.history(userMsg.parent_id, !!this.room, this.shared || othersWrote ? { runner: spec.userId, withheld: this.sharedWithheld } : null) : null, connected: toolSet.prompt.join('\n\n') || null, subagents, skillList,
       room: roomCtx?.prompt ?? null, roomReadable: this.roomReadable, shared,
     })
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
@@ -575,7 +611,8 @@ export class TurnExec {
     }
     // the previous answer paused at a per-answer limit: the AI learns that with this message, so "continue" (or anything
     // else) is read knowing the work was cut off there (the session or the history has what it did)
-    const cutOff = before?.role === 'assistant' ? stopReasonOf(before.stop_reason) : null
+    // (not an answer hidden from this person: they never saw it, chat/shared-answers.ts)
+    const cutOff = before?.role === 'assistant' && !this.sharedWithheld.has(before.id) ? stopReasonOf(before.stop_reason) : null
     const continued = cutOff ? `${continuationBlock(cutOff)}\n\n` : ''
     // the skill list is cut (more skills than fit): the few whose words match this message go in front of it, so the
     // AI does not miss one only because it is listed by name only (not for a "/name" message: that skill is given)
@@ -758,8 +795,8 @@ export class TurnExec {
         this.error = engineError(err.code, spec.locale, undefined, err.status)
       }
     }
-    // "Claude 한도에 닿으면 Codex로 넘기기" (Admin > AI engines, off by default): only after the subscription limit /
-    // 429 path reported a limit, never for budgets, refusals or crashes
+    // "다른 AI로 대신 답하기" (Team settings), its limit case: only after the subscription limit / 429 path reported a
+    // limit, never for budgets, refusals or crashes
     if (claude && !this.stopReason && this.error?.code === 'rate_limited') await this.limitFallback(core, { chatDir, token, systemPrompt: () => prompt(true, false), message, extraTools })
   }
 
@@ -873,7 +910,7 @@ export class TurnExec {
   }
 
   /**
-   * Claude hit the subscription limit and the admin turned on "Claude 한도에 닿으면 Codex로 넘기기": the same question
+   * Claude hit the subscription limit and the admin turned on "다른 AI로 대신 답하기": the same question
    * goes to Codex (a fresh session with the branch history), with a step saying so and an audit entry. Not while
    * Codex is off (switched off, office mode, not set up) or, in production, for someone outside the Codex beta.
    */
@@ -911,10 +948,10 @@ export class TurnExec {
     return codex.auth !== 'managed' || hasCredentialFor(rt.db, spec.userId, 'codex', credentialsOf(rt.ctx).allowedKinds)
   }
 
-  /** Where this turn goes on a server with the hosting service's trial credit (credentials/access.ts connectionRoute,
-   * the same rule as /api/me/ai-access): its own engine, the other connection engine when only that one has a working
-   * connection of this person, or the credit (on the API engine). Only Claude Code and Codex turns on AI connections
-   * (managed), and only to an engine set up the same way here. The API engine has its own key. */
+  /** Where this turn goes (credentials/access.ts connectionRoute, the same rule as /api/me/ai-access): its own engine,
+   * the other connection engine when "다른 AI로 대신 답하기" is on and only that one has a working connection of this
+   * person, or the hosting service's trial credit (on the API engine). Only Claude Code and Codex turns on AI
+   * connections (managed), and only to an engine set up the same way here. The API engine has its own key. */
   private route(confs: EngineConfs): 'own' | 'trial' | CredEngine {
     const { rt, spec } = this
     const engine = spec.engine
@@ -1668,17 +1705,28 @@ export class TurnExec {
     return p ? audienceOf(this.rt.db, this.rt.files, p) : []
   }
 
-  /** May everyone who sees this shared chat read this team path (the folder lists, skills, team rules and company profile
-   * the AI is shown)? The audience as it is when the turn starts. */
+  /** May everyone who sees this shared chat use this team path (the folder lists, skills, team rules and company profile
+   * the AI is shown): read it, and for a group's skill be in that group, as in a room (chat/skills.ts everyoneMayUse)?
+   * The audience as it is when the turn starts. */
   private audienceReadable(): (rel: string) => boolean {
-    const rules = this.rt.files.rules()
     const people = this.sharedAudience().map((id) => loadPrincipal(this.rt.db, id)).filter((p): p is Principal => !!p)
-    const seen = new Map<string, boolean>()
-    return (rel) => {
-      let v = seen.get(rel)
-      if (v === undefined) { const segs = rel.split('/').filter(Boolean); v = people.every((p) => atLeast(rules.access(p, segs), 'read')); seen.set(rel, v) }
-      return v
-    }
+    return everyoneMayUse(this.rt.db, this.rt.files.rules(), people)
+  }
+
+  /** What this answer read joins its record, with the people who saw the chat when it did (chat/shared-answers.ts).
+   * false: the record could not be written (the caller does not read: fails closed). */
+  private noteSharedReads(sources: readonly ReadSource[], audience: readonly string[]): boolean {
+    if (!this.shared || !sources.length) return true
+    const c = [...new Set(audience)].sort()
+    const k = c.join(',')
+    let g = this.sharedReads.get(k)
+    if (!g) this.sharedReads.set(k, (g = { c, s: new Map() }))
+    let changed = false
+    for (const src of sources) { const sk = sourceKey(src); if (!g.s.has(sk)) { g.s.set(sk, src); changed = true } }
+    if (!changed) return true
+    const groups: ReadGroup[] = [...this.sharedReads.values()].map((x) => ({ c: x.c, s: [...x.s.values()] }))
+    try { setAnswerReads(this.rt.db, this.spec.chatId, this.spec.assistantId, groups); return true }
+    catch (e) { this.rt.log.warn('shared answer reads not recorded', { err: e, turn: this.id }); return false }
   }
 
   /** Has this chat read something some of the people who see it now cannot see (its read scope against today's
@@ -1788,28 +1836,43 @@ export class TurnExec {
     const refusal = `Not read (${tool}): some of the people who see this shared chat cannot open that place, and ${neutralizeTags(this.principal?.name ?? 'the user')} did not share it here. Nothing from it was read. Do not try other paths, searches or tools to get it, and do not mention the place or guess what is there.`
     // the call's step says so (a call's own step only: an attachment or a "/name" skill has none)
     const refuse = () => { if (o.step !== false) this.skipStep(tool); return refusal }
-    let missing: { source: ReadSource; missing: string[] }[], audience: string[]
+    let missing: { key: string; source: ReadSource; missing: string[] }[], audience: string[], sources: ReadSource[]
+    let skillUse = false
     try {
-      const sources = this.sharedSources(tool, input)
+      sources = this.sharedSources(tool, input)
       audience = this.sharedAudience()
-      missing = missingReaders(this.rt.db, this.rt.files.rules(), sources, audience).filter((m) => !this.sharedAllowed.has(sourceKey(m.source)))
+      const rules = this.rt.files.rules()
+      missing = missingReaders(this.rt.db, rules, sources, audience).map((m) => ({ key: sourceKey(m.source), ...m }))
+      // a group's skill is its members' only (chat/skills.ts mayNotUse, as in a room): someone who sees the chat and is
+      // not in that group (the owner and admins read every group folder) makes it ask too, with its own words
+      const p = tool === 'skill' && input && typeof input === 'object' ? (input as { path?: unknown }).path : undefined
+      if (typeof p === 'string' && isGroupSkill(p.split('/').filter(Boolean).join('/'))) {
+        const people = audience.map((id) => loadPrincipal(this.rt.db, id))
+        const no = new Set(mayNotUse(this.rt.db, rules, people, p))
+        const ids = audience.filter((id, i) => !people[i] || no.has(id))
+        if (ids.length) { skillUse = true; missing.push({ key: `skill:${p}`, source: sourceOf(this.rt.db, rules, p), missing: ids }) }
+      }
+      missing = missing.filter((m) => !this.sharedAllowed.has(m.key))
     } catch (e) { this.rt.log.warn('shared read check failed', { err: e, turn: this.id }); return refuse() }
-    if (!missing.length) return null
-    const keys = missing.map((m) => sourceKey(m.source))
+    // what goes in is recorded first, with who sees the chat now: an answer built on it stays with them and those who
+    // may read it (chat/shared-answers.ts); a record that cannot be written is a refusal
+    if (!missing.length) return this.noteSharedReads(sources, audience) ? null : refuse()
+    const keys = missing.map((m) => m.key)
     if (keys.some((k) => this.sharedRefused.has(k))) return refuse()
     const pendingKey = [...keys].sort().join('\u0000')
     let pending = this.sharedPending.get(pendingKey)
     if (!pending) {
-      pending = this.askSharedRead(tool, missing, audience.length).finally(() => this.sharedPending.delete(pendingKey))
+      pending = this.askSharedRead(tool, missing, audience.length, skillUse).finally(() => this.sharedPending.delete(pendingKey))
       this.sharedPending.set(pendingKey, pending)
     }
     const yes = await pending
     for (const k of keys) (yes ? this.sharedAllowed : this.sharedRefused).add(k)
-    return yes ? null : refuse()
+    // the card covered the people who saw the chat when it asked
+    return yes && this.noteSharedReads(sources, audience) ? null : refuse()
   }
 
   /** The card itself and its audit row; true = "읽고 공유하기". */
-  private async askSharedRead(tool: string, missing: { source: ReadSource; missing: string[] }[], audience: number): Promise<boolean> {
+  private async askSharedRead(tool: string, missing: { source: ReadSource; missing: string[] }[], audience: number, skillUse = false): Promise<boolean> {
     const L = this.spec.locale
     const labels = { mine: tr('sharedScopeMine', L), root: tr('scopeRoot', L), room: tr('scopeRoom', L) }
     const places = [...new Set(missing.map((m) => sourceLabel(this.rt.db, m.source, this.spec.userId, labels, { ownNames: true })))]
@@ -1817,7 +1880,8 @@ export class TurnExec {
     const scheduled = this.spec.clientKind === 'schedule'
     const answer = await this.waitForPerson({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
-      question: tr('sharedReadConfirm', L, { sources: places.join(', '), n: String(audience), m: String(who.size) }),
+      // a group's skill some of them may not use (not in the group): "…cannot use this skill" (they may see the place)
+      question: tr(skillUse ? 'sharedSkillConfirm' : 'sharedReadConfirm', L, { sources: places.join(', '), n: String(audience), m: String(who.size) }),
       options: [{ label: tr('sharedReadYes', L), value: 'share' }, { label: tr('sharedReadNo', L), value: 'skip' }], multiple: false, allowText: false,
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
@@ -1906,9 +1970,10 @@ export class TurnExec {
   noteReads() {
     const paths = this.files.readPaths
     // a room session: folders whose file names the AI saw (list, glob, searches) count too, as the names may reach the
-    // room, and so do the paths whose own name it saw or asked about (read-scope.ts {type:'name'})
-    const names = this.room ? this.files.namePaths : null
-    const listed = this.room ? this.files.listedNames : null
+    // room, and so do the paths whose own name it saw or asked about (read-scope.ts {type:'name'}); a Slack chat too,
+    // for what its listings and globs showed (the names may reach a channel)
+    const names = this.room || this.slackChat ? this.files.namePaths : null
+    const listed = this.room || this.slackChat ? this.files.listedNames : null
     if (!paths.size && !names?.size && !listed?.size) return
     const rules = this.rt.files.rules()
     // reads the answer's source list records (with their sha256: "대화방에 보내기" goes by those files) apart from the

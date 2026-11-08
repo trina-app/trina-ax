@@ -14,7 +14,7 @@ test('HWP pages render in Electron and the original downloads unchanged', async 
   try {
     const shell = await welcome(app)
     await shell.locator('#address').fill(server.url)
-    await shell.getByRole('button', { name: 'Connect', exact: true }).click()
+    await shell.getByRole('button', { name: 'Continue', exact: true }).click()
     const page = await teamPage(app, server.url)
     await signInOfflineTeam(page, server.url, 'en')
     await page.goto(`${server.url}/files?path=marketing`)
