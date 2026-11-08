@@ -37,9 +37,10 @@ export function uniqueParams(params: URLSearchParams): Record<string, string> {
 
 /**
  * Streamable HTTP JSON transport, without an SSE replay buffer or an arbitrary tool registry. initialize answers with an
- * Mcp-Session-Id: it only names the read scope (scope.ts) and the files read before an edit (tools.ts) of the calls
- * that send it back, so a new session starts with nothing read. The id is never required, and an unknown one is never
- * refused (no 404, which some clients do not recover from): it is a new, empty scope, as initializing again would give.
+ * Mcp-Session-Id: it only names the read scope of the calls that send it back (scope.ts), so a new session starts with
+ * nothing read. The id is never required, and an unknown one is never refused (no 404, which some clients do not
+ * recover from): it is a new, empty scope, as initializing again would give. A malformed one is a 400, but not on
+ * initialize, which ignores it.
  */
 export async function mcpRequest(ctx: AppContext, request: Request, ip: string | null): Promise<Response> {
   const oauth = remoteOAuthOf(ctx)
@@ -55,8 +56,6 @@ export async function mcpRequest(ctx: AppContext, request: Request, ip: string |
     const token = match[1]!
     oauth.authenticate(token)
     if (request.method !== 'POST') return new Response(null, { status: 405, headers: { ...noStore, allow: 'POST' } })
-    const session = request.headers.get('mcp-session-id')
-    if (session !== null && !SESSION_ID.test(session)) throw new OAuthError('invalid_request')
     const version = request.headers.get('mcp-protocol-version')
     if (version && !PROTOCOLS.includes(version)) throw new OAuthError('invalid_request')
     const accept = request.headers.get('accept') ?? ''
@@ -71,6 +70,8 @@ export async function mcpRequest(ctx: AppContext, request: Request, ip: string |
     if (typeof msg.method !== 'string' || msg.method.length > 100 || (msg.params !== undefined && (!msg.params || typeof msg.params !== 'object' || Array.isArray(msg.params)))) return json({ jsonrpc: '2.0', id: msg.id ?? null, error: { code: -32600, message: 'Invalid request' } }, 400)
     if (size > MCP_BODY_MAX && !(msg.method === 'tools/call' && (msg.params?.name === 'upload_file' || msg.params?.name === 'share_skills') && 'id' in msg)) return json({ error: 'invalid_request' }, 413)
     if (!('id' in msg)) return new Response(null, { status: 202, headers: noStore }) // notifications never execute tools
+    const session = request.headers.get('mcp-session-id')
+    if (session !== null && msg.method !== 'initialize' && !SESSION_ID.test(session)) throw new OAuthError('invalid_request')
     const reply = (value: unknown) => json({ jsonrpc: '2.0', id: msg.id, result: value })
     // a new session each time, whatever the request carried: a new session starts with nothing read
     if (msg.method === 'initialize') return json({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: PROTOCOLS.includes(msg.params?.protocolVersion) ? msg.params.protocolVersion : PROTOCOLS.at(-1), capabilities: { tools: {} }, serverInfo: { name: 'team-ax', version: ctx.version }, instructions: connectorInstructions(ctx, grant.user_id) } }, 200, { 'mcp-session-id': secret('tax_mcp_s_') })

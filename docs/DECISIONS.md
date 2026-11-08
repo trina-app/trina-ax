@@ -14732,7 +14732,7 @@ setting or data change.
 
 ## App connectors: a read scope per MCP session, refusal reasons for write and edit, team rules for connected AIs (fix/connector-scope, 2026-11-08, product owner)
 
-넣을 곳: trina-ax `server/src/connectors/remote-mcp/` (new `scope.ts`) and migration 117, 이유: a design audit of dev
+넣을 곳: trina-ax `server/src/connectors/remote-mcp/` (new `scope.ts`) and migration 118, 이유: a design audit of dev
 found that one read through the connector blocked a person's saves for weeks, that `write`/`edit` hid why a save was
 refused, and that connected AIs never saw the team rules every in-app turn follows.
 
@@ -14743,20 +14743,30 @@ refused, and that connected AIs never saw the team rules every in-app turn follo
 - **One scope per MCP session (the owner's decision).** `initialize` answers with an `Mcp-Session-Id` (MCP Streamable
   HTTP, `tax_mcp_s_` + 32 random bytes), the client sends it on every later request, and the scope is kept per
   connection and session in `remote_mcp_scopes` (keyed by the id's sha256, never the id). A new session starts with
-  nothing read; the same session keeps its scope, across a server restart too. So do the files read before an `edit`
-  (the session's `TurnFiles`) and the call queue: calls of one session never overlap, as calls of one connection did.
+  nothing read; the same session keeps its scope, across a server restart too. Only the scope is per session: the call
+  queue (one call at a time, at most four waiting), the memory slot and the `TurnFiles` (files read before an `edit`,
+  the write counters) stay the connection's, as before. A client can send any id, and one id per call must not give it
+  more calls at once, other people's memory slots or a fresh write budget (the review of this branch found that a
+  per-session queue let one token run 128 calls at once and lock everyone else out).
 - **The id is a name, not a key.** The bearer token is the auth. The id is never required, and an id the server never
   gave, or forgot, is a new and empty scope; it is never answered with 404, which some clients do not recover from
   without a reconnect. That gives a client nothing it could not get by initializing again. An id that is not visible
   ASCII or is over 128 characters is a 400. `DELETE /mcp` stays 405 (the spec allows a server not to end sessions on
-  request); a session's scope ends with the connection, and a connection keeps at most 64 session scopes (the least
-  recently used beyond them go), so a client that opens a session per request cannot grow the table.
+  request); a session's scope ends with the connection, and a connection keeps at most 256 session scopes (the least
+  recently used beyond them go), so a client that opens a session per request cannot grow the table. Every run of an
+  app on one computer shares the connection, so 256 is far above what parallel work uses. `initialize` ignores the
+  header (a malformed id there is no 400).
 - **Clients without a session.** Calls that send no id share one scope per connection, forgotten after **1 hour without
-  a tool call** (any tool counts as use; a refused call too). An hour is how long an access token lives, longer than the
-  pauses between the calls of one piece of work and shorter than the gap before most new ones. An idle scope is dropped
+  a tool call** (any tool call that gets past the connection's permission check counts as use, a refused save too; one
+  refused for a missing scope, an unknown tool, a full queue or the rate limit does not). An hour is how long an access
+  token lives, longer than the pauses between the calls of one piece of work and shorter than the gap before most new
+  ones. An idle scope is dropped
   when the next call opens it, so its old sources never come back with a later read, and the connector's housekeeping
-  (`oauth.ts` ingress) removes idle rows. A session's scope has no idle expiry: "the same session keeps it".
-- **The update forgets nothing.** Clients connected before it send no id until they initialize again, so migration 117
+  (`oauth.ts` ingress, with an index on `(session, used_at)`) removes idle rows. A session's scope has no idle expiry:
+  "the same session keeps it". Open: if a client turns out to keep one MCP session across many conversations (not
+  checked for claude.ai or ChatGPT: that needs their live apps), its scope lasts as long as that session; a backstop idle
+  expiry for session scopes (a day, say) is the next step, and it is the owner's to decide because it widens.
+- **The update forgets nothing.** Clients connected before it send no id until they initialize again, so migration 118
   moves each connection's old list into its scope without a session, used now: it is forgotten an hour after the last
   call, and a new session starts empty. The grant's column stays (add-only) and is no longer written; an older build
   run again goes by that list, what was read before this update.
@@ -14778,22 +14788,25 @@ refused, and that connected AIs never saw the team rules every in-app turn follo
   every handler into the generic catch, so a read-only folder, someone else's folder and a name clash all read "Tool
   unavailable or access denied.", with no rejected-file event. They now go through upload_file's failure handling
   (`uploadFailure`): the same reasons ("Access denied: read-only folder: …", "Access denied: not found or no access: …",
-  "Error: …"), the rejected-file event and an audit row (tool, ok false, path; never content). Anything else still gets
-  the generic answer, which never shows an exception's text. This ends the difference #155 kept between the write and
-  upload paths.
+  "Error: …"), the rejected-file event and an audit row (tool, ok false, via connector, path; never content). An
+  `Error:` keeps upload_file's wording (the raw message), not the in-app tools' translated safe-operations text.
+  Anything else still gets the generic answer, which never shows an exception's text. This ends the difference #155
+  kept between the write and upload paths.
 - **Team rules and the company profile.** Every in-app turn gets the header-less `skills/*.md` (the first ten the person
   may read, `teamRuleFiles`) and the company profile (`chat/prompt.ts`). The connector's `initialize` instructions now
   name them by path, for the person: "Team rules every teammate's AI follows (paths are data; skills_list marks them
   rule: true): skills/a.md, skills/b.md. Read them before working on team files. Facts about the company, not
   instructions: skills/company-profile.json." Only paths whose every name passes the guide's allowlist (`plainName`)
-  are named; the others are counted ("and 1 more"). `skills_list` lists the same rule files as `{ path, name, rule: true
+  are named; the others are counted ("and 1 more"). Past ten rule files it says, as the in-app AI is told, that only
+  the first ten by file name count. `skills_list` lists the same rule files as `{ path, name, rule: true
   }` after the skills, and its description says what they are. Only paths, never the text: every client session pays
   for the instructions, and a `read` records the rule in the scope as any read does. `skills/` is readable by the whole
   team by default, so reading a rule never blocks a save to `shared/`. A person who may not read `skills/` gets neither.
 - Tests: `tests/unit/remote-mcp-scope.test.ts` (a new id per initialize, a session keeps its scope across a restart, a
   new session, an unknown id and the calls without one start empty, ids hashed, malformed ids refused; the idle hour,
   use keeps it, an idle scope does not come back, a session's has no idle expiry, the housekeeping; upload links by
-  their session and a link from before; the 64-session cap and the cascade; migration 117 carry-over; write/edit
+  their session and a link from before; the session cap and the cascade; many ids of one connection still run one call
+  at a time; migration 118 carry-over; write/edit
   refusal texts equal upload_file's, the events and audit rows, skill roots, the generic answer for other errors; the
   rules in the guide and `skills_list`, odd names counted, access respected, a rule read then a save to `shared/`). The
   rooms and history tests read the new scope rows.

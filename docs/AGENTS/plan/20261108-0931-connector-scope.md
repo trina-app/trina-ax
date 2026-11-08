@@ -44,7 +44,7 @@ to the grant row for an older build.
 
 ## Steps
 
-1. Migration 117 (`remote_mcp_scopes`, `remote_mcp_upload_links.session`, carry-over of grant sources).
+1. Migration 118 (`remote_mcp_scopes`, `remote_mcp_upload_links.session`, carry-over of grant sources).
 2. `scope.ts`: key, load (idle expiry), touch, save (per-grant session cap).
 3. `transport.ts`: issue the id on `initialize`, read and check it on other requests, pass it to the tools.
 4. `tools.ts`, `upload.ts`, `upload-link.ts`, `rooms.ts`: use the session scope; write/edit failure handling.
@@ -57,7 +57,7 @@ to the grant row for an older build.
   PR #155). Read access checks, skill-root refusals and the size and storage caps do not change.
 - Clients that keep one MCP session for many conversations keep one scope for them; clients that open a session per
   request reset it often. Both are what "per MCP session" means; named in DECISIONS.
-- Migration 117: highest A number on dev is 116; add-only.
+- Migration 118: highest A number on dev is 116, and 117 is another open branch's; add-only.
 
 ## Tests
 

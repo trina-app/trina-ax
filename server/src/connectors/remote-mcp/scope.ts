@@ -5,16 +5,19 @@
 // Claude Code run, a new conversation) starts with nothing read. The id only names the scope: it is no credential (the
 // bearer token is), never required and never refused; an id the server did not give is a new, empty scope, which a
 // client gets anyway by initializing again. Calls without an id share one scope per connection, forgotten after
-// SCOPE_IDLE_MS without a tool call. Rows live in remote_mcp_scopes (migration 117), keyed by the grant and the id's
-// sha256 ('' without one), so they survive a restart and end with the grant.
+// SCOPE_IDLE_MS without a tool call. Rows live in remote_mcp_scopes (migration 118), keyed by the grant and the id's
+// sha256 ('' without one), so they survive a restart and end with the grant. Only the scope is per session: the call
+// queue and the files read before an edit stay the connection's (tools.ts).
 import type { Database } from 'bun:sqlite'
 import type { ReadSource } from '../../chat/read-scope'
 import { hash } from './policy'
 
 /** A scope without a session is forgotten after this long without a tool call. */
 export const SCOPE_IDLE_MS = 60 * 60_000
-/** At most this many session scopes per connection: the least recently used beyond it are dropped. */
-export const SESSIONS_PER_GRANT = 64
+/** At most this many session scopes per connection: the least recently used beyond it are dropped. Every run of an
+ * app on one computer shares the connection, so it is far above what parallel work uses; rows are small (one source
+ * per folder). */
+export const SESSIONS_PER_GRANT = 256
 /** At most this many sources in one scope: past it, a read is refused (a new session starts empty). */
 export const SCOPE_SOURCES_MAX = 2000
 /** An Mcp-Session-Id as MCP allows it (visible ASCII), bounded. */

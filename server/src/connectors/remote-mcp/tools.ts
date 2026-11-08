@@ -10,7 +10,7 @@ import { audit } from '../../admin/audit'
 import { ADMIN_SCOPE, hash, OAuthError, ROOMS_SCOPE, ROOMS_WRITE_SCOPE } from './policy'
 import { dropAdminScope, isTeamAdmin, remoteOAuthOf, type Grant, type RemoteOAuth } from './oauth'
 import { checkWriteTarget, isOutcome, uploadFile, uploadTool, writeNotes } from './upload'
-import { openScope, saveScope, scopeFull, scopeKey, scopeSources, SCOPE_SOURCES_MAX } from './scope'
+import { openScope, saveScope, scopeFull, scopeSources, SCOPE_SOURCES_MAX } from './scope'
 import { createUploadLink, uploadLinkTool } from './upload-link'
 import { shareSkills, shareSkillsTool } from './share'
 import { GROUP_TOOLS, groupTool, groupTools } from './groups'
@@ -53,8 +53,10 @@ export class RemoteTools {
     }))
   }
   /**
-   * One tool call. `session`: the Mcp-Session-Id the client sent (transport.ts), or null: the read scope and the files
-   * read before an edit are the session's (scope.ts), so a new session starts with nothing read.
+   * One tool call. `session`: the Mcp-Session-Id the client sent (transport.ts), or null: the read scope is the
+   * session's (scope.ts), so a new session starts with nothing read. The queue and the TurnFiles (files read before an
+   * edit, the write counters) stay the connection's: a client can send any id, and one per call must not give it more
+   * calls at once, more memory slots or a fresh write budget.
    */
   async call(token: string, name: string, args: unknown, signal?: AbortSignal, session: string | null = null) {
     const oauth = this.oauth(), grant = oauth.authenticate(token)
@@ -62,15 +64,13 @@ export class RemoteTools {
     if (name !== 'skills_list' && name !== 'share_skills' && !CONNECTOR_ONLY.has(name) && !GROUP_TOOLS.has(name) && !ROOM_TOOLS.has(name) && !Object.hasOwn(FILE_TOOLS, name)) return result('Unknown tool.', true)
     // Bound idle memory; read sources survive eviction/restart in remote_mcp_scopes.
     for (const [id, m] of this.memory) if (!m.queued && m.touched < oauth.now() - 10 * 60_000) this.memory.delete(id)
-    // one queue and one TurnFiles per session of a connection: calls of one session never overlap
-    const slot = grant.id + '\0' + scopeKey(session)
-    let m = this.memory.get(slot)
+    let m = this.memory.get(grant.id)
     if (!m) {
       if (this.memory.size >= 128) {
         const idle = [...this.memory].find(([, item]) => item.queued === 0)
         if (idle) this.memory.delete(idle[0]); else return result('Server busy; retry later.', true)
       }
-      m = { files: new TurnFiles(), tail: Promise.resolve(), queued: 0, touched: oauth.now() }; this.memory.set(slot, m)
+      m = { files: new TurnFiles(), tail: Promise.resolve(), queued: 0, touched: oauth.now() }; this.memory.set(grant.id, m)
     }
     if (m.queued >= 4) return result('Connector busy; retry after the current call.', true)
     const before = m.tail
@@ -146,7 +146,7 @@ export class RemoteTools {
         // (the reason, the rejected-file event, the audit row); only an unexpected error gets the generic answer
         const target = checkWriteTarget(this.ctx, user, filePath, scope, name)
         if (isOutcome(target)) {
-          audit(this.ctx.db, { actor: user.id, action: 'remote_mcp.tool', target: fresh.id, detail: { tool: name, ok: false, ...target.audit } })
+          audit(this.ctx.db, { actor: user.id, action: 'remote_mcp.tool', target: fresh.id, detail: { tool: name, ok: false, via: 'connector', ...target.audit } })
           return result(target.text, true)
         }
         // edit changes an existing file: never the placement note
