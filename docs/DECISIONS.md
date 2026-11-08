@@ -13819,7 +13819,10 @@ visible transcript, so the visible messages are what gets disclosed: the same in
   provenance line style ("이 채팅에는 프로젝트 사람 {m}명이 볼 수 없는 자료의 내용이 들어 있어요: {places}", or the unknown
   line), "개인 메모리를 참고한 답이 있을 수 있어요" when it applies, "그 사이 바뀐 것이 있어요. 다시 확인해 주세요" when asked
   again; [취소] [공유하기], 공유하기 focused. Cancel keeps the chat moved and private. Shared: "프로젝트 사람들과 공유했어요",
-  and #171's header mark and line under the box. Five languages. `placeName` is shared with `ShareToRoom.tsx`.
+  and #171's header mark and line under the box. Five languages. `placeName` is shared with `ShareToRoom.tsx`. A chat
+  row's "…" (`Sidebar.tsx`, #182) now keeps its move dialog in the sidebar, not in the row: the moved chat's row goes to
+  another group (a date, a project; phones always group by date) and is made again, which closed the dialog before the
+  share could ask.
 - **Not here.** Unsharing; sharing from the project page; a list of what was read (the line names places, as #163's).
 - Tests: `tests/unit/b-share-existing-chat.test.ts`, `tests/security/shared-project-chats.test.ts` ("an existing private
   chat shared later"), a `permission-matrix` row (`p4-route-coverage` covers the route), `b-answer-share` unchanged,

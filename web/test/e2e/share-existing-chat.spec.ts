@@ -1,7 +1,8 @@
 // An existing private chat shared with its project's people (docs/DECISIONS.md "Shared project chats", "An existing chat
 // shared"): the move dialog's switch "프로젝트 사람들과 공유" (off by default; nothing narrower: shared right after the move),
-// the confirm when the chat used something some of the project cannot see (cancel: moved, still private), the title
-// menu's "프로젝트 사람들과 공유…", and a second person sees the chat afterwards. At 1440 and 390 px wide, with axe on each
+// the confirm when the chat used something some of the project cannot see (cancel: moved, still private), the same
+// from a chat row's "…" menu in the sidebar (the list grouped by project, so the moved chat's row is made again while
+// the dialog stays), the title menu's "프로젝트 사람들과 공유…", and a second person sees the chat afterwards. At 1440 and 390 px wide, with axe on each
 // dialog. The mock (test/mock/server.ts, "프로젝트 사람들과 공유"): "mine-source" in a question reads a note in my own
 // folder, "memory" brings the memory note.
 import AxeBuilder from '@axe-core/playwright'
@@ -133,6 +134,42 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(page.getByTestId('chat-shared')).toHaveCount(0)
       const b = await bob(browser)
       expect((await b.request.get(`/api/chats/${chatId}`)).status()).toBe(404)
+      await b.context().close()
+    })
+
+    test('from a chat row\'s "…" in the sidebar: moved with the switch on, the confirm, shared; the row moves to its project and keeps the dialog', async ({ page, browser }) => {
+      await reset(page)
+      // the history grouped by project: the moved chat's row goes to another group (and is made again)
+      await page.addInitScript(() => localStorage.setItem('mycel.sidebar.recentsView', JSON.stringify({ status: 'all', activity: 'all', group: 'project', sort: 'updated' })))
+      await signIn(page)
+      await project(page)
+      const chatId = await privateChat(page, 'mine-source 경쟁사 메모 정리해 줘')
+      await page.goto('/')
+      if (vp.phone) await page.getByTestId('menu-open').click()
+      const list = page.locator(vp.phone ? '[data-drawer]' : 'body').getByTestId('recents-list')
+      const row = list.getByRole('listitem').filter({ hasText: '경쟁사 메모' })
+      await row.hover()
+      await row.getByRole('button', { name: '채팅 메뉴', exact: true }).click()
+      await row.getByTestId('chat-row-move').click()
+      const dialog = page.getByRole('dialog', { name: '이 채팅의 프로젝트' })
+      await dialog.getByText('Launch', { exact: true }).click()
+      await expect(dialog.getByTestId('chat-project-share-toggle')).not.toBeChecked()
+      await audit(page, 'move dialog from the row menu')
+      await dialog.getByText('프로젝트 사람들과 공유', { exact: true }).click()
+      await dialog.getByTestId('chat-project-save').click()
+      const ask = page.getByRole('dialog', { name: '이 채팅을 프로젝트 사람 1명과 공유할까요?' })
+      await expect(ask.getByTestId('share-chat-provenance')).toHaveText('이 채팅에는 프로젝트 사람 1명이 볼 수 없는 자료의 내용이 들어 있어요: 내 폴더')
+      // the row went under its project meanwhile; the question is still there
+      await expect(list.getByRole('heading', { name: 'Launch' })).toBeVisible()
+      await expect(ask).toBeVisible()
+      await audit(page, 'share confirm from the row menu')
+      await ask.getByTestId('share-chat-confirm').click()
+      await expect(page.getByTestId('toast').filter({ hasText: '프로젝트 사람들과 공유했어요' })).toBeVisible()
+      await expect(page.getByRole('dialog', { name: '이 채팅을 프로젝트 사람 1명과 공유할까요?' })).toHaveCount(0)
+      // the row has the shared mark, and its menu has no move any more
+      await expect(list.getByRole('listitem').filter({ hasText: '경쟁사 메모' }).getByTestId('shared-icon')).toBeVisible()
+      const b = await bob(browser)
+      expect((await b.request.get(`/api/chats/${chatId}`)).status()).toBe(200)
       await b.context().close()
     })
 
