@@ -13810,6 +13810,28 @@ enters a shared transcript; that check is new here, and turns never run on the c
   account row and rooms use the same tile) and a picture sized in px that does not follow the text-size setting (as in
   rooms; at the largest size the name is still smaller than the picture). Tests:
   `web/test/unit/shared-chat-authors.test.tsx`, `web/test/e2e/shared-project-chats.spec.ts`. Version impact: minor.
+- **The faces on the project page** (feat/project-chat-faces, 2026-11-08, product owner: "여기서도 Mina 프로필 사진 같은게
+  나오도록 하면 안되니? 아니면 누가 작업을 했는지를 프로필을 겹쳐서 보여주거나?"; plan
+  `docs/AGENTS/plan/20261108-0531-project-chat-faces.md`). A shared row of a project page's "채팅" shows, in place of the
+  creator's name, the faces of the people who wrote in the chat (sent a question there, its creator included), the most
+  recent first, overlapping (20 px, 4 px tucked under the one before), at most 3 and then
+  "+N"; on a phone at most 2, and the title truncates first. One person (or nobody yet: the creator): that face and the
+  name, `(M) Mina · 1분 전`. Photos from the people directory, the letter tile without one (`SharedChat.tsx ChatFaces`).
+  The faces are decorative; the row's link reads "Mina, Sam 참여" (one person: the name), and on a computer the shared
+  tooltip lists the names on the faces and while the row has keyboard focus (the tooltip's new `focusFrom`: the row's
+  link takes the focus, the faces take none). The faces' rings take the row's colour, the hover colour on a hovered
+  row. A private chat has no face (unchanged: the owner prefers lean rows, and my own face on every private row says
+  nothing). The people icon stays as the shared mark; removing it was put to the owner, not done. Data: `Chat.shared.people` (up to `CHAT_PEOPLE_SHOWN` = 3 `UserRef`) and `peopleCount`, only in
+  `GET /api/chats?projectId=` (not the trash) and only for the shared chats that list shows (its "I see the project
+  now" filter, `chatFor` 'view'): people the viewer sees in the chat anyway, also someone who lost the project since.
+  One grouped query for the page (`chat/shared.ts chatPeople`): users × the page's chats, each pair a seek on the
+  covering `messages_author_chat` index (migration 265), the order by the messages' rowid (the order they were written,
+  as the share check), names from `users` in the same pass; a test checks the plan and that one query runs. Its cost
+  grows with the team's accounts times the page's chats (the project page asks for 50), not with how long the chats
+  are. The tooltip
+  names those three and counts the rest ("Leo, Jun, Ari 외 2명"): the list sends three names, not everyone's. No
+  migration. Tests: `tests/unit/b-shared-chat-people.test.ts`, `web/test/unit/project-chat-faces.test.tsx`,
+  `web/test/e2e/shared-project-chats.spec.ts`. Version impact: minor.
 - **For the approved follow-up** (a room's @트리나 reads a shared chat only when every member of the room is in its
   project's audience; else the answer stays the asker's or a card asks): the check is one set-based function,
   `sharedChatAudienceCovers(db, files, chatId, userIds)` on `projectSeenByAll` (also behind `visibleSharedChat` and

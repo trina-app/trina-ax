@@ -150,6 +150,8 @@ export type Project = z.infer<typeof Project>
 /** Run state of a chat, from the turn queue. */
 export const ChatRunState = z.enum(['idle', 'queued', 'running'])
 export type ChatRunState = z.infer<typeof ChatRunState>
+/** At most this many of a shared chat's writers come with it (Chat.shared.people): the faces a project page's row shows. */
+export const CHAT_PEOPLE_SHOWN = 3
 export const Chat = z.object({
   id: Uuid7,
   projectId: Uuid7.nullable(),
@@ -192,6 +194,12 @@ export const Chat = z.object({
     mine: z.boolean(),
     /** I may delete it (its creator or an editor of its project) */
     canDelete: z.boolean(),
+    /** who wrote in it (sent a question there, its creator included), the most recent first, at most
+     * CHAT_PEOPLE_SHOWN of them: the project page's faces. Only in a project's chat list (GET /api/chats?projectId=);
+     * absent elsewhere, and empty while nobody wrote yet. People the viewer sees in the chat anyway. */
+    people: z.array(UserRef).max(CHAT_PEOPLE_SHOWN).optional(),
+    /** how many people wrote in it (with `people`) */
+    peopleCount: z.number().int().nonnegative().optional(),
   }).optional(),
 })
 export type Chat = z.infer<typeof Chat>

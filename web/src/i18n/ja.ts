@@ -859,6 +859,7 @@ export const ja: Record<MessageKey, string> = {
   'projects.deleteShared': "共有チャット{n, plural, one {#件} other {#件}}も一緒に削除されます。",
   'projects.deleteBodyShared': "プロジェクトのみ削除されます。フォルダーと自分のチャットは残ります。",
   'projects.repointShared': "共有チャット{n, plural, one {#件} other {#件}}を、このフォルダーを見られる{m, plural, one {#人} other {#人}}が見ることになります。",
+  'projects.chatPeople': "参加者：{names}",
   'chat.sharedLabel': "共有チャット",
   'chat.shared': "共有チャット · プロジェクトの{n, plural, one {#人} other {#人}}が閲覧できます",
   'chat.footerShared': "AIは誤ることがあります。重要な情報は確認してください。プロジェクトの{n, plural, one {#人} other {#人}}がこのチャットを閲覧できます。",

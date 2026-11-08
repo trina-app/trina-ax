@@ -880,6 +880,7 @@ export const id: Record<MessageKey, string> = {
   'projects.deleteShared': "{n} chat bersama juga ikut terhapus.",
   'projects.deleteBodyShared': "Hanya proyeknya yang dihapus; folder dan chat milik kamu tetap ada.",
   'projects.repointShared': "{n} chat bersama akan dilihat oleh {m} orang yang bisa melihat folder ini.",
+  'projects.chatPeople': "Peserta: {names}",
   'chat.sharedLabel': "Chat bersama",
   'chat.shared': "Chat bersama · {n} orang di proyek bisa melihatnya",
   'chat.footerShared': "AI bisa salah. Cek lagi informasi penting. {n} orang di proyek bisa melihat chat ini.",
