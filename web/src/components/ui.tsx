@@ -493,13 +493,33 @@ export function Toaster() {
 // ---------------- copy ----------------
 export function useCopy(timeout = 1500) {
   const [copied, setCopied] = useState(false)
+  // the mark's timer goes with the component (a copy that ends after it is gone sets nothing), and a new copy starts
+  // it again
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const live = useRef(true)
+  useEffect(() => {
+    live.current = true
+    return () => {
+      live.current = false
+      if (timer.current) clearTimeout(timer.current)
+      timer.current = null
+    }
+  }, [])
+  const mark = useCallback(() => {
+    if (!live.current) return
+    setCopied(true)
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = setTimeout(() => {
+      timer.current = null
+      setCopied(false)
+    }, timeout)
+  }, [timeout])
   const copy = useCallback(
     /** `html`: formatted text as well (text/html beside the plain text, lib/clipboard.ts) */
     async (text: string, html?: string) => {
       if (html !== undefined) {
         await writeRich({ html, plain: text })
-        setCopied(true)
-        setTimeout(() => setCopied(false), timeout)
+        mark()
         return
       }
       try {
@@ -515,10 +535,9 @@ export function useCopy(timeout = 1500) {
         document.execCommand('copy')
         ta.remove()
       }
-      setCopied(true)
-      setTimeout(() => setCopied(false), timeout)
+      mark()
     },
-    [timeout],
+    [mark],
   )
   return { copied, copy }
 }

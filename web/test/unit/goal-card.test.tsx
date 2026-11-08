@@ -117,9 +117,7 @@ describe('the card: a title, one line, one button', () => {
     useSession.setState({ status: { kind: 'signed-in', me: me() } } as never)
     Object.defineProperty(globalThis.navigator, 'clipboard', { configurable: true, value: { writeText: async (s: string) => void copied.push(s) } })
   })
-  afterAll(async () => {
-    // "복사했어요" turns back after 1.5 s (ui.tsx useCopy): let those timers run while the page still exists
-    await new Promise((r) => setTimeout(r, 1600))
+  afterAll(() => {
     removeDom()
     useLocaleStore.setState({ locale: before })
     useSession.setState({ status })
