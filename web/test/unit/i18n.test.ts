@@ -219,6 +219,8 @@ describe('translations', () => {
       'lib/paths.ts': /충돌 사본\|conflict copy\|salinan konflik/,
       'lib/teamGoal.ts': /^[^\uAC00-\uD7A3]*(?:[을를은는][^\uAC00-\uD7A3]*)+$/,
       'i18n/index.ts': /^[^\uAC00-\uD7A3]*(?:[으로을를][^\uAC00-\uD7A3]*)+$/,
+      // 팀 파일's word lists, matched in file and folder names on the person's computer (not screen text)
+      'lib/teamFiles.ts': /^const (brandFolder|PERSONAL_KO|PERSONAL_KO_WHOLE|KEEP_WORDS) = /,
     }
     const files = fs.readdirSync(src, { recursive: true }).map(String).filter((f) => /\.tsx?$/.test(f) && f !== path.join('i18n', 'ko.ts'))
     for (const f of files) {

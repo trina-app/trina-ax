@@ -14309,6 +14309,85 @@ folder for 팀 파일). The owner decided (OPEN Q1) to fix only the desktop app'
   and CI does not run the desktop e2e.
 - Version impact: **patch** (a desktop fix; no API, database or setting change).
 
+## W6 — Onboarding v6: 팀 파일 recommendations (feat/onb6-files, 2026-11-08, product owner)
+
+The owner's decisions (2026-11-08): the AI recommends from file names and metadata, the person confirms once, then the
+files upload. Never fully automatic; no file content leaves before the upload. The 팀 파일 step becomes a folder pick, a
+local list, the AI's picks, one confirm and the upload (FLOW v6 §3). `web/src/components/onboarding/TeamFilesStep.tsx`
+(moved out of `pages/Welcome.tsx`, which only mounts it and passes the next step's label), `web/src/lib/teamFiles.ts`.
+
+- **F1 start.** [폴더 고르기]: Chrome, Edge and the desktop app open `showDirectoryPicker({ id: 'team-files', mode: 'read', startIn:
+  'documents' })` (never `webkitdirectory`, whose Chrome dialog says "Upload # files"); Safari and Firefox the folder
+  input, with "폴더를 살펴보는 중…" once the window has gone until the files or a cancel arrive. The hint says the
+  browser does not open 문서·데스크탑·다운로드 themselves ("바탕 화면" on Windows); the folder input's says big folders take a
+  while. A cancel, a folder Chrome refuses and "허용 안 함" are all `AbortError`: nothing happens. Quiet "파일 직접 올리기"
+  (hand-picked files go up at once) and 나중에 하기. A dropped folder goes to the list, dropped files go up.
+- **The local walk** (in the page, before anything leaves): breadth first, it stops at 5,000 documents or 50,000
+  entries walked, 6 folders down or 15 s, with the cut line. Never listed: dot entries, system names, app bundles,
+  node_modules, .git, Library (and AppData, Office's `~$` lock files). Documents: pdf, doc(x), hwp(x), xls(x), csv,
+  ppt(x), key, pages, numbers, txt, md, rtf; png and jpg only under a folder named like logo, brand, 브랜드 or 로고. A file
+  is opened (for its size and date) only when it is a document; over 50 MB it is counted, not offered. The walk reads no
+  content; the upload reads only the ticked files.
+- **Personal-looking names** (a word list, Korean and English, matched against every part of the path, the picked
+  folder's own name included: 인사/급여/2026-10.xlsx) are never sent to the AI and never ticked by default; they sit in their own group, and a ticked
+  one says "{팀} 모두가 봐요". FLOW §3.2 sent them to the AI; the build brief (2026-11-08) said never, and that is what is
+  built (fewer personal names leave). When every file looks personal no AI call is made, that group opens, and the line
+  reads "개인 정보일 수 있는 파일이 많아요 · 직접 골라 주세요".
+- **The AI's picks: `POST /api/onboarding/files/rank`** (owners and admins; the Files screen offers the step to admins
+  too). At most 500 entries, chosen by name words first (양식, 템플릿, 서식, 규정, 소개서, 매뉴얼, 가이드 and English ones), then
+  office files before text and pictures, then newest: id, name, the folder inside the picked one, type, size, date.
+  The pick IS a chat turn of the caller (there is no AI call outside a turn), run like the skill share's judgement:
+  `server/src/onboarding/file-rank.ts` marks the chat in `onboarding_file_ranks` (migration 272), its turns have no
+  tool (the file tools are refused), no team rules, skills, memories, project, attachments, browser, sub-agents or web
+  search, and their own instructions with the entries as one JSON line each inside `<material>` (its closing tag broken
+  in names). The request waits at most 30 s; then, or when the page drops it ([그만 보기], its own 30 s), the turn is
+  stopped and the answer is ignored. The answer is read defensively (known ids once, a known reason word, at most 200).
+  The chat is never listed and is deleted after (a leftover of a restart within minutes); its turns stay (the usage is
+  the caller's). No AI, a timeout or an
+  error: the list shows unticked with "AI 없이 살펴봤어요 · 직접 골라 주세요".
+- **F3 the list.** The AI's top 20 ticked with their reason word (양식 · 회사 소개 · 보고서 · 회의록 · 브랜드 자료 · 규정·정책 · 교육
+  자료 · 제안서); "이미 있어요" (the same path in the target folder with the same size, or in a run of the step: never
+  ticked, a renamed "(1)" copy never matches; only folders that are there are listed, from the target down); the
+  personal group; "다른 파일도 보기" (the AI's further picks, then the rest newest first; a search above 30 rows; the
+  50 MB line in its footer); the personal group has its own search above 30 rows. "폴더 더 고르기" merges (a file listed twice shows once), ranks again, keeps the ticks; new
+  picks arrive unticked. "넣을 곳" only with more than one place. At most 100 ticked: "한 번에 100개까지 올려요". The
+  primary reads "추천 N개 올리기" while the ticks are the AI's, "{n}개 올리기" after a change, "다른 폴더 고르기" with none.
+  The list, the answer and the ticks stay in the tab while it is open (← 이전 and 다음, another page and back: no second
+  AI call); sign-out forgets them.
+- **F4/F5 run on the file screen's folder runs** (MUST 3 / MUST A): `startFolderUpload` gained a tag (`welcome-files`)
+  and an `onLanded` callback; `lib/folderRuns.ts` keeps the newest run of a tag after its row leaves the file screen,
+  until sign-out. Runs go on across pages, guard reload and close (`beforeunload`), upload 3 at a time, make folders
+  parent first, each picked folder's own name first. The step opens on its newest run (F4 while it runs, F5 after),
+  never on F1; a finished step without a run in the tab opens on F1 with "다음: …" as the primary and 폴더 고르기 beside
+  it. Hand-picked and dropped files run the same way with no folder level, skipping a file of the same name and size
+  in the target folder or in a run of the step ("이미 올린 파일 n개는 건너뛰었어요"). [그만 올리기] stops a run (what went up
+  stays, the server drops the unfinished files). F5: "Acme 폴더에 k개를 올렸어요", the next step, quiet "폴더 더 고르기";
+  failed or stopped files show their reason and 다시 goes back to F3 with them ticked (a hand-picked run sends them again).
+- **팀 파일 recorded by the run: `POST /api/onboarding/files/landed`** (owners and admins), called by the run with its
+  first landed file's path. The server records the step done once, only on a team whose steps were opened, only for a
+  file written within the hour that is there in a group's folder and readable by the caller (`server/src/onboarding/team-files.ts`), with the
+  current owner as the one whose steps end. Not `PATCH /welcome`, which is the owner's: after a transfer the old owner is
+  an admin and their run still records the step (review M5). FLOW said "the upload carries the run's tag"; a call of its
+  own keeps the upload contract (component C) as it is, and the run makes it from any page.
+- **Phone:** no folders. "휴대폰에서는 폴더째 살펴볼 수 없어요…" with [파일 직접 올리기], then F4/F5.
+- **After setup:** on a computer's Files screen, owners and admins see one quiet line "폴더에서 회사 문서 추천받기" at the top
+  and in the team folder while the team folder holds no file (its own folders do not count). It opens the same steps in
+  a dialog ("닫기" instead of the next step, no 나중에 하기).
+- **Desktop app:** the folder window, as in Chrome (its File System Access works since "W6 — Desktop: the folder
+  window"), without the browser's hint (the app opens Documents, Desktop and Downloads themselves); the Mac App Store
+  build answers the folder input with its own window (`answersFileInputs`).
+- **Not here / said out loud.** `FolderUploads` still shows only on the file screen: on another page a run goes on and
+  its guard holds, without a row. ← 이전 stays enabled during F4 (the run goes on; coming back shows it). The step plan,
+  the tools step and the "다음:" wording belong to the step-plan branch: the label is a prop here.
+- Tests: `tests/unit/b-onboarding-file-rank.test.ts` (the answer read defensively, the fence, the turn on the fake
+  engine: not listed, its own instructions, no tool, a refused tool call, a JSON answer, the timeout and a dropped
+  request, the route's roles and body checks, the landed record), `tests/security/lib/onboarding-files-cases.ts`,
+  `web/test/unit/team-files.test.ts` (the walk and its limits, never-listed names, types, personal names, what goes to the
+  AI, the groups, the cap, merge and dedupe, "이미 있어요", hand-picked skips, the tagged run), `web/test/unit/welcome.test.tsx`,
+  `web/test/e2e/welcome-team-files.spec.ts` (F1–F5, leaving during F4 and coming back, 0 recommendations and no AI, the
+  phone, the Files screen's dialog).
+- Version impact: **minor** (two API routes, migration 272, a new step screen).
+
 ## 접속 상태 — online status, a dot on a person's picture (feat/presence-dots, 2026-11-08, product owner)
 
 넣을 곳: trina-ax core (`server/src/realtime/presence.ts`, `server/src/realtime/hub.ts`, `server/src/routes/people.ts`,

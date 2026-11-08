@@ -38,6 +38,7 @@ import { roomReadTools, roomSessionTools } from './room-tools'
 import { projectChatTools } from './room-project-chats'
 import { hideUrls } from '../tools/audit-url'
 import { SHARE_JUDGE_REFUSAL } from '../skills/share-judge'
+import { FILE_RANK_REFUSAL } from '../onboarding/file-rank'
 import { mergeTargets, SHARE_MERGE_REFUSAL } from '../skills/share-merge'
 
 export interface Tool {
@@ -108,8 +109,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // draft from pasted text has none
     if (exec.profileDraft && (t.name !== 'web_fetch' || exec.profileDraft.scope.source !== 'website')) return false
     // a team skill draft (onboarding/skill-draft.ts), a skill share's judgement (skills/share-judge.ts) or its merge
-    // (skills/share-merge.ts): no tool at all besides the file tools (refused, or for a merge only on its team skills)
-    if (exec.skillDraft || exec.shareJudge || exec.shareMerge) return false
+    // (skills/share-merge.ts), 팀 파일's picks (onboarding/file-rank.ts): no tool at all besides the file tools (refused,
+    // or for a merge only on its team skills)
+    if (exec.skillDraft || exec.shareJudge || exec.shareMerge || exec.fileRank) return false
     if(confidential && !localTool(t.name)) return false
     // a team chat room's AI session (rooms/ai.ts): only the tools rooms/ai-tools.ts allows there
     if (exec.room && !ROOM_TOOLS.has(t.name)) return false
@@ -183,6 +185,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // a profile draft: the same site and at most 4 pages per answer, counted before the call starts
       if (exec.skillDraft) return { ...text(SKILL_DRAFT_FILE_REFUSAL, true), summary: `${name} -> refused: team skill draft (no tools)` }
       if (exec.shareJudge) return { ...text(SHARE_JUDGE_REFUSAL, true), summary: `${name} -> refused: skill share judgement (no tools)` }
+      if (exec.fileRank) return { ...text(FILE_RANK_REFUSAL, true), summary: `${name} -> refused: team file picks (no tools)` }
       if (exec.shareMerge) return { ...text(SHARE_MERGE_REFUSAL, true), summary: `${name} -> refused: skill share merge (no tools)` }
       const draftNo = exec.profileDraft ? draftToolRefusal(exec.profileDraft, name, args) : null
       if (draftNo) return { ...text(draftNo, true), summary: `${name} -> refused: company profile draft (${draftNo.slice(0, 80)})` }
@@ -266,6 +269,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (exec.profileDraft) return { refusal: DRAFT_FILE_REFUSAL, summary: `${name} -> refused: company profile draft (no team files)` }
       if (exec.skillDraft) return { refusal: SKILL_DRAFT_FILE_REFUSAL, summary: `${name} -> refused: team skill draft (no team files)` }
       if (exec.shareJudge) return { refusal: SHARE_JUDGE_REFUSAL, summary: `${name} -> refused: skill share judgement (no team files)` }
+      if (exec.fileRank) return { refusal: FILE_RANK_REFUSAL, summary: `${name} -> refused: team file picks (no team files)` }
       // a skill share's merge: read, write and edit of exactly the team skills it merges into; write and edit go on to the
       // skill-write card below like anywhere else
       if (exec.shareMerge && !mergeAllows(exec, name, args)) return { refusal: SHARE_MERGE_REFUSAL, summary: `${name} -> refused: skill share merge (only its team skills)` }
