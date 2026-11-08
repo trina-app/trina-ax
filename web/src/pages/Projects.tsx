@@ -1,8 +1,9 @@
 // Projects: a folder of the team folder + instructions, one project per folder. Chats opened inside a project use both
 // as their default context. List (projects whose folder the person can read), create (folder they can write; the
 // dialog is components/ProjectForm.tsx, also opened from a folder on the Files page), project home: a box that
-// starts a chat in the project and the person's chats in it, with the dev environment, the instructions and the
-// folder's files as short lines beside them (like Claude's project page).
+// starts a chat in the project and the person's chats in it, with the instructions and the folder's files as short
+// lines beside them (like Claude's project page). No dev environment line: on the srt runner that setting is the team's,
+// in Team settings, and a chat shows its own runs (docs/DECISIONS.md "Dev environment: no line on the project page").
 // Shared project chats (docs/DECISIONS.md "Shared project chats"): the setting is in the edit dialog (ProjectForm), the
 // list is "채팅" (my chats there and every shared chat of the project I can see, those with the people icon and the
 // name of who made them), the box says who sees a new chat, and deleting the project says its shared chats go too.
@@ -32,7 +33,6 @@ import { ProjectForm } from '../components/ProjectForm'
 import { ProjectTrashNote } from '../components/ProjectTrashNote'
 import { Button, EmptyState, ErrorNote, PageHeader, Skeleton, StickyHeader, confirmDialog, menuOpener, pageColumn, promptDialog, useCopy } from '../components/ui'
 import { useFocusAfterRemove } from './admin/common'
-import { DevEnvRow } from './DevEnvSection'
 
 /** The address of a project's page (the app's own route; someone who cannot see the project gets "not found"). */
 const projectLink = (id: string) => `${typeof location === 'undefined' ? '' : location.origin}/projects/${id}`
@@ -328,7 +328,6 @@ export function ProjectHome() {
           </div>
           <aside aria-label={t('projects.about')} className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1">
             <div className="divide-y divide-line">
-              <DevEnvRow project={p} />
               <DisclosureRow
                 testId="project-instructions"
                 icon={<ScrollText size={16} />}

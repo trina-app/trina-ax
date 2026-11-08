@@ -28,12 +28,14 @@ scripts/dev-env/srt/install-srt.sh --id mycel
 On a hosted team VM the plan file `<base>/root/dev-env.json` must be there (root-owned, format 1). Self-hosted servers
 without the file get half of the memory and of the CPUs for all runs together. The first run restarts the team server.
 
-Then, in the app, an owner or admin turns on the dev environment of a project and accepts the warning (version 2).
+Then, in the app, an owner or admin turns on the dev environment for the team in Team settings › Dev environment and
+accepts the warning (version 2).
 
 ## Check
 
 - `systemctl show -p Environment <ID>-server.service` names `MYCEL_DEV_ENV_RUNNER=srt`.
-- The project page says the dev environment is available. If not, it says why (a missing file, polkit).
+- Team settings › Dev environment shows no "cannot run" note. If it does, `GET /api/admin/dev-env` says why in
+  `availability.detail` (a missing file, polkit).
 - `systemctl list-units 'trina-dev-*'` lists the runs while they run.
 
 ## A new srt version
