@@ -859,6 +859,7 @@ export const es: Record<MessageKey, string> = {
   'projects.deleteShared': "También se eliminan {n, plural, one {# chat compartido} other {# chats compartidos}}.",
   'projects.deleteBodyShared': "Solo se elimina el proyecto; su carpeta y sus propios chats se conservan.",
   'projects.repointShared': "Quienes pueden ver esta carpeta ({m, plural, one {# persona} other {# personas}}) verán {n, plural, one {# chat compartido} other {# chats compartidos}}.",
+  'projects.chatPeople': "Participantes: {names}",
   'chat.sharedLabel': "Chat compartido",
   'chat.shared': "Chat compartido · lo pueden ver {n, plural, one {# persona} other {# personas}} del proyecto",
   'chat.footerShared': "La IA puede cometer errores. Verifique la información importante. {n, plural, one {# persona del proyecto puede} other {# personas del proyecto pueden}} ver este chat.",
