@@ -6,7 +6,8 @@
 //  - check (setPermissionCheckHandler, 'fileSystem'): before every read through a handle, for the folder the handle
 //    came from, with the grant's origin as a URL ("https://acme.treesoop.com/", trailing slash) and no frame;
 //  - file-system-access-restricted: a folder Chromium's blocklist refuses (home, Desktop, Documents and Downloads
-//    themselves; ~/Library, ~/.ssh, app data and the like with everything in them).
+//    themselves; ~/Library, ~/.ssh, app data and the like with everything in them). Desktop, Documents and Downloads
+//    are allowed; the home folder and everything else stay refused (PICKABLE_BLOCKED_ROOTS).
 // What the page gets: read only, for the folders the person picked in the window while the app runs and what is inside
 // them. A pick counts only from the team page's top frame at an allowed origin; a read counts for that origin (Electron
 // gives no frame with a check, so whatever of that origin holds the handle reads it). A dropped folder handle, or one
@@ -15,6 +16,14 @@
 // first), pinned by desktop/e2e/folder-window.spec.ts. Pure: unit-tested in tests/unit/e-desktop-folder-window.test.ts.
 import { posix, win32 } from 'node:path'
 import { originOf } from './address'
+
+/**
+ * Chromium's refused roots the person may pick anyway, as app.getPath names. Not 'home': a picked home folder would let
+ * the page read ~/.config (the GitHub CLI's token among others), ~/.aws, ~/.netrc, ~/.codex/auth.json and the like
+ * (Chromium blocks only ~/.ssh, ~/.gnupg, ~/Library and app data under it), and nothing here can narrow what is
+ * readable inside a pick: every read through a handle is checked against the picked folder itself.
+ */
+export const PICKABLE_BLOCKED_ROOTS = ['desktop', 'documents', 'downloads'] as const
 
 /** what Electron sends with a 'fileSystem' request (PermissionRequest + FilesystemPermissionRequest) */
 export interface FolderRequest {
@@ -85,9 +94,9 @@ export class FolderGrants {
 }
 
 /**
- * A folder Chromium refuses: 'allow' exactly the home folder, Desktop, Documents and Downloads (roots: app.getPath),
- * picked as a folder by the team page's top frame at an allowed origin. Everything else stays refused ('deny' is the
- * page's AbortError, the same as Cancel). Lifting the block decides nothing about access: the request and the check
+ * A folder Chromium refuses: 'allow' exactly one of the roots (PICKABLE_BLOCKED_ROOTS through app.getPath: Desktop,
+ * Documents, Downloads), picked as a folder by the team page's top frame at an allowed origin. Everything else stays
+ * refused, the home folder included ('deny' is the page's AbortError, the same as Cancel). Lifting the block decides nothing about access: the request and the check
  * still give read only.
  */
 export function restrictedFolderAction(d: RestrictedFolder, allowedOrigins: readonly string[], roots: readonly string[], platform: string): 'allow' | 'deny' {

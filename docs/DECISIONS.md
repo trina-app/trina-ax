@@ -14046,9 +14046,10 @@ folder for 팀 파일). The owner decided (OPEN Q1) to fix only the desktop app'
   - `writable` is refused in both, so no handle can write, create or remove anything (a save window,
     `showSaveFilePicker`, still makes the empty file the person names in it, as before this change; nothing can be
     written into it);
-  - `file-system-access-restricted`: `allow` for exactly the home folder, Desktop, Documents and Downloads
-    (`app.getPath`), as a folder, from the top frame at an allowed origin; `deny` (the page's `AbortError`) for
-    everything else. Lifting the block grants nothing by itself: the request and the check still decide, read only.
+  - `file-system-access-restricted`: `allow` for exactly Desktop, Documents and Downloads (`PICKABLE_BLOCKED_ROOTS`
+    through `app.getPath`), as a folder, from the top frame at an allowed origin; `deny` (the page's `AbortError`) for
+    the home folder itself and everything else. Lifting the block grants nothing by itself: the request and the check
+    still decide, read only.
 - **Why this is safe.** The person picks every folder in the system window; the pick is the consent (on macOS the open
   panel counts as consent for Desktop, Documents and Downloads, and Info.plist now says why if macOS asks anyway). A
   handle that did not come from the window is not readable: a dropped folder (the page's drops use `webkitGetAsEntry`,
@@ -14056,14 +14057,12 @@ folder for 팀 파일). The owner decided (OPEN Q1) to fix only the desktop app'
   `requestPermission()` never reaches the request handler (Electron answers it from the check), so a page cannot widen
   what it has. Artifacts and previews (sandboxed frames, no origin), other origins, the in-app browser pane and the app's
   own screens get nothing; no other permission changed (the page list, the pane's list and the net guard are as before).
-- **What a home pick opens (owner's decision, the residual risk).** Everything Chromium does not block under it.
-  Chromium refuses files in ~/.ssh, ~/.gnupg, ~/Library (except the cloud folders) and app data, checked per file
-  (Chromium 152's directory-iteration blocklist check, on by default; a file that links into them is refused too, seen
-  in a run); folder names in them can still be listed. Not on the macOS blocklist, so readable once home is picked:
-  ~/.config (the GitHub CLI's token among others), ~/.aws, ~/.netrc, ~/.docker, ~/.kube, shell history,
-  ~/.codex/auth.json; on Windows `AppData\LocalLow`. The check cannot narrow this: every read through the home handle
-  is checked against the home folder itself. The page itself reads only the known paths (`lib/skillScan.ts`) or the
-  documents the person ticks.
+- **The home folder stays refused (owner, 2026-11-08).** Picked, it would let the page read ~/.config (the GitHub CLI's
+  token among others), ~/.aws, ~/.netrc, ~/.codex/auth.json and the like (Chromium blocks only ~/.ssh, ~/.gnupg,
+  ~/Library and app data under it), and the app cannot narrow what is readable inside a pick: every read through a
+  handle is checked against the picked folder itself. Folders inside home (a .claude or .codex folder) are no blocked
+  root and stay pickable. Under Desktop, Documents and Downloads, Chromium still refuses files that are or link into
+  its blocked folders, checked per file (Chromium 152's directory-iteration blocklist check, on by default).
 - **Not here.** The one-press read with no window (OPEN Q1, later; it needs the main process's own confirm, the fixed
   path list and key removal, walk M5). The page's hint when macOS refuses a folder anyway. Single files picked with
   `showOpenFilePicker` outside a picked folder stay unreadable (only folders are remembered; the page picks files with
@@ -14071,7 +14070,7 @@ folder for 팀 파일). The owner decided (OPEN Q1) to fix only the desktop app'
 - Tests: `tests/unit/e-desktop-folder-window.test.ts` (the request, the check and the restricted folder, every refusal,
   Windows paths, the wiring, the pane and the store build), `desktop/e2e/folder-window.spec.ts` (the real Electron with a
   hidden window: a dropped folder and the page's own requestPermission() (never reaching the request handler), the
-  request a pick sends, reads, a file, a write, a folder inside, home and app data, another origin; fails on the
-  previous rules). Run by hand on a Mac (`bunx playwright test -c e2e/rtc-native.config.ts` in `desktop/`): CI does not
-  run the desktop e2e.
+  request a pick sends, reads, a file, a write, a folder inside, Downloads (allowed; a test folder stands in for it), the
+  home folder and app data (refused), another origin; fails on the previous rules). Run by hand on a Mac
+  (`bunx playwright test -c e2e/rtc-native.config.ts` in `desktop/`): CI does not run the desktop e2e.
 - Version impact: **patch** (a desktop fix; no API, database or setting change).

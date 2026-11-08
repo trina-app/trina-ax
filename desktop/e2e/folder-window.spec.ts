@@ -1,6 +1,6 @@
 // The folder window on the team page (docs/DECISIONS.md "W6"): a picked folder is readable, never writable; a dropped
-// folder that was not picked, another origin and a write get nothing; Chromium's refused roots (home, Desktop,
-// Documents, Downloads) are allowed, everything else it blocks stays refused, and neither leaves the page waiting.
+// folder that was not picked, another origin and a write get nothing; Chromium's refused roots Desktop, Documents and
+// Downloads are allowed, the home folder and everything else it blocks stay refused, and none leaves the page waiting.
 // Real Electron, hidden window (fixtures/folder-main.ts).
 import { expect, test } from '@playwright/test'
 import { execFile } from 'node:child_process'
@@ -32,15 +32,17 @@ test('a folder picked in the window is readable by the team page, read only', as
     expect(out.createFile).toBe('NotAllowedError')
     expect(out.askWrite).toBe('denied')
     expect(out.inside).toEqual({ state: 'handle', kind: 'directory', read: 'granted', write: 'denied', names: ['c.txt'] })
-    // Chromium's refused roots: the block is lifted (a drop is still no pick); other blocked folders stay refused
-    expect(out.home).toEqual({ state: 'handle', kind: 'directory', read: 'denied', write: 'denied' })
+    // Chromium's refused roots: Downloads' block is lifted (a drop is still no pick); the home folder itself and other
+    // blocked folders stay refused, with an answer (before, the page waited forever)
+    expect(out.downloads).toEqual({ state: 'handle', kind: 'directory', read: 'denied', write: 'denied' })
+    expect(out.home).toEqual({ state: 'error', error: 'AbortError' })
     expect(out.appData).toEqual({ state: 'error', error: 'AbortError' })
     // another origin in the same session
     expect(out.otherOrigin).toEqual(none)
-    expect(out.otherOriginHome).toEqual({ state: 'error', error: 'AbortError' })
+    expect(out.otherOriginDownloads).toEqual({ state: 'error', error: 'AbortError' })
     // Chromium asked the request handler nothing in this run: no pick happened, every page request went to the check
     expect(fromChromium).toEqual([])
-    expect(restricted).toEqual([{ path: 'home', action: 'allow' }, { path: 'appData', action: 'deny' }, { path: 'home', action: 'deny' }])
+    expect(restricted).toEqual([{ path: 'downloads', action: 'allow' }, { path: 'home', action: 'deny' }, { path: 'appData', action: 'deny' }, { path: 'downloads', action: 'deny' }])
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

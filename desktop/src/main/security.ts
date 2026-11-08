@@ -6,16 +6,17 @@
 // from every subframe before its scripts run (an artifact must not leak data over WebRTC, which CSP doesn't cover).
 import { app, shell, type Session, type WebContents } from 'electron'
 import { originOf } from '../common/address'
-import { FolderGrants, restrictedFolderAction, type FolderCheck, type FolderRequest } from '../common/folder-access'
+import { FolderGrants, PICKABLE_BLOCKED_ROOTS, restrictedFolderAction, type FolderCheck, type FolderRequest } from '../common/folder-access'
 import { isOwnUiUrl } from '../common/trust'
 
 /** Permissions the team page may ask for (voice input, notifications, copy button, fullscreen video). The folder
  * window ('fileSystem') has rules of its own: common/folder-access.ts. */
 const PAGE_PERMISSIONS = new Set(['media', 'notifications', 'clipboard-sanitized-write', 'fullscreen'])
 
-/** The folders Chromium refuses as a pick but the team page may read (docs/DECISIONS.md "W6"). */
+/** The folders Chromium refuses as a pick but the team page may read: Desktop, Documents, Downloads, never the home
+ * folder (common/folder-access.ts PICKABLE_BLOCKED_ROOTS, docs/DECISIONS.md "W6"). */
 function folderRoots(): string[] {
-  return (['home', 'desktop', 'documents', 'downloads'] as const).map((name) => {
+  return PICKABLE_BLOCKED_ROOTS.map((name) => {
     try {
       return app.getPath(name)
     } catch {
@@ -52,6 +53,7 @@ export function openExternal(url: string) {
  * Team session: permissions only for the team origin(s), top frame. The folder window (showDirectoryPicker): a folder
  * the person picks is readable by the team page, never writable (common/folder-access.ts); without this the pick ended
  * as the page's AbortError (Cancel), and a pick of the home folder, Desktop, Documents or Downloads never answered.
+ * Desktop, Documents and Downloads are allowed now; the home folder and the rest of Chromium's blocklist are refused.
  */
 export function hardenAppSession(ses: Session, allowedOrigins: () => readonly string[]) {
   const folders = new FolderGrants(process.platform)

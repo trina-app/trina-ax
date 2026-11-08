@@ -1,12 +1,12 @@
 // The folder window on the team page in the desktop app (desktop/src/common/folder-access.ts, docs/DECISIONS.md "W6"):
 // a folder the person picks is readable by the team page's top frame at the team address, never writable; another
 // origin, a frame, a handle that did not come from a pick and every other permission get nothing new; Chromium's
-// refused roots (home, Desktop, Documents, Downloads) are allowed, everything else it blocks stays refused.
+// refused roots Desktop, Documents and Downloads are allowed; the home folder and everything else it blocks stay refused.
 // The same rules in the real Electron: desktop/e2e/folder-window.spec.ts.
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { folderKey, FolderGrants, restrictedFolderAction, type RestrictedFolder } from '../../desktop/src/common/folder-access'
+import { folderKey, FolderGrants, PICKABLE_BLOCKED_ROOTS, restrictedFolderAction, type RestrictedFolder } from '../../desktop/src/common/folder-access'
 
 const TEAM = 'https://acme.treesoop.com'
 const LAN = 'https://192.168.0.10:8443'
@@ -15,7 +15,9 @@ const ALLOWED = [TEAM, LAN]
 const picked = (filePath: string, over: Record<string, unknown> = {}) => ({ filePath, isDirectory: true, fileAccessType: 'readable', isMainFrame: true, requestingUrl: `${TEAM}/welcome`, ...over })
 /** what Electron sends with a check: the grant's origin as a URL (trailing slash), no frame */
 const read = (filePath: string) => ({ filePath, isDirectory: true, fileAccessType: 'readable', isMainFrame: false })
-const ROOTS = ['/Users/alex', '/Users/alex/Desktop', '/Users/alex/Documents', '/Users/alex/Downloads']
+/** app.getPath of PICKABLE_BLOCKED_ROOTS on a Mac, the way main/security.ts resolves them */
+const MAC_PATHS: Record<string, string> = { home: '/Users/alex', desktop: '/Users/alex/Desktop', documents: '/Users/alex/Documents', downloads: '/Users/alex/Downloads' }
+const ROOTS = PICKABLE_BLOCKED_ROOTS.map((name) => MAC_PATHS[name]!)
 const blocked = (path: string, over: Partial<RestrictedFolder> = {}): RestrictedFolder => ({ origin: `${TEAM}/`, path, isDirectory: true, isTopFrame: true, ...over })
 
 describe('a pick (the request after the folder window)', () => {
@@ -101,14 +103,25 @@ describe('a read (the check before every read through a handle)', () => {
 })
 
 describe('a folder Chromium refuses (file-system-access-restricted)', () => {
-  test('exactly the home folder, Desktop, Documents and Downloads: allowed', () => {
+  test('exactly Desktop, Documents and Downloads: allowed', () => {
+    expect(ROOTS).toEqual(['/Users/alex/Desktop', '/Users/alex/Documents', '/Users/alex/Downloads'])
     for (const root of ROOTS) expect(restrictedFolderAction(blocked(root), ALLOWED, ROOTS, 'darwin')).toBe('allow')
     expect(restrictedFolderAction(blocked('/Users/alex/Documents/'), ALLOWED, ROOTS, 'darwin')).toBe('allow')
     expect(restrictedFolderAction(blocked('/Users/alex/Desktop', { origin: `${LAN}/` }), ALLOWED, ROOTS, 'darwin')).toBe('allow')
     // Windows: Documents moved to OneDrive (app.getPath gives the moved folder), case and slashes as the dialog gives them
-    const win = ['C:\\Users\\Alex', 'C:\\Users\\Alex\\OneDrive\\Desktop', 'C:\\Users\\Alex\\OneDrive\\Documents', 'C:\\Users\\Alex\\Downloads']
+    const win = ['C:\\Users\\Alex\\OneDrive\\Desktop', 'C:\\Users\\Alex\\OneDrive\\Documents', 'C:\\Users\\Alex\\Downloads']
     expect(restrictedFolderAction(blocked('c:\\users\\alex\\onedrive\\documents'), ALLOWED, win, 'win32')).toBe('allow')
     expect(restrictedFolderAction(blocked('C:/Users/Alex/Downloads/'), ALLOWED, win, 'win32')).toBe('allow')
+  })
+
+  test('the home folder itself is refused: it would open ~/.config, ~/.aws, ~/.netrc, ~/.codex/auth.json and the like', () => {
+    // Chromium blocks only ~/.ssh, ~/.gnupg, ~/Library and app data under home, and nothing here can narrow what is
+    // readable inside a pick (every read is checked against the picked folder), so home is not one of the roots
+    expect(PICKABLE_BLOCKED_ROOTS).toEqual(['desktop', 'documents', 'downloads'])
+    expect(PICKABLE_BLOCKED_ROOTS as readonly string[]).not.toContain('home')
+    for (const path of ['/Users/alex', '/Users/alex/']) expect(restrictedFolderAction(blocked(path), ALLOWED, ROOTS, 'darwin')).toBe('deny')
+    expect(restrictedFolderAction(blocked('C:\\Users\\Alex'), ALLOWED, ['C:\\Users\\Alex\\Desktop', 'C:\\Users\\Alex\\Documents', 'C:\\Users\\Alex\\Downloads'], 'win32')).toBe('deny')
+    // folders inside home are no blocked root at all: Chromium lets the person pick them (a .claude or .codex folder)
   })
 
   test('everything else Chromium blocks stays refused', () => {
@@ -121,12 +134,13 @@ describe('a folder Chromium refuses (file-system-access-restricted)', () => {
   })
 
   test('only for a folder picked by the team page\'s top frame at an allowed origin', () => {
-    const home = '/Users/alex'
-    expect(restrictedFolderAction(blocked(home, { origin: 'https://evil.example/' }), ALLOWED, ROOTS, 'darwin')).toBe('deny')
-    expect(restrictedFolderAction(blocked(home, { origin: 'null' }), ALLOWED, ROOTS, 'darwin')).toBe('deny')
-    expect(restrictedFolderAction(blocked(home, { isTopFrame: false }), ALLOWED, ROOTS, 'darwin')).toBe('deny')
-    expect(restrictedFolderAction(blocked(home, { isDirectory: false }), ALLOWED, ROOTS, 'darwin')).toBe('deny')
-    expect(restrictedFolderAction(blocked(home), [], ROOTS, 'darwin')).toBe('deny')
+    const docs = '/Users/alex/Documents'
+    expect(restrictedFolderAction(blocked(docs), ALLOWED, ROOTS, 'darwin')).toBe('allow')
+    expect(restrictedFolderAction(blocked(docs, { origin: 'https://evil.example/' }), ALLOWED, ROOTS, 'darwin')).toBe('deny')
+    expect(restrictedFolderAction(blocked(docs, { origin: 'null' }), ALLOWED, ROOTS, 'darwin')).toBe('deny')
+    expect(restrictedFolderAction(blocked(docs, { isTopFrame: false }), ALLOWED, ROOTS, 'darwin')).toBe('deny')
+    expect(restrictedFolderAction(blocked(docs, { isDirectory: false }), ALLOWED, ROOTS, 'darwin')).toBe('deny')
+    expect(restrictedFolderAction(blocked(docs), [], ROOTS, 'darwin')).toBe('deny')
     // a root the system could not tell (app.getPath threw): never matches
     expect(restrictedFolderAction(blocked(''), ALLOWED, ['', ''], 'darwin')).toBe('deny')
     expect(restrictedFolderAction(blocked('/Users/alex/Documents'), ALLOWED, ['', '/Users/alex/Desktop'], 'darwin')).toBe('deny')
@@ -160,7 +174,8 @@ describe('the team session wiring (desktop/src/main/security.ts)', () => {
     expect(listener.indexOf('try {')).toBeLessThan(listener.indexOf('const isTopFrame'))
     expect(listener.indexOf('} catch {')).toBeLessThan(listener.indexOf('callback(action)'))
     expect(listener.indexOf('} catch {')).toBeGreaterThan(listener.indexOf('action = restrictedFolderAction('))
-    expect(security).toContain("(['home', 'desktop', 'documents', 'downloads'] as const)")
+    expect(security).toContain('return PICKABLE_BLOCKED_ROOTS.map((name) => {')
+    expect(security).not.toMatch(/getPath\('home'\)|'home'/)
   })
 
   test('the in-app browser pane and the app\'s own screens get no folder access', () => {

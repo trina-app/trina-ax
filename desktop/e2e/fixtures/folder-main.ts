@@ -13,6 +13,12 @@ import { hardenAppSession } from '../../src/main/security'
 
 app.dock?.hide()
 app.setPath('userData', process.env.FOLDER_TEST_PROFILE!)
+// Downloads is one of Chromium's refused roots: point it at an empty test folder (the blocklist and app.getPath both
+// follow it), so a drop of it never touches the person's own Downloads
+const scratch = mkdtempSync(join(tmpdir(), 'folder-window-'))
+const downloads = join(scratch, 'Downloads')
+mkdirSync(downloads)
+app.setPath('downloads', downloads)
 
 const PAGE = `<!doctype html><body style="margin:0;width:100vw;height:100vh"><script>
 window.drops = []
@@ -64,7 +70,6 @@ void (async () => {
     }))
   hardenAppSession(ses, () => [team])
 
-  const scratch = mkdtempSync(join(tmpdir(), 'folder-window-'))
   const folder = join(scratch, 'company')
   mkdirSync(join(folder, 'sub'), { recursive: true })
   writeFileSync(join(folder, 'a.txt'), 'A')
@@ -98,15 +103,18 @@ void (async () => {
   out.createFile = await js("window.handle.getFileHandle('new.txt', { create: true }).then(() => 'created').catch((e) => e.name)", true)
   out.askWrite = await js("window.handle.requestPermission({ mode: 'readwrite' }).catch((e) => e.name)", true)
   out.inside = await drop(join(folder, 'sub'))
-  // blocked by Chromium: the home folder itself (allowed here, not listed: a drop is no pick) and the app data folder
+  // blocked by Chromium: Downloads itself (allowed here; a drop is still no pick), the home folder itself and the app
+  // data folder (both stay refused). Nothing of home or app data is listed.
   await js('window.listIt = false')
+  out.downloads = await drop(app.getPath('downloads'))
   out.home = await drop(app.getPath('home'))
   out.appData = await drop(app.getPath('appData'))
   await win.loadURL(other)
   await js('window.listIt = true')
   out.otherOrigin = await drop(folder)
-  out.otherOriginHome = await drop(app.getPath('home'))
-  console.log('FOLDER_RESULT ' + JSON.stringify({ out, fromChromium, restricted: restricted.map((r) => ({ ...r, path: r.path === app.getPath('home') ? 'home' : r.path === app.getPath('appData') ? 'appData' : 'other' })) }))
+  out.otherOriginDownloads = await drop(app.getPath('downloads'))
+  const named: Record<string, string> = { [app.getPath('downloads')]: 'downloads', [app.getPath('home')]: 'home', [app.getPath('appData')]: 'appData' }
+  console.log('FOLDER_RESULT ' + JSON.stringify({ out, fromChromium, restricted: restricted.map((r) => ({ ...r, path: named[r.path] ?? 'other' })) }))
   win.destroy()
   server.close()
   rmSync(scratch, { recursive: true, force: true })
