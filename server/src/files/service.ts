@@ -84,10 +84,12 @@ export class TurnFiles {
   /** team-folder files whose content went to the model in this turn (read, grep results): the chat's read scope */
   readPaths = new Set<string>()
   /** folders whose files' names went to the model in this turn (a listing that showed files, glob): a team chat room's
-   * AI session counts them like reads (chat/turn.ts noteReads; its answers may repeat the names), other chats do not */
+   * AI session and a Slack chat count them like reads (chat/turn.ts noteReads; their answers may repeat the names in a
+   * room or a channel), other chats do not */
   namePaths = new Set<string>()
   /** team paths whose own name went to the model, and nothing of what is in them (the sub-folders a listing showed,
-   * chat/turn.ts: every path a room call named): a room session counts each as a name (read-scope.ts {type:'name'}) */
+   * chat/turn.ts: every path a room call named): a room session and a Slack chat count each as a name (read-scope.ts
+   * {type:'name'}) */
   listedNames = new Set<string>()
   /** the same files per file with how and where (files/sources.ts): the answer's "참고한 파일" list. Shared by every
    * agent of the turn, so a sub-agent's reads are in it, marked with `agent` */

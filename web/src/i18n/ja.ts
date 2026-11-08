@@ -202,7 +202,6 @@ export const ja: Record<MessageKey, string> = {
   'settings.find.about': "バージョン ライセンス ソースコード",
   'settings.allSections': "設定の一覧",
   'sidebar.usage': "使用量",
-  'sidebar.appearance': "外観",
   'sidebar.noChats': "まだ履歴はありません。",
   'sidebar.more': "さらに表示",
   'sidebar.trash': "削除した履歴",

@@ -209,7 +209,6 @@ export const en: Record<MessageKey, string> = {
   'settings.find.about': "version license source code",
   'settings.allSections': "All settings",
   'sidebar.usage': "Usage",
-  'sidebar.appearance': "Appearance",
   'sidebar.noChats': "No history yet.",
   'sidebar.more': 'Show more',
   'sidebar.trash': "Deleted history",

@@ -208,7 +208,6 @@ export const ko = {
   'settings.find.about': "버전 라이선스 소스 코드",
   'settings.allSections': "설정 목록",
   'sidebar.usage': "사용량",
-  'sidebar.appearance': "화면 테마",
   'sidebar.noChats': "아직 기록이 없어요.",
   'sidebar.more': '더 보기',
   'sidebar.trash': "삭제한 기록",

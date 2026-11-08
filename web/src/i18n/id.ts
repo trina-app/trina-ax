@@ -209,7 +209,6 @@ export const id: Record<MessageKey, string> = {
   'settings.find.about': "versi lisensi kode sumber",
   'settings.allSections': "Semua pengaturan",
   'sidebar.usage': "Pemakaian",
-  'sidebar.appearance': "Tampilan",
   'sidebar.noChats': "Belum ada riwayat.",
   'sidebar.more': 'Lihat lebih banyak',
   'sidebar.trash': "Riwayat terhapus",

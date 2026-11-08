@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-08 09:30
 - Branch: `feat/first-run-one-box`
-- Status: in progress
+- Status: done
 - Where: trina-ax `shared/` (one parser), `desktop/`, `mobile/`, `web/`, `server/src/auth`, `relay` names. Why: getting
   into a team is core (the apps and the web app), nothing here is about plans or billing (see docs/REPOSITORY-RULES.md)
 - Version impact: minor (new first-run screens in both apps, a new `/api/me` field, three reserved relay names)
@@ -148,4 +148,21 @@ team / strings, relay names and the relay tests; web unit tests in Docker (bun 1
 
 ## Result
 
-(filled in at the end)
+Built as planned, with the design review's must-changes folded in before the code (the plan above already has them)
+and an independent code review's findings fixed after it:
+
+- The desktop health check no longer lets the network stack follow redirects (`net.request` with `redirect: 'manual'`;
+  Electron's `net.fetch` throws on 'manual'); one relay rename hop, asked in both apps before the new address is
+  remembered; a trailing-dot Location is refused.
+- Tokens are 43 characters, so a link cut part-way says so instead of opening the "invalid invite" page.
+- The phone saves the new team before it leaves the old one (a refused save used to leave it in no team).
+- Trailing punctuation is trimmed with a loop (the regex was quadratic on a long paste).
+
+Differences from the plan: no web login host line (the review: a fake server can draw any host; the apps draw it);
+the outside question moved into phase 1; phones have no [팀 만들기] on Android either (Google Play's payments
+policy), and neither has the Mac App Store build; [팀 만들기] opens `https://account.trina.app/` because the repository
+does not know the signup page's path.
+
+Walked by hand in the built desktop app against a local dev server and its relay with fake data (`demo`, plus a local
+TLS proxy for an outside address and a stand-in for a relay rename), and on the iPhone simulator (Korean, light and
+dark) with Maestro: every exit in the table above. PR: see the pull request for test counts and screenshots.

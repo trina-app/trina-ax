@@ -8,7 +8,7 @@
 // spinner or a dot), so the AI never sinks under many rooms. Onboarding's setup row (onboarding/SetupRow.tsx) has its
 // own row between the two. People and the AI never share a word: no bare "채팅" here. Each folds, and each one's whole
 // list stays open or closed, remembered in this browser. Then the account menu (the person's email or ID, Settings,
-// Usage (their own, in Settings), Appearance, Deleted history, Sign out), which opens above the profile line. Below
+// Usage (their own, in Settings), Deleted history, Sign out), which opens above the profile line. Below
 // 768 px it is the 트리나 tab's drawer, the AI's history only (☰ in the phone's top bar on Home): the AI's name on top,
 // 검색, 프로젝트, 예약 작업, 팀 스킬, 트리나 기록, and 삭제한 기록 at the bottom. A new AI chat is the 트리나 tab itself, the
 // Inbox and Admin are in the 나 tab, 파일 is its own tab and the rooms are the 대화 tab; rows are 44 px there.
@@ -17,12 +17,12 @@
 // "프로젝트로 옮기기…" ("프로젝트 바꾸기…" in a project) there too, the dialog of the chat's title menu; a shared chat stays
 // in its project.
 import clsx from 'clsx'
-import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderInput, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Palette, Pencil, Search, Settings, Shield, Trash2, X } from 'lucide-react'
+import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderInput, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Pencil, Search, Settings, Shield, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { teamIconUrl } from '@mycel/shared'
-import type { Chat, Theme } from '@mycel/shared/api'
+import type { Chat } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { dateBucket, formatRelative, type DateBucket } from '../lib/format'
 import { aiName } from '../lib/tabs'
@@ -504,24 +504,20 @@ function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNavigate: 
 /** The profile line at the bottom and its menu above it, like Claude's: who is signed in, then "자리 비움으로 표시" ("접속
  * 중으로 표시" while set: Slack's "Set yourself as away", docs/DECISIONS.md "접속 상태"; its mark is the dot it leads to),
  * Settings (a dialog over the page, components/settings/SettingsDialog.tsx), Usage (their own usage in Settings; the
- * team's is Admin > Usage), Appearance (the theme, chosen right there), Deleted chats and Sign out. My picture carries my
+ * team's is Admin > Usage), Deleted chats and Sign out. The theme is not here, it is chosen in Settings. My picture carries my
  * own online dot, as the team sees it. Arrow keys, Home and End move in the menu; Esc closes it and gives the keyboard
  * back. */
 function AccountMenu() {
   const t = useT()
   const me = useMeStrict()
   const [open, setOpen] = useState(false)
-  const [appearance, setAppearance] = useState(false)
-  const setTheme = useSession((s) => s.setTheme)
   const setDrawer = useUi((s) => s.setDrawer)
   const navigate = useNavigate()
   const ref = useRef<HTMLDivElement>(null)
   const button = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
-  const theme: Theme = me.user.prefs.theme ?? 'system'
   const hide = (focusBack: boolean) => {
     setOpen(false)
-    setAppearance(false)
     if (focusBack) button.current?.focus()
   }
   useEffect(() => {
@@ -600,20 +596,6 @@ function AccountMenu() {
           >
             <Gauge size={16} className="text-muted" aria-hidden /> {t('sidebar.usage')}
           </button>
-          <button role="menuitem" type="button" aria-expanded={appearance} className={item} onClick={() => setAppearance((v) => !v)} data-testid="account-appearance">
-            <Palette size={16} className="text-muted" aria-hidden /> {t('sidebar.appearance')}
-            <ChevronRight size={14} className={clsx('ml-auto text-faint transition-transform', appearance && 'rotate-90')} aria-hidden />
-          </button>
-          {appearance && (
-            <div role="group" aria-label={t('sidebar.appearance')} className="pl-6">
-              {(['system', 'light', 'dark'] as Theme[]).map((x) => (
-                <button key={x} role="menuitemradio" aria-checked={theme === x} type="button" className={clsx(item, 'h-8')} onClick={() => void setTheme(x).catch(() => {})} data-testid={`account-theme-${x}`}>
-                  {t(`settings.theme.${x}`)}
-                  {theme === x && <Check size={14} className="ml-auto text-accent-text" aria-hidden />}
-                </button>
-              ))}
-            </div>
-          )}
           <Link
             role="menuitem"
             to="/trash"

@@ -9043,6 +9043,59 @@ People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guid
   or else its full name, read when the tokens are saved and at each connection (a rename in Slack shows up), with the
   manifest's name when Slack does not say. `auth.test` gives the user name (`trinaax`), which `@` and `/invite` do not
   find.
+- **Post to channel checks what the answer used (fix/slack-post-check, 2026-11-08).** A Slack question is a normal turn
+  of the asker's, with their whole reach (their groups' folders, their own folder, memories, personal connections), and
+  the button posted at once: an HR member asking in #general for a summary of the salary review put `groups/hr/` in
+  front of the channel with one click, while 대화방에 보내기 and the room's @트리나 both check first. The owner decided:
+  - **The whole team is the test.** Slack does not tell the app reliably which of a channel's members are which
+    accounts here (no e-mail for some, guests, people of no account at all), so the audience is every active account but
+    the asker. Everything the answer used readable by all of them: posted at once, as before. Otherwise the first press
+    replaces the ephemeral answer with a notice to the asker: "This answer used places not everyone on the team can see:
+    groups/hr/. Post it to the channel anyway?", with *Post anyway* and *Cancel*. Cancel puts the answer back with its
+    button (pressing it asks again). DMs are unchanged.
+  - **One classifier.** The check is 대화방에 보내기's (`chat/answer-share.ts` `provenanceChecker` over `branchUse`: the
+    files every answer on the branch read with their sha256 and the hash rule, the chat's read scope when it describes
+    the answer, "not all known" for an answer it does not describe or one that ran dev environment commands);
+    `integrations/slack/post-check.ts` adds only what is Slack's. A team connection or a shared Drive counts as not team-wide whoever its rules let use it, as for the
+    room's AI (`rooms/ai.ts` decide): what it returned is outside content. The whole branch counts, so a later answer in
+    the same Slack thread carries what an earlier one read.
+  - **Memories do not count** (the manager, 2026-11-08, on the PR). Post to channel posts one answer, as 대화방에 보내기
+    does, and that check does not count memories: they are the asker's own notes, and the asker sees the very text that
+    is posted. Counting them (`share-chat.ts` `memoriesInPlay`, as the first version did) put the notice on almost every
+    answer of anyone with a memory. Sharing a whole chat still counts them (`chat/share-chat.ts`): there the others see
+    the whole conversation, every answer of it.
+  - **Names count in a Slack chat.** A personal chat's scope records file contents (read, grep), not the names a
+    listing or a glob showed; a room session records those too. The first review posted "list groups/hr/" to the
+    channel at once, file names and all. A chat of a Slack thread (`slack_threads`, or a turn asked from Slack) now
+    records them the same way (`chat/turn.ts` `noteReads`: the folders whose files a listing or a glob showed, and the
+    sub-folders it showed as names). That scope is the chat's, so a widening card can come sooner in such a chat too.
+  - **A team of one.** With nobody else active, the asker's own material and an answer not all known still count: the
+    channel has people all the same.
+  - **Never posted** (as 대화방에 보내기 refuses them, confirmed or not): a confidential conversation (safe operations 1A,
+    `safe-ops/confidential.ts`; while 1A is on, every conversation is one, so Post to channel always says why), and an
+    answer that read a room some member would see but for old answers hidden from them. Pressed, the answer stays with
+    the asker with the reason and no button; an answer of a confidential conversation comes without the button. Chosen
+    over a notice: the owner's two buttons are for places, and 1A material stays in its conversation everywhere else.
+  - **Named as the asker sees them, never what or who.** Folders the asker may read now by their path, a team connection
+    or shared Drive by its name, a team room by its group's name, "1:1 and group conversations", and the asker's own
+    material apart: "your folder", "the in-app browser", "your personal connections" (the read scope records a personal
+    connection as the person's own, not which one, so it is not named). Anything else is "other
+    material". No file name, no content, no count of people. The notice is a `plain_text` section, so a name is never
+    markup, a mention or a link. In the asker's language (five).
+  - **Post anyway goes through every check again**: the asker, the link and the account, the chat not deleted, Slack
+    asked again whether the channel is shared with another organization, the once-only claim. Its value is the request
+    id and a keyed hash (`confirmMac`, `kind: 'slack.post'`, this server process's secret) over the request, the asker,
+    the sources and who misses them, the places and the flags the notice showed. Without the hash it is no value of
+    ours ("can no longer be posted"); with another request's, or from before something changed (a rule, a member, a
+    restart), it shows the notice again, never posts. `slack.posted` gets `confirmed: true` for such a post (no names, no
+    content).
+  - Not chosen: naming people or counting them (a Slack channel is not the team); the link check of 대화방에 보내기's
+    part A (a Slack answer's links name files the answer read or listed, which the check above covers).
+  - Tests: `tests/unit/c-slack.test.ts` "Post to channel checks what the answer used" (shared/ posted at once; a group
+    folder's notice, Cancel, and Post again; Post anyway once and audited, replayed and forged values, a key from before
+    a new member; Slack Connect and an unknown channel on Post anyway; a team connection, a personal connection, the
+    browser, memories not counted, Korean; list and glob names; not all known; a team of one; Cancel after an unlink; a confidential
+    conversation, also its next answer; hidden room answers; a DM).
 
 ## S — The lead's way becomes a team skill (feat/onboarding-s, 2026-11-05)
 
@@ -11198,6 +11251,9 @@ applies to the computer's sidebar too. Approved by the owner after the prototype
 - Tests: `web/test/unit/sidebar.test.tsx`, `web/test/e2e/sidebar.spec.ts`, `tests/unit/b-chat-seen.test.ts`, a matrix
   case for the new route.
 - Version impact: **minor** (a new endpoint, two optional fields, one additive migration).
+- **Appearance leaves the account menu (2026-11-08, the owner's request).** The theme (system, light, dark) is chosen in
+  Settings › Profile only, so there is one place for it and the menu is shorter (lean UI). The menu keeps 자리 비움으로
+  표시, Settings, Usage, Deleted chats and Sign out. No API or data change; the stored `theme` preference is unchanged.
 ## Session markers (feat/session-status-v2, 2026-11-07)
 
 넣을 곳: Team AX core (`web/src/lib/sessionMarkers.ts`, `store/sessionMarkers.ts`, `components/chat/ChatState.tsx`,
@@ -12173,7 +12229,7 @@ core next to the theme.
 
 - **One control, next to the theme.** Settings › Profile › 글자 크기: a native range slider from a small 가 to a large
   가 (the letter follows the language: A, あ), five steps 작게 · 기본 · 크게 · 더 크게 · 아주 크게, and one sample line in
-  the reading size of chats. No reset button: 기본 is a step. Not in the account menu's Appearance (one place, lean UI).
+  the reading size of chats. No reset button: 기본 is a step. Not in the account menu (one place, lean UI: Appearance left the menu on 2026-11-08).
 - **What it does: the root font size.** The step sets `font-size` on `<html>` (90%, none at 기본, 112.5%, 125%, 140%), a
   percentage so a larger default font in the browser still counts. Tailwind's sizes and spacing and the app's own tokens
   are rem, so text, rows, buttons and gaps grow together and nothing gets cut, unlike scaling only the text. The app's
@@ -14776,3 +14832,46 @@ Builds on "First run: one box" (PR 1). Plan: `docs/AGENTS/plan/20261108-1025-fir
   gate's offer, the configs declaring the scheme), `mobile-security` (the edition's associated domains and intent
   filter, links only through ④), `app-links.test.ts` (the files, served signed out over the relay and directly, the
   ids equal to the branding), `web/test/unit/first-run.test.tsx` and `web/test/e2e/first-run.spec.ts` ("앱에서 열기").
+
+## The release feed also serves the Android APK (feat/feed-android-apk, 2026-11-08, product owner)
+
+- **Why.** The Android app is in Google Play review, so the website links an APK people install themselves. GitHub's
+  `releases/download/` addresses answered 504 for every repository for over an hour on 2026-11-08, while the same files
+  came through the API; the Windows installer the website links is already on the feed (`office/<version>/`).
+- **What.** The feed Worker serves `apps/android/<version>/<file>.apk` only (no other platform, no other extension),
+  immutable, with Range, like `plugins/`. The root line stays `Updates: office/, server/, plugins/` because
+  publish-server.ts and its tests read it. Redeploy once (`bun scripts/release/hosting.ts setup`) before uploading.
+- **Not.** No listing, no "latest" alias, no signature: the APK's own signature is what Android checks, and the website
+  shows the SHA-256 on the GitHub release.
+
+## A deleted team skill opens 파일 › 휴지통; @트리나's private answer counts as unread at once (fix/skill-trash-room-unread, 2026-11-08)
+
+Two bugs from a design audit of dev. Placement: Team AX core (web app, `server/src/skills/changes.ts`); no contract,
+setting or data change.
+
+- **The files trash has an address: `/files?view=trash`** (`web/src/pages/Files.tsx`), like `?view=people` in Admin ›
+  Folder permissions. The 팀 폴더 / 휴지통 tabs set it (the folder and the search stay in the address, so the 팀 폴더
+  tab comes back to them, as the tab state did), so a link, a reload and Back open the right tab. Both read the tab
+  from the address itself (as Folder permissions does): the "folder gone" climb, whose listing callback lives as long
+  as the folder, keeps the tab on screen, and the tab already selected adds no Back step. Before, 휴지통 was a tab
+  state with no address.
+- **A deleted team skill points there.** 팀 스킬 › 최근 변경's 삭제 row had "삭제한 기록", and the server's skill-change
+  notice for a deleted file had a link, both to `/trash`: the deleted AI chats, where the file never is. Both now go
+  to `/files?view=trash` (`FILES_TRASH` in `web/src/lib/nav.ts`, `historyLink` on each side). The button says the
+  trash tab's own word, 휴지통 (`files.trash`, no new string); the notice's button stays 열기. A notice from before
+  this change keeps its `/trash` link and opens the chats, as it did.
+- **One judge of who sees a room message.** The server counts a private @트리나 answer (`visibility 'private'`, the
+  asker's only) as unread for the asker (`unreadCount`), but the web added to the live badge only for
+  `visibility === 'room'`, and the answer sends no `room.read`. Asking @트리나 and going to another room showed 0 on the
+  room in the sidebar (and in the dock badge where the room counts every message: a DM, a group chat, 모든 메시지), 1
+  after a reload. The server sends a room message only to those who may see it
+  (`canSee`), so `withMessage` (`web/src/store/rooms.ts`) no longer tests visibility: what arrives counts as the
+  server counts it. It also counts only after my read position (the server's `seq > last_read_seq`): sharing my
+  private answer to the room from another window reads the room up to it first (`room.read` before the message), and
+  this window added 1 for it. Not chosen: each member's unread count with every `room.message` (one count query per
+  member per message, hundreds in the everyone room) for a rule the web follows from what it is sent.
+- Tests: `tests/unit/skill-managers.test.ts` (the notice's link), `web/test/unit/rooms-store.test.ts` (a private answer
+  counts, not on screen and not after a read), `web/test/unit/live.test.ts` (the notice's 열기 for the new and the old
+  link), `web/test/e2e/files.spec.ts` (the address: tab, reload, Back, a link), `web/test/e2e/team-skills.spec.ts`
+  (a deleted skill: the notice and the 최근 변경 row open the trash with the file; the mock records it as a 삭제 change).
+- Version impact: **patch** (two fixes; no API, setting or data change).

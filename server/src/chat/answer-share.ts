@@ -151,7 +151,9 @@ export function useOf(db: Database, chatId: string, ids: readonly string[], desc
   return { answers: [...ids], files, other, known, roomsUnseen }
 }
 
-function branchUse(db: Database, chatId: string, messageId: string): BranchUse {
+/** What one answer used: its branch's files and, when the scope describes it, the scope's other sources (also Slack's
+ * "Post to channel", integrations/slack/post-check.ts). */
+export function branchUse(db: Database, chatId: string, messageId: string): BranchUse {
   const chat = db.query('SELECT id, active_leaf_id FROM chats WHERE id = ?').get(chatId) as Pick<ChatRow, 'id' | 'active_leaf_id'> | null
   const answers = answersAbove(db, messageId)
   return useOf(db, chatId, answers.map((a) => a.id), !!chat && scopeDescribes(db, chat, messageId, answers))
@@ -179,8 +181,9 @@ export interface AttachedCopy { file: string; path: string; links: string[] }
 const secrets = new WeakMap<AppContext, Buffer>()
 const secretOf = (ctx: AppContext) => secrets.get(ctx) ?? secrets.set(ctx, randomBytes(32)).get(ctx)!
 /** An opaque key over `state` (HMAC-SHA-256 with this server process's secret): what a person saw when asked. The share
- * of a chat (chat/share-chat.ts) puts `kind: 'chat.share'` in its state; this file's room confirm (confirmKeyOf) has a
- * `roomId` and no `kind`: a key of one question is never one of the other. */
+ * of a chat (chat/share-chat.ts) puts `kind: 'chat.share'` in its state, Slack's "Post anyway" `kind: 'slack.post'`
+ * (integrations/slack/post-check.ts); this file's room confirm (confirmKeyOf) has a `roomId` and no `kind`: a key of
+ * one question is never one of another. */
 export const confirmMac = (ctx: AppContext, state: unknown): string => createHmac('sha256', secretOf(ctx)).update(JSON.stringify(state)).digest('base64url')
 
 /** The provenance core, without what is particular to a room (the linked files, kept sources): who of the audience
@@ -330,7 +333,7 @@ export function provenanceChecker(ctx: AppContext, userId: string, audience: rea
     return { missing, places: [...places.values()], otherPlaces, unknown, roomsUnseen, keys: keys.sort(), hidden, candidates }
   }
 
-  return { me, rules, people, reads, myFile, hashNow, of }
+  return { me, rules, people, reads, myFile, hashNow, placeOf, of }
 }
 
 /**
