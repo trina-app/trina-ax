@@ -1,6 +1,7 @@
 // Route module "memories" — owner: component B (docs/WORKPLAN.md).
 // Implements: MEMORIES (own memories only: list, add, correct, forget; admins can't see other people's, tab 1). Contract: shared/src/api/memories.ts
-// Also SKILLS (the team skills the caller can read, for the composer's "/" list; skill suggestions). Contract:
+// Also SKILLS (the team skills the caller can read, for the composer's "/" list; what the team prepared for Home's
+// first screen; skill suggestions). Contract:
 // shared/src/api/skills.ts (the admin side of it, skill managers and changes, is in routes/admin.ts)
 // And SCHEDULES (the caller's own scheduled tasks, Settings: run now, edit, pause, delete). Contract: shared/src/api/schedules.ts
 import { API, type Locale } from '@mycel/shared/api'
@@ -15,6 +16,7 @@ import { decodeCursor, encodeCursor } from '../chat/store'
 import { scanSkillsWithShadowed, skillInfo, skillIssues } from '../chat/skills'
 import { teamRuleFiles } from '../chat/prompt'
 import { popularSkills } from '../skills/popular'
+import { teamPrepared } from '../skills/examples'
 import { createFromTemplate, SCHEDULE_TEMPLATES } from '../chat/schedule-templates'
 import { installNotifications } from '../notifications/service'
 import { registerNotifications } from './notifications'
@@ -138,6 +140,11 @@ export const memoriesRoutes: RouteModule = {
       const by = suggestersOf(ctx.db, [...items, ...lost.map((l) => l.skill)].map((s) => s.path).filter((x) => !x.startsWith('users/')))
       const one = (s: (typeof items)[number], extra: object = {}) => { const i = skillInfo(s); const who = by.get(s.path); const r = replaces.get(s.path); return { ...i, ...(who ? { suggestedBy: who } : {}), ...(r ? { replaces: r } : {}), ...extra } }
       return { items: [...items.map((s) => one(s)), ...lost.map((l) => one(l.skill, { shadowedBy: l.by.tier === 'personal' ? { tier: 'personal' } : { tier: 'group', group: { id: l.by.group.id, name: l.by.group.name } } }))] }
+    })
+    // Home's "팀에 준비된 것" (docs/DECISIONS.md "W6.3"): what the team prepared, read as the caller (skills/examples.ts)
+    kit.handle(API.skillExamples, ({ c, auth }) => {
+      try { ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }
+      return teamPrepared(ctx, auth.user.id, c.get('locale'))
     })
     // R2-SKILL-03: the entries that do not load, so the skills and files screens can warn (readable entries only)
     kit.handle(API.listSkillIssues, ({ auth }) => {

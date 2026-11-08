@@ -253,6 +253,10 @@ export const SPECS: Record<string, Spec> = {
       if (who === 'memberIn' && !r.text.includes(C.aliceSkill)) throw new Error('alice does not see her personal skill')
     } },
   listSkillIssues: { build: (c) => c.get('/api/skills/issues'), scope: 'self' },
+  // Home's "팀에 준비된 것" (docs/DECISIONS.md "W6.3"): the caller's own skills and a document count of the team folder as
+  // the caller; the canary check covers the finance skill and alice's personal skill (never in anyone else's answer)
+  skillExamples: { build: (c) => c.get('/api/skills/examples'), scope: 'self',
+    check: (r, w, who) => { if (r.status === 200 && r.text.includes(C.aliceSkill)) throw new Error(`${who} sees alice's personal skill as prepared by the team`) } },
   // team skills: suggestions are seen by their suggester and the managers of the target folder only (skills/suggestions.ts)
   skillsOverview: { build: (c) => c.get('/api/skills/overview'), scope: 'self' },
   listSkillSuggestions: { build: (c) => c.get('/api/skills/suggestions?scope=review'), scope: 'self',

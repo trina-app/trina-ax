@@ -111,7 +111,8 @@ test('회사 소개 saves the profile and puts the brand materials in, starting 
   const errors2 = watchConsole(p2)
   // the 404s Home gets for a new member, and no other: GET /api/demo (Home asks whether this is a demo server; every
   // other server answers 404, which helpers' realErrors ignores too, but this listener sees every response) and the
-  // first-time card's listing of a folder the member cannot open, walked into to find folders below it
+  // ready question's listing of a folder the member cannot open ("이렇게 시작해 보세요" says when no team folder opens),
+  // walked into to find folders below it
   // (lib/visibleFolders.ts; the mock answers it with 404, the app takes that in its stride)
   const missing: string[] = []
   p2.on('response', (r) => { if (r.status() === 404) { const u = new URL(r.url()); missing.push(`${u.pathname}${u.search}`) } })

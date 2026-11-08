@@ -1,5 +1,8 @@
-// New chat. First-time members see which folders their AI can see and three example questions (filled with
-// their folder names, no engine call). Owners and admins get ONE thing at the top: on a phone the welcome steps'
+// New chat. Under the box, "팀에 준비된 것" (components/onboarding/TeamPrepared.tsx, docs/DECISIONS.md "W6.3 — What a
+// new member sees first"): the team's skills until the person ran one, the team's files while they have no chats, else
+// one ready question; a member's one filled button is there, an owner's or admin's block is all quiet. While no AI
+// answers a member, the block shows read-only under the no-AI card (owners and admins: the card alone). Owners and
+// admins get ONE thing at the top: on a phone the welcome steps'
 // "continue" row while they are unfinished, else the 7-day goal card (docs/DECISIONS.md "Y — Home shows one thing at a
 // time"); on a computer the sidebar's setup row stands for the welcome steps (components/onboarding/SetupRow.tsx,
 // docs/DECISIONS.md "W5"), so the top is the goal card there. The owner's setup checklist is on Admin › Home. While no
@@ -18,15 +21,14 @@
 // everyone's own tasks"): "회의록이 생기면 {팀} 폴더에 놓아 주세요". (The member's start from a link's files, "M", went
 // with 할 일 정리: docs/DECISIONS.md "DS3".)
 import clsx from 'clsx'
-import { ArrowUpLeft, ChevronRight, Folder, Lock, Pencil } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import { useRealNavigationType } from '../lib/realPath'
-import type { Chat, FileEntry, Project } from '@mycel/shared/api'
+import type { Chat, Project } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
-import { visibleFolders } from '../lib/visibleFolders'
-import { useT, type MessageKey } from '../i18n'
-import { Modal, useMediaQuery } from '../components/ui'
+import { useT } from '../i18n'
+import { useMediaQuery } from '../components/ui'
 import { useAiAccess } from '../store/aiAccess'
 import { useChats } from '../store/chats'
 import { isAdmin, isOwner, useMeStrict } from '../store/session'
@@ -43,7 +45,7 @@ import { HomeGoal } from '../components/onboarding/GoalCard'
 import { NoAiCard } from '../components/onboarding/ConnectAi'
 import { HandoverCard, useLeadCard } from '../components/handover/HandoverCard'
 import { DemoIntro, DemoQuestions, useDemoPersona } from '../components/demo/Demo'
-import { Tooltip } from '../components/Tooltip'
+import { TeamPrepared } from '../components/onboarding/TeamPrepared'
 
 export default function Home() {
   const t = useT()
@@ -82,8 +84,11 @@ export default function Home() {
   useEffect(() => { void useAiAccess.getState().load() }, [])
   const noAi = extras && ai.loaded && !ai.usable
   const suggest = extras && !projectId && ai.loaded && ai.usable
+  const admin = isAdmin(me)
+  /** a suggestion chosen: into the box (focused), never sent */
+  const choose = (text: string) => setPreset({ text, n: (preset?.n ?? 0) + 1 })
   // a project's new chat is about that project: the team's goal and setup row stay on Home itself
-  const top = !noAi && extras && isAdmin(me) && !projectId && ai.loaded && <HomeTop owner={isOwner(me)} />
+  const top = !noAi && extras && admin && !projectId && ai.loaded && <HomeTop owner={isOwner(me)} />
   // someone joined with the owner's lead link (docs/DECISIONS.md "W6"): while its card shows, it is the one thing at the
   // top, in place of the setup row or the goal and of the no-AI card
   const lead = useLeadCard(extras && !projectId)
@@ -126,11 +131,13 @@ export default function Home() {
             {/* phones: the top row is the first row under the box */}
             {phone && (leadCard || top) && <div className="mt-3">{leadCard || top}</div>}
             {phone && extras && !projectId && <RecentChats />}
-            {suggest && firstTime && <FirstTime onExample={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
-            {suggest && <FrequentQuestions key={me.user.id} onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
+            {/* "팀에 준비된 것" (W6.3), once the chats are known (the files row and the ready question are for no chats);
+                read-only under a member's no-AI card */}
+            {(suggest || (noAi && !admin && !projectId)) && chatsLoaded && <TeamPrepared key={`prepared-${me.user.id}`} firstTime={firstTime} readOnly={noAi} onCompose={choose} />}
+            {suggest && <FrequentQuestions key={me.user.id} onChoose={choose} />}
             {/* B-W7-7: the team's top skills, once two or more were used. A different key from FrequentQuestions: same-key
                 siblings render twice */}
-            {suggest && <PopularSkills key={`skills-${me.user.id}`} limit={3} min={2} className="mt-6" onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
+            {suggest && <PopularSkills key={`skills-${me.user.id}`} limit={3} min={2} className="mt-6" onChoose={choose} />}
           </div>
         </div>
       </div>
@@ -218,138 +225,4 @@ export function HomeTop({ owner }: { owner: boolean }) {
   if (showResume(progress, false)) return <WelcomeResume />
   // 내 스킬 put off for a computer: the phone keeps the step's promise in one quiet line, above the goal
   return <><SkillsOnComputer /><HomeGoal /></>
-}
-
-const EXAMPLES: MessageKey[] = ['home.example1', 'home.example2', 'home.example3']
-
-type ShownFolder = { key: string; name: string; title?: string; write: boolean }
-
-/** Whether a folder's AI may write, as an icon (the word is the legend's, and for screen readers on each one). */
-function Access({ write }: { write: boolean }) {
-  const t = useT()
-  const label = t(write ? 'files.canWrite' : 'files.readOnly')
-  return (
-    <Tooltip label={t(write ? 'files.canWriteTip' : 'files.readOnlyTip')} description>
-      <span className="inline-flex shrink-0 text-faint" title="">
-        {write ? <Pencil size={12} aria-hidden /> : <Lock size={12} aria-hidden />}
-        <span className="sr-only">{label}</span>
-      </span>
-    </Tooltip>
-  )
-}
-
-/** "✎ 쓰기 가능 · 🔒 읽기 전용", once under the folders: only the kinds that are there. */
-function AccessLegend({ folders }: { folders: ShownFolder[] }) {
-  const t = useT()
-  const kinds = [true, false].filter((w) => folders.some((f) => f.write === w))
-  return (
-    <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-faint" aria-hidden>
-      {kinds.map((w) => (
-        <span key={String(w)} className="inline-flex items-center gap-1">
-          {w ? <Pencil size={12} /> : <Lock size={12} />}
-          {t(w ? 'files.canWrite' : 'files.readOnly')}
-        </span>
-      ))}
-    </p>
-  )
-}
-
-/**
- * "내 AI가 볼 수 있는 폴더" + example questions (translated templates, filled with the person's folder names).
- * Folders reached through a group or project rule (groups/마케팅, projects/x) are listed by their path.
- * users/ itself is only a way to reach personal folders, so the card shows the person's own folder (users/<id>,
- * where the AI saves by default) in its place, and the examples name team folders first.
- * Phones (below 768px): no card, one row "내 AI가 볼 수 있는 폴더 5개 ›" that opens the list in a sheet (whether the AI
- * may write a folder is an icon on it, the words once under the list), and two of the examples as plain rows; from
- * 768px the card with the folders (each with its "쓰기 가능" / "읽기 전용") and the three examples as boxes.
- */
-function FirstTime({ onExample }: { onExample: (text: string) => void }) {
-  const t = useT()
-  const me = useMeStrict()
-  const phone = useMediaQuery('(max-width: 767.98px)')
-  const [folders, setFolders] = useState<FileEntry[] | null>(null)
-  const [open, setOpen] = useState(false)
-  useEffect(() => {
-    let live = true
-    visibleFolders(async (path) => (await api.call(API.tree, { query: { path, limit: 50 } })).entries, { skip: (p) => p === 'users' || p.startsWith('users/') }).then(
-      (r) => live && setFolders(r),
-      () => live && setFolders([]),
-    )
-    return () => {
-      live = false
-    }
-  }, [])
-  const myFolder = t('home.myFolder')
-  // the examples name the path ("users/kim"): "내 폴더 폴더에…" would read badly, and the AI finds it as is
-  const names = useMemo(() => [...(folders ?? []).map((f) => f.path), `users/${me.user.id}`], [folders, me.user.id])
-  if (!folders) return null
-  const shown: ShownFolder[] = [
-    ...folders.map((f) => ({ key: f.path, name: f.path, write: f.access === 'write' })),
-    { key: 'me', name: myFolder, title: `users/${me.user.id}`, write: true },
-  ]
-  const none = !folders.length && <p className="mt-2 text-sm text-muted">{t('home.noFolders')}</p>
-  return (
-    <div className="mt-3 md:mt-6 md:space-y-4">
-      {phone ? (
-        <section data-testid="first-time-folders">
-          <button type="button" onClick={() => setOpen(true)} aria-haspopup="dialog" className="flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 text-left text-sm text-muted transition hover:bg-hover hover:text-ink" data-testid="first-time-folders-open">
-            <Folder size={16} className="shrink-0 text-accent-text" aria-hidden />
-            <span className="min-w-0 flex-1">{t('home.foldersCount', { n: shown.length })}</span>
-            <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
-          </button>
-          <Modal open={open} onClose={() => setOpen(false)} title={t('home.foldersTitle')}>
-            <ul className="-my-2 divide-y divide-line" data-testid="first-time-folders-list">
-              {shown.map((f) => (
-                <li key={f.key} className="flex min-h-11 items-center gap-2.5 py-2 text-sm" title={f.title}>
-                  <Folder size={16} className="shrink-0 text-accent-text" aria-hidden />
-                  <span className="min-w-0 flex-1 truncate">{f.name}</span>
-                  <Access write={f.write} />
-                </li>
-              ))}
-            </ul>
-            {none}
-            <AccessLegend folders={shown} />
-          </Modal>
-        </section>
-      ) : (
-        <section className="rounded-2xl border border-line bg-surface p-4" aria-labelledby="ft-folders" data-testid="first-time-folders">
-          <h2 id="ft-folders" className="mb-2 text-sm font-semibold">
-            {t('home.foldersTitle')}
-          </h2>
-          <ul className="flex flex-wrap gap-2">
-            {shown.map((f) => (
-              <li key={f.key} className="inline-flex items-center gap-1.5 rounded-lg bg-subtle px-2.5 py-1.5 text-sm" title={f.title}>
-                <Folder size={14} className="text-accent-text" aria-hidden />
-                {f.name}
-                <span className="inline-flex items-center gap-0.5 text-xs text-faint">
-                  {f.write ? <Pencil size={11} aria-hidden /> : <Lock size={11} aria-hidden />}
-                  {t(f.write ? 'files.canWrite' : 'files.readOnly')}
-                </span>
-              </li>
-            ))}
-          </ul>
-          {none}
-        </section>
-      )}
-      {/* phones: two plain rows with an arrow up to the box (the first and the third: one to look, one to write); from
-          768px three boxes side by side */}
-      <div className="grid grid-cols-1 md:grid-cols-3 md:gap-2">
-        {EXAMPLES.map((k, i) => {
-          const text = t(k, { folder: names[i % names.length]! })
-          return (
-            <button
-              key={k}
-              type="button"
-              onClick={() => onExample(text)}
-              className={clsx('flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-muted transition hover:bg-hover hover:text-ink md:rounded-xl md:border md:border-line md:px-3.5 md:py-3', i === 1 && 'max-md:hidden')}
-              data-testid="example"
-            >
-              <span className="min-w-0 flex-1">{text}</span>
-              <ArrowUpLeft size={16} className="shrink-0 text-faint md:hidden" aria-hidden />
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
 }

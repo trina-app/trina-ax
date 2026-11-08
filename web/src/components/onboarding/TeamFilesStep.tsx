@@ -34,6 +34,7 @@ import { useMeStrict } from '../../store/session'
 import { toast } from '../../store/ui'
 import { useWelcome } from '../../store/welcome'
 import { retryFolderUpload, startFolderUpload, stopFolderUpload, useFolderUploadsSettled } from '../FolderUploads'
+import { useTeamPrepared } from './TeamPrepared'
 import { Button, ErrorNote, Modal, useMediaQuery } from '../ui'
 
 const L = TEAM_FILES_LIMITS
@@ -767,7 +768,8 @@ function TeamReach({ team, groupId }: { team: string; groupId: string | null }) 
 
 /**
  * After the setup, on a computer's Files screen: one quiet line for owners and admins while the team folder holds no
- * file (its own folders, made by the steps, do not count), "폴더에서 회사 문서 추천받기", which opens the same steps in a
+ * document, all levels down (its own folders and the brand folder's intro and pictures, made by the steps, do not count:
+ * the count members see on Home, docs/DECISIONS.md "W6.3"), "폴더에서 회사 문서 추천받기", which opens the same steps in a
  * dialog. The line shows at the top of the files and in the team folder.
  */
 export function TeamFilesEntry({ here }: { here: string }) {
@@ -777,19 +779,17 @@ export function TeamFilesEntry({ here }: { here: string }) {
   const admin = me.user.role === 'owner' || me.user.role === 'admin'
   const progress = useWelcome((s) => s.progress)
   const settled = useFolderUploadsSettled()
-  const [empty, setEmpty] = useState(false)
   const [open, setOpen] = useState(false)
   const folder = progress?.teamGroup?.folder ?? null
   useEffect(() => {
     if (admin && !narrow) void useWelcome.getState().load().catch(() => {})
   }, [admin, narrow])
-  useEffect(() => {
-    if (!admin || narrow || !folder || (here !== '' && here !== folder)) return
-    let live = true
-    void listFolder(folder).then((list) => { if (live) setEmpty(!!list && !list.some((e) => e.type === 'file')) })
-    return () => { live = false }
-  }, [admin, narrow, folder, here, settled, open])
-  if (!admin || narrow || !folder || !progress || folderWindow() === null || (here !== '' && here !== folder) || (!empty && !open)) return null
+  // the team folder's documents as members count them (GET /api/skills/examples: all levels down, the steps' own brand
+  // folder left out), read again after uploads settle and when the dialog closes
+  const where = admin && !narrow && !!folder && (here === '' || here === folder)
+  const { data } = useTeamPrepared(where, `${settled}-${open}`)
+  const empty = !!data?.teamFolder && data.teamFolder.files === 0
+  if (!where || !progress || folderWindow() === null || (!empty && !open)) return null
   return (
     <>
       <p className="mx-4 mb-2 text-sm sm:mx-6">

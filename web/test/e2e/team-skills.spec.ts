@@ -461,7 +461,7 @@ test('"스킬로 제안" from an answer → the manager reviews, edits and regis
   await page.getByRole('tab', { name: '내 제안' }).click()
   await expect(page.getByTestId('mine-list').getByTestId('suggestion')).toHaveAttribute('data-status', 'approved')
   await expect(page.getByTestId('mine-list')).toContainText('skills/주간-보고서.md')
-  // (the first-time folder card probes folders the member cannot see: those 404s are expected)
+  // (Home's ready question probes folders the member cannot see: those 404s are expected)
   expect(realErrors(errors).filter((e) => !/status of 404/.test(e))).toEqual([])
 })
 

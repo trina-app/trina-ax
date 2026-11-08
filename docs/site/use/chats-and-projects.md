@@ -9,7 +9,10 @@ A chat is a conversation with the AI. Only you see your chats. Admins see which 
 
 :::steps
 #### Open a new chat
-Choose **New chat** in the sidebar, or type in the box on the home page.
+Choose **New chat** in the sidebar, or type in the box on the home page. The first time, under the box, **Ready in your
+team** lists what your team set up: its skills (**Example** shows a result, **Try it** opens the skill) until you have run
+one, and the team files (**Ask** puts a question about them in the box, not sent). With nothing set up yet, **Start
+here** offers one question to send.
 
 ![The home page: a first-steps checklist, "How can I help you?" with the message box, and the folders the AI can see](../images/chats/home.webp "The home page, with the message box and the folders your AI can see")
 

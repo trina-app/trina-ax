@@ -9,9 +9,10 @@
 // managers are the group's members who may write that folder (every member by default).
 import { z } from 'zod'
 import { Uuid7 } from '../ids'
-import { IsoTime, RelPath, page, PageQuery } from './common'
+import { IsoTime, Locale, RelPath, page, PageQuery } from './common'
 import { endpoint } from './endpoint'
 import { UserRef } from './entities'
+import { PackExample, PackSkillSource } from './onboarding-packs'
 import { SkillInput } from './skill-inputs'
 import { ShareApp, ShareExcludedReason, ShareSkillIn, SKILL_SHARE_LIMITS, SkillGroupRef } from './skill-shares'
 
@@ -104,6 +105,45 @@ export const PopularSkills = z.object({
   days: z.literal(30),
 })
 export type PopularSkills = z.infer<typeof PopularSkills>
+
+/** A skill as Home's "팀에 준비된 것" shows it (docs/DECISIONS.md "W6.3 — What a new member sees first"). */
+export const PreparedSkill = z.object({
+  path: z.string(),
+  /** what "/<name>" runs */
+  name: z.string(),
+  /** the name people read (skillTitle) */
+  title: z.string(),
+  /** one line in the caller's language: a kept skill's own line (what it makes), else the first line of its description */
+  summary: z.string(),
+  /** a kept skill at its own pack path only (skills/<pack>/<name>/SKILL.md): Trina's example, the language of its text,
+   * and where it comes from. A team skill of the same name anywhere else has none of them (it is not Trina's) */
+  example: PackExample.optional(),
+  locale: Locale.optional(),
+  source: PackSkillSource.optional(),
+})
+export type PreparedSkill = z.infer<typeof PreparedSkill>
+/** The team folder's documents are counted up to this many (more: "100개 넘게"). */
+export const TEAM_FOLDER_COUNT_MAX = 100
+/**
+ * GET /api/skills/examples: what the team prepared, read as the caller (any role; the welcome state stays for owners
+ * and admins). Nothing in it is owner-only: no company profile (only whether one is saved), nothing to install.
+ */
+export const TeamPrepared = z.object({
+  /** the caller's team and group skills (their own GET /api/skills, personal skills left out): the landing skill first,
+   * then the kept skills at their pack path (자연스러운 글, 카드뉴스, 홍보 영상, 회사 소개서), then the others by name */
+  skills: z.array(PreparedSkill),
+  /** the team group's folder (the welcome steps' groups/<team>/), its documents counted as the caller, all levels down,
+   * up to TEAM_FOLDER_COUNT_MAX (`more`: the count stopped there). The steps' own brand folder, the group's skills
+   * folder, dot files and system files do not count. null: no team group, or the caller cannot read its folder */
+  teamFolder: z.object({ path: z.string(), files: z.number().int().nonnegative(), more: z.boolean() }).nullable(),
+  /** the skill the invite opens (the welcome steps' landing skill), only when the caller can use it */
+  landing: z.string().nullable(),
+  /** the caller ran a team skill ("/name", a skill form or the skill tool) in an answer that finished */
+  ranTeamSkill: z.boolean(),
+  /** a company profile is saved (the profile itself is not sent) */
+  hasProfile: z.boolean(),
+})
+export type TeamPrepared = z.infer<typeof TeamPrepared>
 /** Why a skill entry does not load (R2-SKILL-03). The screens translate the code. */
 export const SkillProblem = z.enum(['too_large', 'header', 'location', 'name', 'name_folder', 'description', 'compatibility',
   // a whole folder, for the people who manage it: more entries than the server reads (1,000 per skills folder), or more
@@ -304,6 +344,7 @@ export const SetSkillManagerBody = z.intersection(SkillManagerSubject, z.object(
 
 export const SKILLS = {
   popularSkills: endpoint({ method: 'GET', path: '/api/skills/popular', auth: 'user', owner: 'B', response: PopularSkills, summary: 'Last 30 days of usage counts for currently readable skills, with no user identities or prompts.' }),
+  skillExamples: endpoint({ method: 'GET', path: '/api/skills/examples', auth: 'user', owner: 'B', response: TeamPrepared, summary: 'What the team prepared, read as the caller (Home\'s first screen): the team and group skills they can use with Trina\'s example for a kept skill at its own pack path, the team folder\'s document count (as the caller, all levels down, at most 100, without the brand folder and system files; null when they cannot read it), the invite\'s skill when they can use it, whether they ran a team skill, and whether a company profile is saved.' }),
   listSkills: endpoint({ method: 'GET', path: '/api/skills', auth: 'user', owner: 'B', query: z.object({ shadowed: z.literal('1').optional() }), response: z.object({ items: z.array(SkillInfo) }), summary: 'Skills the caller can use: skills/**/*.md with a name header that the caller can read, the skills of the groups they belong to (groups/<folder>/skills/, with `group`), and their own personal skills (users/<caller>/skills/), by name. One name: personal > group > team. `?shadowed=1` also lists the skills that lost to a better tier, each with `shadowedBy` (the Team skills page).' }),
   listSkillIssues: endpoint({ method: 'GET', path: '/api/skills/issues', auth: 'user', owner: 'B', response: z.object({ items: z.array(SkillIssue) }), summary: 'Skill entries the caller can read that do not load: an invalid SKILL.md (also a name that is not its folder name) or a legacy file with a broken header.' }),
   skillsOverview: endpoint({ method: 'GET', path: '/api/skills/overview', auth: 'user', owner: 'B', response: SkillsOverview, summary: 'The skills folders the caller manages / can suggest into, and how many suggestions wait.' }),

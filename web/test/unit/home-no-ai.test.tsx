@@ -45,6 +45,9 @@ const routes: Record<string, (body: any) => Response> = {
   'GET /api/skills': () => json(200, { items: [] }),
   'GET /api/questions/frequent': () => json(200, { items: [] }),
   'GET /api/skills/popular': () => json(200, { items: [] }),
+  // "팀에 준비된 것" (docs/DECISIONS.md "W6.3"): one kept skill and the team's files
+  'GET /api/skills/examples': () => json(200, { skills: [{ path: 'skills/general/card-news/SKILL.md', name: 'card-news', title: '카드뉴스', summary: '회사 소개로 정사각형 카드 5장을 만들어요', source: { kind: 'team' } }], teamFolder: { path: 'groups/Acme', files: 4, more: false }, landing: null, ranTeamSkill: false, hasProfile: false }),
+  'GET /api/files/tree': () => json(200, { path: '', access: 'read', entries: [], nextCursor: null }),
 }
 const called = (key: string) => calls.filter((c) => c.key === key)
 const g = globalThis as Record<string, unknown>
@@ -158,6 +161,49 @@ describe('Home without AI', () => {
       calls = []
       useAiAccess.getState().reset()
     }
+  })
+})
+
+describe('"팀에 준비된 것" without AI (docs/DECISIONS.md "W6.3")', () => {
+  test('a member: the block read-only under the card (rows, no 써 보기 or 물어보기); an owner or admin: the card alone', async () => {
+    signIn('member')
+    useChats.setState({ chats: [], chatsLoaded: true })
+    access = { usable: false, action: 'ask_owner', requested: false }
+    let m = await home()
+    try {
+      await m.until(() => m.find('no-ai-card') && m.find('team-prepared'), 'the card and the block')
+      expect(m.get('team-prepared-skill').textContent).toContain('카드뉴스')
+      expect(m.find('team-prepared-try')).toBeNull()
+      expect(m.find('team-prepared-ask')).toBeNull()
+      expect(m.get('team-prepared-files').textContent).toContain('Acme')
+    } finally { await m.unmount() }
+    for (const role of ['owner', 'admin'] as const) {
+      calls = []
+      useAiAccess.getState().reset()
+      signIn(role)
+      useChats.setState({ chats: [], chatsLoaded: true })
+      access = { usable: false, action: 'connect_team', requested: false }
+      markStepsSeen('olga')
+      m = await home()
+      try {
+        await m.until(() => m.find('no-ai-card'), 'the card')
+        await m.settle(40)
+        expect(m.find('team-prepared')).toBeNull()
+        expect(called('GET /api/skills/examples')).toEqual([])
+      } finally { await m.unmount() }
+    }
+  })
+
+  test('with AI: a member gets the block with its one filled 써 보기 under the box', async () => {
+    signIn('member')
+    useChats.setState({ chats: [], chatsLoaded: true })
+    access = { usable: true, action: 'ask_owner', requested: false }
+    const m = await home()
+    try {
+      await m.until(() => m.find('team-prepared-try'), 'the block')
+      expect(m.get('team-prepared').getAttribute('data-primary')).toBe('skill')
+      expect(m.find('no-ai-card')).toBeNull()
+    } finally { await m.unmount() }
   })
 })
 

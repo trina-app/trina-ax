@@ -5,6 +5,7 @@
 // the others and can be tried again. A storage refusal stops the files that did not start. A folder of the same name is
 // used as it is; a file of the same name gets a new name ('rename', as for one file).
 // No API calls here: the screen gives them (FolderUploadCalls), so the tests need no server.
+import { isSystemName } from '@mycel/shared/api'
 import { markBusy } from './busy'
 import { joinPath, nameProblem, parentPath } from './paths'
 
@@ -14,10 +15,9 @@ export const FOLDER_UPLOAD_CONCURRENCY = 3
 /** Folder levels read from a drop. The server's limit is the same (MAX_DEPTH); it also ends a loop of links. */
 export const DROP_DEPTH_MAX = 64
 
-const SYSTEM_NAMES = new Set(['.ds_store', '.apdisk', '.appledouble', '.fseventsd', '.spotlight-v100', '.temporaryitems', '.trashes', '__macosx', 'icon\r', 'thumbs.db', 'ehthumbs.db', 'desktop.ini', '$recycle.bin', 'system volume information'])
-
-/** Files and folders that the system makes. Other dot files stay: a project needs its .gitignore. */
-export const isSystemName = (name: string) => name.startsWith('._') || SYSTEM_NAMES.has(name.toLowerCase())
+/** Files and folders that the system makes (shared, so a team folder's document count leaves out the same ones). Other
+ * dot files stay: a project needs its .gitignore. */
+export { isSystemName } from '@mycel/shared/api'
 
 /** What goes up. Each `rel` is relative to the folder that receives the upload and starts with the folder's own name. */
 export interface FolderPlan {

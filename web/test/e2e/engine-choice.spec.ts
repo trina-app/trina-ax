@@ -31,7 +31,7 @@ test('a member who may not pick: no picker, plain retry only, no own default, an
   await expect(page.getByTestId('my-engine')).toHaveCount(0)
   await expect(page.getByText('내 기본 엔진/모델')).toHaveCount(0)
   expect((await engineRequests(page)).filter((r) => r.user === 'bob')).toEqual([])
-  // (the first-time folder card probes folders the member cannot see: those 404s are expected)
+  // (Home's ready question probes folders the member cannot see: those 404s are expected)
   expect(realErrors(errors).filter((e) => !/status of 404/.test(e))).toEqual([])
 })
 
