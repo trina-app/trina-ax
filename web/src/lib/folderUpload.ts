@@ -247,6 +247,12 @@ export class FolderUpload {
     return { id: this.id, base: this.base, name: this.name, items: this.tops, status, total, done, failed, waiting, bytesDone, bytesTotal, skipped: this.skipped, failures, refusal: this.refusal, active, canRetry: canRetry && !this.running }
   }
 
+  /** Each file as it is now (the welcome step's rows, docs/DECISIONS.md "W6"): its path inside the receiving folder, size,
+   * state and bytes sent; `queued` after the run ended means it never went (stopped). Folders are left out. */
+  rows(): { rel: string; size: number; state: Item['state']; loaded: number; local?: LocalRefusal; error?: unknown; file?: File }[] {
+    return this.items.filter((i) => !i.folder).map((i) => ({ rel: i.rel, size: i.size, state: i.state, loaded: i.loaded, local: i.local, error: i.error, file: i.file }))
+  }
+
   /** Send what is queued. Ends when all of it is done or failed, or at a refusal. */
   start(): Promise<void> {
     if (this.run) return this.run

@@ -34,6 +34,7 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   ONBOARDING: 'Onboarding (company profile)',
   TEAM_LINKS: 'Team invite link',
   WELCOME: 'Onboarding: welcome steps',
+  ONBOARDING_FILES: 'Onboarding: team files picked from a folder',
   ONBOARDING_GOAL: 'Onboarding: the 7-day team goal',
   DEMO: 'Demo mode (development demo server only)',
   PEOPLE: 'People directory and profiles',
