@@ -4,7 +4,8 @@
 // - 이름 바꾸기 is the chat rename's small prompt, and the card shows the new name;
 // - 삭제 is the project page's own confirm: the line with the number of shared chats that go with it only when it has
 //   any (by the server's count now, not the list's), then the delete, and the card goes; the history forgets the
-//   project on its private chats; a project someone else deleted first just goes.
+//   project on its private chats; a project that is not found any more (deleted by someone else, or no longer mine to
+//   see) just leaves the list, and my chats keep it, as the server does.
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
 import type { Chat, Project } from '@mycel/shared/api'
@@ -205,8 +206,10 @@ describe('the Projects list', () => {
     }
   })
 
-  test('a project someone else deleted first: no confirm, the card goes with a line that says so', async () => {
+  test('a project not found any more: no confirm, the card goes with a line that says so; my chats keep it', async () => {
     now = { [MINE]: null }
+    const chatsBefore = useChats.getState().chats
+    useChats.setState({ chats: [{ id: 'c-mine', projectId: MINE, title: 'mine', engine: 'claude-code', model: null, createdAt: '2026-11-03T00:00:00.000Z', updatedAt: '2026-11-03T00:00:00.000Z', deletedAt: null, runState: 'idle' }] })
     const m = await page()
     try {
       await loaded(m)
@@ -216,8 +219,12 @@ describe('the Projects list', () => {
       expect(m.container.ownerDocument!.body.querySelector('[role="dialog"]')).toBeNull()
       expect(calls.some((c) => c.key.startsWith('DELETE'))).toBe(false)
       expect(useUi.getState().toasts.at(-1)?.text).toBe(ko('projects.missing'))
+      // it may still be there for others (no read access any more): the server keeps it on my chats, so does the history
+      expect(useChats.getState().chats[0]?.projectId).toBe(MINE)
+      expect(useProjects.getState().byId[MINE]).toBeUndefined()
     } finally {
       await m.unmount()
+      useChats.setState({ chats: chatsBefore })
     }
   })
 })

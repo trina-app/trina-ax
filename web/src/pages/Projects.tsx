@@ -43,11 +43,16 @@ const projectLink = (id: string) => `${typeof location === 'undefined' ? '' : lo
 function useDeleteProject() {
   const t = useT()
   const locale = useLocale()
-  const gone = (id: string) => {
+  const deleted = (id: string) => {
     useProjects.getState().drop(id)
-    // the server takes the project off its private chats (its shared chats go with their own event): the history must
+    // the server took the project off its private chats (its shared chats go with their own event): the history must
     // not offer "프로젝트 바꾸기…" for a project that is not there any more
     useChats.setState((s) => ({ chats: s.chats.map((c) => (c.projectId === id && !c.shared ? { ...c, projectId: null } : c)) }))
+  }
+  // not found: deleted by someone else, or no longer mine to see (then my chats keep it, as the server does)
+  const missing = (id: string) => {
+    useProjects.getState().drop(id)
+    toast({ level: 'info', text: t('projects.missing') })
   }
   return async (p: Project): Promise<boolean> => {
     // the menu is gone once the count below has arrived: the keyboard goes back to its button
@@ -57,12 +62,13 @@ function useDeleteProject() {
       now = await api.call(API.getProject, { params: { id: p.id } })
     } catch (e) {
       if (isApiError(e, 'not_found')) {
-        gone(p.id)
-        toast({ level: 'info', text: t('projects.missing') })
+        missing(p.id)
         return true
       }
     }
-    if (opener?.isConnected) opener.focus()
+    // the person left the page while it was asked: no confirm on another page
+    if (opener && !opener.isConnected) return false
+    opener?.focus()
     const body = now.sharedChats ? (
       <>
         {t('projects.deleteBodyShared')}
@@ -72,11 +78,11 @@ function useDeleteProject() {
     if (!(await confirmDialog({ title: t('projects.deleteTitle', { name: now.name }), body, confirm: t('common.delete'), danger: true }))) return false
     try {
       await api.call(API.deleteProject, { params: { id: p.id } })
-      gone(p.id)
+      deleted(p.id)
       return true
     } catch (e) {
       if (isApiError(e, 'not_found')) {
-        gone(p.id)
+        missing(p.id)
         return true
       }
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
