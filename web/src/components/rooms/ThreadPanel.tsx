@@ -11,7 +11,7 @@ import type { RoomMessage, UserRef } from '@mycel/shared/api'
 import { errorText, isApiError } from '../../lib/api'
 import { lookingAt } from '../../lib/attention'
 import { newestSeq, TARGET_PAGES } from '../../lib/rooms'
-import { followsAfterScroll, stickToBottom } from '../../lib/stickToBottom'
+import { followsAfterScroll, jumpToBottom, stickToBottom } from '../../lib/stickToBottom'
 import { THREAD_PANEL } from '../../lib/panelWidth'
 import { useLocale, useT } from '../../i18n'
 import { useRooms, type PendingSend } from '../../store/rooms'
@@ -36,7 +36,7 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
   const scroller = useRef<HTMLDivElement>(null)
   const content = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
-  /** where the last scroll event left the list (followsAfterScroll) */
+  /** where the list was last: its last scroll event or its own last jump to the bottom (followsAfterScroll) */
   const lastTop = useRef(0)
   const last = replies.at(-1)
   const aiKey = useRooms((s) => (s.ai[roomId]?.runs ?? []).filter((r) => r.threadRootId === rootId).map((r) => `${r.state}${r.steps.length}`).join(','))
@@ -48,12 +48,12 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
   }, [roomId, rootId])
   useLayoutEffect(() => {
     const el = scroller.current
-    if (el && stick.current) el.scrollTop = el.scrollHeight
+    if (el && stick.current) jumpToBottom(el, lastTop)
   }, [last?.id, replies.length, pending.length, aiKey, root?.id])
   useEffect(() => {
     const s = scroller.current, c = content.current
     if (!s || !c) return
-    return stickToBottom(s, c, () => stick.current)
+    return stickToBottom(s, c, () => stick.current, undefined, () => { lastTop.current = s.scrollTop })
   }, [])
 
   const tryRead = useCallback(() => {

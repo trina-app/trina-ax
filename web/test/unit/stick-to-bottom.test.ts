@@ -3,7 +3,7 @@
 // stays and no scroll event comes). A reader who scrolled up is left where they are. followsAfterScroll: the scroll event
 // of the list's own jump to the bottom, coming after a card was added, does not read as the reader scrolling up.
 import { expect, test } from 'bun:test'
-import { followsAfterScroll, stickToBottom } from '../../src/lib/stickToBottom'
+import { followsAfterScroll, jumpToBottom, stickToBottom } from '../../src/lib/stickToBottom'
 
 /** a ResizeObserver whose callbacks the test runs, as the browser would after a layout */
 class FakeRO {
@@ -80,5 +80,33 @@ test("the room's own jump to the bottom, its scroll event after a 330 px card ca
   scroller.scrollHeight = 3480
   FakeRO.last!.fire()
   expect(scroller.scrollTop).toBe(3480)
+  stop()
+})
+
+test("a link's message scrolled into view in the same frame as the list's jump to the bottom: one scroll event, and it stops following", () => {
+  // the thread opens at the bottom (the page's layout effect), then the reply a notice points at is put in the middle,
+  // before any scroll event: the one event that comes shows only the middle
+  const el = { scrollHeight: 3000, clientHeight: 700, scrollTop: 0 }
+  const lastTop = { current: 0 }
+  jumpToBottom(el, lastTop)
+  expect(el.scrollTop).toBe(3000)
+  expect(lastTop.current).toBe(3000)
+  el.scrollTop = 1200
+  expect(followsAfterScroll(el, true, lastTop.current)).toBe(false)
+})
+
+test('the size watcher says when it jumped, so the list knows where it left itself', () => {
+  const scroller = { scrollHeight: 3000, clientHeight: 700, scrollTop: 2300 }
+  const lastTop = { current: 2300 }
+  let follow = true
+  const stop = stickToBottom(scroller as never, {} as never, () => follow, FakeRO as never, () => { lastTop.current = scroller.scrollTop })
+  scroller.scrollHeight = 3330
+  FakeRO.last!.fire()
+  expect(lastTop.current).toBe(3330)
+  // not following: no jump, nothing said
+  follow = false
+  scroller.scrollHeight = 3600
+  FakeRO.last!.fire()
+  expect(lastTop.current).toBe(3330)
   stop()
 })

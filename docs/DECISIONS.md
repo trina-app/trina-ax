@@ -14903,7 +14903,9 @@ refused, and that connected AIs never saw the team rules every in-app turn follo
   bottom for the reader scrolling up. The scroll event of the list's own jump to the bottom comes a frame later; when
   the card arrived in between (the step event and the card come together), the room stopped following and the card
   stayed below the message box with only "확인해 주세요" in sight (3 of about 9 cards). Now only a move up stops the
-  following (`followsAfterScroll`, `lib/stickToBottom.ts`); the size watcher (`stickToBottom`, a ResizeObserver on the
+  following (`followsAfterScroll`, `lib/stickToBottom.ts`), measured from where the list last was: its last scroll
+  event or its own last jump to the bottom (`jumpToBottom`, and the size watcher says when it jumped), so a link's
+  message scrolled into view in the same frame as that jump still stops it; the size watcher (`stickToBottom`, a ResizeObserver on the
   content) keeps the whole card in view as it appears or grows. A reader who scrolled up is left where they are. Rooms
   have no "new below" button; none was added.
 - **One button order.** Amends "대화방에서 새 파일은 미리 허용", whose three buttons put the main one first while the

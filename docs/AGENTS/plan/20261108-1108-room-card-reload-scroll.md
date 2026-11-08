@@ -78,7 +78,9 @@ Built as planned:
   `mergeOpenRequests`, which now takes a scope. A sign-out while it is on its way keeps nothing of it.
 - Bug 2: the race was the room's own scroll event: the room jumps to the bottom when the step event arrives, the card
   arrives before that jump's scroll event fires, and the event then measured the card's height as "the reader scrolled
-  up". `followsAfterScroll` (room, thread panel, chat) stops following only on a move up. The e2e test forces the race
+  up". `followsAfterScroll` (room, thread panel, chat) stops following only on a move up from where the list last
+  was, its own jumps to the bottom included (`jumpToBottom`; without that, a notice's reply scrolled into view in the
+  same frame as the jump read as no move, which the full e2e caught in inbox-rooms.spec.ts). The e2e test forces the race
   (content added, then a late scroll event) and fails on the old code at 1440 and 390.
 - Bug 3: `ChoiceRow` in `AskCard.tsx`, also for the address and dev-environment cards, which had the same flipped order.
   The room card's note under the buttons is right-aligned from `sm`, like the two-button card's.
