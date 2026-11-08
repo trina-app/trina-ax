@@ -328,8 +328,9 @@ function Provenance({ p }: { p: AnswerShareProvenance }) {
   )
 }
 
-/** A place the answer used that some people of the room cannot see, as the app names it. */
-function placeName(t: ReturnType<typeof useT>, place: AnswerSharePlace): string {
+/** A place the answer used that some people of the room cannot see, as the app names it (also the share of a whole
+ * chat: components/chat/ShareChat.tsx). */
+export function placeName(t: ReturnType<typeof useT>, place: AnswerSharePlace): string {
   switch (place.kind) {
     case 'folder':
       return place.path ? `${place.path.replace(/\/+$/, '')}/` : t('rooms.aiRootFolder')

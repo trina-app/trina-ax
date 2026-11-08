@@ -1,18 +1,23 @@
 // A chat's project in the chat header: the project's own name, linked to its page, before the chat's title (like
 // Claude; on a phone a short chip with a folder icon, so the person still sees that the chat is in a project), and the dialog that the title menu's "Move to project…" opens:
 // it moves the chat into a project or out of it (PATCH /api/chats/:id {projectId}; the server checks that the person
-// can see the project). The name comes from store/projects.ts, so a rename saved anywhere in this window shows at once;
+// can see the project). When the chosen project shares its new chats, one switch, off by default, "프로젝트 사람들과
+// 공유": with it on, the chat is shared right after the move (components/chat/ShareChat.tsx: the server's check, and a
+// confirm when one comes back; cancelling it leaves the chat moved and private). The name comes from
+// store/projects.ts, so a rename saved anywhere in this window shows at once;
 // it is asked again when the window comes back to the front (a rename on another device). A project the person cannot
 // see (404: no read access any more, or its folder in the trash) shows nothing.
 import { FolderKanban } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { Chat, Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { useProjects } from '../../store/projects'
+import { useMe } from '../../store/session'
 import { toast } from '../../store/ui'
-import { Button, Modal, Skeleton } from '../ui'
+import { Button, Modal, Skeleton, Switch } from '../ui'
+import { mayShareChat, ShareChatFlow } from './ShareChat'
 
 /** The chat's project as this window knows it (store/projects.ts), asked from the server for this chat and again when
  * the window gets the focus back; undefined while unknown or not to be seen. Only the latest answer counts: a slow 200
@@ -109,16 +114,24 @@ export function ProjectChoices({ projects, selected, current, onSelect }: { proj
 export function MoveToProjectDialog({ chat, onClose, onMoved }: { chat: Chat; onClose: () => void; onMoved: (c: Chat) => void }) {
   const t = useT()
   const locale = useLocale()
+  const hintId = useId()
+  const safeOps = !!useMe()?.server.allChatsConfidential
   const [projects, setProjects] = useState<Project[] | null>(null)
   const [selected, setSelected] = useState<string | null>(chat.projectId)
+  const [share, setShare] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // moved, and to be shared now: the share's own steps take the dialog's place
+  const [sharing, setSharing] = useState<string | null>(null)
   useEffect(() => {
     let live = true
     api.call(API.listProjects).then((r) => { useProjects.getState().put(...r.items); if (live) setProjects(r.items) }, (e) => { if (live) { setProjects([]); setError(errorText(e, locale, t('error.network'))) } })
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+  const target = projects?.find((p) => p.id === selected)
+  // the switch: only for a chat of mine (every chat that can move is) going into a project whose new chats are shared
+  const canShare = !!target && selected !== chat.projectId && mayShareChat(chat, target, safeOps)
   const save = async () => {
     setBusy(true)
     setError(null)
@@ -127,13 +140,15 @@ export function MoveToProjectDialog({ chat, onClose, onMoved }: { chat: Chat; on
       const to = projects?.find((p) => p.id === selected)
       toast({ level: 'success', text: to ? t('chat.project.moved', { name: to.name }) : t('chat.project.removed') })
       onMoved(c)
-      onClose()
+      if (canShare && share) setSharing(c.id)
+      else onClose()
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
     } finally {
       setBusy(false)
     }
   }
+  if (sharing) return <ShareChatFlow chatId={sharing} onClose={onClose} onShared={onMoved} />
   return (
     <Modal
       open
@@ -154,6 +169,15 @@ export function MoveToProjectDialog({ chat, onClose, onMoved }: { chat: Chat; on
       {!projects && <Skeleton lines={3} />}
       {projects && <ProjectChoices projects={projects} selected={selected} current={chat.projectId} onSelect={setSelected} />}
       {projects && !projects.length && !chat.projectId && !error && <p className="mt-2 text-sm text-faint">{t('chat.project.empty')}</p>}
+      {canShare && (
+        <div className="mt-4 border-t border-line pt-4" data-testid="chat-project-share">
+          <Switch checked={share} onChange={setShare} label={t('chat.shareChat.switch')} testId="chat-project-share-toggle" describedBy={hintId} />
+          {/* what it does (the switch's own width + gap: under its words) */}
+          <p id={hintId} className="mt-1 pl-11 text-xs leading-5 break-keep text-faint" data-testid="chat-project-share-hint">
+            {t('chat.shareChat.note')}
+          </p>
+        </div>
+      )}
       {error && (
         <p role="alert" className="mt-2 text-sm text-danger">
           {error}
