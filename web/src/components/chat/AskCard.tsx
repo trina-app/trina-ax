@@ -6,8 +6,9 @@
 // task's card shown again in Settings, "다시 확인") passes its own `onAnswer`. The server's yes/no cards are two buttons
 // ([허용 안 함] [이번만 허용]) with what they let happen as plain lines; a server card that says its three choices are
 // buttons (`buttons`: a room's change card) shows them in one row in the same order, the main one last
-// ([허용 안 함] [이 방에서는 항상 허용] [이번만 허용]; stacked on a phone, the main one on top: ChoiceRow, as the address and
-// dev-environment cards) with its one line under them (`note`); radios and [답하기] are for real choices.
+// ([허용 안 함] [이 방에서는 항상 허용] [이번만 허용]; stacked on a phone, the main one on top and first in the page: ChoiceRow,
+// as the address and dev-environment cards) with its one line under them (`note`); radios and [답하기] are for real
+// choices.
 import clsx from 'clsx'
 import { Globe, MessageCircleQuestion, ShieldAlert } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
@@ -143,8 +144,8 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
     )
   }
   // a server card whose three choices are buttons (a room's change card): once, always here, no (the server's order:
-  // the first the main one, the last the quiet "no"). The same compact card, the buttons in the yes/no card's order
-  // (ChoiceRow: the "no" first, the main one last); the line under them says what "always" covers
+  // the first the main one, the last the quiet "no"). The same compact card, the buttons shown in the yes/no card's
+  // order (ChoiceRow: on a computer the "no" first, the main one last); the line under them says what "always" covers
   if (fromServer && !allowText && !r.multiple && r.buttons && options.length === 3) {
     const pick = (v: string) => {
       setPicked([v])
@@ -257,21 +258,22 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
 interface Choice { label: string; onClick: () => void; busy?: boolean; testId?: string; value?: string }
 
 /** Three choices as buttons (a room's change card, an address, a dev-environment site), given in the server's order:
- * the main one, "always", the quiet "no". Shown in the order of the yes/no card and of every dialog
- * (docs/DESIGN-SYSTEM.md): the "no" first and the main one last, on the right. On a phone, where three labels do not
- * fit side by side, they stack full width with the main one on top (as the skill share card's stacked buttons) and a
- * failed answer's reason under them. */
+ * the main one, "always", the quiet "no", and kept in that order in the page, so the keyboard and a screen reader meet
+ * them as a phone shows them: stacked full width, the main one on top (as the skill share card's stacked buttons). On a
+ * computer one row in the order of the yes/no card and of every dialog (docs/DESIGN-SYSTEM.md), the row reversed: the
+ * "no" first and the main one last, on the right. A failed answer's reason comes after the buttons, under them. */
+const CHOICE_LOOKS = ['primary', 'secondary', 'ghost'] as const
 function ChoiceRow({ choices, busy, error, className }: { choices: [Choice, Choice, Choice]; busy: boolean; error: string | null; className?: string }) {
-  const [main, always, no] = choices
-  const shown = [[no, 'ghost'], [always, 'secondary'], [main, 'primary']] as const
   return (
-    <div className={clsx('flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end', className)} data-testid="ask-choices">
-      {error && <span role="alert" className="text-xs text-danger sm:mr-auto">{error}</span>}
-      {shown.map(([c, variant]) => (
-        <Button key={c.label} size="sm" variant={variant} className="max-sm:w-full" disabled={busy} busy={c.busy} onClick={c.onClick} data-testid={c.testId} data-value={c.value}>
-          {c.label}
-        </Button>
-      ))}
+    <div className={className}>
+      <div className="flex flex-col gap-2 sm:flex-row-reverse sm:flex-wrap sm:items-center" data-testid="ask-choices">
+        {choices.map((c, i) => (
+          <Button key={i} size="sm" variant={CHOICE_LOOKS[i]} className="max-sm:w-full" disabled={busy} busy={c.busy} onClick={c.onClick} data-testid={c.testId} data-value={c.value}>
+            {c.label}
+          </Button>
+        ))}
+      </div>
+      {error && <p role="alert" className="mt-2 text-xs text-danger sm:text-right">{error}</p>}
     </div>
   )
 }

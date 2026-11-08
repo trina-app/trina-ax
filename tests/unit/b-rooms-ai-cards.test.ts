@@ -4,14 +4,16 @@
 // the caller's own questions in the room, as GET /api/chats/:id/requests does for a chat. With the fake engine through
 // the real launcher and gate: the asker gets the card back (a new socket, another window) and can answer it from there;
 // another member gets nothing of it (no card, no event, not its words) and cannot answer it; someone outside the room
-// gets 404; an answered or timed-out card is gone from the list; a question in a thread brings its card back too.
+// gets 404; an answered or timed-out card is gone from the list; a question in a thread brings its card back too; a member
+// taken out of the room and a disabled account get none (the asker taken out or disabled: the question stops, its card
+// closes). The list carries no chat id (RoomTurnRequest).
 //
 // The room is alice, erin, carol and dana (the people who may read groups/marketing): alice asks, erin is the other
 // member, bob is outside the room.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, uuidv7, type OpenTurnRequest, type RoomMessage, type TurnRequest } from '@mycel/shared/api'
+import { API, uuidv7, type OpenTurnRequest, type RoomMessage, type RoomTurnRequest, type TurnRequest } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 
 setDefaultTimeout(120_000)
@@ -58,12 +60,14 @@ const cardsOf = async (user: string, roomId: string, window?: string) => (await 
 
 /** @트리나 asks to save a new team file (the room's change card): the question, its turn and the first card it raised,
  * as the socket of the asker got it */
-async function raise(user: string, roomId: string, threadRootId?: string): Promise<{ q: RoomMessage; turnId: string; open: OpenTurnRequest; file: string }> {
+async function raise(user: string, roomId: string, threadRootId?: string): Promise<{ q: RoomMessage; turnId: string; open: RoomTurnRequest; sent: OpenTurnRequest; file: string }> {
   const file = `${folder()}/견적서_acme.md`
   const q = await send(user, roomId, `@트리나 save it\n${fake({ tool: 'write', args: { file_path: file, content: '# acme\n- 의자 12개\n' } }, { say: 'done' })}`, threadRootId)
   const turnId = (await ws[user]!.next('room.ai.run', (f) => f.data.run.questionId === q.id, 20_000)).data.run.turnId
   const f = await ws[user]!.next('turn.request', (x) => x.data.turnId === turnId, 30_000)
-  return { q, turnId, open: f.data, file }
+  // the list gives the card as the socket sent it, without the room session's chat id
+  const { chatId: _session, ...open } = f.data
+  return { q, turnId, open, sent: f.data, file }
 }
 const ended = (user: string, turnId: string) => ws[user]!.next('room.ai.run', (f) => f.data.run.turnId === turnId && ['done', 'stopped', 'error'].includes(f.data.run.state), 40_000)
 const answer = (user: string, turnId: string, c: Ask, value = c.options![0]!.value) =>
@@ -75,8 +79,9 @@ describe('the open cards of my questions in a room', () => {
     const { turnId, open, file } = await raise('alice', roomId)
     const c = open.request as Ask
     expect(c).toMatchObject({ kind: 'ask_user', origin: 'server' })
-    // the same card, in the shape a chat lists its cards (GET /api/chats/:id/requests)
+    // the same card as the socket sent it, without its chat id: the room session's chat is never listed or opened
     expect(await cardsOf('alice', roomId)).toEqual([open])
+    expect((await cardsOf('alice', roomId))[0]).not.toHaveProperty('chatId')
     // another window of alice's (another browser, the phone), and a new socket that did not resume: no event brings
     // the card again, the list does
     const other = await h.ws('alice')
@@ -160,5 +165,44 @@ describe('the open cards of my questions in a room', () => {
     expect(await cardsOf('alice', a)).toEqual([open])
     expect((await answer('alice', turnId, open.request as Ask, 'skip')).status).toBe(204)
     await ended('alice', turnId)
+  })
+})
+
+describe('people no longer in the room, or no longer on the team', () => {
+  test('a member taken out of the room gets no list; the asker taken out: the question stops, its card closes, and they get none', async () => {
+    // a group chat of dana's (she manages it) with alice and erin
+    const roomId = (await h.api('dana').call(API.createRoom, { body: { kind: 'group', userIds: ['alice', 'erin'] } })).id
+    const { turnId, open } = await raise('alice', roomId)
+    expect(await cardsOf('alice', roomId)).toEqual([open])
+    expect(await cardsOf('erin', roomId)).toEqual([])
+    await h.api('dana').call(API.removeRoomMember, { params: { id: roomId, userId: 'erin' } })
+    expect((await h.req('erin', `/api/rooms/${roomId}/ai/requests`)).status).toBe(404)
+    // the asker taken out (rooms/ai.ts stopFor): no list for her there, and the card is closed for good
+    await h.api('dana').call(API.removeRoomMember, { params: { id: roomId, userId: 'alice' } })
+    await ws.alice!.next('turn.request.closed', (f) => f.data.requestId === open.request.requestId, 20_000)
+    expect((await h.req('alice', `/api/rooms/${roomId}/ai/requests`)).status).toBe(404)
+    expect((await answer('alice', turnId, open.request as Ask)).status).toBe(409)
+    expect(h.rt().execFor(turnId)?.openRequests() ?? []).toEqual([])
+  })
+
+  test('a disabled account: its question stops and its card closes; it gets no list, and the others get none of its card', async () => {
+    // (the last test of the file: erin is disabled here and enabled again at the end)
+    const roomId = await teamRoom()
+    const { turnId, open } = await raise('erin', roomId)
+    expect(await cardsOf('erin', roomId)).toEqual([open])
+    await h.api('dana').call(API.updateUser, { params: { id: 'erin' }, body: { status: 'disabled' } })
+    try {
+      // its turns stop (admin/users.ts stopTurnsOf) and it leaves the team rooms
+      for (let i = 0; i < 200 && h.rt().execFor(turnId); i++) await Bun.sleep(50)
+      expect(h.rt().execFor(turnId)).toBeUndefined()
+      const mine = await h.req('erin', `/api/rooms/${roomId}/ai/requests`)
+      // (out of the team room: 404; a real sign-in of a disabled account has no session left at all)
+      expect(mine.status).toBe(404)
+      expect(JSON.stringify(await mine.json().catch(() => null))).not.toContain(open.request.requestId)
+      expect(await cardsOf('alice', roomId)).toEqual([])
+      expect((await answer('erin', turnId, open.request as Ask)).status).not.toBe(204)
+    } finally {
+      await h.api('dana').call(API.updateUser, { params: { id: 'erin' }, body: { status: 'active' } })
+    }
   })
 })

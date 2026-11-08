@@ -700,6 +700,12 @@ export const useRooms = create<RoomsState>((set, get) => {
       // an older server without the AI in rooms: nothing shows; signed out meanwhile: nothing of it stays
       if (!r || myId() !== who) return
       // the questions of mine the list speaks for: the room's as this window knew them and as the server lists them
+      // (the window's own: a question that ended while the socket was away still has its run here, so its card, which
+      // the list no longer has, goes). The two reads run side by side: a turn that ended between them (the cards read
+      // with its card, the runs read without it) and that this window does not know is outside these, so its listed
+      // card is not merged (it would wait under no question) and a copy the socket brought is not dropped by this read;
+      // either way the card goes with the turn's turn.request.closed (the end of a turn closes its cards first; one
+      // closed before the merge stays out, mergeOpenRequests)
       const turns = new Set([...(get().ai[roomId]?.runs ?? []), ...r.mine].map((x) => x.turnId))
       set((s) => {
         // runs that ended here (stopped, failed) stay until closed; the server lists the working ones

@@ -52,7 +52,7 @@ test('three options keep the radios and [답하기]', async () => {
   }
 })
 
-test('three choices the server marks as buttons: a row of three in the yes/no card\'s order (quiet, secondary, main last), the line under it, no radios', async () => {
+test('three choices the server marks as buttons: in the page in its order (main, secondary, quiet), shown as a row with the main one last, the line under it, no radios', async () => {
   installDom()
   const answers: unknown[] = []
   const card: Ask = { ...serverCard([{ label: '이번만 허용', value: 'allow' }, { label: '이 방에서는 항상 허용', value: 'always' }, { label: '허용 안 함', value: 'skip' }]), buttons: true, note: '내가 부를 때, 이 폴더에 새 파일을 만들 때만 적용돼요.' }
@@ -62,20 +62,22 @@ test('three choices the server marks as buttons: a row of three in the yes/no ca
     expect(html).not.toContain('type="radio"')
     expect(html).not.toContain('data-testid="ask-send"')
     expect(m.get('ask-card').getAttribute('data-kind')).toBe('buttons')
-    const buttons = (m.container as unknown as { querySelectorAll(s: string): { textContent: string; getAttribute(n: string): string | null; className: string }[] }).querySelectorAll('[data-testid="ask-choice"]')
-    // as on the yes/no card ([허용 안 함] [이번만 허용]) and in dialogs: the quiet "no" first, the main button last
-    expect(buttons.map((b) => b.textContent)).toEqual(['허용 안 함', '이 방에서는 항상 허용', '이번만 허용'])
-    expect(buttons.map((b) => b.getAttribute('data-value'))).toEqual(['skip', 'always', 'allow'])
-    expect(buttons[0]!.className).toContain('text-muted')
+    const buttons = m.get('ask-choices').querySelectorAll('[data-testid="ask-choice"]')
+    // the reading order (keyboard, screen reader) is the phone's: the main one first
+    expect(buttons.map((b) => b.textContent)).toEqual(['이번만 허용', '이 방에서는 항상 허용', '허용 안 함'])
+    expect(buttons.map((b) => b.getAttribute('data-value'))).toEqual(['allow', 'always', 'skip'])
+    expect(buttons[0]!.className).toContain('bg-accent')
     expect(buttons[1]!.className).toContain('border-field-border')
-    expect(buttons[2]!.className).toContain('bg-accent')
-    // on a phone they stack full width, the main one on top (the row reversed)
-    expect(m.get('ask-choices').className).toContain('flex-col-reverse')
-    expect(m.get('ask-choices').className).toContain('sm:flex-row')
+    expect(buttons[2]!.className).toContain('text-muted')
+    // a phone stacks them in that order; a computer shows the row reversed, [허용 안 함] … [이번만 허용]
+    const row = m.get('ask-choices').className.split(' ')
+    expect(row).toContain('flex-col')
+    expect(row).not.toContain('flex-col-reverse')
+    expect(row).toContain('sm:flex-row-reverse')
     expect(buttons.every((b) => b.className.includes('max-sm:w-full'))).toBe(true)
     expect(m.get('ask-note').textContent).toBe('내가 부를 때, 이 폴더에 새 파일을 만들 때만 적용돼요.')
     expect(m.get('ask-detail-text').textContent).toBe('hello')
-    await m.click(m.container.querySelectorAll('[data-testid="ask-choice"]')[1] as never)
+    await m.click(buttons[1]!)
     expect(answers).toEqual([{ kind: 'ask_user', answer: 'always' }])
   } finally {
     await m.unmount()
@@ -83,8 +85,26 @@ test('three choices the server marks as buttons: a row of three in the yes/no ca
   }
 })
 
+test("a failed answer's reason comes after the three buttons, in the page and on screen", async () => {
+  installDom()
+  const card: Ask = { ...serverCard([{ label: '이번만 허용', value: 'allow' }, { label: '이 방에서는 항상 허용', value: 'always' }, { label: '허용 안 함', value: 'skip' }]), buttons: true }
+  const m = await mount(<AskCard req={{ request: card }} onAnswer={async () => { throw new Error('the card closed meanwhile') }} />)
+  try {
+    await m.click(m.get('ask-choices').querySelectorAll('button')[0]!)
+    const alert = await m.until(() => m.container.querySelector('[role="alert"]'), 'the error line')
+    expect(alert.textContent).toContain('the card closed meanwhile')
+    const html = m.html()
+    expect(html.indexOf('role="alert"')).toBeGreaterThan(html.lastIndexOf('data-testid="ask-choice"'))
+    // not inside the row of buttons: under it
+    expect(m.get('ask-choices').querySelector('[role="alert"]')).toBeNull()
+  } finally {
+    await m.unmount()
+    removeDom()
+  }
+})
+
 for (const kind of ['browser_site', 'dev_env_site'] as const) {
-  test(`the ${kind} card: its three buttons in the same order, the main one last; each sends its decision`, async () => {
+  test(`the ${kind} card: its three buttons in the same order, the main one first in the page (shown last on a computer); each sends its decision`, async () => {
     installDom()
     const answers: unknown[] = []
     const request: TurnRequest = kind === 'browser_site'
@@ -94,9 +114,9 @@ for (const kind of ['browser_site', 'dev_env_site'] as const) {
     try {
       const row = m.get('ask-choices')
       const buttons = row.querySelectorAll('button')
-      expect(buttons.map((b) => (b.className.includes('bg-accent') ? 'primary' : b.className.includes('border-field-border') ? 'secondary' : 'ghost'))).toEqual(['ghost', 'secondary', 'primary'])
-      expect(row.className).toContain('flex-col-reverse')
-      await m.click(buttons[2]!)
+      expect(buttons.map((b) => (b.className.includes('bg-accent') ? 'primary' : b.className.includes('border-field-border') ? 'secondary' : 'ghost'))).toEqual(['primary', 'secondary', 'ghost'])
+      expect(row.className.split(' ')).toContain('sm:flex-row-reverse')
+      await m.click(buttons[0]!)
       expect(answers).toEqual([{ kind, decision: 'once' }])
     } finally {
       await m.unmount()

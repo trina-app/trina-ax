@@ -74,7 +74,7 @@ describe('components use the pairs', () => {
     // a plain "no" is neutral, like Claude Code's "No": Deny on the site card, Reject of a skill suggestion. The site
     // card's three choices go through ChoiceRow, whose last choice (the "no") is the ghost button
     const ask = src('components/chat/AskCard.tsx').split('\n')
-    expect(ask.some((l) => l.includes("[no, 'ghost']"))).toBe(true)
+    expect(ask.some((l) => l.includes("CHOICE_LOOKS = ['primary', 'secondary', 'ghost']"))).toBe(true)
     expect(ask.filter((l) => l.includes("kind: 'browser_site', decision:")).map((l) => /decision: '(\w+)'/.exec(l)?.[1])).toEqual(['once', 'always', 'deny'])
     expect(ask.some((l) => l.includes('ghost-danger'))).toBe(false)
     expect(src('pages/Skills.tsx').split('\n').find((l) => l.includes('data-testid="review-reject"'))).toContain('variant="ghost"')

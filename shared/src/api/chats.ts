@@ -266,6 +266,11 @@ export type TurnConnectResult = z.infer<typeof TurnConnectResult>
  * browser_site requests are listed only for the window that sent the turn (X-Mycel-Window). */
 export const OpenTurnRequest = z.object({ turnId: Uuid7, chatId: Uuid7, messageId: Uuid7, request: TurnRequest })
 export type OpenTurnRequest = z.infer<typeof OpenTurnRequest>
+/** A room's card as its asker reads it again (GET /api/rooms/:id/ai/requests): no chat id. The room's AI session is a
+ * chat of its own that is never listed or opened as a chat (GET /api/chats leaves out chats with a room), and the room
+ * finds a card by its turn (web RoomAiStatus). */
+export const RoomTurnRequest = OpenTurnRequest.omit({ chatId: true })
+export type RoomTurnRequest = z.infer<typeof RoomTurnRequest>
 
 // ---------------- projects ----------------
 /** Who works in a new team project folder (each gets write; nobody else but admins). */
@@ -324,7 +329,7 @@ export const CHATS = {
   selectBranch: endpoint({ method: 'POST', path: '/api/chats/:id/branch', auth: 'user', owner: 'B', body: SelectBranchBody, response: MessagesPage, summary: 'Switch the visible branch ("< 2/3 >"); returns the newest page of the new path.' }),
   listTurnRequests: endpoint({ method: 'GET', path: '/api/chats/:id/requests', auth: 'user', owner: 'B', response: z.object({ items: z.array(OpenTurnRequest) }), summary: 'Open ask_user / browser site cards of the running turn of this chat.' }),
   // here, not in rooms.ts: ws.ts (TurnRequest) and this file import rooms.ts
-  listRoomAiRequests: endpoint({ method: 'GET', path: '/api/rooms/:id/ai/requests', auth: 'user', owner: 'B', response: z.object({ items: z.array(OpenTurnRequest) }), summary: "Open cards (the AI's questions, confirmations) of the caller's own questions to the AI in a room I am in, its threads included; never anyone else's." }),
+  listRoomAiRequests: endpoint({ method: 'GET', path: '/api/rooms/:id/ai/requests', auth: 'user', owner: 'B', response: z.object({ items: z.array(RoomTurnRequest) }), summary: "Open cards (the AI's questions, confirmations) of the caller's own questions to the AI in a room I am in, its threads included; never anyone else's." }),
   connectTurn: endpoint({ method: 'POST', path: '/api/turns/:id/connect', auth: 'user', owner: 'B', body: TurnConnectBody, response: TurnConnectResult, summary: 'Finish a connect_service card: add the connection with a sealed key, after a sign-in, or skip' }),
   answerTurn: endpoint({ method: 'POST', path: '/api/turns/:id/answer', auth: 'user', owner: 'B', body: TurnAnswerBody, response: empty, status: 204, summary: 'Answer an ask_user card or a browser site confirmation of an own running turn.' }),
 

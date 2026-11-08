@@ -36,7 +36,7 @@
 //             replies count from their root's seq like the root, so a member who cannot see a thread keeps the answer
 //             private, as for any message from before they joined.
 import type { Database } from 'bun:sqlite'
-import { MESSAGE_ATTACHMENTS_MAX, ROOM_AI_ANSWER_MAX, roomAiQuestion, type ApiErrorBody, type Locale, type MessageSources, type OpenTurnRequest, type RoomAiRun, type RoomAiState, type RoomMessage, type Step } from '@mycel/shared/api'
+import { MESSAGE_ATTACHMENTS_MAX, ROOM_AI_ANSWER_MAX, roomAiQuestion, type ApiErrorBody, type Locale, type MessageSources, type RoomAiRun, type RoomAiState, type RoomMessage, type RoomTurnRequest, type Step } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
 import { fail } from '../http/errors'
@@ -757,15 +757,16 @@ export class RoomAi implements RoomTurns {
    * events that opened them are not replayed, and the question would wait for an answer nobody can give. Mine only:
    * a card's question, details and preview can hold what only the asker may read, so another member's question
    * gives nothing (they see "트리나가 답하는 중"), and a connect card is never shown in a room. */
-  requests(userId: string, roomId: string, window: string | null): OpenTurnRequest[] {
+  requests(userId: string, roomId: string, window: string | null): RoomTurnRequest[] {
     roomsOf(this.ctx).mine(userId, roomId)
     const rt = this.rt()
     const mine = this.db.query("SELECT turn_id FROM room_ai_turns WHERE room_id = ? AND user_id = ? AND status = 'active' ORDER BY created_at").all(roomId, userId) as { turn_id: string }[]
-    const out: OpenTurnRequest[] = []
+    const out: RoomTurnRequest[] = []
     for (const t of mine) {
       const exec = rt.execFor(t.turn_id)
       if (!exec || exec.spec.userId !== userId || exec.room?.roomId !== roomId) continue
-      out.push(...exec.cardsFor(window).filter((r) => r.request.kind !== 'connect_service'))
+      // without the room session's chat id: nothing in a room uses it (RoomTurnRequest)
+      for (const { chatId: _session, ...card } of exec.cardsFor(window)) if (card.request.kind !== 'connect_service') out.push(card)
     }
     return out
   }
