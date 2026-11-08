@@ -92,9 +92,11 @@ function WelcomeSteps() {
       // the AI step was shown before and AI answers now (connected from Home, Admin or another tab): done
       if (useAiAccess.getState().usable && p.steps.ai === 'skipped') p = await w.update({ step: { id: 'ai', state: 'done' } })
       const here = !window.matchMedia?.(PHONE_QUERY).matches
+      // where the steps resume, decided before a phone's walk past 도구 연결 is recorded: that record can finish the setup,
+      // and the step the owner came back for (an invite put off, say) still opens then
+      const s = askedInvite && !p.finishedAt ? 'invite' : resumeStep(p, useAiAccess.getState().usable, here)
       // a phone resuming past 도구 연결: put off there (docs/DECISIONS.md "W6"), so the setup can end on the phone
       for (const id of phoneSkips(p, null, here)) p = await w.update({ step: { id, state: 'skipped' } })
-      const s = askedInvite && !p.finishedAt ? 'invite' : resumeStep(p, useAiAccess.getState().usable, here)
       if (s) setStep(s)
       else navigate('/', { replace: true })
     } catch (e) {

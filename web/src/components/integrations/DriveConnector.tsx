@@ -113,7 +113,7 @@ export function useDriveParts(s: DriveConnectionState) {
       {flow?.state === 'ready' && (
         <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="drive-confirm-step">
           <span role="status" className="min-w-0 flex-1">{t('drive.confirmAccount')} <span className="font-medium" data-testid="drive-account">{[flow.account?.name, flow.account?.email].filter(Boolean).join(' · ')}</span></span>
-          <Button size="sm" variant="primary" busy={d.busy} onClick={() => void d.complete(off ? { membersOn: true } : {})} data-testid="drive-confirm">{t('drive.confirm')}</Button>
+          <Button size="sm" variant="primary" busy={d.busy} onClick={() => void d.complete(admin ? { membersOn: true } : {})} data-testid="drive-confirm">{t('drive.confirm')}</Button>
           <Button size="sm" variant="ghost" disabled={d.busy} onClick={d.cancel} data-testid="drive-cancel">{t('common.cancel')}</Button>
         </div>
       )}

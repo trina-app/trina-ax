@@ -1217,6 +1217,20 @@ describe('the later steps and the end', () => {
     }
   }, 30_000)
 
+  test('a phone coming back for an invite it put off (an older row with 도구 연결 open): the invite opens, 도구 연결 is recorded as put off on the way', async () => {
+    signIn('owner')
+    phoneWidth()
+    progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: null, invite: 'skipped' } })
+    withGroup()
+    const m = await app()
+    try {
+      await m.until(() => stepOf(m) === 'invite', 'the invite')
+      expect(progress!.steps.tools).toBe('skipped')
+      expect(progress!.finishedAt).not.toBeNull()
+      expect(at(m)).toBeUndefined()
+    } finally { await m.unmount() }
+  })
+
   test('a phone walks past 도구 연결: from 팀 파일 straight to the invite, recorded as put off; ← 이전 on the invite goes to 팀 파일', async () => {
     signIn('owner')
     phoneWidth()

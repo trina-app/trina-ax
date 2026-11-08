@@ -327,6 +327,10 @@ describe('the website reading and the brand materials (the real web_fetch and a 
     fs.writeFileSync(path.join(h.team, deck), '%PDF-1.4 deck')
     const withFile = await h.api('dana').call(API.welcomeBrand, { body: { files: [deck] } })
     expect(withFile.intro).toBeNull()
+    // given once, they stay the intro: a later press without them (a 고치기 save after a reload) writes none beside them
+    fs.rmSync(path.join(h.team, r.intro!), { force: true })
+    expect((await h.api('dana').call(API.welcomeBrand, { body: { files: [] } })).intro).toBeNull()
+    expect(fs.existsSync(path.join(h.team, r.intro!))).toBe(false)
     expect((await post('dana', ['groups/none/x.pdf'])).status).toBe(400)
   })
 
@@ -335,7 +339,7 @@ describe('the website reading and the brand materials (the real web_fetch and a 
     const intro = `${raw.teamGroup.brandFolder}/Company intro.md`
     fs.rmSync(path.join(h.team, intro), { force: true })
     // old row (a): 회사 소개 saved, no deck, no first result, no brand mark; unfinished
-    const { brandAt: _a, brandTriedAt: _b, deckChatId: _c, ...rest } = raw
+    const { brandAt: _a, brandTriedAt: _b, deckChatId: _c, brandOwnFiles: _d, ...rest } = raw
     setSetting(h.ctx.db, WELCOME_SETTING, { ...rest, resultChatId: null, finishedAt: null, steps: { profile: 'done', result: null, skills: null, files: null, invite: null } })
     const p = (await h.api('dana').call(API.getWelcome)).progress!
     expect(fs.existsSync(path.join(h.team, intro))).toBe(true)
@@ -353,7 +357,7 @@ describe('the website reading and the brand materials (the real web_fetch and a 
   test('before an install of 회사 소개서, 카드뉴스 or 홍보 영상 (ensureBrand): the materials while the team has no brand mark; never throws; never starts the steps', async () => {
     const raw = getSetting<Record<string, any>>(h.ctx.db, WELCOME_SETTING)!
     const intro = `${raw.teamGroup.brandFolder}/Company intro.md`
-    const { brandAt: _a, ...rest } = raw
+    const { brandAt: _a, brandOwnFiles: _b, ...rest } = raw
     setSetting(h.ctx.db, WELCOME_SETTING, rest)
     expect(ensureBrand(h.ctx, 'dana')).toBe(true)
     expect(fs.existsSync(path.join(h.team, intro))).toBe(true)

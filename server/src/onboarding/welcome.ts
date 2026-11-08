@@ -410,15 +410,22 @@ export function setupWelcomeTeam(ctx: AppContext, userId: string, locale: Locale
 // ---------------------------------------------------------------- the brand mark (docs/DECISIONS.md "W6")
 // `brandAt`: the brand action (welcome-result.ts placeBrand) ran through once (the folders made, the website's pictures
 // placed, 회사 소개.md written or the owner's files given). `brandTriedAt`: the server's own run on a read (brandOnRead)
-// was tried once, whatever came of it. Both live in the row only (never shown).
+// was tried once, whatever came of it. `brandOwnFiles`: the owner gave intro files once, so no 회사 소개.md is written
+// beside them later (a 고치기 save after a reload sends none). All live in the row only (never shown).
 export const BRAND_AT = 'brandAt'
 export const BRAND_TRIED_AT = 'brandTriedAt'
+export const BRAND_OWN_FILES = 'brandOwnFiles'
 
 /** Record a mark of the brand action in the row (a row that is not an object is left alone). */
-export function markBrand(ctx: Pick<AppContext, 'db'>, key: typeof BRAND_AT | typeof BRAND_TRIED_AT): void {
+export function markBrand(ctx: Pick<AppContext, 'db'>, key: typeof BRAND_AT | typeof BRAND_TRIED_AT | typeof BRAND_OWN_FILES): void {
   const s = stored(ctx)
   if (!s.raw) return
   setSetting(ctx.db, WELCOME_SETTING, { ...s.raw, [key]: new Date().toISOString() })
+}
+
+/** The owner gave intro files on 회사 소개 once (`brandOwnFiles`). */
+export function brandOwnFiles(ctx: Pick<AppContext, 'db'>): boolean {
+  return typeof stored(ctx).raw?.[BRAND_OWN_FILES] === 'string'
 }
 
 /** The brand action ran through for this team (`brandAt`). */
@@ -427,7 +434,8 @@ export function brandDone(ctx: Pick<AppContext, 'db'>): boolean {
 }
 
 /** The row the server runs the brand action for on a read, once (docs/DECISIONS.md "W6", review M6): unfinished, 회사
- * 소개 saved without a deck and without a first result (old row (a)), no brand mark, not tried on a read before. */
+ * 소개 saved without a deck and without a first result, no brand mark, not tried on a read before. That is old row (a)
+ * (saved on an earlier version), and a row of this version whose brand action failed at 저장하고 계속 (tried again once). */
 export function wantsBrandOnRead(ctx: Pick<AppContext, 'db'>): boolean {
   const s = stored(ctx)
   const raw = s.raw

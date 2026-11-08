@@ -22,7 +22,7 @@ import { authorize } from '../policy/authorize'
 import { freeName } from '../team-files/place'
 import { assetDir, BRAND_PAGE_TEXT_MAX, pageLines, stagedAssets, type BrandAssetRow } from './brand-assets'
 import { readCompanyProfile } from './profile'
-import { BRAND_AT, BRAND_TRIED_AT, brandDone, brandFoldersOf, markBrand, readWelcome, setupWelcomeTeam, wantsBrandOnRead } from './welcome'
+import { BRAND_AT, BRAND_OWN_FILES, BRAND_TRIED_AT, brandDone, brandFoldersOf, brandOwnFiles, markBrand, readWelcome, setupWelcomeTeam, wantsBrandOnRead } from './welcome'
 
 const TEXT = {
   intro: { ko: '회사 소개.md', en: 'Company intro.md', id: 'Profil perusahaan.md', ja: '会社紹介.md', es: 'Presentación de la empresa.md' },
@@ -199,7 +199,9 @@ export function placeBrand(ctx: AppContext, userId: string, locale: Locale, body
   sweepStagedAssets(ctx)
   let intro: string | null = null
   let wrote = false
-  if (!files.length) {
+  // the owner's own files are the intro, now or since an earlier press (a 고치기 save after a reload sends none)
+  if (files.length) markBrand(ctx, BRAND_OWN_FILES)
+  else if (!brandOwnFiles(ctx)) {
     const rel = `${brandFolder}/${TEXT.intro[team]}`
     const r = authorize(ctx.files.fx, ctx.files.rules(), ctx.files.principal(userId), rel, 'write', { mustExist: false })
     if (!r.exists) {
@@ -218,8 +220,17 @@ export function placeBrand(ctx: AppContext, userId: string, locale: Locale, body
   return { brandFolder, imagesFolder, images, intro }
 }
 
-/** The first owner (the steps' owner when several are listed: the oldest). */
-const firstOwner = (ctx: Pick<AppContext, 'db'>) => (ctx.db.query("SELECT id FROM users WHERE role = 'owner' AND deleted_at IS NULL AND status = 'active' ORDER BY created_at LIMIT 1").get() as { id: string } | null)?.id ?? null
+/** Whose brand materials a read puts in: the active owner with the latest website reading (its pictures are theirs:
+ * latestDraftChat is per person), else the oldest active owner. */
+const brandOwner = (ctx: Pick<AppContext, 'db'>): string | null => {
+  let id: string | null = null
+  try {
+    id = (ctx.db.query(`SELECT d.user_id AS id FROM onboarding_profile_drafts d JOIN users u ON u.id = d.user_id
+      WHERE d.source = 'website' AND u.role = 'owner' AND u.status = 'active' AND u.deleted_at IS NULL
+      ORDER BY d.created_at DESC LIMIT 1`).get() as { id: string } | null)?.id ?? null
+  } catch { id = null }
+  return id ?? (ctx.db.query("SELECT id FROM users WHERE role = 'owner' AND deleted_at IS NULL AND status = 'active' ORDER BY created_at LIMIT 1").get() as { id: string } | null)?.id ?? null
+}
 
 /** The server's own run on a welcome read (docs/DECISIONS.md "W6", review M6), once: an unfinished old row whose
  * profile was saved without a deck now counts 회사 소개 as answered and would never press 저장하고 계속 again, so its
@@ -228,7 +239,7 @@ export function brandOnRead(ctx: AppContext): void {
   try {
     if (!wantsBrandOnRead(ctx)) return
     markBrand(ctx, BRAND_TRIED_AT)
-    const owner = firstOwner(ctx)
+    const owner = brandOwner(ctx)
     if (!owner) return
     ctx.files.principal(owner)
     placeBrand(ctx, owner, teamDefaultLocale(ctx.db), { files: [] })

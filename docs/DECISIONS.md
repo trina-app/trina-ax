@@ -14073,4 +14073,12 @@ catalog, 팀 파일's folder flow, the owner handover) are their own PRs.
   (no install from the steps), `c-drive-shares` (N1), `b-welcome-share-goal`; web `welcome.test.tsx`, `setup-row`,
   `goal-card`, `home-no-ai`; e2e `welcome-tools.spec.ts`, `welcome-notes.spec.ts`, `welcome-skills.spec.ts`,
   `auth.spec.ts`.
+- **Independent review (2026-11-08), fixed:** a phone coming back for a put-off invite on an older row with 도구 연결
+  open was sent Home once the walk's record finished the setup (the resume step is now decided before the record);
+  회사 소개.md was written beside the owner's own intro files when a later press sent none (`brandOwnFiles` mark); the
+  confirm decided `membersOn` from the switch state the page loaded (an owner or admin now always asks, the server
+  ignores it while the switch is on); a read's brand run used the oldest owner instead of the one whose website reading
+  it is; one failed poll ended a Drive sign-in that was still going. Kept: a resumed sign-in after a reload shows no
+  "Google에서 계속" link (the window opened before it is still there); the brand-failure note shows only when 내 스킬
+  comes next.
 - Version impact: **minor** (a new step, an endpoint replaced, a Drive rule for owners and admins; no migration).

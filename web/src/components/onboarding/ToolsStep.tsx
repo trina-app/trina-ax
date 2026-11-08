@@ -81,7 +81,9 @@ function DriveRow({ onConnected }: { onConnected: (on: boolean) => void }) {
   const c: DriveConnection | null = s.connection
   const [note, setNote] = useState<'not' | 'unavailable' | null>(null)
   const linked = c?.status === 'connected'
-  // members may not connect theirs yet: this press turns that on too (named in the line), at the confirm
+  // members may not connect theirs yet: this press turns that on too (named in the line), at the confirm. The confirm
+  // always asks for it (the owner walks these steps): the server ignores it while the switch is on, and a switch another
+  // admin turned off meanwhile is turned on as the line said
   const turnOn = c?.personalAllowed === false
   useEffect(() => { onConnected(linked) }, [linked]) // eslint-disable-line react-hooks/exhaustive-deps
   // a sign-in this tab started before a reload: shown again where it stands
@@ -93,12 +95,13 @@ function DriveRow({ onConnected }: { onConnected: (on: boolean) => void }) {
     if (id) void d.resume(id)
   }, [c?.configured, linked]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (d.flow?.flowId) keep(d.flow.flowId) }, [d.flow?.flowId])
-  // a sign-in that failed or was refused: back to [연결] with why (the hosting service down, or not connected)
+  // a sign-in that failed or was refused: back to [연결] with why (the hosting service down, or not connected); a poll
+  // that failed once while the flow goes on is no failure
   useEffect(() => {
-    if (!d.error) return
+    if (!d.error || d.inProgress) return
     keep(null)
     setNote(d.reason?.includes('broker_unavailable') ? 'unavailable' : 'not')
-  }, [d.error, d.reason])
+  }, [d.error, d.reason, d.inProgress])
   if (!c?.configured) return null
   const flow = d.inProgress ? d.flow : null
   const start = () => { setNote(null); s.start() }
@@ -114,7 +117,7 @@ function DriveRow({ onConnected }: { onConnected: (on: boolean) => void }) {
         ) : flow?.state === 'ready' ? (
           <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="welcome-tools-drive-confirm">
             <span role="status" className="min-w-0 break-words text-ink">{t('welcome.tools.confirm', { account: [flow.account?.email, flow.account?.name].find(Boolean) ?? '' })}</span>
-            <Button size="sm" variant="primary" busy={d.busy} onClick={() => void d.complete(turnOn ? { membersOn: true } : {})} data-testid="welcome-tools-drive-yes">{t('welcome.tools.yes')}</Button>
+            <Button size="sm" variant="primary" busy={d.busy} onClick={() => void d.complete({ membersOn: true })} data-testid="welcome-tools-drive-yes">{t('welcome.tools.yes')}</Button>
             <Button size="sm" variant="ghost" disabled={d.busy} onClick={() => { keep(null); setNote(null); void d.cancel() }} data-testid="welcome-tools-drive-other">{t('welcome.tools.other')}</Button>
           </div>
         ) : flow ? (
