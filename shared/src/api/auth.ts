@@ -169,7 +169,8 @@ export const UpdateMeBody = z.object({
   locale: Locale.nullable().optional(),
   email: z.email().nullable().optional(),
   /** engine / model null = back to the team default ("내 기본 엔진/모델"); ignored for people who may not pick */
-  prefs: UserPrefs.extend({ textSize: TextSize.optional(), engine: EngineId.nullable().optional(), model: z.string().max(100).nullable().optional() }).optional(),
+  /** `away` is not set here (PUT /api/me/away tells the team at once); one sent is dropped */
+  prefs: UserPrefs.omit({ away: true }).extend({ textSize: TextSize.optional(), engine: EngineId.nullable().optional(), model: z.string().max(100).nullable().optional() }).optional(),
 })
 
 /** GET /api/me/usage: the signed-in person's own usage in a period of the team's time zone (today, this week from

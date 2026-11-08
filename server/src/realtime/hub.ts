@@ -353,6 +353,30 @@ export class Hub implements RealtimeHub {
     for (const l of this.windowListeners) try { l(s.userId, s.windowId, 'closed') } catch {}
   }
 
+  /**
+   * A control frame (no seq, never buffered or replayed: a state like `presence`, realtime/presence.ts) to a person's
+   * open windows, or to one of them. Windows still replaying get nothing (they are told when they open); a window whose
+   * session has expired is ended first, as before an event.
+   */
+  sendControl(userId: string, frame: ControlFrame, windowId?: string): void {
+    const u = this.users.get(userId)
+    if (!u) return
+    this.expire(u, this.o.now())
+    const json = JSON.stringify(frame)
+    for (const s of [...u.sockets.values()]) {
+      if (!s.ready || s.closed) continue
+      if (windowId && s.windowId !== windowId) continue
+      this.send(s, json)
+    }
+  }
+
+  /** The people with at least one open window. */
+  connectedUsers(): string[] {
+    const out: string[] = []
+    for (const [id, u] of this.users) for (const s of u.sockets.values()) if (s.ready && !s.closed) { out.push(id); break }
+    return out
+  }
+
   // ---------------- queries for other parts of B ----------------
   isWindowOpen(userId: string, windowId: string): boolean {
     const s = this.users.get(userId)?.sockets.get(windowId)
