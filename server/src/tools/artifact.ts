@@ -37,18 +37,35 @@ export class Artifacts {
     return this.ctx.db.query(`SELECT ${COLS} FROM artifacts WHERE chat_id = ? AND key = ? ORDER BY version DESC LIMIT 1`).get(chatId, key) as Row | null
   }
 
-  /** The answers of a shared chat hidden from `userId` (chat/shared-answers.ts): their artifacts are not theirs to see
-   * (an empty set for a chat of one person). */
-  private hiddenFrom(userId: string, chatId: string): ReadonlySet<string> {
-    return isSharedChat(this.ctx.db, chatId) ? withheldFrom(this.ctx.db, this.ctx.files.rules(), chatId, userId) : new Set()
+  /**
+   * The versions of a shared chat's artifacts hidden from `userId` (an empty set for a chat of one person): those an
+   * answer hidden from them made (chat/shared-answers.ts), and every later version of the same key but the ones of
+   * their own turns. A version may take its content, title or type from the one before it on any branch, so once one
+   * is hidden the rest of the key stays hidden (fails closed); their own version took nothing from one hidden from them
+   * (apply).
+   */
+  private hiddenVersions(userId: string, chatId: string): ReadonlySet<string> {
+    if (!isSharedChat(this.ctx.db, chatId)) return new Set()
+    const hidden = withheldFrom(this.ctx.db, this.ctx.files.rules(), chatId, userId)
+    const rows = this.ctx.db.query(`SELECT a.id, a.key, a.message_id, t.user_id AS runner FROM artifacts a LEFT JOIN messages m ON m.id = a.message_id
+      LEFT JOIN turns t ON t.id = m.turn_id WHERE a.chat_id = ? ORDER BY a.key, a.version`).all(chatId) as { id: string; key: string; message_id: string | null; runner: string | null }[]
+    const out = new Set<string>()
+    let key: string | null = null, tainted = false
+    for (const r of rows) {
+      if (r.key !== key) { key = r.key; tainted = false }
+      const own = !!r.message_id && hidden.has(r.message_id)
+      if (own) tainted = true
+      if (own || (tainted && r.runner !== userId)) out.add(r.id)
+    }
+    return out
   }
 
   /** The artifact tool. Throws ToolError with a message the model can act on. */
   apply(t: ArtifactTurn, a: z.output<typeof ArtifactInput>): ArtifactSummary {
     const latest = this.latest(t.chatId, a.key)
-    // a shared chat: a version made by an answer hidden from this person is not theirs: an update finds nothing, and a
+    // a shared chat: a version hidden from this person (hiddenVersions) is not theirs: an update finds nothing, and a
     // new version takes nothing from it (its number goes on)
-    const hidden = !!latest?.message_id && this.hiddenFrom(t.userId, t.chatId).has(latest.message_id)
+    const hidden = !!latest && this.hiddenVersions(t.userId, t.chatId).has(latest.id)
     const prev = hidden ? null : latest
     let content: string
     if (a.action === 'update') {
@@ -95,9 +112,9 @@ export class Artifacts {
   /** GET /api/chats/:id/artifacts — every key with its versions, newest first. */
   list(userId: string, chatId: string): { items: { key: string; versions: ArtifactSummary[] }[] } {
     this.ownChat(userId, chatId)
-    // (a shared chat: none of an answer hidden from the caller)
-    const hidden = this.hiddenFrom(userId, chatId)
-    const rows = (this.ctx.db.query(`SELECT ${COLS} FROM artifacts WHERE chat_id = ? ORDER BY key, version DESC`).all(chatId) as Row[]).filter((r) => !r.message_id || !hidden.has(r.message_id))
+    // (a shared chat: none hidden from the caller)
+    const hidden = this.hiddenVersions(userId, chatId)
+    const rows = (this.ctx.db.query(`SELECT ${COLS} FROM artifacts WHERE chat_id = ? ORDER BY key, version DESC`).all(chatId) as Row[]).filter((r) => !hidden.has(r.id))
     const groups = new Map<string, ArtifactSummary[]>()
     for (const r of rows) { const g = groups.get(r.key) ?? []; g.push(summary(r)); groups.set(r.key, g) }
     // keys in the order they were first created
@@ -111,7 +128,7 @@ export class Artifacts {
     const r = this.ctx.db.query(`SELECT a.${COLS.split(', ').join(', a.')} FROM artifacts a WHERE a.id = ?`).get(id) as Row | null
     if (!r) throw new HttpError('not_found')
     this.ownChat(userId, r.chat_id)
-    if (r.message_id && this.hiddenFrom(userId, r.chat_id).has(r.message_id)) throw new HttpError('not_found')
+    if (this.hiddenVersions(userId, r.chat_id).has(r.id)) throw new HttpError('not_found')
     return full(r)
   }
 }

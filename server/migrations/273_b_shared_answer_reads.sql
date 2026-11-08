@@ -10,9 +10,12 @@
 --     left_out: JSON [message ids]: answers above it on its branch that its runner did not see (not in its context).
 --   A viewer sees an answer when it is their own turn's, or for every group they are in `c` or read every source, and
 --   no answer above it in its context is hidden from them. No row: hidden from everyone but its runner.
--- An older build ignores the table: there a shared chat is its creator's own chat (the rollback guard of migration 265
--- unshares it when this build comes back), so nobody sees more there.
--- Numbered 273: 266, 267 and 270 are taken by open branches and 272 (onboarding file ranks) is on dev.
+-- An older build ignores the table. One from before 265 knows no shared chats (its turns there unshare the chat when
+-- this build comes back: the 265 rollback guard). One with 265 and without this table shows every answer to everyone
+-- who sees the chat again, as before this change: rolling back undoes the rule while it runs (written down in
+-- docs/DECISIONS.md); when this build comes back, the answers that build made get a record for the people who see the
+-- chat then (chat/shared.ts recordOlderAnswers), so nobody who joins later sees them.
+-- Numbered 273: 266 and 272 are on dev, 267 and 270 are taken by open branches.
 CREATE TABLE shared_answer_reads (
   message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
   chat_id TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,

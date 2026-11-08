@@ -33,7 +33,7 @@ import type { TurnExec } from './turn'
 import { addSources, sourceKey, sourceOf, viewersOf, type ReadSource } from './read-scope'
 import { loadPrincipal } from '../policy/access'
 import { Audiences, chatFor, INVISIBLE_RE, labelName, projectCanShare, readTranscript, sharedChatAudienceCovers } from './shared'
-import { AnswerSight, answerRecords } from './shared-answers'
+import { AnswerSight, answerRecords, sharedHits } from './shared-answers'
 import { neutralizeTags } from './prompt'
 import { confidentialChat } from '../safe-ops/confidential'
 import { safeOpsEnabled } from '../safe-ops/runner'
@@ -171,12 +171,18 @@ export function projectChatTools(exec: TurnExec): Tool[] {
         const rows = visible.size ? db.query(`SELECT c.id, c.user_id, c.project_id, c.title, c.updated_at FROM chats c JOIN projects p ON p.id = c.project_id
           WHERE ${where.join(' AND ')} ORDER BY c.updated_at DESC, c.id DESC LIMIT ${PROJECT_CHATS_SCAN}`).all(...params) as Pick<ChatRow, 'id' | 'user_id' | 'project_id' | 'title' | 'updated_at'>[] : []
         const shown: { row: (typeof rows)[number]; project: ProjectRow }[] = []
-        // a word found only in an answer hidden from the asker does not count (chat/shared-answers.ts): no hint of it
+        // a word counts through a title, a project name or a message everyone here who sees the project sees (the asker
+        // too): never through an answer hidden from one of them (chat/shared-answers.ts), so neither a find nor a "no
+        // match" says anything about what someone here may not see (someone outside the project keeps the result private
+        // anyway: the project counts). project_chat reads the rest for the asker
         const sight = new AnswerSight(db, rt.files)
+        const people = [...new Set([spec.userId, ...members(db, roomId).map((m) => m.user_id)])]
         const words = (a.data.query ?? '').split(/\s+/).filter(Boolean).slice(0, 8).map((w) => `%${likeEscape(w)}%`)
-        const matches = (r: (typeof rows)[number], p: ProjectRow) => words.every((like) =>
+        // the messages of shared chats that hold each word: one search per word, not one per chat
+        const hits = words.map((like) => sharedHits(db, like))
+        const matches = (r: (typeof rows)[number], p: ProjectRow) => words.every((like, i) =>
           !!db.query("SELECT 1 FROM chats c JOIN projects p ON p.id = c.project_id WHERE c.id = ?1 AND p.id = ?2 AND (c.title LIKE ?3 ESCAPE '\\' OR p.name LIKE ?3 ESCAPE '\\')").get(r.id, p.id, like)
-          || (db.query("SELECT message_id AS id FROM messages_fts WHERE chat_id = ? AND content LIKE ? ESCAPE '\\'").all(r.id, like) as { id: string }[]).some((m) => !sight.withheld(r.id, spec.userId).has(m.id)))
+          || (hits[i]!.get(r.id) ?? []).some((id) => people.every((u) => (u !== spec.userId && !aud.sees(u, p)) || !sight.withheld(r.id, u).has(id))))
         for (const r of rows) {
           if (shown.length >= limit) break
           // never a confidential one

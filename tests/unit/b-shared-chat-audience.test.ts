@@ -174,14 +174,36 @@ describe('around the transcript', () => {
     try {
       expect((await h.api('gina').call(API.listChatArtifacts, { params: { id: chatId } })).items).toEqual([])
       expect((await errOf(h.api('gina').call(API.getArtifact, { params: { id: artId } }))).status).toBe(404)
-      const g = await ask('gina', chatId, fake({ tool: 'artifact', args: { action: 'update', key: 'brief', edits: [{ old: 'Autumn', new: 'x' }] }, sayResult: true }, { tool: 'artifact', args: { action: 'create', key: 'brief', type: 'markdown', content: 'GINA-OWN' } }, { say: 'ok' }))
+      const g = await ask('gina', chatId, fake({ tool: 'artifact', args: { action: 'update', key: 'brief', type: 'markdown', edits: [{ old: 'Autumn', new: 'x' }] }, sayResult: true }, { tool: 'artifact', args: { action: 'create', key: 'brief', type: 'markdown', content: 'GINA-OWN' } }, { say: 'ok' }))
       expect(g.done.status).toBe('done')
+      // the update finds nothing (the same words as for a key that is not there)
+      expect(g.done.content).toContain("no artifact with key 'brief' in this chat yet")
       const mine = (await h.api('gina').call(API.listChatArtifacts, { params: { id: chatId } })).items
       // her own version only, without the hidden one's title
       expect(mine.map((a) => a.versions.map((v) => [v.version, v.title]))).toEqual([[[2, null]]])
       const steps = JSON.stringify(g.done.steps)
       expect(steps).not.toContain('ART-TITLE')
       expect(h.ctx.db.query("SELECT summary FROM tool_events WHERE turn_id = ? AND tool = 'artifact' ORDER BY id").all(g.started.turnId)).toHaveLength(2)
+      // bob, whom the card covered, sees both versions; gina's own stays hers to see too
+      expect((await h.api('bob').call(API.listChatArtifacts, { params: { id: chatId } })).items[0]!.versions.map((v) => v.version)).toEqual([2, 1])
+    } finally { leave() }
+  })
+
+  test('an artifact version built on a hidden one on another branch is hidden too (it may carry its content)', async () => {
+    const chatId = (await newShared()).id
+    const first = await askWithCard('alice', chatId, fake({ tool: 'read', args: { file_path: BRIEF } }, { tool: 'artifact', args: { action: 'create', key: 'brief', type: 'markdown', title: 'XB-TITLE', content: 'XB-BODY' } }, { say: 'made' }), 'share')
+    // alice edits her first question: a new branch, whose answer reads nothing and updates the key (v2 holds v1's text)
+    const edited = await h.api('alice').call(API.editMessage, { params: { id: chatId, messageId: first.started.userMessage!.id }, body: { content: fake({ tool: 'artifact', args: { action: 'update', key: 'brief', type: 'markdown', edits: [{ old: 'XB-BODY', new: 'XB-BODY v2' }] } }, { say: 'updated' }), clientMessageId: cm(), attachmentIds: [] } })
+    await ws.alice!.next('message.done', (f) => f.data.messageId === edited.assistantMessage.id, 30_000)
+    await waitFor(() => !h.rt().activeTurn(chatId), { timeoutMs: 15_000 })
+    const all = (await h.api('carol').call(API.listChatArtifacts, { params: { id: chatId } })).items[0]!.versions
+    expect(all.map((v) => [v.version, v.title])).toEqual([[2, 'XB-TITLE'], [1, 'XB-TITLE']])
+    join()
+    try {
+      // the answer of the new branch is not hidden from gina, its artifact version is
+      expect((await answerFor('gina', chatId, edited.assistantMessage.id)).withheld).toBeUndefined()
+      expect((await h.api('gina').call(API.listChatArtifacts, { params: { id: chatId } })).items).toEqual([])
+      for (const v of all) expect((await errOf(h.api('gina').call(API.getArtifact, { params: { id: v.id } }))).status).toBe(404)
     } finally { leave() }
   })
 

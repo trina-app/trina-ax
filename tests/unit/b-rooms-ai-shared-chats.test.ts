@@ -499,13 +499,19 @@ describe('an answer hidden from someone who sees the chat (docs/DECISIONS.md "Pe
     const roomId = await room(['bob', 'gina'])
     const b = await ask('bob', roomId, `@트리나 read\n${fake({ tool: 'project_chat', args: { chat: hiddenChat }, sayResult: true }, { say: SEP }, { tool: 'project_chats', args: { query: 'Autumn' }, sayResult: true })}`)
     const mine = (await messages('bob', roomId)).find((m) => m.authorKind === 'ai' && m.replyTo?.id === b.q.id)!
-    expect(mine.body).toContain(CANARY)
-    expect(mine.body).toContain('HIDDEN-TALK')
+    const [read, search] = mine.body.split(SEP.trim())
+    expect(read).toContain(CANARY)
+    expect(read).toContain('HIDDEN-TALK')
+    // the search counts a word only through what everyone here sees: gina does not see the answer, so no match (a find
+    // or a "no match" through it would tell her something about it)
+    expect(search).toContain('No shared project chat in the projects everyone in this room can see matches.')
     expect(mine.visibility).toBe('private')
     expect(await answerTo('gina', roomId, b.q)).toBeUndefined()
     // with only people who saw the chat then (bob and carol), it goes to the room
     const both = await room(['bob', 'carol'])
-    const c = await ask('bob', both, `@트리나 read\n${fake({ tool: 'project_chat', args: { chat: hiddenChat }, sayResult: true })}`)
-    expect((await answerTo('carol', both, c.q))?.visibility).toBe('room')
+    const c = await ask('bob', both, `@트리나 read\n${fake({ tool: 'project_chat', args: { chat: hiddenChat }, sayResult: true }, { say: SEP }, { tool: 'project_chats', args: { query: 'Autumn' }, sayResult: true })}`)
+    const theirs = (await answerTo('carol', both, c.q))!
+    expect(theirs.visibility).toBe('room')
+    expect(theirs.body.split(SEP.trim())[1]).toContain('HIDDEN-TALK')
   })
 })

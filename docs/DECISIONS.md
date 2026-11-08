@@ -14037,9 +14037,11 @@ rule as team rooms ("지난 대화", `rooms/history.ts`). Plan: `docs/AGENTS/pla
   trash: the readers of its folder).
 - **Everywhere the transcript reaches someone.** `Message.withheld` (optional, `true`): content '', no steps, files,
   sources, artifacts, model or error; its branch switch stays; never on an answer of one's own question. The sources
-  list answers empty; artifacts made by a hidden answer are not listed or opened, an `update` by someone it is hidden
-  from finds no artifact and a new version takes nothing from it (its number goes on). Chat search and the room tool's
-  `project_chats` search count a word only in a title, a project name or a message the person sees. Export: the line
+  list answers empty; an artifact version made by a hidden answer is not listed or opened, nor any later version of
+  the same key but one's own (a version may carry the one before it, on any branch: fails closed), an `update` by
+  someone it is hidden from finds no artifact and a new version takes nothing from it (its number goes on). Chat
+  search counts a word only in a title or a message the person sees, from one full-text search per request (the chat
+  id is not indexed). Export: the line
   in place of a hidden answer (without the check, every answer of a shared chat). The engine of a later reader's turn
   gets `WITHHELD_ANSWER` in place of each hidden answer (`labelledTranscript` / `sharedTranscriptText` take the hidden
   set), and no "the previous answer paused" note for one; a resumed session is only the runner's own (as before), and
@@ -14050,6 +14052,9 @@ rule as team rooms ("지난 대화", `rooms/history.ts`). Plan: `docs/AGENTS/pla
   read join the question's read scope, so `decide()` keeps the room answer private and names the folders; if that alone
   would not (nothing some member misses: not known, or built on another hidden answer), the question counts as using
   something outside the team files. When everyone in the room sees every answer, only the project counts, as before.
+  `project_chats` counts a word only in a title, a project name or a message that the asker and everyone in the room
+  who sees the project see: neither a find nor a "no match" (which may go to the room) says anything about an answer
+  hidden from one of them; `project_chat` reads the rest for the asker.
 - **Group skills are their members' only, in shared chats too.** One helper for rooms and shared chats,
   `chat/skills.ts everyoneMayUse` / `mayNotUse` (read it, and for `groups/<folder>/skills/…` be in that group; the
   owner and admins read every group folder). The skill list, the skill tool's names and `find_skills` of a shared chat
@@ -14060,6 +14065,19 @@ rule as team rooms ("지난 대화", `rooms/history.ts`). Plan: `docs/AGENTS/pla
   keeps the answer (rooms keep theirs too); the runner always keeps theirs. A read nobody had to confirm counts like a
   confirmed one (its group is everyone then): a later reader who may not read the place gets the line. The
   instructions' skill list is not recorded (rooms do not either).
+- **Rollback.** A build with migration 265 and without 273 shows every answer to everyone who sees the chat again while
+  it runs (as before this change; raising `min_compatible_reader` would refuse the database instead, which is worse);
+  when this build comes back, the answers that build made are recorded for the people who see the chat then.
+- **Independent security review (2026-11-08).** Fixed: an artifact version on another branch built on a hidden one
+  (an `update` of the same key) showed its title and text to a later reader (must-fix: later versions of a key are
+  hidden with it); a room's `project_chats` search counted words in answers hidden from someone in the room, so a find
+  or a "no match" told them about it (should-fix: only messages everyone there sees count); a search ran one full-text
+  query per shared chat (should-fix: one per request); every viewer's walk read and parsed the chat again (should-fix:
+  read once per request, `c` as a set); the migration's note on older builds was wrong for builds with 265 (fixed,
+  above). Kept, written down: a chat that stops being shared is its creator's own again (the rollback guard, a lost
+  project), and they see every answer in it; the skill names and folder lists of the instructions are not recorded (as
+  in rooms); the URL gate counts addresses a hidden answer's web search showed as seen (no content reaches anyone);
+  each answer's groups keep the audience's ids (a few KB for a big team).
 - **Not here.** A card when someone joins; the chat's title (no `set_title` in shared chats; a chat shared later keeps
   its private title); a source type of its own for a project in rooms.
 - Tests: `tests/unit/b-shared-chat-audience.test.ts` (a confirmed read and an unconfirmed one, covered, reader, later

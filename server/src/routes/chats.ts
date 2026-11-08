@@ -37,7 +37,7 @@ import { refuseDraftAttachments } from '../onboarding/draft'
 import { refuseSkillDraftAttachments } from '../onboarding/skill-draft'
 import { refuseShareJudgeAttachments } from '../skills/share-judge'
 import { Audiences, chatFor, chatPeople, chatView, isSharedRow, messageFor, messageView, projectCanShare, projectShare, sharesNewChats, type ChatAccess, type ChatPeople } from '../chat/shared'
-import { AnswerSight } from '../chat/shared-answers'
+import { AnswerSight, sharedHits } from '../chat/shared-answers'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { forgetPurgedChats } from '../chat/forget'
 
@@ -198,11 +198,14 @@ export const chatsRoutes: RouteModule = {
       // finds a shared chat by its title or a message I see: never by an answer hidden from me (chat/shared-answers.ts)
       const aud = new Audiences(ctx.db, ctx.files)
       const sight = new AnswerSight(ctx.db, ctx.files)
+      // the messages of shared chats that hold the words: one search for the request (the chat id is not indexed)
+      let hits: Map<string, string[]> | null = null
       const found = (r: ChatRow) => {
         const like = `%${likeEscape(q!)}%`
         if (ctx.db.query("SELECT 1 FROM chats WHERE id = ? AND title LIKE ? ESCAPE '\\'").get(r.id, like)) return true
+        hits ??= sharedHits(ctx.db, like)
         const hidden = sight.withheld(r.id, me)
-        return (ctx.db.query("SELECT message_id AS id FROM messages_fts WHERE chat_id = ? AND content LIKE ? ESCAPE '\\'").all(r.id, like) as { id: string }[]).some((m) => !hidden.has(m.id))
+        return (hits.get(r.id) ?? []).some((id) => !hidden.has(id))
       }
       const visible = (r: ChatRow) => { if (!isSharedRow(r)) return true; const p = rt.store.projectRow(r.project_id!); return !!p && aud.sees(me, p) && (!q || found(r)) }
       const out: ChatRow[] = []

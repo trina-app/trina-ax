@@ -84,17 +84,25 @@ export function answerRecords(db: Database, chatId: string): Map<string, AnswerR
 }
 
 type Row = { id: string; parent_id: string | null; role: string; runner: string | null; reads: string | null; left_out: string | null }
+/** One message of a chat as the walk needs it: an answer's record parsed once (`c` as a set; null: none or unreadable). */
+interface Node { id: string; parent: string | null; answer: boolean; runner: string | null; rec: { reads: { c: ReadonlySet<string>; s: ReadSource[]; x: boolean }[]; left: ReadonlySet<string> } | null }
 const NONE: readonly string[] = []
 
-/**
- * The answers of this chat hidden from `viewer`, on every branch. One read of the chat's messages (with their turns'
- * person and records) and one rule check per place. `rules`: the folder rules to judge by (read once per request).
- */
-export function withheldFrom(db: Database, rules: RuleSet, chatId: string, viewer: string): Set<string> {
+/** A chat's messages with their turns' person and records, read and parsed once (any number of viewers then). */
+export function chatNodes(db: Database, chatId: string): Node[] {
   const rows = db.query(`SELECT m.id, m.parent_id, m.role, t.user_id AS runner, r.reads, r.left_out FROM messages m
     LEFT JOIN turns t ON t.id = m.turn_id LEFT JOIN shared_answer_reads r ON r.message_id = m.id
     WHERE m.chat_id = ? ORDER BY m.rowid`).all(chatId) as Row[]
-  const byId = new Map(rows.map((r) => [r.id, r]))
+  return rows.map((m) => {
+    const answer = m.role === 'assistant'
+    const rec = answer ? parseRecord(m.reads, m.left_out) : null
+    return { id: m.id, parent: m.parent_id, answer, runner: m.runner, rec: rec && { reads: rec.reads.map((g) => ({ c: new Set(g.c), s: g.s, x: !!g.x })), left: new Set(rec.left) } }
+  })
+}
+
+/** The answers among `nodes` (chatNodes) hidden from `viewer`, on every branch; one rule check per place. */
+export function withheldAmong(db: Database, rules: RuleSet, nodes: readonly Node[], viewer: string): Set<string> {
+  const byId = new Map(nodes.map((r) => [r.id, r]))
   const me: Principal | null = loadPrincipal(db, viewer)
   const verdicts = new Map<string, boolean>()
   const reads = (s: ReadSource): boolean => {
@@ -106,45 +114,72 @@ export function withheldFrom(db: Database, rules: RuleSet, chatId: string, viewe
     }
     return ok
   }
-  const hiddenHere = (m: Row, above: readonly string[]): boolean => {
-    if (m.role !== 'assistant' || (m.runner !== null && m.runner === viewer)) return false
-    const rec = parseRecord(m.reads, m.left_out)
-    if (!rec) return true
-    if (!rec.reads.every((g) => g.c.includes(viewer) || (!g.x && g.s.every(reads)))) return true
+  const hiddenHere = (m: Node, above: readonly string[]): boolean => {
+    if (!m.answer || (m.runner !== null && m.runner === viewer)) return false
+    if (!m.rec) return true
+    if (!m.rec.reads.every((g) => g.c.has(viewer) || (!g.x && g.s.every(reads)))) return true
     // built on an answer hidden from them that was in its context
-    return above.some((id) => !rec.left.includes(id))
+    const left = m.rec.left
+    return above.some((id) => !left.has(id))
   }
   const out = new Set<string>()
   // per message: the answers hidden from the viewer above it on its branch (itself included when hidden)
   const below = new Map<string, readonly string[]>()
-  const resolve = (start: Row): void => {
+  const resolve = (start: Node): void => {
     // the chain up to the first message already worked out (parents are almost always earlier rows)
-    const chain: Row[] = []
+    const chain: Node[] = []
     const seen = new Set<string>()
-    let cur: Row | undefined = start
-    while (cur && !below.has(cur.id) && !seen.has(cur.id)) { seen.add(cur.id); chain.push(cur); cur = cur.parent_id ? byId.get(cur.parent_id) : undefined }
+    let cur: Node | undefined = start
+    while (cur && !below.has(cur.id) && !seen.has(cur.id)) { seen.add(cur.id); chain.push(cur); cur = cur.parent ? byId.get(cur.parent) : undefined }
     for (let i = chain.length - 1; i >= 0; i--) {
       const m = chain[i]!
-      const above = m.parent_id ? below.get(m.parent_id) ?? NONE : NONE
+      const above = m.parent ? below.get(m.parent) ?? NONE : NONE
       const hid = hiddenHere(m, above)
       if (hid) out.add(m.id)
       below.set(m.id, hid ? [...above, m.id] : above)
     }
   }
-  for (const r of rows) if (!below.has(r.id)) resolve(r)
+  for (const r of nodes) if (!below.has(r.id)) resolve(r)
   return out
 }
 
-/** withheldFrom, kept for one request: each (chat, viewer) worked out once, the rules read once. */
+/**
+ * The answers of this chat hidden from `viewer`, on every branch. One read of the chat's messages (with their turns'
+ * person and records) and one rule check per place. `rules`: the folder rules to judge by (read once per request).
+ */
+export const withheldFrom = (db: Database, rules: RuleSet, chatId: string, viewer: string): Set<string> => withheldAmong(db, rules, chatNodes(db, chatId), viewer)
+
+/** withheldFrom, kept for one request: each chat read once, each (chat, viewer) worked out once, the rules read once. */
 export class AnswerSight {
   private rulesNow: RuleSet | null = null
+  private chats = new Map<string, Node[]>()
   private sets = new Map<string, Set<string>>()
   constructor(private db: Database, private files: FileService) {}
   get rules(): RuleSet { return (this.rulesNow ??= this.files.rules()) }
+  /** each chat read and parsed once, whoever asks */
+  private nodes(chatId: string): Node[] {
+    let n = this.chats.get(chatId)
+    if (!n) this.chats.set(chatId, (n = chatNodes(this.db, chatId)))
+    return n
+  }
   withheld(chatId: string, viewer: string): ReadonlySet<string> {
     const k = `${chatId} ${viewer}`
     let s = this.sets.get(k)
-    if (!s) this.sets.set(k, (s = withheldFrom(this.db, this.rules, chatId, viewer)))
+    if (!s) this.sets.set(k, (s = withheldAmong(this.db, this.rules, this.nodes(chatId), viewer)))
     return s
   }
+}
+
+/** The messages of shared chats whose text matches `like` (a LIKE pattern, `\` escapes), by chat: one full-text search
+ * for a request, never one per chat (messages_fts does not index the chat). A search counts a word in a shared chat
+ * only through a message the person sees (withheldFrom). */
+export function sharedHits(db: Database, like: string): Map<string, string[]> {
+  const out = new Map<string, string[]>()
+  for (const r of db.query(`SELECT f.chat_id AS chat, f.message_id AS id FROM messages_fts f WHERE f.content LIKE ? ESCAPE '\\'
+    AND f.chat_id IN (SELECT id FROM chats WHERE shared_at IS NOT NULL)`).all(like) as { chat: string; id: string }[]) {
+    const l = out.get(r.chat)
+    if (l) l.push(r.id)
+    else out.set(r.chat, [r.id])
+  }
+  return out
 }
