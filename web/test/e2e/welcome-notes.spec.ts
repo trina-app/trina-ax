@@ -140,7 +140,7 @@ test('회사 소개 starts the deck once; the steps go on; the deck chat mid-set
   expect(realErrors(errors).filter((e) => /status of 409/.test(e))).toHaveLength(1)
 })
 
-test('a phone: the deck line names the ☰ menu; 내 스킬 waits for a computer; the end screen once; the deck\'s chat opens as a sheet', async ({ page }) => {
+test('a phone: the deck line names the ☰ menu; 내 스킬 says own skills go in on a computer and is put off; the end screen once; the deck\'s chat opens as a sheet', async ({ page }) => {
   const errors = watchConsole(page)
   await page.setViewportSize({ width: 390, height: 844 })
   await reset(page)
@@ -150,8 +150,10 @@ test('a phone: the deck line names the ☰ menu; 내 스킬 waits for a computer
   await expect(page.getByTestId('welcome-deck-line')).toHaveText(`저장하면 회사 소개서를 만들기 시작해요 · 5분쯤 · ☰ 메뉴의 ${history} › '우리 회사 소개서'`)
   await page.getByTestId('welcome-profile-continue').click()
   // without files: the server's 회사 소개.md
-  await expect(page.getByTestId('skills-phone-next')).toBeVisible()
-  await page.getByTestId('skills-phone-next').click()
+  // 내 스킬 on a phone: one line that own skills go in on a computer (no folder button); 나중에 하기 puts the step off
+  await expect(page.getByTestId('skills-phone-own')).toBeVisible()
+  await expect(page.getByTestId('skills-find')).toHaveCount(0)
+  await page.getByTestId('skills-later').click()
   await expect(page.getByTestId('welcome-team-files')).toBeVisible()
   await page.getByTestId('welcome-later').click()
   await expect(page.getByTestId('invite-step')).toBeVisible()
@@ -160,14 +162,15 @@ test('a phone: the deck line names the ☰ menu; 내 스킬 waits for a computer
   const listed = await page.request.get(`/api/files/tree?path=${encodeURIComponent('groups/Acme/브랜드')}`)
   expect((await listed.json()).entries.filter((e: { type: string }) => e.type === 'file').map((e: { name: string }) => e.name)).toEqual(['회사 소개.md'])
   const progress = (await (await page.request.get('/api/onboarding/welcome')).json()).progress
-  // 내 스킬 waits for a computer: not finished, the end screen was shown once
-  expect(progress.finishedAt).toBeNull()
+  // every step answered (내 스킬 put off on the phone like on a computer: docs/DECISIONS.md "W6"): finished, the end
+  // screen shown once
+  expect(progress.finishedAt).toBeTruthy()
+  expect(progress.skillsLater).toBeFalsy()
   expect(progress.doneShownAt).toBeTruthy()
-  // Home on a phone: 팀 파일 was put off, so its quiet row leads back to it ("later is now", W4); 내 스킬 itself is for a
-  // computer, so the phone's line about it waits until nothing else is left (this assertion failed on e0c3cdf6 too:
-  // it expected no row)
+  // Home on a phone: nothing left to resume, and no line that 내 스킬 waits for a computer
   await page.getByTestId('welcome-done-home').click()
-  await expect(page.getByTestId('welcome-resume')).toBeVisible()
+  await expect(page.getByTestId('composer-input')).toBeVisible()
+  await expect(page.getByTestId('welcome-resume')).toHaveCount(0)
   await expect(page.getByTestId('welcome-skills-computer')).toHaveCount(0)
   // the deck's chat: the full-screen sheet over the chat once opened, its ✕ in reach
   await page.goto(`/c/${progress.resultChatId}`)
