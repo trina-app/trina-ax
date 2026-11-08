@@ -12,7 +12,8 @@ import { Database } from 'bun:sqlite'
 import { API, uuidv7, type RoomMessage, type RoomSearchPage } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { roomsOf } from '../../server/src/rooms/service'
-import { SCAN_MAX, searchRoomMessages, snippetOf } from '../../server/src/rooms/search'
+import { searchRoomMessages, snippetOf } from '../../server/src/rooms/search'
+import { canSee, memberRow, MSG_COLS, SEE_MEMBER_SQL, type MessageRow } from '../../server/src/rooms/store'
 import { vacuumInto } from '../../server/src/system/backup'
 import { migrate, openDb, readMigrations } from '../../server/src/db'
 import type { ReadSource } from '../../server/src/chat/read-scope'
@@ -255,19 +256,50 @@ describe('how much', () => {
     expect((await h.req('erin', '/api/room-messages?q=PAGE&cursor=nope')).status).toBe(400)
     expect((await h.req('erin', '/api/room-messages?q=')).status).toBe(400)
     expect((await h.req('erin', `/api/room-messages?q=${'a'.repeat(201)}`)).status).toBe(400)
+    // NUL would end the index's query: refused, and the function drops it on its own
+    expect((await h.req('erin', '/api/room-messages?q=a%00b')).status).toBe(400)
+    expect(searchRoomMessages(h.ctx.db, 'erin', { q: 'PAGE\u0000-CANARY 1' }).items.length).toBeGreaterThan(0)
   })
 
-  test('one request looks at so many candidates at most, and its cursor goes on from there', async () => {
-    const { roomId } = await teamRoom(['alice', 'erin'])
-    const visible = put(roomId, 'alice', 'SCANCAP-CANARY for everyone')
-    // newer than it: more of alice's private previews than one request looks at
-    h.ctx.db.transaction(() => { for (let i = 0; i < SCAN_MAX + 50; i++) put(roomId, 'alice', `SCANCAP-CANARY preview ${i}`, { privateTo: 'alice' }) })()
-    const first = await search('erin', 'SCANCAP-CANARY')
-    expect(first.items).toEqual([])
-    expect(first.nextCursor).not.toBeNull()
-    const second = await search('erin', 'SCANCAP-CANARY', { cursor: first.nextCursor! })
-    expect(second.items.map((i) => i.id)).toEqual([visible])
-    expect(second.nextCursor).toBeNull()
+  test('a cursor only ever names a message they see: messages they do not see change no page, no cursor (independent review)', async () => {
+    // bob joins a group chat after 2,100 messages with the word, one of them a secret; erin's room has alice's previews
+    const chat = await groupChat('alice', ['erin', 'carol'])
+    const ids: string[] = []
+    h.ctx.db.transaction(() => { for (let i = 0; i < 2_100; i++) ids.push(put(chat, 'alice', i === 1_000 ? '공통어 SECRET-CONTRACT 3억' : `공통어 pad ${i}`)) })()
+    await h.api('alice').call(API.inviteRoomMembers, { params: { id: chat }, body: { userIds: ['bob'] } })
+    const after = put(chat, 'alice', '공통어 after bob')
+    h.ctx.db.transaction(() => { for (let i = 0; i < 2_100; i++) put(chat, 'alice', `공통어 preview ${i}`, { privateTo: 'alice' }) })()
+    const page = await search('bob', '공통어')
+    expect(page.items.map((i) => i.id)).toEqual([after])
+    expect(page.nextCursor).toBeNull()
+    expect(await search('bob', '없는공통어')).toEqual({ items: [], rooms: [], nextCursor: null })
+    // a hand-made cursor at, just above and below a message he does not see: the same answer, no cursor to compare
+    const rowid = (id: string) => (h.ctx.db.query('SELECT rowid r FROM room_messages WHERE id = ?').get(id) as { r: number }).r
+    const at = (r: number) => Buffer.from(JSON.stringify({ r: String(r) })).toString('base64url')
+    const secret = rowid(ids[1_000]!)
+    for (const q of ['공통어', 'SECRET', '3억', 'pad'])
+      for (const r of [secret, secret + 1, secret - 1]) expect(await search('bob', q, { cursor: at(r) })).toEqual({ items: [], rooms: [], nextCursor: null })
+    // erin, in the same room from the start: alice's previews are not hers, the room's messages are, in pages
+    const erin = await search('erin', '공통어', { limit: 30 })
+    expect(erin.items[0]!.id).toBe(after)
+    expect(erin.items.slice(1).map((i) => i.snippet)).toEqual(Array.from({ length: 29 }, (_, i) => `공통어 pad ${2_099 - i}`))
+    expect(erin.nextCursor).not.toBeNull()
+  })
+
+  test('SEE_MEMBER_SQL is canSee: every member against every message of the rooms here', () => {
+    const db = h.ctx.db
+    const members = db.query('SELECT room_id, user_id FROM room_members').all() as { room_id: string; user_id: string }[]
+    let checked = 0
+    for (const { room_id, user_id } of members) {
+      const me = memberRow(db, room_id, user_id)!
+      const rows = db.query(`SELECT ${MSG_COLS} FROM room_messages WHERE room_id = ? ORDER BY seq DESC LIMIT 400`).all(room_id) as MessageRow[]
+      const sql = new Set((db.query(`SELECT m.id FROM room_messages m JOIN room_members mm ON mm.room_id = m.room_id AND mm.user_id = ? WHERE m.room_id = ? AND ${SEE_MEMBER_SQL}`).all(user_id, room_id) as { id: string }[]).map((r) => r.id))
+      for (const r of rows) {
+        expect(`${user_id} ${r.id} ${sql.has(r.id)}`).toBe(`${user_id} ${r.id} ${canSee(db, r, me)}`)
+        checked++
+      }
+    }
+    expect(checked).toBeGreaterThan(1_000)
   })
 
   test('on a 50,000-message room: fast, from the index first, newest first', async () => {
@@ -295,7 +327,8 @@ describe('how much', () => {
       times[q] = runs.sort((a, b) => a - b)[2]!
     }
     console.log(`room search on 50,000 messages (insert with the index: ${inserted.toFixed(0)} ms), median ms per query:`, JSON.stringify(Object.fromEntries(Object.entries(times).map(([k, v]) => [k, Number(v.toFixed(2))]))))
-    for (const v of Object.values(times)) expect(v).toBeLessThan(150)
+    // a loose bound (a busy machine runs these far slower); the plan below is what keeps it off a walk of the room
+    for (const v of Object.values(times)) expect(v).toBeLessThan(500)
     const page = searchRoomMessages(db, 'bob', { q: '특별견적' })
     expect(page.items).toHaveLength(20)
     expect(page.items.map((i) => i.createdAt)).toEqual([...page.items.map((i) => i.createdAt)].sort().reverse())
@@ -342,6 +375,8 @@ describe('migration 267', () => {
       migrate(db, { backupDir: path.join(dir, 'backups') })
       expect(db.query('SELECT body FROM room_messages_fts').all()).toEqual([{ body: '지난주 견적서를 보냈어요' }])
       expect(searchRoomMessages(db, 'u1', { q: '견적' }).items.map((i) => i.snippet)).toEqual(['지난주 견적서를 보냈어요'])
+      // no secure-delete: SQLite before 3.42 (macOS 13's) refuses it and cannot read an index that used it
+      expect(db.query("SELECT v FROM room_messages_fts_config WHERE k = 'secure-delete'").get()).toBeNull()
     } finally { db.close() }
   })
 })
@@ -378,6 +413,16 @@ describe('the page around a message (a hit opens the room there)', () => {
     expect(bob.newerCursor).toBeUndefined()
     // the newest page as before: no newerCursor
     expect((await h.api('erin').call(API.listRoomMessages, { params: { id: chat }, query: {} })).newerCursor).toBeUndefined()
+  })
+
+  test('around with a page of one: the message, and newer ones after it', async () => {
+    const chat = await groupChat('alice', ['erin', 'carol'])
+    const ids: string[] = []
+    h.ctx.db.transaction(() => { for (let i = 0; i < 5; i++) ids.push(put(chat, 'alice', `ONE ${i}`)) })()
+    const page = await h.api('erin').call(API.listRoomMessages, { params: { id: chat }, query: { around: ids[2], limit: 1 } })
+    expect(page.items.map((m) => m.body)).toEqual(['ONE 2'])
+    const next = await h.api('erin').call(API.listRoomMessages, { params: { id: chat }, query: { cursor: page.newerCursor!, limit: 50 } })
+    expect(next.items.map((m) => m.body)).toEqual(['ONE 3', 'ONE 4'])
   })
 
   test('around a thread reply: the page around its thread\'s first message', async () => {

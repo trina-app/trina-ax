@@ -2,18 +2,22 @@
 // the room now, and nothing else.
 //   which rooms     reader.ts myRooms: the rooms they are in now, not archived (what the rooms list holds; ones they hid
 //                   too, as its "숨긴 대화"). Leaving or being taken out ends it at once: no member row, no candidate.
-//   which messages  store.ts canSee for each candidate with the member row of its room, the rooms' one rule (SEE_SQL is
-//                   the same in SQL): where they see the room from (a later member of a group chat or a 1:1 from their
-//                   join; a team room's or the everyone room's whole history once it is opened, Rooms.syncFor before a
-//                   search), other people's private previews never, the old answers hidden from them and everything in
-//                   their threads never. Deleted messages and event lines have no text and never match.
+//   which messages  the rooms' one rule, decided in the query: store.ts SEE_MEMBER_SQL (SEE_SQL with the values of the
+//                   member row of each message's room), so the page, its LIMIT and its cursor only ever count or name a
+//                   message they see (an independent review found that filtering after the query let a cursor point at
+//                   one they do not); then canSee, the same rule in code, on each. Where they see the room from (a later
+//                   member of a group chat or a 1:1 from their join; a team room's or the everyone room's whole history
+//                   once it is opened, Rooms.syncFor before a search), other people's private previews never, the old
+//                   answers hidden from them and everything in their threads never. Deleted messages and event lines
+//                   have no text and never match.
 //   how it finds    room_messages_fts (migration 267, trigram, as the chat records' messages_fts): a phrase MATCH for 3
 //                   or more characters, the trigram LIKE for 1–2 ("견적": a scan of the index's text); newest first by
 //                   rowid, so a page stops as soon as it is full. Every candidate's own body is matched again with the
 //                   chat records' rule (LIKE … ESCAPE: the text as one part, any case of A–Z): an index row out of step
 //                   can never bring a message that does not hold the text.
-//   how much        a page of at most ROOM_SEARCH_PAGE_MAX; one request looks at SCAN_MAX candidates of the person's rooms
-//                   at most, and its cursor goes on below the last one it looked at.
+//   how much        a page of at most ROOM_SEARCH_PAGE_MAX; its cursor goes on below its last hit. The index is walked
+//                   past matches the person does not see (other rooms') until the page is full: a word common only in
+//                   other rooms costs a longer walk (DECISIONS: known limits).
 //   what it gives   the text around the first match of a message canSee let through, as messagesOut gives it to the
 //                   room (one shown as withheld is dropped): never a quote, a file or a hidden answer's text.
 import type { Database } from 'bun:sqlite'
@@ -21,14 +25,10 @@ import { ROOM_REF_RE, ROOM_SEARCH_PAGE_MAX, ROOM_SEARCH_SNIPPET_MAX, type RoomSe
 import { decodeCursor, encodeCursor } from '../chat/store'
 import { fail } from '../http/errors'
 import { myRooms, type Mine } from './reader'
-import { canSee, messagesOut, MSG_COLS, roomNaming, type MessageRow } from './store'
+import { canSee, messagesOut, MSG_COLS, roomNaming, SEE_MEMBER_SQL, type MessageRow } from './store'
 
 /** hits a page gives by default */
 export const ROOM_SEARCH_DEFAULT = 20
-/** candidates (messages of the person's rooms that hold the text) one request looks at, at most */
-export const SCAN_MAX = 2_000
-/** candidates read at a time */
-const BATCH = 200
 /** characters of the snippet before the match, at most */
 const BEFORE = 60
 
@@ -40,7 +40,8 @@ const likeArg = (q: string) => `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
 export interface SearchInput { q: string; cursor?: string; limit?: number }
 
 export function searchRoomMessages(db: Database, userId: string, o: SearchInput): RoomSearchPage {
-  const q = o.q.normalize('NFC').trim()
+  // (NUL ends an FTS5 query string; the contract refuses it, this keeps the function safe on its own)
+  const q = o.q.replace(/\u0000/g, '').normalize('NFC').trim()
   const cur = decodeCursor(o.cursor, ['r'])
   if (o.cursor && (!cur || !/^\d{1,18}$/.test(cur.r))) fail('validation', undefined, { fields: { 'query.cursor': 'invalid cursor' } })
   const limit = Math.min(ROOM_SEARCH_PAGE_MAX, Math.max(1, o.limit ?? ROOM_SEARCH_DEFAULT))
@@ -51,36 +52,28 @@ export function searchRoomMessages(db: Database, userId: string, o: SearchInput)
   const phrase = [...q].length >= 3
   const find = phrase ? 'room_messages_fts MATCH ?' : 'f.body LIKE ?'
   const findArg = phrase ? `"${q.replace(/"/g, '""')}"` : `%${q}%`
-  // CROSS JOIN keeps SQLite on the index first, newest first: never a walk of the rooms' messages
-  const sql = `SELECT f.rowid AS r, ${COLS} FROM room_messages_fts f CROSS JOIN room_messages m ON m.rowid = f.rowid
+  // who sees what is decided here, on each message's own room's member row (SEE_MEMBER_SQL: SEE_SQL with that row's
+  // values): the page, its LIMIT and the cursor below only ever count or name messages the person sees. CROSS JOIN keeps
+  // SQLite on the index first, newest first: never a walk of the rooms' messages.
+  const rows = db.query(`SELECT f.rowid AS r, ${COLS} FROM room_messages_fts f CROSS JOIN room_messages m ON m.rowid = f.rowid
+    CROSS JOIN room_members mm ON mm.room_id = m.room_id AND mm.user_id = ?
     WHERE ${find} AND f.rowid < ? AND m.room_id IN (SELECT value FROM json_each(?)) AND m.deleted_at IS NULL AND m.event IS NULL
-      AND m.body LIKE ? ESCAPE '\\' ORDER BY f.rowid DESC LIMIT ?`
-  const rooms = JSON.stringify([...mine.keys()])
-  const found: { r: number; row: MessageRow; mine: Mine }[] = []
-  let below = cur ? Number(cur.r) : Number.MAX_SAFE_INTEGER
-  let looked = 0
-  let done = false
-  while (found.length <= limit && looked < SCAN_MAX) {
-    const want = Math.min(BATCH, SCAN_MAX - looked)
-    const batch = db.query(sql).all(findArg, below, rooms, likeArg(q), want) as (MessageRow & { r: number })[]
-    for (const { r, ...row } of batch) {
-      looked++
-      below = r
-      const m = mine.get(row.room_id)!
-      if (canSee(db, row, m.me)) found.push({ r, row, mine: m })
-      if (found.length > limit) break
-    }
-    // fewer than asked: nothing more holds the text below here
-    if (batch.length < want) { done = found.length <= limit; break }
+      AND ${SEE_MEMBER_SQL} AND m.body LIKE ? ESCAPE '\\' ORDER BY f.rowid DESC LIMIT ?`)
+    .all(userId, findArg, cur ? Number(cur.r) : Number.MAX_SAFE_INTEGER, JSON.stringify([...mine.keys()]), likeArg(q), limit + 1) as (MessageRow & { r: number })[]
+  const page = rows.slice(0, limit)
+  // more: a hit past the page; the next page goes on below this page's last (a message they see)
+  const nextCursor = rows.length > limit ? encodeCursor({ r: String(page.at(-1)!.r) }) : null
+  // and canSee, the same rule in code, on each with its member row as the rooms read it (a second check)
+  const kept: { row: MessageRow; mine: Mine }[] = []
+  for (const { r: _r, ...row } of page) {
+    const m = mine.get(row.room_id)
+    if (m && canSee(db, row, m.me)) kept.push({ row, mine: m })
   }
-  const page = found.slice(0, limit)
-  // more: a hit past the page, or candidates not looked at yet (the next page goes on below the last one looked at)
-  const nextCursor = found.length > limit ? encodeCursor({ r: String(page.at(-1)!.r) }) : !done && looked > 0 ? encodeCursor({ r: String(below) }) : null
   // each room's hits as its member sees them in the room
   const shown = new Map<string, RoomSearchHit>()
   const named: RoomSearchRoom[] = []
-  for (const m of new Set(page.map((h) => h.mine))) {
-    for (const msg of messagesOut(db, page.filter((h) => h.mine === m).map((h) => h.row), m.me)) {
+  for (const m of new Set(kept.map((h) => h.mine))) {
+    for (const msg of messagesOut(db, kept.filter((h) => h.mine === m).map((h) => h.row), m.me)) {
       if (msg.withheld || msg.deletedAt || msg.event || !msg.body) continue
       shown.set(msg.id, {
         id: msg.id, roomId: msg.roomId, threadRootId: msg.threadRootId ?? null, authorKind: msg.authorKind,
@@ -90,7 +83,7 @@ export function searchRoomMessages(db: Database, userId: string, o: SearchInput)
     }
     named.push({ id: m.room.id, kind: m.room.kind, ...roomNaming(db, m.room, userId) })
   }
-  const items = page.map((h) => shown.get(h.row.id)).filter((x): x is RoomSearchHit => !!x)
+  const items = kept.map((h) => shown.get(h.row.id)).filter((x): x is RoomSearchHit => !!x)
   return { items, rooms: named.filter((r) => items.some((i) => i.roomId === r.id)), nextCursor }
 }
 

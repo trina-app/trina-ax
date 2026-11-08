@@ -470,7 +470,8 @@ export type RoomMessagesPage = z.infer<typeof RoomMessagesPage>
 export const ROOM_SEARCH_PAGE_MAX = 30
 export const ROOM_SEARCH_SNIPPET_MAX = 200
 export const RoomSearchQuery = z.object({
-  q: z.string().trim().min(1).max(200),
+  /** (no NUL: it would end the index's query) */
+  q: z.string().trim().min(1).max(200).refine((s) => !s.includes('\u0000'), { message: 'invalid character' }),
   cursor: z.string().max(500).optional(),
   limit: z.coerce.number().int().min(1).max(ROOM_SEARCH_PAGE_MAX).optional(),
 })

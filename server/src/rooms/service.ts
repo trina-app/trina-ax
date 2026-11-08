@@ -456,7 +456,8 @@ export class Rooms {
       const before = timeline('AND m.seq <= ?', 'DESC', at, upTo + 1)
       const later = timeline('AND m.seq > ?', 'ASC', at, after + 1)
       const head = before.slice(0, upTo).reverse(), tail = later.slice(0, after)
-      return { items: messagesOut(this.db, [...head, ...tail], me), nextCursor: olderCursor(head[0], before.length > upTo), newerCursor: newerCursor(tail.at(-1), later.length > after) }
+      // (newer ones after the page's last: with a page of one, the message itself)
+      return { items: messagesOut(this.db, [...head, ...tail], me), nextCursor: olderCursor(head[0], before.length > upTo), newerCursor: newerCursor(tail.at(-1) ?? head.at(-1), later.length > after) }
     }
     const rows = older ? timeline('AND m.seq < ?', 'DESC', Number(older.s), limit + 1) : timeline('', 'DESC', limit + 1)
     const page = rows.slice(0, limit).reverse()

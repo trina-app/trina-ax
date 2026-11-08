@@ -116,7 +116,20 @@ export const SEE_SQL = "m.seq > ? AND COALESCE(m.thread_root_seq, m.seq) > ? AND
 /** The timeline's and a thread's listings only (same parameters): a hidden answer itself stays in the list, where
  * messagesOut shows it as one line without its content; what is in its thread does not. */
 export const LIST_SQL = "m.seq > ? AND COALESCE(m.thread_root_seq, m.seq) > ? AND (m.visibility = 'room' OR (m.visible_to = ? AND COALESCE(m.thread_root_seq, m.seq) > ?)) AND (? = 0 OR NOT EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = ? AND h.message_id = m.thread_root_id))"
-export const seeArgs = (member: SeeMember) => [seesFrom(member), seesFrom(member), member.user_id, member.visible_from_seq, member.has_hidden === 0 ? 0 : 1, member.user_id] as const
+/** The order of SEE_SQL's (and LIST_SQL's) parameters, once: where they see from, the person, their join, whether to
+ * look for hidden answers. seeArgs gives values; SEE_MEMBER_SQL the same as columns. */
+const seeParts = <F, U, J, P>(from: F, user: U, joined: J, probe: P) => [from, from, user, joined, probe, user] as const
+export const seeArgs = (member: SeeMember) => seeParts(seesFrom(member), member.user_id, member.visible_from_seq, member.has_hidden === 0 ? 0 : 1)
+/** SEE_SQL for messages of many rooms at once: the member's values read from a joined room_members row `mm` of the
+ * message's room (seesFrom as COALESCE; hidden answers always looked for). The same rule, filled from seeParts: a search
+ * across rooms (rooms/search.ts) decides in SQL, so what it counts, skips and points a cursor at is only what they see. */
+export const SEE_MEMBER_SQL = (() => {
+  const cols: readonly string[] = seeParts('COALESCE(mm.history_from_seq, mm.visible_from_seq)', 'mm.user_id', 'mm.visible_from_seq', '1')
+  let i = 0
+  const sql = SEE_SQL.replace(/\?/g, () => cols[i++] ?? '?')
+  if (i !== cols.length) throw new Error('SEE_SQL and seeParts are out of step')
+  return sql
+})()
 /** The room's timeline on room_messages `m`: no thread replies but those sent to the room too. */
 export const TIMELINE_SQL = '(m.thread_root_id IS NULL OR m.also_in_room = 1)'
 /** Can a thread hang under this message (or is one there): a message of the timeline, for the whole room, not an event
