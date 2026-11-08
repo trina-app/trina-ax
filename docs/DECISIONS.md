@@ -14150,7 +14150,13 @@ and its developer page "User presence and status" (what was copied and what was 
   current state again after each `hello`; nothing is queued while disconnected (only the newest state matters). The
   server tells a change once it has held 1.5 s (an idle tab that reconnects says "idle" within milliseconds: nobody sees
   it flick to online; a quick back and forth tells nobody) and offline only after 30 s without any window (a reload or a
-  relay reconnect is not "offline"). Changes within 250 ms go out as one frame (a reconnect wave after a restart).
+  relay reconnect is not "offline"). One person's changes are told at most once per 5 s, the newest winning, so a page
+  that flips its state on purpose cannot keep every window of the team busy. Changes within 250 ms go out as one frame
+  (a reconnect wave after a restart).
+- **A restart or a deploy does not blink the dots.** The state is in memory, so after a start everyone is offline until
+  their windows come back (the reconnect backoff is at most about 10 s). For the first 15 s after a start a window gets
+  its whole list only at the end of it; changes still go out as they come. An early list would take every dot off a
+  screen that had them, and the dev server installs every build.
 - **On the wire: a control frame, not an event.** `presence {full, people: [{id, state}]}` has no seq and is never kept
   in the replay buffer: it is a state, and a replay of old states would only be wrong. `full: true` (the whole list:
   everyone who is online or away; anyone not in it is offline) goes to each window right after its `hello` and any
@@ -14161,7 +14167,8 @@ and its developer page "User presence and status" (what was copied and what was 
 - **Who sees it.** Everyone signed in to this team's server (one team per server), and nobody else: the hub's sockets
   are its signed-in sessions (a session that must change its temporary password gets none, as before). Only active
   accounts are listed online or away (`users.status = 'active'`, not deleted); offline is told about anyone, so an
-  account turned off never stays on screen as online (its sockets close at once, offline follows after the grace). The
+  account turned off never stays on screen as online: the account is changed before its sockets close, and then
+  offline is told at once, without the grace (nobody waits for it to come back). The
   AI (@트리나) is no account and has no dot; there are no other bot or service accounts (Slack: auto presence does not
   apply to bots). Admins learn nothing members do not; nothing is written to the audit log.
 - **No "last seen".** Slack shows none for offline, and it would tell when someone worked. `users.last_seen_at` stays
@@ -14186,12 +14193,15 @@ and its developer page "User presence and status" (what was copied and what was 
   pictures), on the picture's lower right. The picture is decorative (the name is beside it): the state is said after
   the name for screen readers (", 접속 중"; offline only in the header and the member list, where it is news, not in
   lists) and is the shared tooltip on the picture with a mouse. Five languages.
+- **The hub tells `open` only for a window that is still there** (review of this branch): a socket dropped while its
+  `hello` or replay went out (too slow, gone) was already told `closed`, and its `open` came after it, so presence kept
+  that window for good. `attach` now stops there. The browser relay, the only listener before, did not care.
 - **Out:** last seen, a do-not-disturb mark, status text (the owner's "한 줄 상태는 쓰지 않는다" stands), presence on
   message avatars, group chats, the picker or the @ menu, a history of states, any native change.
 - Tests: `tests/unit/b-presence.test.ts` (the state machine on a fake clock: devices merge, idle → away, the grace and a
-  reload inside it, settle, batching, manual away, team scoping and non-accounts; on the real app and hub: the frame
-  after hello, its exact keys, changes to others, the client frame, nothing replayed, `PUT /api/me/away` and PATCH not
-  setting it, a disabled account), `web/test/unit/presence.test.tsx` (the tracker on a computer and a phone, the frame
+  reload inside it, settle, the min gap, batching, the warm-up, manual away, team scoping and non-accounts; on the real
+  app and hub: the frame after hello, its exact keys, changes to others, the client frame, nothing replayed,
+  `PUT /api/me/away` and PATCH not setting it, a disabled account offline at once, a window dropped during its hello), `web/test/unit/presence.test.tsx` (the tracker on a computer and a phone, the frame
   in the realtime client and its never-queued state, the store, the dot, its words and tooltip, RoomIcon and the AI
   without one), `web/test/e2e/presence.spec.ts` (a second member's dot online → away → offline in the sidebar and the
   DM header, the list again after a reload, the member list with axe, the account menu's item, the phone's list and

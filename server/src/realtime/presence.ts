@@ -7,7 +7,11 @@
 //   themselves away (users.prefs.away, PUT /api/me/away), offline when none is open. Several devices: the most online.
 // - The team is told a change only once it has held SETTLE_MS (a reconnect of an idle tab says "idle" within
 //   milliseconds: nobody sees it flick to online), and offline only after GRACE_MS without any window (a reload or a
-//   relay reconnect is not "offline"). Changes close together go out as one frame.
+//   relay reconnect is not "offline"; an account turned off is offline at once). One person's changes are told at most
+//   once per MIN_GAP_MS (the newest wins), so a page flipping its state cannot keep the whole team busy. Changes close
+//   together go out as one frame.
+// - For WARMUP_MS after the server starts, a window gets its whole list only at the end of it: everyone is reconnecting
+//   then, and an early list would take every dot off the screen of someone who had them (a deploy would blink them all).
 // - Told with the `presence` control frame (shared/src/api/ws.ts): the whole list to each window as it connects, then
 //   changes to every open window of the team. Only ids and states: never a device, a window count or a time. Only
 //   active accounts are listed (the AI is no account; disabled and deleted accounts are left out), and "offline" is told
@@ -23,6 +27,10 @@ export const PRESENCE_SETTLE_MS = 1500
 export const PRESENCE_GRACE_MS = 30_000
 /** changes within this long of the first go out together */
 export const PRESENCE_FLUSH_MS = 250
+/** one person's changes are told at most this often */
+export const PRESENCE_MIN_GAP_MS = 5000
+/** after a start, windows get the whole list only this long after it (the reconnect backoff is at most ~10 s) */
+export const PRESENCE_WARMUP_MS = 15_000
 
 export interface PresenceClock {
   now(): number
@@ -53,13 +61,16 @@ export interface PresenceOptions {
   settleMs?: number
   graceMs?: number
   flushMs?: number
+  minGapMs?: number
+  warmupMs?: number
 }
 
 interface Person {
   windows: Map<string, WindowActivity>
   away: boolean
-  /** what the team was last told */
+  /** what the team was last told, and when (clock ms; 0: never) */
   told: PresenceState
+  toldAt: number
   timer: unknown
 }
 
@@ -72,15 +83,23 @@ export class Presence {
   private readonly settleMs: number
   private readonly graceMs: number
   private readonly flushMs: number
+  private readonly minGapMs: number
+  /** until when (clock ms) windows wait for their whole list, and the windows waiting */
+  private readonly warmUntil: number
+  private warming: { userId: string; windowId: string }[] = []
+  private warmTimer: unknown = null
 
   constructor(private o: PresenceOptions) {
     this.clock = o.clock ?? realClock
     this.settleMs = o.settleMs ?? PRESENCE_SETTLE_MS
     this.graceMs = o.graceMs ?? PRESENCE_GRACE_MS
     this.flushMs = o.flushMs ?? PRESENCE_FLUSH_MS
+    this.minGapMs = o.minGapMs ?? PRESENCE_MIN_GAP_MS
+    this.warmUntil = this.clock.now() + (o.warmupMs ?? PRESENCE_WARMUP_MS)
   }
 
-  /** A window connected (after its hello and replay): it counts as active, and gets the whole list. */
+  /** A window connected (after its hello and replay): it counts as active, and gets the whole list (right after a
+   * start: once the warm-up is over). */
   open(userId: string, windowId: string): void {
     if (this.stopped) return
     if (this.o.isPerson(userId)) {
@@ -88,7 +107,10 @@ export class Presence {
       p.windows.set(windowId, 'active')
       this.schedule(userId, p)
     }
-    this.o.send(userId, { type: 'presence', full: true, people: this.list() }, windowId)
+    const wait = this.warmUntil - this.clock.now()
+    if (wait <= 0) return this.o.send(userId, { type: 'presence', full: true, people: this.list() }, windowId)
+    this.warming.push({ userId, windowId })
+    if (!this.warmTimer) this.warmTimer = this.clock.setTimeout(() => this.warmedUp(), wait)
   }
 
   close(userId: string, windowId: string): void {
@@ -135,9 +157,19 @@ export class Presence {
     this.stopped = true
     for (const p of this.people.values()) if (p.timer) this.clock.clearTimeout(p.timer)
     if (this.flushTimer) this.clock.clearTimeout(this.flushTimer)
+    if (this.warmTimer) this.clock.clearTimeout(this.warmTimer)
     this.people.clear()
     this.outgoing.clear()
-    this.flushTimer = null
+    this.warming = []
+    this.flushTimer = this.warmTimer = null
+  }
+
+  /** The warm-up is over: the windows that connected during it get the whole list (one that has gone gets nothing). */
+  private warmedUp() {
+    this.warmTimer = null
+    if (this.stopped) return
+    const list = this.list()
+    for (const w of this.warming.splice(0)) this.o.send(w.userId, { type: 'presence', full: true, people: list }, w.windowId)
   }
 
   private person(userId: string): Person {
@@ -145,28 +177,34 @@ export class Presence {
     if (!p) {
       let away = false
       try { away = this.o.awayOf(userId) } catch { /* automatic */ }
-      p = { windows: new Map(), away, told: 'offline', timer: null }
+      p = { windows: new Map(), away, told: 'offline', toldAt: 0, timer: null }
       this.people.set(userId, p)
     }
     return p
   }
 
-  /** Tell the team once the person's state has held (offline: after the grace); a change back in time tells nobody. */
+  /** Tell the team once the person's state has held (offline: after the grace; an account turned off at once), at most
+   * once per min gap; a change back in time tells nobody. */
   private schedule(userId: string, p: Person) {
     if (p.timer) this.clock.clearTimeout(p.timer)
     p.timer = null
     const now = stateOf(p)
     if (now === p.told) return this.forget(userId, p)
+    // disabled or deleted (the account is changed before its sockets close): nobody waits for it to come back
+    const gone = now === 'offline' && !this.o.isPerson(userId)
+    const hold = gone ? 0 : now === 'offline' ? this.graceMs : this.settleMs
+    const gap = gone || !p.toldAt ? 0 : p.toldAt + this.minGapMs - this.clock.now()
     p.timer = this.clock.setTimeout(() => {
       p.timer = null
       if (this.stopped || this.people.get(userId) !== p) return
       const state = stateOf(p)
       if (state !== p.told) {
         p.told = state
+        p.toldAt = this.clock.now()
         this.queue(userId, state)
       }
       this.forget(userId, p)
-    }, now === 'offline' ? this.graceMs : this.settleMs)
+    }, Math.max(hold, gap))
   }
 
   /** Nothing left to remember: offline, told so, no window (their away setting is read again when they come back). */

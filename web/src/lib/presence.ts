@@ -56,9 +56,13 @@ export class ActivityTracker {
     this.update()
   }
 
-  /** the socket said hello: the server knows this window afresh */
+  /** the socket said hello: the server knows this window afresh. Worked out again first (after a computer slept, the
+   * idle timer may not have run yet) */
   connected() {
-    if (!this.stopped) this.send(this.state)
+    if (this.stopped) return
+    this.state = this.compute()
+    this.send(this.state)
+    this.arm()
   }
 
   stop() {

@@ -30,7 +30,7 @@ interface SessionState {
   /** the language switcher of the sign-in style screens (also shown signed in: forced password change, reset) */
   pickLocale: (l: Locale) => void
   /** engine / model null = back to the team default */
-  updatePrefs: (prefs: Omit<Partial<UserPrefs>, 'engine' | 'model'> & { engine?: UserPrefs['engine'] | null; model?: string | null }) => Promise<void>
+  updatePrefs: (prefs: Omit<Partial<UserPrefs>, 'engine' | 'model' | 'away'> & { engine?: UserPrefs['engine'] | null; model?: string | null }) => Promise<void>
   /** the person's language: one of their own, or null = follow the team default */
   setLocale: (l: Locale | null) => Promise<void>
   setTheme: (t: Theme) => Promise<void>

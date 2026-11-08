@@ -239,6 +239,9 @@ export class Hub implements RealtimeHub {
         for (const e of replay) if (!this.send(s, JSON.stringify(e.ev))) break
       }
     }
+    // dropped while its hello or replay went out (too slow, gone): 'closed' was already told, so 'open' must not follow
+    // (presence would keep the window forever)
+    if (s.closed) return
     s.ready = true
     for (const l of this.windowListeners) try { l(userId, windowId, 'open') } catch (e) { this.ctx.log.error('window listener failed', { err: e }) }
   }

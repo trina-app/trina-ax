@@ -1,15 +1,18 @@
 // Online status (docs/DECISIONS.md "접속 상태"; server/src/realtime/presence.ts). Two parts:
 //   1. The state machine on a fake clock: a person's windows add up to the most online one; idle windows make away;
 //      the last window gone makes offline only after the grace (a reload inside it tells nobody); a change is told once
-//      it has held; changes close together go out as one frame; a manual away wins and is read from the account; only
-//      active accounts are listed (a non-account, such as the AI, never is), and offline is told about anyone.
+//      it has held, one person's at most once per min gap; changes close together go out as one frame; a manual away
+//      wins and is read from the account; only active accounts are listed (a non-account, such as the AI, never is), and
+//      offline is told about anyone, at once for an account turned off; after a start, the whole list waits for the
+//      warm-up.
 //   2. On the real app and hub (in-memory connections): the `presence` control frame after hello (no seq, nothing but
 //      ids and states), changes to the other members, the window's own `presence` frame, nothing of it in the replay
-//      buffer, PUT /api/me/away (kept in the account, PATCH /api/me cannot set it), a disabled account goes offline.
+//      buffer, PUT /api/me/away (kept in the account, PATCH /api/me cannot set it), a disabled account goes offline at
+//      once, a window dropped while its hello went out is never counted.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { ClientFrame, ControlFrame, PresenceFrame, ServerFrame, type PresenceState } from '@mycel/shared/api'
 import { Hub } from '../../server/src/realtime/hub'
-import { Presence, PRESENCE_GRACE_MS, PRESENCE_SETTLE_MS, startPresence, type PresenceClock } from '../../server/src/realtime/presence'
+import { Presence, PRESENCE_FLUSH_MS, PRESENCE_GRACE_MS, PRESENCE_MIN_GAP_MS, PRESENCE_SETTLE_MS, PRESENCE_WARMUP_MS, startPresence, type PresenceClock } from '../../server/src/realtime/presence'
 import type { RealtimeConn } from '../../server/src/services'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 
@@ -38,7 +41,7 @@ class FakeClock implements PresenceClock {
 }
 
 /** a Presence on a fake clock: what it sent, to whom */
-function machine(o: { people?: string[]; away?: string[]; recipients?: string[] } = {}) {
+function machine(o: { people?: string[]; away?: string[]; recipients?: string[]; warmupMs?: number } = {}) {
   const clock = new FakeClock()
   const people = new Set(o.people ?? ['ana', 'bob', 'cho'])
   const away = new Set(o.away ?? [])
@@ -49,11 +52,12 @@ function machine(o: { people?: string[]; away?: string[]; recipients?: string[] 
     isPerson: (id) => people.has(id),
     awayOf: (id) => away.has(id),
     clock,
+    warmupMs: o.warmupMs ?? 0,
   })
   /** the changes told to one recipient, in order */
   const told = (to = 'cho') => sent.filter((s) => s.to === to && !s.frame.full).flatMap((s) => s.frame.people)
-  /** wait long enough for a change to be told (settle + the batch) */
-  const settle = () => clock.advance(PRESENCE_SETTLE_MS + 300)
+  /** wait long enough for a change to be told (the min gap after the last one, the batch) */
+  const settle = () => clock.advance(Math.max(PRESENCE_SETTLE_MS, PRESENCE_MIN_GAP_MS) + 300)
   return { p, clock, sent, told, settle, people, away }
 }
 
@@ -192,14 +196,53 @@ describe('the state machine', () => {
     m.p.open('bob', 'w2')
     m.settle()
     expect(m.p.list()).toEqual([{ id: 'ana', state: 'online' }, { id: 'bob', state: 'online' }])
-    // bob's account is turned off: no longer listed to a new window, and offline is told once his windows close
+    // bob's account is turned off: no longer listed to a new window, and offline is told as soon as his windows close
+    // (no grace: nobody waits for it to come back)
     m.people.delete('bob')
     expect(m.p.list()).toEqual([{ id: 'ana', state: 'online' }])
     m.p.close('bob', 'w2')
-    m.clock.advance(PRESENCE_GRACE_MS + 400)
+    m.clock.advance(PRESENCE_FLUSH_MS + 10)
     expect(m.told()).toContainEqual({ id: 'bob', state: 'offline' })
     // only the people with a window open are told
     expect(new Set(m.sent.map((s) => s.to))).toEqual(new Set(['ana', 'bob', 'cho', 'trina']))
+  })
+
+  test('one person\'s changes are told at most once per min gap, the newest winning: a page flipping its state cannot keep the team busy', () => {
+    const m = machine()
+    m.p.open('ana', 'w1')
+    m.settle()
+    const before = m.told().length
+    // idle and active, each held a little longer than the settle, for a minute
+    for (let i = 0; i < 30; i++) {
+      m.p.activity('ana', 'w1', i % 2 ? 'active' : 'idle')
+      m.clock.advance(PRESENCE_SETTLE_MS + 500)
+    }
+    const told = m.told().slice(before)
+    expect(told.length).toBeLessThanOrEqual(Math.ceil((30 * (PRESENCE_SETTLE_MS + 500)) / PRESENCE_MIN_GAP_MS) + 1)
+    expect(told.length).toBeGreaterThan(0)
+    // the last state wins once it holds
+    m.settle()
+    expect(m.p.told('ana')).toBe(m.p.current('ana'))
+  })
+
+  test('after a start the whole list waits for the warm-up: a deploy does not take every dot off the screen', () => {
+    const m = machine({ warmupMs: PRESENCE_WARMUP_MS })
+    // everyone reconnects after the restart; their own lists wait
+    m.p.open('ana', 'w1')
+    m.clock.advance(3000)
+    m.p.open('bob', 'w2')
+    m.p.activity('bob', 'w2', 'idle')
+    m.clock.advance(5000)
+    expect(m.sent.filter((s) => s.frame.full)).toEqual([])
+    // changes still go out as they come (they only add to what a screen shows)
+    expect(m.told()).toEqual([{ id: 'ana', state: 'online' }, { id: 'bob', state: 'away' }])
+    m.clock.advance(PRESENCE_WARMUP_MS)
+    const full = m.sent.filter((s) => s.frame.full)
+    expect(full.map((s) => [s.to, s.window])).toEqual([['ana', 'w1'], ['bob', 'w2']])
+    expect(full[0]!.frame.people).toEqual([{ id: 'ana', state: 'online' }, { id: 'bob', state: 'away' }])
+    // later windows get theirs at once
+    m.p.open('cho', 'w3')
+    expect(m.sent.at(-1)).toMatchObject({ to: 'cho', window: 'w3', frame: { full: true } })
   })
 
   test('activity of a window it does not know is ignored; stop clears every timer', () => {
@@ -237,6 +280,7 @@ class MemConn implements RealtimeConn {
 let h: Harness
 let hub: Hub
 let clock: FakeClock
+let presence: Presence
 let owner: Client
 let ownerId: string
 let bob: { client: Client; id: string; password: string }
@@ -247,7 +291,7 @@ async function connect(c: Client, windowId: string, q = ''): Promise<MemConn> {
   await hub.attach(conn, new Request(`http://team.localhost/api/ws?windowId=${windowId}${q}`, { headers: { origin: 'http://team.localhost', cookie: c.cookie! } }), { ip: '10.0.0.7', via: 'test' })
   return conn
 }
-const settle = () => clock.advance(PRESENCE_SETTLE_MS + 300)
+const settle = () => clock.advance(Math.max(PRESENCE_SETTLE_MS, PRESENCE_MIN_GAP_MS) + 300)
 const changes = (c: MemConn) => c.presence().filter((f) => !f.full).flatMap((f) => f.people)
 const stateIn = (c: MemConn, id: string): PresenceState => {
   let s: PresenceState = 'offline'
@@ -263,7 +307,7 @@ beforeAll(async () => {
   clock = new FakeClock()
   hub = new Hub(h.ctx, { now: () => h.auth.now() })
   h.ctx.services.realtime = hub
-  startPresence(hub, h.ctx, { clock })
+  presence = startPresence(hub, h.ctx, { clock, warmupMs: 0 })
   h.ctx.onClose(() => hub.close())
   owner = await withOwner(h)
   ownerId = (await owner.call('GET', '/api/me')).user.id
@@ -366,10 +410,25 @@ describe('the presence frame on the socket', () => {
     expect(stateIn(o, cho.id)).toBe('online')
     await owner.call('PATCH', `/api/admin/users/${cho.id}`, { status: 'disabled' })
     expect(c.closed?.code).toBe(4401)
-    clock.advance(PRESENCE_GRACE_MS + 400)
+    // at once, not after the grace
+    clock.advance(PRESENCE_FLUSH_MS + 10)
     expect(stateIn(o, cho.id)).toBe('offline')
     const o2 = await connect(owner, 'win-owner-7')
     expect(o2.presence()[0]!.people.map((p) => p.id)).not.toContain(cho.id)
     o.close(1000); o2.close(1000)
+  })
+
+  test('a window dropped while its hello went out (too slow) is never counted: no one sees its person online', async () => {
+    const o = await connect(owner, 'win-owner-8')
+    settle()
+    const slow = new MemConn()
+    slow.bufferedAmount = () => 64 * 1024 * 1024
+    await hub.attach(slow, new Request('http://team.localhost/api/ws?windowId=win-bob-slow', { headers: { origin: 'http://team.localhost', cookie: bob.client.cookie! } }), { ip: '10.0.0.7', via: 'test' })
+    expect(slow.closed?.code).toBe(4408)
+    settle()
+    expect(presence.current(bob.id)).toBe('offline')
+    expect(stateIn(o, bob.id)).toBe('offline')
+    o.close(1000)
+    clock.advance(PRESENCE_GRACE_MS + 400)
   })
 })

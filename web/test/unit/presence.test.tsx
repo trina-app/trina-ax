@@ -92,6 +92,15 @@ describe('this window\'s activity (lib/presence.ts)', () => {
     expect(a.sent).toEqual(['idle', 'active'])
   })
 
+  test('after a computer slept (the idle timer did not run), the state after hello is worked out again', () => {
+    const a = tracker(false)
+    // the clock jumps past the 10 minutes without the timer firing
+    a.timers.t += IDLE_AFTER_MS + 1000
+    a.t.connected()
+    expect(a.sent).toEqual(['idle'])
+    expect(a.t.current).toBe('idle')
+  })
+
   test('after each hello the current state goes again; nothing after stop', () => {
     const a = tracker(false)
     a.t.connected()
