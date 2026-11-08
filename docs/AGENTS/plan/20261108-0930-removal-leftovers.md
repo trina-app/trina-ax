@@ -74,4 +74,4 @@ Built as planned, with these differences:
   read stay hidden from the owner. The member's personal projects follow the folder, so the owner sees them.
 - The owner kept the default `personalFolder=transfer` (2026-11-08). The member delete dialog already said where the
   files go, in all five languages.
-- PR: see the pull request for `fix/removal-leftovers`.
+- PR: https://github.com/trina-app/trina-ax/pull/214
