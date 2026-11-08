@@ -51,7 +51,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | Method | Path | Who | What it does |
 |---|---|---|---|
 | `GET` | `/api/questions/frequent` | Signed in | Own repeated questions from current branches in the last 30 days; bounded sample, never other people’s prompts. |
-| `GET` | `/api/chats` | Signed in | Own chats and the shared project chats I wrote in, newest first (search with q, trash with trash=1). With projectId: my chats there and every shared chat of that project I can see. |
+| `GET` | `/api/chats` | Signed in | Own chats and the shared project chats I wrote in, newest first (search with q, trash with trash=1). With projectId: my chats there and every shared chat of that project I can see, each with who wrote in it (shared.people: the 3 most recent, shared.peopleCount). |
 | `POST` | `/api/chats` | Signed in | New empty chat (optionally inside a project). In a project that shares its chats it is a shared chat (never in a personal project or while safe operations are on). |
 | `GET` | `/api/engines` | Signed in | Whether the caller may pick the engine / model, the team default, and the engines + models they may pick. |
 | `GET` | `/api/chats/:id` | Signed in | One own chat, or a shared project chat I can see. |
