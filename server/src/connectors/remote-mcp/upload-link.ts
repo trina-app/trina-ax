@@ -4,13 +4,13 @@ import { z } from 'zod'
 import { SMALL_UPLOAD_MAX } from '@mycel/shared/api'
 import type { AppContext } from '../../context'
 import type { Principal } from '../../policy/access'
-import type { ReadSource } from '../../chat/read-scope'
 import { audit } from '../../admin/audit'
 import { boundedBody } from '../../http/route'
 import { HttpError } from '../../http/errors'
 import { hash, OAuthError, secret } from './policy'
 import { remoteOAuthOf, type Grant, type RemoteOAuth } from './oauth'
 import { checkUploadTarget, fail, isOutcome, placeConnectorUpload, uploadFailure, uploadTmp, writeNotes, type UploadOutcome } from './upload'
+import { scopeSources, type ConnectorScope } from './scope'
 
 /** Public path of the one-time upload links (outside /api: no cookie session, no CSRF header; the token is the auth). */
 export const LINK_PATH = '/connector-uploads/'
@@ -43,10 +43,11 @@ export const uploadLinkTool = {
   annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
 }
 
-type LinkRow = { hash: string; grant_id: string; user_id: string; path: string; overwrite: number; max_bytes: number; created_at: number; expires_at: number; used_at: number | null }
+type LinkRow = { hash: string; grant_id: string; user_id: string; path: string; overwrite: number; max_bytes: number; created_at: number; expires_at: number; used_at: number | null; session: string | null }
 
-/** create_upload_link: the scope check ran in RemoteTools.call. The write checks run now; the PUT runs them again. */
-export function createUploadLink(ctx: AppContext, oauth: RemoteOAuth, grant: Grant, user: Principal, args: unknown): UploadOutcome {
+/** create_upload_link: the scope check ran in RemoteTools.call. The write checks run now; the PUT runs them again,
+ * with the read scope of the session that made the link (`scope`; the link keeps its key). */
+export function createUploadLink(ctx: AppContext, oauth: RemoteOAuth, grant: Grant, user: Principal, args: unknown, scope: ConnectorScope): UploadOutcome {
   const input = CreateUploadLinkInput.safeParse(args ?? {})
   if (!input.success) return fail('Invalid tool input: send path (and optionally overwrite and size in bytes).')
   const { path: filePath, size } = input.data, overwrite = input.data.overwrite === true
@@ -60,7 +61,7 @@ export function createUploadLink(ctx: AppContext, oauth: RemoteOAuth, grant: Gra
   if (open.n >= LINK_LIMITS.openPerGrant) return fail('Too many unused upload links for this connection; use them or wait 10 minutes.')
   let rel = filePath.slice(0, 500), notes: string[] = []
   try {
-    const target = checkUploadTarget(ctx, user, filePath, JSON.parse(grant.sources) as ReadSource[], size ?? null)
+    const target = checkUploadTarget(ctx, user, filePath, scope, size ?? null)
     if (isOutcome(target)) return target
     rel = target.rel
     // the link's answer carries the notes (a file that looks like a skill, a new file loose at the top of an area); the
@@ -70,8 +71,8 @@ export function createUploadLink(ctx: AppContext, oauth: RemoteOAuth, grant: Gra
     return uploadFailure(ctx, user, rel, e, 'create_upload_link')
   }
   const token = secret('tax_up_'), expires = now + LINK_MS
-  ctx.db.query('INSERT INTO remote_mcp_upload_links(hash,grant_id,user_id,path,overwrite,max_bytes,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?)')
-    .run(hash(token), grant.id, user.id, rel, overwrite ? 1 : 0, LINK_LIMITS.maxBytes, now, expires)
+  ctx.db.query('INSERT INTO remote_mcp_upload_links(hash,grant_id,user_id,path,overwrite,max_bytes,created_at,expires_at,session) VALUES(?,?,?,?,?,?,?,?,?)')
+    .run(hash(token), grant.id, user.id, rel, overwrite ? 1 : 0, LINK_LIMITS.maxBytes, now, expires, scope.key)
   const url = oauth.enabled() + LINK_PATH + token, expiresAt = new Date(expires).toISOString()
   const out = {
     url, method: 'PUT', path: rel, overwrite, maxBytes: LINK_LIMITS.maxBytes, expiresAt,
@@ -132,7 +133,10 @@ export async function linkUpload(ctx: AppContext, request: Request, token: strin
     if (!grant) return ended()
     let user: Principal
     try { user = ctx.files.principal(grant.user_id) } catch { return ended() }
-    const out = await placeConnectorUpload(ctx, user, { path: link.path, sources: JSON.parse(grant.sources) as ReadSource[], tmp, size, sha: sha.digest('hex'), overwrite: link.overwrite === 1, tool: 'upload_link' })
+    // what the link's session read by now (a link made before sessions: the calls without one)
+    const key = link.session ?? ''
+    const scope = { session: key !== '', sources: scopeSources(ctx.db, grant.id, key, oauth.now()) }
+    const out = await placeConnectorUpload(ctx, user, { path: link.path, scope, tmp, size, sha: sha.digest('hex'), overwrite: link.overwrite === 1, tool: 'upload_link' })
     if (out.isError) { record(false, { ...out.audit, size, reason: 'refused' }); return reply({ error: 'refused', message: out.text }, 403) }
     record(true, out.audit)
     return reply(JSON.parse(out.text))

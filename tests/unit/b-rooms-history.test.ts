@@ -378,7 +378,7 @@ describe('what people send that came from elsewhere', () => {
     const shared = (await r.json() as { message: RoomMessage }).message
     expect(JSON.parse((db.query('SELECT source_scope s FROM room_messages WHERE id = ?').get(shared.id) as { s: string }).s)).toEqual({ sources: [folder('groups/marketing')], unknown: false })
     // erin's AI app read the brief and sends a line as her (everyone there may read it)
-    const sent = await roomTool(h.ctx, loadPrincipal(db, 'erin')!, 'room_send', { room: roomId, text: 'APP-SENT-CANARY' }, {} as TurnFiles, [folder('groups/marketing')])
+    const sent = await roomTool(h.ctx, loadPrincipal(db, 'erin')!, 'room_send', { room: roomId, text: 'APP-SENT-CANARY' }, {} as TurnFiles, { sources: [folder('groups/marketing')], session: true })
     expect(sent.isError).toBeFalsy()
     const appMsg = db.query("SELECT id, source_scope s FROM room_messages WHERE room_id = ? AND body = 'APP-SENT-CANARY'").get(roomId) as { id: string; s: string }
     expect(JSON.parse(appMsg.s)).toEqual({ sources: [folder('groups/marketing')], unknown: false })
@@ -395,11 +395,11 @@ describe('what people send that came from elsewhere', () => {
     // an AI app that read the room's history (with the line hidden from bob in it) cannot send it on to bob's thread…
     const read = readRoom(db, 'erin', 'UTC', { room: roomId })
     const seen = read.seen.map((x): ReadSource => ({ type: 'room', id: x.roomId, ...(x.fromSeq !== undefined ? { fromSeq: x.fromSeq } : {}) }))
-    const refused = await roomTool(h.ctx, loadPrincipal(db, 'erin')!, 'room_send', { room: roomId, text: 'passing it on' }, {} as TurnFiles, seen)
+    const refused = await roomTool(h.ctx, loadPrincipal(db, 'erin')!, 'room_send', { room: roomId, text: 'passing it on' }, {} as TurnFiles, { sources: seen, session: true })
     expect(refused.isError).toBe(true)
     // …while bob's own app, which never got it, may send after reading the same room
     const bobs = readRoom(db, 'bob', 'UTC', { room: roomId })
-    const ok = await roomTool(h.ctx, loadPrincipal(db, 'bob')!, 'room_send', { room: roomId, text: 'bob after reading' }, {} as TurnFiles, bobs.seen.map((x): ReadSource => ({ type: 'room', id: x.roomId, ...(x.fromSeq !== undefined ? { fromSeq: x.fromSeq } : {}) })))
+    const ok = await roomTool(h.ctx, loadPrincipal(db, 'bob')!, 'room_send', { room: roomId, text: 'bob after reading' }, {} as TurnFiles, { sources: bobs.seen.map((x): ReadSource => ({ type: 'room', id: x.roomId, ...(x.fromSeq !== undefined ? { fromSeq: x.fromSeq } : {}) })), session: true })
     expect(ok.isError).toBeFalsy()
   })
 })

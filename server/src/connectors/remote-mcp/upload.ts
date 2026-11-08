@@ -6,7 +6,7 @@ import type { AppContext } from '../../context'
 import type { Principal } from '../../policy/access'
 import { authorize, type Authorized } from '../../policy/authorize'
 import { Denied, ToolError } from '../../policy/errors'
-import { widening, type ReadSource } from '../../chat/read-scope'
+import { widening } from '../../chat/read-scope'
 import { componentC } from '../../team-files/component'
 import { FileError } from '../../team-files/errors'
 import { fileEvent, sha256 } from '../../files/store'
@@ -15,6 +15,7 @@ import { inSkills } from '../../skills/guard'
 import { atLeast } from '../../policy/access'
 import { badSegment, foldKey, hiddenEntry } from '../../policy/names'
 import { plainName } from './guide'
+import type { ConnectorScope } from './scope'
 
 /** Largest decoded upload through the connector. */
 export const UPLOAD_MAX_BYTES = 20 * 1024 * 1024
@@ -157,12 +158,24 @@ export function writeNotes(ctx: AppContext, user: Principal, given: string, targ
   return notes
 }
 
+/** What a write checks against: the session's read scope (scope.ts), and whether the calls come with a session. */
+export type WriteScope = Pick<ConnectorScope, 'sources' | 'session'>
+
+/** The refusal of a save that more people would see than what the scope read, with what to do instead (owner
+ * 2026-11-08: the person was never told why every save to a shared folder failed). */
+export function wideningRefusal(scope: Pick<WriteScope, 'session'>): string {
+  return `Not saved: this folder would show material this ${scope.session ? 'session' : 'connection'} read to more people. Save it in a folder with the same or narrower access` +
+    (scope.session ? ', or, if this work does not use that material, ask the person to start a new session in their AI app: a new session starts with nothing read.'
+      : '. What this connection read is forgotten after 1 hour without tool calls.')
+}
+
 /**
  * The checks of every connector write: the current folder rules, no real skill root (skillWriteRefusal), the read-scope
- * widening check with the grant's sources, not a folder, and (when the size is known) the storage check. This function
- * is synchronous. write, edit, upload_file, create_upload_link and the link PUT all use it, so one path gets one answer.
+ * widening check with the session's sources, not a folder, and (when the size is known) the storage check. This
+ * function is synchronous. write, edit, upload_file, create_upload_link and the link PUT all use it, so one path gets
+ * one answer. A refusal of the rules throws (Denied, ToolError, FileError): see checkWriteTarget and uploadFailure.
  */
-export function checkUploadTarget(ctx: AppContext, user: Principal, filePath: string, sources: ReadSource[], size: number | null): Authorized | UploadOutcome {
+export function checkUploadTarget(ctx: AppContext, user: Principal, filePath: string, scope: WriteScope, size: number | null): Authorized | UploadOutcome {
   // A null turn ID normally means a human file API. An external model has no server confirmation card. The path as
   // written first, so a case-sensitive disk (Linux) gives the same answer as macOS for "Users/<id>/Skills"
   const asGiven = skillWriteRefusal(filePath)
@@ -171,12 +184,26 @@ export function checkUploadTarget(ctx: AppContext, user: Principal, filePath: st
   const rel = target.rel
   const resolved = skillWriteRefusal(rel)
   if (resolved) return fail(resolved, { path: rel })
-  if (widening(ctx.db, null, target.segs, sources)) return fail('Saving here would expose previously read material to more people. Use a folder with the same or narrower access.', { path: rel })
+  if (widening(ctx.db, null, target.segs, scope.sources)) return fail(wideningRefusal(scope), { path: rel })
   if (target.exists && target.st!.isDirectory()) return fail(`'${rel}' is a folder.`, { path: rel })
-  // No per-turn write budget: the grant's TurnFiles live as long as the connection is in use, so it never resets.
+  // No per-turn write budget: a session's TurnFiles live as long as the session is in use, so it never resets.
   // The size caps, the storage check and the connector rate limits bound the load.
   if (size !== null) assertStorageRoomForAI(size)
   return target
+}
+
+/**
+ * checkUploadTarget for write and edit: a refusal it throws (read-only, a plugin's folder, not found, a name clash)
+ * comes back with its reason and the rejected-file event, as upload_file answers it (uploadFailure). Anything else is
+ * thrown on, to the caller's generic answer, which never shows an exception's text.
+ */
+export function checkWriteTarget(ctx: AppContext, user: Principal, filePath: string, scope: WriteScope, tool: string): Authorized | UploadOutcome {
+  try {
+    return checkUploadTarget(ctx, user, filePath, scope, null)
+  } catch (e) {
+    if (e instanceof Denied || e instanceof ToolError || e instanceof FileError) return uploadFailure(ctx, user, filePath.slice(0, 500), e, tool)
+    throw e
+  }
 }
 
 /** A new private file name in <data>/uploads/tmp for connector bytes. The caller removes the file. */
@@ -191,11 +218,11 @@ export function uploadTmp(ctx: AppContext): string {
  * naming, file events, text extraction and files.changed all apply. No await sits between the checks and
  * placeUpload, so the checks use the current rules. The caller removes tmp.
  */
-export async function placeConnectorUpload(ctx: AppContext, user: Principal, o: { path: string; sources: ReadSource[]; tmp: string; size: number; sha: string; overwrite: boolean; tool: string; notes?: string[] }): Promise<UploadOutcome> {
+export async function placeConnectorUpload(ctx: AppContext, user: Principal, o: { path: string; scope: WriteScope; tmp: string; size: number; sha: string; overwrite: boolean; tool: string; notes?: string[] }): Promise<UploadOutcome> {
   const C = componentC(ctx)
   let rel = o.path.slice(0, 500)
   try {
-    const target = checkUploadTarget(ctx, user, o.path, o.sources, o.size)
+    const target = checkUploadTarget(ctx, user, o.path, o.scope, o.size)
     if (isOutcome(target)) return target
     rel = target.rel
     // placeUpload needs an existing folder: create missing ones with the file-screen mkdir (same rule check).
@@ -217,7 +244,7 @@ export async function placeConnectorUpload(ctx: AppContext, user: Principal, o: 
 }
 
 /** upload_file: the bytes come as base64 in the tool call. */
-export async function uploadFile(ctx: AppContext, user: Principal, args: unknown, sources: ReadSource[]): Promise<UploadOutcome> {
+export async function uploadFile(ctx: AppContext, user: Principal, args: unknown, scope: WriteScope): Promise<UploadOutcome> {
   const raw = (args && typeof args === 'object' ? (args as Record<string, unknown>).content_base64 : undefined)
   if (typeof raw === 'string' && raw.length > UPLOAD_MAX_BASE64_RAW) return tooLarge()
   const input = UploadFileInput.safeParse(args ?? {})
@@ -230,14 +257,14 @@ export async function uploadFile(ctx: AppContext, user: Principal, args: unknown
   let tmp: string | null = null
   try {
     // Check before the first disk write; placeConnectorUpload checks again with no await before placeUpload.
-    const early = checkUploadTarget(ctx, user, input.data.path, sources, data.length)
+    const early = checkUploadTarget(ctx, user, input.data.path, scope, data.length)
     if (isOutcome(early)) return early
     const overwrite = input.data.overwrite === true
     // a new file: none there, or a copy beside one ("name (2).ext"); a replaced file is a change of an existing one
     const notes = writeNotes(ctx, user, input.data.path, early, !early.exists || !overwrite)
     tmp = uploadTmp(ctx)
     fs.writeFileSync(tmp, data, { mode: 0o600, flag: 'wx' })
-    return await placeConnectorUpload(ctx, user, { path: input.data.path, sources, tmp, size: data.length, sha: sha256(data), overwrite, tool: 'upload_file', notes })
+    return await placeConnectorUpload(ctx, user, { path: input.data.path, scope, tmp, size: data.length, sha: sha256(data), overwrite, tool: 'upload_file', notes })
   } catch (e) {
     return uploadFailure(ctx, user, input.data.path.slice(0, 500), e, 'upload_file')
   } finally {

@@ -12,7 +12,8 @@ import type { EngineEvent } from '@mycel/shared'
 import { tenantCommandProblem, TENANT_COMMANDS } from '@mycel/shared/cloud-protocol'
 import { ALL_CREDENTIAL_KINDS, type AppConfig } from '../../server/src/app-config'
 import { setEnginesEnabled, setSetting } from '../../server/src/admin/settings'
-import { canUseAi, connectionRoute } from '../../server/src/credentials/access'
+import { canUseAi, connectionRoute, newMemberAi } from '../../server/src/credentials/access'
+import { LIMIT_FALLBACK_KEY } from '../../server/src/admin/engine-choice'
 import { createBroker } from '../../server/src/credentials/broker'
 import {
   chargeHostedChat, createTrialMeter, dropHostedChatKey, HOSTED_CHAT_ID, HOSTED_CHAT_KEY_SETTING, HOSTED_CHAT_MAX_TOKENS, HOSTED_CHAT_MODEL,
@@ -108,7 +109,7 @@ async function answer(o: { steps?: number; signal?: AbortSignal } = {}) {
 
 beforeEach(() => {
   env.db.query('DELETE FROM engine_credentials').run()
-  env.db.query('DELETE FROM settings WHERE key IN (?, ?)').run(HOSTED_CHAT_KEY_SETTING, HOSTED_CHAT_USAGE_SETTING)
+  env.db.query('DELETE FROM settings WHERE key IN (?, ?, ?)').run(HOSTED_CHAT_KEY_SETTING, HOSTED_CHAT_USAGE_SETTING, LIMIT_FALLBACK_KEY)
   setSetting(env.db, MEMBER_OWN_KEY, false)
   setEnginesEnabled(env.db, { 'claude-code': true, codex: true })
   anthropicSeen.length = 0; events.length = 0; sent.length = 0; replies = []
@@ -220,12 +221,36 @@ describe('the team\'s own AI comes first, on either engine (connectionRoute, the
   const ctx = { db: env.db, config: t.cc.config as unknown as AppConfig }
   const route = (engine: 'claude-code' | 'codex', who = 'alice') => connectionRoute(ctx, { id: who }, engine, { allowed: ALL })
   const limit = (id: string) => env.db.query('UPDATE engine_credentials SET limited_until = ? WHERE id = ?').run(new Date(Date.now() + 4 * 3600_000).toISOString(), id)
-  test('without a trial credit nothing changes: always the chat\'s own engine', () => {
+  /** "다른 AI로 대신 답하기" (Team settings) */
+  const otherAi = (on: boolean) => setSetting(env.db, LIMIT_FALLBACK_KEY, on)
+  test('neither "다른 AI로 대신 답하기" nor a trial credit: always the chat\'s own engine', () => {
     addCred(t.cc, 'openai-api-key', OPENAI_KEY, { label: 'codex' })
     expect(route('claude-code')).toBe('own')
     expect(route('codex')).toBe('own')
   })
-  test('only ChatGPT / Codex connected: Claude Code chats go to Codex, not to the credit, also once it is used up', () => {
+  test('the switch, not the trial key, lets the other engine answer: on a server that never had a credit too', () => {
+    otherAi(true)
+    addCred(t.cc, 'openai-api-key', OPENAI_KEY, { label: 'codex' })
+    expect(route('claude-code')).toBe('codex')
+    expect(route('codex')).toBe('own')
+    // a credit given and taken away changes nothing
+    grant()
+    writeHostedChatKey(t.cc, null)
+    expect(route('claude-code')).toBe('codex')
+    // the other way: a Codex chat with only a Claude connection goes to Claude Code
+    env.db.query('DELETE FROM engine_credentials').run()
+    addCred(t.cc, 'anthropic-api-key', TEAM_KEY, { label: 'team' })
+    expect(route('codex')).toBe('claude-code')
+    // off: the chat's own engine (its usual "no AI connection")
+    otherAi(false)
+    expect(route('codex')).toBe('own')
+    // nothing of the person's on the other engine either: its own engine, the switch on or not
+    otherAi(true)
+    env.db.query('DELETE FROM engine_credentials').run()
+    expect(route('claude-code')).toBe('own')
+  })
+  test('only ChatGPT / Codex connected with the switch on: Claude Code chats go to Codex, not to the credit, also once it is used up', () => {
+    otherAi(true)
     grant()
     expect(route('claude-code')).toBe('trial')
     addCred(t.cc, 'openai-api-key', OPENAI_KEY, { label: 'codex' })
@@ -233,12 +258,18 @@ describe('the team\'s own AI comes first, on either engine (connectionRoute, the
     expect(route('codex')).toBe('own')
     chargeHostedChat(env.db, 1)
     expect(route('claude-code')).toBe('codex')
-    // the same the other way: a Codex chat with only a Claude connection goes to Claude Code
-    env.db.query('DELETE FROM engine_credentials').run()
-    addCred(t.cc, 'anthropic-api-key', TEAM_KEY, { label: 'team' })
-    expect(route('codex')).toBe('claude-code')
+  })
+  test('the switch off with a credit: the chat\'s own engine (its usual "no AI connection"); the team has AI of its own, so never the credit', () => {
+    grant()
+    addCred(t.cc, 'openai-api-key', OPENAI_KEY, { label: 'codex' })
+    expect(route('claude-code')).toBe('own')
+    // a Claude connection at its limit beside it: the usual wait
+    const claude = addCred(t.cc, 'anthropic-api-key', TEAM_KEY, { label: 'team' })
+    limit(claude)
+    expect(route('claude-code')).toBe('own')
   })
   test('a connection only at its limit while the other engine has one: the usual wait or Codex fallback, never the credit', () => {
+    otherAi(true)
     grant()
     const claude = addCred(t.cc, 'anthropic-api-key', TEAM_KEY, { label: 'team' })
     limit(claude)
@@ -247,6 +278,7 @@ describe('the team\'s own AI comes first, on either engine (connectionRoute, the
     expect(route('claude-code')).toBe('own')
   })
   test('the other engine switched off: it cannot take over, the credit answers; used up or ended: the usual errors', () => {
+    otherAi(true)
     grant()
     addCred(t.cc, 'openai-api-key', OPENAI_KEY, { label: 'codex' })
     setEnginesEnabled(env.db, { codex: false })
@@ -256,6 +288,32 @@ describe('the team\'s own AI comes first, on either engine (connectionRoute, the
     grant({ enabled: false })
     expect(route('claude-code')).toBe('own')
   })
+  test('the invite link\'s AI line (newMemberAi) counts the other engine the same way', () => {
+    // a team connection for everyone on Codex only; a new member gets the team default (Claude Code)
+    addCred(t.cc, 'openai-api-key', OPENAI_KEY, { label: 'codex' })
+    expect(newMemberAi(ctx, [])).toBe('ask_owner')
+    // an active credit does not answer while the team has AI of its own (the turn would say "no AI connection")
+    grant()
+    expect(newMemberAi(ctx, [])).toBe('ask_owner')
+    otherAi(true)
+    expect(newMemberAi(ctx, [])).toBe('ready')
+    // Codex switched off: it cannot take over, and the credit answers again
+    setEnginesEnabled(env.db, { codex: false })
+    expect(newMemberAi(ctx, [])).toBe('ready')
+    writeHostedChatKey(t.cc, null)
+    expect(newMemberAi(ctx, [])).toBe('ask_owner')
+  })
+  test('the switch\'s limit case: a Claude connection at a long limit and a Codex connection is not "No AI" while the switch is on', () => {
+    const member = { id: 'alice', role: 'member' }
+    const claude = addCred(t.cc, 'anthropic-api-key', TEAM_KEY, { label: 'team' })
+    limit(claude)
+    addCred(t.cc, 'openai-api-key', OPENAI_KEY, { label: 'codex' })
+    expect(canUseAi(ctx, member)).toBe(false) // a 4-hour limit: the usual wait
+    otherAi(true)
+    expect(canUseAi(ctx, member)).toBe(true) // Codex finishes those answers (chat/turn.ts limitFallback)
+    setEnginesEnabled(env.db, { codex: false })
+    expect(canUseAi(ctx, member)).toBe(false)
+  })
   test('/api/me/ai-access says the same: usable exactly when something will answer', () => {
     // a member who cannot pick engines: the team default (Claude Code) answers their chats
     const member = { id: 'alice', role: 'member' }
@@ -264,9 +322,14 @@ describe('the team\'s own AI comes first, on either engine (connectionRoute, the
     chargeHostedChat(env.db, 1)
     expect(canUseAi(ctx, member)).toBe(false) // used up, nothing of the team's
     addCred(t.cc, 'openai-api-key', OPENAI_KEY, { label: 'codex' })
+    expect(canUseAi(ctx, member)).toBe(false) // a Codex connection, but the switch is off: Claude Code chats need a Claude one
+    otherAi(true)
     expect(canUseAi(ctx, member)).toBe(true) // Codex takes the Claude Code chats
+    // the key taken away (or the team moved to its own server): the same, the switch decides (Admin › Members "No AI")
     writeHostedChatKey(t.cc, null)
-    expect(canUseAi(ctx, member)).toBe(false) // no credit on this server: Claude Code chats need a Claude connection, as before
+    expect(canUseAi(ctx, member)).toBe(true)
+    otherAi(false)
+    expect(canUseAi(ctx, member)).toBe(false)
   })
 })
 
