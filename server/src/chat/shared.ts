@@ -164,6 +164,9 @@ export function messageView(rt: ChatRuntime, r: Pick<ChatRow, 'shared_at' | 'pro
     canList: (p) => !!me && rules.canList(me, segs(p)),
     canRead: (p) => !!me && atLeast(rules.access(me, segs(p)), 'read'),
     failed: tr('sharedAnswerFailed', locale),
+    // a chat shared after it was made (chat/share-chat.ts): its earlier answers' steps are their runner's
+    sharedAt: r.shared_at,
+    locale,
   }
 }
 

@@ -114,17 +114,23 @@ function turnsOf(db: Database, answerIds: readonly string[]): string[] {
     .all(...answerIds, ...answerIds) as { id: string }[]).map((r) => r.id)
 }
 
-/** What one answer's branch used: the files its answers read (with the sha256 they had), and the scope's other sources
- * when the scope describes it (`known`). */
-interface BranchUse { answers: string[]; files: { path: string; sha256: string | null }[]; other: ReadSource[]; known: boolean; roomsUnseen: boolean }
+/** What one answer's branch (or a whole chat: share-chat.ts chatUse) used: the files its answers read (with the sha256
+ * they had), and the scope's other sources when the scope describes it (`known`). */
+export interface BranchUse { answers: string[]; files: { path: string; sha256: string | null }[]; other: ReadSource[]; known: boolean; roomsUnseen: boolean }
 
-function branchUse(db: Database, chatId: string, messageId: string): BranchUse {
-  const chat = db.query('SELECT id, active_leaf_id, rooms_seen FROM chats WHERE id = ?').get(chatId) as (Pick<ChatRow, 'id' | 'active_leaf_id'> & { rooms_seen: number }) | null
-  const answers = answersAbove(db, messageId)
-  const ids = answers.map((a) => a.id)
-  const files = ids.length ? (db.query(`SELECT path, sha256 FROM message_sources WHERE message_id IN (${ids.map(() => '?').join(',')}) ORDER BY message_id, ord`).all(...ids) as { path: string; sha256: string | null }[])
+/** The files these answers read (message_sources, with the sha256 each had), skills/ and .system left out. */
+export function filesRead(db: Database, ids: readonly string[]): BranchUse['files'] {
+  return ids.length ? (db.query(`SELECT path, sha256 FROM message_sources WHERE message_id IN (${ids.map(() => '?').join(',')}) ORDER BY message_id, ord`).all(...ids) as { path: string; sha256: string | null }[])
     .filter((r) => !notCounted(r.path)) : []
-  const known = !!chat && scopeDescribes(db, chat, messageId, answers) && !confidentialChat(db, chatId)
+}
+
+/** The rest of a use once it is known whether the chat's scope describes these answers: the scope's sources the
+ * answers' lists do not record (all of them after a turn that never ended), and whether it read rooms the scope does
+ * not name. */
+export function useOf(db: Database, chatId: string, ids: readonly string[], describes: boolean): BranchUse {
+  const chat = db.query('SELECT rooms_seen FROM chats WHERE id = ?').get(chatId) as { rooms_seen: number } | null
+  const files = filesRead(db, ids)
+  const known = describes && !confidentialChat(db, chatId)
   const scope = known ? scopeWithListing(db, chatId) : null
   // a turn of the branch that never ended (the server stopped mid-answer) saved no source list: its reads are known only
   // as the scope's places, which then all count
@@ -132,7 +138,13 @@ function branchUse(db: Database, chatId: string, messageId: string): BranchUse {
   const other = (scope?.sources ?? []).filter((s) => unended || !scope!.listed(s))
   // the chat read a room's messages and the scope does not show which: nobody else is taken to have seen them
   const roomsUnseen = !!chat?.rooms_seen && (!known || !(scope?.sources ?? []).some((s) => s.type === 'room'))
-  return { answers: ids, files, other, known, roomsUnseen }
+  return { answers: [...ids], files, other, known, roomsUnseen }
+}
+
+function branchUse(db: Database, chatId: string, messageId: string): BranchUse {
+  const chat = db.query('SELECT id, active_leaf_id FROM chats WHERE id = ?').get(chatId) as Pick<ChatRow, 'id' | 'active_leaf_id'> | null
+  const answers = answersAbove(db, messageId)
+  return useOf(db, chatId, answers.map((a) => a.id), !!chat && scopeDescribes(db, chat, messageId, answers))
 }
 
 /** One linked file as the check sees it. `unable`: member ids who cannot open it now (everyone else when hidden). */
@@ -156,20 +168,22 @@ export interface AttachedCopy { file: string; path: string; links: string[] }
 /** Per AppContext: the secret the confirm keys are made with (in memory: a restart asks again). */
 const secrets = new WeakMap<AppContext, Buffer>()
 const secretOf = (ctx: AppContext) => secrets.get(ctx) ?? secrets.set(ctx, randomBytes(32)).get(ctx)!
+/** An opaque key over `state` (HMAC-SHA-256 with this server process's secret): what a person saw when asked. Each
+ * caller puts its own `kind` in the state, so a key of one question is never one of another. */
+export const confirmMac = (ctx: AppContext, state: unknown): string => createHmac('sha256', secretOf(ctx)).update(JSON.stringify(state)).digest('base64url')
+
+/** The provenance core, without what is particular to a room (the linked files, kept sources): who of the audience
+ * misses some of what `uses` read, the places as `userId` may be told them, and what a key binds. */
+export interface Provenance { missing: Set<string>; places: AnswerSharePlace[]; otherPlaces: boolean; unknown: boolean; roomsUnseen: boolean; keys: string[]; hidden: boolean; candidates: ReadSource[] }
 
 /**
- * The check of one answer for one room, as `userId` sees it now. `answerPart`: the answer's part of the room message
- * (what the room gets: a cut answer's links past the cut are not in it). Everything about other people is ids inside the server; the result for the person is counts and the
- * places they may look themselves.
+ * The provenance check of "대화방에 보내기" (B above), for any audience: the room's members but me, or the people of a
+ * project but its chat's creator (chat/share-chat.ts). One copy for both. `savedBy`: the answers whose turns' saves the
+ * hash rule looks at (the branch, or the whole chat). Everything about other people is ids inside the server; places
+ * are named only where `userId` may look now.
  */
-export async function answerCheck(ctx: AppContext, userId: string, roomId: string, chatId: string, messageId: string, answerPart: string) {
+export function provenanceChecker(ctx: AppContext, userId: string, audience: readonly string[], savedBy: readonly string[]) {
   const db = ctx.db, rules = ctx.files.rules()
-  // a team room or the everyone room: the members whose history is not worked out yet get it first (rooms/history.ts),
-  // for at most DECIDE_HISTORY_MS; one still waiting makes it unsendable (`hidden` below)
-  const target = roomRow(db, roomId)
-  if (target && historyKinds(target.kind)) try { openHistories(ctx, { roomId, budgetMs: DECIDE_HISTORY_MS, within: true }) } catch (e) { ctx.log.warn('room history not opened', { err: e }) }
-  // a disabled or deleted account still in the room reads nothing now: it misses every source and every file
-  const audience = (db.query('SELECT user_id FROM room_members WHERE room_id = ? AND user_id <> ? ORDER BY user_id').all(roomId, userId) as { user_id: string }[]).map((r) => r.user_id)
   const me = loadPrincipal(db, userId)
   const mine = fileOpener(ctx, userId)
   const fx = ctx.files.fx
@@ -183,48 +197,11 @@ export async function answerCheck(ctx: AppContext, userId: string, roomId: strin
     if (!me || !mine(link)) return null
     try { const a = authorize(fx, rules, me, link, 'read'); return a.st?.isFile() ? { rel: a.rel, segs: a.segs, size: a.st.size } : null } catch { return null }
   }
-  /** the team folder I may list now at `link` (the app opens such a link on the files screen) */
-  const myFolder = (link: string): { rel: string; segs: string[] } | null => {
-    if (!me) return null
-    try {
-      const a = authorize(fx, rules, me, link, 'list')
-      return a.st?.isDirectory() && a.segs.length && !a.segs.some((x, i) => badSegment(x) !== null || hiddenEntry(x, i)) ? { rel: a.rel, segs: a.segs } : null
-    } catch { return null }
-  }
   const everyoneOpens = (rel: string) => { const f = myFile(rel); return !!f && audience.every((id) => reads(id, f.segs)) }
 
-  // ---- A. the linked files ----
-  const rows: Row[] = []
-  const seenRel = new Set<string>()
-  /** every link of the answer (as answerFilePaths names it) that is a file I may open now, and its actual path: the
-   * links an attached copy stands for (two links may name one file) */
-  const linkRel = new Map<string, string>()
-  const links = answerFilePaths(answerPart, ANSWER_SHARE_FILES_MAX + 1)
-  // more links than rows: the rest is one row nothing is told about (everyone else counted), so nothing goes unasked
-  const more = links.length > ANSWER_SHARE_FILES_MAX
-  for (const link of more ? links.slice(0, ANSWER_SHARE_FILES_MAX - 1) : links) {
-    const f = myFile(link)
-    const dir = f ? null : myFolder(link)
-    const at = f ?? dir
-    if (!at) { rows.push({ link, rel: null, name: '', size: 0, unable: audience, attach: 'hidden' }); continue }
-    if (f) linkRel.set(link, f.rel)
-    if (seenRel.has(at.rel)) continue
-    seenRel.add(at.rel)
-    // a folder: who may list it; it is never attached
-    const unable = audience.filter((id) => (f ? !reads(id, at.segs) : !(people.get(id) && rules.canList(people.get(id)!, at.segs))))
-    const size = f?.size ?? 0
-    rows.push({ link, rel: at.rel, name: at.segs[at.segs.length - 1]!, size, unable, attach: !unable.length || !f ? 'no' : size > SMALL_UPLOAD_MAX ? 'too_big' : 'yes' })
-  }
-  if (more) rows.push({ link: '', rel: null, name: '', size: 0, unable: audience, attach: 'hidden' })
-  /** what the switches start as: the files that may go, the first ROOM_FILES_MAX */
-  const offered = rows.filter((r) => r.attach === 'yes').slice(0, ROOM_FILES_MAX).map((r) => r.rel!)
-
-  // ---- B. where the content came from ----
-  const use = branchUse(db, chatId, messageId)
-  const onBranch = new Set(use.answers)
-  // what turns on this branch saved, by its hash (the hash rule: a copy every member can open now)
+  // what turns of these answers saved, by its hash (the hash rule: a copy every member can open now)
   const saved = new Map<string, Set<string>>()
-  const turns = turnsOf(db, use.answers)
+  const turns = turnsOf(db, savedBy)
   if (turns.length) {
     for (const e of db.query(`SELECT path, sha256 FROM file_events WHERE turn_id IN (${turns.map(() => '?').join(',')}) AND sha256 IS NOT NULL
       AND action IN ('create','update','restore','upload')`).all(...turns) as { path: string; sha256: string }[]) {
@@ -232,7 +209,7 @@ export async function answerCheck(ctx: AppContext, userId: string, roomId: strin
       set.add(e.path)
     }
   }
-  // a file moved on this branch keeps its content (a move records no hash): it is looked at by its hash now
+  // a file moved by those turns keeps its content (a move records no hash): it is looked at by its hash now
   const moved = turns.length ? (db.query(`SELECT DISTINCT path FROM file_events WHERE turn_id IN (${turns.map(() => '?').join(',')}) AND action = 'create'
     AND sha256 IS NULL AND json_extract(detail, '$.movedFrom') IS NOT NULL AND COALESCE(json_extract(detail, '$.folder'), 0) = 0`).all(...turns) as { path: string }[]).map((r) => r.path) : []
   const hashes = new Map<string, Promise<string | null>>()
@@ -245,7 +222,7 @@ export async function answerCheck(ctx: AppContext, userId: string, roomId: strin
     return p
   }
   const coveredCache = new Map<string, Promise<boolean>>()
-  /** the hash rule: a turn on this branch saved this content where every member can open it now, and it is still there */
+  /** the hash rule: a turn of these answers saved this content where every member can open it now, and it is still there */
   const covered = (sha: string | null): Promise<boolean> => {
     if (!sha || !audience.length) return Promise.resolve(false)
     let p = coveredCache.get(sha)
@@ -259,26 +236,6 @@ export async function answerCheck(ctx: AppContext, userId: string, roomId: strin
         return false
       })()
       coveredCache.set(sha, p)
-    }
-    return p
-  }
-
-  // an AI-made file that may be attached: what the turn that made it used (only when that turn is not on this branch,
-  // whose own use is counted already); looked up once per file, for the files that go. Only a turn of my own chats:
-  // another person's chat is never read here (what it used would tell me who they talk to); their file's row already
-  // counts who would see it. My own confidential chat counts as not known
-  const makers = new Map<string, Promise<BranchUse | null>>()
-  const makerOf = (rel: string) => {
-    let p = makers.get(rel)
-    if (!p) {
-      p = (async () => {
-        const sha = await hashNow(rel)
-        if (!sha) return null
-        const ev = db.query(`SELECT e.turn_id, t.message_id, m.chat_id, c.user_id FROM file_events e JOIN turns t ON t.id = e.turn_id JOIN messages m ON m.id = t.message_id
-          JOIN chats c ON c.id = m.chat_id WHERE e.path = ? AND e.sha256 = ? AND e.action IN ('create','update') ORDER BY e.id DESC LIMIT 1`).get(rel, sha) as { turn_id: string; message_id: string; chat_id: string; user_id: string } | null
-        return !ev || ev.user_id !== userId || onBranch.has(ev.message_id) ? null : branchUse(db, ev.chat_id, ev.message_id)
-      })()
-      makers.set(rel, p)
     }
     return p
   }
@@ -309,16 +266,8 @@ export async function answerCheck(ctx: AppContext, userId: string, roomId: strin
     }
   }
 
-  /** The provenance when `attached` (team paths) go with the message (once per choice). */
-  const provs = new Map<string, Promise<Prov>>()
-  const provenance = (attached: ReadonlySet<string>): Promise<Prov> => {
-    const k = [...attached].sort().join('\n')
-    return provs.get(k) ?? provs.set(k, provenanceOf(attached)).get(k)!
-  }
-  const provenanceOf = async (attached: ReadonlySet<string>): Promise<Prov> => {
-    const made = await Promise.all([...attached].map(makerOf))
-    const uses: BranchUse[] = [use, ...made.filter((u): u is BranchUse => !!u)]
-    const leftOut = new Set([...attached, ...rows.filter((r) => r.rel && attached.has(r.rel)).map((r) => r.link)])
+  /** The provenance of what `uses` read, with `leftOut` (paths or links whose own row tells who sees them) not counted. */
+  const of = async (uses: readonly BranchUse[], leftOut: ReadonlySet<string>): Promise<Provenance> => {
     // sources and, for the file ones, whether some file of them is not covered
     const candidates: ReadSource[] = []
     const fileRows = new Map<string, { source: ReadSource; files: { path: string; sha256: string | null }[] }>()
@@ -334,7 +283,7 @@ export async function answerCheck(ctx: AppContext, userId: string, roomId: strin
     }
     const missed = missingReaders(db, rules, [...candidates, ...[...fileRows.values()].map((e) => e.source)], audience, userId)
     // a member who misses a room it read only because of old answers hidden from them (or whose history is not worked
-    // out): never sent, whatever is confirmed
+    // out): never shown it, whatever is confirmed
     const audienceSet = new Set(audience)
     let hidden = candidates.some((s) => s.type === 'room' && [...viewersByHistory(db, s.id, undefined, s.fromSeq, userId).hiddenFrom].some((id) => audienceSet.has(id)))
     const missing = new Set<string>()
@@ -363,18 +312,110 @@ export async function answerCheck(ctx: AppContext, userId: string, roomId: strin
       if (u.roomsUnseen) { roomsUnseen = true; for (const id of audience) missing.add(id); places.set('{"kind":"conversation"}', { kind: 'conversation' }); keys.push('rooms_seen') }
     }
     if (unknown) { for (const id of audience) missing.add(id); otherPlaces = true; keys.push('unknown') }
+    // a chat that read rooms without saying which (this answer's, or the one that made an attached file): any room may be
+    // in it, so a member with old answers hidden from them anywhere, or whose history is not worked out yet, is never
+    // shown it either (a confirm would carry it past them)
+    if (!hidden && roomsUnseen) hidden = audience.some((id) => hiddenAnywhere(db, id))
+    return { missing, places: [...places.values()], otherPlaces, unknown, roomsUnseen, keys: keys.sort(), hidden, candidates }
+  }
+
+  return { me, rules, people, reads, myFile, hashNow, of }
+}
+
+/**
+ * The check of one answer for one room, as `userId` sees it now. `answerPart`: the answer's part of the room message
+ * (what the room gets: a cut answer's links past the cut are not in it). Everything about other people is ids inside the server; the result for the person is counts and the
+ * places they may look themselves.
+ */
+export async function answerCheck(ctx: AppContext, userId: string, roomId: string, chatId: string, messageId: string, answerPart: string) {
+  const db = ctx.db
+  // a team room or the everyone room: the members whose history is not worked out yet get it first (rooms/history.ts),
+  // for at most DECIDE_HISTORY_MS; one still waiting makes it unsendable (`hidden` below)
+  const target = roomRow(db, roomId)
+  if (target && historyKinds(target.kind)) try { openHistories(ctx, { roomId, budgetMs: DECIDE_HISTORY_MS, within: true }) } catch (e) { ctx.log.warn('room history not opened', { err: e }) }
+  // a disabled or deleted account still in the room reads nothing now: it misses every source and every file
+  const audience = (db.query('SELECT user_id FROM room_members WHERE room_id = ? AND user_id <> ? ORDER BY user_id').all(roomId, userId) as { user_id: string }[]).map((r) => r.user_id)
+  const use = branchUse(db, chatId, messageId)
+  const onBranch = new Set(use.answers)
+  // the hash rule looks at what turns on this branch saved
+  const pc = provenanceChecker(ctx, userId, audience, use.answers)
+  const { me, rules, people, reads, myFile, hashNow } = pc
+  const fx = ctx.files.fx
+  /** the team folder I may list now at `link` (the app opens such a link on the files screen) */
+  const myFolder = (link: string): { rel: string; segs: string[] } | null => {
+    if (!me) return null
+    try {
+      const a = authorize(fx, rules, me, link, 'list')
+      return a.st?.isDirectory() && a.segs.length && !a.segs.some((x, i) => badSegment(x) !== null || hiddenEntry(x, i)) ? { rel: a.rel, segs: a.segs } : null
+    } catch { return null }
+  }
+
+  // ---- A. the linked files ----
+  const rows: Row[] = []
+  const seenRel = new Set<string>()
+  /** every link of the answer (as answerFilePaths names it) that is a file I may open now, and its actual path: the
+   * links an attached copy stands for (two links may name one file) */
+  const linkRel = new Map<string, string>()
+  const links = answerFilePaths(answerPart, ANSWER_SHARE_FILES_MAX + 1)
+  // more links than rows: the rest is one row nothing is told about (everyone else counted), so nothing goes unasked
+  const more = links.length > ANSWER_SHARE_FILES_MAX
+  for (const link of more ? links.slice(0, ANSWER_SHARE_FILES_MAX - 1) : links) {
+    const f = myFile(link)
+    const dir = f ? null : myFolder(link)
+    const at = f ?? dir
+    if (!at) { rows.push({ link, rel: null, name: '', size: 0, unable: audience, attach: 'hidden' }); continue }
+    if (f) linkRel.set(link, f.rel)
+    if (seenRel.has(at.rel)) continue
+    seenRel.add(at.rel)
+    // a folder: who may list it; it is never attached
+    const unable = audience.filter((id) => (f ? !reads(id, at.segs) : !(people.get(id) && rules.canList(people.get(id)!, at.segs))))
+    const size = f?.size ?? 0
+    rows.push({ link, rel: at.rel, name: at.segs[at.segs.length - 1]!, size, unable, attach: !unable.length || !f ? 'no' : size > SMALL_UPLOAD_MAX ? 'too_big' : 'yes' })
+  }
+  if (more) rows.push({ link: '', rel: null, name: '', size: 0, unable: audience, attach: 'hidden' })
+  /** what the switches start as: the files that may go, the first ROOM_FILES_MAX */
+  const offered = rows.filter((r) => r.attach === 'yes').slice(0, ROOM_FILES_MAX).map((r) => r.rel!)
+
+  // ---- B. where the content came from ----
+  // an AI-made file that may be attached: what the turn that made it used (only when that turn is not on this branch,
+  // whose own use is counted already); looked up once per file, for the files that go. Only a turn of my own chats:
+  // another person's chat is never read here (what it used would tell me who they talk to); their file's row already
+  // counts who would see it. My own confidential chat counts as not known
+  const makers = new Map<string, Promise<BranchUse | null>>()
+  const makerOf = (rel: string) => {
+    let p = makers.get(rel)
+    if (!p) {
+      p = (async () => {
+        const sha = await hashNow(rel)
+        if (!sha) return null
+        const ev = db.query(`SELECT e.turn_id, t.message_id, m.chat_id, c.user_id FROM file_events e JOIN turns t ON t.id = e.turn_id JOIN messages m ON m.id = t.message_id
+          JOIN chats c ON c.id = m.chat_id WHERE e.path = ? AND e.sha256 = ? AND e.action IN ('create','update') ORDER BY e.id DESC LIMIT 1`).get(rel, sha) as { turn_id: string; message_id: string; chat_id: string; user_id: string } | null
+        return !ev || ev.user_id !== userId || onBranch.has(ev.message_id) ? null : branchUse(db, ev.chat_id, ev.message_id)
+      })()
+      makers.set(rel, p)
+    }
+    return p
+  }
+
+  /** The provenance when `attached` (team paths) go with the message (once per choice). */
+  const provs = new Map<string, Promise<Prov>>()
+  const provenance = (attached: ReadonlySet<string>): Promise<Prov> => {
+    const k = [...attached].sort().join('\n')
+    return provs.get(k) ?? provs.set(k, provenanceOf(attached)).get(k)!
+  }
+  const provenanceOf = async (attached: ReadonlySet<string>): Promise<Prov> => {
+    const made = await Promise.all([...attached].map(makerOf))
+    const uses: BranchUse[] = [use, ...made.filter((u): u is BranchUse => !!u)]
+    const leftOut = new Set([...attached, ...rows.filter((r) => r.rel && attached.has(r.rel)).map((r) => r.link)])
+    const p = await pc.of(uses, leftOut)
     // for the message: every source its uses had (covered files too: a later member is judged on what they may read),
     // the files that go with it as their places, the paths it links to as names
     const kept: AnswerScopeKept = {
-      sources: [...candidates, ...uses.flatMap((u) => u.files.map((f) => sourceOf(db, rules, f.path))), ...[...attached].map((rel) => sourceOf(db, rules, rel)),
+      sources: [...p.candidates, ...uses.flatMap((u) => u.files.map((f) => sourceOf(db, rules, f.path))), ...[...attached].map((rel) => sourceOf(db, rules, rel)),
         ...rows.filter((r) => r.rel).map((r): ReadSource => ({ type: 'name', path: r.rel! }))],
-      unknown: unknown || roomsUnseen || rows.some((r) => r.rel === null),
+      unknown: p.unknown || p.roomsUnseen || rows.some((r) => r.rel === null),
     }
-    // a chat that read rooms without saying which (this answer's, or the one that made an attached file): any room may be
-    // in it, so a member with old answers hidden from them anywhere, or whose history is not worked out yet, is never
-    // sent it either (a confirm would carry it past them)
-    if (!hidden && roomsUnseen) hidden = audience.some((id) => hiddenAnywhere(db, id))
-    return { missing, places: [...places.values()], otherPlaces, unknown, keys: keys.sort(), hidden, kept }
+    return { missing: p.missing, places: p.places, otherPlaces: p.otherPlaces, unknown: p.unknown, keys: p.keys, hidden: p.hidden, kept }
   }
 
   /** what an older client is told and sends back (`confirm`): nobody attached, so every row's people count */

@@ -1,7 +1,7 @@
 // Chats, messages (a tree), projects, memories: rows <-> API shapes (shared/src/api/entities.ts).
 import type { Database } from 'bun:sqlite'
-import type { ApiErrorBody, Attachment, Chat, ChatRunState, EngineId, FileChangeSummary, Memory, Message, MessageStatus, Project, Step, TurnStopReason, Usage, UserRef } from '@mycel/shared/api'
-import { STEP_TEXT } from '@mycel/shared'
+import type { ApiErrorBody, Attachment, Chat, ChatRunState, EngineId, FileChangeSummary, Locale, Memory, Message, MessageStatus, Project, Step, TurnStopReason, Usage, UserRef } from '@mycel/shared/api'
+import { STEP_TEXT, stepWords } from '@mycel/shared'
 import { newId } from '../db'
 import { isConfidentialChat } from '../safe-ops/confidential'
 import { isTeamFilePath, sourceCount, teamSourcePaths } from '../files/sources'
@@ -83,6 +83,10 @@ export interface MessageView {
   failed: string
   /** set by toMessage: the viewer is the person whose turn (or message) this is */
   runner?: boolean
+  /** when the chat was shared (chats.shared_at), and the viewer's language: the steps of an answer from before it (a
+   * private chat shared later, chat/share-chat.ts) show their words alone to everyone but its runner */
+  sharedAt?: string | null
+  locale?: Locale
 }
 
 /** A step of a shared chat as stored: `label` names no path, `sv` keeps the label the runner saw and the paths it names
@@ -120,9 +124,17 @@ export class ChatStore {
 
   /** The steps of an answer for the chat's owner: a step about an attached team file (id "attach-<reference id>",
    * TurnExec.attachmentsForTurn) loses its path once the owner can no longer open that file, like the attachment. */
-  viewSteps(r: Pick<MessageRow, 'chat_id'>, stored: StoredStep[], view?: MessageView): Step[] {
+  viewSteps(r: Pick<MessageRow, 'chat_id'> & { created_at?: string }, stored: StoredStep[], view?: MessageView): Step[] {
+    // an answer from before its chat was shared (chat/share-chat.ts): its steps ran without the read card and were
+    // stored with their whole label (a path, an address, a query, a remembered text). Its runner sees them as they were;
+    // everyone else the words alone, without detail, search results, pictures or a dev environment run
+    const earlier = !!view && !view.runner && !!view.sharedAt && !!r.created_at && r.created_at < view.sharedAt
     // a shared chat: a label names its paths only for a viewer who may see every one of them (else the words alone)
     const steps: Step[] = stored.map((s) => {
+      if (earlier) {
+        const { sv: _sv, detail: _d, sources: _s, images: _i, devEnvRun: _r, ...rest } = s
+        return { ...rest, label: stepWords(s, view!.locale ?? 'en') }
+      }
       if (!s.sv) return s
       const shows = !!view && s.sv.paths.every((p) => view.canList(p))
       const out = publicStep(s)

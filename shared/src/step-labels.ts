@@ -145,6 +145,23 @@ export const STEP_TEXT = {
 } satisfies Record<string, T>
 export type StepTextKey = keyof typeof STEP_TEXT
 
+/** The word for a step whose tool has no verb of its own, when only the words of a step may show. */
+export const STEP_WORDS_OTHER: T = t('작업', 'Step', 'Langkah', "ステップ", "Paso")
+/**
+ * A step's words alone, without what it touched (a path, an address, a query, a remembered text): the verb of its tool,
+ * else a word for its kind. The steps of a chat's answers from before it was shared, as everyone but the person whose
+ * answer it was sees them (server/src/chat/store.ts viewSteps, docs/DECISIONS.md "Shared project chats").
+ */
+export function stepWords(step: { kind: string; tool?: string }, locale: Locale): string {
+  const pick = (x: T) => x[locale] ?? x.en
+  const verb = step.tool ? FILE_STEP_VERB[step.tool] ?? BROWSER_STEP_VERB[step.tool] : undefined
+  if (verb) return pick(verb)
+  if (step.kind === 'thinking') return pick(STEP_TEXT.thinking)
+  if (step.kind === 'web_search') return pick(STEP_TEXT.webSearchPlain)
+  if (step.kind === 'browser') return pick(BROWSER_STEP_FALLBACK)
+  return pick(STEP_WORDS_OTHER)
+}
+
 const fill = (template: string, vars: Record<string, string>) => template.replace(/\{(\w+)\}/g, (all, k: string) => vars[k] ?? all)
 export const stepText = (key: StepTextKey, locale: Locale, vars: Record<string, string> = {}) => fill(STEP_TEXT[key][locale] ?? STEP_TEXT[key].en, vars)
 
