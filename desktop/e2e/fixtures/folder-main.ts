@@ -6,7 +6,7 @@
 // Run WITHOUT Playwright: folder-window.spec.ts builds and starts this file.
 import { app, BrowserWindow, session } from 'electron'
 import { createServer } from 'node:http'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { hardenAppSession } from '../../src/main/security'
@@ -64,7 +64,8 @@ void (async () => {
     }))
   hardenAppSession(ses, () => [team])
 
-  const folder = join(mkdtempSync(join(tmpdir(), 'folder-window-')), 'company')
+  const scratch = mkdtempSync(join(tmpdir(), 'folder-window-'))
+  const folder = join(scratch, 'company')
   mkdirSync(join(folder, 'sub'), { recursive: true })
   writeFileSync(join(folder, 'a.txt'), 'A')
   writeFileSync(join(folder, 'sub', 'c.txt'), 'C')
@@ -108,6 +109,7 @@ void (async () => {
   console.log('FOLDER_RESULT ' + JSON.stringify({ out, fromChromium, restricted: restricted.map((r) => ({ ...r, path: r.path === app.getPath('home') ? 'home' : r.path === app.getPath('appData') ? 'appData' : 'other' })) }))
   win.destroy()
   server.close()
+  rmSync(scratch, { recursive: true, force: true })
   app.exit(0)
 })().catch((error) => {
   console.error(error)
