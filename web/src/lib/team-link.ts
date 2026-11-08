@@ -49,3 +49,15 @@ let afterJoin: string | null = null
 export const setAfterJoin = (next: string) => { afterJoin = next }
 export const afterJoinTarget = (): string => afterJoin ?? '/'
 export const clearAfterJoin = () => { afterJoin = null }
+
+/**
+ * "앱에서 열기" on the join pages (docs/DECISIONS.md "First run, phase 2"): `<linkScheme>://open?url=<this page's
+ * link>`. Both apps answer it with their screen ④ before anything loads. The team link's token comes from memory (the
+ * page took it out of the address bar). Shown only in a web browser on a system the apps run on: not inside the
+ * desktop or phone app (they are the app), not on Linux or anything else.
+ */
+export function openInAppHref(scheme: string, origin: string, path: string): string {
+  return `${scheme}://open?url=${encodeURIComponent(origin + path)}`
+}
+export const openInAppShown = (client: 'web' | 'desktop' | 'mobile', platform: 'ios' | 'android' | 'mac' | 'windows' | 'other'): boolean =>
+  client === 'web' && platform !== 'other'

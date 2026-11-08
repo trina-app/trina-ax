@@ -126,6 +126,7 @@ export const id: Record<MessageKey, string> = {
   'auth.forgot': 'Lupa kata sandi? Minta owner atau admin untuk meresetnya.',
   'auth.alreadyJoined': "Jika sudah bergabung, silakan masuk.",
   'auth.haveAccount': "Sudah bergabung?",
+  'auth.openInApp': "Buka di aplikasi",
   'auth.sessionEnded': 'Kamu keluar karena sudah keluar di tempat lain atau kata sandi diganti.',
   'auth.sessionExpired': 'Sesi kamu habis. Silakan masuk lagi.',
   'auth.changePassword': 'Ganti kata sandi',

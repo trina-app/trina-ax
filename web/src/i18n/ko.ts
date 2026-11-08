@@ -125,6 +125,7 @@ export const ko = {
   'auth.forgot': '비밀번호를 잊었다면 팀장이나 관리자에게 재설정을 요청하세요.',
   'auth.alreadyJoined': "이미 가입했다면 로그인하세요.",
   'auth.haveAccount': "이미 가입했어요?",
+  'auth.openInApp': "앱에서 열기",
   'auth.sessionEnded': '다른 곳에서 로그아웃했거나 비밀번호가 바뀌어 로그인이 끝났어요.',
   'auth.sessionExpired': '로그인이 만료됐어요. 다시 로그인해 주세요.',
   'auth.changePassword': '비밀번호 바꾸기',

@@ -131,3 +131,22 @@ describe('on screen', () => {
     } finally { await j.unmount() }
   })
 })
+
+describe('"앱에서 열기" on the join pages (phase 2)', () => {
+  test('the link names this page\'s own link inside the app\'s scheme, encoded once', async () => {
+    const { openInAppHref } = await import('../../src/lib/team-link')
+    expect(openInAppHref('trina-ax', 'https://acme.trina.app', `/join#t=${TOKEN}`)).toBe(`trina-ax://open?url=${encodeURIComponent(`https://acme.trina.app/join#t=${TOKEN}`)}`)
+    expect(openInAppHref('trina-ax', 'https://acme.trina.app', '/invite/abc')).toBe('trina-ax://open?url=https%3A%2F%2Facme.trina.app%2Finvite%2Fabc')
+    // what the apps read back (shared/src/team-link.ts readAppLink): the same page
+    const { readAppLink } = await import('../../../shared/src/team-link')
+    expect(readAppLink(openInAppHref('trina-ax', 'https://acme.trina.app', `/join#t=${TOKEN}`), { teamDomain: 'trina.app', loopbackHttp: false, scheme: 'trina-ax', universal: false })).toMatchObject({ ok: true, origin: 'https://acme.trina.app', entryPath: `/join#t=${TOKEN}` })
+  })
+  test('only in a web browser on the systems the apps run on', async () => {
+    const { openInAppShown } = await import('../../src/lib/team-link')
+    for (const p of ['ios', 'android', 'mac', 'windows'] as const) expect(openInAppShown('web', p)).toBe(true)
+    expect(openInAppShown('web', 'other')).toBe(false)
+    for (const c of ['desktop', 'mobile'] as const) expect(openInAppShown(c, 'mac')).toBe(false)
+    for (const { id } of LOCALES) expect({ id, ok: (id === 'ko' || !/[가-힣]/.test(DICTS[id]['auth.openInApp'])) && DICTS[id]['auth.openInApp'].length > 0 }).toEqual({ id, ok: true })
+    expect(ko('auth.openInApp')).toBe('앱에서 열기')
+  })
+})
