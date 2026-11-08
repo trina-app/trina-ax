@@ -750,7 +750,8 @@ describe('asking', () => {
     fake.event(ev, { eventId: 'EvSAME0001' })
     fake.event(ev, { eventId: 'EvSAME0001', retry: 1 })
     fake.event(ev, { eventId: 'EvOTHER001' })
-    await waitFor(() => ephemeralsTo('U0ALICE').some((c) => blocksOf(c).includes('once')), { timeoutMs: 30_000 })
+    // its own answer (an earlier test's answer has "once" in it too): else it lands in the next test's quiet window
+    await waitFor(() => ephemeralsTo('U0ALICE').some((c) => c.args.channel === C && c.args.text === 'once'), { timeoutMs: 30_000 })
     await Bun.sleep(300)
     expect(slackTurns()).toBe(before + 1)
     // every envelope was still acknowledged, at once
