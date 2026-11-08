@@ -3,13 +3,17 @@
 // 허용" lets them (everyone, or chosen groups / people). The server enforces it: a send / edit / regenerate / new chat /
 // chat change naming another engine or model than the person would get anyway is refused with a clear message.
 // Existing chats keep their engine; a chat whose engine the admin has since switched off is answered by the team
-// default (the turn shows a step saying so). Optional "Claude 한도에 닿으면 Codex로 넘기기" (off by default, never
-// while Codex is off, e.g. office mode): see chat/turn.ts.
+// default (the turn shows a step saying so). "다른 AI로 대신 답하기" (`engines.limitFallback`; never while Codex is
+// off, e.g. office mode; on for hosted servers, settleHostedFallback, else off until an admin turns it on): the other of
+// Claude Code and Codex answers a turn whose engine has no working AI connection of the person (credentials/access.ts
+// connectionRoute) or, for Claude, hits its limit (chat/turn.ts limitFallback).
 import { MemberEngineChoice, UserPrefs, type EngineId, type EngineStatus, type Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { fail } from '../http/errors'
 import { codexBetaAllowed, codexIsBeta, safeModel, type EngineConfs } from '../chat/engines'
 import { allowedCredentialKinds, isManaged } from '../app-config'
+import { isHosted } from '../system/deployment'
+import { audit } from './audit'
 import { hasCredentialFor } from '../credentials/resolve'
 import { hostedChatState } from '../credentials/hosted-chat'
 import { tr } from '../chat/i18n'
@@ -47,12 +51,34 @@ export function engineOn(ctx: Ctx, id: EngineId): boolean {
   return !(id === 'codex' && codexOffHere(ctx))
 }
 
-/** "Claude 한도에 닿으면 Codex로 넘기기" can only be on while Codex is on. */
+/** "다른 AI로 대신 답하기" can only be on while Codex is on. */
 export const limitFallbackAvailable = (ctx: Ctx) => engineOn(ctx, 'codex')
 export const limitFallbackSetting = (ctx: Pick<AppContext, 'db'>) => getSetting<boolean>(ctx.db, LIMIT_FALLBACK_KEY) === true
 export const setLimitFallback = (ctx: Pick<AppContext, 'db'>, on: boolean) => setSetting(ctx.db, LIMIT_FALLBACK_KEY, on)
 /** in effect now (the switch, and Codex on) */
 export const limitFallbackOn = (ctx: Ctx) => limitFallbackSetting(ctx) && limitFallbackAvailable(ctx)
+
+/** set once on a hosted server: the switch was written there by settleHostedFallback */
+export const HOSTED_FALLBACK_SET_KEY = 'engines.limitFallbackHostedSet'
+/**
+ * Hosted servers used to send a turn whose engine had no working connection to the other engine whenever the hosting
+ * service's trial key was there, in any state, whatever the switch said; the switch now decides that (docs/DECISIONS.md
+ * "다른 AI로 대신 답하기"). So a hosted server turns it on once, at its first start with this version (main.ts), while
+ * Codex is on here: hosted teams keep what they relied on, Team settings shows it, it stays when the key goes, and the
+ * team's backup takes it to its own server. A team that turns it off later keeps it off. Returns whether it turned it on.
+ */
+export function settleHostedFallback(ctx: Ctx): boolean {
+  if (!isHosted(ctx.config) || getSetting(ctx.db, HOSTED_FALLBACK_SET_KEY) !== undefined) return false
+  const on = limitFallbackAvailable(ctx) && !limitFallbackSetting(ctx)
+  ctx.db.transaction(() => {
+    if (on) {
+      setLimitFallback(ctx, true)
+      audit(ctx.db, { actor: null, action: 'engines.update', target: null, detail: { limitFallback: true, reason: 'hosted_default' } })
+    }
+    setSetting(ctx.db, HOSTED_FALLBACK_SET_KEY, true)
+  })()
+  return on
+}
 
 /** owner / admin always; others as Admin > AI engines says (the person's groups as they are now) */
 export function canChooseEngine(ctx: Pick<AppContext, 'db'>, p: Person): boolean {
@@ -184,13 +210,20 @@ export async function chatEnginesFor(ctx: AppContext, p: Person, problems: Engin
   // the same cached checks as Admin > AI engines; managed: an engine this person has no usable AI connection for is
   // left out (an engine whose only connection is assigned to a group shows only for that group's members), unless the
   // hosting service's trial credit answers its turns now (credentials/hosted-chat.ts; chat/turn.ts runs them on the API
-  // engine)
+  // engine) or, while it is active, the other engine does ("다른 AI로 대신 답하기"); as credentials/access.ts
+  // connectionRoute, the credit never answers while the other engine has a connection of the person
   const cache = engineStatusCache(ctx)
   const managed = isManaged(ctx.config)
   const allowed = allowedCredentialKinds(ctx.config)
   const trial = managed && hostedChatState(ctx.db, new Date()) === 'active'
+  const fallback = limitFallbackOn(ctx)
   const ready = await readyEngines(choosableEngines(ctx, p), problems, async (id) => {
-    if (managed && id !== 'api') return trial || hasCredentialFor(ctx.db, p.id, id, allowed) ? 'ok' : 'not_logged_in'
+    if (managed && id !== 'api') {
+      if (hasCredentialFor(ctx.db, p.id, id, allowed)) return 'ok'
+      const other: EngineId = id === 'claude-code' ? 'codex' : 'claude-code'
+      const otherHas = engineOn(ctx, other) && !problems[other] && hasCredentialFor(ctx.db, p.id, other, allowed)
+      return trial && (fallback || !otherHas) ? 'ok' : 'not_logged_in'
+    }
     return (await cache.get(id, true, locale)).status
   }, () => ctx.services.realtime.publishEach(() => ENGINE_CHOICE_CHANGED))
   return { canChoose, defaultEngine: def.engine, defaultModel: def.model, engines: ready.map((id) => ({ id, ...of(id) })) }

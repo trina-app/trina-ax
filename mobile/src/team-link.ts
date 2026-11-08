@@ -51,6 +51,10 @@ const JOIN_TOKEN = TOKEN
 const URL_IN_TEXT = /https?:\/\/[A-Za-z0-9\-._~:/?#@!$&*+,;=%[\]]+/gi
 /** punctuation a sentence puts right after a link ("링크: https://…/join#t=abc." or "(https://…)") */
 const TRAILING = '.,;:!?\'"\u2019\u201d\u300d\u300f\uff09)]}>\u2026\u3002\u3001'
+/** zero-width spaces and joiners, the word joiner and a byte order mark: chat apps put them in copied text */
+const ZERO_WIDTH = /[\u200b-\u200d\u2060\ufeff]/g
+/** the ASCII address characters of URL_IN_TEXT, from the start of a string */
+const URL_CHARS = /^[A-Za-z0-9\-._~:/?#@!$&*+,;=%[\]]*/
 /** the text without the punctuation at its end (a loop, not a regex: linear on any input) */
 function trimTrailing(s: string): string {
   let end = s.length
@@ -67,14 +71,22 @@ export function isLoopbackHost(hostname: string): boolean {
 const isIpHost = (h: string) => h.startsWith('[') || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(h)
 
 /** The address part of what was typed: the first invite or team link in a text, else its first http(s) address, else
- * the text itself (one word). null: a text with spaces and no address in it. */
+ * the text itself (one word, without the punctuation after it). null: a text with spaces and no address in it. */
 export function linkInText(raw: string): string | null {
   const s = raw.trim()
   // one word that is not an address with something glued in front ("링크:https://…")
-  if (!/\s/.test(s) && !/.https?:\/\//i.test(s)) return s
+  if (!/\s/.test(s) && !/.https?:\/\//i.test(s)) return trimTrailing(cutGlued(s))
   const found = (s.match(URL_IN_TEXT) ?? []).map(trimTrailing)
   const isLink = (u: string) => /^https?:\/\/[^/]+\/(?:invite\/[A-Za-z0-9_-]|join#)/i.test(u)
   return found.find(isLink) ?? found[0] ?? null
+}
+
+/** An address with a word glued after it ("https://…/invite/<t>입니다"): the address characters after its host, up to
+ * the first other one. The host itself may be an internationalized name (the URL parser makes it punycode). */
+function cutGlued(word: string): string {
+  const m = /^(https?:\/\/[^/?#]*)([/?#].*)$/i.exec(word)
+  if (!m || !/[^\x00-\x7f]/.test(m[2]!)) return word
+  return m[1]! + URL_CHARS.exec(m[2]!)![0]
 }
 
 /** The team's own name in a host under the team domain ("acme" of acme.trina.app), else null. One label only. */
@@ -91,7 +103,8 @@ export function hostedName(hostname: string, teamDomain: string | null): string 
  * person presses the button, and never try another domain. */
 export function parseTeamInput(raw: string, o: TeamInputOptions): TeamInput {
   if (raw.length > 8192) return { ok: false, error: 'invalid' }
-  const typed = raw.trim()
+  // fullwidth letters (ｈｔｔｐｓ：／／) read as ASCII; zero-width characters from a chat app never belong to an address
+  const typed = raw.normalize('NFKC').replace(ZERO_WIDTH, '').trim()
   if (!typed) return { ok: false, error: 'empty' }
   const word = linkInText(typed)
   if (word === null) return { ok: false, error: HANGUL.test(typed) ? 'hangul' : 'invalid' }
@@ -128,17 +141,30 @@ export function parseTeamInput(raw: string, o: TeamInputOptions): TeamInput {
   const name = hostedLabel ?? (loopback ? hostedName(hostname, 'localhost') : null)
   const base = { ok: true as const, origin: u.origin, host: u.host, name, hosted: hostedLabel !== null && u.protocol === 'https:', loopback }
   const path = u.pathname
-  if (/^\/invite(?:\/|$)/.test(path)) {
+  if (/^\/invite(?:\/|$)/i.test(path)) {
     const token = path.slice('/invite/'.length)
     return TOKEN.test(token) && !u.search && !u.hash ? { ...base, entryPath: `/invite/${token}` } : { ok: false, error: 'link' }
   }
-  if (path === '/join' || path === '/join/') {
+  if (/^\/join\/?$/i.test(path)) {
     const frag = new URLSearchParams(u.hash.replace(/^#/, ''))
     const token = frag.get('t') ?? ''
     return JOIN_TOKEN.test(token) && !u.search ? { ...base, entryPath: `/join#t=${token}` } : { ok: false, error: 'link' }
   }
   // any other page (an address copied from a browser's address bar): the team opens at its start
   return { ...base, entryPath: '/' }
+}
+
+/** The team's own sign-in pages (/login, /invite/…, /join, /setup, /reset-password/…), in any letter case. The apps show
+ * the team address there and on every page until the team said who is signed in (GET /api/me). */
+export function isSignInPath(pathname: string): boolean {
+  return /^\/(login|join|setup)\/?$/i.test(pathname) || /^\/(invite|reset-password)\//i.test(pathname)
+}
+
+/** Whether the app shows the team address it connected to above or below the page: on the sign-in pages, and on every
+ * page while the team has not answered GET /api/me for a signed-in person (a page can look like a sign-in page
+ * anywhere: `/`, `/signin`). */
+export function hostLineShown(pathname: string, signedIn: boolean): boolean {
+  return !signedIn || isSignInPath(pathname)
 }
 
 /** What the team's relay answered instead of the team server (the `x-relay-error` header; relay/src/relay.ts). */

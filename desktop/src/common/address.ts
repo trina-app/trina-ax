@@ -6,7 +6,7 @@ import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { PRODUCT, SOURCE_CODE } from '@mycel/shared'
 import { parseTeamInput, readAppLink, relayAnswer, relayRename, type RelayAnswer, type TeamInput, type TeamInputError, type TeamInputOptions } from '@mycel/shared/team-link'
 
-export { isLoopbackHost } from '@mycel/shared/team-link'
+export { hostLineShown, isLoopbackHost, isSignInPath } from '@mycel/shared/team-link'
 
 /** Hosted team addresses are <team>.TEAM_DOMAIN (design tab 6). */
 export const TEAM_DOMAIN: string = SERVICE_HOSTS.teamDomain
@@ -111,10 +111,6 @@ export function asksOutside(o: { hosted: boolean; dev: boolean; known: boolean; 
   return !o.hosted && !o.dev && !o.known && !o.confirmed
 }
 
-/** The team's own sign-in pages, where the app draws the team address above the page (a page cannot fake it). */
-export function isSignInPath(pathname: string): boolean {
-  return pathname === '/login' || pathname === '/join' || pathname === '/setup' || /^\/(invite|reset-password)\//.test(pathname)
-}
 
 /**
  * Where the "no team yet" screen's buttons go, chosen here and opened by the main process (never an address from the

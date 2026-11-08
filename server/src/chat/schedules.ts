@@ -1,9 +1,9 @@
 // Scheduled tasks: a person's prompt that the server sends for them on a schedule ("every weekday at 9:00, summarize
 // what changed in shared/회의록"). Each run is a new chat of theirs ("<title> · <date>", no emoji; title_source
-// 'schedule' and the turn's client_kind mark it as a run, not the title) with their own access, as if
-// they had typed it, so the folder rules, budgets and audit apply unchanged — except web addresses: the text is the
-// AI's (tools/schedules.ts), so the message is marked auto_sent and only the addresses the person saw on the schedule's
-// card open without asking (tools/url-gate.ts). A run is unattended: its turn has
+// 'schedule' and the turn's client_kind mark it as a run, not the title) with their own access and the engine and model
+// a chat they start then would get, as if they had typed it, so the folder rules, budgets and audit apply unchanged —
+// except web addresses: the text is the AI's (tools/schedules.ts), so the message is marked auto_sent and only the
+// addresses the person saw on the schedule's card open without asking (tools/url-gate.ts). A run is unattended: its turn has
 // client_kind 'schedule', nothing in it waits for a person (ask_user and confirmation cards answer "no" at once,
 // turn.ts waitForPerson), and the message tells the AI so. Times are the team's time zone (ChatRuntime.timeZone).
 // A free-text task runs only after its owner confirmed it on the schedule card (confirmed_at; templates need no card):
@@ -17,6 +17,7 @@
 import type { Database } from 'bun:sqlite'
 import { z } from 'zod'
 import { budgetBlock } from '../admin/budgets'
+import { newChatEngine, turnEngine } from '../admin/engine-choice'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { ToolError } from '../policy/errors'
@@ -319,25 +320,30 @@ export class Schedules {
   }
 
   private start(s: ScheduleRow, now: Date, originalDue: string, commit: (chatId: string | null) => void, how: 'scheduled' | 'manual' = 'scheduled'): string | null {
-    const user = this.db.query("SELECT id FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(s.user_id)
+    const user = this.db.query("SELECT id, role FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(s.user_id) as { id: string; role: string } | null
     if (!user) return null
     const locale = this.rt.userLocale(s.user_id)
     if (budgetBlock(this.db, s.user_id, locale, now)) { this.rt.log.info('scheduled task skipped: budget used up', { schedule: s.id }); return null }
     const project = s.project_id ? this.rt.projectForChat(s.project_id, this.rt.ctx.files.principal(s.user_id)) : null
-    const engine = this.rt.defaultEngine(), model = this.rt.defaultModel()
+    // the owner's AI, as for a chat they start now (admin/engine-choice.ts, the same as Slack and rooms): their own
+    // default engine and model when they may pick and it is on, else the team default; decided at each run, so a later
+    // change of either applies. Every run is a new chat, so there is no chat engine to keep.
+    const person = { id: user.id, role: user.role }
+    const fresh = newChatEngine(this.rt.ctx, person, {}, locale)
+    const te = turnEngine(this.rt.ctx, person, fresh, {}, locale, (e) => this.rt.defaultModelFor(e))
     const p = zonedParts(now, this.rt.timeZone)
     const date = `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d).padStart(2, '0')}`
     const id = newId(), ts = now.toISOString()
     const turn = this.rt.createTurn({
       chat: () => {
         this.db.query("INSERT INTO chats(id,user_id,project_id,title,title_source,engine,model,created_at,updated_at) VALUES(?,?,?,?,'schedule',?,?,?,?)")
-          .run(id, s.user_id, project ? s.project_id : null, `${s.title} · ${date}`, engine, model, ts, ts)
+          .run(id, s.user_id, project ? s.project_id : null, `${s.title} · ${date}`, fresh.engine, fresh.model, ts, ts)
         // the run's message is the AI's text (auto_sent): only the addresses the person saw on the schedule's card open
         // without asking (docs/DECISIONS.md "Outbound web channels")
         rememberUrls(this.db, id, scheduleList(s.allowed_urls), 'allowed')
         return this.rt.store.chatRow(id)!
       },
-      userId: s.user_id, locale, windowId: null, clientKind: 'schedule', engine, model,
+      userId: s.user_id, locale, windowId: null, clientKind: 'schedule', engine: te.engine, model: te.model, ...(te.substitutedFrom ? { substitutedFrom: te.substitutedFrom } : {}),
       scheduled: { id: s.id, dueAt: originalDue, commit: (chatId) => {
         commit(chatId)
         if (s.template_id) this.db.query('UPDATE turns SET template_source_path=?,template_output_path=? WHERE schedule_id=? AND scheduled_for=?')
