@@ -14738,8 +14738,11 @@ Builds on "First run: one box" (PR 1). Plan: `docs/AGENTS/plan/20261108-1025-fir
   and on a phone in another team the switch line ("이제 {old} 알림은 이 휴대폰으로 오지 않아요.", [바꾸기]). [취소] has
   the focus. Nothing is fetched or loaded before the yes; the yes runs the phase-1 path (health check, relay answers,
   the link's page; the phone leaves its old team only then). `LinkGate` keeps the offer: a yes counts only for the host
-  ④ showed, not within 600 ms of ④ appearing, and once; a newer link replaces the waiting one (a click meant for the
-  first never confirms the second). Esc and Android back answer no.
+  ④ showed, only 600 ms after ④ reported itself on screen (also when it appears late, after a cold start), and once; a
+  newer link replaces the waiting one (each offer has an id; the phone's ④ keeps its state per offer and drops an
+  answer whose link is no longer the one on screen), and a team view taking over drops it. A rename found after the
+  yes is asked once more with the new host ("팀 주소가 {host}(으)로 바뀌었어요…"). A tapped universal link that was cut
+  off says so; a bad scheme link never covers a waiting ④. Esc and Android back answer no.
 - **Desktop**: the packaged app is the scheme's handler (`app.setAsDefaultProtocolClient(PRODUCT.linkScheme)`; a
   development run only with `MYCEL_DESKTOP_REGISTER_SCHEME=1`, so tests and dev builds never take the scheme over);
   macOS `open-url` (registered before `ready`, so the link that launched the app is kept until the window exists);

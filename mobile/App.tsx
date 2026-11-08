@@ -87,14 +87,15 @@ export default function App() {
   // and the person said yes
   const [adding, setAdding] = useState(false)
   // screen ④: a link from outside waits for the person's yes (nothing is fetched before it)
-  const gate = useRef(new LinkGate()), [link, setLink] = useState<LinkOffer | null>(null)
+  const gate = useRef(new LinkGate()), [link, setLink] = useState<LinkOffer | null>(null), linkRef = useRef<LinkOffer | null>(null)
+  linkRef.current = link
   useEffect(() => {
     const take = (url: string | null | undefined) => {
       if (!url) return
       const p = readAppLink(url, LINKS)
       if (!p) return
       if (!p.ok) { Alert.alert(product.name, t.linkBad); return }
-      setLink(gate.current.put(p, Date.now()))
+      setLink(gate.current.put(p))
     }
     void Linking.getInitialURL().then(take, () => {})
     const sub = Linking.addEventListener('url', e => take(e.url))
@@ -157,17 +158,18 @@ export default function App() {
     {team === undefined ? <Center><ActivityIndicator color={product.accent} /></Center>
       : team === null ? <Setup current={null} onDone={connect} />
       : <>
-        <TeamWeb key={team.origin} address={team} hidden={adding} pads={padsAtLaunch.current === team.origin} signOut={signOut.current} opened={opened} onDevice={id => { device.current = id }} onAppearance={look => setPage(p => p?.dark === look.dark && p.system === look.system ? p : look)}
+        <TeamWeb key={team.origin} address={team} hidden={adding || !!link} pads={padsAtLaunch.current === team.origin} signOut={signOut.current} opened={opened} onDevice={id => { device.current = id }} onAppearance={look => setPage(p => p?.dark === look.dark && p.system === look.system ? p : look)}
           onChangeTeam={() => setAdding(true)} />
         {adding && <View style={StyleSheet.absoluteFill}><Setup current={team.origin} onBack={closeAdding}
           // the same team again: its page opens there (a link's join page, or its start)
           onSame={address => { setAdding(false); setOpened(o => ({ path: address.entryPath, n: (o?.n ?? 0) + 1 })) }}
           onDone={connect} /></View>}
       </>}
-    {team !== undefined && link && <View style={StyleSheet.absoluteFill}><LinkAsk offer={link} gate={gate.current} current={team?.origin ?? null}
-      onClose={() => setLink(null)}
-      onSame={path => { setLink(null); setAdding(false); setOpened(o => ({ path, n: (o?.n ?? 0) + 1 })) }}
-      onDone={async address => { await connect(address); setLink(null) }} /></View>}
+    {team !== undefined && link && <View style={StyleSheet.absoluteFill}><LinkAsk key={link.id} offer={link} gate={gate.current} current={team?.origin ?? null}
+      // an answer counts only while its link is still the one on screen (a newer link replaced it otherwise)
+      onClose={() => { if (linkRef.current?.id === link.id) setLink(null) }}
+      onSame={path => { if (linkRef.current?.id !== link.id) return; setLink(null); setAdding(false); setOpened(o => ({ path, n: (o?.n ?? 0) + 1 })) }}
+      onDone={async address => { if (linkRef.current?.id !== link.id) return; await connect(address); setLink(null) }} /></View>}
   </Look.Provider></SafeAreaProvider>
 }
 // Insets as explicit padding on every native screen: with edge-to-edge (Android, targetSdk 36) the app draws under the
@@ -291,24 +293,34 @@ function Setup({ current, onDone, onBack, onSame }: { current: string | null; on
  */
 function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: LinkOffer; gate: LinkGate; current: string | null; onClose: () => void; onSame: (path: string) => void; onDone: (address: TeamAddress) => Promise<void> }) {
   const [busy, setBusy] = useState(false), [error, setError] = useState('')
+  // the team moved at its relay: its new address, asked once more before anything is saved
+  const [moved, setMoved] = useState<TeamAddress | null>(null)
   const cancelRef = useRef<ComponentRef<typeof Pressable>>(null)
   const i = useSafeAreaInsets(), c = useContext(Look)
   const switching = !!current && current !== offer.origin
+  const host = moved ? hostOf(moved.origin) : offer.host
   function no() { gate.answer(false, offer.host, Date.now()); onClose() }
   async function yes() {
     if (busy) return
-    // the yes counts for this host only, and not right under the tap that opened the app
+    if (moved) {
+      setBusy(true)
+      try { if (current === moved.origin) onSame(moved.entryPath); else await onDone(moved) } catch { setError(t.saveFailed) } finally { setBusy(false) }
+      return
+    }
+    // the yes counts for this host only, and not right after ④ appeared
     const o = gate.answer(true, offer.host, Date.now())
     if (!o) return
     setBusy(true); setError('')
     try {
       const r = await checkTeam(o.origin, service.teamDomain)
       if (!r.ok) { setError(r.reason === 'unknown' ? fill(t.teamUnknown, { name: o.name ?? o.host }) : r.reason === 'suspended' ? t.suspended : r.reason === 'notTeam' ? t.notTeam : t.unreachableSetup); return }
+      if (r.renamed) { setMoved({ origin: r.origin, entryPath: o.entryPath }); return }
       if (current === r.origin) onSame(o.entryPath)
       else await onDone({ origin: r.origin, entryPath: o.entryPath })
     } catch { setError(t.saveFailed) } finally { setBusy(false) }
   }
   useEffect(() => {
+    gate.shown(offer.id, Date.now())
     const id = setTimeout(() => { const n = cancelRef.current && findNodeHandle(cancelRef.current); if (n) AccessibilityInfo.setAccessibilityFocus(n) }, 300)
     const back = BackHandler.addEventListener('hardwareBackPress', () => { no(); return true })
     return () => { clearTimeout(id); back.remove() }
@@ -316,8 +328,8 @@ function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: Lin
   }, [offer])
   return <View style={[s.fill, s.center, { backgroundColor: c.canvas, paddingTop: i.top + 24, paddingBottom: i.bottom + 24, paddingLeft: i.left + 24, paddingRight: i.right + 24 }]} accessibilityViewIsModal testID="link-ask">
     <View style={s.linkCard}>
-      <Text style={[s.title, { color: c.ink }]} accessibilityRole="header" testID="link-title">{fill(t.linkTitle, { host: offer.host })}</Text>
-      <Text style={[s.hint, { color: c.muted }]}>{t.linkBody}</Text>
+      <Text style={[s.title, { color: c.ink }]} accessibilityRole="header" testID="link-title">{fill(t.linkTitle, { host })}</Text>
+      <Text style={[s.hint, { color: c.muted }]}>{moved ? fill(t.renamed, { host }) : t.linkBody}</Text>
       {!offer.hosted && <Text style={[s.askText, { color: c.ink }]} testID="link-outside">{t.outsideBody}</Text>}
       {switching && <Text style={[s.askText, { color: c.muted }]}>{fill(t.switchBody, { old: hostOf(current!) })}</Text>}
       {!!error && <Text accessibilityRole="alert" style={[s.error, { color: c.danger }]} testID="link-error">{error}</Text>}

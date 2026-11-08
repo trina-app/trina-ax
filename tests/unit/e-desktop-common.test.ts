@@ -200,6 +200,10 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
     const offer = win.slice(win.indexOf('  offerLink(raw: string) {'), win.indexOf('  async answerLink('))
     expect(offer).not.toMatch(/fetch|addTeam|openTeam|loadURL/)
     expect(win).toMatch(/const offer = this\.linkGate\.answer\(yes, host, Date\.now\(\)\)[\s\S]{0,200}if \(!offer\) return null[\s\S]{0,80}return this\.addTeam\(offer\.origin \+ offer\.entryPath, true\)/)
+    // ④ counts from when the screen says it is up, and a team view taking over drops a waiting link
+    expect(win).toContain('this.linkGate.shown(id, Date.now())')
+    expect(win).toMatch(/async openTeam\(id: string, entryPath = '\/'\) \{[\s\S]{0,200}this\.linkGate\.clear\(\)/)
+    expect(readFileSync(join(import.meta.dir, '../../desktop/src/ui/welcome.ts'), 'utf8')).toContain('ui.welcome.linkShown(link.id)')
     // a development run never takes the scheme over by itself
     expect(main).toContain("if (app.isPackaged) app.setAsDefaultProtocolClient(LINK_SCHEME)")
   })

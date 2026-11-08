@@ -175,25 +175,46 @@ describe('links from outside (phase 2): the reader and screen ④\'s gate', () =
       expect(m.readAppLink(`https://acme.trina.app/join#t=${JOIN}`, DESK)).toBeNull()
     }
   })
-  test('④ cannot be skipped: nothing without a yes, a yes for the host it showed, not right away, once', () => {
+  test('④ cannot be skipped: nothing without a yes, a yes for the host it showed, only once ④ has been on screen a while, once', () => {
     for (const m of [shared, phone]) {
       const g = new m.LinkGate(600)
       const a = m.readAppLink(link(`https://acme.trina.app/join#t=${JOIN}`), DESK) as never
       const evil = m.readAppLink(link('https://evil.example/'), DESK) as never
       expect(g.answer(true, 'acme.trina.app', 10_000)).toBeNull() // nothing offered
-      expect(g.put(a, 1_000)).toEqual({ origin: 'https://acme.trina.app', host: 'acme.trina.app', entryPath: `/join#t=${JOIN}`, hosted: true, name: 'acme' })
+      const first = g.put(a)
+      expect(first).toMatchObject({ origin: 'https://acme.trina.app', host: 'acme.trina.app', entryPath: `/join#t=${JOIN}`, hosted: true, name: 'acme' })
       expect(g.pending()?.host).toBe('acme.trina.app')
-      expect(g.answer(true, 'acme.trina.app', 1_200)).toBeNull() // too soon: a tap meant for something else
-      expect(g.answer(true, 'evil.example', 2_000)).toBeNull() // not the host ④ showed
+      // not on screen yet (a cold start still loading): no yes counts, however late
+      expect(g.answer(true, 'acme.trina.app', 99_000)).toBeNull()
+      g.shown(first.id, 100_000)
+      g.shown(first.id, 200_000) // the first display counts
+      expect(g.answer(true, 'acme.trina.app', 100_200)).toBeNull() // too soon after ④ appeared
+      expect(g.answer(true, 'evil.example', 101_000)).toBeNull() // not the host ④ showed
       // a second link arrived while ④ was up: the yes meant for the first one does not confirm it
-      g.put(evil, 2_100)
-      expect(g.answer(true, 'acme.trina.app', 3_000)).toBeNull()
-      expect(g.answer(true, 'evil.example', 2_500)).toBeNull()
-      expect(g.answer(true, 'evil.example', 2_800)).toMatchObject({ host: 'evil.example' })
-      expect(g.answer(true, 'evil.example', 9_000)).toBeNull() // used once
-      g.put(a, 10_000)
-      expect(g.answer(false, 'acme.trina.app', 10_001)).toBeNull()
+      const second = g.put(evil)
+      expect(second.id).not.toBe(first.id)
+      g.shown(first.id, 101_100) // an old screen's report does not count for the new offer
+      expect(g.answer(true, 'evil.example', 102_000)).toBeNull()
+      g.shown(second.id, 102_000)
+      expect(g.answer(true, 'acme.trina.app', 103_000)).toBeNull()
+      expect(g.answer(true, 'evil.example', 102_300)).toBeNull()
+      expect(g.answer(true, 'evil.example', 102_700)).toMatchObject({ host: 'evil.example', id: second.id })
+      expect(g.answer(true, 'evil.example', 109_000)).toBeNull() // used once
+      // the person went elsewhere: the offer is gone
+      const third = g.put(a); g.shown(third.id, 110_000); g.clear()
+      expect(g.answer(true, 'acme.trina.app', 111_000)).toBeNull()
+      g.put(a)
+      expect(g.answer(false, 'acme.trina.app', 120_001)).toBeNull()
       expect(g.pending()).toBeNull()
+    }
+  })
+  test('a tapped universal link that was cut off says so; text around the address inside a scheme link is refused', () => {
+    for (const m of [shared, phone]) {
+      expect(m.readAppLink('https://acme.trina.app/invite/abc', PHONE_LINKS)).toEqual(err('link') as never)
+      expect(m.readAppLink('https://acme.trina.app/join', PHONE_LINKS)).toEqual(err('link') as never)
+      expect(m.readAppLink('https://team.example.com/invite/abc', PHONE_LINKS)).toBeNull()
+      expect(m.readAppLink(link(`https://x.example'https://acme.trina.app/invite/${INVITE}`), DESK)).toBeNull()
+      expect(m.readAppLink(link(`x.https://acme.trina.app/invite/${INVITE}`), DESK)).toBeNull()
     }
   })
 })

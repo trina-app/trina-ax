@@ -15,7 +15,7 @@ export interface WelcomeState {
   /** the "no team yet" screen offers [팀 만들기] (not in the Mac App Store build) */
   signup?: boolean
   /** screen ④: a link from outside waits for a yes */
-  link?: { host: string; hosted: boolean } | null
+  link?: { id: number; host: string; hosted: boolean } | null
   /** a link from outside that cannot open a team */
   linkError?: string | null
 }
@@ -53,6 +53,8 @@ export interface MycelUi {
     openLink(kind: 'signup' | 'docs'): void
     /** screen ④'s answer for the host it showed: the connect result, or null (nothing done) */
     answerLink(yes: boolean, host: string): Promise<AddTeamResult | null>
+    /** ④ is on screen for this offer */
+    linkShown(id: number): void
     open(id: string): void
     remove(id: string): Promise<void>
     back(): void

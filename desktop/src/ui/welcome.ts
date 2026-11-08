@@ -20,11 +20,12 @@ let view: 'main' | 'unknown' | 'none' = 'main'
 let suggestedUsed = false
 function takeState(s: WelcomeState) {
   // ④ appears: an error from before (a refused link, an address that failed) is not about this link
-  if (s.link && !state.link) error = ''
+  if (s.link && s.link.id !== state.link?.id) error = ''
+  const newLinkError = s.linkError && s.linkError !== state.linkError && !s.link
   state = s
-  // a link from outside that cannot open a team: said once, on ①
-  if (s.linkError) {
-    error = s.linkError
+  // a link from outside that cannot open a team: said on ① (never over ④)
+  if (newLinkError) {
+    error = s.linkError!
     view = 'main'
   }
   if (s.suggested && !suggestedUsed && !draft) {
@@ -181,7 +182,9 @@ function outsideBox(o: { kind: 'outside' | 'renamed'; host: string; address: str
  * outside note when the hosted service does not run it, [취소] (focus) [연결]. Nothing was fetched yet; [연결] runs the
  * address check, then opens the link's page (the main process holds the link: this screen only names the host).
  */
-function linkAsk(link: { host: string; hosted: boolean }) {
+function linkAsk(link: { id: number; host: string; hosted: boolean }) {
+  // the yes counts only some time after ④ is on screen (the main process's LinkGate)
+  queueMicrotask(() => ui.welcome.linkShown(link.id))
   return h(
     'section',
     { class: 'card', role: 'alertdialog', 'aria-labelledby': 'link-title', 'aria-describedby': 'link-body', 'data-testid': 'link-ask' },
@@ -208,7 +211,12 @@ function linkAsk(link: { host: string; hosted: boolean }) {
             render()
             try {
               const r = await ui.welcome.answerLink(true, link.host)
-              if (r && !r.ok) {
+              // the team moved at its relay: its new address is asked on ① before anything is remembered
+              if (r && !r.ok && r.error === 'renamed' && r.next) {
+                outside = { kind: 'renamed', host: r.host ?? '', address: r.next }
+                draft = r.next
+                view = 'main'
+              } else if (r && !r.ok) {
                 error = r.message
                 view = 'main'
               }

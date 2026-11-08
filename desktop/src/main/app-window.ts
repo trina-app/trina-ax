@@ -42,7 +42,7 @@ export interface WelcomeState {
   signup: boolean
   /** screen ④: a link from outside waits for the person's yes (the host it would connect to; hosted: run by the hosted
    * service). Nothing is fetched before the yes. */
-  link: { host: string; hosted: boolean } | null
+  link: { id: number; host: string; hosted: boolean } | null
   /** a link from outside that cannot open a team: said once on ① */
   linkError: string | null
 }
@@ -204,7 +204,7 @@ export class AppWindow {
       offline: this.mode === 'offline' && this.team ? { address: this.team.origin } : null,
       suggested: this.teamList().length ? null : (this.o.suggestedTeam ?? null),
       signup: firstRunLinks({ macAppStore: this.o.macAppStore === true, korean: false }).signup !== null,
-      link: (() => { const l = this.linkGate.pending(); return l ? { host: l.host, hosted: l.hosted } : null })(),
+      link: (() => { const l = this.linkGate.pending(); return l ? { id: l.id, host: l.host, hosted: l.hosted } : null })(),
       linkError: this.linkError,
     }
   }
@@ -217,16 +217,21 @@ export class AppWindow {
   offerLink(raw: string) {
     const p = readDesktopLink(raw)
     if (p?.ok) {
-      this.linkGate.put(p, Date.now())
+      this.linkGate.put(p)
       this.linkError = null
-    } else this.linkError = t(this.o.locale(), 'link.bad')
+    } else if (!this.linkGate.pending()) this.linkError = t(this.o.locale(), 'link.bad') // a bad link never covers ④
     this.showWelcome()
-    this.linkError = null
+  }
+
+  /** ④ is on screen for this offer: the yes counts only some time after this (shared LinkGate) */
+  linkShown(id: number) {
+    this.linkGate.shown(id, Date.now())
   }
 
   /** The person's answer on ④ for the host it showed: yes connects (the phase-1 path, the outside question answered by
    * ④ itself); no goes back to the open team, if any. null: nothing to do (no link waiting, too soon, another host). */
   async answerLink(yes: boolean, host: string): Promise<AddTeamResult | null> {
+    this.linkError = null
     const offer = this.linkGate.answer(yes, host, Date.now())
     if (!yes) {
       this.sendWelcome()
@@ -260,6 +265,7 @@ export class AppWindow {
    * (`confirmed` is the person's yes).
    */
   async addTeam(address: string, confirmed = false): Promise<AddTeamResult> {
+    this.linkError = null
     const p = parseTeamAddress(address)
     const L = this.o.locale()
     if (!p.ok) return { ok: false, error: p.error, message: t(L, `err.${p.error}` as UiKey) }
@@ -315,6 +321,7 @@ export class AppWindow {
   }
 
   back() {
+    this.linkGate.clear()
     if (this.team && this.app) {
       this.mode = 'team'
       this.layout()
@@ -331,6 +338,9 @@ export class AppWindow {
   async openTeam(id: string, entryPath = '/') {
     const team = findTeam(this.teams, id)
     if (!team) return
+    // a team view takes over: a link that waited on ④ waits no more (it would come back confirmable later)
+    this.linkGate.clear()
+    this.linkError = null
     if (this.team?.id === id && this.app && this.mode !== 'offline') {
       // the team is open already: a link opens its page there (the address it shows now, office network or not)
       if (entryPath !== '/' && this.currentOrigin) await this.app.webContents.loadURL(this.currentOrigin + entryPath).catch(() => {})
