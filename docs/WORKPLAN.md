@@ -133,12 +133,14 @@ export const chatsRoutes: RouteModule = {
 |---|---|
 | 001–099 | 기반(001 init, 002 foundation) |
 | 100–199 | A |
-| 200–299 | B |
+| 200–299, 400–499 | B |
 | 300–399 | C |
 | 600–699 | F |
 | 700–799 | G |
 
   D·E는 서버 DB를 쓰지 않는다. 범위 안에서 다음 번호를 쓴다(예: `101_a_login_attempts.sql`, `201_b_queue.sql`).
+  B는 200–299가 다 차면 400–499를 쓴다.
+- dev에 올라간 번호는 바꾸지 않는다. 번호가 겹치면 나중 브랜치가 병합 전에 자기 번호를 바꾼다(이미 그 번호를 실행한 DB는 새 파일을 건너뛴다).
 - 자기 범위와 001–099의 테이블에만 기대고, **추가만** 한다: 새 테이블, 기본값 있거나 NULL 가능한 새 열, 인덱스. 이름 바꾸기·테이블 다시 만들기·열 삭제 금지. SQL은 항상 열 이름을 적는다(`SELECT *`·위치 INSERT 금지). 새 테이블의 FK는 `ON DELETE CASCADE`.
 - 이전 버전이 읽을 수 없는 변경을 꼭 해야 하면 파일 첫 줄들에 `-- min_compatible_reader: N`을 쓰고 `db.ts`의 `SCHEMA_READER_LEVEL`을 N으로 올린다(기반과 상의). 서버는 더 새 reader가 필요한 DB를 열지 않는다(복원 안내).
 - 데이터가 있는 DB에 새 마이그레이션을 적용하기 전에 `<data>/backups/pre-migrate-*.db`(VACUUM INTO)가 생긴다.

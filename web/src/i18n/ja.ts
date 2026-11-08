@@ -2425,7 +2425,7 @@ export const ja: Record<MessageKey, string> = {
   'credentials.rename': "名前を変更",
   'credentials.changeTarget': "利用者を変更",
   'credentials.spendLimit': "月間上限",
-  'credentials.spendLimitHint': "サーバーのタイムゾーンで毎月集計します。空欄の場合は上限なしです。",
+  'credentials.spendLimitHint': "チームのタイムゾーンで毎月集計します。空欄の場合は上限なしです。",
   'credentials.spendLimitUsd': "金額（USD、APIキーのみ）",
   'credentials.spendLimitTokens': "トークン数",
   'credentials.spendLimitAction.warn': "通知のみ",
