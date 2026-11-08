@@ -28,6 +28,7 @@ import { skillSharesRoutes } from './skill-shares'
 import { demoRoutes } from './demo'
 import { roomsRoutes } from './rooms'
 import { slackRoutes } from './slack'
+import { appLinksRoutes } from './app-links'
 
 export type { RouteModule } from './module'
 
@@ -58,5 +59,6 @@ export const ROUTE_MODULES: readonly RouteModule[] = [
   skillSharesRoutes, // B: 내 스킬 가져오기, an owner's skills shared with the team (docs/DECISIONS.md "SK")
   slackRoutes, // C: the Slack connector (docs/SLACK.md); after chats, whose runtime its questions use
   demoRoutes, // demo company (`bun run demo:company`; 404 unless a development server runs with MYCEL_DEMO)
+  appLinksRoutes, // G: /.well-known files for the phone app's links (docs/DECISIONS.md "First run, phase 2")
   webRoutes, // D (catch-all, keep last)
 ]
