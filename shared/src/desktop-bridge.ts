@@ -75,9 +75,10 @@ export interface DesktopBrowserSettings {
   teamAllowsAll: boolean
 }
 
-/** How a test notification went: 'shown' (the system took it), 'off' (the system refused it: notifications are off for
- * the app, or the app may not post them), 'unsupported' (this system has no notifications), 'limited' (too many this
- * minute), 'unknown' (handed over, but the system said nothing within a few seconds). */
+/** How a test notification went: 'shown' (the system took it: Windows, Linux), 'off' (the system refused it:
+ * notifications are off for the app, or the app may not post them), 'unsupported' (this system has no notifications),
+ * 'limited' (too many this minute), 'unknown' (handed over, but the system said nothing within a few seconds; on macOS
+ * also when it took it: macOS takes a notification it will not show, so taking it says nothing there). */
 export type DesktopNotifyTest = 'shown' | 'off' | 'unsupported' | 'limited' | 'unknown'
 
 /** How setAccess ended. 'changed' for "all" only after the person confirmed the desktop app's own dialog. */
