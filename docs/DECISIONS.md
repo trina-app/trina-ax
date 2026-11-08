@@ -13650,7 +13650,8 @@ enters a shared transcript; that check is new here, and turns never run on the c
   `project.share_chats`. 409 with `project_personal` (a personal project: one reader, never shared), `safe_ops`
   (turning it on while 1A is on) or `project_in_trash`. A chat is shared only when it is made (`chats.shared_at`,
   `POST /api/chats` in a project whose setting is on: `chat/shared.ts sharesNewChats`); a chat made before, a chat
-  moved in, a chat made while 1A is on and a scheduled run's chat stay one person's. Who sees a shared chat is not
+  moved in, a chat made while 1A is on and a scheduled run's chat stay one person's (the creator of the first two may
+  share it after a check: "An existing chat shared" below). Who sees a shared chat is not
   stored: the project's audience now (`canSeeProject`: who can read its folder, owner and admins included; while the
   folder is in the trash, owner and admins only). Losing access hides the chat, from its creator too; gaining it shows
   the whole history (the card said "project people"). Owner decisions: turning the setting off keeps the chats already
@@ -13726,8 +13727,9 @@ enters a shared transcript; that check is new here, and turns never run on the c
   the repoint dialog says how many chats and people, nothing asks again.
 - **Not in phase 1.** Live answers for viewers, unseen markers per viewer, a chat file store for uploads, connections
   and Drive behind the gate, share-to-room for every viewer, a gate that checks searches after they run. Not added: a
-  toggle per chat, sharing existing chats, avatars (added since: "Who asked" below), deleting single messages, a people
-  picker, push or Inbox notices, a "Shared" sidebar section, queued sends.
+  toggle per chat, sharing existing chats (added since: "An existing chat shared" below), avatars (added since: "Who
+  asked" below), deleting single messages, a people picker, push or Inbox notices, a "Shared" sidebar section, queued
+  sends.
 - **Who asked** (feat/shared-chat-authors, 2026-11-08, product owner: each message sent to the AI shows its sender's
   picture and name; plan `docs/AGENTS/plan/20261108-0049-shared-chat-authors.md`). Every question of a shared chat, mine
   too, has one quiet row above the bubble, on the right like it: the name (muted, one line, cut with an ellipsis; as it
@@ -13752,6 +13754,77 @@ enters a shared transcript; that check is new here, and turns never run on the c
 - Tests: `tests/unit/b-shared-chats.test.ts`, `tests/security/shared-project-chats.test.ts` (roles × routes × states),
   rows in `permission-matrix`, `p4-route-coverage` and `safe-ops-matrix`, `web/test/e2e/shared-project-chats.spec.ts`.
 - Version impact: **minor** (a new feature, optional API fields, an add-only migration).
+
+### An existing chat shared — 프로젝트 사람들과 공유 (feat/share-existing-chat, 2026-11-08, product owner)
+
+The owner: "공유 프로젝트로 옮겨도 그 채팅은 계속 나만 봐요 -> 왜? 그럼 이거 공개로 바꿀 수 없어?" Plan:
+`docs/AGENTS/plan/20261108-0137-share-existing-chat.md`. A chat made before the setting, or moved into a sharing project,
+stayed one person's because its earlier turns had no read card: their visible answers may carry content from places
+narrower than the project's audience (another group's folder, the person's own folder, personal connections, Drive, the
+in-app browser, rooms) and from personal memories. Other people's turns already start a fresh session fed only the
+visible transcript, so the visible messages are what gets disclosed: the same informed decision as "대화방에 보내기"
+(its provenance line), with its code.
+
+- **`POST /api/chats/:id/share` `{confirmKey?}`** (`chat/share-chat.ts`). The chat's creator only (`chatFor` 'view':
+  anyone else gets the 404 of a missing chat). 409 with a reason: `project_not_sharing` (no project, a project the
+  creator does not see, or its setting off: one reason, so it says nothing about a project they cannot see),
+  `project_personal`, `project_in_trash`, `safe_ops` (1A on, or a confidential chat), `already_shared` (also to the
+  others who see a shared chat), `scheduled_run` (`title_source` 'schedule', or a turn with a `schedule_id`), `chat_busy`
+  (a turn queued or running) and `share_hidden` (below). Every request takes one of the room-send tokens first, as
+  "대화방에 보내기" does (429): the check is no free probe of who may read what.
+- **The check, over every branch** (viewers switch branches). Every answer's `message_sources` (each with its sha256),
+  the session read scope when it describes every answer, and memories. The scope is emptied when a session starts on a
+  first message and every turn since adds to it on any branch, so it describes every answer when none was made before
+  the newest answer to a first message; otherwise "not all known" (an older chat, or the first message edited since):
+  "이 채팅이 참고한 자료를 다 알 수 없어요" and everyone else counts. The audience is the project's people now but the
+  creator. Left out: what all of them read, and the hash rule (identical content a turn of this chat saved where all of
+  them read it now, still there). `rooms_seen` without a room in the scope counts everyone, and a member who would see a
+  room it read but for old answers hidden from them is never shown it: 409 `share_hidden`, confirmed or not (as
+  `answer_share_hidden`). **One copy:** `answer-share.ts provenanceChecker(ctx, userId, audience, savedBy).of(uses,
+  leftOut)` is the provenance part of `answerCheck`, now called by both (`BranchUse`, `useOf` and `confirmMac` exported);
+  `answerCheck` keeps its rows, attachments and `kept` sources on top. **Memories:** every turn of a person's own chat has
+  their memories in its instructions, so they were in play when a memory of theirs existed while an answer here was
+  written; a memory is deleted for good, so one deleted since the chat's first answer (`memory.delete`/`memory.clear`
+  audited, the AI's `forget` a step of their answers) counts too.
+- **The answer.** Nothing applies (nobody misses a source, nothing unknown, no memories, or nobody else in the
+  audience): shared at once. Otherwise `confirm` with `audience` (the project's people but me), `provenance` (#163's
+  shape: how many, places named only where the creator may look now, `otherPlaces`, `unknown`), `memories` and an opaque
+  `confirmKey`: an HMAC with the process secret of "대화방에 보내기" over `kind: 'chat.share'`, the chat, the project, the
+  audience, each source with who misses it, the places, the memories and the id of every message on every branch. Sent
+  back while nothing changed, it shares; anything changed (someone joined or left, a rule, a new message on any branch,
+  a restart) is asked again with `reason: 'changed'`. The audience is read again after the check; it is checked again
+  when it changed meanwhile.
+- **Sharing.** The refusals are checked again synchronously right before the update, so no turn of the private chat
+  can start between the check and it (a private turn would run without the read card). Then, in one transaction:
+  `chats.shared_at = now`; the engine session forgotten (`engine_session_id`, `engine_session_leaf_id` and the stash: the
+  creator's private session keeps the memories of its instructions and tool results the transcript does not have, so
+  the creator's next turn starts from the visible transcript like anyone's; resuming it would carry them past the read
+  card); every earlier turn marked `shared_checked = 1`. **Rollback guard:** `unshareUncheckedChats` has no time filter
+  (a clock set back must not hide a turn), so a turn from before migration 265 (column default 0) would unshare the
+  chat at the next start; those turns were just checked. A turn an older build runs after the share still unshares it.
+  Audited `chat.share` with `{audience, people, unknown, memories, confirmed}`: no names, no places, no content. Nothing
+  unshares it (D1); a shared chat never moves (`shared_chat_move`).
+- **The earlier steps.** Steps of a private turn were stored with their whole label (a path, an address, a query, a
+  remembered text) and no per-viewer copy (`sv`). An answer created before `shared_at` shows its steps in full to the
+  person whose turn it was; everyone else gets the words alone (`stepWords`: the tool's verb, else a word for its kind,
+  "작업" for the rest) without detail, search results, pictures or a dev environment run (`MessageView.sharedAt`,
+  `ChatStore.viewSteps`). The answers' text, attachments (per viewer as before), file summaries and sources lists follow
+  #171's per-viewer rules.
+- **The app.** The move dialog (`ChatProject.tsx`, from the title menu and from a chat row's "…" menu) shows one switch
+  under the projects, off by default, when the chosen project shares new chats (`mayShareChat`: a chat of one person, not
+  confidential, a team project with the setting on, not in the trash, 1A off): "프로젝트 사람들과 공유", with
+  "공유하면 지금까지의 대화도 모두 보여요. 공유는 되돌릴 수 없어요." under it. Saved with it on: the move, then the share
+  (`ShareChat.tsx ShareChatFlow`). The title menu (`ChatTitleMenu.tsx`) has "프로젝트 사람들과 공유…" for such a chat
+  already in that project. The confirm: title "이 채팅을 프로젝트 사람 {n}명과 공유할까요?", first that sentence, then #163's
+  provenance line style ("이 채팅에는 프로젝트 사람 {m}명이 볼 수 없는 자료의 내용이 들어 있어요: {places}", or the unknown
+  line), "개인 메모리를 참고한 답이 있을 수 있어요" when it applies, "그 사이 바뀐 것이 있어요. 다시 확인해 주세요" when asked
+  again; [취소] [공유하기], 공유하기 focused. Cancel keeps the chat moved and private. Shared: "프로젝트 사람들과 공유했어요",
+  and #171's header mark and line under the box. Five languages. `placeName` is shared with `ShareToRoom.tsx`.
+- **Not here.** Unsharing; sharing from the project page; a list of what was read (the line names places, as #163's).
+- Tests: `tests/unit/b-share-existing-chat.test.ts`, `tests/security/shared-project-chats.test.ts` ("an existing private
+  chat shared later"), a `permission-matrix` row (`p4-route-coverage` covers the route), `b-answer-share` unchanged,
+  `web/test/e2e/share-existing-chat.spec.ts`.
+- Version impact: **minor** (a new endpoint and an audit action; no migration).
 
 ## 대화방의 트리나가 공유 프로젝트 채팅을 읽는다 — a room's AI reads shared project chats (feat/room-reads-shared-chats, 2026-11-07, product owner)
 
