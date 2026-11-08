@@ -29,7 +29,7 @@ import { syncRoomsNow } from '../rooms/service'
 import { closeDeletionRequest } from '../auth/deletion-requests'
 import { notificationsOf, notifyTemplateOffers, settleDeletionRequestNotices } from '../notifications/service'
 import { newId } from '../db'
-import { endConnections, handoverText, recordEnded, setRecoveryLockIn, tellTransfer } from './handover'
+import { endConnections, handoverText, recordEnded, setRecoveryLockIn, tellTransfer, toEndOf } from './handover'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -356,6 +356,7 @@ export async function transferOwnership(c: Context<AppEnv>, ctx: AppContext, b: 
   const at = new Date(authOf(ctx).now()).toISOString()
   const transferId = newId()
   let via: 'lead_card' | 'members_menu' = 'members_menu'
+  let toEnd: { kind: HandoverConnectionRef['kind']; id: string; label: string }[] = []
   ctx.db.transaction(() => {
     const caller = ctx.db.query('SELECT role, status, deleted_at FROM users WHERE id = ?').get(me) as { role: Role; status: string; deleted_at: string | null } | null
     if (!caller || caller.deleted_at || caller.status !== 'active' || caller.role !== 'owner') changedMeanwhile()
@@ -375,7 +376,11 @@ export async function transferOwnership(c: Context<AppEnv>, ctx: AppContext, b: 
     // reset links made by nobody (the server's CLI, the hosted control plane) for either person stop: one minted before
     // the handover must not sign its holder in as the new owner, or as the old owner now an admin, afterwards
     const cliLinks = ctx.db.query('UPDATE password_resets SET used_at = ? WHERE created_by IS NULL AND used_at IS NULL AND user_id IN (?, ?)').run(at, me, b.userId).changes
-    ctx.db.query('INSERT INTO owner_transfers (id, from_user, to_user, via, invite_id, at) VALUES (?, ?, ?, ?, ?, ?)').run(transferId, me, b.userId, via, lead?.id ?? null, at)
+    // what to end of the caller's own connections is kept with the transfer, in this write: a stop right after the
+    // commit cannot leave the old owner's tokens serving the team unnoticed (retried at the server's start; the new
+    // owner sees what is left and can end it from the Inbox)
+    toEnd = b.end?.length ? toEndOf(ctx, me, b.end) : []
+    ctx.db.query('INSERT INTO owner_transfers (id, from_user, to_user, via, invite_id, at, to_end) VALUES (?, ?, ?, ?, ?, ?, ?)').run(transferId, me, b.userId, via, lead?.id ?? null, at, JSON.stringify(toEnd))
     const locked = setRecoveryLockIn(ctx, transferId, at)
     audit(ctx.db, { actor: me, action: 'owner.transfer', target: b.userId, detail: { from: me, to: b.userId, via, ...(revoked ? { adminInvitesRevoked: revoked } : {}), ...(unflagged ? { leadHintsCleared: unflagged } : {}), ...(leadsStopped ? { leadInvitesRevoked: leadsStopped } : {}), ...(cliLinks ? { recoveryLinksStopped: cliLinks } : {}), ...(locked ? { recoveryLocked: true } : {}) } })
   }).immediate()
@@ -389,7 +394,7 @@ export async function transferOwnership(c: Context<AppEnv>, ctx: AppContext, b: 
   const t = { id: transferId, from: me, to: b.userId }
   tellTransfer(ctx, t)
   let ended: EndedConnection[] = []
-  try { ended = b.end?.length ? await endConnections(ctx, me, b.end) : [] } catch (err) { c.get('log').error('ending connections after a handover failed', { err }) }
+  try { ended = toEnd.length ? await endConnections(ctx, me, toEnd) : [] } catch (err) { c.get('log').error('ending connections after a handover failed', { err }) }
   recordEnded(ctx, t, ended)
   return { ok: true, ended }
 }

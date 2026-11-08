@@ -223,7 +223,8 @@ describe('the transfer itself: connections, notices, realtime, audit', () => {
     t.h.hub.events = []
     const r = await t.owner.call('POST', '/api/admin/transfer-ownership', { userId: lead.id, password: OWNER_PW, end: [{ kind: 'team_ai', id: 'cred-claude' }, { kind: 'drive_share', id: 'share-1' }, { kind: 'team_ai', id: 'cred-admin' }, { kind: 'team_ai', id: 'cred-key' }] })
     expect(r.ok).toBe(true)
-    expect(Object.fromEntries(r.ended.map((e: any) => [e.id, e.result]))).toEqual({ 'cred-claude': 'ended', 'share-1': 'ended', 'cred-admin': 'gone', 'cred-key': 'gone' })
+    // only the caller's own are kept with the transfer and ended; another admin's sign-in and the team's API key are not touched
+    expect(Object.fromEntries(r.ended.map((e: any) => [e.id, e.result]))).toEqual({ 'cred-claude': 'ended', 'share-1': 'ended' })
     const db = t.h.ctx.db
     expect(owners(t.h)).toEqual([lead.id])
     expect(roleOf(t.h, 'olga')).toBe('admin')
@@ -232,7 +233,8 @@ describe('the transfer itself: connections, notices, realtime, audit', () => {
     // audit: the transfer (via the card, decided on the server), each disconnect
     const tr = JSON.parse(audits(t.h, 'owner.transfer').at(-1)!.detail!)
     expect(tr).toMatchObject({ from: 'olga', to: lead.id, via: 'lead_card', leadHintsCleared: 1 })
-    expect(audits(t.h, 'owner.transfer.disconnect').map((a) => [a.target, JSON.parse(a.detail!).result])).toEqual([['cred-claude', 'ended'], ['share-1', 'ended'], ['cred-admin', 'gone'], ['cred-key', 'gone']])
+    expect(audits(t.h, 'owner.transfer.disconnect').map((a) => [a.target, JSON.parse(a.detail!).result])).toEqual([['cred-claude', 'ended'], ['share-1', 'ended']])
+    expect(JSON.parse((db.query('SELECT to_end FROM owner_transfers').get() as { to_end: string }).to_end).map((x: any) => x.id)).toEqual(['cred-claude', 'share-1'])
     // every flag is gone: no card for anyone
     expect(db.query('SELECT COUNT(*) n FROM invites WHERE lead_hint = 1').get()).toEqual({ n: 0 })
     // realtime: both people's open windows refresh their role
@@ -450,6 +452,96 @@ describe('after the security review', () => {
       const s = await t.owner.call('GET', '/api/admin/handover')
       expect(s.card.user.name).toBe('박민준')
       expect((await handoverItems(t.owner))[0].handover.user.name).toBe('박민준')
+    } finally { await t.h.close() }
+  })
+})
+
+describe('after the second review', () => {
+  test('the lockout note is pushed even when it was marked read (a stolen session cannot stop it)', async () => {
+    const crypto = await import('node:crypto')
+    const { PushService } = await import('../../server/src/notifications/push-service')
+    const t = await team('handover-lock-push')
+    const sent: any[] = []
+    const ecdh = crypto.createECDH('prime256v1'); ecdh.generateKeys()
+    const p = new PushService(t.h.ctx, { config: () => ({ enabled: true, subject: 'mailto:push@example.test', publicKey: ecdh.getPublicKey().toString('base64url'), privateKey: ecdh.getPrivateKey().toString('base64url') }), transport: async (i) => { sent.push(i.payload); return { statusCode: 201 } } })
+    try {
+      const sid = (t.h.ctx.db.query("SELECT id FROM sessions WHERE user_id = 'olga'").get() as { id: string }).id
+      const k = crypto.createECDH('prime256v1'); k.generateKeys()
+      p.subscribe('olga', sid, { consent: true, endpoint: 'https://fcm.googleapis.com/fcm/send/synthetic-lock', keys: { p256dh: k.getPublicKey().toString('base64url'), auth: crypto.randomBytes(16).toString('base64url') } })
+      await Bun.sleep(5)
+      const m = await addMember(t.h, t.owner, { username: 'mo' })
+      for (let i = 0; i < DEFAULT_LIMITS.perReauth; i++) await t.owner.try('POST', '/api/admin/transfer-ownership', { userId: m.id, password: 'wrong ' + i })
+      const n = (await handoverItems(t.owner)).find((i) => i.code === 'owner.reauth_locked')
+      // whoever holds the session marks it read before the push goes out
+      await t.owner.call('POST', `/api/notifications/${n.id}/read`)
+      await p.tick()
+      expect(sent.map((x) => x.code)).toEqual(['owner.reauth_locked'])
+    } finally { await p.stop(); await t.h.close() }
+  })
+
+  test('what to end is kept with the transfer: a stop right after the commit is ended at the next start, and what is left shows to the new owner with [끊기]', async () => {
+    const { retryPendingEnds } = await import('../../server/src/admin/handover')
+    const t = await team('handover-pending')
+    try {
+      const lead = await addMember(t.h, t.owner, { username: 'lead' })
+      const db = t.h.ctx.db
+      const now = new Date().toISOString()
+      const cred = db.query("INSERT INTO engine_credentials (id, kind, label, owner_user_id, secret_enc, key_version, fingerprint, meta, created_by, created_at, updated_at) VALUES (?, 'anthropic-oauth', ?, NULL, 'x', 1, ?, '{}', 'olga', ?, ?)")
+      cred.run('cred-a', '지수 Claude A', 'fa', now, now)
+      cred.run('cred-b', '지수 Claude B', 'fb', now, now)
+      // the transfer keeps both on its record in its own write
+      await t.owner.call('POST', '/api/admin/transfer-ownership', { userId: lead.id, password: OWNER_PW, end: [{ kind: 'team_ai', id: 'cred-a' }, { kind: 'team_ai', id: 'cred-b' }] })
+      const row = db.query('SELECT id, to_end, ended FROM owner_transfers').get() as { id: string; to_end: string; ended: string }
+      expect(JSON.parse(row.to_end).map((x: any) => x.id).sort()).toEqual(['cred-a', 'cred-b'])
+      expect(db.query('SELECT COUNT(*) n FROM engine_credentials').get()).toEqual({ n: 0 })
+      // a stop after the commit: as if nothing had been ended (the tokens are back, the results lost)
+      cred.run('cred-a', '지수 Claude A', 'fa', now, now)
+      cred.run('cred-b', '지수 Claude B', 'fb', now, now)
+      db.query("UPDATE owner_transfers SET ended = '[]' WHERE id = ?").run(row.id)
+      const n = (await handoverItems(lead.client)).find((i) => i.code === 'owner.transferred')
+      expect(n.handover.pending.map((x: any) => x.id).sort()).toEqual(['cred-a', 'cred-b'])
+      // the old owner, now an admin, does not see it and cannot end it
+      expect((await handoverItems(t.owner)).find((i) => i.code === 'owner.transferred').handover.pending).toBeUndefined()
+      expect((await t.owner.try('POST', '/api/admin/handover/end-pending', { transferId: row.id })).status).toBe(403)
+      // the next start ends one of them (the other failed meanwhile: put back as failed)
+      expect(await retryPendingEnds(t.h.ctx)).toBe(2)
+      expect(db.query('SELECT COUNT(*) n FROM engine_credentials').get()).toEqual({ n: 0 })
+      cred.run('cred-b', '지수 Claude B', 'fb', now, now)
+      db.query('UPDATE owner_transfers SET ended = ? WHERE id = ?').run(JSON.stringify([{ kind: 'team_ai', id: 'cred-a', label: 'A', result: 'ended' }, { kind: 'team_ai', id: 'cred-b', label: 'B', result: 'failed' }]), row.id)
+      expect((await handoverItems(lead.client)).find((i) => i.code === 'owner.transferred').handover.pending.map((x: any) => x.id)).toEqual(['cred-b'])
+      // the new owner's [끊기]
+      const r = await lead.client.call('POST', '/api/admin/handover/end-pending', { transferId: row.id })
+      expect(r).toMatchObject({ pending: 0, ended: [{ id: 'cred-b', result: 'ended' }] })
+      expect(db.query('SELECT COUNT(*) n FROM engine_credentials').get()).toEqual({ n: 0 })
+      expect((await handoverItems(lead.client)).find((i) => i.code === 'owner.transferred').handover.pending).toEqual([])
+      const last = audits(t.h, 'owner.transfer.disconnect').at(-1)!
+      expect([last.actor_id, last.target, JSON.parse(last.detail!)]).toEqual([lead.id, 'cred-b', { kind: 'team_ai', result: 'ended', of: 'olga' }])
+    } finally { await t.h.close() }
+  })
+
+  test('a team connection (MCP, Higgsfield) last signed in with the owner\'s account is listed and its sign-in ended; one signed in by someone else is not', async () => {
+    const t = await team('handover-oauth-conn')
+    try {
+      const admin = await addMember(t.h, t.owner, { username: 'adam', role: 'admin' })
+      const lead = await addMember(t.h, t.owner, { username: 'lead' })
+      const db = t.h.ctx.db
+      const now = new Date().toISOString()
+      const ins = db.query("INSERT INTO integrations (id, scope, owner_user_id, created_by, kind, name, slug, url, auth, secret_enc, key_version, status, created_at, updated_at) VALUES (?, 'team', NULL, 'olga', 'mcp', ?, ?, 'https://mcp.example.com/mcp', 'oauth', 'sealed', 1, 'connected', ?, ?)")
+      ins.run('conn-mine', 'Higgsfield', 'higgsfield', now, now)
+      ins.run('conn-admin', 'Notion', 'notion', now, now)
+      ins.run('conn-key', 'Keyed', 'keyed', now, now)
+      db.query("UPDATE integrations SET auth = 'bearer' WHERE id = 'conn-key'").run()
+      const signIn = db.query("INSERT INTO audit_log (actor_id, action, target, detail, at) VALUES (?, 'integration.update', ?, ?, ?)")
+      signIn.run('olga', 'conn-mine', JSON.stringify({ changed: ['signIn'], secret: 'replaced' }), now)
+      signIn.run('olga', 'conn-admin', JSON.stringify({ changed: ['signIn'], secret: 'replaced' }), now)
+      signIn.run(admin.id, 'conn-admin', JSON.stringify({ changed: ['signIn'], secret: 'replaced' }), now)
+      const s = await t.owner.call('GET', '/api/admin/handover')
+      expect(s.connections.filter((c: any) => c.kind === 'team_connection')).toEqual([{ kind: 'team_connection', id: 'conn-mine', label: 'Higgsfield', provider: 'service', account: null }])
+      const r = await t.owner.call('POST', '/api/admin/transfer-ownership', { userId: lead.id, password: OWNER_PW, end: [{ kind: 'team_connection', id: 'conn-mine' }, { kind: 'team_connection', id: 'conn-admin' }] })
+      expect(Object.fromEntries(r.ended.map((e: any) => [e.id, e.result]))).toEqual({ 'conn-mine': 'ended' })
+      expect(db.query("SELECT secret_enc, status FROM integrations WHERE id = 'conn-mine'").get()).toEqual({ secret_enc: null, status: 'needs_auth' })
+      expect(db.query("SELECT secret_enc FROM integrations WHERE id = 'conn-admin'").get()).toEqual({ secret_enc: 'sealed' })
+      expect((await handoverItems(lead.client)).find((i) => i.code === 'owner.transferred').handover.ended).toMatchObject({ connections: 1, failed: 0 })
     } finally { await t.h.close() }
   })
 })

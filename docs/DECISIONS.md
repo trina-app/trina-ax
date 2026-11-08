@@ -14223,17 +14223,25 @@ transferOwnership, `auth/accounts.ts` invites, `shared/src/api/handover.ts`, mig
 - **The confirm** (card, Inbox, Admin › 멤버 › ··· › 팀장 넘기기; the Admin › 팀 설정 card is gone, Account deletion's link
   goes to Admin › 멤버): 받는 사람, what moves (팀 이름, 관리자 지정, 업데이트·백업; admins already manage the team AI), the
   connections made with the leaver's own accounts (team AI sign-ins: a Claude or ChatGPT subscription made by them;
-  Drive shares signed in with their Google account; team API keys are the team's and never listed), each ticked "넘기면
+  Drive shares signed in with their Google account; team connections to services, an MCP server such as Higgsfield,
+  whose last OAuth sign-in was theirs, read from the audit of sign-ins; team API keys and keys typed into a connection
+  are the team's and never listed), each ticked "넘기면
   끊어요" (untick the company's own seat), the line on who can still reset passwords (hosted, the office server Mac, a
   self-installed server), and the password. The rule: settings move with the role; connections in a person's own name
-  are ended by that person, at the handover. They are ended **after the commit** (`owner.transfer.disconnect` per
-  connection; a Drive share keeps its folders and rule, loses its tokens, the admins are asked to sign in again, then
-  Google is asked to revoke, twice at most); a failure never undoes the transfer, and the result goes to both people.
+  are ended by that person, at the handover. Which ones is written in the transfer's own write (`owner_transfers.to_end`,
+  only what is the caller's then), and they are ended **after the commit** (`owner.transfer.disconnect` per connection;
+  a Drive share or a team connection keeps its settings and rule, loses its tokens, and the service is asked to revoke
+  them; the Drive admins are asked to sign in again); a failure never undoes the transfer, and the result goes to both
+  people. What is not ended (a service failed, or the server stopped right after the commit) is tried again at the
+  server's next start, and the new owner sees it in the transfer's notice as "아직 끊지 못한 연결" with [끊기] (`POST
+  /api/admin/handover/end-pending`), so the old owner's tokens never keep serving the team unnoticed.
 - **The password** is today's `owner-reauth`: 5 wrong tries per person per 15 minutes, `auth.reauth_failed`. The limit is
   shared by every re-check of the person (updates, restore, the API engine, the current password), so a wrong try that
   locks **any** of the owner's re-checks gives the owner one note `owner.reauth_locked` per window, in the Inbox and as a
-  push (a stolen session is the case it guards against, and an Inbox-only note would reach that very session;
-  `auth/service.ts onReauthLocked`). There is no sign-in without a password to bypass it.
+  push that goes out even once the note is read (a stolen session is the case it guards against: it could mark the
+  note read; `auth/service.ts onReauthLocked`). The note sends the owner to 설정 › 보안 to sign out a device they do not
+  know first (that asks for no password, which is locked now), then to change the password. There is no sign-in
+  without a password to bypass it.
 - **After it.** In the same write: the old owner's admin invites stop (today), every lead flag goes, the transfer is
   recorded (`owner_transfers`, `via` lead_card | members_menu decided on the server), audited `owner.transfer {from, to,
   via}`; reset links made by nobody (the server's CLI, the control plane) for either person stop, so one minted before
@@ -14269,8 +14277,12 @@ transferOwnership, `auth/accounts.ts` invites, `shared/src/api/handover.ts`, mig
   the lockout note fired only on the transfer's own check (now any re-check, and pushed); a step after the commit could
   answer 500 for a done transfer and leave nobody told; the joiner's display name reached the card raw (now one plain
   line, and the web isolates it); an open lead link outlived the transfer; a lead notice stayed open after the flag was
-  turned off. Kept, written down: admins see an open lead invite's words in the invites list; a backup from before a
-  transfer can still be restored by whoever restores backups.
+  turned off. Round 2 (PR review): the lock note's push could be stopped by marking the note read; it sent the owner to
+  a password change that is locked too; what to end was only in memory until the commit's aftermath ran; team OAuth
+  connections were not listed. Kept, written down: admins see an open lead invite's words in the invites list; a backup
+  from before a transfer can still be restored, and the team exported, by whoever runs those on the hosting side (the
+  reset-link lock does not cover them); the joiner picks the name and username the card shows, and only the owner's
+  words and the join time come from the owner's side (the card says so by showing them side by side).
 - Tests: `tests/unit/a-handover.test.ts` (the race with concurrent requests, targets, the admin refusal, the shape of a
   lead invite, one open flag, expiry, a forwarded link, the card and ✕, a disabled joiner, the connections listed and
   ended, notices, realtime, audit, the password limit and its note, hosted gating and the reset-link lock),

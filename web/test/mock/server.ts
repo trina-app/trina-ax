@@ -2182,6 +2182,12 @@ export class MockServer {
       return { ok: true as const, ended }
     },
     handoverState: (c) => this.handoverStateOf(c.user),
+    // what a transfer could not end (the server's retry and the new owner's [끊기]): the mock ends nothing at a transfer it
+    // could not, so there is never anything left
+    endPendingConnections: (c) => {
+      if (c.user.role !== 'owner') fail('forbidden', 403)
+      return { ended: [], pending: 0 }
+    },
     dismissLeadCard: (c) => {
       const k = this.handover.card
       if (k && k.inviteId === c.body.inviteId && k.by === c.user.id) k.dismissed = true

@@ -26,7 +26,7 @@ import { credentialsOf, noticeOwners } from '../credentials/store'
 import { unsealOrFail } from '../credentials/service'
 import { speechKeyStatus, writeSpeechKey } from '../credentials/speech-key'
 import { createUser, deleteUser, guardResetLink, listUsers, resetPassword, transferOwnership, updateUser } from '../admin/users'
-import { dismissLead, handoverState, noteReauthLocked } from '../admin/handover'
+import { dismissLead, endPending, handoverState, noteReauthLocked, retryPendingEnds } from '../admin/handover'
 import { setHandoverPushConfig } from '../admin/handover-notices'
 import { authOf } from '../auth/service'
 import { openDeletionRequests } from '../auth/deletion-requests'
@@ -91,6 +91,9 @@ export const adminRoutes: RouteModule = {
     // re-check (any of them: the transfer's, updates, restore, the current password) tells the owner
     kit.handle(API.handoverState, ({ auth }) => handoverState(ctx, auth.user.id))
     kit.handle(API.dismissLeadCard, ({ c, body }) => { dismissLead(c, ctx, body.inviteId); return { ok: true as const } })
+    kit.handle(API.endPendingConnections, ({ c, body }) => endPending(c, ctx, body.transferId))
+    // what a transfer planned to end and did not (the server stopped right after it, a service failed): tried again now
+    { const t = setTimeout(() => void retryPendingEnds(ctx), 5_000); t.unref?.(); ctx.onClose(() => clearTimeout(t)) }
     authOf(ctx).onReauthLocked = (userId) => noteReauthLocked(ctx, userId)
     setHandoverPushConfig(ctx.db, ctx.config)
 

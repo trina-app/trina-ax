@@ -334,6 +334,29 @@ export class Integrations {
     if (wait) await revoking
   }
 
+  /** Who last signed a team connection in (the audit of its OAuth sign-ins: the flow rows are swept after a day), or
+   * null when none is on record. 팀장 넘기기 (admin/handover.ts) lists the ones signed in with the owner's own account. */
+  teamSigner(id: string): string | null {
+    return (this.db.query(`SELECT actor_id FROM audit_log WHERE action = 'integration.update' AND target = ? AND detail LIKE '%"signIn"%' ORDER BY id DESC LIMIT 1`).get(id) as { actor_id: string | null } | null)?.actor_id ?? null
+  }
+
+  /** 팀장 넘기기 (admin/handover.ts): a team connection signed in with the account of the person handing the team over
+   * ends that sign-in. The connection stays (its address, rule and tools: an admin signs in again with another account);
+   * its tokens go at once, calls under way get a fresh client, then the service is told. Only a team OAuth connection
+   * whose last sign-in was `signer`'s and that still holds tokens; null otherwise (nothing changed). */
+  async endTeamSignIn(id: string, signer: string, actor: string): Promise<'revoked' | 'unavailable' | null> {
+    const row = getRow(this.db, id)
+    if (!row || row.scope !== 'team' || row.auth !== 'oauth' || !row.secret_enc || this.teamSigner(id) !== signer) return null
+    const old = this.tryOpen(row)
+    const n = this.db.query("UPDATE integrations SET secret_enc=NULL, status='needs_auth', last_error=NULL, version=version+1, updated_at=? WHERE id=? AND version=? AND secret_enc IS NOT NULL")
+      .run(iso(this.now()), id, row.version).changes
+    if (!n) return null
+    this.dropClient(id)
+    audit(this.db, { actor, action: 'integration.update', target: id, detail: { ...auditDetail(row), changed: ['signOut'], secret: 'removed', reason: 'owner_handover' } })
+    if (old?.type !== 'oauth') return 'unavailable'
+    return (await this.revokeTokens(old).catch(() => false)) ? 'revoked' : 'unavailable'
+  }
+
   /** A member's sign-ins at services made from templates, read before their account goes (admin/users.ts deleteUser
    * deletes the rows): what tells those services, run after the local delete and not waited for. */
   signInsToRevoke(userId: string): () => void {

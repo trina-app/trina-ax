@@ -25,15 +25,18 @@ export function leadHolds(db: Database, inviteId: string, ownerId: string): bool
     AND u.status = 'active' AND u.deleted_at IS NULL AND u.role != 'owner'`).get(inviteId, ownerId)
 }
 
-export interface EndedRow { kind: 'team_ai' | 'drive_share'; result: 'ended' | 'gone' | 'failed' }
-export function endedCounts(json: string | null | undefined): { teamAi: number; driveShares: number; failed: number } {
-  let rows: EndedRow[] = []
-  try { const v = JSON.parse(json ?? '[]'); if (Array.isArray(v)) rows = v } catch { /* none */ }
-  return {
-    teamAi: rows.filter((r) => r.kind === 'team_ai' && r.result === 'ended').length,
-    driveShares: rows.filter((r) => r.kind === 'drive_share' && r.result === 'ended').length,
-    failed: rows.filter((r) => r.result === 'failed').length,
-  }
+type Kind = 'team_ai' | 'drive_share' | 'team_connection'
+export interface EndedRow { kind: Kind; id: string; result: 'ended' | 'gone' | 'failed' }
+const rowsOf = <T>(json: string | null | undefined): T[] => { try { const v = JSON.parse(json ?? '[]'); return Array.isArray(v) ? v as T[] : [] } catch { return [] } }
+export function endedCounts(json: string | null | undefined): { teamAi: number; driveShares: number; failed: number; connections: number } {
+  const rows = rowsOf<EndedRow>(json)
+  const ended = (k: Kind) => rows.filter((r) => r.kind === k && r.result === 'ended').length
+  return { teamAi: ended('team_ai'), driveShares: ended('drive_share'), connections: ended('team_connection'), failed: rows.filter((r) => r.result === 'failed').length }
+}
+/** What the transfer planned to end that is not ended or gone yet (admin/handover.ts pendingOf, read here for the row). */
+function pendingList(t: { to_end: string; ended: string }): { kind: Kind; id: string; label: string }[] {
+  const done = new Set(rowsOf<EndedRow>(t.ended).filter((e) => e.result === 'ended' || e.result === 'gone').map((e) => `${e.kind}:${e.id}`))
+  return rowsOf<{ kind: Kind; id: string; label: string }>(t.to_end).filter((p) => !done.has(`${p.kind}:${p.id}`)).map((p) => ({ kind: p.kind, id: p.id, label: plainLabel(String(p.label ?? ''), 80) }))
 }
 
 type Row = { id: string; user_id: string; event_type: string; source_id: string; created_at: string; read_at: string | null }
@@ -57,7 +60,7 @@ export function handoverNoticeOut(ctx: { db: Database; config: AppConfig }, row:
     return { ...base, handover: { kind: 'lead_joined', leadFor: i.lead_for ?? '', user: u ? { ...u, name: shownName(u.name, u.username) } : null, joinedAt: i.used_at, open: !!u && flagOffered(ctx.config) && leadHolds(db, i.id, row.user_id) } }
   }
   if (row.event_type === 'owner.transferred') {
-    const t = db.query('SELECT from_user, to_user, ended FROM owner_transfers WHERE id = ?').get(row.source_id) as { from_user: string; to_user: string; ended: string } | null
+    const t = db.query('SELECT from_user, to_user, to_end, ended FROM owner_transfers WHERE id = ?').get(row.source_id) as { from_user: string; to_user: string; to_end: string; ended: string } | null
     if (!t) return base
     const me = row.user_id === t.from_user ? 'from' as const : row.user_id === t.to_user ? 'to' as const : 'other' as const
     const owner = currentOwnerId(db)
@@ -70,6 +73,7 @@ export function handoverNoticeOut(ctx: { db: Database; config: AppConfig }, row:
       setupUnfinished: me === 'to' && owner === row.user_id && welcomeUnfinishedFor(ctx, row.user_id),
       recovery: hosted && me !== 'other' ? 'hosted' : null,
       ended: endedCounts(t.ended),
+      ...(me === 'to' && owner === row.user_id ? { pending: pendingList(t) } : {}),
     } }
   }
   if (row.event_type === 'owner.reauth_locked') return { ...base, handover: { kind: 'reauth_locked' } }

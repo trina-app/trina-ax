@@ -8,7 +8,7 @@ import type { ReactNode } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { ApiError, type HandoverConnection, type HandoverState, type Me, type ServerEvent, type User } from '@mycel/shared/api'
 import { translate, useLocaleStore, type MessageKey, type Params } from '../../src/i18n'
-import { HandoverView, transferRefusal } from '../../src/components/handover/HandoverDialog'
+import { connectionLine, HandoverView, transferRefusal } from '../../src/components/handover/HandoverDialog'
 import { HandoverCard, joinedText, useLeadCard } from '../../src/components/handover/HandoverCard'
 import { handoverNoticeLines, handoverNoticeNode, handoverNoticeText, type HandoverNote } from '../../src/components/handover/HandoverNotice'
 import { isolate } from '../../src/components/handover/isolate'
@@ -186,11 +186,17 @@ describe('the Home card and the Inbox rows', () => {
     expect(handoverNoticeLines(T, n({ recovery: 'hosted' }))[0]).toStartWith('이 팀을 신청한 호스팅 계정')
     expect(handoverNoticeLines(T, n({ me: 'from', recovery: 'hosted' }))).toHaveLength(1)
     expect(handoverNoticeLines(T, n({ me: 'other', recovery: 'hosted' }))).toEqual([])
+    // team connections (MCP, Higgsfield) ended; with what is still to end listed for the new owner, no second count line
+    expect(handoverNoticeLines(T, n({ ended: { teamAi: 0, driveShares: 0, failed: 0, connections: 2 } }))).toEqual(['끊은 연결: 팀 연결 2개'])
+    expect(handoverNoticeLines(T, n({ ended: { teamAi: 0, driveShares: 0, failed: 1 }, pending: [{ kind: 'team_ai', id: 'c', label: 'A' }] }))).toEqual([])
+    expect(connectionLine(T, { kind: 'team_connection', provider: 'service', label: 'Higgsfield' })).toBe("팀 연결 'Higgsfield' (내 계정으로 로그인)")
   })
 
   test('reauth_locked, and the generic texts for a notice without its details', async () => {
     // any of the owner's password re-checks (팀장 넘기기, updates, restore, …): one generic sentence
-    expect(handoverNoticeText(T, 'ko', { kind: 'reauth_locked' })).toBe('비밀번호 확인이 여러 번 틀려서 15분 동안 막혔어요 · 내가 한 게 아니면 바로 비밀번호를 바꿔 주세요')
+    // never "change your password" first: that check is locked too; signing a device out asks for none
+    expect(handoverNoticeText(T, 'ko', { kind: 'reauth_locked' })).toBe('비밀번호 확인이 여러 번 틀려서 15분 동안 막혔어요 · 내가 한 게 아니면 설정 › 보안에서 모르는 기기를 먼저 로그아웃하고, 그다음 비밀번호를 바꿔 주세요')
+    expect(ko('handover.lockedLink')).toBe('설정 › 보안')
     for (const code of ['owner.lead_joined', 'owner.transferred', 'owner.reauth_locked']) expect(ko(`notifications.event.${code}` as MessageKey)).not.toBe(`notifications.event.${code}`)
   })
 })

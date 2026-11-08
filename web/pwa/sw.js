@@ -65,7 +65,8 @@ const ROOM_CODES = new Set(['room.dm', 'room.mention'])
 // owner.lead_joined: someone joined with the owner's lead link (팀장 넘기기). No switch: the server sends it only while
 // the card still holds; a click opens Home, where the card is
 const HOME_CODES = new Set(['owner.lead_joined'])
-// owner.reauth_locked: the owner's password check locked after too many wrong tries; a click opens the Inbox
+// owner.reauth_locked: the owner's password check locked after too many wrong tries; a click opens the Inbox. Shown
+// even once read: whoever holds a stolen session could mark it read to keep it off the owner's other devices
 const ACCOUNT_CODES = new Set(['owner.reauth_locked'])
 const pushWanted = (preferences, code) => ROOM_CODES.has(code) || HOME_CODES.has(code) || ACCOUNT_CODES.has(code) || (Object.hasOwn(PUSH_PREF, code) && preferences[PUSH_PREF[code]] === true)
 const opaqueId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(value)
@@ -165,7 +166,7 @@ self.addEventListener('push', event => {
         return response.json()
       }
       const [settings, preferences, item] = await Promise.all([get('/api/push'), get('/api/notification-preferences'), get(`/api/notifications/${payload.notificationId}`)])
-      if (generation !== pushEpoch || !settings.configured || !settings.enabled || settings.subscriptionId !== payload.subscriptionId || !pushWanted(preferences, payload.code) || item.id !== payload.notificationId || item.code !== payload.code || item.readAt !== null) return
+      if (generation !== pushEpoch || !settings.configured || !settings.enabled || settings.subscriptionId !== payload.subscriptionId || !pushWanted(preferences, payload.code) || item.id !== payload.notificationId || item.code !== payload.code || (item.readAt !== null && !ACCOUNT_CODES.has(payload.code))) return
       // The authenticated server selects generic table text in the recipient's current account/team language.
       const title = settings.messages?.title, body = settings.messages?.bodies?.[payload.code]
       if (typeof title !== 'string' || !title || typeof body !== 'string' || !body) return

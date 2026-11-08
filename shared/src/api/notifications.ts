@@ -133,7 +133,8 @@ export const InboxNotification = z.object({
    * transferred ('owner.transferred'): `me` from (I handed it over), to (I am the new owner) or other (an admin); from
    * and to by name while their accounts are there; `removable` (for me = to while I am the owner): the old owner is an
    * active admin I may disable ([내보내기]); `setupUnfinished` (me = to): the welcome steps wait for me; `recovery`
-   * hosted: the hosting account can still reset passwords; `ended`: what the old owner ended at the transfer.
+   * hosted: the hosting account can still reset passwords; `ended`: what the old owner ended at the transfer; `pending`:
+   * what is still to end.
    * reauth_locked ('owner.reauth_locked', the owner): a password re-check of the owner (팀장 넘기기, updates, restore,
    * the current password …) locked after 5 wrong tries in 15 minutes; also pushed. */
   handover: z.discriminatedUnion('kind', [
@@ -142,7 +143,10 @@ export const InboxNotification = z.object({
       kind: z.literal('transferred'), me: z.enum(['from', 'to', 'other']),
       from: z.object({ id: UserId, name: z.string() }).nullable(), to: z.object({ id: UserId, name: z.string() }).nullable(),
       removable: z.boolean(), setupUnfinished: z.boolean(), recovery: z.enum(['hosted']).nullable(),
-      ended: z.object({ teamAi: z.number().int().nonnegative(), driveShares: z.number().int().nonnegative(), failed: z.number().int().nonnegative() }),
+      ended: z.object({ teamAi: z.number().int().nonnegative(), driveShares: z.number().int().nonnegative(), failed: z.number().int().nonnegative(), connections: z.number().int().nonnegative().optional() }),
+      /** me = to while I am the owner: what the old owner asked to end and is not ended yet (a failure, or the server
+       * stopped before it could); the row's [끊기] sends POST /api/admin/handover/end-pending */
+      pending: z.array(z.object({ kind: z.enum(['team_ai', 'drive_share', 'team_connection']), id: z.string(), label: z.string() })).optional(),
     }),
     z.object({ kind: z.literal('reauth_locked') }),
   ]).optional(),

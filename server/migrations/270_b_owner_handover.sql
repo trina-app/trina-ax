@@ -9,8 +9,10 @@
 --     At most one lead invite is open (invites_one_open_lead; a new one revokes the open one in the same write). A
 --     transfer clears every flag (lead_hint 0), used or not.
 --   owner_transfers: one row per transfer: who, to whom, from where (lead_card: the target joined with the owner's lead
---     link; members_menu: anyone else), and what the old owner ended (JSON list of { kind, id, label, result, revoke }).
---     The notices read it. No foreign keys: the rows outlive deleted accounts.
+--     link; members_menu: anyone else), what the old owner asked to end of their own connections (to_end, JSON list of
+--     { kind, id, label }, written in the transfer's own write, so a stop right after the commit cannot lose it: the
+--     server retries what is not ended at its start) and what became of each (ended, JSON list of { kind, id, label,
+--     result, revoke }). The notices read it. No foreign keys: the rows outlive deleted accounts.
 --   handover_notices: the Inbox rows of the handover. notification_inbox has a fixed event_type CHECK list and tables are
 --     never rebuilt, so these have their own table, as team_join_notices and credential_change_notices do.
 --     owner.lead_joined (source: the invite) to the owner who flagged it; owner.transferred (source: the transfer) to
@@ -34,6 +36,7 @@ CREATE TABLE owner_transfers (
   via TEXT NOT NULL CHECK(via IN ('lead_card','members_menu')),
   invite_id TEXT,
   at TEXT NOT NULL,
+  to_end TEXT NOT NULL DEFAULT '[]',
   ended TEXT NOT NULL DEFAULT '[]'
 );
 CREATE INDEX owner_transfers_at ON owner_transfers(at);

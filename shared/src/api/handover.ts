@@ -27,15 +27,17 @@ export const LeadFor = z.string().max(1000).transform(cleanLeadFor)
   .refine((s) => s.length > 0 && [...s].length <= LEAD_FOR_MAX, { message: `1-${LEAD_FOR_MAX} characters` })
 
 /** A connection made with the owner's own account that keeps serving the team: a team AI sign-in (a Claude or ChatGPT
- * subscription; team API keys are the team's and never listed) or a Drive shared with the team. `account`: the masked
- * address of that account when known. */
-export const HandoverConnectionKind = z.enum(['team_ai', 'drive_share'])
+ * subscription; team API keys are the team's and never listed), a Drive shared with the team, or a team connection to
+ * a service (an MCP server such as Higgsfield) last signed in with OAuth by the owner (team_connection; a key typed in
+ * is the team's). `account`: the masked address of that account when known. */
+export const HandoverConnectionKind = z.enum(['team_ai', 'drive_share', 'team_connection'])
 export type HandoverConnectionKind = z.infer<typeof HandoverConnectionKind>
 export const HandoverConnection = z.object({
   kind: HandoverConnectionKind,
   id: z.string().min(1).max(100),
   label: z.string(),
-  provider: z.enum(['claude', 'chatgpt', 'google']),
+  /** service: a team connection; its `label` is the connection's name */
+  provider: z.enum(['claude', 'chatgpt', 'google', 'service']),
   account: z.string().nullable(),
 })
 export type HandoverConnection = z.infer<typeof HandoverConnection>
@@ -86,8 +88,13 @@ export const HandoverState = z.object({
 export type HandoverState = z.infer<typeof HandoverState>
 
 export const DismissLeadBody = z.object({ inviteId: Uuid7 })
+/** The new owner ends what the old owner asked to end at the transfer and could not be ended then (the Inbox's "아직
+ * 끊지 못한 연결"): only those, and only while they are still the old owner's. */
+export const EndPendingBody = z.object({ transferId: Uuid7 })
+export const EndPendingResult = z.object({ ended: z.array(EndedConnection), pending: z.number().int().nonnegative() })
 
 export const HANDOVER = {
   handoverState: endpoint({ method: 'GET', path: '/api/admin/handover', auth: 'owner', owner: 'A', response: HandoverState, summary: 'The owner\'s handover state: whether the lead flag is offered, the open lead invite, the card of who joined with it, and the owner\'s own connections the confirm lists.' }),
+  endPendingConnections: endpoint({ method: 'POST', path: '/api/admin/handover/end-pending', auth: 'owner', owner: 'A', body: EndPendingBody, response: EndPendingResult, summary: 'The new owner ends the connections the old owner asked to end at a transfer that could not be ended then; audited. The server also retries them at its start.' }),
   dismissLeadCard: endpoint({ method: 'POST', path: '/api/admin/handover/dismiss', auth: 'owner', owner: 'A', body: DismissLeadBody, response: Ok, summary: 'Hide the handover card on Home (✕); the Inbox notice stays; audited.' }),
 } as const

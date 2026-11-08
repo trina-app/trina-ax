@@ -19,9 +19,9 @@ type T = ReturnType<typeof useT>
 
 const connKey = (c: Pick<HandoverConnection, 'kind' | 'id'>) => `${c.kind}:${c.id}`
 
-/** One connection's line: "팀 AI '…' (내 Claude 계정)", "드라이브 공유 '…' (내 구글 계정)". */
-export function connectionLine(t: T, c: HandoverConnection): string {
-  const key: MessageKey = c.kind === 'drive_share' ? 'handover.conn.drive' : c.provider === 'chatgpt' ? 'handover.conn.chatgpt' : 'handover.conn.claude'
+/** One connection's line: "팀 AI '…' (내 Claude 계정)", "드라이브 공유 '…' (내 구글 계정)", "팀 연결 '…' (내 계정으로 로그인)". */
+export function connectionLine(t: T, c: Pick<HandoverConnection, 'kind' | 'provider' | 'label'>): string {
+  const key: MessageKey = c.kind === 'drive_share' ? 'handover.conn.drive' : c.kind === 'team_connection' ? 'handover.conn.service' : c.provider === 'chatgpt' ? 'handover.conn.chatgpt' : 'handover.conn.claude'
   return t(key, { label: c.label })
 }
 

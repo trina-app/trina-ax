@@ -160,7 +160,9 @@ export function dismissLead(c: Context<AppEnv>, ctx: AppContext, inviteId: strin
 
 // ---------------- the owner's own connections ----------------
 /** What keeps serving the team on this person's own accounts: team AI sign-ins they made (a Claude or ChatGPT
- * subscription; the team's API keys are the team's) and Drive shares signed in with their Google account. */
+ * subscription; the team's API keys are the team's), Drive shares signed in with their Google account, and team
+ * connections to services (an MCP server such as Higgsfield) whose OAuth sign-in was theirs last (a key typed into a
+ * connection is the team's). */
 export function ownConnections(ctx: AppContext, userId: string): HandoverConnection[] {
   const out: HandoverConnection[] = []
   const creds = ctx.db.query("SELECT id, kind, label, meta FROM engine_credentials WHERE owner_user_id IS NULL AND created_by = ? ORDER BY created_at, id").all(userId) as { id: string; kind: string; label: string; meta: string }[]
@@ -176,16 +178,33 @@ export function ownConnections(ctx: AppContext, userId: string): HandoverConnect
       out.push({ kind: 'drive_share', id: s.id, label: s.name, provider: 'google', account: maskEmail(email) })
     }
   } catch { /* an older database without Drive shares */ }
+  try {
+    // the last OAuth sign-in of each team connection, from the audit (integrations/connections/service.ts teamSigner)
+    const conns = ctx.db.query(`SELECT i.id, i.name FROM integrations i WHERE i.scope = 'team' AND i.auth = 'oauth' AND i.secret_enc IS NOT NULL
+      AND (SELECT a.actor_id FROM audit_log a WHERE a.action = 'integration.update' AND a.target = i.id AND a.detail LIKE '%"signIn"%' ORDER BY a.id DESC LIMIT 1) = ?
+      ORDER BY lower(i.name), i.id`).all(userId) as { id: string; name: string }[]
+    for (const c of conns) out.push({ kind: 'team_connection', id: c.id, label: c.name, provider: 'service', account: null })
+  } catch { /* an older database without connections */ }
   return out
 }
 
-/** After the transfer's commit: end what the old owner asked to end, of what is still theirs. Each one on its own
- * (one failing never stops the next), audited; Google revocation for a Drive share after its tokens are gone. */
-export async function endConnections(ctx: AppContext, actor: string, refs: readonly HandoverConnectionRef[]): Promise<EndedConnection[]> {
+type Planned = { kind: HandoverConnectionRef['kind']; id: string; label: string }
+/** Of what the caller asked to end, what is theirs now (inside the transfer's write: kept on the transfer). */
+export function toEndOf(ctx: AppContext, owner: string, refs: readonly HandoverConnectionRef[]): Planned[] {
+  const mine = new Map(ownConnections(ctx, owner).map((x) => [`${x.kind}:${x.id}`, x]))
+  const out = new Map<string, Planned>()
+  for (const r of refs) { const c = mine.get(`${r.kind}:${r.id}`); if (c) out.set(`${r.kind}:${r.id}`, { kind: c.kind, id: c.id, label: c.label }) }
+  return [...out.values()]
+}
+
+/** End what `owner` asked to end, of what is still theirs (the old owner's connections; `actor`: who does it now, the
+ * old owner at the transfer, the new owner from the Inbox). Each one on its own (one failing never stops the next),
+ * audited; the service is told (Google, the connection's OAuth server) after the tokens are gone here. */
+export async function endConnections(ctx: AppContext, owner: string, refs: readonly HandoverConnectionRef[], actor = owner): Promise<EndedConnection[]> {
   const seen = new Set<string>()
   const out: EndedConnection[] = []
   let mine: Map<string, HandoverConnection>
-  try { mine = new Map(ownConnections(ctx, actor).map((x) => [`${x.kind}:${x.id}`, x])) } catch (err) {
+  try { mine = new Map(ownConnections(ctx, owner).map((x) => [`${x.kind}:${x.id}`, x])) } catch (err) {
     ctx.log.warn('the connections to end at the handover could not be read', { err })
     return refs.map((r) => ({ kind: r.kind, id: r.id, label: '', result: 'failed' as const }))
   }
@@ -196,21 +215,27 @@ export async function endConnections(ctx: AppContext, actor: string, refs: reado
     seen.add(key)
     const conn = mine.get(key)
     let e: EndedConnection
-    if (!conn) e = { kind: ref.kind, id: ref.id, label: '', result: 'gone' }
+    if (!conn) e = { kind: ref.kind, id: ref.id, label: (ref as { label?: string }).label ?? '', result: 'gone' }
     else if (ref.kind === 'team_ai') {
       try {
         const row = getCredential(ctx.db, ref.id)
-        if (!row || row.owner_user_id || row.created_by !== actor) e = { kind: ref.kind, id: ref.id, label: conn.label, result: 'gone' }
+        if (!row || row.owner_user_id || row.created_by !== owner) e = { kind: ref.kind, id: ref.id, label: conn.label, result: 'gone' }
         else { deleteCredential(credentialsOf(ctx), ref.id, actor); aiChanged = true; e = { kind: ref.kind, id: ref.id, label: conn.label, result: 'ended' } }
       } catch (err) { ctx.log.warn('a team AI sign-in was not ended at the handover', { err }); e = { kind: ref.kind, id: ref.id, label: conn.label, result: 'failed' } }
-    } else {
+    } else if (ref.kind === 'drive_share') {
       try {
         const { endShareSignIn } = await import('../integrations/google-drive/share-admin')
-        const revoke = await withTimeout(endShareSignIn(ctx, actor, ref.id), 8_000)
+        const revoke = await withTimeout(endShareSignIn(ctx, owner, ref.id), 8_000)
         e = revoke === null ? { kind: ref.kind, id: ref.id, label: conn.label, result: 'gone' } : { kind: ref.kind, id: ref.id, label: conn.label, result: 'ended', revoke: revoke === 'timeout' ? 'unavailable' : revoke }
       } catch (err) { ctx.log.warn('a Drive share was not ended at the handover', { err }); e = { kind: ref.kind, id: ref.id, label: conn.label, result: 'failed' } }
+    } else {
+      try {
+        const { integrationsOf } = await import('../integrations/connections/service')
+        const revoke = await withTimeout(integrationsOf(ctx).endTeamSignIn(ref.id, owner, actor), 8_000)
+        e = revoke === null ? { kind: ref.kind, id: ref.id, label: conn.label, result: 'gone' } : { kind: ref.kind, id: ref.id, label: conn.label, result: 'ended', revoke: revoke === 'timeout' ? 'unavailable' : revoke }
+      } catch (err) { ctx.log.warn('a team connection was not ended at the handover', { err }); e = { kind: ref.kind, id: ref.id, label: conn.label, result: 'failed' } }
     }
-    try { audit(ctx.db, { actor, action: 'owner.transfer.disconnect', target: ref.id, detail: { kind: e.kind, result: e.result, ...(e.revoke ? { revoke: e.revoke } : {}) } }) } catch (err) { ctx.log.warn('a handover disconnect was not audited', { err }) }
+    try { audit(ctx.db, { actor, action: 'owner.transfer.disconnect', target: ref.id, detail: { kind: e.kind, result: e.result, ...(e.revoke ? { revoke: e.revoke } : {}), ...(actor !== owner ? { of: owner } : {}) } }) } catch (err) { ctx.log.warn('a handover disconnect was not audited', { err }) }
     out.push(e)
   }
   if (aiChanged) {
@@ -221,6 +246,55 @@ export async function endConnections(ctx: AppContext, actor: string, refs: reado
     } catch { /* the engines' status refreshes on its own */ }
   }
   return out
+}
+
+// ---------------- what is still to end (a failure, or a stop right after the commit) ----------------
+type TransferRow = { id: string; from_user: string; to_user: string; to_end: string; ended: string }
+const parseList = <T>(json: string | null | undefined): T[] => { try { const v = JSON.parse(json ?? '[]'); return Array.isArray(v) ? v as T[] : [] } catch { return [] } }
+/** What the transfer planned to end and is not ended (or gone) yet. */
+export function pendingOf(t: Pick<TransferRow, 'to_end' | 'ended'>): Planned[] {
+  const done = new Set(parseList<EndedConnection>(t.ended).filter((e) => e.result === 'ended' || e.result === 'gone').map((e) => `${e.kind}:${e.id}`))
+  return parseList<Planned>(t.to_end).filter((p) => !done.has(`${p.kind}:${p.id}`))
+}
+
+/** The results go on the transfer's record (merged with earlier ones), and both people's Inboxes read again. */
+export function recordEnded(ctx: AppContext, t: { id: string; from: string; to: string }, ended: EndedConnection[]): void {
+  if (!ended.length) return
+  try {
+    const row = ctx.db.query('SELECT ended FROM owner_transfers WHERE id = ?').get(t.id) as { ended: string } | null
+    const all = new Map(parseList<EndedConnection>(row?.ended).map((e) => [`${e.kind}:${e.id}`, e]))
+    for (const e of ended) all.set(`${e.kind}:${e.id}`, { kind: e.kind, id: e.id, label: e.label, result: e.result, ...(e.revoke ? { revoke: e.revoke } : {}) })
+    ctx.db.query('UPDATE owner_transfers SET ended = ? WHERE id = ?').run(JSON.stringify([...all.values()]), t.id)
+    for (const id of [t.from, t.to]) ctx.services.realtime.publish(id, { type: 'notice', data: { level: 'info', code: 'notifications.changed', message: '' } })
+  } catch (err) { ctx.log.warn('the handover record was not completed', { err }) }
+}
+
+/** At the server's start: what transfers of the last 30 days planned to end and did not (the server stopped right after
+ * a commit, or a service failed) is tried again, as the old owner asked. Never throws. */
+export async function retryPendingEnds(ctx: AppContext): Promise<number> {
+  let n = 0
+  try {
+    const rows = ctx.db.query("SELECT id, from_user, to_user, to_end, ended FROM owner_transfers WHERE to_end != '[]' AND at > ? ORDER BY at").all(new Date(Date.now() - 30 * 86_400_000).toISOString()) as TransferRow[]
+    for (const t of rows) {
+      const left = pendingOf(t)
+      if (!left.length) continue
+      const ended = await endConnections(ctx, t.from_user, left)
+      recordEnded(ctx, { id: t.id, from: t.from_user, to: t.to_user }, ended)
+      n += ended.filter((e) => e.result === 'ended').length
+    }
+  } catch (err) { ctx.log.warn('the handover connections were not tried again', { err }) }
+  return n
+}
+
+/** POST /api/admin/handover/end-pending: the owner ends what is still to end of a transfer (the Inbox's [끊기]). */
+export async function endPending(c: Context<AppEnv>, ctx: AppContext, transferId: string): Promise<{ ended: EndedConnection[]; pending: number }> {
+  const me = c.get('auth')!.user.id
+  const t = ctx.db.query('SELECT id, from_user, to_user, to_end, ended FROM owner_transfers WHERE id = ?').get(transferId) as TransferRow | null
+  if (!t || currentOwnerId(ctx.db) !== me) return fail('not_found')
+  const ended = await endConnections(ctx, t.from_user, pendingOf(t), me)
+  recordEnded(ctx, { id: t.id, from: t.from_user, to: t.to_user }, ended)
+  const after = ctx.db.query('SELECT to_end, ended FROM owner_transfers WHERE id = ?').get(t.id) as Pick<TransferRow, 'to_end' | 'ended'>
+  return { ended, pending: pendingOf(after).length }
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | 'timeout'> {
@@ -249,16 +323,6 @@ export function tellTransfer(ctx: AppContext, t: { id: string; from: string; to:
     // the old owner's lead notices are settled: the card and its [넘기기] are gone with the flags
     try { n.settleLeadNotices(t.from) } catch { /* their rows say "not open" anyway */ }
   } catch (err) { ctx.log.warn('the handover notices were not recorded', { err }) }
-}
-
-/** After the connections were ended: what became of them goes on the record the notices read, and both people's
- * Inboxes read again. Never throws. */
-export function recordEnded(ctx: AppContext, t: { id: string; from: string; to: string }, ended: EndedConnection[]): void {
-  if (!ended.length) return
-  try {
-    ctx.db.query('UPDATE owner_transfers SET ended = ? WHERE id = ?').run(JSON.stringify(ended.map((e) => ({ kind: e.kind, id: e.id, label: e.label, result: e.result, ...(e.revoke ? { revoke: e.revoke } : {}) }))), t.id)
-    for (const id of [t.from, t.to]) ctx.services.realtime.publish(id, { type: 'notice', data: { level: 'info', code: 'notifications.changed', message: '' } })
-  } catch (err) { ctx.log.warn('the handover record was not completed', { err }) }
 }
 
 // ---------------- the password check's lockout (auth/service.ts onReauthLocked) ----------------

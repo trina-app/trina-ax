@@ -369,6 +369,7 @@ export const SPECS: Record<string, Spec> = {
   // 팀장 넘기기 (admin/handover.ts): the owner's state and the card's ✕ are the owner's only (an unknown invite: 404)
   handoverState: { build: (c) => c.get('/api/admin/handover'), scope: 'byLevel' },
   dismissLeadCard: { build: (c) => c.post('/api/admin/handover/dismiss', { inviteId: '01900000-0000-7000-8000-000000000000' }), scope: 'byLevel' },
+  endPendingConnections: { build: (c) => c.post('/api/admin/handover/end-pending', { transferId: '01900000-0000-7000-8000-000000000000' }), scope: 'byLevel' },
   listInvites: { build: (c) => c.get('/api/admin/invites'), scope: 'byLevel' },
   createInvite: { build: (c) => c.post('/api/admin/invites', { role: 'member', groupIds: [] }), scope: 'byLevel' },
   revokeInvite: { build: (c, w) => c.del(`/api/admin/invites/${w.ids.invite}`), scope: 'byLevel' },

@@ -11,7 +11,8 @@ import { formatShortDateTime } from '../../lib/format'
 import { useT, type MessageKey, type Params } from '../../i18n'
 import { Button, confirmDialog } from '../ui'
 import { useAction } from '../../pages/admin/common'
-import { HandoverDialog } from './HandoverDialog'
+import { toast } from '../../store/ui'
+import { connectionLine, HandoverDialog } from './HandoverDialog'
 import { isolate } from './isolate'
 
 type T = ReturnType<typeof useT>
@@ -49,9 +50,11 @@ export function handoverNoticeNode(locale: Locale, h: HandoverNote): ReactNode {
 export function handoverNoticeLines(t: T, h: HandoverNote): string[] {
   if (h.kind !== 'transferred') return []
   const out: string[] = []
-  const parts = [h.ended.teamAi > 0 && t('handover.endedAi', { n: h.ended.teamAi }), h.ended.driveShares > 0 && t('handover.endedDrive', { n: h.ended.driveShares })].filter((x): x is string => !!x)
+  const conns = h.ended.connections ?? 0
+  const parts = [h.ended.teamAi > 0 && t('handover.endedAi', { n: h.ended.teamAi }), h.ended.driveShares > 0 && t('handover.endedDrive', { n: h.ended.driveShares }), conns > 0 && t('handover.endedConn', { n: conns })].filter((x): x is string => !!x)
   if (parts.length) out.push(t('handover.ended', { list: parts.join(' · ') }))
-  if (h.ended.failed > 0) out.push(t('handover.endedFailed', { n: h.ended.failed }))
+  // to the new owner, what is still to end has its own line with [끊기] (HandoverNoticeExtras); to anyone else the count
+  if (h.ended.failed > 0 && !h.pending) out.push(t('handover.endedFailed', { n: h.ended.failed }))
   if (h.recovery === 'hosted' && h.me !== 'other') out.push(t('handover.recovery.hosted'))
   return out
 }
@@ -64,6 +67,16 @@ export function HandoverNoticeExtras({ item, onRead, onChanged }: { item: InboxN
   const h = item.handover
   if (!h) return null
   const lines = handoverNoticeLines(t, h)
+  const [ending, setEnding] = useState(false)
+  // 아직 끊지 못한 연결 (the new owner): what the old owner asked to end and is still connected, ended from here
+  const endPending = async (transferId: string) => {
+    setEnding(true)
+    const r = await act(() => api.call(API.endPendingConnections, { body: { transferId } }))
+    setEnding(false)
+    if (!r) return
+    toast({ level: r.pending ? 'warn' : 'success', text: r.pending ? t('handover.pendingLeft', { n: r.pending }) : t('handover.pendingDone') })
+    onChanged()
+  }
   const remove = async (from: { id: string; name: string }) => {
     if (!(await confirmDialog({ title: t('handover.removeTitle', { name: from.name }), body: t('members.disableBody'), confirm: t('handover.remove'), danger: true }))) return
     onRead()
@@ -78,6 +91,12 @@ export function HandoverNoticeExtras({ item, onRead, onChanged }: { item: InboxN
           {open && <HandoverDialog target={h.user} leadFor={h.leadFor} onClose={() => setOpen(false)} onDone={() => { onRead(); onChanged() }} />}
         </div>
       )}
+      {h.kind === 'transferred' && h.me === 'to' && !!h.pending?.length && (
+        <div className="mt-2" data-testid="handover-notice-pending">
+          <p className="text-xs text-warn">{t('handover.pending', { list: h.pending.map((p) => connectionLine(t, { kind: p.kind, label: p.label, provider: p.kind === 'drive_share' ? 'google' : p.kind === 'team_connection' ? 'service' : 'claude' })).join(' · ') })}</p>
+          <Button size="sm" className="mt-1.5" busy={ending} onClick={() => void endPending(item.sourceId)} data-testid="handover-notice-end-pending">{t('handover.pendingEnd')}</Button>
+        </div>
+      )}
       {h.kind === 'transferred' && h.me === 'to' && (h.removable || h.setupUnfinished) && (
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
           {h.removable && h.from && (
@@ -86,7 +105,8 @@ export function HandoverNoticeExtras({ item, onRead, onChanged }: { item: InboxN
           {h.setupUnfinished && <Link className="text-sm text-accent-text hover:underline" to="/welcome" onClick={onRead} data-testid="handover-notice-setup">{t('handover.setup')}</Link>}
         </div>
       )}
-      {h.kind === 'reauth_locked' && <Link className="text-sm text-accent-text hover:underline" to="/settings/security" onClick={onRead} data-testid="handover-notice-password">{t('auth.changePassword')}</Link>}
+      {/* first the devices (signing one out asks for no password, which is locked now), then the password */}
+      {h.kind === 'reauth_locked' && <Link className="text-sm text-accent-text hover:underline" to="/settings/security" onClick={onRead} data-testid="handover-notice-password">{t('handover.lockedLink')}</Link>}
     </>
   )
 }
