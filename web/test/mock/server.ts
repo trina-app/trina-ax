@@ -20,7 +20,7 @@
 // files asked for go as room files. "share files" answers with a quote in my folder, a shared file and one nobody opens.
 // The rooms answer their own reads (the room, its messages, members, AI, read) from what was sent.
 // Test-only controls: POST /__test/file {path, text | base64} (a team file and its folders), POST /__test/rmdir {path} (a folder gone from disk; its rule rows stay), POST /__test/download-only {path} (a generated, quarantined file: FileEntry.downloadOnly), POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
-// boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password), withAdmin?: boolean (admins dana / 'dana password 1' and eve)}, POST /__test/drop-ws, POST /__test/presence {people: [{id, state}]} (who is online or away: a change to every socket; GET it for the frames the pages sent), POST /__test/server-version, POST /__test/upload-delay {ms} (an upload's answer comes that late, until the next reset),
+// boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password), withAdmin?: boolean (admins dana / 'dana password 1' and eve)}, POST /__test/drop-ws, POST /__test/presence {people: [{id, state}]} (who is online or away: a change to every socket; GET it for the frames the pages sent), POST /__test/server-version, POST /__test/upload-delay {ms} (an upload's answer comes that late, until the next reset), POST /__test/file-rank {ai, delayMs} (팀 파일's AI picks answer that way; GET lists what each pick was sent),
 // POST /__test/revoke {path} (a folder becomes invisible to everyone + access_changed notice), POST /__test/skills
 // {files: [{path, name, description}]} (skill files; skills/임원/ is for admins only),
 // POST /__test/schedule-review (the owner gets a scheduled task nobody confirmed, paused for review; "siteask" with
@@ -379,12 +379,19 @@ export class MockServer {
   /** POST /__test/upload-delay: the bytes of an upload are in, the answer takes this long (a server that is finishing) */
   uploadDelayMs = 0
   private uploadAnswer = () => new Promise<void>((done) => setTimeout(done, this.uploadDelayMs))
+  /** 팀 파일's AI picks (server/src/onboarding/file-rank.ts, short): by words in the names; POST /__test/file-rank
+   * {ai: 'none' | 'failed' | 'timeout', delayMs} answers otherwise until the next reset; GET /__test/file-rank lists
+   * the entries each pick was sent (names and metadata only) */
+  fileRank: { ai: 'done' | 'none' | 'failed' | 'timeout'; delayMs: number } = { ai: 'done', delayMs: 0 }
+  fileRankCalls: { entries: unknown[] }[] = []
 
   reset(o: { setup?: boolean; teamLocale?: Locale; usersFollowTeam?: boolean; mustChange?: string; withAdmin?: boolean } = {}) {
     this.generation++
     this.presence = new Map()
     this.presenceSent = []
     this.uploadDelayMs = 0
+    this.fileRank = { ai: 'done', delayMs: 0 }
+    this.fileRankCalls = []
     this.setupNeeded = !!o.setup
     this.usersFollowTeam = !!o.usersFollowTeam
     this.serverVersion = '0.1.0'
@@ -2275,6 +2282,29 @@ export class MockServer {
       p.updatedAt = at
       return { progress: p, brandFolder: g.brandFolder!, imagesFolder, images: [], intro }
     },
+    // 팀 파일's AI picks (server/src/onboarding/file-rank.ts, short): a file whose name says what it is, best first;
+    // owners and admins only
+    rankTeamFiles: async (c) => {
+      if (c.user.role === 'member') fail('forbidden', 403)
+      const entries = c.body.entries as { id: string; name: string; path: string }[]
+      this.fileRankCalls.push({ entries })
+      if (this.fileRank.delayMs) await new Promise((done) => setTimeout(done, this.fileRank.delayMs))
+      if (this.fileRank.ai !== 'done') return { ai: this.fileRank.ai, picks: [] }
+      const WORDS: [RegExp, string][] = [[/양식|서식|템플릿|template/i, 'form'], [/소개/, 'intro'], [/회의록/, 'minutes'], [/보고/, 'report'], [/규정|정책/, 'policy'], [/로고|브랜드/, 'brand'], [/매뉴얼|교육|가이드/, 'training'], [/제안/, 'proposal']]
+      const picks = entries.flatMap((e) => { const w = WORDS.find(([re]) => re.test(e.name)); return w ? [{ id: e.id, reason: w[1] }] : [] })
+      return { ai: 'done', picks }
+    },
+    // the step's upload run landed a file (server/src/onboarding/team-files.ts, short): 팀 파일 done, once, for a file
+    // in a group's folder
+    teamFilesLanded: (c) => {
+      if (c.user.role === 'member') fail('forbidden', 403)
+      const path = c.body.path as string
+      const p = this.welcome
+      if (!p || p.steps.files === 'done' || !path.startsWith('groups/') || this.files.get(path)?.type !== 'file') return { recorded: false }
+      p.steps.files = 'done'
+      this.welcome = this.welcomeSaved(p, now())
+      return { recorded: true }
+    },
     // the one suggestion under a result (server/src/onboarding/suggestions.ts): none unless a test sets one
     // (/__test/result-suggestion); closing one keeps it closed
     // a team skill from the lead's answer (server/src/onboarding/skill-draft.ts, short): a draft chat of the caller,
@@ -3583,6 +3613,8 @@ export class MockServer {
     }
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
     else if (p === '/__test/upload-delay') this.uploadDelayMs = Number(body.ms)
+    else if (p === '/__test/file-rank' && req.method === 'GET') return Response.json(this.fileRankCalls)
+    else if (p === '/__test/file-rank') this.fileRank = { ai: (body.ai as typeof this.fileRank.ai | undefined) ?? 'done', delayMs: Number(body.delayMs ?? 0) }
     else if (p === '/__test/deck-pace') {
       this.deckPaceMs = Number(body.ms ?? 40)
       this.deckThumbs = body.thumbs !== false

@@ -20,6 +20,7 @@ import { devEnvRoutes } from './dev-env'
 import { onboardingPacksRoutes } from './onboarding-packs'
 import { onboardingRoutes } from './onboarding'
 import { onboardingWelcomeRoutes } from './onboarding-welcome'
+import { onboardingFilesRoutes } from './onboarding-files'
 import { promoVideoRoutes } from './promo-video'
 import { introDeckRoutes } from './intro-deck'
 import { onboardingGoalRoutes } from './onboarding-goal'
@@ -50,6 +51,7 @@ export const ROUTE_MODULES: readonly RouteModule[] = [
   onboardingPacksRoutes, // recommended skill packs (onboarding stream C)
   onboardingRoutes, // onboarding: the company profile and its drafts (docs/DECISIONS.md "D — Company profile")
   onboardingWelcomeRoutes, // onboarding: the welcome steps' progress (docs/DECISIONS.md "W — Welcome steps")
+  onboardingFilesRoutes, // onboarding: 팀 파일's AI picks and its upload run's record (docs/DECISIONS.md "W6")
   promoVideoRoutes, // the company's promo video and its MP4 (docs/DECISIONS.md "V")
   introDeckRoutes, // the company's intro deck as PowerPoint and PDF (docs/DECISIONS.md "D2")
   onboardingGoalRoutes, // onboarding: the 7-day team goal (docs/DECISIONS.md "G — The 7-day team goal")

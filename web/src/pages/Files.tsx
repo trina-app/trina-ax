@@ -38,6 +38,7 @@ import { contentQueryReady, FileContentResults } from '../components/FileContent
 import FileUploads from '../components/FileUploads'
 import FolderPicker from '../components/FolderPicker'
 import FolderUploads, { startFolderUpload, useFolderUploadsSettled } from '../components/FolderUploads'
+import { TeamFilesEntry } from '../components/onboarding/TeamFilesStep'
 import { ProjectForm } from '../components/ProjectForm'
 import SuggestSkillDialog from '../components/SuggestSkillDialog'
 import { SkillIssues } from '../components/SkillIssues'
@@ -773,6 +774,7 @@ export default function Files() {
           {isSkillsPath(path) && <SkillIssues folder={path} className="mx-4 mb-2 sm:mx-6" />}
           <FileUploads here={path} />
           <FolderUploads here={path} />
+          <TeamFilesEntry here={path} />
           {/* computer files over the list go to this folder; over a folder row, into that folder (the row shows it) */}
           <div className={clsx('scroll-thin relative min-h-0 flex-1 overflow-y-auto px-2 pb-6 sm:px-4', drag && !over && 'bg-accent-soft/40 ring-2 ring-accent ring-inset')}>
             {searching ? (
