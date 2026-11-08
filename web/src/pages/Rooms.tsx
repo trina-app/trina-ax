@@ -1,6 +1,7 @@
 // The rooms list (/rooms; the 대화 tab on phones): first a pinned row for the AI chat (like KakaoTalk's "나와의
-// 채팅"; called like "@트리나" in the Trina edition), then my rooms by latest activity, each with its last line, when,
-// and my unread count. Rows are separated by hairlines on computers and by their own spacing on phones, no cards.
+// 채팅"; called like "@트리나" in the Trina edition, with the face it has in rooms: rooms/AiFace.tsx), then my rooms by
+// latest activity, each with its last line, when, and my unread count. Rows are separated by hairlines on computers
+// and by their own spacing on phones, no cards.
 // "새 대화" opens the people list for a DM or a group chat (/rooms?new=1). On a phone the app's top bar is the header ("대화" and the new
 // chat icon, components/Layout.tsx): no second title row here.
 // Each row has the room's "⋯" (components/rooms/RoomMenu.tsx) on hover or keyboard focus and with a right-click; on a
@@ -19,6 +20,7 @@ import { useLocale, useT } from '../i18n'
 import { useRooms } from '../store/rooms'
 import { toast } from '../store/ui'
 import { useMe } from '../store/session'
+import { AiFace } from '../components/rooms/AiFace'
 import { PeoplePicker } from '../components/rooms/PeoplePicker'
 import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
 import { ROW_MENU_BUTTON, ROW_MENU_SHOWN, UnreadBadge } from '../components/rooms/SidebarRooms'
@@ -63,7 +65,7 @@ export default function Rooms() {
           {/* computers only: a phone has the AI as its own tab (트리나), first in the tab bar */}
           <li className="max-md:hidden">
             <Link to="/" className={row} data-testid="rooms-ai">
-              <img src="/favicon.svg" alt="" aria-hidden className="size-10 shrink-0 rounded-full" />
+              <AiFace size={40} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-base font-medium text-ink">{PRODUCT_NAMED_AFTER_AI ? t('rooms.aiName') : PRODUCT.displayName}</span>
                 <span className="block truncate text-sm text-muted">{t('rooms.ai.hint')}</span>
