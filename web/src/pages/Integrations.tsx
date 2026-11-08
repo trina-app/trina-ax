@@ -16,6 +16,7 @@ import { APP_CONNECTORS, appConnectorLogo, type Connector } from '../lib/connect
 import { canonicalService, splitByScope } from '../lib/integrations'
 import { useT } from '../i18n'
 import { reloadAsked } from '../store/live'
+import { isAdmin, useMe } from '../store/session'
 import { EmptyState, TabPanel } from '../components/ui'
 import { afterAdded, ConnectorDetail, ConnectorDiscover, ConnectorsHeader, matchesQuery, type ConnectorTab } from '../components/integrations/ConnectorsView'
 import { DriveCard, DriveDetail, driveLinked, drivePersonalAllowed } from '../components/integrations/DriveConnector'
@@ -30,6 +31,7 @@ import { Loadable, useLoad } from './admin/common'
 
 export default function Integrations() {
   const t = useT()
+  const me = useMe()
   const state = useLoad<IntegrationList>(() => api.call(API.listIntegrations))
   const [dialog, setDialog] = useState<{ existing?: Integration; connector?: Connector } | null>(null)
   const [tab, setTab] = useState<ConnectorTab>('connected')
@@ -63,8 +65,9 @@ export default function Integrations() {
   }, [params, setParams])
   const panels = useId()
   const DRIVE = APP_CONNECTORS[0]
-  // members connect their own only while the admin allows it; a Drive the team shares with them needs no Connect
-  const driveOn = !!drive.connection?.configured && drivePersonalAllowed(drive.connection)
+  // members connect their own only while the admin allows it; a Drive the team shares with them needs no Connect. An
+  // owner or admin may connect theirs anyway: the confirm turns the switch on (docs/DECISIONS.md "W6")
+  const driveOn = !!drive.connection?.configured && (drivePersonalAllowed(drive.connection) || isAdmin(me))
   const teamShares = drive.connection?.teamShares ?? []
   const driveCard = { id: DRIVE.id, name: DRIVE.name, logo: appConnectorLogo(DRIVE), line: teamShares.length && !driveOn ? t('drive.teamShared', { name: teamShares.map((x) => x.name).join(', ') }) : t('drive.cardDesc'),
     state: driveLinked(drive.connection) || (teamShares.length > 0 && !driveOn) ? 'added' as const : driveOn || !drive.connection ? 'available' as const : 'off' as const }

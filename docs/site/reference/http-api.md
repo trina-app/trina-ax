@@ -270,7 +270,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `GET` | `/api/integrations/google-drive` | Signed in | Own Google Drive connection; never a token. |
 | `POST` | `/api/integrations/google-drive/authorize` | Signed in | Start personal Google authorization in a system browser. |
 | `GET` | `/api/integrations/google-drive/flows/:id` | Signed in | Poll the flow started by this same signed-in session. |
-| `POST` | `/api/integrations/google-drive/flows/:id/complete` | Signed in | Confirm the Google account shown by this own authorization flow. |
+| `POST` | `/api/integrations/google-drive/flows/:id/complete` | Signed in | Confirm the Google account shown by this own authorization flow. While members may not connect their own Drive, an owner or admin confirms with membersOn: true, which turns that switch on with the connection. |
 | `DELETE` | `/api/integrations/google-drive/flows/:id` | Signed in | Cancel this own authorization flow. |
 | `DELETE` | `/api/integrations/google-drive` | Signed in | Immediately disable own Drive access, then attempt Google revocation. |
 | `GET` | `/api/admin/google-drive` | Admin | Whether Google Drive is set up on this server, by whom, and how many members are connected; never the client. |
@@ -438,10 +438,10 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| `GET` | `/api/onboarding/welcome` | Admin | Where the welcome steps stopped (owners and admins read it): which steps are done or skipped, the general pack and team group they set up, the first-result chat. |
-| `PATCH` | `/api/onboarding/welcome` | Owner | Record a welcome step (owner): start, the team type, a step done or skipped, the first-result chat, the invite shown, hide the Home entry. |
-| `POST` | `/api/onboarding/welcome/team` | Owner | Every team's start, once: the general skill pack (the intro deck, the card news, the promo video) and a group named after the team with its folder groups/<name>/ and a meeting notes folder in it, the owner in it. |
-| `POST` | `/api/onboarding/welcome/first-result` | Owner | Start the welcome steps' first result, the company's intro deck (owner): the website's images into the brand folder, a company intro file (named in the team's language) when no file was given, and a new chat of the owner for it. |
+| `GET` | `/api/onboarding/welcome` | Admin | Where the welcome steps stopped (owners and admins read it): which steps are done or skipped, the team group they set up, the deck chat of a row whose deck started on an earlier version. |
+| `PATCH` | `/api/onboarding/welcome` | Owner | Record a welcome step (owner): start, the team type, a step done or skipped, the invite shown, hide the Home entry. |
+| `POST` | `/api/onboarding/welcome/team` | Owner | Every team's start, once: a group named after the team with its folder groups/<name>/, a meeting notes folder and a brand folder in it, the owner in it. No skill is installed. |
+| `POST` | `/api/onboarding/welcome/brand` | Owner | Put the website's pictures and a company intro file (named in the team's language, unless the owner gave intro files) into the team's brand folder, with no AI (owner). Writes only what is missing. |
 | `GET` | `/api/onboarding/suggestion` | Signed in | The one suggestion under an answer of the caller's own chat (schedule a skill run for the 2nd time, make a team skill of an owner's or admin's work with team files, a member's own skills and files after their first run of the landing skill, or a report as a PPT), or null; none the caller closed. phone=1: a member who can write no team folder gets no contribute line there. |
 | `POST` | `/api/onboarding/suggestion/dismiss` | Signed in | Close a suggestion under answers for good (for the caller only). |
 

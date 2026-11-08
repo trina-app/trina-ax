@@ -1,12 +1,15 @@
 // Recommended skill packs (onboarding/skill-packs.ts; docs/DECISIONS.md "W6"), owners and admins: GET
 // /api/onboarding/packs (the catalog: 내 스킬's rows and the Team skills fold) and POST /api/onboarding/packs/:id/install
 // (the skills a person checked, or the whole pack). An owner's install that put anything in marks 내 스킬 done while
-// their welcome steps are under way, as a share applied anywhere does (onboarding/welcome.ts recordShared).
+// their welcome steps are under way, as a share applied anywhere does (onboarding/welcome.ts recordShared). Before a
+// visual skill goes in, the brand materials are placed when they are not yet (welcome-result.ts ensureBrand, FLOW-v6
+// §1A): the website's pictures and 회사 소개.md that 회사 소개서, 카드뉴스 and 홍보 영상 read.
 // Other people's skill lists follow by themselves: every file written sends files.changed to those who can see it.
 import { API, SkillPackId } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { fail } from '../http/errors'
-import { installSkillPack, skillPackCatalog } from '../onboarding/skill-packs'
+import { installSkillPack, onVisualSkillInstall, skillPackCatalog } from '../onboarding/skill-packs'
+import { ensureBrand } from '../onboarding/welcome-result'
 import { readWelcome, updateWelcome } from '../onboarding/welcome'
 import type { RouteModule } from './module'
 
@@ -24,6 +27,7 @@ function recordInWelcome(ctx: AppContext, user: { id: string; role: string }): v
 export const onboardingPacksRoutes: RouteModule = {
   name: 'onboarding-packs', owner: 'B',
   register(kit, ctx) {
+    onVisualSkillInstall(ensureBrand)
     kit.handle(API.listSkillPacks, ({ c, auth }) => {
       try { ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }
       return skillPackCatalog(ctx, auth.user.id, c.get('locale'))

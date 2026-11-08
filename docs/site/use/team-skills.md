@@ -26,6 +26,8 @@ Four ready-made skills ship with the product, in the team's language (Korean or 
 - **On Available skills**, owners and admins see one folded line under the list, **Skills prepared by Trina AX · 2 more**, with the ones the team does not have yet. Open it, tick what you want (nothing is ticked first) and press **Add to the team**. The line is hidden while you search and gone when the team has them all. A skill that ships in a later version only raises the count: there is no notice.
 - **Example** shows what the skill makes for an invented company, Example Coffee, and where the skill comes from.
 
+When the team has one of them at the end of the setup steps, the last screen offers to make a first result with it (Promo cards first): the press opens the skill's form and nothing runs until you press **Run**.
+
 They are your team's own files: skill managers can edit, move or delete them. Adding again only adds what is missing; a skill you edited is never replaced, and one whose name another team skill already uses is skipped. A skill you deleted comes back only when someone adds it again by name.
 
 **Natural writing** rewrites text that reads as AI-written so it sounds like a person wrote it, without changing any fact. The Korean version was written by the company and knows Korean genres (blog, Shorts titles, Instagram, proposals, notices); the English one is adapted from the open-source "humanizer" skill (MIT License, its notice is inside the skill).

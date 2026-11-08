@@ -4,7 +4,7 @@
 // list comes back checked and judged; 팀 스킬 and back through the setup row finds the same list (nothing picked again);
 // the step's one primary [팀에 넣기 · N개] puts the ticked ones in (the server marks 내 스킬 done; a merge waits for the end
 // of the setup) and goes on to 팀 파일 with a toast; 이전 from 팀 파일 shows what went in, 다른 폴더도 가져오기 and 다음; 팀 파일
-// is put off; the invite names ONE skill, the first shared, and its link opens it; then 준비 끝났어요 with the owner's own
+// and 도구 연결 are put off; the invite names ONE skill, the first shared, and its link opens it; then 준비 끝났어요 with the owner's own
 // run of that skill. The kept skills' rows and the example viewer: onb6-skills.spec.ts.
 import { expect, test } from '@playwright/test'
 import { PRODUCT } from '@mycel/shared'
@@ -41,9 +41,9 @@ test('[내 스킬 찾기] → the list (kept across a trip away) → [팀에 넣
   await signIn(page)
   await page.goto('/welcome')
   await page.getByTestId('welcome-profile').getByRole('button', { name: '나중에 하기' }).click()
-  // 2/4 내 스킬; nothing about a deck (회사 소개 was put off)
+  // 2/5 내 스킬; nothing about a deck (회사 소개 was put off)
   await expect(page.getByTestId('skills-step')).toBeVisible()
-  await expect(page.getByTestId('welcome-progress')).toContainText('2/4 내 스킬')
+  await expect(page.getByTestId('welcome-progress')).toContainText('2/5 내 스킬')
   await expect(page.getByRole('heading', { name: '팀이 쓸 스킬을 골라 주세요' })).toBeVisible()
   // no company profile: no kept skill comes checked, so there is no primary yet (나중에 하기 stands in)
   await expect(page.getByTestId('skill-packs').getByRole('checkbox', { checked: true })).toHaveCount(0)
@@ -76,7 +76,7 @@ test('[내 스킬 찾기] → the list (kept across a trip away) → [팀에 넣
   expect(await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened.length)).toBe(opened.length)
   const n = Number(/(\d+)개/.exec(await primary.innerText())![1])
   await primary.click()
-  // all in: a toast with the count and on to 3/4 팀 파일; the server recorded 내 스킬 done itself
+  // all in: a toast with the count and on to 3/5 팀 파일; the server recorded 내 스킬 done itself
   await expect(page.getByTestId('toast').filter({ hasText: `스킬 ${n}개를 팀에 넣었어요` })).toBeVisible()
   await expect(page.getByTestId('welcome-team-files')).toBeVisible()
   expect((await (await page.request.get('/api/onboarding/welcome')).json()).progress.steps.skills).toBe('done')
@@ -88,11 +88,13 @@ test('[내 스킬 찾기] → the list (kept across a trip away) → [팀에 넣
   await expect(primary).toHaveAttribute('data-state', 'next')
   await expect(primary).toHaveText('다음: 팀 파일 가져오기')
   await primary.click()
-  // 팀 파일, put off; then the invite (no deck chat opens by itself)
+  // 팀 파일, put off; 도구 연결 put off; then the invite
   await expect(page.getByTestId('welcome-team-files')).toBeVisible()
   await page.getByTestId('welcome-later').click()
+  await expect(page.getByTestId('welcome-tools')).toBeVisible()
+  await page.getByTestId('welcome-later').click()
   await expect(page.getByTestId('invite-step')).toBeVisible()
-  await expect(page.getByTestId('welcome-progress')).toContainText('4/4 팀원 초대')
+  await expect(page.getByTestId('welcome-progress')).toContainText('5/5 팀원 초대')
   // the message names one skill, the landing one; the link opens it
   await expect(page.getByTestId('team-link-message')).toContainText('같이 써 보자고 해요')
   await expect(page.getByTestId('team-link-landing')).toContainText('부터 열려요')

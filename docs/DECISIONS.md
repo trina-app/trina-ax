@@ -14109,6 +14109,71 @@ names it, and the four kept skills (DS3) are chosen, not installed for the owner
   the web unit tests of the step, the viewer and the fold, and `web/test/e2e/onb6-skills.spec.ts`.
 - Version impact: **minor** (two endpoints, an optional request body, new screens; no migration).
 
+## W6 — Onboarding v6: steps, 회사 소개 without a deck, 도구 연결, 준비 끝 (feat/onb6-core, 2026-11-08, product owner)
+
+Plan: `docs/AGENTS/plan/20261108-0508-onb6-core.md`. The owner's v6.2 decisions: nothing goes into a team without a press
+that names it, no automatic company intro deck, one tools step with Google Drive and one generic MCP line (no
+Higgsfield), lean screens with a way back from every exit. Other v6 parts (내 스킬's kept-skill rows and the Team skills
+catalog, 팀 파일's folder flow, the owner handover) are their own PRs.
+
+- **The steps.** AI 연결 (only while no AI answers the owner) → 회사 소개 → 내 스킬 → 팀 파일 → **도구 연결** → 팀원 초대
+  → 준비 끝. `tools` joins `WELCOME_STEPS` and `WELCOME_COUNTED`; the bar counts n/5 on every team (n/6 with the AI
+  step), because the generic MCP line works on every server. `WELCOME_COMPUTER_ONLY` = `tools`: a phone walks past it and
+  records it put off (`phoneSkips`; the sign-ins it starts do not come back to the phone app yet), ← 이전 skips it there,
+  and a phone's setup row neither names nor resumes it. A computer's setup row reaches it while the setup is unfinished.
+  `welcomeFinished` needs it answered; a row already finished stays finished (`finishedAt` is stored), and an unfinished
+  row from before reads it as open.
+- **회사 소개 saves the profile only.** Its 저장하고 계속 calls `POST /api/onboarding/welcome/brand` (owner): the team
+  group and brand folder when missing, the website's staged pictures into the brand images folder, and 회사 소개.md from
+  the profile and the pages read unless the owner gave intro files (an existing one is kept). No AI, no chat, no skill.
+  One line under the button says so ("저장하면 웹사이트 사진과 회사 소개 파일을 팀 브랜드 폴더에 넣어요"). Safe to repeat
+  (고치기 saves call it again). It records `brandAt`; a failure leaves the profile saved, the steps go on, and 내 스킬
+  says so once. `profileAnswered` = saved or put off. The server runs it once on a welcome read for an unfinished old
+  row whose profile was saved without a deck (`brandTriedAt`); `ensureBrand` is exported for the installs of 회사
+  소개서, 카드뉴스 and 홍보 영상. `POST …/welcome/first-result`, `startFirstResult`, `deckChatFor` and `introDeckSkill`
+  are gone; `deckStarted`, `settleDeck` and `resultChatId` stay readable for rows whose deck started (준비 끝 keeps their
+  line). The deck tier stays in Admin › Team settings for any 회사 소개서 run.
+- **The team's start installs nothing.** `setupWelcomeTeam` makes the team group and folders and writes
+  `general: { at, tasksPath: null, briefPath: null }` (no paths), so an older build after a rollback reads the pack as
+  handled and installs nothing; a team that has skills under `skills/general/` is recorded as it is. The readers no
+  longer take a missing `general` as "not set up": the web asks for the team's start only while the group or its brand
+  folder is missing; the deck readers (goal, team links, landing skill) fall back to the pack path.
+- **도구 연결.** One screen (`ToolsStep.tsx`): the Google Drive row where this server has Drive (`configured`: its own
+  client, or the hosting service's sign-in once it answered; while it has not, the row is hidden and the count stays),
+  and one quiet "다른 도구 연결하기 (MCP)" line that opens today's add-a-connection dialog for a team connection, its
+  sign-in right after the save. Once something is connected the primary "다음: 팀원 초대" replaces 나중에 하기. Drive's
+  [연결] names both effects while members may not connect their own: the owner's own sign-in, and the members' switch,
+  which turns on only with the confirmed account. Exits: 다른 계정 and 취소 change nothing ("연결하지 않았어요"), a refused
+  sign-in says a company account needs its Google admin, the hosting service down says so, a blocked popup shows the
+  link, a reload resumes the flow this tab started. After the setup the way back is Settings › 커넥터.
+- **Drive N1.** `prepare()` lets an active owner or admin start their own sign-in while the switch is off;
+  `complete(…, { membersOn: true })` (`CompleteDriveFlowBody`) then turns the switch on in the same transaction as the
+  connection, audited `drive.members_switch {via: own_connect}`. Without `membersOn`, or for a member, it is refused
+  (`members_off`) and nothing changes. Settings › 커넥터's Drive card gives an owner or admin one button, "팀원도 연결할 수
+  있게 켜고 내 드라이브 연결하기", instead of the dead end "관리자가 먼저 켜야 해요" (members still read that).
+- **준비 끝.** One primary: AI 연결하기 (no AI) → "'{skill}' 먼저 써 보기" (an own landing skill) → "'{skill}' 만들어
+  보기" for the first kept skill the team has, 카드뉴스 → 회사 소개서 → 홍보 영상 → 자연스러운 글 ("써 보기"), by path or
+  name (`firstResultSkill`) → 홈으로 alone. The press opens that skill's form on 팀 스킬 only (`/skills?run=`); its
+  defaults read the company intro and the brand folder; nothing runs until its own 실행, and closing it stays on 팀 스킬.
+  The goal card still leaves 회사 소개서 out (no change).
+- **Not here.** The kept-skill rows on 내 스킬 and the Team skills catalog (they should call `ensureBrand` before
+  installing 회사 소개서, 카드뉴스 or 홍보 영상), the 팀 파일 folder flow, the handover, a frozen `toolsPlan` (dropped by
+  the owner's update: the step is on every team, only the Drive row depends on the server).
+- Tests: `b-onboarding-cardnews` (the brand action, the read-time run, `ensureBrand`), `b-onboarding-v5-welcome` (the
+  finish rule, old rows, no first-result route), `b-onboarding-welcome`, `b-onboarding-team-space`, `c-default-skills`
+  (no install from the steps), `c-drive-shares` (N1), `b-welcome-share-goal`; web `welcome.test.tsx`, `setup-row`,
+  `goal-card`, `home-no-ai`; e2e `welcome-tools.spec.ts`, `welcome-notes.spec.ts`, `welcome-skills.spec.ts`,
+  `auth.spec.ts`.
+- **Independent review (2026-11-08), fixed:** a phone coming back for a put-off invite on an older row with 도구 연결
+  open was sent Home once the walk's record finished the setup (the resume step is now decided before the record);
+  회사 소개.md was written beside the owner's own intro files when a later press sent none (`brandOwnFiles` mark); the
+  confirm decided `membersOn` from the switch state the page loaded (an owner or admin now always asks, the server
+  ignores it while the switch is on); a read's brand run used the oldest owner instead of the one whose website reading
+  it is; one failed poll ended a Drive sign-in that was still going. Kept: a resumed sign-in after a reload shows no
+  "Google에서 계속" link (the window opened before it is still there); the brand-failure note shows only when 내 스킬
+  comes next.
+- Version impact: **minor** (a new step, an endpoint replaced, a Drive rule for owners and admins; no migration).
+
 ## W6 — Desktop: the folder window (feat/onb6-desktop, 2026-11-08)
 
 Onboarding v6 asks the owner to pick folders (the .claude, .codex or .agents folder for skills; a company-documents

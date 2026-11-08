@@ -57,7 +57,7 @@ const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m 
 import {
   ApiErrorResponse, CSRF_HEADER, Room, RoomMessage, answerFilePaths, answerShareBody, ROOM_FILES_MAX, SMALL_UPLOAD_MAX, TeamGoal, type AnswerShareFile, type AnswerSharePlace, type RoomFile, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type SkillInput, type DevEnvRun, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
-  MemberEngineChoice, GENERAL_CARDNEWS_SKILL, CARD_NEWS_ARTIFACT_KEY, GENERAL_PROMO_SKILL, PROMO_ARTIFACT_KEY, PROMO_STYLES, GENERAL_DECK_SKILL, DECK_ARTIFACT_KEY, NOTES_FOLDER, BRAND_FOLDER, BRAND_IMAGES_FOLDER, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule, type DeckBuild,
+  MemberEngineChoice, CARD_NEWS_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, PROMO_STYLES, DECK_ARTIFACT_KEY, NOTES_FOLDER, BRAND_FOLDER, BRAND_IMAGES_FOLDER, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule, type DeckBuild,
 } from '@mycel/shared/api'
 import fs from 'node:fs'
 import zlib from 'node:zlib'
@@ -216,15 +216,12 @@ export class MockServer {
   revokedTeamLinks = new Set<string>()
   /** the welcome steps' progress (server/src/onboarding/welcome.ts) */
   welcome: WelcomeProgress | null = null
-  /** the chat first-result made for the deck, until its message is in (server: welcome.ts `deckChatId`, settleDeck) */
-  deckChat: string | null = null
-  /** a saved welcome row: finished once 회사 소개 is answered (put off, or saved with the deck started or a first result
-   * answered) and 내 스킬, 팀 파일 and the invite are each done or put off, not while 내 스킬 waits for a computer
-   * (server/src/onboarding/welcome.ts welcomeFinished, docs/DECISIONS.md "W5") */
+  /** a saved welcome row: finished once 회사 소개 is answered (saved or put off) and 내 스킬, 팀 파일, 도구 연결 and the
+   * invite are each done or put off, not while 내 스킬 waits for a computer (server/src/onboarding/welcome.ts
+   * welcomeFinished, docs/DECISIONS.md "W6") */
   welcomeSaved(p: WelcomeProgress, at: string): WelcomeProgress {
     const st = p.steps
-    const profile = st.profile === 'skipped' || (st.profile === 'done' && (!!p.resultChatId || st.result !== null))
-    if (!p.finishedAt && profile && st.skills && st.files && st.invite && !p.skillsLater) p.finishedAt = at
+    if (!p.finishedAt && st.profile && st.skills && st.files && st.tools && st.invite && !p.skillsLater) p.finishedAt = at
     p.updatedAt = at
     return p
   }
@@ -421,7 +418,6 @@ export class MockServer {
     this.teamLink = null
     this.revokedTeamLinks.clear()
     this.welcome = null
-    this.deckChat = null
     this.companyProfile = null
     this.packExamples = {}
     this.packsFail = false
@@ -2222,7 +2218,7 @@ export class MockServer {
     getWelcome: () => ({ progress: this.welcome }),
     updateWelcome: (c) => {
       const at = now()
-      const p: WelcomeProgress = this.welcome ?? { startedAt: at, updatedAt: at, teamType: null, steps: { profile: null, result: null, skills: null, files: null, invite: null }, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null }
+      const p: WelcomeProgress = this.welcome ?? { startedAt: at, updatedAt: at, teamType: null, steps: { profile: null, result: null, skills: null, files: null, tools: null, invite: null }, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null }
       const b = c.body as import('@mycel/shared/api').WelcomeUpdate
       if (b.resultChatId !== undefined) {
         if (!this.chats.some((x) => x.id === b.resultChatId)) fail('not_found', 404)
@@ -2231,8 +2227,6 @@ export class MockServer {
       }
       if (b.teamType) p.teamType = b.teamType
       if (b.step) {
-        // 회사 소개 put off on an old row whose profile was saved without a deck: the deck is put off (server: welcome.ts)
-        if (b.step.id === 'profile' && b.step.state === 'skipped' && p.steps.profile === 'done' && !p.resultChatId && (p.steps.result ?? null) === null) p.steps.result = 'skipped'
         if (b.step.state === 'done' || p.steps[b.step.id] !== 'done') p.steps[b.step.id] = b.step.state
         if (b.step.id === 'skills') delete p.skillsLater
       }
@@ -2249,27 +2243,20 @@ export class MockServer {
       // "자료 없이 해 볼게요": the result and the invite put off, the steps finished
       if (b.finish) {
         if (p.steps.result !== 'done') p.steps.result = 'skipped'
+        p.steps.tools ??= 'skipped'
         p.steps.invite ??= 'skipped'
         p.finishedAt ??= at
       }
       this.welcome = this.welcomeSaved(p, at)
       return { progress: this.welcome }
     },
-    // every team's start (server/src/onboarding/welcome.ts): the general pack once, and the team's group (named after
-    // the team, the owner in it) with groups/<name>/, its meeting notes folder and its brand folder, once
+    // every team's start (server/src/onboarding/welcome.ts): no pack (docs/DECISIONS.md "W6": the record with no paths),
+    // and the team's group (named after the team, the owner in it) with groups/<name>/, its meeting notes folder and its
+    // brand folder, once
     setupWelcomeTeam: (c) => {
       const at = now()
       const p = (this.handlers.updateWelcome!({ ...c, body: {} }) as { progress: WelcomeProgress }).progress
-      let install = null
-      if (!p.general) {
-        const skills = [['card-news', GENERAL_CARDNEWS_SKILL, '카드뉴스'], ['promo-video', GENERAL_PROMO_SKILL, '홍보 영상'], ['intro-deck', GENERAL_DECK_SKILL, '회사 소개서']] as const
-        for (const [name, path, title] of skills) {
-          for (const d of ['skills/general', `skills/general/${name}`]) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
-          if (!this.files.has(path)) this.putFile(path, path === GENERAL_CARDNEWS_SKILL ? CARDNEWS_TEXT : path === GENERAL_PROMO_SKILL ? PROMO_TEXT : path === GENERAL_DECK_SKILL ? DECK_TEXT : `---\nname: ${name}\ndescription: ${title}\nmetadata:\n  title: ${title}\n---\n# ${title}\n`)
-        }
-        p.general = { at, cardNewsPath: GENERAL_CARDNEWS_SKILL, promoVideoPath: GENERAL_PROMO_SKILL, introDeckPath: GENERAL_DECK_SKILL }
-        install = { pack: 'general' as const, locale: this.settings.defaultLocale, skills: skills.map(([name, path]) => ({ name, path, status: 'created' as const })) }
-      }
+      p.general ??= { at }
       if (!p.teamGroup) {
         // like server/src/onboarding/welcome.ts: a group these steps did not make is never taken over ("Acme 2")
         const team = this.settings.teamName
@@ -2288,43 +2275,27 @@ export class MockServer {
         p.teamGroup = { ...p.teamGroup, brandFolder }
       }
       p.updatedAt = at
-      return { progress: p, install, outcome: install ? 'installed' : 'already' }
+      return { progress: p, install: null, outcome: 'already' as const }
     },
-    // the first result, the company intro deck (server/src/onboarding/welcome-result.ts, short): the owner's files in
-    // the brand folder, or a 회사 소개.md written there; a new chat of the owner's; the intro deck skill once for an
-    // older row.
-    // The mock collects no website images (images: []).
-    startFirstResult: (c) => {
+    // 회사 소개's brand materials (server/src/onboarding/welcome-result.ts placeBrand, short): the team's start when it is
+    // missing, the brand images folder, and 회사 소개.md unless the owner gave intro files (one there is kept); no chat,
+    // no skill. The mock collects no website images (images: []).
+    welcomeBrand: (c) => {
       const at = now()
-      const p = this.welcome
-      // once per team (docs/DECISIONS.md "W5"): a deck that started answers 409 deck_started before anything else; a
-      // chat made whose message never went is handed out again
-      const deckId = p?.resultChatId ?? this.deckChat
-      const had = deckId ? this.chats.find((x) => x.id === deckId && !x.deletedAt) : undefined
-      if (had && this.messages.some((m) => m.chatId === had.id)) fail('conflict', 409, '회사 소개서는 이미 만들기 시작했어요.', undefined, { reason: 'deck_started' })
-      // the team's start when it is missing (the server's own setupWelcomeTeam), as for "저장하고 계속" without files
-      if (p && (!p.general || !p.teamGroup?.brandFolder)) this.handlers.setupWelcomeTeam!({ ...c, body: {} })
-      const g = p?.teamGroup
-      if (!p || !p.general || !g?.brandFolder) fail('conflict', 409, '팀 폴더가 아직 없어요. 시작 설정을 다시 열어 주세요.')
-      const files = (c.body as import('@mycel/shared/api').StartFirstResult).files
-      for (const f of files) if (this.files.get(f)?.type !== 'file' || !f.startsWith(g!.brandFolder! + '/')) fail('not_found', 404)
-      if (!p!.general!.introDeckPath) {
-        for (const d of ['skills/general', 'skills/general/intro-deck']) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
-        if (!this.files.has(GENERAL_DECK_SKILL)) this.putFile(GENERAL_DECK_SKILL, DECK_TEXT)
-        p!.general = { ...p!.general!, introDeckPath: GENERAL_DECK_SKILL }
-      }
-      const imagesFolder = `${g!.brandFolder}/${this.localized(BRAND_IMAGES_FOLDER)}`
+      if (!this.welcome?.teamGroup?.brandFolder) this.handlers.setupWelcomeTeam!({ ...c, body: {} })
+      const p = this.welcome!
+      const g = p.teamGroup!
+      const files = (c.body as import('@mycel/shared/api').WelcomeBrand).files
+      for (const f of files) if (this.files.get(f)?.type !== 'file' || !f.startsWith(g.brandFolder! + '/')) fail('not_found', 404)
+      const imagesFolder = `${g.brandFolder}/${this.localized(BRAND_IMAGES_FOLDER)}`
       this.files.set(imagesFolder, this.files.get(imagesFolder) ?? { type: 'folder', mtime: at })
       let intro: string | null = null
       if (!files.length) {
-        intro = `${g!.brandFolder}/회사 소개.md`
-        this.putFile(intro, `# 회사 소개\n\n${this.settings.teamName}${p!.site ? ` · ${p!.site}` : ''}\n`)
+        intro = `${g.brandFolder}/회사 소개.md`
+        if (!this.files.has(intro)) this.putFile(intro, `# 회사 소개\n\n${this.settings.teamName}${p.site ? ` · ${p.site}` : ''}\n`)
       }
-      const chat = had ?? (this.handlers.createChat!({ ...c, body: { projectId: null, title: '우리 회사 소개서' } }) as { body: Chat }).body
-      // kept for the deck; `resultChatId` once its message is in (the page records it after the send)
-      this.deckChat = chat.id
-      p!.updatedAt = at
-      return { status: 201, body: { chatId: chat.id, title: chat.title, skillPath: p!.general!.introDeckPath!, files: intro ? [intro] : files, intro, imagesFolder, images: [] } }
+      p.updatedAt = at
+      return { progress: p, brandFolder: g.brandFolder!, imagesFolder, images: [], intro }
     },
     // the one suggestion under a result (server/src/onboarding/suggestions.ts): none unless a test sets one
     // (/__test/result-suggestion); closing one keeps it closed
@@ -2777,8 +2748,9 @@ export class MockServer {
       ? { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null, personalAllowed: this.driveMembers, teamShares: [] }
       : { configured: true, status: 'disconnected', account: null, scopes: [], expiresAt: null, personalAllowed: this.driveMembers,
           teamShares: this.driveShares.filter((x) => x.status === 'connected' && this.driveShareCovers(x, c.user)).map((x) => ({ id: x.id, name: x.name, folders: x.folders, wholeDrive: x.wholeDrive })) }),
-    authorizeDrive: () => {
-      if (!this.driveMembers) fail('forbidden', 403, 'drive_members_off')
+    authorizeDrive: (c) => {
+      // an owner or admin may start their own while members may not (docs/DECISIONS.md "W6")
+      if (!this.driveMembers && c.user.role === 'member') fail('forbidden', 403, 'drive_members_off')
       return { flowId: 'personal-flow', authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth?state=synthetic', expiresAt: new Date(Date.now() + 600_000).toISOString() }
     },
     // the share sign-in (mock Google): pending once, then the synthetic account is back
