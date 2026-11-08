@@ -19,7 +19,7 @@ export interface WelcomeState {
   /** a link from outside that cannot open a team */
   linkError?: string | null
 }
-export type AddTeamResult = { ok: true; teamId: string } | { ok: false; error: string; message: string; host?: string }
+export type AddTeamResult = { ok: true; teamId: string } | { ok: false; error: string; message: string; host?: string; next?: string }
 export interface PanePrompt {
   id: string
   scope: 'site' | 'private'

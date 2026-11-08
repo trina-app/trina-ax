@@ -10,8 +10,9 @@ let state: WelcomeState = { mode: 'welcome', teams: [], canGoBack: false, offlin
 let busy = false
 let error = ''
 let confirming: string | null = null
-/** the address answered but the hosted service does not run it: ask once before it is remembered */
-let outside: { host: string; address: string } | null = null
+/** a question before an address is remembered: the hosted service does not run it (asked once), or the team was
+ * renamed at its relay (the new address, `address`, is the one connected to) */
+let outside: { kind: 'outside' | 'renamed'; host: string; address: string } | null = null
 let draft = ''
 /** ① the box, ② no address, ③ no team yet */
 let view: 'main' | 'unknown' | 'none' = 'main'
@@ -90,7 +91,8 @@ async function submit(confirmed = false) {
   render()
   try {
     const r = await ui.welcome.add(draft, confirmed)
-    if (r && !r.ok && r.error === 'confirmOutside') outside = { host: r.host ?? '', address: draft }
+    if (r && !r.ok && r.error === 'confirmOutside') outside = { kind: 'outside', host: r.host ?? '', address: draft }
+    else if (r && !r.ok && r.error === 'renamed' && r.next) outside = { kind: 'renamed', host: r.host ?? '', address: r.next }
     else if (r && !r.ok) error = r.message
     else if (r?.ok) draft = ''
   } catch {
@@ -157,13 +159,14 @@ function welcome() {
   )
 }
 
-/** The one-time question before an address the hosted service does not run is remembered. [취소] has the focus. */
-function outsideBox(o: { host: string; address: string }) {
+/** The question before an address is remembered: the hosted service does not run it (once), or the team moved to a
+ * new address at its relay (that address is shown and connected to). [취소] has the focus. */
+function outsideBox(o: { kind: 'outside' | 'renamed'; host: string; address: string }) {
   return h(
     'div',
     { class: 'confirm', role: 'alertdialog', 'aria-labelledby': 'outside-host', 'aria-describedby': 'outside-body', 'data-testid': 'outside-confirm' },
     h('p', { id: 'outside-host', class: 'host' }, o.host),
-    h('p', { id: 'outside-body' }, tr('outside.body')),
+    h('p', { id: 'outside-body' }, o.kind === 'renamed' ? tr('err.renamed', { host: o.host }) : tr('outside.body')),
     h(
       'div',
       { class: 'row' },

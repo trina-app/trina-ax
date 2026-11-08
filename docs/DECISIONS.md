@@ -14585,17 +14585,20 @@ accounts, relay names); nothing about plans or billing.
   (punycode); a parser that cannot make one is refused.
 - **Hints instead of "형식이 맞지 않아요"**: Hangul or jamo typed ("ㅁ츼" is `acme` typed in 한글 mode) → "한글로
   입력됐어요. 한/영 키를 누르고 다시 입력하거나 초대 링크를 붙여 넣어 주세요."; an email → "이메일 주소는 쓰지 않아요.
-  초대 링크나 팀 주소를 넣어 주세요."; a cut-off invite or team link → "링크가 중간에 잘린 것 같아요…" (never silently
-  the sign-in page). The address is checked only on the button, only under the team domain: no other domain is tried.
+  초대 링크나 팀 주소를 넣어 주세요."; a cut-off invite or team link (its token shorter than the 43 characters every token
+  has) → "링크가 중간에 잘린 것 같아요…" (never silently the sign-in page). Trailing punctuation is trimmed with a loop,
+  in linear time. The address is checked only on the button, only under the team domain: no other domain is tried.
 - **What the relay answered** (`x-relay-error`, `relayAnswer`): 404 `team_unknown` → "'{name}' 팀을 찾지 못했어요.
   철자를 확인하거나 초대 링크를 붙여 넣어 주세요."; 403 `team_suspended*` → "이 팀은 지금 이용이 멈춰 있어요. 팀장에게
   물어보세요."; the relay's offline answers and gateway errors → "cannot reach". Before, 404 and 403 both said "not a
   team server". The JSON `code` is `not_found`/`forbidden`; the kind is only in `reason` and the header.
 - **A renamed team** (308 from the relay, control-plane D40) is followed only to another `<name>.<teamDomain>` with the
   same scheme and port (`relayRename`; `<name>.localhost` for the desktop's development relay), and the new address is
-  the one remembered. Desktop: the health fetch follows redirects, and a final address that is not such a rename is
-  "not a team server". Phone: the health fetch is `redirect: 'manual'` (expo/fetch: iOS and Android return the 3xx);
-  the rename is checked once more and asked ("팀 주소가 {host}(으)로 바뀌었어요. 새 주소로 연결할까요?").
+  the one remembered after the person said yes ("팀 주소가 {host}(으)로 바뀌었어요. 새 주소로 연결할까요?"). Neither app
+  lets the network stack follow a redirect: the desktop reads the health answer with `net.request` and `redirect:
+  'manual'` (Electron's `net.fetch` throws on 'manual'), the phone with expo/fetch's `redirect: 'manual'` (iOS and
+  Android return the 3xx). One hop only; any other redirect (another host, plain http, an office address, a trailing
+  dot) is "not a team server".
 - **Screens ② and ③.** ② "주소를 모르겠어요": paste the link you got (a used link leads to the sign-in page), Settings ›
   앱 on a signed-in device, ask your team lead; [뒤로]. ③ "아직 팀이 없어요": "팀은 팀장이 만들고, 팀원은 초대 링크로
   들어와요." [팀 만들기 ↗] (the account site, `https://<accountHost>/`; the repository does not know the signup page's
@@ -14626,7 +14629,7 @@ accounts, relay names); nothing about plans or billing.
   mounted, hidden from screen readers) with [{old}(으)로 돌아가기]; the new address must answer `/api/health`, then
   "{old}에서 나가고 {new}에 연결할까요? 이제 {old} 알림은 이 휴대폰으로 오지 않아요." with the new host and the
   outside note when it applies, [취소] (focus) [바꾸기]. Only [바꾸기] runs the leave (`leaveTeam`, the label key, the
-  delivered notifications). The new team's push starts only after sign-in there, so the question promises nothing about
+  delivered notifications), and only after the new team was saved (a refused save leaves the phone in its team). The new team's push starts only after sign-in there, so the question promises nothing about
   it. The same team again opens the link's page in place.
 - **Desktop**: a pasted link opens its page in the app (`openTeam(id, entryPath)`; a team already open loads it where it
   is, the office-network address included); the 팀 menu's "팀 추가…" and "팀 목록…" (the same screen) are one "팀

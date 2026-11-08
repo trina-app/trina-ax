@@ -4,7 +4,7 @@ import Constants from 'expo-constants'
 import * as Crypto from 'expo-crypto'
 import * as WebBrowser from 'expo-web-browser'
 import { getLocales } from 'expo-localization'
-import { createContext, useContext, useEffect, useRef, useState, type ComponentRef, type ComponentType, type RefAttributes, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ComponentRef, type ComponentType, type RefAttributes, type ReactNode } from 'react'
 import { AccessibilityInfo, ActivityIndicator, Alert, Appearance, AppState, BackHandler, findNodeHandle, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TurboModuleRegistry, View, type TurboModule } from 'react-native'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView as NativeWebView, type WebViewProps } from 'react-native-webview'
@@ -134,17 +134,20 @@ export default function App() {
   // Android: the status bar icons and the three-button bar's contrast scrim follow the look (React Native set the scrim
   // once, from the phone's look at launch)
   /** Leave the team on this phone: notifications stop, the phone is removed from the team (now, or at a later start if
-   * that server cannot be reached). Only after the person chose another team that answered. */
+   * that server cannot be reached). Only after the person chose another team that answered and it was saved. */
   async function leave(origin: string) {
-    hasTeam.current = false; device.current = null; forgetDelivered()
-    // the notification extension stops asking the team left for names (before anything else of the switch)
+    device.current = null; forgetDelivered()
+    // the notification extension stops asking the team left for names
     await labels?.forget().catch(() => {})
     void leaveTeam(devices, origin).catch(() => {})
-    await saveTeamUrl(null)
   }
+  // one function for the box's [{old}(으)로 돌아가기]: Android back's handler is registered once, not on every render
+  const closeAdding = useCallback(() => setAdding(false), [])
   async function connect(address: TeamAddress) {
-    if (team && team.origin !== address.origin) await leave(team.origin)
+    const old = team && team.origin !== address.origin ? team.origin : null
+    // the new team is saved first: if that fails (an address the store refuses), the phone is still in the old team
     await saveTeamUrl(address.origin); since.current = Date.now(); hasTeam.current = true
+    if (old) await leave(old)
     // the new team's page starts at the link's page (TeamWeb's first address)
     setOpened(null); setPage(null); setAdding(false); setTeam(address)
   }
@@ -156,7 +159,7 @@ export default function App() {
       : <>
         <TeamWeb key={team.origin} address={team} hidden={adding} pads={padsAtLaunch.current === team.origin} signOut={signOut.current} opened={opened} onDevice={id => { device.current = id }} onAppearance={look => setPage(p => p?.dark === look.dark && p.system === look.system ? p : look)}
           onChangeTeam={() => setAdding(true)} />
-        {adding && <View style={StyleSheet.absoluteFill}><Setup current={team.origin} onBack={() => setAdding(false)}
+        {adding && <View style={StyleSheet.absoluteFill}><Setup current={team.origin} onBack={closeAdding}
           // the same team again: its page opens there (a link's join page, or its start)
           onSame={address => { setAdding(false); setOpened(o => ({ path: address.entryPath, n: (o?.n ?? 0) + 1 })) }}
           onDone={connect} /></View>}
