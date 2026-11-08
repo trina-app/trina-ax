@@ -730,7 +730,9 @@ export class MockServer {
   skillChange(c: SkillChange) {
     this.skillChanges.unshift(c)
     const dir = c.path.slice(0, c.path.lastIndexOf('/'))
-    this.publish({ type: 'notice', data: { level: 'info', code: 'skill_changed', message: `팀 스킬이 바뀌었어요: ${c.path} (${c.actor?.name ?? ''}${c.byAi ? ', AI가 저장' : ''})`, link: `/files?path=${encodeURIComponent(dir)}&select=${encodeURIComponent(c.path)}&history=${encodeURIComponent(c.path)}` } })
+    // a deleted one is in 파일 › 휴지통 (server/src/skills/changes.ts historyLink)
+    const link = c.change === 'delete' ? '/files?view=trash' : `/files?path=${encodeURIComponent(dir)}&select=${encodeURIComponent(c.path)}&history=${encodeURIComponent(c.path)}`
+    this.publish({ type: 'notice', data: { level: 'info', code: 'skill_changed', message: `팀 스킬이 바뀌었어요: ${c.path} (${c.actor?.name ?? ''}${c.byAi ? ', AI가 저장' : ''})`, link } })
   }
   /** skills folders this person may change: owner / admin everything, others their own or their group's write rules */
   managed(u: User): string[] {
@@ -1932,6 +1934,8 @@ export class MockServer {
       this.files.delete(c.query.path!)
       const item = { id: uuidv7(), originalPath: c.query.path!, size: n.data?.byteLength ?? 0, deletedBy: { id: c.user.id, name: c.user.name }, turnId: null, deletedAt: now(), purgeAt: new Date(Date.now() + this.settings.trashRetentionDays * 86400_000).toISOString(), node: n }
       this.trash.push(item)
+      // a team skill's file or folder in the trash is a change of 팀 스킬 › 최근 변경 (server/src/skills/changes.ts)
+      if (c.query.path!.startsWith('skills/')) this.skillChange({ id: uuidv7(), at: now(), actor: { id: c.user.id, name: c.user.name }, path: c.query.path!, change: 'delete', from: null, byAi: false, kind: n.type === 'folder' ? 'folder' : null })
       return { trashId: item.id, purgeAt: item.purgeAt }
     },
     history: (c) => {

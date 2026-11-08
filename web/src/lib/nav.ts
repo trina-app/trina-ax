@@ -1,6 +1,10 @@
 // Navigation from outside React components (a banner's "open" button raised by a WebSocket notice): the app's
 // router registers its navigate function here (components/Layout.tsx).
 type Go = (to: string, o?: { replace?: boolean }) => void
+
+/** 파일 › 휴지통 (pages/Files.tsx; a deleted team skill's links come here, as the server's notice does:
+ * server/src/skills/changes.ts). `/trash` is the deleted AI chats. */
+export const FILES_TRASH = '/files?view=trash'
 let go: Go | null = null
 
 export function setNavigator(fn: Go | null) {

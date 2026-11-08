@@ -10,7 +10,9 @@
 //   answer, DM       -> in the DM's thread (the "working" message is replaced).
 //   answer, channel  -> ephemeral to the asker with one button, "Post to channel"; posting writes the answer alone to
 //                       the thread, "asked by <name>", without steps, sources or the link to the chat. Ephemeral messages
-//                       are not kept by Slack, so the answer stays in the chat here and the message links to it.
+//                       are not kept by Slack, so the answer stays in the chat here and the message links to it. An
+//                       answer that used places not everyone on the team can see is not posted at the first press: the
+//                       asker gets a notice naming them, with "Post anyway" and "Cancel" (post-check.ts).
 // Envelopes are acknowledged by the socket before any of this runs; an event id or a message seen before is ignored.
 import crypto from 'node:crypto'
 import path from 'node:path'
@@ -32,6 +34,8 @@ import { AppMention, BlockActions, EventCallback, ImMessage, type Envelope } fro
 import { BOT_SCOPES, createAppUrl, slackManifest } from './manifest'
 import { SlackSocket, errorCode } from './socket'
 import { slackAnswer } from './rich-text'
+import { placesText, postCheck } from './post-check'
+import { confidentialChat } from '../../safe-ops/confidential'
 import { clip, plain, questionText, say } from './text'
 
 export const LINK_TTL_MS = 10 * 60_000
@@ -44,6 +48,9 @@ const ANSWER_WAIT_MS = 2 * 60 * 60_000
 const KEEP_MS = 7 * 86_400_000
 const AAD = 'slack:workspace'
 const ACTION_POST = 'trina_post'
+/** the notice's two buttons (post-check.ts): post it after all (its value carries the notice's key), or keep it */
+const ACTION_POST_ANYWAY = 'trina_post_anyway'
+const ACTION_POST_CANCEL = 'trina_post_cancel'
 const ACTION_LINK = 'trina_link'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
@@ -820,13 +827,8 @@ export class SlackConnector {
         if (!there) await refusedBlocksAgain(body, (answer) => this.api.call('chat.postMessage', tk.bot, { channel: r.channel_id, thread_ts: r.thread_ts, text: fallback, blocks: blocks(answer), unfurl_links: false, unfurl_media: false }))
         if (r.progress_ts) await this.api.call('chat.delete', tk.bot, { channel: r.channel_id, ts: r.progress_ts }).catch(() => {})
       } else {
-        // a channel shared with another organization (Slack Connect): no button; it says why
-        const postable = a.ok && !r.ext_shared
-        const blocks = (answer: unknown[]) => [
-          ...answer,
-          { type: 'context', elements: [{ type: 'mrkdwn', text: [r.ext_shared ? say('sharedChannel', locale) : say('onlyYou', locale), notes].filter(Boolean).join('  ') }] },
-          ...(postable ? [{ type: 'actions', elements: [{ type: 'button', action_id: ACTION_POST, style: 'primary', value: r.id, text: { type: 'plain_text', text: say('post', locale).slice(0, 75) } }] }] : []),
-        ]
+        // a confidential conversation (safe operations) is never posted: no button; it says why
+        const blocks = this.channelBlocks(r, a.ok, notes, locale, confidentialChat(this.db, r.chat_id) ? 'postConfidential' : null)
         await refusedBlocksAgain(body, (answer) => this.api.call('chat.postEphemeral', tk.bot, { channel: r.channel_id, user: r.slack_user_id, ...(r.in_thread ? { thread_ts: r.thread_ts } : {}), text: fallback, blocks: blocks(answer) }))
       }
       if (!a.ok) this.db.query("UPDATE slack_requests SET state = 'failed' WHERE id = ?").run(r.id)
@@ -843,6 +845,18 @@ export class SlackConnector {
     }
   }
 
+  /** The asker's ephemeral answer in a channel, around the answer's own blocks: "only you" (or why it cannot be posted)
+   * and the links, then the one button. A channel shared with another organization (Slack Connect), or `never` (why it
+   * is never posted, post-check.ts): no button; it says why. */
+  private channelBlocks(r: RequestRow, ok: boolean, notes: string, locale: Locale, never: 'postConfidential' | 'postHidden' | null = null) {
+    const postable = ok && !r.ext_shared && !never
+    return (answer: unknown[]) => [
+      ...answer,
+      { type: 'context', elements: [{ type: 'mrkdwn', text: [r.ext_shared ? say('sharedChannel', locale) : never ? say(never, locale) : say('onlyYou', locale), notes].filter(Boolean).join('  ') }] },
+      ...(postable ? [{ type: 'actions', elements: [{ type: 'button', action_id: ACTION_POST, style: 'primary', value: r.id, text: { type: 'plain_text', text: say('post', locale).slice(0, 75) } }] }] : []),
+    ]
+  }
+
   /** Our answer to this request is in its DM thread already (conversations.replies, scope im:history): a message of
    * the app with this text, written after the request was made (an earlier answer with the same words does not count).
    * null: Slack did not answer (the caller waits and asks again). */
@@ -855,17 +869,27 @@ export class SlackConnector {
     } catch { return null }
   }
 
-  /** "Post to channel": the asker's answer alone, in the thread, once. */
+  /** "Post to channel": the asker's answer alone, in the thread, once. An answer that used places not everyone on the
+   * team can see (post-check.ts) is not posted at the first press: the ephemeral answer becomes a notice naming them, to
+   * the asker only, with "Post anyway" (its value carries the notice's key: every check below runs again, and a key that
+   * is not the one of what the notice says now shows the notice again) and "Cancel" (the answer back, to the asker
+   * only). */
   private async action(cfg: ConfigRow, p: BlockActions, enterprise: string) {
     const act = p.actions[0]!
-    if (act.action_id !== ACTION_POST) return // the link button opens a page; nothing to do here
+    // the link button opens a page; nothing to do here
+    if (act.action_id !== ACTION_POST && act.action_id !== ACTION_POST_ANYWAY && act.action_id !== ACTION_POST_CANCEL) return
     const tk = this.tokens(cfg)
     if (!tk) return
-    const reply = (text: string) => p.response_url ? this.api.respond(p.response_url, { replace_original: true, text }) : Promise.resolve(false)
-    const r = act.value && UUID.test(act.value) ? this.db.query('SELECT * FROM slack_requests WHERE id = ?').get(act.value) as RequestRow | null : null
+    const respond = (body: { text: string; blocks?: unknown[] }) => p.response_url ? this.api.respond(p.response_url, { replace_original: true, ...body }) : Promise.resolve(false)
+    const reply = (text: string) => respond({ text })
+    // the request id; "Post anyway" adds the notice's key after a dot (only it: a key on another button is no value of ours)
+    const value = act.value ?? '', dot = value.indexOf('.')
+    const id = dot < 0 ? value : value.slice(0, dot), key = dot < 0 ? null : value.slice(dot + 1)
+    const r = UUID.test(id) && (act.action_id === ACTION_POST_ANYWAY ? !!key : key === null) ? this.db.query('SELECT * FROM slack_requests WHERE id = ?').get(id) as RequestRow | null : null
     const locale = this.localeOf(r?.user_id ?? null)
     // only the asker's own answer (an ephemeral message is only theirs; the check holds even if a value is replayed)
     if (!r || r.slack_user_id !== p.user.id || r.team_id !== cfg.team_id || r.enterprise_id !== enterprise || r.channel_kind !== 'channel') { await reply(say('postGone', locale)); return }
+    if (act.action_id === ACTION_POST_CANCEL) { await this.keepAnswer(cfg, r, locale, respond); return }
     if (r.ext_shared) { await reply(say('sharedChannel', locale)); return }
     // asked again now (a channel can be shared after the question): Slack must say it is not shared outside
     let shared: boolean | null = null
@@ -875,13 +899,36 @@ export class SlackConnector {
       if (typeof ch?.is_ext_shared === 'boolean') shared = ch.is_ext_shared || ch.is_pending_ext_shared === true
     } catch {}
     if (shared !== false) { await reply(say(shared ? 'sharedChannel' : 'postCheckFailed', locale)); return }
-    if (r.state === 'posted') { await reply(say('postedAlready', locale)); return }
-    if (r.state !== 'delivered') { await reply(say('postGone', locale)); return }
+    // what the answer used, against the whole team (the last wait: from here to the claim nothing waits, and the state
+    // is read again after it)
+    const check = r.state === 'delivered' ? await postCheck(this.ctx, r) : null
+    const state = this.requestState(r.id)
+    if (state === 'posted') { await reply(say('postedAlready', locale)); return }
+    if (state !== 'delivered' || !check) { await reply(say('postGone', locale)); return }
     if (!this.stillLinked(r)) { await reply(say('notLinked', locale)); return }
     // a chat deleted in the app takes its answer with it
     if (!this.db.query('SELECT 1 FROM chats WHERE id = ? AND user_id = ? AND deleted_at IS NULL').get(r.chat_id, r.user_id)) { await reply(say('postGone', locale)); return }
     const a = this.answerOf(r, locale)
     if (!a.ok) { await reply(say('postGone', locale)); return }
+    // a confidential conversation, or a room read with old answers hidden from someone: never, whatever is pressed (the
+    // answer stays, to the asker only, with the reason and no button)
+    if (check.refused) { await this.showAnswer(cfg, r, a.text, locale, respond, check.refused === 'confidential' ? 'postConfidential' : 'postHidden'); return }
+    // not all of it team-wide, and no yes to this very notice: the notice (again)
+    const confirmed = !check.teamWide && act.action_id === ACTION_POST_ANYWAY && !!key && key.length === check.key.length && crypto.timingSafeEqual(Buffer.from(key), Buffer.from(check.key))
+    if (!check.teamWide && !confirmed) {
+      const text = say('postCheck', locale, { places: placesText(check, locale) })
+      const button = (action: string, value: string, label: string, style?: 'danger') => ({ type: 'button', action_id: action, value, ...(style ? { style } : {}), text: { type: 'plain_text', text: label.slice(0, 75) } })
+      await respond({
+        text: plain(text),
+        blocks: [
+          // plain text: a folder's or a connection's name is never Slack markup, a mention or a link
+          { type: 'section', text: { type: 'plain_text', text: clip(text, 2900).text, emoji: false } },
+          ...(cfg.link_origin ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: this.chatLink(cfg, r.chat_id, locale) }] }] : []),
+          { type: 'actions', elements: [button(ACTION_POST_ANYWAY, `${r.id}.${check.key}`, say('postAnyway', locale), 'danger'), button(ACTION_POST_CANCEL, r.id, say('postCancel', locale))] },
+        ],
+      })
+      return
+    }
     const link = this.ownerOf(r.team_id, r.slack_user_id)!
     const body = slackAnswer(a.text, cfg.link_origin, 10)
     // a name as text, never a mention (no ping)
@@ -896,8 +943,34 @@ export class SlackConnector {
       await reply(say('postFailed', locale))
       return
     }
-    audit(this.db, { actor: r.user_id, action: 'slack.posted', target: r.chat_id, detail: { channel: r.channel_id } })
+    // `confirmed`: posted after the notice (places not everyone on the team can see); no names, no content
+    audit(this.db, { actor: r.user_id, action: 'slack.posted', target: r.chat_id, detail: { channel: r.channel_id, ...(confirmed ? { confirmed: true } : {}) } })
     await reply(say('posted', locale))
+  }
+
+  private requestState(id: string): RequestRow['state'] | null {
+    return (this.db.query('SELECT state FROM slack_requests WHERE id = ?').get(id) as { state: RequestRow['state'] } | null)?.state ?? null
+  }
+
+  /** "Cancel" on the notice: the answer back as it came, to the asker only (with its button: pressing it asks again).
+   * Nothing goes to the channel; it goes to the asker only while every check of an answer to them holds. */
+  private async keepAnswer(cfg: ConfigRow, r: RequestRow, locale: Locale, respond: (body: { text: string; blocks?: unknown[] }) => Promise<boolean>) {
+    const state = this.requestState(r.id)
+    if (state === 'posted') { await respond({ text: say('postedAlready', locale) }); return }
+    if (state !== 'delivered' || !this.db.query('SELECT 1 FROM chats WHERE id = ? AND user_id = ? AND deleted_at IS NULL').get(r.chat_id, r.user_id)) { await respond({ text: say('postGone', locale) }); return }
+    if (!this.stillLinked(r)) { await respond({ text: say('notLinked', locale) }); return }
+    const a = this.answerOf(r, locale)
+    if (!a.ok) { await respond({ text: say('postGone', locale) }); return }
+    await this.showAnswer(cfg, r, a.text, locale, respond, confidentialChat(this.db, r.chat_id) ? 'postConfidential' : null)
+  }
+
+  /** The asker's answer again in place of the message the button was on, to them only (as it was delivered). */
+  private async showAnswer(cfg: ConfigRow, r: RequestRow, text: string, locale: Locale, respond: (body: { text: string; blocks?: unknown[] }) => Promise<boolean>, never: 'postConfidential' | 'postHidden' | null) {
+    const body = slackAnswer(text, cfg.link_origin, 4, true)
+    const notes = [body.cut ? say('more', locale) : '', this.chatLink(cfg, r.chat_id, locale)].filter(Boolean).join('  ')
+    const blocks = this.channelBlocks(r, true, notes, locale, never)
+    // blocks Slack refuses: once more as plain text in one block
+    if (!(await respond({ text: body.text, blocks: blocks(body.blocks) }))) await respond({ text: body.text, blocks: blocks(body.plainBlocks) })
   }
 }
 

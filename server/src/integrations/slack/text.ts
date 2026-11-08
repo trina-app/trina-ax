@@ -42,6 +42,20 @@ export const TEXT = {
   emailChangedNotice: t('관리자가 내 계정의 이메일을 바꿨어요. 7일 동안은 이 이메일로 Slack 연결을 확인할 수 없어요.', 'An admin changed the e-mail of your account. For 7 days it cannot be used to confirm a Slack link.', 'Admin mengubah e-mail akun Anda. Selama 7 hari e-mail itu tidak bisa dipakai untuk memastikan tautan Slack.', "管理者があなたのアカウントのメールアドレスを変更しました。7日間はこのメールアドレスでSlack連携を確認できません。", "Un administrador cambió el correo de su cuenta. Durante 7 días no sirve para confirmar un vínculo de Slack."),
   teammate: t('팀원', 'a teammate', 'rekan tim', "チームメンバー", "un compañero"),
   notLinked: t('Slack 계정이 더 이상 연결되어 있지 않아요.', 'Your Slack account is no longer connected.', 'Akun Slack Anda tidak lagi terhubung.', "Slackアカウントの連携は解除されています。", "Su cuenta de Slack ya no está conectada."),
+  // "Post to channel" for an answer that used places not everyone on the team can see (post-check.ts)
+  postCheck: t('이 답에는 팀 사람 모두가 볼 수는 없는 곳의 내용이 들어 있어요: {places}. 그래도 채널에 올릴까요?', 'This answer used places not everyone on the team can see: {places}. Post it to the channel anyway?', 'Jawaban ini memakai isi dari tempat yang tidak bisa dilihat semua orang di tim: {places}. Tetap kirim ke kanal?', "この回答には、チームの全員は見られない場所の内容が含まれています：{places}。それでもチャンネルに投稿しますか？", "Esta respuesta usó lugares que no todo el equipo puede ver: {places}. ¿Publicarla en el canal de todos modos?"),
+  postConfidential: t('보안 작업을 한 대화라 답을 채널에 올릴 수 없어요.', 'This is a confidential conversation, so its answers cannot be posted to the channel.', 'Ini percakapan rahasia, jadi jawabannya tidak bisa dikirim ke kanal.', "機密扱いの会話なので、回答をチャンネルに投稿できません。", "Esta es una conversación confidencial, así que sus respuestas no se pueden publicar en el canal."),
+  postHidden: t('이 답이 읽은 대화방의 예전 답 중에 팀 사람 일부에게 가려진 것이 있어 채널에 올릴 수 없어요.', 'This answer cannot be posted: it used an earlier answer in a room that some people on the team cannot see.', 'Jawaban ini tidak bisa dikirim: jawaban ini memakai jawaban sebelumnya di ruang obrolan yang tidak bisa dilihat sebagian orang di tim.', "この回答は投稿できません。チームの一部のメンバーには表示されない、トークルームの以前の回答を使っています。", "Esta respuesta no se puede publicar: usó una respuesta anterior de una sala que algunas personas del equipo no pueden ver."),
+  postAnyway: t('그래도 올리기', 'Post anyway', 'Tetap kirim', "それでも投稿", "Publicar de todos modos"),
+  postCancel: t('올리지 않기', 'Cancel', 'Batal', "投稿しない", "Cancelar"),
+  placeTop: t('팀 폴더', 'the team folder', 'folder tim', "チームフォルダー", "la carpeta del equipo"),
+  placeMine: t('내 폴더', 'your folder', 'folder Anda', "あなたのフォルダー", "su carpeta"),
+  placeBrowser: t('앱 안 브라우저', 'the in-app browser', 'browser di dalam aplikasi', "アプリ内ブラウザー", "el navegador de la aplicación"),
+  placeConnection: t('내 개인 연결', 'your personal connections', 'koneksi pribadi Anda', "あなたの個人用の連携", "sus conexiones personales"),
+  placeRoom: t('{name} 대화방', 'the {name} chat room', 'ruang obrolan {name}', "{name} トークルーム", "la sala de chat {name}"),
+  placeEveryone: t('전체 대화방', 'the everyone chat room', 'ruang obrolan Semua', "全員のトークルーム", "la sala de chat Todos"),
+  placeConversation: t('1:1·그룹 대화', '1:1 and group conversations', 'percakapan 1:1 dan grup', "1:1・グループの会話", "conversaciones 1:1 y de grupo"),
+  placeOther: t('그 밖의 자료', 'other material', 'materi lain', "その他の資料", "otro material"),
 }
 export type TextKey = keyof typeof TEXT
 
