@@ -15386,8 +15386,14 @@ not postable, 409 `room_ai_hidden`, because its asker could not see what was at 
   were decided by this build.
 - **When people leave.** A member out of a team room or the everyone room (`Rooms.forgetMember`), or members' view of
   its history changing (a later member's hidden answers checked again, `historiesOpened`), decides that room's refused
-  previews of the last 14 days again (at most 20), right after and off the request (`redecideRoomSoon`, through the
-  `Rooms.onAccessChanged` hook set at start: `service.ts` does not import it, which would be a cycle). Known limit: a
+  previews of the last 14 days again (at most 10), off the request (`redecideRoomSoon`, through the
+  `Rooms.onAccessChanged` hook set at start: `service.ts` does not import it, which would be a cycle). Amended
+  (fix/room-redecide-guards, re-review of #212): rooms wait in one queue per server and go one at a time, a step being
+  one room's previews for about 250 ms (at least one; the rest of that room in the next step), steps 200 ms apart, the
+  first on the next turn of the event loop; rooms with nothing to decide are looked past. People removed from many
+  rooms at once (a group's members changed, accounts removed: `Rooms.sync` calls `forgetMember` per row) so never run
+  every room's `decide()` back to back. A new decision is saved only on a turn still private (`AND status =
+  'private'`): one its asker posted meanwhile keeps what it is, and nothing is sent. Known limit: a
   folder rule change that makes a refused preview postable without changing anyone's hidden answers (e.g. the asker
   gets read access to a folder the earlier answer used) is not followed; that preview gets its button only when it is
   sent again (the asker asks anew, or someone leaves).
