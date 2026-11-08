@@ -10,7 +10,7 @@
 // so the question would come while nobody looks: ask() touches them while the window is in front (a team page has
 // loaded, or the window got focus). And macOS takes a notification it will not show (off, or the question still
 // waiting) without an error, so there the test answers unknown, never shown (the page's desktopNotify.unknown: "Test
-// notification sent. If it does not show, turn notifications on in System Settings › Notifications › Trina AX.").
+// notification sent. If it does not show, turn notifications on in System Settings › Notifications › <the app's name>.").
 // Pure (Electron is passed in): unit-tested in tests/unit/e-notify.test.ts; used by main/app-window.ts.
 
 /** at most this many notifications a minute (a page cannot flood the system's list) */
