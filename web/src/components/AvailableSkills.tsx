@@ -110,10 +110,10 @@ export function AvailableSkillsList({ items, query = '' }: { items: Skill[] | nu
   const q = query.trim().toLowerCase()
   // the kept skills the team lacks and the way to bring one's own, under the lists; the catalog hides while searching
   const below = (
-    <>
+    <div className="space-y-1" data-testid="skill-below">
       {admin && !q && <PackCatalogFold />}
       <BringOwnLine />
-    </>
+    </div>
   )
   if (!items.some((s) => !s.shadowedBy)) return <div className="space-y-6"><NoSkills />{below}</div>
   // a skill another one of its name replaced is not in the lists below, and not in the counts: its own section

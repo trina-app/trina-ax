@@ -89,7 +89,7 @@ function SkillName({ c, phone, muted }: { c: Pick<ShareCandidate, 'name' | 'titl
 
 /** What an embedded list tells the step: its state, the titles ticked (skills only), how many skills, and the team rule
  * and the tools when ticked (`extras`). */
-export interface ShareReviewState { status: SkillShare['status']; names: string[]; count: number; extras: number; applying: boolean }
+export interface ShareReviewState { id: string; status: SkillShare['status']; names: string[]; count: number; extras: number; applying: boolean }
 /** An embedded list's apply, run by the step's primary: the share after it, or the error thrown. */
 export interface ShareReviewHandle { apply: () => Promise<SkillShare> }
 
@@ -273,7 +273,7 @@ export function SkillShareReview({ share: given, team, doneLabel, onDone, onAppl
   const tickedNames = share.status === 'ready' ? chosen.map((c) => c.title?.trim() || skillLabel(c)) : []
   const stateKey = `${share.id}|${share.status}|${tickedNames.join('\n')}|${extras}|${applying}`
   useEffect(() => {
-    onState?.({ status: share.status, names: tickedNames, count: tickedNames.length, extras, applying })
+    onState?.({ id: share.id, status: share.status, names: tickedNames, count: tickedNames.length, extras, applying })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stateKey])
 

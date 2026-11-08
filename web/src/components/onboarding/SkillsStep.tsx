@@ -303,9 +303,12 @@ export function SkillsStep({ team, nextLabel, onApplied, onNext, onSkip, busy, n
 
   // ---- the primary
   const keptChecked = (rows ?? []).filter((r) => checked.has(r.name) && !outcome?.went.includes(r.name))
-  const ownReady = own?.status === 'ready' && share?.status !== 'applied'
-  const ownCount = ownReady ? own!.count + own!.extras : 0
-  const checking = share?.status === 'checking'
+  // the list's own state as it is now (it reads the share again while the server checks it, and after an apply); the
+  // share this step was handed is only where it started
+  const ownList = own && share && own.id === share.id ? own : null
+  const ownStatus = ownList?.status ?? share?.status ?? null
+  const ownCount = ownStatus === 'ready' && ownList ? ownList.count + ownList.extras : 0
+  const checking = ownStatus === 'checking'
   const label = primaryLabel(t, keptChecked.map((r) => r.title), ownCount)
   const anythingIn = ownIn > 0 || !!outcome?.went.length || done
 
@@ -517,13 +520,13 @@ export function SkillsStep({ team, nextLabel, onApplied, onNext, onSkip, busy, n
       <Loader2 size={15} className="animate-spin" aria-hidden /> {t('welcome.skills.checking')}
     </Button>
   ) : label ? (
-    <Button variant="primary" busy={pressing || own?.applying} disabled={busy} className={phone ? 'w-full' : undefined} onClick={() => void press()} data-testid="skills-primary" data-state="put">{label}</Button>
+    <Button variant="primary" busy={pressing || ownList?.applying} disabled={busy} className={phone ? 'w-full' : undefined} onClick={() => void press()} data-testid="skills-primary" data-state="put">{label}</Button>
   ) : showNext ? (
     <Button variant="primary" disabled={busy || pressing} className={phone ? 'w-full' : undefined} onClick={anythingIn ? onNext : onSkip} data-testid="skills-primary" data-state="next">{nextLabel}</Button>
   ) : null
 
   return (
-    <div className="space-y-6" data-testid="skills-step" data-state={share ? share.status : phone ? 'phone' : looked ? 'empty' : 'looking'}>
+    <div className="space-y-6" data-testid="skills-step" data-state={share ? ownStatus ?? share.status : phone ? 'phone' : looked ? 'empty' : 'looking'}>
       <div className="space-y-2">
         <StepHead title={t('welcome.skills.title')} desc={t('welcome.skills.desc')} />
         {note}
