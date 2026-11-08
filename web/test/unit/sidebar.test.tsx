@@ -6,7 +6,9 @@
 // - both groups fold, remembered in this browser;
 // - "답변 필요" and the new-answer dot come from the chat list itself (Chat.waiting / Chat.unseen), with no request per
 //   chat; the dot stays away from the chat on screen;
-// - the phone's drawer keeps its own layout (the AI's history only).
+// - the phone's drawer keeps its own layout (the AI's history only);
+// - a chat row's "…": rename, "프로젝트로 옮기기…" ("프로젝트 바꾸기…" in a project) and delete for a chat of my own, the
+//   move dialog of the chat's title menu; a shared chat never offers the move.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { act } from 'react'
 import { MemoryRouter } from 'react-router-dom'
@@ -14,6 +16,7 @@ import { PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI, type Chat, type Me } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import Sidebar from '../../src/components/Sidebar'
+import { useUi } from '../../src/store/ui'
 import { useAiAccess } from '../../src/store/aiAccess'
 import { useChats } from '../../src/store/chats'
 import { useInbox } from '../../src/store/inbox'
@@ -22,7 +25,7 @@ import { useSession } from '../../src/store/session'
 import { useSessionMarkers } from '../../src/store/sessionMarkers'
 import { useWelcome } from '../../src/store/welcome'
 import { TOOLTIP_DELAY_MS } from '../../src/components/Tooltip'
-import { FakeEvent, installDom, mount, removeDom } from './dom-host'
+import { FakeElement, FakeEvent, installDom, mount, removeDom } from './dom-host'
 import { room } from './rooms-fixtures'
 
 const ko = (k: Parameters<typeof translate>[1], p?: Parameters<typeof translate>[2]) => translate('ko', k, p)
@@ -42,6 +45,8 @@ const json = (body: unknown, code = 200) => new Response(JSON.stringify(body), {
 let wide = true
 let inboxCount = 0
 const calls: string[] = []
+/** more answers by "METHOD path", for one test (the rest is a 404) */
+let routes: Record<string, (init?: RequestInit) => Response> = {}
 const realFetch = globalThis.fetch
 const localeBefore = useLocaleStore.getState().locale
 const sessionBefore = useSession.getState().status
@@ -60,6 +65,7 @@ beforeAll(() => {
     calls.push(`${init?.method ?? 'GET'} ${url}`)
     const key = `${init?.method ?? 'GET'} ${url.split('?')[0]}`
     if (key === 'GET /api/notifications') return json({ items: [], nextCursor: null, unreadCount: inboxCount })
+    if (routes[key]) return routes[key](init)
     return json({ error: { code: 'not_found', message: key } }, 404)
   }) as unknown as typeof fetch
 })
@@ -72,6 +78,7 @@ afterAll(() => {
 beforeEach(() => {
   wide = true
   calls.length = 0
+  routes = {}
   localStorage.clear()
   useSession.setState({ status: { kind: 'signed-in', me: me('member') } } as never)
   useChats.setState({ chats: Array.from({ length: 8 }, (_, i) => chat(i + 1)), chatsLoaded: true, chatsCursor: null, requests: {} })
@@ -526,4 +533,94 @@ describe('the team logo in the header (Admin › Team settings › 팀 로고)',
       }
     })
   }
+})
+
+describe('a chat row\'s "…"', () => {
+  const P = '01900000-0000-7000-8000-000000000301'
+  const project = { id: P, name: 'Acme launch', folderPath: 'shared/acme-launch', instructions: '', createdBy: null, createdAt: '2026-11-01T00:00:00.000Z', canEdit: true }
+  const shared = (by: string, canDelete: boolean) => ({ by: { id: by, name: by === 'mina' ? '김민아님' : 'Bob' }, audience: 3, answering: null, mine: true, canDelete })
+  /** the row of the chat with this title, its "…" opened: the items as [test id, words] (null: the row has no "…") */
+  async function items(m: Awaited<ReturnType<typeof render>>, title: string) {
+    const row = m.get('recents-list').querySelectorAll('li').find((li) => li.textContent?.includes(title))!
+    const more = row.querySelector(`button[aria-label="${ko('chat.menu')}"]`)
+    if (!more) return null
+    await m.click(more)
+    const out = row.querySelectorAll('[role="menuitem"]').map((e) => [e.getAttribute('data-testid'), e.textContent?.trim()])
+    await m.click(more)
+    return out
+  }
+
+  test('a chat of my own: rename, "프로젝트로 옮기기…" ("프로젝트 바꾸기…" in a project), delete; a shared chat: never the move', async () => {
+    useChats.setState({ chats: [chat(1), chat(2, { projectId: P }), chat(3, { projectId: P, shared: shared('mina', true) }), chat(4, { projectId: P, shared: shared('bob', true) }), chat(5, { projectId: P, shared: shared('bob', false) })] })
+    const m = await render()
+    try {
+      expect(await items(m, '채팅 1')).toEqual([['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.add')], ['chat-row-delete', ko('common.delete')]])
+      expect(await items(m, '채팅 2')).toEqual([['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.change')], ['chat-row-delete', ko('common.delete')]])
+      // shared project chats stay in their project: mine to rename and delete, an editor's to delete, else no "…"
+      expect(await items(m, '채팅 3')).toEqual([['chat-row-rename', ko('chat.rename')], ['chat-row-delete', ko('common.delete')]])
+      expect(await items(m, '채팅 4')).toEqual([['chat-row-delete', ko('common.delete')]])
+      expect(await items(m, '채팅 5')).toBeNull()
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('Esc closes the menu only, and the keyboard is back on "…"', async () => {
+    useChats.setState({ chats: [chat(1)] })
+    const closed: boolean[] = []
+    const onKey = (e: { key?: string }) => { if (e.key === 'Escape') closed.push(true) }
+    window.addEventListener('keydown', onKey as never)
+    const m = await render()
+    try {
+      const row = m.get('recents-list').querySelector('li')!
+      const more = row.querySelector(`button[aria-label="${ko('chat.menu')}"]`)!
+      await m.click(more)
+      const item = m.get('chat-row-move')
+      item.focus()
+      await act(async () => { item.dispatchEvent(new FakeEvent('keydown', { bubbles: true, cancelable: true, key: 'Escape' })) })
+      expect(m.find('chat-row-move')).toBeNull()
+      expect(document.activeElement).toBe(more as never)
+      // not on to the page's own Esc (Layout: the phone's drawer, the side panel)
+      expect(closed).toEqual([])
+    } finally {
+      window.removeEventListener('keydown', onKey as never)
+      await m.unmount()
+    }
+  })
+
+  test('the move opens the title menu\'s dialog; a save moves the chat and the list has it', async () => {
+    const id = chat(1).id
+    const sent: unknown[] = []
+    routes = {
+      'GET /api/projects': () => json({ items: [project] }),
+      [`PATCH /api/chats/${id}`]: (init) => {
+        const body = JSON.parse(String(init?.body)) as { projectId: string | null }
+        sent.push(body)
+        return json({ ...chat(1), projectId: body.projectId })
+      },
+    }
+    useChats.setState({ chats: [chat(1)] })
+    const m = await render()
+    try {
+      const row = m.get('recents-list').querySelector('li')!
+      await m.click(row.querySelector(`button[aria-label="${ko('chat.menu')}"]`)!)
+      await m.click('chat-row-move')
+      // the menu closed; the dialog is in <body>, with the projects I can see
+      expect(m.find('chat-row-move')).toBeNull()
+      const choices = await m.until(() => (m.find('chat-project-choices')?.textContent?.includes('Acme launch') ? m.get('chat-project-choices') : null), 'the projects')
+      const radio = choices.querySelectorAll('input').find((r) => r.parentNode?.textContent?.includes('Acme launch'))!
+      // a click on a radio checks it (past React's value tracker, as a browser does), then React hears the click
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(FakeElement.prototype, 'checked')!.set!.call(radio, true)
+        radio.dispatchEvent(new FakeEvent('click', { bubbles: true, cancelable: true }))
+      })
+      await m.click('chat-project-save')
+      await m.until(() => useChats.getState().chats.find((c) => c.id === id)?.projectId === P, 'the chat in the project')
+      expect(sent).toEqual([{ projectId: P }])
+      expect(useUi.getState().toasts.at(-1)?.text).toBe(ko('chat.project.moved', { name: 'Acme launch' }))
+      await m.until(() => !m.find('chat-project-choices'), 'the dialog to close')
+    } finally {
+      await m.unmount()
+    }
+  })
 })

@@ -6,8 +6,10 @@
 // Shared project chats (docs/DECISIONS.md "Shared project chats"): the setting is in the edit dialog (ProjectForm), the
 // list is "채팅" (my chats there and every shared chat of the project I can see, those with the people icon and the
 // name of who made them), the box says who sees a new chat, and deleting the project says its shared chats go too.
-import { FileText, FolderKanban, Folder, Pencil, Plus, ScrollText, Share2, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+// Each card on the list has a "…" (the rooms lists' row menu): 이름 바꾸기 and 삭제 for people who may edit the project
+// (the same rename prompt as a chat's, the same delete confirm as on the project page), 링크 복사 for everyone.
+import { FileText, FolderKanban, Folder, Link2, Pencil, Plus, ScrollText, Share2, Trash2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Chat, FileEntry, Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
@@ -16,6 +18,7 @@ import { firstParagraph } from '../lib/markdown'
 import { openTeamFile } from '../lib/sidePanel'
 import { useLocale, useT } from '../i18n'
 import { toast } from '../store/ui'
+import { useChats } from '../store/chats'
 import { useProjects } from '../store/projects'
 import { useMe } from '../store/session'
 import FolderPicker from '../components/FolderPicker'
@@ -24,10 +27,118 @@ import { DisclosureRow } from '../components/DisclosureRow'
 import { TitleMenu } from '../components/TitleMenu'
 import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { SharedIcon } from '../components/chat/SharedChat'
+import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
 import { ProjectForm } from '../components/ProjectForm'
 import { ProjectTrashNote } from '../components/ProjectTrashNote'
-import { Button, EmptyState, ErrorNote, PageHeader, Skeleton, StickyHeader, confirmDialog, pageColumn } from '../components/ui'
+import { Button, EmptyState, ErrorNote, PageHeader, Skeleton, StickyHeader, confirmDialog, menuOpener, pageColumn, promptDialog, useCopy } from '../components/ui'
+import { useFocusAfterRemove } from './admin/common'
 import { DevEnvRow } from './DevEnvSection'
+
+/** The address of a project's page (the app's own route; someone who cannot see the project gets "not found"). */
+const projectLink = (id: string) => `${typeof location === 'undefined' ? '' : location.origin}/projects/${id}`
+
+/** Deleting a project, from its page and from its card on the list: one confirm (its shared chats are deleted with it,
+ * for good: said when it has any, by the count the server gives now, not the one the page loaded with) and one call.
+ * True when it is gone (also when someone else deleted it first). */
+function useDeleteProject() {
+  const t = useT()
+  const locale = useLocale()
+  const deleted = (id: string) => {
+    useProjects.getState().drop(id)
+    // the server took the project off its private chats (its shared chats go with their own event): the history must
+    // not offer "프로젝트 바꾸기…" for a project that is not there any more
+    useChats.setState((s) => ({ chats: s.chats.map((c) => (c.projectId === id && !c.shared ? { ...c, projectId: null } : c)) }))
+  }
+  // not found: deleted by someone else, or no longer mine to see (then my chats keep it, as the server does)
+  const missing = (id: string) => {
+    useProjects.getState().drop(id)
+    toast({ level: 'info', text: t('projects.missing') })
+  }
+  return async (p: Project): Promise<boolean> => {
+    // the menu is gone once the count below has arrived: the keyboard goes back to its button
+    const opener = menuOpener() ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
+    let now = p
+    try {
+      now = await api.call(API.getProject, { params: { id: p.id } })
+    } catch (e) {
+      if (isApiError(e, 'not_found')) {
+        missing(p.id)
+        return true
+      }
+    }
+    // the person left the page while it was asked: no confirm on another page
+    if (opener && !opener.isConnected) return false
+    opener?.focus()
+    const body = now.sharedChats ? (
+      <>
+        {t('projects.deleteBodyShared')}
+        <span className="mt-2 block font-medium text-danger" data-testid="project-delete-shared">{t('projects.deleteShared', { n: now.sharedChats })}</span>
+      </>
+    ) : t('projects.deleteBody')
+    if (!(await confirmDialog({ title: t('projects.deleteTitle', { name: now.name }), body, confirm: t('common.delete'), danger: true }))) return false
+    try {
+      await api.call(API.deleteProject, { params: { id: p.id } })
+      deleted(p.id)
+      return true
+    } catch (e) {
+      if (isApiError(e, 'not_found')) {
+        missing(p.id)
+        return true
+      }
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+      return false
+    }
+  }
+}
+
+/** A card's "…" on the list (components/rooms/MenuButton.tsx: arrow keys, Esc, a bottom sheet on phones). On a computer
+ * it shows on hover and keyboard focus, on a touch screen always. */
+function ProjectCardMenu({ project: p, onRenamed, onDeleted }: { project: Project; onRenamed: (p: Project) => void; onDeleted: () => void }) {
+  const t = useT()
+  const locale = useLocale()
+  const { copy } = useCopy()
+  const remove = useDeleteProject()
+  // the item goes with the menu: the keyboard waits on "…", and a dialog an item opens gives it back there
+  const more = useRef<HTMLButtonElement>(null)
+  const select = (fn: () => unknown) => () => {
+    more.current?.focus()
+    void fn()
+  }
+  const rename = async () => {
+    const name = await promptDialog({ title: t('chat.rename'), label: t('projects.name'), initial: p.name, confirm: t('common.save') })
+    if (!name || name === p.name) return
+    try {
+      const r = await api.call(API.updateProject, { params: { id: p.id }, body: { name } })
+      useProjects.getState().put(r)
+      onRenamed(r)
+    } catch (e) {
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    }
+  }
+  const copyLink = async () => {
+    await copy(projectLink(p.id))
+    toast({ level: 'success', text: t('rooms.menu.linkCopied') })
+  }
+  const items: MenuItem[] = [
+    ...(p.canEdit ? [{ label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: select(rename), testId: 'project-card-rename' }] : []),
+    { label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: select(copyLink), testId: 'project-card-copy-link' },
+    ...(p.canEdit ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: select(() => remove(p).then((gone) => gone && onDeleted())), testId: 'project-card-delete' }] : []),
+  ]
+  return (
+    <MenuButton
+      label={t('rooms.menu.rowLabel', { name: p.name })}
+      tip={t('rooms.menu.label')}
+      items={items}
+      sheetTitle={p.name}
+      // in line with the name's first line, its right edge at the card's padding
+      className="absolute top-3.5 right-2.5"
+      // phones: taps from a 44 px box around it
+      buttonClassName="touch-hit pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-has-[:focus-visible]:opacity-100 aria-expanded:opacity-100 focus-visible:opacity-100"
+      buttonRef={more}
+      testId="project-card-menu"
+    />
+  )
+}
 
 export function ProjectList() {
   const t = useT()
@@ -42,6 +153,8 @@ export function ProjectList() {
     if (!v && params.has('new')) setParams((p) => { p.delete('new'); return p }, { replace: true })
   }
   const navigate = useNavigate()
+  // a card deleted from its menu: the keyboard goes on to the next card (or "New project" after the last one)
+  const { box, removed } = useFocusAfterRemove(items, () => document.querySelector<HTMLElement>('[data-testid="project-new"]'))
   const load = async () => {
     try {
       const items = (await api.call(API.listProjects)).items
@@ -67,21 +180,31 @@ export function ProjectList() {
           </Button>
         }
       />
-      <div className={`${pageColumn} p-4 sm:p-6`}>
+      <div ref={box} className={`${pageColumn} p-4 sm:p-6`}>
         {error && <ErrorNote onRetry={load}>{error}</ErrorNote>}
         {!items && !error && <Skeleton lines={4} />}
         {items && !items.length && <EmptyState icon={<FolderKanban size={28} />} title={t('projects.empty')} />}
         <ul className="grid items-start gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {items?.map((p) => (
-            <li key={p.id}>
-              <Link to={`/projects/${p.id}`} className="block h-full rounded-2xl border border-line bg-surface p-4 transition hover:bg-hover">
-                <span className="flex items-center gap-2 font-medium">
-                  <FolderKanban size={16} className="text-accent-text" aria-hidden /> {p.name}
+          {items?.map((p, i) => (
+            <li key={p.id} className="group relative" data-testid="project-card">
+              {/* the card stays marked while its "…" menu is open */}
+              <Link to={`/projects/${p.id}`} className="block h-full rounded-2xl border border-line bg-surface p-4 transition group-has-[[aria-expanded=true]]:bg-hover hover:bg-hover" data-row-focus>
+                {/* clear of the "…" in the card's corner; the icon stays on the first line of a long name */}
+                <span className="flex items-start gap-2 pr-8 font-medium">
+                  <FolderKanban size={16} className="mt-1 shrink-0 text-accent-text" aria-hidden /> <span className="min-w-0 break-words">{p.name}</span>
                 </span>
                 <span className="mt-1 block truncate text-xs text-faint">{p.folderPath || t('files.root')}</span>
                 {/* plain text of the first paragraph, at most 2 lines ('block' would cancel line-clamp's display) */}
                 {p.instructions && <span className="mt-2 line-clamp-2 text-sm text-muted">{firstParagraph(p.instructions)}</span>}
               </Link>
+              <ProjectCardMenu
+                project={p}
+                onRenamed={(r) => setItems((xs) => xs && xs.map((x) => (x.id === r.id ? { ...x, ...r } : x)))}
+                onDeleted={() => {
+                  removed(i)
+                  setItems((xs) => xs && xs.filter((x) => x.id !== p.id))
+                }}
+              />
             </li>
           ))}
         </ul>
@@ -148,22 +271,10 @@ export function ProjectHome() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
 
+  // its shared chats are deleted with it (for good): said in the dialog when it has any
+  const remove = useDeleteProject()
   const del = async () => {
-    // its shared chats are deleted with it (for good): said in the dialog when it has any
-    const body = p?.sharedChats ? (
-      <>
-        {t('projects.deleteBodyShared')}
-        <span className="mt-2 block font-medium text-danger" data-testid="project-delete-shared">{t('projects.deleteShared', { n: p.sharedChats })}</span>
-      </>
-    ) : t('projects.deleteBody')
-    if (!p || !(await confirmDialog({ title: t('projects.deleteTitle', { name: p.name }), body, confirm: t('common.delete'), danger: true }))) return
-    try {
-      await api.call(API.deleteProject, { params: { id: p.id } })
-      useProjects.getState().drop(p.id)
-      navigate('/projects')
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    }
+    if (p && (await remove(p))) navigate('/projects')
   }
 
   if (missing) return <EmptyState title={t('projects.missing')}><Link to="/projects" className="text-accent-text underline">{t('projects.title')}</Link></EmptyState>
