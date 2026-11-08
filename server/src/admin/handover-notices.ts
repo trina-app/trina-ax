@@ -39,7 +39,7 @@ export function endedCounts(json: string | null | undefined): { teamAi: number; 
 type Row = { id: string; user_id: string; event_type: string; source_id: string; created_at: string; read_at: string | null }
 /** A person's display name as the handover rows show it: one plain line (no control, format or direction characters):
  * the joiner chose it and may change it at any time, so it must not scramble the facts beside it. */
-export const shownName = (name: string) => plainLabel(name, 80)
+export const shownName = (name: string, username?: string) => plainLabel(name, 80) || username || ''
 const nameOf = (db: Database, id: string | null) => {
   const r = id ? (db.query('SELECT id, name FROM users WHERE id = ? AND deleted_at IS NULL').get(id) as { id: string; name: string } | null) : null
   return r ? { id: r.id, name: shownName(r.name) } : null
@@ -54,7 +54,7 @@ export function handoverNoticeOut(ctx: { db: Database; config: AppConfig }, row:
     const i = db.query('SELECT id, lead_for, used_by, used_at FROM invites WHERE id = ?').get(row.source_id) as { id: string; lead_for: string | null; used_by: string | null; used_at: string | null } | null
     if (!i || !i.used_at) return base
     const u = i.used_by ? db.query('SELECT id, name, username FROM users WHERE id = ? AND deleted_at IS NULL').get(i.used_by) as { id: string; name: string; username: string } | null : null
-    return { ...base, handover: { kind: 'lead_joined', leadFor: i.lead_for ?? '', user: u ? { ...u, name: shownName(u.name) } : null, joinedAt: i.used_at, open: !!u && flagOffered(ctx.config) && leadHolds(db, i.id, row.user_id) } }
+    return { ...base, handover: { kind: 'lead_joined', leadFor: i.lead_for ?? '', user: u ? { ...u, name: shownName(u.name, u.username) } : null, joinedAt: i.used_at, open: !!u && flagOffered(ctx.config) && leadHolds(db, i.id, row.user_id) } }
   }
   if (row.event_type === 'owner.transferred') {
     const t = db.query('SELECT from_user, to_user, ended FROM owner_transfers WHERE id = ?').get(row.source_id) as { from_user: string; to_user: string; ended: string } | null
@@ -76,12 +76,17 @@ export function handoverNoticeOut(ctx: { db: Database; config: AppConfig }, row:
   return base
 }
 
+/** The server's config for the push check (set by admin/handover.ts at start): a lead join is not pushed where the
+ * flag is not offered any more (a hosted team whose handoverSafe was turned off). */
+const pushConfigs = new WeakMap<Database, AppConfig>()
+export function setHandoverPushConfig(db: Database, config: AppConfig): void { pushConfigs.set(db, config) }
 /** The phone and browser push of a handover notice (push-service.ts SOURCES): a lead join only while its card still
  * holds; a locked password check while the person is still the owner. */
 export function handoverPushWanted(db: Database, notificationId: string, _now?: number): boolean {
   const n = db.query("SELECT user_id, event_type, source_id FROM handover_notices WHERE id = ?").get(notificationId) as { user_id: string; event_type: string; source_id: string } | null
   if (!n) return false
-  if (n.event_type === 'owner.lead_joined') return leadHolds(db, n.source_id, n.user_id)
+  const config = pushConfigs.get(db)
+  if (n.event_type === 'owner.lead_joined') return (!config || flagOffered(config)) && leadHolds(db, n.source_id, n.user_id)
   if (n.event_type === 'owner.reauth_locked') return currentOwnerId(db) === n.user_id
   return false
 }

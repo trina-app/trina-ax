@@ -27,6 +27,7 @@ import { unsealOrFail } from '../credentials/service'
 import { speechKeyStatus, writeSpeechKey } from '../credentials/speech-key'
 import { createUser, deleteUser, guardResetLink, listUsers, resetPassword, transferOwnership, updateUser } from '../admin/users'
 import { dismissLead, handoverState, noteReauthLocked } from '../admin/handover'
+import { setHandoverPushConfig } from '../admin/handover-notices'
 import { authOf } from '../auth/service'
 import { openDeletionRequests } from '../auth/deletion-requests'
 import { withoutAi } from '../credentials/access'
@@ -91,6 +92,7 @@ export const adminRoutes: RouteModule = {
     kit.handle(API.handoverState, ({ auth }) => handoverState(ctx, auth.user.id))
     kit.handle(API.dismissLeadCard, ({ c, body }) => { dismissLead(c, ctx, body.inviteId); return { ok: true as const } })
     authOf(ctx).onReauthLocked = (userId) => noteReauthLocked(ctx, userId)
+    setHandoverPushConfig(ctx.db, ctx.config)
 
     // ---------------- invites ----------------
     kit.handle(API.listInvites, () => ({ items: listInvites(ctx) }))

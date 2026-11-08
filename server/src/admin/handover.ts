@@ -134,7 +134,7 @@ export function leadCardOf(ctx: AppContext, ownerId: string): LeadCard | null {
     WHERE i.lead_hint = 1 AND i.lead_hint_by = ? AND i.used_at IS NOT NULL ORDER BY i.used_at DESC LIMIT 1`).get(ownerId) as
     { id: string; lead_for: string | null; used_at: string; lead_dismissed_at: string | null; uid: string; name: string; username: string } | null
   if (!r || !leadHolds(ctx.db, r.id, ownerId)) return null
-  return { inviteId: r.id, leadFor: r.lead_for ?? '', user: { id: r.uid, name: shownName(r.name), username: r.username }, joinedAt: r.used_at, dismissed: !!r.lead_dismissed_at }
+  return { inviteId: r.id, leadFor: r.lead_for ?? '', user: { id: r.uid, name: shownName(r.name, r.username), username: r.username }, joinedAt: r.used_at, dismissed: !!r.lead_dismissed_at }
 }
 
 export function handoverState(ctx: AppContext, ownerId: string): HandoverState {
@@ -234,7 +234,7 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | 'timeout'> {
  * Never throws: the transfer is done whatever happens here. */
 export function tellTransfer(ctx: AppContext, t: { id: string; from: string; to: string }): void {
   const db = ctx.db
-  const name = (id: string) => getUser(db, id)?.name ?? ''
+  const name = (id: string) => { const u = getUser(db, id); return u ? shownName(u.name, u.username) : '' }
   try {
     ctx.services.realtime.publish(t.from, { type: 'notice', data: { level: 'info', code: 'owner_changed', message: handoverText('toOld', localeOf(db, t.from), { name: name(t.to) }) } })
     ctx.services.realtime.publish(t.to, { type: 'notice', data: { level: 'info', code: 'owner_changed', message: handoverText('toNew', localeOf(db, t.to), { name: name(t.from) }) } })
