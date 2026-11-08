@@ -15,7 +15,7 @@ describe('the app ids come from the branding', () => {
   test('iOS <team>.<bundle id>, the Android package, the link scheme', () => {
     expect(APP_LINKS.iosAppIds).toEqual([`${branding.appleTeamId}.${branding.bundleId}`])
     expect(APP_LINKS.androidPackage).toBe(branding.bundleId)
-    expect(PRODUCT.linkScheme).toBe(branding.scheme)
+    expect(String(PRODUCT.linkScheme)).toBe(branding.scheme)
   })
   test('the iOS file opens the app for invite links and the team link only', () => {
     const f = appleAppSiteAssociation()

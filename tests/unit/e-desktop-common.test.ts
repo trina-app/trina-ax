@@ -208,7 +208,7 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
     expect(main).toContain("if (app.isPackaged) app.setAsDefaultProtocolClient(LINK_SCHEME)")
   })
   test('the dmg, Mac App Store and Microsoft Store builds declare the scheme', async () => {
-    const base = (await import('../../desktop/electron-builder.config')).default as { protocols?: { schemes: string[] }[] }
+    const base = (await import('../../desktop/electron-builder.config')).default as { protocols?: { name: string; schemes: string[] }[] }
     expect(base.protocols).toEqual([{ name: PRODUCT.displayName, schemes: [PRODUCT.linkScheme] }])
     // the store configs build on the base config and leave its protocols as they are
     for (const f of ['editions/trina/mac-app-store/electron-builder.mas.config.ts', 'editions/trina/microsoft-store/electron-builder.msix.config.ts']) {
