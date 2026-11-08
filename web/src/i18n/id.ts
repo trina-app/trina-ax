@@ -292,7 +292,7 @@ export const id: Record<MessageKey, string> = {
   'home.prepared.filesMore': "Lebih dari {n} file",
   'home.prepared.ask': "Tanyakan",
   'home.prepared.askNamed': "Tanyakan tentang file tim",
-  'home.prepared.filesAsk': "Lihat nama dan jenis file di folder {path} saja, lalu pilih 3 yang sebaiknya saya lihat dulu",
+  'home.prepared.filesAsk': "Lihat nama dan jenis file di folder {path} saja (tanpa folder {skip}), lalu pilih 3 yang sebaiknya saya lihat dulu",
   'home.prepared.humanizerAsk': "Rapikan tulisan di bawah agar terdengar alami:",
   'home.prepared.profileAsk': "Ringkas apa yang dikerjakan perusahaan kami dalam 3 baris",
   'home.prepared.addSkills': "Tambah skill",

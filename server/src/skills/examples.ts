@@ -32,13 +32,16 @@ export const COUNT_VISIT_MAX = 5000
 
 const lineOf = (text: string) => (text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? '').slice(0, 200)
 
+type Count = { path: string; files: number; more: boolean }
+
 /**
  * The documents under `folder` the caller can read, all levels down, without `skip` (folders left out with all they
  * hold), dot files, Office lock files and the files an operating system makes; links, hard links and odd names are not
- * documents (as on the file screen). Stops at TEAM_FOLDER_COUNT_MAX (or after COUNT_VISIT_MAX entries): `more`. null:
- * the caller cannot list the folder, or it is not one.
+ * documents (as on the file screen). Folders are read entry by entry (opendir), so the walk stops where it reaches
+ * TEAM_FOLDER_COUNT_MAX (or COUNT_VISIT_MAX entries looked at): `more`. null: the caller cannot list the folder, or it
+ * is not one.
  */
-export function countDocuments(ctx: Pick<AppContext, 'files'>, user: Principal, folder: string, skip: readonly string[] = []): { path: string; files: number; more: boolean } | null {
+export function countDocuments(ctx: Pick<AppContext, 'files'>, user: Principal, folder: string, skip: readonly string[] = []): Count | null {
   const fx = ctx.files.fx
   const rules = ctx.files.rules()
   let r
@@ -49,33 +52,71 @@ export function countDocuments(ctx: Pick<AppContext, 'files'>, user: Principal, 
   let files = 0, visited = 0, more = false
   /** false: stop the whole walk */
   const walk = (segs: string[], abs: string): boolean => {
-    let entries: fs.Dirent[]
-    try { entries = fs.readdirSync(abs, { withFileTypes: true }) } catch { return true }
-    for (const e of entries) {
-      if (++visited > COUNT_VISIT_MAX) { more = true; return false }
-      if (hiddenEntry(e.name, segs.length) || badSegment(e.name) || e.isSymbolicLink()) continue
-      if (e.name.startsWith('.') || e.name.startsWith('~$') || isSystemName(e.name)) continue
-      const c = [...segs, e.name]
-      if (skipped.has(fold(c.join('/')))) continue
-      const at = path.join(abs, e.name)
-      let st: fs.Stats
-      try { st = fs.lstatSync(at) } catch { continue }
-      if (st.isDirectory()) {
-        if (rules.canList(user, c) && !walk(c, at)) return false
-      } else if (st.isFile() && st.nlink === 1 && atLeast(rules.access(user, c), 'read')) {
-        if (files >= TEAM_FOLDER_COUNT_MAX) { more = true; return false }
-        files++
+    let dir: fs.Dir
+    try { dir = fs.opendirSync(abs) } catch { return true }
+    try {
+      for (let e = dir.readSync(); e; e = dir.readSync()) {
+        if (++visited > COUNT_VISIT_MAX) { more = true; return false }
+        if (hiddenEntry(e.name, segs.length) || badSegment(e.name) || e.isSymbolicLink()) continue
+        if (e.name.startsWith('.') || e.name.startsWith('~$') || isSystemName(e.name)) continue
+        const c = [...segs, e.name]
+        if (skipped.has(fold(c.join('/')))) continue
+        const at = path.join(abs, e.name)
+        let st: fs.Stats
+        try { st = fs.lstatSync(at) } catch { continue }
+        if (st.isDirectory()) {
+          if (rules.canList(user, c) && !walk(c, at)) return false
+        } else if (st.isFile() && st.nlink === 1 && atLeast(rules.access(user, c), 'read')) {
+          if (files >= TEAM_FOLDER_COUNT_MAX) { more = true; return false }
+          files++
+        }
       }
-    }
+    } catch { /* a folder that changed while it was read: what was counted stands */ } finally { try { dir.closeSync() } catch { /* closed */ } }
     return true
   }
   walk(r.segs, r.abs)
   return { path: r.rel, files, more }
 }
 
-/** The team group's folder and what in it is the steps' own (the brand folder, the group's skills): from the welcome
- * row, the group's folder as it is now (a renamed group keeps its id). null: no team group yet. */
-function teamGroupFolder(ctx: AppContext): { folder: string; skip: string[] } | null {
+/** How long a person's count is reused: every open Home and the Files screen read it, and a busy team folder is not
+ * walked again for each. The person's own change in the folder (the file screen, an upload, their AI's save: the
+ * changes every screen hears of, team-files/changes.ts publishChanges) drops theirs at once; someone else's shows within
+ * this time. */
+export const DOCUMENT_COUNT_CACHE = { ttlMs: 45_000, max: 2000 }
+type Cached = { at: number; userId: string; folder: string; value: Count | null }
+const caches = new WeakMap<object, Map<string, Cached>>()
+const under = (p: string, folder: string) => p === folder || p.startsWith(`${folder}/`) || folder.startsWith(`${p}/`)
+function cacheOf(ctx: Pick<AppContext, 'files'>): Map<string, Cached> {
+  let m = caches.get(ctx.files)
+  if (m) return m
+  const own = (m = new Map())
+  caches.set(ctx.files, own)
+  ctx.files.events.on('tree-changed', (e: { paths?: string[]; by?: string[] } | undefined) => {
+    const by = new Set(e?.by ?? [])
+    if (!by.size) return
+    for (const [k, c] of own) if (by.has(c.userId) && (e?.paths ?? []).some((p) => under(p, c.folder))) own.delete(k)
+  })
+  return own
+}
+/** Every reused count forgotten (tests that change files on disk without the file layer). */
+export function forgetDocumentCounts(ctx: Pick<AppContext, 'files'>): void { caches.get(ctx.files)?.clear() }
+
+/** countDocuments, reused for DOCUMENT_COUNT_CACHE.ttlMs per person and folder. */
+export function cachedDocuments(ctx: Pick<AppContext, 'files'>, user: Principal, folder: string, skip: readonly string[]): Count | null {
+  const m = cacheOf(ctx)
+  const key = [user.id, folder, ...skip].join('\u0000')
+  const now = Date.now()
+  const hit = m.get(key)
+  if (hit && now - hit.at < DOCUMENT_COUNT_CACHE.ttlMs) return hit.value
+  const value = countDocuments(ctx, user, folder, skip)
+  if (m.size >= DOCUMENT_COUNT_CACHE.max) for (const [k, c] of m) if (now - c.at >= DOCUMENT_COUNT_CACHE.ttlMs || m.size >= DOCUMENT_COUNT_CACHE.max) m.delete(k)
+  m.set(key, { at: now, userId: user.id, folder, value })
+  return value
+}
+
+/** The team group's folder and what in it is the steps' own (the brand folder, the group's skills), as names inside
+ * it: from the welcome row, the group's folder as it is now (a renamed group keeps its id). null: no team group yet. */
+function teamGroupFolder(ctx: AppContext): { folder: string; without: string[] } | null {
   const tg = readWelcome(ctx)?.teamGroup
   if (!tg) return null
   const folder = groupFolder(ctx, tg.id)
@@ -83,13 +124,15 @@ function teamGroupFolder(ctx: AppContext): { folder: string; skip: string[] } | 
   // the brand folder as recorded, moved with a renamed group; a row from before it records none: the name the steps
   // give it in the team's language
   const inside = tg.brandFolder?.startsWith(`${tg.folder}/`) ? tg.brandFolder.slice(tg.folder.length + 1) : BRAND_FOLDER[teamDefaultLocale(ctx.db)]
-  return { folder, skip: [`${folder}/${inside}`, groupSkillsDir(folder)] }
+  return { folder, without: [inside, groupSkillsDir(folder).slice(folder.length + 1)] }
 }
 
-/** The caller ran a team skill in an answer that finished (turn_skill_runs records team skills only, migration 223). */
+/** The caller ran a team skill in an answer that finished, themselves (a scheduled run is no try: as the goal and the
+ * suggestions count, onboarding/goal.ts, onboarding/suggestions.ts). turn_skill_runs records team skills only
+ * (migration 223). */
 export function ranTeamSkill(ctx: Pick<AppContext, 'db'>, userId: string): boolean {
   return !!ctx.db.query(`SELECT 1 FROM turns t CROSS JOIN turn_skill_runs r ON r.turn_id = t.id
-    WHERE t.user_id = ? AND t.status = 'done' LIMIT 1`).get(userId)
+    WHERE t.user_id = ? AND t.status = 'done' AND t.schedule_id IS NULL LIMIT 1`).get(userId)
 }
 
 /** GET /api/skills/examples as `userId` (any role), the one lines in `locale`. */
@@ -119,6 +162,7 @@ export function teamPrepared(ctx: AppContext, userId: string, locale: Locale): T
   const ordered = [...[...kept.values()].map((k) => k.out), ...others]
   const skills = landing ? [...ordered.filter((s) => s.path === landing), ...ordered.filter((s) => s.path !== landing)] : ordered
   const g = teamGroupFolder(ctx)
-  const teamFolder = g ? countDocuments(ctx, me, g.folder, g.skip) : null
+  const count = g ? cachedDocuments(ctx, me, g.folder, g.without.map((w) => `${g.folder}/${w}`)) : null
+  const teamFolder = g && count ? { ...count, without: g.without } : null
   return { skills, teamFolder, landing, ranTeamSkill: ranTeamSkill(ctx, userId), hasProfile: !!readCompanyProfile(ctx.files, me) }
 }

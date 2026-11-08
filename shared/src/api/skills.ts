@@ -134,8 +134,10 @@ export const TeamPrepared = z.object({
   skills: z.array(PreparedSkill),
   /** the team group's folder (the welcome steps' groups/<team>/), its documents counted as the caller, all levels down,
    * up to TEAM_FOLDER_COUNT_MAX (`more`: the count stopped there). The steps' own brand folder, the group's skills
-   * folder, dot files and system files do not count. null: no team group, or the caller cannot read its folder */
-  teamFolder: z.object({ path: z.string(), files: z.number().int().nonnegative(), more: z.boolean() }).nullable(),
+   * folder, dot files and system files do not count; `without` names those two folders inside it (the ready question
+   * tells the AI to leave them out too). A count is reused for up to 45 seconds; the caller's own change in the folder
+   * drops it. null: no team group, or the caller cannot read its folder */
+  teamFolder: z.object({ path: z.string(), files: z.number().int().nonnegative(), more: z.boolean(), without: z.array(z.string()) }).nullable(),
   /** the skill the invite opens (the welcome steps' landing skill), only when the caller can use it */
   landing: z.string().nullable(),
   /** the caller ran a team skill ("/name", a skill form or the skill tool) in an answer that finished */

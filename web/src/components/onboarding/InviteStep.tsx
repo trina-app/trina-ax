@@ -104,7 +104,8 @@ export function EmptyTeamLine({ steps }: { steps?: EmptyTeamSteps }) {
   const t = useT()
   const admin = isAdmin(useMe())
   const { data } = useTeamPrepared(admin)
-  if (!admin || !data || data.skills.length > 0 || (data.teamFolder?.files ?? 0) > 0) return null
+  // a count that stopped (`more`) before it found a document is no empty team
+  if (!admin || !data || data.skills.length > 0 || (data.teamFolder?.files ?? 0) > 0 || data.teamFolder?.more) return null
   const link = clsx(quietLink, 'touch-hit')
   return (
     <p className="text-label text-muted" role="note" data-testid="invite-empty-team">

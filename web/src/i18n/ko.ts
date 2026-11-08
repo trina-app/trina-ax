@@ -291,7 +291,7 @@ export const ko = {
   'home.prepared.filesMore': "파일 {n}개 넘게",
   'home.prepared.ask': "물어보기",
   'home.prepared.askNamed': "팀 파일에 물어보기",
-  'home.prepared.filesAsk': "{path} 폴더의 파일 이름과 종류만 보고, 내가 먼저 보면 좋을 것 3개를 골라 줘",
+  'home.prepared.filesAsk': "{path} 폴더의 파일 이름과 종류만 보고({skip} 폴더는 빼고), 내가 먼저 보면 좋을 것 3개를 골라 줘",
   'home.prepared.humanizerAsk': "아래 글을 자연스럽게 다듬어 줘:",
   'home.prepared.profileAsk': "우리 회사가 하는 일을 3줄로 정리해 줘",
   'home.prepared.addSkills': "스킬 넣기",

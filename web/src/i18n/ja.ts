@@ -283,7 +283,7 @@ export const ja: Record<MessageKey, string> = {
   'home.prepared.filesMore': "ファイル{n, plural, one {#件} other {#件}}以上",
   'home.prepared.ask': "聞いてみる",
   'home.prepared.askNamed': "チームのファイルについて聞く",
-  'home.prepared.filesAsk': "{path}フォルダーのファイル名と種類だけを見て、最初に見るとよいものを3つ選んでください",
+  'home.prepared.filesAsk': "{path}フォルダーのファイル名と種類だけを見て（{skip}フォルダーは除いて）、最初に見るとよいものを3つ選んでください",
   'home.prepared.humanizerAsk': "下の文章を自然な文章に整えてください:",
   'home.prepared.profileAsk': "私たちの会社がしていることを3行でまとめてください",
   'home.prepared.addSkills': "スキルを追加",

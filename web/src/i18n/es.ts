@@ -283,7 +283,7 @@ export const es: Record<MessageKey, string> = {
   'home.prepared.filesMore': "{n, plural, one {Más de # archivo} other {Más de # archivos}}",
   'home.prepared.ask': "Preguntar",
   'home.prepared.askNamed': "Preguntar sobre los archivos del equipo",
-  'home.prepared.filesAsk': "Revise solo los nombres y tipos de los archivos de la carpeta {path} y elija los 3 que debería ver primero",
+  'home.prepared.filesAsk': "Revise solo los nombres y tipos de los archivos de la carpeta {path} (sin las carpetas {skip}) y elija los 3 que debería ver primero",
   'home.prepared.humanizerAsk': "Haga que el texto de abajo suene natural:",
   'home.prepared.profileAsk': "Resuma en 3 líneas a qué se dedica nuestra empresa",
   'home.prepared.addSkills': "Añadir habilidades",

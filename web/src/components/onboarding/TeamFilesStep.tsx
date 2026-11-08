@@ -788,7 +788,8 @@ export function TeamFilesEntry({ here }: { here: string }) {
   // folder left out), read again after uploads settle and when the dialog closes
   const where = admin && !narrow && !!folder && (here === '' || here === folder)
   const { data } = useTeamPrepared(where, `${settled}-${open}`)
-  const empty = !!data?.teamFolder && data.teamFolder.files === 0
+  // a count that stopped (`more`) before it found a document is no empty folder
+  const empty = !!data?.teamFolder && data.teamFolder.files === 0 && !data.teamFolder.more
   if (!where || !progress || folderWindow() === null || (!empty && !open)) return null
   return (
     <>

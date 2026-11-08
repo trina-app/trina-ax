@@ -2399,13 +2399,13 @@ export class MockServer {
       const skills = landing ? [...all.filter((x) => x.path === landing), ...all.filter((x) => x.path !== landing)] : all
       const tg = this.welcome?.teamGroup ?? null
       const inGroup = !!tg && (c.user.role !== 'member' || c.user.groupIds.includes(tg.id) || !!this.groups.find((g) => g.id === tg.id)?.memberIds.includes(c.user.id))
-      let teamFolder: { path: string; files: number; more: boolean } | null = null
+      let teamFolder: { path: string; files: number; more: boolean; without: string[] } | null = null
       if (tg && inGroup && this.files.get(tg.folder)?.type === 'folder' && this.access(tg.folder, c.user) !== 'none') {
         const skip = [tg.brandFolder ?? `${tg.folder}/브랜드`, `${tg.folder}/skills`]
         const system = /^(\.|~\$)|^(thumbs\.db|desktop\.ini)$/i
         const docs = [...this.files.entries()].filter(([p, n]) => n.type === 'file' && p.startsWith(`${tg.folder}/`) && !skip.some((k) => p === k || p.startsWith(`${k}/`))
           && !p.slice(tg.folder.length + 1).split('/').some((seg) => system.test(seg)) && this.access(p, c.user) !== 'none').length
-        teamFolder = { path: tg.folder, files: Math.min(docs, 100), more: docs > 100 }
+        teamFolder = { path: tg.folder, files: Math.min(docs, 100), more: docs > 100, without: skip.map((k) => k.slice(tg.folder.length + 1)) }
       }
       const teamNames = mine.filter((x) => x.path.startsWith('skills/')).map((x) => x.name.toLowerCase())
       const ran = (text: string) => { const t = text.trim().toLowerCase(); return teamNames.some((n) => t === `/${n}` || t.startsWith(`/${n} `) || t.startsWith(`/${n}\n`)) }

@@ -17,7 +17,7 @@ import { startHarness, type Harness } from '../lib/b-harness'
 import { getSetting, setSetting } from '../../server/src/admin/settings'
 import { packExample } from '../../server/src/onboarding/skill-packs'
 import { readWelcome, WELCOME_SETTING } from '../../server/src/onboarding/welcome'
-import { countDocuments, MEMBER_ORDER } from '../../server/src/skills/examples'
+import { countDocuments, DOCUMENT_COUNT_CACHE, forgetDocumentCounts, MEMBER_ORDER } from '../../server/src/skills/examples'
 
 setDefaultTimeout(90_000)
 
@@ -30,7 +30,11 @@ beforeAll(async () => {
 })
 afterAll(async () => { await h?.close() })
 
-const get = async (user: string): Promise<TeamPrepared> => h.api(user).call(API.skillExamples)
+/** the answer as it is now: the tests change files on disk, not through the file layer, so no count is reused */
+const get = async (user: string): Promise<TeamPrepared> => { forgetDocumentCounts(h.ctx); return h.api(user).call(API.skillExamples) }
+/** the answer, a count reused where there is one */
+const getCached = async (user: string): Promise<TeamPrepared> => h.api(user).call(API.skillExamples)
+const WITHOUT = ['브랜드', 'skills']
 const put = (rel: string, text = 'x') => { const p = path.join(h.team, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, text) }
 const rm = (rel: string) => fs.rmSync(path.join(h.team, rel), { recursive: true, force: true })
 const md = (name: string, description = `${name} — does ${name}`) => `---\nname: ${name}\ndescription: ${description}\n---\n# ${name}\n1. Read.\n`
@@ -41,11 +45,11 @@ function rule(p: string, subjectType: 'everyone' | 'group' | 'user', subjectId: 
   h.ctx.db.query('INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, ?, ?, ?)').run(crypto.randomUUID(), f.id, subjectType, subjectId, access)
 }
 /** one answer of a person in a new chat of theirs, the team skill it ran */
-function ran(userId: string, skill: string, status = 'done') {
+function ran(userId: string, skill: string, status = 'done', scheduleId: string | null = null) {
   const chatId = crypto.randomUUID(), messageId = crypto.randomUUID(), turnId = crypto.randomUUID()
   h.ctx.db.query('INSERT INTO chats (id, user_id) VALUES (?, ?)').run(chatId, userId)
   h.ctx.db.query("INSERT INTO messages (id, chat_id, role, content, status) VALUES (?, ?, 'assistant', 'Done.', 'done')").run(messageId, chatId)
-  h.ctx.db.query("INSERT INTO turns (id, chat_id, user_id, engine, status, message_id) VALUES (?, ?, ?, 'claude', ?, ?)").run(turnId, chatId, userId, status, messageId)
+  h.ctx.db.query("INSERT INTO turns (id, chat_id, user_id, engine, status, message_id, schedule_id) VALUES (?, ?, ?, 'claude', ?, ?, ?)").run(turnId, chatId, userId, status, messageId, scheduleId)
   h.ctx.db.query("INSERT INTO turn_skill_runs (turn_id, skill_path, skill_name, source) VALUES (?, ?, ?, 'command')").run(turnId, skill, skill.split('/').at(-2)!)
 }
 
@@ -69,7 +73,7 @@ describe('the team as each person sees it', () => {
 
   test('an empty team: a member in the group and the owner read 0 documents; a member outside it gets null', async () => {
     expect(brand.startsWith(`${folder}/`)).toBe(true)
-    for (const who of ['bob', 'dana', 'carol']) expect((await get(who)).teamFolder).toEqual({ path: folder, files: 0, more: false })
+    for (const who of ['bob', 'dana', 'carol']) expect((await get(who)).teamFolder).toEqual({ path: folder, files: 0, more: false, without: WITHOUT })
     expect((await get('alice')).teamFolder).toBeNull()
     expect((await get('erin')).teamFolder).toBeNull()
   })
@@ -87,7 +91,7 @@ describe('the team as each person sees it', () => {
     put(`${folder}/회의록/2026-11-03.md`, '# 회의')
     put(`${folder}/회사 자료/견적서.docx`)
     put(`${folder}/회사 자료/2026/상반기/매출.xlsx`)
-    for (const who of ['bob', 'dana']) expect((await get(who)).teamFolder).toEqual({ path: folder, files: 3, more: false })
+    for (const who of ['bob', 'dana']) expect((await get(who)).teamFolder).toEqual({ path: folder, files: 3, more: false, without: WITHOUT })
     // a link is not a document (as on the file screen)
     fs.symlinkSync(path.join(h.team, `${folder}/회의록/2026-11-03.md`), path.join(h.team, `${folder}/link.md`))
     expect((await get('bob')).teamFolder?.files).toBe(3)
@@ -105,12 +109,12 @@ describe('the team as each person sees it', () => {
 
   test('the count stops at 100 ("100개 넘게"); countDocuments says the same', async () => {
     for (let i = 0; i < TEAM_FOLDER_COUNT_MAX + 20; i++) put(`${folder}/많은 자료/${String(i).padStart(3, '0')}.txt`)
-    expect((await get('bob')).teamFolder).toEqual({ path: folder, files: TEAM_FOLDER_COUNT_MAX, more: true })
+    expect((await get('bob')).teamFolder).toEqual({ path: folder, files: TEAM_FOLDER_COUNT_MAX, more: true, without: WITHOUT })
     const me = h.ctx.files.principal('bob')
     expect(countDocuments(h.ctx, me, `${folder}/많은 자료`)).toEqual({ path: `${folder}/많은 자료`, files: TEAM_FOLDER_COUNT_MAX, more: true })
     expect(countDocuments(h.ctx, h.ctx.files.principal('alice'), folder)).toBeNull()
     rm(`${folder}/많은 자료`)
-    expect((await get('bob')).teamFolder).toEqual({ path: folder, files: 3, more: false })
+    expect((await get('bob')).teamFolder).toEqual({ path: folder, files: 3, more: false, without: WITHOUT })
   })
 
   test('the kept skills at their pack path: Trina\'s example and source, in a member\'s order; an owner\'s own one of the same name elsewhere has neither', async () => {
@@ -168,8 +172,10 @@ describe('the team as each person sees it', () => {
     expect(now.skills.map((s) => s.path).slice(0, 2)).toEqual(['skills/report/SKILL.md', 'skills/work/humanizer/SKILL.md'])
   })
 
-  test('ranTeamSkill: a team skill in an answer that finished (a failed one does not count); each person their own', async () => {
+  test('ranTeamSkill: a team skill in an answer that finished (a failed one and a scheduled one do not count); each person their own', async () => {
     ran('bob', 'skills/general/card-news/SKILL.md', 'error')
+    expect((await get('bob')).ranTeamSkill).toBe(false)
+    ran('bob', 'skills/general/card-news/SKILL.md', 'done', 'sched-examples')
     expect((await get('bob')).ranTeamSkill).toBe(false)
     ran('bob', 'skills/general/card-news/SKILL.md')
     expect((await get('bob')).ranTeamSkill).toBe(true)
@@ -192,6 +198,35 @@ describe('the team as each person sees it', () => {
     expect((await h.req('bob', '/api/onboarding/packs')).status).toBe(403)
     expect((await h.req('bob', '/api/onboarding/packs/work/install', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ skills: ['humanizer'] }) })).status).toBe(403)
     expect((await h.req(null, '/api/skills/examples')).status).toBe(401)
+  })
+
+  test('a count is reused for a while: a change made around the file layer waits; the person\'s own change drops theirs at once, someone else\'s does not', async () => {
+    const before = { ...DOCUMENT_COUNT_CACHE }
+    try {
+      expect((await get('bob')).teamFolder?.files).toBe(3)
+      expect((await getCached('dana')).teamFolder?.files).toBe(3)
+      // on disk only (no change anyone hears of): the reused counts stand
+      put(`${folder}/회사 자료/새 자료.md`)
+      expect((await getCached('bob')).teamFolder?.files).toBe(3)
+      // dana saves a file in the team folder through the file screen: her count is read again, bob's is reused
+      await h.api('dana').call(API.saveContent, { body: { path: `${folder}/회의록/2026-11-10.md`, content: '# 회의', baseSha256: null } })
+      expect((await getCached('dana')).teamFolder?.files).toBe(5)
+      expect((await getCached('bob')).teamFolder?.files).toBe(3)
+      // bob's own save drops his
+      await h.api('bob').call(API.saveContent, { body: { path: `${folder}/회의록/2026-11-11.md`, content: '# 회의', baseSha256: null } })
+      expect((await getCached('bob')).teamFolder?.files).toBe(6)
+      // a save elsewhere is no change of the team folder
+      put(`${folder}/회사 자료/또 다른 자료.md`)
+      await h.api('bob').call(API.saveContent, { body: { path: 'users/bob/memo.md', content: 'x', baseSha256: null } })
+      expect((await getCached('bob')).teamFolder?.files).toBe(6)
+      // after the time: read again
+      DOCUMENT_COUNT_CACHE.ttlMs = 0
+      expect((await getCached('bob')).teamFolder?.files).toBe(7)
+    } finally {
+      Object.assign(DOCUMENT_COUNT_CACHE, before)
+      for (const f of ['회사 자료/새 자료.md', '회사 자료/또 다른 자료.md', '회의록/2026-11-10.md', '회의록/2026-11-11.md']) rm(`${folder}/${f}`)
+      rm('users/bob/memo.md')
+    }
   })
 
   test('a team group that is gone: no team folder', async () => {

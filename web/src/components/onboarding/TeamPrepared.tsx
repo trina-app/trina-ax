@@ -5,15 +5,16 @@
 //   자연스러운 글 fills the box with "/humanizer 아래 글을 자연스럽게 다듬어 줘:" and a new line instead: its form has no box
 //   for the text), then "팀 스킬 N개 더 ›". They stay until the person ran a team skill, however many chats they have.
 // - Team files: while the person has no chats and the team folder holds documents they can read: "{folder} · 파일 n개"
-//   with [물어보기], which puts a question that names the folder in the box (names and types only; not sent).
+//   with [물어보기], which puts a question that names the folder in the box (names and types only, the brand folder and
+//   the group's skills left out as the count leaves them out; not sent).
 // - Nothing of that: "이렇게 시작해 보세요" with one ready question (a saved company profile: what the company does;
 //   else what is in the person's own folder), and the "no team folder" line when they can open none.
 // One filled button for a member: the first skill's 써 보기, else 물어보기, else the ready question. Owners and admins get
 // no filled button here (the goal card or the setup row is the one thing on Home: docs/DECISIONS.md "Y") and, with
 // nothing prepared, "스킬 넣기 · 팀 파일 넣기" instead of a question. `readOnly` (a member under the no-AI card): the rows
 // and 예시 only. Phones (below 768px): a skill row's tap is 써 보기, with 예시 as its own target at the row's end; the
-// files row is one row. The block reads again when skills, files or access change; a failed read is one quiet
-// "다시 불러오기", never the empty state.
+// files row is one row. The block reads again when skills, files or access change (once per burst of changes); a failed
+// read is one quiet "다시 불러오기", never the empty state. While its skill rows show, Home leaves 「자주 쓰는 스킬」 out.
 import clsx from 'clsx'
 import { ArrowUpLeft, ChevronRight } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
@@ -37,8 +38,12 @@ const PHONE = '(max-width: 767.98px)'
 /** A file change the block cares about: a skill, the team's group folders, the company profile. */
 const touches = (changes: FileChange[]) => changes.some((c) => [c.path, c.from].some((p) => !!p && (isSkillsPath(p) || p.startsWith('groups/'))))
 
-/** GET /api/skills/examples, read again when skills, team files or access change (as the skills list does). `enabled`
- * false: not read. */
+/** How long the block waits after a change it hears of before it reads again: a team folder where many files change at
+ * once (a folder upload, a sync) is one read, not one per file. */
+export const PREPARED_RELOAD_MS = 1500
+
+/** GET /api/skills/examples, read again when skills, team files or access change (as the skills list does), once per
+ * burst of changes (PREPARED_RELOAD_MS). `enabled` false: not read. */
 export function useTeamPrepared(enabled = true, again: unknown = null): { data: TeamPreparedData | null; failed: boolean; reload: () => void } {
   const [data, setData] = useState<TeamPreparedData | null>(null)
   const [failed, setFailed] = useState(false)
@@ -46,6 +51,7 @@ export function useTeamPrepared(enabled = true, again: unknown = null): { data: 
   useEffect(() => {
     if (!enabled) return
     let live = true, generation = 0
+    let timer: ReturnType<typeof setTimeout> | null = null
     const load = () => {
       const g = ++generation
       api.call(API.skillExamples).then(
@@ -53,9 +59,13 @@ export function useTeamPrepared(enabled = true, again: unknown = null): { data: 
         () => { if (live && g === generation) setFailed(true) },
       )
     }
+    const later = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => { timer = null; if (live) load() }, PREPARED_RELOAD_MS)
+    }
     load()
-    const offs = [skillsChanged.on(load), accessChanged.on(load), reloadAsked.on(load), filesChanged.on((c) => { if (touches(c)) load() })]
-    return () => { live = false; for (const off of offs) off() }
+    const offs = [skillsChanged.on(later), accessChanged.on(later), reloadAsked.on(later), filesChanged.on((c) => { if (touches(c)) later() })]
+    return () => { live = false; if (timer) clearTimeout(timer); for (const off of offs) off() }
   }, [enabled, attempt, again])
   return { data, failed, reload: () => { setFailed(false); setAttempt((n) => n + 1) } }
 }
@@ -69,8 +79,9 @@ export function preparedView(d: TeamPreparedData, o: { firstTime: boolean; admin
   const rows = skills.slice(0, PREPARED_SKILL_ROWS)
   const files = o.firstTime && d.teamFolder && d.teamFolder.files > 0 ? d.teamFolder : null
   const empty = !rows.length && !files
-  // nothing prepared at all (not only nothing shown): owners and admins get the two ways to prepare it
-  const nothing = !d.skills.length && !(d.teamFolder?.files ?? 0)
+  // nothing prepared at all (not only nothing shown): owners and admins get the two ways to prepare it. A count that
+  // stopped (`more`) before it found a document is not "nothing"
+  const nothing = !d.skills.length && !(d.teamFolder?.files ?? 0) && !d.teamFolder?.more
   const ready = empty && o.firstTime && !o.readOnly && !o.admin
   const add = empty && o.firstTime && o.admin && nothing
   const primary: 'skill' | 'files' | 'ready' | null = o.admin || o.readOnly ? null : rows.length ? 'skill' : files ? 'files' : ready ? 'ready' : null
@@ -84,9 +95,12 @@ export interface TeamPreparedProps {
   onCompose: (text: string) => void
   /** no AI answers the person (a member under the no-AI card): rows and 예시 only */
   readOnly?: boolean
+  /** whether skill rows show, once that is known (false after a failed read): Home leaves 「자주 쓰는 스킬」 out while they
+   * do, so two lists of skills never sit side by side */
+  onSkillRows?: (shown: boolean) => void
 }
 
-export function TeamPrepared({ firstTime, onCompose, readOnly = false }: TeamPreparedProps) {
+export function TeamPrepared({ firstTime, onCompose, readOnly = false, onSkillRows }: TeamPreparedProps) {
   const t = useT()
   const me = useMeStrict()
   const admin = isAdmin(me)
@@ -96,6 +110,11 @@ export function TeamPrepared({ firstTime, onCompose, readOnly = false }: TeamPre
   const [running, setRunning] = useState<PreparedSkill | null>(null)
   const [viewing, setViewing] = useState<PreparedSkill | null>(null)
   const exampleButtons = useRef(new Map<string, HTMLButtonElement>())
+  const skillRows = data ? preparedView(data, { firstTime, admin, readOnly }).rows.length > 0 : failed ? false : null
+  useEffect(() => {
+    if (skillRows !== null) onSkillRows?.(skillRows)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [skillRows])
   if (failed && !data) {
     return (
       <p className="mt-6 text-center text-label text-muted" data-testid="team-prepared-failed">
@@ -112,7 +131,8 @@ export function TeamPrepared({ firstTime, onCompose, readOnly = false }: TeamPre
     if (s.path === WORK_HUMANIZER_SKILL) onCompose(`/${s.name} ${t('home.prepared.humanizerAsk')}\n`)
     else setRunning(s)
   }
-  const askFiles = (path: string) => onCompose(t('home.prepared.filesAsk', { path }))
+  // the folders the count leaves out (the brand folder, the group's skills): the question leaves them out too
+  const askFiles = (f: NonNullable<TeamPreparedData['teamFolder']>) => onCompose(t('home.prepared.filesAsk', { path: f.path, skip: f.without.join(', ') }))
   const example = (s: PreparedSkill) => s.example && (
     <button
       ref={(el) => { if (el) exampleButtons.current.set(s.path, el); else exampleButtons.current.delete(s.path) }}
@@ -178,7 +198,7 @@ export function TeamPrepared({ firstTime, onCompose, readOnly = false }: TeamPre
               {readOnly ? (
                 <p className="flex min-h-11 items-center px-3 text-sm"><span className="min-w-0 flex-1 truncate"><span className="font-medium text-ink">{t('home.prepared.files')}</span><span className="text-muted"> · {count(v.files)}</span></span></p>
               ) : (
-                <button type="button" onClick={() => askFiles(v.files!.path)} aria-label={t('home.prepared.askNamed')} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-sm transition hover:bg-hover" data-testid="team-prepared-ask">
+                <button type="button" onClick={() => askFiles(v.files!)} aria-label={t('home.prepared.askNamed')} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-sm transition hover:bg-hover" data-testid="team-prepared-ask">
                   <span className="min-w-0 flex-1 truncate"><span className="font-medium text-ink">{t('home.prepared.files')}</span><span className="text-muted"> · {count(v.files)}</span></span>
                   <span className={clsx('shrink-0 text-label font-medium', v.primary === 'files' ? 'text-accent-text' : 'text-muted')} aria-hidden>{t('home.prepared.ask')}</span>
                 </button>
@@ -189,7 +209,7 @@ export function TeamPrepared({ firstTime, onCompose, readOnly = false }: TeamPre
               <span className="w-32 shrink-0 text-sm font-medium text-ink">{t('home.prepared.files')}</span>
               <span className="min-w-0 flex-1 truncate text-label text-muted" title={v.files.path}>{folderLabel(v.files.path)} · {count(v.files)}</span>
               {!readOnly && (
-                <Button size="sm" variant={v.primary === 'files' ? 'primary' : 'secondary'} onClick={() => askFiles(v.files!.path)} aria-label={t('home.prepared.askNamed')} data-testid="team-prepared-ask">
+                <Button size="sm" variant={v.primary === 'files' ? 'primary' : 'secondary'} onClick={() => askFiles(v.files!)} aria-label={t('home.prepared.askNamed')} data-testid="team-prepared-ask">
                   {t('home.prepared.ask')}
                 </Button>
               )}

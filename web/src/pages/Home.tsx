@@ -87,6 +87,9 @@ export default function Home() {
   const admin = isAdmin(me)
   /** a suggestion chosen: into the box (focused), never sent */
   const choose = (text: string) => setPreset({ text, n: (preset?.n ?? 0) + 1 })
+  // whether "팀에 준비된 것" shows skill rows (null: not known yet): 「자주 쓰는 스킬」 waits for the answer and stays out
+  // while they show, so two lists of skills never sit side by side
+  const [skillRows, setSkillRows] = useState<boolean | null>(null)
   // a project's new chat is about that project: the team's goal and setup row stay on Home itself
   const top = !noAi && extras && admin && !projectId && ai.loaded && <HomeTop owner={isOwner(me)} />
   // someone joined with the owner's lead link (docs/DECISIONS.md "W6"): while its card shows, it is the one thing at the
@@ -133,11 +136,11 @@ export default function Home() {
             {phone && extras && !projectId && <RecentChats />}
             {/* "팀에 준비된 것" (W6.3), once the chats are known (the files row and the ready question are for no chats);
                 read-only under a member's no-AI card */}
-            {(suggest || (noAi && !admin && !projectId)) && chatsLoaded && <TeamPrepared key={`prepared-${me.user.id}`} firstTime={firstTime} readOnly={noAi} onCompose={choose} />}
+            {(suggest || (noAi && !admin && !projectId)) && chatsLoaded && <TeamPrepared key={`prepared-${me.user.id}`} firstTime={firstTime} readOnly={noAi} onCompose={choose} onSkillRows={setSkillRows} />}
             {suggest && <FrequentQuestions key={me.user.id} onChoose={choose} />}
-            {/* B-W7-7: the team's top skills, once two or more were used. A different key from FrequentQuestions: same-key
-                siblings render twice */}
-            {suggest && <PopularSkills key={`skills-${me.user.id}`} limit={3} min={2} className="mt-6" onChoose={choose} />}
+            {/* B-W7-7: the team's top skills, once two or more were used, and not while "팀에 준비된 것" lists skills
+                (W6.3). A different key from FrequentQuestions: same-key siblings render twice */}
+            {suggest && skillRows === false && <PopularSkills key={`skills-${me.user.id}`} limit={3} min={2} className="mt-6" onChoose={choose} />}
           </div>
         </div>
       </div>

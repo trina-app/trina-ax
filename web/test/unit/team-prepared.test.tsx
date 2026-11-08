@@ -19,10 +19,11 @@ import { MemoryRouter } from 'react-router-dom'
 import type { PreparedSkill, TeamPrepared as Data } from '@mycel/shared/api'
 import { translate, useLocaleStore, type MessageKey } from '../../src/i18n'
 import { folderLabel, preparedView, TeamPrepared } from '../../src/components/onboarding/TeamPrepared'
-import { EmptyTeamLine } from '../../src/components/onboarding/InviteStep'
+import { EmptyTeamLine, InviteStep } from '../../src/components/onboarding/InviteStep'
+import { useHandover } from '../../src/store/handover'
 import { skillsChanged } from '../../src/store/live'
 import { useSession } from '../../src/store/session'
-import { installDom, mount, removeDom, type Mounted } from './dom-host'
+import { installDom, mount, removeDom, type FakeElement, type Mounted } from './dom-host'
 import { packExample } from '../../../server/src/onboarding/skill-examples'
 
 const ko = (k: MessageKey, p?: Record<string, string | number>) => translate('ko', k, p)
@@ -34,7 +35,9 @@ const CARDS = skill('skills/general/card-news/SKILL.md', '카드뉴스', { examp
 const VIDEO = skill('skills/general/promo-video/SKILL.md', '홍보 영상', { example: { kind: 'image', url: '/skill-examples/ko/promo-video.webp' }, locale: 'ko', source: { kind: 'team' } })
 const DECK = skill('skills/general/intro-deck/SKILL.md', '회사 소개서', { source: { kind: 'team' } })
 const FOLDER = 'groups/Acme'
-const full = (o: Partial<Data> = {}): Data => ({ skills: [HUMANIZER, CARDS, VIDEO, DECK], teamFolder: { path: FOLDER, files: 18, more: false }, landing: null, ranTeamSkill: false, hasProfile: false, ...o })
+/** the team folder's count as the server sends it: the brand folder and the group's skills left out */
+const tf = (files: number, more = false) => ({ path: FOLDER, files, more, without: ['브랜드', 'skills'] })
+const full = (o: Partial<Data> = {}): Data => ({ skills: [HUMANIZER, CARDS, VIDEO, DECK], teamFolder: tf(18, false), landing: null, ranTeamSkill: false, hasProfile: false, ...o })
 
 // ---- the fake server
 let data: Data | null = full()
@@ -105,7 +108,7 @@ describe('the rules (no screen)', () => {
     expect(preparedView(full(), member)).toMatchObject({ more: 1, primary: 'skill', ready: false, add: false, shown: true })
     expect(preparedView(full(), member).rows.map((s) => s.title)).toEqual(['자연스러운 글', '카드뉴스', '홍보 영상'])
     expect(preparedView(full({ skills: [] }), member)).toMatchObject({ primary: 'files', ready: false })
-    expect(preparedView(full({ teamFolder: { path: FOLDER, files: 0, more: false } }), member)).toMatchObject({ primary: 'skill', files: null })
+    expect(preparedView(full({ teamFolder: tf(0, false) }), member)).toMatchObject({ primary: 'skill', files: null })
     expect(preparedView(full({ skills: [], teamFolder: null }), member)).toMatchObject({ primary: 'ready', ready: true, shown: true })
     // chatted before (no team skill run): the skills stay, the files row goes, no question
     expect(preparedView(full(), { ...member, firstTime: false })).toMatchObject({ primary: 'skill', files: null, shown: true })
@@ -118,9 +121,11 @@ describe('the rules (no screen)', () => {
     // owners and admins: never a filled one; nothing prepared at all: the two ways to prepare it
     const admin = { firstTime: true, admin: true, readOnly: false }
     expect(preparedView(full(), admin).primary).toBeNull()
-    expect(preparedView(full({ skills: [], teamFolder: { path: FOLDER, files: 0, more: false } }), admin)).toMatchObject({ add: true, ready: false, primary: null })
+    expect(preparedView(full({ skills: [], teamFolder: tf(0, false) }), admin)).toMatchObject({ add: true, ready: false, primary: null })
     // a skill run and no documents: not "nothing prepared"
     expect(preparedView(full({ ranTeamSkill: true, teamFolder: null }), admin).shown).toBe(false)
+    // a count that stopped before it found a document (a folder of many folders): not "nothing prepared" either
+    expect(preparedView(full({ skills: [], teamFolder: tf(0, true) }), admin)).toMatchObject({ add: false, shown: false })
     expect(folderLabel('groups/Acme/회사 자료')).toBe('Acme › 회사 자료')
   })
 })
@@ -178,13 +183,13 @@ describe('a member', () => {
       expect(m.get('skill-example').getAttribute('data-name')).toBe('humanizer')
       expect(m.get('skill-example-source').getAttribute('data-kind')).toBe('team_writing')
       await m.click('team-prepared-ask')
-      expect(composed).toEqual([ko('home.prepared.filesAsk', { path: FOLDER })])
-      expect(composed[0]).toBe('groups/Acme 폴더의 파일 이름과 종류만 보고, 내가 먼저 보면 좋을 것 3개를 골라 줘')
+      expect(composed).toEqual([ko('home.prepared.filesAsk', { path: FOLDER, skip: '브랜드, skills' })])
+      expect(composed[0]).toBe('groups/Acme 폴더의 파일 이름과 종류만 보고(브랜드, skills 폴더는 빼고), 내가 먼저 보면 좋을 것 3개를 골라 줘')
     } finally { await m.unmount() }
   })
 
   test('files only: 물어보기 is the filled one; "100개 넘게" past the count', async () => {
-    data = full({ skills: [], teamFolder: { path: FOLDER, files: 100, more: true } })
+    data = full({ skills: [], teamFolder: tf(100, true) })
     const m = await open()
     try {
       await m.until(() => m.find('team-prepared-files'), 'the files row')
@@ -195,7 +200,7 @@ describe('a member', () => {
   })
 
   test('skills only (the brand folder does not count, so no files row): the first 써 보기 is filled', async () => {
-    data = full({ teamFolder: { path: FOLDER, files: 0, more: false } })
+    data = full({ teamFolder: tf(0, false) })
     const m = await open()
     try {
       await m.until(() => m.find('team-prepared'), 'the block')
@@ -303,7 +308,7 @@ describe('owners and admins', () => {
         expect(filled(m)).toEqual([])
         expect(m.get('team-prepared').getAttribute('data-primary')).toBeNull()
       } finally { await m.unmount() }
-      data = full({ skills: [], teamFolder: { path: FOLDER, files: 0, more: false } })
+      data = full({ skills: [], teamFolder: tf(0, false) })
       m = await open({ role })
       try {
         await m.until(() => m.find('team-prepared-add'), 'the links')
@@ -323,7 +328,7 @@ describe('the invite step\'s empty-team line', () => {
     return mount(<MemoryRouter><EmptyTeamLine steps={steps} /></MemoryRouter>)
   }
   test('no skills and no documents: one line; its links go to the steps in /welcome, else to 팀 스킬 and 파일', async () => {
-    data = full({ skills: [], teamFolder: { path: FOLDER, files: 0, more: false } })
+    data = full({ skills: [], teamFolder: tf(0, false) })
     const went: string[] = []
     let m = await line('owner', { skills: () => went.push('skills'), files: () => went.push('files') })
     try {
@@ -344,8 +349,39 @@ describe('the invite step\'s empty-team line', () => {
     } finally { await m.unmount() }
   })
 
+  test('the welcome steps\' invite step: the line above the message; gone while "이 사람이 팀장이에요" is ticked (the lead sets up), back when unticked', async () => {
+    data = full({ skills: [], teamFolder: tf(0) })
+    signIn('owner')
+    useHandover.setState({ loaded: true, state: { flag: true, recovery: 'server', openLead: null, card: null, connections: [] } } as never)
+    /** a click on a checkbox turns it over before its handlers run (the browser's own step, which the fake DOM leaves out) */
+    const tick = async (m: Mounted, box: FakeElement) => {
+      const checked = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(box), 'checked')!
+      checked.set!.call(box, !checked.get!.call(box))
+      await m.click(box)
+    }
+    const went: string[] = []
+    const m = await mount(<MemoryRouter><InviteStep prepare onDone={() => {}} steps={{ skills: () => went.push('skills'), files: () => went.push('files') }} /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('invite-empty-team'), 'the line')
+      expect(m.find('lead-flag')).not.toBeNull()
+      // above the team link's part, inside the invite step
+      const html = m.html()
+      expect(html.indexOf('data-testid="invite-empty-team"')).toBeGreaterThan(html.indexOf('data-testid="lead-flag"'))
+      await m.click('invite-empty-skills')
+      expect(went).toEqual(['skills'])
+      await tick(m, m.get('lead-flag-check'))
+      await m.until(() => m.find('lead-create'), 'the lead link part')
+      expect(m.find('invite-empty-team')).toBeNull()
+      await tick(m, m.get('lead-flag-check'))
+      await m.until(() => m.find('invite-empty-team'), 'the line again')
+    } finally {
+      await m.unmount()
+      useHandover.getState().reset()
+    }
+  })
+
   test('a skill or a document: no line; never for a member', async () => {
-    for (const d of [full({ teamFolder: { path: FOLDER, files: 0, more: false } }), full({ skills: [] })]) {
+    for (const d of [full({ teamFolder: tf(0, false) }), full({ skills: [] }), full({ skills: [], teamFolder: tf(0, true) })]) {
       data = d
       const m = await line('owner')
       try {

@@ -99,7 +99,7 @@ for (const width of [1440, 390] as const) {
       await expect(page.getByTestId('skill-example')).toHaveCount(0)
       // 물어보기: the question in the box, not sent
       await block(page).getByTestId('team-prepared-ask').click()
-      await expect(page.getByTestId('composer-input')).toHaveValue(`${FOLDER} 폴더의 파일 이름과 종류만 보고, 내가 먼저 보면 좋을 것 3개를 골라 줘`)
+      await expect(page.getByTestId('composer-input')).toHaveValue(`${FOLDER} 폴더의 파일 이름과 종류만 보고(브랜드, skills 폴더는 빼고), 내가 먼저 보면 좋을 것 3개를 골라 줘`)
       await expect(page).toHaveURL(/\/$/)
       // 팀 스킬 1개 더 › 팀 스킬
       await block(page).getByTestId('team-prepared-more').click()
