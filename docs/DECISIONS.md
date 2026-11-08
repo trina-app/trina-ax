@@ -11361,7 +11361,8 @@ deleted and the auto-add removed ("자동 추가가 있다고?? … 굳이 물�
 - **No auto-add, and nothing in its place.** `server/src/onboarding/default-skills.ts` (the seeder, 5 s after the
   start and every 10 minutes) and its call in `setupWelcomeTeam` are gone; no "new skills, add them?" prompt. The
   welcome steps still install the general pack once (now 3 skills); the empty Team skills page's one admin button
-  ("추천 스킬 4개 넣기") installs the general and work packs. Members keep their line.
+  ("추천 스킬 4개 넣기") installs the general and work packs. Members keep their line. (Superseded by W6: the button
+  became the catalog fold "트리나가 준비한 스킬 · N개 더", and each skill goes in by name.)
 - **할 일 정리 gone:** the skill everything points at (`landingSkill`) is the shared skill only, else none: the invite
   link lands on Home and the end screen offers 홈으로 alone. The general pack is recorded once any of its skills is
   there (no one skill decides), so a missing 할 일 정리 never holds the team's start back or makes the page ask again.
@@ -14051,6 +14052,84 @@ the project's audience, the answer goes to the room; otherwise it stays private 
   instructions, the audit), `tests/security/room-reads-shared-chats.test.ts` (people × states, a member outside the
   audience, a planted instruction), `b-shared-chats`, `step-labels-tools`, `b-codex-rooms`.
 - Version impact: **minor** (two AI tools in rooms and an audit action; no API or database change).
+
+## W6 — Onboarding v6: skills catalog and 내 스킬 (feat/onb6-catalog, 2026-11-08, product owner)
+
+넣을 곳: trina-ax `server/src/onboarding/skill-packs.ts`, `server/src/routes/onboarding-packs.ts`,
+`server/src/skills/share.ts`, `shared/src/api`, `web/src/components` (onboarding/SkillsStep.tsx, AvailableSkills.tsx,
+skills/), 이유: onboarding v6.2 (FLOW-v6 §2, §2.2, §2.5, §4.1, §4.2, §6): nothing goes into a team without a press that
+names it, and the four kept skills (DS3) are chosen, not installed for the owner.
+
+- **The catalog** (`GET /api/onboarding/packs`, owners and admins; `skillPackCatalog`): every kept skill in `CATALOG`'s
+  order (회사 소개서, 카드뉴스, 홍보 영상, 자연스러운 글), with its title (the SKILL.md's, in the language of the text the
+  team gets), one line in the caller's language (`SUMMARY`, five languages; the SKILL.md description is written for the
+  AI), `inTeam` (its path, or another team skill of its name: `/<name>` would run either one, so `placeSkill` blocks
+  it), `visual` (made from the company profile), its example, its locale and its source; and `profile` (a company profile
+  is saved). A test holds `CATALOG` to `SKILL_PACKS`, so a skill shipped later is one more row: it only raises "N개 더",
+  with no notice, Inbox line, dot, toast or prompt.
+- **Install by name.** `POST /api/onboarding/packs/:id/install` takes `skills` (absent: the whole pack, as before). A name
+  not in the pack is refused before anything is written. An install holding a visual skill runs the hooks of
+  `onVisualSkillInstall` first; a hook that throws is logged and the skill still goes in. The route registers the brand
+  action there (welcome-result.ts `ensureBrand`: the website's pictures and 회사 소개.md in the brand folder, FLOW-v6
+  §1A), **on the team owner's own press only**. An admin's press leaves the brand not done: run under the admin's
+  account it would be marked done (`brandAt`) with whatever that account reaches, and nothing would fill it again. Left
+  open, the owner's next 회사 소개 save, the server's run on a read, or the owner's own install places it as the owner.
+  The simpler of the two ways (running it as the owner instead would write the owner's files on an admin's press and
+  name the owner in the audit for it). An owner's install
+  that put anything in marks 내 스킬 done while the steps are under way (not finished), like a share applied anywhere
+  (`recordShared`); an admin's does not. A skill the team deleted goes in again on a press that names it.
+- **Sources** (`PackSkillSource`): `team` "트리나 팀이 만들었어요" for the three visual skills; `team_writing` for the Korean
+  자연스러운 글 (the company's own Korean writing skill); `adapted` for the English one (Siqi Chen's MIT "humanizer",
+  rewritten), the only link out ("원본 보기 ↗" → github.com/blader/humanizer). Teams in id, ja and es get the English text,
+  so its source line and example.
+- **Examples** (EXAMPLES-PLAN.md): registered in `PACK_EXAMPLES` by the language of the skill text and the skill name
+  once their files exist; none yet, so the viewer says "예시를 준비하고 있어요". An image is
+  `web/public/skill-examples/<locale>/<name>.webp` (≤ 90 KB, `PACK_EXAMPLE_LIMITS`), loaded only when the viewer opens;
+  a text is `resources/skill-packs/<pack>/<locale>/<name>/EXAMPLE.md`, imported as text like the SKILL.md (front matter
+  `fictional: true`, `company`, `made`, `engine`, `skillHash`, then a before → after excerpt in Markdown, ≤ 900 / 1,200
+  characters), sent without its front matter and drawn in the page's own theme. EXAMPLE.md is never installed. A test
+  checks every registered example's file and size.
+- **The viewer** (`skills/SkillExampleViewer.tsx`): one dialog, the phone's sheet on phones, one example per open: no ‹ ›
+  to the next row and no "넣기" mirror (FLOW-v6 §2.4; the row has the checkbox, and the owner prefers lean screens).
+  "가상의 회사 '예시커피'로 만든 예시예요 …" only when an example is shown; an image that fails shows the line and "예시를
+  불러오지 못했어요". ✕, Esc and a tap outside close it, the focus back on that row's 예시.
+- **내 스킬** (`onboarding/SkillsStep.tsx`): the kept skills the team lacks, snapshotted when the step first gets them
+  (rows and checks never move under the pointer), then bring-your-own (`SkillShareReview` embedded: no primary of its
+  own), under ONE primary that names what goes in: every skill, kept and own alike, up to three items ("회사 소개서·카드뉴스·
+  홍보 영상 넣기", "카드뉴스·주간 업무 보고 넣기"; the team rule and the tools, which have no skill name, as "… 외 {n}개"),
+  "팀에 넣기 · {n}개" from four on. Pre-checks without AI: the visual three when a profile is saved,
+  never 자연스러운 글, none on a revisit of a done step. On press the own skills go in first (their apply records the step),
+  then the kept ones per pack; all in: a toast and 팀 파일. When anything of the press failed, either part, the step stays:
+  it marks what went in and says why for the rest (a name taken, folder rules, a request that failed, with 다시 for only
+  those; "내 스킬 {k}개는 넣었어요 · 준비한 스킬은 넣지 못했어요" when own skills went in and kept ones did not). An own
+  skill's error stays on screen until the press is sent again (its 다시 or the primary, which also sends the kept skills
+  that failed); the kept skills' 다시 never moves the step on while it stands. With nothing left to send the primary
+  reads 다음. 나중에 하기 installs
+  nothing and drops an open own list; on a phone too (`skillsLater` is no longer set; old rows still read it). The
+  Claude Code·Codex line is behind one disclosure. A phone: the same rows with their one line (how a person chooses), and
+  one line that own skills go in on a computer.
+- **A real 30-second end for the own-skill check** (walk review M2). While own skills are checked the primary is disabled
+  ("내 스킬 살펴보는 중…"). A share still checking 30 seconds after the page showed it is ended by
+  `POST /api/skill-shares/:id/stop-check` (the proposer only; anyone else 404): an answer already in is read first;
+  otherwise the judge's turn is stopped and the share is `ready` with `ai: failed` (nothing recommended), so it can be
+  applied, and a late answer changes nothing (`finish` writes once). Audited `skills.share_stop_check`. A failed request
+  shows the network error with 다시; 그만 찾기 still drops the list. The server's own 10-minute limit stays for proposals
+  nobody watches (Claude Code, Codex). The Team skills sheet uses the same 30 seconds; `/skills/share/:id` does not.
+- **Team skills** (`AvailableSkills.tsx`): the empty page's "추천 스킬 4개 넣기" (DS3) becomes the fold "트리나가 준비한 스킬 ·
+  N개 더" under the lists, owners and admins only, nothing pre-checked, [팀에 넣기 · n개]; the rows that went in move up
+  into the list (the catalog is read again on `skillsChanged`). Hidden while the search box has text, absent when nothing
+  is missing; a failed read says "준비한 스킬을 불러오지 못했어요" with 다시. Then "내 스킬 가져오기" for everyone on a
+  computer: owners and admins pick a folder and apply it (`skills/BringSkillsSheet.tsx`: the same picker as 내 스킬,
+  [팀에 넣기 · n개] with [닫기] beside it, not 나중에 하기); members get `ContributeSheet` (스킬로 제안). On a phone one plain line: "쓰던 스킬은
+  컴퓨터에서 넣어요". A member's empty page: "아직 팀 스킬이 없어요 · 팀장이나 관리자가 넣으면 여기에 보여요" and the
+  스킬로 제안 hint. Members see 회사 소개서 when the team put it in: an ordinary team skill (OPEN Q3).
+- **Left to the other v6 parts:** the brand action itself and `brandAt` (`ensureBrand`, registered here), the
+  general pack leaving `setupWelcomeTeam`, 준비 끝's first result, 팀 파일, 도구 연결, the handover, the member suggestion's
+  new trigger, the desktop folder window and the example files.
+- Tests: `tests/unit/b-skill-catalog.test.ts` (the catalog, install by name, the hook, the brand on the owner's press
+  only, the welcome record, stop-check),
+  the web unit tests of the step, the viewer and the fold, and `web/test/e2e/onb6-skills.spec.ts`.
+- Version impact: **minor** (two endpoints, an optional request body, new screens; no migration).
 
 ## W6 — Onboarding v6: steps, 회사 소개 without a deck, 도구 연결, 준비 끝 (feat/onb6-core, 2026-11-08, product owner)
 

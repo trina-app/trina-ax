@@ -166,8 +166,6 @@ function WelcomeSteps() {
   /** 내 스킬 가져오기 shared something: the server recorded the step done (it does for a share applied anywhere); the copy
    * here is read again */
   const applied = () => { void useWelcome.getState().load(true).catch(() => {}) }
-  /** the phone's "다음": 내 스킬 waits for a computer (the setup row there says so), the steps go on */
-  const skillsLater = () => run(async () => go(await useWelcome.getState().update({ skillsLater: true }), 'skills'))
 
   if (loadError)
     return (
@@ -202,10 +200,11 @@ function WelcomeSteps() {
       <div ref={region} tabIndex={-1} className={back ? 'mt-2 outline-none' : 'mt-8 outline-none'} data-step={gate ? 'ai' : step}>
         {gate && <AiStep busy={busy} onLater={() => navigate('/')} />}
         {!gate && step === 'profile' && <ProfileWizardStep progress={progress} busy={busy} onContinue={(brandFailed) => void leaveProfile('done', brandFailed)} onSkip={() => void leaveProfile('skipped')} />}
-        {!gate && step === 'skills' && brandNote && <p className="mb-4 text-label text-warn" role="status" data-testid="welcome-brand-failed">{t('welcome.brand.failed')}</p>}
         {!gate && step === 'skills' && (
           <SkillsStep team={progress.teamGroup?.name ?? me.team.name} nextLabel={nextLabel('skills')} busy={busy} onApplied={applied}
-            onNext={() => void mark('skills', 'done')} onSkip={() => void mark('skills', 'skipped')} onPhoneNext={() => void skillsLater()} />
+            onNext={() => void mark('skills', 'done')} onSkip={() => void mark('skills', 'skipped')}
+            // the brand materials did not go in: said once, under the step's heading (FLOW-v6 §1A)
+            note={brandNote ? <p className="text-label text-warn" role="status" data-testid="welcome-brand-failed">{t('welcome.brand.failed')}</p> : undefined} />
         )}
         {!gate && step === 'files' && <TeamFilesStep progress={progress} busy={busy} nextLabel={nextLabel('files')} onDone={(n) => void mark('files', n > 0 ? 'done' : 'skipped')} onSkip={() => void mark('files', 'skipped')} />}
         {!gate && step === 'tools' && <ToolsStep busy={busy} done={progress.steps.tools === 'done'} nextLabel={nextLabel('tools')} onDone={() => void mark('tools', 'done')} onSkip={() => void mark('tools', 'skipped')} />}

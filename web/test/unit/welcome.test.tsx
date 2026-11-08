@@ -550,7 +550,8 @@ describe('/welcome', () => {
       await m.click(laterButton())
       await m.until(() => stepOf(m) === 'skills', 'step 2')
       expect(called('POST /api/onboarding/welcome/team')).toHaveLength(1)
-      expect(calls.filter((c) => /\/packs?\b/.test(c.key))).toEqual([])
+      // 내 스킬 reads the kept skills' catalog (GET /api/onboarding/packs); nothing installs a pack before a press
+      expect(calls.filter((c) => /^POST .*\/packs?\b/.test(c.key))).toEqual([])
       expect(called('POST /api/onboarding/welcome/brand')).toEqual([])
       expect(progress!.general).toEqual(NEW_GENERAL)
       expect(progress!.teamGroup).toEqual(TEAM)
@@ -574,7 +575,7 @@ describe('/welcome', () => {
       expect((m.get('profile-step-site').querySelector('input[inputmode="url"]') as unknown as { value: string }).value).toBe('https://acme.example/')
       await m.click(laterButton())
       await m.until(() => stepOf(m) === 'skills', 'step 2 again')
-      expect(calls.filter((c) => /\/packs?\b/.test(c.key))).toEqual([])
+      expect(calls.filter((c) => /^POST .*\/packs?\b/.test(c.key))).toEqual([])
       expect(called('POST /api/onboarding/welcome/team')).toEqual([])
     } finally { await m.unmount() }
   })
@@ -589,7 +590,7 @@ describe('/welcome', () => {
         await m.click(laterButton())
         await m.until(() => stepOf(m) === 'skills', '내 스킬')
         expect(called('POST /api/onboarding/welcome/team')).toHaveLength(1)
-        expect(calls.filter((c) => /\/packs?\b/.test(c.key))).toEqual([])
+        expect(calls.filter((c) => /^POST .*\/packs?\b/.test(c.key))).toEqual([])
         expect(progress!.teamType).toBe(start.teamType)
       } finally { await m.unmount() }
       useWelcome.getState().reset()
@@ -642,7 +643,8 @@ describe('/welcome', () => {
       expect(calls.findIndex((c) => c.key === 'POST /api/onboarding/welcome/brand')).toBeLessThan(calls.findIndex((c) => c.key === 'PATCH /api/onboarding/welcome' && c.body.step?.id === 'profile'))
       expect(called('PATCH /api/onboarding/welcome').map((c) => c.body).filter((b) => b.step?.id === 'profile')).toEqual([{ step: { id: 'profile', state: 'done' } }])
       expect(called('POST /api/chats')).toEqual([])
-      expect(calls.filter((c) => /\/messages$|\/first-result$|\/packs?\b|attachments/.test(c.key))).toEqual([])
+      // 내 스킬 reads the kept skills' catalog (a GET); nothing installs one
+      expect(calls.filter((c) => /\/messages$|\/first-result$|^POST .*\/packs?\b|attachments/.test(c.key))).toEqual([])
       expect(progress!.resultChatId).toBeNull()
       expect(m.find('welcome-brand-failed')).toBeNull()
       // ← 이전: 회사 소개 again, the same line; 저장하고 계속 puts in only what is missing again (the server's rule)
