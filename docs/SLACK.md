@@ -56,6 +56,13 @@ of the old one.
 - **In a channel** the answer is shown to you only, with *Post to channel*. Pressing it posts the answer to the thread,
   "Asked by <you>", without the steps, the files it read or the link to your chat. Each answer can be posted once, and
   only by the person who asked.
+- **An answer that used places not everyone on the team can see** (a group's folder, your own folder, a team connection
+  or shared Drive, the in-app browser, your personal connections, your memories, a room): pressing *Post to channel*
+  first turns it into a notice, to you only, that names those places as you may see them (never what is in them, never
+  who cannot see them), with *Post anyway* and *Cancel*. *Post anyway* posts it after the same checks again (your link,
+  Slack Connect asked again, once only); *Cancel* puts the answer back, to you only. Slack does not tell the app who in
+  a channel is who here, so the test is the whole team: everything the answer used must be readable by every active
+  member, or the notice comes. A DM has no button and no notice.
 - **In a channel shared with another organization** (Slack Connect) there is no *Post to channel*; the answer says why.
   Slack is asked again when the button is pressed.
 - **In a DM** the answer comes in the thread of your message (a new message, so Slack notifies you; "working…" goes).
@@ -123,6 +130,13 @@ after 1, 2, 4 … seconds (at most a minute).
   does not parse), so they never mention `@here`, `@channel` or a person. A link to a page of the app shows its text
   only; any other link shows its host next to its text ("급여명세서.pdf (evil.example)") unless the text names that host.
   The notification text is plain, with `&`, `<`, `>` written out.
+- *Post to channel* checks what the answer used with 대화방에 보내기's check (`chat/answer-share.ts`: the files every
+  answer on its branch read, the chat's read scope when it describes the answer, "not all known" otherwise) and the
+  memory rule of sharing a chat, against every active account but the asker; a team connection or a shared Drive counts
+  whoever may use it. The notice is plain text (no markup, mention or link from a folder's or a connection's name).
+  *Post anyway* carries a keyed hash (a secret of this server process) of what the notice said, for that request and
+  asker: a value without it, another request's, or one from before something changed (a rule, a member, a restart)
+  shows the notice again. `slack.posted` then has `confirmed: true`.
 - The connection is pinged every 30 seconds; one that stops answering (the Mac slept, the network dropped it) is opened
   again.
 - A link is bound to the Slack account it was sent to, and binds only when that account's e-mail (Slack's, read by the
@@ -143,7 +157,7 @@ after 1, 2, 4 … seconds (at most a minute).
 ## Code and tests
 
 `server/src/integrations/slack/` (`api.ts` the Web API, `socket.ts` Socket Mode, `envelope.ts` the shapes,
-`manifest.ts`, `service.ts`, `text.ts`), `server/src/routes/slack.ts`, migration `server/migrations/335_c_slack.sql`,
+`manifest.ts`, `post-check.ts` what an answer used before it is posted, `service.ts`, `text.ts`), `server/src/routes/slack.ts`, migration `server/migrations/335_c_slack.sql`,
 contract `shared/src/api/slack.ts`, screens `web/src/pages/admin/Slack.tsx`, `web/src/pages/SlackLink.tsx`,
 `web/src/components/settings/SlackAccount.tsx`. Tests: `tests/unit/c-slack.test.ts` with the fake Slack
 `tests/lib/fake-slack.ts` (Web API, Socket Mode, response URLs, the OpenID Connect token method; nothing reaches Slack), the permission matrix

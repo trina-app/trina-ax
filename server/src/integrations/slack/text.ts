@@ -42,6 +42,19 @@ export const TEXT = {
   emailChangedNotice: t('관리자가 내 계정의 이메일을 바꿨어요. 7일 동안은 이 이메일로 Slack 연결을 확인할 수 없어요.', 'An admin changed the e-mail of your account. For 7 days it cannot be used to confirm a Slack link.', 'Admin mengubah e-mail akun Anda. Selama 7 hari e-mail itu tidak bisa dipakai untuk memastikan tautan Slack.', "管理者があなたのアカウントのメールアドレスを変更しました。7日間はこのメールアドレスでSlack連携を確認できません。", "Un administrador cambió el correo de su cuenta. Durante 7 días no sirve para confirmar un vínculo de Slack."),
   teammate: t('팀원', 'a teammate', 'rekan tim', "チームメンバー", "un compañero"),
   notLinked: t('Slack 계정이 더 이상 연결되어 있지 않아요.', 'Your Slack account is no longer connected.', 'Akun Slack Anda tidak lagi terhubung.', "Slackアカウントの連携は解除されています。", "Su cuenta de Slack ya no está conectada."),
+  // "Post to channel" for an answer that used places not everyone on the team can see (post-check.ts)
+  postCheck: t('이 답에는 팀 사람 모두가 볼 수는 없는 곳의 내용이 들어 있어요: {places}. 그래도 채널에 올릴까요?', 'This answer used places not everyone on the team can see: {places}. Post it to the channel anyway?', 'Jawaban ini memakai isi dari tempat yang tidak bisa dilihat semua orang di tim: {places}. Tetap kirim ke kanal?', "この回答には、チームの全員は見られない場所の内容が含まれています：{places}。それでもチャンネルに投稿しますか？", "Esta respuesta usó lugares que no todo el equipo puede ver: {places}. ¿Publicarla en el canal de todos modos?"),
+  postAnyway: t('그래도 올리기', 'Post anyway', 'Tetap kirim', "それでも投稿", "Publicar de todos modos"),
+  postCancel: t('올리지 않기', 'Cancel', 'Batal', "投稿しない", "Cancelar"),
+  placeTop: t('팀 폴더', 'the team folder', 'folder tim', "チームフォルダー", "la carpeta del equipo"),
+  placeMine: t('내 폴더', 'your folder', 'folder Anda', "あなたのフォルダー", "su carpeta"),
+  placeBrowser: t('앱 안 브라우저', 'the in-app browser', 'browser di dalam aplikasi', "アプリ内ブラウザー", "el navegador de la aplicación"),
+  placeConnection: t('내 개인 연결', 'your personal connections', 'koneksi pribadi Anda', "あなたの個人用の連携", "sus conexiones personales"),
+  placeMemories: t('내 메모리', 'your memories', 'memori Anda', "あなたのメモリ", "sus memorias"),
+  placeRoom: t('{name} 대화방', 'the {name} chat room', 'ruang obrolan {name}', "{name} トークルーム", "la sala de chat {name}"),
+  placeEveryone: t('전체 대화방', 'the everyone chat room', 'ruang obrolan Semua', "全員のトークルーム", "la sala de chat Todos"),
+  placeConversation: t('1:1·그룹 대화', '1:1 and group conversations', 'percakapan 1:1 dan grup', "1:1・グループの会話", "conversaciones 1:1 y de grupo"),
+  placeOther: t('그 밖의 자료', 'other material', 'materi lain', "その他の資料", "otro material"),
 }
 export type TextKey = keyof typeof TEXT
 

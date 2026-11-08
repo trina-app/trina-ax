@@ -802,6 +802,156 @@ describe('asking', () => {
   })
 })
 
+describe('"Post to channel" checks what the answer used, against the whole team', () => {
+  // alice is in marketing: groups/marketing is hers, erin's and the admins', not bob's; shared/ is everyone's
+  const read = (file_path: string) => `@fake ${JSON.stringify({ tool: 'read', args: { file_path } })}`
+  let n = 0
+  /** a question in its own channel; the request id the answer's button carries */
+  async function ask(lines: string[], text: string): Promise<{ id: string; channel: string }> {
+    const channel = `C0CHECK${++n}`
+    mention('U0ALICE', [...lines, say(text)].join('\n'), { channel })
+    const a = await waitFor(() => ephemeralsTo('U0ALICE').find((c) => c.args.channel === channel && blocksOf(c).includes(text) && blocksOf(c).includes('trina_post')), { timeoutMs: 30_000 })
+    return { id: (JSON.parse(a!.args.blocks!) as any[]).find((b) => b.type === 'actions').elements[0].value as string, channel }
+  }
+  let tag = 0
+  /** press a button of the asker's ephemeral message; Slack's answer through its response URL */
+  async function press(action: string, value: string, channel: string, user = 'U0ALICE') {
+    const path = `/actions/check-${++tag}`
+    fake.action({ type: 'block_actions', api_app_id: 'A0APP', user: { id: user, team_id: 'T0ACME' }, team: { id: 'T0ACME' },
+      container: { type: 'message', channel_id: channel, is_ephemeral: true }, actions: [{ action_id: action, value, type: 'button' }], response_url: `${fake.url}${path}` })
+    const r = await waitFor(() => fake.responses.find((x) => x.path === path), { timeoutMs: 15_000 })
+    return r!.body as { text: string; replace_original?: boolean; blocks?: any[] }
+  }
+  const postsTo = (channel: string) => fake.of('chat.postMessage').filter((c) => c.args.channel === channel)
+  const buttonsOf = (body: { blocks?: any[] }) => (body.blocks ?? []).filter((b) => b.type === 'actions').flatMap((b) => b.elements) as { action_id: string; value: string }[]
+  const stateOf = (id: string) => (h.ctx.db.query('SELECT state FROM slack_requests WHERE id = ?').get(id) as { state: string }).state
+  const chatOf = (id: string) => (h.ctx.db.query('SELECT chat_id FROM slack_requests WHERE id = ?').get(id) as { chat_id: string }).chat_id
+
+  test('an answer from what the whole team reads is posted at once, as before', async () => {
+    const q = await ask([read('shared/glossary.md')], 'From the glossary.')
+    // it did read the file (the check has something to look at)
+    expect((h.ctx.db.query("SELECT path FROM message_sources s JOIN slack_requests r ON r.message_id = s.message_id WHERE r.id = ?").all(q.id) as { path: string }[]).map((s) => s.path)).toContain('shared/glossary.md')
+    const body = await press('trina_post', q.id, q.channel)
+    expect(body.text).toBe('Posted to the thread.')
+    expect(postsTo(q.channel).length).toBe(1)
+    expect(stateOf(q.id)).toBe('posted')
+  })
+
+  test('an answer from a group folder: a notice to the asker naming the folder, nothing posted; Cancel keeps it to them', async () => {
+    const q = await ask([read('groups/marketing/campaigns/instagram-plan.md')], 'From the marketing plan.')
+    const body = await press('trina_post', q.id, q.channel)
+    expect(body.replace_original).toBe(true)
+    const shown = JSON.stringify(body)
+    expect(body.text).toBe('This answer used places not everyone on the team can see: groups/marketing/. Post it to the channel anyway?')
+    // plain text, never markup; the folder, not the file; nothing of what is in it, nobody named
+    expect(body.blocks![0]).toEqual({ type: 'section', text: { type: 'plain_text', text: body.text, emoji: false } })
+    for (const no of ['instagram-plan', 'Target impressions', 'From the marketing plan', 'bob', 'Bob', 'erin']) expect(shown).not.toContain(no)
+    // the link to the chat, and the two buttons
+    expect(shown).toContain(`${h.url}/c/${chatOf(q.id)}`)
+    const [anyway, cancel] = buttonsOf(body)
+    expect(anyway).toMatchObject({ action_id: 'trina_post_anyway', text: { text: 'Post anyway' } })
+    expect(anyway!.value.startsWith(`${q.id}.`)).toBe(true)
+    expect(cancel).toMatchObject({ action_id: 'trina_post_cancel', value: q.id, text: { text: 'Cancel' } })
+    expect(postsTo(q.channel)).toEqual([])
+    expect(stateOf(q.id)).toBe('delivered')
+    // Cancel: the answer back, to the asker only, with its button (pressing it asks again)
+    const kept = await press('trina_post_cancel', cancel!.value, q.channel)
+    expect(kept.replace_original).toBe(true)
+    expect(JSON.stringify(kept.blocks)).toContain('From the marketing plan.')
+    expect(JSON.stringify(kept.blocks)).toContain('Only you can see this answer')
+    expect(buttonsOf(kept)).toEqual([expect.objectContaining({ action_id: 'trina_post', value: q.id })])
+    expect(postsTo(q.channel)).toEqual([])
+    expect(stateOf(q.id)).toBe('delivered')
+    const again = await press('trina_post', q.id, q.channel)
+    expect(again.text).toBe(body.text)
+    expect(buttonsOf(again)[0]!.value).toBe(anyway!.value)
+    expect(postsTo(q.channel)).toEqual([])
+  })
+
+  test('Post anyway posts once, audited as confirmed; replayed or forged values post nothing more', async () => {
+    const q = await ask([read('groups/marketing/campaigns/naver-plan.md')], 'Naver plan summary.')
+    const notice = await press('trina_post', q.id, q.channel)
+    const anyway = buttonsOf(notice).find((b) => b.action_id === 'trina_post_anyway')!.value
+    const key = anyway.slice(q.id.length + 1)
+    // not the asker: nothing, whatever the value
+    expect((await press('trina_post_anyway', anyway, q.channel, 'U0BOB')).text).toMatch(/can no longer be posted/)
+    // the request id without the key, a key that is not this notice's, another button carrying the key: no post
+    expect((await press('trina_post_anyway', q.id, q.channel)).text).toMatch(/can no longer be posted/)
+    expect((await press('trina_post_anyway', `${q.id}.${'A'.repeat(key.length)}`, q.channel)).text).toBe(notice.text)
+    expect((await press('trina_post_anyway', `${q.id}.${key}.x`, q.channel)).text).toBe(notice.text)
+    expect((await press('trina_post', anyway, q.channel)).text).toMatch(/can no longer be posted/)
+    // another request's notice key does not post this one
+    const other = await ask([read('groups/marketing/campaigns/email-plan.md')], 'Email plan summary.')
+    const otherKey = buttonsOf(await press('trina_post', other.id, other.channel)).find((b) => b.action_id === 'trina_post_anyway')!.value.slice(other.id.length + 1)
+    expect((await press('trina_post_anyway', `${q.id}.${otherKey}`, q.channel)).text).toBe(notice.text)
+    expect(postsTo(q.channel)).toEqual([])
+    // the asker's yes to this notice: posted, once
+    expect((await press('trina_post_anyway', anyway, q.channel)).text).toBe('Posted to the thread.')
+    const posted = postsTo(q.channel)
+    expect(posted.length).toBe(1)
+    expect(blocksOf(posted[0]!)).toContain('Naver plan summary.')
+    expect(blocksOf(posted[0]!)).toContain('Asked by alice.slack')
+    expect(stateOf(q.id)).toBe('posted')
+    const audits = (h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'slack.posted' AND target = ?").all(chatOf(q.id)) as { detail: string }[]).map((a) => JSON.parse(a.detail))
+    expect(audits).toEqual([{ channel: q.channel, confirmed: true }])
+    // the same yes again, the first button again, Cancel after it: already posted, nothing more
+    expect((await press('trina_post_anyway', anyway, q.channel)).text).toMatch(/already posted/)
+    expect((await press('trina_post', q.id, q.channel)).text).toMatch(/already posted/)
+    expect((await press('trina_post_cancel', q.id, q.channel)).text).toMatch(/already posted/)
+    expect(postsTo(q.channel).length).toBe(1)
+  })
+
+  test('Post anyway asks Slack again: a channel shared since, or one Slack says nothing about, gets nothing', async () => {
+    for (const [list, said] of [[fake.sharedChannels, 'shared with another organization'], [fake.unknownChannels, 'did not say whether']] as const) {
+      const q = await ask([read('groups/marketing/brand-guidelines.docx')], `Brand summary ${said}.`)
+      const anyway = buttonsOf(await press('trina_post', q.id, q.channel)).find((b) => b.action_id === 'trina_post_anyway')!.value
+      list.add(q.channel)
+      expect((await press('trina_post_anyway', anyway, q.channel)).text).toContain(said)
+      expect(postsTo(q.channel)).toEqual([])
+      expect(stateOf(q.id)).toBe('delivered')
+    }
+  })
+
+  test('a team connection everyone may use, a personal connection, the browser and memories are not team-wide', async () => {
+    const q = await ask([], 'Nothing read.')
+    const chat = chatOf(q.id)
+    const db = h.ctx.db
+    const now = new Date().toISOString()
+    db.query("INSERT INTO integrations (id, scope, owner_user_id, created_by, kind, name, slug, url, auth, status, created_at, updated_at) VALUES ('int-crm', 'team', NULL, 'dana', 'mcp', 'Acme CRM', 'acme-crm', 'https://crm.acme.example/mcp', 'none', 'connected', ?, ?)").run(now, now)
+    db.query("INSERT INTO integration_access (integration_id, subject_type, subject_id) VALUES ('int-crm', 'everyone', '')").run()
+    const scope = (sources: unknown[]) => db.query('UPDATE chats SET session_read_scope = ? WHERE id = ?').run(JSON.stringify({ sources, v: 2, unlisted: [] }), chat)
+    try {
+      scope([{ type: 'integration', id: 'int-crm' }])
+      expect((await press('trina_post', q.id, q.channel)).text).toBe('This answer used places not everyone on the team can see: Acme CRM. Post it to the channel anyway?')
+      scope([{ type: 'user', id: 'alice', via: 'connection' }, { type: 'user', id: 'alice', via: 'browser' }])
+      expect((await press('trina_post', q.id, q.channel)).text).toBe('This answer used places not everyone on the team can see: the in-app browser, your personal connections. Post it to the channel anyway?')
+      scope([])
+      db.query("INSERT INTO memories (id, user_id, text, source, created_at) VALUES ('mem-slack', 'alice', 'MEMORY-CANARY likes tea', 'user', '2020-01-01T00:00:00.000Z')").run()
+      const m = await press('trina_post', q.id, q.channel)
+      expect(m.text).toBe('This answer used places not everyone on the team can see: your memories. Post it to the channel anyway?')
+      expect(JSON.stringify(m)).not.toContain('MEMORY-CANARY')
+      expect(postsTo(q.channel)).toEqual([])
+      // in Korean too (the asker's language)
+      db.query("UPDATE users SET locale = 'ko' WHERE id = 'alice'").run()
+      expect((await press('trina_post', q.id, q.channel)).text).toBe('이 답에는 팀 사람 모두가 볼 수는 없는 곳의 내용이 들어 있어요: 내 메모리. 그래도 채널에 올릴까요?')
+    } finally {
+      db.query("UPDATE users SET locale = 'en' WHERE id = 'alice'").run()
+      db.query("DELETE FROM memories WHERE id = 'mem-slack'").run()
+      db.query("DELETE FROM integrations WHERE id = 'int-crm'").run()
+    }
+    // nothing narrower left: posted at once
+    scope([])
+    expect((await press('trina_post', q.id, q.channel)).text).toBe('Posted to the thread.')
+  })
+
+  test('in a DM nothing changes: the answer comes in the thread, no button, no notice', async () => {
+    const ts = nextTs()
+    fake.event({ type: 'message', channel_type: 'im', user: 'U0ALICE', text: `${read('groups/marketing/campaigns/instagram-plan.md')}\n${say('DM marketing answer.')}`, ts, channel: 'D0CHECK', event_ts: ts })
+    const a = await waitFor(() => fake.of('chat.postMessage').find((c) => c.args.channel === 'D0CHECK' && blocksOf(c).includes('DM marketing answer.')), { timeoutMs: 30_000 })
+    expect(blocksOf(a!)).not.toContain('trina_post')
+  })
+})
+
 describe('Enterprise Grid: one link per Slack user, whatever the enterprise id', () => {
   test('a link made by signing in carries the workspace\'s enterprise id; questions with it are answered; no second link for the same Slack user', async () => {
     // the workspace is part of an organization: the tokens are saved again (same workspace: the links stay)
