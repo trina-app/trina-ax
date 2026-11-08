@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-08 00:51
 - Branch: `feat/project-list-menu`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`web/src/pages/Projects.tsx`, `web/src/components/Sidebar.tsx`). Why: projects and chats are
   core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. Two menu additions in the web app on the API that already exists; no API, rule or database
@@ -61,7 +61,7 @@ Out:
 
 ## Result
 
-PR: (link added when the PR is open)
+PR: https://github.com/trina-app/trina-ax/pull/182
 
 Built as planned, plus what the review found:
 - `Projects.tsx`: `ProjectCardMenu` on each card (`MenuButton`), and `useDeleteProject()` for the card and the project
