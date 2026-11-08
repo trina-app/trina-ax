@@ -123,6 +123,8 @@ export function MoveToProjectDialog({ chat, onClose, onMoved }: { chat: Chat; on
   const [error, setError] = useState<string | null>(null)
   // moved, and to be shared now: the share's own steps take the dialog's place
   const [sharing, setSharing] = useState<string | null>(null)
+  const movedText = useRef('')
+  const shared = useRef(false)
   useEffect(() => {
     let live = true
     api.call(API.listProjects).then((r) => { useProjects.getState().put(...r.items); if (live) setProjects(r.items) }, (e) => { if (live) { setProjects([]); setError(errorText(e, locale, t('error.network'))) } })
@@ -138,17 +140,32 @@ export function MoveToProjectDialog({ chat, onClose, onMoved }: { chat: Chat; on
     try {
       const c = await api.call(API.updateChat, { params: { id: chat.id }, body: { projectId: selected } })
       const to = projects?.find((p) => p.id === selected)
-      toast({ level: 'success', text: to ? t('chat.project.moved', { name: to.name }) : t('chat.project.removed') })
+      movedText.current = to ? t('chat.project.moved', { name: to.name }) : t('chat.project.removed')
       onMoved(c)
+      // to be shared: the share's own toast says it all; its confirm is not covered by this one (a phone's sheet), and
+      // the move is told when the chat ends up not shared
       if (canShare && share) setSharing(c.id)
-      else onClose()
+      else {
+        toast({ level: 'success', text: movedText.current })
+        onClose()
+      }
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
     } finally {
       setBusy(false)
     }
   }
-  if (sharing) return <ShareChatFlow chatId={sharing} onClose={onClose} onShared={onMoved} />
+  if (sharing)
+    return (
+      <ShareChatFlow
+        chatId={sharing}
+        onShared={(c) => { shared.current = true; onMoved(c) }}
+        onClose={() => {
+          if (!shared.current) toast({ level: 'success', text: movedText.current })
+          onClose()
+        }}
+      />
+    )
   return (
     <Modal
       open

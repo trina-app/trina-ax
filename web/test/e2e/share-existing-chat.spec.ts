@@ -82,6 +82,8 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(toggle).toBeChecked()
       await dialog.getByTestId('chat-project-save').click()
       await expect(page.getByTestId('toast').filter({ hasText: '프로젝트 사람들과 공유했어요' })).toBeVisible()
+      // one toast: the share says it (the header says where it went)
+      await expect(page.getByTestId('toast')).toHaveCount(1)
       await expect(page.getByRole('dialog')).toHaveCount(0)
       // the header's mark and the line under the box, as for any shared chat
       await expect(page.getByTestId('chat-project')).toHaveText('Launch')
@@ -116,8 +118,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const dialog = await openMove(page)
       await dialog.getByText('프로젝트 사람들과 공유', { exact: true }).click()
       await dialog.getByTestId('chat-project-save').click()
-      // moved first (its toast), then one dialog asks
-      await expect(page.getByTestId('toast').filter({ hasText: "'Launch' 프로젝트로 옮겼어요" })).toBeVisible()
+      // one dialog asks (no toast over it: the move is told when it ends up not shared)
       const ask = page.getByRole('dialog', { name: '이 채팅을 프로젝트 사람 1명과 공유할까요?' })
       await expect(ask).toBeVisible()
       await expect(ask.getByTestId('share-chat-note')).toHaveText('공유하면 지금까지의 대화도 모두 보여요. 공유는 되돌릴 수 없어요.')
@@ -127,9 +128,11 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(ask.getByTestId('share-chat-confirm')).toBeFocused()
       await expect(ask.getByTestId('share-chat-ask').locator('p').first()).toHaveAttribute('data-testid', 'share-chat-note')
       await audit(page, 'share confirm')
+      await expect(page.getByTestId('toast')).toHaveCount(0)
       await ask.getByTestId('share-chat-cancel').click()
       await expect(page.getByRole('dialog')).toHaveCount(0)
-      // moved, and still mine alone
+      // moved (now it says so), and still mine alone
+      await expect(page.getByTestId('toast').filter({ hasText: "'Launch' 프로젝트로 옮겼어요" })).toBeVisible()
       await expect(page.getByTestId('chat-project')).toHaveText('Launch')
       await expect(page.getByTestId('chat-shared')).toHaveCount(0)
       const b = await bob(browser)
