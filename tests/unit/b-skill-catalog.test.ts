@@ -2,14 +2,17 @@
 // routes/onboarding-packs.ts, skills/share.ts stopSkillShareCheck):
 //   - GET /api/onboarding/packs (owners and admins; members 403): every kept skill in the catalog's order, its title in
 //     the team's language, one line in the caller's, whether the team has it (its path, or a team skill of its name),
-//     the visual ones, no example until one is registered, its source (the English humanizer the only link out), and
-//     whether a company profile is saved; every skill of every pack is in the catalog (a skill shipped later is a row);
+//     the visual ones, its example (every kept skill has one in Korean and English, made from the SKILL.md it ships
+//     with: an image in the web build, a text without its front matter; id, ja, es get the English one), its source
+//     (the English humanizer the only link out), and whether a company profile is saved; every skill of every pack is in
+//     the catalog (a skill shipped later is a row);
 //   - POST /api/onboarding/packs/:id/install with `skills`: only those (a name not in the pack refused before anything
 //     is written); the visual skills run the brand hook first (a hook that throws never stops the install); an owner's
 //     install marks 내 스킬 done while the steps are under way (an admin's, a finished row's, an all-blocked one's: no);
 //   - POST /api/skill-shares/:id/stop-check (the proposer; anyone else 404): a check still running ends now, ready with
 //     nothing recommended, and a late answer changes nothing; a share no longer checking is returned as it is.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { API, PACK_EXAMPLE_LIMITS, type SkillShare } from '@mycel/shared/api'
@@ -37,15 +40,26 @@ describe('the catalog (no server)', () => {
     for (const c of CATALOG.filter((x) => x.name !== 'humanizer')) for (const l of ['ko', 'en'] as const) expect(c.source(l)).toEqual({ kind: 'team' })
   })
 
-  test('an example: none until registered; an image is the web build\'s file, a text loses its front matter; Korean or English', () => {
-    expect(packExample('ko', 'card-news')).toBeNull()
+  test('an example: an image is the web build\'s file, a text loses its front matter; Korean or English (id, ja, es: English); a name without one: none', () => {
+    expect(packExample('ko', 'card-news')).toEqual({ kind: 'image', url: '/skill-examples/ko/card-news.webp' })
+    expect(packExample('en', 'intro-deck')).toEqual({ kind: 'image', url: '/skill-examples/en/intro-deck.webp' })
+    for (const l of ['id', 'ja', 'es'] as const) {
+      expect(packExample(l, 'promo-video')).toEqual({ kind: 'image', url: '/skill-examples/en/promo-video.webp' })
+      expect(packExample(l, 'humanizer')).toEqual(packExample('en', 'humanizer'))
+    }
+    const ko = packExample('ko', 'humanizer')
+    expect(ko?.kind).toBe('text')
+    const md = ko!.kind === 'text' ? ko!.markdown : ''
+    expect(md.startsWith('**전**')).toBe(true)
+    expect(md).toContain('**후**')
+    expect(md).not.toMatch(/fictional|skillHash/)
+    expect(packExample('ko', 'no-such-skill')).toBeNull()
     const before = { ko: { ...PACK_EXAMPLES.ko }, en: { ...PACK_EXAMPLES.en } }
     try {
-      PACK_EXAMPLES.ko['card-news'] = { kind: 'image' }
       PACK_EXAMPLES.en.humanizer = { kind: 'text', text: '---\nfictional: true\ncompany: Example Coffee\nmade: 2026-11-08\nengine: claude\nskillHash: abc\n---\n## Before\nWe deliver innovative solutions.\n\n## After\nWe roast beans every week.\n' }
-      expect(packExample('ko', 'card-news')).toEqual({ kind: 'image', url: '/skill-examples/ko/card-news.webp' })
       expect(packExample('ja', 'humanizer')).toEqual({ kind: 'text', markdown: '## Before\nWe deliver innovative solutions.\n\n## After\nWe roast beans every week.' })
-      expect(packExample('en', 'card-news')).toBeNull()
+      delete PACK_EXAMPLES.ko['card-news']
+      expect(packExample('ko', 'card-news')).toBeNull()
     } finally {
       PACK_EXAMPLES.ko = before.ko
       PACK_EXAMPLES.en = before.en
@@ -53,21 +67,48 @@ describe('the catalog (no server)', () => {
     expect(exampleBody('no front matter')).toBe('no front matter')
   })
 
-  test('the registered examples are in the build and within their limits (an image ≤ 90 KB, a text ≤ 900 / 1,200 characters)', () => {
+  test('every kept skill has its example in Korean and English, made from the SKILL.md it ships with, within the limits (an image: WebP 1280 px wide, ≤ 90 KB; a text: ≤ 900 / 1,200 characters, its front matter complete)', () => {
+    /** what an example records of its SKILL.md: the first 12 hex digits of its sha256 */
+    const skillHash = (text: string) => createHash('sha256').update(text).digest('hex').slice(0, 12)
+    const stale = (locale: string, name: string) => `${locale}/${name}: its SKILL.md changed after the example was made. Make the example again (examples/data/example-coffee/README.md) and record the new skillHash.`
     for (const locale of ['ko', 'en'] as const) {
-      for (const [name, e] of Object.entries(PACK_EXAMPLES[locale])) {
-        expect(CATALOG.some((c) => c.name === name)).toBe(true)
-        if (e!.kind === 'image') {
-          const file = path.join(ROOT, 'web/public/skill-examples', locale, `${name}.webp`)
-          expect(fs.statSync(file).size).toBeLessThanOrEqual(PACK_EXAMPLE_LIMITS.imageBytes)
+      expect(Object.keys(PACK_EXAMPLES[locale]).sort()).toEqual(CATALOG.map((c) => c.name).sort())
+      for (const c of CATALOG) {
+        const e = PACK_EXAMPLES[locale][c.name]!
+        const skill = SKILL_PACKS[c.pack].skills[locale]![c.name]!
+        // a picture for what is a picture anyway; the text skill draws in the page's own theme
+        expect(e.kind).toBe(c.visual ? 'image' : 'text')
+        if (e.kind === 'image') {
+          const bytes = fs.readFileSync(path.join(ROOT, 'web/public/skill-examples', locale, `${c.name}.webp`))
+          expect(bytes.length).toBeLessThanOrEqual(PACK_EXAMPLE_LIMITS.imageBytes)
+          expect(webpWidth(bytes)).toBe(1280)
+          if (e.skillHash !== skillHash(skill)) throw new Error(stale(locale, c.name))
         } else {
-          expect(e!.text).toMatch(/^---[\s\S]*fictional: true[\s\S]*---/)
-          expect([...exampleBody(e!.text)].length).toBeLessThanOrEqual(PACK_EXAMPLE_LIMITS.textChars[locale])
+          const front = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(e.text)?.[1] ?? ''
+          const meta = Object.fromEntries(front.split(/\r?\n/).map((l) => [l.slice(0, l.indexOf(':')).trim(), l.slice(l.indexOf(':') + 1).trim()]))
+          expect(meta).toMatchObject({ fictional: 'true', company: locale === 'ko' ? '예시커피' : 'Example Coffee' })
+          expect(meta.made).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+          expect(meta.engine).toBeTruthy()
+          if (meta.skillHash !== skillHash(skill)) throw new Error(stale(locale, c.name))
+          expect([...exampleBody(e.text)].length).toBeLessThanOrEqual(PACK_EXAMPLE_LIMITS.textChars[locale])
         }
       }
+      // nothing else in the web build's example folder (a picture no skill names would ship unseen)
+      expect(fs.readdirSync(path.join(ROOT, 'web/public/skill-examples', locale)).sort()).toEqual(CATALOG.filter((c) => c.visual).map((c) => `${c.name}.webp`).sort())
     }
+    expect(fs.readdirSync(path.join(ROOT, 'web/public/skill-examples')).sort()).toEqual(['en', 'ko'])
   })
 })
+
+/** The width of a WebP picture (its VP8X, VP8L or VP8 header), or 0 when it is not one. */
+function webpWidth(b: Buffer): number {
+  if (b.subarray(0, 4).toString('latin1') !== 'RIFF' || b.subarray(8, 12).toString('latin1') !== 'WEBP') return 0
+  const chunk = b.subarray(12, 16).toString('latin1')
+  if (chunk === 'VP8X') return (b[24]! | (b[25]! << 8) | (b[26]! << 16)) + 1
+  if (chunk === 'VP8L') return ((b[21]! | (b[22]! << 8)) & 0x3fff) + 1
+  if (chunk === 'VP8 ') return (b[26]! | (b[27]! << 8)) & 0x3fff
+  return 0
+}
 
 describe('over the API', () => {
   let h: Harness
@@ -87,11 +128,12 @@ describe('over the API', () => {
       const c = await h.api(who).call(API.listSkillPacks)
       expect(c.profile).toBe(false)
       expect(c.skills.map((s) => [s.pack, s.name, s.path, s.title, s.inTeam, s.visual, s.example, s.locale])).toEqual([
-        ['general', 'intro-deck', 'skills/general/intro-deck/SKILL.md', '회사 소개서', false, true, null, 'ko'],
-        ['general', 'card-news', 'skills/general/card-news/SKILL.md', '카드뉴스', false, true, null, 'ko'],
-        ['general', 'promo-video', 'skills/general/promo-video/SKILL.md', '홍보 영상', false, true, null, 'ko'],
-        ['work', 'humanizer', 'skills/work/humanizer/SKILL.md', '자연스러운 글', false, false, null, 'ko'],
+        ['general', 'intro-deck', 'skills/general/intro-deck/SKILL.md', '회사 소개서', false, true, { kind: 'image', url: '/skill-examples/ko/intro-deck.webp' }, 'ko'],
+        ['general', 'card-news', 'skills/general/card-news/SKILL.md', '카드뉴스', false, true, { kind: 'image', url: '/skill-examples/ko/card-news.webp' }, 'ko'],
+        ['general', 'promo-video', 'skills/general/promo-video/SKILL.md', '홍보 영상', false, true, { kind: 'image', url: '/skill-examples/ko/promo-video.webp' }, 'ko'],
+        ['work', 'humanizer', 'skills/work/humanizer/SKILL.md', '자연스러운 글', false, false, packExample('ko', 'humanizer'), 'ko'],
       ])
+      expect(c.skills[3]!.example).toMatchObject({ kind: 'text', markdown: expect.stringContaining('11월 25일까지 hello@coffee.example') })
       expect(c.skills[0]!.description).toBe('회사 소개로 6~10장짜리 소개서를 만들어요')
       expect(c.skills[3]!.source).toEqual({ kind: 'team_writing' })
     }
@@ -106,6 +148,9 @@ describe('over the API', () => {
       const c = skillPackCatalog(h.ctx, 'dana', 'ja')
       expect(c.skills.map((s) => s.title)).toEqual(['Company profile', 'Promo cards', 'Promo video', 'Natural writing'])
       expect(c.skills.every((s) => s.locale === 'en')).toBe(true)
+      // the English examples, made on "Example Coffee"
+      expect(c.skills.map((s) => (s.example?.kind === 'image' ? s.example.url : s.example?.kind))).toEqual(['/skill-examples/en/intro-deck.webp', '/skill-examples/en/card-news.webp', '/skill-examples/en/promo-video.webp', 'text'])
+      expect(c.skills[3]!.example).toMatchObject({ markdown: expect.stringContaining('hello@coffee.example') })
       expect(c.skills[3]!.source).toMatchObject({ kind: 'adapted', url: 'https://github.com/blader/humanizer' })
       expect(c.skills[3]!.description).toBe('AIが書いたように見える文章を、人が書いたように整えます')
     } finally { setSetting(h.ctx.db, 'defaultLocale', 'ko') }
