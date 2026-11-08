@@ -105,6 +105,7 @@ People join from the desktop and phone apps by pasting the invite link or the te
 - **Phone app**: https with a certificate from a public certificate authority (self-signed certificates and user-installed authorities are not trusted), and `GET /api/health` must answer directly, without a redirect.
 - **Phone notifications** work only when the server sets `MYCEL_PUSH_GATEWAY`.
 - **Where people find the address**: Settings › Apps shows the team address to everyone signed in, with a copy button.
+- **Tapped links**: on a `*.trina.app` team, a tapped invite or team link opens the phone app (universal links and app links; every team server serves `/.well-known/apple-app-site-association` and `/.well-known/assetlinks.json`). The apps declare only `*.trina.app`, so on a domain of your own a tapped link opens the browser; its join page has **Open in the app** (`trina-ax://open?url=…`), which opens the desktop or phone app instead. Either way the app first asks "Connect to {host}?" and loads nothing before the answer.
 
 ## After installing
 

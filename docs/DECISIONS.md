@@ -14718,3 +14718,55 @@ accounts, relay names); nothing about plans or billing.
   request at 01:00 KST on the 1st under November, shows November's "this month" and sends November's notice);
   `tests/unit/g-timezone.test.ts` drops the "without a zone" case.
 - Version impact: **patch** (a fix and one hint string; no API, setting or data format change).
+
+## First run, phase 2: a tapped link opens the app, behind screen ④ (feat/first-run-open-links, 2026-11-08, product owner)
+
+Builds on "First run: one box" (PR 1). Plan: `docs/AGENTS/plan/20261108-1025-first-run-open-links.md`.
+
+- **One link reader** (`readAppLink`, `shared/src/team-link.ts`, the phone's copy identical): `trina-ax://open?url=<encoded
+  team link>`, nothing else in it (one `url`, no other parameter, no fragment, no user, no port, host `open`), and on the
+  phone also the hosted domain's own invite or team link (`https://<name>.trina.app/invite/…`, `/join#t=…`, a universal
+  link / app link). The address inside goes through the box's rules: https (http only to this machine on the desktop),
+  no user:password, no `javascript:` / `file:` / `data:` / scheme-relative / bare names, no text around it. The host is
+  what the URL parser makes of it, so a numeric trick (`0x7f.1`, `2130706433`, `127.1`) shows as `127.0.0.1` and a
+  backslash ends the host (`evil.example\@acme.trina.app` is `evil.example`); none of them counts as hosted.
+- **Screen ④ for every link from outside**, in both apps: "{host}에 연결할까요? 직접 받은 링크가 맞을 때만
+  연결하세요.", the phase-1 outside note ("트리나가 운영하는 주소가 아니에요…") when the hosted service does not run it,
+  and on a phone in another team the switch line ("이제 {old} 알림은 이 휴대폰으로 오지 않아요.", [바꾸기]). [취소] has
+  the focus. Nothing is fetched or loaded before the yes; the yes runs the phase-1 path (health check, relay answers,
+  the link's page; the phone leaves its old team only then). `LinkGate` keeps the offer: a yes counts only for the host
+  ④ showed, not within 600 ms of ④ appearing, and once; a newer link replaces the waiting one (a click meant for the
+  first never confirms the second). Esc and Android back answer no.
+- **Desktop**: the packaged app is the scheme's handler (`app.setAsDefaultProtocolClient(PRODUCT.linkScheme)`; a
+  development run only with `MYCEL_DESKTOP_REGISTER_SCHEME=1`, so tests and dev builds never take the scheme over);
+  macOS `open-url` (registered before `ready`, so the link that launched the app is kept until the window exists);
+  Windows and Linux: the first instance's argv and the second instance's argv (`linkFromArgv`, only an argument that
+  starts with the scheme). Every path calls `AppWindow.offerLink`, which fetches nothing; only `answerLink` connects,
+  and only with the gate's offer. The renderer names the host it showed; the main process holds the link. The base
+  electron-builder config declares `protocols`, which the dmg and the Mac App Store build turn into `CFBundleURLTypes`
+  and the Microsoft Store package into a `windows.protocol` extension (its manifest template's `${extensions}`).
+- **Phone**: `Linking.getInitialURL()` and the `url` event; the `trina-ax` scheme was already registered (`scheme`);
+  `ios.associatedDomains: applinks:*.trina.app` and an Android intent filter with `autoVerify` for
+  `https://*.trina.app` `/invite/…` and `/join`, both only for an edition with a team domain (the neutral app declares
+  none).
+- **The scheme is `PRODUCT.linkScheme`** (`trina-ax`), the phone's `scheme` in `editions/trina/branding/mobile.json`; a
+  test keeps them equal. The web's "앱에서 열기" uses it too.
+- **Team servers serve the platforms' files** (`server/src/routes/app-links.ts`, off the API contract like the OAuth
+  metadata): `/.well-known/apple-app-site-association` (iOS 13+ `components`: `/invite/*`, and `/join` with `#t=*`; the
+  app id `<appleTeamId>.<bundleId>` from the branding, `shared/src/app-links.ts`) and `/.well-known/assetlinks.json`
+  (the package and the Play app signing certificate's SHA-256; 404 until that fingerprint is known, never the web app's
+  page). Public, the same for everyone, nothing about the team; JSON, no redirect, no cookie. Self-hosted servers serve
+  them too (harmless), but the apps declare only `*.trina.app`: on a domain of one's own a tapped link opens the
+  browser, and the join page's "앱에서 열기" is the way into the app.
+- **"앱에서 열기"** on both join pages (one line under "이미 가입했어요? 로그인"): `trina-ax://open?url=<this page's link>`,
+  the team link's token from memory (the page already took it out of the address bar). Only in a web browser on iOS,
+  Android, macOS and Windows; not inside the apps, not on Linux or anything else. Five languages.
+- **Outside this repository** (the PR lists them): the App ID's Associated Domains capability before a signed iOS build;
+  the files on `trina.app` itself for the wildcards (Android checks a wildcard host at its root; for Apple, serve both);
+  the Play signing fingerprint in `shared/src/app-links.ts`; new iOS, Android and Mac App Store builds; the signup's
+  last page.
+- Tests: `tests/unit/team-link.test.ts` (the reader on both copies: every crafted case, universal links, the gate),
+  `e-desktop-common` (the desktop reader, argv, the handlers reaching only `offerLink`, `answerLink` only with the
+  gate's offer, the configs declaring the scheme), `mobile-security` (the edition's associated domains and intent
+  filter, links only through ④), `app-links.test.ts` (the files, served signed out over the relay and directly, the
+  ids equal to the branding), `web/test/unit/first-run.test.tsx` and `web/test/e2e/first-run.spec.ts` ("앱에서 열기").
