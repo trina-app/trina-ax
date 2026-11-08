@@ -6,8 +6,8 @@
 // in Team settings, and a chat shows its own runs (docs/DECISIONS.md "Dev environment: no line on the project page").
 // Shared project chats (docs/DECISIONS.md "Shared project chats"): the setting is in the edit dialog (ProjectForm), the
 // list is "채팅" (my chats there and every shared chat of the project I can see, those with the people icon and the
-// faces of who wrote in them: ProjectChatRow), the box says who sees a new chat, and deleting the project says its
-// shared chats go too.
+// faces of who wrote in them: ProjectChatRow; it follows chat events, so another person's new chat shows at once), the
+// box says who sees a new chat, and deleting the project says its shared chats go to their creators' trash.
 // Each card on the list has a "…" (the rooms lists' row menu): 이름 바꾸기 and 삭제 for people who may edit the project
 // (the same rename prompt as a chat's, the same delete confirm as on the project page), 링크 복사 for everyone.
 import { FileText, FolderKanban, Folder, Link2, Pencil, Plus, ScrollText, Share2, Trash2 } from 'lucide-react'
@@ -21,6 +21,8 @@ import { openTeamFile } from '../lib/sidePanel'
 import { useLocale, useT } from '../i18n'
 import { toast } from '../store/ui'
 import { useChats } from '../store/chats'
+import { chatChanged } from '../store/live'
+import { chatTrashDays } from '../lib/chat-trash'
 import { useProjects } from '../store/projects'
 import { useMe } from '../store/session'
 import FolderPicker from '../components/FolderPicker'
@@ -38,16 +40,17 @@ import { useFocusAfterRemove } from './admin/common'
 /** The address of a project's page (the app's own route; someone who cannot see the project gets "not found"). */
 const projectLink = (id: string) => `${typeof location === 'undefined' ? '' : location.origin}/projects/${id}`
 
-/** Deleting a project, from its page and from its card on the list: one confirm (its shared chats are deleted with it,
- * for good: said when it has any, by the count the server gives now, not the one the page loaded with) and one call.
- * True when it is gone (also when someone else deleted it first). */
+/** Deleting a project, from its page and from its card on the list: one confirm (its shared chats go to their creators'
+ * trash, by its name in the sidebar: said when it has any, by the count the server gives now, not the one the page
+ * loaded with) and one call. True when it is gone (also when someone else deleted it first). */
 function useDeleteProject() {
   const t = useT()
   const locale = useLocale()
+  const days = chatTrashDays(useMe())
   const deleted = (id: string) => {
     useProjects.getState().drop(id)
-    // the server took the project off its private chats (its shared chats go with their own event): the history must
-    // not offer "프로젝트 바꾸기…" for a project that is not there any more
+    // the server took the project off its private chats (its shared chats go to the trash with their own event): the
+    // history must not offer "프로젝트 바꾸기…" for a project that is not there any more
     useChats.setState((s) => ({ chats: s.chats.map((c) => (c.projectId === id && !c.shared ? { ...c, projectId: null } : c)) }))
   }
   // not found: deleted by someone else, or no longer mine to see (then my chats keep it, as the server does)
@@ -70,12 +73,7 @@ function useDeleteProject() {
     // the person left the page while it was asked: no confirm on another page
     if (opener && !opener.isConnected) return false
     opener?.focus()
-    const body = now.sharedChats ? (
-      <>
-        {t('projects.deleteBodyShared')}
-        <span className="mt-2 block font-medium text-danger" data-testid="project-delete-shared">{t('projects.deleteShared', { n: now.sharedChats })}</span>
-      </>
-    ) : t('projects.deleteBody')
+    const body = now.sharedChats ? t('projects.deleteBodyShared', { days, trash: t('sidebar.trash') }) : t('projects.deleteBody')
     if (!(await confirmDialog({ title: t('projects.deleteTitle', { name: now.name }), body, confirm: t('common.delete'), danger: true }))) return false
     try {
       await api.call(API.deleteProject, { params: { id: p.id } })
@@ -299,7 +297,21 @@ export function ProjectHome() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
 
-  // its shared chats are deleted with it (for good): said in the dialog when it has any
+  // the list follows chat events (store/live.ts chatChanged; the server sends each person only the chats they see): a
+  // chat of this project made, renamed or restored shows, one deleted, moved away or no longer visible to me goes. The
+  // faces of who wrote in a shared chat come with the list only, so a row keeps the ones it had
+  useEffect(() => chatChanged.on(({ chatId, change, chat }) => {
+    setChats((cur) => {
+      if (!cur) return cur
+      const old = cur.find((c) => c.id === chatId)
+      const rest = cur.filter((c) => c.id !== chatId)
+      if (change === 'deleted' || change === 'purged' || !chat || chat.deletedAt || chat.projectId !== projectId) return old ? rest : cur
+      const next = old?.shared?.people && chat.shared && !chat.shared.people ? { ...chat, shared: { ...chat.shared, people: old.shared.people, peopleCount: old.shared.peopleCount } } : chat
+      return [next, ...rest].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : a.id < b.id ? 1 : -1))
+    })
+  }), [projectId])
+
+  // its shared chats go to their creators' trash: said in the dialog when it has any
   const remove = useDeleteProject()
   const del = async () => {
     if (p && (await remove(p))) navigate('/projects')

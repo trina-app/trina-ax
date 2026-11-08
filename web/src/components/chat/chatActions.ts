@@ -32,7 +32,8 @@ export function useChatActions() {
   }
 
   const remove = async (chat: Chat) => {
-    if (!(await confirmDialog({ title: t('chat.deleteTitle'), body: t('chat.deleteBody', { days: chatTrashDays(me) }), confirm: t('common.delete'), danger: true }))) return
+    // the trash by the name the sidebar gives it (a rename there follows here)
+    if (!(await confirmDialog({ title: t('chat.deleteTitle'), body: t('chat.deleteBody', { days: chatTrashDays(me), trash: t('sidebar.trash') }), confirm: t('common.delete'), danger: true }))) return
     try {
       await api.call(API.deleteChat, { params: { id: chat.id } })
       useChats.getState().removeChat(chat.id)

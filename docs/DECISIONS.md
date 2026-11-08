@@ -13844,8 +13844,9 @@ enters a shared transcript; that check is new here, and turns never run on the c
   anyone but the creator (for their own turns). Team-file references in messages are checked against each viewer's
   access whoever attached them (their name only); the widening card does not name a place of the chat's read scope the
   runner cannot see ("이 채팅에서 다른 사람이 연 곳").
-- **Around it.** Deleting a project deletes its shared chats for good (the dialog says how many; `Project.sharedChats`)
-  and keeps its private chats without project. A purged account's shared chats stay under its tombstone name. Export
+- **Around it.** Deleting a project keeps its private chats without project and moves its shared chats to their
+  creators' trash (replaced on 2026-11-08, "Shared project chats: the trash and live lists" below; until then they were
+  deleted for good and the dialog said how many). A purged account's shared chats stay under its tombstone name. Export
   holds only one's own shared chats one still sees. `markConfidentialTurn` refuses a shared chat. **Rollback guard:**
   this build marks every turn (`turns.shared_checked`); at start, a shared chat with an unmarked turn after `shared_at`
   (an older build ran it without the gate) stops being shared and turns queued there by others stop.
@@ -14079,7 +14080,8 @@ rule as team rooms ("지난 대화", `rooms/history.ts`). Plan: `docs/AGENTS/pla
   query per shared chat (should-fix: one per request); every viewer's walk read and parsed the chat again (should-fix:
   read once per request, `c` as a set); the migration's note on older builds was wrong for builds with 265 (fixed,
   above). Kept, written down: a chat that stops being shared is its creator's own again (the rollback guard, a lost
-  project), and they see every answer in it; the skill names and folder lists of the instructions are not recorded (as
+  project), and they see every answer in it (changed since: such a chat keeps these rules for its creator, "Shared
+  project chats: the trash and live lists" below); the skill names and folder lists of the instructions are not recorded (as
   in rooms); the URL gate counts addresses a hidden answer's web search showed as seen (no content reaches anyone);
   each answer's groups keep the audience's ids (a few KB for a big team). Round 2 (on the fixes): no must-fix; a
   search walked every chat for every member with a fresh account and rule cache (should-fix: kept per person for the
@@ -14094,6 +14096,83 @@ rule as team rooms ("지난 대화", `rooms/history.ts`). Plan: `docs/AGENTS/pla
   group skills), `tests/unit/b-rooms-ai-shared-chats.test.ts` ("an answer hidden from someone who sees the chat"),
   `b-share-existing-chat`, `web/test/unit/shared-chat-withheld.test.tsx`, `web/test/e2e/shared-project-chats.spec.ts`.
 - Version impact: **minor** (an optional API field, an add-only migration, a stricter rule for later readers).
+
+### Shared project chats: the trash and live lists — 프로젝트를 지우면 공유 채팅은 휴지통으로 (fix/shared-chat-trash-live, 2026-11-08, product owner)
+
+A design audit of dev found three problems. Plan: `docs/AGENTS/plan/20261108-1155-shared-chat-trash-live.md`.
+
+- **Deleting a project** (owner decision, replacing "deleted for good" above). Deleting one shared chat puts it in the
+  trash for the team's retention, but deleting its project purged every shared chat of it: the bigger action was the
+  one that could not be undone. Now each shared chat goes to its creator's trash, as a single delete does
+  (`routes/chats.ts deleteProject`), one already in the trash keeping its time there. It stops being shared and loses
+  its project (`shared_at`, `project_id` NULL, as the rollback guard unshares a chat): restored, it is its creator's
+  chat without project, which nobody else opens (404). Everyone else who saw it gets `chat.updated` 'purged' (its id
+  only), as before; the creator 'deleted' with their chat. Turns there stop first; a turn of someone else that ends
+  after the delete tells only the creator (`ChatRuntime.publishChat`: a chat of one person goes to its person, never to
+  another person's window), and a chat in the trash leaves the web's list whatever change says so.
+  - **What a restored chat shows** (the task: other people's turns not exposed wrongly). It keeps the rules of a chat
+    several people wrote in (`chat/shared.ts severalAuthors`: someone other than its creator sent a question there, not
+    a room's session), as the rollback guard's did for the AI (review fix 4 above: a labelled transcript, resuming only
+    one's own session, the folder emptied, the session tainted; `chat/turn.ts othersWrote`). New: the viewer's view too
+    (`messageView`): its creator sees other people's turns as they did while it was shared (no usage, failure reason or
+    step detail of theirs, paths and file summaries only where they may look) and an answer hidden from them ("People
+    who see a shared chat later") stays one line: on screen, in the sources list, in a search (a word only through a
+    message they see), out of their engine (`sharedWithheld`, no record written), in an export, in its artifacts.
+    "대화방에 보내기" takes their own turns' answers only, and "스킬로 제안" refuses the chat (someone else's words), as in
+    a shared chat; so do the server's own flows on a person's chat (`ChatStore.ownChat`: skill drafts, merges). The
+    wider-audience card names a place the chat read only when its creator may see it ("이 채팅에서 다른 사람이 연 곳"), an
+    attachment is judged as they see it, and the URL gate counts only addresses they typed (`url-gate.ts sharedChat`;
+    an address allowed on a card there is learned, within the link budget, since the record does not say who allowed
+    it).
+    Its marker and last outcome come from the creator's own answers. This applies to the rollback guard's chats too: an
+    answer of another person there with no record (an older build ran it) is hidden from the creator (fails closed;
+    rare: only after a rollback).
+  - **Who would not see it.** A chat whose creator would not see the project at that moment (they lost its folder, or
+    the account was deleted) is deleted for good as before (`accountSeesProject`; the audit's `sharedChatsPurged`
+    counts them): nobody could restore it, and giving it back would show its creator what was said after they lost it.
+    A disabled account counts as if enabled again (it would see its shared chats again then): its chats go to its
+    trash. A project whose folder is in the files trash (only admins see it then) is judged by the folder's own rules
+    as if it were back (`rulesInPlace`: the parked rules at its old path, as the files trash judges a restore), so an
+    admin who trashes the folder and then deletes the project does not purge its people's chats. A folder purged from
+    the files trash since has no rules of its own any more (the folder above may let in people it kept out): then only
+    the owner and admins count. The dialog does not say the rare purge.
+  - **The confirm** drops the red "공유 채팅 N개도 함께 지워져요." line (`projects.deleteShared` removed). With shared chats:
+    "프로젝트만 지워지고 폴더와 내 채팅은 그대로 남아요. 공유 채팅은 {days}일 동안 만든 사람의 "{trash}"에 있어요.", the
+    days the team's chat retention, `{trash}` the sidebar's name of the trash (`sidebar.trash`, "삭제한 기록"), so a
+    rename there follows. Without: the plain sentence as before.
+- **The editor's trash.** An editor of the project who deletes someone else's shared chat put it in the creator's trash
+  only (`user_id = me`), so they could not find what they had just deleted, though restore already let them. Now
+  `chats.deleted_by` (migration 274, add-only, a partial index) keeps who deleted a chat; set by every delete (and by a
+  project delete for the chats it moves), cleared on restore. The trash lists my own chats and the shared chats I
+  deleted, in one query (once each), and of shared chats only those I may restore now (`chatFor` 'manage': I see the
+  project and made the chat or may edit the project): one I deleted is gone from my trash once I lose the project or
+  the right to edit it, and once it is unshared (a deleted project's). An older build ignores the column.
+  The single delete's confirm said the chat goes to "삭제한 채팅", a screen that does not exist: it now names the trash
+  through `sidebar.trash` ('{days}일 동안 "{trash}"에 있다가 완전히 지워져요…', five languages), not a copy of its name.
+- **Live lists.** `afterAccessChange` (rules, groups, roles, accounts) sent nothing about chats: someone who lost the
+  project folder kept the shared chat in their list, and it opened to a 404. Now whoever saw a project with shared chats
+  (not in the trash) before the change and does not after gets `chat.updated` 'deleted' with no chat for each of them
+  (`chat/shared.ts sharedChatsHidden`: one read of the shared chats, each project judged under both states for the
+  people whose access changed or who are gone only; after the replay buffers are emptied; never throws). The chat's details never go to someone who cannot see it. The web's
+  chat list also reloads on the `access_changed` notice (a chat seen again comes back). The project page loaded its
+  chats once: it now applies `chat.updated` of its project (`store/live.ts chatChanged`, every event, also those the
+  chat list does not keep): a new, renamed, restored or moved-in chat shows, a deleted, moved-out or hidden one goes;
+  a row keeps the faces it had (they come with the list only). The mock follows (`/__test/revoke` sends the removals).
+- **Independent review (2026-11-08).** Must-fix: the wider-audience card of a restored chat named places other
+  people's turns read (fixed above). Should-fix, fixed: a project whose folder was in the trash purged its members'
+  chats; the URL gate took addresses others typed as the creator's; `ownChat` (skill drafts, merges) took the chat.
+  Nits fixed: the removal check runs for the people whose access changed only; a late notice of another person's turn
+  is not told to the creator; the marker and last outcome. Round 2 (on the fixes): no must-fix; a project whose folder
+  was purged from the trash judged its creators by the folder above (should-fix: owner and admins only). Kept: the confirms name the trash by the sidebar's label
+  (`sidebar.trash`, what one clicks to get there; the page's heading `trash.title` reads the same).
+- **Not here.** A project repoint or its folder moved to the trash also change who sees its chats, outside
+  `afterAccessChange`: no removal is sent then (the next list load drops them, as before). Unsharing by hand.
+- Tests: `tests/unit/b-shared-chat-trash.test.ts` (project delete: the trash, the events, restore, the per-viewer
+  view, hidden answers everywhere (with the card's words, artifacts and the URL gate), the creator who would not see it,
+  a disabled creator, a folder in the files trash, a turn that outlives the share; the trash: the deleter's, once, only while they may restore; access changes: the removal to who lost it,
+  nothing to the others), `tests/unit/b-shared-chats.test.ts`, `web/test/unit/project-list-menu.test.tsx`,
+  `web/test/e2e/shared-project-chats.spec.ts` ("live lists", "the trash"), `web/test/e2e/project-list-menu.spec.ts`.
+- Version impact: **minor** (an add-only migration, a changed project delete, a wider trash list).
 
 ## 대화방의 트리나가 공유 프로젝트 채팅을 읽는다 — a room's AI reads shared project chats (feat/room-reads-shared-chats, 2026-11-07, product owner)
 

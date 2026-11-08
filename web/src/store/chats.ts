@@ -536,7 +536,8 @@ export const useChats = create<ChatsState>((set, get) => {
           return
         case 'chat.updated': {
           const { chatId, change, chat } = ev.data
-          if (change === 'deleted' || change === 'purged') get().removeChat(chatId)
+          // a chat in the trash is in no list, also when the end of a turn there tells about it after the delete
+          if (change === 'deleted' || change === 'purged' || chat?.deletedAt) get().removeChat(chatId)
           else if (chat) get().upsertChat(chat)
           return
         }

@@ -213,7 +213,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
   })),
   /** `notify`: a live change worth telling the person about (docs/DECISIONS.md "Session markers"): 'card', a card of the
    * AI opened (to the windows that show it); 'answer', an answer that ran about a minute or longer ended. Never for an
-   * answer the person stopped, a server stop, a scheduled run or a turn asked from Slack. Absent: show it, tell nothing. */
+   * answer the person stopped, a server stop, a scheduled run or a turn asked from Slack. Absent: show it, tell nothing.
+   * 'deleted' with no chat: a shared project chat this person no longer sees (they lost its project): drop it. */
   ev('chat.updated', z.object({ chatId: Uuid7, change: z.enum(['created', 'updated', 'deleted', 'restored', 'purged']), chat: Chat.nullable(), notify: z.enum(['card', 'answer']).optional() })),
   /** only paths this person can read (file screen refresh) */
   ev('files.changed', z.object({ changes: z.array(FileChange) })),

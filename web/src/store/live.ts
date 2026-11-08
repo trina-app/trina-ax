@@ -1,5 +1,5 @@
 // Wires the WebSocket to the stores: one RealtimeClient per signed-in window.
-import type { CredentialLogin, FileChange, Memory, ServerEvent } from '@mycel/shared/api'
+import type { CredentialLogin, FileChange, Memory, ServerEvent, ServerEventData } from '@mycel/shared/api'
 import { renewWindowId, windowId } from '../lib/api'
 import { BrowserRelay } from '../lib/browserRelay'
 import { browserSettingsBridge } from '../lib/desktop'
@@ -38,6 +38,9 @@ export const schedulesChanged = new Emitter<void>()
 export const credentialLogin = new Emitter<CredentialLogin>()
 /** the server could not resume us: screens that hold REST data reload it */
 export const reloadAsked = new Emitter<'reset' | 'resync'>()
+/** every chat.updated, also for a chat the chat list does not keep (someone else's shared chat I have not written in):
+ * a project's page applies those of its project (pages/Projects.tsx) */
+export const chatChanged = new Emitter<ServerEventData<'chat.updated'>>()
 /** an answer of this chat took a step or ended (message.step / message.done), also for a chat no screen has open: the
  * company profile step asks for its draft's pages right away instead of at its next poll */
 export const chatActivity = new Emitter<string>()
@@ -61,6 +64,7 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
       // session markers (store/sessionMarkers.ts): a live change worth it is told, after a wait
       chatUpdated(ev, meta)
       useChats.getState().handleEvent(ev)
+      chatChanged.emit(ev.data)
       return
     case 'message.created':
     case 'message.delta':
@@ -173,6 +177,9 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
         // the server sends the folders whose access changed as data ("groups/finance, shared"), not a sentence
         toast({ level: 'info', text: t('notice.accessChanged', { paths: ev.data.message }) })
         accessChanged.emit()
+        // shared project chats follow their project's people: the list is read again (one I can see again comes back;
+        // the server already told me which ones I lost)
+        void useChats.getState().loadChats(true).catch(() => {})
         return
       }
       if (ev.data.link) {

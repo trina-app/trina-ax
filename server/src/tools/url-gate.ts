@@ -175,10 +175,14 @@ function searchUrls(db: Database, chatId: string): Set<string> {
   return seen
 }
 
-/** Is the chat a shared project chat (its messages come from several people)? */
+/** Do the chat's messages come from several people: a shared project chat, or one that stopped being shared after
+ * others wrote in it (a deleted project's, now its creator's; the rollback guard: chat/shared.ts severalAuthors)? A
+ * room's AI session has its own rules. */
 function sharedChat(db: Database, chatId: string): boolean {
-  const r = db.query('SELECT shared_at, project_id FROM chats WHERE id = ?').get(chatId) as { shared_at: string | null; project_id: string | null } | null
-  return !!r?.shared_at && !!r.project_id
+  const r = db.query('SELECT shared_at, project_id, room_id, user_id FROM chats WHERE id = ?').get(chatId) as { shared_at: string | null; project_id: string | null; room_id: string | null; user_id: string } | null
+  if (!r) return false
+  if (r.shared_at && r.project_id) return true
+  return !r.room_id && !!db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1").get(chatId, r.user_id)
 }
 
 /** ① sources of a chat (all of them; the learned ones are within the link budget when opened). `userId`: a shared

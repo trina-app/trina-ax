@@ -186,6 +186,9 @@ export class ChatStore {
   ownChat(userId: string, id: string, o: { deleted?: boolean } = {}): ChatRow | null {
     const r = this.chatRow(id)
     if (!r || r.user_id !== userId || r.room_id || r.shared_at) return null
+    // nor one others wrote in before it stopped being shared (a deleted project's, the rollback guard): their words and
+    // answers there are not the person's alone either
+    if (this.db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1").get(id, userId)) return null
     if (!o.deleted && r.deleted_at) return null
     return r
   }
