@@ -40,17 +40,18 @@ test.describe('first-run setup in an English browser', () => {
     // the new team's owner goes to the welcome steps first (pages/Welcome.tsx); the sidebar's setup row then offers to
     // continue them on every other page (docs/DECISIONS.md "W5")
     await expect(page).toHaveURL(/\/welcome$/)
-    // four steps (the invite counted), and nothing above the first (no team question: every team gets its start when
-    // it is left); no setup row on the steps themselves
-    await expect(page.getByTestId('welcome-progress')).toContainText('1/4 회사 소개')
-    await expect(page.getByTestId('welcome-progress')).toContainText('4/4 팀원 초대')
+    // five steps (도구 연결 and the invite counted), and nothing above the first (no team question: every team gets its
+    // start when it is left); no setup row on the steps themselves
+    await expect(page.getByTestId('welcome-progress')).toContainText('1/5 회사 소개')
+    await expect(page.getByTestId('welcome-progress')).toContainText('4/5 도구 연결')
+    await expect(page.getByTestId('welcome-progress')).toContainText('5/5 팀원 초대')
     await expect(page.getByTestId('welcome-pack-line')).toHaveCount(0)
     await expect(page.getByTestId('setup-row')).toHaveCount(0)
     await page.goto('/')
     await expect(page.getByRole('heading', { name: /Kim Owner님/ })).toBeVisible()
     // a computer: the sidebar's row stands for the steps (Home has no row of its own there)
     await expect(page.getByTestId('setup-row-link')).toContainText('설정 이어서 하기')
-    await expect(page.getByTestId('setup-row-count')).toHaveText('· 0/4')
+    await expect(page.getByTestId('setup-row-count')).toHaveText('· 0/5')
     await expect(page.getByTestId('welcome-resume')).toHaveCount(0)
     // the steps are the owner's checklist while unfinished: Admin › Home's own checklist hides
     await expect(page.getByTestId('owner-checklist')).toHaveCount(0)
@@ -100,7 +101,7 @@ test('the owner who left the steps lands on them when signing in again (a phone 
   await page.getByTestId('setup-submit').click()
   await expect(page).toHaveURL(/\/welcome$/)
   // the first visit starts the progress on the server
-  await expect(page.getByTestId('welcome-progress')).toContainText('1/4 회사 소개')
+  await expect(page.getByTestId('welcome-progress')).toContainText('1/5 회사 소개')
   // the same tab: Home stays Home (the steps were on screen here), the sidebar's setup row leads back
   await page.goto('/')
   await expect(page.getByTestId('setup-row-link')).toBeVisible()
@@ -118,7 +119,7 @@ test('the owner who left the steps lands on them when signing in again (a phone 
   const p2 = await desk.newPage()
   await signInAs(p2)
   await expect(p2).toHaveURL(/\/welcome$/)
-  await expect(p2.getByTestId('welcome-progress')).toContainText('1/4 회사 소개')
+  await expect(p2.getByTestId('welcome-progress')).toContainText('1/5 회사 소개')
   // opening Home again in that tab: Home, with the setup row
   await p2.goto('/')
   await expect(p2.getByTestId('setup-row-link')).toBeVisible()
@@ -126,7 +127,7 @@ test('the owner who left the steps lands on them when signing in again (a phone 
   // the row leads back to the step
   await p2.getByTestId('setup-row-link').click()
   await expect(p2).toHaveURL(/\/welcome$/)
-  await expect(p2.getByTestId('welcome-progress')).toContainText('1/4 회사 소개')
+  await expect(p2.getByTestId('welcome-progress')).toContainText('1/5 회사 소개')
   await desk.close()
   // a phone's sign-in lands on the steps too (not the 대화 list)
   const phone = await browser.newContext({ locale: 'ko-KR', viewport: { width: 390, height: 844 } })

@@ -1,6 +1,6 @@
 // The setup row (components/onboarding/SetupRow.tsx, docs/DECISIONS.md "W5 — Onboarding v5"): the owner's one way back
 // to the welcome steps from every page, in the sidebar above Recents (the ☰ drawer on a phone):
-// - "설정 이어서 하기 · n/4" (the steps done; put off is not done) → /welcome, owner only; never on /welcome, once
+// - "설정 이어서 하기 · n/5" (the steps done; put off is not done) → /welcome, owner only; never on /welcome, once
 //   finished, or hidden; one step left here is named instead ("남은 일: 팀 파일"), the same words as a phone's Home row;
 // - ✕ hides it with an undo toast; while no AI answers, "AI 연결하기" opens the connect dialog, not on Home (its no-AI
 //   card); on a phone not on Home (Home's own quiet row), elsewhere yes;
@@ -98,7 +98,7 @@ async function stateAt(m: Mounted) {
 }
 
 describe('the setup row', () => {
-  test('the owner\'s "설정 이어서 하기 · n/4" opens /welcome, where it is not shown', async () => {
+  test('the owner\'s "설정 이어서 하기 · n/5" opens /welcome, where it is not shown', async () => {
     signIn('owner')
     progress = half()
     const m = await row('/c/abc')
@@ -107,7 +107,7 @@ describe('the setup row', () => {
       expect(m.get('setup-row').getAttribute('data-state')).toBe('resume')
       expect(m.get('setup-row-link').textContent).toBe(`${translate('ko', 'setupRow.resume')}· 1/${stepTotal()}`)
       expect(m.get('setup-row-link').textContent).toContain('설정 이어서 하기')
-      expect(m.get('setup-row-count').textContent).toBe('· 1/4')
+      expect(m.get('setup-row-count').textContent).toBe('· 1/5')
       expect(m.get('setup-row-link').getAttribute('href')).toBe('/welcome')
       // a left click (react-router's Link follows only button 0)
       const click = Object.assign(new FakeEvent('click', { bubbles: true, cancelable: true }), { button: 0 })
@@ -232,7 +232,7 @@ describe('the setup row', () => {
   // for a computer, as if nothing were left
   test('with one step left here the row names it ("남은 일: 팀 파일"), no count; a phone\'s Home row and its drawer say the same; a computer counts the steps done', async () => {
     signIn('owner')
-    progress = half({ resultChatId: '01900000-0000-7000-8000-0000000000c1', skillsLater: true, steps: { profile: 'done', result: null, skills: 'skipped', files: 'skipped', invite: 'done' } })
+    progress = half({ resultChatId: '01900000-0000-7000-8000-0000000000c1', skillsLater: true, steps: { profile: 'done', result: null, skills: 'skipped', files: 'skipped', tools: 'skipped', invite: 'done' } })
     phoneWidth()
     let m = await mount(<MemoryRouter initialEntries={['/']}><WelcomeResume /></MemoryRouter>)
     try {
@@ -246,13 +246,13 @@ describe('the setup row', () => {
       expect(m.get('setup-row-link').textContent).toBe('남은 일: 팀 파일')
       expect(m.find('setup-row-count')).toBeNull()
     } finally { await m.unmount() }
-    // a computer: 내 스킬 is left there too; the count is the steps done, never "4/4"
+    // a computer: 내 스킬 and 도구 연결 are left there too; the count is the steps done, never "5/5"
     g.matchMedia = computerMedia
     useWelcome.getState().reset()
     m = await row('/c/abc')
     try {
       await m.until(() => m.find('setup-row-link'), 'the row')
-      expect(m.get('setup-row-link').textContent).toBe('설정 이어서 하기· 2/4')
+      expect(m.get('setup-row-link').textContent).toBe('설정 이어서 하기· 2/5')
     } finally { await m.unmount() }
   }, 20_000)
 

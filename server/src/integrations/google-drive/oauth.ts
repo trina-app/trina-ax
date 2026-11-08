@@ -9,7 +9,8 @@ import { GoogleTransport, GOOGLE_AUTH, GOOGLE_TOKEN, GOOGLE_REVOKE, DRIVE_API, c
 import { DriveStore, DriveError, type Account, type Tokens, type FlowSecret, type ConnectionRow } from './store'
 import type { DriveConnection, DriveFlow } from '@mycel/shared/api'
 import { notifyConnectionReconnect, notifyDriveShareReconnect } from '../../notifications/service'
-import { membersCanConnect, onShareOwnerCheck, ownerOk, SHARE_CONTEXT, shareByName, shareRow, shareRows, shareWorks, teamSharesFor, type ShareRow } from './shares'
+import { DRIVE_MEMBERS, membersCanConnect, onShareOwnerCheck, ownerOk, SHARE_CONTEXT, shareByName, shareRow, shareRows, shareWorks, teamSharesFor, type ShareRow } from './shares'
+import { setSetting } from '../../admin/settings'
 import { brokerKey, driveBrokerFor, DriveBroker, type BrokerOptions } from './broker'
 
 /** `broker`: sign in through the hosting service (broker.ts); left out, driveBrokerFor decides (hosted, no own client). */
@@ -114,8 +115,9 @@ export class GoogleDrive {
     try { checkAbort(signal); return await fn(signal) }
     finally { set.delete(c); if (!set.size) this.operations.delete(user) }
   }
-  /** Start a Google sign-in: the person's own Drive (only while the team allows it), or, for an admin, a Drive to share
-   * with the team (`share`; with a share id, a new sign-in for that share). */
+  /** Start a Google sign-in: the person's own Drive (while the team allows it; an owner or admin may also while it does
+   * not, and their confirm can turn the members' switch on: complete), or, for an admin, a Drive to share with the team
+   * (`share`; with a share id, a new sign-in for that share). */
   authorize(user: string, session: string, share?: { shareId?: string }) {
     if (this.viaBroker) throw new DriveError('use_begin', 500) // the hosting service's sign-in is asynchronous: begin()
     const p = this.prepare(user, session, share), cfg = this.config!
@@ -144,7 +146,7 @@ export class GoogleDrive {
     if (share) {
       this.store.admin(user)
       if (share.shareId && !shareRow(this.ctx.db, share.shareId)) throw new DriveError('not_found', 404)
-    } else if (!membersCanConnect(this.ctx.db)) throw new DriveError('members_off', 403)
+    } else if (!membersCanConnect(this.ctx.db) && !this.manages(user)) throw new DriveError('members_off', 403)
     const now = this.now(), id = newId(), state = crypto.randomBytes(32).toString('base64url'), verifier = crypto.randomBytes(48).toString('base64url')
     // Bound creation rate without retaining a plaintext verifier or authorization URL.
     const n = (this.ctx.db.query('SELECT count(*) n FROM drive_oauth_flows WHERE user_id=? AND created_at>?').get(user, new Date(now - 3600_000).toISOString()) as { n: number }).n
@@ -211,16 +213,27 @@ export class GoogleDrive {
       return false
     }
   }
-  complete(user: string, session: string, id: string) {
+  /** An active owner or admin (docs/DECISIONS.md "W6", re-check N1): may start their own sign-in while members may not
+   * connect theirs, and turn that switch on at the confirm. */
+  private manages(user: string): boolean {
+    return !!this.ctx.db.query("SELECT 1 FROM users WHERE id=? AND role IN ('owner','admin') AND status='active' AND deleted_at IS NULL").get(user)
+  }
+  /** Confirm the account of the person's own sign-in. While members may not connect their own Drive, only an owner or
+   * admin who asks for it (`membersOn`: the welcome steps' 도구 연결 row and Settings' Drive card name it) gets through,
+   * and the members' switch turns on in the same step as the connection; a cancel or a refusal before this changes
+   * nothing (docs/DECISIONS.md "W6"). */
+  complete(user: string, session: string, id: string, opts: { membersOn?: boolean } = {}) {
     this.configured(); this.busy(user)
     const r = this.store.ownFlow(user, session, id)
     if (r.purpose !== 'personal') throw new DriveError('not_found', 404)
-    if (!membersCanConnect(this.ctx.db)) throw new DriveError('members_off', 403)
+    const turnOn = !membersCanConnect(this.ctx.db)
+    if (turnOn && !(opts.membersOn && this.manages(user))) throw new DriveError('members_off', 403)
     if (r.config_key !== this.key || r.state !== 'ready') throw new DriveError('flow_not_ready', 409)
     const s = this.store.open<FlowSecret>(r)
     if (!s.tokens || !s.account || !s.scopes?.includes(DRIVE_SCOPE)) throw new DriveError('invalid_flow')
     const connId = newId(), sealed = this.store.seal(user, connId, s.tokens), now = new Date(this.now()).toISOString()
     this.ctx.db.transaction(() => {
+      if (turnOn) setSetting(this.ctx.db, DRIVE_MEMBERS, true)
       this.ctx.db.query('DELETE FROM drive_connections WHERE user_id=?').run(user)
       this.ctx.db.query(`INSERT INTO drive_connections(id,user_id,config_key,account,scopes,secret_enc,key_version,status,expires_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'connected',?,?,?)`)
         .run(connId, user, this.key, JSON.stringify(s.account), JSON.stringify(s.scopes), sealed.enc, sealed.keyVersion, new Date(s.tokens!.expiresAt).toISOString(), now, now)
@@ -228,6 +241,7 @@ export class GoogleDrive {
     })()
     // In-flight requests from the old connection cannot publish into the new one.
     for (const c of this.operations.get(user) ?? []) c.abort()
+    if (turnOn) audit(this.ctx.db, { actor: user, action: 'drive.members_switch', detail: { on: true, via: 'own_connect' } })
     audit(this.ctx.db, { actor: user, action: 'drive.connected', target: connId })
     return this.status(user)
   }

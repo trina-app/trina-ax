@@ -1,7 +1,7 @@
 // Only skills with a known origin ship, and nothing adds them by itself (docs/DECISIONS.md "DS3", which replaced "DS"
 // and "DS2"): the general pack (the intro deck, the card news, the promo video) and the work pack (natural writing),
-// four skills in Korean and English. No seeder and no timer: the welcome steps install the general pack once, the empty
-// Team skills page installs both on an admin's press. An older build's seeder, run again after a rollback, finds every
+// four skills in Korean and English. No seeder and no timer: the welcome steps install nothing (docs/DECISIONS.md "W6":
+// a skill goes in only on a press that names it), the empty Team skills page installs both on an admin's press. An older build's seeder, run again after a rollback, finds every
 // skill it knew recorded (`retired`) in its settings row and adds nothing. Existing teams keep their files.
 import { afterEach, expect, test } from 'bun:test'
 import fs from 'node:fs'
@@ -80,7 +80,7 @@ test('no seeder and no timer: the module is gone and the server starts none', ()
   expect(welcome).not.toMatch(/seedDefaultSkills|'.\/default-skills'/)
 })
 
-test('the pack installers are called only from the install route, the welcome steps, the first result (and inside skill-packs.ts): a new caller elsewhere, a start hook or a timer in another file, fails here', () => {
+test('the pack installers are called only from the install route (and inside skill-packs.ts): the welcome steps call none (docs/DECISIONS.md "W6"); a new caller elsewhere, a start hook or a timer in another file, fails here', () => {
   // every file in the server's code that calls one of the three installers: a seeder, a timer or a start hook in
   // another file would add one and fail here. A new call inside these four files is not caught (they are listed by file,
   // not by call); the source checks above cover main.ts and welcome.ts by name
@@ -102,8 +102,6 @@ test('the pack installers are called only from the install route, the welcome st
   walk(path.join(ROOT, 'server/src'))
   expect([...new Set(calls)].sort()).toEqual([
     'server/src/onboarding/skill-packs.ts:placeSkill',
-    'server/src/onboarding/welcome-result.ts:installPackSkill',
-    'server/src/onboarding/welcome.ts:installSkillPack',
     'server/src/routes/onboarding-packs.ts:installSkillPack',
   ])
 })
@@ -135,19 +133,20 @@ test('a team in a language the packs do not have gets the English text', async (
   expect(fs.readFileSync(path.join(root, 'skills/work/humanizer/SKILL.md'), 'utf8')).toBe(SKILL_PACKS.work.skills.en.humanizer!)
 })
 
-test('the welcome steps install the general pack (three skills) and nothing else, recorded without 할 일 정리; no landing skill', async () => {
+test('the welcome steps install nothing (docs/DECISIONS.md "W6"); the record an older build reads has no paths; no landing skill', async () => {
   const { ownerId, root } = await setup()
   const r = setupWelcomeTeam(h.ctx, ownerId, 'ko')
-  expect(r.outcome).toBe('installed')
-  expect(r.progress.general).toMatchObject({ cardNewsPath: GENERAL_CARDNEWS_SKILL, promoVideoPath: GENERAL_PROMO_SKILL, introDeckPath: GENERAL_DECK_SKILL })
-  expect(teamSkillFiles(root)).toEqual(KEPT_PATHS.filter((p) => p.startsWith('skills/general/')))
-  // the stored record keeps the two fields an older build needs to read it after a rollback (null: nothing to run)
+  expect(r).toMatchObject({ outcome: 'already', install: null })
+  expect(teamSkillFiles(root)).toEqual([])
+  // the stored record keeps the two fields an older build needs to read it after a rollback (null: nothing to run), and
+  // no skill path: an older build installs nothing and starts no deck
   const stored = JSON.parse((h.ctx.db.query('SELECT value FROM settings WHERE key = ?').get(WELCOME_SETTING) as { value: string }).value)
-  expect(stored.general).toMatchObject({ tasksPath: null, briefPath: null, introDeckPath: GENERAL_DECK_SKILL })
+  expect(stored.general).toEqual({ at: expect.any(String), tasksPath: null, briefPath: null })
   // nothing to land on: the invite link lands on Home
   expect(landingSkill(h.ctx)).toBeNull()
   // again: nothing runs, no loop
   expect(setupWelcomeTeam(h.ctx, ownerId, 'ko').outcome).toBe('already')
+  expect(teamSkillFiles(root)).toEqual([])
 })
 
 test('an existing team: its files stay as they are, its old 할 일 정리 records nothing new and is never the landing skill', async () => {
@@ -188,15 +187,14 @@ test('a team with some of the general pack from the Skills page, and none of 할
   expect(fs.existsSync(path.join(root, 'skills/general/promo-video'))).toBe(false)
 })
 
-test('the general pack kept out by the folder rules is blocked, and tried again when asked again (never a loop of its own)', async () => {
+test('the welcome steps never install, also where an earlier version\'s install was blocked (`generalBlockedAt`)', async () => {
   const { ownerId, root } = await setup()
-  // something that is not a skill file sits at every path: nothing can be written
-  for (const n of KEPT.general) fs.mkdirSync(path.join(root, `skills/general/${n}/SKILL.md`), { recursive: true })
+  setSetting(h.ctx.db, WELCOME_SETTING, { startedAt: 'x', updatedAt: 'x', teamType: null, steps: {}, generalBlockedAt: 'x' })
   const r = setupWelcomeTeam(h.ctx, ownerId, 'ko')
-  expect(r.outcome).toBe('blocked')
-  expect(r.progress.general).toBeUndefined()
-  for (const n of KEPT.general) fs.rmSync(path.join(root, `skills/general/${n}`), { recursive: true })
-  expect(setupWelcomeTeam(h.ctx, ownerId, 'ko').outcome).toBe('installed')
+  expect(r).toMatchObject({ outcome: 'already', install: null })
+  expect(r.progress.general).toEqual({ at: expect.any(String) })
+  expect(teamSkillFiles(root)).toEqual([])
+  expect(JSON.parse((h.ctx.db.query('SELECT value FROM settings WHERE key = ?').get(WELCOME_SETTING) as { value: string }).value).generalBlockedAt).toBeUndefined()
 })
 
 test('rollback guard: a fresh team\'s row holds all 19 keys of the old seeder as retired, so an older build adds nothing', async () => {
