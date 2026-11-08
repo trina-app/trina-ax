@@ -64,6 +64,8 @@ interface DropOver {
   refusal: DropRefusal | 'busy' | null
 }
 type DropHandlers = Pick<React.DOMAttributes<HTMLElement>, 'onDragEnter' | 'onDragOver' | 'onDragLeave' | 'onDrop'>
+/** the screen's two tabs: the team folder, or 휴지통 (its address is lib/nav.ts FILES_TRASH) */
+type FilesView = 'files' | 'trash'
 
 /** The picture under the pointer while several rows are dragged ("4 items"), instead of the one row grabbed. */
 function dragBadge(dt: DataTransfer, text: string) {
@@ -100,7 +102,17 @@ export default function Files() {
       },
       { replace: true },
     )
-  const [view, setView] = useState<'files' | 'trash'>('files')
+  // the trash has its own address (`?view=trash`, like Admin › Folder permissions' `?view=people`): a deleted team
+  // skill's link opens it, and Back and a reload keep the tab. The folder and the search stay in the address, so the
+  // files tab comes back to them
+  const view: FilesView = params.get('view') === 'trash' ? 'trash' : 'files'
+  const setView = (v: FilesView) =>
+    setParams((prev) => {
+      const n = new URLSearchParams(prev)
+      if (v === 'trash') n.set('view', 'trash')
+      else n.delete('view')
+      return n
+    })
   const viewTabs = useId()
   const [tree, setTree] = useState<TreeResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -177,7 +189,8 @@ export default function Files() {
           }
         }
         toast({ level: 'warn', text: t(wasShown ? 'files.accessChanged' : 'files.folderNotFound') })
-        setParams(up ? { path: up } : {}, { replace: true })
+        // (the trash tab, if that is the one on screen, stays)
+        setParams((prev) => ({ ...(up ? { path: up } : {}), ...(prev.get('view') === 'trash' ? { view: 'trash' } : {}) }), { replace: true })
         return
       }
       setError(errorText(e, locale, t('error.network')))
