@@ -3568,7 +3568,9 @@ export class MockServer {
       let body: any
       let file: File | undefined
       if (ep.body && isSchema(ep.body)) {
-        const parsed = (ep.body as z.ZodType).safeParse(await req.json())
+        // like the server (http/route.ts): an empty body reads as {} (an endpoint whose fields are all optional)
+        const text = await req.text()
+        const parsed = (ep.body as z.ZodType).safeParse(text.trim() ? JSON.parse(text) : {})
         if (!parsed.success) fail('validation', 400, JSON.stringify(parsed.error.issues))
         body = parsed.data
       } else if (ep.body && (ep.body as { kind: string }).kind === 'multipart') {
