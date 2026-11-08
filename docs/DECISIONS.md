@@ -14564,6 +14564,84 @@ and its developer page "User presence and status" (what was copied and what was 
   header).
 - Version impact: **minor** (a visible feature, a WebSocket control frame each way and one endpoint; no migration).
 
+## Migrations that would be skipped say so (chore/migration-guard, 2026-11-08)
+
+- **Why.** The runner (`server/src/db.ts` `readMigrations`) applies only `NNN_<lower-case letters, digits, _>.sql`
+  and skipped any other file without a word, while the builds ship every `.sql` file. Applied migrations are known by
+  number only, and three numbers were on dev under another name before a rename (214 `b_schedule_sources` → 215, 222
+  `b_onboarding_notices` → 231, 326 `b_chat_skill_lists` → 217). A database that ran the old file skips the new file
+  at that number, and runs the moved one again: for 214 and 222 that fails ("duplicate column", "already exists") and
+  the server does not start.
+- **CI catches a misnamed file.** `tests/unit/p1-migration-files.test.ts`: every file in `server/migrations/` matches
+  `MIGRATION_FILE` (now exported, the runner's own pattern), `readMigrations` returns every `.sql` file, and no two
+  files share a number (`readMigrations` already throws on that at start).
+- **A warning, not a refusal.** At start-up the server logs one warning per recorded migration whose file was renamed
+  since (`renamedMigrations`): the file now at that number never runs on this database, or the recorded name is now
+  under another number, or both, each named. It comes before pending migrations run, so a failure after it has its
+  reason in the log. The server still starts: dev and customer databases already hold renamed entries. A recorded
+  number with no file and no file of the same name is a newer build's migration after a downgrade: no warning. Only the
+  server passes its log (`openDb(file, { log })`); the CLIs stay quiet.
+- **B gets a second range, 400–499** (owner, 2026-11-08). 200–299 had 27 numbers left after 272 at about ten a day.
+  D and E have no server DB, so 400–599 was free, and 4xx files sort after B's 2xx files, so they may build on them.
+  docs/WORKPLAN.md §4 and the `db.ts` header say so. **A number already on dev is never renamed**: a clash is fixed by
+  renumbering the newer branch before it merges. No file is renumbered here.
+- Tests: `tests/unit/p1-migration-files.test.ts` (the folder checks; the runner skipping a hyphen, a capital, four digits
+  and `.SQL`; two files with one number; a new file at the old number, a move with a new file at the old number before
+  the "duplicate column" failure, a move with none, a downgrade and a matching database without a warning).
+- Version impact: **patch** (a server log line and a test; no API, setting or data change).
+
+## Budget notices and connection limits count in the team's time zone (fix/team-time-zone, 2026-11-08)
+
+- **Why.** A hosted server runs in UTC. Budgets' spend (`checkBudgets`, which blocks a send) and the Usage page already
+  counted the team's day and month (`teamTimeZone`, see "팀 시간대(명세 D16)"), but three places still used the process's
+  zone: the once-per-period key of `budget_notices` (`periodStart` without a zone in `admin/budget-watch.ts`),
+  `periodEnd` without a zone, and a connection's monthly limit (`localDay`, `monthStart`, `nextMonthStart` in
+  `credentials/store.ts`, whose comment still said "like budgets and usage"). A Korean team's daily block budget used up
+  at 14:00 KST and again at 08:00 KST the next day was one UTC day: the second notice was ignored while the person was
+  blocked. A connection's month reset at 09:00 KST on the 1st, and its "this month" differed from the Usage page.
+- **The rule.** Every day or month that limits someone or that they see is the team's. `periodStart` and `periodEnd`
+  take the zone as a required argument (the process-zone branch is gone). A budget notice is keyed by the start of the
+  team's day or month. `credential_usage_daily.day` is the team's day (`teamDay`), a connection's month sums from the
+  team's `YYYY-MM-01` (`teamMonthKey`, also the `credential_notices` key), and a used-up monthly limit comes back at
+  00:00 on the team's 1st (`nextMonthStart(db, now)`, through `periodEnd`). The ChatGPT refresh audit (once a day) uses
+  the team's day too, so budgets and connections keep no server-zone helper. The monthly limit's hint says "팀 시간대"
+  (five languages). `zonedParts` keeps one formatter per zone (building one took about 0.2 ms, and the model proxy now
+  asks for the team's day on every request).
+- **Stored formats unchanged, no migration.** The keys are still an ISO instant, `YYYY-MM-DD` and `YYYY-MM-01`. On a Mac
+  whose zone is the team's nothing changes: the same instants and day strings come out.
+- **At the switch-over** (only where the process zone differs from the team's: hosted servers, a self-hosted Linux
+  server in UTC, a Mac whose team zone was set to another one): a budget notice already sent for the current day or
+  month under the old key (midnight in the process's zone) may be sent once more under the new one (midnight in the
+  team's); none is skipped, because the two keys differ unless both zones have the same offset that day, and then the
+  key is the same. Requests counted before the update
+  stay on the UTC day they were filed under, so one month boundary of a connection sits where it was (for Seoul, a
+  request between 00:00 and 09:00 KST on the 1st, filed before the update, counts to the previous month). For a team
+  behind UTC whose update lands in the hours between the UTC 1st and its own, that month's connection notice can be
+  skipped (the UTC month already used its `YYYY-MM-01` key). Accepted: once, on one server, and the limit itself still
+  blocks. Changing the team's zone in Admin › Team settings later has the same one-off effect.
+- **Not changed.** Schedules (already `rt.timeZone`). Hosted voice input's free hours keep Korea's month on purpose
+  (`credentials/hosted-speech.ts`). Log file names (`log.ts`), the TLS stamp and the export's UTC dates are not a count.
+  Follow-ups, names and times that show but do not count: connection notices and details (`credentials/i18n.ts`
+  `fmtTime`/`fmtDate`) and two dates in diagnostics (`system/ops.ts`) are formatted in the process's zone, and
+  `conflictCopyName` still falls back to it where a caller gives no zone (`devenv/track.ts`). `zonedToUtc` gives 23:00
+  the day before in a zone whose clocks jump forward at midnight (America/Santiago); older than this change.
+- Tests: `tests/unit/a-budget-watch.test.ts` (process in UTC, team in Asia/Seoul: a daily block budget crossed on two
+  Seoul days of one UTC day notifies both days with Seoul-day keys; a connection's month resets at 00:00 KST, files a
+  request at 01:00 KST on the 1st under November, shows November's "this month" and sends November's notice);
+  `tests/unit/g-timezone.test.ts` drops the "without a zone" case.
+- Version impact: **patch** (a fix and one hint string; no API, setting or data format change).
+
+## The release feed also serves the Android APK (feat/feed-android-apk, 2026-11-08, product owner)
+
+- **Why.** The Android app is in Google Play review, so the website links an APK people install themselves. GitHub's
+  `releases/download/` addresses answered 504 for every repository for over an hour on 2026-11-08, while the same files
+  came through the API; the Windows installer the website links is already on the feed (`office/<version>/`).
+- **What.** The feed Worker serves `apps/android/<version>/<file>.apk` only (no other platform, no other extension),
+  immutable, with Range, like `plugins/`. The root line stays `Updates: office/, server/, plugins/` because
+  publish-server.ts and its tests read it. Redeploy once (`bun scripts/release/hosting.ts setup`) before uploading.
+- **Not.** No listing, no "latest" alias, no signature: the APK's own signature is what Android checks, and the website
+  shows the SHA-256 on the GitHub release.
+
 ## 방에 올리기… — a private room answer asks, also after a hidden earlier answer (feat/room-answer-post-ask, 2026-11-08, product owner)
 넣을 곳: trina-ax `server/src/rooms` (earlier-sources.ts, ai.ts, ai-redecide.ts, store.ts), `shared/src/api/rooms.ts`,
 `web/src/components/rooms/RoomMessages.tsx`, 이유: the room AI's share rule and permissions are core.

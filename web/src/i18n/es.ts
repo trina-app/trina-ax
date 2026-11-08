@@ -2425,7 +2425,7 @@ export const es: Record<MessageKey, string> = {
   'credentials.rename': "Cambiar nombre",
   'credentials.changeTarget': "Cambiar quién la usa",
   'credentials.spendLimit': "Límite mensual",
-  'credentials.spendLimitHint': "Por mes según la zona horaria del servidor. Vacío significa sin límite.",
+  'credentials.spendLimitHint': "Por mes según la zona horaria del equipo. Vacío significa sin límite.",
   'credentials.spendLimitUsd': "Importe (USD, solo claves de API)",
   'credentials.spendLimitTokens': "Tokens",
   'credentials.spendLimitAction.warn': "Solo notificar",

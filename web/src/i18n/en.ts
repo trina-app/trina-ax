@@ -2462,7 +2462,7 @@ export const en: Record<MessageKey, string> = {
   'credentials.rename': 'Rename',
   'credentials.changeTarget': 'Change who uses it',
   'credentials.spendLimit': 'Monthly limit',
-  'credentials.spendLimitHint': 'Per month in the server\'s time zone. Leave empty for no limit.',
+  'credentials.spendLimitHint': 'Per month in the team time zone. Leave empty for no limit.',
   'credentials.spendLimitUsd': 'Amount (USD, API keys only)',
   'credentials.spendLimitTokens': 'Tokens',
   'credentials.spendLimitAction.warn': 'Notify only',
