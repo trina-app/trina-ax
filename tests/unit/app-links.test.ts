@@ -22,7 +22,7 @@ describe('the app ids come from the branding', () => {
     expect(f.applinks.details).toHaveLength(1)
     expect(f.applinks.details[0]!.components.map((c) => [c['/'], (c as { '#'?: string })['#'] ?? null])).toEqual([['/invite/*', null], ['/join', 't=*']])
   })
-  test('the Android file waits for the Play signing certificate; a malformed fingerprint is never served', () => {
+  test('the Android file needs a valid certificate fingerprint; a malformed one is never served', () => {
     expect(assetLinks({ ...APP_LINKS, androidCertSha256: [] })).toBeNull()
     expect(assetLinks({ ...APP_LINKS, androidCertSha256: ['not-a-print'] })).toBeNull()
     const print = Array.from({ length: 32 }, (_, i) => i.toString(16).padStart(2, '0').toUpperCase()).join(':')
@@ -43,9 +43,14 @@ describe('served by every team server', () => {
       expect(await r.json()).toEqual(appleAppSiteAssociation())
     }
   })
-  test('assetlinks.json is 404 until the Play certificate is known (not the web app\'s page)', async () => {
-    const r = await h.fetch('/.well-known/assetlinks.json', { via: 'relay' })
-    expect(r.status).toBe(APP_LINKS.androidCertSha256.length ? 200 : 404)
-    expect(await r.text()).not.toContain('<html')
+  test('assetlinks.json is 200 with the upload key\'s fingerprint, in the standard Digital Asset Links shape', async () => {
+    expect(APP_LINKS.androidCertSha256).toContain('6F:9C:90:4B:59:83:9C:1C:F4:9C:95:95:77:EE:01:FE:78:02:63:35:CC:32:F8:FB:79:CA:F3:BA:08:C9:CA:7A')
+    for (const via of ['relay', 'direct'] as const) {
+      const r = await h.fetch('/.well-known/assetlinks.json', { via, redirect: 'manual' })
+      expect(r.status).toBe(200)
+      expect(r.headers.get('content-type')).toBe('application/json')
+      expect(r.headers.get('set-cookie')).toBeNull()
+      expect(await r.json()).toEqual([{ relation: ['delegate_permission/common.handle_all_urls'], target: { namespace: 'android_app', package_name: 'app.trina.ax', sha256_cert_fingerprints: [...APP_LINKS.androidCertSha256] } }])
+    }
   })
 })

@@ -15114,8 +15114,9 @@ Builds on "First run: one box" (PR 1). Plan: `docs/AGENTS/plan/20261108-1025-fir
 - **Team servers serve the platforms' files** (`server/src/routes/app-links.ts`, off the API contract like the OAuth
   metadata): `/.well-known/apple-app-site-association` (iOS 13+ `components`: `/invite/*`, and `/join` with `#t=*`; the
   app id `<appleTeamId>.<bundleId>` from the branding, `shared/src/app-links.ts`) and `/.well-known/assetlinks.json`
-  (the package and the Play app signing certificate's SHA-256; 404 until that fingerprint is known, never the web app's
-  page). Public, the same for everyone, nothing about the team; JSON, no redirect, no cookie. Self-hosted servers serve
+  (the package and the app's signing certificates' SHA-256 list: the upload key, which signs the APK at updates.trina.app,
+  is in; Google Play's app signing key is added once Play signs the app; 404 only while the list is empty, never the web
+  app's page). Public, the same for everyone, nothing about the team; JSON, no redirect, no cookie. Self-hosted servers serve
   them too (harmless), but the apps declare only `*.trina.app`: on a domain of one's own a tapped link opens the
   browser, and the join page's "앱에서 열기" is the way into the app.
 - **"앱에서 열기"** on both join pages (one line under "이미 가입했어요? 로그인"), only in a web browser. The link carries
@@ -15129,7 +15130,7 @@ Builds on "First run: one box" (PR 1). Plan: `docs/AGENTS/plan/20261108-1025-fir
   `trina-ax` too and receive the token; it would already run as that person. Five languages.
 - **Outside this repository** (the PR lists them): the App ID's Associated Domains capability before a signed iOS build;
   the files on `trina.app` itself for the wildcards (Android checks a wildcard host at its root; for Apple, serve both);
-  the Play signing fingerprint in `shared/src/app-links.ts`; new iOS, Android and Mac App Store builds; the signup's
+  Google Play's app signing fingerprint added to `shared/src/app-links.ts` once Play signs the app (the upload key is in); new iOS, Android and Mac App Store builds; the signup's
   last page.
 - Tests: `tests/unit/team-link.test.ts` (the reader on both copies: every crafted case, universal links, the gate),
   `e-desktop-common` (the desktop reader, argv, the handlers reaching only `offerLink`, `answerLink` only with the
