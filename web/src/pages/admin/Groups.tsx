@@ -1,13 +1,17 @@
 // Groups: name, description, members. Folder rules can name a group; deleting a group removes its rules too.
 // Laid out like Members (and the Claude Console): title with the count, one line, New group, a search box, then quiet
-// rows (name · members · "…"); Edit and Delete are in the row's "…". Who may change team skills is on the Team skills
-// page (SkillManagers.tsx), not here: a group's own skills are its members' anyway (docs/DECISIONS.md "Group skills").
+// rows (name · members · "…"); Edit and Delete are in the row's "…". The members column starts with their faces
+// (FaceStack: at most 3 and "+N", 2 on a phone), then the count and the names in words. Who may change team skills is
+// on the Team skills page (SkillManagers.tsx), not here: a group's own skills are its members' anyway
+// (docs/DECISIONS.md "Group skills").
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import type { Group, User } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { Button, Field, Modal, confirmDialog, inputCls } from '../../components/ui'
+import { FaceStack, FACES_SHOWN } from '../../components/FaceStack'
+import { useFaceOf } from '../../store/people'
 import { useMeStrict } from '../../store/session'
 import { AdminPageHeader, CountBadge, Loadable, SearchBox, matches, useAction, useActionOk, useFocusAfterRemove, useLoad } from './common'
 import { MemberMenu } from './RowMenu'
@@ -23,6 +27,7 @@ export default function Groups() {
   const q = query.trim().toLocaleLowerCase(locale)
   const focus = useFocusAfterRemove(groups.data, () => document.querySelector<HTMLElement>('[data-testid="group-new"]'))
   const name = (id: string) => users.data?.find((u) => u.id === id)?.name ?? id
+  const faceOf = useFaceOf()
   const remove = async (g: Group) => {
     if (!(await confirmDialog({ title: t('groups.deleteTitle', { name: g.name }), body: t('groups.deleteBody'), confirm: t('common.delete'), danger: true }))) return
     if (!(await actOk(() => api.call(API.deleteGroup, { params: { id: g.id } })))) return
@@ -74,9 +79,17 @@ export default function Groups() {
                         {g.description && <span className="block truncate text-xs text-faint">{g.description}</span>}
                       </span>
                       {/* a phone: the menu sits next to the name, the members go under them */}
-                      <span className="min-w-0 text-muted max-md:col-span-2 max-md:row-start-2">
-                        <span className="block text-label">{t('groups.memberCount', { n: g.memberIds.length })}</span>
-                        <span className="block truncate text-xs text-faint">{g.memberIds.map(name).join(', ') || t('groups.noMembers')}</span>
+                      <span className="flex min-w-0 items-center gap-2.5 text-muted max-md:col-span-2 max-md:row-start-2">
+                        {/* a slot as wide as 3 faces and "+99" (2 on a phone), so the counts below each other line up */}
+                        <span className="flex min-w-20 shrink-0 max-sm:min-w-16">
+                          {g.memberIds.length > 0 && (
+                            <FaceStack people={g.memberIds.slice(0, FACES_SHOWN).map((id) => faceOf({ id, name: name(id) }))} count={g.memberIds.length} testId="group" />
+                          )}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-label">{t('groups.memberCount', { n: g.memberIds.length })}</span>
+                          <span className="block truncate text-xs text-faint">{g.memberIds.map(name).join(', ') || t('groups.noMembers')}</span>
+                        </span>
                       </span>
                       <span className="flex justify-end max-md:col-start-2 max-md:row-start-1">
                         <MemberMenu
