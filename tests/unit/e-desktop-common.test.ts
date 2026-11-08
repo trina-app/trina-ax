@@ -76,6 +76,10 @@ describe('team addresses', () => {
     expect(isLoopbackHost('a.b.localhost')).toBe(true)
     expect(isLoopbackHost('[::1]')).toBe(true)
     expect(isLoopbackHost('localhost.evil.com')).toBe(false)
+    for (const h of ['[::ffff:127.0.0.1]', '[::ffff:7f00:1]', '::ffff:7f00:1', '[::7f00:1]', '[::]', '0.0.0.0', '0', '0.1.2.3', '127.255.0.1', '[::ffff:0:0]', 'LOCALHOST.'])
+      expect({ h, loopback: isLoopbackHost(h) }).toEqual({ h, loopback: true })
+    for (const h of ['[::ffff:c0a8:1]', '[::ffff:192.168.0.1]', '8.8.8.8', '[2001:db8::1]', '[fe80::1]', '00', '1.0.0.0', 'evil.0'])
+      expect({ h, loopback: isLoopbackHost(h) }).toEqual({ h, loopback: false })
     expect(originOf('https://a.b/c?d')).toBe('https://a.b')
     expect(originOf('about:blank')).toBe('')
     expect(originOf('nonsense')).toBe('')
@@ -118,7 +122,13 @@ describe('first run: what the team address answered, the help screens, the host 
     for (const p of ['/login', '/join', '/setup', '/invite/abc', '/reset-password/abc']) expect(isSignInPath(p)).toBe(true)
     for (const p of ['/', '/chats/1', '/invite', '/joined', '/settings/apps']) expect(isSignInPath(p)).toBe(false)
     const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
-    expect(win).toContain('const top = hostLineShown(this.pagePath, this.signedIn) ? HOSTBAR_HEIGHT : 0')
+    expect(win).toContain('const top = hostLineNow({ path: this.pagePath, signedIn: this.signedIn, answered: this.meAnswered, waited: this.stripWaited }) ? HOSTBAR_HEIGHT : 0')
+    // no jump on a signed-in open: the strip waits up to 300 ms for /api/me (a sign-in page shows it at once); a new
+    // team page starts the wait again, and an answer (signed in or not) ends it
+    expect(win).toContain('const HOSTBAR_WAIT_MS = 300')
+    expect(win).toMatch(/if \(originOf\(url\) && !this\.meAnswered && !this\.stripWaited && !this\.stripTimer\) \{\n\s*this\.stripTimer = setTimeout\(\(\) => \{/)
+    expect(win).toMatch(/this\.signedIn = false\n\s*this\.meAnswered = false\n\s*this\.stripWaited = false\n\s*clearTimeout\(this\.stripTimer\)/)
+    expect(win).toMatch(/if \(signedIn === this\.signedIn && this\.meAnswered\) return\n\s*this\.signedIn = signedIn\n\s*this\.meAnswered = true/)
     // signed in only when /api/me answered with a person; a 401, another answer or a new team page start without
     expect(win).toMatch(/if \(res\.status === 401\) \{\n\s*if \(this\.team\?\.id === team\.id\) \{\n\s*this\.setSignedIn\(false\)/)
     expect(win).toContain('if (this.team?.id === team.id) this.setSignedIn(me.success)')
@@ -166,7 +176,9 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
     expect(readDesktopLink(link(`https://acme.${TEAM_DOMAIN}/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E`))).toMatchObject({ ok: true, host: `acme.${TEAM_DOMAIN}`, hosted: true, entryPath: '/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E' })
     expect(readDesktopLink(link('https://team.example.com/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk'))).toMatchObject({ ok: true, host: 'team.example.com', hosted: false, entryPath: '/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk' })
     // a link from outside never points the app at this machine, http or https (typed addresses still may: development)
-    for (const inner of ['http://127.0.0.1:19100/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk', 'https://127.0.0.1:19100/', 'http://localhost:19100/', 'https://localhost/', 'http://acme.localhost:19883/', 'https://[::1]:8443/', 'https://127.1/'])
+    for (const inner of ['http://127.0.0.1:19100/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk', 'https://127.0.0.1:19100/', 'http://localhost:19100/', 'https://localhost/', 'http://acme.localhost:19883/', 'https://[::1]:8443/', 'https://127.1/',
+      // an IPv4-mapped or IPv4-compatible loopback, the unspecified addresses (they reach this machine too)
+      'https://[::ffff:127.0.0.1]/', 'https://[::ffff:7f00:1]:8443/', 'https://[::127.0.0.1]/', 'https://[::]/', 'https://0.0.0.0/', 'https://0/', 'https://[::ffff:0.0.0.0]/'])
       expect(readDesktopLink(link(inner))).toEqual({ ok: false, error: 'insecure' })
     expect(parseTeamAddress('http://127.0.0.1:19100')).toMatchObject({ ok: true, dev: true })
   })

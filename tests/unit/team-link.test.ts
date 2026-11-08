@@ -45,6 +45,12 @@ const TABLE: [string, unknown, unknown?][] = [
   // a word, punctuation or an invisible character glued right after the link (no space in between)
   [`https://acme.trina.app/invite/${INVITE}입니다`, acme(`/invite/${INVITE}`)],
   [`https://acme.trina.app/join#t=${JOIN}입니다`, acme(`/join#t=${JOIN}`)],
+  ['https://acme.trina.app입니다', acme()],
+  ['https://acme.trina.app입니다.', acme()],
+  ['https://acme.trina.app이에요!', acme()],
+  ['https://acme.bücher.de.', other('acme.xn--bcher-kva.de')],
+  ['주소:https://acme.trina.app입니다', acme()],
+  ['https://team.example.com이에요', other('team.example.com')],
   [`https://acme.trina.app/invite/${INVITE}.`, acme(`/invite/${INVITE}`)],
   [`https://acme.trina.app/invite/${INVITE})`, acme(`/invite/${INVITE}`)],
   [`https://acme.trina.app/invite/${INVITE}」`, acme(`/invite/${INVITE}`)],
@@ -128,6 +134,31 @@ describe('where the apps show the team address', () => {
       for (const p of ['/', '/signin', '/login']) expect(m.hostLineShown(p, false)).toBe(true)
       expect(m.hostLineShown('/', true)).toBe(false)
       expect(m.hostLineShown('/login', true)).toBe(true)
+    }
+  })
+  test('no jump on a signed-in open: off the sign-in pages the line waits for /api/me, or a moment (300 ms in the apps)', () => {
+    for (const m of [shared, phone]) {
+      const at = (path: string, signedIn: boolean, answered: boolean, waited: boolean) => m.hostLineNow({ path, signedIn, answered, waited })
+      expect(at('/login', false, false, false)).toBe(true) // a sign-in page: at once
+      expect(at('/invite/abc', false, false, false)).toBe(true)
+      expect(at('/', false, false, false)).toBe(false) // not yet: /api/me may still say someone is signed in
+      expect(at('/', false, false, true)).toBe(true) // no answer in time: shown
+      expect(at('/', false, true, false)).toBe(true) // signed out: shown
+      expect(at('/signin', false, true, true)).toBe(true)
+      expect(at('/', true, true, false)).toBe(false) // signed in: never shown off the sign-in pages
+      expect(at('/', true, true, true)).toBe(false)
+      expect(at('/login', true, true, true)).toBe(true)
+    }
+  })
+  test('this machine, also written as an IPv4-mapped or unspecified address, is loopback (the desktop refuses it in links)', () => {
+    for (const m of [shared, phone]) {
+      for (const h of ['localhost', 'acme.localhost', '127.0.0.1', '127.1.2.3', '[::1]', '[::ffff:127.0.0.1]', '[::ffff:7f00:1]', '[::7f00:1]', '[::]', '0.0.0.0', '0', '[::ffff:0:0]'])
+        expect({ h, loopback: m.isLoopbackHost(h) }).toEqual({ h, loopback: true })
+      for (const h of ['localhost.evil.example', '1.2.3.4', '[::ffff:c0a8:1]', '[::ffff:808:808]', '[2001:db8::1]', '[::2]', 'acme.trina.app'])
+        expect({ h, loopback: m.isLoopbackHost(h) }).toEqual({ h, loopback: false })
+      // as the URL parser writes them in a link
+      for (const inner of ['https://[::ffff:127.0.0.1]/', 'https://[::]/', 'https://0.0.0.0/', 'https://0/'])
+        expect({ inner, r: m.parseTeamInput(inner, PHONE) }).toMatchObject({ inner, r: { ok: true, loopback: true, hosted: false } })
     }
   })
 })

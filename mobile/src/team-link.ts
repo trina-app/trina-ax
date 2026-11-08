@@ -62,10 +62,27 @@ function trimTrailing(s: string): string {
   return s.slice(0, end)
 }
 
-/** Hosts that only exist on this machine (development): plain http is allowed only for these. */
+/** Hosts that reach this machine: plain http is allowed only for these (development), and a link from outside never
+ * points the desktop app at one. Names (localhost, *.localhost), IPv4 127.0.0.0/8 and 0.0.0.0/8 (0.0.0.0, and `0`,
+ * reach this machine on macOS and Linux), IPv6 ::1 and the unspecified ::, and the IPv4-mapped or -compatible forms
+ * of those (::ffff:127.0.0.1). */
 export function isLoopbackHost(hostname: string): boolean {
-  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '')
-  return h === 'localhost' || h.endsWith('.localhost') || h === '::1' || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '')
+  if (h === 'localhost' || h.endsWith('.localhost') || h === '0') return true
+  if (/^(127|0)\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) return true
+  if (!h.includes(':')) return false
+  // IPv6 as the URL parser writes it (compressed, hex): ::ffff:127.0.0.1 is ::ffff:7f00:1
+  let six: string
+  try {
+    six = new URL(`http://[${h}]/`).hostname.replace(/^\[|\]$/g, '')
+  } catch {
+    return false
+  }
+  if (six === '::1' || six === '::') return true
+  const v4 = /^::(?:ffff:)?([0-9a-f]{1,4}):[0-9a-f]{1,4}$/.exec(six)
+  if (!v4) return false
+  const first = parseInt(v4[1]!, 16) >> 8
+  return first === 127 || first === 0
 }
 
 const isIpHost = (h: string) => h.startsWith('[') || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(h)
@@ -75,7 +92,7 @@ const isIpHost = (h: string) => h.startsWith('[') || /^\d{1,3}(?:\.\d{1,3}){3}$/
 export function linkInText(raw: string): string | null {
   const s = raw.trim()
   // one word that is not an address with something glued in front ("링크:https://…")
-  if (!/\s/.test(s) && !/.https?:\/\//i.test(s)) return trimTrailing(cutGlued(s))
+  if (!/\s/.test(s) && !/.https?:\/\//i.test(s)) return trimTrailing(cutGlued(trimTrailing(s)))
   const found = (s.match(URL_IN_TEXT) ?? []).map(trimTrailing)
   const isLink = (u: string) => /^https?:\/\/[^/]+\/(?:invite\/[A-Za-z0-9_-]|join#)/i.test(u)
   return found.find(isLink) ?? found[0] ?? null
@@ -85,8 +102,11 @@ export function linkInText(raw: string): string | null {
  * the first other one. The host itself may be an internationalized name (the URL parser makes it punycode). */
 function cutGlued(word: string): string {
   const m = /^(https?:\/\/[^/?#]*)([/?#].*)$/i.exec(word)
-  if (!m || !/[^\x00-\x7f]/.test(m[2]!)) return word
-  return m[1]! + URL_CHARS.exec(m[2]!)![0]
+  if (m) return /[^\x00-\x7f]/.test(m[2]!) ? m[1]! + URL_CHARS.exec(m[2]!)![0] : word
+  // a word glued straight onto the host ("https://acme.trina.app입니다"): an ASCII host with a dot, then non-ASCII text
+  // with no dot in it (an internationalized name such as bücher.de has its letters inside the name, not after it)
+  const h = /^(https?:\/\/[\x21-\x7e]*\.[\x21-\x7e]*[A-Za-z0-9])[^\x00-\x7f][^.]*$/i.exec(word)
+  return h ? h[1]! : word
 }
 
 /** The team's own name in a host under the team domain ("acme" of acme.trina.app), else null. One label only. */
@@ -165,6 +185,14 @@ export function isSignInPath(pathname: string): boolean {
  * anywhere: `/`, `/signin`). */
 export function hostLineShown(pathname: string, signedIn: boolean): boolean {
   return !signedIn || isSignInPath(pathname)
+}
+
+/** Whether the host line takes its place right now, so the page does not jump on every open: on a sign-in page, or once
+ * the team answered GET /api/me without a signed-in person, at once; while that answer is still out, only after a short
+ * wait (`waited`: 300 ms after the page loaded); never once a signed-in person was confirmed outside the sign-in pages. */
+export function hostLineNow(o: { path: string; signedIn: boolean; answered: boolean; waited: boolean }): boolean {
+  if (!hostLineShown(o.path, o.signedIn)) return false
+  return isSignInPath(o.path) || o.answered || o.waited
 }
 
 /** What the team's relay answered instead of the team server (the `x-relay-error` header; relay/src/relay.ts). */

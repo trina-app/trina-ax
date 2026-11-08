@@ -2,7 +2,7 @@ import { afterEach, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { FileTransfers, MobileReceiver, onceEvery, PushRefused, StuckLoad, stillStuck, type TransferIO } from '../../mobile/src/bridge'
-import { currentDevice, leaveTeam, rememberDevice, retryRemovals, settleDevice, type DeviceDeps, type TeamDevice } from '../../mobile/src/device'
+import { currentDevice, leaveTeam, rememberDevice, retryRemovals, startRemovals, type DeviceDeps, type TeamDevice } from '../../mobile/src/device'
 import { readSessionCheck, sessionCheckScript } from '../../mobile/src/session-check'
 import { APPEARANCE_CAPABILITY, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, notificationPath, parseMessage, tappedNotificationPath, validConfig, validPushToken, type MobileConfig, type PushPermission, type PushToken } from '../../mobile/src/protocol'
 import { DARK, LIGHT, NO_INSETS, frame, insetScript, isDark, padding, pageInsets } from '../../mobile/src/look'
@@ -501,25 +501,71 @@ test('a switch cut short (the new team saved, the old one not left yet): the old
   const calls: string[] = []; let online = false
   const m = memory(async d => { calls.push(d.deviceId); return online })
   await rememberDevice(m.deps, dev('https://a.example', 'dev_a'))
-  // the same team saved: nothing to do
-  await settleDevice(m.deps, 'https://a.example')
+  // the same team saved: only the owed removals are tried (none)
+  await startRemovals(m.deps, 'https://a.example')
   expect(calls).toEqual([])
   expect((await currentDevice(m.deps, 'https://a.example'))?.deviceId).toBe('dev_a')
   // the app stopped after saving b: a's device is removed now, or kept owed while a cannot be reached
-  await settleDevice(m.deps, 'https://b.example')
+  await startRemovals(m.deps, 'https://b.example')
   expect(calls).toEqual(['dev_a'])
   expect(m.store.get('current')).toBeUndefined()
   expect(JSON.parse(m.store.get('pending')!).map((d: TeamDevice) => d.deviceId)).toEqual(['dev_a'])
   online = true
-  await retryRemovals(m.deps)
+  await startRemovals(m.deps, 'https://b.example')
   expect(m.store.get('pending')).toBeUndefined()
   // no team saved at all (left, then stopped before a new one was saved)
   await rememberDevice(m.deps, dev('https://c.example', 'dev_c'))
-  await settleDevice(m.deps, null)
+  await startRemovals(m.deps, null)
   expect(calls).toEqual(['dev_a', 'dev_a', 'dev_c'])
-  // App.tsx settles at every start, before it reads its own device
+  // App.tsx starts the removals once, after it knows the saved team (no other retry beside it)
   const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
-  expect(app).toMatch(/await settleDevice\(devices, origin\)\.catch\(\(\) => \{\}\)\n\s*let deviceRead = true/)
+  expect(app).toContain('void startRemovals(devices, origin).catch(() => {})')
+  expect(app).not.toContain('retryRemovals(')
+})
+
+// x's removal is owed and its first try is slow; every other try answers at once
+function slowFirst(ok = false) {
+  let release: ((ok: boolean) => void) | null = null, first = true
+  const m = memory(() => { if (!first) return Promise.resolve(ok); first = false; return new Promise<boolean>(r => { release = r }) })
+  return { m, release: (v: boolean) => release!(v) }
+}
+const owedIds = (m: ReturnType<typeof memory>) => JSON.parse(m.store.get('pending') ?? '[]').map((d: TeamDevice) => d.deviceId).sort()
+const tick = () => new Promise(r => setTimeout(r, 10))
+
+test('a slow network cannot make two runs drop an owed removal: a retry takes out only what it removed', async () => {
+  // meanwhile the start finds a's device (the app stopped mid-switch) and a switch leaves b; side by side, the slow
+  // run used to write back its old list [x] last and drop a
+  const { m, release } = slowFirst()
+  await m.deps.pending.set(JSON.stringify([{ ...dev('https://x.example', 'dev_x'), at: m.deps.now() }]))
+  await rememberDevice(m.deps, dev('https://a.example', 'dev_a'))
+  const runs = [retryRemovals(m.deps), startRemovals(m.deps, 'https://b.example'), leaveTeam(m.deps, 'https://b.example')]
+  await tick()
+  release(false)
+  await Promise.all(runs)
+  expect(owedIds(m)).toEqual(['dev_a', 'dev_x'])
+  expect(m.store.get('current')).toBeUndefined()
+})
+
+test('a slow removal holds back neither a leave nor the new team\'s device', async () => {
+  const { m, release } = slowFirst()
+  await m.deps.pending.set(JSON.stringify([{ ...dev('https://x.example', 'dev_x'), at: m.deps.now() }]))
+  await rememberDevice(m.deps, dev('https://a.example', 'dev_a'))
+  const retry = retryRemovals(m.deps)
+  await tick()
+  const leave = leaveTeam(m.deps, 'https://a.example')
+  await tick()
+  // the leave is stored while x's removal is still out
+  expect(m.store.get('current')).toBeUndefined()
+  expect(owedIds(m)).toEqual(['dev_a', 'dev_x'])
+  // the new team registers this phone meanwhile; x's removal then succeeds late
+  await rememberDevice(m.deps, dev('https://b.example', 'dev_b'))
+  release(true)
+  await Promise.all([retry, leave])
+  expect((await currentDevice(m.deps, 'https://b.example'))?.deviceId).toBe('dev_b')
+  expect(owedIds(m)).toEqual(['dev_a'])
+  // leaving a team that is not the current one keeps the current device
+  await leaveTeam(m.deps, 'https://a.example')
+  expect((await currentDevice(m.deps, 'https://b.example'))?.deviceId).toBe('dev_b')
 })
 
 test('the session check: the page answers GET /api/me with the check number; anything else is not an answer', () => {
@@ -530,7 +576,10 @@ test('the session check: the page answers GET /api/me with the check number; any
   expect(readSessionCheck(JSON.stringify({ mycelSessionCheck: 7, ok: false }), 7)).toBe(false)
   expect(readSessionCheck(JSON.stringify({ mycelSessionCheck: 6, ok: true }), 7)).toBeNull() // an older check
   for (const other of ['{"v":1,"type":"push-token"}', 'not json', JSON.stringify({ mycelSessionCheck: 7, ok: 'yes' }), 'x'.repeat(300)]) expect(readSessionCheck(other, 7)).toBeNull()
-  // the footer follows the rule shared with the desktop (shared/src/team-link.ts hostLineShown)
+  // the footer follows the rule shared with the desktop (shared/src/team-link.ts hostLineNow): it waits for this check
+  // (or 300 ms) before it shows, so a signed-in page does not jump; the check's answer counts as answered
   const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
-  expect(app).toContain('const showFooter = hostLineShown(pathname, signedIn)')
+  expect(app).toContain('const showFooter = hostLineNow({ path: pathname, signedIn, answered, waited })')
+  expect(app).toContain('if (session !== null) { setSignedIn(session); setAnswered(true); return }')
+  expect(app).toContain('if (!waitTimer.current) waitTimer.current = setTimeout(() => setWaited(true), 300)')
 })
