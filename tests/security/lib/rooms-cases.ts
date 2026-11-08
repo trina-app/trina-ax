@@ -11,6 +11,10 @@ const cm = () => 'cm-' + crypto.randomUUID()
 const form = () => { const f = new FormData(); f.set('file', new File([PNG], 'room.png', { type: 'image/png' })); return f }
 export const ROOM_SPECS: Record<string, Spec> = {
   listRooms: { build: (c) => c.get('/api/rooms'), scope: 'self' },
+  // "이 방에서는 항상 허용" (rooms/ai-grants.ts): each person lists their own; an id that is not theirs answers like one that
+  // is not there (another person's grant: tests/unit/b-room-ai-grants.test.ts)
+  listAiAllowances: { build: (c) => c.get('/api/ai-allowances'), scope: 'self' },
+  deleteAiAllowance: { build: (c) => c.del('/api/ai-allowances/019a0000-0000-7000-8000-00000000a11f'), scope: 'nobody' },
   // everyone opens their DM with frank (an active member); the DM itself is checked by the cases below
   createRoom: {
     build: (c) => c.post('/api/rooms', { kind: 'dm', userId: 'frank' }), scope: 'self',

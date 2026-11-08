@@ -27,6 +27,8 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   aiVision: true,
   /** the AI may split work into sub-tasks (Claude Code's Agent tool; chat/subagents.ts) */
   aiSubagents: true,
+  /** a room's change card may offer "이 방에서는 항상 허용" (rooms/ai-grants.ts) */
+  roomAlwaysAllow: true,
   /** tool rounds per answer (Claude Code --max-turns; chat/runtime.ts maxEngineTurns) */
   answerStepLimit: DEFAULT_ANSWER_STEP_LIMIT,
   /** the company intro deck's time budget (intro-deck/tiers.ts): 5 minutes until an owner or admin picks another */

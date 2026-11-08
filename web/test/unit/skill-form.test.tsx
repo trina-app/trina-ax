@@ -1,5 +1,5 @@
-// Onboarding stream C: skill forms (lib/skillForm.ts, components/skills/SkillForm.tsx) and the recommended pack on
-// the empty Team skills page (components/AvailableSkills.tsx).
+// Onboarding stream C: skill forms (lib/skillForm.ts, components/skills/SkillForm.tsx) and the empty Team skills page
+// (components/AvailableSkills.tsx).
 import { afterEach, describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { CompanyProfileResponse, profilePrefill, SKILL_INPUT_PREFILL, type Locale, type SkillInfo, type SkillInput } from '@mycel/shared/api'
@@ -105,21 +105,21 @@ const signIn = (role: 'owner' | 'admin' | 'member') => Object.assign(useSession.
 const render = (list: SkillInfo[]) => renderToStaticMarkup(<AvailableSkillsList items={list} />)
 
 describe('Team skills page', () => {
-  test('no skills: owners and admins get the install button, members a line that an admin can', () => {
+  // the empty page's "추천 스킬 4개 넣기" is gone (docs/DECISIONS.md "W6"): the kept skills are in the fold under the
+  // lists (test/unit/available-skills-install.test.tsx)
+  test('no skills: no install button for anyone; owners and admins read none yet, members that the owner or an admin puts them in', () => {
     for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
       setLocale(l)
       for (const role of ['owner', 'admin'] as const) {
         signIn(role)
         const html = render([])
-        expect(html).toContain('data-testid="skill-pack-install"')
-        // one button: the recommended skills that ship (docs/DECISIONS.md "DS3"), counted
-        expect(html).toContain(translate(l, 'skillPack.install', { n: 4 }))
-        expect((html.match(/<button/g) ?? []).length).toBe(1)
+        expect(html).not.toContain('skill-pack-install')
+        expect(html).toContain(translate(l, 'skills.noSkills'))
       }
       signIn('member')
       const html = render([])
       expect(html).not.toContain('skill-pack-install')
-      expect(html).toContain(translate(l, 'skillPack.memberHint'))
+      expect(html).toContain(translate(l, 'skills.catalog.memberEmpty'))
     }
   })
 

@@ -231,7 +231,7 @@ for (const scheme of ['light', 'dark'] as const) {
       await page.waitForTimeout(300)
       await audit(page, `admin/${s}`)
     }
-    for (const s of ['security', 'providers', 'memory', 'apps']) {
+    for (const s of ['security', 'providers', 'memory', 'allowances', 'apps']) {
       await page.goto(`/settings/${s}`)
       await page.waitForTimeout(300)
       await audit(page, `settings/${s}`)

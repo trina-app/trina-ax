@@ -325,7 +325,9 @@ describe('in a chat', () => {
     const second = h.api('alice').call(API.sendMessage, { params: { id: chat }, body: { content: fake({ tool: 'room_read', args: { room: roomId } }, { tool: 'read', args: { file_path: target } }, { tool: 'write', args: { file_path: target, content: 'after the room\n' } }, { say: 'tried' }), clientMessageId: cm(), attachmentIds: [] } })
     const turnId = (await second).turnId
     const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user', 15_000)
-    expect(card.data.request).toMatchObject({ origin: 'server', options: [{ value: 'allow' }, { value: 'skip' }] })
+    // the room is in the chat's read scope and shared/ is wider: one card, the wider-audience card, which also asks for
+    // the change (docs/DECISIONS.md "대화방에서 새 파일은 미리 허용": one card per call), with what it writes
+    expect(card.data.request).toMatchObject({ origin: 'server', options: [{ value: 'save' }, { value: 'skip' }], details: [{ fields: [{ value: 'Save' }, { value: target }], text: 'after the room\n' }] })
     expect((card.data.request as { question: string }).question).toContain('Messages from your conversations')
     expect((card.data.request as { question: string }).question).toContain(target)
     await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'skip' } })
@@ -333,13 +335,13 @@ describe('in a chat', () => {
     expect(fs.readFileSync(abs(), 'utf8')).toBe('before the room\n')
     // a later answer in the same chat that reads no room: still a card (the mark is the chat's), and a yes writes
     const third = await h.api('alice').call(API.sendMessage, { params: { id: chat }, body: { content: fake({ tool: 'read', args: { file_path: target } }, { tool: 'write', args: { file_path: target, content: 'with a yes\n' } }, { say: 'saved' }), clientMessageId: cm(), attachmentIds: [] } })
+    // the room is in the chat's read scope: saving where more people can see (shared/) is the one card, naming the room
     const card3 = await ws.alice!.next('turn.request', (f) => f.data.turnId === third.turnId && f.data.request.kind === 'ask_user', 15_000)
-    await h.api('alice').call(API.answerTurn, { params: { id: third.turnId }, body: { kind: 'ask_user', requestId: card3.data.request.requestId, answer: 'allow' } })
-    // the room is in the chat's read scope: saving where more people can see (shared/) asks too, naming the room
-    const widen = await ws.alice!.next('turn.request', (f) => f.data.turnId === third.turnId && f.data.request.kind === 'ask_user' && f.data.request.requestId !== card3.data.request.requestId, 15_000)
-    await h.api('alice').call(API.answerTurn, { params: { id: third.turnId }, body: { kind: 'ask_user', requestId: widen.data.request.requestId, answer: 'save' } })
+    expect((card3.data.request as { question: string }).question).toContain('wants to save to')
+    await h.api('alice').call(API.answerTurn, { params: { id: third.turnId }, body: { kind: 'ask_user', requestId: card3.data.request.requestId, answer: 'save' } })
     await ws.alice!.next('message.done', (f) => f.data.message.turnId === third.turnId, 30_000)
     expect(fs.readFileSync(abs(), 'utf8')).toBe('with a yes\n')
+    expect(ws.alice!.frames.filter((f) => f.type === 'turn.request' && f.data.turnId === third.turnId)).toHaveLength(1)
     // reading changes nothing and asks nothing; another chat of hers is not marked
     const other = await newChat('alice')
     expect(roomsSeen(other)).toBe(0)

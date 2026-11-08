@@ -1,10 +1,11 @@
-// 내 스킬 가져오기 in a real browser against the mock (docs/DECISIONS.md "SK", "W5"): 회사 소개 put off (no deck), then
-// [내 스킬 찾기] opens the folder window (Chrome's showDirectoryPicker, stubbed here with an in-memory .claude folder that
-// logs every name opened: Playwright cannot drive the OS folder window), the list comes back checked and judged; 팀 스킬
-// and back through the setup row finds the same list (nothing picked again); [팀에 공유 · N개] shares the ticked ones
-// (the server marks 내 스킬 done; a merge waits for the end of the setup), with 다른 폴더도 가져오기 beside 다음; 이전 from
-// 팀 파일 shows what went in; 팀 파일 and 도구 연결 are put off; the invite names ONE skill, the first shared, and its link opens it;
-// then 준비 끝났어요 with the owner's own run of that skill.
+// 내 스킬 가져오기 in a real browser against the mock (docs/DECISIONS.md "SK", "W5", "W6"): 회사 소개 put off (no deck, no
+// profile: no kept skill comes checked), then [내 스킬 찾기] opens the folder window (Chrome's showDirectoryPicker, stubbed
+// here with an in-memory .claude folder that logs every name opened: Playwright cannot drive the OS folder window), the
+// list comes back checked and judged; 팀 스킬 and back through the setup row finds the same list (nothing picked again);
+// the step's one primary [팀에 넣기 · N개] puts the ticked ones in (the server marks 내 스킬 done; a merge waits for the end
+// of the setup) and goes on to 팀 파일 with a toast; 이전 from 팀 파일 shows what went in, 다른 폴더도 가져오기 and 다음; 팀 파일
+// and 도구 연결 are put off; the invite names ONE skill, the first shared, and its link opens it; then 준비 끝났어요 with the owner's own
+// run of that skill. The kept skills' rows and the example viewer: onb6-skills.spec.ts.
 import { expect, test } from '@playwright/test'
 import { PRODUCT } from '@mycel/shared'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
@@ -22,7 +23,7 @@ const TREE = {
   commands: { 'standup.md': '어제, 오늘, 막힌 일을 한 줄씩.\n' },
 }
 
-test('[내 스킬 찾기] → the list (kept across a trip away) → [팀에 공유]; 이전 shows what went in; 팀 파일 put off; the invite names one shared skill and opens it; 준비 끝났어요 → its form', async ({ page }) => {
+test('[내 스킬 찾기] → the list (kept across a trip away) → [the primary naming them] → 팀 파일; 이전 shows what went in; 팀 파일 put off; the invite names one shared skill and opens it; 준비 끝났어요 → its form', async ({ page }) => {
   const errors = watchConsole(page)
   await page.addInitScript((tree) => {
     const opened: string[] = []
@@ -43,14 +44,25 @@ test('[내 스킬 찾기] → the list (kept across a trip away) → [팀에 공
   // 2/5 내 스킬; nothing about a deck (회사 소개 was put off)
   await expect(page.getByTestId('skills-step')).toBeVisible()
   await expect(page.getByTestId('welcome-progress')).toContainText('2/5 내 스킬')
-  await expect(page.getByRole('heading', { name: 'Claude Code나 Codex에서 쓰던 스킬, 팀도 쓰게 할까요?' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '팀이 쓸 스킬을 골라 주세요' })).toBeVisible()
+  // no company profile: no kept skill comes checked, so there is no primary yet (나중에 하기 stands in)
+  await expect(page.getByTestId('skill-packs').getByRole('checkbox', { checked: true })).toHaveCount(0)
+  const primary = page.getByTestId('skills-primary')
+  await expect(primary).toHaveCount(0)
   await expect(page.getByTestId('skills-promise')).toBeVisible()
+  // the Claude Code / Codex line sits behind one disclosure
+  await expect(page.getByTestId('skills-cc-prompt')).toHaveCount(0)
+  await page.getByTestId('skills-cc-toggle').click()
   await expect(page.getByTestId('skills-cc-prompt')).toContainText(`내 스킬 중 팀에 공유할 만한 걸 ${PRODUCT.displayName}에 올려 줘`)
   await expect(page.getByTestId('setup-row')).toHaveCount(0)
   await page.getByTestId('skills-find').click()
-  // the list: recommended ones ticked with a reason each, the folded rows, CLAUDE.md as a rule, one primary
+  // the list: recommended ones ticked with a reason each, the folded rows, CLAUDE.md as a rule; the step's one primary
+  // names what is ticked, up to three (the list has no button of its own here)
   await expect(page.getByTestId('skills-recommended')).toBeVisible()
-  await expect(page.getByTestId('skills-share')).toBeEnabled()
+  await expect(primary).toHaveAttribute('data-state', 'put')
+  await expect(primary).toHaveText('주간 업무 보고·견적서 초안·회의록 정리 넣기')
+  await expect(primary).toBeEnabled()
+  await expect(page.getByTestId('skills-share')).toHaveCount(0)
   const opened = await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened)
   // only known places: never transcripts, history or the sign-in file
   expect(opened.filter((x) => /credentials|history|projects/.test(x))).toEqual([])
@@ -58,22 +70,25 @@ test('[내 스킬 찾기] → the list (kept across a trip away) → [팀에 공
   await page.getByTestId('nav-skills').click()
   await expect(page).toHaveURL(/\/skills$/)
   await page.getByTestId('setup-row-link').click()
-  await expect(page.getByTestId('skills-share')).toBeEnabled()
+  await expect(primary).toHaveAttribute('data-state', 'put')
+  await expect(primary).toBeEnabled()
   await expect(page.getByTestId('skills-find')).toHaveCount(0)
   expect(await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened.length)).toBe(opened.length)
-  await page.getByTestId('skills-share').click()
-  await expect(page.getByTestId('skills-done')).toBeVisible()
-  // the server recorded 내 스킬 done itself
-  expect((await (await page.request.get('/api/onboarding/welcome')).json()).progress.steps.skills).toBe('done')
-  // one quiet way to a second folder beside the primary
-  await expect(page.getByTestId('skills-more')).toHaveText('다른 폴더도 가져오기')
-  await page.getByTestId('skills-done-next').click()
-  // 3/5 팀 파일; 이전 shows what went in (not the empty picker), and 다음 goes on again
+  // the three named skills
+  const n = 3
+  await primary.click()
+  // all in: a toast with the count and on to 3/5 팀 파일; the server recorded 내 스킬 done itself
+  await expect(page.getByTestId('toast').filter({ hasText: `스킬 ${n}개를 팀에 넣었어요` })).toBeVisible()
   await expect(page.getByTestId('welcome-team-files')).toBeVisible()
+  expect((await (await page.request.get('/api/onboarding/welcome')).json()).progress.steps.skills).toBe('done')
+  // 이전 shows what went in (not the empty picker), one quiet way to a second folder, and 다음 goes on again
   await page.getByTestId('welcome-back').click()
   await expect(page.getByTestId('skills-done')).toBeVisible()
   await expect(page.getByTestId('skills-find')).toHaveCount(0)
-  await page.getByTestId('skills-done-next').click()
+  await expect(page.getByTestId('skills-more')).toHaveText('다른 폴더도 가져오기')
+  await expect(primary).toHaveAttribute('data-state', 'next')
+  await expect(primary).toHaveText('다음: 팀 파일 가져오기')
+  await primary.click()
   // 팀 파일, put off; 도구 연결 put off; then the invite
   await expect(page.getByTestId('welcome-team-files')).toBeVisible()
   await page.getByTestId('welcome-later').click()
