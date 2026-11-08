@@ -944,6 +944,81 @@ describe('"Post to channel" checks what the answer used, against the whole team'
     expect((await press('trina_post', q.id, q.channel)).text).toBe('Posted to the thread.')
   })
 
+  test('file names a listing or a glob showed count like reads (a Slack chat records them, as a room session does)', async () => {
+    const tool = (name: string, args: Record<string, string>) => `@fake ${JSON.stringify({ tool: name, args, sayResult: true })}`
+    const notice = 'This answer used places not everyone on the team can see: groups/marketing/. Post it to the channel anyway?'
+    const listed = await ask([tool('list', { path: 'groups/marketing/campaigns' })], 'Listed the campaigns.')
+    expect(ephemeralsTo('U0ALICE').some((c) => c.args.channel === listed.channel && blocksOf(c).includes('instagram-plan.md'))).toBe(true)
+    expect((await press('trina_post', listed.id, listed.channel)).text).toBe(notice)
+    const globbed = await ask([tool('glob', { pattern: '**/*.md', path: 'groups/marketing' })], 'Globbed marketing.')
+    expect((await press('trina_post', globbed.id, globbed.channel)).text).toBe(notice)
+    // the sub-folders a listing showed are names: shared/ shows none of marketing's
+    const shared = await ask([tool('list', { path: 'shared' })], 'Listed shared.')
+    expect((await press('trina_post', shared.id, shared.channel)).text).toBe('Posted to the thread.')
+    for (const q of [listed, globbed]) expect(postsTo(q.channel)).toEqual([])
+  })
+
+  test('a key from before something changed (a new member) shows the notice again; an answer not all known says "other material"', async () => {
+    const q = await ask([read('groups/marketing/campaigns/instagram-plan.md')], 'Before the new member.')
+    const notice = await press('trina_post', q.id, q.channel)
+    const anyway = buttonsOf(notice).find((b) => b.action_id === 'trina_post_anyway')!.value
+    const db = h.ctx.db
+    db.query("INSERT INTO users (id, username, name, role) VALUES ('newbie', 'newbie', 'New Member', 'member')").run()
+    try {
+      const again = await press('trina_post_anyway', anyway, q.channel)
+      expect(again.text).toBe(notice.text)
+      const fresh = buttonsOf(again).find((b) => b.action_id === 'trina_post_anyway')!.value
+      expect(fresh).not.toBe(anyway)
+      expect(postsTo(q.channel)).toEqual([])
+      expect((await press('trina_post_anyway', fresh, q.channel)).text).toBe('Posted to the thread.')
+    } finally { db.query("DELETE FROM users WHERE id = 'newbie'").run() }
+    // an answer that ran dev environment commands: what it read there is not known
+    const u = await ask([], 'Ran a command.')
+    db.query(`UPDATE messages SET steps = '[{"id":"s1","kind":"tool","tool":"box_shell","label":"ls","status":"ok"}]' WHERE id = (SELECT message_id FROM slack_requests WHERE id = ?)`).run(u.id)
+    expect((await press('trina_post', u.id, u.channel)).text).toBe('This answer used places not everyone on the team can see: other material. Post it to the channel anyway?')
+  })
+
+  test('nobody else on the team: the team folder posts at once, the asker\'s own folder still asks', async () => {
+    const db = h.ctx.db
+    const others = (db.query("SELECT id FROM users WHERE status = 'active' AND id <> 'alice'").all() as { id: string }[]).map((u) => u.id)
+    const team = await ask([read('shared/glossary.md')], 'Alone, shared.')
+    const own = await ask([read('users/alice/todo.md')], 'Alone, my todo.')
+    db.query("UPDATE users SET status = 'disabled' WHERE status = 'active' AND id <> 'alice'").run()
+    try {
+      expect((await press('trina_post', own.id, own.channel)).text).toBe('This answer used places not everyone on the team can see: your folder. Post it to the channel anyway?')
+      expect((await press('trina_post', team.id, team.channel)).text).toBe('Posted to the thread.')
+    } finally { for (const id of others) db.query("UPDATE users SET status = 'active' WHERE id = ?").run(id) }
+    expect(postsTo(own.channel)).toEqual([])
+  })
+
+  test('Cancel for a Slack account unlinked meanwhile sends nothing; a confidential conversation is never posted', async () => {
+    const db = h.ctx.db
+    const q = await ask([read('groups/marketing/campaigns/instagram-plan.md')], 'Unlinked before cancel.')
+    const notice = await press('trina_post', q.id, q.channel)
+    const anyway = buttonsOf(notice).find((b) => b.action_id === 'trina_post_anyway')!.value
+    const link = db.query("SELECT * FROM slack_links WHERE user_id = 'alice'").get() as Record<string, string>
+    db.query("DELETE FROM slack_links WHERE user_id = 'alice'").run()
+    try {
+      const kept = await press('trina_post_cancel', q.id, q.channel)
+      expect(kept.text).toMatch(/no longer connected/)
+      expect(JSON.stringify(kept)).not.toContain('Unlinked before cancel.')
+      expect((await press('trina_post_anyway', anyway, q.channel)).text).toMatch(/no longer connected/)
+    } finally {
+      db.query('INSERT INTO slack_links (id, user_id, team_id, enterprise_id, slack_user_id, slack_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(link.id!, 'alice', link.team_id!, link.enterprise_id!, link.slack_user_id!, link.slack_name!, link.created_at!)
+    }
+    // a 1A conversation: refused, before or after the notice
+    db.query('INSERT INTO safe_ops_chats (chat_id, material) VALUES (?, 1)').run(chatOf(q.id))
+    try {
+      for (const [action, value] of [['trina_post', q.id], ['trina_post_anyway', anyway]] as const) {
+        const r = await press(action, value, q.channel)
+        expect(r.text).toContain('This is a confidential conversation, so its answers cannot be posted to the channel.')
+        expect(buttonsOf(r)).toEqual([])
+      }
+    } finally { db.query('DELETE FROM safe_ops_chats WHERE chat_id = ?').run(chatOf(q.id)) }
+    expect(postsTo(q.channel)).toEqual([])
+    expect(stateOf(q.id)).toBe('delivered')
+  })
+
   test('in a DM nothing changes: the answer comes in the thread, no button, no notice', async () => {
     const ts = nextTs()
     fake.event({ type: 'message', channel_type: 'im', user: 'U0ALICE', text: `${read('groups/marketing/campaigns/instagram-plan.md')}\n${say('DM marketing answer.')}`, ts, channel: 'D0CHECK', event_ts: ts })

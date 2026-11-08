@@ -30,6 +30,10 @@ In:
 - Team connections and shared Drives always count as not team-wide (the room AI's rule; their content is outside).
 - Five languages for the new Slack texts; docs/SLACK.md and a DECISIONS entry; tests.
 
+- After the review: a Slack thread's chat records the names its listings and globs showed (as a room session does);
+  a team of one still counts the asker's own material; a confidential conversation or hidden room answers are never
+  posted.
+
 Out: DMs (unchanged), any change to the app's own share flows.
 
 ## Steps

@@ -61,8 +61,10 @@ of the old one.
   first turns it into a notice, to you only, that names those places as you may see them (never what is in them, never
   who cannot see them), with *Post anyway* and *Cancel*. *Post anyway* posts it after the same checks again (your link,
   Slack Connect asked again, once only); *Cancel* puts the answer back, to you only. Slack does not tell the app who in
-  a channel is who here, so the test is the whole team: everything the answer used must be readable by every active
-  member, or the notice comes. A DM has no button and no notice.
+  a channel is who here, so the test is the whole team: everything the answer used (in this thread's chat so far,
+  file names a listing showed included) must be readable by every active member, or the notice comes. If you have
+  personal memories, every answer asks: they go into every answer of your own chats. A confidential conversation
+  (safe operations) is never posted; the answer says why. A DM has no button and no notice.
 - **In a channel shared with another organization** (Slack Connect) there is no *Post to channel*; the answer says why.
   Slack is asked again when the button is pressed.
 - **In a DM** the answer comes in the thread of your message (a new message, so Slack notifies you; "working…" goes).
@@ -133,10 +135,12 @@ after 1, 2, 4 … seconds (at most a minute).
 - *Post to channel* checks what the answer used with 대화방에 보내기's check (`chat/answer-share.ts`: the files every
   answer on its branch read, the chat's read scope when it describes the answer, "not all known" otherwise) and the
   memory rule of sharing a chat, against every active account but the asker; a team connection or a shared Drive counts
-  whoever may use it. The notice is plain text (no markup, mention or link from a folder's or a connection's name).
-  *Post anyway* carries a keyed hash (a secret of this server process) of what the notice said, for that request and
-  asker: a value without it, another request's, or one from before something changed (a rule, a member, a restart)
-  shows the notice again. `slack.posted` then has `confirmed: true`.
+  whoever may use it. A Slack thread's chat also records the names its listings and globs showed, as a room session
+  does. The notice is plain text (no markup, mention or link from a folder's or a connection's name). *Post anyway*
+  carries a keyed hash (a secret of this server process) of what the notice said, for that request and asker: without
+  it the value is refused; another request's, or one from before something changed (a rule, a member, a restart),
+  shows the notice again. `slack.posted` then has `confirmed: true`. A confidential conversation, or an answer that
+  read a room with old answers hidden from someone, is never posted.
 - The connection is pinged every 30 seconds; one that stops answering (the Mac slept, the network dropped it) is opened
   again.
 - A link is bound to the Slack account it was sent to, and binds only when that account's e-mail (Slack's, read by the

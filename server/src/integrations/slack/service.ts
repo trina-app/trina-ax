@@ -908,6 +908,8 @@ export class SlackConnector {
     if (!this.db.query('SELECT 1 FROM chats WHERE id = ? AND user_id = ? AND deleted_at IS NULL').get(r.chat_id, r.user_id)) { await reply(say('postGone', locale)); return }
     const a = this.answerOf(r, locale)
     if (!a.ok) { await reply(say('postGone', locale)); return }
+    // a confidential conversation, or a room read with old answers hidden from someone: never, whatever is pressed
+    if (check.refused) { await reply([say(check.refused === 'confidential' ? 'postConfidential' : 'postHidden', locale), this.chatLink(cfg, r.chat_id, locale)].filter(Boolean).join('  ')); return }
     // not all of it team-wide, and no yes to this very notice: the notice (again)
     const confirmed = !check.teamWide && act.action_id === ACTION_POST_ANYWAY && !!key && key.length === check.key.length && crypto.timingSafeEqual(Buffer.from(key), Buffer.from(check.key))
     if (!check.teamWide && !confirmed) {
