@@ -27,6 +27,9 @@ export const RESERVED_TEAM_NAMES: readonly string[] = [
   'terms', 'privacy', 'trust', 'changelog', 'teamax-cloud', 'ax-probe',
   // the phone app's push gateway (push-gateway/, push.<domain>)
   'push', 'push-gateway',
+  // the first-run screens' example name ("팀 주소(예: acme)"): someone typing the example must never reach a real team;
+  // and the product's own names (docs/DECISIONS.md "First run: one box")
+  'acme', 'trina', 'trina-ax',
 ]
 
 export type TeamNameProblem = 'too_short' | 'too_long' | 'invalid' | 'reserved'
