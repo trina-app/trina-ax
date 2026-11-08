@@ -99,4 +99,4 @@ Differs from the brief, and why:
 - Known limit, for the owner: a room question with earlier messages in its context counts the room as a source, so a
   save where people outside the room can read (the owner and admins) still shows the wider-audience card, once.
 
-PR: filled in when opened.
+PR: https://github.com/trina-app/trina-ax/pull/198
