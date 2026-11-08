@@ -8,6 +8,7 @@ import type { Room } from '@mycel/shared/api'
 import { translate, useLocale, useT } from '../../i18n'
 import { roomTitle } from '../../lib/rooms'
 import { useAvatarOf, usePeople, usePeopleList } from '../../store/people'
+import { useMe } from '../../store/session'
 import { Avatar } from '../Avatar'
 import { PresenceFace } from '../Presence'
 
@@ -26,6 +27,15 @@ export function useRoomTitle() {
     const peers = room.kind === 'dm' || room.kind === 'group' ? room.peers.map((p) => (byId[p.id] ? { ...p, name: byId[p.id]!.name } : p)) : room.peers
     return roomTitle({ ...room, peers }, { all, gone, alone, sep, names: (names, n) => (n > 0 ? translate(locale, 'rooms.groupNamesMore', { names, n }) : names) })
   }, [all, gone, alone, sep, locale, byId])
+}
+
+/** What a room is called with no name of its own (an empty name goes back to it): a team room's group, the everyone
+ * room's word, a group chat's members. The name field shows it as its placeholder: the room info's (MembersDialog.tsx)
+ * and the "⋯"'s 이름 바꾸기 (RoomMenu.tsx). */
+export function useNameFallback(): (room: Room) => string {
+  const titleOf = useRoomTitle()
+  const me = useMe()
+  return (room) => (room.kind === 'team' ? (me?.groups.find((g) => g.id === room.groupId)?.name ?? '') : titleOf({ ...room, name: null }))
 }
 
 /** `tile`: the icon on a round tile the size of an avatar (lists); without it a bare 16px icon in a box of that size

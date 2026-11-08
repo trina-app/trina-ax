@@ -15684,18 +15684,21 @@ settings screens, which are core. Plan: `docs/AGENTS/plan/20261108-1241-web-tidy
 - **AI chats are 기록 in Korean (the owner's choice).** The sidebar already said "트리나 기록" and "삭제한 기록", rooms are
   "대화". The project page's list heading is now the sidebar's own message, "{AI name} 기록", in every language (the
   key `projects.myChats` is gone). Korean lines that name the list or a past chat say 기록: the trash banner and the
-  team setting row (삭제한 기록), the chat footer, the project's empty list and its project dialog, scheduled runs
-  (기록 열기, 새 기록에 남아요), a memory's source, member and account deletion, restore and export, Slack, Drive
-  sharing, the access change lines, the row menu's name (기록 메뉴). Left as 채팅, because 기록 would not read: verbs and
-  the live chat (새 채팅, 채팅에서 물어볼 때, 이 프로젝트에서 채팅, 채팅 입력창, 채팅에 추가, 채팅에서 쓰기), the dev
-  environment's and engine settings' lines about chats as they run, the 공유 채팅 family (a feature's name), and the
-  chat delete confirm (`chat.deleteTitle`, `chat.deleteBody`, `chat.deleted`) and project delete confirm, which
+  team setting row (삭제한 기록), the project's empty list and its project dialog, scheduled runs (기록 열기, 새 기록에
+  남아요), a memory's source, member and account deletion, Slack, the secret warning, the row menu's name (기록 메뉴).
+  Left as 채팅, because 기록 would not read: verbs and the chat in front of the person (새 채팅, 채팅에서 물어볼 때, 이
+  프로젝트에서 채팅, 채팅 입력창, 채팅에 추가, 채팅에서 쓰기, the footer under a chat, whose shared twin says 이 채팅, and
+  the skill form's line in a chat), chats that go on (the access change lines: "채팅 N개는 … 이어가요"), the dev
+  environment's and engine settings' lines about chats as they run, admin lines where 기록 reads like "the log"
+  (restore, export, Drive sharing's stop), the 공유 채팅 family (a feature's name), and the chat delete confirm
+  (`chat.deleteTitle`, `chat.deleteBody`, `chat.deleted`) and project delete confirm, which
   `fix/shared-chat-trash-live` changes. Server messages other than the confidential one keep their words.
 - **Confidential mode stays 기밀 대화** (the owner: "기밀 기록" sounds odd): the two artifact notices and the server's
   share refusal said 기밀 채팅.
 - **Admin's audit log is 활동 로그.** It read "기록", like chat history. One key gives its menu row, page title and
   card; the team setting row and the lines that send people there (감사 기록, 활동 기록) say 활동 로그 too, as English
-  says "Activity log" everywhere. Other languages changed only where they had the same mismatch: Japanese named the
+  says "Activity log" everywhere, and so do the Korean guides and docs that named the page (guide, office guide,
+  OFFICE.md, PERMISSIONS.md, PLUGINS.md). Other languages changed only where they had the same mismatch: Japanese named the
   setting アクティビティログ beside the page's 操作ログ, and English, Indonesian, Japanese and Spanish named the trash
   setting "Deleted chats" beside the trash page's own name; both now use the page's name.
 - **Chat rows use the rooms' row menu** (`MenuButton` and `useRowMenu`, as in "대화 숨기기" above). The same items for
@@ -15704,15 +15707,20 @@ settings screens, which are core. Plan: `docs/AGENTS/plan/20261108-1241-web-tidy
   the finger lifting opens no chat. The row's link has `user-select: none` and no callout on a coarse pointer, so a
   long press starts no text selection (rooms do the same). Unlike a room row, the "···" stays on screen on a phone (it
   was there before, and a screen reader reaches the menu by it) and the row's marker sits left of it. The row is
-  highlighted while its menu is open. The hand-made popover and its own Esc and outside-click code are gone.
+  highlighted while its menu is open. The hand-made popover and its own Esc and outside-click code are gone. Two
+  MenuButton changes for every menu: a click within 800 ms of a long press that opened it does not close it (a long
+  press on the phone's visible "···" opens it, and the finger lifting clicks the same button), and the menu is as wide
+  as its longest item, at least 176 px (the popover was `w-max`; "Pindahkan ke proyek…" would wrap in a fixed 176 px).
 - **이름 바꾸기 in a room's "⋯"**, after 알림 설정, when `Room.canRename` (the server's rule, unchanged: a group chat's
   members; owners and admins in a team room or the everyone room; never a DM). It is in every place the "⋯" is (the
   header and the rows), like the menu's other items. It opens the rename prompt the chat rows use (`promptDialog`, now
   with `placeholder`, `allowEmpty` and `maxLength`), with the info dialog's hint, the name an empty field goes back to
-  as the placeholder (`useNameFallback`, shared with the info's field) and 80 characters; it saves through the same
+  as the placeholder (`useNameFallback` in RoomIcon.tsx, shared with the info's field) and 80 characters; it saves through the same
   `useRooms.rename`. Not the info dialog's own field inside a dialog: a dialog rendered from a row is a portal whose
   pointer and right-click events reach the row's long-press and right-click handlers, which would open the row's menu
   behind it; the prompt lives in the app's one dialog host. The tap on the title still edits the name in the info.
+  The prompt does not check the name before sending (neither does the info's field): a name the server refuses
+  (invisible or control characters) shows its error, and the prompt has closed.
 - **대화방 나가기 only in the "⋯".** The room's info had it at its end too. The header's "⋯" is on screen on phones and
   computers, so the info no longer repeats it (the owner prefers fewer buttons).
 - **Leftovers.** `pages/ConnectorConnections.tsx` was imported nowhere (Settings › Connectors shows Drive and Slack);
@@ -15722,7 +15730,8 @@ settings screens, which are core. Plan: `docs/AGENTS/plan/20261108-1241-web-tidy
   fix that, a visible change left for the owner. 65 i18n keys no code uses are gone from all five languages, found by
   a script that also turns every template literal into a pattern; keys built in templates stay (`kg.offTitle`,
   `kg.docs.*`: `${k}.offTitle` in `KnowledgeGraph.tsx`). Two unit tests used removed keys and use live ones now.
-- Tests: `web/test/unit/sidebar.test.tsx` (a chat row's right-click and long press, the sheet's title, no navigation),
+- Tests: `web/test/unit/sidebar.test.tsx` (a chat row's right-click and long press, on the row and on its "···", the
+  sheet's title, no navigation),
   `room-hide.test.tsx` (이름 바꾸기 by kind and permission; the prompt's value, placeholder and hint; an empty name
   sent as null), `room-info.test.tsx` (no 나가기 in the info), `slack-screens.test.tsx`; the e2e specs that named the
   old words.

@@ -615,6 +615,19 @@ describe('a chat row\'s "…"', () => {
       expect(path).toBe('/')
       // the link holds no text a long press could start selecting on a touch screen
       expect(link.getAttribute('class')).toContain('pointer-coarse:select-none')
+      // the "···" shows on a phone: a long press on it opens the menu, and the click of the finger lifting does not close it
+      const more = row.querySelector(`button[aria-label="${ko('chat.menu')}"]`)!
+      // a later click on it closes it as usual
+      await m.settle(850)
+      await m.click(more)
+      expect(shown()).toBe(0)
+      const hold = (type: string) => more.dispatchEvent(Object.assign(new FakeEvent(type, { bubbles: true, cancelable: true }), { pointerType: 'touch', clientX: 20, clientY: 20 }))
+      hold('pointerdown')
+      await m.settle(600)
+      hold('pointerup')
+      await m.until(() => shown() === 3, 'the sheet again')
+      await m.click(more)
+      expect(shown()).toBe(3)
     } finally {
       await m.unmount()
     }

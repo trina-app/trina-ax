@@ -15,7 +15,7 @@ import { useLocale, useT } from '../../i18n'
 import { useRooms } from '../../store/rooms'
 import { toast } from '../../store/ui'
 import { confirmDialog, promptDialog, useCopy } from '../ui'
-import { useNameFallback } from './MembersDialog'
+import { useNameFallback } from './RoomIcon'
 import { MenuButton, useLongPress, type MenuItem } from './MenuButton'
 import { RoomNotifyMenu } from './RoomNotifyMenu'
 

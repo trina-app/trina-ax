@@ -18,7 +18,7 @@ import { toast } from '../../store/ui'
 import { PresenceFace, PresenceText } from '../Presence'
 import { Button, confirmDialog, inputCls, Modal, Skeleton } from '../ui'
 import { MenuButton } from './MenuButton'
-import { useRoomTitle } from './RoomIcon'
+import { useNameFallback, useRoomTitle } from './RoomIcon'
 
 export function MembersDialog({ open, onClose, room, members, meId, onInvite }: { open: boolean; onClose: () => void; room: Room | null; members: RoomMember[] | undefined; meId: string | null; onInvite: () => void }) {
   const t = useT()
@@ -87,14 +87,6 @@ export function MembersDialog({ open, onClose, room, members, meId, onInvite }: 
       </div>
     </Modal>
   )
-}
-
-/** What a room is called with no name of its own (an empty name goes back to it): a team room's group, the everyone
- * room's word, a group chat's members. The name field shows it as its placeholder, here and in the "⋯"'s 이름 바꾸기. */
-export function useNameFallback(): (room: Room) => string {
-  const titleOf = useRoomTitle()
-  const me = useMe()
-  return (room) => (room.kind === 'team' ? (me?.groups.find((g) => g.id === room.groupId)?.name ?? '') : titleOf({ ...room, name: null }))
 }
 
 /** The room's name, a tap away from editing it: Enter or 저장 saves, Esc or 취소 puts it back. Empty goes back to the
