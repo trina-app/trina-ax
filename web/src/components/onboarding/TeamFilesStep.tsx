@@ -292,6 +292,8 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
   const [skipped, setSkipped] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const adding = useRef(false)
+  const mounted = useRef(true)
+  useEffect(() => () => { mounted.current = false }, [])
 
   const pickFolder = async (add: boolean) => {
     if (!place) return
@@ -339,9 +341,9 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
     setError(null)
     try {
       const r = await sendPicked(list, place.folder)
-      setSkipped(r.skipped)
+      if (mounted.current) setSkipped(r.skipped)
     } catch (e) {
-      setError(errorText(e, currentLocale(), t('error.network')))
+      if (mounted.current) setError(errorText(e, currentLocale(), t('error.network')))
     }
   }
   const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes('Files')
@@ -716,15 +718,19 @@ function TeamReach({ team, groupId }: { team: string; groupId: string | null }) 
   const [reach, setReach] = useState<{ viewers: number; outside: string[]; memberIds: string[] } | null>(null)
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // an answer that comes after the line is gone changes nothing
+  const live = useRef(true)
+  useEffect(() => () => { live.current = false }, [])
   const load = async (id: string) => {
     const [users, groups] = await Promise.all([api.call(API.listUsers), api.call(API.listGroups)])
+    if (!live.current) return
     const group = groups.items.find((g) => g.id === id)
     if (!group) return setReach(null)
     setReach({ ...teamReach(users.items, group.memberIds), memberIds: group.memberIds })
   }
   useEffect(() => {
     if (!groupId) return
-    void load(groupId).catch(() => setReach(null))
+    void load(groupId).catch(() => { if (live.current) setReach(null) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupId])
   const add = async () => {
@@ -735,9 +741,9 @@ function TeamReach({ team, groupId }: { team: string; groupId: string | null }) 
       await api.call(API.updateGroup, { params: { id: groupId }, body: { memberIds: [...new Set([...reach.memberIds, ...reach.outside])] } })
       await load(groupId)
     } catch (e) {
-      setError(errorText(e, locale, t('error.network')))
+      if (live.current) setError(errorText(e, locale, t('error.network')))
     } finally {
-      setAdding(false)
+      if (live.current) setAdding(false)
     }
   }
   return (
