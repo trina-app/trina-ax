@@ -345,3 +345,33 @@ describe('a hosted team', () => {
     } finally { db2.close() }
   })
 })
+
+describe('the lead join is pushed to the owner\'s devices, only while the card holds', () => {
+  test('a Web Push with the event code only; none once the joiner is disabled', async () => {
+    const crypto = await import('node:crypto')
+    const { PushService } = await import('../../server/src/notifications/push-service')
+    const t = await team('handover-push')
+    const sent: any[] = []
+    const ecdh = crypto.createECDH('prime256v1'); ecdh.generateKeys()
+    const p = new PushService(t.h.ctx, { config: () => ({ enabled: true, subject: 'mailto:push@example.test', publicKey: ecdh.getPublicKey().toString('base64url'), privateKey: ecdh.getPrivateKey().toString('base64url') }), transport: async (i) => { sent.push(i.payload); return { statusCode: 201 } } })
+    try {
+      const sid = (t.h.ctx.db.query("SELECT id FROM sessions WHERE user_id = 'olga'").get() as { id: string }).id
+      const k = crypto.createECDH('prime256v1'); k.generateKeys()
+      p.subscribe('olga', sid, { consent: true, endpoint: 'https://fcm.googleapis.com/fcm/send/synthetic-owner', keys: { p256dh: k.getPublicKey().toString('base64url'), auth: crypto.randomBytes(16).toString('base64url') } })
+      await Bun.sleep(5)
+      const inv = await t.owner.call('POST', '/api/admin/invites', { leadFor: '박민준 대표님' })
+      const j = await join(t.h, inv.token, 'minjun')
+      await p.tick()
+      expect(sent).toHaveLength(1)
+      expect(sent[0].code).toBe('owner.lead_joined')
+      expect(Object.keys(sent[0]).sort()).toEqual(['code', 'notificationId', 'subscriptionId'])
+      // a second lead join after the joiner is disabled: no push (the card does not hold)
+      const inv2 = await t.owner.call('POST', '/api/admin/invites', { leadFor: '다른 사람' })
+      const j2 = await join(t.h, inv2.token, 'other.one')
+      await t.owner.call('PATCH', `/api/admin/users/${j2.id}`, { status: 'disabled' })
+      await p.tick()
+      expect(sent).toHaveLength(1)
+      expect(j.id).not.toBe(j2.id)
+    } finally { await p.stop(); await t.h.close() }
+  })
+})
