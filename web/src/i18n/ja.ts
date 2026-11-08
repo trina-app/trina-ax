@@ -2013,6 +2013,7 @@ export const ja: Record<MessageKey, string> = {
   'audit.act.project.share_chats': "プロジェクトのチャット共有を変更",
   'audit.act.chat.shared_read': "共有チャットの読み取り確認",
   'audit.act.chat.delete': "共有チャットを削除",
+  'audit.act.chat.share': "既存のチャットをプロジェクトと共有",
   'audit.act.group.create': "グループを作成",
   'audit.act.group.update': "グループを変更",
   'audit.act.group.delete': "グループを削除",

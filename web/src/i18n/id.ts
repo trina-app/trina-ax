@@ -2047,6 +2047,7 @@ export const id: Record<MessageKey, string> = {
   'audit.act.project.share_chats': "Berbagi chat proyek diubah",
   'audit.act.chat.shared_read': "Konfirmasi baca di chat bersama",
   'audit.act.chat.delete': "Chat bersama dihapus",
+  'audit.act.chat.share': "Chat lama dibagikan dengan proyek",
   'audit.act.group.create': 'Membuat grup',
   'audit.act.group.update': 'Mengubah grup',
   'audit.act.group.delete': 'Menghapus grup',

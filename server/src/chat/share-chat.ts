@@ -38,7 +38,7 @@ import type { ChatRow, ProjectRow } from './store'
 import { canSeeProject } from './projects'
 import { isInternalChat } from './internal-chats'
 import { audienceOf, chatView, projectCanShare, type ChatAccess } from './shared'
-import { confirmMac, provenanceChecker, useOf, type BranchUse, type Provenance } from './answer-share'
+import { confirmMac, provenanceChecker, useOf, type BranchUse } from './answer-share'
 import { tr } from './i18n'
 
 /** Does the chat's read scope describe every answer of the chat? The scope is emptied when a session starts on a first
@@ -101,7 +101,18 @@ function shareable(ctx: AppContext, rt: ChatRuntime, userId: string, r: ChatRow,
   return project
 }
 
-const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x, i) => x === b[i])
+const sameList = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x, i) => x === b[i])
+
+/** What a check was made for, read synchronously: the chat's project, the people who would see it besides its creator
+ * (sorted) and every message of every branch. The share goes ahead only while it is still this. */
+function stateOf(ctx: AppContext, rt: ChatRuntime, userId: string, chatId: string, locale: Locale): { project: ProjectRow; audience: string[]; messages: string[] } {
+  const project = shareable(ctx, rt, userId, rt.store.chatRow(chatId) ?? fail('not_found'), locale)
+  return {
+    project,
+    audience: audienceOf(ctx.db, ctx.files, project).filter((id) => id !== userId).sort(),
+    messages: (ctx.db.query('SELECT id FROM messages WHERE chat_id = ? ORDER BY id').all(chatId) as { id: string }[]).map((m) => m.id),
+  }
+}
 
 /** POST /api/chats/:id/share. `a`: the caller's chat as chatFor found it ('view'). */
 export async function shareChat(ctx: AppContext, rt: ChatRuntime, userId: string, a: ChatAccess, body: { confirmKey?: string }, locale: Locale): Promise<ShareChatResult> {
@@ -111,48 +122,43 @@ export async function shareChat(ctx: AppContext, rt: ChatRuntime, userId: string
   // from the room-send budget first (429): asking who could not read what is no free probe
   roomsOf(ctx).takeSendToken(userId)
 
-  // the check; the audience is read again after it (a person added meanwhile is checked too, at most twice more)
-  let check: { project: ProjectRow; audience: string[]; prov: Provenance; memories: boolean; key: string } | null = null
-  for (let round = 0; round < 3 && !check; round++) {
-    const project = shareable(ctx, rt, userId, rt.store.chatRow(a.row.id) ?? fail('not_found'), locale)
-    // the people who would see it besides me (I wrote it and saw every answer)
-    const audience = audienceOf(db, ctx.files, project).filter((id) => id !== userId).sort()
+  // The check takes a moment (file hashes): the state it was made for is read again after it, synchronously with the
+  // update, and a change meanwhile (the chat moved to another project, someone joined or left, a new message) means
+  // checking again (at most three times)
+  for (let round = 0; round < 3; round++) {
+    const before = stateOf(ctx, rt, userId, a.row.id, locale)
+    const { project, audience, messages } = before
     const use = chatUse(db, a.row.id)
     const prov = await provenanceChecker(ctx, userId, audience, use.answers).of([use], new Set())
     const memories = audience.length > 0 && memoriesInPlay(db, a.row.id, userId)
-    const now = rt.store.projectRow(project.id)
-    if (!now || !sameSet(audienceOf(db, ctx.files, now).filter((id) => id !== userId).sort(), audience)) continue
-    const messages = (db.query('SELECT id FROM messages WHERE chat_id = ? ORDER BY id').all(a.row.id) as { id: string }[]).map((m) => m.id)
+    // (from here on nothing waits: the state read now is the one shared)
+    const now = stateOf(ctx, rt, userId, a.row.id, locale)
+    if (now.project.id !== project.id || !sameList(now.audience, audience) || !sameList(now.messages, messages)) continue
     const key = confirmMac(ctx, { kind: 'chat.share', v: 1, userId, chatId: a.row.id, projectId: project.id, audience, sources: prov.keys, places: prov.places, otherPlaces: prov.otherPlaces, unknown: prov.unknown, memories, messages })
-    check = { project, audience, prov, memories, key }
-  }
-  if (!check) return fail('conflict', tr('chatShareBusy', locale), { params: { reason: 'chat_busy' } })
-  const { audience, prov, memories, key } = check
-  // a member who would see a room it read but for old answers hidden from them: never shown it, confirmed or not
-  if (audience.length && prov.hidden) fail('conflict', tr('chatShareHidden', locale), { params: { reason: 'share_hidden' } })
-  const people = prov.unknown ? audience.length : prov.missing.size
-  const applies = audience.length > 0 && (people > 0 || memories)
-  if (applies && body.confirmKey !== key) {
-    return {
-      status: 'confirm', audience: audience.length, memories, confirmKey: key,
-      provenance: people > 0 ? { people, places: prov.places, otherPlaces: prov.otherPlaces, ...(prov.unknown ? { unknown: true as const } : {}) } : null,
-      ...(body.confirmKey !== undefined ? { reason: 'changed' as const } : {}),
+    // a member who would see a room it read but for old answers hidden from them: never shown it, confirmed or not
+    if (audience.length && prov.hidden) fail('conflict', tr('chatShareHidden', locale), { params: { reason: 'share_hidden' } })
+    const people = prov.unknown ? audience.length : prov.missing.size
+    const applies = audience.length > 0 && (people > 0 || memories)
+    if (applies && body.confirmKey !== key) {
+      return {
+        status: 'confirm', audience: audience.length, memories, confirmKey: key,
+        provenance: people > 0 ? { people, places: prov.places, otherPlaces: prov.otherPlaces, ...(prov.unknown ? { unknown: true as const } : {}) } : null,
+        ...(body.confirmKey !== undefined ? { reason: 'changed' as const } : {}),
+      }
     }
+    // shared, with nothing in between: stateOf just checked the chat and its project again (no turn queued or running),
+    // and nothing can start a turn before the update (a turn of the private chat would run without the read card)
+    const at = new Date().toISOString()
+    db.transaction(() => {
+      db.query('UPDATE chats SET shared_at = ?, engine_session_id = NULL, engine_session_leaf_id = NULL WHERE id = ? AND shared_at IS NULL').run(at, a.row.id)
+      // these turns were just checked: the rollback guard must not take them for an older build's
+      db.query('UPDATE turns SET shared_checked = 1 WHERE chat_id = ? AND shared_checked = 0').run(a.row.id)
+      audit(db, { actor: userId, action: 'chat.share', target: a.row.id, detail: { audience: audience.length, people, unknown: prov.unknown, memories, confirmed: applies } })
+    })()
+    // the private session's stash (its instructions held the memories): the next turn starts from the visible transcript
+    fs.rmSync(path.join(ctx.config.dataDir, 'sessions', a.row.id), { recursive: true, force: true })
+    rt.publishChat(userId, a.row.id, 'updated')
+    return { status: 'shared', chat: chatView(rt, userId, rt.store.chatRow(a.row.id)!) }
   }
-
-  // shared, with nothing in between: the chat and its project are checked again here, synchronously, so no turn can
-  // start between this check and the update (a turn of the private chat would run without the read card)
-  const row = rt.store.chatRow(a.row.id) ?? fail('not_found')
-  shareable(ctx, rt, userId, row, locale)
-  const at = new Date().toISOString()
-  db.transaction(() => {
-    db.query('UPDATE chats SET shared_at = ?, engine_session_id = NULL, engine_session_leaf_id = NULL WHERE id = ? AND shared_at IS NULL').run(at, row.id)
-    // these turns were just checked: the rollback guard must not take them for an older build's
-    db.query('UPDATE turns SET shared_checked = 1 WHERE chat_id = ? AND shared_checked = 0').run(row.id)
-    audit(db, { actor: userId, action: 'chat.share', target: row.id, detail: { audience: audience.length, people, unknown: prov.unknown, memories, confirmed: applies } })
-  })()
-  // the private session's stash (its instructions held the memories): the next turn starts from the visible transcript
-  fs.rmSync(path.join(ctx.config.dataDir, 'sessions', row.id), { recursive: true, force: true })
-  rt.publishChat(userId, row.id, 'updated')
-  return { status: 'shared', chat: chatView(rt, userId, rt.store.chatRow(row.id)!) }
+  return fail('conflict', tr('chatShareBusy', locale), { params: { reason: 'chat_busy' } })
 }

@@ -2013,6 +2013,7 @@ export const es: Record<MessageKey, string> = {
   'audit.act.project.share_chats': "Cambió el uso compartido de los chats de un proyecto",
   'audit.act.chat.shared_read': "Confirmó una lectura en un chat compartido",
   'audit.act.chat.delete': "Eliminó un chat compartido",
+  'audit.act.chat.share': "Compartió un chat existente con el proyecto",
   'audit.act.group.create': "Creó un grupo",
   'audit.act.group.update': "Modificó un grupo",
   'audit.act.group.delete': "Eliminó un grupo",

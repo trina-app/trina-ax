@@ -2046,6 +2046,7 @@ export const ko = {
   'audit.act.project.share_chats': "프로젝트 채팅 공유 설정 변경",
   'audit.act.chat.shared_read': "공유 채팅 읽기 확인",
   'audit.act.chat.delete': "공유 채팅 삭제",
+  'audit.act.chat.share': "기존 채팅을 프로젝트 사람들과 공유",
   'audit.act.group.create': '그룹 만듦',
   'audit.act.group.update': '그룹 변경',
   'audit.act.group.delete': '그룹 삭제',
