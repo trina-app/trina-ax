@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-08 09:30
 - Branch: `fix/removal-leftovers`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/admin/groups.ts`, `server/src/admin/users.ts`, `server/src/credentials/`,
   `server/src/team-files/service.ts`, a component A migration, the group and member delete dialogs in
   `web/src/pages/admin/`, `docs/PERMISSIONS.md`, `docs/security-and-permissions*.md`). Why: members, groups, AI
@@ -63,4 +63,15 @@ unit tests for each fix, `bun run test:web`, `bun run build:web` and the admin e
 
 ## Result
 
-Filled in at the end.
+Built as planned, with these differences:
+- A connection whose assignees were all deleted is also marked (`meta.assigneesGone`, also when it was off already).
+  Its row says why, and the bare switch-on is refused (409) until a group or person is picked. The edit dialog's
+  empty list does not count as a choice. Without this, one later click would have given it to the whole team (review).
+- `deleteUser` also deletes the person's own AI connections (token or key). Like the profile, they outlived the
+  tombstone. Migration 117 does the same for people deleted earlier.
+- `saveAvatar` refuses an account deleted while its upload was being read.
+- The transfer follows `move`'s rules: the member's trash items stay, and versions saved where only the member could
+  read stay hidden from the owner. The member's personal projects follow the folder, so the owner sees them.
+- The owner kept the default `personalFolder=transfer` (2026-11-08). The member delete dialog already said where the
+  files go, in all five languages.
+- PR: see the pull request for `fix/removal-leftovers`.
