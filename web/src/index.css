@@ -157,6 +157,19 @@ textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; ba
 .room-ref-field { color: transparent; caret-color: var(--c-ink); }
 .room-ref-field::selection { color: transparent; background: color-mix(in srgb, var(--c-accent) 26%, transparent); }
 
+/* The online-status dot on a picture (components/Presence.tsx; docs/DECISIONS.md "접속 상태"): a 2 px ring in the
+   colour behind the picture, as Slack draws it; a row sets --presence-bg to its own (its hover, the current row). Online
+   is filled with the "ok" green (3:1 and more against every background here, in both looks); away is hollow: the same
+   background inside a ring of --c-faint. Filled, hollow or none: the state does not hang on the colour alone. */
+.presence-dot { --presence-ring: var(--presence-bg, var(--c-canvas)); box-shadow: 0 0 0 2px var(--presence-ring); }
+.presence-dot[data-presence-dot='online'] { background: var(--c-ok); }
+.presence-dot[data-presence-dot='away'] { background: var(--presence-ring); box-shadow: inset 0 0 0 2px var(--c-faint), 0 0 0 2px var(--presence-ring); }
+@media (forced-colors: active) {
+  .presence-dot { forced-color-adjust: none; box-shadow: 0 0 0 2px Canvas; }
+  .presence-dot[data-presence-dot='online'] { background: CanvasText; }
+  .presence-dot[data-presence-dot='away'] { background: Canvas; box-shadow: inset 0 0 0 2px CanvasText, 0 0 0 2px Canvas; }
+}
+
 /* Phones (below 768px, where the phone top bar and the tabs show): every text size one step up, to the phone floor
    (docs/DESIGN-SYSTEM.md "Typography"): body and rows 15px, labels 14px, meta, times and hints 13px, code 13px, badges
    11px, nothing else under 13px. Width, not the pointer: a narrow window on a computer is laid out as a phone, so it

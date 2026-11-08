@@ -19,6 +19,9 @@ export const UserPrefs = z.object({
   /** own default engine/model for new chats ("내 기본 엔진/모델"; only for people who may pick the engine) */
   engine: EngineId.optional(),
   model: z.string().max(100).optional(),
+  /** set themselves away (the account menu's "자리 비움으로 표시"; docs/DECISIONS.md "접속 상태"): their dot shows away
+   * until they change it. Only PUT /api/me/away sets it; PATCH /api/me leaves it as it is. */
+  away: z.boolean().optional(),
 })
 export type UserPrefs = z.infer<typeof UserPrefs>
 
