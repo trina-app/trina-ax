@@ -2,7 +2,7 @@
 // team files with the person's own permissions through this server's MCP connector (server/src/connectors/remote-mcp):
 // one row per app whose Connect opens numbered steps with the real address (components/integrations/AiAppConnect.tsx),
 // then each connected app with when it connected and Disconnect. Off on this server: members get one line, owners and
-// admins the setup to turn it on. It was part of Settings › App connectors (pages/ConnectorConnections.tsx).
+// admins the setup to turn it on. It was part of Settings › App connectors, a page that is gone.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, Copy } from 'lucide-react'
 import { REMOTE_MCP, type RemoteConnectionInfo } from '@mycel/shared/api'

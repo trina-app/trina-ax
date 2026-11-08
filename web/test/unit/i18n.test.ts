@@ -206,8 +206,8 @@ describe('translations', () => {
     expect(translate('ko', 'demo.start', { name: '김민지 씨' })).toBe('김민지 씨로 시작하기')
     expect(translate('ko', 'demo.start', { name: '대표님' })).toBe('대표님으로 시작하기')
     expect(translate('ja', 'accessView.who.person', { name: '田中様' })).toBe('田中様')
-    expect(translate('ja', 'accessView.membersLinkFor', { name: '山田さん' })).toBe('山田さんが見られるフォルダー')
-    expect(translate('ja', 'accessView.membersLinkFor', { name: '山田' })).toBe('山田 さんが見られるフォルダー')
+    expect(translate('ja', 'accessView.summaryNone', { name: '山田さん' })).toBe('山田さんとその AI が見られるチームフォルダーはありません。')
+    expect(translate('ja', 'accessView.summaryNone', { name: '山田' })).toBe('山田 さんとその AI が見られるチームフォルダーはありません。')
     // English, Spanish and Indonesian add no honorific of their own: the name stays as it is
     expect(translate('en', 'home.greeting', { name: '대표님' })).toBe('How can I help you, 대표님?')
     expect(translate('id', 'home.greeting', { name: 'Bapak Budi' })).toBe('Halo Bapak Budi, ada yang bisa aku bantu?')
