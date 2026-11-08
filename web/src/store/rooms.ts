@@ -11,6 +11,7 @@ import { api, API, ApiError, errorText, isApiError } from '../lib/api'
 import { mentionsMe, withRun, withRunPosition, withRunStep, type PickedMention } from '../lib/rooms'
 import { navigateTo } from '../lib/nav'
 import { currentLocale, t } from '../i18n'
+import { mergeOpenRequests, useChats } from './chats'
 import { useSession } from './session'
 import { toast } from './ui'
 
@@ -686,16 +687,26 @@ export const useRooms = create<RoomsState>((set, get) => {
     },
 
     async loadAi(roomId) {
-      try {
-        const r = await api.call(API.getRoomAi, { params: { id: roomId } })
-        set((s) => {
-          // runs that ended here (stopped, failed) stay until closed; the server lists the working ones
-          const ended = (s.ai[roomId]?.runs ?? []).filter((x) => x.state === 'stopped' || x.state === 'error')
-          return { ai: { ...s.ai, [roomId]: { answering: r.answering, runs: [...r.mine, ...ended.filter((x) => !r.mine.some((m) => m.turnId === x.turnId))] } } }
-        })
-      } catch {
-        /* an older server without the AI in rooms: nothing shows */
-      }
+      // the cards of my questions here come along (the AI's question, a confirmation), as a chat's do with its thread
+      // (store/chats.ts loadThread): after a reload, in another browser or after a reconnect the events that opened
+      // them are not replayed, and the question would wait for an answer nobody can give
+      const before = new Set(Object.keys(useChats.getState().requests))
+      const who = myId()
+      const [r, open] = await Promise.all([
+        api.call(API.getRoomAi, { params: { id: roomId } }).catch(() => null),
+        // an older server without the list: the cards that come over the socket, as before
+        api.call(API.listRoomAiRequests, { params: { id: roomId } }).catch(() => null),
+      ])
+      // an older server without the AI in rooms: nothing shows; signed out meanwhile: nothing of it stays
+      if (!r || myId() !== who) return
+      // the questions of mine the list speaks for: the room's as this window knew them and as the server lists them
+      const turns = new Set([...(get().ai[roomId]?.runs ?? []), ...r.mine].map((x) => x.turnId))
+      set((s) => {
+        // runs that ended here (stopped, failed) stay until closed; the server lists the working ones
+        const ended = (s.ai[roomId]?.runs ?? []).filter((x) => x.state === 'stopped' || x.state === 'error')
+        return { ai: { ...s.ai, [roomId]: { answering: r.answering, runs: [...r.mine, ...ended.filter((x) => !r.mine.some((m) => m.turnId === x.turnId))] } } }
+      })
+      if (open) useChats.setState((s) => ({ requests: mergeOpenRequests(s.requests, (q) => turns.has(q.turnId), open.items, before) }))
     },
 
     async stopAi(roomId, turnId) {

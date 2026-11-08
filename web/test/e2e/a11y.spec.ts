@@ -376,8 +376,9 @@ for (const scheme of ['light', 'dark'] as const) {
     const colour = (sel: string) => page.evaluate((v) => { const e = document.createElement('span'); e.style.color = `var(${v})`; document.body.append(e); const c = getComputedStyle(e).color; e.remove(); return c }, sel)
     expect(await deny.evaluate((e) => getComputedStyle(e).color)).toBe(await colour('--c-muted'))
     expect(await deny.evaluate((e) => getComputedStyle(e).color)).not.toBe(await colour('--c-danger'))
+    // the quiet "no" comes first and the main button last ([거부] [항상 허용] [이번만 허용]): back from 항상 허용 is 거부
     await site.getByRole('button', { name: '항상 허용' }).focus()
-    await page.keyboard.press('Tab')
+    await page.keyboard.press('Shift+Tab')
     await expect(deny).toBeFocused()
     expect(await deny.evaluate((e) => getComputedStyle(e).outlineStyle)).toBe('solid')
     await audit(page, `site card (${scheme})`)

@@ -5,8 +5,9 @@
 // ticked here goes along with that answer when the question takes several. The same card outside a turn (a scheduled
 // task's card shown again in Settings, "다시 확인") passes its own `onAnswer`. The server's yes/no cards are two buttons
 // ([허용 안 함] [이번만 허용]) with what they let happen as plain lines; a server card that says its three choices are
-// buttons (`buttons`: a room's change card, [이번만 허용] [이 방에서는 항상 허용] [허용 안 함]) shows them in one row (stacked
-// on a phone) with its one line under them (`note`); radios and [답하기] are for real choices.
+// buttons (`buttons`: a room's change card) shows them in one row in the same order, the main one last
+// ([허용 안 함] [이 방에서는 항상 허용] [이번만 허용]; stacked on a phone, the main one on top: ChoiceRow, as the address and
+// dev-environment cards) with its one line under them (`note`); radios and [답하기] are for real choices.
 import clsx from 'clsx'
 import { Globe, MessageCircleQuestion, ShieldAlert } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
@@ -61,18 +62,16 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
             {r.url}
           </p>
           {r.reason && <p className="text-xs text-muted">{r.reason}</p>}
-          <div className="flex flex-wrap gap-2 pt-1">
-            <Button size="sm" variant="primary" disabled={busy} onClick={() => run({ kind: 'browser_site', decision: 'once' })}>
-              {t('browser.allowOnce')}
-            </Button>
-            <Button size="sm" disabled={busy} onClick={() => run({ kind: 'browser_site', decision: 'always' })}>
-              {t('browser.allowAlways')}
-            </Button>
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => run({ kind: 'browser_site', decision: 'deny' })}>
-              {t('browser.deny')}
-            </Button>
-          </div>
-          {error && <p role="alert" className="text-xs text-danger">{error}</p>}
+          <ChoiceRow
+            className="pt-1"
+            busy={busy}
+            error={error}
+            choices={[
+              { label: t('browser.allowOnce'), onClick: () => void run({ kind: 'browser_site', decision: 'once' }) },
+              { label: t('browser.allowAlways'), onClick: () => void run({ kind: 'browser_site', decision: 'always' }) },
+              { label: t('browser.deny'), onClick: () => void run({ kind: 'browser_site', decision: 'deny' }) },
+            ]}
+          />
         </div>
       </div>
     )
@@ -87,18 +86,16 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
         <div className="space-y-2 px-4 py-3 text-sm">
           {r.command && <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-subtle px-2 py-1 font-mono text-xs text-muted" data-testid="dev-env-site-command">{r.command}</pre>}
           <p className="text-xs text-muted">{t('devEnvSite.body')}</p>
-          <div className="flex flex-wrap gap-2 pt-1">
-            <Button size="sm" variant="primary" disabled={busy} onClick={() => run({ kind: 'dev_env_site', decision: 'once' })} data-testid="dev-env-site-once">
-              {t('devEnvSite.allowOnce')}
-            </Button>
-            <Button size="sm" disabled={busy} onClick={() => run({ kind: 'dev_env_site', decision: 'always' })} data-testid="dev-env-site-always">
-              {t('devEnvSite.allowAlways')}
-            </Button>
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => run({ kind: 'dev_env_site', decision: 'deny' })} data-testid="dev-env-site-deny">
-              {t('devEnvSite.deny')}
-            </Button>
-          </div>
-          {error && <p role="alert" className="text-xs text-danger">{error}</p>}
+          <ChoiceRow
+            className="pt-1"
+            busy={busy}
+            error={error}
+            choices={[
+              { label: t('devEnvSite.allowOnce'), onClick: () => void run({ kind: 'dev_env_site', decision: 'once' }), testId: 'dev-env-site-once' },
+              { label: t('devEnvSite.allowAlways'), onClick: () => void run({ kind: 'dev_env_site', decision: 'always' }), testId: 'dev-env-site-always' },
+              { label: t('devEnvSite.deny'), onClick: () => void run({ kind: 'dev_env_site', decision: 'deny' }), testId: 'dev-env-site-deny' },
+            ]}
+          />
         </div>
       </div>
     )
@@ -145,16 +142,14 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
       </div>
     )
   }
-  // a server card whose three choices are buttons (a room's change card): once, always here, no. The same compact card,
-  // the buttons in the server's order (the first the main one, the last the quiet "no"), one row on a computer and
-  // stacked full width on a phone, where three labels do not fit side by side; the line under them says what "always"
-  // covers
+  // a server card whose three choices are buttons (a room's change card): once, always here, no (the server's order:
+  // the first the main one, the last the quiet "no"). The same compact card, the buttons in the yes/no card's order
+  // (ChoiceRow: the "no" first, the main one last); the line under them says what "always" covers
   if (fromServer && !allowText && !r.multiple && r.buttons && options.length === 3) {
     const pick = (v: string) => {
       setPicked([v])
       void run({ kind: 'ask_user', answer: v })
     }
-    const look = ['primary', 'secondary', 'ghost'] as const
     return (
       <div className="my-3 rounded-2xl border border-warn/40 px-4 py-3" role="group" aria-labelledby={`${name}-q`} data-testid="ask-card" data-origin="server" data-kind="buttons">
         <p className="flex items-center gap-1.5 text-xs font-medium text-warn">
@@ -164,15 +159,13 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
           {r.question}
         </p>
         {r.details?.length ? <Details items={r.details} plain /> : null}
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-          {options.map((o, i) => (
-            <Button key={o.value} size="sm" variant={look[i]} className="max-sm:w-full" disabled={busy} busy={busy && picked[0] === o.value} onClick={() => pick(o.value)} data-testid="ask-choice" data-value={o.value}>
-              {o.label}
-            </Button>
-          ))}
-          {error && <span role="alert" className="text-xs text-danger sm:ml-auto">{error}</span>}
-        </div>
-        {r.note && <p className="mt-2 text-xs text-muted" data-testid="ask-note">{r.note}</p>}
+        <ChoiceRow
+          className="mt-3"
+          busy={busy}
+          error={error}
+          choices={options.map((o): Choice => ({ label: o.label, onClick: () => pick(o.value), busy: busy && picked[0] === o.value, testId: 'ask-choice', value: o.value })) as [Choice, Choice, Choice]}
+        />
+        {r.note && <p className="mt-2 text-xs text-muted sm:text-right" data-testid="ask-note">{r.note}</p>}
       </div>
     )
   }
@@ -258,6 +251,28 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
         </Button>
       </div>
     </form>
+  )
+}
+
+interface Choice { label: string; onClick: () => void; busy?: boolean; testId?: string; value?: string }
+
+/** Three choices as buttons (a room's change card, an address, a dev-environment site), given in the server's order:
+ * the main one, "always", the quiet "no". Shown in the order of the yes/no card and of every dialog
+ * (docs/DESIGN-SYSTEM.md): the "no" first and the main one last, on the right. On a phone, where three labels do not
+ * fit side by side, they stack full width with the main one on top (as the skill share card's stacked buttons) and a
+ * failed answer's reason under them. */
+function ChoiceRow({ choices, busy, error, className }: { choices: [Choice, Choice, Choice]; busy: boolean; error: string | null; className?: string }) {
+  const [main, always, no] = choices
+  const shown = [[no, 'ghost'], [always, 'secondary'], [main, 'primary']] as const
+  return (
+    <div className={clsx('flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end', className)} data-testid="ask-choices">
+      {error && <span role="alert" className="text-xs text-danger sm:mr-auto">{error}</span>}
+      {shown.map(([c, variant]) => (
+        <Button key={c.label} size="sm" variant={variant} className="max-sm:w-full" disabled={busy} busy={c.busy} onClick={c.onClick} data-testid={c.testId} data-value={c.value}>
+          {c.label}
+        </Button>
+      ))}
+    </div>
   )
 }
 
