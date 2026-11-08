@@ -329,6 +329,11 @@ function generalPath(skills: { path: string; name: string }[], own: string, name
   return skills.find((s) => s.path === own)?.path ?? skills.find((s) => sameSkillName(s.name, name))?.path ?? null
 }
 
+/** Written into every new `general` record although nothing reads them: an older build (after a rollback) requires both
+ * to read the record, and would otherwise fall back to its defaults and lose the intro deck's path (docs/DECISIONS.md
+ * "DS3"; the skills they named no longer ship). */
+const OLD_GENERAL_FIELDS = { tasksPath: null, briefPath: null } as const
+
 /** Where an install left one of its skills: the pack's file, another team skill of its name, or nowhere (blocked). */
 function placed(install: WelcomeTeamResult['install'], own: string): string | null {
   const s = install?.skills.find((x) => x.path === own)
@@ -411,14 +416,14 @@ export function setupWelcomeTeam(ctx: AppContext, userId: string, locale: Locale
       const cardNewsPath = generalPath(skills, GENERAL_CARDNEWS_SKILL, 'card-news')
       const promoVideoPath = generalPath(skills, GENERAL_PROMO_SKILL, 'promo-video')
       const introDeckPath = generalPath(skills, GENERAL_DECK_SKILL, 'intro-deck')
-      raw.general = { at: now, ...(cardNewsPath ? { cardNewsPath } : {}), ...(promoVideoPath ? { promoVideoPath } : {}), ...(introDeckPath ? { introDeckPath } : {}) }
+      raw.general = { at: now, ...OLD_GENERAL_FIELDS, ...(cardNewsPath ? { cardNewsPath } : {}), ...(promoVideoPath ? { promoVideoPath } : {}), ...(introDeckPath ? { introDeckPath } : {}) }
     } else {
       install = installSkillPack(ctx, userId, 'general')
       const cardNewsPath = placed(install, GENERAL_CARDNEWS_SKILL)
       const promoVideoPath = placed(install, GENERAL_PROMO_SKILL)
       const introDeckPath = placed(install, GENERAL_DECK_SKILL)
       if (cardNewsPath || promoVideoPath || introDeckPath) {
-        raw.general = { at: now, cardNewsPath, promoVideoPath, introDeckPath }
+        raw.general = { at: now, ...OLD_GENERAL_FIELDS, cardNewsPath, promoVideoPath, introDeckPath }
         delete raw.generalBlockedAt
         outcome = 'installed'
       } else {
@@ -428,8 +433,9 @@ export function setupWelcomeTeam(ctx: AppContext, userId: string, locale: Locale
     }
     p = save(ctx, raw, now)
   }
-  // an older build's seeder, run again later, adds none of the skills it knew (onboarding/retired-skills.ts)
-  retireLegacyDefaultSkills(ctx.db)
+  // an older build's seeder, run again later, adds none of the skills it knew (onboarding/retired-skills.ts); a settings
+  // write that fails never stops the team's start (the server's start writes it too)
+  try { retireLegacyDefaultSkills(ctx.db) } catch (e) { ctx.log.warn('the old default skills not recorded as retired in the welcome steps', { err: e }) }
   raw.teamGroup = teamGroupFor(ctx, userId, p.teamGroup ?? null, locale)
   return { progress: save(ctx, raw, now), install, outcome }
 }

@@ -1308,6 +1308,19 @@ describe('the later steps and the end', () => {
     }
   })
 
+  test('nothing shared (the wizard passes no skill): a ran-out link to the intro deck is replaced with a link to Home, never its skill', async () => {
+    signIn('owner')
+    progress = ran()
+    withGroup()
+    openLink({ state: 'expired', groupIds: ['01900000-0000-7000-8000-0000000000e2'], skill: { path: GENERAL_DECK_SKILL, name: 'intro-deck', title: '회사 소개서' } })
+    const m = await mount(<MemoryRouter><InviteStep skillPath={null} prepare onDone={() => {}} /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('team-link-message'), 'the message')
+      expect(called('POST /api/admin/team-link').map((c) => c.body)).toEqual([{ groupIds: ['01900000-0000-7000-8000-0000000000e2', TEAM.id], expiresInDays: 14 }])
+      expect(m.get('team-link-message').textContent).not.toContain('회사 소개서')
+    } finally { await m.unmount() }
+  })
+
   test('only the owner walking the steps gets a link made in advance: an admin, or the invite elsewhere (the goal card), presses the button', async () => {
     progress = ran()
     withGroup()

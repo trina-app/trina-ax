@@ -345,6 +345,14 @@ describe('the card and the owners\' notice', () => {
     expect(await notices(admin)).toHaveLength(0)
     noteGoalRun(h.ctx, turn(ids.owner, { skill: AD }))
     expect(await notices()).toHaveLength(3)
+    // the intro deck is never a goal run (docs/DECISIONS.md "DS3"): a member's first run of it tells nobody, and it
+    // counts toward neither the best skill nor the people who ran one
+    const before = goalProgress(h.ctx.db)!
+    noteGoalRun(h.ctx, turn(ids.finn, { skill: { path: 'skills/general/intro-deck/SKILL.md', name: 'intro-deck' } }))
+    expect(await notices()).toHaveLength(3)
+    const after = goalProgress(h.ctx.db)!
+    expect(after.runnerIds.has(ids.finn)).toBe(false)
+    expect(after.peopleWithRun).toBe(before.peopleWithRun)
   })
 
   test('no notice for a failed answer, a later run after an earlier success, or outside the window; a deleted member stays unnamed', async () => {

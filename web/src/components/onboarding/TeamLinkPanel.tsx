@@ -129,7 +129,9 @@ export function TeamLinkPanel({ withGroups = true, skillPicker = true, skillPath
     setEarly('running')
     const old = data.link
     const groupIds = [...new Set([...(old?.groupIds ?? []), ...(teamGroup ? [teamGroup.id] : [])])]
-    const skill = skillPath ?? old?.skill?.path ?? null
+    // the wizard's skill; the wizard passing none (null: nothing shared, docs/DECISIONS.md "DS3") makes a link to Home,
+    // never the ran-out link's skill (which may be the intro deck); without a wizard skill at all, the old link's skill
+    const skill = skillPath !== undefined ? skillPath : (old?.skill?.path ?? null)
     const body: CreateTeamLinkBody = { groupIds, expiresInDays: TEAM_LINK_DEFAULT_DAYS, ...(skill ? { skillPath: skill } : {}) }
     void (async () => {
       // read again right before: another screen of the owner (a second tab, the phone) may have made one meanwhile, and

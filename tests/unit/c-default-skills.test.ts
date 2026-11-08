@@ -12,6 +12,7 @@ import { setSetting } from '../../server/src/admin/settings'
 import { SKILL_PACKS, installSkillPack, packSkillNames } from '../../server/src/onboarding/skill-packs'
 import { LEGACY_DEFAULT_SKILL_KEYS, LEGACY_DEFAULT_SKILLS_SETTING, LEGACY_PACK_SKILL_NAMES, retireLegacyDefaultSkills } from '../../server/src/onboarding/retired-skills'
 import { landingSkill, setupWelcomeTeam, WELCOME_SETTING } from '../../server/src/onboarding/welcome'
+import { packInstalled } from '../../server/src/onboarding/tenant-status'
 import { GENERAL_CARDNEWS_SKILL, GENERAL_DECK_SKILL, GENERAL_PROMO_SKILL, RECOMMENDED_PACK_SKILLS, RECOMMENDED_SKILL_PACKS, SKILL_PACK_IDS } from '@mycel/shared/api'
 
 let h: Harness
@@ -79,10 +80,31 @@ test('no seeder and no timer: the module is gone and the server starts none', ()
   expect(welcome).not.toMatch(/seedDefaultSkills|'.\/default-skills'/)
 })
 
-test('a team gets no skill by itself: an owner and time pass, the skills folder stays empty', async () => {
-  const { root } = await setup()
-  await Bun.sleep(100)
-  expect(teamSkillFiles(root)).toEqual([])
+test('nothing installs a pack skill on its own: the installers are called only by the install route, the welcome steps and the first result', () => {
+  // every call of the three installers in the server's code: a seeder, a timer or a start hook that adds skills would
+  // have to call one of them, and fails here (the installers themselves call placeSkill inside skill-packs.ts)
+  const calls: string[] = []
+  const walk = (dir: string) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const abs = path.join(dir, e.name)
+      if (e.isDirectory()) walk(abs)
+      else if (/\.tsx?$/.test(e.name)) {
+        const rel = path.relative(ROOT, abs).split(path.sep).join('/')
+        const lines = fs.readFileSync(abs, 'utf8').split('\n')
+        for (const l of lines) {
+          const m = /\b(installSkillPack|installPackSkill|placeSkill)\(/.exec(l)
+          if (m && !/^\s*(export )?function /.test(l) && !/^\s*(\/\/|\*)/.test(l)) calls.push(`${rel}:${m[1]}`)
+        }
+      }
+    }
+  }
+  walk(path.join(ROOT, 'server/src'))
+  expect([...new Set(calls)].sort()).toEqual([
+    'server/src/onboarding/skill-packs.ts:placeSkill',
+    'server/src/onboarding/welcome-result.ts:installPackSkill',
+    'server/src/onboarding/welcome.ts:installSkillPack',
+    'server/src/routes/onboarding-packs.ts:installSkillPack',
+  ])
 })
 
 test('the four kept skills install (general + work, the empty page\'s one button), in the team\'s language, as the pack\'s', async () => {
@@ -118,6 +140,9 @@ test('the welcome steps install the general pack (three skills) and nothing else
   expect(r.outcome).toBe('installed')
   expect(r.progress.general).toMatchObject({ cardNewsPath: GENERAL_CARDNEWS_SKILL, promoVideoPath: GENERAL_PROMO_SKILL, introDeckPath: GENERAL_DECK_SKILL })
   expect(teamSkillFiles(root)).toEqual(KEPT_PATHS.filter((p) => p.startsWith('skills/general/')))
+  // the stored record keeps the two fields an older build needs to read it after a rollback (null: nothing to run)
+  const stored = JSON.parse((h.ctx.db.query('SELECT value FROM settings WHERE key = ?').get(WELCOME_SETTING) as { value: string }).value)
+  expect(stored.general).toMatchObject({ tasksPath: null, briefPath: null, introDeckPath: GENERAL_DECK_SKILL })
   // nothing to land on: the invite link lands on Home
   expect(landingSkill(h.ctx)).toBeNull()
   // again: nothing runs, no loop
@@ -138,6 +163,17 @@ test('an existing team: its files stay as they are, its old 할 일 정리 recor
   expect(fs.readFileSync(path.join(root, 'skills/general/meeting-tasks/SKILL.md'), 'utf8')).toBe(old)
   expect(fs.existsSync(path.join(root, 'skills/marketing/ad-copy/SKILL.md'))).toBe(true)
   expect(landingSkill(h.ctx)).toBeNull()
+})
+
+test('the hosting status: a team with only an older release\'s marketing or hr skills still counts as having a pack', async () => {
+  const { root } = await setup()
+  expect(packInstalled(root)).toBe(false)
+  for (const rel of ['skills/marketing/ad-copy/SKILL.md', 'skills/hr/annual-leave/SKILL.md']) {
+    put(root, rel, `---\nname: ${rel.split('/')[2]}\ndescription: old\n---\nOld.\n`)
+    expect(packInstalled(root)).toBe(true)
+    fs.rmSync(path.join(root, path.dirname(path.dirname(rel))), { recursive: true })
+    expect(packInstalled(root)).toBe(false)
+  }
 })
 
 test('a team with some of the general pack from the Skills page, and none of 할 일 정리: recorded as it is, never blocked', async () => {

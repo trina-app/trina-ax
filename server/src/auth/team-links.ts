@@ -257,12 +257,12 @@ export const DECK_LINKS_KEY = 'onboarding.deckLinksRepointedAt'
 
 /**
  * Old open invite links that lead to the intro deck (the first result of docs/DECISIONS.md "D2" was what the invite
- * opened before "W5"): each is pointed once at the skill everything points at now (onboarding/welcome.ts landingSkill),
- * keeping its address, when someone joining with its groups can open that skill; otherwise it is left as it is. Once
- * per server (DECK_LINKS_KEY): a link the owner points at the deck again later stays. The once is recorded only when
- * there was nothing to repoint or there was a landing skill to point at: a start while the team had none (nothing
- * shared from 내 스킬 가져오기 yet, or that skill deleted) tries again at the next start instead of leaving the links on
- * the deck for good. Audited. Returns how many changed.
+ * opened before "W5", and the welcome steps of some later versions made such links too): each is pointed once at the
+ * skill everything points at now (onboarding/welcome.ts landingSkill), keeping its address, when someone joining with
+ * its groups can open that skill; otherwise (no landing skill: nothing shared from 내 스킬 가져오기, or that skill
+ * deleted or out of their reach) it names no skill any more, so people who join land on Home (docs/DECISIONS.md "DS3":
+ * no pack skill stands in, and a link never stays on the owner's deck). Once per server (DECK_LINKS_KEY), recorded
+ * whatever it found: a link the owner points at the deck again later stays. Audited. Returns how many changed.
  */
 export function repointDeckLinks(ctx: AppContext): number {
   if (getSetting(ctx.db, DECK_LINKS_KEY)) return 0
@@ -276,12 +276,12 @@ export function repointDeckLinks(ctx: AppContext): number {
     for (const r of rows) {
       const groups = existingGroups(ctx.db, parseIds(r.group_ids))
       const s = landing ? teamSkill(ctx, newMember(groups), landing) : null
-      if (!s) continue
-      ctx.db.query('UPDATE team_links SET skill_path = ? WHERE id = ? AND revoked_at IS NULL').run(s.path, r.id)
-      audit(ctx.db, { actor: null, action: 'team_link.update', target: r.id, detail: { skillPath: s.path, from: r.skill_path, reason: 'intro_deck_link' } })
+      const to = s?.path ?? null
+      ctx.db.query('UPDATE team_links SET skill_path = ? WHERE id = ? AND revoked_at IS NULL').run(to, r.id)
+      audit(ctx.db, { actor: null, action: 'team_link.update', target: r.id, detail: { skillPath: to, from: r.skill_path, reason: 'intro_deck_link' } })
       n++
     }
-    if (!rows.length || landing) setSetting(ctx.db, DECK_LINKS_KEY, new Date().toISOString())
+    setSetting(ctx.db, DECK_LINKS_KEY, new Date().toISOString())
   }).immediate()
   return n
 }

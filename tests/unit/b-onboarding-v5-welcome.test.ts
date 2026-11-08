@@ -214,18 +214,17 @@ describe('the skill everything points at', () => {
     expect(landingSkill(h.ctx)).toBeNull()
   })
   const goal = async () => (await h.api('dana').call(API.getTeamGoal)).goal!
-  test('the goal card without a landing skill: never the owner\'s deck (nor any skill the steps\' first-result chat ran), so no skill until another one is run', async () => {
+  test('the goal card without a landing skill: never the owner\'s deck, whose runs count nowhere in the goal, so no skill until another one is run', async () => {
     expect(landingSkill(h.ctx)).toBeNull()
     // dana ran the deck above (in the steps\' own chat); carol runs it too: two people on the deck, nothing else run
     await send('carol', (await h.api('carol').call(API.createChat, { body: {} })).id, `/intro-deck\n${fake({ say: 'A deck' })}`)
     expect(focusSkill(h.ctx, goalProgress(h.ctx.db)!)).toBeNull()
     expect((await goal()).skill).toBeNull()
-    // a skill run in the steps' first-result chat (an old row's card news) is the owner's onboarding run too
-    const chat = readWelcome(h.ctx)!.resultChatId!
-    expect(chat).toBeTruthy()
-    skill('skills/cards/SKILL.md', 'cards', 'Cards')
-    await send('dana', chat, `/cards\n${fake({ say: 'Cards' })}`)
-    expect((await goal()).skill).toBeNull()
+    // nor do the deck's runs count anywhere else in the goal: not as the best skill, not as people who ran one
+    const p = goalProgress(h.ctx.db)!
+    expect(p.best).toBeNull()
+    expect(p.runnerIds.has('carol')).toBe(false)
+    expect(p.peopleWithRun).toBe(0)
     // another team skill: the one most people ran
     skill('skills/quote/SKILL.md', 'quote', 'Quote')
     await send('carol', (await h.api('carol').call(API.createChat, { body: {} })).id, `/quote\n${fake({ say: 'A quote' })}`)
@@ -261,20 +260,31 @@ describe('old invite links to the intro deck', () => {
     await h.api('dana').call(API.updateTeamLink, { body: { skillPath: GENERAL_DECK_SKILL } })
     expect(repointDeckLinks(h.ctx)).toBe(0)
     expect((await h.api('dana').call(API.getTeamLink)).link!.skill).toMatchObject({ path: GENERAL_DECK_SKILL })
-    // a link to another skill is never touched; a landing skill a newcomer cannot open: the link stays
+    // no landing skill (nothing shared, or the shared skill gone: an older version's welcome link to the deck after the
+    // update, docs/DECISIONS.md "DS3"): the link names no skill any more, so people who join land on Home, keeping its
+    // address; the run is recorded (never a link left on the deck for good)
     h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(DECK_LINKS_KEY)
-    const tasks = path.join(h.team, 'skills/notes/SKILL.md')
-    const text = fs.readFileSync(tasks)
-    fs.rmSync(tasks)
+    const notes = path.join(h.team, 'skills/notes/SKILL.md')
+    const text = fs.readFileSync(notes)
+    fs.rmSync(notes)
+    expect(landingSkill(h.ctx)).toBeNull()
+    expect(repointDeckLinks(h.ctx)).toBe(1)
+    const home = (await h.api('dana').call(API.getTeamLink)).link!
+    expect(home.skill).toBeNull()
+    expect(home.url).toBe(made.link!.url)
+    expect(getSetting(h.ctx.db, DECK_LINKS_KEY)).toBeTruthy()
+    expect(JSON.parse((h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'team_link.update' ORDER BY id DESC LIMIT 1").get() as { detail: string }).detail))
+      .toEqual({ skillPath: null, from: GENERAL_DECK_SKILL, reason: 'intro_deck_link' })
+    // who joins now lands on Home, never on the deck's form
+    const token = new URL(home.url!).hash.replace(/^#t=/, '')
+    const joined = await h.req(null, '/api/team-link/join', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token, username: 'deck-joiner', name: 'Deck Joiner', password: 'tulip meadow 2026' }) })
+    expect(joined.status).toBe(201)
+    expect(((await joined.json()) as { next: string | null }).next).toBeNull()
+    // the next start: nothing again; the landing skill back: the owner's deck link from then on stays as it is
+    fs.writeFileSync(notes, text)
+    await h.api('dana').call(API.updateTeamLink, { body: { skillPath: GENERAL_DECK_SKILL } })
     expect(repointDeckLinks(h.ctx)).toBe(0)
     expect((await h.api('dana').call(API.getTeamLink)).link!.skill).toMatchObject({ path: GENERAL_DECK_SKILL })
-    // no landing skill at that start: the once is not used up, the next start tries again (the review of PR #100: the
-    // links stayed on the deck for good)
-    expect(getSetting(h.ctx.db, DECK_LINKS_KEY)).toBeFalsy()
-    fs.writeFileSync(tasks, text)
-    expect(repointDeckLinks(h.ctx)).toBe(1)
-    expect((await h.api('dana').call(API.getTeamLink)).link!.skill).toMatchObject({ path: 'skills/notes/SKILL.md' })
-    expect(getSetting(h.ctx.db, DECK_LINKS_KEY)).toBeTruthy()
     h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(DECK_LINKS_KEY)
     await h.api('dana').call(API.updateTeamLink, { body: { skillPath: 'skills/quote/SKILL.md' } })
     expect(repointDeckLinks(h.ctx)).toBe(0)

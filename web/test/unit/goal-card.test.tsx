@@ -158,6 +158,17 @@ describe('the card: a title, one line, one button', () => {
       expect(copied).toEqual([`'광고 문구' 한 번 눌러 보세요: ${RUN}`])
     } finally { await m.unmount() }
   })
+  test('nobody ran a skill yet and the team link still opens the intro deck: the deck is never named (the owner\'s own run, docs/DECISIONS.md "DS3")', async () => {
+    const deck = { ...LINK, link: { ...LINK.link!, skill: { path: 'skills/general/intro-deck/SKILL.md', name: 'intro-deck', title: '회사 소개서' } } }
+    const m = await card(goal({ skill: null, joined: 3, waiting: { first: '민지', more: 2 } }), deck)
+    try {
+      expect(m.html()).not.toContain('회사 소개서')
+      expect(m.html()).toContain('같은 스킬')
+      await m.click('team-goal-resend')
+      expect(copied[0]).not.toContain('회사 소개서')
+      expect(copied[0]).not.toContain('intro-deck')
+    } finally { await m.unmount() }
+  })
   test('one more person: the line and [초대 문구 복사] (the team link\'s message)', async () => {
     const m = await card(goal({ joined: 1, skill: { path: AD, name: '광고 문구', runners: 2, people: ['김하나', '민지'] } }), LINK)
     try {

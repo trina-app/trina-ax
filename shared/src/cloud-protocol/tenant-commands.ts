@@ -35,7 +35,8 @@ const Count = z.number().int().min(0).max(1_000_000)
 export const TenantOnboarding = z.strictObject({
   /** whole days since the team's first account was made (0 on that day) */
   day: z.number().int().min(0).max(100_000),
-  /** recommended skills are in the team folder (skills/general/ or skills/work/ holds a skill) */
+  /** recommended skills are in the team folder (skills/general/ or skills/work/ holds a skill; or skills/marketing/ or
+   * skills/hr/, the packs of older releases) */
   packInstalled: z.boolean(),
   /** a company profile is saved (skills/company-profile.json with a field filled in) */
   profileSaved: z.boolean(),

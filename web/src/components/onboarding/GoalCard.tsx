@@ -14,7 +14,7 @@ import clsx from 'clsx'
 import { Check, CheckCircle2, ChevronDown, Copy, Target, UserPlus, X } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { skillLabel, type TeamGoal, type TeamLinkResponse } from '@mycel/shared/api'
+import { GENERAL_DECK_SKILL, skillLabel, type TeamGoal, type TeamLinkResponse } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { teamLinkMessage } from '../../lib/team-link'
 import { goalNext, goalNextText, goalProgressText, resendText, runnerNames, skillQuote, skillRunUrl } from '../../lib/teamGoal'
@@ -95,9 +95,11 @@ export function GoalCard({ goal, onDismiss, link: given }: { goal: TeamGoal; onD
   const progress = goalProgressText(t, skill?.runners ?? 0, goal.target)
   const open = link?.link && link.link.state === 'active' && link.link.url ? link.link : null
   // the skill to name: the top one, else the one the team link carries (nobody ran one yet), else any team skill; a
-  // skill without a title by its folder name as words (never 'quote-maker')
+  // skill without a title by its folder name as words (never 'quote-maker'). A link that still opens the intro deck is
+  // no stand-in: the deck is the owner's own onboarding run, never the team's goal skill (docs/DECISIONS.md "DS3")
   const linkName = open?.skill?.name ? skillLabel({ name: open.skill.name, title: open.skill.title }) : null
-  const named = skill ? { path: skill.path, name: skill.name } : open?.skill && linkName ? { path: open.skill.path, name: linkName } : null
+  const deckLink = !!open?.skill && (open.skill.path === GENERAL_DECK_SKILL || open.skill.path === welcome?.general?.introDeckPath)
+  const named = skill ? { path: skill.path, name: skill.name } : open?.skill && linkName && !deckLink ? { path: open.skill.path, name: linkName } : null
   const next = goalNext(goal)
   // a link made or changed in the dialog: read it again for [초대 문구 복사]
   const closeInvite = () => { setInviting(false); setLinkTick((n) => n + 1) }

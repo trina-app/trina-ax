@@ -1,7 +1,8 @@
 // The team link without its starter (docs/DECISIONS.md "DS3"; server/src/auth/team-links.ts): the starter (the lead's
 // meeting notes and "내 할 일 정리해 줘" for 할 일 정리, docs/DECISIONS.md "M") went with that skill. A link names a skill
-// at most; PATCH changes its skill and adds groups, keeping its address; a starter an older version stored on a link is
-// never read (the column stays, no migration): someone who joins lands on the link's skill form as with any link.
+// at most; PATCH changes its skill and adds groups, keeping its address (a `starter` an older tab sends is ignored for one
+// release); a starter an older version stored on a link is never read (the column stays, no migration): someone who
+// joins lands on the link's skill form as with any link.
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -59,7 +60,7 @@ test('a starter an older version stored on the open link is never read: not on t
   expect(j.body.starter).toBeUndefined()
 })
 
-test('PATCH changes the open link\'s skill and adds groups, keeping its address; a starter is refused; admins only', async () => {
+test('PATCH changes the open link\'s skill and adds groups, keeping its address; a starter an older tab sends is ignored; admins only', async () => {
   setPlanForTests(null)
   const { link } = await owner.call('POST', '/api/admin/team-link', {})
   const r = await owner.call('PATCH', '/api/admin/team-link', { skillPath: DECK, addGroupIds: [team.id] })
@@ -69,11 +70,16 @@ test('PATCH changes the open link\'s skill and adds groups, keeping its address;
   expect(again.link.groupIds).toEqual([team.id])
   const cleared = await owner.call('PATCH', '/api/admin/team-link', { skillPath: null })
   expect(cleared.link).toMatchObject({ skill: null })
-  expect((await owner.try('PATCH', '/api/admin/team-link', { skillPath: DECK, starter: { kind: 'tasks', files: ['groups/Acme/회의록/11-03 주간회의.md'] } })).status).toBe(400)
+  // an app opened before this version still sends `starter`: accepted for one release and ignored (no 400, nothing kept)
+  const old = await owner.try('PATCH', '/api/admin/team-link', { skillPath: DECK, starter: null })
+  expect(old.status).toBe(200)
+  expect(old.body.link.starter).toBeUndefined()
+  expect((await owner.try('PATCH', '/api/admin/team-link', { starter: { kind: 'tasks', files: ['groups/Acme/회의록/11-03 주간회의.md'] } })).status).toBe(200)
+  expect((h.ctx.db.query('SELECT starter FROM team_links WHERE id = ?').get(link.id) as { starter: string | null }).starter).toBeNull()
   expect((await owner.try('PATCH', '/api/admin/team-link', { addGroupIds: ['0190a0a0-0000-7000-8000-000000000000'] })).status).toBe(400)
   expect((await owner.try('PATCH', '/api/admin/team-link', { groupIds: [] })).status).toBe(400)
   const audits = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'team_link.update' AND target = ?").all(link.id) as { detail: string }[]
-  expect(audits.length).toBe(3)
+  expect(audits.length).toBe(5)
   for (const a of audits) expect(JSON.parse(a.detail).starter).toBeUndefined()
   const member = await addMember(h, owner, { username: 'mia' })
   expect((await member.client.try('PATCH', '/api/admin/team-link', { skillPath: null })).status).toBe(403)

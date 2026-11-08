@@ -82,6 +82,9 @@ export type CreateTeamLinkBody = z.input<typeof CreateTeamLinkBody>
  * who joined keep theirs). The welcome steps' invite uses it when a link is already out. */
 export const UpdateTeamLinkBody = z.object({
   skillPath: z.string().min(1).max(1024).nullable().optional(),
+  /** ignored: the starter is gone (docs/DECISIONS.md "DS3"); still accepted so a tab opened on an older app, which sends
+   * `starter: null`, gets no 400. Remove in the release after the next one */
+  starter: z.unknown().optional(),
   addGroupIds: z.array(Uuid7).max(100).optional(),
 }).strict()
 export type UpdateTeamLinkBody = z.input<typeof UpdateTeamLinkBody>

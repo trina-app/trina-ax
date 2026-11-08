@@ -118,6 +118,10 @@ test('회사 소개 starts the deck once; the steps go on; the deck chat mid-set
   const other = await browser.newContext({ locale: 'ko-KR' })
   const p2 = await other.newPage()
   const errors2 = watchConsole(p2)
+  // Home's first-time card walks into folders the member cannot open to find ones below them (lib/visibleFolders.ts);
+  // the mock answers such a listing with 404, which the app takes in its stride: that one is expected, no other
+  const missing: string[] = []
+  p2.on('response', (r) => { if (r.status() === 404) { const u = new URL(r.url()); missing.push(`${u.pathname}${u.search}`) } })
   await p2.goto(url)
   await p2.getByTestId('invite-name').fill('민지')
   await p2.getByTestId('invite-username').fill('minji')
@@ -126,7 +130,8 @@ test('회사 소개 starts the deck once; the steps go on; the deck chat mid-set
   await expect(p2.getByTestId('composer-input')).toBeVisible()
   await expect(p2).toHaveURL(/\/$/)
   await expect(p2.getByTestId('skill-form')).toHaveCount(0)
-  expect(realErrors(errors2)).toEqual([])
+  expect(missing.filter((u) => u !== '/api/demo' && !/^\/api\/files\/tree\?path=finance(&|$)/.test(u))).toEqual([])
+  expect(realErrors(errors2).filter((e) => !(/status of 404/.test(e) && missing.length))).toEqual([])
   await other.close()
   // saving 회사 소개 again asks the server, which answers 409 deck_started (the one deck stands): the browser logs that
   expect(realErrors(errors).filter((e) => !/status of 409/.test(e))).toEqual([])

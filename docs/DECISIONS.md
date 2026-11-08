@@ -11354,18 +11354,28 @@ deleted and the auto-add removed ("자동 추가가 있다고?? … 굳이 물�
   link lands on Home and the end screen offers 홈으로 alone. The general pack is recorded once any of its skills is
   there (no one skill decides), so a missing 할 일 정리 never holds the team's start back or makes the page ask again.
   The team link's starter (the lead's meeting notes and "내 할 일 정리해 줘" / "내가 알아야 할 것만 알려 줘") is removed
-  from the API, the server and the web app; its `team_links.starter` column stays unread (no migration).
-- **The goal card never names the owner's onboarding run.** Without a landing skill the card took the skill most
-  people ran, which right after the steps is the owner's own intro deck: its [다시 보내기] would have sent members to
-  the 회사 소개서 form. The fallback now leaves out every skill the steps ran themselves (the intro deck's paths and any
-  skill run in the first-result chat), so with nothing else run there is no goal skill (`onboarding/goal.ts`
-  onboardingRuns).
+  from the API, the server and the web app; its `team_links.starter` column stays unread (no migration). A PATCH that
+  still sends `starter` (a tab opened on an older app) is accepted and ignored for one release.
+- **Invite links that open the intro deck** (older versions' welcome steps made them, v0.4.0-beta.10 among them) are
+  pointed once, at the server's start, at the landing skill when someone joining can open it, else at no skill, so
+  people who join land on Home; recorded either way (`repointDeckLinks`), so no link stays on the deck for good. The
+  welcome steps' own link, made when nothing was shared, never copies a ran-out link's skill.
+- **The goal never counts the intro deck.** Without a landing skill the card took the skill most people ran, which
+  right after the steps is the owner's own intro deck: its [다시 보내기] would have sent members to the 회사 소개서 form.
+  The deck's paths (`onboarding/goal.ts` deckPaths: the pack path and the one the steps recorded) are now left out of
+  the whole goal: the card's skill, the best skill, reaching the goal, the people who ran a skill and the owners'
+  first-run notices. With nothing else run there is no goal skill, and a team link that still opens the deck is no
+  stand-in on the card either.
 - **Rollback guard.** An older build's seeder adds every `<pack>/<name>` its settings row `onboarding.defaultSkills`
   does not record. This build writes the 19 keys that seeder knew (general 5, marketing 7, work 7; a frozen list) as
   `retired`, only where missing and never over an entry that is there, at every start and in `setupWelcomeTeam`: a
   settings write, no files. So a dev server installing an older build, or a customer downgrading, adds nothing.
 - **Existing teams keep their files.** Nothing is deleted from a team folder; old welcome rows keep their `pack` and
-  `general.tasksPath` (no longer read); the audit screen still names old `onboarding.default_skills` rows. No migration.
+  `general.tasksPath` (no longer read), and new `general` records still write `tasksPath: null, briefPath: null` so an
+  older build reads them after a rollback; the audit screen still names old `onboarding.default_skills` rows; the
+  hosting status still counts a team with only `skills/marketing/` or `skills/hr/` as having a pack. No migration.
+- **Notice.** The English natural-writing skill's MIT notice (Siqi Chen) is in `NOTICE` and
+  `docs/THIRD-PARTY-NOTICES.md`, besides its `LICENSE` and the end of its SKILL.md.
 - Rejected: asking "새 스킬이 있어요, 넣을까요?" in place of the seeder (the owner: no prompt); deleting the files the
   seeder put in existing teams (they are the team's own files now).
 - Version impact: **minor** (skills, a route and API fields removed; nothing a running team stored is lost).
