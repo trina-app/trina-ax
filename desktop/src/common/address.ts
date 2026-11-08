@@ -6,7 +6,7 @@ import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { PRODUCT, SOURCE_CODE } from '@mycel/shared'
 import { parseTeamInput, readAppLink, relayAnswer, relayRename, type RelayAnswer, type TeamInput, type TeamInputError, type TeamInputOptions } from '@mycel/shared/team-link'
 
-export { hostLineShown, isLoopbackHost, isSignInPath } from '@mycel/shared/team-link'
+export { hostLineNow, hostLineShown, isLoopbackHost, isSignInPath } from '@mycel/shared/team-link'
 
 /** Hosted team addresses are <team>.TEAM_DOMAIN (design tab 6). */
 export const TEAM_DOMAIN: string = SERVICE_HOSTS.teamDomain

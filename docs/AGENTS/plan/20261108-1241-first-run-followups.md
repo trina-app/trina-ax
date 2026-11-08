@@ -20,10 +20,11 @@ In:
    through them. Test table rows.
 2. `cutGlued`: a Korean word glued straight onto a host with no path (`https://acme.trina.app입니다`) reads as the
    host. Test.
-3. The desktop host strip no longer makes the page jump on every team open: while `/api/me` has not answered yet on a
-   page that is not a sign-in page, the strip waits 300 ms before it takes space; a sign-in page and a signed-out answer
-   show it at once. Test.
-4. The phone's start: `settleDevice` and `retryRemovals` run one after the other (a slow removal could write the owed
+3. The desktop host strip and the phone footer no longer make the page jump on every team open: while `/api/me` has
+   not answered yet on a page that is not a sign-in page, the line waits 300 ms before it takes space (`hostLineNow`,
+   shared); a sign-in page and a signed-out answer show it at once. Test.
+4. The phone's start: the start's device check and the owed-removal retry run one after the other, and every change of
+   the stored devices waits its turn (a slow removal could write the owed
    list over the old team's new entry). Test with a slow network.
 5. DECISIONS: the host line is a hint (a page script can hide the phone footer; a fake server can answer its own
    `/api/me`); the protection is ④ and the outside-trina.app question.

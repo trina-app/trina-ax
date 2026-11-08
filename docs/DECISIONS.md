@@ -14875,7 +14875,13 @@ accounts, relay names); nothing about plans or billing.
   연결"; the app injects one `/api/me` fetch into the page after each load and route change (`src/session-check.ts`)
   and hides the footer only on a yes. A fake server can answer its own `/api/me`; the line is for the person on a real
   team who meets a look-alike page, not a proof. Always the team address the app connected to, in punycode with its port. The
-  web login page gets no host line.
+  web login page gets no host line. Off the sign-in pages the line waits up to 300 ms for that `/api/me` answer before it
+  takes space (`hostLineNow`, shared), so a signed-in open does not show it and then hide it (the page jumped on every
+  team open); a sign-in page shows it at once, a signed-out answer or no answer in time shows it. **The line is a hint,
+  not the protection**: on the phone a page script can answer the injected check and hide the footer, on the desktop a
+  fake server can answer its own `/api/me`. The protection is ④ (a link names its host before it connects) and the
+  question before the first connect to an address outside trina.app. Links from outside never point the desktop at this
+  machine, also written as an IPv4-mapped (`[::ffff:127.0.0.1]`) or unspecified address (`[::]`, `0.0.0.0`, `0`).
 - **The first connect to an address the hosted service does not run asks once**: "트리나가 운영하는 주소가 아니에요.
   회사에서 직접 설치한 서버인지 확인하세요." [취소] [연결], the focus on [취소]. Not for this machine, not for a team
   already remembered (desktop) or the one the phone is in, not in a phone build without a team domain. Look-alikes
@@ -14886,8 +14892,10 @@ accounts, relay names); nothing about plans or billing.
   "{old}에서 나가고 {new}에 연결할까요? 이제 {old} 알림은 이 휴대폰으로 오지 않아요." with the new host and the
   outside note when it applies, [취소] (focus) [바꾸기]. Only [바꾸기] runs the leave (`leaveTeam`, the label key, the
   delivered notifications), and only after the new team was saved (a refused save leaves the phone in its team). If the app stops between the
-  two, the next start finds the old team's device record (`settleDevice`: a device for another origin than the saved
-  team) and makes it a removal still owed, so the old team's push does not stay on the phone. The new team's push starts only after sign-in there, so the question promises nothing about
+  two, the next start finds the old team's device record (`startRemovals`: a device for another origin than the saved
+  team) and makes it a removal still owed, so the old team's push does not stay on the phone. Every change of the stored
+  devices (the start, a leave, a retry) runs one at a time, so a slow removal cannot write back an older owed list over
+  the old team's entry. The new team's push starts only after sign-in there, so the question promises nothing about
   it. The same team again opens the link's page in place.
 - **Desktop**: a pasted link opens its page in the app (`openTeam(id, entryPath)`; a team already open loads it where it
   is, the office-network address included); the 팀 menu's "팀 추가…" and "팀 목록…" (the same screen) are one "팀

@@ -14,14 +14,14 @@ import { APPEARANCE_CAPABILITY, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_LABEL
 import { accentInk, installGuide, mobileProduct, mobileService } from './src/product'
 import { devicePushToken, devices, forgetDelivered, labels, notificationPermission, onNotificationTap, openAppSettings, quietForeground } from './src/push'
 import { DARK, LIGHT, frame, insetScript, isDark, padding, pageInsets, type Insets, type Padding, type Palette } from './src/look'
-import { currentDevice, leaveTeam, rememberDevice, retryRemovals, settleDevice } from './src/device'
+import { currentDevice, leaveTeam, rememberDevice, startRemovals } from './src/device'
 import { fill, inputError, offlineError, stringsFor } from './src/strings'
 import { checkTeam, readTeamInput, rememberSelfPadded, savedTeamSince, savedTeamUrl, saveTeamUrl, selfPaddedTeam } from './src/team'
 import { LinkGate, readAppLink, type LinkOffer } from './src/team-link'
 import { ReinstallSignOut, reinstallDone, wasReinstalled } from './src/install'
 import { reinstallDeps } from './src/files'
 import type { TeamAddress } from './src/address'
-import { hostLineShown } from './src/team-link'
+import { hostLineNow } from './src/team-link'
 import { readSessionCheck, sessionCheckScript } from './src/session-check'
 
 const product = mobileProduct(Constants.expoConfig?.extra?.teamAxEdition)
@@ -116,8 +116,6 @@ export default function App() {
   useEffect(() => {
     try { clearDownloadCache() } catch { /* a later operation reports an inaccessible cache */ }
     let off = () => {}
-    // removals owed to teams left while their server could not be reached
-    void retryRemovals(devices).catch(() => {})
     void Promise.all([savedTeamUrl(), savedTeamSince(), selfPaddedTeam()]).then(async ([origin, chosen, pads]) => {
       since.current = chosen; hasTeam.current = !!origin; padsAtLaunch.current = pads
       const deps = reinstallDeps()
@@ -125,8 +123,9 @@ export default function App() {
       // the keychain outlived the deleted app: its notification extension names nobody until this install registers
       if (reinstalled) await labels?.forget().catch(() => {})
       if (reinstalled && origin) signOut.current = new ReinstallSignOut(origin, () => reinstallDone(deps), () => Crypto.randomUUID())
-      // the app stopped between saving a new team and leaving the old one: that team's device is still owed a removal
-      await settleDevice(devices, origin).catch(() => {})
+      // removals owed to teams left while their server could not be reached, after the device of a team the app was
+      // leaving when it stopped (saved: the new team) joins them; one after the other, never beside another run
+      void startRemovals(devices, origin).catch(() => {})
       let deviceRead = true
       device.current = origin ? (await currentDevice(devices, origin).catch(() => { deviceRead = false; return null }))?.deviceId ?? null : null
       // what the extension may use belongs to this team and this device, or it goes (not when the device could not be read)
@@ -355,6 +354,10 @@ function TeamWeb({ address, hidden, pads, signOut, opened, onDevice, onAppearanc
   const [source, setSource] = useState(address.origin + address.entryPath)
   // the team answered GET /api/me for a signed-in person (src/session-check.ts); until then the address stays under the page
   const [signedIn, setSignedIn] = useState(false), sessionCheck = useRef(0)
+  // the check answered (either way), or 300 ms passed after the page loaded: before that a page that is not a sign-in
+  // page gets no footer yet, so a signed-in open does not jump (shared hostLineNow)
+  const [answered, setAnswered] = useState(false), [waited, setWaited] = useState(false), waitTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (waitTimer.current) clearTimeout(waitTimer.current) }, [])
   const checkSession = () => { sessionCheck.current++; web.current?.injectJavaScript(sessionCheckScript(sessionCheck.current)) }
   const insets = useSafeAreaInsets(), c = useContext(Look)
   // Does the page on screen pad itself (src/look.ts padding)? Predicted from this team's last page, confirmed by the
@@ -449,7 +452,10 @@ function TeamWeb({ address, hidden, pads, signOut, opened, onDevice, onAppearanc
   function settle(url: string) {
     void loaded(url).then(installed => {
       ready.current = installed && !loadFailed.current
-      if (ready.current) checkSession()
+      if (ready.current) {
+        checkSession()
+        if (!waitTimer.current) waitTimer.current = setTimeout(() => setWaited(true), 300)
+      }
       // after a reinstall: only on this team's own page, the one on screen, whose bridge was just installed
       const end = ready.current && sameTeam(address.origin, currentUrl.current) ? signOut?.script(address.origin, currentUrl.current) : null
       if (end) web.current?.injectJavaScript(end)
@@ -468,7 +474,7 @@ function TeamWeb({ address, hidden, pads, signOut, opened, onDevice, onAppearanc
     <Pressable style={s.link} onPress={changeTeam} testID="failed-change-team"><Text style={[s.linkText, { color: c.ink }]}>{t.changeTeam}</Text></Pressable></Center>
   // the team address the app connected to (drawn here: a page can draw anything) and "another team": on the sign-in
   // pages, and on every page until the team said someone is signed in
-  const showFooter = hostLineShown(pathname, signedIn)
+  const showFooter = hostLineNow({ path: pathname, signedIn, answered, waited })
   // Edge to edge for a page that pads itself: it fills the screen under the status bar and the home indicator /
   // navigation bar in its own colours (env(safe-area-inset-*), and --app-inset-* from insetScript for WebViews that
   // report none). Any other page keeps the app's padding (src/look.ts frame). The sign-in pages end above the app's own
@@ -521,7 +527,7 @@ function TeamWeb({ address, hidden, pads, signOut, opened, onDevice, onAppearanc
         if (signOut && sameTeam(address.origin, event.nativeEvent.url) && signOut.answer(event.nativeEvent.data)) return
         // the answer to the app's own session check, not a bridge message
         const session = sameTeam(address.origin, event.nativeEvent.url) ? readSessionCheck(event.nativeEvent.data, sessionCheck.current) : null
-        if (session !== null) { setSignedIn(session); return }
+        if (session !== null) { setSignedIn(session); setAnswered(true); return }
         void r.receive(event.nativeEvent.data, event.nativeEvent.url).then(reply => {
           if (!reply) return
           const script = (reply.nextGeneration ? bootstrap(r.config) : '') + `window.dispatchEvent(new CustomEvent('mycel:mobile',{detail:${JSON.stringify(reply)}}));true;`
