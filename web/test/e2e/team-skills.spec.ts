@@ -593,11 +593,12 @@ test('a link to my suggestions works again while the page is open; on a phone th
   await expect.poll(inView).toBe(true)
 })
 
-test('no skill to use yet: the tab says so and how one gets there', async ({ page }) => {
+test('no skill to use yet: the tab says so, who puts skills in, and how one gets there', async ({ page }) => {
   await reset(page)
   await signIn(page, BOB)
   await page.goto('/skills')
   await expect(page.getByTestId('skill-list')).toHaveCount(0)
-  await expect(page.getByText('아직 쓸 수 있는 스킬이 없어요.')).toBeVisible()
+  // a member: the owner or an admin puts the team skills in (docs/DECISIONS.md "W6")
+  await expect(page.getByText('아직 팀 스킬이 없어요 · 팀장이나 관리자가 넣으면 여기에 보여요')).toBeVisible()
   await expect(page.getByText('"스킬로 제안"을 눌러 제안할 수 있어요')).toBeVisible()
 })

@@ -129,7 +129,7 @@ test('회사 소개 saves the profile and puts the brand materials in, starting 
   expect(realErrors(errors)).toEqual([])
 })
 
-test('a phone: 회사 소개 saves; 내 스킬 waits for a computer; 도구 연결 is walked past and put off; the end screen once; Home leads back', async ({ page }) => {
+test('a phone: 회사 소개 saves; 내 스킬 says own skills go in on a computer and is put off; 도구 연결 is walked past and put off; the end screen once; Home has nothing left', async ({ page }) => {
   const errors = watchConsole(page)
   await page.setViewportSize({ width: 390, height: 844 })
   await reset(page)
@@ -139,8 +139,10 @@ test('a phone: 회사 소개 saves; 내 스킬 waits for a computer; 도구 연�
   await expect(page.getByTestId('welcome-brand-line')).toBeVisible()
   await page.getByTestId('welcome-profile-continue').click()
   // without files: the server's 회사 소개.md
-  await expect(page.getByTestId('skills-phone-next')).toBeVisible()
-  await page.getByTestId('skills-phone-next').click()
+  // 내 스킬 on a phone: one line that own skills go in on a computer (no folder button); 나중에 하기 puts the step off
+  await expect(page.getByTestId('skills-phone-own')).toBeVisible()
+  await expect(page.getByTestId('skills-find')).toHaveCount(0)
+  await page.getByTestId('skills-later').click()
   await expect(page.getByTestId('welcome-team-files')).toBeVisible()
   await page.getByTestId('welcome-later').click()
   // straight to the invite: 도구 연결 is for a computer, recorded as put off; ← 이전 goes to 팀 파일
@@ -156,14 +158,15 @@ test('a phone: 회사 소개 saves; 내 스킬 waits for a computer; 도구 연�
   const progress = (await (await page.request.get('/api/onboarding/welcome')).json()).progress
   expect(progress.steps.tools).toBe('skipped')
   expect(progress.resultChatId).toBeNull()
-  // 내 스킬 waits for a computer: not finished, the end screen was shown once
-  expect(progress.finishedAt).toBeNull()
+  // every step answered (내 스킬 put off on the phone like on a computer: docs/DECISIONS.md "W6"): finished, the end
+  // screen shown once
+  expect(progress.finishedAt).toBeTruthy()
+  expect(progress.skillsLater).toBeFalsy()
   expect(progress.doneShownAt).toBeTruthy()
-  // Home on a phone: 팀 파일 was put off, so its quiet row leads back to it ("later is now", W4); 내 스킬 itself is for a
-  // computer, so the phone's line about it waits until nothing else is left
+  // Home on a phone: nothing left to resume, and no line that 내 스킬 waits for a computer
   await page.getByTestId('welcome-done-home').click()
-  await expect(page.getByTestId('welcome-resume')).toBeVisible()
-  await expect(page.getByTestId('welcome-resume-text')).not.toContainText('도구 연결')
+  await expect(page.getByTestId('composer-input')).toBeVisible()
+  await expect(page.getByTestId('welcome-resume')).toHaveCount(0)
   await expect(page.getByTestId('welcome-skills-computer')).toHaveCount(0)
   expect(realErrors(errors)).toEqual([])
 })

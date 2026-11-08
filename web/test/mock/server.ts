@@ -57,7 +57,7 @@ const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m 
 import {
   AiAllowance, ApiErrorResponse, CSRF_HEADER, Room, RoomMessage, answerFilePaths, answerShareBody, ROOM_FILES_MAX, SMALL_UPLOAD_MAX, TeamGoal, type AnswerShareFile, type AnswerSharePlace, type RoomFile, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, PresenceFrame, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type SkillInput, type DevEnvRun, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
-  MemberEngineChoice, GENERAL_CARDNEWS_SKILL, CARD_NEWS_ARTIFACT_KEY, GENERAL_PROMO_SKILL, PROMO_ARTIFACT_KEY, PROMO_STYLES, GENERAL_DECK_SKILL, DECK_ARTIFACT_KEY, NOTES_FOLDER, BRAND_FOLDER, BRAND_IMAGES_FOLDER, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule, type DeckBuild,
+  MemberEngineChoice, CARD_NEWS_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, PROMO_STYLES, DECK_ARTIFACT_KEY, NOTES_FOLDER, BRAND_FOLDER, BRAND_IMAGES_FOLDER, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule, type DeckBuild,
 } from '@mycel/shared/api'
 import fs from 'node:fs'
 import zlib from 'node:zlib'
@@ -180,6 +180,14 @@ const PROMO_TEXT = '---\nname: promo-video\ndescription: 홍보 영상 — 회�
  * first result since docs/DECISIONS.md "D2"; a member who joins with its invite lands on it */
 const DECK_TEXT = '---\nname: intro-deck\ndescription: 회사 소개서 — 회사 소개 자료나 홈페이지에서 읽은 내용으로 팀 브랜드 폴더의 사진과 브랜드 색을 써서 회사 소개서 슬라이드를 만들어요.\nmetadata:\n  title: 회사 소개서\n  inputs: |\n    [{"name": "topic", "label": "주제", "placeholder": "비워 두면 회사 전체"}, {"name": "audience", "label": "누구에게 보낼까요", "placeholder": "예: 제조업 고객사 · 비워 두면 누구에게나"}, {"name": "files", "label": "자료 파일", "placeholder": "비워 두면 팀 브랜드 폴더의 회사 소개", "advanced": true}]\n---\n# 회사 소개서\n'
 
+/** the kept skills (server/src/onboarding/skill-packs.ts CATALOG, short): their titles and one lines in Korean and English */
+const PACK_CATALOG = [
+  { pack: 'general', name: 'intro-deck', visual: true, ko: '회사 소개서', en: 'Company profile', lineKo: '회사 소개로 6~10장짜리 소개서를 만들어요', lineEn: 'Makes a 6–10 slide company profile from the company intro' },
+  { pack: 'general', name: 'card-news', visual: true, ko: '카드뉴스', en: 'Promo cards', lineKo: '회사 소개로 정사각형 카드 5장을 만들어요', lineEn: 'Makes 5 square promo cards from the company intro' },
+  { pack: 'general', name: 'promo-video', visual: true, ko: '홍보 영상', en: 'Promo video', lineKo: '회사 소개로 18초짜리 세로 영상을 만들어요', lineEn: 'Makes an 18-second vertical video from the company intro' },
+  { pack: 'work', name: 'humanizer', visual: false, ko: '자연스러운 글', en: 'Natural writing', lineKo: 'AI가 쓴 티가 나는 글을 사람이 쓴 것처럼 다듬어요', lineEn: 'Rewrites text that reads as AI-written so a person seems to have written it' },
+] as const
+
 /** like server/src/admin/settings.ts LOCALE_CHANGED */
 const LOCALE_CHANGED = { type: 'notice', data: { level: 'info', code: 'locale_changed', message: '' } } as const
 /** like server/src/admin/settings.ts BROWSER_POLICY_CHANGED */
@@ -224,6 +232,13 @@ export class MockServer {
   }
   /** the saved company profile, and the website readings (server/src/onboarding/draft.ts, short: no chat of the list) */
   companyProfile: import('@mycel/shared/api').CompanyProfile | null = null
+  /** the kept skills' catalog (server/src/onboarding/skill-packs.ts, docs/DECISIONS.md "W6"): the examples registered
+   * (/__test/pack-examples), the catalog read failing (/__test/packs-fail), the next installs failing
+   * (/__test/pack-install-fail: that many requests), and share checks held until stop-check (/__test/share-hold) */
+  packExamples: Partial<Record<string, import('@mycel/shared/api').PackExample>> = {}
+  packsFail = false
+  packInstallFails = 0
+  shareHold = false
   profileDrafts = new Map<string, { userId: string; website: string; reads: number }>()
   /** the suggestion under answers a test set, and the ones closed */
   resultSuggestion: import('@mycel/shared/api').ResultSuggestion | null = null
@@ -420,6 +435,10 @@ export class MockServer {
     this.revokedTeamLinks.clear()
     this.welcome = null
     this.companyProfile = null
+    this.packExamples = {}
+    this.packsFail = false
+    this.packInstallFails = 0
+    this.shareHold = false
     this.profileDrafts = new Map()
     this.resultSuggestion = null
     this.closedSuggestions = new Set()
@@ -2165,6 +2184,53 @@ export class MockServer {
     requestAiAccess: () => fail('forbidden', 403, '이미 AI를 쓸 수 있어요.'),
     trialCredit: () => ({ credit: null }),
     getCompanyProfile: () => ({ profile: this.companyProfile }),
+    // the kept skills (server/src/onboarding/skill-packs.ts skillPackCatalog, short): every one in CATALOG's order, in
+    // the team's language (Korean, else English), whether the team has it (its path, or a team skill of its name)
+    listSkillPacks: (c) => {
+      if (this.packsFail) fail('internal', 500, '지금은 불러오지 못했어요')
+      const ko = this.settings.defaultLocale === 'ko'
+      const team = this.skillsFor(c.user).filter((x) => x.path.startsWith('skills/'))
+      return {
+        profile: !!this.companyProfile,
+        skills: PACK_CATALOG.map((k) => {
+          const path = `skills/${k.pack}/${k.name}/SKILL.md`
+          return {
+            pack: k.pack, name: k.name, path, title: ko ? k.ko : k.en, description: ko ? k.lineKo : k.lineEn,
+            inTeam: this.files.has(path) || team.some((x) => x.name.toLowerCase() === k.name), visual: k.visual,
+            example: this.packExamples[k.name] ?? null, locale: ko ? 'ko' : 'en',
+            source: k.name !== 'humanizer' ? { kind: 'team' } : ko ? { kind: 'team_writing' } : { kind: 'adapted', author: 'Siqi Chen', project: 'humanizer', license: 'MIT', url: 'https://github.com/blader/humanizer' },
+          }
+        }),
+      }
+    },
+    // the skills a person checked (server: installSkillPack with `skills`): written when free, `blocked` with the other
+    // path when a team skill elsewhere has the name; an owner's install marks 내 스킬 done (routes/onboarding-packs.ts)
+    installSkillPack: (c) => {
+      if (this.packInstallFails > 0) { this.packInstallFails--; fail('internal', 500, '지금은 넣지 못했어요') }
+      const id = c.params.id as 'general' | 'work'
+      const all = PACK_CATALOG.filter((k) => k.pack === id)
+      if (!all.length) fail('not_found', 404)
+      const names: string[] = (c.body as { skills?: string[] }).skills ?? all.map((k) => k.name)
+      const ko = this.settings.defaultLocale === 'ko'
+      const at = now()
+      // a name not in the pack is refused before anything is written (server: installSkillPack)
+      const unknown = names.find((name) => !all.some((x) => x.name === name))
+      if (unknown !== undefined) fail('validation', 400, `${unknown}: 이 묶음의 스킬이 아니에요`)
+      const skills = names.map((name) => {
+        const k = all.find((x) => x.name === name)!
+        const path = `skills/${id}/${name}/SKILL.md`
+        if (this.files.has(path)) return { name, path, status: 'present' as const }
+        const other = this.skillsFor(c.user).find((x) => x.path.startsWith('skills/') && x.name.toLowerCase() === name)
+        if (other) return { name, path, status: 'blocked' as const, sameNameAs: other.path }
+        for (const d of [`skills/${id}`, `skills/${id}/${name}`]) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
+        this.putFile(path, name === 'card-news' ? CARDNEWS_TEXT : name === 'promo-video' ? PROMO_TEXT : name === 'intro-deck' ? DECK_TEXT : `---\nname: ${name}\ndescription: ${ko ? k.ko : k.en}\nmetadata:\n  title: ${ko ? k.ko : k.en}\n---\n# ${ko ? k.ko : k.en}\n`)
+        return { name, path, status: 'created' as const }
+      })
+      if (this.welcome && !this.welcome.finishedAt && c.user.role === 'owner' && skills.some((x) => x.status !== 'blocked')) {
+        this.welcome = this.welcomeSaved({ ...this.welcome, steps: { ...this.welcome.steps, skills: 'done' } }, at)
+      }
+      return { pack: id, locale: ko ? 'ko' : 'en', skills }
+    },
     saveCompanyProfile: (c) => (this.companyProfile = { ...(c.body as import('@mycel/shared/api').CompanyProfileInput), updatedAt: now() }),
     // the website reading (server/src/onboarding/draft.ts, short): running for its first read, then a draft made from the
     // team's name; like the server, its chat is not in the chat list (server/src/chat/internal-chats.ts)
@@ -2246,21 +2312,6 @@ export class MockServer {
       }
       p.updatedAt = at
       return { progress: p, install: null, outcome: 'already' as const }
-    },
-    // a recommended pack on an admin's press (server/src/onboarding/skill-packs.ts installSkillPack, short): its skills
-    // under skills/<id>/, only what is missing, never a file replaced (the Team skills page; 준비 끝 then offers the first)
-    installSkillPack: (c) => {
-      const at = now()
-      const id = c.params.id as 'general' | 'work'
-      const all = { general: [['card-news', GENERAL_CARDNEWS_SKILL, CARDNEWS_TEXT], ['promo-video', GENERAL_PROMO_SKILL, PROMO_TEXT], ['intro-deck', GENERAL_DECK_SKILL, DECK_TEXT]], work: [['humanizer', 'skills/work/humanizer/SKILL.md', '---\nname: humanizer\ndescription: 자연스러운 글 — AI가 쓴 티가 나는 글을 사람이 쓴 것처럼 다듬어요.\nmetadata:\n  title: 자연스러운 글\n---\n# 자연스러운 글\n']] } as const
-      if (!all[id]) fail('not_found', 404)
-      const skills = all[id].map(([name, path, text]) => {
-        for (const d of [`skills/${id}`, `skills/${id}/${name}`]) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
-        if (this.files.has(path)) return { name, path, status: 'present' as const }
-        this.putFile(path, text)
-        return { name, path, status: 'created' as const }
-      })
-      return { pack: id, locale: this.settings.defaultLocale, skills }
     },
     // 회사 소개's brand materials (server/src/onboarding/welcome-result.ts placeBrand, short): the team's start when it is
     // missing, the brand images folder, and 회사 소개.md unless the owner gave intro files (one there is kept); no chat,
@@ -3148,7 +3199,8 @@ export class MockServer {
       const view = (r: Row): Share => r.share.status !== 'checking' ? r.share
         : { ...r.share, candidates: r.share.candidates.map((x) => (x.group === 'excluded' ? x : { ...x, group: 'other', reason: 'unjudged', detail: null, action: x.sameName ? 'merge' : 'add' })) }
       const read = (r: Row): Share => {
-        if (r.share.status === 'checking' && ++r.reads > 2) r.share = { ...r.share, status: 'ready', ai: 'done' }
+        // held (/__test/share-hold): checking until the page ends it (stop-check)
+        if (r.share.status === 'checking' && !this.shareHold && ++r.reads > 2) r.share = { ...r.share, status: 'ready', ai: 'done' }
         return view(r)
       }
       const skillText = (name: string, title: string) => `---\nname: ${name}\ndescription: ${title}\nmetadata:\n  title: ${title}\n---\n# ${title}\n`
@@ -3232,6 +3284,14 @@ export class MockServer {
             this.welcome = this.welcomeSaved(w, now())
           }
           return forCaller(r, r.share, c.user)
+        },
+        // the page ends a check (server: skills/share.ts stopSkillShareCheck): ready, nothing recommended (ai failed)
+        stopSkillShareCheck: (c) => {
+          const r = rows().find((x) => x.share.id === c.params.id && x.owner === c.user.id) ?? fail('not_found', 404)
+          if (r.share.status === 'checking') {
+            r.share = { ...r.share, status: 'ready', ai: 'failed', candidates: r.share.candidates.map((x) => (x.group === 'excluded' ? x : { ...x, group: 'other', reason: x.personalPath ? 'personal_path' : 'unjudged', detail: null, similar: null, action: x.sameName ? 'merge' : 'add' })), rule: null, updatedAt: now() }
+          }
+          return forCaller(r, view(r), c.user)
         },
         dismissSkillShare: (c) => {
           const r = mine(c)
@@ -3567,7 +3627,9 @@ export class MockServer {
       let body: any
       let file: File | undefined
       if (ep.body && isSchema(ep.body)) {
-        const parsed = (ep.body as z.ZodType).safeParse(await req.json())
+        // like the server (http/route.ts): an empty body reads as {} (an endpoint whose fields are all optional)
+        const text = await req.text()
+        const parsed = (ep.body as z.ZodType).safeParse(text.trim() ? JSON.parse(text) : {})
         if (!parsed.success) fail('validation', 400, JSON.stringify(parsed.error.issues))
         body = parsed.data
       } else if (ep.body && (ep.body as { kind: string }).kind === 'multipart') {
@@ -3632,6 +3694,10 @@ export class MockServer {
       if (Array.isArray(body.sites)) this.devEnvSites.set(this.users[0]!.id, { sites: (body.sites as string[]).map((host) => ({ host, createdAt: now() })), full: false })
       this.devEnv = body.srt ? { srt: { running: [], waiting: [] } } : {}
     }
+    else if (p === '/__test/pack-examples') this.packExamples = (body.examples as typeof this.packExamples | undefined) ?? {}
+    else if (p === '/__test/packs-fail') this.packsFail = body.on !== false
+    else if (p === '/__test/pack-install-fail') this.packInstallFails = Number(body.times ?? 1)
+    else if (p === '/__test/share-hold') this.shareHold = body.on !== false
     else if (p === '/__test/skill-list') this.aiList = SkillsOverview.shape.aiList.parse(body)
     else if (p === '/__test/connection') this.connection = { ...this.connection, ...(body as unknown as Partial<ConnectionStatus>) }
     else if (p === '/__test/speech-host') this.speechHost = { ...this.speechHost, ...(body as unknown as Partial<typeof this.speechHost>) }
