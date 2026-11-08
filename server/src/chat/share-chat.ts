@@ -34,7 +34,7 @@ import { loadPrincipal } from '../policy/access'
 import { confidentialChat } from '../safe-ops/confidential'
 import { roomsOf } from '../rooms/service'
 import type { ChatRuntime } from './runtime'
-import type { ChatRow, ProjectRow } from './store'
+import { SHARED_LATER, type ChatRow, type ProjectRow } from './store'
 import { canSeeProject } from './projects'
 import { isInternalChat } from './internal-chats'
 import { audienceOf, chatView, projectCanShare, type ChatAccess } from './shared'
@@ -45,11 +45,11 @@ import { tr } from './i18n'
  * message (chat/turn.ts newSession) and every turn since adds to it, on whatever branch; so it does when no answer was
  * made before the newest answer to a first message (and when there is no answer at all). */
 function scopeDescribesAll(db: Database, chatId: string): boolean {
-  const first = db.query(`SELECT a.created_at AS at, a.rowid AS rid FROM messages a JOIN messages q ON q.id = a.parent_id
-    WHERE a.chat_id = ? AND a.role = 'assistant' AND q.parent_id IS NULL ORDER BY a.created_at DESC, a.rowid DESC LIMIT 1`).get(chatId) as { at: string; rid: number } | null
+  // in the order the answers were written (rowid), not by the clock: a clock set back must not reorder them
+  const first = db.query(`SELECT a.rowid AS rid FROM messages a JOIN messages q ON q.id = a.parent_id
+    WHERE a.chat_id = ? AND a.role = 'assistant' AND q.parent_id IS NULL ORDER BY a.rowid DESC LIMIT 1`).get(chatId) as { rid: number } | null
   if (!first) return !db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'assistant' LIMIT 1").get(chatId)
-  return !db.query(`SELECT 1 FROM messages WHERE chat_id = ? AND role = 'assistant' AND (created_at < ? OR (created_at = ? AND rowid < ?)) LIMIT 1`)
-    .get(chatId, first.at, first.at, first.rid)
+  return !db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'assistant' AND rowid < ? LIMIT 1").get(chatId, first.rid)
 }
 
 /** What the whole chat used, every branch: the files every answer read, and the scope's other sources when the scope
@@ -115,7 +115,7 @@ function stateOf(ctx: AppContext, rt: ChatRuntime, userId: string, chatId: strin
 }
 
 /** POST /api/chats/:id/share. `a`: the caller's chat as chatFor found it ('view'). */
-export async function shareChat(ctx: AppContext, rt: ChatRuntime, userId: string, a: ChatAccess, body: { confirmKey?: string }, locale: Locale): Promise<ShareChatResult> {
+export async function shareChat(ctx: AppContext, rt: ChatRuntime, userId: string, a: ChatAccess, body: { confirmKey?: string; ask?: boolean }, locale: Locale): Promise<ShareChatResult> {
   const db = ctx.db
   if (a.shared) fail('conflict', tr('chatShareAlready', locale), { params: { reason: 'already_shared' } })
   shareable(ctx, rt, userId, a.row, locale)
@@ -130,7 +130,8 @@ export async function shareChat(ctx: AppContext, rt: ChatRuntime, userId: string
     const { project, audience, messages } = before
     const use = chatUse(db, a.row.id)
     const prov = await provenanceChecker(ctx, userId, audience, use.answers).of([use], new Set())
-    const memories = audience.length > 0 && memoriesInPlay(db, a.row.id, userId)
+    // (also with nobody else in the project now: whoever gets access later sees the whole chat)
+    const memories = memoriesInPlay(db, a.row.id, userId)
     // (from here on nothing waits: the state read now is the one shared)
     const now = stateOf(ctx, rt, userId, a.row.id, locale)
     if (now.project.id !== project.id || !sameList(now.audience, audience) || !sameList(now.messages, messages)) continue
@@ -138,8 +139,9 @@ export async function shareChat(ctx: AppContext, rt: ChatRuntime, userId: string
     // a member who would see a room it read but for old answers hidden from them: never shown it, confirmed or not
     if (audience.length && prov.hidden) fail('conflict', tr('chatShareHidden', locale), { params: { reason: 'share_hidden' } })
     const people = prov.unknown ? audience.length : prov.missing.size
-    const applies = audience.length > 0 && (people > 0 || memories)
-    if (applies && body.confirmKey !== key) {
+    const applies = people > 0 || memories
+    // `ask` (the title menu): the question comes first even when nothing applies; the key then shares
+    if ((applies || (body.ask && body.confirmKey === undefined)) && body.confirmKey !== key) {
       return {
         status: 'confirm', audience: audience.length, memories, confirmKey: key,
         provenance: people > 0 ? { people, places: prov.places, otherPlaces: prov.otherPlaces, ...(prov.unknown ? { unknown: true as const } : {}) } : null,
@@ -152,8 +154,9 @@ export async function shareChat(ctx: AppContext, rt: ChatRuntime, userId: string
     db.transaction(() => {
       db.query('UPDATE chats SET shared_at = ?, engine_session_id = NULL, engine_session_leaf_id = NULL WHERE id = ? AND shared_at IS NULL').run(at, a.row.id)
       // these turns were just checked: the rollback guard must not take them for an older build's
-      db.query('UPDATE turns SET shared_checked = 1 WHERE chat_id = ? AND shared_checked = 0').run(a.row.id)
-      audit(db, { actor: userId, action: 'chat.share', target: a.row.id, detail: { audience: audience.length, people, unknown: prov.unknown, memories, confirmed: applies } })
+      // (and marked as before the share, whatever the clock says: their steps are their runner's, chat/store.ts viewSteps)
+      db.query('UPDATE turns SET shared_checked = ? WHERE chat_id = ?').run(SHARED_LATER, a.row.id)
+      audit(db, { actor: userId, action: 'chat.share', target: a.row.id, detail: { audience: audience.length, people, unknown: prov.unknown, memories, confirmed: body.confirmKey !== undefined } })
     })()
     // the private session's stash (its instructions held the memories): the next turn starts from the visible transcript
     fs.rmSync(path.join(ctx.config.dataDir, 'sessions', a.row.id), { recursive: true, force: true })

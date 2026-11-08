@@ -875,6 +875,7 @@ export const ja: Record<MessageKey, string> = {
   'chat.shareChat.menu': "プロジェクトのメンバーと共有…",
   'chat.shareChat.switch': "プロジェクトのメンバーと共有",
   'chat.shareChat.title': "このチャットをプロジェクトの{n, plural, one {#人} other {#人}}と共有しますか？",
+  'chat.shareChat.titleNobody': "このチャットをプロジェクトのメンバーと共有しますか？",
   'chat.shareChat.note': "共有すると、これまでの会話もすべて表示されます。共有は取り消せません。",
   'chat.shareChat.provenance': "このチャットには、プロジェクトの{m, plural, one {#人} other {#人}}が見られない資料の内容が含まれています：{places}",
   'chat.shareChat.provenanceNoPlace': "このチャットには、プロジェクトの{m, plural, one {#人} other {#人}}が見られない資料の内容が含まれています",

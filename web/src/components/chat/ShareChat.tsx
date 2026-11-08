@@ -27,9 +27,11 @@ type Ask = Extract<ShareChatResult, { status: 'confirm' }> & { seq: number }
 export const mayShareChat = (chat: Partial<Pick<Chat, 'shared' | 'confidential' | 'deletedAt'>>, project: Pick<Project, 'shareChats' | 'inTrash'> | null | undefined, safeOps: boolean): boolean =>
   !chat.shared && !chat.confidential && !chat.deletedAt && sharesNewChats(project, safeOps)
 
-/** The share of `chatId`: asks the server at once, and shows the confirm when one comes back. `onShared`: the chat as
- * shared (it is also put in the chat list); `onClose`: the flow is over, shared or not. */
-export function ShareChatFlow({ chatId, onClose, onShared }: { chatId: string; onClose: () => void; onShared?: (c: Chat) => void }) {
+/** The share of `chatId`: asks the server at once, and shows the confirm when one comes back. `ask` (the title menu):
+ * the confirm comes first even when nothing applies (its item opens a question, and sharing cannot be undone); the move
+ * dialog's switch, with the same sentence under it, is that choice already. `onShared`: the chat as shared (it is also
+ * put in the chat list); `onClose`: the flow is over, shared or not. */
+export function ShareChatFlow({ chatId, ask: askFirst, onClose, onShared }: { chatId: string; ask?: boolean; onClose: () => void; onShared?: (c: Chat) => void }) {
   const t = useT()
   const locale = useLocale()
   const [ask, setAsk] = useState<Ask | null>(null)
@@ -39,7 +41,7 @@ export function ShareChatFlow({ chatId, onClose, onShared }: { chatId: string; o
   const run = async (confirmKey?: string) => {
     setBusy(true)
     try {
-      const r = await api.call(API.shareChat, { params: { id: chatId }, body: confirmKey ? { confirmKey } : {} })
+      const r = await api.call(API.shareChat, { params: { id: chatId }, body: confirmKey ? { confirmKey } : askFirst ? { ask: true } : {} })
       if (r.status === 'confirm') {
         setAsk((a) => ({ ...r, seq: (a?.seq ?? 0) + 1 }))
         setBusy(false)
@@ -72,7 +74,7 @@ export function ShareChatFlow({ chatId, onClose, onShared }: { chatId: string; o
       open
       onClose={onClose}
       width={460}
-      title={t('chat.shareChat.title', { n: ask.audience })}
+      title={ask.audience ? t('chat.shareChat.title', { n: ask.audience }) : t('chat.shareChat.titleNobody')}
       footer={
         <>
           <Button variant="ghost" disabled={busy} onClick={onClose} data-testid="share-chat-cancel">

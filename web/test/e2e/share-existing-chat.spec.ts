@@ -1,6 +1,7 @@
 // An existing private chat shared with its project's people (docs/DECISIONS.md "Shared project chats", "An existing chat
 // shared"): the move dialog's switch "프로젝트 사람들과 공유" (off by default; nothing narrower: shared right after the move),
-// the confirm when the chat used something some of the project cannot see (cancel: moved, still private), the same
+// the confirm when the chat used something some of the project cannot see (cancel: moved, still private; from the title
+// menu it asks first even when nothing is narrower), the same
 // from a chat row's "…" menu in the sidebar (the list grouped by project, so the moved chat's row is made again while
 // the dialog stays), the title menu's "프로젝트 사람들과 공유…", and a second person sees the chat afterwards. At 1440 and 390 px wide, with axe on each
 // dialog. The mock (test/mock/server.ts, "프로젝트 사람들과 공유"): "mine-source" in a question reads a note in my own
@@ -174,6 +175,25 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       const b = await bob(browser)
       expect((await b.request.get(`/api/chats/${chatId}`)).status()).toBe(200)
       await b.context().close()
+    })
+
+    test('the title menu asks first even when nothing is narrower: the sentence alone, then shared', async ({ page }) => {
+      await reset(page)
+      await signIn(page)
+      const id = await project(page)
+      const chatId = await privateChat(page, '출시 일정 정리해 줘', id)
+      await page.goto(`/c/${chatId}`)
+      await expect(page.getByTestId('assistant-message')).toHaveAttribute('data-status', 'done')
+      await page.getByTestId('chat-menu').click()
+      await page.getByTestId('chat-share').click()
+      const ask = page.getByRole('dialog', { name: '이 채팅을 프로젝트 사람 1명과 공유할까요?' })
+      await expect(ask.getByTestId('share-chat-note')).toHaveText('공유하면 지금까지의 대화도 모두 보여요. 공유는 되돌릴 수 없어요.')
+      await expect(ask.getByTestId('share-chat-provenance')).toHaveCount(0)
+      await expect(ask.getByTestId('share-chat-memories')).toHaveCount(0)
+      await expect(page.getByTestId('chat-shared')).toHaveCount(0)
+      await ask.getByTestId('share-chat-confirm').click()
+      await expect(page.getByTestId('toast').filter({ hasText: '프로젝트 사람들과 공유했어요' })).toBeVisible()
+      await expect(page.getByTestId('chat-shared')).toBeVisible()
     })
 
     test('the title menu shares a private chat already in the project: the confirm, then shared; Bob sees it', async ({ page, browser }) => {

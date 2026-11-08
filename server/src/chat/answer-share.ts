@@ -124,13 +124,21 @@ export function filesRead(db: Database, ids: readonly string[]): BranchUse['file
     .filter((r) => !notCounted(r.path)) : []
 }
 
+/** Did one of these answers run commands in the dev environment (devenv/tool.ts box_shell, a step of it or of its
+ * sub-agents)? A command reads whatever the person may read there, and neither the answer's source list nor the read
+ * scope records it. */
+function ranCommands(db: Database, ids: readonly string[]): boolean {
+  if (!ids.length) return false
+  return !!db.query(`SELECT 1 FROM messages WHERE id IN (${ids.map(() => '?').join(',')}) AND (steps LIKE '%box_shell"%' OR steps LIKE '%"devEnvRun"%') LIMIT 1`).get(...ids)
+}
+
 /** The rest of a use once it is known whether the chat's scope describes these answers: the scope's sources the
  * answers' lists do not record (all of them after a turn that never ended), and whether it read rooms the scope does
- * not name. */
+ * not name. An answer that ran dev environment commands is not all known (ranCommands). */
 export function useOf(db: Database, chatId: string, ids: readonly string[], describes: boolean): BranchUse {
   const chat = db.query('SELECT rooms_seen FROM chats WHERE id = ?').get(chatId) as { rooms_seen: number } | null
   const files = filesRead(db, ids)
-  const known = describes && !confidentialChat(db, chatId)
+  const known = describes && !confidentialChat(db, chatId) && !ranCommands(db, ids)
   const scope = known ? scopeWithListing(db, chatId) : null
   // a turn of the branch that never ended (the server stopped mid-answer) saved no source list: its reads are known only
   // as the scope's places, which then all count
@@ -168,8 +176,9 @@ export interface AttachedCopy { file: string; path: string; links: string[] }
 /** Per AppContext: the secret the confirm keys are made with (in memory: a restart asks again). */
 const secrets = new WeakMap<AppContext, Buffer>()
 const secretOf = (ctx: AppContext) => secrets.get(ctx) ?? secrets.set(ctx, randomBytes(32)).get(ctx)!
-/** An opaque key over `state` (HMAC-SHA-256 with this server process's secret): what a person saw when asked. Each
- * caller puts its own `kind` in the state, so a key of one question is never one of another. */
+/** An opaque key over `state` (HMAC-SHA-256 with this server process's secret): what a person saw when asked. The share
+ * of a chat (chat/share-chat.ts) puts `kind: 'chat.share'` in its state; this file's room confirm (confirmKeyOf) has a
+ * `roomId` and no `kind`: a key of one question is never one of the other. */
 export const confirmMac = (ctx: AppContext, state: unknown): string => createHmac('sha256', secretOf(ctx)).update(JSON.stringify(state)).digest('base64url')
 
 /** The provenance core, without what is particular to a room (the linked files, kept sources): who of the audience

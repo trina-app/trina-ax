@@ -3969,7 +3969,8 @@ export class MockServer {
     // "프로젝트 사람들과 공유" (server/src/chat/share-chat.ts, short): a chat of mine in a team project that shares its
     // chats. What its answers read (the recorded sources: "sources", "mine-source") that some of the project's other
     // people cannot open makes it ask first (how many; the folders I may open, my own folder, more I cannot); a question
-    // with "memory" in it brings the memory note. The key is stale after POST /__test/share-changed.
+    // with "memory" in it brings the memory note; `ask` asks first anyway. The key is stale after POST
+    // /__test/share-changed.
     const no = (reason: string, message: string): never => fail('conflict', 409, message, undefined, { reason })
     h.shareChat = (c) => {
       const chat = chatOf(c.params.id!)
@@ -3995,9 +3996,10 @@ export class MockServer {
         if (place) places.set(JSON.stringify(place), place)
         else otherPlaces = true
       }
-      const memories = others.length > 0 && msgs.some((m) => m.role === 'user' && /memory/i.test(m.content))
+      const memories = msgs.some((m) => m.role === 'user' && /memory/i.test(m.content))
       const confirmKey = `mock-share-${chat.id}-${this.shareEpoch}-${others.length}`
-      if (others.length && (blind.size || memories) && c.body.confirmKey !== confirmKey) {
+      // `ask` (the title menu): the question first even when nothing applies
+      if ((blind.size || memories || (c.body.ask && c.body.confirmKey === undefined)) && c.body.confirmKey !== confirmKey) {
         return {
           status: 'confirm', audience: others.length, memories, confirmKey,
           provenance: blind.size ? { people: blind.size, places: [...places.values()], otherPlaces } : null,

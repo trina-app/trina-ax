@@ -39,7 +39,7 @@ export function ChatTitleMenu({ chat, title, onRename, onMove, onDelete }: { cha
   return (
     <>
       <TitleMenu name={title} heading="chat-title" testId="chat-menu" items={items} />
-      {sharing && chat.id && <ShareChatFlow chatId={chat.id} onClose={() => setSharing(false)} />}
+      {sharing && chat.id && <ShareChatFlow chatId={chat.id} ask onClose={() => setSharing(false)} />}
     </>
   )
 }

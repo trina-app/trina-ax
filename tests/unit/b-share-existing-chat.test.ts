@@ -83,11 +83,11 @@ function dbChat(user: string, o: { project?: string | null; scope?: ReadSource[]
   return id
 }
 /** a question and its answer under `parent` (null: a first message), its turn (with what it saved) and the files it read */
-function dbAnswer(chatId: string, user: string, parent: string | null, content: string, o: { read?: Read[]; saved?: { path: string; sha256: string }[]; steps?: unknown[]; checked?: 0 | 1; scheduled?: boolean } = {}) {
+function dbAnswer(chatId: string, user: string, parent: string | null, content: string, o: { read?: Read[]; saved?: { path: string; sha256: string }[]; steps?: unknown[]; checked?: 0 | 1; scheduled?: boolean; when?: string } = {}) {
   const askId = uuidv7(), answerId = uuidv7(), turnId = uuidv7()
-  db().query("INSERT INTO messages (id, chat_id, parent_id, role, author_id, content, status, created_at) VALUES (?, ?, ?, 'user', ?, 'q', 'done', ?)").run(askId, chatId, parent, user, at())
+  db().query("INSERT INTO messages (id, chat_id, parent_id, role, author_id, content, status, created_at) VALUES (?, ?, ?, 'user', ?, 'q', 'done', ?)").run(askId, chatId, parent, user, o.when ?? at())
   db().query("INSERT INTO messages (id, chat_id, parent_id, role, content, status, steps, turn_id, created_at, updated_at) VALUES (?, ?, ?, 'assistant', ?, 'done', ?, ?, ?, ?)")
-    .run(answerId, chatId, askId, content, JSON.stringify(o.steps ?? []), turnId, at(), at())
+    .run(answerId, chatId, askId, content, JSON.stringify(o.steps ?? []), turnId, o.when ?? at(), o.when ?? at())
   db().query("INSERT INTO turns (id, chat_id, user_id, engine, status, message_id, user_message_id, shared_checked, schedule_id) VALUES (?, ?, ?, 'claude-code', 'done', ?, ?, ?, ?)")
     .run(turnId, chatId, user, answerId, askId, o.checked ?? 1, o.scheduled ? 'sched-1' : null)
   db().query('UPDATE chats SET active_leaf_id = ? WHERE id = ?').run(answerId, chatId)
@@ -340,10 +340,73 @@ describe('after sharing', () => {
     expect((await share('alice', id)).status).toBe('shared')
     const forBob = (await messages('bob', id)).find((m) => m.id === a.answerId)!
     expect(forBob.steps.map((s) => s.label)).toEqual(['파일 읽기', '기억하기', '작업'])
+    // a tool of ours keeps its name; a connection's tool (named after the connection) loses it
+    expect(forBob.steps.map((s) => s.tool)).toEqual(['read', 'remember', undefined])
     expect(JSON.stringify(forBob.steps)).not.toMatch(/users\/alice|TODO-DETAIL|MEMORY-CANARY|boss/)
     const forAlice = (await messages('alice', id)).find((m) => m.id === a.answerId)!
     expect(forAlice.steps.map((s) => s.label)).toEqual([step.label, remembered.label, other.label])
     expect(forAlice.steps[0]!.detail).toBe('TODO-DETAIL')
+  })
+
+  test('which answers were before the share is the turns\' mark, not the clock; an answer after it shows as usual', async () => {
+    const step = (label: string, tool = 'read') => ({ id: uuidv7(), kind: 'tool', tool, label, status: 'ok', startedAt: at(), endedAt: at() })
+    const id = dbChat('alice', { scope: [] })
+    // the clock was ahead when this private answer was written, and set back since
+    const early = dbAnswer(id, 'alice', null, 'from the future', { steps: [step('Read · users/alice/diagnosis.md')], when: '2099-01-01T00:00:00.000Z' })
+    expect((await share('alice', id)).status).toBe('shared')
+    // a turn after the share (this build: 1), with a step everyone may see
+    const later = dbAnswer(id, 'alice', early.answerId, 'after', { steps: [step('Fetch page · https://example.com', 'web_fetch')], checked: 1 })
+    const forBob = await messages('bob', id)
+    expect(forBob.find((m) => m.id === early.answerId)!.steps[0]!.label).toBe('파일 읽기')
+    expect(forBob.find((m) => m.id === later.answerId)!.steps[0]!.label).toBe('Fetch page · https://example.com')
+  })
+
+  test('answers that ran dev environment commands are not all known', async () => {
+    const id = dbChat('alice', { scope: [{ type: 'folder', id: folderId('shared') }], listed: true })
+    dbAnswer(id, 'alice', null, 'ran it', { read: ['shared/glossary.md'], steps: [{ id: 'b1', kind: 'tool', tool: 'box_shell', label: 'Dev environment command · cat groups/finance/budget.md', status: 'ok', startedAt: at(), endedAt: at() }] })
+    expect(confirmOf(await share('alice', id)).provenance).toMatchObject({ people: 3, unknown: true })
+  })
+
+  test('the scope\'s order is the order answers were written: a clock set back does not hide an emptied scope', async () => {
+    const id = dbChat('alice', { scope: [{ type: 'folder', id: folderId('shared') }], listed: true })
+    // the first start was written first but dated later; the second start (whose session emptied the scope) dated earlier
+    dbAnswer(id, 'alice', null, 'old start', { when: '2099-01-01T00:00:00.000Z' })
+    dbAnswer(id, 'alice', null, 'new start', { read: ['shared/glossary.md'], when: '2020-01-01T00:00:00.000Z' })
+    expect(confirmOf(await share('alice', id)).provenance).toMatchObject({ unknown: true })
+  })
+
+  test('ask: the question first even when nothing applies; the key shares (and the audit says it was confirmed)', async () => {
+    const id = dbChat('alice', { scope: [] })
+    dbAnswer(id, 'alice', null, 'nothing narrow', { read: ['shared/glossary.md'] })
+    const r = confirmOf(await h.api('alice').call(API.shareChat, { params: { id }, body: { ask: true } }))
+    expect(r).toMatchObject({ audience: 3, provenance: null, memories: false })
+    expect(sharedAt(id)).toBeNull()
+    expect((await share('alice', id, r.confirmKey)).status).toBe('shared')
+    expect(audits(id)).toEqual([{ actor: 'alice', audience: 3, people: 0, unknown: false, memories: false, confirmed: true }])
+  })
+
+  test('a move during the check: the chat is checked again for the project it is in, never shared into one nobody checked', async () => {
+    // nothing in it the Falcon people cannot read; erin, in the marketing project's people, cannot read projects/falcon
+    const id = dbChat('alice', { scope: [{ type: 'folder', id: folderId('projects/falcon') }], listed: true })
+    dbAnswer(id, 'alice', null, 'the plan', { read: ['projects/falcon/plan.md'] })
+    const marketing = (db().query("SELECT id FROM projects WHERE folder_path = 'groups/marketing'").get() as { id: string }).id
+    await h.api('alice').call(API.updateProject, { params: { id: marketing }, body: { shareChats: true } })
+    const store = getChatRuntime(h.ctx).store
+    const chatRow = store.chatRow.bind(store)
+    let calls = 0
+    // the route's chatFor, the check's state before, then the state after its wait: the chat moves during the wait
+    store.chatRow = (cid: string) => {
+      if (cid === id && ++calls === 3) db().query('UPDATE chats SET project_id = ? WHERE id = ?').run(marketing, id)
+      return chatRow(cid)
+    }
+    try {
+      const r = confirmOf(await share('alice', id))
+      expect(r).toMatchObject({ audience: 3, provenance: { people: 1, places: [{ kind: 'folder', path: 'projects/falcon' }] } })
+      expect(sharedAt(id)).toBeNull()
+    } finally {
+      store.chatRow = chatRow
+      await h.api('alice').call(API.updateProject, { params: { id: marketing }, body: { shareChats: false } })
+    }
   })
 
   test('the rollback guard keeps it shared: its earlier turns (also ones from before migration 265) were checked', async () => {

@@ -13776,8 +13776,11 @@ visible transcript, so the visible messages are what gets disclosed: the same in
   the session read scope when it describes every answer, and memories. The scope is emptied when a session starts on a
   first message and every turn since adds to it on any branch, so it describes every answer when none was made before
   the newest answer to a first message; otherwise "not all known" (an older chat, or the first message edited since):
-  "이 채팅이 참고한 자료를 다 알 수 없어요" and everyone else counts. The audience is the project's people now but the
-  creator. Left out: what all of them read, and the hash rule (identical content a turn of this chat saved where all of
+  "이 채팅이 참고한 자료를 다 알 수 없어요" and everyone else counts. The order is the order answers were written (rowid),
+  not the clock. An answer that ran dev environment commands (a `box_shell` step or a `devEnvRun`, also a sub-agent's)
+  is "not all known" too: a command reads whatever the person may read there and neither the source list nor the scope
+  records it (`useOf`, so "대화방에 보내기" counts it the same way now; the PC runner must too once it is merged). The
+  audience is the project's people now but the creator. Left out: what all of them read, and the hash rule (identical content a turn of this chat saved where all of
   them read it now, still there). `rooms_seen` without a room in the scope counts everyone, and a member who would see a
   room it read but for old answers hidden from them is never shown it: 409 `share_hidden`, confirmed or not (as
   `answer_share_hidden`). **One copy:** `answer-share.ts provenanceChecker(ctx, userId, audience, savedBy).of(uses,
@@ -13786,29 +13789,34 @@ visible transcript, so the visible messages are what gets disclosed: the same in
   their memories in its instructions, so they were in play when a memory of theirs existed while an answer here was
   written; a memory is deleted for good, so one deleted since the chat's first answer (`memory.delete`/`memory.clear`
   audited, the AI's `forget` a step of their answers) counts too.
-- **The answer.** Nothing applies (nobody misses a source, nothing unknown, no memories, or nobody else in the
-  audience): shared at once. Otherwise `confirm` with `audience` (the project's people but me), `provenance` (#163's
+- **The answer.** Nothing applies (nobody misses a source, nothing unknown, no memories): shared at once, unless the
+  request says `ask` (the title menu's item: an irreversible share from a menu asks first, with the sentence alone). The
+  memory note counts with nobody else in the project too (whoever gets access later sees the whole chat). Otherwise `confirm` with `audience` (the project's people but me), `provenance` (#163's
   shape: how many, places named only where the creator may look now, `otherPlaces`, `unknown`), `memories` and an opaque
   `confirmKey`: an HMAC with the process secret of "대화방에 보내기" over `kind: 'chat.share'`, the chat, the project, the
   audience, each source with who misses it, the places, the memories and the id of every message on every branch. Sent
   back while nothing changed, it shares; anything changed (someone joined or left, a rule, a new message on any branch,
-  a restart) is asked again with `reason: 'changed'`. The audience is read again after the check; it is checked again
-  when it changed meanwhile.
+  a restart) is asked again with `reason: 'changed'`. The check waits for file hashes, so the state it was made for
+  (the chat's project, its people, every message) is read again synchronously right before the update; a change during
+  the wait (the chat moved to another project, someone joined, a new message) is checked again, never shared as it is.
 - **Sharing.** The refusals are checked again synchronously right before the update, so no turn of the private chat
   can start between the check and it (a private turn would run without the read card). Then, in one transaction:
   `chats.shared_at = now`; the engine session forgotten (`engine_session_id`, `engine_session_leaf_id` and the stash: the
   creator's private session keeps the memories of its instructions and tool results the transcript does not have, so
   the creator's next turn starts from the visible transcript like anyone's; resuming it would carry them past the read
-  card); every earlier turn marked `shared_checked = 1`. **Rollback guard:** `unshareUncheckedChats` has no time filter
+  card); every earlier turn marked `shared_checked = 2` (`SHARED_LATER`: checked by the share). **Rollback guard:** `unshareUncheckedChats` has no time filter
   (a clock set back must not hide a turn), so a turn from before migration 265 (column default 0) would unshare the
-  chat at the next start; those turns were just checked. A turn an older build runs after the share still unshares it.
+  chat at the next start; those turns were just checked (the guard looks for 0). A turn an older build runs after the
+  share still unshares it.
   Audited `chat.share` with `{audience, people, unknown, memories, confirmed}`: no names, no places, no content. Nothing
   unshares it (D1); a shared chat never moves (`shared_chat_move`).
 - **The earlier steps.** Steps of a private turn were stored with their whole label (a path, an address, a query, a
-  remembered text) and no per-viewer copy (`sv`). An answer created before `shared_at` shows its steps in full to the
-  person whose turn it was; everyone else gets the words alone (`stepWords`: the tool's verb, else a word for its kind,
-  "작업" for the rest) without detail, search results, pictures or a dev environment run (`MessageView.sharedAt`,
-  `ChatStore.viewSteps`). The answers' text, attachments (per viewer as before), file summaries and sources lists follow
+  remembered text) and no per-viewer copy (`sv`). An answer whose turn is marked `SHARED_LATER` (or has no turn row, in
+  a chat shared later) shows its steps in full to the person whose turn it was; everyone else gets the words alone
+  (`stepWords`: the tool's verb, else a word for its kind, "작업" for the rest) without detail, search results, pictures,
+  a dev environment run, or the tool's name unless it is one of ours (`knownStepTool`: a connection's tool is named
+  after the connection) (`MessageView.sharedLater`, `ChatStore.viewSteps`). The turn's mark, not the clock: a clock set
+  back must not show a private step. The answers' text, attachments (per viewer as before), file summaries and sources lists follow
   #171's per-viewer rules.
 - **The app.** The move dialog (`ChatProject.tsx`, from the title menu and from a chat row's "…" menu) shows one switch
   under the projects, off by default, when the chosen project shares new chats (`mayShareChat`: a chat of one person, not
@@ -13824,6 +13832,15 @@ visible transcript, so the visible messages are what gets disclosed: the same in
   row's "…" (`Sidebar.tsx`, #182) now keeps its move dialog in the sidebar, not in the row: the moved chat's row goes to
   another group (a date, a project; phones always group by date) and is made again, which closed the dialog before the
   share could ask.
+- **Independent security review (2026-11-08).** Fixed: dev environment commands were not counted, so a chat that
+  `cat` a finance file through `box_shell` was shared at once (must-fix: "not all known", above, for both features);
+  the title menu's item shared on one click (now `ask`); "before the share" and the scope's order went by the clock (now
+  the turns' mark and rowid); earlier steps kept a connection's tool name; the memory note was skipped with nobody else
+  in the project; a move during the check could share into a project nobody checked (fixed during the review). Kept,
+  written down: names the AI saw only through list or glob, and the folder, skill and connection lists of a private
+  chat's instructions, are not recorded (the known limit of "대화방에 보내기", here for a whole chat); in a project of two
+  the count says whether the other can read a place (as a two-person room does for "대화방에 보내기"; both behind the
+  send budget); a disabled account is not in the audience and sees the chat if enabled again (as for every shared chat).
 - **Not here.** Unsharing; sharing from the project page; a list of what was read (the line names places, as #163's).
 - Tests: `tests/unit/b-share-existing-chat.test.ts`, `tests/security/shared-project-chats.test.ts` ("an existing private
   chat shared later"), a `permission-matrix` row (`p4-route-coverage` covers the route), `b-answer-share` unchanged,

@@ -1,7 +1,7 @@
 // Chats, messages (a tree), projects, memories: rows <-> API shapes (shared/src/api/entities.ts).
 import type { Database } from 'bun:sqlite'
 import type { ApiErrorBody, Attachment, Chat, ChatRunState, EngineId, FileChangeSummary, Locale, Memory, Message, MessageStatus, Project, Step, TurnStopReason, Usage, UserRef } from '@mycel/shared/api'
-import { STEP_TEXT, stepWords } from '@mycel/shared'
+import { knownStepTool, STEP_TEXT, stepWords } from '@mycel/shared'
 import { newId } from '../db'
 import { isConfidentialChat } from '../safe-ops/confidential'
 import { isTeamFilePath, sourceCount, teamSourcePaths } from '../files/sources'
@@ -83,11 +83,16 @@ export interface MessageView {
   failed: string
   /** set by toMessage: the viewer is the person whose turn (or message) this is */
   runner?: boolean
-  /** when the chat was shared (chats.shared_at), and the viewer's language: the steps of an answer from before it (a
-   * private chat shared later, chat/share-chat.ts) show their words alone to everyone but its runner */
-  sharedAt?: string | null
+  /** the chat was shared after it was made (chat/share-chat.ts: some turn of it is marked SHARED_LATER), and the
+   * viewer's language: the steps of an answer from before the share show their words alone to everyone but its runner */
+  sharedLater?: boolean
   locale?: Locale
 }
+
+/** turns.shared_checked of a turn that ran before its chat was shared (chat/share-chat.ts marks them when it shares):
+ * checked by the share, so the rollback guard passes it (it looks for 0), and its steps are its runner's (viewSteps).
+ * Turns this build runs are 1. */
+export const SHARED_LATER = 2
 
 /** A step of a shared chat as stored: `label` names no path, `sv` keeps the label the runner saw and the paths it names
  * (server-only: stripped before any step leaves the server, ChatStore.viewSteps). */
@@ -124,16 +129,17 @@ export class ChatStore {
 
   /** The steps of an answer for the chat's owner: a step about an attached team file (id "attach-<reference id>",
    * TurnExec.attachmentsForTurn) loses its path once the owner can no longer open that file, like the attachment. */
-  viewSteps(r: Pick<MessageRow, 'chat_id'> & { created_at?: string }, stored: StoredStep[], view?: MessageView): Step[] {
-    // an answer from before its chat was shared (chat/share-chat.ts): its steps ran without the read card and were
-    // stored with their whole label (a path, an address, a query, a remembered text). Its runner sees them as they were;
-    // everyone else the words alone, without detail, search results, pictures or a dev environment run
-    const earlier = !!view && !view.runner && !!view.sharedAt && !!r.created_at && r.created_at < view.sharedAt
+  viewSteps(r: Pick<MessageRow, 'chat_id'> & { turn_id?: string | null }, stored: StoredStep[], view?: MessageView): Step[] {
+    // an answer from before its chat was shared (chat/share-chat.ts; known by its turn's mark, not by the clock): its
+    // steps ran without the read card and were stored with their whole label (a path, an address, a query, a remembered
+    // text). Its runner sees them as they were; everyone else the words alone, without detail, search results, pictures
+    // or a dev environment run, and the tool's name only when it is one of ours (a connection's tool names it)
+    const earlier = !!view?.sharedLater && !view.runner && this.beforeShare(r.turn_id ?? null)
     // a shared chat: a label names its paths only for a viewer who may see every one of them (else the words alone)
     const steps: Step[] = stored.map((s) => {
       if (earlier) {
-        const { sv: _sv, detail: _d, sources: _s, images: _i, devEnvRun: _r, ...rest } = s
-        return { ...rest, label: stepWords(s, view!.locale ?? 'en') }
+        const { sv: _sv, detail: _d, sources: _s, images: _i, devEnvRun: _r, tool, ...rest } = s
+        return { ...rest, ...(tool && knownStepTool(tool) ? { tool } : {}), label: stepWords(s, view!.locale ?? 'en') }
       }
       if (!s.sv) return s
       const shows = !!view && s.sv.paths.every((p) => view.canList(p))
@@ -293,6 +299,13 @@ export class ChatStore {
     return out.receipt && view && !view.canRead(out.receipt.skill.path) ? {} : out
   }
   /** Who ran a turn (its person), or null. */
+  /** An answer of a chat shared after it was made ran before the share: its turn is marked SHARED_LATER, or it has no
+   * turn row to say otherwise. */
+  beforeShare(turnId: string | null): boolean {
+    if (!turnId) return true
+    const t = this.db.query('SELECT shared_checked AS c FROM turns WHERE id = ?').get(turnId) as { c: number } | null
+    return !t || t.c === SHARED_LATER
+  }
   turnUser(turnId: string): string | null {
     return (this.db.query('SELECT user_id FROM turns WHERE id = ?').get(turnId) as { user_id: string } | null)?.user_id ?? null
   }

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-08 01:37
 - Branch: `feat/share-existing-chat`
-- Status: in progress
+- Status: done
 - Where: trina-ax `server/src/chat` (share-chat.ts new, answer-share.ts, shared.ts, store.ts), `shared/src/api/chats.ts`,
   `web/src/components/chat` (ChatProject.tsx, ChatTitleMenu.tsx, ShareChat.tsx new). Why: chat sharing and permissions
   are Team AX core (docs/REPOSITORY-RULES.md).
@@ -61,4 +61,21 @@ answer-share, read-scope, projects); security suite (`permission-matrix`, `p4-ro
 
 ## Result
 
-(filled in at the end)
+Built as planned: `POST /api/chats/:id/share` (`server/src/chat/share-chat.ts`) with the check over every branch through
+one provenance function shared with "대화방에 보내기" (`answer-share.ts provenanceChecker`), the key, the share (engine
+session forgotten, earlier turns marked checked, audit `chat.share`), earlier steps as words alone for other viewers;
+the move dialog's switch, the title menu item and one confirm dialog (`web/src/components/chat/ShareChat.tsx`).
+
+Differs from the plan:
+- `share_hidden` (409) joined the refusals: a member who would see a room the chat read but for old answers hidden from
+  them is never shown it, as `answer_share_hidden` in "대화방에 보내기".
+- The state checked (project, its people, every message) is read again synchronously right before the update; a change
+  during the check is checked again.
+- `Sidebar.tsx` changed after #182 merged: a row's move dialog now lives in the sidebar, not the row, because a moved
+  chat's row moves to another group and was made again, which lost the share's confirm.
+- The move's own toast shows only when the chat ends up not shared (on a phone it covered the confirm).
+- `ShareToRoom.tsx` exports `placeName` (the confirm names places the same way).
+- From the independent security review: answers that ran dev environment commands are "not all known" (also for
+  "대화방에 보내기"); the title menu asks first (`ask`); turns from before the share are marked `shared_checked = 2` and
+  the scope's order is rowid (no clock); earlier steps lose a connection's tool name; the memory note counts with nobody
+  else in the project.

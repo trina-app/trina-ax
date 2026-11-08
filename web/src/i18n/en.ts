@@ -896,6 +896,7 @@ export const en: Record<MessageKey, string> = {
   'chat.shareChat.menu': "Share with project people…",
   'chat.shareChat.switch': "Share with project people",
   'chat.shareChat.title': "Share this chat with {n, plural, one {# person} other {# people}} in the project?",
+  'chat.shareChat.titleNobody': "Share this chat with the project's people?",
   'chat.shareChat.note': "Once shared, the whole conversation so far is visible too. Sharing can't be undone.",
   'chat.shareChat.provenance': "This chat includes content from material {m, plural, one {# person} other {# people}} in the project can't see: {places}",
   'chat.shareChat.provenanceNoPlace': "This chat includes content from material {m, plural, one {# person} other {# people}} in the project can't see",
