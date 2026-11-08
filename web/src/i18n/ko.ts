@@ -1539,6 +1539,7 @@ export const ko = {
   'members.resetLinkNote': '{date}까지 한 번만 쓸 수 있어요. 이 창을 닫으면 다시 볼 수 없어요.',
   'members.removeTitle': '{name}님을 삭제할까요?',
   'members.removeBody': '채팅과 메모리는 {days}일 뒤 지워져요. 개인 파일은 팀장의 개인 폴더 안에 있는 보관 폴더로 옮겨져요. 보관된 파일은 팀장만 읽을 수 있어요.',
+  'members.removeAiOff': '이 사람만 쓰던 AI 연결이 꺼져요: {names}',
   'members.editTitle': '{name}님 정보 수정',
   'members.ownerChangesAdmins': '역할은 팀장만 바꿀 수 있어요.',
   'members.invites': '초대 링크',
@@ -1585,6 +1586,7 @@ export const ko = {
   'groups.noMembers': '구성원 없음',
   'groups.deleteTitle': '"{name}" 그룹을 삭제할까요?',
   'groups.deleteBody': '이 그룹에 걸린 폴더 권한도 함께 지워져요.',
+  'groups.deleteAiOff': '이 그룹만 쓰던 AI 연결이 꺼져요: {names}',
 
   'rules.desc': '폴더마다 누가 볼 수 있고 쓸 수 있는지 정해요. 규칙이 없는 하위 폴더는 위 폴더의 규칙을 따라요.',
   'rules.addFolder': '폴더 추가',

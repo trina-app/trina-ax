@@ -28,6 +28,8 @@ import { integrationsOf } from '../integrations/connections/service'
 import { syncRoomsNow } from '../rooms/service'
 import { closeDeletionRequest } from '../auth/deletion-requests'
 import { notificationsOf, notifyTemplateOffers, settleDeletionRequestNotices } from '../notifications/service'
+import { componentC } from '../team-files/component'
+import { afterPrune, pruneAssignments, type Pruned } from '../credentials/assignees'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -187,28 +189,31 @@ export const ARCHIVE_DIR: Record<Locale, string> = { ko: '보관된 계정', en:
 
 /**
  * Personal folder of a deleted member: 'transfer' moves users/<id>/ into the owner's personal folder (only the
- * owner sees it), without .attachments/ (chat attachments go with the chats); 'delete' removes it.
+ * owner sees it), without .attachments/ (chat attachments go with the chats), the way a move on the Files screen does
+ * (version history, projects and the text cache follow it: team-files/service.ts archiveFolder); 'delete' removes it.
  */
-function handlePersonalFolder(ctx: AppContext, id: string, how: 'transfer' | 'delete'): string | null {
+function handlePersonalFolder(ctx: AppContext, id: string, how: 'transfer' | 'delete', actorId: string): string | null {
   const root = ctx.files.fx.root
   const src = path.join(root, 'users', id)
   let st: fs.Stats
   try { st = fs.lstatSync(src) } catch { return null }
   if (!st.isDirectory() || st.isSymbolicLink()) return null
   if (how === 'delete') { fs.rmSync(src, { recursive: true, force: true }); return null }
-  fs.rmSync(path.join(src, '.attachments'), { recursive: true, force: true })
   const owner = ctx.db.query("SELECT id FROM users WHERE role = 'owner' AND deleted_at IS NULL LIMIT 1").get() as { id: string } | null
-  if (!owner) return null
+  if (!owner) { fs.rmSync(path.join(src, '.attachments'), { recursive: true, force: true }); return null }
   const label = ARCHIVE_DIR[getTeamSettings(ctx.db).defaultLocale]
   const ownerDir = path.join(root, 'users', owner.id)
   const dir = path.join(ownerDir, label)
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
   // the archive must be a real folder inside the owner's personal folder, not a link leading elsewhere
   for (const p of [ownerDir, dir]) if (!fs.lstatSync(p).isDirectory()) throw new Error(`archive folder is not a plain folder: ${p}`)
+  // a name free on disk and in the database (a folders row or a project an earlier archive left at that path)
+  const rel = (n: string) => ['users', owner.id, label, n].join('/')
+  const taken = (n: string) => fs.existsSync(path.join(dir, n)) || !!ctx.db.query("SELECT 1 FROM folders WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || '/'").get(rel(n), rel(n), rel(n))
   let name = id
-  for (let i = 2; fs.existsSync(path.join(dir, name)); i++) name = `${id}-${i}`
-  fs.renameSync(src, path.join(dir, name))
-  return ['users', owner.id, label, name].join('/')
+  for (let i = 2; taken(name); i++) name = `${id}-${i}`
+  componentC(ctx).files.archiveFolder(actorId, `users/${id}`, rel(name))
+  return rel(name)
 }
 
 export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string, personalFolder: 'transfer' | 'delete', password?: string): Promise<void> {
@@ -236,6 +241,8 @@ export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string
   let revokeSignIns = () => {}
   try { revokeSignIns = integrationsOf(ctx).signInsToRevoke(id) } catch (e) { c.get('log').warn('sign-ins of a deleted member could not be read for revoking', { err: e, userId: id }) }
   let requested = false
+  let pruned: Pruned[] = []
+  let ownAi: string[] = []
   ctx.db.transaction(() => {
     // who acts is read again too: an admin demoted (or disabled, or deleted) while the password was checked is nobody
     const row = ctx.db.query('SELECT id, role, status, deleted_at FROM users WHERE id = ?').get(auth.user.id) as { id: string; role: Role; status: string; deleted_at: string | null } | null
@@ -257,10 +264,19 @@ export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string
     // and templates' rules (an id nobody can see any more would block every later change of that rule)
     ctx.db.query("DELETE FROM integration_template_access WHERE subject_type = 'user' AND subject_id = ?").run(id)
     ctx.db.query("DELETE FROM drive_team_share_access WHERE subject_type = 'user' AND subject_id = ?").run(id)
+    // their own AI connections (tokens and keys included) go with them, like their own service connections; team
+    // connections assigned to them lose that row, and one left with no group or person is switched off, not team-wide
+    ownAi = (ctx.db.query('SELECT id FROM engine_credentials WHERE owner_user_id = ?').all(id) as { id: string }[]).map((r) => r.id)
+    ctx.db.query('DELETE FROM engine_credentials WHERE owner_user_id = ?').run(id)
+    pruned = pruneAssignments(ctx.db, auth.user.id, now)
+    // their photo, title and status: the users row stays as a tombstone, so the profile's cascade never runs
+    ctx.db.query('DELETE FROM user_profiles WHERE user_id = ?').run(id)
     // the person had asked for this (Settings › Profile › 계정 삭제 요청): the request is handled
     requested = closeDeletionRequest(ctx, id, auth.user.id, now)
   })()
   revokeSignIns()
+  { const cc = existingCredentialsOf(ctx); if (cc) for (const k of ownAi) cc.cache.delete(k) }
+  afterPrune(ctx, auth.user.id, pruned)
   if (requested) settleDeletionRequestNotices(ctx, id)
   authOf(ctx).endUserSessions(id, 'revoked')
   stopTurnsOf(ctx, id)
@@ -273,11 +289,14 @@ export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string
   // the account is gone either way; a folder that could not be handled stays where it is (only nobody sees it now)
   let movedTo: string | null = null
   let folderError: string | null = null
-  try { movedTo = handlePersonalFolder(ctx, id, personalFolder) } catch (e) {
+  try { movedTo = handlePersonalFolder(ctx, id, personalFolder, auth.user.id) } catch (e) {
     folderError = (e as Error).message
     c.get('log').error('personal folder of a deleted member was not handled', { err: e, userId: id })
   }
-  audit(ctx.db, { actor: auth.user.id, action: 'user.delete', target: id, detail: { personalFolder, movedTo, ...(folderError ? { folderError } : {}), ...(requested ? { requested: true } : {}) } })
+  const off = pruned.filter((p) => p.switchedOff).map((p) => ({ id: p.id, label: p.label }))
+  audit(ctx.db, { actor: auth.user.id, action: 'user.delete', target: id, detail: {
+    personalFolder, movedTo, ...(folderError ? { folderError } : {}), ...(requested ? { requested: true } : {}), ...(off.length ? { aiConnectionsOff: off } : {}), ...(ownAi.length ? { ownAiConnections: ownAi.length } : {}),
+  } })
   afterAccessChange(ctx, before, { actor: auth.user.id, target: id })
 }
 

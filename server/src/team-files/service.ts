@@ -353,8 +353,47 @@ export class TeamFiles {
       if (narrowed > 0 && !o.confirm) fileError('conflict', 'audienceNarrowed', undefined, { reason: 'audience_narrowed', lostViewers: narrowed })
     }
     const toRel = target.join('/')
-    const db = this.ctx.db
     const readers = this.readersOf(rules, fr.segs)
+    this.relocate(userId, fr, target, isDir, { ...o, narrowed })
+    const after = this.rules()
+    this.dropSessionsOf(readers.filter((p) => !atLeast(after.access(p, target), 'read')), { path: fr.rel, to: toRel })
+    // the folder's rules moved with it: who could see where it was is judged by the rules loaded before the move
+    this.publish([{ path: toRel, from: fr.rel, action: 'move', by: this.by(userId), turnId: o.turnId ?? null }], rules)
+    return { entry: this.entry(user, rules, target) }
+  }
+
+  /**
+   * A deleted member's personal folder `fromRel` (users/<id>) goes to `toRel` in the owner's personal folder (the
+   * "transfer" of admin/users.ts deleteUser), with the same bookkeeping as a move on the Files screen: version history,
+   * folders rows, projects and the text cache follow it, and the file events say where it went. Its chat attachments
+   * (.attachments/, uploads/attachments.ts ATTACHMENTS_DIR) are removed first: they go with the chats. There is no
+   * access check: nobody can open the folder of a deleted account, and deleting it was the decision. What the member
+   * had deleted stays where it was (trash items do not cross the edge of a personal folder, as in move).
+   * `actorId`: who deleted the member. The archive folder that holds `toRel` must exist.
+   */
+  archiveFolder(actorId: string, fromRel: string, toRel: string): void {
+    const segs = segsOf(fromRel), target = segsOf(toRel)
+    if (segs.length !== 2 || segs[0] !== 'users' || target.length < 3 || target[0] !== 'users' || target[1] === segs[1]) throw new Error(`not a personal folder to archive: ${fromRel} -> ${toRel}`)
+    const abs = path.join(this.root, ...segs)
+    const st = fs.lstatSync(abs)
+    if (!st.isDirectory() || st.isSymbolicLink()) throw new Error(`not a folder: ${fromRel}`)
+    if (fs.existsSync(path.join(this.root, ...target))) throw new Error(`already there: ${toRel}`)
+    fs.rmSync(path.join(abs, '.attachments'), { recursive: true, force: true })
+    this.dropTextCache(`${fromRel}/.attachments`, true)
+    const before = this.rules()
+    this.relocate(actorId, { rel: fromRel, segs, abs }, target, true, { tool: 'member-delete' })
+    this.publish([{ path: toRel, from: fromRel, action: 'move', by: this.by(actorId), turnId: null }], before)
+  }
+
+  /**
+   * The database and disk part of a move, after its checks: the history, folders rows, projects, attachments and
+   * trash items of the moved path follow it, two file events record it, then the rename and the text cache. move()
+   * checks the caller's access first; archiveFolder() is the server's own move of a deleted member's folder.
+   */
+  private relocate(userId: string, fr: { rel: string; segs: string[]; abs: string }, target: string[], isDir: boolean, o: By & { narrowed?: number }) {
+    const toRel = target.join('/')
+    const narrowed = o.narrowed ?? 0
+    const db = this.ctx.db
     if (isDir && toRel.toLowerCase() !== fr.rel.toLowerCase()) {
       const clash = db.query('SELECT path FROM folders WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || \'/\'').get(toRel, toRel, toRel) as { path: string } | null
       if (clash) fileError('conflict', 'exists', { to: toRel })
@@ -415,11 +454,6 @@ export class TeamFiles {
       fs.renameSync(fr.abs, path.join(this.root, ...target))
     })()
     this.moveTextCache(fr.rel, toRel, isDir)
-    const after = this.rules()
-    this.dropSessionsOf(readers.filter((p) => !atLeast(after.access(p, target), 'read')), { path: fr.rel, to: toRel })
-    // the folder's rules moved with it: who could see where it was is judged by the rules loaded before the move
-    this.publish([{ path: toRel, from: fr.rel, action: 'move', by: this.by(userId), turnId: o.turnId ?? null }], rules)
-    return { entry: this.entry(user, rules, target) }
   }
 
   /**

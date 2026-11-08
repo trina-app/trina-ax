@@ -1540,6 +1540,7 @@ export const en: Record<MessageKey, string> = {
   'members.resetLinkNote': 'Works once, until {date}. You will not see it again after closing this window.',
   'members.removeTitle': 'Remove {name}?',
   'members.removeBody': 'Their chats and memories are deleted after {days, plural, one {# day} other {# days}}. Their personal files are moved to an archive in the owner’s personal folder. Only the owner can read the archived files.',
+  'members.removeAiOff': 'AI connections only this person uses are switched off: {names}',
   'members.editTitle': 'Edit {name}',
   'members.ownerChangesAdmins': 'Only the owner can change roles.',
   'members.invites': 'Invite links',
@@ -1586,6 +1587,7 @@ export const en: Record<MessageKey, string> = {
   'groups.noMembers': 'No members',
   'groups.deleteTitle': 'Delete the group "{name}"?',
   'groups.deleteBody': 'Folder permissions given to this group are removed too.',
+  'groups.deleteAiOff': 'AI connections only this group uses are switched off: {names}',
 
   'rules.desc': 'Decide who can see and edit each folder. Subfolders without rules follow the folder above them.',
   'rules.addFolder': 'Add folder',

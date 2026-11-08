@@ -35,11 +35,11 @@ export async function unsealOrFail(cc: CredCtx, sealed: Parameters<CredCtx['seal
   }
 }
 
+/** the group, or the person (not deleted), still exists */
+const alive = (cc: CredCtx, x: CredentialAssignment) =>
+  !!(x.subjectType === 'group' ? cc.db.query('SELECT 1 FROM groups WHERE id = ?').get(x.subjectId) : cc.db.query('SELECT 1 FROM users WHERE id = ? AND deleted_at IS NULL').get(x.subjectId))
 function checkAssignments(cc: CredCtx, a: CredentialAssignment[], locale: Locale) {
-  for (const x of a) {
-    const ok = x.subjectType === 'group' ? cc.db.query('SELECT 1 FROM groups WHERE id = ?').get(x.subjectId) : cc.db.query('SELECT 1 FROM users WHERE id = ? AND deleted_at IS NULL').get(x.subjectId)
-    if (!ok) fail('validation', ct('unknownAssignee', locale), { fields: { 'body.assignments': 'unknown group or person' } })
-  }
+  for (const x of a) if (!alive(cc, x)) fail('validation', ct('unknownAssignee', locale), { fields: { 'body.assignments': 'unknown group or person' } })
 }
 const uniq = (a: CredentialAssignment[]) => [...new Map(a.map((x) => [`${x.subjectType}|${x.subjectId}`, x])).values()]
 function setAssignments(cc: CredCtx, id: string, a: CredentialAssignment[]) {
@@ -232,7 +232,12 @@ export function updateCredential(cc: CredCtx, id: string, b: UpdateInput, actor:
   if (!row) return fail('not_found')
   personalGuard(cc, row, actor, b.disabled === true && Object.keys(b).every((k) => k === 'disabled') ? 'disable' : 'other', locale)
   if (b.assignments && row.owner_user_id && b.assignments.length) fail('validation', undefined, { fields: { 'body.assignments': 'a personal connection is only its owner\'s' } })
-  if (b.assignments) checkAssignments(cc, b.assignments, locale)
+  // a group or person deleted since the dialog opened (or a row an older build left, migration 117) is no reason to
+  // refuse the save, and there is no box to untick it: it is dropped. When nothing of what was sent is left, the
+  // connection is switched off rather than given to the whole team (an empty list means everyone: credentials/assignees.ts)
+  const assignments = b.assignments?.filter((x) => alive(cc, x))
+  const orphaned = !!b.assignments?.length && !assignments!.length
+  const disabled = orphaned ? true : b.disabled
   const changed: string[] = []
   const before = assignmentsOf(cc, id)
   cc.db.transaction(() => {
@@ -240,7 +245,7 @@ export function updateCredential(cc: CredCtx, id: string, b: UpdateInput, actor:
     const args: (string | number | null)[] = []
     if (b.label !== undefined && b.label !== row.label) { sets.push('label = ?'); args.push(b.label); changed.push('label') }
     if (b.priority !== undefined && b.priority !== row.priority) { sets.push('priority = ?'); args.push(b.priority); changed.push('priority') }
-    if (b.disabled !== undefined && (b.disabled ? 1 : 0) !== row.disabled) { sets.push('disabled = ?'); args.push(b.disabled ? 1 : 0); changed.push('disabled') }
+    if (disabled !== undefined && (disabled ? 1 : 0) !== row.disabled) { sets.push('disabled = ?'); args.push(disabled ? 1 : 0); changed.push('disabled') }
     // only what differs counts as a change (the edit dialog always sends its whole form, so a rename arrives with the
     // unchanged assignments and limit; those are neither audited as changes nor told to the owner)
     if (b.spendLimit && (b.spendLimit.usd !== row.spend_limit_usd || b.spendLimit.tokens !== row.spend_limit_tokens || b.spendLimit.action !== row.spend_limit_action)) {
@@ -248,16 +253,17 @@ export function updateCredential(cc: CredCtx, id: string, b: UpdateInput, actor:
     }
     if (sets.length) cc.db.query(`UPDATE engine_credentials SET ${sets.join(', ')}, updated_at = ? WHERE id = ?`).run(...args, new Date(cc.now()).toISOString(), id)
     const key = (x: { subjectType: string; subjectId: string }) => `${x.subjectType}:${x.subjectId}`
-    if (b.assignments && [...new Set(b.assignments.map(key))].sort().join('|') !== [...new Set(before.map(key))].sort().join('|')) { setAssignments(cc, id, b.assignments); changed.push('assignments') }
+    if (assignments && [...new Set(assignments.map(key))].sort().join('|') !== [...new Set(before.map(key))].sort().join('|')) { setAssignments(cc, id, assignments); changed.push('assignments') }
   })()
   const label = b.label ?? row.label
   if (!row.owner_user_id) {
-    if (changed.includes('disabled') && b.disabled) noticeOwners(cc, actor, 'disabled', label)
+    if (changed.includes('disabled') && disabled) noticeOwners(cc, actor, 'disabled', label)
     if (changed.includes('assignments')) noticeOwners(cc, actor, 'reassigned', label)
     if (changed.includes('spendLimit') && (b.spendLimit?.usd === 0 || b.spendLimit?.tokens === 0)) noticeOwners(cc, actor, 'zero_limit', label)
-  } else if (changed.includes('disabled') && b.disabled) noticeMember(cc, row.owner_user_id, actor, 'personal_disabled', row.label)
+  } else if (changed.includes('disabled') && disabled) noticeMember(cc, row.owner_user_id, actor, 'personal_disabled', row.label)
   if (changed.length) audit(cc.db, { actor, action: 'credential.update', target: id, detail: {
-    changed, ...(changed.includes('assignments') ? { assignmentsBefore: before, assignmentsAfter: assignmentsOf(cc, id) } : {}), ...(changed.includes('spendLimit') ? { spendLimit: b.spendLimit } : {}) } })
+    changed, ...(changed.includes('assignments') ? { assignmentsBefore: before, assignmentsAfter: assignmentsOf(cc, id) } : {}), ...(changed.includes('spendLimit') ? { spendLimit: b.spendLimit } : {}),
+    ...(assignments && assignments.length < b.assignments!.length ? { assigneesGone: b.assignments!.length - assignments.length } : {}), ...(orphaned ? { reason: 'assignees_deleted' } : {}) } })
   return toCredential(cc, getRow(cc.db, id)!, locale)
 }
 
