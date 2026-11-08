@@ -495,20 +495,27 @@ export function managerOf(db: Database, room: Pick<RoomRow, 'id' | 'kind' | 'cre
   return (db.query('SELECT user_id FROM room_members WHERE room_id = ? ORDER BY joined_at, user_id LIMIT 1').get(room.id) as { user_id: string } | null)?.user_id ?? null
 }
 
-/** `prefs`: the viewer's notification preferences when the caller has them (a list of rooms), else read here. */
-export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: Preferences = getPreferences(db, viewer.user_id)): Room {
+/** What names a room to a viewer: its own name or the group's, how many are in it, up to 4 other members (a DM: the
+ * other person). The rooms list's (roomOut) and the search's (rooms/search.ts). */
+export function roomNaming(db: Database, room: RoomRow, viewerId: string): Pick<Room, 'name' | 'memberCount' | 'peers'> {
   // the room's own name wins over the server's (the group's name); a DM is always the other person
   const name = room.kind !== 'dm' && room.name ? room.name : groupName(db, room)
   const memberCount = (db.query('SELECT COUNT(*) n FROM room_members WHERE room_id = ?').get(room.id) as { n: number }).n
   const peers = db.query(`SELECT u.id, u.name FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? AND m.user_id <> ?
-    ORDER BY m.joined_at, u.name LIMIT 4`).all(room.id, viewer.user_id) as UserRef[]
+    ORDER BY m.joined_at, u.name LIMIT 4`).all(room.id, viewerId) as UserRef[]
+  return { name, memberCount, peers: peers.map((p) => ({ id: p.id, name: p.name })) }
+}
+
+/** `prefs`: the viewer's notification preferences when the caller has them (a list of rooms), else read here. */
+export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: Preferences = getPreferences(db, viewer.user_id)): Room {
+  const { name, memberCount, peers } = roomNaming(db, room, viewer.user_id)
   const unread = unreadCount(db, room.id, viewer)
   const threads = threadsUnread(db, room.id, viewer)
   const last = lastMessage(db, room.id, viewer)
   const since = viewer.joined_at > room.created_at ? viewer.joined_at : room.created_at
   return {
     id: room.id, kind: room.kind, name, canRename: mayRename(db, room, viewer.user_id), managerId: managerOf(db, room), groupId: room.kind === 'team' ? room.group_id : null, memberCount,
-    peers: peers.map((p) => ({ id: p.id, name: p.name })),
+    peers,
     unreadCount: unread.n, threadsUnread: threads.n, nextThreadId: threads.next, mentioned: unread.mentioned || threads.mentioned,
     lastReadSeq: Math.max(viewer.last_read_seq, viewer.visible_from_seq), lastSeq: Math.max(lastSeqFor(db, room.id, viewer), viewer.visible_from_seq),
     lastMessage: last, muted: !!viewer.muted, notify: roomNotifyOut(room.kind, viewer, prefs), createdAt: room.created_at,
