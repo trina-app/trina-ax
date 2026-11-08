@@ -25,7 +25,7 @@
 // something I cannot open) is one faint line in its place ("볼 수 없는 자료를 참고한 답이라 가려졌어요"): who asked it (or
 // whose message it is) and when, nothing else: no hover row, menu, reaction, thread or sources.
 import clsx from 'clsx'
-import { Copy, Download, FileText, Lock, MessageSquareText, Pencil, Sparkles, Trash2 } from 'lucide-react'
+import { Copy, Download, FileText, Lock, MessageSquareText, Pencil, Trash2 } from 'lucide-react'
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { ROOM_QUOTE_EXCERPT_MAX, type Locale, type RoomAiRun, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
@@ -45,6 +45,7 @@ import { toast } from '../../store/ui'
 import { Avatar } from '../Avatar'
 import { TokenTextarea } from '../TokenTextarea'
 import { Button, confirmDialog, inputCls, useCopy } from '../ui'
+import { AiFace, AiFaceInline } from './AiFace'
 import { MenuButton, useLongPress, type MenuItem } from './MenuButton'
 import { MessageHoverBar } from './MessageHoverBar'
 import { reactable, ReactionChips, ReactionStrip } from './Reactions'
@@ -242,12 +243,7 @@ function EventLine({ m }: { m: RoomMessage }) {
 
 function RunAvatar({ m }: { m: RoomMessage }) {
   const user = useAvatarOf(m.author)
-  if (m.authorKind === 'ai')
-    return (
-      <span aria-hidden className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent-text">
-        <Sparkles size={15} />
-      </span>
-    )
+  if (m.authorKind === 'ai') return <AiFace size={32} className="mt-0.5" />
   return user ? <Avatar user={user} size={32} className="mt-0.5" /> : <span aria-hidden className="mt-0.5 size-8 shrink-0 rounded-full bg-hover" />
 }
 
@@ -447,7 +443,7 @@ function SharedAnswer({ text, openable, attached }: { text: string; openable?: R
   return (
     <figure className="mt-1 mb-0.5 rounded-r-lg border-l-2 border-line-strong bg-ink/[0.035] py-2 pr-3 pl-3" data-testid="room-shared-answer">
       <figcaption className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted" data-testid="room-shared-answer-head">
-        <Sparkles size={12} className="shrink-0 text-accent-text" aria-hidden />
+        <AiFaceInline />
         {t('shareRoom.quoteHead', { ai: aiName(t) })}
       </figcaption>
       {/* not a <blockquote>: the answer's own Markdown would take the quote marks a quote's paragraphs get */}

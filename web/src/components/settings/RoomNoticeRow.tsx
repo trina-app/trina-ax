@@ -5,7 +5,6 @@
 // pages/Room.tsx) and reads it. Names and the line are people's words: one line each, cut with an ellipsis, inside
 // <bdi>. No button and no card: a row is a row.
 import clsx from 'clsx'
-import { Sparkles } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import type { InboxNotification } from '@mycel/shared/api'
 import { listTime } from '../../lib/format'
@@ -14,6 +13,7 @@ import { useLocale, useT } from '../../i18n'
 import { useAvatarOf } from '../../store/people'
 import { useRooms } from '../../store/rooms'
 import { Avatar } from '../Avatar'
+import { AiFace } from '../rooms/AiFace'
 import { useRoomTitle } from '../rooms/RoomIcon'
 
 type RoomOf = NonNullable<InboxNotification['room']>
@@ -92,11 +92,6 @@ export function RoomNoticeRow({ item, onOpen }: { item: RoomNotice; onOpen: () =
 /** The newest writer's photo (the AI's mark for an answer of the AI). */
 function Face({ room }: { room: RoomOf }) {
   const user = useAvatarOf(room.fromId && room.from ? { id: room.fromId, name: room.from } : null)
-  if (room.ai)
-    return (
-      <span aria-hidden className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent-text">
-        <Sparkles size={16} />
-      </span>
-    )
+  if (room.ai) return <AiFace size={36} className="mt-0.5" />
   return user ? <Avatar user={user} size={36} className="mt-0.5" /> : <span aria-hidden className="mt-0.5 size-9 shrink-0 rounded-full bg-hover" />
 }
