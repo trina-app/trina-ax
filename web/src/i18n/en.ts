@@ -2449,6 +2449,7 @@ export const en: Record<MessageKey, string> = {
   'credentials.target': 'Used by',
   'credentials.target.team': 'Whole team',
   'credentials.target.pick': 'Chosen groups and people',
+  'credentials.target.pickNone': 'Pick at least one group or person.',
   'credentials.target.groups': 'Groups',
   'credentials.target.people': 'People',
   'credentials.target.personal': '{name} (personal)',

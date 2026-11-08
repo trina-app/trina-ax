@@ -2412,6 +2412,7 @@ export const ja: Record<MessageKey, string> = {
   'credentials.target': "利用者",
   'credentials.target.team': "チーム全体",
   'credentials.target.pick': "選択したグループと個人",
+  'credentials.target.pickNone': "グループかメンバーを1つ以上選んでください。",
   'credentials.target.groups': "グループ",
   'credentials.target.people': "個人",
   'credentials.target.personal': "{name}（個人）",

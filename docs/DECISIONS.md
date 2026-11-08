@@ -15022,6 +15022,11 @@ connections and files are core. Plan: `docs/AGENTS/plan/20261108-0930-removal-le
   marked in the same write (also when the request says `disabled: false`), never saved as team-wide. A person who is
   disabled but not deleted still counts: their rows stay everywhere. An empty list sent on
   purpose still means the whole team. Adding a connection keeps refusing an unknown id: there is nothing to keep.
+- **"Chosen groups and people" with none ticked.** In the add and the edit dialog, picking that option and ticking
+  nobody used to save an empty list, which the API reads as the whole team. Neither dialog saves it now: the button
+  stays off and one line under the list says "그룹이나 사람을 하나 이상 골라 주세요." The server cannot refuse it
+  too: the request body has one list, and an empty list is how the whole team is asked for, so "chosen, none" and
+  "team" look the same there. Telling them apart would need a new field in the contract; not done.
 - **Rows earlier deletes left: migration 117.** Data only (reader 1). The same rule once: a team connection every one
   of whose assignments is gone served nobody, so it is switched off before its rows go, with an Activity log line
   without an actor (`via: upgrade`), like migration 216 did for paused schedules. A migration rather than the sweeper:

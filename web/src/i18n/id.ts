@@ -2449,6 +2449,7 @@ export const id: Record<MessageKey, string> = {
   'credentials.target': 'Dipakai oleh',
   'credentials.target.team': 'Seluruh tim',
   'credentials.target.pick': 'Grup dan orang tertentu',
+  'credentials.target.pickNone': 'Pilih setidaknya satu grup atau orang.',
   'credentials.target.groups': 'Grup',
   'credentials.target.people': 'Orang',
   'credentials.target.personal': '{name} (pribadi)',

@@ -2448,6 +2448,7 @@ export const ko = {
   'credentials.target': '대상',
   'credentials.target.team': '팀 전체',
   'credentials.target.pick': '그룹·사람 고르기',
+  'credentials.target.pickNone': '그룹이나 사람을 하나 이상 골라 주세요.',
   'credentials.target.groups': '그룹',
   'credentials.target.people': '사람',
   'credentials.target.personal': '{name}님 개인',
