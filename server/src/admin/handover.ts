@@ -19,7 +19,7 @@
 import type { Database } from 'bun:sqlite'
 import type { Context } from 'hono'
 import {
-  API, LEAD_INVITE_HOURS, type EndedConnection, type Endpoint, type HandoverConnection, type HandoverConnectionRef,
+  LEAD_INVITE_HOURS, type EndedConnection, type HandoverConnection, type HandoverConnectionRef,
   type HandoverRecovery, type HandoverState, type LeadCard, type Locale,
 } from '@mycel/shared/api'
 import type { AppConfig } from '../app-config'
@@ -31,14 +31,13 @@ import { getSetting, setSetting, teamDefaultLocale } from './settings'
 import { readWelcome } from '../onboarding/welcome'
 import { existingGroups, getUser } from '../auth/users'
 import { authOf } from '../auth/service'
-import { reauthKey } from '../auth/rate-limit'
 import { isHosted, runKindOf } from '../system/deployment'
 import { notificationsOf } from '../notifications/service'
 import { credentialsOf, getRow as getCredential, metaOf, SUBSCRIPTION } from '../credentials/store'
 import { deleteCredential } from '../credentials/service'
 import { engineStatusCache } from './engines'
 import { maskEmail } from '../credentials/openai-oauth'
-import { currentOwnerId, leadHolds } from './handover-notices'
+import { currentOwnerId, leadHolds, shownName } from './handover-notices'
 
 // ---------------- words ----------------
 const TEXT = {
@@ -46,6 +45,7 @@ const TEXT = {
   targetNotReady: { ko: '임시 비밀번호를 바꾸고 한 번 이상 들어온 사람에게만 팀장을 넘길 수 있어요.', en: 'You can hand the team only to someone who has changed their temporary password and signed in at least once.', id: 'Tim hanya bisa diserahkan kepada orang yang sudah mengganti kata sandi sementara dan pernah masuk.', ja: '仮パスワードを変更し、一度以上サインインした人にだけオーナーを引き継げます。', es: 'Solo puede entregar el equipo a alguien que ya cambió su contraseña temporal y entró al menos una vez.' },
   leadOwnerOnly: { ko: '팀장 링크는 팀장만 만들 수 있어요.', en: 'Only the owner can make a link for the team lead.', id: 'Hanya pemilik tim yang bisa membuat tautan untuk ketua tim.', ja: 'リーダー用のリンクを作れるのはオーナーだけです。', es: 'Solo el propietario puede crear el enlace para el responsable del equipo.' },
   leadNotOffered: { ko: '이 팀에서는 아직 팀장 링크를 쓸 수 없어요. 멤버 › ··· › 팀장 넘기기를 써 주세요.', en: 'Lead links are not available on this team yet. Use Members › ··· › Hand over the team.', id: 'Tautan ketua tim belum tersedia di tim ini. Gunakan Anggota › ··· › Serahkan tim.', ja: 'このチームではまだリーダー用リンクを使えません。メンバー › ··· › オーナーを引き継ぐ を使ってください。', es: 'Los enlaces para el responsable aún no están disponibles en este equipo. Use Miembros › ··· › Entregar el equipo.' },
+  leadOwnerRevoke: { ko: '팀장 링크는 팀장만 멈출 수 있어요.', en: 'Only the owner can stop a link for the team lead.', id: 'Hanya pemilik tim yang bisa menghentikan tautan ketua tim.', ja: 'リーダー用のリンクを止められるのはオーナーだけです。', es: 'Solo el propietario puede detener el enlace para el responsable.' },
   leadMemberOnly: { ko: '팀장 링크로는 팀원으로만 들어와요. 관리자와 팀장 권한은 넘길 때 생겨요.', en: 'A lead link always makes a member. Admin and owner rights come only with the handover.', id: 'Tautan ketua tim selalu membuat anggota. Hak admin dan pemilik baru diberikan saat penyerahan.', ja: 'リーダー用リンクで参加するのは常にメンバーです。管理者とオーナーの権限は引き継ぎのときに付きます。', es: 'Un enlace para el responsable siempre crea un miembro. Los permisos de administrador y propietario llegan solo con la entrega.' },
   // realtime, to every open window of the two people (the web refreshes its role and shows this line)
   toOld: { ko: '팀장이 바뀌었어요 · 이제 {name}님이 이어서 해요', en: 'The owner changed · {name} takes it from here', id: 'Pemilik tim berganti · sekarang {name} yang melanjutkan', ja: 'オーナーが変わりました · ここからは{name}さんが進めます', es: 'Cambió el propietario · ahora sigue {name}' },
@@ -134,7 +134,7 @@ export function leadCardOf(ctx: AppContext, ownerId: string): LeadCard | null {
     WHERE i.lead_hint = 1 AND i.lead_hint_by = ? AND i.used_at IS NOT NULL ORDER BY i.used_at DESC LIMIT 1`).get(ownerId) as
     { id: string; lead_for: string | null; used_at: string; lead_dismissed_at: string | null; uid: string; name: string; username: string } | null
   if (!r || !leadHolds(ctx.db, r.id, ownerId)) return null
-  return { inviteId: r.id, leadFor: r.lead_for ?? '', user: { id: r.uid, name: r.name, username: r.username }, joinedAt: r.used_at, dismissed: !!r.lead_dismissed_at }
+  return { inviteId: r.id, leadFor: r.lead_for ?? '', user: { id: r.uid, name: shownName(r.name), username: r.username }, joinedAt: r.used_at, dismissed: !!r.lead_dismissed_at }
 }
 
 export function handoverState(ctx: AppContext, ownerId: string): HandoverState {
@@ -184,7 +184,11 @@ export function ownConnections(ctx: AppContext, userId: string): HandoverConnect
 export async function endConnections(ctx: AppContext, actor: string, refs: readonly HandoverConnectionRef[]): Promise<EndedConnection[]> {
   const seen = new Set<string>()
   const out: EndedConnection[] = []
-  const mine = new Map(ownConnections(ctx, actor).map((x) => [`${x.kind}:${x.id}`, x]))
+  let mine: Map<string, HandoverConnection>
+  try { mine = new Map(ownConnections(ctx, actor).map((x) => [`${x.kind}:${x.id}`, x])) } catch (err) {
+    ctx.log.warn('the connections to end at the handover could not be read', { err })
+    return refs.map((r) => ({ kind: r.kind, id: r.id, label: '', result: 'failed' as const }))
+  }
   let aiChanged = false
   for (const ref of refs) {
     const key = `${ref.kind}:${ref.id}`
@@ -202,11 +206,11 @@ export async function endConnections(ctx: AppContext, actor: string, refs: reado
     } else {
       try {
         const { endShareSignIn } = await import('../integrations/google-drive/share-admin')
-        const revoke = await withTimeout(endShareSignIn(ctx, actor, ref.id), 20_000)
+        const revoke = await withTimeout(endShareSignIn(ctx, actor, ref.id), 8_000)
         e = revoke === null ? { kind: ref.kind, id: ref.id, label: conn.label, result: 'gone' } : { kind: ref.kind, id: ref.id, label: conn.label, result: 'ended', revoke: revoke === 'timeout' ? 'unavailable' : revoke }
       } catch (err) { ctx.log.warn('a Drive share was not ended at the handover', { err }); e = { kind: ref.kind, id: ref.id, label: conn.label, result: 'failed' } }
     }
-    audit(ctx.db, { actor, action: 'owner.transfer.disconnect', target: ref.id, detail: { kind: e.kind, result: e.result, ...(e.revoke ? { revoke: e.revoke } : {}) } })
+    try { audit(ctx.db, { actor, action: 'owner.transfer.disconnect', target: ref.id, detail: { kind: e.kind, result: e.result, ...(e.revoke ? { revoke: e.revoke } : {}) } }) } catch (err) { ctx.log.warn('a handover disconnect was not audited', { err }) }
     out.push(e)
   }
   if (aiChanged) {
@@ -225,39 +229,48 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | 'timeout'> {
 }
 
 // ---------------- after the transfer ----------------
-/** Who was told and what was ended, for the notices (owner_transfers.ended), and every window of the two people
- * refreshes its role now (the role is read on every request; this is for the screens already open). */
-export function tellTransfer(ctx: AppContext, t: { id: string; from: string; to: string }, ended: EndedConnection[]): void {
+/** Right after the commit: every window of the two people refreshes its role now (the role is read on every request;
+ * this is for the screens already open), and the notices go to the new owner, the old owner and every other admin.
+ * Never throws: the transfer is done whatever happens here. */
+export function tellTransfer(ctx: AppContext, t: { id: string; from: string; to: string }): void {
   const db = ctx.db
-  try { db.query('UPDATE owner_transfers SET ended = ? WHERE id = ?').run(JSON.stringify(ended.map((e) => ({ kind: e.kind, id: e.id, label: e.label, result: e.result, ...(e.revoke ? { revoke: e.revoke } : {}) }))), t.id) } catch (err) { ctx.log.warn('the handover record was not completed', { err }) }
-  const at = (db.query('SELECT at FROM owner_transfers WHERE id = ?').get(t.id) as { at: string } | null)?.at ?? new Date().toISOString()
-  const n = notificationsOf(ctx)
-  const admins = (db.query("SELECT id FROM users WHERE role = 'admin' AND status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((u) => u.id)
-  for (const id of new Set([t.to, t.from, ...admins])) {
-    try { n.handoverNotice(id, 'owner.transferred', t.id, at) } catch (err) { ctx.log.warn('a handover notice was not recorded', { err }) }
-  }
-  // the old owner's lead notices are settled: the card and its [넘기기] are gone with the flags
-  try { n.settleLeadNotices(t.from) } catch { /* their rows say "not open" anyway */ }
   const name = (id: string) => getUser(db, id)?.name ?? ''
   try {
     ctx.services.realtime.publish(t.from, { type: 'notice', data: { level: 'info', code: 'owner_changed', message: handoverText('toOld', localeOf(db, t.from), { name: name(t.to) }) } })
     ctx.services.realtime.publish(t.to, { type: 'notice', data: { level: 'info', code: 'owner_changed', message: handoverText('toNew', localeOf(db, t.to), { name: name(t.from) }) } })
   } catch (err) { ctx.log.warn('the role refresh was not sent', { err }) }
+  try {
+    const at = (db.query('SELECT at FROM owner_transfers WHERE id = ?').get(t.id) as { at: string } | null)?.at ?? new Date().toISOString()
+    const n = notificationsOf(ctx)
+    const admins = (db.query("SELECT id FROM users WHERE role = 'admin' AND status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((u) => u.id)
+    for (const id of new Set([t.to, t.from, ...admins])) {
+      try { n.handoverNotice(id, 'owner.transferred', t.id, at) } catch (err) { ctx.log.warn('a handover notice was not recorded', { err }) }
+    }
+    // the old owner's lead notices are settled: the card and its [넘기기] are gone with the flags
+    try { n.settleLeadNotices(t.from) } catch { /* their rows say "not open" anyway */ }
+  } catch (err) { ctx.log.warn('the handover notices were not recorded', { err }) }
 }
 
-// ---------------- the password check's lockout (http/route.ts) ----------------
-const WINDOW_MS = 15 * 60_000
-/** A wrong password on 팀장 넘기기 that locked the check (5 in 15 minutes): the owner gets an Inbox notice, once per
- * window, since a stolen session is what the check guards against. */
-export function noteReauthFailure(ctx: AppContext, ep: Endpoint, userId: string): void {
-  if (ep !== API.transferOwnership) return
+/** After the connections were ended: what became of them goes on the record the notices read, and both people's
+ * Inboxes read again. Never throws. */
+export function recordEnded(ctx: AppContext, t: { id: string; from: string; to: string }, ended: EndedConnection[]): void {
+  if (!ended.length) return
   try {
-    const a = authOf(ctx)
-    if (a.limiter.retryAfter([reauthKey(userId)]) <= 0) return
+    ctx.db.query('UPDATE owner_transfers SET ended = ? WHERE id = ?').run(JSON.stringify(ended.map((e) => ({ kind: e.kind, id: e.id, label: e.label, result: e.result, ...(e.revoke ? { revoke: e.revoke } : {}) }))), t.id)
+    for (const id of [t.from, t.to]) ctx.services.realtime.publish(id, { type: 'notice', data: { level: 'info', code: 'notifications.changed', message: '' } })
+  } catch (err) { ctx.log.warn('the handover record was not completed', { err }) }
+}
+
+// ---------------- the password check's lockout (auth/service.ts onReauthLocked) ----------------
+const WINDOW_MS = 15 * 60_000
+/** A wrong password that locked the owner's re-check (5 in 15 minutes, shared by every re-check: 팀장 넘기기, updates,
+ * restore, the API engine, the current password): the owner gets one Inbox note per window, also pushed to their
+ * devices, since a stolen session is what the check guards against (on the session alone it could be marked read). */
+export function noteReauthLocked(ctx: AppContext, userId: string): void {
+  try {
     if (currentOwnerId(ctx.db) !== userId) return
-    const now = a.now()
-    const source = `reauth-${Math.floor(now / WINDOW_MS)}`
-    notificationsOf(ctx).handoverNotice(userId, 'owner.reauth_locked', source, new Date(now).toISOString())
+    const now = authOf(ctx).now()
+    notificationsOf(ctx).handoverNotice(userId, 'owner.reauth_locked', `reauth-${Math.floor(now / WINDOW_MS)}`, new Date(now).toISOString())
   } catch (err) { ctx.log.warn('the lockout notice was not recorded', { err }) }
 }
 

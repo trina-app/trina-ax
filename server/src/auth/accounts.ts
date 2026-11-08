@@ -27,7 +27,7 @@ import { isValidTimeZone } from '../system/time-zone'
 import { isHosted } from '../system/deployment'
 import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, getUserByUsername, insertUser, usernameTaken, userRef, type UserRow } from './users'
 import { notifyTemplateOffers } from '../notifications/service'
-import { afterLeadJoin, leadInviteBeforeInsert, leadInviteShape } from '../admin/handover'
+import { afterLeadJoin, handoverText, leadInviteBeforeInsert, leadInviteShape, resetLinkRefused } from '../admin/handover'
 
 export const RESET_TTL_MS = 24 * 3600_000
 /** A temporary password (admin "add member" / "new temporary password") stops working this long after it was set. */
@@ -282,6 +282,8 @@ export function revokeInvite(c: Context<AppEnv>, ctx: AppContext, id: string): v
   const r = ctx.db.query(`SELECT ${INVITE_COLS} FROM invites WHERE id = ? AND revoked_at IS NULL`).get(id) as InviteRow | null
   if (!r) fail('not_found')
   if (r!.used_at) fail('conflict', msg('inviteUsed', c.get('locale')))
+  // the owner's lead invite is the owner's to stop (a new lead invite or a transfer stops it too)
+  if (r!.lead_hint && c.get('auth')!.user.role !== 'owner') fail('forbidden', handoverText('leadOwnerRevoke', c.get('locale')))
   ctx.db.query('UPDATE invites SET revoked_at = ? WHERE id = ?').run(new Date().toISOString(), id)
   audit(ctx.db, { actor: c.get('auth')!.user.id, action: 'invite.revoke', target: id })
 }
@@ -386,7 +388,10 @@ function resetByToken(db: Database, token: string): ResetRow | null {
  */
 function resetUsable(db: Database, r: ResetRow, u: UserRow | null, now: number): u is UserRow {
   if (!u || u.status !== 'active' || r.used_at || Date.parse(r.expires_at) <= now) return false
-  if (r.created_by === null) return true
+  // a link made by nobody (the server's own CLI, the hosted control plane's reset-link): not for an owner or an admin
+  // while a hosted handover's recovery lock holds (admin/handover.ts), whenever it was made (a link minted for the lead
+  // while still a member, redeemed after they became the owner, is refused too)
+  if (r.created_by === null) return !resetLinkRefused(db, u)
   const by = getUser(db, r.created_by)
   if (!by || by.status !== 'active' || by.id === u.id) return false
   if (by.role === 'owner') return u.role !== 'owner'

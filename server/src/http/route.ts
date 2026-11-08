@@ -84,11 +84,6 @@ export function enforceAuth(ep: Endpoint, auth: AuthInfo | null) {
   if ((ep.auth === 'owner' || ep.auth === 'owner-reauth') && role !== 'owner') fail('forbidden')
 }
 
-/** Told of every wrong re-entered password (owner-reauth / admin-reauth), after it counted toward the person's limit:
- * the handover's lockout notice (admin/handover.ts noteReauthFailure). One listener per server; it never throws here. */
-const reauthFailed = new WeakMap<AppContext, (ep: Endpoint, userId: string) => void>()
-export function onReauthFailed(ctx: AppContext, fn: (ep: Endpoint, userId: string) => void): void { reauthFailed.set(ctx, fn) }
-
 export class RouteKit {
   constructor(public readonly app: Hono<AppEnv>, private ctx: AppContext, public readonly module: string) {}
 
@@ -147,7 +142,6 @@ export class RouteKit {
       if (ep.auth === 'owner-reauth' || ep.auth === 'admin-reauth') {
         const pw = (body as { password?: unknown } | undefined)?.password
         if (typeof pw !== 'string' || !(await this.ctx.services.sessions.verifyPassword(auth!.user.id, pw, c.get('info')))) {
-          try { reauthFailed.get(this.ctx)?.(ep, auth!.user.id) } catch { /* the listener's own problem */ }
           // in words: the bare 'forbidden' text ("you do not have permission") sent owners looking for a missing right
           fail('forbidden', msg('wrongPassword', c.get('locale')), { fields: { 'body.password': 'wrong password' } })
         }

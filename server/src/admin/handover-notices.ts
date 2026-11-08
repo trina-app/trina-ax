@@ -3,7 +3,7 @@
 // only: names and usernames from the accounts, the owner's own words for the lead link, counts of what was ended.
 import type { Database } from 'bun:sqlite'
 import type { AppConfig } from '../app-config'
-import type { InboxNotification } from '@mycel/shared/api'
+import { plainLabel, type InboxNotification } from '@mycel/shared/api'
 import { isHosted } from '../system/deployment'
 import { welcomeUnfinishedFor } from '../onboarding/welcome'
 
@@ -37,7 +37,14 @@ export function endedCounts(json: string | null | undefined): { teamAi: number; 
 }
 
 type Row = { id: string; user_id: string; event_type: string; source_id: string; created_at: string; read_at: string | null }
-const nameOf = (db: Database, id: string | null) => id ? (db.query('SELECT id, name FROM users WHERE id = ? AND deleted_at IS NULL').get(id) as { id: string; name: string } | null) : null
+/** A person's display name as the handover rows show it: one plain line (no control, format or direction characters):
+ * the joiner chose it and may change it at any time, so it must not scramble the facts beside it. */
+export const shownName = (name: string) => plainLabel(name, 80)
+const nameOf = (db: Database, id: string | null) => {
+  const r = id ? (db.query('SELECT id, name FROM users WHERE id = ? AND deleted_at IS NULL').get(id) as { id: string; name: string } | null) : null
+  return r ? { id: r.id, name: shownName(r.name) } : null
+}
+const flagOffered = (config: AppConfig) => !isHosted(config) || config.handoverSafe === true
 
 /** One row as the Inbox shows it. */
 export function handoverNoticeOut(ctx: { db: Database; config: AppConfig }, row: Row): InboxNotification {
@@ -47,7 +54,7 @@ export function handoverNoticeOut(ctx: { db: Database; config: AppConfig }, row:
     const i = db.query('SELECT id, lead_for, used_by, used_at FROM invites WHERE id = ?').get(row.source_id) as { id: string; lead_for: string | null; used_by: string | null; used_at: string | null } | null
     if (!i || !i.used_at) return base
     const u = i.used_by ? db.query('SELECT id, name, username FROM users WHERE id = ? AND deleted_at IS NULL').get(i.used_by) as { id: string; name: string; username: string } | null : null
-    return { ...base, handover: { kind: 'lead_joined', leadFor: i.lead_for ?? '', user: u, joinedAt: i.used_at, open: !!u && leadHolds(db, i.id, row.user_id) } }
+    return { ...base, handover: { kind: 'lead_joined', leadFor: i.lead_for ?? '', user: u ? { ...u, name: shownName(u.name) } : null, joinedAt: i.used_at, open: !!u && flagOffered(ctx.config) && leadHolds(db, i.id, row.user_id) } }
   }
   if (row.event_type === 'owner.transferred') {
     const t = db.query('SELECT from_user, to_user, ended FROM owner_transfers WHERE id = ?').get(row.source_id) as { from_user: string; to_user: string; ended: string } | null
@@ -69,8 +76,13 @@ export function handoverNoticeOut(ctx: { db: Database; config: AppConfig }, row:
   return base
 }
 
-/** The phone and browser push of a lead join goes out only while the card still holds (push-service.ts SOURCES). */
-export function leadPushWanted(db: Database, notificationId: string, _now?: number): boolean {
-  const n = db.query("SELECT user_id, source_id FROM handover_notices WHERE id = ? AND event_type = 'owner.lead_joined'").get(notificationId) as { user_id: string; source_id: string } | null
-  return !!n && leadHolds(db, n.source_id, n.user_id)
+/** The phone and browser push of a handover notice (push-service.ts SOURCES): a lead join only while its card still
+ * holds; a locked password check while the person is still the owner. */
+export function handoverPushWanted(db: Database, notificationId: string, _now?: number): boolean {
+  const n = db.query("SELECT user_id, event_type, source_id FROM handover_notices WHERE id = ?").get(notificationId) as { user_id: string; event_type: string; source_id: string } | null
+  if (!n) return false
+  if (n.event_type === 'owner.lead_joined') return leadHolds(db, n.source_id, n.user_id)
+  if (n.event_type === 'owner.reauth_locked') return currentOwnerId(db) === n.user_id
+  return false
 }
+

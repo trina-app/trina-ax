@@ -8,7 +8,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_LIMITS } from '../../server/src/auth/rate-limit'
 import { openDb } from '../../server/src/db'
-import { leadPushWanted } from '../../server/src/admin/handover-notices'
+import { handoverPushWanted as leadPushWanted } from '../../server/src/admin/handover-notices'
 import { setupWelcomeTeam } from '../../server/src/onboarding/welcome'
 import { WORK } from '../lib/env'
 import { OWNER_PW, addMember, harness, withOwner, type Client, type Harness } from './a-lib'
@@ -373,5 +373,83 @@ describe('the lead join is pushed to the owner\'s devices, only while the card h
       expect(sent).toHaveLength(1)
       expect(j.id).not.toBe(j2.id)
     } finally { await p.stop(); await t.h.close() }
+  })
+})
+
+describe('after the security review', () => {
+  test('a temporary-password reset racing the transfer never lands on the new owner', async () => {
+    const t = await team('handover-reset-race')
+    try {
+      for (let i = 0; i < 6; i++) {
+        const m = await addMember(t.h, t.owner, { username: `rr${i}` })
+        const tr = t.owner.try('POST', '/api/admin/transfer-ownership', { userId: m.id, password: OWNER_PW })
+        await Bun.sleep(i)
+        const rp = t.owner.try('POST', `/api/admin/users/${m.id}/reset-password`, {})
+        const [a, b] = await Promise.all([tr, rp])
+        const row = t.h.ctx.db.query('SELECT role, must_change_password FROM users WHERE id = ?').get(m.id) as { role: string; must_change_password: number }
+        // either the reset came first (then the transfer is refused: not ready) or the transfer did (the reset is refused)
+        expect(a.status === 200 && b.status === 200).toBe(false)
+        if (row.role === 'owner') {
+          expect(row.must_change_password).toBe(0)
+          await m.client.call('POST', '/api/admin/transfer-ownership', { userId: 'olga', password: m.password })
+        }
+        expect(owners(t.h)).toHaveLength(1)
+      }
+    } finally { await t.h.close() }
+  })
+
+  test('reset links made by nobody (the CLI, the control plane) for either person stop at the transfer, and none works for an owner or admin under the hosted lock', async () => {
+    const { createResetLink } = await import('../../server/src/auth/accounts')
+    const t = await team('handover-cli-links', { deployment: 'hosted', handoverSafe: true })
+    try {
+      const lead = await addMember(t.h, t.owner, { username: 'lead' })
+      const before = createResetLink(t.h.ctx, lead.id, null, 'https://acme.example.com')
+      const forOld = createResetLink(t.h.ctx, 'olga', null, 'https://acme.example.com')
+      await t.owner.call('POST', '/api/admin/transfer-ownership', { userId: lead.id, password: OWNER_PW })
+      expect((await t.h.client().try('POST', `/api/password-resets/${before.token}`, { newPassword: 'attacker owns this 99' })).status).toBe(410)
+      expect((await t.h.client().try('POST', `/api/password-resets/${forOld.token}`, { newPassword: 'attacker owns this 98' })).status).toBe(410)
+      // under the lock: a link for a member, then made admin: refused; a member stays reachable
+      const m = await addMember(t.h, lead.client, { username: 'mem' })
+      const k = await addMember(t.h, lead.client, { username: 'kim' })
+      const l2 = createResetLink(t.h.ctx, m.id, null, 'https://acme.example.com')
+      const l3 = createResetLink(t.h.ctx, k.id, null, 'https://acme.example.com')
+      await lead.client.call('PATCH', `/api/admin/users/${m.id}`, { role: 'admin' })
+      expect((await t.h.client().try('POST', `/api/password-resets/${l2.token}`, { newPassword: 'attacker owns this 97' })).status).toBe(410)
+      expect((await t.h.client().try('POST', `/api/password-resets/${l3.token}`, { newPassword: 'kim picks this 96' })).status).toBe(200)
+      expect(JSON.parse(audits(t.h, 'owner.transfer').at(-1)!.detail!)).toMatchObject({ recoveryLinksStopped: 2, recoveryLocked: true })
+    } finally { await t.h.close() }
+  })
+
+  test('the lockout note comes from any of the owner\'s password re-checks, and is pushed', async () => {
+    const t = await team('handover-reauth-any')
+    try {
+      // the API engine's re-check (admin-reauth), not the transfer's
+      for (let i = 0; i < DEFAULT_LIMITS.perReauth; i++) await t.owner.try('PUT', '/api/admin/engines/api-config', { baseUrl: 'https://api.example.com/v1', model: 'm', password: 'wrong ' + i })
+      const n = (await handoverItems(t.owner)).filter((i) => i.code === 'owner.reauth_locked')
+      expect(n).toHaveLength(1)
+      expect(leadPushWanted(t.h.ctx.db, n[0].id)).toBe(true)
+    } finally { await t.h.close() }
+  })
+
+  test('a transfer stops the open lead link, and only the owner may stop one', async () => {
+    const t = await team('handover-lead-stop')
+    try {
+      const admin = await addMember(t.h, t.owner, { username: 'adam', role: 'admin' })
+      const inv = await t.owner.call('POST', '/api/admin/invites', { leadFor: '김팀장' })
+      expect((await admin.client.try('DELETE', `/api/admin/invites/${inv.invite.id}`)).status).toBe(403)
+      await t.owner.call('POST', '/api/admin/transfer-ownership', { userId: admin.id, password: OWNER_PW })
+      expect((await t.h.client().try('POST', `/api/invites/${inv.token}/accept`, { username: 'late.lead', name: 'Late', password: PW })).status).toBe(410)
+    } finally { await t.h.close() }
+  })
+
+  test('the joiner\'s name reaches the card and the notice as one plain line', async () => {
+    const t = await team('handover-names')
+    try {
+      const inv = await t.owner.call('POST', '/api/admin/invites', { leadFor: '박민준 대표님' })
+      await join(t.h, inv.token, 'rtl.name', '박\u202e민준\u200b')
+      const s = await t.owner.call('GET', '/api/admin/handover')
+      expect(s.card.user.name).toBe('박민준')
+      expect((await handoverItems(t.owner))[0].handover.user.name).toBe('박민준')
+    } finally { await t.h.close() }
   })
 })

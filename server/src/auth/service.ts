@@ -89,6 +89,9 @@ export function sessionCookie(reqUrl: string, token: string, maxAgeSec: number):
 
 export class AuthService implements SessionService {
   readonly limiter: RateLimiter
+  /** Told when a wrong password locks a person's re-check (owner-reauth, admin-reauth, the current password): the
+   * owner's Inbox note and push (admin/handover.ts noteReauthLocked). Never lets an error through. */
+  onReauthLocked: ((userId: string) => void) | null = null
   /** clock (tests move it) */
   now: () => number = () => Date.now()
 
@@ -137,7 +140,11 @@ export class AuthService implements SessionService {
     let ok = false
     try { ok = !!u && u.status === 'active' && (await verifyPassword(password, u.password_hash)) } catch (e) { hold.release(); throw e }
     if (ok) hold.release()
-    else audit(this.db, { actor: userId, action: 'auth.reauth_failed', target: userId })
+    else {
+      audit(this.db, { actor: userId, action: 'auth.reauth_failed', target: userId })
+      // this wrong try used up the window: whoever holds the session may be guessing
+      if (this.onReauthLocked && this.limiter.retryAfter([key]) > 0) try { this.onReauthLocked(userId) } catch { /* the listener's own problem */ }
+    }
     return ok
   }
 

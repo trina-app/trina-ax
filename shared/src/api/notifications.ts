@@ -30,9 +30,11 @@ export function plainLabel(s: string, max = 80): string {
 /** Events that can also go to OS push. Room notices (room.dm: a message for me, by the room's level: a DM or group chat
  * message, any message of a room at 모든 메시지, a reply in a thread I follow; room.mention: an @mention) are kept in
  * room_notices with their own deliveries (room_push_deliveries); the rest in notification_inbox (push_deliveries). */
-/** owner.lead_joined: someone joined with the owner's lead link (docs/DECISIONS.md "W6"; handover_notices with their
- * own deliveries, handover_push_deliveries): no setting of its own, the owner may be away for days. */
-export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined'])
+/** owner.lead_joined: someone joined with the owner's lead link; owner.reauth_locked: the owner's password re-check
+ * locked after too many wrong tries (docs/DECISIONS.md "W6"; handover_notices with their own deliveries,
+ * handover_push_deliveries): no setting of their own, the owner may be away for days, and a note left only in the app
+ * would reach the very session that may be stolen. */
+export const PushEventType = z.enum(['schedule.success', 'schedule.failure', 'connection.reconnect', 'room.dm', 'room.mention', 'owner.lead_joined', 'owner.reauth_locked'])
 /** The room notices among them (server/src/rooms/notices.ts). */
 export const ROOM_PUSH_EVENTS = ['room.dm', 'room.mention'] as const
 export type PushEventType = z.infer<typeof PushEventType>
@@ -49,8 +51,8 @@ export type PushEventType = z.infer<typeof PushEventType>
  * (told to the owners) or to a member's own connection (told to that member; credential_change_notices), and the
  * handover's (docs/DECISIONS.md "W6"; handover_notices): owner.lead_joined to the owner when someone joins with their
  * lead link, owner.transferred to the new owner, the old owner and the other admins, owner.reauth_locked to the owner
- * when the transfer's password check locked after too many wrong tries. */
-export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred', 'owner.reauth_locked'])
+ * when a password re-check of theirs locked after too many wrong tries. */
+export const NotificationEventType = z.enum([...PushEventType.options, 'skill.suggested', 'skill.reviewed', 'dev_env.job', 'dev_env.box', 'integration.request', 'onboarding.ai_request', 'team.joined', 'onboarding.first_run', 'account.deletion_request', 'integration.template', 'integration.template_reconnect', 'drive.share_reconnect', 'skills.merge_waiting', 'credential.change', 'owner.transferred'])
 export type NotificationEventType = z.infer<typeof NotificationEventType>
 export const InboxNotification = z.object({
   id: z.string(), eventType: NotificationEventType, sourceId: z.string(), code: NotificationEventType,
@@ -132,7 +134,8 @@ export const InboxNotification = z.object({
    * and to by name while their accounts are there; `removable` (for me = to while I am the owner): the old owner is an
    * active admin I may disable ([내보내기]); `setupUnfinished` (me = to): the welcome steps wait for me; `recovery`
    * hosted: the hosting account can still reset passwords; `ended`: what the old owner ended at the transfer.
-   * reauth_locked ('owner.reauth_locked', the owner): the password check of 팀장 넘기기 locked after 5 wrong tries. */
+   * reauth_locked ('owner.reauth_locked', the owner): a password re-check of the owner (팀장 넘기기, updates, restore,
+   * the current password …) locked after 5 wrong tries in 15 minutes; also pushed. */
   handover: z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('lead_joined'), leadFor: z.string(), user: z.object({ id: UserId, name: z.string(), username: z.string() }).nullable(), joinedAt: z.string(), open: z.boolean() }),
     z.object({

@@ -29,7 +29,7 @@ import { syncRoomsNow } from '../rooms/service'
 import { closeDeletionRequest } from '../auth/deletion-requests'
 import { notificationsOf, notifyTemplateOffers, settleDeletionRequestNotices } from '../notifications/service'
 import { newId } from '../db'
-import { endConnections, handoverText, setRecoveryLockIn, tellTransfer } from './handover'
+import { endConnections, handoverText, recordEnded, setRecoveryLockIn, tellTransfer } from './handover'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -54,6 +54,15 @@ function guard(c: Context<AppEnv>, target: UserRow, o: { self?: boolean; newRole
   if (target.role === 'owner') fail('forbidden', msg('notOnOwner', locale))
   if (!o.self && target.id === auth.user.id) fail('forbidden', msg('notOnSelf', locale))
   if ((target.role === 'admin' || o.newRole === 'admin') && auth.user.role !== 'owner') fail('forbidden', msg('ownerOnlyAdmins', locale))
+}
+
+/** Who acts, read again inside a write: an owner or admin who changed role (a transfer that just committed), was
+ * disabled or deleted since the request started is what decides now, not the session's copy (security review of
+ * 팀장 넘기기: a reset landing on someone who became the owner meanwhile). */
+function actorNow(ctx: AppContext, id: string): { id: string; role: Role } {
+  const row = ctx.db.query('SELECT id, role, status, deleted_at FROM users WHERE id = ?').get(id) as { id: string; role: Role; status: string; deleted_at: string | null } | null
+  if (!row || row.deleted_at || row.status !== 'active' || (row.role !== 'owner' && row.role !== 'admin')) return fail('forbidden')
+  return { id: row.id, role: row.role }
 }
 
 /** The temporary password an admin typed (or the form pre-filled), checked like any new password; none = make one. */
@@ -114,6 +123,9 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
   const before = captureState(ctx.db)
   const changed: Record<string, unknown> = {}
   ctx.db.transaction(() => {
+    // the caller and the target as they are now (an owner who handed the team over a moment ago is an admin; a member
+    // made owner meanwhile is out of reach)
+    guard(c, liveUser(ctx, id), { self: !changesAccount, newRole: b.role, actor: actorNow(ctx, auth.user.id) })
     // enabling a disabled account takes a seat again (system/limits.ts; disabled accounts do not count)
     if (b.status === 'active' && target.status !== 'active') assertSeatFree(ctx.db, locale)
     const sets: string[] = []
@@ -133,7 +145,7 @@ export function updateUser(c: Context<AppEnv>, ctx: AppContext, id: string, b: I
       changed.groupIds = groups
     }
     if (Object.keys(changed).length) audit(ctx.db, { actor: auth.user.id, action: 'user.update', target: id, detail: changed })
-  })()
+  }).immediate()
   // asked-for deletions they no longer handle (demoted), or that are now only the owner's (a member made an admin)
   if (changed.role === 'member') try { notificationsOf(ctx).forgetDeletionNotices({ userId: id }) } catch { /* the inbox row ages out */ }
   if (changed.role === 'admin') try { notificationsOf(ctx).forgetDeletionNotices({ requesterId: id }) } catch { /* the inbox row ages out */ }
@@ -293,9 +305,12 @@ export async function resetPassword(c: Context<AppEnv>, ctx: AppContext, id: str
   const now = new Date(nowMs).toISOString()
   const expiresAt = tempPasswordExpiry(nowMs)
   ctx.db.transaction(() => {
+    // read again after the (slow) hash: a target who became the owner or an admin meanwhile (a transfer committing now),
+    // or a caller who is no longer allowed, is refused, so a temporary password never lands on the new owner
+    guard(c, liveUser(ctx, id), { actor: actorNow(ctx, auth.user.id) })
     ctx.db.query('UPDATE users SET password_hash = ?, must_change_password = 1, temp_password_expires_at = ?, temp_password_failures = 0, password_reset_by = ?, password_reset_at = ? WHERE id = ?').run(hash, expiresAt, auth.user.id, now, id)
     audit(ctx.db, { actor: auth.user.id, action: 'user.reset_password', target: id })
-  })()
+  }).immediate()
   authOf(ctx).endUserSessions(id, 'password_changed')
   authOf(ctx).limiter.clearAccount(target.username)
   return { temporaryPassword: temp, expiresAt, signInUrl: linkBase(c, ctx) }
@@ -353,17 +368,28 @@ export async function transferOwnership(c: Context<AppEnv>, ctx: AppContext, b: 
     // (their member invites stay: an admin may still make those). Reset links need nothing here: resetUsable
     // already limits an admin's links to members, so those made for admins or the new owner stop working.
     const revoked = revokeInvitesBy(ctx, me, 'admin')
+    // the lead link is over with the handover: an open one stops (its message promised a handover by someone who is no
+    // longer the owner), and every flag goes, used or not (no card left urging a handover to someone the old owner picked)
+    const leadsStopped = ctx.db.query('UPDATE invites SET revoked_at = ? WHERE lead_hint = 1 AND used_at IS NULL AND revoked_at IS NULL').run(at).changes
     const unflagged = ctx.db.query('UPDATE invites SET lead_hint = 0 WHERE lead_hint = 1').run().changes
+    // reset links made by nobody (the server's CLI, the hosted control plane) for either person stop: one minted before
+    // the handover must not sign its holder in as the new owner, or as the old owner now an admin, afterwards
+    const cliLinks = ctx.db.query('UPDATE password_resets SET used_at = ? WHERE created_by IS NULL AND used_at IS NULL AND user_id IN (?, ?)').run(at, me, b.userId).changes
     ctx.db.query('INSERT INTO owner_transfers (id, from_user, to_user, via, invite_id, at) VALUES (?, ?, ?, ?, ?, ?)').run(transferId, me, b.userId, via, lead?.id ?? null, at)
     const locked = setRecoveryLockIn(ctx, transferId, at)
-    audit(ctx.db, { actor: me, action: 'owner.transfer', target: b.userId, detail: { from: me, to: b.userId, via, ...(revoked ? { adminInvitesRevoked: revoked } : {}), ...(unflagged ? { leadHintsCleared: unflagged } : {}), ...(locked ? { recoveryLocked: true } : {}) } })
+    audit(ctx.db, { actor: me, action: 'owner.transfer', target: b.userId, detail: { from: me, to: b.userId, via, ...(revoked ? { adminInvitesRevoked: revoked } : {}), ...(unflagged ? { leadHintsCleared: unflagged } : {}), ...(leadsStopped ? { leadInvitesRevoked: leadsStopped } : {}), ...(cliLinks ? { recoveryLinksStopped: cliLinks } : {}), ...(locked ? { recoveryLocked: true } : {}) } })
   }).immediate()
   // what an owner or admin handles in the account-deletion inbox follows the roles (the reconcile pass gives each
   // their entries again: an admin only the members')
   try { notificationsOf(ctx).forgetDeletionNotices({ userId: me }) } catch { /* the inbox row ages out */ }
   try { notificationsOf(ctx).forgetDeletionNotices({ requesterId: b.userId }) } catch { /* the inbox row ages out */ }
-  afterAccessChange(ctx, before, { actor: me, target: b.userId })
-  const ended = b.end?.length ? await endConnections(ctx, me, b.end) : []
-  tellTransfer(ctx, { id: transferId, from: me, to: b.userId }, ended)
+  // committed: nothing below may turn it into an error. Access first, then both people and the admins are told (their
+  // windows refresh their role), then the slow part: the connections asked to be ended (Google is called for a share)
+  try { afterAccessChange(ctx, before, { actor: me, target: b.userId }) } catch (err) { c.get('log').error('access change after a handover failed', { err }) }
+  const t = { id: transferId, from: me, to: b.userId }
+  tellTransfer(ctx, t)
+  let ended: EndedConnection[] = []
+  try { ended = b.end?.length ? await endConnections(ctx, me, b.end) : [] } catch (err) { c.get('log').error('ending connections after a handover failed', { err }) }
+  recordEnded(ctx, t, ended)
   return { ok: true, ended }
 }
