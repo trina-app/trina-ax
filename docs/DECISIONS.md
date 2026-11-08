@@ -14589,3 +14589,44 @@ and its developer page "User presence and status" (what was copied and what was 
   and `.SQL`; two files with one number; a new file at the old number, a move with a new file at the old number before
   the "duplicate column" failure, a move with none, a downgrade and a matching database without a warning).
 - Version impact: **patch** (a server log line and a test; no API, setting or data change).
+
+## Budget notices and connection limits count in the team's time zone (fix/team-time-zone, 2026-11-08)
+
+- **Why.** A hosted server runs in UTC. Budgets' spend (`checkBudgets`, which blocks a send) and the Usage page already
+  counted the team's day and month (`teamTimeZone`, see "팀 시간대(명세 D16)"), but three places still used the process's
+  zone: the once-per-period key of `budget_notices` (`periodStart` without a zone in `admin/budget-watch.ts`),
+  `periodEnd` without a zone, and a connection's monthly limit (`localDay`, `monthStart`, `nextMonthStart` in
+  `credentials/store.ts`, whose comment still said "like budgets and usage"). A Korean team's daily block budget used up
+  at 14:00 KST and again at 08:00 KST the next day was one UTC day: the second notice was ignored while the person was
+  blocked. A connection's month reset at 09:00 KST on the 1st, and its "this month" differed from the Usage page.
+- **The rule.** Every day or month that limits someone or that they see is the team's. `periodStart` and `periodEnd`
+  take the zone as a required argument (the process-zone branch is gone). A budget notice is keyed by the start of the
+  team's day or month. `credential_usage_daily.day` is the team's day (`teamDay`), a connection's month sums from the
+  team's `YYYY-MM-01` (`teamMonthKey`, also the `credential_notices` key), and a used-up monthly limit comes back at
+  00:00 on the team's 1st (`nextMonthStart(db, now)`, through `periodEnd`). The ChatGPT refresh audit (once a day) uses
+  the team's day too, so budgets and connections keep no server-zone helper. The monthly limit's hint says "팀 시간대"
+  (five languages). `zonedParts` keeps one formatter per zone (building one took about 0.2 ms, and the model proxy now
+  asks for the team's day on every request).
+- **Stored formats unchanged, no migration.** The keys are still an ISO instant, `YYYY-MM-DD` and `YYYY-MM-01`. On a Mac
+  whose zone is the team's nothing changes: the same instants and day strings come out.
+- **At the switch-over** (only where the process zone differs from the team's: hosted servers, a self-hosted Linux
+  server in UTC, a Mac whose team zone was set to another one): a budget notice already sent for the current day or
+  month under the old key (midnight in the process's zone) may be sent once more under the new one (midnight in the
+  team's); none is skipped, because the two keys differ unless both zones have the same offset that day, and then the
+  key is the same. Requests counted before the update
+  stay on the UTC day they were filed under, so one month boundary of a connection sits where it was (for Seoul, a
+  request between 00:00 and 09:00 KST on the 1st, filed before the update, counts to the previous month). For a team
+  behind UTC whose update lands in the hours between the UTC 1st and its own, that month's connection notice can be
+  skipped (the UTC month already used its `YYYY-MM-01` key). Accepted: once, on one server, and the limit itself still
+  blocks. Changing the team's zone in Admin › Team settings later has the same one-off effect.
+- **Not changed.** Schedules (already `rt.timeZone`). Hosted voice input's free hours keep Korea's month on purpose
+  (`credentials/hosted-speech.ts`). Log file names (`log.ts`), the TLS stamp and the export's UTC dates are not a count.
+  Follow-ups, names and times that show but do not count: connection notices and details (`credentials/i18n.ts`
+  `fmtTime`/`fmtDate`) and two dates in diagnostics (`system/ops.ts`) are formatted in the process's zone, and
+  `conflictCopyName` still falls back to it where a caller gives no zone (`devenv/track.ts`). `zonedToUtc` gives 23:00
+  the day before in a zone whose clocks jump forward at midnight (America/Santiago); older than this change.
+- Tests: `tests/unit/a-budget-watch.test.ts` (process in UTC, team in Asia/Seoul: a daily block budget crossed on two
+  Seoul days of one UTC day notifies both days with Seoul-day keys; a connection's month resets at 00:00 KST, files a
+  request at 01:00 KST on the 1st under November, shows November's "this month" and sends November's notice);
+  `tests/unit/g-timezone.test.ts` drops the "without a zone" case.
+- Version impact: **patch** (a fix and one hint string; no API, setting or data format change).

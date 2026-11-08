@@ -2461,7 +2461,7 @@ export const ko = {
   'credentials.rename': '이름 바꾸기',
   'credentials.changeTarget': '대상 바꾸기',
   'credentials.spendLimit': '월 한도',
-  'credentials.spendLimitHint': '서버 시간대의 한 달 기준이에요. 비워 두면 한도 없음.',
+  'credentials.spendLimitHint': '팀 시간대의 한 달 기준이에요. 비워 두면 한도 없음.',
   'credentials.spendLimitUsd': '금액 (USD, API 키만)',
   'credentials.spendLimitTokens': '토큰',
   'credentials.spendLimitAction.warn': '알림만',

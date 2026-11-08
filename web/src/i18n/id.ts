@@ -2462,7 +2462,7 @@ export const id: Record<MessageKey, string> = {
   'credentials.rename': 'Ganti nama',
   'credentials.changeTarget': 'Ubah pemakai',
   'credentials.spendLimit': 'Batas bulanan',
-  'credentials.spendLimitHint': 'Per bulan menurut zona waktu server. Kosongkan jika tanpa batas.',
+  'credentials.spendLimitHint': 'Per bulan menurut zona waktu tim. Kosongkan jika tanpa batas.',
   'credentials.spendLimitUsd': 'Jumlah (USD, hanya kunci API)',
   'credentials.spendLimitTokens': 'Token',
   'credentials.spendLimitAction.warn': 'Hanya beri tahu',

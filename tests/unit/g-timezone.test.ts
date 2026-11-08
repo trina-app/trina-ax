@@ -33,11 +33,6 @@ describe('zone arithmetic', () => {
     expect(zonedDay(now, SEOUL)).toBe('2026-10-22')
     expect(zonedDay(now, 'UTC')).toBe('2026-10-21')
   })
-  test('without a zone the old behaviour (the process\'s midnight)', () => {
-    const now = new Date(2026, 9, 21, 15, 30)
-    expect(periodStart('day', now).getTime()).toBe(new Date(2026, 9, 21).getTime())
-    expect(periodEnd('month', now).getTime()).toBe(new Date(2026, 10, 1).getTime())
-  })
   test('valid names, defaults', () => {
     expect(isValidTimeZone(SEOUL)).toBe(true)
     expect(isValidTimeZone('UTC')).toBe(true)
