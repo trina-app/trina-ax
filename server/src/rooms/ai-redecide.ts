@@ -13,7 +13,11 @@
 //                      after `until` were decided by this build already.
 //   when people leave  a member out of a team room or the everyone room, or a later member's hidden answers checked
 //                      again (fewer now): that room's recent refused previews (REDECIDE_RECENT_DAYS, at most
-//                      REDECIDE_ROOM_MAX) are decided again soon after, off the request.
+//                      REDECIDE_ROOM_MAX) are decided again soon after, off the request. Rooms wait in one queue per
+//                      server and go one at a time: a step takes one room's previews for about REDECIDE_STEP_MS (at
+//                      least one; the rest of that room in the next step), steps REDECIDE_ROOM_GAP_MS apart, so many
+//                      rooms at once (a group's members changed, accounts removed) never hold the server up together.
+// A decision is saved only on a turn still private: one posted meanwhile keeps what it is.
 // Never throws.
 import type { Database } from 'bun:sqlite'
 import type { AppContext } from '../context'
@@ -29,7 +33,11 @@ export const REDECIDE_GAP_MS = 2_000
 export const REDECIDE_FIRST_MS = 5_000
 /** a room's refused previews decided again when people leave it: this recent, at most this many */
 export const REDECIDE_RECENT_DAYS = 14
-export const REDECIDE_ROOM_MAX = 20
+export const REDECIDE_ROOM_MAX = 10
+/** between the steps of the room queue */
+export const REDECIDE_ROOM_GAP_MS = 200
+/** rooms with nothing to decide again looked past in one step, at most */
+const EMPTY_ROOMS_PER_STEP = 50
 
 interface State { until: string; after: { at: string; id: string } | null; done: boolean }
 type Row = { turn_id: string; room_id: string; chat_id: string; question_id: string; answer_id: string; scope: string; created_at: string; decision: string }
@@ -59,7 +67,8 @@ function again(ctx: AppContext, r: Row): boolean {
   const d = roomAiOf(ctx).decide(r.room_id, r.chat_id, scope, q ? seenSeq(q) : undefined, rootOf(m), q?.seq)
   const now = decisionJson(d)
   if (d.hidden || now === r.decision) return false
-  db.query('UPDATE room_ai_turns SET decision = ? WHERE turn_id = ?').run(now, r.turn_id)
+  // only a turn still private: one its asker posted meanwhile (share) keeps what it is, and nothing is sent
+  if (!db.query("UPDATE room_ai_turns SET decision = ? WHERE turn_id = ? AND status = 'private'").run(now, r.turn_id).changes) return false
   try { roomsOf(ctx).messageEvent('room.message.updated', m) } catch (e) { ctx.log.warn('room preview not sent again', { err: e }) }
   return true
 }
@@ -114,28 +123,69 @@ export function stopRedecide(ctx: AppContext) {
   timers.delete(ctx)
 }
 
-const soon = new WeakMap<AppContext, Set<string>>()
+/** The rooms waiting to be decided again (in order, each once) and the rest of the one begun. */
+interface Queue { rooms: Set<string>; rows: Row[]; timer: ReturnType<typeof setTimeout> | null; hooked: boolean }
+const queues = new WeakMap<AppContext, Queue>()
+const queueOf = (ctx: AppContext): Queue => queues.get(ctx) ?? queues.set(ctx, { rooms: new Set(), rows: [], timer: null, hooked: false }).get(ctx)!
+
 /**
  * People left this room, or a later member's hidden answers there were checked again: its recent refused previews are
- * decided again soon after (once for a burst of changes), off the request. Never throws.
+ * decided again soon after, off the request, in the room queue (one room a step). Never throws.
  */
 export function redecideRoomSoon(ctx: AppContext, roomId: string) {
-  let rooms = soon.get(ctx)
-  if (!rooms) soon.set(ctx, (rooms = new Set()))
-  if (rooms.has(roomId)) return
-  rooms.add(roomId)
-  const t = setTimeout(() => { rooms!.delete(roomId); redecideRoom(ctx, roomId) }, 0)
-  ;(t as { unref?: () => void }).unref?.()
+  const q = queueOf(ctx)
+  q.rooms.add(roomId)
+  schedule(ctx, q, 0)
 }
-/** This room's recent refused previews decided again now; returns how many changed. */
-export function redecideRoom(ctx: AppContext, roomId: string): number {
-  let changed = 0
+function schedule(ctx: AppContext, q: Queue, ms: number) {
+  if (q.timer) return
+  if (!q.hooked) { q.hooked = true; ctx.onClose(() => { if (q.timer) clearTimeout(q.timer); q.timer = null }) }
+  q.timer = setTimeout(() => {
+    q.timer = null
+    redecideRoomStep(ctx)
+    if (q.rooms.size || q.rows.length) schedule(ctx, q, REDECIDE_ROOM_GAP_MS)
+  }, ms)
+  ;(q.timer as { unref?: () => void }).unref?.()
+}
+/** How many rooms and previews wait in the room queue (tests). */
+export function pendingRedecide(ctx: AppContext): number {
+  const q = queues.get(ctx)
+  return q ? q.rooms.size + q.rows.length : 0
+}
+
+/** A room's recent refused previews, newest first. */
+function roomRows(ctx: AppContext, roomId: string): Row[] {
+  const since = new Date(Date.now() - REDECIDE_RECENT_DAYS * 86_400_000).toISOString()
+  return ctx.db.query(`SELECT t.turn_id, t.room_id, t.chat_id, t.question_id, t.answer_id, t.scope, t.created_at, t.decision
+    FROM room_ai_turns t JOIN room_messages m ON m.id = t.answer_id
+    WHERE ${REFUSED} AND t.room_id = ? AND t.created_at >= ? ORDER BY t.created_at DESC LIMIT ?`).all(roomId, since, REDECIDE_ROOM_MAX) as Row[]
+}
+
+/**
+ * One step of the room queue: the rest of the room begun before, or the next room with refused previews (rooms with
+ * none are looked past), for about `budgetMs` (at least one preview). Only one room a step. Returns that room, how
+ * many were tried and how many changed.
+ */
+export function redecideRoomStep(ctx: AppContext, budgetMs = REDECIDE_STEP_MS): { roomId: string | null; tried: number; changed: number } {
+  const q = queueOf(ctx), until = Date.now() + budgetMs
+  let tried = 0, changed = 0
   try {
-    const since = new Date(Date.now() - REDECIDE_RECENT_DAYS * 86_400_000).toISOString()
-    const rows = ctx.db.query(`SELECT t.turn_id, t.room_id, t.chat_id, t.question_id, t.answer_id, t.scope, t.created_at, t.decision
-      FROM room_ai_turns t JOIN room_messages m ON m.id = t.answer_id
-      WHERE ${REFUSED} AND t.room_id = ? AND t.created_at >= ? ORDER BY t.created_at DESC LIMIT ?`).all(roomId, since, REDECIDE_ROOM_MAX) as Row[]
-    for (const r of rows) try { if (again(ctx, r)) changed++ } catch (e) { ctx.log.warn('room preview not decided again', { err: e }) }
-  } catch (e) { ctx.log.warn('room previews not decided again', { err: e }) }
-  return changed
+    for (let empty = 0; !q.rows.length && q.rooms.size && empty < EMPTY_ROOMS_PER_STEP; empty++) {
+      const next = q.rooms.values().next().value as string
+      q.rooms.delete(next)
+      q.rows = roomRows(ctx, next)
+    }
+    const roomId = q.rows[0]?.room_id ?? null
+    while (q.rows.length && q.rows[0]!.room_id === roomId) {
+      if (tried > 0 && Date.now() > until) break
+      const r = q.rows.shift()!
+      tried++
+      try { if (again(ctx, r)) changed++ } catch (e) { ctx.log.warn('room preview not decided again', { err: e }) }
+    }
+    return { roomId, tried, changed }
+  } catch (e) {
+    ctx.log.warn('room previews not decided again', { err: e })
+    q.rows = []
+    return { roomId: null, tried, changed }
+  }
 }

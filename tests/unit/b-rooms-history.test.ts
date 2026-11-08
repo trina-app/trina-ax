@@ -14,7 +14,7 @@ import { API, uuidv7, type Room, type RoomMessage } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { roomsOf } from '../../server/src/rooms/service'
 import { decisionJson, roomAiOf } from '../../server/src/rooms/ai'
-import { REDECIDE_KEY, redecideState, redecideStep, stopRedecide } from '../../server/src/rooms/ai-redecide'
+import { pendingRedecide, REDECIDE_KEY, redecideRoomSoon, redecideRoomStep, redecideState, redecideStep, stopRedecide } from '../../server/src/rooms/ai-redecide'
 import { EARLIER_DEPTH, reasonsChanged } from '../../server/src/rooms/earlier-sources'
 import { roomFilesOf } from '../../server/src/rooms/files'
 import { openHistories } from '../../server/src/rooms/history'
@@ -988,5 +988,65 @@ describe('an answer built on an old answer hidden from someone', () => {
     expect(reasonsChanged(before, now.replace('"joinedLater":[]', '"joinedLater":["Bob Lee"]'))).toBe(true)
     expect(reasonsChanged(before, now.replace('"joinedLater":[]', '"joinedLater":[],"earlier":true'))).toBe(true)
     expect(reasonsChanged(null, now)).toBe(true)
+  })
+
+  /** the room queue empty again (what people joining or leaving set off has run) */
+  const settle = async () => {
+    for (let i = 0; i < 200 && pendingRedecide(h.ctx); i++) await new Promise((r) => setTimeout(r, 50))
+    await new Promise((r) => setTimeout(r, 10))
+    expect(pendingRedecide(h.ctx)).toBe(0)
+  }
+
+  test('deciding a refused preview again never writes over one its asker posted meanwhile', async () => {
+    stopRedecide(h.ctx)
+    const db = h.ctx.db
+    const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+    const H = aiAnswer(roomId, 'alice', 'H-RACE-SECRET', { sources: [folder('groups/marketing')] })
+    await setMembers(groupId, ['alice', 'erin', 'bob'])
+    await settle()
+    const p = preview(roomId, 'RECAP race', { sources: [{ type: 'room', id: roomId, fromSeq: H.seq - 1 }] })
+    asOlderBuild(p.id)
+    const before = (db.query('SELECT decision FROM room_ai_turns WHERE answer_id = ?').get(p.id) as { decision: string }).decision
+    // the asker posts it while it is decided again (between reading the row and saving the new decision)
+    const ai = roomAiOf(h.ctx), decide = ai.decide.bind(ai)
+    ai.decide = (...args) => {
+      db.query("UPDATE room_ai_turns SET status = 'posted' WHERE answer_id = ?").run(p.id)
+      db.query("UPDATE room_messages SET visibility = 'room', visible_to = NULL WHERE id = ?").run(p.id)
+      return decide(...args)
+    }
+    try {
+      redecideRoomSoon(h.ctx, roomId)
+      expect(redecideRoomStep(h.ctx)).toEqual({ roomId, tried: 1, changed: 0 })
+    } finally { ai.decide = decide }
+    expect(db.query('SELECT status, decision FROM room_ai_turns WHERE answer_id = ?').get(p.id)).toEqual({ status: 'posted', decision: before })
+    await settle()
+  })
+
+  test('many rooms at once (people removed in bulk) are worked through one room a step, off the request, each once', async () => {
+    stopRedecide(h.ctx)
+    const rooms: { roomId: string; id: string }[] = []
+    for (let i = 0; i < 5; i++) {
+      const { roomId, groupId } = await teamRoom(['alice', 'erin'])
+      const H = aiAnswer(roomId, 'alice', `H-BURST-${i}`, { sources: [folder('groups/marketing')] })
+      await setMembers(groupId, ['alice', 'erin', 'bob'])
+      rooms.push({ roomId, id: preview(roomId, `RECAP burst ${i}`, { sources: [{ type: 'room', id: roomId, fromSeq: H.seq - 1 }] }).id })
+    }
+    await settle()
+    for (const r of rooms) asOlderBuild(r.id)
+    const ai = roomAiOf(h.ctx), decide = ai.decide.bind(ai), calls = new Map<string, number>()
+    ai.decide = (rid, ...rest) => { calls.set(rid, (calls.get(rid) ?? 0) + 1); return decide(rid, ...rest) }
+    try {
+      // as Rooms.sync removing people from five rooms calls the hook: nothing runs inside it
+      for (const r of rooms) redecideRoomSoon(h.ctx, r.roomId)
+      expect(calls.size).toBe(0)
+      expect(pendingRedecide(h.ctx)).toBe(5)
+      // the first step: one room, the others wait their steps (REDECIDE_ROOM_GAP_MS apart)
+      await new Promise((r) => setTimeout(r, 0))
+      expect(calls.size).toBe(1)
+      expect(pendingRedecide(h.ctx)).toBe(4)
+      await settle()
+      expect(rooms.map((r) => calls.get(r.roomId))).toEqual([1, 1, 1, 1, 1])
+    } finally { ai.decide = decide }
+    for (const r of rooms) expect((await mine(r.roomId, r.id))!.preview).toMatchObject({ earlier: true, folders: ['groups/marketing'] })
   })
 })

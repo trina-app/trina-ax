@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-08 12:53
 - Branch: `fix/room-redecide-guards`
-- Status: in progress
+- Status: done
 - Where: trina-ax core, `server/src/rooms/ai-redecide.ts`. Why: a follow-up of #212 (the room AI's share rule is core;
   see docs/REPOSITORY-RULES.md)
 - Version impact: patch. Server-side robustness; nothing visible changes.
@@ -47,4 +47,10 @@ None for data: decisions of private previews only. No migration, no API change.
 
 ## Result
 
-Filled in at the end.
+Built as planned. `again()` saves with `AND status = 'private'` and sends nothing when no row changed; the per-room
+`setTimeout(0)` became one queue per server (`redecideRoomSoon`, `redecideRoomStep`, `pendingRedecide`) with one room a
+step, `REDECIDE_STEP_MS` (250 ms, at least one preview) a step, `REDECIDE_ROOM_GAP_MS` (200 ms) between steps, and
+`REDECIDE_ROOM_MAX` lowered from 20 to 10. Rooms with nothing to decide are looked past (at most 50 in one step), so a
+burst of rooms without refused previews costs a few queries, not a gap each.
+
+PR: PR_LINK
