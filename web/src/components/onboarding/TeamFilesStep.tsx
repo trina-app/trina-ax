@@ -1,8 +1,9 @@
 // 팀 파일 (docs/DECISIONS.md "W6 — Onboarding v6: 팀 파일 recommendations"; FLOW v6 §3): the owner picks a folder, the
 // page lists its documents without reading them (lib/teamFiles.ts), the AI picks from names, folders, types, sizes and
 // dates only (POST /api/onboarding/files/rank), the person confirms one checked list, and only then do the files go up.
-//   F1 start: [폴더 고르기] (Chrome, Edge: the folder window with a handle; Safari, Firefox and the desktop app: <input
-//      webkitdirectory>), the hint for the folders the browser will not open, "파일 직접 올리기", "나중에 하기".
+//   F1 start: [폴더 고르기] (Chrome, Edge and the desktop app: the folder window with a handle; Safari, Firefox and the Mac
+//      App Store build: <input webkitdirectory>), the hint for the folders the browser will not open (not in the desktop
+//      app, which opens them), "파일 직접 올리기", "나중에 하기".
 //   F2 looking: the count, then the AI's pick, [그만 보기] (the list so far, unticked).
 //   F3 the list: the AI's top picks ticked with their reason word; "이미 있어요"; the personal-looking files (never sent to
 //      the AI, never ticked by default; a ticked one says who will see it); "다른 파일도 보기" (search over 30 rows, the
@@ -20,7 +21,7 @@ import { useEffect, useId, useMemo, useRef, useState, type DragEvent, type React
 import { create } from 'zustand'
 import { TEAM_FILES_LIMITS, type TeamFileReason, type TreeResponse, type WelcomeProgress } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
-import { isDesktop } from '../../lib/desktop'
+import { answersFileInputs, isDesktop } from '../../lib/desktop'
 import { onFolderUploadsForgotten, taggedRun, useRuns, type Run } from '../../lib/folderRuns'
 import type { FolderPlan } from '../../lib/folderUpload'
 import { formatSize, intlTag } from '../../lib/format'
@@ -232,10 +233,11 @@ async function sendPicked(files: readonly File[], base: string): Promise<{ skipp
 // ---------------------------------------------------------------- how this browser picks a folder
 
 type FolderWindow = 'handle' | 'input' | null
-/** Chrome and Edge: the folder window with a handle (read lazily). Safari, Firefox: the folder input. The desktop app picks
- * with the input, which its own window answers, until its folder window takes File System Access (FLOW v6 §4.4). */
+/** Chrome, Edge and the desktop app (its folder window takes File System Access, docs/DECISIONS.md "W6 — Desktop"): the
+ * folder window with a handle (read lazily). Safari, Firefox: the folder input. The Mac App Store build answers the
+ * page's folder input with its own window and never opens the folder window. */
 function folderWindow(): FolderWindow {
-  if (isDesktop()) return canPickInput() ? 'input' : null
+  if (answersFileInputs()) return canPickInput() ? 'input' : null
   if (canPickHandle()) return 'handle'
   return canPickInput() ? 'input' : null
 }
@@ -422,7 +424,7 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
             </div>
             {draft.empty && <p className="text-sm text-ink" role="status" data-testid="welcome-team-files-empty">{t('welcome.teamFiles.empty')}</p>}
             {draft.empty && draft.tooBig > 0 && <p className="text-label text-muted" data-testid="team-files-too-big">{t('welcome.teamFiles.tooBig', { n: draft.tooBig })}</p>}
-            <p className="text-label text-muted" data-testid="welcome-team-files-hint">{t(how === 'handle' ? (windows() ? 'welcome.teamFiles.hintChromeWindows' : 'welcome.teamFiles.hintChrome') : 'welcome.teamFiles.hintInput')}</p>
+            <p className="text-label text-muted" data-testid="welcome-team-files-hint">{t(how === 'handle' && !isDesktop() ? (windows() ? 'welcome.teamFiles.hintChromeWindows' : 'welcome.teamFiles.hintChrome') : 'welcome.teamFiles.hintInput')}</p>
             <TeamReach team={place.name} groupId={place.groupId} />
             {notes}
           </div>

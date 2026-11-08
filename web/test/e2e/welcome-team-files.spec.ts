@@ -125,10 +125,10 @@ test('F1 → F2 → F3 (the AI\'s picks ticked, personal apart, nothing of it se
   expect((await tree(page, 'groups/Acme/회사 자료/회의')).map((e) => e.name)).toEqual(['10월 주간 회의록.docx'])
   // the run recorded 팀 파일 done on the server (not the page's PATCH)
   expect((await (await page.request.get('/api/onboarding/welcome')).json()).progress.steps.files).toBe('done')
-  await expect(page.getByTestId('welcome-team-files-next')).toHaveText('다음: 팀원 초대')
+  await expect(page.getByTestId('welcome-team-files-next')).toHaveText('다음: 도구 연결')
   await page.getByTestId('welcome-team-files-next').click()
-  await expect(page.getByTestId('invite-step')).toBeVisible()
-  // back from the invite: F5 from the run in this tab; 폴더 더 고르기 with the same folder: what went up is "이미 있어요"
+  await expect(page.getByTestId('welcome-tools')).toBeVisible()
+  // back from 도구 연결: F5 from the run in this tab; 폴더 더 고르기 with the same folder: what went up is "이미 있어요"
   await page.getByTestId('welcome-back').click()
   await expect(page.getByTestId('welcome-team-files-run-title')).toHaveText('Acme 폴더에 4개를 올렸어요')
   await page.getByTestId('welcome-team-files-more-folder').click()
