@@ -85,6 +85,8 @@ export const roomsRoutes: RouteModule = {
     })
     const ai = roomAiOf(ctx)
     kit.handle(API.getRoomAi, ({ c, auth, params }) => { c.header('Cache-Control', 'no-store'); return ai.state(auth.user.id, params.id) })
+    // the cards of my own questions here, read again when the room opens (another member's question gives nothing)
+    kit.handle(API.listRoomAiRequests, ({ c, auth, params }) => { c.header('Cache-Control', 'no-store'); return { items: ai.requests(auth.user.id, params.id, windowOf(c)) } })
     kit.handle(API.stopRoomAi, ({ auth, params }) => ai.stop(auth.user.id, params.id, params.turnId))
     kit.handle(API.shareRoomMessage, ({ auth, params }) => ai.share(auth.user.id, params.id, params.messageId))
     kit.handle(API.roomMessageSources, ({ c, auth, params }) => { c.header('Cache-Control', 'no-store'); return ai.sources(auth.user.id, params.id, params.messageId) })

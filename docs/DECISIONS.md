@@ -15498,3 +15498,45 @@ not postable, 409 `room_ai_hidden`, because its asker could not see what was at 
   start pass in steps over more rows than one step takes, each tried once, done when none is left; someone leaving;
   project chats and a name no longer there refused; `reasonsChanged`), `b-rooms-ai.test.ts`,
   `web/test/unit/room-messages.test.tsx`, `web/test/e2e/room-answer-post.spec.ts`.
+
+## 대화방의 확인 카드는 다시 읽는다 — a room's AI cards come back (fix/room-card-reload-scroll, 2026-11-08)
+
+- **Why.** Hands-on QA on dev: a card @트리나 raises for the person who asked in a room (the AI's question, a
+  confirmation) is sent once over the socket (`turn.request`). A chat reads its open cards again when it loads
+  (`GET /api/chats/:id/requests`); a room read only `GET /api/rooms/:id/ai`, which has none. After a reload, in another
+  browser, on the phone or after a reconnect the server could not resume, the sidebar showed the "?" and the room
+  "트리나가 답하는 중" with [멈추기], and nothing to answer: the question waited until the card timed out.
+- **The rule.** A room's cards come back like a chat's. `GET /api/rooms/:id/ai/requests` lists the open cards of the
+  caller's own questions in that room, its threads included, in the shape a chat's list has (`OpenTurnRequest`, both
+  from `TurnExec.cardsFor`): not a card for another desktop window, never a connect card (a room does not show one).
+  The web app reads it with `GET /api/rooms/:id/ai` whenever it reads the room's AI (opening the room, `resync` after a
+  reconnect) and merges it as a chat does (`mergeOpenRequests`, scoped to this room's questions of mine: a card that
+  came over the socket meanwhile stays, one closed meanwhile stays closed, other rooms' and chats' cards are left).
+- **The asker's only.** A card's question, its details and its preview can hold what only the asker may read (a file's
+  text, a folder some members cannot open). The list reads only the caller's active questions (`room_ai_turns.user_id`)
+  and checks the running turn's owner and room again; another member gets an empty list (they see the count,
+  "트리나가 답하는 중", as before), someone outside the room 404. Answering stays `POST /api/turns/:id/answer`, which
+  takes the caller's own turn only (anyone else: 404, the card stays open): unchanged, now tested.
+- **Its own endpoint, not a field of `RoomAiState`.** `shared/src/api/rooms.ts` cannot import `TurnRequest`: `ws.ts`
+  and `chats.ts` import `rooms.ts`, and the cycle would break at load. The endpoint is declared in `chats.ts` beside
+  `listTurnRequests`. An older server answers 404 and the app shows what comes over the socket, as before.
+- **A new card in view.** The room (and its thread panel, and the chat) took any scroll event more than 80 px above the
+  bottom for the reader scrolling up. The scroll event of the list's own jump to the bottom comes a frame later; when
+  the card arrived in between (the step event and the card come together), the room stopped following and the card
+  stayed below the message box with only "확인해 주세요" in sight (3 of about 9 cards). Now only a move up stops the
+  following (`followsAfterScroll`, `lib/stickToBottom.ts`), measured from where the list last was: its last scroll
+  event or its own last jump to the bottom (`jumpToBottom`, and the size watcher says when it jumped), so a link's
+  message scrolled into view in the same frame as that jump still stops it; the size watcher (`stickToBottom`, a ResizeObserver on the
+  content) keeps the whole card in view as it appears or grows. A reader who scrolled up is left where they are. Rooms
+  have no "new below" button; none was added.
+- **One button order.** Amends "대화방에서 새 파일은 미리 허용", whose three buttons put the main one first while the
+  yes/no card and dialogs put it last. Every server card now has the quiet "no" first and the main one last, on the
+  right: [허용 안 함] [이 방에서는 항상 허용] [이번만 허용]; the address and dev-environment cards too (`ChoiceRow` in
+  `AskCard.tsx`). On a phone the three stack full width with the main one on top, as the skill share card's stacked
+  buttons. Labels unchanged (docs/DESIGN-SYSTEM.md, Confirmation cards).
+- Tests: `tests/unit/b-rooms-ai-cards.test.ts` (the asker gets the card back on a new socket and in another window and
+  answers it from there; another member gets no card, no event and none of its words, and is refused; outside the room
+  404; timed out or answered it is gone; a thread's question; another room's card stays out), web unit tests
+  (`room-ai-cards.test.ts`, `stick-to-bottom.test.ts`, `ask-card-confirm.test.tsx`), `web/test/e2e/room-ai-cards.spec.ts`
+  (reload, the asker's phone and another member, the card in view at 1440 and 390 with the race forced, button order).
+- Version impact: **patch** (fixes; one read-only endpoint, additive).

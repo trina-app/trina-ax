@@ -90,8 +90,8 @@ test('the room card: three buttons in a row and the line under them; each sends 
     await expect(card.getByTestId('ask-send')).toHaveCount(0)
     await expect(card.getByTestId('ask-note')).toHaveText('내가 부를 때, 이 폴더에 새 파일을 만들 때만 적용돼요.')
     const buttons = card.getByTestId('ask-choice')
-    await expect(buttons).toHaveText(['이번만 허용', '이 방에서는 항상 허용', '허용 안 함'])
-    // one row on a computer, the first the main one
+    await expect(buttons).toHaveText(['허용 안 함', '이 방에서는 항상 허용', '이번만 허용'])
+    // one row on a computer, the main one last (as on the two-button card; room-ai-cards.spec.ts)
     const boxes = await Promise.all([0, 1, 2].map((i) => buttons.nth(i).boundingBox()))
     expect(new Set(boxes.map((b) => Math.round(b!.y))).size).toBe(1)
     await card.getByRole('button', { name: label, exact: true }).click()

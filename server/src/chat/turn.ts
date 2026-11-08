@@ -10,7 +10,7 @@ import crypto from 'node:crypto'
 import { CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
 import { recordSent, webEcho } from '../tools/connection-urls'
 import { normUrl, rememberUrls } from '../tools/url-gate'
-import type { ApiErrorBody, Attachment, ConfirmDetail as ConfirmDetailT, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
+import type { ApiErrorBody, Attachment, ConfirmDetail as ConfirmDetailT, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, OpenTurnRequest, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
 import { buildClaudeLaunch, SUBSCRIPTION_DEFAULT_MODEL, type ClaudeConf } from '../engine/claude'
 import { buildCodexLaunch, CODEX_VERSION, prepareCodexTurn, type CodexConf } from '../engine/codex'
 import { ClaudeStreamParser, hitList } from '../engine/claude-parse'
@@ -2234,6 +2234,12 @@ export class TurnExec {
   }
 
   openRequests(): { request: TurnRequest; window: string | null }[] { return [...this.requests.values()].map((r) => ({ request: r.request, window: r.window })) }
+  /** The open cards one window of the person shows: all but a card for another desktop window alone. What GET
+   * /api/chats/:id/requests and GET /api/rooms/:id/ai/requests answer: the events that opened them are not replayed
+   * after a reload, in another browser or after a reconnect the server could not resume. */
+  cardsFor(window: string | null): OpenTurnRequest[] {
+    return this.openRequests().filter((r) => !r.window || r.window === window).map((r) => ({ turnId: this.id, chatId: this.spec.chatId, messageId: this.spec.assistantId, request: r.request }))
+  }
   /** one open card of this turn, or null (answered, expired, the turn ended) */
   openRequest(requestId: string): TurnRequest | null { return this.requests.get(requestId)?.request ?? null }
 
