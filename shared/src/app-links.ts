@@ -9,9 +9,14 @@ export const APP_LINKS = {
   /** <Apple developer team>.<bundle id> */
   iosAppIds: ['YWW96288YY.app.trina.ax'] as readonly string[],
   androidPackage: 'app.trina.ax',
-  /** SHA-256 of the certificate Google Play signs the app with (Play Console › Test and release › App integrity › App
-   * signing), "AA:BB:…". Empty until it is known: /.well-known/assetlinks.json answers 404 meanwhile. */
-  androidCertSha256: [] as readonly string[],
+  /** SHA-256 of the certificates the app is signed with, "AA:BB:…". Now: the upload key (CN=Trina AX upload,
+   * O=Trina Inc.), which signs the APK published at updates.trina.app. The app is not public on Google Play yet; once
+   * Play signs it, installs from Play carry Play's app signing key instead, so add that key's fingerprint here too
+   * (Play Console › Test and release › App integrity › App signing). An empty list makes /.well-known/assetlinks.json
+   * answer 404. */
+  androidCertSha256: [
+    '6F:9C:90:4B:59:83:9C:1C:F4:9C:95:95:77:EE:01:FE:78:02:63:35:CC:32:F8:FB:79:CA:F3:BA:08:C9:CA:7A',
+  ] as readonly string[],
 }
 
 /** The pages that open the app: an invite link and the team link (its token is in the fragment, `#t=`). */
@@ -34,7 +39,7 @@ export function appleAppSiteAssociation(ids = APP_LINKS) {
   }
 }
 
-/** /.well-known/assetlinks.json, or null while the Play signing certificate is not known. */
+/** /.well-known/assetlinks.json, or null while no valid certificate fingerprint is set. */
 export function assetLinks(ids = APP_LINKS) {
   const prints = ids.androidCertSha256.filter((p) => /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/.test(p))
   if (!prints.length) return null

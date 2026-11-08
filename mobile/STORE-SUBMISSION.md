@@ -27,9 +27,11 @@ What the owner provides or decides before each store step. Engineering steps and
   (`server/src/routes/app-links.ts`); for the wildcard entry serve the same file on `trina.app` itself too (developers
   report Apple's CDN asks the domain after `*.`; Apple's page does not say which), from the website.
 - **Android**: the intent filter for `https://*.trina.app` `/invite/…` and `/join` has `autoVerify`; Android checks a
-  wildcard host at its root, `https://trina.app/.well-known/assetlinks.json`, with the Play app signing certificate's
-  SHA-256 (Play Console › App integrity). Put the same fingerprint in `shared/src/app-links.ts` so team servers serve
-  it too. Until then Android offers the app in its chooser instead of opening it directly.
+  wildcard host at its root, `https://trina.app/.well-known/assetlinks.json`, with the SHA-256 of the certificate that
+  signs the installed app. Team servers already serve the upload key's fingerprint (`shared/src/app-links.ts`, the APK at
+  updates.trina.app). When Play signs the app, add the Play app signing certificate's SHA-256 (Play Console › App
+  integrity) to the same list, and serve it on `trina.app` too; until then Play installs get the app in Android's chooser
+  instead of opening it directly.
 - Both: the `trina-ax` scheme (already registered) opens screen ④ for "앱에서 열기".
 
 ## TestFlight (internal testers)

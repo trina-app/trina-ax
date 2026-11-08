@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-08 16:45
 - Branch: `fix/assetlinks-upload-key`
-- Status: in progress
+- Status: done
 - Where: trina-ax `shared/src/app-links.ts` and its test. Why: team servers answer `/.well-known/assetlinks.json` with 404 because no fingerprint is set (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a public file that was 404 now answers 200
 
@@ -31,4 +31,4 @@ None for data or permissions; the file is public and identical for everyone. Pla
 
 ## Result
 
-Filled in at the end.
+Upload key fingerprint added; assetlinks.json answers 200 with the standard JSON. The Play signing key is still to add.
