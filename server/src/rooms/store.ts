@@ -269,7 +269,9 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow):
       try {
         const d = JSON.parse(t.decision ?? 'null')
         const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x: unknown): x is string => typeof x === 'string') : [])
-        if (d) previews.set(t.answer_id, { folders: strings(d.folders), ...(d.otherFolders ? { otherFolders: true } : {}), personal: !!d.personal, outside: !!d.outside, joinedLater: strings(d.joinedLater), ...(d.hidden ? { hidden: true as const } : {}) })
+        const unable = d?.unable && typeof d.unable === 'object' ? Object.fromEntries(Object.entries(d.unable as Record<string, unknown>).filter((e): e is [string, number] => Number.isInteger(e[1]) && (e[1] as number) >= 0)) : null
+        if (d) previews.set(t.answer_id, { folders: strings(d.folders), ...(d.otherFolders ? { otherFolders: true } : {}), personal: !!d.personal, outside: !!d.outside, joinedLater: strings(d.joinedLater), ...(d.hidden ? { hidden: true as const } : {}),
+          ...(d.earlier && !d.hidden ? { earlier: true as const } : {}), ...(unable ? { unable } : {}) })
       } catch { /* no reason shown */ }
     }
   }
