@@ -208,8 +208,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       }
       exec.noteTaint(name, args)
       exec.noteRoomTool(name, args)
-      // a room's AI session: anything that may change something waits for the person's yes (rooms/ai-tools.ts)
-      const roomNo = await exec.confirmRoomChange(name, args)
+      // a room's AI session: anything that may change something waits for the person's yes (rooms/ai-tools.ts); a call
+      // that also needs the wider-audience card below gets that one card (widenOf: where it saves, what it copies)
+      const roomNo = await exec.confirmRoomChange(name, args, { widen: widenOf(name, args), main: files === exec.files })
       if (roomNo) return { ...text(roomNo, true), summary: `${name} -> not allowed by the user (${exec.room ? 'room' : 'after a room read'})` }
       // what the AI sends leaves marks, so an address that a connection repeats back is not taken as the service's own
       // (tools/connection-urls.ts; before the call: its own answer is checked against them)
@@ -280,8 +281,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         if (sharedNo) return { refusal: sharedNo, summary: `${name} -> not read: not shared by the user (shared chat)` }
       }
       recordSent(exec.rt.db, exec.spec.chatId, args)
-      // a room's AI session: a write or edit waits for the person's yes on a card first (rooms/ai-tools.ts)
-      const roomNo = await exec.confirmRoomChange(name, args)
+      // a room's AI session: a write or edit waits for the person's yes on a card first (rooms/ai-tools.ts); one that
+      // also needs the wider-audience card below gets that one card
+      const roomNo = await exec.confirmRoomChange(name, args, { widen: widenOf(name, args), main: !caller || caller.files === exec.files })
       if (roomNo) return { refusal: roomNo, summary: `${name} -> not allowed by the user (${exec.room ? 'room' : 'after a room read'})` }
       if (name !== 'write' && name !== 'edit') return null
       // skills/ first (team skills and rules: the person confirms what changes), then the wider-audience check
@@ -291,6 +293,21 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       return typeof p === 'string' ? exec.confirmWidening(p) : null
     },
   }
+}
+
+/** Where a call's wider-audience check (below the room card) saves, and the files it copies bytes from: the same
+ * arguments as the checks in call() and beforeFileTool (write and edit: the file; make_file: its output and source;
+ * edit_hwp: the new file and the document, or the document itself). undefined for any other tool. */
+export function widenOf(name: string, args: unknown): { target: string; extra: string[] } | undefined {
+  const a = args && typeof args === 'object' && !Array.isArray(args) ? args as Record<string, unknown> : null
+  if (!a) return undefined
+  if (name === 'write' || name === 'edit') return typeof a.file_path === 'string' ? { target: a.file_path, extra: [] } : undefined
+  if (name === 'make_file') return typeof a.output === 'string' ? { target: a.output, extra: typeof a.source === 'string' ? [a.source] : [] } : undefined
+  if (name === 'edit_hwp') {
+    const target = typeof a.output === 'string' ? hwpOutputPath(a.output, typeof a.file_path === 'string' ? a.file_path : '') : a.file_path
+    return typeof target === 'string' ? { target, extra: typeof a.output === 'string' && typeof a.file_path === 'string' ? [a.file_path] : [] } : undefined
+  }
+  return undefined
 }
 
 /** A merge chat's file call: read, write or edit, on one of the team skill files it merges into (the path as the file
