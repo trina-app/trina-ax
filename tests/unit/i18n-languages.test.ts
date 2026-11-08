@@ -128,6 +128,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/files/hwpx-write.ts': { why: 'the name of Hangul\'s outline styles (개요 N) looked for in a template (document content, not screen text)', also: /s\.name === `개요 \$\{l \+ 1\}`/ },
   'server/src/admin/engines.ts': { why: 'engine status texts (ko next to en/id/ja/es)' },
   'server/src/admin/users.ts': { why: 'archived-accounts folder name (ko next to en/id/ja/es)' },
+  'server/src/admin/handover.ts': { why: '팀장 넘기기 refusals and the role-refresh lines (ko next to en/id/ja/es)' },
   'server/src/auth/messages.ts': { why: 'auth messages (ko next to en/id/ja/es)' },
   'server/src/chat/i18n.ts': { why: 'chat texts (ko next to en/id/ja/es)' },
   'server/src/credentials/i18n.ts': { why: 'AI connection texts: states, checks, notices (ko next to en/id/ja/es)' },
