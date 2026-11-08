@@ -11,7 +11,7 @@
 // person whom another rule still lets write says so first, and which (the server's edit preview without their row).
 // Group skills (groups/<folder>/skills/, docs/DECISIONS.md "Group skills") are their group's members': not here.
 import clsx from 'clsx'
-import { ShieldCheck, UserRound, UsersRound } from 'lucide-react'
+import { ShieldCheck } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { AccessTreeWho, FolderAccessResponse, SkillManagerGrant } from '@mycel/shared/api'
@@ -19,6 +19,9 @@ import { api, API } from '../../lib/api'
 import { skillEditorsElsewhere, skillEditorsText, skillFoldersWithEditors } from '../../lib/access-view'
 import { useT } from '../../i18n'
 import { Button, ErrorNote, Modal, Skeleton, confirmDialog } from '../../components/ui'
+import { Avatar } from '../../components/Avatar'
+import { GroupTile } from '../../components/GroupTile'
+import { useFaceOf } from '../../store/people'
 import { toast } from '../../store/ui'
 import { useAction, useActionOk, useLoad } from './common'
 import { AddNamed, type NamedOption } from './AddNamed'
@@ -200,6 +203,7 @@ function SkillManagerDialog({ node, onClose, onChanged }: { node: SkillsNode; on
   const people = (users.data ?? []).filter((u) => u.role === 'member' && u.status === 'active')
   const taken = new Set(grants.filter((g) => g.path === SKILLS).map((g) => `${g.subjectType}:${g.subjectId}`))
   const elsewhere = skillEditorsElsewhere(t, node.who, node.members)
+  const faceOf = useFaceOf()
 
   const remove = async (g: SkillManagerGrant, i: number) => {
     // one at a time; the button keeps the focus while the server is asked (the confirm gives it back)
@@ -255,16 +259,18 @@ function SkillManagerDialog({ node, onClose, onChanged }: { node: SkillsNode; on
           <>
             <ul ref={list} className="-mt-2 divide-y divide-line" data-testid="skill-editors-list">
               <li className="flex min-h-11 items-center gap-2 py-2" data-testid="skill-editor-always">
-                <ShieldCheck size={15} className="shrink-0 text-faint" aria-hidden />
+                {/* in a box as wide as the faces below, so the names line up */}
+                <span className="flex size-5 shrink-0 items-center justify-center text-faint" aria-hidden>
+                  <ShieldCheck size={15} />
+                </span>
                 <span className="min-w-0 flex-1 text-sm font-medium text-ink">{t('skillMgr.ownerAdmins')}</span>
                 <span className="shrink-0 px-2.5 text-label text-muted">{t('skillMgr.always')}</span>
               </li>
               {grants.map((g, i) => {
                 const name = nameOf(g)
-                const Icon = g.subjectType === 'group' ? UsersRound : UserRound
                 return (
                   <li key={grantKey(g)} className="flex min-h-11 items-center gap-2 py-2" data-testid="skill-editor" data-subject={`${g.subjectType}:${g.subjectId}`} data-path={g.path}>
-                    <Icon size={15} className="shrink-0 text-faint" aria-hidden />
+                    {g.subjectType === 'group' ? <GroupTile size={20} /> : <Avatar user={faceOf({ id: g.subjectId, name })} size={20} />}
                     <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-1.5">
                       <span className="min-w-0 text-sm font-medium [overflow-wrap:anywhere] text-ink">{name}</span>
                       {/* the kind only: a member count here would differ from the line's (people a group's rule decides for) */}

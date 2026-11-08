@@ -12,7 +12,8 @@ export type DriveShareFolder = z.infer<typeof DriveShareFolder>
 export const DriveTeamShare = z.object({ id: z.string(), name: z.string(), folders: z.array(DriveShareFolder), wholeDrive: z.boolean() })
 export type DriveTeamShare = z.infer<typeof DriveTeamShare>
 /** `personalAllowed`: the team lets members connect their own Drive (Admin › Connectors › Google Drive; older servers
- * leave it out: allowed). `teamShares`: the Drives an admin shares with this person, usable without a connection. */
+ * leave it out: allowed). While it is false an owner or admin may still connect their own, turning it on at the confirm
+ * (completeDriveFlow `membersOn`). `teamShares`: the Drives an admin shares with this person, usable without a connection. */
 export const DriveConnection = z.object({
   configured: z.boolean(), status: z.enum(['disabled', 'disconnected', 'connected', 'needs_reconnect']),
   account: DriveAccount.nullable(), scopes: z.array(z.string()), expiresAt: z.string().nullable(),
@@ -53,6 +54,9 @@ export const DriveShareName = z.string().trim().min(1).max(60)
 export const UpdateDriveShareBody = z.object({
   name: DriveShareName.optional(), folders: z.array(DriveId).max(50).optional(), wholeDrive: z.boolean().optional(), access: IntegrationAccess.optional(),
 }).strict()
+/** `membersOn`: an owner or admin who connects their own Drive while members may not connect theirs also turns that on,
+ * in the same step as the confirm (docs/DECISIONS.md "W6"); refused for anyone else, and needed then. */
+export const CompleteDriveFlowBody = z.object({ membersOn: z.literal(true).optional() })
 const Authorization = z.object({ flowId: z.string(), authorizationUrl: z.string().url(), expiresAt: z.string() })
 /** The Google OAuth web client: the JSON file Google Cloud downloads (`file`), or its client ID and secret. */
 export const SetDriveClientBody = z.object({
@@ -63,7 +67,7 @@ export const DRIVE = {
   myDriveConnection: endpoint({ method: 'GET', path: '/api/integrations/google-drive', auth: 'user', owner: 'C', response: DriveConnection, summary: 'Own Google Drive connection; never a token.' }),
   authorizeDrive: endpoint({ method: 'POST', path: '/api/integrations/google-drive/authorize', auth: 'user', owner: 'C', body: z.object({}), response: Authorization, summary: 'Start personal Google authorization in a system browser.' }),
   driveFlow: endpoint({ method: 'GET', path: '/api/integrations/google-drive/flows/:id', auth: 'user', owner: 'C', response: DriveFlow, summary: 'Poll the flow started by this same signed-in session.' }),
-  completeDriveFlow: endpoint({ method: 'POST', path: '/api/integrations/google-drive/flows/:id/complete', auth: 'user', owner: 'C', body: z.object({}), response: DriveConnection, summary: 'Confirm the Google account shown by this own authorization flow.' }),
+  completeDriveFlow: endpoint({ method: 'POST', path: '/api/integrations/google-drive/flows/:id/complete', auth: 'user', owner: 'C', body: CompleteDriveFlowBody, response: DriveConnection, summary: 'Confirm the Google account shown by this own authorization flow. While members may not connect their own Drive, an owner or admin confirms with membersOn: true, which turns that switch on with the connection.' }),
   cancelDriveFlow: endpoint({ method: 'DELETE', path: '/api/integrations/google-drive/flows/:id', auth: 'user', owner: 'C', response: empty, status: 204, summary: 'Cancel this own authorization flow.' }),
   disconnectDrive: endpoint({ method: 'DELETE', path: '/api/integrations/google-drive', auth: 'user', owner: 'C', response: z.object({ disconnected: z.literal(true), revocation: z.enum(['revoked', 'unavailable', 'not_needed']) }), summary: 'Immediately disable own Drive access, then attempt Google revocation.' }),
   driveAdminStatus: endpoint({ method: 'GET', path: '/api/admin/google-drive', auth: 'admin', owner: 'C', response: DriveAdminStatus, summary: 'Whether Google Drive is set up on this server, by whom, and how many members are connected; never the client.' }),

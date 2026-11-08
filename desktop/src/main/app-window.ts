@@ -23,6 +23,7 @@ import { directFromConnectInfo, fetchConnectInfo, lanFailureCode, lanFailureToRe
 import { BrowserPane, type PaneActivity, type PanePrompt } from './pane/pane'
 import { HostClassifier, sessionResolver } from './pane/classify'
 import { APP_WEB_PREFERENCES, guardAppView, guardUiView, hardenAppSession } from './security'
+import type { FolderGrants } from '../common/folder-access'
 import type { TeamsStore } from './teams-store'
 import { debug } from './debug'
 
@@ -85,6 +86,8 @@ export class AppWindow {
   private recheckTimer?: NodeJS.Timeout
   private lastCheck = 0
   private configuredSessions = new WeakSet<Session>()
+  /** each team page session's folder window picks (common/folder-access.ts), forgotten when the person changes */
+  private folderGrants = new WeakMap<Session, FolderGrants>()
   /** system notifications for the team page (common/notify.ts): unfocused only, one per tag, a click opens its
    * address; a team switch closes them all */
   private notifier = makeNotifier({
@@ -457,7 +460,7 @@ export class AppWindow {
   private configureAppSession(ses: Session) {
     if (this.configuredSessions.has(ses)) return
     this.configuredSessions.add(ses)
-    hardenAppSession(ses, () => this.allowedOrigins())
+    this.folderGrants.set(ses, hardenAppSession(ses, () => this.allowedOrigins()))
     pinCertificates(
       ses,
       () => (this.team ? this.team.direct : null),
@@ -517,12 +520,16 @@ export class AppWindow {
     try {
       const res = await this.app.webContents.session.fetch(`${this.currentOrigin}/api/me`, { signal: AbortSignal.timeout(5000) })
       if (res.status === 401) {
-        if (this.team?.id === team.id) await this.checkBrowserOwner(team.id, pane, { signedIn: false })
+        if (this.team?.id === team.id) {
+          this.folderPerson({ signedIn: false })
+          await this.checkBrowserOwner(team.id, pane, { signedIn: false })
+        }
         return false
       }
       if (!res.ok) return false
       const me = Me.safeParse(await res.json())
       if (!me.success || this.team?.id !== team.id || this.pane !== pane) return false
+      this.folderPerson({ signedIn: true, userId: me.data.user.id })
       await this.checkBrowserOwner(team.id, pane, { signedIn: true, userId: me.data.user.id })
       const allowAll = me.data.team.browserAllowAll
       if (typeof allowAll === 'boolean' && pane && this.pane === pane) pane.setTeamPolicy(allowAll)
@@ -536,6 +543,12 @@ export class AppWindow {
       // Keep the label offline, but a browser call must not use an unverified identity.
       return false
     }
+  }
+
+  /** The folders picked in the team page's folder window belong to the person who picked them (docs/DECISIONS.md
+   * "W6"): a sign-out or another person signing in on this team forgets them. */
+  private folderPerson(me: MeResult) {
+    if (this.app && !this.app.webContents.isDestroyed()) this.folderGrants.get(this.app.webContents.session)?.person(me)
   }
 
   /**

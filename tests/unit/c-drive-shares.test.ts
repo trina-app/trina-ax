@@ -242,6 +242,34 @@ test('when its admin is disabled the share stops, its tokens go, and the admins 
   expect((await text('drive_read', { fileId: 'in-1' })).text).toContain('IN-FOLDER budget')
 })
 
+// docs/DECISIONS.md "W6" (onboarding v6's 도구 연결, re-check N1): an owner or admin may start their own sign-in while
+// the switch is off; the switch turns on only with the confirmed account, and only when the confirm asks for it
+test('the members’ switch off: an owner or admin may still sign in to their own Drive; the confirm with membersOn turns it on; a cancel or a confirm without it changes nothing; members are refused', async () => {
+  expect(() => svc.authorize('alice', 'alice-session')).toThrow('drive_members_off')
+  // the owner starts; cancelling changes nothing
+  const first = svc.authorize('dana', 'dana-session')
+  svc.cancel('dana', 'dana-session', first.flowId)
+  expect(svc.status('alice').personalAllowed).toBe(false)
+  // signed in, but confirmed without asking to turn the switch on: refused, nothing changes
+  const f = svc.authorize('dana', 'dana-session')
+  await svc.callback(fake.authorize(f.authorizationUrl, 'dana'), { userId: 'dana', sessionId: 'dana-session' })
+  expect(() => svc.complete('dana', 'dana-session', f.flowId)).toThrow('drive_members_off')
+  expect(svc.status('dana').status).toBe('disconnected')
+  expect(svc.status('alice').personalAllowed).toBe(false)
+  // the confirm that names it: connected, and the switch is on for everyone, in one step, audited
+  expect(svc.complete('dana', 'dana-session', f.flowId, { membersOn: true })).toMatchObject({ status: 'connected', personalAllowed: true })
+  expect(svc.status('alice').personalAllowed).toBe(true)
+  expect(a.ctx.db.query("SELECT actor_id AS actor, detail FROM audit_log WHERE action = 'drive.members_switch' ORDER BY id DESC LIMIT 1").get()).toMatchObject({ actor: 'dana' })
+  // an admin may too; a member who asks for it while it is off is still refused
+  setMembersCanConnect(a.ctx, 'carol', false)
+  const c = svc.authorize('carol', 'carol-session')
+  await svc.callback(fake.authorize(c.authorizationUrl, 'carol'), { userId: 'carol', sessionId: 'carol-session' })
+  expect(svc.complete('carol', 'carol-session', c.flowId, { membersOn: true }).status).toBe('connected')
+  setMembersCanConnect(a.ctx, 'carol', false)
+  expect(() => svc.authorize('alice', 'alice-session')).toThrow('drive_members_off')
+  setMembersCanConnect(a.ctx, 'carol', false)
+})
+
 test('the members’ switch: off by default; their own Drive only while it is on; the team share works either way', async () => {
   expect(svc.status('alice').personalAllowed).toBe(false)
   expect(() => svc.authorize('alice', 'alice-session')).toThrow('drive_members_off')
