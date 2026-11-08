@@ -11,7 +11,7 @@
 //   plugins/<id>/<version>/<file>          official plugin packages (docs/PLUGINS.md)          immutable
 //   apps/android/<version>/<file>          the Android app's APK for people who install it     immutable
 //                                          themselves (the website's download links)
-//   ip                                    the caller's own address as Cloudflare saw it       never cached
+//   ip                                     the caller's own address as Cloudflare saw it       never cached
 // with Range for resumed downloads. Nothing is listed; every other path is 404. `ip` is how a team server learns its
 // public exit address (server/src/tools/egress.ts: web_fetch refuses it, so a page cannot send the AI back through the
 // server's own router); it answers only what the caller already knows, and keeps nothing. The signatures and the hashes in the

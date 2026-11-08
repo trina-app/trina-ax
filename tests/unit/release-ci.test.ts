@@ -255,6 +255,8 @@ describe('the feed Worker (scripts/release/worker.js)', () => {
     'server/x.json': 'stray', 'secret/key.pem': 'nope', 'server/0.3.0/sub/file': 'deep',
     'plugins/app.trina.hwp-preview/1.0.0/app.trina.hwp-preview-1.0.0-linux-x64.trinaplugin': 'package', 'plugins/stray.bin': 'stray',
     'apps/android/1.0.2/Trina-AX-1.0.2-android.apk': 'apk', 'apps/android/1.0.2/notes.txt': 'not an apk', 'apps/ios/1.0.2/a.apk': 'other',
+    // present in the bucket, so only the Worker's own rule can refuse them
+    'apps/android/latest/a.apk': 'alias', 'apps/android/1.0.2/sub/a.apk': 'deep', 'apps/android/1.0.2/A.APK': 'case', 'apps/a.apk': 'shallow',
   }
   const env = { BUCKET: fakeBucket(objects) }
   const get = async (w: Awaited<ReturnType<typeof loadWorker>>, p: string, init: RequestInit = {}) => w.fetch(new Request(`https://feed.example${p}`, init), env)
@@ -288,7 +290,7 @@ describe('the feed Worker (scripts/release/worker.js)', () => {
     expect(r.headers.get('cache-control')).toBe('public, max-age=31536000, immutable')
     expect(await r.text()).toBe('apk')
     expect((await get(w, p, { headers: { range: 'bytes=1-2' } })).status).toBe(206)
-    for (const bad of ['/apps/android/1.0.2/notes.txt', '/apps/ios/1.0.2/a.apk', '/apps/android/latest/a.apk', '/apps/android/1.0.2/', '/apps/android/1.0.2/sub/a.apk', '/apps/']) {
+    for (const bad of ['/apps/android/1.0.2/notes.txt', '/apps/ios/1.0.2/a.apk', '/apps/android/latest/a.apk', '/apps/android/1.0.2/', '/apps/android/1.0.2/sub/a.apk', '/apps/android/1.0.2/A.APK', '/apps/a.apk', '/apps/']) {
       expect((await get(w, bad)).status, bad).toBe(404)
     }
     expect((await get(w, p, { method: 'PUT' })).status).toBe(405)
