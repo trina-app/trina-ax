@@ -87,4 +87,4 @@ result lost its always-empty `folders`; `skills/author.ts` also knows the names 
 Checks: typecheck, check:i18n (0 issues), check:docs pass; server unit tests of the area 892 pass / 5 fail (all five in
 `skills.test.ts`, failing the same on a clean origin/dev); web unit 1657 pass / 1 fail / 1 error (a send-queue timing
 test that passes alone, and the suite-level unhandled error origin/dev has too); full chromium e2e 806 passed, 13
-skipped, 0 failed. PR: see the pull request for this branch.
+skipped, 0 failed (after merging #183/#184: 62 targeted e2e passed). PR: https://github.com/trina-app/trina-ax/pull/186
