@@ -18,6 +18,8 @@ let view: 'main' | 'unknown' | 'none' = 'main'
 /** a kit build's address is filled in once; after that the field is the person's */
 let suggestedUsed = false
 function takeState(s: WelcomeState) {
+  // ④ appears: an error from before (a refused link, an address that failed) is not about this link
+  if (s.link && !state.link) error = ''
   state = s
   // a link from outside that cannot open a team: said once, on ①
   if (s.linkError) {
