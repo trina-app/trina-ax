@@ -14,8 +14,8 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 const exec = promisify(execFile)
 
-/** A made-up home: Documents with a company folder and a folder that is a link to home, Downloads, app data and a
- * made-up secret. The fixture also moves Desktop to the home folder itself. */
+/** A made-up home: Documents with a company folder (holding a link to home and one to the secret) and a folder that is
+ * a link to home, Downloads, app data and a made-up secret. The fixture also moves Desktop to the home folder itself. */
 function fakeHome(dir: string): string {
   const home = join(dir, 'home')
   mkdirSync(join(home, 'Documents', 'company', 'sub'), { recursive: true })
@@ -26,6 +26,9 @@ function fakeHome(dir: string): string {
   mkdirSync(join(home, '.aws'))
   writeFileSync(join(home, '.aws', 'credentials'), 'FAKE-SECRET-FOR-THIS-TEST')
   symlinkSync(home, join(home, 'Documents', 'home-link'))
+  // links inside the folder the test picks: to home and to the made-up secret
+  symlinkSync(home, join(home, 'Documents', 'company', 'to-home'))
+  symlinkSync(join(home, '.aws', 'credentials'), join(home, 'Documents', 'company', 'secret-link'))
   return home
 }
 
@@ -50,6 +53,14 @@ test('a folder picked in the window is readable by the team page, read only; nev
     expect([out.pickWritable, out.pickSubframe, out.pickOtherOrigin, out.pick]).toEqual([false, false, false, true])
     expect(out.afterPick).toEqual({ state: 'handle', kind: 'directory', read: 'granted', write: 'denied', names: ['a.txt', 'sub'] })
     expect(out.readFile).toBe('A')
+    // links inside a picked folder are not listed (above) and not followed, on macOS; an upgrade that starts following
+    // them fails here (Windows junctions are not measured)
+    expect([out.linkToHome, out.linkToSecret]).toEqual(['NotFoundError', 'NotFoundError'])
+    // after a sign-out: the File the page already had stays readable, nothing new can be read until a new pick
+    expect(out.keep).toBe(1)
+    expect(out.forgotKept).toBe('A')
+    expect([out.forgotNew, out.forgotList, out.forgotQuery]).toEqual(['NotAllowedError', 'NotAllowedError', 'denied'])
+    expect([out.pickAgain, out.readAgain]).toEqual([true, 'A'])
     expect(out.createFile).toBe('NotAllowedError')
     expect(out.askWrite).toBe('denied')
     expect(out.inside).toEqual({ state: 'handle', kind: 'directory', read: 'granted', write: 'denied', names: ['c.txt'] })

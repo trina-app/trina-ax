@@ -14039,10 +14039,12 @@ folder for 팀 파일). The owner decided (OPEN Q1) to fix only the desktop app'
     strings apply to it too, and change nothing there.
 - **What is allowed now.** `fileSystem` with `fileAccessType: 'readable'` only:
   - the request (sent right after a pick, for the picked folder): the team page's top frame at the team address or its
-    office address, and never the home folder or a folder that holds it (`opensHome`, below). The folder is
-    remembered for that origin while the app runs (`FolderGrants`), for the person signed in: a sign-out, or another
-    person signing in on the same team (the app's `GET /api/me` read, as for the in-app browser's data), forgets
-    every pick;
+    office address, for a folder only (a single file is never remembered), and never the home folder or a folder that
+    holds it (`opensHome`, below). The folder is remembered for that origin while the app runs (`FolderGrants`), for
+    the person signed in: a sign-out, or another person signing in on the same team (the app's `GET /api/me` read, as
+    for the in-app browser's data), forgets every pick, and a pick still being checked then is not remembered. After a
+    forget, a `File` the page already read stays readable (it is the page's copy); nothing new can be read, listed or
+    opened until a new pick (pinned in the spec);
   - the check (before every read): an allowed origin, and the folder is one picked for that origin, or inside one
     (`.` and `..` resolved). Electron gives a check no frame, so a read counts for the origin: whatever of the team page
     holds the handle (its frames and workers at that origin) reads it. Only the pick is limited to the top frame;
@@ -14068,21 +14070,30 @@ folder for 팀 파일). The owner decided (OPEN Q1) to fix only the desktop app'
 - **Home under another name (security review must-fix).** A root can be home, or above it: Windows lets people move
   Documents, Desktop or Downloads to `C:\Users\<name>` or `C:\`, and on macOS ~/Desktop can be a link to ~. So both
   the restricted folder and the request refuse a path that is home or holds it (`opensHome`): as written and with its
-  links resolved (`fs.realpathSync.native`, which looks at the path's own entry only), against home as written,
+  links resolved (`fs.realpath`, which looks at the path's own entries only), against home as written,
   resolved and, on macOS, under the Data volume's name (`/System/Volumes/Data/Users/<name>`, so `/System` and
-  `/System/Volumes/Data` count as holding home), without case on Windows and macOS. A home that cannot be told
-  allows nothing. Under Desktop, Documents and Downloads, Chromium still refuses files that are or link into
-  its blocked folders, checked per file (Chromium 152's directory-iteration blocklist check, on by default).
+  `/System/Volumes/Data` count as holding home), without case on Windows and macOS. Then by identity (re-review):
+  the pick's device and file number (`fs.stat` with `bigint`, links followed) against home's and each folder above
+  it, which catches what no name rule knows: a mapped drive (`H:` onto `\\localhost\c$\Users\<name>`), a junction
+  or a `subst` drive onto the profile. Anything it cannot tell refuses: no home, an identity of 0 (some NAS shares
+  give no file number, so such a drive cannot be picked), a realpath or stat that fails or takes over 3 s (each runs
+  off the main thread with a time limit, so a slow network drive never freezes the app), and every network or device
+  path written as one (`\\server\share`, `\\?\…`; a share of the profile is one), refused without asking the
+  network (pick its mapped drive letter instead). Under Desktop, Documents and Downloads, Chromium still refuses files
+  that are or link into its blocked folders, checked per file (Chromium 152's directory-iteration blocklist check, on
+  by default).
 - **Not here.** The one-press read with no window (OPEN Q1, later; it needs the main process's own confirm, the fixed
   path list and key removal, walk M5). The page's hint when macOS refuses a folder anyway. Single files picked with
-  `showOpenFilePicker` outside a picked folder stay unreadable (only folders are remembered; the page picks files with
-  `<input type=file>`). A picked folder that holds a link to home still lets the page follow it, as in Chrome (Chromium
-  checks a file's resolved path only against its own blocklist).
+  `showOpenFilePicker` are never remembered, so they stay unreadable (the request refuses anything but a folder; the
+  page picks files with `<input type=file>`). Links inside a picked folder are neither listed nor followed on macOS
+  (`NotFoundError`; a link to home and one to a file are measured and pinned in the spec, so an Electron that starts
+  following them fails it); Windows junctions inside a picked folder are not measured.
 - Tests: `tests/unit/e-desktop-folder-window.test.ts` (the request, the check and the restricted folder, every refusal,
   Windows paths, the wiring, the pane and the store build), `desktop/e2e/folder-window.spec.ts` (the real Electron with a
   hidden window: a dropped folder and the page's own requestPermission() (never reaching the request handler), the
-  request a pick sends, reads, a file, a write, a folder inside, Downloads (allowed), the home folder (refused, also
-  when Desktop is moved there), a link to home, app data, another origin; fails on the previous rules). Tests never
+  request a pick sends, reads, a file, a write, a folder inside, links inside it (not followed), a sign-out (the read
+  `File` stays, nothing new), Downloads (allowed), the home folder (refused, also when Desktop is moved there), a link
+  to home, app data, another origin; fails on the previous rules). Tests never
   touch this computer's home: the unit tests use made-up paths with a made-up `realpath`, and the real-Electron spec
   runs in a made-up home in a temporary folder (HOME and every `app.getPath` point there; the fixture refuses to start
   otherwise) with a made-up secret that must stay unread. Run the spec by hand on a Mac on every Electron upgrade

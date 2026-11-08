@@ -5,7 +5,7 @@
 // (artifact and preview frames cannot navigate away), WebRTC limited to proxied UDP, and RTCPeerConnection removed
 // from every subframe before its scripts run (an artifact must not leak data over WebRTC, which CSP doesn't cover).
 import { app, shell, type Session, type WebContents } from 'electron'
-import { realpathSync } from 'node:fs'
+import { realpath, stat } from 'node:fs/promises'
 import { originOf } from '../common/address'
 import { FolderGrants, PICKABLE_BLOCKED_ROOTS, restrictedFolderAction, type FolderCheck, type FolderRequest, type FolderSystem } from '../common/folder-access'
 import { isOwnUiUrl } from '../common/trust'
@@ -26,11 +26,24 @@ function folderRoots(): string[] {
   })
 }
 
-/** The computer as the folder rules see it: the home folder, and a path with its links resolved (only the path's own
- * entry is looked at, nothing in it is read). */
+/** How long the folder rules wait for the file system about one path (a slow network drive): then the pick is refused. */
+const FOLDER_LOOKUP_MS = 3000
+
+/** p, or a rejection after FOLDER_LOOKUP_MS. The lookup runs off the main thread (libuv), so a stuck one blocks nothing. */
+function inTime<T>(p: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('the file system did not answer in time')), FOLDER_LOOKUP_MS)
+  })
+  return Promise.race([p, late]).finally(() => clearTimeout(timer))
+}
+
+/** The computer as the folder rules see it: the home folder, a path with its links resolved, a folder's identity. Only
+ * the path's own entries are looked at; nothing in a folder is listed or read. */
 const FOLDER_SYSTEM: FolderSystem = {
   home: () => app.getPath('home'),
-  realpath: (path) => realpathSync.native(path),
+  realpath: (path) => inTime(realpath(path)),
+  identity: (path) => inTime(stat(path, { bigint: true })).then((s) => ({ dev: s.dev, ino: s.ino })),
 }
 
 export const APP_WEB_PREFERENCES = {
@@ -67,7 +80,11 @@ export function openExternal(url: string) {
 export function hardenAppSession(ses: Session, allowedOrigins: () => readonly string[]): FolderGrants {
   const folders = new FolderGrants(process.platform, FOLDER_SYSTEM)
   ses.setPermissionRequestHandler((_wc, permission, done, details) => {
-    if (permission === 'fileSystem') return done(folders.request(details as FolderRequest, allowedOrigins()))
+    if (permission === 'fileSystem') {
+      // answered once the home check is done (a few seconds at most); anything unexpected refuses
+      void folders.request(details as FolderRequest, allowedOrigins()).then(done, () => done(false))
+      return
+    }
     done(details.isMainFrame && allowedOrigins().includes(originOf(details.requestingUrl)) && PAGE_PERMISSIONS.has(permission))
   })
   ses.setPermissionCheckHandler((_wc, permission, requestingOrigin, details) => {
@@ -77,14 +94,14 @@ export function hardenAppSession(ses: Session, allowedOrigins: () => readonly st
   ses.setDevicePermissionHandler(() => false)
   // a folder Chromium's blocklist refuses: the page's pick settles only when the callback is called, so it always is
   ses.on('file-system-access-restricted', (_e, d, callback) => {
-    let action: 'allow' | 'deny' = 'deny'
+    let decided: Promise<'allow' | 'deny'>
     try {
       const isTopFrame = !!d.frame && d.frame.parent === null
-      action = restrictedFolderAction({ origin: d.origin, path: d.path, isDirectory: d.isDirectory, isTopFrame }, allowedOrigins(), folderRoots(), process.platform, FOLDER_SYSTEM)
+      decided = restrictedFolderAction({ origin: d.origin, path: d.path, isDirectory: d.isDirectory, isTopFrame }, allowedOrigins(), folderRoots(), process.platform, FOLDER_SYSTEM)
     } catch {
-      action = 'deny' // the frame went away meanwhile, or anything else unexpected
+      decided = Promise.resolve('deny') // the frame went away meanwhile, or anything else unexpected
     }
-    callback(action)
+    void decided.then(callback, () => callback('deny'))
   })
   // the caller tells it who is signed in (FolderGrants.person): a sign-out or another person forgets the picks
   return folders

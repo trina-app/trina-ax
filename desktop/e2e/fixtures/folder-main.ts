@@ -88,7 +88,8 @@ void (async () => {
       restricted.push({ path: d.path, action: a })
       cb(a)
     }))
-  hardenAppSession(ses, () => [team])
+  const grants = hardenAppSession(ses, () => [team])
+  grants.person({ signedIn: true, userId: 'u-alex' })
 
   const folder = join(app.getPath('documents'), 'company')
   const win = new BrowserWindow({ show: false, width: 400, height: 300, webPreferences: { session: ses, contextIsolation: true, sandbox: true } })
@@ -117,6 +118,20 @@ void (async () => {
   out.pick = await picked(folder)
   out.afterPick = await drop(folder)
   out.readFile = await js("window.handle.getFileHandle('a.txt').then((f) => f.getFile()).then((f) => f.text()).catch((e) => e.name)")
+  // links inside the picked folder (one to home, one to the made-up secret): not listed, not followed
+  out.linkToHome = await js("window.handle.getDirectoryHandle('to-home').then(() => 'followed').catch((e) => e.name)")
+  out.linkToSecret = await js("window.handle.getFileHandle('secret-link').then((f) => f.getFile()).then((f) => f.text()).catch((e) => e.name)")
+  // the person signs out: a File the page already has stays readable, nothing new can be read
+  out.keep = await js("window.handle.getFileHandle('a.txt').then((f) => f.getFile()).then((f) => { window.kept = f; return f.size })")
+  grants.person({ signedIn: false })
+  out.forgotKept = await js('window.kept.text()')
+  out.forgotNew = await js("window.handle.getFileHandle('a.txt').then((f) => f.getFile()).then((f) => f.text()).catch((e) => e.name)")
+  out.forgotList = await js("(async () => { const n = []; for await (const [k] of window.handle.entries()) n.push(k); return n })().catch((e) => e.name)")
+  out.forgotQuery = await js("window.handle.queryPermission({ mode: 'read' })")
+  // signed in again, the person picks the folder again
+  grants.person({ signedIn: true, userId: 'u-alex' })
+  out.pickAgain = await picked(folder)
+  out.readAgain = await js("window.handle.getFileHandle('a.txt').then((f) => f.getFile()).then((f) => f.text()).catch((e) => e.name)")
   out.createFile = await js("window.handle.getFileHandle('new.txt', { create: true }).then(() => 'created').catch((e) => e.name)", true)
   out.askWrite = await js("window.handle.requestPermission({ mode: 'readwrite' }).catch((e) => e.name)", true)
   out.inside = await drop(join(folder, 'sub'))
