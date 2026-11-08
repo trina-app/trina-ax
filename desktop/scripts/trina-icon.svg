@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<!-- The desktop app's icon (Trina edition): the macOS icon grid (an 824 px tile with 184 px corners on a 1024 px canvas),
+     the tile's warm-black gradient and light edge, and the mark of web/public/favicon.svg at 0.82 of the tile, as in the
+     web app's Dock icon (web/scripts/make-icons.ts FULL_BLEED_MARK). Render:
+     rsvg-convert -w 1024 -h 1024 desktop/scripts/trina-icon.svg -o desktop/build-resources/icon.png -->
+<defs><linearGradient id="tile" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1e1a17"/><stop offset="1" stop-color="#0d0b0a"/></linearGradient></defs>
+<rect x="100" y="100" width="824" height="824" rx="184" fill="url(#tile)" stroke="#fff" stroke-opacity=".1" stroke-width="3"/>
+<g transform="translate(100 100) scale(25.75) translate(16 16) scale(.82) translate(-16 -16)"><defs><mask id="m" maskUnits="userSpaceOnUse" x="-8" y="-8" width="48" height="48"><rect x="-8" y="-8" width="48" height="48" fill="#fff"/><path d="M16 19.028L11.497 13.85L2.528 11.25L11.497 8.65L16 3.472L20.503 8.65L29.472 11.25L20.503 13.85Z" fill="#000" stroke="#000" stroke-width="3" stroke-linejoin="round"/><path d="M16 19.028L16 29.528" stroke="#000" stroke-width="1.65"/></mask></defs><g fill="#f6f2ea" stroke="#f6f2ea" stroke-width="0.25" stroke-linejoin="round" mask="url(#m)"><path d="M29.472 11.25L20.503 13.85L20.503 23.35L29.472 20.75Z"/><path d="M11.497 13.85L2.528 11.25L2.528 20.75L11.497 23.35Z"/><path d="M16 19.028L11.497 13.85L11.497 23.35L16 28.528Z"/><path d="M20.503 13.85L16 19.028L16 28.528L20.503 23.35Z"/></g><path d="M16 19.028L11.497 13.85L2.528 11.25L11.497 8.65L16 3.472L20.503 8.65L29.472 11.25L20.503 13.85Z" fill="#ff6a33"/></g>
+</svg>
