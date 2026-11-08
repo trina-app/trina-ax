@@ -17,7 +17,7 @@ Trina AX에서 각자 볼 수 있는 범위와, 그 범위를 AI가 넘지 못�
 | `users/<id>/skills/` (personal skills) | **The owner only**, the same as all of `users/<id>/`. Owner and admins cannot see them. |
 | 스킬 제안 ("스킬로 제안") | 제안한 사람과 **제안을 넣을 폴더의 스킬 관리자**만. 다른 사람에게는 있다는 것도 안 보임 |
 | 내 스킬 가져오기 (공유 제안) | **만든 사람만** (owner·관리자만 만들 수 있음). 다른 관리자도 못 봄(404). 멤버는 만들 수 없고(403) 지금처럼 "스킬로 제안"을 씀 |
-| `users/<id>/` (개인 폴더) | **본인만**. owner·admin도 못 봄 |
+| `users/<id>/` (개인 폴더) | **본인만**. owner·admin도 못 봄. 단, 그 사람을 지우면 기본(`personalFolder=transfer`)으로 폴더가 owner의 개인 폴더 안 `보관된 계정/<id>/`(팀 기본 언어 이름)로 옮겨지고 그때부터 **owner만** 봄(채팅 첨부 `.attachments/`는 지움). 그 안의 개인 프로젝트(이름·지침)도 폴더를 따라가 owner에게 보임. 그 사람이 개인 폴더에 있을 때 저장된 이전 버전은 보통 owner에게도 안 보임. 지운 사람이 admin이어도 owner에게 감. `personalFolder=delete`(API)면 함께 지움 |
 | `.system/` | 아무도 못 봄 (서버 내부용) |
 | 채팅 | **본인만**. 관리자 화면의 기록에는 AI가 어떤 파일을 읽었는지만 나오고, 대화 내용은 나오지 않음. **공유 프로젝트 채팅**은 그 프로젝트 폴더를 지금 읽을 수 있는 사람(owner·관리자 포함; 폴더가 휴지통에 있으면 owner·관리자만). 아래 "공유 프로젝트 채팅" |
 
@@ -28,7 +28,7 @@ Trina AX에서 각자 볼 수 있는 범위와, 그 범위를 AI가 넘지 못�
 - 폴더를 고르고 "규칙 바꾸기"를 누르면 그 자리에서 편집 패널이 열립니다(휴대폰에서는 화면 전체). 먼저 **기본 접근**(아래에 정하지 않은 모든 팀원)을 고릅니다: 위 폴더 따르기(그 폴더에 "모두" 규칙 없음) / 정한 사람만("모두: 권한 없음") / 모두 읽기 / 모두 읽기·쓰기. "위 폴더 따르기"는 지금 그것이 무엇을 뜻하는지 서버가 계산해 보여 주고, 팀 폴더 맨 위에는 따를 폴더가 없으며, 연결 폴더(원본에서 한쪽으로만 복사)에는 "모두 읽기·쓰기"가 없습니다. 그다음 **사람과 그룹**을 검색해 더하고 각각 읽기·읽기·쓰기·권한 없음을 정합니다(사람 규칙이 그룹보다 먼저, 여러 그룹이면 가장 넓은 권한). 바꾸는 동안 서버가 같은 권한 함수로 누가 권한을 잃고 얻는지(쓰기→읽기도 줄어듦), 그 아래 규칙이 있는 폴더 중 같이 바뀌는 곳, 경고(shared·skills를 팀원의 AI가 못 읽게 됨, skills에서 모두가 쓰기 = 모두 스킬 관리자, 맨 위를 모두에게 엶)를 계산해 보여 주고(`POST /api/admin/access/edit-preview`, 저장하지 않음), 저장 버튼이 그 수를 말합니다. 예전 역할 규칙("팀원 전체"는 같은 뜻의 "모두"로, 효과가 없는 "관리자 전체"는 빠짐)은 저장할 때 정리되며 누구의 권한도 바뀌지 않습니다. 저장은 시작할 때 규칙의 해시(`Folder.rulesHash`)를 함께 보내고, 그사이 다른 관리자나 팀 스킬 화면의 "고칠 수 있는 사람" 창이 규칙을 바꿨으면 서버가 거부(409)해 패널이 다시 계산하고 알려 줍니다. "위 폴더 따르기"는 규칙을 비워 저장하는 것이고(행을 지우지 않음: 그룹 연결과 프로젝트 표시가 남음), "규칙 모두 지우기"는 정리용으로만 남았습니다(디스크에 없거나 트리에 안 보이는 폴더의 행, 프로젝트가 쓰지 않는 빈 행).
 - 그룹에서 빠지거나 규칙이 바뀌면 **바로** 적용됩니다. AI 도구는 호출할 때마다 권한을 다시 읽고, 권한을 잃은 채팅은 AI 세션을 새로 시작합니다.
 - AI는 **묻는 사람의 권한만큼만** 일합니다. alice의 AI는 alice가 볼 수 있는 것만 봅니다.
-- **내 스킬 가져오기**(DECISIONS "K"): owner나 관리자가 자기 Claude 스킬을 팀에 넣는 길. 고른 `.claude` 폴더(브라우저·데스크톱 앱)나 Claude Code(커넥터의 `share_skills`)가 보낸 스킬은 **공유 제안**으로만 서버에 남고, 파일은 팀 폴더 밖(`<data>/skill-shares/<id>/`)에서 기다립니다. 비밀 키가 든 스킬은 어디에도 쓰지 않습니다. 그 사람이 [팀에 공유]를 눌러야 그 사람 권한으로 저장되고(스킬 제안 승인과 같은 길: 폴더 규칙, 버전, `skills/` 변경 기록과 알림), 이름이 같은 팀 스킬은 바로 덮어쓰지 않고 채팅에서 확인 카드를 거쳐 합칩니다. 도구 연결은 키 없이 템플릿으로만 들어가 팀원이 각자 연결합니다.
+- **내 스킬 가져오기**(DECISIONS "SK"): owner나 관리자가 자기 Claude 스킬을 팀에 넣는 길. 고른 `.claude` 폴더(브라우저·데스크톱 앱)나 Claude Code(커넥터의 `share_skills`)가 보낸 스킬은 **공유 제안**으로만 서버에 남고, 파일은 팀 폴더 밖(`<data>/skill-shares/<id>/`)에서 기다립니다. 비밀 키가 든 스킬은 어디에도 쓰지 않습니다. 그 사람이 [팀에 공유]를 눌러야 그 사람 권한으로 저장되고(스킬 제안 승인과 같은 길: 폴더 규칙, 버전, `skills/` 변경 기록과 알림), 이름이 같은 팀 스킬은 바로 덮어쓰지 않고 채팅에서 확인 카드를 거쳐 합칩니다. 도구 연결은 키 없이 템플릿으로만 들어가 팀원이 각자 연결합니다.
 - **커넥터는 스킬을 쓰지 못합니다.** 바깥 AI 앱(커넥터)은 `skills/`뿐 아니라 개인 스킬 `users/<id>/skills/`에도 쓰지 못합니다(write, edit, upload_file, create_upload_link와 그 PUT 모두, 대소문자 무관). 앱의 확인 카드를 바깥 모델이 대신할 수 없기 때문입니다. `users/<id>/`의 다른 파일은 그대로 쓸 수 있습니다.
 - **팀 스킬은 따로 조심합니다.** `skills/`의 내용은 팀 전체 AI가 따르는 지침입니다. 그래서 "팀 스킬 관리"는 별도 권한 표가 아니라 `skills/`(또는 하위 폴더)의 **쓰기 규칙** 그 자체입니다(폴더 권한 화면에도 같은 규칙으로 보임). 스킬 관리자의 AI라도 `skills/`에 저장하기 전에는 서버가 바뀌는 내용을 보여 주며 확인을 받고(AI가 대신 답할 수 없는 카드), 확인이 없으면 쓰지 않습니다. 사람이든 AI든 `skills/`가 바뀌면 감사 기록에 남고, owner·관리자에게 버전 기록 링크가 붙은 알림이 갑니다.
 
@@ -57,6 +57,18 @@ A skill is an instruction that the person can read. It never gives more access. 
 - **No usage records for personal skills.** Admin > Usage and popular skills count team skills only, so no admin sees the name of a personal skill.
 - Team rules (a `skills/*.md` file without a skill header) are unchanged. A file without a header in `users/<id>/skills/` is not a rule.
 
+### Who reviews a skill proposal
+
+As the code works today (`server/src/skills/suggestions.ts`, `server/src/skills/share.ts`; DECISIONS "Group skills", "MC — Members contribute their own skills and files", "SK"). A "manager" of a folder is anyone who may write it; for a team folder that always includes the owner and admins. Whoever approves saves it with their own rights.
+
+| Proposal | Who sends it | Who reviews it |
+|---|---|---|
+| "스킬로 제안" into the team's `skills/` | anyone: a file of their own personal folder, or an AI answer in their own chat | the managers of the target skills folder (the proposer too, when they are one) |
+| A member's skill folders ("내 스킬 올리기", MC) | members only | the owner and admins only |
+| "내 스킬 가져오기" to the team (share proposal) | the owner and admins only | the proposer only, while still owner or admin |
+| A share proposal to a group | the owner or an admin who is in the group and may write its skills folder | the group's members who may write its skills folder (the proposer included); the owner and admins outside the group do not see it |
+| "스킬로 제안" into a group's skills (`groups/<g>/skills/`) | a member of that group | the group's members who may write that folder; the owner and admins outside the group do not see it |
+
 ## AI 연결 (관리자 > AI 제공자)
 
 AI가 답할 때 쓰는 계정(Claude 구독 토큰, API 키, ChatGPT 로그인)입니다. 자세한 근거는 [DECISIONS.md](DECISIONS.md) "AI 연결".
@@ -74,6 +86,7 @@ AI가 답할 때 쓰는 계정(Claude 구독 토큰, API 키, ChatGPT 로그인)
 | 어떤 연결로 답했는지 | 사용량 화면에서 연결별 합계 | 같음 | 못 봄 |
 
 - 어떤 연결이 답하는지는 서버가 정합니다: 본인 연결(팀이 허용했을 때) → 사람 지정 → 그룹 지정 → 팀 전체. **남의 개인 연결은 어떤 경우에도 다른 사람의 질문에 쓰이지 않습니다.**
+- 그룹이나 사람을 지우면 그 그룹·사람에게 한 지정도 지워집니다. 그래서 지정이 하나도 남지 않는 팀 연결은 **꺼집니다**(지정이 없으면 팀 전체가 쓰므로, 한 그룹용 키가 갑자기 모두의 것이 되지 않게). 삭제 확인 창이 꺼질 연결의 이름을 말하고, 관리자가 지우면 owner에게 알림이 갑니다. 지운 사람의 개인 연결(토큰·키)과 프로필(사진·직함·상태)도 함께 지워집니다.
 - 토큰·키는 브라우저에서 서버 공개키로 봉인되어 가고, 서버에는 암호화되어 저장됩니다. 저장한 뒤에는 owner도 다시 볼 수 없습니다.
 - AI 엔진은 진짜 토큰을 받지 않습니다. 턴마다 바뀌는 대리 토큰만 받고, 모델 프록시가 진짜 값을 붙여 보냅니다(Codex 포함).
 

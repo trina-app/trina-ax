@@ -36,6 +36,7 @@ import { MemberMenu, type MemberMenuItem } from './RowMenu'
 import { GroupChecks, RoleSelect, type MemberRole } from './people-choices'
 import { NewPersonPreview, personViewLink } from './AccessResults'
 import { TeamLinkDialog } from '../../components/onboarding/TeamLinkPanel'
+import { connectionsOnlyFor, loadConnections } from './ai-assignees'
 
 // the row menu lives in RowMenu.tsx (Groups uses it too); importers of Members keep working
 export { MemberMenu, type MemberMenuItem }
@@ -52,14 +53,16 @@ export default function Members() {
   const users = useLoad(() => api.call(API.listUsers, { query: { noAi: '1' } }))
   const invites = useLoad(async () => (await api.call(API.listInvites)).items)
   const groups = useLoad(async () => (await api.call(API.listGroups)).items)
+  // the team's AI connections: the delete confirmation names those only the person may use (ai-assignees.ts)
+  const connections = useLoad(loadConnections)
   const [inviteOpen, setInviteOpen] = useState(false)
   const [created, setCreated] = useState<CreatedInvite | null>(null)
   const [addOpen, setAddOpen] = useState(false)
   /** a temporary password to hand over, shown once with the sign-in address and the username */
   const [secret, setSecret] = useState<HandoverInfo | null>(null)
   const [resetting, setResetting] = useState<User | null>(null)
-  /** an admin removing a member: asked for their password first */
-  const [removing, setRemoving] = useState<User | null>(null)
+  /** an admin removing a member: asked for their password first (`off`: the AI connections the delete switches off) */
+  const [removing, setRemoving] = useState<{ user: User; off: string[] } | null>(null)
   const [resetLink, setResetLink] = useState<{ name: string; url: string; expiresAt: string } | null>(null)
   const [editing, setEditing] = useState<User | null>(null)
   // the person an inbox entry points at (?member=<id>): marked, and scrolled to once
@@ -103,13 +106,18 @@ export default function Members() {
   }
   /** the owner removes anyone listed; an admin only a member (the server checks the role again at the moment) */
   const canRemove = (u: User) => isOwner(me) || u.role === 'member'
-  // personal files are archived for the owner either way; the text only says that this person asked
-  const removeBody = (u: User) => (requested(u) ? t('accountDeletion.removeBody', { name: u.name, days: chatTrashDays(me) }) : t('members.removeBody', { days: chatTrashDays(me) }))
+  // personal files are archived for the owner either way; the text only says that this person asked. AI connections
+  // only this person may use are switched off by the delete (never given to the whole team): named in one more line
+  const removeBody = (u: User, off: string[]) => {
+    const text = requested(u) ? t('accountDeletion.removeBody', { name: u.name, days: chatTrashDays(me) }) : t('members.removeBody', { days: chatTrashDays(me) })
+    return off.length ? <><p>{text}</p><p className="mt-2" data-testid="member-delete-ai-off">{t('members.removeAiOff', { names: off.join(', ') })}</p></> : text
+  }
   const remove = async (u: User) => {
+    const off = connectionsOnlyFor(connections.data, { subjectType: 'user', subjectId: u.id })
     // an admin types their password again in the dialog below
-    if (!isOwner(me)) return setRemoving(u)
-    if (!(await confirmDialog({ title: t('members.removeTitle', { name: u.name }), body: removeBody(u), confirm: t('common.delete'), danger: true }))) return
-    if (await actOk(() => api.call(API.deleteUser, { params: { id: u.id }, body: {} }))) await users.reload()
+    if (!isOwner(me)) return setRemoving({ user: u, off })
+    if (!(await confirmDialog({ title: t('members.removeTitle', { name: u.name }), body: removeBody(u, off), confirm: t('common.delete'), danger: true }))) return
+    if (await actOk(() => api.call(API.deleteUser, { params: { id: u.id }, body: {} }))) { if (off.length) void connections.reload(); await users.reload() }
   }
   /** The actions used less often, for the rows this viewer manages (canManage): on a phone in the card's "…" menu with
    * the others, on a wide screen in the row's "…" menu next to Edit and Reset password, so the row keeps one line. */
@@ -396,12 +404,13 @@ export default function Members() {
       {removing && (
         <ReauthDialog
           danger
-          title={t('members.removeTitle', { name: removing.name })}
-          body={removeBody(removing)}
+          title={t('members.removeTitle', { name: removing.user.name })}
+          body={removeBody(removing.user, removing.off)}
           confirm={t('common.delete')}
           onClose={() => setRemoving(null)}
           onConfirm={async (password) => {
-            if (!(await actOk(() => api.call(API.deleteUser, { params: { id: removing.id }, body: { password } })))) return
+            if (!(await actOk(() => api.call(API.deleteUser, { params: { id: removing.user.id }, body: { password } })))) return
+            if (removing.off.length) void connections.reload()
             setRemoving(null)
             await users.reload()
           }}
