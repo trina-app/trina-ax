@@ -295,7 +295,7 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
 // ---------------- confirm / prompt dialogs (promise based) ----------------
 type DialogReq = { returnTo: HTMLElement | null } & (
   | { kind: 'confirm'; title: string; body?: ReactNode; confirm: string; danger?: boolean; resolve: (ok: boolean) => void }
-  | { kind: 'prompt'; title: string; body?: ReactNode; label: string; initial: string; select?: number; confirm: string; validate?: (v: string) => string | null; resolve: (v: string | null) => void }
+  | { kind: 'prompt'; title: string; body?: ReactNode; label: string; initial: string; select?: number; confirm: string; validate?: (v: string) => string | null; placeholder?: string; allowEmpty?: boolean; maxLength?: number; resolve: (v: string | null) => void }
 )
 
 const useDialogs = create<{ req: DialogReq | null; set: (r: DialogReq | null) => void }>((set) => ({ req: null, set: (req) => set({ req }) }))
@@ -312,8 +312,10 @@ export function confirmDialog(o: { title: string; body?: ReactNode; confirm: str
   const returnTo = menuOpener()
   return new Promise((resolve) => useDialogs.getState().set({ kind: 'confirm', ...o, returnTo, resolve }))
 }
-/** `select`: the first characters of `initial` that start selected (a file name without its extension). */
-export function promptDialog(o: { title: string; body?: ReactNode; label: string; initial?: string; select?: number; confirm: string; validate?: (v: string) => string | null }): Promise<string | null> {
+/** `select`: the first characters of `initial` that start selected (a file name without its extension). `allowEmpty`:
+ * an empty field may be saved too ('' comes back: a room's name, whose empty value is its own default, shown as the
+ * `placeholder`). */
+export function promptDialog(o: { title: string; body?: ReactNode; label: string; initial?: string; select?: number; confirm: string; validate?: (v: string) => string | null; placeholder?: string; allowEmpty?: boolean; maxLength?: number }): Promise<string | null> {
   const returnTo = menuOpener()
   return new Promise((resolve) => useDialogs.getState().set({ kind: 'prompt', initial: '', ...o, returnTo, resolve }))
 }
@@ -354,7 +356,7 @@ export function DialogHost() {
           <Button variant="ghost" onClick={() => close(false)}>
             {t('common.cancel')}
           </Button>
-          <Button variant={req.kind === 'confirm' && req.danger ? 'danger' : 'primary'} disabled={req.kind === 'prompt' && (!value.trim() || !!problem)} onClick={() => close(true)} data-testid="dialog-confirm">
+          <Button variant={req.kind === 'confirm' && req.danger ? 'danger' : 'primary'} disabled={req.kind === 'prompt' && ((!req.allowEmpty && !value.trim()) || !!problem)} onClick={() => close(true)} data-testid="dialog-confirm">
             {req.confirm}
           </Button>
         </>
@@ -366,11 +368,11 @@ export function DialogHost() {
           onSubmit={(e) => {
             e.preventDefault()
             setTouched(true)
-            if (value.trim() && !problem) close(true)
+            if ((req.allowEmpty || value.trim()) && !problem) close(true)
           }}
         >
           <Field label={req.label} error={value || touched ? problem : null}>
-            <input ref={input} data-autofocus className={inputCls} value={value} onBlur={() => setTouched(true)} onChange={(e) => { setValue(e.target.value); setTouched(true) }} />
+            <input ref={input} data-autofocus className={inputCls} value={value} placeholder={req.placeholder} maxLength={req.maxLength} onBlur={() => setTouched(true)} onChange={(e) => { setValue(e.target.value); setTouched(true) }} data-testid="dialog-input" />
           </Field>
         </form>
       )}

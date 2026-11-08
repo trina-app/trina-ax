@@ -163,7 +163,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       expect(((await (await b.request.get('/api/chats')).json()) as { items: { id: string }[] }).items.map((c) => c.id)).not.toContain(chatId)
       await b.goto(`/projects/${id}`)
       const section = b.getByTestId('project-chats')
-      await expect(section.getByRole('heading', { name: '채팅' })).toBeVisible()
+      await expect(section.getByRole('heading', { name: '트리나 기록' })).toBeVisible()
       const row = section.getByRole('link', { name: /출시 일정/ })
       await expect(row.getByTestId('shared-icon')).toBeVisible()
       await expect(row.getByTestId('project-chat-by')).toHaveText('Olga')
@@ -418,7 +418,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await signIn(page)
       const id = await project(page)
       await page.goto(`/projects/${id}`)
-      await expect(page.getByTestId('project-chats')).toContainText('아직 이 프로젝트에서 연 채팅이 없어요.')
+      await expect(page.getByTestId('project-chats')).toContainText('아직 이 프로젝트의 기록이 없어요.')
       // Bob's window, with every frame it receives kept (from its first socket on)
       const frames: string[] = []
       const b = await (await browser.newContext({ baseURL: test.info().project.use.baseURL, locale: 'ko-KR', ...vp.use })).newPage()
@@ -554,7 +554,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await page.goto(`/projects/${id}`)
       await page.getByTestId('project-menu').click()
       await page.getByTestId('project-delete').click()
-      await expect(page.getByRole('dialog')).toContainText('프로젝트만 지워지고 폴더와 내 채팅은 그대로 남아요. 공유 채팅은 7일 동안 만든 사람의 "삭제한 기록"에 있어요.')
+      await expect(page.getByRole('dialog')).toContainText('프로젝트만 지워지고 폴더와 내 기록은 그대로 남아요. 공유 채팅은 7일 동안 만든 사람의 "삭제한 기록"에 있어요.')
       await expect(page.getByTestId('project-delete-shared')).toHaveCount(0)
       await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
       // pointing it at another folder (admins) says who will see its shared chat there

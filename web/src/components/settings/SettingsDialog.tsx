@@ -30,10 +30,10 @@ import { PhonePushLine } from './PushNotifications'
 
 const SettingsPane = lazy(() => import('../../pages/Settings'))
 /** sections few people need on a phone: behind "더 보기" in the phone's list */
-const ADVANCED = new Set(['integrations', 'connectors', 'ai-apps', 'providers'])
-/** sections whose page starts with its own title row that stays (MCP's title beside its tabs, AI providers' card):
- * the phone's bar keeps "설정" there instead of saying the name twice */
-const OWN_TITLE = new Set(['integrations', 'providers'])
+const ADVANCED = new Set(['connectors', 'ai-apps', 'providers'])
+/** sections whose page starts with its own title row that stays (AI providers' card): the phone's bar keeps "설정"
+ * there instead of saying the name twice */
+const OWN_TITLE = new Set(['providers'])
 /** sections a phone's list shows on top instead of in their group: the profile (the photo row) and 알림 (알림함) */
 const PHONE_TOP = new Set(['profile', 'notifications'])
 /** a row of the phone's list */

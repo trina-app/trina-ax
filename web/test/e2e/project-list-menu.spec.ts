@@ -191,8 +191,9 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       if (!vp.phone) await expect(row.getByRole('button', { name: t['chat.menu'], exact: true })).toBeFocused()
       ;({ row, menu } = await rowMenu(page, 'Competitor notes'))
       await expect(menu.getByRole('menuitem', { name: t['chat.project.change'] })).toBeVisible()
-      // the chat itself now names its project before its title
-      await row.getByRole('button', { name: t['chat.menu'], exact: true }).click()
+      // the chat itself now names its project before its title (Esc closes the menu: on a phone it is a sheet over a scrim)
+      await page.keyboard.press('Escape')
+      await expect(menu).toHaveCount(0)
       await row.getByRole('link').click()
       await expect(page.getByTestId('chat-project')).toHaveText('Launch')
     })

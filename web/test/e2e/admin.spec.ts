@@ -121,7 +121,7 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
 
   await page.getByRole('link', { name: '사용량' }).click()
   await expect(page.getByTestId('usage-table')).toContainText('Olga')
-  await page.getByRole('link', { name: '기록' }).click()
+  await page.getByRole('link', { name: '활동 로그' }).click()
   // actions in words; the id stays in the tooltip
   await expect(page.getByTestId('audit-list')).toContainText('초대 링크 만듦')
   await expect(page.getByTestId('audit-list').locator('[title="invite.create"]').first()).toBeVisible()

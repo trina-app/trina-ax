@@ -1,27 +1,30 @@
 // A conversation's "⋯" (docs/DECISIONS.md "대화 숨기기"): one menu wherever a room shows. In the room's header beside the
 // bell (on a phone that header is the top bar); on each row of the sidebar's 대화 and of the full list (/rooms) on hover
 // or keyboard focus and with a right-click; on a phone a long press on a row of the 대화 list opens it as a sheet.
-// Items by kind: 알림 설정 (the bell's four levels: RoomNotifyMenu), 링크 복사 (/rooms/<id>, for people in the room),
-// then a group chat's 대화방 나가기 (the members dialog's leave, with its confirm), a DM's 대화 숨기기 and a team room's
-// or the everyone room's 숨기기 (they follow the groups, so they cannot be left); a hidden room has 다시 보이기 there.
+// Items by kind: 알림 설정 (the bell's four levels: RoomNotifyMenu), 이름 바꾸기 for those who may (Room.canRename: a
+// group chat's members, owners and admins in a team room or the everyone room; the room info's name field in a prompt,
+// with its hint and the name an empty field goes back to), 링크 복사 (/rooms/<id>, for people in the room), then a group
+// chat's 대화방 나가기 (with its confirm; the room's info has no second one), a DM's 대화 숨기기 and a team room's or
+// the everyone room's 숨기기 (they follow the groups, so they cannot be left); a hidden room has 다시 보이기 there.
 // Hiding says where it went and how it comes back, with an undo.
-import { Bell, Eye, EyeOff, Link2, LogOut } from 'lucide-react'
+import { Bell, Eye, EyeOff, Link2, LogOut, Pencil } from 'lucide-react'
 import { useRef, useState, type MouseEvent } from 'react'
-import type { Room } from '@mycel/shared/api'
+import { ROOM_NAME_MAX, type Room } from '@mycel/shared/api'
 import { errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { useRooms } from '../../store/rooms'
 import { toast } from '../../store/ui'
-import { confirmDialog, useCopy } from '../ui'
+import { confirmDialog, promptDialog, useCopy } from '../ui'
+import { useNameFallback } from './RoomIcon'
 import { MenuButton, useLongPress, type MenuItem } from './MenuButton'
 import { RoomNotifyMenu } from './RoomNotifyMenu'
 
 /** What a room's "⋯" holds for me, in order (a pure list of what each kind offers; the words and actions are the
  * component's). */
-export type RoomMenuAction = 'notify' | 'copyLink' | 'leave' | 'hide' | 'show'
-export function roomMenuActions(room: Pick<Room, 'kind'> & Partial<Pick<Room, 'hidden'>>): RoomMenuAction[] {
+export type RoomMenuAction = 'notify' | 'rename' | 'copyLink' | 'leave' | 'hide' | 'show'
+export function roomMenuActions(room: Pick<Room, 'kind'> & Partial<Pick<Room, 'hidden' | 'canRename'>>): RoomMenuAction[] {
   const last: RoomMenuAction = room.kind === 'group' ? 'leave' : room.hidden ? 'show' : 'hide'
-  return ['notify', 'copyLink', last]
+  return ['notify', ...(room.canRename ? (['rename'] as const) : []), 'copyLink', last]
 }
 
 /** The address of a room as people in it open it (the app's own route; anyone else gets "not found"). */
@@ -46,6 +49,21 @@ export function useRoomMenuItems(room: Room, onNotify: () => void): MenuItem[] {
     const ok = await confirmDialog({ title: t('rooms.info.leaveTitle'), body: t('rooms.info.leaveBody'), confirm: t('rooms.info.leave'), danger: true })
     if (ok) await useRooms.getState().leave(room.id).catch(fail)
   }
+  const fallbackOf = useNameFallback()
+  const rename = async () => {
+    const name = await promptDialog({
+      title: t('rooms.info.rename'),
+      body: t(room.kind === 'group' ? 'rooms.info.nameHintGroup' : 'rooms.info.nameHintTeam'),
+      label: t('rooms.info.nameLabel'),
+      initial: room.name ?? '',
+      placeholder: fallbackOf(room),
+      allowEmpty: true,
+      maxLength: ROOM_NAME_MAX,
+      confirm: t('common.save'),
+    })
+    if (name === null || name === (room.name ?? '')) return
+    await useRooms.getState().rename(room.id, name || null).catch(fail)
+  }
   const copyLink = async () => {
     await copy(roomLink(room.id))
     toast({ level: 'success', text: t('rooms.menu.linkCopied') })
@@ -53,6 +71,7 @@ export function useRoomMenuItems(room: Room, onNotify: () => void): MenuItem[] {
   return roomMenuActions(room).map((a): MenuItem => {
     switch (a) {
       case 'notify': return { label: t('rooms.menu.notify'), icon: <Bell size={14} aria-hidden />, onSelect: onNotify, testId: 'room-menu-notify' }
+      case 'rename': return { label: t('rooms.info.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: () => void rename(), testId: 'room-menu-rename' }
       case 'copyLink': return { label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: () => void copyLink(), testId: 'room-menu-link' }
       case 'leave': return { label: t('rooms.info.leave'), icon: <LogOut size={14} aria-hidden />, danger: true, onSelect: () => void leave(), testId: 'room-menu-leave' }
       case 'hide': return { label: t(room.kind === 'dm' ? 'rooms.menu.hideDm' : 'rooms.menu.hide'), icon: <EyeOff size={14} aria-hidden />, onSelect: () => void hide(), testId: 'room-menu-hide' }

@@ -81,7 +81,12 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
     const r = (button.current?.offsetParent ? button.current : box.current)?.getBoundingClientRect()
     return r && typeof window !== 'undefined' && r.bottom + 40 * items.length + 16 > window.innerHeight ? 'up' : 'down'
   }
-  const toggle = () => setOpen(open ? null : place())
+  // the finger lifting after a long press that opened it (a row whose "…" shows on a touch screen: the AI's history in
+  // the phone's drawer) is no second click that closes it
+  const toggle = () => {
+    if (open && Date.now() - pressedAt.current < 800) return
+    setOpen(open ? null : place())
+  }
   useEffect(() => {
     if (!openSignal) return
     pressedAt.current = Date.now()
@@ -150,7 +155,8 @@ export function MenuButton({ label, items, className, buttonClassName, testId, o
           aria-label={heading ?? label}
           className={clsx(
             'z-30 border border-line bg-surface shadow-lg md:absolute md:right-0 md:rounded-lg md:p-1',
-            header || heading ? 'md:w-max md:min-w-44' : 'md:w-44',
+            // as wide as its longest item, never narrower than 176px (a longer word does not wrap: "Pindahkan ke proyek…")
+            'md:w-max md:min-w-44',
             'max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:rounded-t-2xl max-md:px-2 max-md:pt-2 max-md:pb-[max(0.75rem,var(--safe-bottom))]',
             open === 'up' ? 'md:bottom-full md:mb-1' : 'md:top-full md:mt-1',
           )}

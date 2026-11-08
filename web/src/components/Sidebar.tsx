@@ -17,7 +17,7 @@
 // "프로젝트로 옮기기…" ("프로젝트 바꾸기…" in a project) there too, the dialog of the chat's title menu; a shared chat stays
 // in its project.
 import clsx from 'clsx'
-import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderInput, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, MessageSquarePlus, MoreHorizontal, Pencil, Search, Settings, Shield, Trash2, X } from 'lucide-react'
+import { Bell, BookMarked, CalendarClock, Check, ChevronDown, ChevronRight, FolderInput, FolderKanban, FolderOpen, Gauge, ListFilter, Loader2, LogOut, MessageSquarePlus, Pencil, Search, Settings, Shield, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
@@ -42,6 +42,8 @@ import { useChatActions } from './chat/chatActions'
 import { MoveToProjectDialog } from './chat/ChatProject'
 import { isUnused, SessionMarker, useChatMarker } from './chat/ChatState'
 import { SidebarRooms } from './rooms/SidebarRooms'
+import { MenuButton, type MenuItem } from './rooms/MenuButton'
+import { useRowMenu } from './rooms/RoomMenu'
 import { SetupRow } from './onboarding/SetupRow'
 import { SidebarSectionTitle, useMediaQuery } from './ui'
 import { settingsOpenedFrom } from './settings/SettingsDialog'
@@ -386,9 +388,11 @@ function DesktopNav({ unread, onNewChat, onSearch }: { unread: number; onNewChat
   )
 }
 
+/** A row of the AI's history. Its "···" is the rooms' row menu (rooms/MenuButton.tsx): on hover or keyboard focus on a
+ * computer and always on a phone; a right-click on the row opens it too, and on a touch screen a long press (a sheet on
+ * a phone, the chat's title on top; the finger lifting opens no chat, and starts no text selection). */
 function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNavigate: () => void; peek: ChatPeek; onMove: (c: Chat) => void }) {
   const t = useT()
-  const [menu, setMenu] = useState(false)
   const more = useRef<HTMLButtonElement>(null)
   const actions = useChatActions()
   // a shared chat: rename for its creator, delete for its creator or a project editor, never a move; nothing to offer,
@@ -399,105 +403,65 @@ function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNavigate: 
   // the dot: what "답 필요" and the one count hold) reads in ink, the others stay muted
   const { marker, reason } = useChatMarker(chat)
   const ref = useRef<HTMLLIElement>(null)
-  useEffect(() => {
-    if (!menu) return
-    const h = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setMenu(false)
-    document.addEventListener('mousedown', h)
-    return () => document.removeEventListener('mousedown', h)
-  }, [menu])
-
-  const rename = () => {
-    setMenu(false)
-    void actions.rename(chat)
-  }
-  const move = () => {
-    setMenu(false)
+  const menu = useRowMenu()
+  const title = chat.title || t('chat.untitled')
+  const items: MenuItem[] = [
+    ...(rights.creator ? [{ label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: () => void actions.rename(chat), testId: 'chat-row-rename' }] : []),
     // the item goes with the menu: the dialog gives the keyboard back to "···" when it closes
-    more.current?.focus()
-    onMove(chat)
-  }
-  const del = () => {
-    setMenu(false)
-    void actions.remove(chat)
-  }
+    ...(rights.canMove ? [{ label: t(chat.projectId ? 'chat.project.change' : 'chat.project.add'), icon: <FolderInput size={14} aria-hidden />, onSelect: () => (more.current?.focus(), onMove(chat)), testId: 'chat-row-move' }] : []),
+    ...(rights.canDelete ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, onSelect: () => void actions.remove(chat), testId: 'chat-row-delete' }] : []),
+  ]
 
   return (
-    <>
-      <li
-        ref={ref}
-        className="group relative"
-        onMouseEnter={(e) => peek.soon(chat, e.currentTarget, 400)}
-        onMouseLeave={peek.hide}
-        // Esc closes the open menu only (not the phone's drawer or the side panel) and gives the keyboard back to "···"
-        onKeyDown={(e) => {
-          if (!menu || e.key !== 'Escape') return
-          e.preventDefault()
-          e.stopPropagation()
-          setMenu(false)
-          more.current?.focus()
+    <li
+      ref={ref}
+      className="group relative"
+      {...(hasMenu ? menu.row : {})}
+      onMouseEnter={(e) => peek.soon(chat, e.currentTarget, 400)}
+      onMouseLeave={peek.hide}
+      data-marker={marker?.kind}
+    >
+      <NavLink
+        to={`/c/${chat.id}`}
+        onClick={(e) => {
+          menu.guard(e)
+          if (e.defaultPrevented) return
+          peek.hide()
+          onNavigate()
         }}
-        data-marker={marker?.kind}
+        onFocus={(e) => e.currentTarget.matches(':focus-visible') && peek.soon(chat, ref.current!, 600)}
+        onBlur={peek.hide}
+        onKeyDown={(e) => e.key === 'Escape' && peek.hide()}
+        className={({ isActive }) =>
+          clsx('flex h-9 items-center gap-2 rounded-lg pl-3 text-sm hover:bg-hover max-md:h-11 pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] group-has-[[aria-expanded=true]]:bg-hover', hasMenu ? 'pr-9 max-md:pr-11' : marker ? 'pr-9' : 'pr-3', hasMenu && marker && 'max-md:pr-17', isActive ? 'bg-hover font-medium text-ink' : needsMe(marker) ? 'font-medium text-ink' : 'text-muted')
+        }
       >
-        <NavLink
-          to={`/c/${chat.id}`}
-          onClick={() => {
-            peek.hide()
-            onNavigate()
-          }}
-          onFocus={(e) => e.currentTarget.matches(':focus-visible') && peek.soon(chat, ref.current!, 600)}
-          onBlur={peek.hide}
-          onKeyDown={(e) => e.key === 'Escape' && peek.hide()}
-          className={({ isActive }) =>
-            clsx('flex h-9 items-center gap-2 rounded-lg pl-3 text-sm hover:bg-hover max-md:h-11', hasMenu ? 'pr-9 max-md:pr-11' : marker ? 'pr-9' : 'pr-3', hasMenu && marker && 'max-md:pr-17', isActive ? 'bg-hover font-medium text-ink' : needsMe(marker) ? 'font-medium text-ink' : 'text-muted')
-          }
-        >
-          {rights.shared && <SharedIcon className="text-faint" />}
-          <span className="truncate">{chat.title || t('chat.untitled')}</span>
-          {marker && (
-            // one marker at the right end (session markers): its reason is part of the link's name. On a computer it sits in
-            // the "···" spot, its right edge in line with the rooms' pills above, and gives way to "···" on hover and focus;
-            // on a phone "···" always shows and it sits left of it
-            <span className={clsx('pointer-events-none absolute top-1/2 right-3 flex -translate-y-1/2 items-center', hasMenu && 'max-md:right-11', menu ? 'opacity-0' : hasMenu && 'md:group-focus-within:opacity-0 md:group-hover:opacity-0')} data-testid="chat-marker">
-              <SessionMarker marker={marker} label={reason} />
-            </span>
-          )}
-        </NavLink>
-        {/* 24 px at least (WCAG 2.2 target size: it sits on the row's link), 44 px on a phone */}
-        {hasMenu && (
-        <Tooltip label={t('chat.menu')}>
-          <button
-            ref={more}
-            type="button"
-            aria-label={t('chat.menu')}
-            aria-expanded={menu}
-            onClick={() => setMenu((v) => !v)}
-            className={clsx('absolute top-1/2 right-1.5 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded text-faint hover:bg-surface hover:text-ink max-md:right-0 max-md:size-11', menu ? 'opacity-100' : 'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 max-md:opacity-100')}
-          >
-            <MoreHorizontal size={15} aria-hidden />
-          </button>
-        </Tooltip>
+        {rights.shared && <SharedIcon className="text-faint" />}
+        <span className="truncate">{title}</span>
+        {marker && (
+          // one marker at the right end (session markers): its reason is part of the link's name. On a computer it sits in
+          // the "···" spot, its right edge in line with the rooms' pills above, and gives way to "···" on hover and focus;
+          // on a phone "···" always shows and it sits left of it
+          <span className={clsx('pointer-events-none absolute top-1/2 right-3 flex -translate-y-1/2 items-center', hasMenu && 'max-md:right-11 group-has-[[aria-expanded=true]]:opacity-0 md:group-focus-within:opacity-0 md:group-hover:opacity-0')} data-testid="chat-marker">
+            <SessionMarker marker={marker} label={reason} />
+          </span>
         )}
-        {menu && hasMenu && (
-          <div role="menu" className="absolute top-8 right-1 z-30 w-max min-w-40 rounded-lg border border-line bg-surface p-1 shadow-lg">
-            {rights.creator && (
-              <button role="menuitem" type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-hover" onClick={rename} data-testid="chat-row-rename">
-                <Pencil size={14} aria-hidden /> {t('chat.rename')}
-              </button>
-            )}
-            {rights.canMove && (
-              <button role="menuitem" type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-hover" onClick={move} data-testid="chat-row-move">
-                <FolderInput size={14} aria-hidden /> {t(chat.projectId ? 'chat.project.change' : 'chat.project.add')}
-              </button>
-            )}
-            {rights.canDelete && (
-              <button role="menuitem" type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-danger hover:bg-danger-soft" onClick={del} data-testid="chat-row-delete">
-                <Trash2 size={14} aria-hidden /> {t('common.delete')}
-              </button>
-            )}
-          </div>
-        )}
-      </li>
-    </>
+      </NavLink>
+      {/* 28 px (WCAG 2.2 target size: it sits on the row's link), 44 px on a phone */}
+      {hasMenu && (
+        <MenuButton
+          label={t('chat.menu')}
+          items={items}
+          className="absolute inset-y-0 right-1 flex items-center max-md:right-0"
+          buttonClassName="hover:bg-surface max-md:size-11 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100 max-md:opacity-100"
+          openSignal={menu.openSignal}
+          openRequest={menu.openRequest}
+          sheetTitle={title}
+          buttonRef={more}
+          testId="chat-row-menu"
+        />
+      )}
+    </li>
   )
 }
 
