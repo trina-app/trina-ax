@@ -88,7 +88,7 @@ const signIn = (role: 'owner' | 'admin' | 'member') => useSession.setState({ sta
 const home = () => mount(<MemoryRouter><Routes><Route path="/" element={<Home />} /></Routes></MemoryRouter>)
 
 describe('Home without AI', () => {
-  test('the owner after "나중에 하기": the connect card alone, no setup row, no suggestions, no line above the box; AI answers: the row is back at 1/5 (a phone)', async () => {
+  test('the owner after "나중에 하기": the connect card alone, no setup row, no suggestions, no line above the box; AI answers: the row is back at 1/6 (a phone)', async () => {
     signIn('owner')
     phoneWidth()
     progress = putOff()
@@ -111,13 +111,13 @@ describe('Home without AI', () => {
       await m.until(() => m.find('welcome-resume'), 'the row')
       expect(m.find('no-ai-card')).toBeNull()
       await m.until(() => progress!.steps.ai === 'done', 'the AI step done')
-      await m.until(() => m.get('welcome-resume-link').textContent === rowText(1, 5), 'the row at 1/5')
+      await m.until(() => m.get('welcome-resume-link').textContent === rowText(1, 6), 'the row at 1/6')
       expect(called('PATCH /api/onboarding/welcome').map((c) => c.body)).toEqual([{ step: { id: 'ai', state: 'done' } }])
       await m.until(() => called('GET /api/questions/frequent').length > 0, 'the suggestions')
     } finally { await m.unmount() }
   })
 
-  test('the owner with AI: on a phone the quiet row (회사 소개 saved without a deck is still open: 0/4), nothing recorded; on a computer no row on Home', async () => {
+  test('the owner with AI: on a phone the quiet row (회사 소개 saved counts as done without a deck: 1/5), nothing recorded; on a computer no row on Home', async () => {
     signIn('owner')
     access = { usable: true, action: 'connect_team', requested: false }
     progress = { ...putOff(), steps: { profile: 'done', result: null, invite: null } }
@@ -126,7 +126,7 @@ describe('Home without AI', () => {
     let m = await home()
     try {
       await m.until(() => m.find('welcome-resume'), 'the row')
-      expect(m.get('welcome-resume-link').textContent).toBe(rowText(0, 4))
+      expect(m.get('welcome-resume-link').textContent).toBe(rowText(1, 5))
       expect(m.get('welcome-resume-link').getAttribute('href')).toBe('/welcome')
       expect(m.find('no-ai-card')).toBeNull()
       expect(called('PATCH /api/onboarding/welcome')).toEqual([])

@@ -13810,6 +13810,28 @@ enters a shared transcript; that check is new here, and turns never run on the c
   account row and rooms use the same tile) and a picture sized in px that does not follow the text-size setting (as in
   rooms; at the largest size the name is still smaller than the picture). Tests:
   `web/test/unit/shared-chat-authors.test.tsx`, `web/test/e2e/shared-project-chats.spec.ts`. Version impact: minor.
+- **The faces on the project page** (feat/project-chat-faces, 2026-11-08, product owner: "여기서도 Mina 프로필 사진 같은게
+  나오도록 하면 안되니? 아니면 누가 작업을 했는지를 프로필을 겹쳐서 보여주거나?"; plan
+  `docs/AGENTS/plan/20261108-0531-project-chat-faces.md`). A shared row of a project page's "채팅" shows, in place of the
+  creator's name, the faces of the people who wrote in the chat (sent a question there, its creator included), the most
+  recent first, overlapping (20 px, 4 px tucked under the one before), at most 3 and then
+  "+N"; on a phone at most 2, and the title truncates first. One person (or nobody yet: the creator): that face and the
+  name, `(M) Mina · 1분 전`. Photos from the people directory, the letter tile without one (`SharedChat.tsx ChatFaces`).
+  The faces are decorative; the row's link reads "Mina, Sam 참여" (one person: the name), and on a computer the shared
+  tooltip lists the names on the faces and while the row has keyboard focus (the tooltip's new `focusFrom`: the row's
+  link takes the focus, the faces take none). The faces' rings take the row's colour, the hover colour on a hovered
+  row. A private chat has no face (unchanged: the owner prefers lean rows, and my own face on every private row says
+  nothing). The people icon stays as the shared mark; removing it was put to the owner, not done. Data: `Chat.shared.people` (up to `CHAT_PEOPLE_SHOWN` = 3 `UserRef`) and `peopleCount`, only in
+  `GET /api/chats?projectId=` (not the trash) and only for the shared chats that list shows (its "I see the project
+  now" filter, `chatFor` 'view'): people the viewer sees in the chat anyway, also someone who lost the project since.
+  One grouped query for the page (`chat/shared.ts chatPeople`): users × the page's chats, each pair a seek on the
+  covering `messages_author_chat` index (migration 265), the order by the messages' rowid (the order they were written,
+  as the share check), names from `users` in the same pass; a test checks the plan and that one query runs. Its cost
+  grows with the team's accounts times the page's chats (the project page asks for 50), not with how long the chats
+  are. The tooltip
+  names those three and counts the rest ("Leo, Jun, Ari 외 2명"): the list sends three names, not everyone's. No
+  migration. Tests: `tests/unit/b-shared-chat-people.test.ts`, `web/test/unit/project-chat-faces.test.tsx`,
+  `web/test/e2e/shared-project-chats.spec.ts`. Version impact: minor.
 - **For the approved follow-up** (a room's @트리나 reads a shared chat only when every member of the room is in its
   project's audience; else the answer stays the asker's or a card asks): the check is one set-based function,
   `sharedChatAudienceCovers(db, files, chatId, userIds)` on `projectSeenByAll` (also behind `visibleSharedChat` and
@@ -14017,6 +14039,154 @@ the project's audience, the answer goes to the room; otherwise it stays private 
   instructions, the audit), `tests/security/room-reads-shared-chats.test.ts` (people × states, a member outside the
   audience, a planted instruction), `b-shared-chats`, `step-labels-tools`, `b-codex-rooms`.
 - Version impact: **minor** (two AI tools in rooms and an audit action; no API or database change).
+
+## W6 — Onboarding v6: steps, 회사 소개 without a deck, 도구 연결, 준비 끝 (feat/onb6-core, 2026-11-08, product owner)
+
+Plan: `docs/AGENTS/plan/20261108-0508-onb6-core.md`. The owner's v6.2 decisions: nothing goes into a team without a press
+that names it, no automatic company intro deck, one tools step with Google Drive and one generic MCP line (no
+Higgsfield), lean screens with a way back from every exit. Other v6 parts (내 스킬's kept-skill rows and the Team skills
+catalog, 팀 파일's folder flow, the owner handover) are their own PRs.
+
+- **The steps.** AI 연결 (only while no AI answers the owner) → 회사 소개 → 내 스킬 → 팀 파일 → **도구 연결** → 팀원 초대
+  → 준비 끝. `tools` joins `WELCOME_STEPS` and `WELCOME_COUNTED`; the bar counts n/5 on every team (n/6 with the AI
+  step), because the generic MCP line works on every server. `WELCOME_COMPUTER_ONLY` = `tools`: a phone walks past it and
+  records it put off (`phoneSkips`; the sign-ins it starts do not come back to the phone app yet), ← 이전 skips it there,
+  and a phone's setup row neither names nor resumes it. A computer's setup row reaches it while the setup is unfinished.
+  `welcomeFinished` needs it answered; a row already finished stays finished (`finishedAt` is stored), and an unfinished
+  row from before reads it as open.
+- **회사 소개 saves the profile only.** Its 저장하고 계속 calls `POST /api/onboarding/welcome/brand` (owner): the team
+  group and brand folder when missing, the website's staged pictures into the brand images folder, and 회사 소개.md from
+  the profile and the pages read unless the owner gave intro files (an existing one is kept). No AI, no chat, no skill.
+  One line under the button says so ("저장하면 웹사이트 사진과 회사 소개 파일을 팀 브랜드 폴더에 넣어요"). Safe to repeat
+  (고치기 saves call it again). It records `brandAt`; a failure leaves the profile saved, the steps go on, and 내 스킬
+  says so once. `profileAnswered` = saved or put off. The server runs it once on a welcome read for an unfinished old
+  row whose profile was saved without a deck (`brandTriedAt`); `ensureBrand` is exported for the installs of 회사
+  소개서, 카드뉴스 and 홍보 영상. `POST …/welcome/first-result`, `startFirstResult`, `deckChatFor` and `introDeckSkill`
+  are gone; `deckStarted`, `settleDeck` and `resultChatId` stay readable for rows whose deck started (준비 끝 keeps their
+  line). The deck tier stays in Admin › Team settings for any 회사 소개서 run.
+- **The team's start installs nothing.** `setupWelcomeTeam` makes the team group and folders and writes
+  `general: { at, tasksPath: null, briefPath: null }` (no paths), so an older build after a rollback reads the pack as
+  handled and installs nothing; a team that has skills under `skills/general/` is recorded as it is. The readers no
+  longer take a missing `general` as "not set up": the web asks for the team's start only while the group or its brand
+  folder is missing; the deck readers (goal, team links, landing skill) fall back to the pack path.
+- **도구 연결.** One screen (`ToolsStep.tsx`): the Google Drive row where this server has Drive (`configured`: its own
+  client, or the hosting service's sign-in once it answered; while it has not, the row is hidden and the count stays),
+  and one quiet "다른 도구 연결하기 (MCP)" line that opens today's add-a-connection dialog for a team connection, its
+  sign-in right after the save. Once something is connected the primary "다음: 팀원 초대" replaces 나중에 하기. Drive's
+  [연결] names both effects while members may not connect their own: the owner's own sign-in, and the members' switch,
+  which turns on only with the confirmed account. Exits: 다른 계정 and 취소 change nothing ("연결하지 않았어요"), a refused
+  sign-in says a company account needs its Google admin, the hosting service down says so, a blocked popup shows the
+  link, a reload resumes the flow this tab started. After the setup the way back is Settings › 커넥터.
+- **Drive N1.** `prepare()` lets an active owner or admin start their own sign-in while the switch is off;
+  `complete(…, { membersOn: true })` (`CompleteDriveFlowBody`) then turns the switch on in the same transaction as the
+  connection, audited `drive.members_switch {via: own_connect}`. Without `membersOn`, or for a member, it is refused
+  (`members_off`) and nothing changes. Settings › 커넥터's Drive card gives an owner or admin one button, "팀원도 연결할 수
+  있게 켜고 내 드라이브 연결하기", instead of the dead end "관리자가 먼저 켜야 해요" (members still read that).
+- **준비 끝.** One primary: AI 연결하기 (no AI) → "'{skill}' 먼저 써 보기" (an own landing skill) → "'{skill}' 만들어
+  보기" for the first kept skill the team has, 카드뉴스 → 회사 소개서 → 홍보 영상 → 자연스러운 글 ("써 보기"), by path or
+  name (`firstResultSkill`) → 홈으로 alone. The press opens that skill's form on 팀 스킬 only (`/skills?run=`); its
+  defaults read the company intro and the brand folder; nothing runs until its own 실행, and closing it stays on 팀 스킬.
+  The goal card still leaves 회사 소개서 out (no change).
+- **Not here.** The kept-skill rows on 내 스킬 and the Team skills catalog (they should call `ensureBrand` before
+  installing 회사 소개서, 카드뉴스 or 홍보 영상), the 팀 파일 folder flow, the handover, a frozen `toolsPlan` (dropped by
+  the owner's update: the step is on every team, only the Drive row depends on the server).
+- Tests: `b-onboarding-cardnews` (the brand action, the read-time run, `ensureBrand`), `b-onboarding-v5-welcome` (the
+  finish rule, old rows, no first-result route), `b-onboarding-welcome`, `b-onboarding-team-space`, `c-default-skills`
+  (no install from the steps), `c-drive-shares` (N1), `b-welcome-share-goal`; web `welcome.test.tsx`, `setup-row`,
+  `goal-card`, `home-no-ai`; e2e `welcome-tools.spec.ts`, `welcome-notes.spec.ts`, `welcome-skills.spec.ts`,
+  `auth.spec.ts`.
+- **Independent review (2026-11-08), fixed:** a phone coming back for a put-off invite on an older row with 도구 연결
+  open was sent Home once the walk's record finished the setup (the resume step is now decided before the record);
+  회사 소개.md was written beside the owner's own intro files when a later press sent none (`brandOwnFiles` mark); the
+  confirm decided `membersOn` from the switch state the page loaded (an owner or admin now always asks, the server
+  ignores it while the switch is on); a read's brand run used the oldest owner instead of the one whose website reading
+  it is; one failed poll ended a Drive sign-in that was still going. Kept: a resumed sign-in after a reload shows no
+  "Google에서 계속" link (the window opened before it is still there); the brand-failure note shows only when 내 스킬
+  comes next.
+- Version impact: **minor** (a new step, an endpoint replaced, a Drive rule for owners and admins; no migration).
+
+## W6 — Desktop: the folder window (feat/onb6-desktop, 2026-11-08)
+
+Onboarding v6 asks the owner to pick folders (the .claude, .codex or .agents folder for skills; a company-documents
+folder for 팀 파일). The owner decided (OPEN Q1) to fix only the desktop app's folder window now; the one-press read of
+~/.claude comes later. Placement: Team AX core (`desktop/src/main/security.ts`, `desktop/src/common/folder-access.ts`).
+
+- **What was blocked (checked in Electron 44.7.2's source and with the real binary, walk review M6).** The direct-download
+  app (dmg, Windows) is Chromium, so the team page calls `showDirectoryPicker`. The window opened and the person picked,
+  then:
+  - the team session's request handler refused `fileSystem` (not in the page's permission list), and with a check
+    handler set Electron answers every read of a handle from the check handler alone, which refused it too. The pick
+    ended as the page's `AbortError`, which the page reads as Cancel: nothing happened, with no message.
+  - a pick of a folder Chromium's blocklist refuses (the home folder, Desktop, Documents and Downloads themselves;
+    ~/Library, ~/.ssh, app data) fires the session event `file-system-access-restricted`. Nothing listened, so the
+    pick never answered at all.
+  - `<input webkitdirectory>` (the file screen's folder upload) was never affected: Electron's own dialog answers it,
+    with no permission. The Mac App Store build answers the page's file inputs with its own window (`answerFileChoosers`)
+    and its page never calls the folder window (`answersFileInputs()`); the session rules below and the Info.plist
+    strings apply to it too, and change nothing there.
+- **What is allowed now.** `fileSystem` with `fileAccessType: 'readable'` only:
+  - the request (sent right after a pick, for the picked folder): the team page's top frame at the team address or its
+    office address, for a folder only (a single file is never remembered), and never the home folder or a folder that
+    holds it (`opensHome`, below). The folder is remembered for that origin while the app runs (`FolderGrants`), for
+    the person signed in: a sign-out, or another person signing in on the same team (the app's `GET /api/me` read, as
+    for the in-app browser's data), forgets every pick, and a pick still being checked then is not remembered. After a
+    forget, a `File` the page already read stays readable (it is the page's copy); nothing new can be read, listed or
+    opened until a new pick (pinned in the spec);
+  - the check (before every read): an allowed origin, and the folder is one picked for that origin, or inside one
+    (`.` and `..` resolved). Electron gives a check no frame, so a read counts for the origin: whatever of the team page
+    holds the handle (its frames and workers at that origin) reads it. Only the pick is limited to the top frame;
+  - `writable` is refused in both, so no handle can write, create or remove anything (a save window,
+    `showSaveFilePicker`, still makes the empty file the person names in it, as before this change; nothing can be
+    written into it);
+  - `file-system-access-restricted`: `allow` for exactly Desktop, Documents and Downloads (`PICKABLE_BLOCKED_ROOTS`
+    through `app.getPath`), as a folder, from the top frame at an allowed origin, unless that folder is home or holds
+    it; `deny` (the page's `AbortError`) for the home folder itself and everything else. Lifting the block grants
+    nothing by itself: the request and the check still decide, read only.
+- **Why this is safe.** The person picks every folder in the system window; the pick is the consent (on macOS the open
+  panel counts as consent for Desktop, Documents and Downloads, and Info.plist now says why if macOS asks anyway). A
+  handle that did not come from the window is not readable: a dropped folder (the page's drops use `webkitGetAsEntry`,
+  which needs no permission) and one the page saved in an earlier run need a new pick. A page's own
+  `requestPermission()` never reaches the request handler (Electron answers it from the check), so a page cannot widen
+  what it has. Artifacts and previews (sandboxed frames, no origin), other origins, the in-app browser pane and the app's
+  own screens get nothing; no other permission changed (the page list, the pane's list and the net guard are as before).
+- **The home folder stays refused (owner, 2026-11-08).** Picked, it would let the page read ~/.config (the GitHub CLI's
+  token among others), ~/.aws, ~/.netrc, ~/.codex/auth.json and the like (Chromium blocks only ~/.ssh, ~/.gnupg,
+  ~/Library and app data under it), and the app cannot narrow what is readable inside a pick: every read through a
+  handle is checked against the picked folder itself. Folders inside home (a .claude or .codex folder) are no blocked
+  root and stay pickable.
+- **Home under another name (security review must-fix).** A root can be home, or above it: Windows lets people move
+  Documents, Desktop or Downloads to `C:\Users\<name>` or `C:\`, and on macOS ~/Desktop can be a link to ~. So both
+  the restricted folder and the request refuse a path that is home or holds it (`opensHome`): as written and with its
+  links resolved (`fs.realpath`, which looks at the path's own entries only), against home as written,
+  resolved and, on macOS, under the Data volume's name (`/System/Volumes/Data/Users/<name>`, so `/System` and
+  `/System/Volumes/Data` count as holding home), without case on Windows and macOS. Then by identity (re-review):
+  the pick's device and file number (`fs.stat` with `bigint`, links followed) against home's and each folder above
+  it, which catches what no name rule knows: a mapped drive (`H:` onto `\\localhost\c$\Users\<name>`), a junction
+  or a `subst` drive onto the profile. Anything it cannot tell refuses: no home, an identity of 0 (some NAS shares
+  give no file number, so such a drive cannot be picked), a realpath or stat that fails or takes over 3 s (each runs
+  off the main thread with a time limit, so a slow network drive never freezes the app), and every network or device
+  path written as one (`\\server\share`, `\\?\…`; a share of the profile is one), refused without asking the
+  network (pick its mapped drive letter instead). Under Desktop, Documents and Downloads, Chromium still refuses files
+  that are or link into its blocked folders, checked per file (Chromium 152's directory-iteration blocklist check, on
+  by default).
+- **Not here.** The one-press read with no window (OPEN Q1, later; it needs the main process's own confirm, the fixed
+  path list and key removal, walk M5). The page's hint when macOS refuses a folder anyway. Single files picked with
+  `showOpenFilePicker` are never remembered, so they stay unreadable (the request refuses anything but a folder; the
+  page picks files with `<input type=file>`). Links inside a picked folder are neither listed nor followed on macOS
+  (`NotFoundError`; a link to home and one to a file are measured and pinned in the spec, so an Electron that starts
+  following them fails it); Windows junctions inside a picked folder are not measured.
+- Tests: `tests/unit/e-desktop-folder-window.test.ts` (the request, the check and the restricted folder, every refusal,
+  Windows paths, the wiring, the pane and the store build), `desktop/e2e/folder-window.spec.ts` (the real Electron with a
+  hidden window: a dropped folder and the page's own requestPermission() (never reaching the request handler), the
+  request a pick sends, reads, a file, a write, a folder inside, links inside it (not followed), a sign-out (the read
+  `File` stays, nothing new), Downloads (allowed), the home folder (refused, also when Desktop is moved there), a link
+  to home, app data, another origin; fails on the previous rules). Tests never
+  touch this computer's home: the unit tests use made-up paths with a made-up `realpath`, and the real-Electron spec
+  runs in a made-up home in a temporary folder (HOME and every `app.getPath` point there; the fixture refuses to start
+  otherwise) with a made-up secret that must stay unread. Run the spec by hand on a Mac on every Electron upgrade
+  (`bunx playwright test -c e2e/rtc-native.config.ts` in `desktop/`): it pins Electron behaviour these rules rely on,
+  and CI does not run the desktop e2e.
+- Version impact: **patch** (a desktop fix; no API, database or setting change).
 
 ## W6 — Onboarding v6: easy owner handover (feat/onb6-handover, 2026-11-08)
 

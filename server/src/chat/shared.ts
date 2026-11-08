@@ -10,7 +10,7 @@
 // Never shared: a chat in a personal project, a chat made while safe operations (1A) are on, a confidential chat
 // (markConfidentialTurn refuses a shared one). While 1A is on, shared chats are read-only.
 import type { Database } from 'bun:sqlite'
-import type { Chat, Locale } from '@mycel/shared/api'
+import { CHAT_PEOPLE_SHOWN, type Chat, type Locale, type UserRef } from '@mycel/shared/api'
 import type { ChatRuntime } from './runtime'
 import { SHARED_LATER, type ChatRow, type ChatStore, type MessageRow, type MessageView, type ProjectRow } from './store'
 import { composeMessage } from './turn'
@@ -80,6 +80,34 @@ export function wroteIn(db: Database, chatId: string, userId: string): boolean {
   return !!db.query("SELECT 1 FROM messages WHERE author_id = ? AND chat_id = ? AND role = 'user' LIMIT 1").get(userId, chatId)
 }
 
+/** A shared chat's writers as a project page shows them (Chat.shared.people and peopleCount). */
+export interface ChatPeople { people: UserRef[]; count: number }
+
+/**
+ * Who wrote in each of these chats (sent a question there; its creator too when they did), the most recent writer
+ * first: at most CHAT_PEOPLE_SHOWN of them and how many in all. For a project's chat list, so one grouped query for the
+ * whole page, never one per chat: for each person and each chat a seek on messages_author_chat (migration 265: author,
+ * chat, only questions), which holds everything it needs (the message's rowid is the order they were written in, as
+ * the share check orders answers), with the name from users in the same pass. The caller passes only chats the viewer
+ * may view (chatFor 'view'): these are the authors they see in the chat anyway. A chat nobody wrote in yet is absent.
+ */
+export function chatPeople(db: Database, chatIds: readonly string[]): Map<string, ChatPeople> {
+  const out = new Map<string, ChatPeople>()
+  if (!chatIds.length) return out
+  // CROSS JOIN keeps users as the outer loop, so each (person, chat) pair is one seek on the covering index
+  const rows = db.query(`SELECT m.chat_id AS chat, u.id AS id, u.name AS name, MAX(m.rowid) AS last
+    FROM users u CROSS JOIN messages m ON m.author_id = u.id
+    WHERE m.role = 'user' AND m.chat_id IN (SELECT value FROM json_each(?))
+    GROUP BY m.chat_id, u.id ORDER BY m.chat_id, last DESC`).all(JSON.stringify(chatIds)) as { chat: string; id: string; name: string; last: number }[]
+  for (const r of rows) {
+    let p = out.get(r.chat)
+    if (!p) out.set(r.chat, (p = { people: [], count: 0 }))
+    p.count++
+    if (p.people.length < CHAT_PEOPLE_SHOWN) p.people.push({ id: r.id, name: r.name })
+  }
+  return out
+}
+
 export interface ChatAccess {
   row: ChatRow
   /** a shared project chat (and its project); else the caller's own chat */
@@ -140,9 +168,10 @@ export function sharedOf(rt: ChatRuntime, viewer: string, r: ChatRow, aud: Audie
 /**
  * A chat as `viewer` sees it in the API and in chat.updated: a stored connection secret of its creator never shows in
  * the title (QA B-W5-1). A shared chat: the AI's wait and the unseen marker are only for its runner and creator (no
- * marker for anyone else in phase 1), plus Chat.shared.
+ * marker for anyone else in phase 1), plus Chat.shared. `people`: a project's chat list (chatPeople for its page) adds
+ * who wrote in it.
  */
-export function chatView(rt: ChatRuntime, viewer: string, r: ChatRow, o: { aud?: Audiences; hide?: (s: string) => string } = {}): Chat {
+export function chatView(rt: ChatRuntime, viewer: string, r: ChatRow, o: { aud?: Audiences; hide?: (s: string) => string; people?: Map<string, ChatPeople> } = {}): Chat {
   const hide = o.hide ?? redactorFor(rt.ctx, r.user_id).hide
   if (!isSharedRow(r)) {
     const c = rt.store.toChat(r, rt.runState(r.id), rt.waitsForPerson(r.id))
@@ -150,7 +179,13 @@ export function chatView(rt: ChatRuntime, viewer: string, r: ChatRow, o: { aud?:
   }
   const runner = rt.activeTurnUser(r.id)
   const c = rt.store.toChat(r, rt.runState(r.id), runner === viewer && rt.waitsForPerson(r.id), { answersOf: r.user_id === viewer ? viewer : null })
-  return { ...c, title: hide(c.title), shared: sharedOf(rt, viewer, r, o.aud ?? new Audiences(rt.db, rt.files)) }
+  const shared = sharedOf(rt, viewer, r, o.aud ?? new Audiences(rt.db, rt.files))
+  if (o.people) {
+    const p = o.people.get(r.id)
+    shared.people = p?.people ?? []
+    shared.peopleCount = p?.count ?? 0
+  }
+  return { ...c, title: hide(c.title), shared }
 }
 
 /** Was this shared chat shared after it was made (chat/share-chat.ts marks the turns it had then SHARED_LATER)? An answer

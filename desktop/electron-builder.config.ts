@@ -36,6 +36,11 @@ export default {
       NSMicrophoneUsageDescription: 'Voice input in chats uses the microphone. / 채팅 음성 입력에 마이크를 사용합니다.',
       LSApplicationCategoryType: 'public.app-category.productivity',
       NSLocalNetworkUsageDescription: 'Connects straight to your team server inside the office. / 사무실 안에서 팀 서버에 직접 연결합니다.',
+      // the team page's folder window (docs/DECISIONS.md "W6"): a folder picked there counts as consent; these say why
+      // if macOS asks anyway
+      NSDesktopFolderUsageDescription: 'Reads only the folders you pick, to find your skills and company documents. / 고른 폴더만 읽어서 스킬과 회사 문서를 찾습니다.',
+      NSDocumentsFolderUsageDescription: 'Reads only the folders you pick, to find your skills and company documents. / 고른 폴더만 읽어서 스킬과 회사 문서를 찾습니다.',
+      NSDownloadsFolderUsageDescription: 'Reads only the folders you pick, to find your skills and company documents. / 고른 폴더만 읽어서 스킬과 회사 문서를 찾습니다.',
     },
   },
   dmg: { sign: false, title: `${PRODUCT.displayName} \${version}`, artifactName: `${A}-\${version}-mac-\${arch}.\${ext}` },
