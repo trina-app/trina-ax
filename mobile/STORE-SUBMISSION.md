@@ -19,6 +19,19 @@ What the owner provides or decides before each store step. Engineering steps and
 - No Expo account and no EAS project: iOS is built and uploaded from the Mac with `scripts/ios-release.sh`.
 - App Review demo team: `https://qa-test.trina.app` (fictional data).
 
+## Links that open the app (first run, phase 2)
+
+- **iPhone**: the app declares `applinks:*.trina.app` (Associated Domains). Before the next signed build, turn on the
+  **Associated Domains** capability for the App ID `app.trina.ax` (Certificates, Identifiers & Profiles) and refresh
+  the provisioning profile; without it the archive fails to sign. Each team server serves `apple-app-site-association`
+  (`server/src/routes/app-links.ts`); for the wildcard entry serve the same file on `trina.app` itself too (developers
+  report Apple's CDN asks the domain after `*.`; Apple's page does not say which), from the website.
+- **Android**: the intent filter for `https://*.trina.app` `/invite/…` and `/join` has `autoVerify`; Android checks a
+  wildcard host at its root, `https://trina.app/.well-known/assetlinks.json`, with the Play app signing certificate's
+  SHA-256 (Play Console › App integrity). Put the same fingerprint in `shared/src/app-links.ts` so team servers serve
+  it too. Until then Android offers the app in its chooser instead of opening it directly.
+- Both: the `trina-ax` scheme (already registered) opens screen ④ for "앱에서 열기".
+
 ## TestFlight (internal testers)
 
 1. A build number higher than the last upload (`BUILD_NUMBER`).

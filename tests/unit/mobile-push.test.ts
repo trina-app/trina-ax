@@ -2,7 +2,8 @@ import { afterEach, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { FileTransfers, MobileReceiver, onceEvery, PushRefused, StuckLoad, stillStuck, type TransferIO } from '../../mobile/src/bridge'
-import { currentDevice, leaveTeam, rememberDevice, retryRemovals, type DeviceDeps, type TeamDevice } from '../../mobile/src/device'
+import { currentDevice, leaveTeam, rememberDevice, retryRemovals, settleDevice, type DeviceDeps, type TeamDevice } from '../../mobile/src/device'
+import { readSessionCheck, sessionCheckScript } from '../../mobile/src/session-check'
 import { APPEARANCE_CAPABILITY, MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, notificationPath, parseMessage, tappedNotificationPath, validConfig, validPushToken, type MobileConfig, type PushPermission, type PushToken } from '../../mobile/src/protocol'
 import { DARK, LIGHT, NO_INSETS, frame, insetScript, isDark, padding, pageInsets } from '../../mobile/src/look'
 import { IOS_USAGE, offlineError, stringsFor } from '../../mobile/src/strings'
@@ -475,7 +476,7 @@ test('the reinstall sign-out: once per launch, only on the team page saved at la
 test('Android team-address screen: the form is lifted by the keyboard (it covered the Connect button)', () => {
   const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
   // the setup screen pads itself by the keyboard on Android (KeyboardAvoidingView only works on iOS here)
-  expect(app).toMatch(/keyboard = useAndroidKeyboard\(\)\s+return <View style=\{\[s\.fill, \{ backgroundColor: c\.canvas, paddingTop: i\.top, paddingBottom: keyboard \? keyboard \+ i\.bottom : i\.bottom/)
+  expect(app).toMatch(/keyboard = useAndroidKeyboard\(\)[\s\S]{0,8000}?return <View style=\{\[s\.fill, \{ backgroundColor: c\.canvas, paddingTop: i\.top, paddingBottom: keyboard \? keyboard \+ i\.bottom : i\.bottom/)
 })
 
 test('Android: the look around an older team page is read from the OS each time, not a stale cache', () => {
@@ -494,4 +495,42 @@ test('the reinstall sign-out is injected only after the bridge went on this team
   expect(app).toContain('if (signOut && sameTeam(address.origin, event.nativeEvent.url) && signOut.answer(event.nativeEvent.data)) return')
   // one object for the launch (not a flag per team page)
   expect(app).toContain('signOut={signOut.current}')
+})
+
+test('a switch cut short (the new team saved, the old one not left yet): the old device is owed a removal at the next start', async () => {
+  const calls: string[] = []; let online = false
+  const m = memory(async d => { calls.push(d.deviceId); return online })
+  await rememberDevice(m.deps, dev('https://a.example', 'dev_a'))
+  // the same team saved: nothing to do
+  await settleDevice(m.deps, 'https://a.example')
+  expect(calls).toEqual([])
+  expect((await currentDevice(m.deps, 'https://a.example'))?.deviceId).toBe('dev_a')
+  // the app stopped after saving b: a's device is removed now, or kept owed while a cannot be reached
+  await settleDevice(m.deps, 'https://b.example')
+  expect(calls).toEqual(['dev_a'])
+  expect(m.store.get('current')).toBeUndefined()
+  expect(JSON.parse(m.store.get('pending')!).map((d: TeamDevice) => d.deviceId)).toEqual(['dev_a'])
+  online = true
+  await retryRemovals(m.deps)
+  expect(m.store.get('pending')).toBeUndefined()
+  // no team saved at all (left, then stopped before a new one was saved)
+  await rememberDevice(m.deps, dev('https://c.example', 'dev_c'))
+  await settleDevice(m.deps, null)
+  expect(calls).toEqual(['dev_a', 'dev_a', 'dev_c'])
+  // App.tsx settles at every start, before it reads its own device
+  const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
+  expect(app).toMatch(/await settleDevice\(devices, origin\)\.catch\(\(\) => \{\}\)\n\s*let deviceRead = true/)
+})
+
+test('the session check: the page answers GET /api/me with the check number; anything else is not an answer', () => {
+  const script = sessionCheckScript(7)
+  expect(script).toContain("fetch('/api/me',{credentials:'same-origin'")
+  expect(script).toContain('mycelSessionCheck:7')
+  expect(readSessionCheck(JSON.stringify({ mycelSessionCheck: 7, ok: true }), 7)).toBe(true)
+  expect(readSessionCheck(JSON.stringify({ mycelSessionCheck: 7, ok: false }), 7)).toBe(false)
+  expect(readSessionCheck(JSON.stringify({ mycelSessionCheck: 6, ok: true }), 7)).toBeNull() // an older check
+  for (const other of ['{"v":1,"type":"push-token"}', 'not json', JSON.stringify({ mycelSessionCheck: 7, ok: 'yes' }), 'x'.repeat(300)]) expect(readSessionCheck(other, 7)).toBeNull()
+  // the footer follows the rule shared with the desktop (shared/src/team-link.ts hostLineShown)
+  const app = fs.readFileSync(path.join(import.meta.dir, '../../mobile/App.tsx'), 'utf8')
+  expect(app).toContain('const showFooter = hostLineShown(pathname, signedIn)')
 })

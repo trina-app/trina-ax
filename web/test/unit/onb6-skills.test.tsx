@@ -12,6 +12,8 @@
 // - the catalog that does not load: one note with 다시, the rest of the step working;
 // - the viewer: "예시를 준비하고 있어요" until an example is made, a text example in the page, an image that fails, the
 //   invented company line, the source line (the one link out), ‹ › and the arrow keys wrapping, the focus back on 예시;
+//   the examples that ship (server/src/onboarding/skill-examples.ts) in Korean and English: a picture of each visual
+//   result, the before → after text, and no "예시를 준비하고 있어요";
 // - a check still running after checkLimitMs: stop-check, the list with nothing ticked; a stop that fails offers 다시.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act } from 'react'
@@ -25,6 +27,7 @@ import { BringSkillsSheet } from '../../src/components/skills/BringSkillsSheet'
 import { useUi } from '../../src/store/ui'
 import { useWelcome } from '../../src/store/welcome'
 import { FakeElement, FakeEvent, installDom, mount, removeDom, type Mounted } from './dom-host'
+import { packExample } from '../../../server/src/onboarding/skill-examples'
 
 const ko = (k: MessageKey, p?: Record<string, string | number>) => translate('ko', k, p)
 const t = ko as unknown as ReturnType<typeof useT>
@@ -578,6 +581,34 @@ describe('the example viewer', () => {
       expect(text(m, 'skill-example-source')).toBe(ko('skillPack.source.teamWriting'))
       expect(m.find('skill-example-original')).toBeNull()
     } finally { await m.unmount() }
+  })
+
+  test('the examples that ship (예시커피 / Example Coffee): a picture of each visual result, the before → after text in the page; "예시를 준비하고 있어요" nowhere', async () => {
+    for (const locale of ['ko', 'en'] as const) {
+      const m = await rows(catalogOf().map((s) => ({ ...s, locale, example: packExample(locale, s.name) })))
+      try {
+        for (const name of ['intro-deck', 'card-news', 'promo-video']) {
+          await m.click(exampleOf(name))
+          const img = m.get('skill-example-image')
+          expect(img.getAttribute('src')).toBe(`/skill-examples/${locale}/${name}.webp`)
+          await act(async () => { img.dispatchEvent(new FakeEvent('load')) })
+          expect(viewer(m).getAttribute('data-state')).toBe('shown')
+          expect(text(m, 'skill-example-fictional')).toBe(ko('skillPack.fictional', { company: locale === 'ko' ? '예시커피' : 'Example Coffee' }))
+          expect(viewer(m).textContent).not.toContain(ko('skillPack.preparing'))
+          await key(viewer(m), 'Escape')
+        }
+        await m.click(exampleOf('humanizer'))
+        expect(viewer(m).getAttribute('data-state')).toBe('shown')
+        const shown = m.get('skill-example-body')
+        expect(shown.getAttribute('data-kind')).toBe('text')
+        // the draft quoted, then the rewrite and what changed; none of the front matter
+        expect(shown.querySelector('blockquote')!.textContent).toContain(locale === 'ko' ? '이번 공지에서는' : 'In today\'s fast-paced world')
+        expect(shown.querySelectorAll('strong').map((x) => x.textContent)).toEqual(expect.arrayContaining(locale === 'ko' ? ['전', '후', '바뀐 점'] : ['Before', 'After', 'What changed']))
+        expect(shown.textContent).toContain('hello@coffee.example')
+        expect(shown.textContent).not.toMatch(/skillHash|fictional/)
+        expect(viewer(m).textContent).not.toContain(ko('skillPack.preparing'))
+      } finally { await m.unmount() }
+    }
   })
 })
 

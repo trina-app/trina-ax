@@ -115,7 +115,10 @@ test('the four kept skills install (general + work, the empty page\'s one button
   expect(teamSkillFiles(root)).toEqual(KEPT_PATHS)
   for (const [id, names] of Object.entries(KEPT) as [keyof typeof KEPT, readonly string[]][]) {
     for (const n of names) expect(fs.readFileSync(path.join(root, `skills/${id}/${n}/SKILL.md`), 'utf8')).toBe(SKILL_PACKS[id].skills.ko![n]!)
+    // only the SKILL.md: the example next to it in the repository (EXAMPLE.md) never goes into a team
+    for (const n of names) expect(fs.readdirSync(path.join(root, `skills/${id}/${n}`))).toEqual(['SKILL.md'])
   }
+  expect(fs.existsSync(path.join(ROOT, 'resources/skill-packs/work/ko/humanizer/EXAMPLE.md'))).toBe(true)
   const me = h.ctx.files.principal(ownerId)
   expect(listSkills(h.ctx.files, me).filter((s) => s.path.startsWith('skills/')).map((s) => s.path).sort()).toEqual(KEPT_PATHS)
   expect(skillIssues(h.ctx.files, me)).toEqual([])

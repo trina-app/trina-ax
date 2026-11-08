@@ -28,7 +28,8 @@ import { MyCredentials } from './admin/Credentials'
 import { BrowserSettings } from './BrowserSettings'
 import { browserSettingsBridge, storeApp } from '../lib/desktop'
 import { pickTextSize, TEXT_SIZE_PERCENT, TEXT_SIZES, useTextSize } from '../lib/textSize'
-import { Badge, Button, EmptyState, ErrorNote, Field, IconButton, Skeleton, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../components/ui'
+import { teamAddressHost } from '../lib/team-address'
+import { Badge, Button, CopyButton, EmptyState, ErrorNote, Field, IconButton, Skeleton, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../components/ui'
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
 import { Avatar } from '../components/Avatar'
 import { squarePhoto, type Photo } from '../lib/avatar'
@@ -666,6 +667,7 @@ function Apps() {
   }, [])
   return (
     <>
+      <TeamAddressRow address={me.team.address} />
       {/* the desktop app and the phone app are already apps: no install guide there */}
       {installGuideShown() && (
         <Section title={t('apps.installTitle')} desc={t('apps.installDesc')}>
@@ -677,6 +679,28 @@ function Apps() {
           server={downloadsSourceOf(me.server)} installHere={installGuideShown() && !isStandalone() && canInstallIn(browser())} />
       </Section>
     </>
+  )
+}
+
+/**
+ * The team's address, for a new device (docs/AGENTS/plan/20261108-0930-first-run-one-box.md): the desktop and phone
+ * apps take it in their one box. It comes from the server (GET /api/me team.address: the relay's or the public
+ * address), never from the address this page is at, and shows as the URL API gives it (punycode). No address known
+ * (the office network only): no row.
+ */
+export function TeamAddressRow({ address }: { address: string | undefined }) {
+  const t = useT()
+  const host = teamAddressHost(address)
+  if (!address || !host) return null
+  return (
+    <div className="mb-6" data-testid="apps-team-address">
+      <Row label={t('apps.teamAddress')} hint={t('apps.teamAddressHint')}>
+        <div className="flex items-center gap-2">
+          <span className="min-w-0 flex-1 break-all font-mono text-sm text-ink" data-testid="apps-team-address-host">{host}</span>
+          <CopyButton text={new URL(address).origin} showLabel className="shrink-0" />
+        </div>
+      </Row>
+    </div>
   )
 }
 

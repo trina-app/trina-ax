@@ -14449,8 +14449,13 @@ names it, and the four kept skills (DS3) are chosen, not installed for the owner
   자연스러운 글 (the company's own Korean writing skill); `adapted` for the English one (Siqi Chen's MIT "humanizer",
   rewritten), the only link out ("원본 보기 ↗" → github.com/blader/humanizer). Teams in id, ja and es get the English text,
   so its source line and example.
-- **Examples** (EXAMPLES-PLAN.md): registered in `PACK_EXAMPLES` by the language of the skill text and the skill name
-  once their files exist; none yet, so the viewer says "예시를 준비하고 있어요". An image is
+- **Examples** (EXAMPLES-PLAN.md): registered in `PACK_EXAMPLES` (`onboarding/skill-examples.ts`, which the web tests'
+  mock imports too) by the language of the skill text and the skill name; all eight are in (each kept skill in Korean
+  and English), made by the skills themselves on a local dev server for the invented 예시커피 / Example Coffee
+  (`examples/data/example-coffee/`: its intro, a type-only wordmark, no photos, no web search), so the viewer says
+  "예시를 준비하고 있어요" only for a skill shipped without one. Each records the `skillHash` of the SKILL.md it was made
+  from (the first 12 hex digits of its sha256), and the catalog test fails when a SKILL.md changes until its example is
+  made again; `web/scripts/skill-examples.ts` makes the picture from the artifact. An image is
   `web/public/skill-examples/<locale>/<name>.webp` (≤ 90 KB, `PACK_EXAMPLE_LIMITS`), loaded only when the viewer opens;
   a text is `resources/skill-packs/<pack>/<locale>/<name>/EXAMPLE.md`, imported as text like the SKILL.md (front matter
   `fictional: true`, `company`, `made`, `engine`, `skillHash`, then a before → after excerpt in Markdown, ≤ 900 / 1,200
@@ -14815,6 +14820,104 @@ and its developer page "User presence and status" (what was copied and what was 
   header).
 - Version impact: **minor** (a visible feature, a WebSocket control frame each way and one endpoint; no migration).
 
+## First run: one box (feat/first-run-one-box, 2026-11-08, product owner)
+
+The desktop and phone apps' first screen asked for "팀 주소", which nobody is told: people get an invite link or a team
+link in KakaoTalk or Slack. Plan: `docs/AGENTS/plan/20261108-0930-first-run-one-box.md` (with the exit walk). Owner
+approval 2026-11-08 (phases 1 and 2); the design review's must-changes are folded in. Placement: Team AX core (apps,
+accounts, relay names); nothing about plans or billing.
+
+- **One box takes everything** (screen ①, both apps): "팀에 들어가요 / 팀장에게 받은 초대 링크를 붙여 넣어 주세요. 팀
+  주소(예: acme)를 알면 주소만 넣어도 돼요." It reads an invite link (`/invite/<t>`), a team link (`/join#t=<t>`, the
+  fragment kept), a full address, a bare name (`acme` → `https://acme.<teamDomain>`) and any pasted text: the first
+  invite or team link in it, else its first http(s) address (a KakaoTalk long-press copies the whole bubble, sentences
+  around the link; a Korean word, punctuation or a zero-width character glued right after the link ends it; input is
+  NFKC-normalized first, so fullwidth `ｈｔｔｐｓ：／／` reads as ASCII; `/invite` and `/join` match in any letter case).
+  Another page of the team (an address copied from a browser) opens the team's start. Rejected: a "처음이세요?" question (ambiguous), a name-only box (nobody is told the
+  name), an email lookup (no central member list, and it would say who is a customer).
+- **One parser, two copies.** `shared/src/team-link.ts` is pure (no imports). The phone app cannot import `shared/` (its
+  own npm project and Metro), so `mobile/src/team-link.ts` is a byte-identical copy; `tests/unit/team-link.test.ts` fails
+  when they differ and runs one table (every input kind, every hint, the safety rules) against both. Desktop:
+  `loopbackHttp` (plain http only to this machine); phone: https only. Hosts are ASCII as the URL parser gives them
+  (punycode); a parser that cannot make one is refused.
+- **Hints instead of "형식이 맞지 않아요"**: Hangul or jamo typed ("ㅁ츼" is `acme` typed in 한글 mode) → "한글로
+  입력됐어요. 한/영 키를 누르고 다시 입력하거나 초대 링크를 붙여 넣어 주세요."; an email → "이메일 주소는 쓰지 않아요.
+  초대 링크나 팀 주소를 넣어 주세요."; a cut-off invite or team link (its token shorter than the 43 characters every token
+  has) → "링크가 중간에 잘린 것 같아요…" (never silently the sign-in page). Trailing punctuation is trimmed with a loop,
+  in linear time. The address is checked only on the button, only under the team domain: no other domain is tried.
+- **What the relay answered** (`x-relay-error`, `relayAnswer`): 404 `team_unknown` → "'{name}' 팀을 찾지 못했어요.
+  철자를 확인하거나 초대 링크를 붙여 넣어 주세요."; 403 `team_suspended*` → "이 팀은 지금 이용이 멈춰 있어요. 팀장에게
+  물어보세요."; the relay's offline answers and gateway errors → "cannot reach". Before, 404 and 403 both said "not a
+  team server". The JSON `code` is `not_found`/`forbidden`; the kind is only in `reason` and the header.
+- **A renamed team** (308 from the relay, control-plane D40) is followed only to another `<name>.<teamDomain>` with the
+  same scheme and port (`relayRename`; `<name>.localhost` for the desktop's development relay), and the new address is
+  the one remembered after the person said yes ("팀 주소가 {host}(으)로 바뀌었어요. 새 주소로 연결할까요?"). Neither app
+  lets the network stack follow a redirect: the desktop reads the health answer with `net.request` and `redirect:
+  'manual'` (Electron's `net.fetch` throws on 'manual'), the phone with expo/fetch's `redirect: 'manual'` (iOS and
+  Android return the 3xx). One hop only; any other redirect (another host, plain http, an office address, a trailing
+  dot) is "not a team server".
+- **Screens ② and ③.** ② "주소를 모르겠어요": paste the link you got (a used link leads to the sign-in page), Settings ›
+  앱 on a signed-in device, ask your team lead; [뒤로]. ③ "아직 팀이 없어요": "팀은 팀장이 만들고, 팀원은 초대 링크로
+  들어와요." [팀 만들기 ↗] (the account site, `https://<accountHost>/`; the repository does not know the signup page's
+  path), [직접 설치 안내 ↗], "팀을 만들면 팀 주소가 생겨요. 브라우저에서 설정을 마친 뒤 이 화면으로 돌아와 그 주소를
+  넣어 주세요." (after signup the owner gets a one-time `/setup#token=` link, not an invite), [팀 주소 넣기]. Esc and
+  Android back go back too; the typed text stays.
+- **No [팀 만들기] in store builds.** App Review 3.1.1(a) bans calls to action for purchases outside the app (the signup
+  leads to a paid plan after the trial; 3.1.3(f) applies only without one), so the iPhone app and the Mac App Store build
+  have none, and their docs link is the repository's install guide (`docs/INSTALL-LINUX.md`, `.en.md`), which links no
+  plan, signup or product site (a test checks); the docs site's install page has the plans link. Google Play's payments
+  policy also bans leading users to another payment method from the app, so Android gets the same rule. The Microsoft
+  Store allows a non-game app its own payment: the Windows store build keeps the button. The desktop's main process
+  picks both addresses (`firstRunLinks`); the screen only names which (`ui:open-link`), so a screen can never open
+  another address. The phone opens the guide in the browser sheet; closing it returns to ③.
+- **The app draws the host, not the page.** A fake server can draw any address on its own sign-in page, and the desktop
+  app may show the page from the office-network address (direct.ts), so `location.host` is not the team address there.
+  Both apps show it on the sign-in pages (`/login`, `/invite/…`, `/join`, `/setup`, `/reset-password/…`) **and on every
+  page until the team answered GET /api/me for a signed-in person** (`hostLineShown`, shared), because a fake sign-in
+  page can sit at `/` or `/signin`. Desktop: a 36 px strip above the page, "팀 주소 acme.trina.app [다른 팀]", in its
+  own UI view (`hostbar.html`, its IPC answered only for that view); signed in = the main process's own `/api/me` read
+  (`fetchTeamInfo`, after every load and in-page navigation). Phone: the footer shows the host above "다른 팀에
+  연결"; the app injects one `/api/me` fetch into the page after each load and route change (`src/session-check.ts`)
+  and hides the footer only on a yes. A fake server can answer its own `/api/me`; the line is for the person on a real
+  team who meets a look-alike page, not a proof. Always the team address the app connected to, in punycode with its port. The
+  web login page gets no host line.
+- **The first connect to an address the hosted service does not run asks once**: "트리나가 운영하는 주소가 아니에요.
+  회사에서 직접 설치한 서버인지 확인하세요." [취소] [연결], the focus on [취소]. Not for this machine, not for a team
+  already remembered (desktop) or the one the phone is in, not in a phone build without a team domain. Look-alikes
+  (`acme.trina.app.evil.example`, an IP address) are outside.
+- **The phone leaves its team only after the new one answered and the person said yes.** "다른 팀에 연결" and the failure
+  screen's "팀 주소 바꾸기" used to remove the phone from its team at once. Now they open ① over the team page (kept
+  mounted, hidden from screen readers) with [{old}(으)로 돌아가기]; the new address must answer `/api/health`, then
+  "{old}에서 나가고 {new}에 연결할까요? 이제 {old} 알림은 이 휴대폰으로 오지 않아요." with the new host and the
+  outside note when it applies, [취소] (focus) [바꾸기]. Only [바꾸기] runs the leave (`leaveTeam`, the label key, the
+  delivered notifications), and only after the new team was saved (a refused save leaves the phone in its team). If the app stops between the
+  two, the next start finds the old team's device record (`settleDevice`: a device for another origin than the saved
+  team) and makes it a removal still owed, so the old team's push does not stay on the phone. The new team's push starts only after sign-in there, so the question promises nothing about
+  it. The same team again opens the link's page in place.
+- **Desktop**: a pasted link opens its page in the app (`openTeam(id, entryPath)`; a team already open loads it where it
+  is, the office-network address included); the 팀 menu's "팀 추가…" and "팀 목록…" (the same screen) are one "팀
+  목록·추가…"; a kit build still fills in its address; the welcome screen draws in dark mode too.
+- **Settings › 앱: "팀 주소 · 새 기기에서 앱을 열고 이 주소를 넣으세요 [복사]".** `GET /api/me` `team.address`
+  (`teamAddressOf`): the relay address when the server has one, else `https://<publicAddress>`, else absent (no row).
+  Signed-in people only (it is in `/api/me`); never the address a request came in at, so the office-network address
+  never shows. The install pictures draw the same address (they drew `location.host`). Anonymous visitors still get no
+  team name (`SetupStatus.teamName` stays null).
+- **Used or expired links lead with signing in**: the invite and team-link problem pages add "이미 가입했다면
+  로그인하세요." and a full-width [로그인]; both join forms end with "이미 가입했어요? 로그인".
+- **Reserved relay names**: `acme` (the screens' example: someone typing it must never reach a real team), `trina`,
+  `trina-ax`. The demo company (`scripts/demo/acme`, `bun run demo:company`) registers `acme` on its local development
+  relay: `scripts/dev.ts` now adds its own `--team` to `RELAY_DEV_NAMES`. The relay tests use `acme-co` / `acme-inc`.
+  A team already called `acme` on a live relay keeps working (routing reads the teams table, not reservations) but could
+  not be renamed back to it; the live registry and the signup's own list need the same names (outside this repository).
+- **Docs**: the install page and the Linux guides say what the apps need from a server of your own: a certificate the
+  computer trusts (desktop), a public-CA certificate and no redirect on `/api/health` (phone), `MYCEL_PUSH_GATEWAY` for
+  phone notifications, and where people find the address.
+- Tests: `tests/unit/team-link.test.ts` (the table on both copies, relay answers, renames), `e-desktop-common` (the
+  desktop address shape, invite and team links kept, the health verdict, the outside question, the sign-in paths,
+  punycode, the store links, the merged menu), `mobile-security` (stored addresses, bare names, the edition's domain and
+  guide, the phone strings and the switch copy, no signup link, leaving only in `connect`), `f-frames` (reserved names),
+  `a-team-address` (the `/api/me` field), `web/test/unit/first-run.test.tsx`, `web/test/e2e/first-run.spec.ts`.
+
 ## Migrations that would be skipped say so (chore/migration-guard, 2026-11-08)
 
 - **Why.** The runner (`server/src/db.ts` `readMigrations`) applies only `NNN_<lower-case letters, digits, _>.sql`
@@ -14881,6 +14984,70 @@ and its developer page "User presence and status" (what was copied and what was 
   request at 01:00 KST on the 1st under November, shows November's "this month" and sends November's notice);
   `tests/unit/g-timezone.test.ts` drops the "without a zone" case.
 - Version impact: **patch** (a fix and one hint string; no API, setting or data format change).
+
+## First run, phase 2: a tapped link opens the app, behind screen ④ (feat/first-run-open-links, 2026-11-08, product owner)
+
+Builds on "First run: one box" (PR 1). Plan: `docs/AGENTS/plan/20261108-1025-first-run-open-links.md`.
+
+- **One link reader** (`readAppLink`, `shared/src/team-link.ts`, the phone's copy identical): `trina-ax://open?url=<encoded
+  team link>`, nothing else in it (one `url`, no other parameter, no fragment, no user, no port, host `open`), and on the
+  phone also the hosted domain's own invite or team link (`https://<name>.trina.app/invite/…`, `/join#t=…`, a universal
+  link / app link). The address inside goes through the box's rules: https (http only to this machine on the desktop),
+  no user:password, no `javascript:` / `file:` / `data:` / scheme-relative / bare names, no text around it. The host is
+  what the URL parser makes of it, so a numeric trick (`0x7f.1`, `2130706433`, `127.1`) shows as `127.0.0.1` and a
+  backslash ends the host (`evil.example\@acme.trina.app` is `evil.example`); none of them counts as hosted.
+- **Screen ④ for every link from outside**, in both apps: "{host}에 연결할까요? 직접 받은 링크가 맞을 때만
+  연결하세요.", the phase-1 outside note ("트리나가 운영하는 주소가 아니에요…") when the hosted service does not run it,
+  and on a phone in another team the switch line ("이제 {old} 알림은 이 휴대폰으로 오지 않아요.", [바꾸기]). [취소] has
+  the focus. Nothing is fetched or loaded before the yes; the yes runs the phase-1 path (health check, relay answers,
+  the link's page; the phone leaves its old team only then). `LinkGate` keeps the offer: a yes counts only for the host
+  ④ showed, only 600 ms after ④ reported itself on screen (also when it appears late, after a cold start), and once; a
+  newer link replaces the waiting one (each offer has an id; the phone's ④ keeps its state per offer and drops an
+  answer whose link is no longer the one on screen), and a team view taking over drops it. A rename found after the
+  yes is asked once more with the new host ("팀 주소가 {host}(으)로 바뀌었어요…"). [연결] is off (greyed) for its first
+  650 ms on screen, so a tap never silently does nothing. A tapped universal link that was cut
+  off says so; a bad scheme link never covers a waiting ④. Esc and Android back answer no.
+- **Desktop**: the packaged app is the scheme's handler (`app.setAsDefaultProtocolClient(PRODUCT.linkScheme)`; a
+  development run only with `MYCEL_DESKTOP_REGISTER_SCHEME=1`, so tests and dev builds never take the scheme over);
+  macOS `open-url` (registered before `ready`, so the link that launched the app is kept until the window exists);
+  Windows and Linux: the first instance's argv and the second instance's argv (`linkFromArgv`, only an argument that
+  starts with the scheme). A link never points the desktop app at this machine (`readDesktopLink`: https only, no
+  loopback host, so a web page cannot aim the team view and its bridge at a local port; a typed address keeps http to
+  this machine for development). Every path calls `AppWindow.offerLink`, which fetches nothing; only `answerLink` connects,
+  and only with the gate's offer. The renderer names the host it showed; the main process holds the link. The base
+  electron-builder config declares `protocols`, which the dmg and the Mac App Store build turn into `CFBundleURLTypes`
+  and the Microsoft Store package into a `windows.protocol` extension (its manifest template's `${extensions}`).
+- **Phone**: `Linking.getInitialURL()` and the `url` event; the `trina-ax` scheme was already registered (`scheme`);
+  `ios.associatedDomains: applinks:*.trina.app` and an Android intent filter with `autoVerify` for
+  `https://*.trina.app` `/invite/…` and `/join`, both only for an edition with a team domain (the neutral app declares
+  none).
+- **The scheme is `PRODUCT.linkScheme`** (`trina-ax`), the phone's `scheme` in `editions/trina/branding/mobile.json`; a
+  test keeps them equal. The web's "앱에서 열기" uses it too.
+- **Team servers serve the platforms' files** (`server/src/routes/app-links.ts`, off the API contract like the OAuth
+  metadata): `/.well-known/apple-app-site-association` (iOS 13+ `components`: `/invite/*`, and `/join` with `#t=*`; the
+  app id `<appleTeamId>.<bundleId>` from the branding, `shared/src/app-links.ts`) and `/.well-known/assetlinks.json`
+  (the package and the Play app signing certificate's SHA-256; 404 until that fingerprint is known, never the web app's
+  page). Public, the same for everyone, nothing about the team; JSON, no redirect, no cookie. Self-hosted servers serve
+  them too (harmless), but the apps declare only `*.trina.app`: on a domain of one's own a tapped link opens the
+  browser, and the join page's "앱에서 열기" is the way into the app.
+- **"앱에서 열기"** on both join pages (one line under "이미 가입했어요? 로그인"), only in a web browser. The link carries
+  the invite or team-link token (the team link's from memory: the page already took it out of the address bar), and a
+  team link joins without anyone's approval, so it goes only where our own app receives it (review must-fix): on
+  **Android** an `intent://open?url=…#Intent;scheme=trina-ax;package=app.trina.ax;end` link, which only our package can
+  take (a bare custom scheme can be claimed by any app); on **macOS and Windows** `trina-ax://open?url=…`, answered by the
+  installed desktop app; on an **iPhone none** (iOS gives a custom scheme to whichever app claims it and lets no link
+  name the app; the verified universal link, the team link itself, opens the app there once Apple's setup is done);
+  nothing on Linux or anything else. Residual risk on computers: another program the person installed could register
+  `trina-ax` too and receive the token; it would already run as that person. Five languages.
+- **Outside this repository** (the PR lists them): the App ID's Associated Domains capability before a signed iOS build;
+  the files on `trina.app` itself for the wildcards (Android checks a wildcard host at its root; for Apple, serve both);
+  the Play signing fingerprint in `shared/src/app-links.ts`; new iOS, Android and Mac App Store builds; the signup's
+  last page.
+- Tests: `tests/unit/team-link.test.ts` (the reader on both copies: every crafted case, universal links, the gate),
+  `e-desktop-common` (the desktop reader, argv, the handlers reaching only `offerLink`, `answerLink` only with the
+  gate's offer, the configs declaring the scheme), `mobile-security` (the edition's associated domains and intent
+  filter, links only through ④), `app-links.test.ts` (the files, served signed out over the relay and directly, the
+  ids equal to the branding), `web/test/unit/first-run.test.tsx` and `web/test/e2e/first-run.spec.ts` ("앱에서 열기").
 
 ## The release feed also serves the Android APK (feat/feed-android-apk, 2026-11-08, product owner)
 
