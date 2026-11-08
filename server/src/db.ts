@@ -15,10 +15,15 @@
 // - Pending migrations are applied together in one transaction that holds the write lock (BEGIN IMMEDIATE): a
 //   process that opens the file at the same moment waits and then finds nothing left to do; a failing migration
 //   leaves the DB exactly as it was.
+// - Applied migrations are known by number only. When a file is renamed after a DB ran it (moved to another number,
+//   or a new file put at its old number), that DB skips the file now at the old number and runs the moved one again.
+//   Start-up logs one warning per such entry, naming both (renamedMigrations). It does not refuse to start: dev and
+//   customer DBs already hold such entries.
 import { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
 import { uuidv7 } from '@mycel/shared'
+import type { Logger } from './log'
 
 export const MIGRATIONS_DIR = path.join(import.meta.dir, '..', 'migrations')
 /** Raise when this build stops understanding DBs written by older releases' assumptions (see header). 5: group chats
@@ -34,8 +39,12 @@ export class SchemaTooNewError extends Error {
 
 export interface MigrationFile { version: number; name: string; sql: string; minCompatibleReader: number }
 
+/** The file names the runner applies. Any other file in the folder is skipped, yet the builds ship every .sql file:
+ * tests/unit/migration-files.test.ts fails on one. */
+export const MIGRATION_FILE = /^\d{3}_[a-z0-9_]+\.sql$/
+
 export function readMigrations(dir = MIGRATIONS_DIR): MigrationFile[] {
-  const files = fs.readdirSync(dir).filter((f) => /^\d{3}_[a-z0-9_]+\.sql$/.test(f))
+  const files = fs.readdirSync(dir).filter((f) => MIGRATION_FILE.test(f))
   const out = files.map((f) => {
     const sql = fs.readFileSync(path.join(dir, f), 'utf8')
     const m = /^--\s*min_compatible_reader:\s*(\d+)\s*$/m.exec(sql.split('\n').slice(0, 10).join('\n'))
@@ -50,6 +59,8 @@ export interface OpenDbOptions {
   readerLevel?: number
   /** where VACUUM INTO copies go before migrating a DB with data (default: <db dir>/backups) */
   backupDir?: string
+  /** gets one warning per renamed migration (renamedMigrations); the server passes its log */
+  log?: Pick<Logger, 'warn'>
 }
 
 /** Open (and migrate) the SQLite database. */
@@ -74,6 +85,8 @@ export function migrate(db: Database, o: OpenDbOptions = {}) {
   const all = readMigrations(o.migrationsDir)
   // A first look without the lock: the copy before migrating (VACUUM INTO) cannot run inside a transaction.
   const before = appliedVersions(db)
+  // before applying anything: when a pending migration then fails ("duplicate column"), the reason is in the log
+  if (before && o.log) for (const r of renamedMigrations(db, all)) o.log.warn(renamedMessage(r), { ...r })
   if (before && before.size && o.backupDir && all.some((m) => !before.has(m.version))) {
     checkReadable(db, readerLevel)
     backupBeforeMigrate(db, o.backupDir, before)
@@ -101,6 +114,37 @@ export function migrate(db: Database, o: OpenDbOptions = {}) {
 function appliedVersions(db: Database): Set<number> | null {
   if (!db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'").get()) return null
   return new Set((db.query('SELECT version FROM schema_migrations').all() as { version: number }[]).map((r) => r.version))
+}
+
+export interface RenamedMigration {
+  version: number
+  /** the name this DB recorded when it ran that number */
+  recorded: string
+  /** the file with that number now (it never runs on this DB), or null */
+  file: string | null
+  /** the file that has the recorded name under another number now (it runs on this DB as well), or null */
+  movedTo: string | null
+}
+
+/** Recorded migrations whose file was renamed after this DB ran them. A recorded number with no file and no file of the
+ * same name is left out: that is a newer build's migration after a downgrade. */
+export function renamedMigrations(db: Database, files: MigrationFile[]): RenamedMigration[] {
+  if (!appliedVersions(db)) return []
+  const byVersion = new Map(files.map((f) => [f.version, f.name]))
+  const label = (name: string) => name.replace(/^\d+_/, '')
+  const out: RenamedMigration[] = []
+  for (const r of db.query('SELECT version, name FROM schema_migrations ORDER BY version').all() as { version: number; name: string }[]) {
+    const file = byVersion.get(r.version) ?? null
+    if (file === r.name) continue
+    const movedTo = files.find((f) => f.version !== r.version && label(f.name) === label(r.name))?.name ?? null
+    if (file || movedTo) out.push({ version: r.version, recorded: r.name, file, movedTo })
+  }
+  return out
+}
+
+function renamedMessage(r: RenamedMigration): string {
+  const now = r.file ? `the file with that number is now ${r.file}, which never runs on this database` : 'no file has that number now'
+  return `migration ${r.version} on this database was ${r.recorded}, but ${now}${r.movedTo ? `; ${r.recorded} is now ${r.movedTo}, which runs here as well` : ''}`
 }
 
 /** How long a process waits for another one that is migrating the same database. */
