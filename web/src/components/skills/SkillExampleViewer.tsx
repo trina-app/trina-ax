@@ -1,6 +1,6 @@
 // The example of a kept skill (docs/DECISIONS.md "W6"; FLOW-v6 §2.2, EXAMPLES-PLAN.md), opened by a row's "예시" on 내
-// 스킬 and in the Team skills catalog: one dialog (on phones the sheet the dialogs are there), one example per open (no
-// stepping to the next row's: FLOW-v6 §2.4, lean).
+// 스킬, in the Team skills catalog and in Home's "팀에 준비된 것" (docs/DECISIONS.md "W6.3"): one dialog (on phones the
+// sheet the dialogs are there), one example per open (no stepping to the next row's: FLOW-v6 §2.4, lean).
 // It shows an image the web build serves (a result that is a picture anyway: the deck, the cards, the video's frames)
 // or a short before → after text drawn in the page's own theme, the line that the company in it is invented, and where
 // the skill comes from (only skills with a known origin ship; only the English 자연스러운 글 links out). Until an
@@ -38,8 +38,8 @@ export function SourceLine({ skill }: { skill: Pick<PackCatalogSkill, 'source'> 
 }
 
 export interface SkillExampleViewerProps {
-  /** the row's skill */
-  skill: PackCatalogSkill
+  /** the row's skill (a catalog row, or Home's "팀에 준비된 것" row: components/onboarding/TeamPrepared.tsx) */
+  skill: Pick<PackCatalogSkill, 'name' | 'title' | 'description' | 'example' | 'locale' | 'source'>
   onClose: () => void
   /** where the focus goes back to (the shown row's 예시) */
   returnTo?: HTMLElement | null

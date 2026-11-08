@@ -208,7 +208,7 @@ function WelcomeSteps() {
         )}
         {!gate && step === 'files' && <TeamFilesStep progress={progress} busy={busy} nextLabel={nextLabel('files')} onDone={(n) => void mark('files', n > 0 ? 'done' : 'skipped')} onSkip={() => void mark('files', 'skipped')} />}
         {!gate && step === 'tools' && <ToolsStep busy={busy} done={progress.steps.tools === 'done'} nextLabel={nextLabel('tools')} onDone={() => void mark('tools', 'done')} onSkip={() => void mark('tools', 'skipped')} />}
-        {!gate && step === 'invite' && <InviteWizardStep progress={progress} onDone={() => void mark('invite', 'done')} onSkip={() => void mark('invite', 'skipped')} />}
+        {!gate && step === 'invite' && <InviteWizardStep progress={progress} onDone={() => void mark('invite', 'done')} onSkip={() => void mark('invite', 'skipped')} onStep={(s) => { setError(null); setStep(s) }} />}
         {step === 'done' && <DoneStep progress={progress} aiReady={aiReady} />}
       </div>
       {error && <div className="mt-4"><ErrorNote>{error}</ErrorNote></div>}
@@ -537,8 +537,9 @@ function IntroFiles({ files, disabled }: { files: ReturnType<typeof useIntroFile
 /** The invite (stream E's step): people who join land on the skill everything points at (lib/welcome.ts inviteSkill: the
  * first shared skill; never the intro deck; none: Home), and the message names that one skill. The link is made as
  * the step opens, so the message and its one copy button are there at once (docs/DECISIONS.md "W2"); an open link that
- * leads elsewhere is changed to that skill (same address). */
-function InviteWizardStep({ progress, onDone, onSkip }: { progress: WelcomeProgress; onDone: () => void; onSkip: () => void }) {
+ * leads elsewhere is changed to that skill (same address). A team with no skills and no documents gets one line with the
+ * ways back to 내 스킬 and 팀 파일 (docs/DECISIONS.md "W6.3"). */
+function InviteWizardStep({ progress, onDone, onSkip, onStep }: { progress: WelcomeProgress; onDone: () => void; onSkip: () => void; onStep: (s: 'skills' | 'files') => void }) {
   useEffect(() => {
     if (!progress.inviteShownAt) void useWelcome.getState().update({ inviteShown: true }).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -546,7 +547,9 @@ function InviteWizardStep({ progress, onDone, onSkip }: { progress: WelcomeProgr
   const skillPath = inviteSkill(progress)
   // "들어오면 '{skill}'부터 열려요" also for a landing skill outside the shared list: one option, so no 바꾸기
   const shared = sharedForInvite(progress) ?? (skillPath ? { landing: skillPath, options: [{ path: skillPath, title: '' }], onLanding: () => {} } : null)
-  return <InviteStep skillPath={skillPath} retarget={!!skillPath} shared={shared} prepare onDone={onDone} onSkip={onSkip} />
+  // an empty team's line (docs/DECISIONS.md "W6.3"): 스킬 넣기 / 팀 파일 넣기 open those steps; the next step after each is
+  // this one again (lib/welcome.ts nextStep: the next open step)
+  return <InviteStep skillPath={skillPath} retarget={!!skillPath} shared={shared} prepare onDone={onDone} onSkip={onSkip} steps={{ skills: () => onStep('skills'), files: () => onStep('files') }} />
 }
 
 /** The end screen's deck line, for a row whose deck started on an earlier version (docs/DECISIONS.md "W6": nothing starts

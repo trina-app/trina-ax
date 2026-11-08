@@ -39,6 +39,10 @@ export const GENERAL_PROMO_SKILL = 'skills/general/promo-video/SKILL.md'
  * intro and the brand images folder. Its artifact (DECK_ARTIFACT_KEY, intro-deck.ts) opens beside the chat by itself
  * like the video; the deck downloads as PowerPoint and PDF. */
 export const GENERAL_DECK_SKILL = 'skills/general/intro-deck/SKILL.md'
+/** "자연스러운 글" (natural writing, the work pack): the skill a member tries on their own text first. Home's "팀에 준비된
+ * 것" fills the message box with "/humanizer" and one line for it instead of opening its form (docs/DECISIONS.md
+ * "W6.3"): its form has no box for the text itself. */
+export const WORK_HUMANIZER_SKILL = 'skills/work/humanizer/SKILL.md'
 
 /** The meeting notes folder inside the team's own group folder (groups/<team>/회의록/), named in the team language. */
 export const NOTES_FOLDER = { ko: '회의록', en: 'Meeting notes', id: 'Notulen rapat', ja: '議事録', es: 'Actas de reuniones' } as const satisfies Record<Locale, string>

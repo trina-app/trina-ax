@@ -190,6 +190,9 @@ const SUMMARY: Record<string, Record<Locale, string>> = {
   },
 }
 
+/** A kept skill's one line in `locale` ('' for a name that is not one). */
+export const packSummary = (name: string, locale: Locale): string => SUMMARY[name]?.[locale] ?? ''
+
 // The examples (EXAMPLES-PLAN.md; FLOW-v6 §2.2, §8): skill-examples.ts, which the web tests' mock server imports too.
 export { exampleBody, PACK_EXAMPLES, packExample } from './skill-examples'
 
@@ -213,7 +216,7 @@ export function skillPackCatalog(ctx: AppContext, userId: string, locale: Locale
     if (!text) return []
     const path = `skills/${c.pack}/${c.name}/SKILL.md`
     return [{
-      pack: c.pack, name: c.name, path, title: parseSkill(text, path)?.title ?? c.name, description: SUMMARY[c.name]?.[locale] ?? '',
+      pack: c.pack, name: c.name, path, title: parseSkill(text, path)?.title ?? c.name, description: packSummary(c.name, locale),
       inTeam: inTeam(ctx, path, c.name, teamSkills), visual: c.visual, example: packExample(at, c.name), locale: at, source: c.source(at),
     }]
   })

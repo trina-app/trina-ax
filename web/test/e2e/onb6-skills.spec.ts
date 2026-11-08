@@ -402,8 +402,8 @@ test('Team skills (member): no catalog; 내 스킬 가져오기 opens the sugges
   const errors = watchConsole(page)
   const asked: string[] = []
   page.on('request', (r) => { if (new URL(r.url()).pathname.startsWith('/api/onboarding/packs')) asked.push(r.url()) })
-  // the 404s a member's Home gets, and no other (welcome-notes.spec.ts says why): GET /api/demo, and the first-time
-  // card's listing of a folder the member cannot open
+  // the 404s a member's Home gets, and no other (welcome-notes.spec.ts says why): GET /api/demo, and the ready
+  // question's listing of a folder the member cannot open
   const missing: string[] = []
   page.on('response', (r) => { if (r.status() === 404) { const u = new URL(r.url()); missing.push(`${u.pathname}${u.search}`) } })
   await reset(page)

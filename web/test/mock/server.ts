@@ -271,6 +271,8 @@ export class MockServer {
    * held until stop-check (/__test/share-hold) */
   packExamples: Partial<Record<string, import('@mycel/shared/api').PackExample | null>> = {}
   packsFail = false
+  /** POST /__test/prepared-fail: GET /api/skills/examples fails (Home's "다시 불러오기") */
+  preparedFail = false
   packInstallFails = 0
   shareHold = false
   profileDrafts = new Map<string, { userId: string; website: string; reads: number }>()
@@ -475,6 +477,7 @@ export class MockServer {
     this.companyProfile = null
     this.packExamples = {}
     this.packsFail = false
+    this.preparedFail = false
     this.packInstallFails = 0
     this.shareHold = false
     this.profileDrafts = new Map()
@@ -2372,6 +2375,43 @@ export class MockServer {
         }),
       }
     },
+    // what the team prepared, as the caller (server/src/skills/examples.ts teamPrepared, short; docs/DECISIONS.md "W6.3"):
+    // their team and group skills (the landing skill first, then the kept ones at their pack path with their example,
+    // then the others), the team group folder's documents (all levels down, at most 100, without the brand folder, the
+    // group's skills, dot and system files; null for a member outside the team group: the server's group rule), whether
+    // they sent a team skill's "/<name>", whether a company profile is saved. /__test/prepared-fail: the read fails
+    skillExamples: (c) => {
+      if (this.preparedFail) fail('internal', 500, '지금은 불러오지 못했어요')
+      const ko = this.settings.defaultLocale === 'ko'
+      const mine = this.skillsFor(c.user).filter((x) => !x.personal)
+      const kept = ['humanizer', 'card-news', 'promo-video', 'intro-deck'].flatMap((name) => {
+        const k = PACK_CATALOG.find((x) => x.name === name)!
+        const s = mine.find((x) => x.path === `skills/${k.pack}/${k.name}/SKILL.md`)
+        if (!s) return []
+        const example = Object.hasOwn(this.packExamples, k.name) ? this.packExamples[k.name] ?? undefined : packExample(ko ? 'ko' : 'en', k.name) ?? undefined
+        const source = k.name !== 'humanizer' ? { kind: 'team' as const } : ko ? { kind: 'team_writing' as const } : { kind: 'adapted' as const, author: 'Siqi Chen', project: 'humanizer', license: 'MIT', url: 'https://github.com/blader/humanizer' }
+        return [{ path: s.path, name: s.name, title: s.title ?? s.name, summary: c.user.locale === 'ko' ? k.lineKo : k.lineEn, ...(example ? { example, locale: ko ? 'ko' as const : 'en' as const } : {}), source }]
+      })
+      const others = mine.filter((x) => !kept.some((k) => k.path === x.path)).map((x) => ({ path: x.path, name: x.name, title: x.title ?? x.name, summary: x.description.split('\n')[0]!.slice(0, 200) }))
+      const shared = this.welcome?.shared?.landing ?? null
+      const landing = shared && mine.some((x) => x.path === shared) ? shared : null
+      const all = [...kept, ...others]
+      const skills = landing ? [...all.filter((x) => x.path === landing), ...all.filter((x) => x.path !== landing)] : all
+      const tg = this.welcome?.teamGroup ?? null
+      const inGroup = !!tg && (c.user.role !== 'member' || c.user.groupIds.includes(tg.id) || !!this.groups.find((g) => g.id === tg.id)?.memberIds.includes(c.user.id))
+      let teamFolder: { path: string; files: number; more: boolean; without: string[] } | null = null
+      if (tg && inGroup && this.files.get(tg.folder)?.type === 'folder' && this.access(tg.folder, c.user) !== 'none') {
+        const skip = [tg.brandFolder ?? `${tg.folder}/브랜드`, `${tg.folder}/skills`]
+        const system = /^(\.|~\$)|^(thumbs\.db|desktop\.ini)$/i
+        const docs = [...this.files.entries()].filter(([p, n]) => n.type === 'file' && p.startsWith(`${tg.folder}/`) && !skip.some((k) => p === k || p.startsWith(`${k}/`))
+          && !p.slice(tg.folder.length + 1).split('/').some((seg) => system.test(seg)) && this.access(p, c.user) !== 'none').length
+        teamFolder = { path: tg.folder, files: Math.min(docs, 100), more: docs > 100, without: skip.map((k) => k.slice(tg.folder.length + 1)) }
+      }
+      const teamNames = mine.filter((x) => x.path.startsWith('skills/')).map((x) => x.name.toLowerCase())
+      const ran = (text: string) => { const t = text.trim().toLowerCase(); return teamNames.some((n) => t === `/${n}` || t.startsWith(`/${n} `) || t.startsWith(`/${n}\n`)) }
+      const ranTeamSkill = this.messages.some((m) => m.role === 'user' && m.author?.id === c.user.id && ran(m.content))
+      return { skills, teamFolder, landing, ranTeamSkill, hasProfile: !!this.companyProfile }
+    },
     // the skills a person checked (server: installSkillPack with `skills`): written when free, `blocked` with the other
     // path when a team skill elsewhere has the name; an owner's install marks 내 스킬 done (routes/onboarding-packs.ts)
     installSkillPack: (c) => {
@@ -3892,6 +3932,7 @@ export class MockServer {
     }
     else if (p === '/__test/pack-examples') this.packExamples = (body.examples as typeof this.packExamples | undefined) ?? {}
     else if (p === '/__test/packs-fail') this.packsFail = body.on !== false
+    else if (p === '/__test/prepared-fail') this.preparedFail = body.on !== false
     else if (p === '/__test/pack-install-fail') this.packInstallFails = Number(body.times ?? 1)
     else if (p === '/__test/share-hold') this.shareHold = body.on !== false
     else if (p === '/__test/skill-list') this.aiList = SkillsOverview.shape.aiList.parse(body)

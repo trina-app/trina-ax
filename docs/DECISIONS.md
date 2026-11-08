@@ -15739,3 +15739,100 @@ settings screens, which are core. Plan: `docs/AGENTS/plan/20261108-1241-web-tidy
   sent as null), `room-info.test.tsx` (no 나가기 in the info), `slack-screens.test.tsx`; the e2e specs that named the
   old words.
 - Version impact: **patch** (wording, one menu, dead code; no API or data change).
+
+## W6.3 — What a new member sees first (feat/onb6-members, 2026-11-09, product owner)
+
+The owner invited a member on the dev server and the member saw a bare Home: with 할 일 정리 gone the invite lands on
+Home, and nothing there named what the team had prepared (FLOW-v6 §6 said "members unchanged"). The owner approved the
+direction ("그럼 ㄱ"); the plan was reviewed per persona (5 MUST, 16 SHOULD, 4 CUT) and revised before building. No new
+page, no migration. Placement: Team AX core (Home, the skills routes, onboarding components). Plan:
+`docs/AGENTS/plan/20261108-1734-onb6-members.md`.
+
+- **Where an invite lands is unchanged.** A link with the owner's shared skill opens its form; every other link lands
+  on Home. Not the first kept skill's form: 회사 소개서, 카드뉴스 and 홍보 영상 make company material, and a member's first
+  run would remake the company's cards on the team's AI.
+- **One member endpoint, `GET /api/skills/examples`** (`auth: 'user'`, server/src/skills/examples.ts), read as the
+  caller. It returns only:
+  - `skills`: the caller's own team and group skills (what "/<name>" runs for them; personal skills left out), the
+    landing skill first, then the kept skills **at their pack path** in a member's order (자연스러운 글 → 카드뉴스 → 홍보
+    영상 → 회사 소개서), then the others by name. Each has its title and one line in the caller's language (a kept
+    skill's own line, else the first line of its description). Only a kept skill at its own pack path carries Trina's
+    example, its language and its source line: an owner's own "card-news" in another folder is the team's skill, not
+    Trina's (the catalog's `inTeam`, which also matches by name, was the wrong rule for this);
+  - `teamFolder`: the welcome steps' team group folder (the group's current folder), its documents counted **as the
+    caller**, all levels down (팀 파일 uploads into subfolders, so a one-level count found none), at most 100 (`more`),
+    and at most 5,000 entries looked at; folders are read entry by entry (`opendirSync`), so the walk stops at the cap
+    instead of reading whole folders. A count is reused for 45 seconds per person and folder (every open Home and the
+    Files screen read it, and a busy `groups/` folder is not walked for each); the person's own change in the folder
+    (the file screen, an upload, their AI's save: `publishChanges` now says who made a change) drops theirs at once,
+    someone else's shows within that time. `without` names the two folders left out, for the 물어보기 question. Not counted: the steps' own brand folder (회사 소개.md and the website's
+    pictures would make every team with a profile look like it had files), the group's own skills folder (those are
+    skills, listed above), dot files, Office lock files (`~$`), the files an operating system makes (`isSystemName`,
+    now in shared/src/api/files.ts for the folder upload and the count), links, hard links and odd names. A folder
+    hidden from the caller does not count for them. `null` for a team without a group and for a caller who cannot list
+    the folder (a member who joined another way): no file count, no name;
+  - `landing`: the invite's skill (`landingSkill` as the caller) only when it is in the caller's list;
+  - `ranTeamSkill`: the caller has a `turn_skill_runs` row (team skills only, migration 223) in an answer that
+    finished and that they started themselves (a failed run and a scheduled run do not count, as for the goal and the
+    suggestions);
+  - `hasProfile`: a company profile is saved (the profile itself is not sent).
+  Nothing owner-only: the welcome state and the catalog stay `auth: 'admin'`, the install stays 403 for members, no
+  file names go out. Owners and admins get the same shape.
+- **"팀에 준비된 것" on Home** (web/src/components/onboarding/TeamPrepared.tsx) in place of the first-time folder card
+  and its three example boxes:
+  - skills: up to 3 rows (title · one line · 예시 when there is an example · 써 보기), then "팀 스킬 N개 더 ›" (팀 스킬).
+    They show **until the person ran a team skill**, however many chats they have (people who chatted before this
+    change included; keyed on `ranTeamSkill`, not on chats). 써 보기 opens the skill's form over Home (✕ back to the
+    block). **자연스러운 글's 써 보기 fills the box** with "/humanizer 아래 글을 자연스럽게 다듬어 줘:" and a new line, as the
+    "/" menu's compose does: its form has inputs and so no box for the text, and a run without the text would be the
+    AI asking for it;
+  - team files: while the person has no chats and the count is above 0: "{폴더} · 파일 n개" ("n개 넘게") with 물어보기,
+    which puts "{path} 폴더의 파일 이름과 종류만 보고(브랜드, skills 폴더는 빼고), 내가 먼저 보면 좋을 것 3개를 골라 줘" in
+    the box (the path named, as the old examples did; names and types only, so it does not open 18 PDFs on a member's
+    own key; the folders the count leaves out are left out of the question too). Not sent. The
+    folder's name is not a link (파일 is in the sidebar);
+  - nothing of that, no chats yet: "이렇게 시작해 보세요" and one filled question that needs nothing from the team ("우리
+    회사가 하는 일을 3줄로 정리해 줘" with a saved profile, which the prompt carries; else `home.example1` on the person's
+    own folder), then the old "no team folder" line when they can open no team folder. Same on a phone. No "준비 중"
+    line for anyone: the client cannot know it is true;
+  - **one filled button for a member**: the first skill's 써 보기, else 물어보기, else the question. **Owners and admins
+    get no filled button in the block**: the goal card or the setup row stays the one thing on Home ("Y"). With nothing
+    prepared they see "스킬 넣기 · 팀 파일 넣기" (팀 스킬, 파일) instead of a question;
+  - **no AI**: a member gets the block read-only under the no-AI card (rows and 예시; 써 보기, 물어보기 and the question
+    come back when AI answers, as the card reloads AI access); owners and admins get the card alone. Both keep the demo
+    and project rules (`extras`, `!projectId`);
+  - phones: a skill row's tap is 써 보기 and 예시 is its own 44 px target at the row's end; "팀 파일 · 파일 18개 · 물어보기"
+    is one row; no frame;
+  - it reads again on skill, access and team-folder changes, once per burst (1.5 seconds after the last change: a
+    folder upload is one read, not one per file; a skill removed meanwhile leaves); an example that cannot be read
+    leaves the row without 예시; a failed read is one quiet "다시 불러오기", never the empty state;
+  - **「자주 쓰는 스킬」 stays out while the block's skill rows show** (the owner's call after the review, lean UI: two
+    lists of skills side by side); it waits for the block's answer, so it never flashes first, and comes back once the
+    person ran a team skill.
+  Removed: `FirstTime`, its `Access` and `AccessLegend` and their strings (`home.foldersTitle`, `home.foldersCount`,
+  `home.example2`, `home.example3`, `files.canWrite`, `files.canWriteTip`); `home.example1` and `home.noFolders` stay.
+  Kept as it is: the frequent questions.
+- **The invite step's line** (InviteStep, the welcome steps' 5/5 and the goal card's invite): with no team skill and no
+  document (the same count; a count that stopped at its cap before it found a document is no empty team), one quiet
+  line above the message, "지금 초대하면 팀원이 볼 게 없어요 · 스킬 넣기 · 팀 파일
+  넣기". In /welcome the links open 내 스킬 and 팀 파일 and the next step after each is 초대 again (the next open step);
+  elsewhere they go to 팀 스킬 and 파일. It never blocks (copying works as before), and it is gone while "이 사람이
+  팀장이에요" is ticked: the lead is the one who will set up. No product we looked at warns before an invite in the
+  product (Slack's onboarding template says "wait to add others until you've customized it"); ours is one line.
+- **The Files screen's "폴더에서 회사 문서 추천받기"** shows while the same count is 0 and did not stop at its cap (it
+  checked one level only, so after a folder upload it still offered itself).
+- Not built (CUT in the review): "쓰던 스킬 가져오기" in the empty state (non-developer teams have no skill folder; 팀
+  스킬 offers it), a link on the folder's name, a second endpoint, a separate landing rule. Optional and not built: a
+  "팀원에게 이렇게 보여요" label for owners.
+- i18n: `home.prepared.*` in the five languages.
+- Tests: `tests/unit/b-skill-examples.test.ts` (member and owner; the count recursive, without the brand folder, the
+  group's skills, dot, lock and system files and links, a hidden folder for the member only, the cap; the pack-path
+  match and an owner's same-name skill; a personal skill of a kept name; the landing skill a member cannot open;
+  `ranTeamSkill` (not a failed or a scheduled run); the reused count and what drops it; nothing owner-only, the
+  welcome state and the install 403; a gone group), the permission matrix case
+  (`tests/security/lib/cases.ts`), `web/test/unit/team-prepared.test.tsx` (every persona, the order, one filled button
+  by role, the compose, the form, the viewer, phones, the retry, the invite line and the lead box hiding it, a count
+  stopped at its cap), `home-no-ai.test.tsx` (the read-only block for a member, none for owners and admins;
+  「자주 쓰는 스킬」 out while the skill rows show), e2e `team-prepared.spec.ts` (1440 and 390).
+- Version impact: **minor** (a new endpoint and a visible change on a member's first screen and the invite step; no data
+  change).

@@ -12,7 +12,7 @@ for (const address of ['/', '/?prompt=Draft%20from%20a%20link']) {
     await signIn(page, { username: 'bob', password: 'bob password 1' })
     await page.goto(address)
     const input = page.getByTestId('composer-input')
-    await expect(page.getByTestId('first-time-folders')).toBeVisible()
+    await expect(page.getByTestId('team-prepared')).toBeVisible()
     await expect(input).not.toBeFocused()
     if (address.includes('prompt')) await expect(input).toHaveValue('Draft from a link')
     await page.keyboard.press('Tab')
@@ -54,7 +54,7 @@ test('new chat navigation focuses the composer but reloading does not', async ({
   await expect(page.locator('a[href="#main"]')).toBeFocused()
 })
 
-test('choosing examples and frequent questions focuses the filled composer', async ({ page }) => {
+test('choosing the ready question and frequent questions focuses the filled composer', async ({ page }) => {
   await reset(page)
   await page.route('**/api/questions/frequent', r => r.fulfill({ json: { days: 30, sampled: false, items: [
     { question: 'Summarize my weekly report', count: 3, lastUsedAt: '2026-10-20T00:00:00.000Z' },
@@ -62,7 +62,7 @@ test('choosing examples and frequent questions focuses the filled composer', asy
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await page.goto('/')
   const input = page.getByTestId('composer-input')
-  const example = page.getByTestId('example').first()
+  const example = page.getByTestId('team-prepared-ready')
   const text = await example.innerText()
   await example.focus()
   await page.keyboard.press('Enter')
@@ -98,9 +98,9 @@ test.describe('home focus on touch devices', () => {
     await page.goto('/')
     expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true)
     const input = page.getByTestId('composer-input')
-    await expect(page.getByTestId('first-time-folders')).toBeVisible()
+    await expect(page.getByTestId('team-prepared')).toBeVisible()
     await expect(input).not.toBeFocused()
-    const example = page.getByTestId('example').first()
+    const example = page.getByTestId('team-prepared-ready')
     const text = await example.innerText()
     await example.tap()
     await expect(input).toHaveValue(text)

@@ -1,4 +1,5 @@
-// The folders a person (and so their AI) can open, for the first-time card on the new-chat screen.
+// The folders a person (and so their AI) can open, for Home's ready question (components/onboarding/TeamPrepared.tsx:
+// the "no team folder" line under it).
 // The tree shows folders the person cannot open (access 'none') only as a way to reach visible folders below them
 // (e.g. groups/ above groups/마케팅, projects/ above projects/신제품-출시), so a member whose access comes from a group
 // or project rule sees nothing usable at the top level. This walks down through those navigation-only folders and
