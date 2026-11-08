@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-08 09:40
 - Branch: `fix/shared-chat-audience`
-- Status: in progress
+- Status: done
 - Where: trina-ax `server/src/chat` (shared.ts, turn.ts, tools.ts, room-project-chats.ts, share-chat.ts, a new
   shared-answers.ts), `server/src/rooms/ai.ts`, `server/src/tools/artifact.ts`, `server/src/system/export.ts`,
   `shared/src/api/entities.ts`, `web/src/components/chat/Messages.tsx`. Why: chat, permissions and skills are Team AX
@@ -70,4 +70,10 @@ every unit test of the touched areas (`b-shared-chats`, `b-share-existing-chat`,
 
 ## Result
 
-Filled in at the end.
+Built as planned (docs/DECISIONS.md "People who see a shared chat later"), with what the independent security review
+added: an artifact version is hidden with any earlier hidden version of its key (an update on another branch carried
+its text); a room answer built on shared chat answers carries the places they read (later room members are judged by
+them), and the room search counts a word only through what everyone in the room sees; searches run one full-text query
+per request. Differs from the plan: a read nobody had to confirm is recorded too (everyone then is its group), so a later
+reader who may not read the place gets the line; rolling back to a build with 265 but not 273 shows every answer again
+while it runs (written down, no reader-level bump). PR: fix/shared-chat-audience to dev.
