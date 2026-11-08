@@ -317,7 +317,7 @@ export class MockServer {
   skillChanges: SkillChange[] = []
   /** engine / model named in chat requests (tests check people who may not pick never send one) */
   engineRequests: { name: string; user: string; engine?: unknown; model?: unknown }[] = []
-  /** Admin > AI engines: "팀원이 엔진 고르기 허용" and the Claude-limit fallback (like the server: off by default) */
+  /** Admin > AI engines: "팀원이 엔진 고르기 허용" and "다른 AI로 대신 답하기" (like a self-hosted server: off by default) */
   memberChoice: MemberEngineChoice = { mode: 'off', groupIds: [], userIds: [] }
   limitFallback = false
   codexEnabled = true
@@ -1632,6 +1632,17 @@ export class MockServer {
       const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
       return { items: this.roomMessages.get(room.id) ?? [], nextCursor: null }
     },
+    // ⌘K: the messages of the rooms here that hold the text (one page, newest first), like the server's
+    searchRoomMessages: (c) => {
+      const q = String(c.query.q ?? '').trim().toLowerCase()
+      const items = this.rooms.flatMap((room) => (this.roomMessages.get(room.id) ?? []).filter((m) => !m.deletedAt && !m.event && m.body.toLowerCase().includes(q)).map((m) => ({ m, room })))
+        .sort((a, b) => b.m.createdAt.localeCompare(a.m.createdAt)).slice(0, Number(c.query.limit ?? 20))
+      const rooms = [...new Set(items.map((x) => x.room))].map((r) => ({ id: r.id, kind: r.kind, name: r.name, peers: r.peers, memberCount: r.memberCount }))
+      return {
+        items: items.map(({ m }) => ({ id: m.id, roomId: m.roomId, threadRootId: m.threadRootId ?? null, authorKind: m.authorKind, author: m.authorKind === 'ai' ? null : m.author, askedBy: m.authorKind === 'ai' ? m.askedBy : null, markdown: m.authorKind === 'ai' || !!m.sharedAnswer, snippet: m.body.slice(0, 200), createdAt: m.createdAt })),
+        rooms, nextCursor: null,
+      }
+    },
     listRoomMembers: (c) => {
       const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
       return { items: [{ id: c.user.id, name: c.user.name }, ...room.peers].map((user) => ({ user, joinedAt: room.createdAt })) }
@@ -2559,7 +2570,7 @@ export class MockServer {
       if (c.body.concurrency) this.settings.concurrency = c.body.concurrency
       if (c.body.enabled?.codex !== undefined) this.codexEnabled = c.body.enabled.codex
       if (c.body.enabled?.api !== undefined) this.apiEngineEnabled = c.body.enabled.api
-      if (c.body.limitFallback === true && !this.codexEnabled) fail('conflict', 409, 'Codex가 꺼져 있어 한도 대체를 켤 수 없어요.')
+      if (c.body.limitFallback === true && !this.codexEnabled) fail('conflict', 409, "Codex가 꺼져 있어 '다른 AI로 대신 답하기'를 켤 수 없어요.")
       if (c.body.limitFallback !== undefined) this.limitFallback = c.body.limitFallback
       if (!this.codexEnabled) this.limitFallback = false
       if (c.body.memberChoice) this.memberChoice = c.body.memberChoice

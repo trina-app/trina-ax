@@ -5,6 +5,7 @@ import type { AppContext } from '../../context'
 import type { AuthInfo } from '../../services'
 import { audit } from '../../admin/audit'
 import { ACCESS_MS, ADMIN_SCOPE, CODE_MS, ROOMS_SCOPE, ROOMS_WRITE_SCOPE, GRANT_MS, MCP_PATH, OAuthError, OPTIONAL_SCOPES, REQUEST_MS, SCOPES, challenge, hash, redirectAllowed, redirectMatches, resourceMatches, scopes, secret, validOrigin } from './policy'
+import { pruneScopes } from './scope'
 
 type Client = { id: string; name: string; redirects: string }
 type Pending = { id: string; client_id: string; redirect_uri: string; challenge: string; state: string | null; scopes: string; resource: string; user_id: string | null; session_id: string | null; expires_at: number }
@@ -72,6 +73,7 @@ export class RemoteOAuth {
     this.db.query('DELETE FROM remote_mcp_requests WHERE expires_at <= ?').run(this.now())
     this.db.query('DELETE FROM remote_mcp_upload_links WHERE expires_at <= ?').run(this.now())
     this.db.query('DELETE FROM remote_mcp_grants WHERE expires_at <= ?').run(this.now())
+    pruneScopes(this.db, this.now())
     this.db.query('DELETE FROM remote_mcp_clients WHERE last_used_at < ? AND id NOT IN (SELECT client_id FROM remote_mcp_grants) AND id NOT IN (SELECT client_id FROM remote_mcp_requests)').run(this.now() - GRANT_MS)
   }
   register(body: Record<string, unknown>) {

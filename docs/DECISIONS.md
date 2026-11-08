@@ -1068,7 +1068,7 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 - **이미 있는 채팅은 쓰던 엔진을 그대로 쓴다.** 그 엔진을 관리자가 껐으면(또는 설치가 끔: 사무실 모드의 Codex) 엔진을 적지 않은 다음 턴은 팀 기본값으로 돌고, 답변에 단계 "{from} 엔진이 꺼져 있어 팀 기본 엔진({to})으로 답합니다"(`tool: 'engine'`, 화면 언어로 다시 그림)가 남고 채팅의 엔진도 기본값으로 바뀐다.
 - **내 기본 엔진/모델**(설정 > 프로필): 고를 수 있는 사람만 보고 저장한다(`prefs.engine/model`, null이면 팀 기본값으로). 고를 수 없는 사람의 요청에서는 이 두 값을 빼고(테마 등은 저장), `/api/me`도 돌려주지 않는다. 새 채팅은 서버에서도 이 값(켜진 엔진일 때) → 팀 기본값 순. 채팅 안에서 엔진을 바꿔도 내 기본값은 더 이상 바뀌지 않는다(전에는 "마지막에 쓴 엔진"을 저장).
 - **"다른 모델로 다시 시도"**: 실패·거절된 답 옆, 고를 수 있는 사람에게만 `다시 시도`와 함께 보인다(켜진 엔진·모델 목록, 다시 생성 요청에 engine/model). 다른 사람은 `다시 시도`만.
-- **"Claude 한도에 닿으면 Codex로 넘기기"**(`engines.limitFallback`, 기본 꺼짐): 켜면 관리자 화면에 "대화가 OpenAI로도 보내진다"는 경고가 뜬다. Codex가 꺼져 있으면(관리자가 끔, 또는 사무실 모드 `codexBin: ''`) 켤 수 없고(409), Codex를 끄면 이 설정도 꺼진다(다시 켤 때 조용히 살아나지 않게). 턴에서는 **Claude가 구독 한도/429를 보고했을 때만**(모델 프록시의 한도 알림 또는 엔진의 rate_limit 오류 → `rate_limited`) 같은 질문을 Codex로 새 세션(분기 기록 포함)에서 답한다. 예산 초과·거절·충돌·문맥 초과에는 넘기지 않는다. 운영 설치의 Codex 베타(owner + `codexUsers`) 밖의 사람에게도 넘기지 않는다. 답변에 단계 "Claude Code 사용 한도에 닿아 Codex 엔진으로 이어서 답합니다", 알림, 감사 기록 `engine.limit_fallback`(행위자 = 그 사람, 대상 = 턴, detail `{from, to, model}`, 내용 없음)을 남기고 그 답변·턴의 엔진은 codex로 적는다(사용량이 Codex로 잡힘). 채팅의 엔진은 Claude 그대로라 다음 질문은 다시 Claude가 받는다. Claude 세션에는 Codex의 답이 없으므로 채팅의 엔진 세션을 지워 다음 Claude 턴은 기록으로 새로 시작한다.
+- **"Claude 한도에 닿으면 Codex로 넘기기"**(`engines.limitFallback`, 기본 꺼짐; 2026-11-08부터 "다른 AI로 대신 답하기", 아래 그 항목): 켜면 관리자 화면에 "대화가 OpenAI로도 보내진다"는 경고가 뜬다. Codex가 꺼져 있으면(관리자가 끔, 또는 사무실 모드 `codexBin: ''`) 켤 수 없고(409), Codex를 끄면 이 설정도 꺼진다(다시 켤 때 조용히 살아나지 않게). 턴에서는 **Claude가 구독 한도/429를 보고했을 때만**(모델 프록시의 한도 알림 또는 엔진의 rate_limit 오류 → `rate_limited`) 같은 질문을 Codex로 새 세션(분기 기록 포함)에서 답한다. 예산 초과·거절·충돌·문맥 초과에는 넘기지 않는다. 운영 설치의 Codex 베타(owner + `codexUsers`) 밖의 사람에게도 넘기지 않는다. 답변에 단계 "Claude Code 사용 한도에 닿아 Codex 엔진으로 이어서 답합니다", 알림, 감사 기록 `engine.limit_fallback`(행위자 = 그 사람, 대상 = 턴, detail `{from, to, model}`, 내용 없음)을 남기고 그 답변·턴의 엔진은 codex로 적는다(사용량이 Codex로 잡힘). 채팅의 엔진은 Claude 그대로라 다음 질문은 다시 Claude가 받는다. Claude 세션에는 Codex의 답이 없으므로 채팅의 엔진 세션을 지워 다음 Claude 턴은 기록으로 새로 시작한다.
 - **API**: `GET /api/engines`(누구나: `canChoose`, 팀 기본값, 고를 수 있으면 켜진 엔진과 모델), `/api/me`의 `user.canChooseEngine`, `GET/PATCH /api/admin/engines`에 `memberChoice`·`limitFallback`·`limitFallbackAvailable`. 없는 그룹·사람은 400. 바뀌면 모두에게 `notice engine_choice_changed`를 보내 열린 창이 새로 고침 없이 선택기를 보이거나 숨긴다. 마이그레이션은 필요 없다(설정은 키/값 표).
 - **시험**: `tests/unit/engine-choice.test.ts`(가짜 엔진: 기본은 owner·관리자만, 모두/그룹/사람, 보내기·수정·다시 생성·새 채팅·채팅 바꾸기 거부, 꺼진 엔진 거부, 꺼진 엔진의 채팅이 기본값으로 + 단계, 내 기본값, 한도 대체 꺼짐/켜짐/Codex 꺼짐/사무실 모드, 다른 오류에는 안 넘김), `tests/security/r5-engine-choice.test.ts`(실제 세션: 팀원은 고를 수 없음, 거부되면 턴 없음, prefs에 저장 안 됨, 스스로 허용하거나 한도 대체를 켤 수 없음), 권한 매트릭스에 `GET /api/engines`와 바뀐 `PATCH /api/admin/engines`, `web/test/e2e/engine-choice.spec.ts`(팀원: 선택기·다른 모델로 다시 시도·내 기본 엔진 없음, 요청에 엔진 없음 / owner: 모두 있음 / 관리자가 허용하면 열린 창에 바로 보임, OpenAI 경고, Codex를 끄면 한도 대체 꺼지고 못 켬). 기존 채팅 시험들은 팀원이 엔진을 고르므로 시험 하네스(`tests/lib/b-harness.ts`)는 기본으로 `everyone`을 켠다.
 
@@ -7657,7 +7657,8 @@ that case. Ordinary API use of the app's own agent falls under the Commercial Te
   chose the API engine, so the chat shows no "switched to API" divider and back; the answer's model names the trial
   model. Nothing else changes (no engine-api.json is written, the team default stays). A turn decided on its connection
   that loses it mid-answer is not handed to the credit (B did that inside Claude Code); the next message is.
-- **The team's own AI first, on either engine (review of the branch).** One rule, `credentials/access.ts
+- **The team's own AI first, on either engine (review of the branch).** (Since 2026-11-08 the other engine answers only
+  while "다른 AI로 대신 답하기" is on, with or without a trial key: that entry below.) One rule, `credentials/access.ts
   connectionRoute`, decides a managed Claude Code or Codex turn on a server that holds a trial credit (any state), and
   `canUseAi` (A's `/api/me/ai-access` `usable`, Admin › Members "No AI", the profile step) uses the same rule, so the
   banner and the answer agree: its own engine when a connection of the person works there; the other of the two when
@@ -14111,6 +14112,115 @@ the project's audience, the answer goes to the room; otherwise it stays private 
   audience, a planted instruction), `b-shared-chats`, `step-labels-tools`, `b-codex-rooms`.
 - Version impact: **minor** (two AI tools in rooms and an audit action; no API or database change).
 
+## ⌘K에서 대화방 메시지 찾기 — room, 1:1 and group chat messages in the search palette (feat/search-room-messages, 2026-11-08, product owner)
+넣을 곳: trina-ax `server/src/rooms` (search.ts, service.ts, store.ts), migration 267, `shared/src/api/rooms.ts`,
+`web/src/components/SearchDialog.tsx`, `web/src/store/rooms.ts`, `web/src/pages/Room.tsx`, 이유: rooms, their visibility
+rule and the search palette are core chat.
+
+From the team chat: "Chat search: search the messages in rooms and DMs", "search chat must be included on the search
+menu with cmd+k". The owner approved it on 2026-11-08.
+
+- **Where: the palette there is.** No new screen, no new tab, no filter chips. On the 전체 tab, after the chat records
+  (기록), a "대화방 메시지" section: the first 5 hits, then "메시지 더 보기", which shows more in place and asks for the
+  next page when those run out (the dialog stays, the keys stay with the box). Arrows, Enter, Esc, ← → as before. The
+  placeholder says it: "기록·대화 메시지, 파일, 프로젝트 등 검색", shorter than the one before, so it still fits a 390 px
+  phone; five languages. Rejected: a 대화 tab (one more chip in a row that already scrolls on a phone; the owner wants
+  lean screens), Slack's from:/in:/date filters (not asked for; the AI's own `rooms` tool has them).
+- **Who sees a hit: the rooms' one rule, not a copy.** A hit is a message the person would see by opening its room now.
+  Candidates come only from `reader.ts myRooms` (the rooms they are in now, not archived: what the rooms list holds,
+  hidden rooms included as its "숨긴 대화"), and who sees which is decided in the query itself: `store.ts
+  SEE_MEMBER_SQL` is `SEE_SQL` filled with the values of the member row of each message's room (from the same list of
+  parameters as `seeArgs`, `seeParts`; a test checks it against `canSee` for every member and message of the suite's
+  rooms), and `canSee` runs again on each row. So the page, its LIMIT and its cursor only count or name messages they
+  see. What the rule gives: where they see the room from (a later member of a group chat or a 1:1 from their join,
+  per member; a team room's and the everyone room's whole history once it is opened, `Rooms.syncFor` before each
+  search, as for the person's own AI chat), others' private previews never (their own, yes, as in the room), the old
+  answers hidden from them (#161) and everything in their threads never. Leaving or being taken out ends it at once (no
+  member row). Deleted messages and event lines have body '' and never match. The hit is built from `messagesOut`'s own
+  row (a `withheld` one is dropped), so the snippet is the message's own visible text: never a quote, a file name or a
+  hidden answer's words. A thread reply is found by whoever sees its thread; its hit names the thread and opens it.
+- **The text as one part**, as the chat records' search: `LIKE '%text%'` (A–Z in any case; `%` and `_` as themselves),
+  NFC. "견적" finds "견적서를"; "견적 보내" finds that phrase, not two words apart.
+- **Index: FTS5 trigram, migration 267**, as `messages_fts` (201) for the chat records. `room_messages_fts(body)`, its
+  rowid the message's rowid, kept by triggers: insert (body not ''), `UPDATE OF body` (an edit replaces it, a delete
+  empties it: the row goes) and delete (a room deleted with its messages); backfilled and `optimize`d in the migration
+  (without it the first new messages paid 2–4 ms of merge work each). 3+ characters: a phrase `MATCH` (the index);
+  1–2 characters ("견적"): the trigram `LIKE`, a scan of the index's text. Both read newest first by rowid and stop when a
+  page is full; `CROSS JOIN` keeps SQLite on the index first (a test reads the plan). Every candidate's own body is
+  matched again with `LIKE … ESCAPE`, so an index row out of step can never show a message without the text. Rowids of
+  `room_messages` survive VACUUM and VACUUM INTO (the backups; a test checks a backup copy and a VACUUM). Note: the chat
+  records' `LIKE … ESCAPE` is never handed to FTS5 (an ESCAPE is a 3-argument `like()`), so that search scans
+  `messages_fts`; here the phrase `MATCH` is used instead.
+- **Why not the bounded LIKE** (what the person's own AI chat's `rooms` tool does, `reader.ts searchRooms`: the newest
+  20,000 positions of each room, 100,000 in all). Measured on this Mac before choosing (150,000 messages in 20 rooms,
+  the person in 5, one of 50,000): a newest-first LIKE over the person's rooms took 85–345 ms per query (a rare word or
+  none walks everything); the FTS stream 0.1–1.7 ms, a 2-character word that matches nothing 17 ms over 100,000 rows.
+  The AI tool keeps its own scan (its filters by person and date are not this).
+- **Measured in the suite** (`b-rooms-search.test.ts`, a 50,000-message team room, the whole `searchRoomMessages`
+  call, median of 5, with visibility in the query): "견적" 10.1 ms, "네" 9.1, "견적서" 9.1, "budget" 10.7, "특별견적" (1 in
+  1,000) 9.5, a 6-character word that matches nothing 0.5, a 2-character word that matches nothing 15.1. Most of a page with hits is `messagesOut`'s
+  `threadSummaries`, whose grouped count takes the room's `(room_id, seq)` index over the whole room (about 5 ms on
+  50,000 messages; the same in every timeline page of such a room; left for its own change). Migration 267 backfills
+  about 2–3 s per 100,000 messages, once.
+- **Pages.** At most 30 a page (20 by default), newest first, the cursor below the page's last hit (a message they
+  see). The index is walked past matches they do not see until the page is full.
+- **API.** `GET /api/room-messages?q=&cursor=&limit=` (`searchRoomMessages`; `/api/rooms/search` would be taken by
+  `/api/rooms/:id`): `items` (id, roomId, threadRootId, authorKind, author, askedBy, markdown, snippet, createdAt),
+  `rooms` (each hit's room: kind, name, peers, memberCount, from `store.ts roomNaming`, which `roomOut` now uses too),
+  `nextCursor`. The snippet: room links as `#name`, one line, at most 200 characters, up to 60 before the match.
+- **Opening a hit: the room at that message.** `/rooms/:id?m=<message>`, a reply `/rooms/:id/t/:root?m=<reply>` (as the
+  Inbox). The room used to look 10 older pages back for `?m=` (500 messages); a search hit can be years back, so
+  `ListRoomMessagesQuery.around=<id>` now gives the page around a message the person can see (a reply that stays in its
+  thread: around its first message; anything else is not looked for: the newest page, as for an id that is not there)
+  and `newerCursor` while the page does not reach the newest. The timeline is then a window: newer pages load on
+  scrolling down; new messages are not added to it until it reaches the newest (no gap); nothing in it is marked read; a
+  "최근 메시지로" pill goes back to the newest, and so does sending. The Inbox's links use the same (one request). A thread
+  still looks 10 pages back for its reply.
+- **The row.** The sender's picture (32 px; the AI's face for its answer), name (14 px), the room (12 px: `#name` for a
+  team room and the everyone room, "1:1 대화" for a DM, with the other person when they did not write it, a group chat's
+  name), "· 스레드" for a reply, the time (12 px, as the rooms list) and one line of the text (14 px, an answer's Markdown
+  as plain text) from a little before the match, the match marked as elsewhere in the palette. On a phone the room name
+  gives way first.
+- **Not here.** Room file names and file contents, filters, results in the 기록 tab, highlighting more than the first
+  match, searching the AI's steps. Known limits: a word that spans a room link (`#[name](room:…)`) or Markdown marks in
+  the middle ("견적**서**") is not found as typed; the order is the order the messages were written (an AI answer posted
+  from a preview later sorts by when the preview was made). The time a search takes grows with the matches the index
+  walks past, those in rooms the person is not in too: a word written thousands of times only in other rooms takes
+  tens of milliseconds more, and a 1–2 character word scans the index's text (as the chat records' search does); the
+  same for matches in their own rooms they do not see (from before they joined, others' previews). A request has no
+  upper bound: at worst one pass over every match in the index (a row budget whose cursor went on from the last row
+  looked at would bring the cursor leak below back). Over a network that tells little (one match or none is
+  microseconds); scoping the index walk to the person's rooms (a room column FTS5 can filter on) is left for its own
+  change.
+- **Independent review (security, 2026-11-08) fixes.** The first version filtered with `canSee` after the query and
+  looked at 2,000 candidates a request at most; a page that ran out answered with a cursor at the last candidate looked
+  at, often a message the person does not see: an empty page with a cursor told that unseen messages held the word, the
+  cursor gave its position, and a cursor made by hand one above and at an unseen message told whether it held a word
+  (reproduced on a group chat joined late). Now visibility is decided in the query (above) and the cursor is always
+  the page's last hit; a test makes cursors at, above and below an unseen message. A NUL in the text ended the index's
+  query (500): refused by the contract (400) and dropped by the function. `around` with `limit=1` gave no
+  `newerCursor`: fixed. Deleted and edited text stays in the index's pages, so in the database file and its backups,
+  until its segment is merged (found by the review; the chat records' `messages_fts` is the same): FTS5
+  `secure-delete` would take it out at once, but SQLite before 3.42 refuses the option, so 267 would stop a server on
+  macOS 13 (whose own SQLite 3.39 bun uses there) from starting, and an index that used it cannot be read by such a
+  SQLite again (a database moved there would refuse every room message). Left as a known limit; the round-2 review
+  found this. Not leaking, per the review: `around` for an id they cannot see (the same newest page as for
+  none), which rooms, hidden answers and their threads, private previews, the rowid join (a stale index row cannot
+  show another message's text), the FTS query quoting (operators, wildcards, odd Unicode), the web.
+- **Tests.** `tests/unit/b-rooms-search.test.ts` (a non-member, an owner and an admin get nothing; after leaving a group
+  chat and after being taken out of a team room, nothing; a later member of a group chat finds nothing from before their
+  join nor a later reply in an older thread; a later member of a team room finds the history; a hidden answer never
+  matches, nor its thread, and its words are in no response, a quote of it is found by its own words; a DM only by its
+  two people; a private preview only by its person; archived rooms; thread replies; edited and deleted text gone, from
+  the index too; Korean parts, case, `%` and `_`, NUL; the snippet; pages; no cursor at an unseen message, also made by
+  hand; `SEE_MEMBER_SQL` against `canSee`; 50,000 messages and the plan; a backup copy and VACUUM; the migration's
+  backfill; `around`, also with a page of one), `web/test/unit/search-room-messages.test.tsx`,
+  `web/test/e2e/search-room-messages.spec.ts` (⌘K → a word → Enter opens an old message in its room with the pill; a
+  thread hit opens the thread; nothing found; axe light and dark; the phone; `SHOTS_DIR` for 1440 and 390, light and
+  dark).
+- Version impact: **minor** (a new result type in search, one endpoint, an optional query field and response field,
+  one additive migration).
+
 ## 대화방에서 새 파일은 미리 허용 — "이 방에서는 항상 허용" (feat/room-ai-allowances, 2026-11-08, product owner)
 
 Amends "Every change waits for the asker" ("대화방의 트리나"). The owner (2026-11-08): in a room every change @트리나 makes
@@ -14827,3 +14937,150 @@ setting or data change.
   link), `web/test/e2e/files.spec.ts` (the address: tab, reload, Back, a link), `web/test/e2e/team-skills.spec.ts`
   (a deleted skill: the notice and the 최근 변경 row open the trash with the file; the mock records it as a 삭제 change).
 - Version impact: **patch** (two fixes; no API, setting or data change).
+
+## App connectors: a read scope per MCP session, refusal reasons for write and edit, team rules for connected AIs (fix/connector-scope, 2026-11-08, product owner)
+
+넣을 곳: trina-ax `server/src/connectors/remote-mcp/` (new `scope.ts`) and migration 118, 이유: a design audit of dev
+found that one read through the connector blocked a person's saves for weeks, that `write`/`edit` hid why a save was
+refused, and that connected AIs never saw the team rules every in-app turn follows.
+
+- **The problem.** Everything a connected AI read joined one list per connection (`remote_mcp_grants.sources`) that
+  nothing cleared, so it lasted as long as the sign-in (up to 30 days). Someone whose Claude Code read one note in their
+  own folder had every later save to a shared folder refused, in every new Claude Code session, and the refusal did not
+  say what to do. The in-app chat starts each new chat with nothing read and asks with a card.
+- **One scope per MCP session (the owner's decision).** `initialize` answers with an `Mcp-Session-Id` (MCP Streamable
+  HTTP, `tax_mcp_s_` + 32 random bytes), the client sends it on every later request, and the scope is kept per
+  connection and session in `remote_mcp_scopes` (keyed by the id's sha256, never the id). A new session starts with
+  nothing read; the same session keeps its scope, across a server restart too. Only the scope is per session: the call
+  queue (one call at a time, at most four waiting), the memory slot and the `TurnFiles` (files read before an `edit`,
+  the write counters) stay the connection's, as before. A client can send any id, and one id per call must not give it
+  more calls at once, other people's memory slots or a fresh write budget (the review of this branch found that a
+  per-session queue let one token run 128 calls at once and lock everyone else out). So a session may `write` or
+  `edit` an existing file another session of the connection read; that file then joins this session's scope too, as
+  what edit answers ("old_string not found", the change itself) tells about its text.
+- **The id is a name, not a key.** The bearer token is the auth. The id is never required, and an id the server never
+  gave, or forgot, is a new and empty scope; it is never answered with 404, which some clients do not recover from
+  without a reconnect. That gives a client nothing it could not get by initializing again. An id that is not visible
+  ASCII or is over 128 characters is a 400. `DELETE /mcp` stays 405 (the spec allows a server not to end sessions on
+  request); a session's scope ends with the connection, and a connection keeps at most 256 session scopes (the least
+  recently used beyond them go), so a client that opens a session per request cannot grow the table. Every run of an
+  app on one computer shares the connection, so 256 is far above what parallel work uses. `initialize` ignores the
+  header (a malformed id there is no 400).
+- **Clients without a session.** Calls that send no id share one scope per connection, forgotten after **1 hour without
+  a tool call** (any tool call that gets past the connection's permission check counts as use, a refused save too; one
+  refused for a missing scope, an unknown tool, a full queue or the rate limit does not). An hour is how long an access
+  token lives, longer than the pauses between the calls of one piece of work and shorter than the gap before most new
+  ones. An idle scope is dropped
+  when the next call opens it, so its old sources never come back with a later read, and the connector's housekeeping
+  (`oauth.ts` ingress, with an index on `(session, used_at)`) removes idle rows. A session's scope has no idle expiry:
+  "the same session keeps it". Open: if a client turns out to keep one MCP session across many conversations (not
+  checked for claude.ai or ChatGPT: that needs their live apps), its scope lasts as long as that session; a backstop idle
+  expiry for session scopes (a day, say) is the next step, and it is the owner's to decide because it widens.
+- **The update forgets nothing.** Clients connected before it send no id until they initialize again, so migration 118
+  moves each connection's old list into its scope without a session, used now: it is forgotten an hour after the last
+  call, and a new session starts empty. The grant's column stays (add-only) and is no longer written; an older build
+  run again goes by that list, what was read before this update.
+- **Upload links** remember the session that made them (`remote_mcp_upload_links.session`, the same key): the PUT checks
+  what that session read by the time the bytes come. A link made before this has none and goes by the calls without a
+  session.
+- **The refusals say what to do.** A save: "Not saved: this folder would show material this session read to more
+  people. Save it in a folder with the same or narrower access, or, if this work does not use that material, ask the
+  person to start a new session in their AI app: a new session starts with nothing read." Without a session it ends
+  "What this connection read is forgotten after 1 hour without tool calls." instead. `room_send`'s refusal and the
+  2,000-source limit say "session" the same way.
+- **Accepted trade-off.** A client that resumes an old conversation in a new MCP session still has that content in its
+  own context, and a new session lets it save where the old one could not. The owner sees the connector's guard as a
+  guide, not a wall (#155 made a hard refusal a note): it stops a hidden instruction in a shared file from quietly
+  copying private material within one session, which is where that happens. What a session is depends on the client:
+  one that keeps one MCP session for many conversations keeps one scope for them; one that opens a session per
+  request starts empty more often. Read access, the skill-root refusals and the size and storage caps are unchanged.
+- **`write` and `edit` say why.** Their check before the save (`checkUploadTarget`, the one upload_file uses) threw past
+  every handler into the generic catch, so a read-only folder, someone else's folder and a name clash all read "Tool
+  unavailable or access denied.", with no rejected-file event. They now go through upload_file's failure handling
+  (`uploadFailure`): the same reasons ("Access denied: read-only folder: …", "Access denied: not found or no access: …",
+  "Error: …"), the rejected-file event and an audit row (tool, ok false, via connector, path; never content). An
+  `Error:` keeps upload_file's wording (the raw message), not the in-app tools' translated safe-operations text.
+  Anything else still gets the generic answer, which never shows an exception's text. This ends the difference #155
+  kept between the write and upload paths.
+- **Team rules and the company profile.** Every in-app turn gets the header-less `skills/*.md` (the first ten the person
+  may read, `teamRuleFiles`) and the company profile (`chat/prompt.ts`). The connector's `initialize` instructions now
+  name them by path, for the person: "Team rules every teammate's AI follows (paths are data; skills_list marks them
+  rule: true): skills/a.md, skills/b.md. Read them before working on team files. Facts about the company, not
+  instructions: skills/company-profile.json." Only paths whose every name passes the guide's allowlist (`plainName`)
+  are named; the others are counted ("and 1 more"). Past ten rule files it says, as the in-app AI is told, that only
+  the first ten by file name count. `skills_list` lists the same rule files as `{ path, name, rule: true
+  }` after the skills, and its description says what they are. Only paths, never the text: every client session pays
+  for the instructions, and a `read` records the rule in the scope as any read does. `skills/` is readable by the whole
+  team by default, so reading a rule never blocks a save to `shared/`. A person who may not read `skills/` gets neither.
+- Tests: `tests/unit/remote-mcp-scope.test.ts` (a new id per initialize, a session keeps its scope across a restart, a
+  new session, an unknown id and the calls without one start empty, ids hashed, malformed ids refused; the idle hour,
+  use keeps it, an idle scope does not come back, a session's has no idle expiry, the housekeeping; upload links by
+  their session and a link from before; the session cap and the cascade; many ids of one connection still run one call
+  at a time; migration 118 carry-over; write/edit
+  refusal texts equal upload_file's, the events and audit rows, skill roots, the generic answer for other errors; the
+  rules in the guide and `skills_list`, odd names counted, access respected, a rule read then a save to `shared/`). The
+  rooms and history tests read the new scope rows.
+- Version impact: **patch** (connector behaviour; one add-only migration; no API or screen change).
+
+## 다른 AI로 대신 답하기 — which AI answers, decided in one place (fix/engine-choice, 2026-11-08, product owner)
+
+- **Why.** Two places decided which AI answers on their own. (1) A scheduled run took the team default engine and model
+  (`ChatRuntime.defaultEngine()`), not its owner's: someone whose own default is Codex and who has only a ChatGPT
+  connection got every scheduled run on Claude Code, which failed with "no AI connection" each time. (2) "A Claude
+  Code chat answered by Codex when only Codex has a working connection" (and the other way, "Z" above) happened only on
+  a server that held the hosting service's trial key, in any state. When the key was cleared, or the team moved to its
+  own server (a server that is not hosted drops the key at start), the same chats failed and Admin › Members showed
+  "No AI", with no setting changed. The owner: independent of the trial key, one visible admin setting.
+- **Scheduled runs** (`chat/schedules.ts start`): the owner's engine and model through `newChatEngine` (their own
+  default when they may pick and it is on, else the team default) and `turnEngine` (a switched-off engine: the team
+  default with the usual step), the same as Slack and rooms, decided at each run, so a later change of either applies.
+  Every run is a new chat ("<title> · <date>"), so there is never an existing chat whose engine a run keeps.
+- **One switch.** The existing `engines.limitFallback` (Team settings, the row under "팀원이 엔진 고르기 허용") is now
+  **"다른 AI로 대신 답하기"**: "채팅의 AI에 쓸 수 있는 연결이 없거나 Claude 사용 한도에 닿으면, 연결된 다른 AI(Claude
+  Code 또는 Codex)가 대신 답해요. 답변에 넘어갔다는 표시가 남아요." One label and description cover both cases
+  honestly, because both are "the chat's AI cannot answer now, the other one does, and the conversation goes to that
+  AI's company"; the description names the limit case as Claude's (there is no Codex-limit fallback). The warning names
+  both companies (OpenAI or Anthropic). Same key, same API fields (`limitFallback`, `limitFallbackAvailable`), same
+  rules: never while Codex is off (409, and switching Codex off turns it off). No new card or section.
+- **The no-connection case** (`credentials/access.ts connectionRoute`, used by the turn, `/api/me/ai-access` and
+  Admin › Members): with the switch on, a managed Claude Code or Codex turn whose engine has no working connection of
+  the person goes to the other engine when that one is on here and has one (the step "No AI connection for Claude Code;
+  answering with Codex, which is connected"). The trial key plays no part. With the switch off, the chat's own engine
+  answers or gives its usual "no AI connection". The trial credit still answers only when no connection of the person
+  works on either engine: a team that has AI of its own never spends it, the switch on or off (so with the switch off
+  and only ChatGPT connected, a Claude Code chat gets "no AI connection", not the credit). A connection only at its
+  limit while the other engine has one: the usual wait, or, for Claude with the switch on, the limit case as before.
+  The same rule everywhere that says who has AI: `newMemberAi` (the invite link's line) counts the other engine while
+  the switch is on and the credit only when the other engine has no connection either; the composer
+  (`chatEnginesFor`) offers an engine without a connection of the person while the credit is active only when the
+  credit or the other engine would answer it; Admin › Members does not count as "No AI" someone whose Claude
+  connections all wait out a limit while the switch is on and they have a Codex connection (Codex finishes those
+  answers). Switching it tells open windows (`engine_choice_changed`), so the "no AI" banner follows. Servers whose
+  engines sign in on their own (`authMode` other than managed) have no per-person connections: there the switch has
+  only its limit case, as before.
+- **The default: what keeps hosted teams and does not surprise self-hosted ones.** Hosted teams relied on the
+  no-connection case (it came with the trial key, whatever the switch said); a self-hosted team never had it, and
+  turning it on sends a team's conversations to a second AI company, which a team must choose. So: a server that is not
+  hosted keeps the switch as it is (off unless an admin turned it on: unchanged behaviour). A hosted server
+  (`deployment: "hosted"`) turns it on once, at its first start with this version (`admin/engine-choice.ts
+  settleHostedFallback`, called in `main.ts`; marker `engines.limitFallbackHostedSet`; an audit row `engines.update`
+  `{ limitFallback: true, reason: 'hosted_default' }` without an actor), while Codex is on there. It is written down, so
+  Team settings shows it, it stays when the key goes, and the team's backup takes it to its own server, where its chats
+  go on working. It is set over a stored `false`: Team settings' save sent `limitFallback: false` with every "who may
+  pick" change, and that `false` only ever meant the limit case. The one visible change for hosted teams: the Claude
+  limit case comes on with it (a Claude answer at its limit is finished by Codex when the person has a Codex
+  connection; the owner accepted this, 2026-11-08); an admin who does not want either turns the switch off, and it
+  stays off. A hosted server with Codex
+  off at that start is left off (switching Codex on later does not quietly turn it on, as before).
+- **Not changed.** No API shape, no migration file (settings rows), no Codex-limit fallback to Claude Code, no audit
+  row for a no-connection answer (the step says it; an audit row on every turn of a ChatGPT-only team would drown the
+  log). Earlier entries above ("Claude 한도에 닿으면 Codex로 넘기기", "Z") describe the switch and the route before
+  this change.
+- Tests: `tests/unit/schedules.test.ts` (a run on its owner's own default, the team default when they may not pick,
+  the team default at run time, a switched-off engine), `tests/unit/a-hosted-trial-credit.test.ts` (the switch, not the
+  key; off with a credit: never the credit; Members "No AI" after the key goes and in the limit case; the invite
+  line), `tests/unit/b-hosted-trial-turn.test.ts` (turns with and without a key, the switch on and off, the composer),
+  `tests/unit/engine-choice.test.ts` (the hosted default: self-hosted untouched, on once over a stored false, an
+  admin's off stays, Codex off; the notice), `web/test/e2e/engine-choice.spec.ts` (the new label and warning).
+- Version impact: **patch** (a scheduled run follows its owner's engine; the switch's wording and its no-connection
+  case; no API or data shape change).
