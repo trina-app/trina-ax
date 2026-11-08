@@ -14039,3 +14039,86 @@ the project's audience, the answer goes to the room; otherwise it stays private 
   instructions, the audit), `tests/security/room-reads-shared-chats.test.ts` (people × states, a member outside the
   audience, a planted instruction), `b-shared-chats`, `step-labels-tools`, `b-codex-rooms`.
 - Version impact: **minor** (two AI tools in rooms and an audit action; no API or database change).
+
+## W6 — Desktop: the folder window (feat/onb6-desktop, 2026-11-08)
+
+Onboarding v6 asks the owner to pick folders (the .claude, .codex or .agents folder for skills; a company-documents
+folder for 팀 파일). The owner decided (OPEN Q1) to fix only the desktop app's folder window now; the one-press read of
+~/.claude comes later. Placement: Team AX core (`desktop/src/main/security.ts`, `desktop/src/common/folder-access.ts`).
+
+- **What was blocked (checked in Electron 44.7.2's source and with the real binary, walk review M6).** The direct-download
+  app (dmg, Windows) is Chromium, so the team page calls `showDirectoryPicker`. The window opened and the person picked,
+  then:
+  - the team session's request handler refused `fileSystem` (not in the page's permission list), and with a check
+    handler set Electron answers every read of a handle from the check handler alone, which refused it too. The pick
+    ended as the page's `AbortError`, which the page reads as Cancel: nothing happened, with no message.
+  - a pick of a folder Chromium's blocklist refuses (the home folder, Desktop, Documents and Downloads themselves;
+    ~/Library, ~/.ssh, app data) fires the session event `file-system-access-restricted`. Nothing listened, so the
+    pick never answered at all.
+  - `<input webkitdirectory>` (the file screen's folder upload) was never affected: Electron's own dialog answers it,
+    with no permission. The Mac App Store build answers the page's file inputs with its own window (`answerFileChoosers`)
+    and its page never calls the folder window (`answersFileInputs()`); the session rules below and the Info.plist
+    strings apply to it too, and change nothing there.
+- **What is allowed now.** `fileSystem` with `fileAccessType: 'readable'` only:
+  - the request (sent right after a pick, for the picked folder): the team page's top frame at the team address or its
+    office address, for a folder only (a single file is never remembered), and never the home folder or a folder that
+    holds it (`opensHome`, below). The folder is remembered for that origin while the app runs (`FolderGrants`), for
+    the person signed in: a sign-out, or another person signing in on the same team (the app's `GET /api/me` read, as
+    for the in-app browser's data), forgets every pick, and a pick still being checked then is not remembered. After a
+    forget, a `File` the page already read stays readable (it is the page's copy); nothing new can be read, listed or
+    opened until a new pick (pinned in the spec);
+  - the check (before every read): an allowed origin, and the folder is one picked for that origin, or inside one
+    (`.` and `..` resolved). Electron gives a check no frame, so a read counts for the origin: whatever of the team page
+    holds the handle (its frames and workers at that origin) reads it. Only the pick is limited to the top frame;
+  - `writable` is refused in both, so no handle can write, create or remove anything (a save window,
+    `showSaveFilePicker`, still makes the empty file the person names in it, as before this change; nothing can be
+    written into it);
+  - `file-system-access-restricted`: `allow` for exactly Desktop, Documents and Downloads (`PICKABLE_BLOCKED_ROOTS`
+    through `app.getPath`), as a folder, from the top frame at an allowed origin, unless that folder is home or holds
+    it; `deny` (the page's `AbortError`) for the home folder itself and everything else. Lifting the block grants
+    nothing by itself: the request and the check still decide, read only.
+- **Why this is safe.** The person picks every folder in the system window; the pick is the consent (on macOS the open
+  panel counts as consent for Desktop, Documents and Downloads, and Info.plist now says why if macOS asks anyway). A
+  handle that did not come from the window is not readable: a dropped folder (the page's drops use `webkitGetAsEntry`,
+  which needs no permission) and one the page saved in an earlier run need a new pick. A page's own
+  `requestPermission()` never reaches the request handler (Electron answers it from the check), so a page cannot widen
+  what it has. Artifacts and previews (sandboxed frames, no origin), other origins, the in-app browser pane and the app's
+  own screens get nothing; no other permission changed (the page list, the pane's list and the net guard are as before).
+- **The home folder stays refused (owner, 2026-11-08).** Picked, it would let the page read ~/.config (the GitHub CLI's
+  token among others), ~/.aws, ~/.netrc, ~/.codex/auth.json and the like (Chromium blocks only ~/.ssh, ~/.gnupg,
+  ~/Library and app data under it), and the app cannot narrow what is readable inside a pick: every read through a
+  handle is checked against the picked folder itself. Folders inside home (a .claude or .codex folder) are no blocked
+  root and stay pickable.
+- **Home under another name (security review must-fix).** A root can be home, or above it: Windows lets people move
+  Documents, Desktop or Downloads to `C:\Users\<name>` or `C:\`, and on macOS ~/Desktop can be a link to ~. So both
+  the restricted folder and the request refuse a path that is home or holds it (`opensHome`): as written and with its
+  links resolved (`fs.realpath`, which looks at the path's own entries only), against home as written,
+  resolved and, on macOS, under the Data volume's name (`/System/Volumes/Data/Users/<name>`, so `/System` and
+  `/System/Volumes/Data` count as holding home), without case on Windows and macOS. Then by identity (re-review):
+  the pick's device and file number (`fs.stat` with `bigint`, links followed) against home's and each folder above
+  it, which catches what no name rule knows: a mapped drive (`H:` onto `\\localhost\c$\Users\<name>`), a junction
+  or a `subst` drive onto the profile. Anything it cannot tell refuses: no home, an identity of 0 (some NAS shares
+  give no file number, so such a drive cannot be picked), a realpath or stat that fails or takes over 3 s (each runs
+  off the main thread with a time limit, so a slow network drive never freezes the app), and every network or device
+  path written as one (`\\server\share`, `\\?\…`; a share of the profile is one), refused without asking the
+  network (pick its mapped drive letter instead). Under Desktop, Documents and Downloads, Chromium still refuses files
+  that are or link into its blocked folders, checked per file (Chromium 152's directory-iteration blocklist check, on
+  by default).
+- **Not here.** The one-press read with no window (OPEN Q1, later; it needs the main process's own confirm, the fixed
+  path list and key removal, walk M5). The page's hint when macOS refuses a folder anyway. Single files picked with
+  `showOpenFilePicker` are never remembered, so they stay unreadable (the request refuses anything but a folder; the
+  page picks files with `<input type=file>`). Links inside a picked folder are neither listed nor followed on macOS
+  (`NotFoundError`; a link to home and one to a file are measured and pinned in the spec, so an Electron that starts
+  following them fails it); Windows junctions inside a picked folder are not measured.
+- Tests: `tests/unit/e-desktop-folder-window.test.ts` (the request, the check and the restricted folder, every refusal,
+  Windows paths, the wiring, the pane and the store build), `desktop/e2e/folder-window.spec.ts` (the real Electron with a
+  hidden window: a dropped folder and the page's own requestPermission() (never reaching the request handler), the
+  request a pick sends, reads, a file, a write, a folder inside, links inside it (not followed), a sign-out (the read
+  `File` stays, nothing new), Downloads (allowed), the home folder (refused, also when Desktop is moved there), a link
+  to home, app data, another origin; fails on the previous rules). Tests never
+  touch this computer's home: the unit tests use made-up paths with a made-up `realpath`, and the real-Electron spec
+  runs in a made-up home in a temporary folder (HOME and every `app.getPath` point there; the fixture refuses to start
+  otherwise) with a made-up secret that must stay unread. Run the spec by hand on a Mac on every Electron upgrade
+  (`bunx playwright test -c e2e/rtc-native.config.ts` in `desktop/`): it pins Electron behaviour these rules rely on,
+  and CI does not run the desktop e2e.
+- Version impact: **patch** (a desktop fix; no API, database or setting change).
