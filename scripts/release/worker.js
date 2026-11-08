@@ -9,7 +9,9 @@
 //   server/<version>/<file>.json and .sig  release.json, the bundles' file lists, signatures  never cached
 //   server/<version>/<file>                update archives and install kits                   immutable
 //   plugins/<id>/<version>/<file>          official plugin packages (docs/PLUGINS.md)          immutable
-//   ip                                     the caller's own address as Cloudflare saw it       never cached
+//   apps/android/<version>/<file>          the Android app's APK for people who install it     immutable
+//                                          themselves (the website's download links)
+//   ip                                    the caller's own address as Cloudflare saw it       never cached
 // with Range for resumed downloads. Nothing is listed; every other path is 404. `ip` is how a team server learns its
 // public exit address (server/src/tools/egress.ts: web_fetch refuses it, so a page cannot send the AI back through the
 // server's own router); it answers only what the caller already knows, and keeps nothing. The signatures and the hashes in the
@@ -19,7 +21,7 @@ const DIR = 'office'
 const VERSION = '\\d{1,4}\\.\\d{1,4}\\.\\d{1,6}(?:-[0-9A-Za-z]+(?:\\.[0-9A-Za-z]+){0,3})?'
 const FILE = '[A-Za-z0-9][A-Za-z0-9._+-]{0,150}'
 const PLUGIN = '[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:-[a-z0-9]+)*){2,}'
-const KEY = new RegExp(`^(?:${DIR}\\/(?:(?:stable|beta)\\.json|${VERSION}\\/${FILE})|server\\/(?:(?:stable|beta)\\.json(?:\\.sig)?|${VERSION}\\/${FILE})|plugins\\/${PLUGIN}\\/${VERSION}\\/${FILE})$`)
+const KEY = new RegExp(`^(?:${DIR}\\/(?:(?:stable|beta)\\.json|${VERSION}\\/${FILE})|server\\/(?:(?:stable|beta)\\.json(?:\\.sig)?|${VERSION}\\/${FILE})|plugins\\/${PLUGIN}\\/${VERSION}\\/${FILE}|apps\\/android\\/${VERSION}\\/${FILE}\\.apk)$`)
 const MANIFEST = new RegExp(`^(?:${DIR}\\/(?:stable|beta)\\.json|server\\/.*\\.(?:json|sig))$`)
 
 const text = (status, body, extra = {}) =>
