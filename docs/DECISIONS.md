@@ -14048,13 +14048,15 @@ rule as team rooms ("지난 대화", `rooms/history.ts`). Plan: `docs/AGENTS/pla
   its answer's `left_out` keeps only what its earlier answer left out too. Notifications and live text were the
   runner's already.
 - **A room's @트리나** (`chat/room-project-chats.ts`). `project_chat` reads the transcript as the asker sees it (a
-  hidden answer is one line). When an answer it was given is hidden from someone in the room, the places those answers
-  read join the question's read scope, so `decide()` keeps the room answer private and names the folders; if that alone
-  would not (nothing some member misses: not known, or built on another hidden answer), the question counts as using
-  something outside the team files. When everyone in the room sees every answer, only the project counts, as before.
-  `project_chats` counts a word only in a title, a project name or a message that the asker and everyone in the room
-  who sees the project see: neither a find nor a "no match" (which may go to the room) says anything about an answer
-  hidden from one of them; `project_chat` reads the rest for the asker.
+  hidden answer is one line). What the answers it was given read joins the question's read scope (`carry`), as a
+  file's folder does: `decide()` keeps the room answer private for a member who may not read it and names the folders
+  the asker may open, and `rooms/history.ts` judges a member who joins the room later by it. An answer whose reads are
+  not all known (or has no record) counts as something outside the team files (never to the room by itself, hidden
+  from later members), and so does a question whose answers someone here may not see when their places alone would
+  not keep it private (built on another hidden answer). `project_chats` counts a word only in a title, a project name,
+  a person's message, or an answer the asker and everyone in the room who sees the project see; the answers it
+  counted through are carried the same way. At most 200 chats are looked into through their answers per search (each
+  is worked out for every member).
 - **Group skills are their members' only, in shared chats too.** One helper for rooms and shared chats,
   `chat/skills.ts everyoneMayUse` / `mayNotUse` (read it, and for `groups/<folder>/skills/…` be in that group; the
   owner and admins read every group folder). The skill list, the skill tool's names and `find_skills` of a shared chat
@@ -14064,7 +14066,9 @@ rule as team rooms ("지난 대화", `rooms/history.ts`). Plan: `docs/AGENTS/pla
 - **Decided here, the least visible change that never widens access.** A covered person whose own access narrowed
   keeps the answer (rooms keep theirs too); the runner always keeps theirs. A read nobody had to confirm counts like a
   confirmed one (its group is everyone then): a later reader who may not read the place gets the line. The
-  instructions' skill list is not recorded (rooms do not either).
+  instructions' skill list is not recorded (rooms do not either). A room's answer built on a shared chat goes by what
+  its members may read, as for a file: someone the card covered who may not read the place keeps the chat's answer
+  but not a room's answer about it (the room's decision has places, not people).
 - **Rollback.** A build with migration 265 and without 273 shows every answer to everyone who sees the chat again while
   it runs (as before this change; raising `min_compatible_reader` would refuse the database instead, which is worse);
   when this build comes back, the answers that build made are recorded for the people who see the chat then.
@@ -14077,7 +14081,12 @@ rule as team rooms ("지난 대화", `rooms/history.ts`). Plan: `docs/AGENTS/pla
   above). Kept, written down: a chat that stops being shared is its creator's own again (the rollback guard, a lost
   project), and they see every answer in it; the skill names and folder lists of the instructions are not recorded (as
   in rooms); the URL gate counts addresses a hidden answer's web search showed as seen (no content reaches anyone);
-  each answer's groups keep the audience's ids (a few KB for a big team).
+  each answer's groups keep the audience's ids (a few KB for a big team). Round 2 (on the fixes): no must-fix; a
+  search walked every chat for every member with a fresh account and rule cache (should-fix: kept per person for the
+  request, a person's message counts without a walk, at most 200 chats through answers, the full-text search limited
+  to the candidate chats); a room answer's kept places were only the project, so a member who joins the room later
+  was judged without the answers it was built on (should-fix: their places always go with it). Kept: a search's "no
+  match" says nothing about answers a later room member may not see only for the members there when it ran.
 - **Not here.** A card when someone joins; the chat's title (no `set_title` in shared chats; a chat shared later keeps
   its private title); a source type of its own for a project in rooms.
 - Tests: `tests/unit/b-shared-chat-audience.test.ts` (a confirmed read and an unconfirmed one, covered, reader, later

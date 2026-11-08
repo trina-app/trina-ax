@@ -100,11 +100,14 @@ export function chatNodes(db: Database, chatId: string): Node[] {
   })
 }
 
-/** The answers among `nodes` (chatNodes) hidden from `viewer`, on every branch; one rule check per place. */
-export function withheldAmong(db: Database, rules: RuleSet, nodes: readonly Node[], viewer: string): Set<string> {
+/** One viewer as the walk judges them: their account and what they may read, by place (kept across chats). */
+export interface ViewerJudge { me: Principal | null; verdicts: Map<string, boolean> }
+
+/** The answers among `nodes` (chatNodes) hidden from `viewer`, on every branch; one rule check per place (`judge`: one
+ * kept for the request, AnswerSight). */
+export function withheldAmong(db: Database, rules: RuleSet, nodes: readonly Node[], viewer: string, judge: ViewerJudge = { me: loadPrincipal(db, viewer), verdicts: new Map() }): Set<string> {
   const byId = new Map(nodes.map((r) => [r.id, r]))
-  const me: Principal | null = loadPrincipal(db, viewer)
-  const verdicts = new Map<string, boolean>()
+  const { me, verdicts } = judge
   const reads = (s: ReadSource): boolean => {
     const k = sourceKey(s)
     let ok = verdicts.get(k)
@@ -154,6 +157,7 @@ export class AnswerSight {
   private rulesNow: RuleSet | null = null
   private chats = new Map<string, Node[]>()
   private sets = new Map<string, Set<string>>()
+  private judges = new Map<string, ViewerJudge>()
   constructor(private db: Database, private files: FileService) {}
   get rules(): RuleSet { return (this.rulesNow ??= this.files.rules()) }
   /** each chat read and parsed once, whoever asks */
@@ -165,21 +169,32 @@ export class AnswerSight {
   withheld(chatId: string, viewer: string): ReadonlySet<string> {
     const k = `${chatId} ${viewer}`
     let s = this.sets.get(k)
-    if (!s) this.sets.set(k, (s = withheldAmong(this.db, this.rules, this.nodes(chatId), viewer)))
+    if (!s) {
+      let j = this.judges.get(viewer)
+      if (!j) this.judges.set(viewer, (j = { me: loadPrincipal(this.db, viewer), verdicts: new Map() }))
+      this.sets.set(k, (s = withheldAmong(this.db, this.rules, this.nodes(chatId), viewer, j)))
+    }
     return s
   }
 }
 
-/** The messages of shared chats whose text matches `like` (a LIKE pattern, `\` escapes), by chat: one full-text search
- * for a request, never one per chat (messages_fts does not index the chat). A search counts a word in a shared chat
- * only through a message the person sees (withheldFrom). */
-export function sharedHits(db: Database, like: string): Map<string, string[]> {
-  const out = new Map<string, string[]>()
-  for (const r of db.query(`SELECT f.chat_id AS chat, f.message_id AS id FROM messages_fts f WHERE f.content LIKE ? ESCAPE '\\'
-    AND f.chat_id IN (SELECT id FROM chats WHERE shared_at IS NOT NULL)`).all(like) as { chat: string; id: string }[]) {
-    const l = out.get(r.chat)
-    if (l) l.push(r.id)
-    else out.set(r.chat, [r.id])
+/** Where a word was found in a shared chat: a person's message (everyone who sees the chat sees it), and the answers
+ * that hold it. */
+export interface ChatHit { question: boolean; answers: string[] }
+
+/** The messages of shared chats (of `chatIds` when given) whose text matches `like` (a LIKE pattern, `\` escapes), by
+ * chat: one full-text search for a request, never one per chat (messages_fts does not index the chat). A search counts
+ * a word in a shared chat only through a message the person sees (withheldFrom). */
+export function sharedHits(db: Database, like: string, chatIds?: readonly string[]): Map<string, ChatHit> {
+  const out = new Map<string, ChatHit>()
+  const only = chatIds ? 'AND f.chat_id IN (SELECT value FROM json_each(?))' : 'AND f.chat_id IN (SELECT id FROM chats WHERE shared_at IS NOT NULL)'
+  const args: string[] = chatIds ? [like, JSON.stringify(chatIds)] : [like]
+  for (const r of db.query(`SELECT f.chat_id AS chat, f.message_id AS id, m.role FROM messages_fts f JOIN messages m ON m.id = f.message_id
+    WHERE f.content LIKE ? ESCAPE '\\' ${only}`).all(...args) as { chat: string; id: string; role: string }[]) {
+    let h = out.get(r.chat)
+    if (!h) out.set(r.chat, (h = { question: false, answers: [] }))
+    if (r.role === 'assistant') h.answers.push(r.id)
+    else h.question = true
   }
   return out
 }

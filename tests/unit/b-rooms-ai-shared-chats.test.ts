@@ -507,11 +507,22 @@ describe('an answer hidden from someone who sees the chat (docs/DECISIONS.md "Pe
     expect(search).toContain('No shared project chat in the projects everyone in this room can see matches.')
     expect(mine.visibility).toBe('private')
     expect(await answerTo('gina', roomId, b.q)).toBeUndefined()
-    // with only people who saw the chat then (bob and carol), it goes to the room
+    // a room's answer goes by what its members may read, as for a file: bob saw the answer in the chat but may not read
+    // the place, so with carol it stays his (the folder is not named to him: he may not open it)
     const both = await room(['bob', 'carol'])
-    const c = await ask('bob', both, `@트리나 read\n${fake({ tool: 'project_chat', args: { chat: hiddenChat }, sayResult: true }, { say: SEP }, { tool: 'project_chats', args: { query: 'Autumn' }, sayResult: true })}`)
-    const theirs = (await answerTo('carol', both, c.q))!
+    const c = await ask('bob', both, `@트리나 read\n${fake({ tool: 'project_chat', args: { chat: hiddenChat }, sayResult: true })}`)
+    expect(await answerTo('carol', both, c.q)).toBeUndefined()
+    const his = (await messages('bob', both)).find((m) => m.authorKind === 'ai' && m.replyTo?.id === c.q.id)!
+    expect(his.visibility).toBe('private')
+    expect(his.preview).toMatchObject({ folders: [], otherFolders: true })
+    // alice and carol may read it: to the room, the search's find too
+    const readers = await room(['carol', 'alice'])
+    const d = await ask('carol', readers, `@트리나 read\n${fake({ tool: 'project_chat', args: { chat: hiddenChat }, sayResult: true }, { say: SEP }, { tool: 'project_chats', args: { query: 'Autumn' }, sayResult: true })}`)
+    const theirs = (await answerTo('alice', readers, d.q))!
     expect(theirs.visibility).toBe('room')
     expect(theirs.body.split(SEP.trim())[1]).toContain('HIDDEN-TALK')
+    // what it was built on went with it: a member who joins that room later is judged by it (rooms/history.ts)
+    const scope = JSON.stringify(h.ctx.db.query('SELECT scope FROM room_ai_turns WHERE answer_id = ?').get(theirs.id))
+    expect(scope).toContain('f_groups_marketing')
   })
 })

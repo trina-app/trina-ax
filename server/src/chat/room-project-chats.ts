@@ -51,6 +51,9 @@ export const PROJECT_CHAT_TOOL_DESCRIPTIONS = {
 
 /** chats one listing shows by default, and at most */
 export const PROJECT_CHATS_DEFAULT = 20
+/** chats a search looks into through their answers (each is worked out for everyone in the room): beyond it a word
+ * found only in answers does not count */
+const ANSWER_CHECKS = 200
 /** rows a listing looks through for chats the asker may view (the newest first) */
 const PROJECT_CHATS_SCAN = 2000
 
@@ -100,24 +103,32 @@ export function projectChatTools(exec: TurnExec): Tool[] {
     addSources(db, spec.chatId, add)
   }
   /**
-   * An answer given to the AI that someone in the room may not see in the chat (chat/shared-answers.ts: it used what
-   * they may not read, and they did not see the chat then): the room's answer must stay the asker's. What those
-   * answers read joins the question's read scope (rooms/ai.ts decide() then names the folders some members cannot
-   * open); when that alone would not keep it private (they read nothing some member misses: not all of it known, or
-   * built on another hidden answer), the question counts as using something outside the team files. When everyone
-   * here sees every one of them, nothing more than the project counts (as before).
+   * What answers of a shared chat given to the AI (or that a search counted) read joins the question's read scope
+   * (chat/shared-answers.ts): rooms/ai.ts decide() then keeps the room answer private for a member who may not read it
+   * and names the folders, and rooms/history.ts judges a member who joins the room later by it. An answer whose reads
+   * are not all known (or without a record) counts as something outside the team files (never to the room by itself,
+   * hidden from later members). When someone here may not see one of them in the chat and that alone would not keep
+   * it private (built on another answer hidden from them), the question counts as outside too.
    */
-  const hiddenFromSomeone = (sight: AnswerSight, chatId: string, answers: readonly string[]) => {
+  const carry = (sight: AnswerSight, chatId: string, answers: readonly string[]) => {
     if (!answers.length) return
-    const here = members(db, roomId).map((m) => m.user_id)
-    if (!here.some((u) => { const w = sight.withheld(chatId, u); return answers.some((id) => w.has(id)) })) return
     const records = answerRecords(db, chatId)
     const add = new Map<string, ReadSource>()
-    for (const id of answers) for (const g of records.get(id)?.reads ?? []) if (!g.x) for (const s of g.s) add.set(sourceKey(s), s)
+    let outside = false
+    for (const id of answers) {
+      const rec = records.get(id)
+      if (!rec) { outside = true; continue }
+      for (const g of rec.reads) { if (g.x) outside = true; else for (const s of g.s) add.set(sourceKey(s), s) }
+    }
     addSources(db, spec.chatId, [...add.values()])
-    const people = here.map((u) => loadPrincipal(db, u))
-    const posts = people.every((p) => !!p && [...add.values()].every((s) => viewersOf(db, sight.rules, s, [p], spec.userId).has(p.id)))
-    if (posts) db.query('UPDATE chats SET room_outside = 1 WHERE id = ? AND room_outside = 0').run(spec.chatId)
+    if (!outside) {
+      const here = members(db, roomId).map((m) => m.user_id)
+      if (here.some((u) => { const w = sight.withheld(chatId, u); return answers.some((id) => w.has(id)) })) {
+        const people = here.map((u) => loadPrincipal(db, u))
+        outside = people.every((p) => !!p && [...add.values()].every((s) => viewersOf(db, sight.rules, s, [p], spec.userId).has(p.id)))
+      }
+    }
+    if (outside) db.query('UPDATE chats SET room_outside = 1 WHERE id = ? AND room_outside = 0').run(spec.chatId)
   }
   /** "<verb> · <title>" only when everyone in the room sees the chat's project, else the verb alone */
   const named = (r: Readable | null, locale: Locale) => {
@@ -171,18 +182,34 @@ export function projectChatTools(exec: TurnExec): Tool[] {
         const rows = visible.size ? db.query(`SELECT c.id, c.user_id, c.project_id, c.title, c.updated_at FROM chats c JOIN projects p ON p.id = c.project_id
           WHERE ${where.join(' AND ')} ORDER BY c.updated_at DESC, c.id DESC LIMIT ${PROJECT_CHATS_SCAN}`).all(...params) as Pick<ChatRow, 'id' | 'user_id' | 'project_id' | 'title' | 'updated_at'>[] : []
         const shown: { row: (typeof rows)[number]; project: ProjectRow }[] = []
-        // a word counts through a title, a project name or a message everyone here who sees the project sees (the asker
-        // too): never through an answer hidden from one of them (chat/shared-answers.ts), so neither a find nor a "no
-        // match" says anything about what someone here may not see (someone outside the project keeps the result private
-        // anyway: the project counts). project_chat reads the rest for the asker
+        // a word counts through a title, a project name, a person's message, or an answer the asker and everyone here
+        // who sees the project see: never through an answer hidden from one of them (chat/shared-answers.ts), so a find
+        // says nothing about what someone here may not see (someone outside the project keeps the result private anyway:
+        // the project counts), and the answers it counted through are carried with the question (carry: a member who
+        // joins the room later is judged by them). At most ANSWER_CHECKS chats are looked into through their answers.
+        // project_chat reads the rest for the asker
         const sight = new AnswerSight(db, rt.files)
         const people = [...new Set([spec.userId, ...members(db, roomId).map((m) => m.user_id)])]
         const words = (a.data.query ?? '').split(/\s+/).filter(Boolean).slice(0, 8).map((w) => `%${likeEscape(w)}%`)
-        // the messages of shared chats that hold each word: one search per word, not one per chat
-        const hits = words.map((like) => sharedHits(db, like))
-        const matches = (r: (typeof rows)[number], p: ProjectRow) => words.every((like, i) =>
-          !!db.query("SELECT 1 FROM chats c JOIN projects p ON p.id = c.project_id WHERE c.id = ?1 AND p.id = ?2 AND (c.title LIKE ?3 ESCAPE '\\' OR p.name LIKE ?3 ESCAPE '\\')").get(r.id, p.id, like)
-          || (hits[i]!.get(r.id) ?? []).some((id) => people.every((u) => (u !== spec.userId && !aud.sees(u, p)) || !sight.withheld(r.id, u).has(id))))
+        // the messages of these chats that hold each word: one search per word, not one per chat
+        const hits = words.map((like) => sharedHits(db, like, rows.map((r) => r.id)))
+        let checks = 0
+        const through = new Map<string, Set<string>>()
+        const matches = (r: (typeof rows)[number], p: ProjectRow) => {
+          const used: string[] = []
+          const ok = words.every((like, i) => {
+            if (db.query("SELECT 1 FROM chats c JOIN projects p ON p.id = c.project_id WHERE c.id = ?1 AND p.id = ?2 AND (c.title LIKE ?3 ESCAPE '\\' OR p.name LIKE ?3 ESCAPE '\\')").get(r.id, p.id, like)) return true
+            const hit = hits[i]!.get(r.id)
+            if (!hit) return false
+            if (hit.question) return true
+            if (++checks > ANSWER_CHECKS) return false
+            const seen = hit.answers.filter((id) => people.every((u) => (u !== spec.userId && !aud.sees(u, p)) || !sight.withheld(r.id, u).has(id)))
+            used.push(...seen)
+            return seen.length > 0
+          })
+          if (ok && used.length) through.set(r.id, new Set(used))
+          return ok
+        }
         for (const r of rows) {
           if (shown.length >= limit) break
           // never a confidential one
@@ -191,6 +218,7 @@ export function projectChatTools(exec: TurnExec): Tool[] {
           if (words.length && !matches(r, p)) continue
           shown.push({ row: r, project: p })
         }
+        for (const sh of shown) { const ids = through.get(sh.row.id); if (ids) carry(sight, sh.row.id, [...ids]) }
         const asker = labelName(rt.store, spec.userId)
         const lines = shown.map((s) => `- "${quote(titleOf(s.row))}" · project "${quote(s.project.name)}" · last activity ${localTime(s.row.updated_at, rt.timeZone)} · chat_id=${s.row.id}`)
         const head = shown.length
@@ -222,7 +250,7 @@ export function projectChatTools(exec: TurnExec): Tool[] {
         const t = readTranscript(rt.store, r.row.active_leaf_id, spec.userId, sight.withheld(r.row.id, spec.userId))
         // the chat's audience (its project folder's readers) and the team files its messages name for the asker
         record([r.project], t.paths)
-        hiddenFromSomeone(sight, r.row.id, t.answers)
+        carry(sight, r.row.id, t.answers)
         patch(r)
         const asker = labelName(rt.store, spec.userId)
         const by = labelName(rt.store, r.row.user_id)
