@@ -39,6 +39,8 @@ import { canSeeProject } from './projects'
 import { isInternalChat } from './internal-chats'
 import { audienceOf, chatView, projectCanShare, type ChatAccess } from './shared'
 import { confirmMac, provenanceChecker, useOf, type BranchUse } from './answer-share'
+import { sourceKey, sourceOf, type ReadSource } from './read-scope'
+import type { ReadGroup } from './shared-answers'
 import { tr } from './i18n'
 
 /** Does the chat's read scope describe every answer of the chat? The scope is emptied when a session starts on a first
@@ -157,6 +159,14 @@ export async function shareChat(ctx: AppContext, rt: ChatRuntime, userId: string
       // these turns were just checked: the rollback guard must not take them for an older build's
       // (and marked as before the share, whatever the clock says: their steps are their runner's, chat/store.ts viewSteps)
       db.query('UPDATE turns SET shared_checked = ? WHERE chat_id = ?').run(SHARED_LATER, a.row.id)
+      // every answer so far stays with the people this share showed it to (and its creator); someone who sees the chat
+      // later sees them only when they may read every place the chat used, all of it known (chat/shared-answers.ts)
+      const rules = ctx.files.rules()
+      const places = new Map<string, ReadSource>()
+      for (const s of [...use.other, ...use.files.map((f) => sourceOf(db, rules, f.path))]) places.set(sourceKey(s), s)
+      const group: ReadGroup = { c: [...new Set([...audience, userId])].sort(), s: [...places.values()], ...(!use.known || use.roomsUnseen || memories ? { x: 1 as const } : {}) }
+      const add = db.query('INSERT OR IGNORE INTO shared_answer_reads (message_id, chat_id, reads) VALUES (?, ?, ?)')
+      for (const id of use.answers) add.run(id, a.row.id, JSON.stringify([group]))
       audit(db, { actor: userId, action: 'chat.share', target: a.row.id, detail: { audience: audience.length, people, unknown: prov.unknown, memories, confirmed: body.confirmKey !== undefined } })
     })()
     // the private session's stash (its instructions held the memories): the next turn starts from the visible transcript

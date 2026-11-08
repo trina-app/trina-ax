@@ -26,6 +26,9 @@ export interface ExportRequest {
   /** a shared project chat the person made goes in only while they still see its project (chat/shared.ts); without
    * this, none does */
   sharedVisible?: (chatId: string) => boolean
+  /** a shared project chat's answers hidden from the person (chat/shared-answers.ts): one line each in the Markdown.
+   * Without this, every answer of a shared chat is that line */
+  sharedWithheld?: (chatId: string) => ReadonlySet<string>
 }
 
 interface ChatRow { id: string; title: string; created_at: string; updated_at: string; engine: string; active_leaf_id: string | null; shared_at?: string | null }
@@ -51,17 +54,21 @@ export function chatPath(rows: MsgRow[], activeLeaf: string | null): MsgRow[] {
   return [...rows].sort((a, b) => a.created_at.localeCompare(b.created_at))
 }
 
-export const MD_WORDS: Record<Locale, { untitled: string; user: string }> = {
-  ko: { untitled: '(제목 없음)', user: '사용자' },
-  en: { untitled: '(untitled)', user: 'User' },
-  id: { untitled: '(tanpa judul)', user: 'Pengguna' }, ja: { untitled: "（無題）", user: "ユーザー" }, es: { untitled: "(sin título)", user: "Usuario" },
+export const MD_WORDS: Record<Locale, { untitled: string; user: string; withheld: string }> = {
+  ko: { untitled: '(제목 없음)', user: '사용자', withheld: '(볼 수 없는 자료를 참고한 답이라 가려졌어요)' },
+  en: { untitled: '(untitled)', user: 'User', withheld: "(Hidden: this answer used material you can't open)" },
+  id: { untitled: '(tanpa judul)', user: 'Pengguna', withheld: '(Disembunyikan: jawaban ini memakai materi yang tidak bisa Anda buka)' },
+  ja: { untitled: "（無題）", user: "ユーザー", withheld: "（開けない資料を参照した回答のため表示されません）" },
+  es: { untitled: "(sin título)", user: "Usuario", withheld: "(Oculta: esta respuesta usó material que usted no puede abrir)" },
 }
 
-/** One chat as Markdown, headings in the language of the person exporting. */
-export function chatMarkdown(chat: ChatRow, msgs: MsgRow[], locale: Locale = DEFAULT_LOCALE): string {
+/** One chat as Markdown, headings in the language of the person exporting. `withheld`: answers hidden from them (a
+ * shared chat's, chat/shared-answers.ts): one line each, no model or content. */
+export function chatMarkdown(chat: ChatRow, msgs: MsgRow[], locale: Locale = DEFAULT_LOCALE, withheld: (id: string) => boolean = () => false): string {
   const w = MD_WORDS[locale] ?? MD_WORDS.en
   const lines = [`# ${chat.title || w.untitled}`, '', `- created: ${chat.created_at}`, `- updated: ${chat.updated_at}`, `- engine: ${chat.engine}`, '']
   for (const m of msgs) {
+    if (m.role === 'assistant' && withheld(m.id)) { lines.push(`## AI · ${m.created_at}`, '', w.withheld, ''); continue }
     lines.push(`## ${m.role === 'user' ? w.user : 'AI'} · ${m.created_at}${m.model ? ` · ${m.model}` : ''}${m.status !== 'done' ? ` · (${m.status})` : ''}`, '', m.content, '')
   }
   return lines.join('\n')
@@ -110,7 +117,10 @@ export async function runExport(db: Database, teamRoot: string, req: ExportReque
         let base = `${c.created_at.slice(0, 10)} ${slug(c.title)}`
         if (used.has(base)) base += ` ${c.id.slice(-6)}`
         used.add(base)
-        yield { name: `${root}/chats/${base}.md`, type: 'file', data: enc(chatMarkdown(c, chatPath(q.all(c.id) as MsgRow[], c.active_leaf_id), req.locale)) }
+        // a shared chat: the answers hidden from the person are one line (without the check, every answer is)
+        const hidden = c.shared_at ? req.sharedWithheld?.(c.id) ?? null : undefined
+        const withheld = hidden === undefined ? () => false : (id: string) => !hidden || hidden.has(id)
+        yield { name: `${root}/chats/${base}.md`, type: 'file', data: enc(chatMarkdown(c, chatPath(q.all(c.id) as MsgRow[], c.active_leaf_id), req.locale, withheld)) }
       }
     }
     if (req.what.includes('memories')) {

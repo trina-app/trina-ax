@@ -30,7 +30,8 @@ import { maskStoredTitles, placeholderTitle } from './title'
 import { redactorFor } from '../integrations/connections/redact'
 import type { RoomPrompt } from './prompt'
 import { isInternalChat } from './internal-chats'
-import { Audiences, chatView, isSharedRow, labelledTranscript, messageFor, unshareUncheckedChats } from './shared'
+import { Audiences, chatView, isSharedRow, labelledTranscript, messageFor, recordOlderAnswers, unshareUncheckedChats } from './shared'
+import { newAnswerRecord } from './shared-answers'
 
 export const DEFAULT_CONCURRENCY = 3
 export const DEFAULT_ASK_USER_TIMEOUT_MS = 10 * 60_000
@@ -529,6 +530,9 @@ export class ChatRuntime {
       }
       assistantId = this.store.insertMessage({ chatId: chat.id, parentId: userMessageId, role: 'assistant', authorId: null, content: '', status: 'streaming',
         turnId, engine: o.engine, model: o.model })
+      // a shared chat's answer is recorded from the moment it exists: what it reads, who saw the chat then (an answer
+      // without a record is hidden from everyone but its runner: chat/shared-answers.ts)
+      if (isSharedRow(chat)) newAnswerRecord(this.db, chat.id, assistantId)
       // shared_checked: this build runs the turn, with the read gate of shared chats (chat/shared.ts rollback guard)
       this.db.query(`INSERT INTO turns (id, chat_id, user_id, engine, model, status, started_at, queued_at, message_id, user_message_id, window_id, client_kind, queue_seq, schedule_id, scheduled_for, shared_checked)
         VALUES (?,?,?,?,?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`).run(turnId, chat.id, o.userId, o.engine, o.model, now, now, assistantId, userMessageId, o.windowId, o.clientKind, queueSeq, o.scheduled?.id ?? null, o.scheduled?.dueAt ?? null)
@@ -637,11 +641,11 @@ export class ChatRuntime {
     return !(project.instructionsAuthor === userId && project.instructionsAuthored === project.instructions)
   }
   /** Messages of a branch up to `leafId` (inclusive), for a fresh engine session. */
-  history(leafId: string | null, room = false, shared: { runner: string } | null = null): { role: 'user' | 'assistant'; content: string }[] {
+  history(leafId: string | null, room = false, shared: { runner: string; withheld: ReadonlySet<string> } | null = null): { role: 'user' | 'assistant'; content: string }[] {
     const rows = this.store.pathTo(leafId)
     // a shared project chat (chat/shared.ts): who wrote each message, the attachments as the person whose turn it is
-    // may see them now
-    if (shared) return labelledTranscript(this.store, leafId, shared.runner)
+    // may see them now, and nothing of an answer hidden from them (chat/shared-answers.ts)
+    if (shared) return labelledTranscript(this.store, leafId, shared.runner, shared.withheld)
     if (!room) return rows.filter((m) => m.content.trim() || m.role === 'user').map((m) => ({ role: m.role, content: m.role === 'user' ? composeMessage(m, this.store.attachmentsOf(m)) : m.content }))
     // a room's AI session (rooms/ai.ts) remembers only what went to the room, as the room holds it now: a question and
     // its answer while that answer is a room message (posted, not deleted); a private preview, a stopped or failed
@@ -750,6 +754,9 @@ export class ChatRuntime {
     // (fails closed: a check that cannot run stops the recovery, nothing runs)
     const unshared = unshareUncheckedChats(this.db)
     if (unshared.length) this.log.warn('shared chats with turns of an older build are no longer shared', { n: unshared.length })
+    // answers of shared chats from before migration 273 (or an older build's): seen by who sees the chat now, nobody
+    // else (chat/shared-answers.ts). A failure leaves them hidden from everyone but their runners (fails closed)
+    try { recordOlderAnswers(this.db, this.files) } catch (e) { this.log.warn('older shared answers not recorded', { err: e }) }
     const now = new Date().toISOString()
     this.db.query("UPDATE schedules SET enabled=0,pending_due_at=NULL,retry_at=NULL WHERE user_id NOT IN (SELECT id FROM users WHERE status='active' AND deleted_at IS NULL)").run()
     const running = this.db.query("SELECT id, message_id, user_id FROM turns WHERE status = 'running'").all() as { id: string; message_id: string | null; user_id: string }[]

@@ -1,4 +1,5 @@
-// Groups: name, description, members. Folder rules can name a group; deleting a group removes its rules too.
+// Groups: name, description, members. Folder rules can name a group; deleting a group removes its rules too, and
+// switches off the team AI connections only it may use (the confirmation names them).
 // Laid out like Members (and the Claude Console): title with the count, one line, New group, a search box, then quiet
 // rows (name · members · "…"); Edit and Delete are in the row's "…". The members column starts with their faces
 // (FaceStack: at most 3 and "+N", 2 on a phone), then the count and the names in words. Who may change team skills is
@@ -15,6 +16,7 @@ import { useFaceOf } from '../../store/people'
 import { useMeStrict } from '../../store/session'
 import { AdminPageHeader, CountBadge, Loadable, SearchBox, matches, useAction, useActionOk, useFocusAfterRemove, useLoad } from './common'
 import { MemberMenu } from './RowMenu'
+import { connectionsOnlyFor, loadConnections } from './ai-assignees'
 
 export default function Groups() {
   const t = useT()
@@ -22,6 +24,7 @@ export default function Groups() {
   const actOk = useActionOk()
   const groups = useLoad(async () => (await api.call(API.listGroups)).items)
   const users = useLoad(async () => (await api.call(API.listUsers)).items)
+  const connections = useLoad(loadConnections)
   const [editing, setEditing] = useState<Group | 'new' | null>(null)
   const [query, setQuery] = useState('')
   const q = query.trim().toLocaleLowerCase(locale)
@@ -29,9 +32,13 @@ export default function Groups() {
   const name = (id: string) => users.data?.find((u) => u.id === id)?.name ?? id
   const faceOf = useFaceOf()
   const remove = async (g: Group) => {
-    if (!(await confirmDialog({ title: t('groups.deleteTitle', { name: g.name }), body: t('groups.deleteBody'), confirm: t('common.delete'), danger: true }))) return
+    // AI connections only this group may use are switched off by the delete (never given to the whole team): named here
+    const off = connectionsOnlyFor(connections.data, { subjectType: 'group', subjectId: g.id })
+    const body = off.length ? <><p>{t('groups.deleteBody')}</p><p className="mt-2" data-testid="group-delete-ai-off">{t('groups.deleteAiOff', { names: off.join(', ') })}</p></> : t('groups.deleteBody')
+    if (!(await confirmDialog({ title: t('groups.deleteTitle', { name: g.name }), body, confirm: t('common.delete'), danger: true }))) return
     if (!(await actOk(() => api.call(API.deleteGroup, { params: { id: g.id } })))) return
     focus.removed(groups.data?.findIndex((x) => x.id === g.id) ?? 0)
+    if (off.length) void connections.reload()
     await groups.reload()
   }
   return (
