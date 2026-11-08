@@ -189,6 +189,12 @@ export class TurnExec {
   /** a team chat room's AI session (rooms/ai.ts, chats.room_id): its steps go to the person through the room, it has
    * no memories, and what it uses decides whether its answer may go to the room */
   room: { roomId: string } | null = null
+  private slackMemo: boolean | null = null
+  /** a chat of a Slack thread (slack_threads, or a turn asked from Slack): its answers may be posted to a channel
+   * (integrations/slack/post-check.ts), so the names the AI saw count like a room session's (noteReads) */
+  private get slackChat(): boolean {
+    return this.slackMemo ??= this.spec.clientKind === 'slack' || !!this.rt.db.query('SELECT 1 FROM slack_threads WHERE chat_id = ? LIMIT 1').get(this.spec.chatId)
+  }
   /** a room session: may every member read this team path (the skills the AI is shown there); null elsewhere */
   roomReadable: ((rel: string) => boolean) | null = null
   /** changes the person allowed on a card in this room turn (confirmRoomChange), by tool and input */
@@ -1906,9 +1912,10 @@ export class TurnExec {
   noteReads() {
     const paths = this.files.readPaths
     // a room session: folders whose file names the AI saw (list, glob, searches) count too, as the names may reach the
-    // room, and so do the paths whose own name it saw or asked about (read-scope.ts {type:'name'})
-    const names = this.room ? this.files.namePaths : null
-    const listed = this.room ? this.files.listedNames : null
+    // room, and so do the paths whose own name it saw or asked about (read-scope.ts {type:'name'}); a Slack chat too,
+    // for what its listings and globs showed (the names may reach a channel)
+    const names = this.room || this.slackChat ? this.files.namePaths : null
+    const listed = this.room || this.slackChat ? this.files.listedNames : null
     if (!paths.size && !names?.size && !listed?.size) return
     const rules = this.rt.files.rules()
     // reads the answer's source list records (with their sha256: "대화방에 보내기" goes by those files) apart from the

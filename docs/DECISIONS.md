@@ -9043,6 +9043,59 @@ People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guid
   or else its full name, read when the tokens are saved and at each connection (a rename in Slack shows up), with the
   manifest's name when Slack does not say. `auth.test` gives the user name (`trinaax`), which `@` and `/invite` do not
   find.
+- **Post to channel checks what the answer used (fix/slack-post-check, 2026-11-08).** A Slack question is a normal turn
+  of the asker's, with their whole reach (their groups' folders, their own folder, memories, personal connections), and
+  the button posted at once: an HR member asking in #general for a summary of the salary review put `groups/hr/` in
+  front of the channel with one click, while 대화방에 보내기 and the room's @트리나 both check first. The owner decided:
+  - **The whole team is the test.** Slack does not tell the app reliably which of a channel's members are which
+    accounts here (no e-mail for some, guests, people of no account at all), so the audience is every active account but
+    the asker. Everything the answer used readable by all of them: posted at once, as before. Otherwise the first press
+    replaces the ephemeral answer with a notice to the asker: "This answer used places not everyone on the team can see:
+    groups/hr/. Post it to the channel anyway?", with *Post anyway* and *Cancel*. Cancel puts the answer back with its
+    button (pressing it asks again). DMs are unchanged.
+  - **One classifier.** The check is 대화방에 보내기's (`chat/answer-share.ts` `provenanceChecker` over `branchUse`: the
+    files every answer on the branch read with their sha256 and the hash rule, the chat's read scope when it describes
+    the answer, "not all known" for an answer it does not describe or one that ran dev environment commands);
+    `integrations/slack/post-check.ts` adds only what is Slack's. A team connection or a shared Drive counts as not team-wide whoever its rules let use it, as for the
+    room's AI (`rooms/ai.ts` decide): what it returned is outside content. The whole branch counts, so a later answer in
+    the same Slack thread carries what an earlier one read.
+  - **Memories do not count** (the manager, 2026-11-08, on the PR). Post to channel posts one answer, as 대화방에 보내기
+    does, and that check does not count memories: they are the asker's own notes, and the asker sees the very text that
+    is posted. Counting them (`share-chat.ts` `memoriesInPlay`, as the first version did) put the notice on almost every
+    answer of anyone with a memory. Sharing a whole chat still counts them (`chat/share-chat.ts`): there the others see
+    the whole conversation, every answer of it.
+  - **Names count in a Slack chat.** A personal chat's scope records file contents (read, grep), not the names a
+    listing or a glob showed; a room session records those too. The first review posted "list groups/hr/" to the
+    channel at once, file names and all. A chat of a Slack thread (`slack_threads`, or a turn asked from Slack) now
+    records them the same way (`chat/turn.ts` `noteReads`: the folders whose files a listing or a glob showed, and the
+    sub-folders it showed as names). That scope is the chat's, so a widening card can come sooner in such a chat too.
+  - **A team of one.** With nobody else active, the asker's own material and an answer not all known still count: the
+    channel has people all the same.
+  - **Never posted** (as 대화방에 보내기 refuses them, confirmed or not): a confidential conversation (safe operations 1A,
+    `safe-ops/confidential.ts`; while 1A is on, every conversation is one, so Post to channel always says why), and an
+    answer that read a room some member would see but for old answers hidden from them. Pressed, the answer stays with
+    the asker with the reason and no button; an answer of a confidential conversation comes without the button. Chosen
+    over a notice: the owner's two buttons are for places, and 1A material stays in its conversation everywhere else.
+  - **Named as the asker sees them, never what or who.** Folders the asker may read now by their path, a team connection
+    or shared Drive by its name, a team room by its group's name, "1:1 and group conversations", and the asker's own
+    material apart: "your folder", "the in-app browser", "your personal connections" (the read scope records a personal
+    connection as the person's own, not which one, so it is not named). Anything else is "other
+    material". No file name, no content, no count of people. The notice is a `plain_text` section, so a name is never
+    markup, a mention or a link. In the asker's language (five).
+  - **Post anyway goes through every check again**: the asker, the link and the account, the chat not deleted, Slack
+    asked again whether the channel is shared with another organization, the once-only claim. Its value is the request
+    id and a keyed hash (`confirmMac`, `kind: 'slack.post'`, this server process's secret) over the request, the asker,
+    the sources and who misses them, the places and the flags the notice showed. Without the hash it is no value of
+    ours ("can no longer be posted"); with another request's, or from before something changed (a rule, a member, a
+    restart), it shows the notice again, never posts. `slack.posted` gets `confirmed: true` for such a post (no names, no
+    content).
+  - Not chosen: naming people or counting them (a Slack channel is not the team); the link check of 대화방에 보내기's
+    part A (a Slack answer's links name files the answer read or listed, which the check above covers).
+  - Tests: `tests/unit/c-slack.test.ts` "Post to channel checks what the answer used" (shared/ posted at once; a group
+    folder's notice, Cancel, and Post again; Post anyway once and audited, replayed and forged values, a key from before
+    a new member; Slack Connect and an unknown channel on Post anyway; a team connection, a personal connection, the
+    browser, memories not counted, Korean; list and glob names; not all known; a team of one; Cancel after an unlink; a confidential
+    conversation, also its next answer; hidden room answers; a DM).
 
 ## S — The lead's way becomes a team skill (feat/onboarding-s, 2026-11-05)
 

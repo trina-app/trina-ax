@@ -5,6 +5,7 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+- Slack: **Post to channel** now checks what the answer used. When it used places not everyone on the team can see (a group's folder, your own folder, a team connection or shared Drive, the in-app browser, your personal connections, a room), the first press shows you a notice naming those places (never what is in them or who cannot see them) with **Post anyway** and **Cancel**; Post anyway checks your link and Slack Connect again and posts once, Cancel puts the answer back to you only. Slack does not say who in a channel is who here, so the test is the whole team. File names a listing showed count too. Your personal memories do not count. Answers from what everyone reads post at once as before; an answer from a confidential (safe operations) conversation is never posted; DMs are unchanged. No API or database change. In all five languages.
 - The account menu no longer has **Appearance**. The theme (system, light, dark) is chosen in Settings, one place for it. No API or data change.
 - A deleted team skill now opens 파일 › 휴지통, where the file is. On 팀 스킬 › 최근 변경 a 삭제 row's button read "삭제한 기록" and, like the notice to owners and admins, opened the deleted AI chats; it now reads 휴지통 and opens the files trash, which has its own address (`/files?view=trash`), so Back and a reload keep the tab. Also: @트리나's answer that only the asker sees now counts as unread for them at once, on the room in the sidebar (and wherever that room's count shows), not only after a reload.
 
