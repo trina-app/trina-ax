@@ -10,6 +10,7 @@ import { toast } from '../../store/ui'
 import { useWelcome } from '../../store/welcome'
 import { Button, Modal } from '../ui'
 import { TeamLinkPanel } from './TeamLinkPanel'
+import { LeadInvite } from '../handover/LeadInvite'
 
 /** The skills the owner shared from 내 스킬 가져오기 (docs/DECISIONS.md "SK"): the one the link opens, which "바꾸기"
  * changes among them. The message names that one only (docs/DECISIONS.md "W5"). */
@@ -60,8 +61,12 @@ export function InviteStep({ onDone, onSkip, skillPath, made, retarget, prepare,
         {title !== null && <h2 className="mb-1 text-lg font-semibold">{title ?? t('teamLink.stepTitle')}</h2>}
         <p className="text-sm text-muted">{t('teamLink.stepDesc')}</p>
       </div>
-      {/* folded: the message and "메시지 복사"; the link and its settings wait under "링크 관리" (no "링크 끄기" here) */}
-      <TeamLinkPanel skillPicker={false} skillPath={skillPath} made={made} retarget={retarget} prepare={prepare} shared={shared} folded />
+      {/* folded: the message and "메시지 복사"; the link and its settings wait under "링크 관리" (no "링크 끄기" here).
+          The welcome steps (prepare): the owner may tick "이 사람이 팀장이에요" above it, and the one-person lead link's
+          message takes its place (components/handover/LeadInvite.tsx, docs/DECISIONS.md "W6") */}
+      <LeadInvite enabled={!!prepare}>
+        <TeamLinkPanel skillPicker={false} skillPath={skillPath} made={made} retarget={retarget} prepare={prepare} shared={shared} folded />
+      </LeadInvite>
       <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-4">
         {onSkip && (
           <Button variant="ghost" onClick={() => setAsking(true)} data-testid="invite-step-skip">

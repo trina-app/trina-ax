@@ -8,8 +8,8 @@
 // the AI's video and audio reads turn sound into text ("AI reads video and audio"), and the team
 // logo (the computer's sidebar header; the tab and app icons stay the product's; shared/src/team-icon.ts), the
 // company profile every chat's AI is told (components/onboarding/CompanyProfileCard.tsx), the dev environment
-// (DevEnvTeam.tsx, hidden when the server has it off), and for the owner the ownership transfer
-// (TransferOwner.tsx). After the form, the team's AI settings (AI defaults, who picks the engine, members' own AI
+// (DevEnvTeam.tsx, hidden when the server has it off). The owner hands the role over from Admin › Members' "…"
+// (팀장 넘기기, components/handover/HandoverDialog.tsx). After the form, the team's AI settings (AI defaults, who picks the engine, members' own AI
 // accounts, usage limits; TeamAiSettings.tsx, #ai and #ai-limits) and the knowledge graph (KnowledgeGraph.tsx,
 // #knowledge-graph), which save on their own. The OpenRouter key is sealed in the
 // browser (lib/seal.ts), asks for the password again, and is never shown again (only its last 4 characters).
@@ -28,7 +28,6 @@ import { AdminPageHeader, FlatCardsProvider, Loadable, SettingRow, SettingsSecti
 import { legacyWindow } from '../../lib/officeUpdate'
 import { timeZoneOptions } from '../../lib/time-zones'
 import { checkIconFile } from '../../lib/team-icon'
-import TransferOwnerCard from './TransferOwner'
 import CompanyProfileCard from '../../components/onboarding/CompanyProfileCard'
 import { DevEnvTeamCard } from './DevEnvTeam'
 import TeamAiSettings from './TeamAiSettings'
@@ -168,7 +167,6 @@ export default function TeamSettingsPage() {
         {/* what every team chat's AI is told about the company (docs/DECISIONS.md "D — Company profile") */}
         <CompanyProfileCard />
         <DevEnvTeamCard />
-        {owner && <TransferOwnerCard ownerId={me.user.id} />}
       </div>
     </FlatCardsProvider>
   )

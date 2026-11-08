@@ -14017,3 +14017,92 @@ the project's audience, the answer goes to the room; otherwise it stays private 
   instructions, the audit), `tests/security/room-reads-shared-chats.test.ts` (people × states, a member outside the
   audience, a planted instruction), `b-shared-chats`, `step-labels-tools`, `b-codex-rooms`.
 - Version impact: **minor** (two AI tools in rooms and an audit action; no API or database change).
+
+## W6 — Onboarding v6: easy owner handover (feat/onb6-handover, 2026-11-08)
+
+The owner: "이거 너가 같이 고려해서 만들어줘" (onboarding v6 §12), then decided: the first account stays the owner and
+nobody is asked "팀장이세요?"; the handover is made easy instead; no "넘긴 뒤 나는 이 팀에서 나가요" box (unclear): the
+helper's way out is the new owner's [내보내기] and Admin › 멤버. Our own staff often set up a customer's team, so the
+handover must leave them no hidden access. Placement: Team AX core (`server/src/admin/handover.ts`, `admin/users.ts`
+transferOwnership, `auth/accounts.ts` invites, `shared/src/api/handover.ts`, migration 270). No new pages.
+
+- **The race (security review S1).** Two transfers at once made two owners: the role check ran before the body read and
+  the slow password check, and the swap never looked at what it changed. `transferOwnership` is one `.immediate()`
+  write that reads the caller (active owner) and the target again, requires exactly one row changed by the demote and
+  by the promote, and answers 409 `owner_changed` ("이미 팀장이 바뀌었어요") otherwise. Targets: active, not me, past the
+  temporary password and signed in at least once (`last_seen_at`): an expiring temporary password would strand the team,
+  since nobody can reset an owner (409 `target_not_ready`). Sessions are not ended: the role is read on every request.
+- **The lead flag** ("이 사람이 팀장이에요 · 들어오면 팀장을 넘길지 물어볼게요", with "누구에게 보내나요?") lives on a
+  single-use invite (`CreateInviteBody.leadFor`, ≤ 60 characters, control and format characters out, shown as text
+  only). Only the owner sets it, on the server (403 for an admin; the hidden checkbox is not the guard). The invite is
+  always a **member** in the team's group for **3 days**, whatever the request says (role admin with the flag is 400):
+  admin and owner rights come only with the owner's [넘기기], so a forwarded link gives a stranger a member's seat that
+  any admin can disable. One lead invite is open: a new one revokes the open one and clears older hints in the same
+  write (and the partial unique index `invites_one_open_lead` holds it). A transfer stops an open lead link (its message
+  promised a handover by someone who is no longer the owner) and clears every flag, used or not; only the owner may stop
+  a lead link by hand. In
+  the invite step and in Admin › 멤버's invite form (owner only); the message is the one-person one ("…들어오면 {name}님이
+  팀장을 넘겨 드려요: {url} · 한 사람만 쓸 수 있는 링크예요"), with no particle after a variable (받는 사람: {label}).
+- **The card** (Home's top slot, one thing at a time) and its Inbox notice `owner.lead_joined` (also pushed to phones and
+  browsers: `handover_notices` is a third push source with its own deliveries; and a desktop notification through the
+  realtime notice `owner_lead_joined`). They show only facts the joiner could not set: the owner's words for whom the
+  link was, the account's name and username side by side and the join time. Shown only while it holds: the flagging
+  owner is still the owner, the flag stands and the joiner is active (read at every read; the push checks it too). ✕
+  hides the card only (`lead_hint.dismiss`); the notice keeps its [넘기기], which opens the confirm from the notice
+  itself, never from an address with a user id.
+- **The confirm** (card, Inbox, Admin › 멤버 › ··· › 팀장 넘기기; the Admin › 팀 설정 card is gone, Account deletion's link
+  goes to Admin › 멤버): 받는 사람, what moves (팀 이름, 관리자 지정, 업데이트·백업; admins already manage the team AI), the
+  connections made with the leaver's own accounts (team AI sign-ins: a Claude or ChatGPT subscription made by them;
+  Drive shares signed in with their Google account; team API keys are the team's and never listed), each ticked "넘기면
+  끊어요" (untick the company's own seat), the line on who can still reset passwords (hosted, the office server Mac, a
+  self-installed server), and the password. The rule: settings move with the role; connections in a person's own name
+  are ended by that person, at the handover. They are ended **after the commit** (`owner.transfer.disconnect` per
+  connection; a Drive share keeps its folders and rule, loses its tokens, the admins are asked to sign in again, then
+  Google is asked to revoke, twice at most); a failure never undoes the transfer, and the result goes to both people.
+- **The password** is today's `owner-reauth`: 5 wrong tries per person per 15 minutes, `auth.reauth_failed`. The limit is
+  shared by every re-check of the person (updates, restore, the API engine, the current password), so a wrong try that
+  locks **any** of the owner's re-checks gives the owner one note `owner.reauth_locked` per window, in the Inbox and as a
+  push (a stolen session is the case it guards against, and an Inbox-only note would reach that very session;
+  `auth/service.ts onReauthLocked`). There is no sign-in without a password to bypass it.
+- **After it.** In the same write: the old owner's admin invites stop (today), every lead flag goes, the transfer is
+  recorded (`owner_transfers`, `via` lead_card | members_menu decided on the server), audited `owner.transfer {from, to,
+  via}`; reset links made by nobody (the server's CLI, the control plane) for either person stop, so one minted before
+  the handover never signs its holder in as the new owner. After the commit nothing can turn the transfer into an error
+  (each step on its own): `afterAccessChange`, then both people and the admins are told before the slow part (ending the
+  connections, which records its result on the transfer afterwards). The deletion-request notices follow the roles, the
+  old owner's lead notices are settled, and the notices `owner.transferred` go to the new owner ("지수님이 팀장을 넘겼어요 · 지수님은 관리자로 남아
+  있어요" [내보내기], the existing disable, and 설정 이어서 하기 while the welcome steps wait), the old owner ("박민준님이
+  팀장이 되었어요 · 나는 관리자예요") and every other admin ("팀장이 박민준님으로 바뀌었어요"). Both people's open windows
+  get the realtime notice `owner_changed` (per user id, every socket) and refresh their role: the old owner's /welcome
+  and setup row go at once. `notOnSelf` stays: the helper cannot remove themselves; the new owner can.
+- **Hosted teams (re-check N4).** The control plane can mint a reset link for the owner (`reset-link {owner:true}`, which
+  resolves to whoever is owner now) or anyone by `{username}`, with `createdBy null`, so the team server cannot limit it
+  through `resetUsable`. Until the control plane refuses owner and admin targets after a handover in both forms (until
+  the new owner claims recovery in the product), a hosted team gets no flag and no card (`HandoverState.flag` false,
+  `createInvite` 409 `lead_not_offered`), only ··· › 팀장 넘기기, and both people are told that the hosting account can
+  still reset passwords. The operator turns on `handoverSafe` in server.json when the control plane is ready; then the
+  transfer sets the recovery lock inside its write, `mycel-ctl reset-link` refuses every owner or admin target in both
+  forms while it is set (admin.js exit 3 `owner_recovery_locked`, also `mycel-account reset-link`; members stay
+  reachable), a link made by nobody is refused for an owner or admin target at redemption while it holds (one minted
+  earlier, or for a member later made admin), and `admin.js owner-recovery-claimed` (for the control plane, after the
+  claim) clears it. `owner-recovery-claimed` is not yet a tenant command (`TENANT_COMMANDS`, mycel-ctl): until it is,
+  `handoverSafe` must stay off, or a lock could never be cleared. What the hosted side still has to build (the claim
+  link, the recovery contact, the tenant command) is listed in the PR.
+- **Checked and written down (review S6).** Realtime goes per user id and owner fan-out is looked up when sent; CSRF is
+  covered and the password is needed too; the old owner keeps `mcp:admin` grants, as any admin does; a self-hosted
+  server's admin can still run `reset-link` (the dialog says so). Not here: Higgsfield and team MCP connections in the
+  dialog (owner: no Higgsfield now).
+- **Independent security review (2026-11-08).** Fixed: a temporary-password reset racing the transfer could land on the
+  new owner (the reset read the target before its slow hash; it now reads the caller and the target again inside an
+  immediate write, and so does every member change); a reset link made by the CLI before the handover still worked on
+  the new owner, also under the hosted lock (stopped at the transfer, refused for owners and admins under the lock);
+  the lockout note fired only on the transfer's own check (now any re-check, and pushed); a step after the commit could
+  answer 500 for a done transfer and leave nobody told; the joiner's display name reached the card raw (now one plain
+  line, and the web isolates it); an open lead link outlived the transfer; a lead notice stayed open after the flag was
+  turned off. Kept, written down: admins see an open lead invite's words in the invites list; a backup from before a
+  transfer can still be restored by whoever restores backups.
+- Tests: `tests/unit/a-handover.test.ts` (the race with concurrent requests, targets, the admin refusal, the shape of a
+  lead invite, one open flag, expiry, a forwarded link, the card and ✕, a disabled joiner, the connections listed and
+  ended, notices, realtime, audit, the password limit and its note, hosted gating and the reset-link lock),
+  `web/test/unit/handover*.test.tsx`, `web/test/e2e/handover.spec.ts`.
+- Version impact: **minor** (new endpoints and fields, an invite flag, notices and a push event; migration 270, additive).

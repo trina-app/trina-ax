@@ -49,9 +49,18 @@
 // small slide pictures from GET /api/intro-decks/builds/:id/slides/:n; "deck-fail" in the message stops it after three
 // slides. POST /__test/deck-pace {ms, thumbs?: false, tier?: 'standard' | 'deep'} sets the time per step (default 40 ms),
 // whether pictures exist and the budget (the longer ones read the site first: phase "reading"), until the next reset.
+// 팀장 넘기기 (shared/src/api/handover.ts, like server/src/admin/handover.ts): an invite with leadFor (the owner only) is a
+// member in the team group for 72 hours, the open one before it revoked; joining with it makes the owner's card, an
+// Inbox notice and the realtime owner_lead_joined; only the owner revokes a lead invite; the transfer ends the
+// connections in `end` (an id starting with "fail" fails), revokes the open lead invite and clears the flags, tells both
+// people and the other admins in the Inbox and sends owner_changed. Five wrong
+// passwords in a row: 429 rate_limited and the owner's reauth_locked notice. POST /__test/handover {flag?, recovery?,
+// connections?: [{owner, kind, id, label, provider, account}], race?: true (the next transfer answers 409 owner_changed,
+// as when the owner changed meanwhile)} until the next reset; signing in sets lastSeenAt (the ··· menu needs it).
 import { z } from 'zod'
 import type { DriveShare as MockDriveShare, DriveShareFolder as MockDriveFolder } from '@mycel/shared/api'
 import type { KnowledgeGraphStatus, LocalSpeechTool } from '@mycel/shared/api'
+import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
@@ -202,7 +211,28 @@ export class MockServer {
   /** last password reset by an admin, per user id (Me.passwordReset) */
   resets = new Map<string, NonNullable<Me['passwordReset']>>()
   groups: Group[] = []
-  invites: (Invite & { token: string })[] = []
+  invites: (Invite & { token: string; leadBy?: string })[] = []
+  /** 팀장 넘기기: whether the flag is offered, who can reset passwords, the owners' own connections, the card */
+  handover = MockServer.handoverDefault()
+  static handoverDefault() {
+    return {
+      flag: true,
+      recovery: 'server' as HandoverRecovery | null,
+      connections: [
+        { owner: 'olga', kind: 'team_ai', id: 'cred-claude', label: '회사 Claude', provider: 'claude', account: 'o***@acme.example' },
+        { owner: 'olga', kind: 'drive_share', id: 'share-acme', label: 'Acme 드라이브', provider: 'google', account: null },
+      ] as (HandoverConnection & { owner: string })[],
+      card: null as { inviteId: string; leadFor: string; userId: string; joinedAt: string; dismissed: boolean; by: string } | null,
+      race: false,
+      wrong: 0,
+    }
+  }
+  /** the Inbox's handover notices (GET /api/notifications): what is shown is worked out when they are read */
+  inbox: ({ id: string; userId: string; createdAt: string; readAt: string | null } & (
+    | { kind: 'lead_joined'; inviteId: string; leadFor: string; joinerId: string; joinedAt: string }
+    | { kind: 'transferred'; me: 'from' | 'to' | 'other'; fromId: string; toId: string; fromName: string; toName: string; ended: { teamAi: number; driveShares: number; failed: number } }
+    | { kind: 'reauth_locked' }
+  ))[] = []
   /** the team invite link (shared/src/api/team-links.ts): one open at a time; replaced and revoked tokens say "revoked" */
   teamLink: { id: string; token: string; groupIds: string[]; skillPath: string | null; maxUses: number; uses: number; createdBy: { id: string; name: string }; createdAt: string; expiresAt: string } | null = null
   revokedTeamLinks = new Set<string>()
@@ -403,6 +433,8 @@ export class MockServer {
     this.users = []
     this.groups = []
     this.invites = []
+    this.handover = MockServer.handoverDefault()
+    this.inbox = []
     this.teamLink = null
     this.revokedTeamLinks.clear()
     this.welcome = null
@@ -825,6 +857,52 @@ export class MockServer {
     this.buffer.push({ seq: full.seq, text })
     if (this.buffer.length > 5000) this.buffer.shift()
     for (const ws of this.sockets) ws.send(text)
+  }
+
+  // ---------------- 팀장 넘기기 ----------------
+  handoverStateOf(u: User): HandoverState {
+    const h = this.handover
+    const open = this.invites.find((i) => i.leadFor && i.leadBy === u.id && !i.usedAt && Date.parse(i.expiresAt) > Date.now())
+    return {
+      flag: h.flag,
+      recovery: h.recovery,
+      openLead: open ? { inviteId: open.id, leadFor: open.leadFor!, expiresAt: open.expiresAt } : null,
+      card: this.leadCardFor(u),
+      connections: h.connections.filter((x) => x.owner === u.id).map(({ owner: _o, ...x }) => x),
+    }
+  }
+  /** the card while it holds: I flagged it, I am still the owner, the joiner is active, the flag is offered */
+  leadCardFor(u: User): HandoverState['card'] {
+    const k = this.handover.card
+    const joiner = k && this.users.find((x) => x.id === k.userId && x.status === 'active')
+    if (!this.handover.flag || !k || !joiner || k.by !== u.id || u.role !== 'owner') return null
+    return { inviteId: k.inviteId, leadFor: k.leadFor, user: { id: joiner.id, name: joiner.name, username: joiner.username }, joinedAt: k.joinedAt, dismissed: k.dismissed }
+  }
+  /** one handover notice in someone's Inbox, and the realtime nudge for it */
+  note(userId: string, n: Record<string, unknown>) {
+    this.inbox.unshift({ id: uuidv7(), userId, createdAt: now(), readAt: null, ...n } as MockServer['inbox'][number])
+    this.publish({ type: 'notice', data: { level: 'info', code: 'notifications.changed', message: '' } })
+  }
+  inboxItem(n: MockServer['inbox'][number]): InboxNotification {
+    const viewer = this.users.find((x) => x.id === n.userId)
+    const code = n.kind === 'lead_joined' ? 'owner.lead_joined' : n.kind === 'transferred' ? 'owner.transferred' : 'owner.reauth_locked'
+    const base = { id: n.id, eventType: code, sourceId: n.id, code, createdAt: n.createdAt, readAt: n.readAt, chatId: null, link: null } as const
+    if (n.kind === 'reauth_locked') return { ...base, handover: { kind: 'reauth_locked' } }
+    if (n.kind === 'lead_joined') {
+      const joiner = this.users.find((x) => x.id === n.joinerId)
+      const card = viewer ? this.leadCardFor(viewer) : null
+      return { ...base, handover: { kind: 'lead_joined', leadFor: n.leadFor, user: joiner ? { id: joiner.id, name: joiner.name, username: joiner.username } : null, joinedAt: n.joinedAt, open: card?.inviteId === n.inviteId } }
+    }
+    const from = this.users.find((x) => x.id === n.fromId)
+    const to = this.users.find((x) => x.id === n.toId)
+    return { ...base, handover: {
+      kind: 'transferred', me: n.me,
+      from: from ? { id: from.id, name: from.name } : null, to: to ? { id: to.id, name: to.name } : null,
+      removable: n.me === 'to' && viewer?.role === 'owner' && from?.status === 'active' && from.role === 'admin',
+      setupUnfinished: n.me === 'to' && !this.welcome?.finishedAt,
+      recovery: this.handover.recovery === 'hosted' ? 'hosted' : null,
+      ended: n.ended,
+    } }
   }
 
   // ---------------- helpers ----------------
@@ -1397,6 +1475,7 @@ export class MockServer {
       if (!u || this.passwords.get(u.username) !== c.body.password) fail('unauthorized', 401, wrong)
       if (u!.mustChangePassword) this.tempLogins.add(u!.id)
       else this.tempLogins.delete(u!.id)
+      u!.lastSeenAt = now()
       return { cookie: this.startSession(u!), body: { me: this.me(u!, '') } }
     },
     logout: () => ({ cookie: `${DEV_SESSION_COOKIE}=; Path=/; Max-Age=0`, body: undefined }),
@@ -1466,6 +1545,14 @@ export class MockServer {
       const u = this.addUser({ id: c.body.username.toLowerCase(), username: c.body.username, name: c.body.name, role: i!.role, groupIds: i!.groupIds, localeChoice: c.body.locale ?? null }, c.body.password)
       i!.usedAt = now()
       i!.usedBy = { id: u.id, name: u.name }
+      u.lastSeenAt = now()
+      // a lead link (팀장 넘기기): the owner who flagged it gets the card, an Inbox notice and the realtime notice
+      if (i!.leadFor && i!.leadBy) {
+        const at = now()
+        this.handover.card = { inviteId: i!.id, leadFor: i!.leadFor, userId: u.id, joinedAt: at, dismissed: false, by: i!.leadBy }
+        this.note(i!.leadBy, { kind: 'lead_joined', inviteId: i!.id, leadFor: i!.leadFor, joinerId: u.id, joinedAt: at })
+        this.publish({ type: 'notice', data: { level: 'info', code: 'owner_lead_joined', message: `${i!.leadFor}에게 보낸 팀장 링크로 ${u.name}님이 들어왔어요` } })
+      }
       return { status: 201, cookie: this.startSession(u), body: { me: this.me(u, '') } }
     },
 
@@ -2058,13 +2145,50 @@ export class MockServer {
       this.resets.set(u!.id, { by: { id: c.user.id, name: c.user.name }, at: now() })
       return { temporaryPassword: temp, expiresAt: tempUntil(), signInUrl: 'https://team.example.com' }
     },
-    // like server/src/admin/users.ts transferOwnership: the password again, then the old owner becomes an admin
+    // like server/src/admin/users.ts transferOwnership: the password again (5 wrong in a row: 429 and the owner's lock
+    // notice), the target ready (active, past a temporary password, signed in once), then the old owner becomes an
+    // admin, every lead flag is cleared, the connections asked for are ended, and everyone concerned is told
     transferOwnership: (c) => {
-      if (this.passwords.get(c.user.username) !== c.body.password) fail('forbidden', 403, '비밀번호가 맞지 않아요. 다시 입력해 주세요.')
+      const h = this.handover
+      if (h.wrong >= 5) fail('rate_limited', 429)
+      if (this.passwords.get(c.user.username) !== c.body.password) {
+        if (++h.wrong >= 5) this.note(c.user.id, { kind: 'reauth_locked' })
+        fail('forbidden', 403, '비밀번호가 맞지 않아요. 다시 입력해 주세요.', { 'body.password': 'wrong password' })
+      }
+      h.wrong = 0
+      if (h.race) {
+        h.race = false
+        throw new Fail('conflict', 409, '이미 팀장이 바뀌었어요.', undefined, { reason: 'owner_changed' })
+      }
       const u = this.users.find((x) => x.id === c.body.userId && x.status === 'active') ?? fail('not_found', 404)
       if (u.id === c.user.id) fail('forbidden', 403)
+      if (u.mustChangePassword || !u.lastSeenAt) throw new Fail('conflict', 409, '아직 팀장으로 정할 수 없는 사람이에요.', undefined, { reason: 'target_not_ready' })
       for (const x of this.users) if (x.role === 'owner') x.role = 'admin'
       u.role = 'owner'
+      const ended: EndedConnection[] = []
+      for (const ref of c.body.end as { kind: HandoverConnection['kind']; id: string }[]) {
+        const conn = h.connections.find((x) => x.owner === c.user.id && x.kind === ref.kind && x.id === ref.id)
+        if (!conn) { ended.push({ kind: ref.kind, id: ref.id, label: '', result: 'gone' }); continue }
+        const failed = conn.id.startsWith('fail')
+        if (!failed) h.connections = h.connections.filter((x) => x !== conn)
+        ended.push({ kind: conn.kind, id: conn.id, label: conn.label, result: failed ? 'failed' : 'ended', ...(conn.kind === 'drive_share' && !failed ? { revoke: 'revoked' as const } : {}) })
+      }
+      // every flag goes: the open lead invite is revoked, a used one loses its flag, the card goes
+      this.invites = this.invites.filter((i) => !(i.leadFor && !i.usedAt))
+      for (const i of this.invites) if (i.leadFor) { i.leadFor = null; delete i.leadBy }
+      h.card = null
+      const counts = { teamAi: ended.filter((x) => x.result === 'ended' && x.kind === 'team_ai').length, driveShares: ended.filter((x) => x.result === 'ended' && x.kind === 'drive_share').length, failed: ended.filter((x) => x.result === 'failed').length }
+      const told = { fromId: c.user.id, toId: u.id, fromName: c.user.name, toName: u.name, ended: counts }
+      this.note(u.id, { kind: 'transferred', me: 'to', ...told })
+      this.note(c.user.id, { kind: 'transferred', me: 'from', ...told })
+      for (const a of this.users) if (a.role === 'admin' && a.id !== c.user.id && a.status === 'active') this.note(a.id, { kind: 'transferred', me: 'other', ...told })
+      this.publish({ type: 'notice', data: { level: 'info', code: 'owner_changed', message: `팀장이 ${u.name}님으로 바뀌었어요` } })
+      return { ok: true as const, ended }
+    },
+    handoverState: (c) => this.handoverStateOf(c.user),
+    dismissLeadCard: (c) => {
+      const k = this.handover.card
+      if (k && k.inviteId === c.body.inviteId && k.by === c.user.id) k.dismissed = true
       return { ok: true as const }
     },
     createResetLink: (c) => {
@@ -2076,12 +2200,27 @@ export class MockServer {
     listInvites: () => ({ items: this.invites.map(({ token: _t, ...i }) => i) }),
     createInvite: (c) => {
       const token = 'inv' + uuidv7().replace(/-/g, '')
-      const i = { id: uuidv7(), role: c.body.role ?? 'member', groupIds: c.body.groupIds ?? [], createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), expiresAt: new Date(Date.now() + (c.body.expiresInHours ?? 72) * 3600_000).toISOString(), usedAt: null, usedBy: null, token }
+      // 이 사람이 팀장이에요: the owner only; a member in the team group for 72 hours; the open lead invite before it stops
+      // working (and a card of someone who joined with an older one goes)
+      const lead: string | undefined = c.body.leadFor
+      let replacedLead = false
+      if (lead !== undefined) {
+        if (c.user.role !== 'owner') fail('forbidden', 403)
+        if (c.body.role === 'admin') fail('validation', 400)
+        if (!this.handover.flag) throw new Fail('conflict', 409, undefined, undefined, { reason: 'lead_not_offered' })
+        replacedLead = this.invites.some((i) => i.leadFor && !i.usedAt)
+        this.invites = this.invites.filter((i) => !(i.leadFor && !i.usedAt))
+        this.handover.card = null
+      }
+      const hours = lead !== undefined ? 72 : (c.body.expiresInHours ?? 72)
+      const i = { id: uuidv7(), role: lead !== undefined ? 'member' as const : c.body.role ?? 'member', groupIds: lead !== undefined ? (this.welcome?.teamGroup ? [this.welcome.teamGroup.id] : []) : c.body.groupIds ?? [], createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), expiresAt: new Date(Date.now() + hours * 3600_000).toISOString(), usedAt: null, usedBy: null, leadFor: lead ?? null, ...(lead !== undefined ? { leadBy: c.user.id } : {}), token }
       this.invites.push(i)
-      const { token: _t, ...invite } = i
-      return { status: 201, body: { invite, token, url: `/invite/${token}` } }
+      const { token: _t, leadBy: _b, ...invite } = i as typeof i & { leadBy?: string }
+      return { status: 201, body: { invite, token, url: `/invite/${token}`, ...(lead !== undefined ? { replacedLead } : {}) } }
     },
     revokeInvite: (c) => {
+      // a lead invite is the owner's to revoke
+      if (c.user.role !== 'owner' && this.invites.some((i) => i.id === c.params.id && i.leadFor)) fail('forbidden', 403)
       this.invites = this.invites.filter((i) => i.id !== c.params.id)
       return undefined
     },
@@ -3039,7 +3178,17 @@ export class MockServer {
       id: x.id, user: { id: x.userId, name: this.users.find((u) => u.id === x.userId)?.name ?? x.userId }, repeat: x.repeat, time: x.time, weekday: x.weekday, day: x.day, date: x.date, reviewSince: x.reviewSince ?? null,
     })) }),
     listScheduleTemplates: () => ({ items: [{ id: 'daily-file-index', version: 1, repeat: 'daily' }, { id: 'weekly-summary', version: 1, repeat: 'weekly' }], timeZone: 'Asia/Seoul' }),
-    listNotifications: () => ({ items: [], nextCursor: null, unreadCount: 0 }),
+    listNotifications: (c) => {
+      const mine = this.inbox.filter((n) => n.userId === c.user.id)
+      return { items: mine.map((n) => this.inboxItem(n)), nextCursor: null, unreadCount: mine.filter((n) => !n.readAt).length }
+    },
+    getNotification: (c) => this.inboxItem(this.inbox.find((n) => n.id === c.params.id && n.userId === c.user.id) ?? fail('not_found', 404)),
+    markNotificationRead: (c) => {
+      const n = this.inbox.find((x) => x.id === c.params.id && x.userId === c.user.id) ?? fail('not_found', 404)
+      n.readAt ??= now()
+      this.publish({ type: 'notice', data: { level: 'info', code: 'notifications.changed', message: '' } })
+      return this.inboxItem(n)
+    },
     getNotificationPreferences: () => this.notifyPrefs,
     // the server's rule for the older apps' roomMessages (server/src/notifications/preferences.ts savePreferences)
     updateNotificationPreferences: (c) => {
@@ -3557,6 +3706,12 @@ export class MockServer {
     const body = (await req.json().catch(() => ({}))) as Json
     if (p === '/__test/reset') this.reset({ setup: !!body.setup, teamLocale: Locale.safeParse(body.teamLocale).data, usersFollowTeam: !!body.usersFollowTeam, mustChange: typeof body.mustChange === 'string' ? body.mustChange : undefined, withAdmin: !!body.withAdmin })
     else if (p === '/__test/drop-ws') for (const ws of this.sockets) ws.close(WsClose.serviceRestart, 'restart')
+    else if (p === '/__test/handover') {
+      if (typeof body.flag === 'boolean') this.handover.flag = body.flag
+      if (body.recovery !== undefined) this.handover.recovery = body.recovery as HandoverRecovery | null
+      if (Array.isArray(body.connections)) this.handover.connections = body.connections as MockServer['handover']['connections']
+      if (body.race === true) this.handover.race = true
+    }
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
     else if (p === '/__test/upload-delay') this.uploadDelayMs = Number(body.ms)
     else if (p === '/__test/deck-pace') {

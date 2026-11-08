@@ -11,6 +11,7 @@ import { useSendQueue } from './store/sendQueue'
 import { useProjects } from './store/projects'
 import { useAiAccess } from './store/aiAccess'
 import { useWelcome } from './store/welcome'
+import { useHandover } from './store/handover'
 import { useRooms } from './store/rooms'
 import { usePeople } from './store/people'
 import { startLive, stopLive } from './store/live'
@@ -100,6 +101,7 @@ export function useSessionLifecycle(): boolean {
         useProjects.getState().reset()
         useAiAccess.getState().reset()
         useWelcome.getState().reset()
+        useHandover.getState().reset()
         useRooms.getState().reset()
         usePeople.getState().reset()
       }

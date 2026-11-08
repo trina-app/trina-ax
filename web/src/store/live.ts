@@ -1,8 +1,9 @@
 // Wires the WebSocket to the stores: one RealtimeClient per signed-in window.
+import { PRODUCT } from '@mycel/shared'
 import type { CredentialLogin, FileChange, Memory, ServerEvent } from '@mycel/shared/api'
 import { renewWindowId, windowId } from '../lib/api'
 import { BrowserRelay } from '../lib/browserRelay'
-import { browserSettingsBridge } from '../lib/desktop'
+import { browserSettingsBridge, desktop } from '../lib/desktop'
 import { openTeamFile } from '../lib/sidePanel'
 import { navigateTo } from '../lib/nav'
 import { keepUnsentAsDrafts } from '../lib/reload-guard'
@@ -13,6 +14,7 @@ import { useChats } from './chats'
 import { useDeckBuilds } from './deckBuilds'
 import { useAiAccess } from './aiAccess'
 import { useEngines } from './engines'
+import { transferredHere, useHandover } from './handover'
 import { useJobs } from './jobs'
 import { usePeople } from './people'
 import { useRooms } from './rooms'
@@ -20,6 +22,7 @@ import { roomMessageSound, startRoomSound, stopRoomSound } from './roomSound'
 import { useSession } from './session'
 import { chatUpdated, roomMessage, roomUpdated, startSessionMarkers, stopSessionMarkers } from './sessionMarkers'
 import { toast, useUi } from './ui'
+import { useWelcome } from './welcome'
 
 /** files.changed (only paths this person can read): the file screen refreshes the folder it shows. */
 export const filesChanged = new Emitter<FileChange[]>()
@@ -163,6 +166,23 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
       if (ev.data.code === 'locale_changed') {
         // the team default or this person's language changed (admin, another window): switch without a reload
         void useSession.getState().refreshMe()
+        return
+      }
+      if (ev.data.code === 'owner_changed') {
+        // 팀장 넘기기 (docs/DECISIONS.md "W6"): to the old and the new owner, every tab. The role is read again, then what
+        // follows from it (the handover card and flag, the welcome steps); the window that pressed [넘기기] said it already
+        void useSession.getState().refreshMe().then(() => {
+          void useHandover.getState().load(true).catch(() => {})
+          if (useWelcome.getState().loaded) void useWelcome.getState().load(true).catch(() => {})
+        })
+        if (!meta.replay && !transferredHere()) toast({ level: 'info', text: ev.data.message })
+        return
+      }
+      if (ev.data.code === 'owner_lead_joined') {
+        // someone joined with my lead link: Home's card and the Inbox follow; the desktop app tells it (the owner may be
+        // away for days, so the phone gets a push too, from the server)
+        void useHandover.getState().load(true).catch(() => {})
+        if (!meta.replay) desktop()?.notify({ title: PRODUCT.displayName, body: ev.data.message, tag: 'handover-lead', open: '/' })
         return
       }
       if (ev.data.code === 'access_changed') {
