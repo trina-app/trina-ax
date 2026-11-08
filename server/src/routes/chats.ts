@@ -31,6 +31,7 @@ import { chatEnginesFor, checkChatEngineChange, newChatEngine, turnEngine, type 
 import { budgetBlock } from '../admin/budgets'
 import { viewSources } from '../files/sources'
 import { shareAnswerToRoom } from '../chat/answer-share'
+import { shareChat } from '../chat/share-chat'
 import { finishCard } from '../chat/connect-service'
 import { refuseDraftAttachments } from '../onboarding/draft'
 import { refuseSkillDraftAttachments } from '../onboarding/skill-draft'
@@ -339,6 +340,10 @@ export const chatsRoutes: RouteModule = {
       if (a.shared && (!m.turn_id || rt.store.turnUser(m.turn_id) !== auth.user.id)) fail('not_found')
       return shareAnswerToRoom(ctx, auth.user.id, a.row, m, body, c.get('locale'))
     })
+
+    // "프로젝트 사람들과 공유": my private chat in a team project that shares its chats becomes a shared chat, after a check
+    // of what it contains, every branch (chat/share-chat.ts); a shared chat answers 409 already_shared to whoever sees it
+    kit.handle(API.shareChat, ({ c, params, body, auth }) => shareChat(ctx, rt, auth.user.id, chatOf(rt, c, auth, params.id, 'view'), body, c.get('locale')))
 
     kit.handle(API.sendMessage, ({ c, params, body, auth }) => {
       const a = chatOf(rt, c, auth, params.id, 'continue')

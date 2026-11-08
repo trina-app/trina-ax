@@ -116,6 +116,10 @@ export default function Sidebar() {
   const setAllChats = (v: boolean) => (remember(ALL_KEY, v ? 'yes' : 'no'), setAllChatsState(v))
   const me = useMeStrict()
   const chats = useChats((s) => s.chats)
+  // the move dialog of a row's "…" (ChatItem): kept here, not in the row, so that it stays open when the moved chat's row
+  // goes to another group (a date, a project) and is made again, as the share right after the move needs
+  // (components/chat/ChatProject.tsx, the switch "프로젝트 사람들과 공유")
+  const [moving, setMoving] = useState<Chat | null>(null)
   const loaded = useChats((s) => s.chatsLoaded)
   const cursor = useChats((s) => s.chatsCursor)
   const loadChats = useChats((s) => s.loadChats)
@@ -265,7 +269,7 @@ export default function Sidebar() {
           {!full && (
             <ul data-testid="ai-chats-latest">
               {latest.map((c) => (
-                <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} />
+                <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} onMove={setMoving} />
               ))}
             </ul>
           )}
@@ -288,7 +292,7 @@ export default function Sidebar() {
               {label && <h3 className="px-3 pt-2 pb-1 text-micro font-medium text-faint">{label}</h3>}
               <ul>
                 {items.map((c) => (
-                  <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} />
+                  <ChatItem key={c.id} chat={c} onNavigate={close} peek={peek} onMove={setMoving} />
                 ))}
               </ul>
             </div>
@@ -315,6 +319,7 @@ export default function Sidebar() {
         </div>
       </div>
       {peek.card}
+      {moving && <MoveToProjectDialog chat={moving} onClose={() => setMoving(null)} onMoved={(c) => useChats.getState().upsertChat(c)} />}
       {wide ? (
         <AccountMenu />
       ) : (
@@ -381,10 +386,9 @@ function DesktopNav({ unread, onNewChat, onSearch }: { unread: number; onNewChat
   )
 }
 
-function ChatItem({ chat, onNavigate, peek }: { chat: Chat; onNavigate: () => void; peek: ChatPeek }) {
+function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNavigate: () => void; peek: ChatPeek; onMove: (c: Chat) => void }) {
   const t = useT()
   const [menu, setMenu] = useState(false)
-  const [moving, setMoving] = useState(false)
   const more = useRef<HTMLButtonElement>(null)
   const actions = useChatActions()
   // a shared chat: rename for its creator, delete for its creator or a project editor, never a move; nothing to offer,
@@ -410,7 +414,7 @@ function ChatItem({ chat, onNavigate, peek }: { chat: Chat; onNavigate: () => vo
     setMenu(false)
     // the item goes with the menu: the dialog gives the keyboard back to "···" when it closes
     more.current?.focus()
-    setMoving(true)
+    onMove(chat)
   }
   const del = () => {
     setMenu(false)
@@ -493,9 +497,6 @@ function ChatItem({ chat, onNavigate, peek }: { chat: Chat; onNavigate: () => vo
           </div>
         )}
       </li>
-      {/* beside the row, not in it: the dialog is in <body>, and React would still pass its pointer events to the row's
-          hover peek */}
-      {moving && <MoveToProjectDialog chat={chat} onClose={() => setMoving(false)} onMoved={(c) => useChats.getState().upsertChat(c)} />}
     </>
   )
 }

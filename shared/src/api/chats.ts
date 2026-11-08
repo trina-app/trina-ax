@@ -87,6 +87,33 @@ export const ShareAnswerToRoomResult = z.discriminatedUnion('status', [
 ])
 export type ShareAnswerToRoomResult = z.infer<typeof ShareAnswerToRoomResult>
 
+// ---------------- an existing chat shared with its project's people ("프로젝트 사람들과 공유") ----------------
+export const ShareChatBody = z.object({
+  /** the last "confirm"'s `confirmKey`: the person saw that state and said yes. Anything changed since (the project's
+   * people, what they may read, a new message on any branch): "confirm" again with a new key */
+  confirmKey: z.string().min(1).max(200).optional(),
+  /** answer "confirm" first even when nothing applies (the title menu's item: the question before an irreversible
+   * share); without it a chat with nothing to ask about is shared at once (the move dialog's switch) */
+  ask: z.boolean().optional(),
+}).strict()
+export const ShareChatResult = z.discriminatedUnion('status', [
+  /** shared now: the chat as I see it (with `shared`) */
+  z.object({ status: z.literal('shared'), chat: Chat }),
+  /** nothing changed yet. `audience`: the project's people (not me) who would see it; `provenance`: its answers carry
+   * content from material some of them cannot see (null: none; `unknown`: not all of what it used is known);
+   * `memories`: an answer may have used my personal memories; `confirmKey`: send it back to share. `reason` 'changed':
+   * asked again after a key, something changed meanwhile */
+  z.object({
+    status: z.literal('confirm'),
+    audience: z.number().int().nonnegative(),
+    provenance: AnswerShareProvenance.nullable(),
+    memories: z.boolean(),
+    confirmKey: z.string(),
+    reason: z.literal('changed').optional(),
+  }),
+])
+export type ShareChatResult = z.infer<typeof ShareChatResult>
+
 // ---------------- chats ----------------
 export const ListChatsQuery = PageQuery.extend({
   /** title / message text search */
@@ -289,6 +316,7 @@ export const CHATS = {
   sendMessage: endpoint({ method: 'POST', path: '/api/chats/:id/messages', auth: 'user', owner: 'B', status: 202, body: SendMessageBody, response: TurnStarted, summary: 'Save the message, create the empty answer, queue the turn. Send the X-Mycel-Window header so browser tools reach this window.' }),
   stop: endpoint({ method: 'POST', path: '/api/chats/:id/stop', auth: 'user', owner: 'B', response: StopResponse, summary: 'Stop the running or queued turn of this chat (a shared chat: only the person whose turn it is).' }),
   shareAnswerToRoom: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/share-to-room', auth: 'user', owner: 'B', body: ShareAnswerToRoomBody, response: ShareAnswerToRoomResult, summary: 'Post a finished answer of my own AI chat to a room I am in, as my message (my note, then the answer as a quote). When some member cannot open a file it links to, or it carries content from material some cannot see, it first answers "confirm": a row per linked file and one provenance line, as counts and places I may look myself (never who), with a confirmKey; sent again with that key it posts, attaching the linked files asked for (attach). Older clients: confirm = the number of people. Rate-limited and notified like any message; audited.' }),
+  shareChat: endpoint({ method: 'POST', path: '/api/chats/:id/share', auth: 'user', owner: 'B', body: ShareChatBody, response: ShareChatResult, summary: 'Share my private chat with its project\'s people (a team project that shares its chats). First a check of every branch: when its answers carry content from material some of them cannot see, or may have used my personal memories (or with ask), it answers "confirm" (how many, the places I may look myself, never who) with a confirmKey; sent again with that key it shares. Never undone. 409 with reason project_not_sharing, project_personal, project_in_trash, safe_ops, already_shared, scheduled_run, chat_busy or share_hidden. Rate-limited like a room message; audited.' }),
   messageSources: endpoint({ method: 'GET', path: '/api/chats/:id/messages/:messageId/sources', auth: 'user', owner: 'B', response: MessageSources, summary: 'The files the AI read or saw passages of for this answer, each checked against the viewer\'s access now (no name or path for the others).' }),
   regenerate: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/regenerate', auth: 'user', owner: 'B', status: 202, body: RegenerateBody, response: TurnStarted, summary: 'New answer to the same user message (sibling of :messageId, an assistant message).' }),
   editMessage: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/edit', auth: 'user', owner: 'B', status: 202, body: EditMessageBody, response: TurnStarted, summary: 'Edited copy of user message :messageId as a new branch, then answer it.' }),

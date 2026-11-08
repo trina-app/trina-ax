@@ -55,7 +55,7 @@ import type { KnowledgeGraphStatus, LocalSpeechTool } from '@mycel/shared/api'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
-  ApiErrorResponse, CSRF_HEADER, Room, RoomMessage, answerFilePaths, answerShareBody, ROOM_FILES_MAX, SMALL_UPLOAD_MAX, TeamGoal, type AnswerShareFile, type RoomFile, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
+  ApiErrorResponse, CSRF_HEADER, Room, RoomMessage, answerFilePaths, answerShareBody, ROOM_FILES_MAX, SMALL_UPLOAD_MAX, TeamGoal, type AnswerShareFile, type AnswerSharePlace, type RoomFile, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type SkillInput, type DevEnvRun, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
   MemberEngineChoice, WELCOME_RESULT_SKILL, GENERAL_TASKS_SKILL, GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, CARD_NEWS_ARTIFACT_KEY, GENERAL_PROMO_SKILL, PROMO_ARTIFACT_KEY, PROMO_STYLES, GENERAL_DECK_SKILL, DECK_ARTIFACT_KEY, NOTES_FOLDER, PACK_FOLDERS, BRAND_IMAGES_FOLDER, type TeamLinkStarter, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule, type DeckBuild,
 } from '@mycel/shared/api'
@@ -1319,6 +1319,12 @@ export class MockServer {
       ]
       this.sources.set(assistant.id, list)
       assistant.sourceCount = list.length
+    }
+    if (/mine-source/i.test(prompt)) {
+      // a read of a note in my own folder (the share of a whole chat asks about it: server/src/chat/share-chat.ts)
+      this.putFile(`users/${user.id}/notes/plan.md`, '# My plan\n')
+      this.sources.set(assistant.id, [{ path: `users/${user.id}/notes/plan.md`, name: 'plan.md', locs: [], via: ['read'] }])
+      assistant.sourceCount = 1
     }
     if (/share files/i.test(prompt)) {
       this.putFile(`users/${user.id}/quotes/acme-quote.md`, '# Acme 견적서\n단가 12,000원\n')
@@ -3683,6 +3689,8 @@ export class MockServer {
   // shared_chat_move, 403 shared_chat_creator / shared_chat_runner / shared_chat_own_messages / shared_chat_manage.
   sharedProjects = new Set<string>()
   sharedChats = new Map<string, { by: { id: string; name: string }; projectId: string; runner: string | null; waiting: boolean }>()
+  /** who made each chat made here: a chat of one person is theirs alone, like chatFor (the handlers above have no owners) */
+  chatOwners = new Map<string, string>()
   sharedHolds = new Map<string, () => void>()
   /** (the layer is in place; set while the mock is made, after the handlers above) */
   readonly sharedInstalled = this.installSharedChats()
@@ -3748,6 +3756,7 @@ export class MockServer {
       for (const release of this.sharedHolds.values()) release()
       this.sharedProjects = new Set()
       this.sharedChats = new Map()
+      this.chatOwners = new Map()
       this.sharedHolds = new Map()
       baseReset(o)
     }
@@ -3802,9 +3811,12 @@ export class MockServer {
       return base(c)
     })
 
+    /** a chat of one person made here by someone else: not this viewer's to see */
+    const othersPrivate = (id: string, u: User) => !this.sharedChats.has(id) && (this.chatOwners.get(id) ?? u.id) !== u.id
     over('listChats', (c, base) => {
       const out = base(c) as { items: Chat[]; nextCursor: string | null }
       const items = out.items.flatMap((x) => {
+        if (othersPrivate(x.id, c.user)) return []
         if (!this.sharedChats.has(x.id)) return [x]
         const v = this.sharedView(x, c.user)
         if (!v) return []
@@ -3815,6 +3827,7 @@ export class MockServer {
     })
     over('createChat', (c, base) => {
       const out = base(c) as { status: number; body: Chat }
+      this.chatOwners.set(out.body.id, c.user.id)
       const p = c.body.projectId ? this.projects.find((x) => x.id === c.body.projectId) : undefined
       if (!p || !this.sharedProjects.has(p.id) || p.folderPath.startsWith('users/') || p.inTrash || this.allConfidential) return out
       this.sharedChats.set(out.body.id, { by: { id: c.user.id, name: c.user.name }, projectId: p.id, runner: null, waiting: false })
@@ -3823,10 +3836,12 @@ export class MockServer {
     })
     over('getChat', (c, base) => {
       const x = base(c) as Chat
+      if (othersPrivate(x.id, c.user)) fail('not_found', 404)
       return this.sharedChats.has(x.id) ? view(x, c.user) : x
     })
     over('listMessages', (c, base) => {
       if (shared(c.params.id)) view(chatOf(c.params.id!), c.user)
+      else if (othersPrivate(c.params.id!, c.user)) fail('not_found', 404)
       return base(c)
     })
     over('markChatSeen', (c, base) => {
@@ -3950,6 +3965,52 @@ export class MockServer {
       this.sharedHolds.delete(c.params.id!)
       return out
     })
+
+    // "프로젝트 사람들과 공유" (server/src/chat/share-chat.ts, short): a chat of mine in a team project that shares its
+    // chats. What its answers read (the recorded sources: "sources", "mine-source") that some of the project's other
+    // people cannot open makes it ask first (how many; the folders I may open, my own folder, more I cannot); a question
+    // with "memory" in it brings the memory note; `ask` asks first anyway. The key is stale after POST
+    // /__test/share-changed.
+    const no = (reason: string, message: string): never => fail('conflict', 409, message, undefined, { reason })
+    h.shareChat = (c) => {
+      const chat = chatOf(c.params.id!)
+      if (this.sharedChats.has(chat.id)) { view(chat, c.user); no('already_shared', '이미 프로젝트 사람들과 공유한 채팅이에요.') }
+      if (othersPrivate(chat.id, c.user) || chat.deletedAt) fail('not_found', 404)
+      if (this.allConfidential || chat.confidential) no('safe_ops', '안전 작업 모드이거나 기밀 채팅이라 공유할 수 없어요.')
+      const p = chat.projectId ? this.projects.find((x) => x.id === chat.projectId) : undefined
+      if (!p || this.access(p.folderPath, c.user) === 'none') return no('project_not_sharing', '이 채팅은 채팅을 공유하는 팀 프로젝트에 있지 않아요. 그런 프로젝트로 옮긴 뒤에 공유해 주세요.')
+      if (p.folderPath.startsWith('users/')) no('project_personal', '개인 프로젝트의 채팅은 공유할 수 없어요.')
+      if (p.inTrash) no('project_in_trash', '이 프로젝트의 폴더가 휴지통에 있어요.')
+      if (!this.sharedProjects.has(p.id)) no('project_not_sharing', '이 채팅은 채팅을 공유하는 팀 프로젝트에 있지 않아요. 그런 프로젝트로 옮긴 뒤에 공유해 주세요.')
+      if (chat.runState !== 'idle') no('chat_busy', '답변이 아직 진행 중이에요. 끝난 뒤에 공유해 주세요.')
+      const others = this.sharedAudience(p).filter((u) => u.id !== c.user.id)
+      const msgs = this.messages.filter((m) => m.chatId === chat.id)
+      const blind = new Set<string>()
+      const places = new Map<string, AnswerSharePlace>()
+      let otherPlaces = false
+      for (const f of msgs.filter((m) => m.role === 'assistant').flatMap((m) => this.sources.get(m.id) ?? [])) {
+        const miss = others.filter((u) => this.access(f.path, u) === 'none')
+        if (!miss.length) continue
+        for (const u of miss) blind.add(u.id)
+        const place: AnswerSharePlace | null = f.path.startsWith(`users/${c.user.id}/`) ? { kind: 'mine' } : this.access(f.path, c.user) !== 'none' ? { kind: 'folder', path: f.path.split('/').slice(0, -1).join('/') } : null
+        if (place) places.set(JSON.stringify(place), place)
+        else otherPlaces = true
+      }
+      const memories = msgs.some((m) => m.role === 'user' && /memory/i.test(m.content))
+      const confirmKey = `mock-share-${chat.id}-${this.shareEpoch}-${others.length}`
+      // `ask` (the title menu): the question first even when nothing applies
+      if ((blind.size || memories || c.body.ask || c.body.confirmKey !== undefined) && c.body.confirmKey !== confirmKey) {
+        return {
+          status: 'confirm', audience: others.length, memories, confirmKey,
+          provenance: blind.size ? { people: blind.size, places: [...places.values()], otherPlaces } : null,
+          ...(c.body.confirmKey !== undefined ? { reason: 'changed' as const } : {}),
+        }
+      }
+      this.sharedChats.set(chat.id, { by: { id: c.user.id, name: c.user.name }, projectId: p.id, runner: null, waiting: false })
+      chat.updatedAt = now()
+      this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
+      return { status: 'shared', chat: view(chat, c.user) }
+    }
     return true
   }
 

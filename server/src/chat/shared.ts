@@ -12,7 +12,7 @@
 import type { Database } from 'bun:sqlite'
 import type { Chat, Locale } from '@mycel/shared/api'
 import type { ChatRuntime } from './runtime'
-import type { ChatRow, ChatStore, MessageRow, MessageView, ProjectRow } from './store'
+import { SHARED_LATER, type ChatRow, type ChatStore, type MessageRow, type MessageView, type ProjectRow } from './store'
 import { composeMessage } from './turn'
 import { HISTORY_MAX_CHARS, historyBlock, historyWindow } from './prompt'
 import { roomRefsByIdOnly } from '@mycel/shared/api'
@@ -153,8 +153,14 @@ export function chatView(rt: ChatRuntime, viewer: string, r: ChatRow, o: { aud?:
   return { ...c, title: hide(c.title), shared: sharedOf(rt, viewer, r, o.aud ?? new Audiences(rt.db, rt.files)) }
 }
 
+/** Was this shared chat shared after it was made (chat/share-chat.ts marks the turns it had then SHARED_LATER)? An answer
+ * without a turn row (older data: a chat shared at creation never has one) counts as from before the share too. */
+const sharedLater = (db: Database, r: Pick<ChatRow, 'id'>): boolean =>
+  !!db.query(`SELECT 1 FROM messages m LEFT JOIN turns t ON t.id = m.turn_id WHERE m.chat_id = ? AND m.role = 'assistant'
+    AND (t.id IS NULL OR t.shared_checked = ?) LIMIT 1`).get(r.id, SHARED_LATER)
+
 /** How `viewer` sees the messages of a shared chat (ChatStore.toMessage); undefined for a chat of one person. */
-export function messageView(rt: ChatRuntime, r: Pick<ChatRow, 'shared_at' | 'project_id'>, viewer: string, locale: Locale): MessageView | undefined {
+export function messageView(rt: ChatRuntime, r: Pick<ChatRow, 'id' | 'shared_at' | 'project_id'>, viewer: string, locale: Locale): MessageView | undefined {
   if (!isSharedRow(r)) return undefined
   const me = loadPrincipal(rt.db, viewer)
   const rules = rt.files.rules()
@@ -164,11 +170,14 @@ export function messageView(rt: ChatRuntime, r: Pick<ChatRow, 'shared_at' | 'pro
     canList: (p) => !!me && rules.canList(me, segs(p)),
     canRead: (p) => !!me && atLeast(rules.access(me, segs(p)), 'read'),
     failed: tr('sharedAnswerFailed', locale),
+    // a chat shared after it was made (chat/share-chat.ts): its earlier answers' steps are their runner's
+    sharedLater: sharedLater(rt.db, r),
+    locale,
   }
 }
 
 /** A message of the chat as `viewer` sees it (a streaming answer with its live text for its runner). */
-export function messageFor(rt: ChatRuntime, chat: Pick<ChatRow, 'shared_at' | 'project_id'>, m: MessageRow, viewer: string, locale: Locale) {
+export function messageFor(rt: ChatRuntime, chat: Pick<ChatRow, 'id' | 'shared_at' | 'project_id'>, m: MessageRow, viewer: string, locale: Locale) {
   const view = messageView(rt, chat, viewer, locale)
   const e = m.status === 'streaming' ? rt.execForMessage(m.id) : undefined
   return rt.store.toMessage(m, e ? { content: e.content, steps: e.steps.map((s) => ({ ...s })) } : undefined, view)
