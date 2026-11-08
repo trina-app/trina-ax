@@ -14289,3 +14289,91 @@ and its developer page "User presence and status" (what was copied and what was 
   DM header, the list again after a reload, the member list with axe, the account menu's item, the phone's list and
   header).
 - Version impact: **minor** (a visible feature, a WebSocket control frame each way and one endpoint; no migration).
+
+## First run: one box (feat/first-run-one-box, 2026-11-08, product owner)
+
+The desktop and phone apps' first screen asked for "팀 주소", which nobody is told: people get an invite link or a team
+link in KakaoTalk or Slack. Plan: `docs/AGENTS/plan/20261108-0930-first-run-one-box.md` (with the exit walk). Owner
+approval 2026-11-08 (phases 1 and 2); the design review's must-changes are folded in. Placement: Team AX core (apps,
+accounts, relay names); nothing about plans or billing.
+
+- **One box takes everything** (screen ①, both apps): "팀에 들어가요 / 팀장에게 받은 초대 링크를 붙여 넣어 주세요. 팀
+  주소(예: acme)를 알면 주소만 넣어도 돼요." It reads an invite link (`/invite/<t>`), a team link (`/join#t=<t>`, the
+  fragment kept), a full address, a bare name (`acme` → `https://acme.<teamDomain>`) and any pasted text: the first
+  invite or team link in it, else its first http(s) address (a KakaoTalk long-press copies the whole bubble, sentences
+  around the link; a Korean word glued to the link ends it). Another page of the team (an address copied from a
+  browser) opens the team's start. Rejected: a "처음이세요?" question (ambiguous), a name-only box (nobody is told the
+  name), an email lookup (no central member list, and it would say who is a customer).
+- **One parser, two copies.** `shared/src/team-link.ts` is pure (no imports). The phone app cannot import `shared/` (its
+  own npm project and Metro), so `mobile/src/team-link.ts` is a byte-identical copy; `tests/unit/team-link.test.ts` fails
+  when they differ and runs one table (every input kind, every hint, the safety rules) against both. Desktop:
+  `loopbackHttp` (plain http only to this machine); phone: https only. Hosts are ASCII as the URL parser gives them
+  (punycode); a parser that cannot make one is refused.
+- **Hints instead of "형식이 맞지 않아요"**: Hangul or jamo typed ("ㅁ츼" is `acme` typed in 한글 mode) → "한글로
+  입력됐어요. 한/영 키를 누르고 다시 입력하거나 초대 링크를 붙여 넣어 주세요."; an email → "이메일 주소는 쓰지 않아요.
+  초대 링크나 팀 주소를 넣어 주세요."; a cut-off invite or team link → "링크가 중간에 잘린 것 같아요…" (never silently
+  the sign-in page). The address is checked only on the button, only under the team domain: no other domain is tried.
+- **What the relay answered** (`x-relay-error`, `relayAnswer`): 404 `team_unknown` → "'{name}' 팀을 찾지 못했어요.
+  철자를 확인하거나 초대 링크를 붙여 넣어 주세요."; 403 `team_suspended*` → "이 팀은 지금 이용이 멈춰 있어요. 팀장에게
+  물어보세요."; the relay's offline answers and gateway errors → "cannot reach". Before, 404 and 403 both said "not a
+  team server". The JSON `code` is `not_found`/`forbidden`; the kind is only in `reason` and the header.
+- **A renamed team** (308 from the relay, control-plane D40) is followed only to another `<name>.<teamDomain>` with the
+  same scheme and port (`relayRename`; `<name>.localhost` for the desktop's development relay), and the new address is
+  the one remembered. Desktop: the health fetch follows redirects, and a final address that is not such a rename is
+  "not a team server". Phone: the health fetch is `redirect: 'manual'` (expo/fetch: iOS and Android return the 3xx);
+  the rename is checked once more and asked ("팀 주소가 {host}(으)로 바뀌었어요. 새 주소로 연결할까요?").
+- **Screens ② and ③.** ② "주소를 모르겠어요": paste the link you got (a used link leads to the sign-in page), Settings ›
+  앱 on a signed-in device, ask your team lead; [뒤로]. ③ "아직 팀이 없어요": "팀은 팀장이 만들고, 팀원은 초대 링크로
+  들어와요." [팀 만들기 ↗] (the account site, `https://<accountHost>/`; the repository does not know the signup page's
+  path), [직접 설치 안내 ↗], "팀을 만들면 팀 주소가 생겨요. 브라우저에서 설정을 마친 뒤 이 화면으로 돌아와 그 주소를
+  넣어 주세요." (after signup the owner gets a one-time `/setup#token=` link, not an invite), [팀 주소 넣기]. Esc and
+  Android back go back too; the typed text stays.
+- **No [팀 만들기] in store builds.** App Review 3.1.1(a) bans calls to action for purchases outside the app (the signup
+  leads to a paid plan after the trial; 3.1.3(f) applies only without one), so the iPhone app and the Mac App Store build
+  have none, and their docs link is the repository's install guide (`docs/INSTALL-LINUX.md`, `.en.md`), which links no
+  plan, signup or product site (a test checks); the docs site's install page has the plans link. Google Play's payments
+  policy also bans leading users to another payment method from the app, so Android gets the same rule. The Microsoft
+  Store allows a non-game app its own payment: the Windows store build keeps the button. The desktop's main process
+  picks both addresses (`firstRunLinks`); the screen only names which (`ui:open-link`), so a screen can never open
+  another address. The phone opens the guide in the browser sheet; closing it returns to ③.
+- **The app draws the host, not the page.** A fake server can draw any address on its own sign-in page, and the desktop
+  app may show the page from the office-network address (direct.ts), so `location.host` is not the team address there.
+  Desktop: a 36 px strip above the team's sign-in pages (`/login`, `/invite/…`, `/join`, `/setup`, `/reset-password/…`,
+  watched with `did-navigate` and `did-navigate-in-page`), "팀 주소 acme.trina.app [다른 팀]", in its own UI view
+  (`hostbar.html`, its IPC answered only for that view). Phone: the footer on `/login`, `/invite/…` and now `/join`
+  shows the host above "다른 팀에 연결". Always the team address the app connected to, in punycode with its port. The
+  web login page gets no host line.
+- **The first connect to an address the hosted service does not run asks once**: "트리나가 운영하는 주소가 아니에요.
+  회사에서 직접 설치한 서버인지 확인하세요." [취소] [연결], the focus on [취소]. Not for this machine, not for a team
+  already remembered (desktop) or the one the phone is in, not in a phone build without a team domain. Look-alikes
+  (`acme.trina.app.evil.example`, an IP address) are outside.
+- **The phone leaves its team only after the new one answered and the person said yes.** "다른 팀에 연결" and the failure
+  screen's "팀 주소 바꾸기" used to remove the phone from its team at once. Now they open ① over the team page (kept
+  mounted, hidden from screen readers) with [{old}(으)로 돌아가기]; the new address must answer `/api/health`, then
+  "{old}에서 나가고 {new}에 연결할까요? 이제 {old} 알림은 이 휴대폰으로 오지 않아요." with the new host and the
+  outside note when it applies, [취소] (focus) [바꾸기]. Only [바꾸기] runs the leave (`leaveTeam`, the label key, the
+  delivered notifications). The new team's push starts only after sign-in there, so the question promises nothing about
+  it. The same team again opens the link's page in place.
+- **Desktop**: a pasted link opens its page in the app (`openTeam(id, entryPath)`; a team already open loads it where it
+  is, the office-network address included); the 팀 menu's "팀 추가…" and "팀 목록…" (the same screen) are one "팀
+  목록·추가…"; a kit build still fills in its address; the welcome screen draws in dark mode too.
+- **Settings › 앱: "팀 주소 · 새 기기에서 앱을 열고 이 주소를 넣으세요 [복사]".** `GET /api/me` `team.address`
+  (`teamAddressOf`): the relay address when the server has one, else `https://<publicAddress>`, else absent (no row).
+  Signed-in people only (it is in `/api/me`); never the address a request came in at, so the office-network address
+  never shows. The install pictures draw the same address (they drew `location.host`). Anonymous visitors still get no
+  team name (`SetupStatus.teamName` stays null).
+- **Used or expired links lead with signing in**: the invite and team-link problem pages add "이미 가입했다면
+  로그인하세요." and a full-width [로그인]; both join forms end with "이미 가입했어요? 로그인".
+- **Reserved relay names**: `acme` (the screens' example: someone typing it must never reach a real team), `trina`,
+  `trina-ax`. The demo company (`scripts/demo/acme`, `bun run demo:company`) registers `acme` on its local development
+  relay: `scripts/dev.ts` now adds its own `--team` to `RELAY_DEV_NAMES`. The relay tests use `acme-co` / `acme-inc`.
+  A team already called `acme` on a live relay keeps working (routing reads the teams table, not reservations) but could
+  not be renamed back to it; the live registry and the signup's own list need the same names (outside this repository).
+- **Docs**: the install page and the Linux guides say what the apps need from a server of your own: a certificate the
+  computer trusts (desktop), a public-CA certificate and no redirect on `/api/health` (phone), `MYCEL_PUSH_GATEWAY` for
+  phone notifications, and where people find the address.
+- Tests: `tests/unit/team-link.test.ts` (the table on both copies, relay answers, renames), `e-desktop-common` (the
+  desktop address shape, invite and team links kept, the health verdict, the outside question, the sign-in paths,
+  punycode, the store links, the merged menu), `mobile-security` (stored addresses, bare names, the edition's domain and
+  guide, the phone strings and the switch copy, no signup link, leaving only in `connect`), `f-frames` (reserved names),
+  `a-team-address` (the `/api/me` field), `web/test/unit/first-run.test.tsx`, `web/test/e2e/first-run.spec.ts`.
