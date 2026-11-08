@@ -310,7 +310,8 @@ export function SkillsStep({ team, nextLabel, onApplied, onNext, onSkip, busy, n
   const ownCount = ownStatus === 'ready' && ownList ? ownList.count + ownList.extras : 0
   const checking = ownStatus === 'checking'
   const label = primaryLabel(t, keptChecked.map((r) => r.title), ownCount)
-  const anythingIn = ownIn > 0 || !!outcome?.went.length || done
+  // something went in: on this press, before (내 스킬 done), or a share applied elsewhere since the step opened
+  const anythingIn = ownIn > 0 || !!outcome?.went.length || done || ownStatus === 'applied'
 
   /** the kept skills of a press (or of 다시), and what then: all in → the toast and on (`advance`: nothing else of the
    * press failed) */
@@ -322,7 +323,7 @@ export function SkillsStep({ team, nextLabel, onApplied, onNext, onSkip, busy, n
     // what a press tried leaves the checks: what went in is marked, the rest says why (and 다시 retries the failed ones)
     setChecked((x) => { const next = new Set(x); for (const s of items) next.delete(s.name); return next })
     if (advance && !all.failed.length && !all.taken.length && !all.blocked.length) {
-      const n = ownNow + r.went.length
+      const n = ownNow + all.went.length
       if (n > 0) toast({ level: 'success', text: t('welcome.skills.installed', { n }) })
       onNext()
     }
