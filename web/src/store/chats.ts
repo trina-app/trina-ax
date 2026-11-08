@@ -26,7 +26,9 @@ export interface LiveArtifact {
   version: number | null
 }
 
-export interface OpenRequest { turnId: string; chatId: string; messageId: string; request: TurnRequest }
+/** An open card of a turn. `chatId`: the chat it shows in; none for a room's card read again (GET
+ * /api/rooms/:id/ai/requests): a room finds its cards by their turn (components/rooms/RoomAiStatus.tsx). */
+export interface OpenRequest { turnId: string; chatId?: string; messageId: string; request: TurnRequest }
 /** What a connect_service card's button sends (POST /api/turns/:id/connect) besides the card's id. A key only ever
  * goes sealed (lib/connectCard.ts): the store never holds one. */
 export type ConnectAction = TurnConnectBody extends infer B ? (B extends unknown ? Omit<B, 'requestId'> : never) : never
