@@ -54,3 +54,31 @@ describe('the icons in the install pictures', () => {
     })
   }
 })
+
+describe('the address in the install pictures', () => {
+  // the desktop app over the office network opens the page at the office's own address: the pictures must still name
+  // the team's (GET /api/me team.address), or a phone would be told to open 192.168.x.x
+  const g = globalThis as Record<string, unknown>
+  async function text() {
+    const m = await mount(<>
+      <InstallPictures platform="ios" />
+      <ComputerPictures flow="chromium" os="windows" />
+    </>)
+    try { return m.html() } finally { await m.unmount() }
+  }
+  test('the team address when the server names one, else the page\'s own host', async () => {
+    const was = Object.getOwnPropertyDescriptor(g, 'location')
+    Object.defineProperty(g, 'location', { configurable: true, writable: true, value: { host: '192.168.0.10:8443', origin: 'https://192.168.0.10:8443' } })
+    try {
+      signedIn({ iconVersion: null, address: 'https://acme.trina.app' })
+      const named = await text()
+      expect(named).toContain('acme.trina.app')
+      expect(named).not.toContain('192.168.0.10')
+      signedIn({ iconVersion: null })
+      expect(await text()).toContain('192.168.0.10:8443')
+    } finally {
+      if (was) Object.defineProperty(g, 'location', was)
+      else delete g.location
+    }
+  })
+})

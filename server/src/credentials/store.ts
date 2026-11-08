@@ -32,6 +32,9 @@ export interface CredMeta {
   /** anthropic-api-key: the host of the Anthropic-compatible gateway (engine.anthropicGateway) the key was made for;
    * absent = an Anthropic key. A key is only ever sent where it was made for (unusable: kind_off elsewhere). */
   gateway?: string
+  /** a team connection whose assignments were all removed with their deleted groups and people (credentials/assignees.ts):
+   * switched off, and not switched on again until someone chooses who uses it (service.ts updateCredential) */
+  assigneesGone?: boolean
 }
 
 /** the secret JSON of each kind (never leaves the server) */
@@ -182,6 +185,8 @@ export function getRow(db: Database, id: string): CredRow | null {
 export function listRows(db: Database): CredRow[] {
   return db.query(`SELECT ${ROW_COLS} FROM engine_credentials ORDER BY owner_user_id IS NOT NULL, priority, created_at, id`).all() as CredRow[]
 }
+/** SQL: the row's meta with `assigneesGone` set (CredMeta), for an UPDATE of engine_credentials */
+export const ASSIGNEES_GONE = `json_set(CASE WHEN json_valid(meta) THEN meta ELSE '{}' END, '$.assigneesGone', json('true'))`
 export function metaOf(r: Pick<CredRow, 'meta'>): CredMeta {
   try { const m = JSON.parse(r.meta); return m && typeof m === 'object' ? m : {} } catch { return {} }
 }
@@ -276,6 +281,7 @@ function detailOf(r: CredRow, state: CredentialState, locale: Locale, allowed: A
     needs_reconnect: r.status_code === 'decrypt_failed' ? 'decryptFailed' : 'needsReconnect', over_limit: 'overLimit', disabled: 'disabled', kind_off: 'kindOff', sharing_off: 'sharedSubscriptionsOff',
   }
   if (state === 'kind_off' && allowed.has(r.kind) && otherGateway(r, allowed)) return ct('otherGateway', locale)
+  if (state === 'disabled' && metaOf(r).assigneesGone) return ct('assigneesGone', locale)
   if (state === 'expiring' && r.expires_at) return ct('expiring', locale, { date: fmtDate(r.expires_at, locale) })
   if (state === 'limited' && r.limited_until) return ct('limited', locale, { time: fmtTime(r.limited_until, locale) })
   const k = key[state]

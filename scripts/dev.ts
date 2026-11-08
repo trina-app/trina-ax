@@ -141,7 +141,9 @@ if (relay) {
   procs.push({
     name: 'relay',
     cmd: ['node', '--disable-warning=ExperimentalWarning', 'relay/src/main.ts', '--dev', '--port', String(RELAY_PORT), '--data', path.join(DEV_HOME, 'relay')],
-    cwd: ROOT, env: process.env as Record<string, string>,
+    // the dev relay lets this run's own team register even when the name is reserved on a real relay (the demo company
+    // is `acme`, the first-run screens' example name: shared/src/relay-protocol/names.ts)
+    cwd: ROOT, env: { ...(process.env as Record<string, string>), RELAY_DEV_NAMES: [process.env.RELAY_DEV_NAMES ?? 'demo', TEAM].join(',') },
   })
 }
 // vite stays on 19140 but proxies /api to this run's server port

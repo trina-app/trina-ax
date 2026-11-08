@@ -73,7 +73,7 @@ function attachWs(ws: VirtualWebSocket, req: Request): boolean {
 
 beforeAll(async () => {
   R = await startRelay(PORT, { RELAY_RESPONSE_TIMEOUT_MS: '700', RELAY_HOLD_MS: '1500' })
-  acme = await registerTeam(R.base, 'acme')
+  acme = await registerTeam(R.base, 'acme-co')
   acmeClient = client({ url: R.ws, teamId: acme.teamId, kp: acme.kp, fetch: app, attachWs })
   await until(() => acmeClient.state.state === 'connected' && acmeClient.state.conns === 2, 5000, 'acme connected')
 })
@@ -84,11 +84,11 @@ afterAll(async () => {
 
 describe('HTTP through the relay', () => {
   test('Host routing, public URL, real client IP, spoofed IP headers dropped, multiple Set-Cookie kept', async () => {
-    const res = await fetch(teamUrl(PORT, 'acme', '/hello?x=1'), { headers: { 'x-forwarded-for': '6.6.6.6', 'cf-connecting-ip': '7.7.7.7', 'x-real-ip': '8.8.8.8' } })
+    const res = await fetch(teamUrl(PORT, 'acme-co', '/hello?x=1'), { headers: { 'x-forwarded-for': '6.6.6.6', 'cf-connecting-ip': '7.7.7.7', 'x-real-ip': '8.8.8.8' } })
     expect(res.status).toBe(200)
     const body = (await res.json()) as { ip: string; url: string }
     expect(body.ip).toBe('127.0.0.1')
-    expect(body.url).toBe(`http://acme.localhost:${PORT}/hello?x=1`)
+    expect(body.url).toBe(`http://acme-co.localhost:${PORT}/hello?x=1`)
     expect(res.headers.getSetCookie()).toEqual(['a=1; Path=/', 'b=2; Path=/'])
     const h = seen.at(-1)!.headers
     for (const k of ['x-forwarded-for', 'cf-connecting-ip', 'x-real-ip']) expect(h[k]).toBeUndefined()
@@ -97,17 +97,17 @@ describe('HTTP through the relay', () => {
   test('request bodies stream to the app intact (chunked and content-length)', async () => {
     const data = new Uint8Array(3 * 1024 * 1024).map((_, i) => (i * 7) % 256)
     const want = createHash('sha256').update(data).digest('hex')
-    const r1 = (await (await fetch(teamUrl(PORT, 'acme', '/echo'), { method: 'POST', body: data })).json()) as { bytes: number; sha256: string }
+    const r1 = (await (await fetch(teamUrl(PORT, 'acme-co', '/echo'), { method: 'POST', body: data })).json()) as { bytes: number; sha256: string }
     expect(r1).toEqual({ bytes: data.byteLength, sha256: want })
     let off = 0
     const stream = new ReadableStream<Uint8Array>({ pull(c) { if (off >= data.byteLength) { c.close(); return } c.enqueue(data.subarray(off, off + 100_000)); off += 100_000 } })
-    const r2 = (await (await fetch(teamUrl(PORT, 'acme', '/echo'), { method: 'POST', body: stream, duplex: 'half' } as RequestInit)).json()) as { bytes: number; sha256: string }
+    const r2 = (await (await fetch(teamUrl(PORT, 'acme-co', '/echo'), { method: 'POST', body: stream, duplex: 'half' } as RequestInit)).json()) as { bytes: number; sha256: string }
     expect(r2).toEqual({ bytes: data.byteLength, sha256: want })
   })
 
   test('responses stream (first event arrives before the end)', async () => {
     const t0 = Date.now()
-    const res = await fetch(teamUrl(PORT, 'acme', '/drip'))
+    const res = await fetch(teamUrl(PORT, 'acme-co', '/drip'))
     const reader = res.body!.getReader()
     const first = await reader.read()
     const firstAt = Date.now() - t0
@@ -119,14 +119,14 @@ describe('HTTP through the relay', () => {
   })
 
   test('large download intact', async () => {
-    const res = await fetch(teamUrl(PORT, 'acme', `/big?n=${20 * 1024 * 1024}`))
+    const res = await fetch(teamUrl(PORT, 'acme-co', `/big?n=${20 * 1024 * 1024}`))
     const b = new Uint8Array(await res.arrayBuffer())
     expect(b.byteLength).toBe(20 * 1024 * 1024)
     expect(b.every((x) => x === 42)).toBe(true)
   })
 
   test('response timeout counts from the end of the request body: 504', async () => {
-    const res = await fetch(teamUrl(PORT, 'acme', '/slow?ms=1500'), { headers: { accept: 'application/json' } })
+    const res = await fetch(teamUrl(PORT, 'acme-co', '/slow?ms=1500'), { headers: { accept: 'application/json' } })
     expect(res.status).toBe(504)
     expect(((await res.json()) as { error: { code: string; reason: string } }).error).toMatchObject({ code: 'unavailable', reason: 'team_timeout' })
   })
@@ -177,7 +177,7 @@ describe('HTTP through the relay', () => {
 
 describe('WebSockets through the relay', () => {
   function open(path: string, protocols?: string[]) {
-    const ws = new WebSocket(teamUrl(PORT, 'acme', path).replace('http', 'ws'), { protocols, headers: { origin: `http://acme.localhost:${PORT}`, cookie: 'sid=abc' } } as never)
+    const ws = new WebSocket(teamUrl(PORT, 'acme-co', path).replace('http', 'ws'), { protocols, headers: { origin: `http://acme-co.localhost:${PORT}`, cookie: 'sid=abc' } } as never)
     const msgs: (string | ArrayBuffer)[] = []
     const closed = new Promise<{ code: number; reason: string }>((r) => { ws.onclose = (e) => r({ code: e.code, reason: e.reason }) })
     const opened = new Promise<void>((r, j) => { ws.onopen = () => r(); ws.onerror = () => j(new Error('ws error')) })
@@ -191,7 +191,7 @@ describe('WebSockets through the relay', () => {
     await c.opened
     expect(c.ws.protocol).toBe('mycel.v1')
     await until(() => c.msgs.length >= 1)
-    expect(JSON.parse(c.msgs[0] as string)).toEqual({ type: 'hello', protocol: 'mycel.v1', origin: `http://acme.localhost:${PORT}`, cookie: 'sid=abc' })
+    expect(JSON.parse(c.msgs[0] as string)).toEqual({ type: 'hello', protocol: 'mycel.v1', origin: `http://acme-co.localhost:${PORT}`, cookie: 'sid=abc' })
     c.ws.send('ping')
     c.ws.send(new Uint8Array([1, 2, 3]))
     c.ws.send('big:300000')
@@ -314,7 +314,7 @@ describe('relay log', () => {
     expect(all).not.toContain('127.0.0.1')
     expect(all).not.toContain('/hello')
     expect(all).not.toContain('/api/ws')
-    expect(all).not.toContain('acme.localhost')
+    expect(all).not.toContain('acme-co.localhost')
     expect(all).not.toMatch(/"(ip|path|url|host|headers)"/)
     const streams = R.logLines.map((l) => JSON.parse(l)).filter((o) => o.ev === 'stream')
     expect(streams.length).toBeGreaterThan(5)

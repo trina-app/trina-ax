@@ -28,7 +28,8 @@
 // POST /__test/confidential {all?: boolean} (Safe operations 1A on: every chat confidential; otherwise a chat becomes
 // confidential when a message in it says "confidential"), POST /__test/artifact {type, content} (the next "artifact"
 // answer writes exactly this), POST /__test/connection {…ConnectionStatus fields} (Admin > System > Connection shows
-// them until the next reset), POST /__test/speech-host {…SpeechHost fields} (this server's cores, speed and hosting
+// them until the next reset), POST /__test/team-address {address: string | null} (GET /api/me team.address, the team's
+// address for its members, until the next reset; none by default), POST /__test/speech-host {…SpeechHost fields} (this server's cores, speed and hosting
 // for "Turn video sound into text", and the tools Voice input lacks, until the next reset), POST /__test/skill-list
 // {…SkillsOverview.aiList} (the Team skills page's "how many skills the AI sees" counts, until the next reset),
 // POST /__test/speech {provider, key?: boolean, chosen?: false}
@@ -282,6 +283,8 @@ export class MockServer {
   files = new Map<string, FileNode>()
   versions: FileVersion[] = []
   connection: ConnectionStatus = defaultConnection()
+  /** GET /api/me team.address (server/src/system/connection.ts teamAddressOf): none unless POST /__test/team-address */
+  teamAddress: string | null = null
   trash: (TrashItem & { node: FileNode })[] = []
   uploads = new Map<string, UploadSession & { chunks: Map<number, Uint8Array> }>()
   attachments = new Map<string, Attachment & { data: Uint8Array }>()
@@ -513,6 +516,7 @@ export class MockServer {
     this.revoked.clear()
     this.downloadOnly.clear()
     this.connection = defaultConnection()
+    this.teamAddress = null
     if (!this.setupNeeded) this.seed()
     // two admins besides the owner and Bob: Dana (signs in) and Eve (a row an admin cannot delete)
     if (o.withAdmin && !this.setupNeeded) {
@@ -886,7 +890,7 @@ export class MockServer {
     return {
       user: { id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.localeChoice ?? this.settings.defaultLocale, localeChoice: u.localeChoice, mustChangePassword: u.mustChangePassword, prefs, canChooseEngine: choose },
       groups: this.groups.filter((g) => u.groupIds.includes(g.id)).map((g) => ({ id: g.id, name: g.name })),
-      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, iconVersion: this.teamIcon?.version ?? null, voiceInput: (this.speechNow() === 'local' && this.speechHost.localMissing.length === 0) || (this.speechNow() === 'openrouter' && this.speechKey.set), ...(this.speechNow() === 'openrouter' && this.speechKey.set ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: this.settings.chatTrashRetentionDays },
+      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, iconVersion: this.teamIcon?.version ?? null, voiceInput: (this.speechNow() === 'local' && this.speechHost.localMissing.length === 0) || (this.speechNow() === 'openrouter' && this.speechKey.set), ...(this.speechNow() === 'openrouter' && this.speechKey.set ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: this.settings.chatTrashRetentionDays, ...(this.teamAddress ? { address: this.teamAddress } : {}) },
       session: { id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(), tempLogin: u.mustChangePassword && this.tempLogins.has(u.id) },
       server: {
         version: this.serverVersion, dev: !this.cloud, deployment: this.cloud ? 'hosted' : 'self', timeZone: this.settings.timeZone,
@@ -1631,6 +1635,17 @@ export class MockServer {
       const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
       return { items: this.roomMessages.get(room.id) ?? [], nextCursor: null }
     },
+    // ⌘K: the messages of the rooms here that hold the text (one page, newest first), like the server's
+    searchRoomMessages: (c) => {
+      const q = String(c.query.q ?? '').trim().toLowerCase()
+      const items = this.rooms.flatMap((room) => (this.roomMessages.get(room.id) ?? []).filter((m) => !m.deletedAt && !m.event && m.body.toLowerCase().includes(q)).map((m) => ({ m, room })))
+        .sort((a, b) => b.m.createdAt.localeCompare(a.m.createdAt)).slice(0, Number(c.query.limit ?? 20))
+      const rooms = [...new Set(items.map((x) => x.room))].map((r) => ({ id: r.id, kind: r.kind, name: r.name, peers: r.peers, memberCount: r.memberCount }))
+      return {
+        items: items.map(({ m }) => ({ id: m.id, roomId: m.roomId, threadRootId: m.threadRootId ?? null, authorKind: m.authorKind, author: m.authorKind === 'ai' ? null : m.author, askedBy: m.authorKind === 'ai' ? m.askedBy : null, markdown: m.authorKind === 'ai' || !!m.sharedAnswer, snippet: m.body.slice(0, 200), createdAt: m.createdAt })),
+        rooms, nextCursor: null,
+      }
+    },
     listRoomMembers: (c) => {
       const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
       return { items: [{ id: c.user.id, name: c.user.name }, ...room.peers].map((user) => ({ user, joinedAt: room.createdAt })) }
@@ -2102,6 +2117,7 @@ export class MockServer {
         if (c.body?.password !== this.passwords.get(me.username)) fail('forbidden', 403, 'wrong password')
       }
       this.users = this.users.filter((u) => u.id !== c.params.id)
+      this.dropAssignee('user', c.params.id)
       return undefined
     },
     resetPassword: (c) => {
@@ -2419,6 +2435,7 @@ export class MockServer {
     updateGroup: (c) => Object.assign(this.groups.find((g) => g.id === c.params.id) ?? fail('not_found', 404), Object.fromEntries(Object.entries(c.body).filter(([, v]) => v !== undefined))),
     deleteGroup: (c) => {
       this.groups = this.groups.filter((g) => g.id !== c.params.id)
+      this.dropAssignee('group', c.params.id)
       // its rules go; its folder row stays, no longer a group's (the server's deleteGroup)
       for (const f of this.folders) {
         f.rules = f.rules.filter((r) => !(r.subjectType === 'group' && r.subjectId === c.params.id))
@@ -3318,6 +3335,16 @@ export class MockServer {
     return !c.owner && !c.disabled && (c.kind === 'anthropic-oauth' || c.kind === 'chatgpt') && !this.credSharedSubscriptions
       ? { ...c, state: 'sharing_off', detail: 'Shared subscriptions are off.' } : c
   }
+  /** A group or person deleted: their AI connection assignments go, and a team connection left with none is switched
+   * off rather than serving the whole team (the server's credentials/assignees.ts). */
+  dropAssignee(subjectType: 'group' | 'user', subjectId: string) {
+    for (const c of this.credentials) {
+      if (!c.assignments.some((a) => a.subjectType === subjectType && a.subjectId === subjectId)) continue
+      c.assignments = c.assignments.filter((a) => !(a.subjectType === subjectType && a.subjectId === subjectId))
+      if (!c.assignments.length && c.scope === 'team' && !c.disabled) { c.disabled = true; c.state = 'disabled' }
+    }
+  }
+
   async addCredential(user: User, body: { kind: CredentialKind; label: string; sealed: never; acknowledgedPlanNotice?: boolean; assignments?: { subjectType: 'group' | 'user'; subjectId: string }[] }, personal: boolean): Promise<Credential> {
     if (!personal && (body.kind === 'anthropic-oauth' || body.kind === 'chatgpt') && !this.credSharedSubscriptions) fail('forbidden', 403)
     const secret = await this.sealer.unseal(body.sealed, 'credential.create').catch(() => fail('validation', 400, '보낸 값을 열 수 없어요.'))
@@ -3707,6 +3734,7 @@ export class MockServer {
     else if (p === '/__test/pack-install-fail') this.packInstallFails = Number(body.times ?? 1)
     else if (p === '/__test/share-hold') this.shareHold = body.on !== false
     else if (p === '/__test/skill-list') this.aiList = SkillsOverview.shape.aiList.parse(body)
+    else if (p === '/__test/team-address') this.teamAddress = typeof body.address === 'string' ? body.address : null
     else if (p === '/__test/connection') this.connection = { ...this.connection, ...(body as unknown as Partial<ConnectionStatus>) }
     else if (p === '/__test/speech-host') this.speechHost = { ...this.speechHost, ...(body as unknown as Partial<typeof this.speechHost>) }
     else if (p === '/__test/memory') this.memories.push({ id: uuidv7(), text: String(body.text), sourceChatId: null, createdAt: now() })

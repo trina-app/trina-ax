@@ -225,6 +225,73 @@ h1 {
   font: inherit;
 }
 
+/* a quiet text button (the help links under the box, the host strip's "other team") */
+button.link {
+  border: none;
+  background: transparent;
+  padding: 4px 2px;
+  color: var(--accent-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.help-links {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+.steps {
+  margin: 4px 0 18px;
+  padding-left: 20px;
+}
+.steps li {
+  margin: 0 0 10px;
+}
+.note {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 14px 0 0;
+}
+.confirm .host {
+  font-weight: 600;
+  margin: 0 0 4px;
+  overflow-wrap: anywhere;
+}
+.confirm p {
+  margin: 0;
+}
+/* ④'s question names a host: a long one wraps instead of running out of the card */
+.host-title {
+  overflow-wrap: anywhere;
+}
+
+/* ---------------- host strip above the team's sign-in pages ---------------- */
+body.hostbar {
+  background: var(--chrome);
+  overflow: hidden;
+}
+.hostbar-row {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.hostbar-row .label {
+  color: var(--muted);
+}
+.hostbar-row .host {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.hostbar-row .link {
+  margin-left: auto;
+  font-size: 13px;
+}
+
 /* ---------------- browser pane toolbar ---------------- */
 body.pane {
   background: var(--chrome);

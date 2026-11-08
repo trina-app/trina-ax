@@ -31,6 +31,10 @@ export interface RoomTimeline {
   messages: RoomMessage[]
   /** older messages (null: this is the start of what I can see) */
   nextCursor: string | null
+  /** newer messages not loaded yet: the timeline is a window around a message a link or a search result opened
+   * (loadAround), not at the newest. New messages are not added to it until it reaches the newest (loadNewer) or goes
+   * back there (loadNewest). Absent or null: it ends at the newest. */
+  newerCursor?: string | null
   loading: boolean
   error: unknown
 }
@@ -117,7 +121,8 @@ export function withMessage(d: RoomsData, roomId: string, m: RoomMessage, meId: 
     ? (m.id === tv.rootId ? { ...tv, root: m } : { ...tv, replies: mergeMessages(tv.replies, [m]) })
     : tv
   if (!inTimeline(m)) return { ...d, threadView }
-  const timeline = d.timeline && d.timeline.roomId === roomId ? { ...d.timeline, messages: mergeMessages(d.timeline.messages, [m]) } : d.timeline
+  // a window around an older message (newerCursor) gets it with the newer pages, not after a gap
+  const timeline = d.timeline && d.timeline.roomId === roomId && !d.timeline.newerCursor ? { ...d.timeline, messages: mergeMessages(d.timeline.messages, [m]) } : d.timeline
   const room = d.rooms.find((r) => r.id === roomId)
   if (!room) return { ...d, timeline, threadView }
   if (m.event) return { ...d, timeline, threadView, rooms: d.rooms.map((r) => (r.id === roomId ? { ...r, lastSeq: Math.max(r.lastSeq, m.seq) } : r)) }
@@ -266,6 +271,10 @@ interface RoomsState extends RoomsData {
   close: (roomId: string) => void
   loadNewest: (roomId: string) => Promise<void>
   loadOlder: (roomId: string) => Promise<void>
+  /** the timeline as a window around this message (a link or a search result older than the newest page) */
+  loadAround: (roomId: string, messageId: string) => Promise<void>
+  /** the window's next newer page (until it reaches the newest) */
+  loadNewer: (roomId: string) => Promise<void>
   /** the thread under this message, beside the room (desktop) or over it (phones) */
   openThread: (roomId: string, rootId: string) => void
   closeThread: (roomId: string, rootId: string) => void
@@ -447,6 +456,35 @@ export const useRooms = create<RoomsState>((set, get) => {
       }
     },
 
+    async loadAround(roomId, messageId) {
+      const gen = ++timelineGen
+      set((s) => (s.timeline?.roomId === roomId ? { timeline: { ...s.timeline, loading: true, error: null } } : {}))
+      try {
+        const page = await api.call(API.listRoomMessages, { params: { id: roomId }, query: { limit: ROOM_PAGE, around: messageId } })
+        if (gen !== timelineGen || get().openRoomId !== roomId) return
+        set({ timeline: { roomId, messages: mergeMessages([], page.items), nextCursor: page.nextCursor, newerCursor: page.newerCursor ?? null, loading: false, error: null } })
+      } catch {
+        // the newest page as it was (the message is not looked for again)
+        if (gen !== timelineGen) return
+        set((s) => (s.timeline?.roomId === roomId ? { timeline: { ...s.timeline, loading: false } } : {}))
+      }
+    },
+
+    async loadNewer(roomId) {
+      const tl = get().timeline
+      if (!tl || tl.roomId !== roomId || !tl.newerCursor || tl.loading) return
+      const gen = timelineGen
+      set({ timeline: { ...tl, loading: true } })
+      try {
+        const page = await api.call(API.listRoomMessages, { params: { id: roomId }, query: { limit: ROOM_PAGE, cursor: tl.newerCursor } })
+        if (gen !== timelineGen) return
+        set((s) => (s.timeline?.roomId === roomId ? { timeline: { ...s.timeline, messages: mergeMessages(s.timeline.messages, page.items), newerCursor: page.newerCursor ?? null, loading: false } } : {}))
+      } catch {
+        if (gen !== timelineGen) return
+        set((s) => (s.timeline?.roomId === roomId ? { timeline: { ...s.timeline, loading: false } } : {}))
+      }
+    },
+
     openThread(roomId, rootId) {
       const cur = get().threadView
       if (cur?.roomId === roomId && cur.rootId === rootId) return
@@ -524,6 +562,9 @@ export const useRooms = create<RoomsState>((set, get) => {
       const p: PendingSend = { clientMessageId: uuidv7(), body: input.body, mentions: input.mentions, ...(input.mentionsAll ? { mentionsAll: true } : {}), files: input.files, threadRootId: input.threadRootId ?? null, alsoInRoom: !!input.threadRootId && !!input.alsoInRoom, state: 'sending', createdAt: new Date().toISOString() }
       setPending(roomId, (list) => [...list, p])
       void post(roomId, p)
+      // sent from a window around an older message: back to the newest, where it goes
+      const tl = get().timeline
+      if (!p.threadRootId && tl?.roomId === roomId && tl.newerCursor) void get().loadNewest(roomId)
     },
 
     retry(roomId, clientMessageId) {
