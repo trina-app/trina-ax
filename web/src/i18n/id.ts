@@ -124,6 +124,8 @@ export const id: Record<MessageKey, string> = {
   'auth.passwordMismatch': 'Kedua kata sandi tidak sama.',
   'auth.name': 'Nama',
   'auth.forgot': 'Lupa kata sandi? Minta owner atau admin untuk meresetnya.',
+  'auth.alreadyJoined': "Jika sudah bergabung, silakan masuk.",
+  'auth.haveAccount': "Sudah bergabung?",
   'auth.sessionEnded': 'Kamu keluar karena sudah keluar di tempat lain atau kata sandi diganti.',
   'auth.sessionExpired': 'Sesi kamu habis. Silakan masuk lagi.',
   'auth.changePassword': 'Ganti kata sandi',
@@ -1329,6 +1331,8 @@ export const id: Record<MessageKey, string> = {
   'memory.updated': "Memori diperbarui.",
   'memory.editLabel': "Ubah memori ini",
 
+  'apps.teamAddress': "Alamat tim",
+  'apps.teamAddressHint': "Buka aplikasi di perangkat baru dan masukkan alamat ini.",
   'apps.installTitle': 'Pasang sebagai aplikasi',
   'apps.installDesc': 'Pasang di ponsel atau komputer dan buka seperti aplikasi.',
   'apps.install': 'Pasang aplikasi',

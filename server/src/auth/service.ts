@@ -24,6 +24,7 @@ import { canChooseEngine } from '../admin/engine-choice'
 import { teamIconOfMe } from '../admin/team-icon'
 import { deploymentOf, featuresOf } from '../system/deployment'
 import { windowsAppSourceOf } from '../system/windows-app'
+import { teamAddressOf } from '../system/connection'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { devEnvFlag } from '../devenv/setting'
 import { htmlPdfUnavailable } from '../files/html-pdf'
@@ -236,6 +237,8 @@ export class AuthService implements SessionService {
     const prefs = parsePrefs(u.prefs)
     if (!choose) { delete prefs.engine; delete prefs.model }
     const windowsApp = windowsAppSourceOf(this.ctx.config)
+    // the team's own address for its members (Settings › 앱): the relay's or the public one, never the request's host
+    const address = teamAddressOf(this.ctx)
     return {
       user: {
         id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.locale, localeChoice: localeChoice(u),
@@ -244,7 +247,7 @@ export class AuthService implements SessionService {
         ...profileOf(this.db, u.id),
       },
       groups,
-      team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, ...teamIconOfMe(this.ctx.config.dataDir), voiceInput: voiceInputOn(this.db, this.ctx.files.speech), ...(voiceInputOutside(this.db) ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: settings.chatTrashRetentionDays },
+      team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, ...teamIconOfMe(this.ctx.config.dataDir), voiceInput: voiceInputOn(this.db, this.ctx.files.speech), ...(voiceInputOutside(this.db) ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: settings.chatTrashRetentionDays, ...(address ? { address } : {}) },
       session: { id: s.id, client: s.client, expiresAt: s.expires_at, tempLogin: tempLoginOf(s, u) },
       // office mode runs dev's engine setup on purpose (docs/OFFICE.md): the office's desks get no DEV banner
       server: { version: this.ctx.version, dev: this.ctx.config.mode === 'dev' && !this.ctx.config.office,
