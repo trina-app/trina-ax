@@ -11,7 +11,7 @@
 //   move dialog of the chat's title menu; a shared chat never offers the move.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { act } from 'react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI, type Chat, type Me } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
@@ -584,6 +584,38 @@ describe('a chat row\'s "…"', () => {
       expect(closed).toEqual([])
     } finally {
       window.removeEventListener('keydown', onKey as never)
+      await m.unmount()
+    }
+  })
+
+  test('the rooms\' row menu: a right-click on the row opens it; on a touch screen a long press does, with the chat\'s title on top, and the finger lifting opens no chat', async () => {
+    useChats.setState({ chats: [chat(1)] })
+    let path = ''
+    const Where = () => { path = useLocation().pathname; return null }
+    const m = await mount(<MemoryRouter initialEntries={['/']}><Sidebar /><Where /></MemoryRouter>)
+    try {
+      const row = m.get('recents-list').querySelector('li')!
+      const link = row.querySelector('a')!
+      const shown = () => row.querySelectorAll('[role="menuitem"]').length
+      await m.settle(0)
+      const e = new FakeEvent('contextmenu', { bubbles: true, cancelable: true })
+      link.dispatchEvent(e)
+      await m.until(() => shown() === 3, 'the menu')
+      expect(e.defaultPrevented).toBe(true)
+      await m.click(row.querySelector(`button[aria-label="${ko('chat.menu')}"]`)!)
+      expect(shown()).toBe(0)
+      const press = (type: string) => link.dispatchEvent(Object.assign(new FakeEvent(type, { bubbles: true, cancelable: true }), { pointerType: 'touch', clientX: 20, clientY: 20 }))
+      press('pointerdown')
+      await m.settle(600)
+      press('pointerup')
+      await m.until(() => shown() === 3, 'the sheet')
+      expect(m.get('menu-sheet-title').textContent).toBe('채팅 1')
+      // the click that follows the finger lifting is no tap on the row
+      await m.click(link)
+      expect(path).toBe('/')
+      // the link holds no text a long press could start selecting on a touch screen
+      expect(link.getAttribute('class')).toContain('pointer-coarse:select-none')
+    } finally {
       await m.unmount()
     }
   })

@@ -25,12 +25,12 @@ async function show(r: Room, role: 'member' | 'admin' = 'member') {
 }
 const menus = (m: Awaited<ReturnType<typeof show>>) => m.container.ownerDocument!.body.querySelectorAll('[data-testid="room-member-menu"]').length
 
-test('a group chat I manage: my name row, invite, a menu on every row but mine, leave', async () => {
+test('a group chat I manage: my name row, invite, a menu on every row but mine; no leave (it is in the room\'s "⋯")', async () => {
   const m = await show(room({ kind: 'group', name: null, canRename: true, managerId: ME.id, peers: [BEN, CY], memberCount: 3 }))
   try {
     expect(m.find('room-name')).toBeTruthy()
     expect(m.find('room-invite')).toBeTruthy()
-    expect(m.find('room-leave')).toBeTruthy()
+    expect(m.find('room-leave')).toBeNull()
     expect(m.get('room-manager').textContent).toContain('Manager')
     expect(menus(m)).toBe(2)
   } finally { await m.unmount() }

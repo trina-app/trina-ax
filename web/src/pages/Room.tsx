@@ -1,6 +1,6 @@
 // One room (/rooms/:roomId; the mobile app links here from a notice): a 48px header with the room's name (its mark
 // beside it on computers) and member count, which open the room's info (components/rooms/MembersDialog.tsx: the name,
-// 초대하기, the members, 나가기), and the bell (my notifications for the room, components/rooms/RoomNotifyMenu.tsx); the messages (components/rooms/RoomMessages.tsx),
+// 초대하기, the members), and the bell (my notifications for the room, components/rooms/RoomNotifyMenu.tsx); the messages (components/rooms/RoomMessages.tsx),
 // older ones loaded on scrolling up; the message box at the bottom. What I see is marked read (POST
 // /api/rooms/:id/read with the newest message) while the window has the focus and the bottom of the room is in sight.
 // A link or a search result (?m=<message>) older than the newest page opens the room as a window around it
@@ -9,8 +9,8 @@
 // Phones: a back arrow in the header (the bottom tab bar stays away here: the box and the keyboard need the room).
 // A thread (/rooms/:roomId/t/:messageId, components/rooms/ThreadPanel.tsx) opens beside the room on computers and over
 // it on phones; while threads I follow have new replies, a small thread mark in the header opens the newest of them.
-// Beside the bell, the room's "⋯" (components/rooms/RoomMenu.tsx: 알림 설정, 링크 복사, and 대화방 나가기 or 숨기기 by
-// kind). A room I hid opens all the same (a link, a notice, the full list) and is shown again by opening it
+// Beside the bell, the room's "⋯" (components/rooms/RoomMenu.tsx: 알림 설정, 이름 바꾸기 for those who may, 링크 복사,
+// and 대화방 나가기 or 숨기기 by kind). A room I hid opens all the same (a link, a notice, the full list) and is shown again by opening it
 // (docs/DECISIONS.md "대화 숨기기").
 import { ArrowDown, ChevronLeft, Loader2, MessagesSquare } from 'lucide-react'
 import clsx from 'clsx'
@@ -266,7 +266,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
             <RoomIcon room={room} size={24} presence />
           </span>
         )}
-        {/* the name opens the room's info (its name, 초대하기, the members, 나가기); beside it how many are in it, and
+        {/* the name opens the room's info (its name, 초대하기, the members); beside it how many are in it, and
             for a DM the other person's title (직함) small under their name, as the people list shows it */}
         <div className="min-w-0 flex-1">
           <h1 className="flex min-w-0 text-base font-medium text-ink">
