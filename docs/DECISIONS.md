@@ -13716,8 +13716,24 @@ enters a shared transcript; that check is new here, and turns never run on the c
   the repoint dialog says how many chats and people, nothing asks again.
 - **Not in phase 1.** Live answers for viewers, unseen markers per viewer, a chat file store for uploads, connections
   and Drive behind the gate, share-to-room for every viewer, a gate that checks searches after they run. Not added: a
-  toggle per chat, sharing existing chats, avatars, deleting single messages, a people picker, push or Inbox notices, a
-  "Shared" sidebar section, queued sends.
+  toggle per chat, sharing existing chats, avatars (added since: "Who asked" below), deleting single messages, a people
+  picker, push or Inbox notices, a "Shared" sidebar section, queued sends.
+- **Who asked** (feat/shared-chat-authors, 2026-11-08, product owner: each message sent to the AI shows its sender's
+  picture and name; plan `docs/AGENTS/plan/20261108-0049-shared-chat-authors.md`). Every question of a shared chat, mine
+  too, has one quiet row above the bubble, on the right like it: the name (muted, one line, cut with an ellipsis; as it
+  is, so no "님" is added, and mine is my name, not "나", so a screenshot passed around still says who asked), then a
+  20 px picture at the bubble's edge (`Messages.tsx MessageAuthor`). It replaced the name line only other people's
+  questions had. No box or chip, no API change: the picture is the people directory's (`useAvatarOf`, as in rooms;
+  `GET /api/people` and the photo are `auth: 'user'`, so every role reads them), and the row asks for the directory
+  itself, since a chat page may show without the rooms list; the name is the directory's too (a rename shows at once).
+  Without a photo, or while the directory is not there or failed, the letter tile; my own photo also comes from
+  `/api/me`. The picture is decorative (empty alt, `aria-hidden`); the name is text, read once before the question. A
+  question with no author (only a message without an author id) shows an empty tile and "알 수 없는 사용자"
+  (`rooms.goneUser`), not nothing: in a chat where every question has a row, one without would read as the previous
+  person's or as mine. Chats of one person show no row. Left as they are: the letter tile's faint fill (the sidebar's
+  account row and rooms use the same tile) and a picture sized in px that does not follow the text-size setting (as in
+  rooms; at the largest size the name is still smaller than the picture). Tests:
+  `web/test/unit/shared-chat-authors.test.tsx`, `web/test/e2e/shared-project-chats.spec.ts`. Version impact: minor.
 - **For the approved follow-up** (a room's @트리나 reads a shared chat only when every member of the room is in its
   project's audience; else the answer stays the asker's or a card asks): the check is one set-based function,
   `sharedChatAudienceCovers(db, files, chatId, userIds)` on `projectSeenByAll` (also behind `visibleSharedChat` and
