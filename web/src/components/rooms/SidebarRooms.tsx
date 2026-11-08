@@ -25,6 +25,7 @@ import { RoomIcon, useRoomTitle } from './RoomIcon'
 import { RoomMenu, useRowMenu } from './RoomMenu'
 import { Tooltip } from '../Tooltip'
 import { SidebarSectionTitle } from '../ui'
+import { PresenceText } from '../Presence'
 
 const OPEN_KEY = 'mycel.sidebar.rooms'
 /** the whole list opened ("더 보기"), remembered in this browser like the fold */
@@ -189,16 +190,19 @@ function RoomRow({ room, onNavigate }: { room: Room; onNavigate: () => void }) {
           clsx(
             'flex h-9 items-center gap-2 rounded-lg px-3 text-sm hover:bg-hover max-sm:h-10 pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]',
             'pointer-fine:group-hover:pr-9 group-has-[:focus-visible]:pr-9 group-has-[[aria-expanded=true]]:pr-9 group-has-[[aria-expanded=true]]:bg-hover',
+            // the ring of a DM's online dot takes the row's colour (index.css .presence-dot)
+            '[--presence-bg:var(--c-subtle)] hover:[--presence-bg:var(--c-hover)] aria-[current=page]:[--presence-bg:var(--c-hover)] group-has-[[aria-expanded=true]]:[--presence-bg:var(--c-hover)]',
             isActive ? 'bg-hover font-medium text-ink' : unread > 0 ? 'font-semibold text-ink' : 'text-muted',
           )
         }
         data-testid="sidebar-room"
       >
-        <RoomIcon room={room} size={20} />
+        <RoomIcon room={room} size={20} presence />
         {/* a long name is cut; the whole of it on hover */}
         <span className="truncate" title={title}>
           {title}
         </span>
+        {room.kind === 'dm' && room.peers[0] && <PresenceText userId={room.peers[0].id} />}
         {room.muted && (
           <>
             <BellOff size={12} className={clsx('shrink-0 text-faint', ROW_MENU_SHOWN)} aria-hidden />

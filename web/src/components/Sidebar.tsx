@@ -23,7 +23,7 @@ import { createPortal } from 'react-dom'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { teamIconUrl } from '@mycel/shared'
 import type { Chat, Theme } from '@mycel/shared/api'
-import { api, API } from '../lib/api'
+import { api, API, errorText } from '../lib/api'
 import { dateBucket, formatRelative, type DateBucket } from '../lib/format'
 import { aiName } from '../lib/tabs'
 import { useLogout } from '../lib/logout'
@@ -36,8 +36,8 @@ import { sharedRights } from '../lib/sharedChat'
 import { SharedIcon } from './chat/SharedChat'
 import { cardChats, useSessionMarkers } from '../store/sessionMarkers'
 import { isAdmin, useMeStrict, useSession } from '../store/session'
-import { useUi } from '../store/ui'
-import { Avatar } from './Avatar'
+import { toast, useUi } from '../store/ui'
+import { PresenceDot, PresenceFace, PresenceText } from './Presence'
 import { useChatActions } from './chat/chatActions'
 import { MoveToProjectDialog } from './chat/ChatProject'
 import { isUnused, SessionMarker, useChatMarker } from './chat/ChatState'
@@ -501,10 +501,12 @@ function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNavigate: 
   )
 }
 
-/** The profile line at the bottom and its menu above it, like Claude's: who is signed in, then Settings (a dialog over
- * the page, components/settings/SettingsDialog.tsx), Usage (their own usage in Settings; the team's is Admin > Usage),
- * Appearance (the theme, chosen right there), Deleted chats and Sign out. Arrow keys, Home and End move in the menu; Esc
- * closes it and gives the keyboard back. */
+/** The profile line at the bottom and its menu above it, like Claude's: who is signed in, then "자리 비움으로 표시" ("접속
+ * 중으로 표시" while set: Slack's "Set yourself as away", docs/DECISIONS.md "접속 상태"; its mark is the dot it leads to),
+ * Settings (a dialog over the page, components/settings/SettingsDialog.tsx), Usage (their own usage in Settings; the
+ * team's is Admin > Usage), Appearance (the theme, chosen right there), Deleted chats and Sign out. My picture carries my
+ * own online dot, as the team sees it. Arrow keys, Home and End move in the menu; Esc closes it and gives the keyboard
+ * back. */
 function AccountMenu() {
   const t = useT()
   const me = useMeStrict()
@@ -550,6 +552,12 @@ function AccountMenu() {
     else if (e.key === 'End') go(-1)
   }
   const logout = useLogout()
+  const locale = useLocale()
+  const away = !!me.user.prefs.away
+  const toggleAway = () => {
+    hide(true)
+    void useSession.getState().setAway(!away).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))
+  }
   const item = 'flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm text-ink hover:bg-hover focus-visible:-outline-offset-2'
   return (
     <div ref={ref} className="relative border-t border-line p-2" onKeyDown={onKey}>
@@ -558,6 +566,12 @@ function AccountMenu() {
           <p className="truncate px-2.5 pt-1 pb-1.5 text-xs text-faint" data-testid="account-who">
             {me.user.email || me.user.username}
           </p>
+          <button role="menuitem" type="button" className={clsx(item, '[--presence-bg:var(--c-surface)] hover:[--presence-bg:var(--c-hover)]')} onClick={toggleAway} data-testid="account-away">
+            <span className="flex size-4 shrink-0 items-center justify-center" aria-hidden>
+              <PresenceDot state={away ? 'online' : 'away'} size={10} />
+            </span>
+            {away ? t('presence.setActive') : t('presence.setAway')}
+          </button>
           <button
             role="menuitem"
             type="button"
@@ -624,13 +638,14 @@ function AccountMenu() {
         aria-expanded={open}
         aria-haspopup="menu"
         onClick={() => (open ? hide(false) : setOpen(true))}
-        className="flex h-10 w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-hover"
+        className="flex h-10 w-full items-center gap-2 rounded-lg px-2 text-left [--presence-bg:var(--c-subtle)] hover:bg-hover hover:[--presence-bg:var(--c-hover)]"
         data-testid="account-menu"
       >
-        <Avatar user={me.user} size={24} />
+        <PresenceFace user={me.user} size={24} />
         {/* the team's name is on top of the sidebar (a computer), not said twice here */}
         <span className="flex min-w-0 flex-1 items-baseline gap-1">
           <span className="truncate text-sm font-medium">{me.user.name}</span>
+          <PresenceText userId={me.user.id} />
         </span>
         <ChevronDown size={14} className={clsx('shrink-0 text-faint transition-transform', open && 'rotate-180')} aria-hidden />
       </button>
