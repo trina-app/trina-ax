@@ -3,7 +3,7 @@
 // logs every name opened: Playwright cannot drive the OS folder window), the list comes back checked and judged; 팀 스킬
 // and back through the setup row finds the same list (nothing picked again); [팀에 공유 · N개] shares the ticked ones
 // (the server marks 내 스킬 done; a merge waits for the end of the setup), with 다른 폴더도 가져오기 beside 다음; 이전 from
-// 팀 파일 shows what went in; 팀 파일 is put off; the invite names ONE skill, the first shared, and its link opens it;
+// 팀 파일 shows what went in; 팀 파일 and 도구 연결 are put off; the invite names ONE skill, the first shared, and its link opens it;
 // then 준비 끝났어요 with the owner's own run of that skill.
 import { expect, test } from '@playwright/test'
 import { PRODUCT } from '@mycel/shared'
@@ -40,9 +40,9 @@ test('[내 스킬 찾기] → the list (kept across a trip away) → [팀에 공
   await signIn(page)
   await page.goto('/welcome')
   await page.getByTestId('welcome-profile').getByRole('button', { name: '나중에 하기' }).click()
-  // 2/4 내 스킬; nothing about a deck (회사 소개 was put off)
+  // 2/5 내 스킬; nothing about a deck (회사 소개 was put off)
   await expect(page.getByTestId('skills-step')).toBeVisible()
-  await expect(page.getByTestId('welcome-progress')).toContainText('2/4 내 스킬')
+  await expect(page.getByTestId('welcome-progress')).toContainText('2/5 내 스킬')
   await expect(page.getByRole('heading', { name: 'Claude Code나 Codex에서 쓰던 스킬, 팀도 쓰게 할까요?' })).toBeVisible()
   await expect(page.getByTestId('skills-promise')).toBeVisible()
   await expect(page.getByTestId('skills-cc-prompt')).toContainText(`내 스킬 중 팀에 공유할 만한 걸 ${PRODUCT.displayName}에 올려 줘`)
@@ -68,17 +68,19 @@ test('[내 스킬 찾기] → the list (kept across a trip away) → [팀에 공
   // one quiet way to a second folder beside the primary
   await expect(page.getByTestId('skills-more')).toHaveText('다른 폴더도 가져오기')
   await page.getByTestId('skills-done-next').click()
-  // 3/4 팀 파일; 이전 shows what went in (not the empty picker), and 다음 goes on again
+  // 3/5 팀 파일; 이전 shows what went in (not the empty picker), and 다음 goes on again
   await expect(page.getByTestId('welcome-team-files')).toBeVisible()
   await page.getByTestId('welcome-back').click()
   await expect(page.getByTestId('skills-done')).toBeVisible()
   await expect(page.getByTestId('skills-find')).toHaveCount(0)
   await page.getByTestId('skills-done-next').click()
-  // 팀 파일, put off; then the invite (no deck chat opens by itself)
+  // 팀 파일, put off; 도구 연결 put off; then the invite
   await expect(page.getByTestId('welcome-team-files')).toBeVisible()
   await page.getByTestId('welcome-later').click()
+  await expect(page.getByTestId('welcome-tools')).toBeVisible()
+  await page.getByTestId('welcome-later').click()
   await expect(page.getByTestId('invite-step')).toBeVisible()
-  await expect(page.getByTestId('welcome-progress')).toContainText('4/4 팀원 초대')
+  await expect(page.getByTestId('welcome-progress')).toContainText('5/5 팀원 초대')
   // the message names one skill, the landing one; the link opens it
   await expect(page.getByTestId('team-link-message')).toContainText('같이 써 보자고 해요')
   await expect(page.getByTestId('team-link-landing')).toContainText('부터 열려요')

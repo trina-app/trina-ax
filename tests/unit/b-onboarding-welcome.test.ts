@@ -1,6 +1,7 @@
 // Onboarding wave 2 (welcome steps, docs/DECISIONS.md "W — Welcome steps", "X — Lean onboarding"): the progress is one
 // settings row of the team that the owner writes and owners and admins read, so the steps resume on another device. v5
 // (docs/DECISIONS.md "W5"): 회사 소개, 내 스킬, 팀 파일 and the invite are counted, the first result is no step any more;
+// v6 (docs/DECISIONS.md "W6"): 도구 연결 is counted too;
 // a `team` step of an older row is kept, not read. The steps' marketing pack install is gone (docs/DECISIONS.md "DS3"):
 // its route is not found, and a `pack` an older row holds is kept as it is and no longer read.
 import { afterEach, expect, test } from 'bun:test'
@@ -35,7 +36,7 @@ test('nothing until the steps start; then each step is kept on the server and re
 
   // the first visit starts it, with the setup link's website (normalized)
   const started = (await owner.call('PATCH', '/api/onboarding/welcome', { site: 'www.acme.example' })).progress
-  expect(started.steps).toEqual({ profile: null, result: null, skills: null, files: null, invite: null })
+  expect(started.steps).toEqual({ profile: null, result: null, skills: null, files: null, tools: null, invite: null })
   expect(started.site).toBe('https://www.acme.example/')
   expect(started.finishedAt).toBeNull()
 
@@ -48,7 +49,7 @@ test('nothing until the steps start; then each step is kept on the server and re
   await other.login('olga', 'owner horse battery 42')
   const read = (await other.call('GET', '/api/onboarding/welcome')).progress
   expect(read.teamType).toBe('sales')
-  expect(read.steps).toEqual({ profile: 'skipped', result: null, skills: null, files: null, invite: null })
+  expect(read.steps).toEqual({ profile: 'skipped', result: null, skills: null, files: null, tools: null, invite: null })
   expect((await ada.client.call('GET', '/api/onboarding/welcome')).progress).toEqual(read)
   // the row holds exactly that; the answer adds the facts read for the screens, never stored (docs/DECISIONS.md "W5")
   const { deckStarted, landingSkill, ...stored } = read
@@ -68,7 +69,7 @@ test('nothing until the steps start; then each step is kept on the server and re
   expect((await owner.try('PATCH', '/api/onboarding/welcome', { finished: true })).status).toBe(400)
 })
 
-test('done stays done; the result chat must be the owner\'s own; finished once 회사 소개, 내 스킬, 팀 파일 and the invite are each answered (v5)', async () => {
+test('done stays done; the result chat must be the owner\'s own; finished once 회사 소개, 내 스킬, 팀 파일, 도구 연결 and the invite are each answered (W6)', async () => {
   const { owner, ownerId, mia } = await setup()
   const patch = async (b: unknown) => (await owner.call('PATCH', '/api/onboarding/welcome', b)).progress
   await patch({ step: { id: 'profile', state: 'skipped' } })
@@ -90,10 +91,11 @@ test('done stays done; the result chat must be the owner\'s own; finished once �
   const shown = await patch({ inviteShown: true })
   expect(shown.inviteShownAt).not.toBeNull()
   expect((await patch({ inviteShown: true })).inviteShownAt).toBe(shown.inviteShownAt)
-  // not finished while 내 스킬 and 팀 파일 are open
+  // not finished while 내 스킬, 팀 파일 and 도구 연결 are open
   expect((await patch({ step: { id: 'invite', state: 'done' } })).finishedAt).toBeNull()
   expect((await patch({ step: { id: 'skills', state: 'skipped' } })).finishedAt).toBeNull()
-  const done = await patch({ step: { id: 'files', state: 'done' } })
+  expect((await patch({ step: { id: 'files', state: 'done' } })).finishedAt).toBeNull()
+  const done = await patch({ step: { id: 'tools', state: 'skipped' } })
   expect(done.finishedAt).not.toBeNull()
 
   // the end screen shows once
@@ -115,7 +117,7 @@ test('a stored row a later release (or an earlier one) changed: read field by fi
     pack: { id: 'marketing', version: 2, installedAt: '2026-11-04T00:00:00.000Z' }, goal: { people: 3 },
   })
   const read = (await ada.client.call('GET', '/api/onboarding/welcome')).progress
-  expect(read.steps).toEqual({ profile: null, result: null, skills: null, files: null, invite: null })
+  expect(read.steps).toEqual({ profile: null, result: null, skills: null, files: null, tools: null, invite: null })
   expect(read.pack).toBeUndefined()
   expect(read.site).toBeNull()
 
@@ -151,10 +153,12 @@ test('a row from before (team step) finishes once its later steps are answered',
   })
   const patch = async (b: unknown) => (await owner.call('PATCH', '/api/onboarding/welcome', b)).progress
   await patch({ step: { id: 'result', state: 'done' }, resultChatId: chatOf(ownerId) })
-  // v5 recounts (docs/DECISIONS.md "W5"): 내 스킬 and 팀 파일, absent from that row, are open until answered
+  // v5 and v6 recount (docs/DECISIONS.md "W5", "W6"): 내 스킬, 팀 파일 and 도구 연결, absent from that row, are open until
+  // answered
   expect((await patch({ step: { id: 'invite', state: 'skipped' } })).finishedAt).toBeNull()
   await patch({ step: { id: 'skills', state: 'skipped' } })
-  const done = await patch({ step: { id: 'files', state: 'skipped' } })
+  expect((await patch({ step: { id: 'files', state: 'skipped' } })).finishedAt).toBeNull()
+  const done = await patch({ step: { id: 'tools', state: 'skipped' } })
   expect(done.finishedAt).not.toBeNull()
   expect(getSetting<any>(h.ctx.db, WELCOME_SETTING).steps.team).toBeNull()
 })
@@ -214,6 +218,7 @@ test('내 스킬 and 팀 파일: put off on a phone waits for a computer; the sh
   expect(p.steps.skills).toBe('skipped')
   expect(p.skillsLater).toBe(true)
   await owner.call('PATCH', '/api/onboarding/welcome', { step: { id: 'files', state: 'done' } })
+  await owner.call('PATCH', '/api/onboarding/welcome', { step: { id: 'tools', state: 'skipped' } })
   p = (await owner.call('PATCH', '/api/onboarding/welcome', { step: { id: 'invite', state: 'done' } })).progress
   expect(p.finishedAt).toBeNull()
   // the landing can only be a shared skill: none shared yet
