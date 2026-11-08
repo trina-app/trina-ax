@@ -14289,3 +14289,65 @@ and its developer page "User presence and status" (what was copied and what was 
   DM header, the list again after a reload, the member list with axe, the account menu's item, the phone's list and
   header).
 - Version impact: **minor** (a visible feature, a WebSocket control frame each way and one endpoint; no migration).
+
+## 방에 올리기… — a private room answer asks, also after a hidden earlier answer (feat/room-answer-post-ask, 2026-11-08, product owner)
+넣을 곳: trina-ax `server/src/rooms` (earlier-sources.ts, ai.ts, ai-redecide.ts, store.ts), `shared/src/api/rooms.ts`,
+`web/src/components/rooms/RoomMessages.tsx`, 이유: the room AI's share rule and permissions are core.
+
+The owner, on "🔒 나만 볼 수 있어요 · 방 사람 중 일부에게 가려진 예전 답을 참고해서 대화방에 올릴 수 없어요": "그냥 포스팅을 못한다고
+하면 어케해? 포스팅을 할지 물어봐야지". This amends "대화방의 트리나" (where the answer goes, posting a preview, the UX review's
+one-sentence reasons) and "지난 대화" (the AI's share rule: a preview that used an old answer hidden from some member was
+not postable, 409 `room_ai_hidden`, because its asker could not see what was at stake for them).
+
+- **What a hidden earlier answer was built on is followed and named** (`rooms/earlier-sources.ts`, called from
+  `RoomAi.decide`). For the old answers hidden from the members who keep the answer private (the ones `decide()` found
+  before, the asker's own hidden ones still exempt), what each used as kept (`room_ai_turns.scope`, a person's
+  message's `source_scope`) is followed: this room as a source through the answers in it hidden from those members that
+  the answer could have seen (before its own seq), a hidden thread reply through its thread's first message when that is
+  hidden too, a hidden answer through the answers in its thread; at most 8 levels (`EARLIER_DEPTH`) and 100 answers
+  (`EARLIER_MAX`), each once. When every source reached is one the asker may open now (a team folder or the top of the
+  team folder they may read, a name they may list, their own folder), those sources join the answer's own in `decide()`
+  and are judged as its own are: named folders, `personal`. `hidden` is then cleared and `earlier` set; such an answer
+  never goes to the room by itself (`post` is false even when every member could read all of it now, e.g. a hidden row
+  not checked again yet): its asker decides.
+  - **Why this is safe.** "The asker cannot see what is at stake" was true because the preview named nothing. What a
+    member who cannot see the old answer would learn from the new one is what the old answer was built on, and that is
+    now in the asker's sight: every source is one they may open themselves, named to them, with how many members cannot
+    see it. Following more than the old answer used (an answer of the room it did not see) only names more folders the
+    asker may open, or refuses. The others are never named; the count is the one the share-to-room dialog already gives
+    ("대화방에 보내기", A and B), not who.
+  - **Still refused** (no button, 409 `room_ai_hidden`, the reason alone: "가려진 예전 답을 참고해서 방에 올릴 수 없어요."):
+    a source in another room (a 1:1, a group chat, another team room), a connection, a shared Drive, the web or any tool
+    outside the team files, nothing kept, a source type this build does not know, someone else's own folder, a folder or
+    name the asker cannot open now, people's words or files in a hidden answer's thread or files on a hidden message
+    (no team file to name), too deep or too many, and a team room's or the everyone room's member whose history is not
+    worked out yet (what they will see is not known). Shared project chats are kept as their project folder
+    (`chat/room-project-chats.ts`: its readers are the chat's audience), so they are judged as that folder. No "ask
+    again" hint: asking again in the same place brings the same messages back.
+- **Counts.** `Decision.unable` (in `room_ai_turns.decision`, JSON, no migration) keeps for each named folder how many
+  members other than the asker cannot see it (read, or list for a name); `RoomMessage.preview.unable` and
+  `preview.earlier` carry them to the asker only.
+- **One line, one button, a confirm.** The preview's top line is "🔒 나만 볼 수 있어요 · 방에 올리기…" and under it one plain
+  line (supersedes the UX review's sentence per reason): "방 사람 중 일부가 볼 수 없는 자료를 참고한 답이라 지금은 나만 보고
+  있어요." (a 1:1: "상대가 볼 수 없는 …"; the web or a connection alone: "웹이나 연결된 서비스의 내용을 참고한 답이라 …"; no
+  reasons kept: "올리면 대화방 모두가 이 내용을 봐요."). The button shows exactly when `!preview.hidden`, the server's own
+  rule in `share()`. It opens the app's generic `confirmDialog` (no new dialog; the share-to-room dialog is not used, as
+  it posts as the person from their own chat and attaches copies): "이 답을 방에 올릴까요?", one row per reason ("단가표 · 방
+  사람 중 2명은 못 봐요", "… · 다른 사람은 못 봐요" when nobody else can, "다른 폴더 · 방 사람 중 일부는 못 봐요" for folders
+  the asker cannot open and the skills folders, "내 폴더 · 다른 사람은 못 봐요", "들어오기 전 대화 · ○○ 님은 못 봤어요", "웹이나
+  연결된 서비스의 내용"), a line when it went through a hidden earlier answer, then [방에 올리기] / [취소]. 취소 changes
+  nothing. Every postable preview asks this way, also the ones one click posted before: posting something some members
+  cannot see always shows what is at stake first. Posting is `share()` as before (the AI's message, "○○ 님이 물어봄", the
+  sources some cannot read leave its list, `room.ai_share` audited, now with `earlier: true` when it applies).
+- **Reasons that changed.** `share()` decides again; a different decision, now also a different count (a member who
+  cannot see a folder joined), is saved, sent as `room.message.updated` and answered 409 `room_ai_reasons_changed`; the
+  app shows the server's sentence as a toast and the notice follows the update. A decision kept before the counts is
+  compared without them (`reasonsChanged`), so it is not asked again for that alone.
+- **Previews kept as not postable before this.** At start the newest 500 private previews whose decision says `hidden`
+  are decided again once, on their own question's scope, for at most 2 seconds (`rooms/ai-redecide.ts`): one that now
+  qualifies gets its button. Nothing is posted and nobody is told.
+- Tests: `tests/unit/b-rooms-history.test.ts` ("an answer built on an old answer hidden from someone": followed through
+  two answers to the folder with its count, 404 for anyone else, posted and audited; another room, a connection,
+  someone else's folder, a folder the asker cannot open and people's words in its thread refused with 409; a member
+  whose history cannot be worked out refused; a count that changed answered 409 and then posted; a thread; the start
+  pass), `b-rooms-ai.test.ts`, `web/test/unit/room-messages.test.tsx`, `web/test/e2e/room-answer-post.spec.ts`.
