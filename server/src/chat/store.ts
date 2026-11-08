@@ -86,6 +86,9 @@ export interface MessageView {
   /** the chat was shared after it was made (chat/share-chat.ts: some turn of it is marked SHARED_LATER), and the
    * viewer's language: the steps of an answer from before the share show their words alone to everyone but its runner */
   sharedLater?: boolean
+  /** an answer hidden from the viewer (chat/shared-answers.ts: it used what they may not see, and they did not see the
+   * chat then): one line in its place, nothing of it */
+  withheld?: (messageId: string) => boolean
   locale?: Locale
 }
 
@@ -274,6 +277,13 @@ export class ChatStore {
     const runner = !view || (r.role === 'assistant' ? !!r.turn_id && this.turnUser(r.turn_id) === view.viewer : r.author_id === view.viewer)
     if (view) view = { ...view, runner }
     const hideLive = !!view && !runner && r.status === 'streaming'
+    // an answer hidden from the viewer: its place in the branch and nothing else (Message.withheld); a running one shows
+    // nothing to anyone but its runner anyway
+    if (view && !runner && r.role === 'assistant' && r.status !== 'streaming' && view.withheld?.(r.id)) {
+      const branch = { index: Math.max(0, siblings.indexOf(r.id)), count: Math.max(1, siblings.length), siblingIds: siblings }
+      return { id: r.id, chatId: r.chat_id, parentId: r.parent_id, role: r.role, author: null, content: '', attachments: [], steps: [], status: r.status, error: null,
+        turnId: r.turn_id, engine: null, model: null, files: null, usage: null, createdAt: iso(r.created_at), branch, withheld: true }
+    }
     const usage = r.role === 'assistant' && r.turn_id && runner ? this.turnUsage(r.turn_id) : null
     const error = parseError(r.error)
     const files = json<FileChangeSummary | null>(r.files, null)

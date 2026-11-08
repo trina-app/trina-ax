@@ -13790,7 +13790,8 @@ enters a shared transcript; that check is new here, and turns never run on the c
   share it after a check: "An existing chat shared" below). Who sees a shared chat is not
   stored: the project's audience now (`canSeeProject`: who can read its folder, owner and admins included; while the
   folder is in the trash, owner and admins only). Losing access hides the chat, from its creator too; gaining it shows
-  the whole history (the card said "project people"). Owner decisions: turning the setting off keeps the chats already
+  the history (the card said "project people"), but for answers built on what the newcomer may not read (decided
+  since: "People who see a shared chat later" below). Owner decisions: turning the setting off keeps the chats already
   shared (D1); no "나만 보기" per chat (D2); attachments are team files only, a computer upload is refused with "공유
   채팅에는 팀 파일만 붙일 수 있어요…" (D3).
 - **Every chat id goes through `chatFor`** (`ChatStore.ownChat` stays only for the server's own flows on a person's
@@ -13860,7 +13861,8 @@ enters a shared transcript; that check is new here, and turns never run on the c
   tainted. (5) A display name loses brackets, parentheses and quotes in the transcript labels; step labels keep a path's
   spellings on disk too. (6) A team-file attachment by a creator who lost the project is refused. Left as a design
   point for the owner: an admin repoint (or a folder rule change) shows existing shared transcripts to the new readers;
-  the repoint dialog says how many chats and people, nothing asks again.
+  the repoint dialog says how many chats and people, nothing asks again (decided since: the rooms' rule, "People who
+  see a shared chat later" below).
 - **Not in phase 1.** Live answers for viewers, unseen markers per viewer, a chat file store for uploads, connections
   and Drive behind the gate, share-to-room for every viewer, a gate that checks searches after they run. Not added: a
   toggle per chat, sharing existing chats (added since: "An existing chat shared" below), avatars (added since: "Who
@@ -14009,6 +14011,89 @@ visible transcript, so the visible messages are what gets disclosed: the same in
   chat shared later"), a `permission-matrix` row (`p4-route-coverage` covers the route), `b-answer-share` unchanged,
   `web/test/e2e/share-existing-chat.spec.ts`.
 - Version impact: **minor** (a new endpoint and an audit action; no migration).
+
+### People who see a shared chat later — 나중에 보는 사람 (fix/shared-chat-audience, 2026-11-08, product owner)
+
+A design audit of dev: the audience of a shared chat is whoever can read its project folder now, so people who gain
+access later saw the whole transcript, also what the read card confirmed only for the people there then (Mina confirms
+`groups/finance/` for five people; twenty join a group that reads the project and see it). The owner decided: the same
+rule as team rooms ("지난 대화", `rooms/history.ts`). Plan: `docs/AGENTS/plan/20261108-0940-shared-chat-audience.md`.
+
+- **The rule** (`chat/shared-answers.ts`). An answer stays visible to the person whose turn it was, to the people who
+  saw the chat when it read what it used, and to anyone who may read every one of those places now; for everyone else
+  it is one faint line in its place, the rooms' words ("볼 수 없는 자료를 참고한 답이라 가려졌어요", `rooms.withheldAnswer`).
+  The walk goes down each branch, so an answer built on one hidden from a viewer is hidden from them too, unless that
+  one was not in its context (its runner did not see it either). People's messages always show (as in rooms).
+- **What is kept** (migration 273 `shared_answer_reads`, add-only). Per answer: groups `{c, s, x?}` (the people who saw
+  the chat, the places read then; `x`: not all known, so only `c`) and `left_out` (the answers above it its runner did
+  not see). The read gate records every call's sources when it lets the call go on (`confirmSharedRead`: with the
+  card's audience on a yes, with everyone then when nobody missed a place; calls, "/name", attached team files,
+  sub-agents), and the turn the team rules and company profile its instructions hold, as a room does. A record that
+  cannot be written refuses the read, and the turn does not start without its `left_out` (fails closed). The record
+  exists from `createTurn` (in its transaction); an answer without one is hidden from everyone but its runner. A chat
+  shared later (`chat/share-chat.ts`) records every earlier answer for the share's audience and its creator, with the
+  places the check counted, not known when the check could not tell or memories were in play; answers from before
+  this build get, once at start, the people who see the chat then, not known (`recordOlderAnswers`; a project in the
+  trash: the readers of its folder).
+- **Everywhere the transcript reaches someone.** `Message.withheld` (optional, `true`): content '', no steps, files,
+  sources, artifacts, model or error; its branch switch stays; never on an answer of one's own question. The sources
+  list answers empty; an artifact version made by a hidden answer is not listed or opened, nor any later version of
+  the same key but one's own (a version may carry the one before it, on any branch: fails closed), an `update` by
+  someone it is hidden from finds no artifact and a new version takes nothing from it (its number goes on). Chat
+  search counts a word only in a title or a message the person sees, from one full-text search per request (the chat
+  id is not indexed). Export: the line
+  in place of a hidden answer (without the check, every answer of a shared chat). The engine of a later reader's turn
+  gets `WITHHELD_ANSWER` in place of each hidden answer (`labelledTranscript` / `sharedTranscriptText` take the hidden
+  set), and no "the previous answer paused" note for one; a resumed session is only the runner's own (as before), and
+  its answer's `left_out` keeps only what its earlier answer left out too. Notifications and live text were the
+  runner's already.
+- **A room's @트리나** (`chat/room-project-chats.ts`). `project_chat` reads the transcript as the asker sees it (a
+  hidden answer is one line). What the answers it was given read joins the question's read scope (`carry`), as a
+  file's folder does: `decide()` keeps the room answer private for a member who may not read it and names the folders
+  the asker may open, and `rooms/history.ts` judges a member who joins the room later by it. An answer whose reads are
+  not all known (or has no record) counts as something outside the team files (never to the room by itself, hidden
+  from later members), and so does a question whose answers someone here may not see when their places alone would
+  not keep it private (built on another hidden answer). `project_chats` counts a word only in a title, a project name,
+  a person's message, or an answer the asker and everyone in the room who sees the project see; the answers it
+  counted through are carried the same way. At most 200 chats are looked into through their answers per search (each
+  is worked out for every member).
+- **Group skills are their members' only, in shared chats too.** One helper for rooms and shared chats,
+  `chat/skills.ts everyoneMayUse` / `mayNotUse` (read it, and for `groups/<folder>/skills/…` be in that group; the
+  owner and admins read every group folder). The skill list, the skill tool's names and `find_skills` of a shared chat
+  go by it (`TurnExec.audienceReadable`), and loading a group's skill when someone who sees the chat is not in the group
+  asks on the card with its own words: "AI가 {곳}의 스킬을 쓰려고 해요. 이 채팅을 보는 프로젝트 사람 {n}명 중 {m}명은 이
+  스킬을 쓸 수 없어요. 쓰면 모두가 이 채팅에서 내용을 보게 돼요." (five languages; the tool and "/name").
+- **Decided here, the least visible change that never widens access.** A covered person whose own access narrowed
+  keeps the answer (rooms keep theirs too); the runner always keeps theirs. A read nobody had to confirm counts like a
+  confirmed one (its group is everyone then): a later reader who may not read the place gets the line. The
+  instructions' skill list is not recorded (rooms do not either). A room's answer built on a shared chat goes by what
+  its members may read, as for a file: someone the card covered who may not read the place keeps the chat's answer
+  but not a room's answer about it (the room's decision has places, not people).
+- **Rollback.** A build with migration 265 and without 273 shows every answer to everyone who sees the chat again while
+  it runs (as before this change; raising `min_compatible_reader` would refuse the database instead, which is worse);
+  when this build comes back, the answers that build made are recorded for the people who see the chat then.
+- **Independent security review (2026-11-08).** Fixed: an artifact version on another branch built on a hidden one
+  (an `update` of the same key) showed its title and text to a later reader (must-fix: later versions of a key are
+  hidden with it); a room's `project_chats` search counted words in answers hidden from someone in the room, so a find
+  or a "no match" told them about it (should-fix: only messages everyone there sees count); a search ran one full-text
+  query per shared chat (should-fix: one per request); every viewer's walk read and parsed the chat again (should-fix:
+  read once per request, `c` as a set); the migration's note on older builds was wrong for builds with 265 (fixed,
+  above). Kept, written down: a chat that stops being shared is its creator's own again (the rollback guard, a lost
+  project), and they see every answer in it; the skill names and folder lists of the instructions are not recorded (as
+  in rooms); the URL gate counts addresses a hidden answer's web search showed as seen (no content reaches anyone);
+  each answer's groups keep the audience's ids (a few KB for a big team). Round 2 (on the fixes): no must-fix; a
+  search walked every chat for every member with a fresh account and rule cache (should-fix: kept per person for the
+  request, a person's message counts without a walk, at most 200 chats through answers, the full-text search limited
+  to the candidate chats); a room answer's kept places were only the project, so a member who joins the room later
+  was judged without the answers it was built on (should-fix: their places always go with it). Kept: a search's "no
+  match" says nothing about answers a later room member may not see only for the members there when it ran.
+- **Not here.** A card when someone joins; the chat's title (no `set_title` in shared chats; a chat shared later keeps
+  its private title); a source type of its own for a project in rooms.
+- Tests: `tests/unit/b-shared-chat-audience.test.ts` (a confirmed read and an unconfirmed one, covered, reader, later
+  reader continuing, built on a hidden answer, search, sources, artifacts, export, older answers, a missing record,
+  group skills), `tests/unit/b-rooms-ai-shared-chats.test.ts` ("an answer hidden from someone who sees the chat"),
+  `b-share-existing-chat`, `web/test/unit/shared-chat-withheld.test.tsx`, `web/test/e2e/shared-project-chats.spec.ts`.
+- Version impact: **minor** (an optional API field, an add-only migration, a stricter rule for later readers).
 
 ## 대화방의 트리나가 공유 프로젝트 채팅을 읽는다 — a room's AI reads shared project chats (feat/room-reads-shared-chats, 2026-11-07, product owner)
 
