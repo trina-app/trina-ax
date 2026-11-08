@@ -18,10 +18,13 @@ test('a folder picked in the window is readable by the team page, read only', as
     await exec('bun', ['build', join(import.meta.dirname, 'fixtures/folder-main.ts'), '--target=node', '--format=cjs', '--external=electron', `--outfile=${output}`])
     const electron = createRequire(import.meta.url)('electron') as string
     const { stdout } = await exec(electron, [output], { env: { ...process.env, FOLDER_TEST_PROFILE: join(dir, 'profile') }, timeout: 60_000 })
-    const { out, restricted } = JSON.parse(stdout.split('\n').find((line) => line.startsWith('FOLDER_RESULT '))!.slice(14))
+    const { out, fromChromium, restricted } = JSON.parse(stdout.split('\n').find((line) => line.startsWith('FOLDER_RESULT '))!.slice(14))
     const none = { state: 'handle', kind: 'directory', read: 'denied', write: 'denied', listError: 'NotAllowedError' }
     // a handle that did not come from the folder window reads nothing
     expect(out.droppedNotPicked).toEqual(none)
+    // nor can the page widen it: its own requestPermission() is answered by the check (the request handler cannot tell
+    // it from a pick, so this must stay so; common/folder-access.ts)
+    expect([out.askReadNotPicked, out.askWriteNotPicked]).toEqual(['denied', 'denied'])
     // the request after a pick: read, the top frame, the team origin
     expect([out.pickWritable, out.pickSubframe, out.pickOtherOrigin, out.pick]).toEqual([false, false, false, true])
     expect(out.afterPick).toEqual({ state: 'handle', kind: 'directory', read: 'granted', write: 'denied', names: ['a.txt', 'sub'] })
@@ -35,6 +38,8 @@ test('a folder picked in the window is readable by the team page, read only', as
     // another origin in the same session
     expect(out.otherOrigin).toEqual(none)
     expect(out.otherOriginHome).toEqual({ state: 'error', error: 'AbortError' })
+    // Chromium asked the request handler nothing in this run: no pick happened, every page request went to the check
+    expect(fromChromium).toEqual([])
     expect(restricted).toEqual([{ path: 'home', action: 'allow' }, { path: 'appData', action: 'deny' }, { path: 'home', action: 'deny' }])
   } finally {
     rmSync(dir, { recursive: true, force: true })

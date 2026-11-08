@@ -64,15 +64,16 @@ export function hardenAppSession(ses: Session, allowedOrigins: () => readonly st
     return allowedOrigins().includes(requestingOrigin) && PAGE_PERMISSIONS.has(permission)
   })
   ses.setDevicePermissionHandler(() => false)
-  // a folder Chromium's blocklist refuses: with no listener the page's pick never settles
+  // a folder Chromium's blocklist refuses: the page's pick settles only when the callback is called, so it always is
   ses.on('file-system-access-restricted', (_e, d, callback) => {
-    let isTopFrame = false
+    let action: 'allow' | 'deny' = 'deny'
     try {
-      isTopFrame = !!d.frame && d.frame.parent === null
+      const isTopFrame = !!d.frame && d.frame.parent === null
+      action = restrictedFolderAction({ origin: d.origin, path: d.path, isDirectory: d.isDirectory, isTopFrame }, allowedOrigins(), folderRoots(), process.platform)
     } catch {
-      isTopFrame = false // the frame went away meanwhile
+      action = 'deny' // the frame went away meanwhile, or anything else unexpected
     }
-    callback(restrictedFolderAction({ origin: d.origin, path: d.path, isDirectory: d.isDirectory, isTopFrame }, allowedOrigins(), folderRoots(), process.platform))
+    callback(action)
   })
 }
 

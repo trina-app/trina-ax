@@ -7,10 +7,13 @@
 //    came from, with the grant's origin as a URL ("https://acme.treesoop.com/", trailing slash) and no frame;
 //  - file-system-access-restricted: a folder Chromium's blocklist refuses (home, Desktop, Documents and Downloads
 //    themselves; ~/Library, ~/.ssh, app data and the like with everything in them).
-// What the page gets: read only, from the team page's top frame at an allowed origin, for the folders the person picked
-// in the window while the app runs and what is inside them. A dropped folder handle, or one the page saved and loads
-// in a later run, is not readable until the person picks it again. Pure: unit-tested in
-// tests/unit/e-desktop-folder-window.test.ts.
+// What the page gets: read only, for the folders the person picked in the window while the app runs and what is inside
+// them. A pick counts only from the team page's top frame at an allowed origin; a read counts for that origin (Electron
+// gives no frame with a check, so whatever of that origin holds the handle reads it). A dropped folder handle, or one
+// the page saved and loads in a later run, is not readable until the person picks it again. The request handler cannot
+// tell a pick from the page's own requestPermission(): that this never reaches it is Electron's doing (the check answers
+// first), pinned by desktop/e2e/folder-window.spec.ts. Pure: unit-tested in tests/unit/e-desktop-folder-window.test.ts.
+import { posix, win32 } from 'node:path'
 import { originOf } from './address'
 
 /** what Electron sends with a 'fileSystem' request (PermissionRequest + FilesystemPermissionRequest) */
@@ -35,13 +38,15 @@ export interface RestrictedFolder {
   isTopFrame: boolean
 }
 
-/** A path as compared here: Windows ignores case and takes either slash; no trailing separator except at a root. */
+/** A path as compared here: `.` and `..` resolved, Windows ignores case and takes either slash; no trailing separator
+ * except at a root. */
 export function folderKey(path: string, platform: string): string {
   if (platform === 'win32') {
-    const p = path.replace(/\//g, '\\').toLowerCase()
+    const p = win32.normalize(path).toLowerCase()
     return /^[a-z]:\\$/.test(p) || p === '\\' ? p : p.replace(/\\+$/, '')
   }
-  return path === '/' ? path : path.replace(/\/+$/, '')
+  const p = posix.normalize(path)
+  return p === '/' ? p : p.replace(/\/+$/, '')
 }
 
 /** path is folder or somewhere inside it (both already folderKey'd) */

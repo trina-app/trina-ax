@@ -86,6 +86,17 @@ describe('a read (the check before every read through a handle)', () => {
     expect(folderKey('C:\\Users\\Alex\\', 'win32')).toBe('c:\\users\\alex')
     expect(folderKey('/Users/Alex/', 'darwin')).toBe('/Users/Alex')
     expect(folderKey('/', 'linux')).toBe('/')
+    expect(folderKey('C:/Users/Alex/./Docs/../', 'win32')).toBe('c:\\users\\alex')
+  })
+
+  test('. and .. are resolved before comparing: a path cannot climb out of a picked folder', () => {
+    const g = new FolderGrants('darwin')
+    g.request(picked('/Users/alex/Documents/company'), ALLOWED)
+    expect(g.check(`${TEAM}/`, read('/Users/alex/Documents/company/../../.aws'), ALLOWED)).toBe(false)
+    expect(g.check(`${TEAM}/`, read('/Users/alex/Documents/company/./2026/../q1'), ALLOWED)).toBe(true)
+    const w = new FolderGrants('win32')
+    w.request(picked('C:\\Users\\Alex\\Documents\\Company'), ALLOWED)
+    expect(w.check(`${TEAM}/`, read('C:\\Users\\Alex\\Documents\\Company\\..\\..\\AppData'), ALLOWED)).toBe(false)
   })
 })
 
@@ -141,8 +152,14 @@ describe('the team session wiring (desktop/src/main/security.ts)', () => {
 
   test('the restricted folder event is answered on the team session, from the top frame, with the four roots', () => {
     expect(harden).toContain("ses.on('file-system-access-restricted'")
-    expect(harden).toContain('isTopFrame = !!d.frame && d.frame.parent === null')
-    expect(harden).toContain('callback(restrictedFolderAction(')
+    expect(harden).toContain('const isTopFrame = !!d.frame && d.frame.parent === null')
+    expect(harden).toContain('action = restrictedFolderAction(')
+    // the callback is called whatever happens (an uncalled one leaves the page's pick waiting forever), deny by default
+    const listener = harden.slice(harden.indexOf("ses.on('file-system-access-restricted'"))
+    expect(listener).toContain("let action: 'allow' | 'deny' = 'deny'")
+    expect(listener.indexOf('try {')).toBeLessThan(listener.indexOf('const isTopFrame'))
+    expect(listener.indexOf('} catch {')).toBeLessThan(listener.indexOf('callback(action)'))
+    expect(listener.indexOf('} catch {')).toBeGreaterThan(listener.indexOf('action = restrictedFolderAction('))
     expect(security).toContain("(['home', 'desktop', 'documents', 'downloads'] as const)")
   })
 

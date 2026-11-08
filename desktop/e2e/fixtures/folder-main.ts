@@ -44,9 +44,17 @@ void (async () => {
   await app.whenReady()
 
   const ses = session.fromPartition('folder-team')
+  // the handler the session got (called directly for a "pick"), and how often Chromium itself called it
   let request: ((...a: any[]) => void) | null = null
+  const fromChromium: string[] = []
   const set = ses.setPermissionRequestHandler.bind(ses)
-  ses.setPermissionRequestHandler = ((h: any) => set((request = h))) as typeof ses.setPermissionRequestHandler
+  ses.setPermissionRequestHandler = ((h: any) => {
+    request = h
+    return set((wc: any, permission: any, done: any, details: any) => {
+      fromChromium.push(permission)
+      return h(wc, permission, done, details)
+    })
+  }) as typeof ses.setPermissionRequestHandler
   const restricted: { path: string; action: string }[] = []
   const on = ses.on.bind(ses) as (event: string, listener: (...a: any[]) => void) => unknown
   ;(ses as any).on = (event: string, listener: (...a: any[]) => void) =>
@@ -77,6 +85,9 @@ void (async () => {
   await win.loadURL(team)
   await js('window.listIt = true')
   out.droppedNotPicked = await drop(folder)
+  // the page asks for itself, with a click: Electron answers from the check, the request handler never hears of it
+  out.askReadNotPicked = await js("window.handle.requestPermission({ mode: 'read' }).catch((e) => e.name)", true)
+  out.askWriteNotPicked = await js("window.handle.requestPermission({ mode: 'readwrite' }).catch((e) => e.name)", true)
   out.pickWritable = await picked(folder, { fileAccessType: 'writable' })
   out.pickSubframe = await picked(folder, { isMainFrame: false })
   out.pickOtherOrigin = await picked(folder, { requestingUrl: `${other}/` })
@@ -94,7 +105,7 @@ void (async () => {
   await js('window.listIt = true')
   out.otherOrigin = await drop(folder)
   out.otherOriginHome = await drop(app.getPath('home'))
-  console.log('FOLDER_RESULT ' + JSON.stringify({ out, restricted: restricted.map((r) => ({ ...r, path: r.path === app.getPath('home') ? 'home' : r.path === app.getPath('appData') ? 'appData' : 'other' })) }))
+  console.log('FOLDER_RESULT ' + JSON.stringify({ out, fromChromium, restricted: restricted.map((r) => ({ ...r, path: r.path === app.getPath('home') ? 'home' : r.path === app.getPath('appData') ? 'appData' : 'other' })) }))
   win.destroy()
   server.close()
   app.exit(0)
