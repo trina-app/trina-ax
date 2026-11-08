@@ -158,8 +158,6 @@ function WelcomeSteps() {
   /** 내 스킬 가져오기 shared something: the server recorded the step done (it does for a share applied anywhere); the copy
    * here is read again */
   const applied = () => { void useWelcome.getState().load(true).catch(() => {}) }
-  /** the phone's "다음": 내 스킬 waits for a computer (the setup row there says so), the steps go on */
-  const skillsLater = () => run(async () => go(await useWelcome.getState().update({ skillsLater: true }), 'skills'))
 
   if (loadError)
     return (
@@ -196,7 +194,7 @@ function WelcomeSteps() {
         {!gate && step === 'profile' && <ProfileWizardStep progress={progress} busy={busy} onContinue={(chatId) => void leaveProfile('done', chatId)} onSkip={() => void leaveProfile('skipped')} />}
         {!gate && step === 'skills' && (
           <SkillsStep team={progress.teamGroup?.name ?? me.team.name} nextLabel={nextLabel('skills')} busy={busy} onApplied={applied}
-            onNext={() => void mark('skills', 'done')} onSkip={() => void mark('skills', 'skipped')} onPhoneNext={() => void skillsLater()} />
+            onNext={() => void mark('skills', 'done')} onSkip={() => void mark('skills', 'skipped')} />
         )}
         {!gate && step === 'files' && <TeamFilesStep progress={progress} busy={busy} nextLabel={nextLabel('files')} onDone={(n) => void mark('files', n > 0 ? 'done' : 'skipped')} onSkip={() => void mark('files', 'skipped')} />}
         {!gate && step === 'invite' && <InviteWizardStep progress={progress} onDone={() => void mark('invite', 'done')} onSkip={() => void mark('invite', 'skipped')} />}

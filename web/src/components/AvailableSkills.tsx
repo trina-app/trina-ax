@@ -6,24 +6,34 @@
 // read-only list for members and admins; what only skill managers and admins do (review suggestions, recent changes)
 // stays in the page's other tabs. A chat starts from the skill's name, so of two skills with one name the server picks
 // (server/src/chat/skills.ts). A skill with a form (metadata `inputs`) opens it instead (skills/SkillForm.tsx), from
-// the row, its run button and its menu. With no skill at all, owners and admins can install the recommended skills in
-// one click ("추천 스킬 4개 넣기": the general and work packs, POST /api/onboarding/packs/:id/install for each); members
-// read that an admin can. Nothing else offers a pack, and nothing adds one by itself (docs/DECISIONS.md "DS3").
+// the row, its run button and its menu.
+// Under the lists (docs/DECISIONS.md "W6"; FLOW-v6 §4.2, §6): for owners and admins, the kept skills the team does not
+// have, folded in one line ("트리나가 준비한 스킬 · N개 더": components/skills/PackRows.tsx), nothing pre-checked,
+// [팀에 넣기 · n개] (the rows then move up into the list); hidden while the search box has text, absent when nothing is
+// missing, and a skill shipped later only raises its count (no notice, dot or prompt). Then "내 스킬 가져오기" for
+// everyone on a computer: owners and admins pick a folder and apply it (skills/BringSkillsSheet.tsx), members suggest
+// (skills/ContributeSheet.tsx: 스킬로 제안); on a phone one plain line says it is done on a computer. Nothing adds a skill
+// by itself (docs/DECISIONS.md "DS3").
 import clsx from 'clsx'
-import { FileText, MessageSquarePlus, MoreHorizontal, PackagePlus, Play, ScrollText, Sparkles } from 'lucide-react'
+import { ChevronDown, ChevronRight, FileText, FolderUp, MessageSquarePlus, MoreHorizontal, Play, ScrollText, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { RECOMMENDED_PACK_SKILLS, RECOMMENDED_SKILL_PACKS, skillSummary, type SkillInfo } from '@mycel/shared/api'
-import { api, API, errorText } from '../lib/api'
+import { skillSummary, type SkillInfo } from '@mycel/shared/api'
+import { api, API } from '../lib/api'
+import { answersFileInputs } from '../lib/desktop'
+import { canPickHandle, canPickInput } from '../lib/skillScan'
 import { navigateTo } from '../lib/nav'
 import { parentPath } from '../lib/paths'
 import { isSkillsPath } from '../lib/skillIssues'
-import { useLocale, useT } from '../i18n'
+import { useT } from '../i18n'
 import { accessChanged, filesChanged, reloadAsked, skillsChanged } from '../store/live'
 import { isAdmin, useMe } from '../store/session'
 import { toast } from '../store/ui'
 import { skillPrompt } from './PopularSkills'
+import { BringSkillsSheet } from './skills/BringSkillsSheet'
+import { ContributeSheet } from './skills/ContributeSheet'
+import { installPacks, PackNotes, PackRows, usePackCatalog, type PackInstallOutcome } from './skills/PackRows'
 import { SkillFormDialog } from './skills/SkillForm'
-import { Button, EmptyState, ErrorNote, IconButton, Skeleton } from './ui'
+import { Button, EmptyState, ErrorNote, IconButton, Skeleton, useMediaQuery } from './ui'
 
 type Skill = SkillInfo & { uses?: number }
 
@@ -97,75 +107,133 @@ export function AvailableSkillsList({ items, query = '' }: { items: Skill[] | nu
   const admin = isAdmin(useMe())
   const [running, setRunning] = useState<Skill | null>(null)
   if (!items) return <Skeleton lines={3} />
-  if (!items.some((s) => !s.shadowedBy)) return <NoSkills />
   const q = query.trim().toLowerCase()
+  // the kept skills the team lacks and the way to bring one's own, under the lists; the catalog hides while searching
+  const below = (
+    <>
+      {admin && !q && <PackCatalogFold />}
+      <BringOwnLine />
+    </>
+  )
+  if (!items.some((s) => !s.shadowedBy)) return <div className="space-y-6"><NoSkills />{below}</div>
   // a skill another one of its name replaced is not in the lists below, and not in the counts: its own section
   const shown = q ? items.filter((s) => `${s.name} ${s.title ?? ''} ${s.description}`.toLowerCase().includes(q)) : items
-  if (!shown.length) return <EmptyState icon={<Sparkles size={22} />} title={t('skills.noMatch', { q: query.trim() })} />
+  if (!shown.length) return <div className="space-y-6"><EmptyState icon={<Sparkles size={22} />} title={t('skills.noMatch', { q: query.trim() })} />{below}</div>
   const hidden = shown.filter((s) => s.shadowedBy)
   return (
-    <div className="space-y-6" data-testid="skill-list">
-      <SkillSection title={t('skills.fromTeam')} items={shown.filter((s) => !s.personal && !s.group && !s.shadowedBy)} folders={admin} onRun={setRunning} />
-      {skillGroups(shown.filter((s) => !s.shadowedBy)).map((g) => (
-        <SkillSection key={g.id} title={t('skills.fromGroup', { group: g.name })} items={shown.filter((s) => s.group?.id === g.id && !s.shadowedBy)} folders={admin} onRun={setRunning} testId={`skill-group-${g.id}`} />
-      ))}
-      <SkillSection title={t('skills.personal')} items={shown.filter((s) => s.personal)} folders={admin} onRun={setRunning} />
-      <SkillSection title={t('skills.shadowedTitle')} items={hidden} folders={admin} onRun={setRunning} testId="skill-shadowed" />
+    <div className="space-y-6">
+      <div className="space-y-6" data-testid="skill-list">
+        <SkillSection title={t('skills.fromTeam')} items={shown.filter((s) => !s.personal && !s.group && !s.shadowedBy)} folders={admin} onRun={setRunning} />
+        {skillGroups(shown.filter((s) => !s.shadowedBy)).map((g) => (
+          <SkillSection key={g.id} title={t('skills.fromGroup', { group: g.name })} items={shown.filter((s) => s.group?.id === g.id && !s.shadowedBy)} folders={admin} onRun={setRunning} testId={`skill-group-${g.id}`} />
+        ))}
+        <SkillSection title={t('skills.personal')} items={shown.filter((s) => s.personal)} folders={admin} onRun={setRunning} />
+        <SkillSection title={t('skills.shadowedTitle')} items={hidden} folders={admin} onRun={setRunning} testId="skill-shadowed" />
+      </div>
+      {below}
       {running && <SkillFormDialog path={running.path} skill={running} onClose={() => setRunning(null)} />}
     </div>
   )
 }
 
-/** Install the recommended packs (the general pack, then the work pack) on a click and say what happened (only what is
- * missing goes in; nothing is replaced). */
-function useRecommendedInstall() {
-  const t = useT()
-  const locale = useLocale()
-  const [busy, setBusy] = useState(false)
-  const install = async () => {
-    setBusy(true)
-    let created = 0, blocked = 0, done = 0, failed: unknown = null
-    // one pack after the other: a refusal of one still lets the other in
-    for (const id of RECOMMENDED_SKILL_PACKS) {
-      try {
-        const r = await api.call(API.installSkillPack, { params: { id } })
-        created += r.skills.filter((s) => s.status === 'created').length
-        blocked += r.skills.filter((s) => s.status === 'blocked').length
-        done++
-      } catch (e) {
-        failed ??= e
-      }
-    }
-    if (!done) toast({ level: 'error', text: errorText(failed, locale, t('error.network')) })
-    else {
-      toast({ level: blocked || failed ? 'warn' : 'success', text: [created ? t('skillPack.installed', { n: created }) : t('skillPack.already'), blocked ? t('skillPack.blocked', { n: blocked }) : '', failed ? errorText(failed, locale, t('error.network')) : ''].filter(Boolean).join(' ') })
-      skillsChanged.emit()
-    }
-    setBusy(false)
-  }
-  return { busy, install }
+/** A phone (or a browser that cannot pick folders): skills from Claude Code or Codex go in on a computer. */
+function usePicksFolders(): boolean {
+  const narrow = useMediaQuery('(max-width: 767.98px)')
+  return !narrow && (answersFileInputs() || canPickHandle() || canPickInput())
 }
 
-/** No skill yet: owners and admins install the recommended skills here (one button); members learn that an admin can. */
+/** "트리나가 준비한 스킬 · N개 더" (owners and admins): the kept skills the team does not have, folded; open, nothing is
+ * checked, and [팀에 넣기 · n개] installs what is (the brand action runs first on the server). The rows that went in
+ * leave this list for the one above. Absent when nothing is missing; the line says so when the catalog does not load. */
+function PackCatalogFold() {
+  const t = useT()
+  const { catalog, failed, reload } = usePackCatalog()
+  const [open, setOpen] = useState(false)
+  const [checked, setChecked] = useState<Set<string>>(new Set())
+  const [busy, setBusy] = useState(false)
+  const [outcome, setOutcome] = useState<PackInstallOutcome | null>(null)
+  if (failed && !catalog) return <div data-testid="skill-catalog-failed"><ErrorNote onRetry={reload}>{t('skillPack.loadFailed')}</ErrorNote></div>
+  if (!catalog) return null
+  const missing = catalog.skills.filter((s) => !s.inTeam)
+  if (!missing.length) return null
+  const chosen = missing.filter((s) => checked.has(s.name))
+  const install = async (items = chosen) => {
+    setBusy(true)
+    try {
+      const r = await installPacks(items)
+      setOutcome(r)
+      setChecked((x) => { const next = new Set(x); for (const s of items) if (!r.failed.includes(s.name)) next.delete(s.name); return next })
+      if (r.went.length) toast({ level: r.taken.length || r.blocked.length || r.failed.length ? 'warn' : 'success', text: t('skillPack.installed', { n: r.went.length }) })
+    } finally {
+      setBusy(false)
+    }
+  }
+  const retry = () => { const items = missing.filter((s) => outcome?.failed.includes(s.name)); if (items.length) void install(items) }
+  return (
+    <section aria-labelledby="skill-catalog-title" data-testid="skill-catalog" data-open={open || undefined}>
+      <button
+        type="button"
+        id="skill-catalog-title"
+        className="-mx-2 flex min-h-11 w-[calc(100%+1rem)] items-center gap-1.5 rounded-lg px-2 py-2 text-left text-sm font-medium md:hover:bg-hover"
+        aria-expanded={open}
+        aria-controls="skill-catalog-rows"
+        onClick={() => setOpen((x) => !x)}
+        data-testid="skill-catalog-toggle"
+      >
+        <span className="min-w-0 flex-1">{t('skills.catalog.more', { n: missing.length })}</span>
+        <ChevronDown size={16} className={clsx('shrink-0 text-faint transition', open && 'rotate-180')} aria-hidden />
+      </button>
+      {open && (
+        <div id="skill-catalog-rows" className="space-y-3">
+          <PackRows items={missing} checked={checked} onToggle={(name, on) => setChecked((x) => { const next = new Set(x); if (on) next.add(name); else next.delete(name); return next })} outcome={outcome} disabled={busy} />
+          <PackNotes outcome={outcome} onRetry={busy ? undefined : retry} />
+          <div className="flex items-center gap-2">
+            <Button variant="primary" busy={busy} disabled={!chosen.length} onClick={() => void install()} data-testid="skill-catalog-install">{t('skills.catalog.install', { n: chosen.length })}</Button>
+            <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy} data-testid="skill-catalog-fold">{t('skills.catalog.fold')}</Button>
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
+/** "내 스킬 가져오기", everyone on a computer: owners and admins bring a folder in (it applies), members suggest it. A
+ * phone: one plain line, no button. */
+function BringOwnLine() {
+  const t = useT()
+  const me = useMe()
+  const admin = isAdmin(me)
+  const computer = usePicksFolders()
+  const [open, setOpen] = useState(false)
+  if (!me) return null
+  if (!computer) return <p className="text-label text-muted" data-testid="skill-bring-phone">{t('skills.catalog.bringPhone')}</p>
+  return (
+    <>
+      <button
+        type="button"
+        className="-mx-2 flex min-h-11 w-[calc(100%+1rem)] items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium md:hover:bg-hover"
+        aria-haspopup="dialog"
+        onClick={() => setOpen(true)}
+        data-testid="skill-bring"
+        data-role={admin ? 'admin' : 'member'}
+      >
+        <FolderUp size={16} className="shrink-0 text-muted" aria-hidden />
+        <span className="min-w-0 flex-1">{t('skills.catalog.bring')}</span>
+        <ChevronRight size={16} className="shrink-0 text-faint" aria-hidden />
+      </button>
+      {open && (admin ? <BringSkillsSheet team={me.team.name} onClose={() => setOpen(false)} /> : <ContributeSheet folder={null} onClose={() => setOpen(false)} />)}
+    </>
+  )
+}
+
+/** No skill yet: owners and admins read so (the catalog below has the kept skills); members learn that the owner or an
+ * admin puts them in, and how a suggestion gets there. */
 function NoSkills() {
   const t = useT()
   const admin = isAdmin(useMe())
-  const { busy, install } = useRecommendedInstall()
   return (
-    <EmptyState icon={<Sparkles size={22} />} title={t('skills.noSkills')}>
-      {admin ? (
-        <div className="flex flex-col items-center gap-3" data-testid="skill-pack-offer">
-          <p>{t('skillPack.adminHint')}</p>
-          <Button variant="primary" busy={busy} onClick={() => void install()} data-testid="skill-pack-install">
-            <PackagePlus size={14} aria-hidden /> {t('skillPack.install', { n: RECOMMENDED_PACK_SKILLS })}
-          </Button>
-        </div>
-      ) : (
-        <>
-          <p data-testid="skill-pack-member">{t('skillPack.memberHint')}</p>
-          <p className="mt-1">{t('skills.noSkillsHint')}</p>
-        </>
-      )}
+    <EmptyState icon={<Sparkles size={22} />} title={t(admin ? 'skills.noSkills' : 'skills.catalog.memberEmpty')}>
+      {!admin && <p data-testid="skill-none-member">{t('skills.noSkillsHint')}</p>}
     </EmptyState>
   )
 }

@@ -9,7 +9,7 @@
 import { API } from '@mycel/shared/api'
 import type { RouteModule } from './module'
 import { getChatRuntime } from '../chat/runtime'
-import { applySkillShare, createSkillShare, dismissSkillShare, getSkillShare, listSkillShares, setSkillShareTarget, SKILL_SHARE_BODY_MAX } from '../skills/share'
+import { applySkillShare, createSkillShare, dismissSkillShare, getSkillShare, listSkillShares, setSkillShareTarget, SKILL_SHARE_BODY_MAX, stopSkillShareCheck } from '../skills/share'
 import { startOpenedMerge } from '../skills/share-merge'
 
 export const skillSharesRoutes: RouteModule = {
@@ -22,6 +22,8 @@ export const skillSharesRoutes: RouteModule = {
     kit.handle(API.getSkillShare, ({ params, auth }) => getSkillShare(ctx, rt(), auth.user.id, params.id))
     kit.handle(API.setSkillShareTarget, ({ c, params, body, auth }) => setSkillShareTarget(ctx, rt(), auth.user, c.get('locale'), params.id, body))
     kit.handle(API.applySkillShare, ({ c, params, body, auth }) => applySkillShare(ctx, rt(), auth, c.get('locale'), params.id, body))
+    // 내 스킬 stops waiting for the AI check after 30 seconds (docs/DECISIONS.md "W6")
+    kit.handle(API.stopSkillShareCheck, ({ params, auth }) => stopSkillShareCheck(ctx, rt(), auth.user.id, params.id))
     kit.handle(API.dismissSkillShare, ({ params, auth }) => { dismissSkillShare(ctx, rt(), auth.user.id, params.id) })
     // a merge chat made at the end of the welcome steps starts when its person opens it (docs/DECISIONS.md "W5")
     kit.handle(API.startSkillMerge, ({ params, auth }) => ({ started: startOpenedMerge(ctx, rt(), auth.user, params.id) }))

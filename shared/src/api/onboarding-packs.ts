@@ -1,9 +1,11 @@
 // Recommended skill packs (docs/DECISIONS.md "C. Onboarding: marketing skill pack and skill forms", "DS3 — Only skills
-// with a known origin ship; no auto-add"). The welcome steps install the general pack once; an owner or admin installs
-// a pack in a click (the empty Team skills page): plain skill files under skills/<pack>/<name>/SKILL.md in the team's
-// language (English when the pack has none for it). The files are the team's own from then on: anyone who manages
-// skills edits them like any other skill. Installing again only adds what is missing; it never replaces a file that is
-// there. Nothing adds a pack by itself.
+// with a known origin ship; no auto-add", "W6 — Onboarding v6: skills catalog and 내 스킬"): the kept skills, chosen by
+// name. The owner's 내 스킬 step and the Team skills page's catalog ("트리나가 준비한 스킬 · N개 더", owners and admins)
+// read GET /api/onboarding/packs and install what was checked (POST /api/onboarding/packs/:id/install with `skills`):
+// plain skill files under skills/<pack>/<name>/SKILL.md in the team's language (English when the pack has none for it).
+// The files are the team's own from then on: anyone who manages skills edits them like any other skill. Installing again
+// only adds what is missing; it never replaces a file that is there. Nothing adds a pack by itself, and a skill shipped
+// later only raises the catalog's count (no notice, dot or prompt).
 import { z } from 'zod'
 import { Locale } from './common'
 import { endpoint } from './endpoint'
@@ -14,9 +16,10 @@ export const SKILL_PACK_IDS = ['general', 'work'] as const
 export const SkillPackId = z.enum(SKILL_PACK_IDS)
 export type SkillPackId = z.infer<typeof SkillPackId>
 
-/** The packs the empty Team skills page installs on its one admin button ("추천 스킬 넣기"), in this order. */
+/** The packs whose skills the catalog offers, in this order (each pack's own order inside: server/src/onboarding/
+ * skill-packs.ts CATALOG). */
 export const RECOMMENDED_SKILL_PACKS = ['general', 'work'] as const satisfies readonly SkillPackId[]
-/** How many skills that button adds (the general pack's three and natural writing; a test holds it to the packs). */
+/** How many skills the catalog holds today (the general pack's three and natural writing; a test holds it to the packs). */
 export const RECOMMENDED_PACK_SKILLS = 4
 
 /** "카드뉴스": the welcome steps' first result from docs/DECISIONS.md "N" until the promo video ("V"); no longer the
@@ -67,6 +70,68 @@ export const SkillPackInstallResult = z.object({
 })
 export type SkillPackInstallResult = z.infer<typeof SkillPackInstallResult>
 
+/** `skills`: only these skills of the pack (each by its name, as the catalog lists it); absent: the whole pack. */
+export const InstallSkillPack = z.object({ skills: z.array(z.string().min(1).max(64)).min(1).max(20).optional() }).strict()
+export type InstallSkillPack = z.infer<typeof InstallSkillPack>
+
+/** Where a kept skill comes from, as its source line says it (docs/DECISIONS.md "DS3": only skills with a known origin
+ * ship): `team` written by the company ("트리나 팀이 만들었어요"); `team_writing` the company's own Korean writing skill
+ * ("트리나 팀이 쓰던 한국어 글쓰기 스킬을 바탕으로 만들었어요"); `adapted` an open-source skill the company rewrote, with its
+ * author, project, licence and the one link out ("원본 보기 ↗"). */
+export const PackSkillSource = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('team') }),
+  z.object({ kind: z.literal('team_writing') }),
+  z.object({ kind: z.literal('adapted'), author: z.string(), project: z.string(), license: z.string(), url: z.string().url() }),
+])
+export type PackSkillSource = z.infer<typeof PackSkillSource>
+
+/** Size limits of the examples (EXAMPLES-PLAN, FLOW-v6 §8; a test holds the files to them): an image of at most 90 KB,
+ * a text excerpt of at most 900 characters in Korean and 1,200 in English. */
+export const PACK_EXAMPLE_LIMITS = { imageBytes: 90 * 1024, textChars: { ko: 900, en: 1200 } } as const
+
+/** One example of a kept skill, made on the fictional company 예시커피 / Example Coffee (EXAMPLES-PLAN): an image the
+ * web build serves (web/public/skill-examples/<locale>/<name>.webp, loaded only when the viewer opens) for a result that
+ * is a picture anyway, or a short before → after text the page draws in its own theme (Markdown, its front matter left
+ * out). */
+export const PackExample = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('image'), url: z.string() }),
+  z.object({ kind: z.literal('text'), markdown: z.string() }),
+])
+export type PackExample = z.infer<typeof PackExample>
+
+/** A kept skill as the catalog lists it. */
+export const PackCatalogSkill = z.object({
+  pack: SkillPackId,
+  /** its skill name ("intro-deck"): what the install's `skills` names, and what "/<name>" runs */
+  name: z.string(),
+  /** where it goes (skills/<pack>/<name>/SKILL.md) */
+  path: z.string(),
+  /** its title as the team will read it (the SKILL.md's, in the language of the text the team gets) */
+  title: z.string(),
+  /** one line in the caller's language: what it makes */
+  description: z.string(),
+  /** the team has it: this path, or another team skill of the same name ("/<name>" would run either one) */
+  inTeam: z.boolean(),
+  /** made from the company profile (the intro deck, the card news, the promo video): checked on 내 스킬 when a profile
+   * is saved, and the brand action runs before it goes in */
+  visual: z.boolean(),
+  /** null: none yet (the viewer says it is being made) */
+  example: PackExample.nullable(),
+  /** the language of its text and example (the team's, or English) */
+  locale: Locale,
+  source: PackSkillSource,
+})
+export type PackCatalogSkill = z.infer<typeof PackCatalogSkill>
+
+export const PackCatalog = z.object({
+  /** every kept skill in the catalog's order, the team's own ones too (`inTeam`) */
+  skills: z.array(PackCatalogSkill),
+  /** a company profile is saved (skills/company-profile.json is there for the caller) */
+  profile: z.boolean(),
+})
+export type PackCatalog = z.infer<typeof PackCatalog>
+
 export const ONBOARDING_PACKS = {
-  installSkillPack: endpoint({ method: 'POST', path: '/api/onboarding/packs/:id/install', auth: 'admin', owner: 'B', response: SkillPackInstallResult, summary: 'Install a recommended skill pack (id: general or work) as the caller: its skills under skills/<id>/, in the team language. Adds only what is missing; never replaces a file.' }),
+  listSkillPacks: endpoint({ method: 'GET', path: '/api/onboarding/packs', auth: 'admin', owner: 'B', response: PackCatalog, summary: 'The kept skills an owner or admin can put in the team (내 스킬, the Team skills catalog): each with its title, one line, whether the team has it (by path or skill name), its example and its source.' }),
+  installSkillPack: endpoint({ method: 'POST', path: '/api/onboarding/packs/:id/install', auth: 'admin', owner: 'B', body: InstallSkillPack, response: SkillPackInstallResult, summary: 'Install the skills of a recommended pack (id: general or work) the caller named (`skills`; absent: the whole pack), as the caller: under skills/<id>/, in the team language. Adds only what is missing; never replaces a file.' }),
 } as const
