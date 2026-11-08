@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-08 09:29
 - Branch: `fix/slack-post-check`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/integrations/slack/`, a small export in `server/src/chat/answer-share.ts`). Why:
   the Slack connector and the provenance check are core (see docs/REPOSITORY-RULES.md).
 - Version impact: minor. A visible change in Slack (a notice before posting); no API or database change.
@@ -56,4 +56,10 @@ anyway* must not skip the notice; the Slack Connect re-check must still apply. N
 
 ## Result
 
-Filled in at the end.
+Built as planned in `integrations/slack/post-check.ts` and `service.ts` `action()`, with `branchUse` and the checker's
+`placeOf` exported from `chat/answer-share.ts`. The independent security review found that a listing or a glob of a
+group folder posted its file names at once (a personal chat's scope recorded only contents), so a Slack thread's chat
+now records those names as a room session does (`chat/turn.ts` `noteReads`). Also from the review: a team of one still
+counts the asker's own material; a confidential conversation or hidden room answers are never posted (as in
+대화방에 보내기), with the answer kept and no button. Tests: 11 new cases in `tests/unit/c-slack.test.ts`. PR: see the
+pull request for `fix/slack-post-check`.
