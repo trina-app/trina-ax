@@ -19,11 +19,11 @@ room's @트리나 both check this first.
 
 In:
 - *Post to channel* first checks what the answer used, with the classifier 대화방에 보내기 uses
-  (`chat/answer-share.ts` `provenanceChecker` over the answer's branch use, plus `memoriesInPlay`), against the whole
+  (`chat/answer-share.ts` `provenanceChecker` over the answer's branch use; memories do not count, as there), against the whole
   team (every active member but the asker): Slack channel members cannot be mapped to team members.
 - Everything team-wide: posted at once, as today.
 - Otherwise the ephemeral answer is replaced by a short notice naming the places as the asker may see them (folders,
-  a connection or Drive by name, "your folder", "your memories", a room), never contents, with *Post anyway* and
+  a connection or Drive by name, "your folder", a room), never contents, with *Post anyway* and
   *Cancel*. Post anyway goes through every existing check again (the asker, the link, Slack Connect asked again, the
   once-only claim) and carries a keyed hash of what the notice said; a bare or changed value shows the notice again.
   Cancel puts the answer back, to the asker only.
@@ -33,6 +33,7 @@ In:
 - After the review: a Slack thread's chat records the names its listings and globs showed (as a room session does);
   a team of one still counts the asker's own material; a confidential conversation or hidden room answers are never
   posted.
+- The manager's decision on the PR: personal memories alone do not trigger the notice.
 
 Out: DMs (unchanged), any change to the app's own share flows.
 

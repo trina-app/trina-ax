@@ -914,7 +914,7 @@ describe('"Post to channel" checks what the answer used, against the whole team'
     }
   })
 
-  test('a team connection everyone may use, a personal connection, the browser and memories are not team-wide', async () => {
+  test('a team connection everyone may use, a personal connection and the browser are not team-wide; memories do not count', async () => {
     const q = await ask([], 'Nothing read.')
     const chat = chatOf(q.id)
     const db = h.ctx.db
@@ -927,25 +927,22 @@ describe('"Post to channel" checks what the answer used, against the whole team'
       expect((await press('trina_post', q.id, q.channel)).text).toBe('This answer used places not everyone on the team can see: Acme CRM. Post it to the channel anyway?')
       scope([{ type: 'user', id: 'alice', via: 'connection' }, { type: 'user', id: 'alice', via: 'browser' }])
       expect((await press('trina_post', q.id, q.channel)).text).toBe('This answer used places not everyone on the team can see: the in-app browser, your personal connections. Post it to the channel anyway?')
-      scope([])
-      db.query("INSERT INTO memories (id, user_id, text, source, created_at) VALUES ('mem-slack', 'alice', 'MEMORY-CANARY likes tea', 'user', '2020-01-01T00:00:00.000Z')").run()
-      const m = await press('trina_post', q.id, q.channel)
-      expect(m.text).toBe('This answer used places not everyone on the team can see: your memories. Post it to the channel anyway?')
-      expect(JSON.stringify(m)).not.toContain('MEMORY-CANARY')
-      expect(postsTo(q.channel)).toEqual([])
       // in Korean too (the asker's language)
       db.query("UPDATE users SET locale = 'ko' WHERE id = 'alice'").run()
-      expect((await press('trina_post', q.id, q.channel)).text).toBe('이 답에는 팀 사람 모두가 볼 수는 없는 곳의 내용이 들어 있어요: 내 메모리. 그래도 채널에 올릴까요?')
+      expect((await press('trina_post', q.id, q.channel)).text).toBe('이 답에는 팀 사람 모두가 볼 수는 없는 곳의 내용이 들어 있어요: 앱 안 브라우저, 내 개인 연결. 그래도 채널에 올릴까요?')
+      db.query("UPDATE users SET locale = 'en' WHERE id = 'alice'").run()
+      expect(postsTo(q.channel)).toEqual([])
+      // nothing narrower left, with a personal memory: posted at once (the asker's own notes, and they see the text)
+      scope([])
+      db.query("INSERT INTO memories (id, user_id, text, source, created_at) VALUES ('mem-slack', 'alice', 'MEMORY-CANARY likes tea', 'user', '2020-01-01T00:00:00.000Z')").run()
+      expect((await press('trina_post', q.id, q.channel)).text).toBe('Posted to the thread.')
+      expect(postsTo(q.channel).length).toBe(1)
     } finally {
       db.query("UPDATE users SET locale = 'en' WHERE id = 'alice'").run()
       db.query("DELETE FROM memories WHERE id = 'mem-slack'").run()
       db.query("DELETE FROM integrations WHERE id = 'int-crm'").run()
     }
-    // nothing narrower left: posted at once
-    scope([])
-    expect((await press('trina_post', q.id, q.channel)).text).toBe('Posted to the thread.')
   })
-
   test('file names a listing or a glob showed count like reads (a Slack chat records them, as a room session does)', async () => {
     const tool = (name: string, args: Record<string, string>) => `@fake ${JSON.stringify({ tool: name, args, sayResult: true })}`
     const notice = 'This answer used places not everyone on the team can see: groups/marketing/. Post it to the channel anyway?'

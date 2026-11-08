@@ -57,13 +57,13 @@ of the old one.
   "Asked by <you>", without the steps, the files it read or the link to your chat. Each answer can be posted once, and
   only by the person who asked.
 - **An answer that used places not everyone on the team can see** (a group's folder, your own folder, a team connection
-  or shared Drive, the in-app browser, your personal connections, your memories, a room): pressing *Post to channel*
+  or shared Drive, the in-app browser, your personal connections, a room): pressing *Post to channel*
   first turns it into a notice, to you only, that names those places as you may see them (never what is in them, never
   who cannot see them), with *Post anyway* and *Cancel*. *Post anyway* posts it after the same checks again (your link,
   Slack Connect asked again, once only); *Cancel* puts the answer back, to you only. Slack does not tell the app who in
   a channel is who here, so the test is the whole team: everything the answer used (in this thread's chat so far,
-  file names a listing showed included) must be readable by every active member, or the notice comes. If you have
-  personal memories, every answer asks: they go into every answer of your own chats. A confidential conversation
+  file names a listing showed included) must be readable by every active member, or the notice comes. Your personal
+  memories do not count (they are your own notes, and you see the very text that is posted). A confidential conversation
   (safe operations) is never posted; the answer says why. A DM has no button and no notice.
 - **In a channel shared with another organization** (Slack Connect) there is no *Post to channel*; the answer says why.
   Slack is asked again when the button is pressed.
@@ -133,8 +133,8 @@ after 1, 2, 4 … seconds (at most a minute).
   only; any other link shows its host next to its text ("급여명세서.pdf (evil.example)") unless the text names that host.
   The notification text is plain, with `&`, `<`, `>` written out.
 - *Post to channel* checks what the answer used with 대화방에 보내기's check (`chat/answer-share.ts`: the files every
-  answer on its branch read, the chat's read scope when it describes the answer, "not all known" otherwise) and the
-  memory rule of sharing a chat, against every active account but the asker; a team connection or a shared Drive counts
+  answer on its branch read, the chat's read scope when it describes the answer, "not all known" otherwise; memories
+  do not count there either), against every active account but the asker; a team connection or a shared Drive counts
   whoever may use it. A Slack thread's chat also records the names its listings and globs showed, as a room session
   does. The notice is plain text (no markup, mention or link from a folder's or a connection's name). *Post anyway*
   carries a keyed hash (a secret of this server process) of what the notice said, for that request and asker: without

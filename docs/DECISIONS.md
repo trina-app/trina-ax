@@ -9055,12 +9055,15 @@ People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guid
     button (pressing it asks again). DMs are unchanged.
   - **One classifier.** The check is 대화방에 보내기's (`chat/answer-share.ts` `provenanceChecker` over `branchUse`: the
     files every answer on the branch read with their sha256 and the hash rule, the chat's read scope when it describes
-    the answer, "not all known" for an answer it does not describe or one that ran dev environment commands) and the
-    memory rule of sharing a chat (`share-chat.ts` `memoriesInPlay`); `integrations/slack/post-check.ts` adds only what
-    is Slack's. A team connection or a shared Drive counts as not team-wide whoever its rules let use it, as for the
+    the answer, "not all known" for an answer it does not describe or one that ran dev environment commands);
+    `integrations/slack/post-check.ts` adds only what is Slack's. A team connection or a shared Drive counts as not team-wide whoever its rules let use it, as for the
     room's AI (`rooms/ai.ts` decide): what it returned is outside content. The whole branch counts, so a later answer in
-    the same Slack thread carries what an earlier one read, and anyone with a memory gets the notice on every answer
-    (memories go into every turn of their own chats).
+    the same Slack thread carries what an earlier one read.
+  - **Memories do not count** (the manager, 2026-11-08, on the PR). Post to channel posts one answer, as 대화방에 보내기
+    does, and that check does not count memories: they are the asker's own notes, and the asker sees the very text that
+    is posted. Counting them (`share-chat.ts` `memoriesInPlay`, as the first version did) put the notice on almost every
+    answer of anyone with a memory. Sharing a whole chat still counts them (`chat/share-chat.ts`): there the others see
+    the whole conversation, every answer of it.
   - **Names count in a Slack chat.** A personal chat's scope records file contents (read, grep), not the names a
     listing or a glob showed; a room session records those too. The first review posted "list groups/hr/" to the
     channel at once, file names and all. A chat of a Slack thread (`slack_threads`, or a turn asked from Slack) now
@@ -9076,7 +9079,7 @@ People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guid
   - **Named as the asker sees them, never what or who.** Folders the asker may read now by their path, a team connection
     or shared Drive by its name, a team room by its group's name, "1:1 and group conversations", and the asker's own
     material apart: "your folder", "the in-app browser", "your personal connections" (the read scope records a personal
-    connection as the person's own, not which one, so it is not named), "your memories". Anything else is "other
+    connection as the person's own, not which one, so it is not named). Anything else is "other
     material". No file name, no content, no count of people. The notice is a `plain_text` section, so a name is never
     markup, a mention or a link. In the asker's language (five).
   - **Post anyway goes through every check again**: the asker, the link and the account, the chat not deleted, Slack
@@ -9091,7 +9094,7 @@ People ask the team's AI from Slack (`@app` in a channel, a DM to the app). Guid
   - Tests: `tests/unit/c-slack.test.ts` "Post to channel checks what the answer used" (shared/ posted at once; a group
     folder's notice, Cancel, and Post again; Post anyway once and audited, replayed and forged values, a key from before
     a new member; Slack Connect and an unknown channel on Post anyway; a team connection, a personal connection, the
-    browser, memories, Korean; list and glob names; not all known; a team of one; Cancel after an unlink; a confidential
+    browser, memories not counted, Korean; list and glob names; not all known; a team of one; Cancel after an unlink; a confidential
     conversation, also its next answer; hidden room answers; a DM).
 
 ## S — The lead's way becomes a team skill (feat/onboarding-s, 2026-11-05)

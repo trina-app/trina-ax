@@ -52,7 +52,6 @@ export const TEXT = {
   placeMine: t('내 폴더', 'your folder', 'folder Anda', "あなたのフォルダー", "su carpeta"),
   placeBrowser: t('앱 안 브라우저', 'the in-app browser', 'browser di dalam aplikasi', "アプリ内ブラウザー", "el navegador de la aplicación"),
   placeConnection: t('내 개인 연결', 'your personal connections', 'koneksi pribadi Anda', "あなたの個人用の連携", "sus conexiones personales"),
-  placeMemories: t('내 메모리', 'your memories', 'memori Anda', "あなたのメモリ", "sus memorias"),
   placeRoom: t('{name} 대화방', 'the {name} chat room', 'ruang obrolan {name}', "{name} トークルーム", "la sala de chat {name}"),
   placeEveryone: t('전체 대화방', 'the everyone chat room', 'ruang obrolan Semua', "全員のトークルーム", "la sala de chat Todos"),
   placeConversation: t('1:1·그룹 대화', '1:1 and group conversations', 'percakapan 1:1 dan grup', "1:1・グループの会話", "conversaciones 1:1 y de grupo"),

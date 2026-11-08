@@ -3,8 +3,9 @@
 // their own folder, memories, personal connections), and posting puts the answer in front of the channel. Who is in a
 // Slack channel cannot be mapped to accounts here, so the audience is the whole team: every active account but the
 // asker. The check is 대화방에 보내기's (chat/answer-share.ts provenanceChecker over the answer's branch: the files it
-// read, the chat's read scope when it describes the answer, "not all known" otherwise) and the share of a chat's memory
-// rule (chat/share-chat.ts memoriesInPlay); a team connection or a shared Google Drive counts as not team-wide whoever
+// read, the chat's read scope when it describes the answer, "not all known" otherwise). Memories do not count, as in
+// 대화방에 보내기: they are the asker's own notes, and the asker sees the very text that is posted (one answer, not a
+// whole conversation as when a chat is shared). A team connection or a shared Google Drive counts as not team-wide whoever
 // its rules let use it (the room AI's rule, rooms/ai.ts decide: what it returned is outside content). With nobody else on
 // the team the channel still has people: the asker's own material and an answer not all known still count. The asker is
 // told the places as they may look at them themselves (placeOf), never what is in them and never who cannot see them.
@@ -14,13 +15,12 @@
 import type { AnswerSharePlace, Locale } from '@mycel/shared/api'
 import type { AppContext } from '../../context'
 import { branchUse, confirmMac, provenanceChecker } from '../../chat/answer-share'
-import { memoriesInPlay } from '../../chat/share-chat'
 import { confidentialChat } from '../../safe-ops/confidential'
 import { sourceKey } from '../../chat/read-scope'
 import { say, type TextKey } from './text'
 
 /** What the notice names besides the shared places: the asker's own material, apart. */
-export type OwnPlace = 'folder' | 'browser' | 'connection' | 'memories'
+export type OwnPlace = 'folder' | 'browser' | 'connection'
 export interface PostCheck {
   /** never posted, not even after the notice: a confidential conversation, or old room answers hidden from someone */
   refused: 'confidential' | 'hidden' | null
@@ -49,7 +49,6 @@ export async function postCheck(ctx: AppContext, r: { id: string; user_id: strin
   const mineAt = (p: string) => { const [top, id] = p.split('/').filter(Boolean); return top === 'users' && id === me }
   const ownFiles = use.files.some((f) => mineAt(f.path))
   const ownUse = ownFiles || use.other.some((s) => (s.type === 'user' && s.id === me) || (s.type === 'name' && mineAt(s.path)))
-  const memories = memoriesInPlay(db, r.chat_id, me)
   // a team connection or a shared Drive: not team-wide, whatever its rules (named by its name, as 대화방에 보내기 does)
   const outside = use.other.filter((s) => s.type === 'integration' || s.type === 'drive_share')
   const places = new Map<string, AnswerSharePlace>()
@@ -65,11 +64,10 @@ export async function postCheck(ctx: AppContext, r: { id: string; user_id: strin
     for (const s of use.other) if (s.type === 'user' && s.id === me) own.add(s.via === 'browser' ? 'browser' : s.via === 'connection' ? 'connection' : 'folder')
     if (!own.size || ownFiles) own.add('folder')
   }
-  if (memories) own.add('memories')
   // (a member who would see a room it read but for old answers hidden from them: never posted)
   const hidden = prov.hidden
-  const teamWide = !prov.unknown && !prov.roomsUnseen && prov.missing.size === 0 && !(alone && ownUse) && !memories && !outside.length && !hidden
-  const ownList = (['folder', 'browser', 'connection', 'memories'] as const).filter((k) => own.has(k))
+  const teamWide = !prov.unknown && !prov.roomsUnseen && prov.missing.size === 0 && !(alone && ownUse) && !outside.length && !hidden
+  const ownList = (['folder', 'browser', 'connection'] as const).filter((k) => own.has(k))
   const placeList = [...places.values()].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
   const key = confirmMac(ctx, {
     kind: 'slack.post', v: 1, request: r.id, userId: me, slackUser: r.slack_user_id, message: r.message_id,
@@ -79,7 +77,7 @@ export async function postCheck(ctx: AppContext, r: { id: string; user_id: strin
   return { refused, teamWide, places: placeList, own: ownList, otherPlaces, key }
 }
 
-const OWN: Record<OwnPlace, TextKey> = { folder: 'placeMine', browser: 'placeBrowser', connection: 'placeConnection', memories: 'placeMemories' }
+const OWN: Record<OwnPlace, TextKey> = { folder: 'placeMine', browser: 'placeBrowser', connection: 'placeConnection' }
 
 /** A place as the notice names it, in the asker's language (plain text: never Slack markup). */
 function placeWord(p: AnswerSharePlace, locale: Locale): string {
