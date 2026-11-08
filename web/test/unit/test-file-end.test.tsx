@@ -5,7 +5,7 @@
 //   error between tests"). Now it does nothing here either, and tests without a document still see no `window`.
 // - A file that sets TZ and puts it back leaves the next file in the zone the run started in (Bun 1.3: a deleted TZ
 //   kept the last zone for the rest of the run).
-import { afterAll, beforeAll, expect, test } from 'bun:test'
+import { afterAll, beforeEach, expect, test } from 'bun:test'
 import { act, useState } from 'react'
 import { domInstalled, installDom, mount, removeDom } from './dom-host'
 
@@ -22,7 +22,8 @@ const fromTimer = (n: number) =>
     try { setLater!(n); done(undefined) } catch (e) { done(e) }
   }, 5))
 
-beforeAll(() => { installDom() })
+// each test starts with a document (in any order: a test may have taken it away)
+beforeEach(() => { if (!domInstalled()) installDom() })
 
 test('a component that is gone sets its state after its document went: nothing happens, and still no window', async () => {
   const page = await mount(<Counter />)
@@ -35,7 +36,6 @@ test('a component that is gone sets its state after its document went: nothing h
 })
 
 test('one a test left mounted is unmounted with the document; its later update does nothing either', async () => {
-  installDom()
   await mount(<Counter />)
   removeDom()
   expect(typeof window).toBe('undefined')
@@ -43,7 +43,6 @@ test('one a test left mounted is unmounted with the document; its later update d
 })
 
 test('with a document again, state updates render as before', async () => {
-  installDom()
   const page = await mount(<Counter />)
   try {
     await act(async () => setLater!(4))
