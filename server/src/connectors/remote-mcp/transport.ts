@@ -1,11 +1,12 @@
 import type { AppContext } from '../../context'
 import { readBoundedText } from '../../http/route'
 import { HttpError } from '../../http/errors'
-import { HOSTED_ORIGINS, OAuthError } from './policy'
+import { HOSTED_ORIGINS, OAuthError, secret } from './policy'
 import { remoteOAuthOf } from './oauth'
 import { remoteToolsOf } from './tools'
 import { UPLOAD_MAX_BASE64_RAW } from './upload'
 import { connectorInstructions } from './guide'
+import { SESSION_ID } from './scope'
 
 /** Ordinary /mcp messages stay at 1 MiB. Only an upload_file call (base64 bytes plus a JSON envelope) and a share_skills
  * call (the skills' files) may be larger. */
@@ -34,7 +35,13 @@ export function uniqueParams(params: URLSearchParams): Record<string, string> {
   return result
 }
 
-/** Stateless Streamable HTTP JSON transport: no MCP session token, SSE replay buffer or arbitrary tool registry. */
+/**
+ * Streamable HTTP JSON transport, without an SSE replay buffer or an arbitrary tool registry. initialize answers with an
+ * Mcp-Session-Id: it only names the read scope of the calls that send it back (scope.ts), so a new session starts with
+ * nothing read. The id is never required, and an unknown one is never refused (no 404, which some clients do not
+ * recover from): it is a new, empty scope, as initializing again would give. A malformed one is a 400, but not on
+ * initialize, which ignores it.
+ */
 export async function mcpRequest(ctx: AppContext, request: Request, ip: string | null): Promise<Response> {
   const oauth = remoteOAuthOf(ctx)
   try {
@@ -63,13 +70,16 @@ export async function mcpRequest(ctx: AppContext, request: Request, ip: string |
     if (typeof msg.method !== 'string' || msg.method.length > 100 || (msg.params !== undefined && (!msg.params || typeof msg.params !== 'object' || Array.isArray(msg.params)))) return json({ jsonrpc: '2.0', id: msg.id ?? null, error: { code: -32600, message: 'Invalid request' } }, 400)
     if (size > MCP_BODY_MAX && !(msg.method === 'tools/call' && (msg.params?.name === 'upload_file' || msg.params?.name === 'share_skills') && 'id' in msg)) return json({ error: 'invalid_request' }, 413)
     if (!('id' in msg)) return new Response(null, { status: 202, headers: noStore }) // notifications never execute tools
+    const session = request.headers.get('mcp-session-id')
+    if (session !== null && msg.method !== 'initialize' && !SESSION_ID.test(session)) throw new OAuthError('invalid_request')
     const reply = (value: unknown) => json({ jsonrpc: '2.0', id: msg.id, result: value })
-    if (msg.method === 'initialize') return reply({ protocolVersion: PROTOCOLS.includes(msg.params?.protocolVersion) ? msg.params.protocolVersion : PROTOCOLS.at(-1), capabilities: { tools: {} }, serverInfo: { name: 'team-ax', version: ctx.version }, instructions: connectorInstructions(ctx, grant.user_id) })
+    // a new session each time, whatever the request carried: a new session starts with nothing read
+    if (msg.method === 'initialize') return json({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: PROTOCOLS.includes(msg.params?.protocolVersion) ? msg.params.protocolVersion : PROTOCOLS.at(-1), capabilities: { tools: {} }, serverInfo: { name: 'team-ax', version: ctx.version }, instructions: connectorInstructions(ctx, grant.user_id) } }, 200, { 'mcp-session-id': secret('tax_mcp_s_') })
     if (msg.method === 'ping') return reply({})
     if (msg.method === 'tools/list') return reply({ tools: remoteToolsOf(ctx).list(grant) })
     if (msg.method === 'tools/call') {
       if (typeof msg.params?.name !== 'string' || msg.params.name.length > 80) return json({ jsonrpc: '2.0', id: msg.id, error: { code: -32602, message: 'Invalid params' } })
-      return reply(await remoteToolsOf(ctx).call(token, msg.params.name, msg.params.arguments, request.signal))
+      return reply(await remoteToolsOf(ctx).call(token, msg.params.name, msg.params.arguments, request.signal, session))
     }
     return json({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: 'Method not found' } })
   } catch (error) {
