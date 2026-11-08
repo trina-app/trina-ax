@@ -72,7 +72,7 @@ const sendIn = async (user: string, chatId: string, content: string, card?: 'sav
   return { turnId: r.turnId as string, ...answerOf(r.assistantMessage.id), request }
 }
 const toolEvents = (turnId: string) => h.ctx.db.query('SELECT tool, summary FROM tool_events WHERE turn_id = ? ORDER BY rowid').all(turnId) as { tool: string; summary: string }[]
-const startSteps = (o: Record<string, unknown> = {}) => setSetting(h.ctx.db, WELCOME_SETTING, { startedAt: new Date().toISOString(), steps: { profile: 'skipped', result: null, skills: null, files: null, invite: 'done' }, resultChatId: null, finishedAt: null, dismissedAt: null, ...o })
+const startSteps = (o: Record<string, unknown> = {}) => setSetting(h.ctx.db, WELCOME_SETTING, { startedAt: new Date().toISOString(), steps: { profile: 'skipped', result: null, skills: null, files: null, tools: 'done', invite: 'done' }, resultChatId: null, finishedAt: null, dismissedAt: null, ...o })
 
 describe('the merge chat is restricted', () => {
   let chatId = ''
@@ -199,7 +199,7 @@ describe('merges wait for the end of the welcome steps', () => {
     expect(chats()).toBe(before + 1)
     expect((await h.api('dana').call(API.listNotifications, { query: {} })).items.filter((n) => n.eventType === 'skills.merge_waiting')).toHaveLength(1)
     // applying a share when 내 스킬 is the last step open ends the steps there and then: its merge starts at once
-    startSteps({ steps: { profile: 'skipped', result: null, skills: 'skipped', files: 'done', invite: 'done' }, skillsLater: true })
+    startSteps({ steps: { profile: 'skipped', result: null, skills: 'skipped', files: 'done', tools: 'done', invite: 'done' }, skillsLater: true })
     const last = await mergeShare('weekly')
     const outLast = await h.api('dana').call(API.applySkillShare, { params: { id: last.id }, body: { skills: [{ name: 'weekly', action: 'merge' }] } })
     expect(outLast.candidates[0]!.applied).toMatchObject({ status: 'merge', path: OTHER_SKILL })

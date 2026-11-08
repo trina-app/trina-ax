@@ -5,6 +5,12 @@
 // every notification the team page made (closeAll): they name that team's chats, and a click must not open an address
 // in the next team's page. Also the dock badge's number, and Settings › Notifications' test notification (test): shown
 // even while the window is focused, and it says whether the system took it.
+// macOS asks the person about an app's notifications once, when the app first touches them, and an app that quits
+// before the answer is left with them off for good. The first notification only comes while the window is in the back,
+// so the question would come while nobody looks: ask() touches them while the window is in front (a team page has
+// loaded, or the window got focus). And macOS takes a notification it will not show (off, or the question still
+// waiting) without an error, so there the test answers unknown, never shown (the page's desktopNotify.unknown: "Test
+// notification sent. If it does not show, turn notifications on in System Settings › Notifications › Trina AX.").
 // Pure (Electron is passed in): unit-tested in tests/unit/e-notify.test.ts; used by main/app-window.ts.
 
 /** at most this many notifications a minute (a page cannot flood the system's list) */
@@ -53,6 +59,10 @@ export interface NotifierDeps {
   now?: () => number
   /** TEST_WAIT_MS (tests pass less) */
   testWaitMs?: number
+  /** let the system ask the person about notifications now (macOS: Electron asks when it first touches them) */
+  ask?: () => void
+  /** the system's 'show' means the person sees it (default). false on macOS: it also takes one it will not show */
+  showIsSeen?: boolean
 }
 export interface NotifyInput { title: string; body: string; tag?: unknown; open?: unknown }
 export type TestOutcome = 'shown' | 'off' | 'unsupported' | 'limited' | 'unknown'
@@ -66,6 +76,16 @@ export interface Notifier {
   /** a team switch (or the team page closing): every notification it made goes, and a click on one that the system
    * still shows only brings the window up */
   closeAll(): void
+  /** a team page is open and may be in front: the system's question about notifications, while the person looks.
+   * Once per app run, and only while the window is focused (else at a later call). */
+  ask(): void
+}
+
+/** The platform's part of NotifierDeps. macOS: touching notifications is the system's question (Electron's presenter
+ * asks when it is created, by isSupported() too), and its 'show' proves nothing. Elsewhere nothing to ask, and 'show'
+ * means it showed. */
+export function platformNotifyDeps(platform: string, isSupported: () => boolean): Pick<NotifierDeps, 'ask' | 'showIsSeen'> {
+  return platform === 'darwin' ? { ask: () => { isSupported() }, showIsSeen: false } : { showIsSeen: true }
 }
 
 export function makeNotifier(d: NotifierDeps): Notifier {
@@ -76,6 +96,8 @@ export function makeNotifier(d: NotifierDeps): Notifier {
   const live = new Set<NoteLike>()
   /** a team switch moves it on: a click on an older one opens nothing */
   let generation = 0
+  /** the system was asked about notifications in this run (ask) */
+  let asked = false
   const close = (note: NoteLike) => {
     live.delete(note)
     try { note.close() } catch { /* already gone */ }
@@ -135,7 +157,7 @@ export function makeNotifier(d: NotifierDeps): Notifier {
         timer = setTimeout(() => answer('unknown'), d.testWaitMs ?? TEST_WAIT_MS)
         try {
           post(n, TEST_TAG, null, (note) => {
-            note.on('show', () => answer('shown'))
+            note.on('show', () => answer(d.showIsSeen === false ? 'unknown' : 'shown'))
             note.on('failed', () => answer('off'))
           })
         } catch {
@@ -147,6 +169,11 @@ export function makeNotifier(d: NotifierDeps): Notifier {
       generation++
       byTag.clear()
       for (const note of [...live]) close(note)
+    },
+    ask() {
+      if (asked || !d.ask || !d.focused()) return
+      asked = true
+      try { d.ask() } catch { /* no notifications on this system */ }
     },
   }
 }

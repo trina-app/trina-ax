@@ -11272,6 +11272,18 @@ seen column (feat/session-status) was reviewed and rebuilt here on phone-nav's s
 - **A team switch closes the desktop notifications** the team page made (review SHOULD 8): they name that team's chats,
   and a click must not open an address in the next team's page (`makeNotifier().closeAll`, and a click on a stale one
   only brings the window up).
+- **macOS asks about notifications while the window is in front** (2026-11-08, the Mac App Store app showed none).
+  Electron asks the system the first time the app touches notifications, and macOS asks an app only once: an app that
+  quits before the answer keeps notifications off and is never asked again; while the question waits, notifications go
+  to Notification Center without a banner. The first notification only comes while the window is in the back, so the
+  question came when nobody looked. `makeNotifier().ask()` touches them when a team page has loaded or the window gets
+  focus with a team open, once per run, only while focused. If notifications are already off, the person turns them on
+  in System Settings › Notifications › Trina AX. macOS also accepts a notification it will not show without an error,
+  so there Settings › Notifications › Desktop app notifications › Test notification answers `unknown`
+  (`desktopNotify.unknown`: "Test notification sent. If it does not show, turn notifications on in System Settings ›
+  Notifications › Trina AX."), never `shown`. Electron 44 cannot read the permission; `Notification.getHistory()` could
+  tell, but its restored objects share identifiers with live ones and Electron hands a click to the first match, so a
+  real notification's click could stop opening its room: not used.
 - **Engines.** Claude, Codex and the API engine give the same states: the cards are our own `TurnRequest` (ask_user,
   confirmations, connect), the outcome is the stored message's status and stop reason
   (`tests/unit/b-session-markers.test.ts` runs all three).
