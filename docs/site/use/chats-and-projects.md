@@ -77,4 +77,7 @@ Press ⌘K (Ctrl+K on Windows) or choose **Search** in the sidebar to find chats
 
 ## Deleted chats
 
-Deleting a chat moves it to **Deleted chats**, where you can bring it back for 7 days by default. Admins can choose 1 to 365 days.
+Deleting a chat moves it to **삭제한 기록** (Deleted history), where you can bring it back for 7 days by default. Admins can choose 1 to 365 days.
+
+- A shared chat goes to the 삭제한 기록 of the person who made it. When a project's creator or an admin deletes someone else's shared chat, it is in their 삭제한 기록 too, for as long as they can still bring it back.
+- Deleting a project moves its shared chats to the 삭제한 기록 of the people who made them. Brought back, such a chat is its maker's alone, without a project.

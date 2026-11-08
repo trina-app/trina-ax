@@ -119,7 +119,8 @@ export const ListChatsQuery = PageQuery.extend({
   /** title / message text search */
   q: z.string().max(200).optional(),
   projectId: Uuid7.optional(),
-  /** list the chat trash (deleted within 7 days) instead */
+  /** list the chat trash (deleted within the team's chat retention) instead: my own chats and the shared chats I deleted,
+   * each while I may restore it */
   trash: QueryBool.optional(),
 })
 export const CreateChatBody = z.object({
@@ -303,13 +304,13 @@ export const UpdateProjectBody = z.object({
 
 export const CHATS = {
   frequentQuestions: endpoint({ method: 'GET', path: '/api/questions/frequent', auth: 'user', owner: 'B', response: FrequentQuestions, summary: 'Own repeated questions from current branches in the last 30 days; bounded sample, never other people’s prompts.' }),
-  listChats: endpoint({ method: 'GET', path: '/api/chats', auth: 'user', owner: 'B', query: ListChatsQuery, response: page(Chat), summary: 'Own chats and the shared project chats I wrote in, newest first (search with q, trash with trash=1). With projectId: my chats there and every shared chat of that project I can see, each with who wrote in it (shared.people: the 3 most recent, shared.peopleCount).' }),
+  listChats: endpoint({ method: 'GET', path: '/api/chats', auth: 'user', owner: 'B', query: ListChatsQuery, response: page(Chat), summary: 'Own chats and the shared project chats I wrote in, newest first (search with q, trash with trash=1: my own and the shared chats I deleted, while I may restore them). With projectId: my chats there and every shared chat of that project I can see, each with who wrote in it (shared.people: the 3 most recent, shared.peopleCount).' }),
   createChat: endpoint({ method: 'POST', path: '/api/chats', auth: 'user', owner: 'B', status: 201, body: CreateChatBody, response: Chat, summary: 'New empty chat (optionally inside a project). In a project that shares its chats it is a shared chat (never in a personal project or while safe operations are on).' }),
   chatEngines: endpoint({ method: 'GET', path: '/api/engines', auth: 'user', owner: 'B', response: ChatEngines, summary: 'Whether the caller may pick the engine / model, the team default, and the engines + models they may pick.' }),
   getChat: endpoint({ method: 'GET', path: '/api/chats/:id', auth: 'user', owner: 'B', response: Chat, summary: 'One own chat, or a shared project chat I can see.' }),
   getChatQueue: endpoint({ method: 'GET', path: '/api/chats/:id/queue', auth: 'user', owner: 'B', response: ChatQueueSnapshot, summary: 'Own chat queue snapshot; advisory rank and epoch/revision for reconnect recovery.' }),
   updateChat: endpoint({ method: 'PATCH', path: '/api/chats/:id', auth: 'user', owner: 'B', body: UpdateChatBody, response: Chat, summary: 'Rename, move to a project, change engine/model. A shared chat: its creator only, and it never changes project (409 shared_chat_move).' }),
-  deleteChat: endpoint({ method: 'DELETE', path: '/api/chats/:id', auth: 'user', owner: 'B', response: DeletedChat, summary: 'Move to chat trash (purged after 7 days). Stops a running turn. A shared chat: its creator or an editor of its project (audited when someone else).' }),
+  deleteChat: endpoint({ method: 'DELETE', path: '/api/chats/:id', auth: 'user', owner: 'B', response: DeletedChat, summary: 'Move to chat trash (purged after the team\'s chat retention). Stops a running turn. A shared chat: its creator or an editor of its project (audited when someone else); it is in its creator\'s trash and in the deleter\'s.' }),
   restoreChat: endpoint({ method: 'POST', path: '/api/chats/:id/restore', auth: 'user', owner: 'B', response: Chat, summary: 'Bring a chat back from the trash.' }),
   markChatSeen: endpoint({ method: 'POST', path: '/api/chats/:id/seen', auth: 'user', owner: 'B', response: Chat, summary: 'I have this own chat on screen: its finished answers are seen (Chat.unseen goes away in every window and device).' }),
   listMessages: endpoint({ method: 'GET', path: '/api/chats/:id/messages', auth: 'user', owner: 'B', query: ListMessagesQuery, response: MessagesPage, summary: 'Active branch of the conversation, paged backwards.' }),
@@ -330,5 +331,5 @@ export const CHATS = {
   getProject: endpoint({ method: 'GET', path: '/api/projects/:id', auth: 'user', owner: 'B', response: Project, summary: 'One project.' }),
   updateProject: endpoint({ method: 'PATCH', path: '/api/projects/:id', auth: 'user', owner: 'B', body: UpdateProjectBody, response: Project, summary: 'Edit name / instructions / shareChats (the creator or an admin, with write access to the folder; audited, readers notified). folderPath: admins only, never under users/.' }),
   shareProject: endpoint({ method: 'POST', path: '/api/projects/:id/share', auth: 'user', owner: 'B', body: ShareProjectBody, response: ShareProjectResult, summary: 'Copy a personal project\'s folder into a team folder and point the project at it (the personal folder stays).' }),
-  deleteProject: endpoint({ method: 'DELETE', path: '/api/projects/:id', auth: 'user', owner: 'B', response: empty, status: 204, summary: 'Delete the project (the creator or an admin; private chats stay, without project; its shared chats are deleted for good; the folder stays).' }),
+  deleteProject: endpoint({ method: 'DELETE', path: '/api/projects/:id', auth: 'user', owner: 'B', response: empty, status: 204, summary: 'Delete the project (the creator or an admin; private chats stay, without project; its shared chats go to their creators\' trash and stop being shared, or are deleted for good when the creator would not see the project; the folder stays).' }),
 } as const

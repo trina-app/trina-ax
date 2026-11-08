@@ -3830,10 +3830,16 @@ export class MockServer {
   // message: the read card (읽고 공유하기 / 읽지 않기) for finance/2026/q3.csv before the answer; "hold": the answer waits
   // until POST /__test/shared-release {chatId?}. The refusals: 409 shared_chat_busy / safe_ops / shared_chat_upload /
   // shared_chat_move, 403 shared_chat_creator / shared_chat_runner / shared_chat_own_messages / shared_chat_manage.
+  // The trash ("Shared project chats: the trash and live lists"): a shared chat is in its creator's and in the deleter's,
+  // while they may restore it; deleting the project moves its shared chats to their creators' trash as chats of theirs
+  // (unshared, without project; one whose creator cannot see the project goes for good), and the others hear they are
+  // gone. POST /__test/revoke tells whoever stops seeing a shared chat (chat.updated 'deleted' with no chat).
   sharedProjects = new Set<string>()
   sharedChats = new Map<string, { by: { id: string; name: string }; projectId: string; runner: string | null; waiting: boolean }>()
   /** who made each chat made here: a chat of one person is theirs alone, like chatFor (the handlers above have no owners) */
   chatOwners = new Map<string, string>()
+  /** who put each shared chat in the trash (chats.deleted_by) */
+  sharedDeletedBy = new Map<string, string>()
   sharedHolds = new Map<string, () => void>()
   /** (the layer is in place; set while the mock is made, after the handlers above) */
   readonly sharedInstalled = this.installSharedChats()
@@ -3908,6 +3914,7 @@ export class MockServer {
       this.sharedProjects = new Set()
       this.sharedChats = new Map()
       this.chatOwners = new Map()
+      this.sharedDeletedBy = new Map()
       this.sharedHolds = new Map()
       baseReset(o)
     }
@@ -3933,6 +3940,17 @@ export class MockServer {
     }
     const baseControl = this.testControl.bind(this)
     this.testControl = async (p, req) => {
+      // a folder taken away: whoever saw a shared chat of a project there hears it is gone, by its id alone (like
+      // admin/folders.ts afterAccessChange)
+      if (p === '/__test/revoke') {
+        const saw = [...this.sharedChats].flatMap(([id, x]) => { const pj = project(x); return pj && !this.chats.find((c) => c.id === id)?.deletedAt ? [{ id, pj, people: this.sharedAudience(pj).map((u) => u.id) }] : [] })
+        const out = await baseControl(p, req)
+        for (const x of saw) {
+          const now = new Set(this.sharedAudience(x.pj).map((u) => u.id))
+          this.sharedSend((uid) => (x.people.includes(uid) && !now.has(uid) ? { type: 'chat.updated', data: { chatId: x.id, change: 'deleted', chat: null } } : null))
+        }
+        return out
+      }
       if (p !== '/__test/shared-release') return baseControl(p, req)
       const body = (await req.json().catch(() => ({}))) as { chatId?: string }
       for (const [id, release] of [...this.sharedHolds]) if (!body.chatId || body.chatId === id) { this.sharedHolds.delete(id); release() }
@@ -3953,12 +3971,27 @@ export class MockServer {
       }
       return this.sharedProjectOut(base({ ...c, body: rest }) as Project)
     })
-    // its shared chats go with it, for good
+    // its shared chats go to their creators' trash, as chats of theirs without project (one whose creator cannot see
+    // the project goes for good); everyone else who saw one hears it is gone
     over('deleteProject', (c, base) => {
-      const gone = this.chats.filter((x) => x.projectId === c.params.id && this.sharedChats.has(x.id))
-      for (const x of gone) this.publish({ type: 'chat.updated', data: { chatId: x.id, change: 'purged', chat: null } })
-      for (const x of gone) this.sharedChats.delete(x.id)
-      this.chats = this.chats.filter((x) => !gone.includes(x))
+      const pj = this.projects.find((x) => x.id === c.params.id)
+      const audience = pj ? this.sharedAudience(pj).map((u) => u.id) : []
+      const shared = this.chats.filter((x) => x.projectId === c.params.id && this.sharedChats.has(x.id))
+      const by = (x: Chat) => this.sharedChats.get(x.id)!.by.id
+      const keeps = (x: Chat) => { const u = this.users.find((y) => y.id === by(x)); return !!pj && !!u && this.access(pj.folderPath, u) !== 'none' }
+      const kept = shared.filter(keeps)
+      for (const x of shared) this.sharedSend((uid) => (audience.includes(uid) && !(kept.includes(x) && uid === by(x)) ? { type: 'chat.updated', data: { chatId: x.id, change: 'purged', chat: null } } : null))
+      for (const x of kept) {
+        const creator = by(x)
+        this.sharedChats.delete(x.id)
+        x.projectId = null
+        if (x.deletedAt) continue
+        x.deletedAt = now()
+        this.sharedDeletedBy.set(x.id, c.user.id)
+        this.sharedSend((uid) => (uid === creator ? { type: 'chat.updated', data: { chatId: x.id, change: 'deleted', chat: x } } : null))
+      }
+      for (const x of shared) if (!kept.includes(x)) this.sharedChats.delete(x.id)
+      this.chats = this.chats.filter((x) => !shared.includes(x) || kept.includes(x))
       return base(c)
     })
 
@@ -3971,7 +4004,8 @@ export class MockServer {
         if (!this.sharedChats.has(x.id)) return [x]
         const v = this.sharedView(x, c.user)
         if (!v) return []
-        if (x.deletedAt) return v.shared!.canDelete ? [v] : []
+        // the trash: its creator's, and the deleter's while they may restore it
+        if (x.deletedAt) return v.shared!.by.id === c.user.id || (this.sharedDeletedBy.get(x.id) === c.user.id && v.shared!.canDelete) ? [v] : []
         if (!c.query.projectId) return v.shared!.mine ? [v] : []
         return [{ ...v, shared: { ...v.shared!, ...this.sharedPeople(x.id) } }]
       })
@@ -4017,6 +4051,7 @@ export class MockServer {
       if (!s) return base(c)
       if (!view(chatOf(c.params.id!), c.user).shared!.canDelete) fail('forbidden', 403, '공유 채팅은 만든 사람이나 프로젝트를 고칠 수 있는 사람만 지울 수 있어요.', undefined, { reason: 'shared_chat_manage' })
       const out = base(c)
+      this.sharedDeletedBy.set(c.params.id!, c.user.id)
       this.publish({ type: 'chat.updated', data: { chatId: c.params.id!, change: 'deleted', chat: null } })
       return out
     })
@@ -4025,6 +4060,7 @@ export class MockServer {
       if (!s) return base(c)
       if (!view(chatOf(c.params.id!), c.user).shared!.canDelete) fail('forbidden', 403, '공유 채팅은 만든 사람이나 프로젝트를 고칠 수 있는 사람만 지울 수 있어요.', undefined, { reason: 'shared_chat_manage' })
       const out = base(c) as Chat
+      this.sharedDeletedBy.delete(out.id)
       this.publish({ type: 'chat.updated', data: { chatId: out.id, change: 'restored', chat: out } })
       return view(out, c.user)
     })

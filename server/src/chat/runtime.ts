@@ -726,6 +726,13 @@ export class ChatRuntime {
       }
       return
     }
+    // a chat of one person: only its person hears about it. Someone else's turn may outlive the chat's sharing (a deleted
+    // project's shared chat went to its creator's trash, the rollback guard): its end tells nobody else, and its creator
+    // as for their own chat (never to a window of the other person)
+    if (r && r.user_id !== userId) {
+      if (o.window) return
+      userId = r.user_id
+    }
     const chat = r ? this.store.toChat(r, this.runState(chatId), this.waitsForPerson(chatId)) : null
     // never a stored connection secret of the person in the title (QA B-W5-1)
     if (chat) chat.title = redactorFor(this.ctx, r!.user_id).hide(chat.title)

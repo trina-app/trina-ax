@@ -21,6 +21,7 @@ import { folderKeep, isParkedRow, type FolderKeep } from './folder-keep'
 import { shownSegs } from './access-rows'
 import { rulesHash } from './access-edit'
 import { resetEngineSessions as resetChatSessions } from '../chat/runtime'
+import { sharedChatsHidden } from '../chat/shared'
 import { syncRoomsNow } from '../rooms/service'
 import { recheckHistories } from '../rooms/history'
 import { checkDriveShareOwners } from '../integrations/google-drive/shares'
@@ -343,6 +344,12 @@ export function afterAccessChange(ctx: AppContext, before: AccessState, by: { ac
     const named = changed.filter((p) => noticeMayName(p, pb, pa, before, after, created, onDisk))
     if (named.length) ctx.services.realtime.publish(pb.id, { type: 'notice', data: { level: 'info', code: 'access_changed', message: named.map((p) => p || '/').join(', ') } })
   }
+  // shared project chats follow their project's audience (chat/shared.ts): whoever no longer sees one has it dropped from
+  // their lists and project pages, by its id alone (the chat's details never go to someone who cannot see it). After
+  // the replay buffers above were emptied, so a window resuming gets these too. Never throws: the change is saved
+  try {
+    for (const [userId, chats] of sharedChatsHidden(ctx.db, before, after)) for (const chatId of chats) ctx.services.realtime.publish(userId, { type: 'chat.updated', data: { chatId, change: 'deleted', chat: null } })
+  } catch (e) { ctx.log.warn('shared chat removals failed', { err: e }) }
   // every narrowing is audited, whatever caused it (rules, group membership, role, group deletion); admins only read it
   if (out.length) audit(ctx.db, { actor: by.actor, action: 'folder.access_lost', target: by.target, detail: { losing: out, ...(by.via ? { via: by.via } : {}) } })
   // team rooms and the everyone room follow groups and accounts (rooms/service.ts sync; it never throws)

@@ -76,6 +76,54 @@ export class Audiences {
 /** The audience of one project now. */
 export const audienceOf = (db: Database, files: FileService, p: ProjectRow): string[] => new Audiences(db, files).of(p)
 
+/** canSeeProject's rule for one person under a rule set: read on its folder; while its folder is in the trash, the owner
+ * and admins only. */
+const seesUnder = (rules: RuleSet, p: Pick<ProjectRow, 'folder_path' | 'trashed_with'>, x: Principal): boolean =>
+  (p.trashed_with === null || x.role === 'owner' || x.role === 'admin') && atLeast(rules.access(x, p.folder_path === '' ? [] : p.folder_path.split('/')), 'read')
+
+/** Does this account see the project now, whatever its status: a disabled account counts as if it were enabled again (it
+ * then sees its shared chats again), a deleted one never. For a deleted project's shared chats (routes/chats.ts
+ * deleteProject): one goes to its creator's trash only when they would see it. */
+export function accountSeesProject(db: Database, files: FileService, p: Pick<ProjectRow, 'folder_path' | 'trashed_with'>, userId: string): boolean {
+  const u = db.query('SELECT id, name, role FROM users WHERE id = ? AND deleted_at IS NULL').get(userId) as Pick<Principal, 'id' | 'name' | 'role'> | null
+  if (!u) return false
+  const groups = (db.query('SELECT group_id FROM group_members WHERE user_id = ?').all(userId) as { group_id: string }[]).map((r) => r.group_id)
+  return seesUnder(files.rules(), p, { ...u, groups })
+}
+
+/** Who sees what, as admin/folders.ts AccessState holds it: the active people (role, groups) and the folder rules. */
+export interface AccessView { principals: readonly Principal[]; rules: RuleSet }
+
+/**
+ * Who stopped seeing which shared chats in an access change (admin/folders.ts afterAccessChange: rules, groups, roles,
+ * accounts): for each person who saw a project with shared chats (not in the trash) before the change and does not now,
+ * those chats, so their windows drop them (chat.updated 'deleted' without the chat: nothing of a chat they no longer
+ * see). One read of the shared chats, every project's audience worked out under both states.
+ */
+export function sharedChatsHidden(db: Database, before: AccessView, after: AccessView): Map<string, string[]> {
+  const rows = db.query(`SELECT c.id, p.id AS project, p.folder_path, p.trashed_with FROM chats c JOIN projects p ON p.id = c.project_id
+    WHERE c.shared_at IS NOT NULL AND c.deleted_at IS NULL AND c.room_id IS NULL`).all() as { id: string; project: string; folder_path: string; trashed_with: string | null }[]
+  const projects = new Map<string, { p: Pick<ProjectRow, 'folder_path' | 'trashed_with'>; chats: string[] }>()
+  for (const r of rows) {
+    let x = projects.get(r.project)
+    if (!x) projects.set(r.project, (x = { p: { folder_path: r.folder_path, trashed_with: r.trashed_with }, chats: [] }))
+    x.chats.push(r.id)
+  }
+  const out = new Map<string, string[]>()
+  for (const { p, chats } of projects.values()) {
+    const now = new Set(after.principals.filter((x) => seesUnder(after.rules, p, x)).map((x) => x.id))
+    for (const x of before.principals) if (!now.has(x.id) && seesUnder(before.rules, p, x)) out.set(x.id, [...(out.get(x.id) ?? []), ...chats])
+  }
+  return out
+}
+
+/** Did someone other than its creator write in this chat: a shared chat, or one that stopped being shared (the rollback
+ * guard; a deleted project's, back from its creator's trash)? A room's AI session never counts (its own rules, rooms/). */
+export function severalAuthors(db: Database, chatId: string): boolean {
+  return !!db.query(`SELECT 1 FROM chats c WHERE c.id = ? AND c.room_id IS NULL AND EXISTS (SELECT 1 FROM messages m
+    WHERE m.chat_id = c.id AND m.role = 'user' AND m.author_id IS NOT NULL AND m.author_id <> c.user_id)`).get(chatId)
+}
+
 /** Did this person send a message in the chat (a shared chat they wrote in is in their chat list)? */
 export function wroteIn(db: Database, chatId: string, userId: string): boolean {
   return !!db.query("SELECT 1 FROM messages WHERE author_id = ? AND chat_id = ? AND role = 'user' LIMIT 1").get(userId, chatId)
@@ -196,9 +244,12 @@ const sharedLater = (db: Database, r: Pick<ChatRow, 'id'>): boolean =>
     AND (t.id IS NULL OR t.shared_checked = ?) LIMIT 1`).get(r.id, SHARED_LATER)
 
 /** How `viewer` sees the messages of a shared chat (ChatStore.toMessage); undefined for a chat of one person. One per
- * request: the answers hidden from the viewer (chat/shared-answers.ts) are worked out once, when first asked. */
+ * request: the answers hidden from the viewer (chat/shared-answers.ts) are worked out once, when first asked. A chat
+ * that stopped being shared after others wrote in it (the rollback guard; a deleted project's, now its creator's) keeps
+ * this view: its creator sees other people's turns as they did while it was shared (no usage, failure reason or step
+ * detail of theirs, paths only where the creator may look, an answer hidden from them still hidden). */
 export function messageView(rt: ChatRuntime, r: Pick<ChatRow, 'id' | 'shared_at' | 'project_id'>, viewer: string, locale: Locale): MessageView | undefined {
-  if (!isSharedRow(r)) return undefined
+  if (!isSharedRow(r) && !severalAuthors(rt.db, r.id)) return undefined
   const me = loadPrincipal(rt.db, viewer)
   const rules = rt.files.rules()
   const segs = (p: string) => p.split('/').filter(Boolean)
