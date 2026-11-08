@@ -65,4 +65,4 @@ picture sits flush with the bubble's edge (no inset). Left as they are, with the
 asked": the letter tile's faint fill (the same tile as the sidebar's account row and rooms) and a picture sized in px.
 No new strings (the unknown author reuses `rooms.goneUser`). Tests: `web/test/unit/shared-chat-authors.test.tsx` (new)
 and a new test in `web/test/e2e/shared-project-chats.spec.ts`, whose "my own message carries no name" check now expects
-my name. PR: see the pull request that links this plan.
+my name. PR: https://github.com/trina-app/trina-ax/pull/181
