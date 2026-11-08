@@ -55,6 +55,8 @@ export interface PresenceOptions {
   recipients(): string[]
   /** an active account of this team (not disabled, not deleted): only they are listed as online or away */
   isPerson(userId: string): boolean
+  /** every active account, read once for a whole list or a batch of changes (not one query per person) */
+  activeIds(): ReadonlySet<string>
   /** they set themselves away (kept in their account) */
   awayOf(userId: string): boolean
   clock?: PresenceClock
@@ -149,8 +151,21 @@ export class Presence {
   /** Everyone the team was told is online or away, active accounts only. */
   list(): PresenceFrame['people'] {
     const out: PresenceFrame['people'] = []
-    for (const [id, p] of this.people) if (p.told !== 'offline' && this.o.isPerson(id)) out.push({ id, state: p.told })
+    let active: ReadonlySet<string> | null = null
+    for (const [id, p] of this.people) {
+      if (p.told === 'offline') continue
+      active ??= this.o.activeIds()
+      if (active.has(id)) out.push({ id, state: p.told })
+    }
     return out
+  }
+
+  /** The person's account may have been turned off with no window left to close (hub: every session ended): told at
+   * once instead of after the grace. Nothing changes for an active account. */
+  recheck(userId: string): void {
+    const p = this.people.get(userId)
+    if (!p || this.stopped || this.o.isPerson(userId)) return
+    this.schedule(userId, p)
   }
 
   stop(): void {
@@ -221,7 +236,8 @@ export class Presence {
     this.flushTimer = null
     if (this.stopped) return
     // online or away only for an active account; offline for anyone (an account turned off must not stay online)
-    const people = [...this.outgoing].filter(([id, state]) => state === 'offline' || this.o.isPerson(id)).map(([id, state]) => ({ id, state }))
+    const active = [...this.outgoing.values()].some((state) => state !== 'offline') ? this.o.activeIds() : null
+    const people = [...this.outgoing].filter(([id, state]) => state === 'offline' || active!.has(id)).map(([id, state]) => ({ id, state }))
     this.outgoing.clear()
     if (!people.length) return
     const frame: PresenceFrame = { type: 'presence', full: false, people }
@@ -244,11 +260,14 @@ export function startPresence(hub: Hub, ctx: AppContext, o: Partial<PresenceOpti
     send: (userId, frame, windowId) => hub.sendControl(userId, frame, windowId),
     recipients: () => hub.connectedUsers(),
     isPerson: (id) => !!ctx.db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(id),
+    activeIds: () => new Set((ctx.db.query("SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL").all() as { id: string }[]).map((r) => r.id)),
     awayOf: (id) => parsePrefs((ctx.db.query('SELECT prefs FROM users WHERE id = ?').get(id) as { prefs: string } | null)?.prefs).away === true,
     ...o,
   })
   hub.onWindow((userId, windowId, state) => (state === 'open' ? p.open(userId, windowId) : p.close(userId, windowId)))
   hub.onClientFrame((s, f) => { if (f.type === 'presence') p.activity(s.userId, s.windowId, f.state) })
+  // disabled or deleted while the last window's grace runs: no window is left to close, so look again now
+  hub.onUserEnded((userId) => p.recheck(userId))
   ctx.onClose(() => p.stop())
   started.set(ctx, p)
   return p

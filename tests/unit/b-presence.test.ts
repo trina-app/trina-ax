@@ -46,10 +46,13 @@ function machine(o: { people?: string[]; away?: string[]; recipients?: string[];
   const people = new Set(o.people ?? ['ana', 'bob', 'cho'])
   const away = new Set(o.away ?? [])
   const sent: { to: string; window?: string; frame: PresenceFrame }[] = []
+  /** how often the accounts were read: one person, or all of them at once */
+  const lookups = { one: 0, all: 0 }
   const p = new Presence({
     send: (to, frame, window) => sent.push({ to, window, frame: PresenceFrame.parse(frame) }),
     recipients: () => o.recipients ?? ['ana', 'bob', 'cho'],
-    isPerson: (id) => people.has(id),
+    isPerson: (id) => { lookups.one++; return people.has(id) },
+    activeIds: () => { lookups.all++; return new Set(people) },
     awayOf: (id) => away.has(id),
     clock,
     warmupMs: o.warmupMs ?? 0,
@@ -58,7 +61,7 @@ function machine(o: { people?: string[]; away?: string[]; recipients?: string[];
   const told = (to = 'cho') => sent.filter((s) => s.to === to && !s.frame.full).flatMap((s) => s.frame.people)
   /** wait long enough for a change to be told (the min gap after the last one, the batch) */
   const settle = () => clock.advance(Math.max(PRESENCE_SETTLE_MS, PRESENCE_MIN_GAP_MS) + 300)
-  return { p, clock, sent, told, settle, people, away }
+  return { p, clock, sent, told, settle, people, away, lookups }
 }
 
 describe('the state machine', () => {
@@ -243,6 +246,42 @@ describe('the state machine', () => {
     // later windows get theirs at once
     m.p.open('cho', 'w3')
     expect(m.sent.at(-1)).toMatchObject({ to: 'cho', window: 'w3', frame: { full: true } })
+  })
+
+  test('an account turned off while its last window\'s grace runs: offline as soon as its sessions end, not 30 s later', () => {
+    const m = machine()
+    m.p.open('ana', 'w1')
+    m.settle()
+    // the tab closed: the grace runs, she still shows online
+    m.p.close('ana', 'w1')
+    m.clock.advance(5000)
+    expect(m.p.told('ana')).toBe('online')
+    // an admin turns her account off: no window is left to close; the hub says her sessions ended
+    m.people.delete('ana')
+    m.p.recheck('ana')
+    m.clock.advance(PRESENCE_FLUSH_MS + 10)
+    expect(m.told()).toEqual([{ id: 'ana', state: 'online' }, { id: 'ana', state: 'offline' }])
+    // an active account (a password change ends every session too) keeps its grace as it was
+    m.p.open('bob', 'w2')
+    m.settle()
+    m.p.close('bob', 'w2')
+    m.clock.advance(PRESENCE_GRACE_MS - 5000)
+    m.p.recheck('bob')
+    m.clock.advance(5000 + PRESENCE_FLUSH_MS + 10)
+    expect(m.p.told('bob')).toBe('offline')
+  })
+
+  test('the accounts are read once for a whole list and once for a batch of changes, not once per person', () => {
+    const m = machine({ people: ['ana', 'bob', 'cho', 'dan'] })
+    for (const id of ['ana', 'bob', 'cho', 'dan']) m.p.open(id, `w-${id}`)
+    m.lookups.all = 0
+    m.settle()
+    // four changes in one frame: one read
+    expect(m.sent.filter((s) => s.to === 'ana' && !s.frame.full)).toHaveLength(1)
+    expect(m.lookups.all).toBe(1)
+    m.lookups.all = 0
+    expect(m.p.list()).toHaveLength(4)
+    expect(m.lookups.all).toBe(1)
   })
 
   test('activity of a window it does not know is ignored; stop clears every timer', () => {
@@ -430,5 +469,21 @@ describe('the presence frame on the socket', () => {
     expect(stateIn(o, bob.id)).toBe('offline')
     o.close(1000)
     clock.advance(PRESENCE_GRACE_MS + 400)
+  })
+
+  test('disabled during the grace of its last window: offline for the team at once', async () => {
+    const dan = await addMember(h, owner, { username: 'dan' })
+    const o = await connect(owner, 'win-owner-9')
+    const d = await connect(dan.client, 'win-dan-9')
+    settle()
+    expect(stateIn(o, dan.id)).toBe('online')
+    // the tab closes; within the grace an admin turns the account off
+    d.close(1000)
+    clock.advance(3000)
+    expect(stateIn(o, dan.id)).toBe('online')
+    await owner.call('PATCH', `/api/admin/users/${dan.id}`, { status: 'disabled' })
+    clock.advance(PRESENCE_FLUSH_MS + 10)
+    expect(stateIn(o, dan.id)).toBe('offline')
+    o.close(1000)
   })
 })

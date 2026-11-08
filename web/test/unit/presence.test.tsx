@@ -13,7 +13,7 @@ import { act } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import type { Room, WindowActivity } from '@mycel/shared/api'
 import { ActivityTracker, IDLE_AFTER_MS, type ActivityEnv } from '../../src/lib/presence'
-import { RealtimeClient, type Timers, type WsLike } from '../../src/lib/realtime'
+import { readPresence, RealtimeClient, type Timers, type WsLike } from '../../src/lib/realtime'
 import { usePresence } from '../../src/store/presence'
 import { PresenceFace, PresenceText } from '../../src/components/Presence'
 import { RoomIcon } from '../../src/components/rooms/RoomIcon'
@@ -155,6 +155,33 @@ describe('the presence frame on the socket (lib/realtime.ts)', () => {
     // open: it goes at once
     c.send({ type: 'presence', state: 'active' })
     expect(JSON.parse(s.sent.at(-1)!)).toEqual({ type: 'presence', state: 'active' })
+    c.stop()
+  })
+})
+
+describe('reading a presence frame leniently (lib/realtime.ts readPresence)', () => {
+  test('an entry with a state this page does not know is skipped, not the whole frame; a frame that is not one is dropped', () => {
+    const later = { type: 'presence', full: true, people: [{ id: 'bob', state: 'online' }, { id: 'cho', state: 'in-a-meeting' }, { id: 'dan', state: 'away', since: 1 }, { id: 'NOT AN ID', state: 'online' }, 5, null] }
+    expect(readPresence(later)).toEqual({ type: 'presence', full: true, people: [{ id: 'bob', state: 'online' }, { id: 'dan', state: 'away' }] })
+    expect(readPresence({ type: 'presence', people: [] })).toBeNull()
+    expect(readPresence({ type: 'presence', full: false, people: 'bob' })).toBeNull()
+    expect(readPresence({ type: 'hello' })).toBeNull()
+  })
+
+  test('on the socket: an older page keeps every dot it can read when a later server adds a state', () => {
+    const sockets: FakeSocket[] = []
+    const frames: unknown[] = []
+    const c = new RealtimeClient({
+      baseUrl: 'ws://team.localhost', windowId: () => 'w1234567', renewWindowId: () => 'w7654321',
+      createSocket: () => { const s = new FakeSocket(); sockets.push(s); return s },
+      onEvent: () => {}, onReload: () => {}, onPresence: (f) => frames.push(f), timers: new FakeTimers(), random: () => 0.5,
+    })
+    c.start()
+    const s = sockets[0]!
+    s.open()
+    s.recv({ type: 'hello', epoch: 'E1', seq: 0, resumed: false, windowId: 'w1234567', serverVersion: '1', pingIntervalMs: 20000 })
+    s.recv({ type: 'presence', full: true, people: [{ id: 'bob', state: 'online' }, { id: 'cho', state: 'focus' }] })
+    expect(frames).toEqual([{ type: 'presence', full: true, people: [{ id: 'bob', state: 'online' }] }])
     c.stop()
   })
 })

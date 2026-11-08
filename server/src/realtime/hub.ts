@@ -58,6 +58,8 @@ type SessionEndReason = Parameters<RealtimeHub['disconnectUser']>[1]
 
 export type ClientFrameHandler = (s: { userId: string; windowId: string }, f: ClientFrame) => void
 export type WindowListener = (userId: string, windowId: string, state: 'open' | 'closed') => void
+/** every session of a person was ended (logout everywhere, password changed, disabled, deleted), open windows or not */
+export type UserEndedListener = (userId: string, reason: SessionEndReason) => void
 
 export interface HubOptions {
   pingIntervalMs?: number
@@ -73,6 +75,7 @@ export class Hub implements RealtimeHub {
   private sweeper: ReturnType<typeof setInterval> | null = null
   private frameHandlers: ClientFrameHandler[] = []
   private windowListeners: WindowListener[] = []
+  private userEndedListeners: UserEndedListener[] = []
   private o: Required<HubOptions>
   private stopping = false
 
@@ -329,9 +332,12 @@ export class Hub implements RealtimeHub {
 
   disconnectUser(userId: string, reason: SessionEndReason): void {
     const u = this.users.get(userId)
-    if (!u) return
-    for (const s of [...u.sockets.values()]) this.endSocket(u, s, reason)
-    u.sockets.clear()
+    if (u) {
+      for (const s of [...u.sockets.values()]) this.endSocket(u, s, reason)
+      u.sockets.clear()
+    }
+    // also with no window open (presence: an account turned off while its last window's grace runs)
+    for (const l of this.userEndedListeners) try { l(userId, reason) } catch (e) { this.ctx.log.error('user ended listener failed', { err: e }) }
   }
 
   /** Close sockets that belong to one session (logout of one device, the other sessions after a password change). */
@@ -389,6 +395,7 @@ export class Hub implements RealtimeHub {
   lastSeq(userId: string): number { return this.users.get(userId)?.seq ?? 0 }
   onClientFrame(h: ClientFrameHandler) { this.frameHandlers.push(h) }
   onWindow(l: WindowListener) { this.windowListeners.push(l) }
+  onUserEnded(l: UserEndedListener) { this.userEndedListeners.push(l) }
 
   // ---------------- housekeeping ----------------
   /**

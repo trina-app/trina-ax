@@ -14238,14 +14238,19 @@ and its developer page "User presence and status" (what was copied and what was 
   in the replay buffer: it is a state, and a replay of old states would only be wrong. `full: true` (the whole list:
   everyone who is online or away; anyone not in it is offline) goes to each window right after its `hello` and any
   replay, on every connection; then `full: false` with changes, to every open window. Only ids and states: no device,
-  window count, client kind or time. An old page ignores the unknown frame (not a known event, so no reload) and sends
+  window count, client kind or time. The page reads the frame person by person: an entry it cannot read (a state a
+  later server adds) is skipped, not the whole frame, so an older page keeps every other dot. An old page ignores the unknown frame (not a known event, so no reload) and sends
   no state (its windows count as in use while open); a new page on an old server gets an `error` frame for its state,
   which it ignores.
 - **Who sees it.** Everyone signed in to this team's server (one team per server), and nobody else: the hub's sockets
   are its signed-in sessions (a session that must change its temporary password gets none, as before). Only active
   accounts are listed online or away (`users.status = 'active'`, not deleted); offline is told about anyone, so an
   account turned off never stays on screen as online: the account is changed before its sockets close, and then
-  offline is told at once, without the grace (nobody waits for it to come back). The
+  offline is told at once, without the grace (nobody waits for it to come back). Turned off while the grace of its last
+  window already runs (no window left to close), the hub's "every session ended" (`Hub.onUserEnded`, from
+  `disconnectUser`) makes presence look again, so it is offline at once there too; an active account's grace (a password
+  change ends every session as well) is left as it was. The accounts are read once for a whole list or a batch of
+  changes, not once per person. The
   AI (@트리나) is no account and has no dot; there are no other bot or service accounts (Slack: auto presence does not
   apply to bots). Admins learn nothing members do not; nothing is written to the audit log.
 - **No "last seen".** Slack shows none for offline, and it would tell when someone worked. `users.last_seen_at` stays

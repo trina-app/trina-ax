@@ -10,9 +10,11 @@
 // - Close 4401 = signed out (no reconnect), 4409 = the same window id connected elsewhere (duplicated tab): take a
 //   new window id and reconnect. App-level ping every 20 s; no pong within 10 s → treat the link as dead.
 // - `presence` (who is online or away, docs/DECISIONS.md "접속 상태") is a state, not an event: the whole list after
-//   each hello, then changes, never replayed (onPresence). This window's own `presence` frame is never queued while
-//   disconnected (only the newest state matters, and it is sent again after each hello).
-import { ClientFrame, ServerEvent as ServerEventSchema, ServerFrame, WS_PATH, WS_PROTOCOL, WsClose, type PresenceFrame, type ServerEvent } from '@mycel/shared/api'
+//   each hello, then changes, never replayed (onPresence). Read person by person (readPresence): an entry this page
+//   cannot read (a state a later server adds) is skipped, not the whole frame, so an older page keeps every other dot.
+//   This window's own `presence` frame is never queued while disconnected (only the newest state matters, and it is
+//   sent again after each hello).
+import { ClientFrame, PresenceFrame as PresenceFrameSchema, ServerEvent as ServerEventSchema, ServerFrame, WS_PATH, WS_PROTOCOL, WsClose, type PresenceFrame, type ServerEvent } from '@mycel/shared/api'
 
 /** the event names this page knows (one it cannot read is then a shape it no longer agrees with) */
 const KNOWN_EVENTS: ReadonlySet<string> = new Set(ServerEventSchema.options.map((o) => o.shape.type.value as string))
@@ -69,6 +71,21 @@ const realTimers: Timers = {
 
 const OPEN = 1
 export const OUTBOX_MAX_FRAMES = 200
+
+const PRESENCE_ENTRY = PresenceFrameSchema.shape.people.element
+/** A `presence` frame read leniently: each entry it can read (an id and a known state), the others skipped (a state a
+ * later server adds must not blank every dot of an older page). Null when the frame itself is not one (no `full`, no
+ * list). */
+export function readPresence(json: unknown): PresenceFrame | null {
+  const f = json as { type?: unknown; full?: unknown; people?: unknown } | null
+  if (!f || f.type !== 'presence' || typeof f.full !== 'boolean' || !Array.isArray(f.people)) return null
+  const people: PresenceFrame['people'] = []
+  for (const p of f.people) {
+    const r = PRESENCE_ENTRY.safeParse(p)
+    if (r.success) people.push(r.data)
+  }
+  return { type: 'presence', full: f.full, people }
+}
 export const OUTBOX_MAX_BYTES = 16 * 1024 * 1024
 
 /** Backoff before reconnect attempt n (0-based): first 0–1 s random, then 1, 2, 4, 8, 10, 10 … s. */
@@ -192,6 +209,12 @@ export class RealtimeClient {
     if (typeof raw !== 'string') return
     let json: unknown
     try { json = JSON.parse(raw) } catch { return }
+    if ((json as { type?: unknown } | null)?.type === 'presence') {
+      // a state, read person by person (readPresence); never an event, so it takes no seq
+      const f = readPresence(json)
+      if (f) this.o.onPresence?.(f)
+      return
+    }
     const parsed = ServerFrame.safeParse(json)
     if (!parsed.success) {
       // a newer server's event we don't know yet: ignore, don't break the socket. But an event this page knows by name
@@ -248,8 +271,7 @@ export class RealtimeClient {
       case 'error':
         return
       case 'presence':
-        this.o.onPresence?.(f)
-        return
+        return // read above (readPresence)
       default: {
         if (f.seq <= this.lastSeq) return // replayed twice
         this.lastSeq = f.seq
