@@ -8394,7 +8394,9 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   - Every change waits for the asker: in a room session any call outside `ROOM_READ_ONLY_TOOLS` (writes, edits, moves,
     make_file, save_url, schedules, connections' tools, tools added later) raises a server card to the asker first
     (`confirmRoomChange`), whatever the room's messages said; no answer or "don't" changes nothing. Always, not only when
-    other people's words are in the context: simpler, and it fails closed.
+    other people's words are in the context: simpler, and it fails closed. (Amended 2026-11-08: new team files in a
+    folder every member may write can be allowed for the rest of an answer or in advance for the room, and a call that
+    also needs the wider-audience card gets that one card: "대화방에서 새 파일은 미리 허용" below.)
   - Answer file links: `RoomMessage.openable` lists the team files an AI answer links to or shows that the viewer may
     open now; the app shows the others as plain text (no chip, no picture loaded).
   - An account that cannot be loaded (disabled, deleted, still listed) fails every check.
@@ -14039,3 +14041,84 @@ the project's audience, the answer goes to the room; otherwise it stays private 
   instructions, the audit), `tests/security/room-reads-shared-chats.test.ts` (people × states, a member outside the
   audience, a planted instruction), `b-shared-chats`, `step-labels-tools`, `b-codex-rooms`.
 - Version impact: **minor** (two AI tools in rooms and an audit action; no API or database change).
+
+## 대화방에서 새 파일은 미리 허용 — "이 방에서는 항상 허용" (feat/room-ai-allowances, 2026-11-08, product owner)
+
+Amends "Every change waits for the asker" ("대화방의 트리나"). The owner (2026-11-08): in a room every change @트리나 makes
+raises the server card, so a daily job such as "@트리나 /견적서 만들어줘" stops one to three times on every answer, and one
+save could raise two cards (the room card, then the wider-audience card). The card remembered only the identical call
+(tool and JSON arguments) within one answer. The plan went through a UX review and a security review (the security
+re-check added the writers rule, the merged card's details and "made in this answer" from the file layer). One principle:
+**creating new team files can be allowed in advance; anything that cannot be undone or reaches more people still asks
+every time.** Team files keep their versions and a trash bin.
+
+- **The room card's choices.** [이번만 허용] [이 방에서는 항상 허용] [허용 안 함], with one line under them: "내가 부를 때, 이
+  폴더에 새 파일을 만들 때만 적용돼요." (`AskUserRequest.buttons`, `note`; the web shows the three in one row, stacked full
+  width on a phone; the address card and the schedule card keep their radios). The second is offered only when the call
+  can be covered (`TurnExec.roomGrantTarget`, all of these):
+  - the session is a room's (not the person's own chat after a room read, not a scheduled run, not a confidential chat);
+  - the tool is write, make_file or edit_hwp making a new file, or edit, write or edit_hwp of a file this same answer
+    made. Never edit_files, moves, copies, renames, save_url, save_room_file or any other tool;
+  - the path as the file layer resolves it for the person (`authorize(…, 'write')`: letter case, NFC/NFD, ".." and
+    links refused there), in a folder that is there, below the top folders: never the team root, a top folder, a group's
+    or a person's own folder (`groups/<g>`, `users/<id>`), a plugin's folder, a skills folder (`inSkills`), a hidden
+    folder, or an instruction-like file (`instructionLike`);
+  - **every member of the room may write it** (the same `authorize` for each member, security re-check): a grant adds
+    nothing anyone in the room could not do. A read-only member or a guest who cannot write there means two buttons
+    and no grant; otherwise any member's message could steer the AI into making files that member could not make
+    (a planted "단가표_v2.md" a skill later reads);
+  - the team's switch is on.
+- **"Made in this answer"** comes from the file layer's create events of this turn (`file_events` `create`, not a move
+  into place), and nobody else (a person, another answer) changed the file since. Not `filesWritten`, which also holds
+  updated files: one allowed edit of an existing file must not let a later edit of it through.
+- **[이번만 허용]** covers the rest of this answer for that folder and its subfolders, for the same kind of calls only (new
+  files, files made in this answer), under the same path and writers checks. Anything else keeps the exact-call memory,
+  and an edit of a file that was there before the answer always gets its own card. Decided beyond the brief: the writers
+  check applies to [이번만] too (the same steering risk within one answer); without it, [이번만] covers that call only.
+- **Subfolders.** Coverage stops at the first subfolder with folder rules of its own, and the target's own folder must
+  have the same readers and writers as the granted folder (`folderAudience`: every active person's access, hashed like
+  `tools/file-moves.ts` compares audiences).
+- **The grant** (migration 266, `room_ai_grants`): asker × room × folder (and subfolders) × new files, 30 days
+  (`ROOM_GRANT_DAYS`). With a good grant `confirmRoomChange` asks nothing; the step line ends "항상 허용으로 진행" and the
+  room's answer ends with "항상 허용으로 저장한 파일: …" (links; each viewer gets a chip only for a file they may open),
+  so the room sees what was saved. Checked again **when it is used** (`rooms/ai-grants.ts grantFor`): 30 days not passed;
+  the person still in the room and the room not archived; nobody joined at or after it; the folder's readers and
+  writers the same; the person may still write the folder; then for the target the subfolder rule, its folder's
+  audience and every member writing it. A lapse deletes the grant (audited, a later change back does not revive it);
+  the team's switch off only ignores grants (kept). Leaving a room deletes the person's grants there
+  (`Rooms.forgetMember`). Making another grant for the same folder renews it.
+- **Audit.** `room.ai_grant` (made), `room.ai_grant_revoke` (reason: person, left, expired, member_joined, audience,
+  no_write) and `room.ai_grant_use` (the file, the tool, the turn). A DM or a group chat is named by its kind only
+  (`roomAuditRef`), a team room or the everyone room by its id, as the other room audits do.
+- **One card per call.** For write, edit, make_file and edit_hwp the wider-audience need is computed before the room
+  card is raised (`TurnExec.widenNeed`; `chat/tools.ts widenOf` passes where the call saves and what it copies). When the
+  call needs both, only the wider-audience card is shown, with the room card's details (what it writes; an instruction
+  file's whole text) and no "항상"; its yes is the room yes of that call, its no refuses it. In the person's own chat after
+  a room read the same, with the rooms-seen line in front. make_file's later card (pictures, a template known only after
+  parsing) is never the room's yes. The checks keep their order (room, skill-write card, wider audience); only the asking
+  is merged. A granted folder still gets the wider-audience card when the answer read something fewer people can see.
+- **Unchanged.** The skill-write card (`confirmSkillWrite`, exact bytes), the caller's permission check (`authorize`),
+  the room-share decision (`RoomAi.decide`), edit_files' one card per batch, and every other tool's card.
+- **Words.** Every server card is titled "확인해 주세요" (was "팀 서버의 안전 확인"). The room card says what the AI will do
+  and that changed files can be restored ("트리나가 영업/견적서에 새 파일을 저장하려고 해요: 견적서_A사.hwpx. 바뀐 파일은
+  기록에서 되돌릴 수 있어요."); "대화방에는 다른 사람의 메시지도 있어요" is gone (it read as distrust of teammates). Buttons:
+  이번만 허용 / 이 방에서는 항상 허용 / 허용 안 함 (also the own chat's card: 이번만 허용 / 허용 안 함). Five languages.
+- **Settings › 트리나에게 허용한 것** (account group; "AI에게 허용한 것" where the product is not named after its AI):
+  one row per grant, "디자인 리뷰 → 영업/견적서" over "새 파일 저장 · 11월 8일", with [지우기] (no confirm: deleting only means
+  being asked again); a room as the person sees it (a 1:1 as "소라님 · 1:1"); an empty list is one line. `GET` and
+  `DELETE /api/ai-allowances[/:id]` (`shared/src/api/ai-allowances.ts`): one's own only, another person's id answers 404
+  like one that is not there. A union by `kind` so the sites allowed for a conversation can join it later (PR 2).
+- **Admin › Team settings › AI: "대화방에서 '항상 허용' 쓰기"** (`TeamSettings.roomAlwaysAllow`, on by default), one line of
+  help. Off: no third button, grants ignored at use (kept).
+- **Known limit.** A room question whose context holds earlier messages adds the room to the read scope (its members
+  are its readers). Saving where people outside the room can read (a team folder the owner and admins read and are not
+  in the room) still raises the wider-audience card on every such answer, a grant or not: one card instead of two.
+- Tests: `tests/unit/b-room-ai-grants.test.ts` (the card's words and buttons; a grant and the next file without a card,
+  the step line and the answer's file list; an existing file; one allowed edit not letting a second through; [이번만] for
+  a second new file and a made file but not an existing one; NFC/NFD and letter case; a ruled subfolder; top, group,
+  personal, skills, instruction, plugin and hidden folders; edit_files and moves; the merged card and its no; a granted
+  save with the wider-audience card alone; each lapse; a read-only member, apart from the join; the switch; the own chat
+  and a scheduled run; DM, group and team audit rows; the list and delete endpoints), updated `b-rooms-ai` and
+  `b-chat-rooms` (the merged card), `web/test/unit/ask-card-confirm.test.tsx`, `web/test/e2e/room-ai-allow.spec.ts`
+  (the three buttons and their answers, a phone, "항상" and the next answer without a card, the merged card, the settings
+  list and delete, the admin switch).
