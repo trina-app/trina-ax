@@ -15,7 +15,7 @@
 //     for the team skill. Renaming or moving a skill gives it a new path: runs before and after count as two skills;
 //   - people deleted later still count (turns stay; a deleted account is a tombstone), but their names are not shown.
 import type { Database } from 'bun:sqlite'
-import { GENERAL_DECK_SKILL, GOAL_DAYS, GOAL_PEOPLE, skillLabel, type TeamGoal } from '@mycel/shared/api'
+import { GENERAL_DECK_SKILL, GOAL_DAYS, GOAL_PEOPLE, skillLabel, type TeamGoal, type WelcomeProgress } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { getSetting, setSetting } from '../admin/settings'
 import { notificationsOf } from '../notifications/service'
@@ -129,26 +129,42 @@ export function joinedNotRun(db: Database, viewerId: string, w: GoalWindow, ran:
 }
 
 /**
+ * The skills the welcome steps ran themselves (docs/DECISIONS.md "DS3"): the intro deck (its pack path and the path
+ * the steps recorded for it) and every skill run in the steps' first-result chat (`resultChatId`: the deck now; the
+ * card news, the promo video or the ad copy of rows from before). The owner's own onboarding run, never the team's goal
+ * skill: the card and its [다시 보내기] would send members to it.
+ */
+export function onboardingRuns(ctx: Pick<AppContext, 'db'>, welcome: WelcomeProgress | null): Set<string> {
+  const own = new Set([GENERAL_DECK_SKILL, welcome?.general?.introDeckPath].filter((x): x is string => !!x))
+  if (welcome?.resultChatId) {
+    const rows = ctx.db.query('SELECT DISTINCT r.skill_path AS path FROM turns t JOIN turn_skill_runs r ON r.turn_id = t.id WHERE t.chat_id = ?').all(welcome.resultChatId) as { path: string }[]
+    for (const r of rows) own.add(r.path)
+  }
+  return own
+}
+
+/**
  * The skill the card counts (docs/DECISIONS.md "W5"): the landing skill (onboarding/welcome.ts landingSkill: the skill
- * the invite opens, else 할 일 정리; never the intro deck) while it exists, with its runners, even nobody yet — the same
- * skill the link opens and the members land on; unless another skill that is not the intro deck has more people. The
- * owner's own deck run never takes its place. Without a landing skill: the one most people ran.
+ * the invite opens; never the intro deck) while it exists, with its runners, even nobody yet — the same skill the link
+ * opens and the members land on; unless another skill has more people. Without a landing skill: the one most people
+ * ran. Never a skill the welcome steps ran themselves (onboardingRuns: the owner's own deck run), so with no other skill
+ * run there is no goal skill (docs/DECISIONS.md "DS3").
  */
 export function focusSkill(ctx: AppContext, p: GoalProgress): SkillRunners | null {
-  const landing = landingSkill(ctx)
-  if (!landing) return p.best
   const welcome = readWelcome(ctx)
-  const deck = new Set([GENERAL_DECK_SKILL, welcome?.general?.introDeckPath].filter((x): x is string => !!x))
+  const own = onboardingRuns(ctx, welcome)
+  const landing = landingSkill(ctx)
+  // the list is most people first: the first skill the steps did not run is the most-run one, or the only rival
   const all = skillRunners(ctx.db, p.startedAt, p.endsAt)
-  let own = all.find((s) => s.path === landing) ?? null
-  if (!own) {
+  if (!landing) return all.find((s) => !own.has(s.path)) ?? null
+  let mine = all.find((s) => s.path === landing) ?? null
+  if (!mine) {
     let name: string | null = null
     try { name = readSkill(ctx.files, ctx.files.principal(firstOwner(ctx.db) ?? ''), landing)?.name ?? null } catch { name = null }
-    own = { path: landing, name: name ?? landing, people: [] }
+    mine = { path: landing, name: name ?? landing, people: [] }
   }
-  // the list is most people first: the first other skill that is not the deck is the only rival
-  const rival = all.find((s) => s.path !== landing && !deck.has(s.path))
-  return rival && rival.people.length > own.people.length ? rival : own
+  const rival = all.find((s) => s.path !== landing && !own.has(s.path))
+  return rival && rival.people.length > mine.people.length ? rival : mine
 }
 
 /** The card's skill as the viewer may read it now (shared skillLabel: its title, else its folder name as words,

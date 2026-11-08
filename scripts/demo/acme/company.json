@@ -21,7 +21,7 @@
     { "path": "shared/budget", "rules": [{ "everyone": true, "access": "none" }, { "user": "dana", "access": "write" }], "why": "the budget: the CEO only" },
     { "path": "shared/budget/teams/Marketing", "rules": [{ "user": "sam", "access": "read" }], "why": "the Marketing lead reads the Marketing budget" },
     { "path": "shared/budget/teams/Sales", "rules": [{ "user": "priya", "access": "read" }], "why": "the Sales lead reads the Sales budget" },
-    { "path": "skills/marketing", "rules": [{ "everyone": true, "access": "none" }, { "group": "Marketing", "access": "read" }, { "user": "dana", "access": "read" }], "why": "the marketing pack's skills: Marketing and the CEO" }
+    { "path": "skills/work", "rules": [{ "everyone": true, "access": "none" }, { "group": "Marketing", "access": "read" }, { "user": "dana", "access": "read" }], "why": "the work pack's natural-writing skill: Marketing and the CEO" }
   ],
   "uploaders": [
     { "path": "groups/Marketing/meetings", "username": "jordan" },
@@ -30,7 +30,7 @@
     { "path": "skills", "username": "acme-admin" }
   ],
   "defaultUploader": "dana",
-  "packSkills": [{ "pack": "marketing", "locale": "en", "skills": ["weekly-report", "ad-copy"] }],
+  "packSkills": [{ "pack": "work", "locale": "en", "skills": ["humanizer"] }],
   "settings": { "aiSubagents": false, "timeZone": "America/New_York" },
   "profile": {
     "website": "https://acme.example",
@@ -60,7 +60,7 @@
       "username": "alex",
       "opens": ["shared/handbook/leave-and-benefits.md", "shared/onboarding-guide.md", "groups/Marketing/november-campaign-plan.md", "groups/Marketing/meetings/2026-11-03-marketing-weekly.md", "skills/answer-rules.md"],
       "closed": ["shared/budget/2026-Q4-company-budget.xlsx", "shared/budget/teams/Marketing/2026-Q4-marketing-budget.xlsx", "groups/Sales/pipeline.xlsx"],
-      "skills": ["ad-copy", "meeting-action-items", "weekly-report"]
+      "skills": ["humanizer", "meeting-action-items"]
     },
     {
       "username": "sam",
@@ -81,7 +81,7 @@
     {
       "username": "dana",
       "opens": ["shared/budget/2026-Q4-company-budget.xlsx", "shared/budget/teams/Marketing/2026-Q4-marketing-budget.xlsx", "shared/budget/teams/Sales/2026-Q4-sales-budget.xlsx", "groups/Sales/pipeline.xlsx", "groups/Marketing/november-campaign-plan.md"],
-      "skills": ["ad-copy", "meeting-action-items", "weekly-report"]
+      "skills": ["humanizer", "meeting-action-items"]
     }
   ]
 }

@@ -12,24 +12,16 @@
 // then the three latest AI chats as plain rows ("트리나 기록"; the whole history is behind ☰ in the top bar). The greeting and the box sit a third of
 // the way down and the rows hang below them, so opening a row moves nothing above it. A project's new
 // chat ("/?project=") shows neither: the goal and the setup row are about the team.
-// Two moments of the meeting-notes start (docs/DECISIONS.md "M — One meeting note, everyone's own tasks") show here as
-// one line each, with nothing else added:
-//   - a member who just joined with a link that carries the lead's files (lib/starter.ts): "민지님이 이번 주 팀 회의록
-//     2개를 올려 뒀어요" above the box, the box holding the skill as a chip ("할 일 정리") and "내 할 일 정리해 줘", the
-//     files attached,
-//     the box's own send button as the one action, and who sees the chat under it; nothing else on Home until it is sent;
-//     a team skill a person made without a form ("S"): "지훈님이 만든 팀 스킬이에요", its title as the chip and
-//     "이 방식대로 해 줘";
-//   - the owner who ended the welcome steps without files: "회의록이 생기면 {팀} 폴더에 놓아 주세요".
+// The owner who ended the welcome steps without files gets one line (docs/DECISIONS.md "M — One meeting note,
+// everyone's own tasks"): "회의록이 생기면 {팀} 폴더에 놓아 주세요". (The member's start from a link's files, "M", went
+// with 할 일 정리: docs/DECISIONS.md "DS3".)
 import clsx from 'clsx'
 import { ArrowUpLeft, ChevronRight, Folder, Lock, Pencil } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import { useRealNavigationType } from '../lib/realPath'
-import type { Chat, FileEntry, JoinStarter, Project } from '@mycel/shared/api'
+import type { Chat, FileEntry, Project } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
-import { clearStarter, heldStarter, markStarterAttached, starterAttached } from '../lib/starter'
-import { sendToComposer } from '../lib/teamAttach'
 import { visibleFolders } from '../lib/visibleFolders'
 import { useT, type MessageKey } from '../i18n'
 import { Modal, useMediaQuery } from '../components/ui'
@@ -60,8 +52,6 @@ export default function Home() {
   const chats = useChats((s) => s.chats)
   const chatsLoaded = useChats((s) => s.chatsLoaded)
   const [project, setProject] = useState<Project | null>(null)
-  // a member who just joined: the lead's files and their question, until the first message is sent
-  const starter = useMemo(() => (projectId ? null : heldStarter(me.user.id)), [me.user.id, projectId])
   const location = useLocation()
   const notes = readNotesHint(location.state)
   const phone = useMediaQuery('(max-width: 767.98px)')
@@ -69,12 +59,7 @@ export default function Home() {
   const elsewhere = phone && isLanding(location) && landingPath(true) !== '/'
   // the owner who left the welcome steps unfinished lands on them, once per tab session (never a link elsewhere)
   const resuming = useResumeOnLanding(isLanding(location) && !elsewhere)
-  const [preset, setPreset] = useState<{ text: string; n: number } | null>(() => (starter ? { text: starterQuestion(starter, t), n: 0 } : prompt ? { text: prompt, n: 0 } : null))
-  useEffect(() => {
-    if (!starter || !starter.files.length || starterAttached(me.user.id)) return
-    // once: the box keeps its chips across a reload by itself
-    void sendToComposer('new', starter.files.map((f) => f.path)).then((r) => { if (r.added > 0) markStarterAttached(me.user.id) })
-  }, [starter, me.user.id])
+  const [preset, setPreset] = useState<{ text: string; n: number } | null>(() => (prompt ? { text: prompt, n: 0 } : null))
 
   useEffect(() => {
     if (!projectId) return setProject(null)
@@ -92,10 +77,10 @@ export default function Home() {
   // nothing answers this person: one card, no suggestions, no line above the box; the suggestions wait for the answer
   const ai = useAiAccess()
   useEffect(() => { void useAiAccess.getState().load() }, [])
-  const noAi = extras && !starter && ai.loaded && !ai.usable
-  const suggest = extras && !projectId && !starter && ai.loaded && ai.usable
+  const noAi = extras && ai.loaded && !ai.usable
+  const suggest = extras && !projectId && ai.loaded && ai.usable
   // a project's new chat is about that project: the team's goal and setup row stay on Home itself
-  const top = !noAi && extras && isAdmin(me) && !starter && !projectId && ai.loaded && <HomeTop owner={isOwner(me)} />
+  const top = !noAi && extras && isAdmin(me) && !projectId && ai.loaded && <HomeTop owner={isOwner(me)} />
 
   if (elsewhere) return <Navigate to={landingPath(true)} state={LANDING_STATE} replace />
   if (resuming) return <div className="h-full" data-testid="home-resuming" />
@@ -118,7 +103,7 @@ export default function Home() {
               </p>
             )}
             {demo && !projectId ? <DemoIntro persona={demo.persona} /> : <h1 className="mb-6 text-center text-[1.625rem] font-semibold tracking-tight text-balance sm:text-[1.75rem]">{t('home.greeting', { name: me.user.name })}</h1>}
-            {extras && (starter ? <StarterLine starter={starter} /> : notes && !projectId && <NotesLine notes={notes} />)}
+            {extras && notes && !projectId && <NotesLine notes={notes} />}
             <NewChatComposer
               projectId={projectId}
               project={project}
@@ -126,21 +111,14 @@ export default function Home() {
               resetKey={preset?.n ?? 0}
               // Only in-app PUSH navigation or a chosen preset requests focus; a document load keeps the skip link first.
               autoFocus={navigationType === 'PUSH' || (preset?.n ?? 0) > 0}
-              onSent={starter ? () => clearStarter(me.user.id) : undefined}
-              skill={starter ? { name: starter.skill.name, title: starter.skill.title } : undefined}
               aiLine={!noAi}
             />
-            {extras && starter && (
-              <p className="mt-2 text-center text-xs text-faint" data-testid="starter-private">
-                {starter.by ? t('starter.privateBy', { name: me.user.name, by: starter.by }) : t('starter.private', { name: me.user.name })}
-              </p>
-            )}
           </div>
           <div className="max-md:pb-6 md:contents" data-testid="home-tail">
             {demo && !projectId && <DemoQuestions info={demo.info} persona={demo.persona} />}
             {/* phones: the top row is the first row under the box */}
             {phone && top && <div className="mt-3">{top}</div>}
-            {phone && extras && !projectId && !starter && <RecentChats />}
+            {phone && extras && !projectId && <RecentChats />}
             {suggest && firstTime && <FirstTime onExample={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
             {suggest && <FrequentQuestions key={me.user.id} onChoose={(text) => setPreset({ text, n: (preset?.n ?? 0) + 1 })} />}
             {/* B-W7-7: the team's top skills, once two or more were used. A different key from FrequentQuestions: same-key
@@ -189,22 +167,6 @@ function RecentChat({ chat }: { chat: Chat }) {
       </Link>
     </li>
   )
-}
-
-/** The member's own question ("내 할 일 정리해 줘"); the link's skill goes with it as the box's chip ("할 일 정리"), and
- * sending runs "/meeting-tasks 내 할 일 정리해 줘". */
-export function starterQuestion(s: JoinStarter, t: ReturnType<typeof useT>): string {
-  return t(s.kind === 'brief' ? 'starter.askBrief' : s.kind === 'skill' ? 'starter.askSkill' : 'starter.askTasks')
-}
-
-/** "민지님이 이번 주 팀 회의록 2개를 올려 뒀어요" (the files are in the box below); a team skill without a form
- * (docs/DECISIONS.md "S"): "지훈님이 만든 팀 스킬이에요" (its title is the box's chip). */
-function StarterLine({ starter }: { starter: JoinStarter }) {
-  const t = useT()
-  const n = starter.files.length
-  const key: MessageKey = starter.kind === 'skill' ? (starter.by ? 'starter.skillBy' : 'starter.skill')
-    : starter.kind === 'brief' ? (starter.by ? 'starter.briefBy' : 'starter.brief') : starter.by ? 'starter.tasksBy' : 'starter.tasks'
-  return <p className="mb-3 text-center text-sm text-muted" data-testid="starter-line">{t(key, { n, by: starter.by ?? '' })}</p>
 }
 
 /** "회의록이 생기면 {팀} 폴더에 놓아 주세요", the folder a link to the file screen. */

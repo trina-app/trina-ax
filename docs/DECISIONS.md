@@ -11035,32 +11035,36 @@ Details: `docs/GOOGLE-DRIVE.md` "Hosted teams"; control plane side: trina-cloud 
 
 ## DS — Every skill pack is a default (2026-11-06)
 
+> **Superseded by DS3 (2026-11-08):** no skill is added by itself any more (the seeder and its timer are gone), and
+> only the four skills with a known origin ship. The lines below are kept as the history of what DS did.
+
 넣을 곳: trina-ax `server/src/onboarding` (default-skills.ts, skill-packs.ts) and `resources/skill-packs/work`, 이유: the
 owner asked for every skill in the repository to be in every team without anyone installing it.
 
-- **What a team has by itself.** The packs in `DEFAULT_SKILL_PACKS` (shared/src/api/onboarding-packs.ts): general
+- **What a team has by itself** (superseded by DS3: nothing; `DEFAULT_SKILL_PACKS` is gone). The packs in `DEFAULT_SKILL_PACKS` (shared/src/api/onboarding-packs.ts): general
   (5), marketing (7) and the new work pack (6), 18 skills, under `skills/<pack>/<name>/SKILL.md` in the team's
   language (Korean or English; id, ja and es get English, as the packs already did). The marketing pack's four
   `shared/` folders are not made by the default: they stay with the pack's own install (the welcome steps' marketing
   choice, the Team skills page), so a team that is not a marketing team gets no empty marketing folders.
-- **The work pack** is the six README example skills (`examples/skills/`), rewritten for the team's own files: no
+- **The work pack** (superseded by DS3: its six skills are deleted, natural writing stays) is the six README example skills (`examples/skills/`), rewritten for the team's own files: no
   fictional `shared/demo/` inputs, a title and a short form each, and the same limits (read only what the person
   names, draft only, a person decides, sends and pays). Each one has a job of its own next to the other packs:
   meeting-summary (decided / open / next, for people who were not there) beside meeting-tasks (tasks by person);
   weekly-team-report "Weekly roundup / 주간 종합" (several teams on one page for the CEO, `recurring: weekly`) beside
   marketing's weekly-report (one team's report); brand-brief "Creative brief / 제작 요청서" (a hand-off to a designer
   or agency) beside campaign-plan. The examples stay as they are: they are the fictional quick-try with their data.
-- **Once per skill, recorded** (settings `onboarding.defaultSkills`, `<pack>/<name>` → status). Written as the first
+- **Once per skill, recorded** (superseded by DS3: the row is no longer read; this build only records the old seeder's
+  keys in it as `retired`, so an older build run again adds nothing) (settings `onboarding.defaultSkills`, `<pack>/<name>` → status). Written as the first
   active owner through placeSkill, the pack install's own step: folder rules decide, the file event is marked
   `pack_install` (the owner is not the maker), the skills/ change audit follows, one `onboarding.default_skills` audit
   row per run that added something. Recorded without writing when the file is there (`present`, or `kept` when someone
   edited it: never replaced), when another team skill has the name (`blocked`: no second "/<name>"), or when nothing
   is at the path but file_events have it (`removed`: deleted or moved on purpose, kept at least 365 days). Only a
   write the folder rules refused stays unrecorded and is tried again. A later delete is never undone (the record).
-- **When.** At the server's start (5 s after, never under `bun test`) and every 10 minutes, and in the welcome steps
+- **When** (superseded by DS3: never). At the server's start (5 s after, never under `bun test`) and every 10 minutes, and in the welcome steps
   right after the general pack (setupWelcomeTeam), so a new team has the 18 skills from its first steps. Nothing runs
   before setup (no owner). With everything recorded a run reads one settings row.
-- **Existing teams** get, on the first start of this version: the skills they never had; nothing for skills they have
+- **Existing teams** (superseded by DS3: they keep their files, nothing more is added) get, on the first start of this version: the skills they never had; nothing for skills they have
   (edited or not), deleted or have under another path.
 - Rejected: seeding in `bootstrapOwner` (setup) — every test harness sets up through it, and the welcome steps run
   right after setup anyway; a migration — the skills are files written through the file layer as a person, not rows;
@@ -11282,11 +11286,15 @@ seen column (feat/session-status) was reviewed and rebuilt here on phone-nav's s
 
 ## DS2 — Natural writing as a default, Korean HR documents as an optional pack (2026-11-06)
 
+> **Superseded in part by DS3 (2026-11-08):** natural writing stays (it has a known origin), but it is no longer added
+> by itself; the HR pack is deleted, with its "인사 서류 스킬 3개 넣기" line.
+
 넣을 곳: trina-ax `resources/skill-packs/work/{ko,en}/humanizer`, `resources/skill-packs/hr` and
 `server/src/onboarding/skill-packs.ts`, 이유: the owner asked for the company's general-purpose skills to be Trina's
 default skills, accepting that they become public here, leaving out anything internal or with customer data.
 
-- **Natural writing (`work/humanizer`) is a default skill**, added once to every team like the rest of DS (existing
+- **Natural writing (`work/humanizer`) is a default skill** (superseded by DS3: it ships, but only the empty Team skills
+  page's button adds it), added once to every team like the rest of DS (existing
   teams get it on the next run; the 19th default skill). Korean: a company-written Korean skill condensed into one
   SKILL.md (genre registers for blog, review, official channels, Shorts, Instagram, proposals and notices; the AI tells
   and their fixes), without its lint script (a pack ships one SKILL.md) and with **every quoted real title, caption or
@@ -11294,7 +11302,7 @@ default skills, accepting that they become public here, leaving out anything int
   its pattern list rewritten with our own examples (its Wikipedia-derived examples are left out); its MIT notice is at
   the end of the SKILL.md a team gets and as `LICENSE` next to it. Both: every fact stays, nothing invented, the
   original file is never changed.
-- **Korean HR documents (`hr`) are an optional pack** (`OPTIONAL_SKILL_PACKS`): employment contract, employment
+- **Korean HR documents (`hr`) are an optional pack** (superseded by DS3: deleted, origin not known) (`OPTIONAL_SKILL_PACKS`): employment contract, employment
   certificate (employment / career / leaving) and annual leave (days and a leave request), Korean and English. Made
   general for any Korean company from an industry-specific edition: no industry, clinic or person names, no data; the
   templates are inline, the leave calculation is in the text (art. 60, with its 5-employee threshold), the minimum wage
@@ -11308,6 +11316,49 @@ default skills, accepting that they become public here, leaving out anything int
   third-party generators that need paid credits.
 - Rejected: shipping the Korean lint script (a pack is one SKILL.md, and the checks are in the text); making the HR
   pack a default (labour-law forms only some teams need, and wrong for teams outside Korea).
+
+## DS3 — Only skills with a known origin ship; no auto-add (2026-11-08)
+
+넣을 곳: trina-ax `resources/skill-packs`, `server/src/onboarding` (skill-packs.ts, welcome.ts, goal.ts,
+retired-skills.ts), `server/src/auth/team-links.ts`, `web/src/components/AvailableSkills.tsx`, 이유: the owner learned
+that most of the 22 pack skills were written by AI sessions with no known origin, and ordered the ones without a source
+deleted and the auto-add removed ("자동 추가가 있다고?? … 굳이 물어보게 해야해?").
+
+- **Kept (Korean and English):** `general/intro-deck` (the welcome steps' first result), `general/card-news` and
+  `general/promo-video` (each calls a tool of its own), `work/humanizer` (Korean: written by the company from its own
+  korean-humanizer skill; English: adapted from the open-source "humanizer" skill, Siqi Chen, MIT, its `LICENSE` kept).
+- **Deleted (18):** `general/meeting-tasks` (할 일 정리) and `general/doc-brief`; the whole `marketing` pack (7) with
+  its four `shared/` folders (브랜드, 캠페인, 보고서, 경쟁사) and the Files screen's hints for them; `work/`
+  meeting-summary, weekly-team-report, sales-follow-up, brand-brief, expense-review, new-hire-guide; the whole `hr`
+  pack (3). With them: `POST /api/onboarding/welcome/pack`, the pack ids `marketing` and `hr`, the progress's `pack`
+  and `general.tasksPath` / `briefPath`, `WELCOME_PACK_SKILLS`, `WELCOME_RESULT_SKILL`, `TEAM_TYPE_PACK`,
+  `HR_PACK_SKILLS`, `DEFAULT_SKILL_PACKS`, `OPTIONAL_SKILL_PACKS`, `REPORT_SKILLS`, `RECURRING_PACK_SKILLS`, the marketing
+  `PACK_FOLDERS` (the brand folder's names stay, as `BRAND_FOLDER`: the team's own brand folder groups/<team>/브랜드
+  holds what the intro deck, the card news and the promo video read), and the Team skills page's "마케팅 스킬 7개 넣기"
+  and "인사 서류 스킬 3개 넣기" lines.
+- **No auto-add, and nothing in its place.** `server/src/onboarding/default-skills.ts` (the seeder, 5 s after the
+  start and every 10 minutes) and its call in `setupWelcomeTeam` are gone; no "new skills, add them?" prompt. The
+  welcome steps still install the general pack once (now 3 skills); the empty Team skills page's one admin button
+  ("추천 스킬 4개 넣기") installs the general and work packs. Members keep their line.
+- **할 일 정리 gone:** the skill everything points at (`landingSkill`) is the shared skill only, else none: the invite
+  link lands on Home and the end screen offers 홈으로 alone. The general pack is recorded once any of its skills is
+  there (no one skill decides), so a missing 할 일 정리 never holds the team's start back or makes the page ask again.
+  The team link's starter (the lead's meeting notes and "내 할 일 정리해 줘" / "내가 알아야 할 것만 알려 줘") is removed
+  from the API, the server and the web app; its `team_links.starter` column stays unread (no migration).
+- **The goal card never names the owner's onboarding run.** Without a landing skill the card took the skill most
+  people ran, which right after the steps is the owner's own intro deck: its [다시 보내기] would have sent members to
+  the 회사 소개서 form. The fallback now leaves out every skill the steps ran themselves (the intro deck's paths and any
+  skill run in the first-result chat), so with nothing else run there is no goal skill (`onboarding/goal.ts`
+  onboardingRuns).
+- **Rollback guard.** An older build's seeder adds every `<pack>/<name>` its settings row `onboarding.defaultSkills`
+  does not record. This build writes the 19 keys that seeder knew (general 5, marketing 7, work 7; a frozen list) as
+  `retired`, only where missing and never over an entry that is there, at every start and in `setupWelcomeTeam`: a
+  settings write, no files. So a dev server installing an older build, or a customer downgrading, adds nothing.
+- **Existing teams keep their files.** Nothing is deleted from a team folder; old welcome rows keep their `pack` and
+  `general.tasksPath` (no longer read); the audit screen still names old `onboarding.default_skills` rows. No migration.
+- Rejected: asking "새 스킬이 있어요, 넣을까요?" in place of the seeder (the owner: no prompt); deleting the files the
+  seeder put in existing teams (they are the team's own files now).
+- Version impact: **minor** (skills, a route and API fields removed; nothing a running team stored is lost).
 
 ## 메시지 상자의 멘션 — mentions stand out in a room's message box (feat/composer-mention-highlight, 2026-11-06)
 넣을 곳: trina-ax `web/src/components` (TokenTextarea.tsx, rooms/useMentionMenu.tsx) and `web/src/lib` (textTokens.ts,

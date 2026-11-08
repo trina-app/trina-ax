@@ -329,11 +329,11 @@ describe('skill deep link', () => {
     expect((await owner.call('GET', '/api/admin/team-link')).link.skill).toEqual({ path: 'skills/sales/pitch/SKILL.md', name: 'pitch', title: 'pitch' })
   })
 
-  test('a skill of the marketing pack (onboarding C): the new member lands on its form, and their own list carries it with its fields', async () => {
+  test('a skill of a recommended pack (onboarding C): the new member lands on its form, and their own list carries it with its fields', async () => {
     setPlanForTests(null)
-    expect((await owner.try('POST', '/api/onboarding/packs/marketing/install')).status).toBe(200)
+    expect((await owner.try('POST', '/api/onboarding/packs/work/install')).status).toBe(200)
     expect((await owner.try('PUT', '/api/onboarding/profile', { website: 'https://www.acme.example/', oneLine: '', products: 'Paper planners', audience: 'Small offices', tone: ['friendly'], avoid: '', sources: [] })).status).toBe(200)
-    const skillPath = 'skills/marketing/campaign-plan/SKILL.md'
+    const skillPath = 'skills/work/humanizer/SKILL.md'
     const { link } = await owner.call('POST', '/api/admin/team-link', { skillPath })
     const c = h.client({ ip: '10.9.1.1' })
     const r = await join(tokenOf(link.url), { tokenMode: 'cookie' }, c)
@@ -343,10 +343,10 @@ describe('skill deep link', () => {
     expect(next).toBe(`/skills?run=${encodeURIComponent(skillPath)}`)
     const run = new URL(next, 'http://x').searchParams.get('run')
     // what the Skills page's form reads as that member: the skill by that path, with its fields, the only one of its
-    // name (so "/campaign-plan" runs it), and the company profile for the fields that ask for it
+    // name (so "/humanizer" runs it), and the company profile for the fields that ask for it
     const items = (await c.call('GET', '/api/skills')).items as { path: string; name: string; inputs?: { name: string; prefill?: string }[] }[]
     const skill = items.find((s) => s.path === run)
-    expect(skill?.name).toBe('campaign-plan')
+    expect(skill?.name).toBe('humanizer')
     expect(skill!.inputs!.length).toBeGreaterThan(0)
     expect(items.filter((s) => s.name === skill!.name)).toHaveLength(1)
     const prefill = profilePrefill((await c.call('GET', '/api/onboarding/profile')).profile)

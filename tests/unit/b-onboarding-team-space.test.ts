@@ -1,7 +1,8 @@
 // Every team's start (docs/DECISIONS.md "M — One meeting note, everyone's own tasks"; server/src/onboarding/welcome.ts
-// setupWelcomeTeam, POST /api/onboarding/welcome/team): the general pack (할 일 정리, 핵심 정리) installed once like the
-// marketing pack, and the team's own group named after the team with its folder groups/<name>/ (its members read and
-// write) and the meeting notes folder in it, the owner in the group, made once. "자료 없이" ends the steps (finish).
+// setupWelcomeTeam, POST /api/onboarding/welcome/team): the general pack (the intro deck, the card news, the promo
+// video: docs/DECISIONS.md "DS3") installed once, and the team's own group named after the team with its folder
+// groups/<name>/ (its members read and write) and the meeting notes folder in it, the owner in the group, made once.
+// "자료 없이" ends the steps (finish).
 import { afterEach, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -12,7 +13,7 @@ import { SKILL_PACKS } from '../../server/src/onboarding/skill-packs'
 import { WELCOME_SETTING } from '../../server/src/onboarding/welcome'
 import { packInstalled } from '../../server/src/onboarding/tenant-status'
 import { getSetting } from '../../server/src/admin/settings'
-import { GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, GENERAL_DECK_SKILL, GENERAL_PROMO_SKILL, GENERAL_TASKS_SKILL, WelcomeProgress } from '@mycel/shared/api'
+import { GENERAL_CARDNEWS_SKILL, GENERAL_DECK_SKILL, GENERAL_PROMO_SKILL, WelcomeProgress } from '@mycel/shared/api'
 
 let h: Harness
 afterEach(async () => { await h?.close() })
@@ -37,11 +38,13 @@ test('the general pack and the team group with its folders, once; the owner in i
   // the operator's count sees the general pack too (TenantStatus.onboarding.packInstalled)
   expect(packInstalled(root)).toBe(true)
   expect(r.outcome).toBe('installed')
-  expect(r.install.skills.map((s: any) => [s.path, s.status])).toEqual([[GENERAL_TASKS_SKILL, 'created'], [GENERAL_BRIEF_SKILL, 'created'], [GENERAL_CARDNEWS_SKILL, 'created'], [GENERAL_PROMO_SKILL, 'created'], [GENERAL_DECK_SKILL, 'created']])
-  expect(r.install.folders).toEqual([])
-  expect(fs.readFileSync(path.join(root, GENERAL_TASKS_SKILL), 'utf8')).toBe(SKILL_PACKS.general.skills.ko!['meeting-tasks']!)
+  expect(r.install.skills.map((s: any) => [s.path, s.status])).toEqual([[GENERAL_CARDNEWS_SKILL, 'created'], [GENERAL_PROMO_SKILL, 'created'], [GENERAL_DECK_SKILL, 'created']])
+  expect(r.install.folders).toBeUndefined()
+  expect(fs.readFileSync(path.join(root, GENERAL_DECK_SKILL), 'utf8')).toBe(SKILL_PACKS.general.skills.ko!['intro-deck']!)
   // the first result's intro deck, and the promo video and the card news (still installed), are recorded with the pack
-  expect(r.progress.general).toMatchObject({ tasksPath: GENERAL_TASKS_SKILL, briefPath: GENERAL_BRIEF_SKILL, cardNewsPath: GENERAL_CARDNEWS_SKILL, promoVideoPath: GENERAL_PROMO_SKILL, introDeckPath: GENERAL_DECK_SKILL })
+  expect(r.progress.general).toEqual({ at: expect.any(String), cardNewsPath: GENERAL_CARDNEWS_SKILL, promoVideoPath: GENERAL_PROMO_SKILL, introDeckPath: GENERAL_DECK_SKILL })
+  // nothing else: no other pack, no skill outside skills/general/
+  expect(fs.readdirSync(path.join(root, 'skills'))).toEqual(['general'])
   // the group is named after the team; its folder and the meeting notes folder (in the team language) are there
   const g = r.progress.teamGroup
   expect(g).toMatchObject({ name: 'Acme', folder: 'groups/Acme', notesFolder: 'groups/Acme/회의록' })
@@ -61,9 +64,7 @@ test('the general pack and the team group with its folders, once; the owner in i
   const general = listSkills(h.ctx.files, member).filter((s) => s.path.startsWith('skills/general/'))
   expect(general.map((s) => [s.name, s.title, s.inputs?.map((i) => i.name)])).toEqual([
     ['card-news', '카드뉴스', ['topic', 'channel', 'files']],
-    ['doc-brief', '핵심 정리', ['scope', 'files']],
     ['intro-deck', '회사 소개서', ['topic', 'audience', 'files']],
-    ['meeting-tasks', '할 일 정리', ['scope', 'files']],
     ['promo-video', '홍보 영상', ['topic', 'channel', 'files']],
   ])
   expect(skillIssues(h.ctx.files, member)).toEqual([])
@@ -86,18 +87,20 @@ test('the general pack and the team group with its folders, once; the owner in i
 test('a deleted skill is not brought back; a team that has the general skills is recorded without installing', async () => {
   const { owner, root } = await setup()
   await owner.call('POST', '/api/onboarding/packs/general/install')
-  fs.rmSync(path.join(root, 'skills/general/doc-brief'), { recursive: true })
+  fs.rmSync(path.join(root, 'skills/general/card-news'), { recursive: true })
   const r = await owner.call('POST', '/api/onboarding/welcome/team')
   expect(r).toMatchObject({ outcome: 'already', install: null })
-  expect(r.progress.general).toMatchObject({ tasksPath: GENERAL_TASKS_SKILL, briefPath: null })
-  expect(fs.existsSync(path.join(root, 'skills/general/doc-brief'))).toBe(false)
+  expect(r.progress.general).toMatchObject({ promoVideoPath: GENERAL_PROMO_SKILL, introDeckPath: GENERAL_DECK_SKILL })
+  expect(r.progress.general.cardNewsPath).toBeUndefined()
+  expect(fs.existsSync(path.join(root, 'skills/general/card-news'))).toBe(false)
   expect(count('onboarding.pack_install')).toBe(1)
 })
 
-test('blocked "할 일 정리" records no pack but still makes the team folder; a group the steps did not make is never taken over', async () => {
+test('a pack whose every skill is blocked records nothing but still makes the team folder; one blocked skill does not hold it back; a group the steps did not make is never taken over', async () => {
   const { owner, ownerId, root } = await setup()
-  // something in the way of the skill file: a folder named SKILL.md
-  fs.mkdirSync(path.join(root, GENERAL_TASKS_SKILL), { recursive: true })
+  // something in the way of every skill file: a folder named SKILL.md
+  const paths = [GENERAL_CARDNEWS_SKILL, GENERAL_PROMO_SKILL, GENERAL_DECK_SKILL]
+  for (const p of paths) fs.mkdirSync(path.join(root, p), { recursive: true })
   // an admin made a group named like the team before, with a rule on another folder
   const made = await owner.call('POST', '/api/admin/groups', { name: 'acme', memberIds: [] })
   await owner.call('POST', '/api/admin/folders', { path: 'shared/finance', rules: [{ subjectType: 'everyone', subjectId: null, access: 'none' }, { subjectType: 'group', subjectId: made.id, access: 'write' }] })
@@ -112,10 +115,11 @@ test('blocked "할 일 정리" records no pack but still makes the team folder; 
   expect(groups.find((x: any) => x.id === made.id).memberIds).toEqual([])
   expect(groups.find((x: any) => x.id === g.id).memberIds).toEqual([ownerId])
   expect(count('group.create')).toBe(2)
-  // the way cleared: the next call installs it, and keeps the recorded group
-  fs.rmSync(path.join(root, GENERAL_TASKS_SKILL), { recursive: true })
+  // the way cleared for two of them: the next call installs those, records the pack and keeps the recorded group
+  for (const p of paths.slice(0, 2)) fs.rmSync(path.join(root, p), { recursive: true })
   const again = await owner.call('POST', '/api/onboarding/welcome/team')
   expect(again.outcome).toBe('installed')
+  expect(again.progress.general).toMatchObject({ cardNewsPath: GENERAL_CARDNEWS_SKILL, promoVideoPath: GENERAL_PROMO_SKILL, introDeckPath: null })
   expect(again.progress.teamGroup).toEqual(g)
 
   // the recorded group deleted later: a new one, in a new folder (never the old group's files), never the admin's

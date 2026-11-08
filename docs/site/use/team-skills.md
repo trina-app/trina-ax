@@ -13,23 +13,20 @@ A skill is a reusable procedure in a `SKILL.md` file. It tells the AI how your t
 
 ![The Team skills page: tabs for available skills, review, suggestions and recent changes, and a list of six team skills](../images/skills/team-skills.webp "Team skills")
 
-## Skills every team has
+## Recommended skills
 
-Every team gets 19 ready-made skills without installing anything, in the team's language (Korean or English):
+Four ready-made skills ship with the product, in the team's language (Korean or English; other languages get the English text). Nothing adds them by itself:
 
-| Folder | Skills |
-|---|---|
-| `skills/general/` | Tasks from notes, Key points, Promo cards, Promo video, Company profile |
-| `skills/marketing/` | Ad copy, Blog and social draft, Campaign plan, SEO brief, Competitor brief, Brand voice review, Weekly report |
-| `skills/work/` | Meeting summary, Weekly roundup, Sales follow-up, Creative brief, Expense check, New hire guide, Natural writing |
+| Folder | Skills | How they get in |
+|---|---|---|
+| `skills/general/` | Company profile, Promo cards, Promo video | The welcome steps add them once, when the owner sets up the team |
+| `skills/work/` | Natural writing | **Add 4 recommended skills** on an empty **Available skills** page (owners and admins) |
 
-They are your team's own files. Skill managers can edit, move or delete them. The server adds each one once. It never replaces an edited skill, never brings back one you deleted, and skips one whose name another team skill already uses.
+The button on the empty page adds all four; it adds only what is missing. They are your team's own files: skill managers can edit, move or delete them. A skill you edited is never replaced, one you deleted never comes back by itself, and one whose name another team skill already uses is skipped.
 
-**Natural writing** rewrites text that reads as AI-written so it sounds like a person wrote it, without changing any fact. The Korean version knows Korean genres (blog, Shorts titles, Instagram, proposals, notices); the English one is based on the open-source "humanizer" skill (MIT License, its notice is inside the skill).
+**Natural writing** rewrites text that reads as AI-written so it sounds like a person wrote it, without changing any fact. The Korean version was written by the company and knows Korean genres (blog, Shorts titles, Instagram, proposals, notices); the English one is adapted from the open-source "humanizer" skill (MIT License, its notice is inside the skill).
 
-### Optional: Korean HR documents
-
-Owners and admins can add three more skills from **Available skills** with **Add 3 HR document skills (Korea)**: Employment contract, Employment certificate (employment, career, leaving) and Annual leave (days and a leave request). They follow the Korean Labor Standards Act and only make drafts: the company signs, stamps and decides. They read HR records only where the person asking may read them. They go under `skills/hr/` and are never added by themselves.
+Only skills with a known origin ship. Earlier versions also added skills for meeting tasks, document briefs, marketing, everyday work and Korean HR documents; teams that have them keep them as their own files.
 
 ## Where skills live
 

@@ -4,7 +4,7 @@
 // (docs/DECISIONS.md "언어"). A label is always "<words> + what the AI touched" (a path, a query, a remembered text),
 // and only the words are translated. On screen, a path's well-known team folders are said in words (stepPlace).
 import type { Locale } from './api/common'
-import { BRAND_IMAGES_FOLDER, NOTES_FOLDER, PACK_FOLDERS } from './api/onboarding-packs'
+import { BRAND_FOLDER, BRAND_IMAGES_FOLDER, NOTES_FOLDER } from './api/onboarding-packs'
 import { mediaKind, type MediaKind } from './media'
 import { maskSecrets } from './secrets'
 
@@ -245,7 +245,7 @@ export const STEP_PLACE = {
 } satisfies Record<string, T>
 
 const nfcSet = (names: Record<Locale, string>) => new Set(Object.values(names).map((n) => n.normalize('NFC')))
-const BRAND_NAMES = nfcSet(PACK_FOLDERS.brand)
+const BRAND_NAMES = nfcSet(BRAND_FOLDER)
 const IMAGES_NAMES = nfcSet(BRAND_IMAGES_FOLDER)
 const NOTES_NAMES = nfcSet(NOTES_FOLDER)
 

@@ -6,16 +6,13 @@
 // read-only list for members and admins; what only skill managers and admins do (review suggestions, recent changes)
 // stays in the page's other tabs. A chat starts from the skill's name, so of two skills with one name the server picks
 // (server/src/chat/skills.ts). A skill with a form (metadata `inputs`) opens it instead (skills/SkillForm.tsx), from
-// the row, its run button and its menu. With no skill at all, owners and admins can install the recommended pack in
-// one click (POST /api/onboarding/packs/marketing/install); members read that an admin can. A team that has skills but
-// none under skills/marketing/ (every team that walked the welcome steps has the general pack) gets one quiet line under
-// the list for owners and admins: "마케팅 스킬 7개 넣기", the same install on a click. The optional packs, which the server
-// never adds by itself (OPTIONAL_SKILL_PACKS: hr), get the same kind of line while none of their skills is in the team:
-// "인사 서류 스킬 3개 넣기".
+// the row, its run button and its menu. With no skill at all, owners and admins can install the recommended skills in
+// one click ("추천 스킬 4개 넣기": the general and work packs, POST /api/onboarding/packs/:id/install for each); members
+// read that an admin can. Nothing else offers a pack, and nothing adds one by itself (docs/DECISIONS.md "DS3").
 import clsx from 'clsx'
 import { FileText, MessageSquarePlus, MoreHorizontal, PackagePlus, Play, ScrollText, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { HR_PACK_SKILLS, skillSummary, WELCOME_PACK_SKILLS, type SkillInfo, type SkillPackId } from '@mycel/shared/api'
+import { RECOMMENDED_PACK_SKILLS, RECOMMENDED_SKILL_PACKS, skillSummary, type SkillInfo } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { navigateTo } from '../lib/nav'
 import { parentPath } from '../lib/paths'
@@ -35,8 +32,8 @@ export const skillFileLink = (path: string) => `/files?path=${encodeURIComponent
 /** A new chat with "/<name> " in the message box. */
 export const skillChatLink = (name: string) => `/?prompt=${encodeURIComponent(skillPrompt(name))}`
 
-/** The folder of a team or group skill below its skills root, when it sits in a subfolder ("marketing" for
- * skills/marketing/ad-copy/SKILL.md; "" for skills/x.md and skills/x/SKILL.md): the one place a path still helps a
+/** The folder of a team or group skill below its skills root, when it sits in a subfolder ("general" for
+ * skills/general/intro-deck/SKILL.md; "" for skills/x.md and skills/x/SKILL.md): the one place a path still helps a
  * person who manages the folders. The full path is in the row's "…" menu. */
 export const skillSubfolder = (path: string) => {
   const root = /^(skills\/|groups\/[^/]+\/skills\/)/.exec(path)
@@ -84,11 +81,6 @@ export function AvailableSkills({ query }: { query: string }) {
   return <AvailableSkillsList items={items} query={query} />
 }
 
-/** The marketing pack's skills live here (the server installs a pack under skills/<id>/). */
-const MARKETING_FOLDER = `skills/${'marketing' satisfies SkillPackId}/`
-/** The optional HR pack's skills live here. */
-const HR_FOLDER = `skills/${'hr' satisfies SkillPackId}/`
-
 /** The groups of `items`' group skills, one each, by name (letter case ignored) then id: the server's order
  * (server/src/chat/skills.ts groupOrder). A group with no skill the person can use is not there. */
 export function skillGroups(items: readonly Skill[]): { id: string; name: string }[] {
@@ -110,10 +102,7 @@ export function AvailableSkillsList({ items, query = '' }: { items: Skill[] | nu
   // a skill another one of its name replaced is not in the lists below, and not in the counts: its own section
   const shown = q ? items.filter((s) => `${s.name} ${s.title ?? ''} ${s.description}`.toLowerCase().includes(q)) : items
   if (!shown.length) return <EmptyState icon={<Sparkles size={22} />} title={t('skills.noMatch', { q: query.trim() })} />
-  // no marketing skill in the team yet: owners and admins can add the pack (not while searching)
   const hidden = shown.filter((s) => s.shadowedBy)
-  const offerMarketing = admin && !q && !items.some((s) => !s.personal && s.path.startsWith(MARKETING_FOLDER))
-  const offerHr = admin && !q && !items.some((s) => !s.personal && s.path.startsWith(HR_FOLDER))
   return (
     <div className="space-y-6" data-testid="skill-list">
       <SkillSection title={t('skills.fromTeam')} items={shown.filter((s) => !s.personal && !s.group && !s.shadowedBy)} folders={admin} onRun={setRunning} />
@@ -122,76 +111,53 @@ export function AvailableSkillsList({ items, query = '' }: { items: Skill[] | nu
       ))}
       <SkillSection title={t('skills.personal')} items={shown.filter((s) => s.personal)} folders={admin} onRun={setRunning} />
       <SkillSection title={t('skills.shadowedTitle')} items={hidden} folders={admin} onRun={setRunning} testId="skill-shadowed" />
-      {offerMarketing && <MarketingPackLine />}
-      {offerHr && <HrPackLine />}
       {running && <SkillFormDialog path={running.path} skill={running} onClose={() => setRunning(null)} />}
     </div>
   )
 }
 
-/** Install a pack (the marketing pack unless said) on a click and say what happened (only what is missing goes in;
- * nothing is replaced). */
-function usePackInstall(id: SkillPackId = 'marketing') {
+/** Install the recommended packs (the general pack, then the work pack) on a click and say what happened (only what is
+ * missing goes in; nothing is replaced). */
+function useRecommendedInstall() {
   const t = useT()
   const locale = useLocale()
   const [busy, setBusy] = useState(false)
   const install = async () => {
     setBusy(true)
-    try {
-      const r = await api.call(API.installSkillPack, { params: { id } })
-      const created = r.skills.filter((s) => s.status === 'created').length
-      const blocked = r.skills.filter((s) => s.status === 'blocked').length
-      toast({ level: blocked ? 'warn' : 'success', text: [created ? t('skillPack.installed', { n: created }) : t('skillPack.already'), blocked ? t('skillPack.blocked', { n: blocked }) : ''].filter(Boolean).join(' ') })
-      skillsChanged.emit()
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    } finally {
-      setBusy(false)
+    let created = 0, blocked = 0, done = 0, failed: unknown = null
+    // one pack after the other: a refusal of one still lets the other in
+    for (const id of RECOMMENDED_SKILL_PACKS) {
+      try {
+        const r = await api.call(API.installSkillPack, { params: { id } })
+        created += r.skills.filter((s) => s.status === 'created').length
+        blocked += r.skills.filter((s) => s.status === 'blocked').length
+        done++
+      } catch (e) {
+        failed ??= e
+      }
     }
+    if (!done) toast({ level: 'error', text: errorText(failed, locale, t('error.network')) })
+    else {
+      toast({ level: blocked || failed ? 'warn' : 'success', text: [created ? t('skillPack.installed', { n: created }) : t('skillPack.already'), blocked ? t('skillPack.blocked', { n: blocked }) : '', failed ? errorText(failed, locale, t('error.network')) : ''].filter(Boolean).join(' ') })
+      skillsChanged.emit()
+    }
+    setBusy(false)
   }
   return { busy, install }
 }
 
-/** Under the list, one quiet text button: "마케팅 스킬 7개 넣기" (what goes in is its tooltip). */
-function MarketingPackLine() {
-  const t = useT()
-  const { busy, install } = usePackInstall()
-  return (
-    <p className="text-[0.8125rem]">
-      <button type="button" className="font-medium text-muted underline decoration-line-strong underline-offset-4 hover:text-ink hover:decoration-ink disabled:opacity-50"
-        title={t('skillPack.adminHint')} disabled={busy} onClick={() => void install()} data-testid="skill-pack-marketing">
-        {t('skillPack.addMarketing', { n: WELCOME_PACK_SKILLS })}
-      </button>
-    </p>
-  )
-}
-
-/** Under the list, one quiet text button: "인사 서류 스킬 3개 넣기" (the optional HR pack; what goes in is its tooltip). */
-function HrPackLine() {
-  const t = useT()
-  const { busy, install } = usePackInstall('hr')
-  return (
-    <p className="text-[0.8125rem]">
-      <button type="button" className="font-medium text-muted underline decoration-line-strong underline-offset-4 hover:text-ink hover:decoration-ink disabled:opacity-50"
-        title={t('skillPack.hrHint')} disabled={busy} onClick={() => void install()} data-testid="skill-pack-hr">
-        {t('skillPack.addHr', { n: HR_PACK_SKILLS })}
-      </button>
-    </p>
-  )
-}
-
-/** No skill yet: owners and admins install the recommended pack here; members learn that an admin can. */
+/** No skill yet: owners and admins install the recommended skills here (one button); members learn that an admin can. */
 function NoSkills() {
   const t = useT()
   const admin = isAdmin(useMe())
-  const { busy, install } = usePackInstall()
+  const { busy, install } = useRecommendedInstall()
   return (
     <EmptyState icon={<Sparkles size={22} />} title={t('skills.noSkills')}>
       {admin ? (
         <div className="flex flex-col items-center gap-3" data-testid="skill-pack-offer">
           <p>{t('skillPack.adminHint')}</p>
           <Button variant="primary" busy={busy} onClick={() => void install()} data-testid="skill-pack-install">
-            <PackagePlus size={14} aria-hidden /> {t('skillPack.install')}
+            <PackagePlus size={14} aria-hidden /> {t('skillPack.install', { n: RECOMMENDED_PACK_SKILLS })}
           </Button>
         </div>
       ) : (
@@ -204,7 +170,7 @@ function NoSkills() {
   )
 }
 
-/** `folders`: each team skill's folder before its line ("skills/marketing/ · …"), for owners and admins, who manage the
+/** `folders`: each team skill's folder before its line ("skills/general/ · …"), for owners and admins, who manage the
  * folders; a member reads the title and the line only (a raw path told them nothing: docs/DECISIONS.md "W3"). */
 function SkillSection({ title, items, folders, onRun, testId }: { title: string; items: Skill[]; folders: boolean; onRun: (s: Skill) => void; testId?: string }) {
   if (!items.length) return null

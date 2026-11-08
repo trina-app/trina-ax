@@ -216,7 +216,7 @@ describe('the card: a title, one line, one button', () => {
     function Welcome() { const l = useLocation(); return <p data-testid="where">{`${l.pathname} ${JSON.stringify(l.state)}`}</p> }
     const unfinished = {
       startedAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z', teamType: 'marketing',
-      steps: { profile: 'done', result: null, invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
+      steps: { profile: 'done', result: null, invite: null }, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
     } as unknown as WelcomeProgress
     useWelcome.setState({ loaded: true, progress: unfinished })
     const expired = { ...LINK, link: { ...LINK.link!, state: 'expired' as const } }
@@ -293,7 +293,7 @@ describe('the top of Home: one thing', () => {
   const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
   const fresh = (steps: Partial<WelcomeProgress['steps']> = {}, o: Partial<WelcomeProgress> = {}): WelcomeProgress => ({
     startedAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z', teamType: 'marketing',
-    steps: { profile: 'done', result: null, invite: null, ...steps }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null, ...o,
+    steps: { profile: 'done', result: null, invite: null, ...steps }, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null, ...o,
   })
   const locale = useLocaleStore.getState().locale
   beforeAll(() => {

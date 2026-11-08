@@ -5,9 +5,9 @@
 // long, where it will be). 저장하고 계속 starts the deck once per team: the file goes into the team's brand folder, the
 // server makes the deck's chat ("우리 회사 소개서", an ordinary chat in the sidebar) and "/intro-deck …" runs there,
 // while the steps go on at once with nothing about the deck on them. The owner can open the deck's chat mid-setup and
-// come back through the setup row; ← 이전 to 회사 소개 and saving again starts no second deck. The invite names 할 일
-// 정리 (never the deck), the deck's chat has no invite bar, the end screen says where the deck is; a member who joins
-// lands on 할 일 정리's form.
+// come back through the setup row; ← 이전 to 회사 소개 and saving again starts no second deck. With nothing shared the
+// invite names no skill (never the deck; docs/DECISIONS.md "DS3": no pack skill stands in), the deck's chat has no
+// invite bar, the end screen says where the deck is and offers 홈으로 only; a member who joins lands on Home.
 import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 import { translate } from '../../src/i18n'
@@ -26,7 +26,7 @@ async function readSite(page: Page) {
   await expect(page.getByTestId('welcome-profile-line')).toHaveText('이렇게 이해했어요: Acme는 조용한 책상 선풍기를 만들어요 · 고치기', { timeout: 15_000 })
 }
 
-test('회사 소개 starts the deck once; the steps go on; the deck chat mid-setup and the setup row back; the invite names 할 일 정리; a member lands on its form', async ({ page, browser }) => {
+test('회사 소개 starts the deck once; the steps go on; the deck chat mid-setup and the setup row back; the invite names no skill; a member lands on Home', async ({ page, browser }) => {
   const errors = watchConsole(page)
   await reset(page)
   await signIn(page)
@@ -92,27 +92,29 @@ test('회사 소개 starts the deck once; the steps go on; the deck chat mid-set
   const chats = (await (await page.request.get('/api/chats')).json()).items as { title: string }[]
   expect(chats.filter((c) => c.title === '우리 회사 소개서')).toHaveLength(1)
 
-  // 내 스킬 and 팀 파일 put off; the invite names 할 일 정리, never the deck
+  // 내 스킬 and 팀 파일 put off: nothing shared, so the invite names no skill (never the deck)
   await page.getByTestId('skills-later').click()
   await expect(page.getByTestId('welcome-team-files')).toBeVisible()
   await page.getByTestId('welcome-later').click()
   await expect(page.getByTestId('invite-step')).toBeVisible()
-  await expect(page.getByTestId('team-link-message')).toContainText("'할 일 정리' 스킬을 같이 써 보자고 해요")
+  await expect(page.getByTestId('team-link-message')).toContainText('Acme에 함께하자고 초대했어요')
+  await expect(page.getByTestId('team-link-message')).not.toContainText('스킬을 같이 써 보자고')
   await expect(page.getByTestId('team-link-message')).not.toContainText('회사 소개서')
   await expect(page.getByTestId('team-link-copy-message')).toHaveText('메시지 복사')
   await expect(page.getByTestId('team-link-create')).toHaveCount(0)
   const url = (await page.getByTestId('team-link-message').innerText()).trim().split(' ').at(-1)!
   expect(url).toMatch(/\/join#t=tl[0-9a-f]+$/)
   const link = (await (await page.request.get('/api/admin/team-link')).json()).link
-  expect(link.skill.path).toBe('skills/general/meeting-tasks/SKILL.md')
+  expect(link.skill).toBeNull()
   await page.getByTestId('invite-step-done').click()
-  // 준비 끝났어요: where the deck is (no button), the owner's own run first
+  // 준비 끝났어요: where the deck is (no button), 홈으로 the one button
   await expect(page.getByTestId('welcome-done')).toContainText('준비 끝났어요')
   await expect(page.getByTestId('welcome-done')).toContainText(`회사 소개서는 ${history}의 '우리 회사 소개서'에 있어요`)
-  await expect(page.getByTestId('welcome-done-try')).toHaveText("'할 일 정리' 먼저 써 보기")
+  await expect(page.getByTestId('welcome-done-try')).toHaveCount(0)
+  await expect(page.getByTestId('welcome-done-home')).toHaveText('홈으로')
   await expect(page.getByTestId('setup-row')).toHaveCount(0)
 
-  // a member joins with the link and lands on 할 일 정리's form
+  // a member joins with the link and lands on Home (the link names no skill)
   const other = await browser.newContext({ locale: 'ko-KR' })
   const p2 = await other.newPage()
   const errors2 = watchConsole(p2)
@@ -121,11 +123,9 @@ test('회사 소개 starts the deck once; the steps go on; the deck chat mid-set
   await p2.getByTestId('invite-username').fill('minji')
   await p2.getByTestId('invite-password').fill('another password 1')
   await p2.getByTestId('invite-submit').click()
-  await expect(p2).toHaveURL(/\/skills\?run=skills%2Fgeneral%2Fmeeting-tasks%2FSKILL\.md$/)
-  await expect(p2.getByTestId('skill-form')).toBeVisible()
-  await p2.getByTestId('skill-form-run').click()
-  await expect(p2).toHaveURL(/\/c\/[0-9a-f-]+$/)
-  await expect(p2.getByTestId('user-message').first().getByTestId('skill-chip')).toHaveText('할 일 정리')
+  await expect(p2.getByTestId('composer-input')).toBeVisible()
+  await expect(p2).toHaveURL(/\/$/)
+  await expect(p2.getByTestId('skill-form')).toHaveCount(0)
   expect(realErrors(errors2)).toEqual([])
   await other.close()
   // saving 회사 소개 again asks the server, which answers 409 deck_started (the one deck stands): the browser logs that

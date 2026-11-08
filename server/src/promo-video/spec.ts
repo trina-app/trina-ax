@@ -9,7 +9,7 @@
 // - the style: one that fits the brand colour (palette.ts); another one is replaced, not refused;
 // - colours: "#rrggbb" only (the schema), the website: written in the material or the saved company profile.
 import path from 'node:path'
-import { PACK_FOLDERS, type Locale, type PromoVideoInput } from '@mycel/shared/api'
+import { BRAND_FOLDER, type Locale, type PromoVideoInput } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { ToolCtx } from '../files/service'
 import { extractText } from '../files/extract'
@@ -31,7 +31,7 @@ const SOURCE_TEXT_MAX = 400_000
 /** the music that goes with each style when the AI names none */
 const STYLE_MUSIC: Record<Family, VideoDoc['music']> = { ink: 'bright', deep: 'calm', mono: 'pulse' }
 
-const BRAND_NAMES = new Set(Object.values(PACK_FOLDERS.brand).map((n) => n.normalize('NFC')))
+const BRAND_NAMES = new Set(Object.values(BRAND_FOLDER).map((n) => n.normalize('NFC')))
 /** Is this team path inside a brand folder: groups/<group>/<브랜드>/… or shared/<브랜드>/… (any language's name)? */
 export function inBrandFolder(rel: string): boolean {
   const seg = rel.normalize('NFC').split('/').filter(Boolean)

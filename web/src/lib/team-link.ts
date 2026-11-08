@@ -1,7 +1,7 @@
 // The team invite link on the web side (contract: shared/src/api/team-links.ts). Pure helpers, so they are tested
 // without a browser: reading the token from the address's #fragment, the ready-made message a leader copies into a
 // chat app, and where a new member may be sent after joining.
-import { TEAM_LINK_FRAGMENT_KEY, type StarterKind } from '@mycel/shared/api'
+import { TEAM_LINK_FRAGMENT_KEY } from '@mycel/shared/api'
 import type { MessageKey, Params } from '../i18n'
 
 /**
@@ -22,11 +22,8 @@ export function readJoinToken(loc: { pathname: string; search: string; hash: str
  * (the skill the link opens: several shared skills are never listed, docs/DECISIONS.md "W5"); `ownAi`: people who join
  * sign in to their own AI (the link's `memberAi` is `connect_own`), so the message says "본인 AI 계정이 필요해요" before
  * they hit it; `made`: the team skill they just made ("Acme에 '견적서 쓰기' 스킬을 만들어 뒀어요…"). `name` is the
- * person copying it (they are the one sending it). A link with a starter says what is waiting instead, in the lead's
- * own voice: this week's meeting notes and everyone's own tasks (`tasks`), or the team's files and what each person
- * needs from them (`brief`); the link on its own line. */
-export function teamLinkMessage(t: (key: MessageKey, params?: Params) => string, o: { name: string; team: string; url: string; skill?: string | null; starter?: StarterKind | null; made?: boolean; ownAi?: boolean }): string {
-  if (o.starter) return t(o.starter === 'brief' ? 'teamLink.messageBrief' : 'teamLink.messageNotes', { url: o.url })
+ * person copying it (they are the one sending it). */
+export function teamLinkMessage(t: (key: MessageKey, params?: Params) => string, o: { name: string; team: string; url: string; skill?: string | null; made?: boolean; ownAi?: boolean }): string {
   // a team skill the lead just made from their own work (docs/DECISIONS.md "S"), in their voice
   if (o.made && o.skill) return t('teamLink.messageMade', { team: o.team, skill: o.skill, url: o.url })
   if (o.skill) return t(o.ownAi ? 'teamLink.messageSkillOwnAi' : 'teamLink.messageSkill', { name: o.name, team: o.team, url: o.url, skill: o.skill })

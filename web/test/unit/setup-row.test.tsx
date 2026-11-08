@@ -8,7 +8,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act } from 'react'
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
-import { GENERAL_BRIEF_SKILL, GENERAL_DECK_SKILL, GENERAL_TASKS_SKILL, type WelcomeProgress, type WelcomeUpdate } from '@mycel/shared/api'
+import { GENERAL_DECK_SKILL, type WelcomeProgress, type WelcomeUpdate } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { SetupRow } from '../../src/components/onboarding/SetupRow'
 import { WelcomeResume } from '../../src/components/onboarding/WelcomeResume'
@@ -27,11 +27,11 @@ const meOf = (role: 'owner' | 'admin' | 'member') => ({
   groups: [], team: { name: 'Acme', defaultLocale: 'ko' },
   session: { id: '01900000-0000-7000-8000-00000000000a', client: 'web', expiresAt: '2026-12-04T00:00:00.000Z' }, server: { version: '0', dev: true },
 })
-const GENERAL = { at: '2026-11-04T00:00:00.000Z', tasksPath: GENERAL_TASKS_SKILL, briefPath: GENERAL_BRIEF_SKILL, introDeckPath: GENERAL_DECK_SKILL }
+const GENERAL = { at: '2026-11-04T00:00:00.000Z', introDeckPath: GENERAL_DECK_SKILL }
 /** 회사 소개 put off and 내 스킬 done: 1 of 4 done (put off is not done), 팀 파일 next */
 const half = (over: Partial<WelcomeProgress> = {}): WelcomeProgress => ({
   startedAt: '2026-11-04T00:00:00.000Z', updatedAt: '2026-11-04T00:00:00.000Z', teamType: null,
-  steps: { profile: 'skipped', result: null, skills: 'done', files: null, invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
+  steps: { profile: 'skipped', result: null, skills: 'done', files: null, invite: null }, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null,
   general: GENERAL, ...over,
 })
 

@@ -1,8 +1,9 @@
-// Recommended skill packs (docs/DECISIONS.md "C. Onboarding: marketing skill pack and skill forms", "M — One meeting
-// note, everyone's own tasks": the general pack every team gets). A new team has
-// no skills; an owner or admin installs a pack in one click (POST /api/onboarding/packs/:id/install): its skills as
-// plain files under skills/<pack>/<name>/SKILL.md in the team's language (English when the pack has none for it) and
-// the folders that kind of team works in under shared/ (named in the team's language).
+// Recommended skill packs (docs/DECISIONS.md "C. Onboarding: marketing skill pack and skill forms", "DS3 — Only skills
+// with a known origin ship; no auto-add"): general (the intro deck, the card news, the promo video) and work (natural
+// writing). A new team has no skills; the welcome steps install the general pack once (onboarding/welcome.ts
+// setupWelcomeTeam), and an owner or admin installs a pack in one click (POST /api/onboarding/packs/:id/install): its
+// skills as plain files under skills/<pack>/<name>/SKILL.md in the team's language (English when the pack has none for
+// it). Nothing adds a pack's skills by itself.
 //
 // Written as the person who asked, through the normal file services: folder rules decide, and version history, the
 // skills/ change audit and the owner / admin notices follow from it, exactly as for a skill saved on the file screen.
@@ -12,7 +13,7 @@
 //
 // The pack text is in resources/skill-packs/<pack>/<locale>/<name>/SKILL.md, imported as text so a release bundle
 // carries it inside the server code (no extra resource files to list or verify).
-import { Locale, PACK_FOLDER_KINDS, PACK_FOLDERS, type PackItemStatus, type SkillPackId, type SkillPackInstallResult } from '@mycel/shared/api'
+import type { Locale, PackItemStatus, SkillPackId, SkillPackInstallResult } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { audit } from '../admin/audit'
 import { teamDefaultLocale } from '../admin/settings'
@@ -21,97 +22,38 @@ import { HttpError } from '../http/errors'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { listTeamSkills, sameSkillName, SKILL_FILE_MAX_BYTES } from '../chat/skills'
-import { componentC } from '../team-files/component'
 import { FileError } from '../team-files/errors'
-import koAdCopy from '../../../resources/skill-packs/marketing/ko/ad-copy/SKILL.md' with { type: 'text' }
-import koContentDraft from '../../../resources/skill-packs/marketing/ko/content-draft/SKILL.md' with { type: 'text' }
-import koCampaignPlan from '../../../resources/skill-packs/marketing/ko/campaign-plan/SKILL.md' with { type: 'text' }
-import koSeoBrief from '../../../resources/skill-packs/marketing/ko/seo-brief/SKILL.md' with { type: 'text' }
-import koCompetitorBrief from '../../../resources/skill-packs/marketing/ko/competitor-brief/SKILL.md' with { type: 'text' }
-import koBrandReview from '../../../resources/skill-packs/marketing/ko/brand-review/SKILL.md' with { type: 'text' }
-import koWeeklyReport from '../../../resources/skill-packs/marketing/ko/weekly-report/SKILL.md' with { type: 'text' }
-import enAdCopy from '../../../resources/skill-packs/marketing/en/ad-copy/SKILL.md' with { type: 'text' }
-import enContentDraft from '../../../resources/skill-packs/marketing/en/content-draft/SKILL.md' with { type: 'text' }
-import enCampaignPlan from '../../../resources/skill-packs/marketing/en/campaign-plan/SKILL.md' with { type: 'text' }
-import enSeoBrief from '../../../resources/skill-packs/marketing/en/seo-brief/SKILL.md' with { type: 'text' }
-import enCompetitorBrief from '../../../resources/skill-packs/marketing/en/competitor-brief/SKILL.md' with { type: 'text' }
-import enBrandReview from '../../../resources/skill-packs/marketing/en/brand-review/SKILL.md' with { type: 'text' }
-import enWeeklyReport from '../../../resources/skill-packs/marketing/en/weekly-report/SKILL.md' with { type: 'text' }
-import koMeetingTasks from '../../../resources/skill-packs/general/ko/meeting-tasks/SKILL.md' with { type: 'text' }
-import koDocBrief from '../../../resources/skill-packs/general/ko/doc-brief/SKILL.md' with { type: 'text' }
-import enMeetingTasks from '../../../resources/skill-packs/general/en/meeting-tasks/SKILL.md' with { type: 'text' }
-import enDocBrief from '../../../resources/skill-packs/general/en/doc-brief/SKILL.md' with { type: 'text' }
 import koCardNews from '../../../resources/skill-packs/general/ko/card-news/SKILL.md' with { type: 'text' }
 import enCardNews from '../../../resources/skill-packs/general/en/card-news/SKILL.md' with { type: 'text' }
 import koPromoVideo from '../../../resources/skill-packs/general/ko/promo-video/SKILL.md' with { type: 'text' }
 import enPromoVideo from '../../../resources/skill-packs/general/en/promo-video/SKILL.md' with { type: 'text' }
 import koIntroDeck from '../../../resources/skill-packs/general/ko/intro-deck/SKILL.md' with { type: 'text' }
 import enIntroDeck from '../../../resources/skill-packs/general/en/intro-deck/SKILL.md' with { type: 'text' }
-import koWorkMeetingSummary from '../../../resources/skill-packs/work/ko/meeting-summary/SKILL.md' with { type: 'text' }
-import koWorkWeeklyTeamReport from '../../../resources/skill-packs/work/ko/weekly-team-report/SKILL.md' with { type: 'text' }
-import koWorkSalesFollowUp from '../../../resources/skill-packs/work/ko/sales-follow-up/SKILL.md' with { type: 'text' }
-import koWorkBrandBrief from '../../../resources/skill-packs/work/ko/brand-brief/SKILL.md' with { type: 'text' }
-import koWorkExpenseReview from '../../../resources/skill-packs/work/ko/expense-review/SKILL.md' with { type: 'text' }
-import koWorkNewHireGuide from '../../../resources/skill-packs/work/ko/new-hire-guide/SKILL.md' with { type: 'text' }
-import enWorkMeetingSummary from '../../../resources/skill-packs/work/en/meeting-summary/SKILL.md' with { type: 'text' }
-import enWorkWeeklyTeamReport from '../../../resources/skill-packs/work/en/weekly-team-report/SKILL.md' with { type: 'text' }
-import enWorkSalesFollowUp from '../../../resources/skill-packs/work/en/sales-follow-up/SKILL.md' with { type: 'text' }
-import enWorkBrandBrief from '../../../resources/skill-packs/work/en/brand-brief/SKILL.md' with { type: 'text' }
-import enWorkExpenseReview from '../../../resources/skill-packs/work/en/expense-review/SKILL.md' with { type: 'text' }
-import enWorkNewHireGuide from '../../../resources/skill-packs/work/en/new-hire-guide/SKILL.md' with { type: 'text' }
 import koWorkHumanizer from '../../../resources/skill-packs/work/ko/humanizer/SKILL.md' with { type: 'text' }
 import enWorkHumanizer from '../../../resources/skill-packs/work/en/humanizer/SKILL.md' with { type: 'text' }
-import koHrLaborContract from '../../../resources/skill-packs/hr/ko/labor-contract/SKILL.md' with { type: 'text' }
-import koHrEmploymentCertificate from '../../../resources/skill-packs/hr/ko/employment-certificate/SKILL.md' with { type: 'text' }
-import koHrAnnualLeave from '../../../resources/skill-packs/hr/ko/annual-leave/SKILL.md' with { type: 'text' }
-import enHrLaborContract from '../../../resources/skill-packs/hr/en/labor-contract/SKILL.md' with { type: 'text' }
-import enHrEmploymentCertificate from '../../../resources/skill-packs/hr/en/employment-certificate/SKILL.md' with { type: 'text' }
-import enHrAnnualLeave from '../../../resources/skill-packs/hr/en/annual-leave/SKILL.md' with { type: 'text' }
 
 export interface SkillPack {
   /** skill name → its SKILL.md text, per language the pack is written in (English always) */
   skills: Partial<Record<Locale, Record<string, string>>> & { en: Record<string, string> }
-  /** the team folders under shared/, per language (every locale) */
-  folders: Record<Locale, string[]>
 }
 
 export const SKILL_PACKS: Record<SkillPackId, SkillPack> = {
-  marketing: {
-    skills: {
-      ko: { 'ad-copy': koAdCopy, 'content-draft': koContentDraft, 'campaign-plan': koCampaignPlan, 'seo-brief': koSeoBrief, 'competitor-brief': koCompetitorBrief, 'brand-review': koBrandReview, 'weekly-report': koWeeklyReport },
-      en: { 'ad-copy': enAdCopy, 'content-draft': enContentDraft, 'campaign-plan': enCampaignPlan, 'seo-brief': enSeoBrief, 'competitor-brief': enCompetitorBrief, 'brand-review': enBrandReview, 'weekly-report': enWeeklyReport },
-    },
-    // 브랜드, 캠페인, 보고서, 경쟁사 (shared, so the Files screen can say what goes in each)
-    folders: Object.fromEntries(Locale.options.map((l) => [l, PACK_FOLDER_KINDS.map((k) => PACK_FOLDERS[k][l])])) as Record<Locale, string[]>,
-  },
-  // every team's two skills (docs/DECISIONS.md "M — One meeting note, everyone's own tasks"): no shared/ folders, the
-  // team's files go into its own group folder (onboarding/welcome.ts setupWelcomeTeam)
+  // every team's skills, installed by the welcome steps (onboarding/welcome.ts setupWelcomeTeam): the intro deck (the
+  // first result), the card news and the promo video, each calling a tool of its own
   general: {
     skills: {
-      ko: { 'meeting-tasks': koMeetingTasks, 'doc-brief': koDocBrief, 'card-news': koCardNews, 'promo-video': koPromoVideo, 'intro-deck': koIntroDeck },
-      en: { 'meeting-tasks': enMeetingTasks, 'doc-brief': enDocBrief, 'card-news': enCardNews, 'promo-video': enPromoVideo, 'intro-deck': enIntroDeck },
+      ko: { 'card-news': koCardNews, 'promo-video': koPromoVideo, 'intro-deck': koIntroDeck },
+      en: { 'card-news': enCardNews, 'promo-video': enPromoVideo, 'intro-deck': enIntroDeck },
     },
-    folders: Object.fromEntries(Locale.options.map((l) => [l, []])) as unknown as Record<Locale, string[]>,
   },
-  // everyday work for leads, sales, marketing, finance and HR (docs/DECISIONS.md "DS"), from the README's example skills
-  // rewritten for the team's own files: every one reads only what the person names, drafts, and leaves the decision,
-  // the sending and the paying to a person. No shared/ folders. "humanizer" (natural writing) came later, from two
-  // open-source writing skills rewritten with examples of our own (the English one keeps its MIT notice).
+  // "humanizer" (natural writing, docs/DECISIONS.md "DS2"). Korean: written by the company, adapted from its own Korean
+  // humanizer skill. English: adapted from the open-source "humanizer" skill (Siqi Chen, MIT), with examples of our own;
+  // it keeps its MIT notice (and LICENSE next to it in resources/).
   work: {
     skills: {
-      ko: { 'meeting-summary': koWorkMeetingSummary, 'weekly-team-report': koWorkWeeklyTeamReport, 'sales-follow-up': koWorkSalesFollowUp, 'brand-brief': koWorkBrandBrief, 'expense-review': koWorkExpenseReview, 'new-hire-guide': koWorkNewHireGuide, humanizer: koWorkHumanizer },
-      en: { 'meeting-summary': enWorkMeetingSummary, 'weekly-team-report': enWorkWeeklyTeamReport, 'sales-follow-up': enWorkSalesFollowUp, 'brand-brief': enWorkBrandBrief, 'expense-review': enWorkExpenseReview, 'new-hire-guide': enWorkNewHireGuide, humanizer: enWorkHumanizer },
+      ko: { humanizer: koWorkHumanizer },
+      en: { humanizer: enWorkHumanizer },
     },
-    folders: Object.fromEntries(Locale.options.map((l) => [l, []])) as unknown as Record<Locale, string[]>,
-  },
-  // Korean HR documents (docs/DECISIONS.md "DS"): optional (OPTIONAL_SKILL_PACKS), added from Available skills by an
-  // owner or admin. Drafts only: the company signs, stamps and decides; HR records are read only where the person may.
-  hr: {
-    skills: {
-      ko: { 'labor-contract': koHrLaborContract, 'employment-certificate': koHrEmploymentCertificate, 'annual-leave': koHrAnnualLeave },
-      en: { 'labor-contract': enHrLaborContract, 'employment-certificate': enHrEmploymentCertificate, 'annual-leave': enHrAnnualLeave },
-    },
-    folders: Object.fromEntries(Locale.options.map((l) => [l, []])) as unknown as Record<Locale, string[]>,
   },
 }
 
@@ -128,18 +70,13 @@ export function earlierPackTexts(text: string): string[] {
   return [...new Set([noTitle(text), noRecurring(text), noTitle(noRecurring(text))])].filter((t) => t !== text)
 }
 
-/** Pack skills whose work comes back every week (their metadata says `recurring: weekly`): a copy installed before that
- * line existed has no `recurring` key and is read as the pack says (onboarding/suggestions.ts). */
-export const RECURRING_PACK_SKILLS: ReadonlySet<string> = new Set(['skills/general/meeting-tasks/SKILL.md', 'skills/marketing/weekly-report/SKILL.md', 'skills/marketing/competitor-brief/SKILL.md', 'skills/work/weekly-team-report/SKILL.md'])
-
 /** Every skill name a pack has (any pack, any language): a team skill made later never takes one (skill-draft.ts). */
 export const packSkillNames = (): string[] => [...new Set(Object.values(SKILL_PACKS).flatMap((p) => Object.values(p.skills).flatMap((t) => Object.keys(t ?? {}))))]
 
 const refused = (e: unknown) => e instanceof Denied || e instanceof ToolError || e instanceof FileError || e instanceof HttpError
 
 /** One skill file: written when the name is free, otherwise left as it is. A team skill elsewhere with the same
- * skill name blocks it: "/<name>" (and so a form, which runs by name) would run either one. Also the default skills'
- * one step (onboarding/default-skills.ts). */
+ * skill name blocks it: "/<name>" (and so a form, which runs by name) would run either one. */
 export function placeSkill(ctx: AppContext, userId: string, rel: string, name: string, text: string, team: { path: string; name: string }[]): { path: string; status: PackItemStatus; sameNameAs?: string } {
   const user = ctx.files.principal(userId)
   // the pack's own file (installed before) is not another skill; on a case-insensitive disk neither is its other spelling
@@ -173,18 +110,6 @@ export function placeSkill(ctx: AppContext, userId: string, rel: string, name: s
   return { path: r.rel, status: 'created' }
 }
 
-/** One team folder under shared/: made through the file screen's own "new folder" when it is not there. */
-function placeFolder(ctx: AppContext, userId: string, rel: string): { path: string; status: 'created' | 'present' | 'blocked' } {
-  try {
-    const r = authorize(ctx.files.fx, ctx.files.rules(), ctx.files.principal(userId), rel, 'write', { mustExist: false })
-    if (r.exists) return { path: r.rel, status: r.st?.isDirectory() ? 'present' : 'blocked' }
-    return { path: componentC(ctx).files.mkdir(userId, rel).path, status: 'created' }
-  } catch (e) {
-    if (refused(e)) return { path: rel, status: 'blocked' }
-    throw e
-  }
-}
-
 /** One skill of a pack, alone (the welcome steps' first result adds "회사 소개서" to a team whose general pack was
  * recorded before the skill existed, once: docs/DECISIONS.md "N", "V", "D2"). Like the pack install: never replaces a
  * file, a team skill of the same name elsewhere blocks it, written as the person through the file layer. */
@@ -208,8 +133,7 @@ export function installSkillPack(ctx: AppContext, userId: string, id: SkillPackI
   // the team skills as the admin sees them (owners and admins read every team folder), personal ones left out
   const teamSkills = listTeamSkills(ctx.files, ctx.files.principal(userId)).map((s) => ({ path: s.path, name: s.name }))
   const skills = Object.entries(texts).map(([name, text]) => ({ name, ...placeSkill(ctx, userId, `skills/${id}/${name}/SKILL.md`, name, text, teamSkills) }))
-  const folders = pack.folders[team].map((f) => placeFolder(ctx, userId, `shared/${f}`))
-  const count = (s: string) => [...skills, ...folders].filter((x) => x.status === s).length
+  const count = (s: string) => skills.filter((x) => x.status === s).length
   audit(ctx.db, { actor: userId, action: 'onboarding.pack_install', target: `skills/${id}`, detail: { pack: id, locale, created: count('created'), present: count('present'), kept: count('kept'), blocked: count('blocked') } })
-  return { pack: id, locale, skills, folders }
+  return { pack: id, locale, skills }
 }

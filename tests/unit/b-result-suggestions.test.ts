@@ -14,7 +14,10 @@ afterEach(async () => { await h?.close() })
 
 const AD = 'skills/marketing/ad-copy/SKILL.md'
 const REPORT = 'skills/marketing/weekly-report/SKILL.md'
+/** an old copy of a pack skill that no longer ships (docs/DECISIONS.md "DS3") */
 const TASKS = 'skills/general/meeting-tasks/SKILL.md'
+/** a team skill whose work comes back every week (its metadata says so) */
+const WEEKLY = 'skills/team/weekly-notes/SKILL.md'
 const skillFile = (rel: string, meta: string) => {
   const abs = path.join(h.ctx.config.teamRoot, rel)
   fs.mkdirSync(path.dirname(abs), { recursive: true })
@@ -47,9 +50,10 @@ const ask = async (c: { call: (m: string, p: string, b?: unknown) => Promise<any
 
 test('the same skill a 2nd time: schedule it; not after a failed or a scheduled run, not once a task runs it, never again once closed', async () => {
   const { owner, ownerId, mia } = await setup()
-  // meeting tasks: weekly work (the pack says so; no file here: an install from before the metadata line)
-  const AD = TASKS
-  const ad = { path: TASKS, name: 'meeting-tasks' }
+  // weekly notes: weekly work (its metadata says so)
+  skillFile(WEEKLY, '  recurring: weekly\n')
+  const AD = WEEKLY
+  const ad = { path: WEEKLY, name: 'weekly-notes' }
   // the first run: nothing
   expect(await ask(owner, answer(ownerId, { skill: ad }))).toBeNull()
   // a failed run and a scheduled run do not count as the 2nd
@@ -58,18 +62,18 @@ test('the same skill a 2nd time: schedule it; not after a failed or a scheduled 
   // ...but a scheduled run means a task runs it already: take that row out to see the count alone
   h.ctx.db.query('DELETE FROM turns WHERE schedule_id = ?').run('sched-1')
   const second = answer(ownerId, { skill: ad })
-  expect(await ask(owner, second)).toEqual({ kind: 'schedule', key: `schedule:${AD}`, skill: { path: AD, name: 'meeting-tasks' } })
+  expect(await ask(owner, second)).toEqual({ kind: 'schedule', key: `schedule:${AD}`, skill: { path: AD, name: 'weekly-notes' } })
   // the skill tool counts as a run too
   expect((await ask(owner, answer(ownerId, { skill: { ...ad, source: 'tool' } })))?.kind).toBe('schedule')
   // someone else's 1st run is theirs alone
   expect(await ask(mia.client, answer(mia.id, { skill: ad }))).toBeNull()
 
-  // a task of theirs that runs "/ad-copy" already: nothing to suggest
+  // a task of theirs that runs "/weekly-notes" already: nothing to suggest
   const sid = crypto.randomUUID()
-  h.ctx.db.query("INSERT INTO schedules (id, user_id, title, prompt, repeat, time, weekday) VALUES (?, ?, '할 일 정리', ?, 'weekly', '09:00', 1)").run(sid, ownerId, '/meeting-tasks\n누구 할 일: 사람별로')
+  h.ctx.db.query("INSERT INTO schedules (id, user_id, title, prompt, repeat, time, weekday) VALUES (?, ?, '주간 메모', ?, 'weekly', '09:00', 1)").run(sid, ownerId, '/weekly-notes\n누구: 사람별로')
   expect(await ask(owner, second)).toBeNull()
-  // "/meeting-tasks-old" is another skill's command
-  h.ctx.db.query('UPDATE schedules SET prompt = ? WHERE id = ?').run('/meeting-tasks-old', sid)
+  // "/weekly-notes-old" is another skill's command
+  h.ctx.db.query('UPDATE schedules SET prompt = ? WHERE id = ?').run('/weekly-notes-old', sid)
   expect((await ask(owner, second))?.kind).toBe('schedule')
 
   // closed: never again for this person, on any chat; another person still gets it
@@ -81,16 +85,20 @@ test('the same skill a 2nd time: schedule it; not after a failed or a scheduled 
   expect((await ask(mia.client, answer(mia.id, { skill: ad })))?.kind).toBe('schedule')
 })
 
-test('a long report-like answer: PPT; code is not prose; the weekly report always; schedule first, never both', async () => {
+test('a long report-like answer: PPT; code is not prose; a short one is none, whatever skill ran (no pack report skill any more); schedule first, never both', async () => {
   const { owner, ownerId } = await setup()
   const long = '## 이번 주\n' + '가'.repeat(PPT_SUGGEST_CHARS)
   expect(await ask(owner, answer(ownerId, { content: long }))).toEqual({ kind: 'ppt', key: 'ppt' })
   expect(await ask(owner, answer(ownerId, { content: 'short' }))).toBeNull()
   expect(await ask(owner, answer(ownerId, { content: '```ts\n' + 'x'.repeat(PPT_SUGGEST_CHARS * 2) + '\n```\nDone.' }))).toBeNull()
+  // an old copy of the marketing pack's weekly report (docs/DECISIONS.md "DS3"): a short answer is no report now
   const report = { path: REPORT, name: 'weekly-report' }
-  expect(await ask(owner, answer(ownerId, { skill: report, content: 'A short weekly report.' }))).toEqual({ kind: 'ppt', key: 'ppt' })
-  // the 2nd weekly report: the schedule wins, one suggestion only
-  expect((await ask(owner, answer(ownerId, { skill: report, content: long })))?.kind).toBe('schedule')
+  expect(await ask(owner, answer(ownerId, { skill: report, content: 'A short weekly report.' }))).toBeNull()
+  // the 2nd run of weekly work with a long answer: the schedule wins, one suggestion only
+  skillFile(WEEKLY, '  recurring: weekly\n')
+  const weekly = { path: WEEKLY, name: 'weekly-notes' }
+  answer(ownerId, { skill: weekly })
+  expect((await ask(owner, answer(ownerId, { skill: weekly, content: long })))?.kind).toBe('schedule')
   // an answer still running or a scheduled run's answer: nothing
   expect(await ask(owner, answer(ownerId, { content: long, status: 'running' }))).toBeNull()
   expect(await ask(owner, answer(ownerId, { content: long, scheduleId: 'sched-2' }))).toBeNull()
@@ -109,7 +117,7 @@ test('own chats only; keys are checked', async () => {
   expect((await owner.try('POST', '/api/onboarding/suggestion/dismiss', { key: 'ppt', extra: 1 })).status).toBe(400)
 })
 
-test('only weekly work: never one-off work such as ad copy; the metadata decides, the pack where a file has no line', async () => {
+test('only weekly work: never one-off work such as ad copy; the metadata decides, a file without the line is not weekly (an old pack copy included)', async () => {
   const { owner, ownerId } = await setup()
   const twice = (skill: { path: string; name: string }) => { answer(ownerId, { skill }); return answer(ownerId, { skill }) }
   // ad copy is one-off work: run twice, nothing (its file is not even there)
@@ -122,7 +130,10 @@ test('only weekly work: never one-off work such as ad copy; the metadata decides
   const quote = 'skills/general/gyeonjeokseo-sseugi/SKILL.md'
   skillFile(quote, '')
   expect(await ask(owner, twice({ path: quote, name: 'gyeonjeokseo-sseugi' }))).toBeNull()
-  // the pack's meeting tasks with the line taken out on purpose ("no"): nothing; the installed text with the line: yes
+  // an old copy of the pack's meeting tasks: without the line (an install from before it) nothing, as for any skill
+  // (no pack skill that ships is weekly: docs/DECISIONS.md "DS3"); "no": nothing; with the line: yes
+  skillFile(TASKS, '')
+  expect(await ask(owner, twice({ path: TASKS, name: 'meeting-tasks' }))).toBeNull()
   skillFile(TASKS, '  recurring: "no"\n')
   expect(await ask(owner, twice({ path: TASKS, name: 'meeting-tasks' }))).toBeNull()
   skillFile(TASKS, '  recurring: weekly\n')

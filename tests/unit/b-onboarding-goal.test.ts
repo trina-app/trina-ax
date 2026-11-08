@@ -228,7 +228,7 @@ describe('the card and the owners\' notice', () => {
     const abs = path.join(h.ctx.config.teamRoot, SEO.path)
     fs.mkdirSync(path.dirname(abs), { recursive: true })
     fs.writeFileSync(abs, '---\nname: seo-brief\ndescription: 검색 광고 정리\nmetadata:\n  title: 검색 광고 정리\n---\nWrite.\n')
-    setSetting(h.ctx.db, WELCOME_SETTING, { startedAt: START, updatedAt: START, teamType: null, steps: { profile: 'done', result: 'done', skills: 'done', files: null, invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null, shared: { at: START, skills: [{ path: SEO.path, title: '검색 광고 정리' }], landing: SEO.path } })
+    setSetting(h.ctx.db, WELCOME_SETTING, { startedAt: START, updatedAt: START, teamType: null, steps: { profile: 'done', result: 'done', skills: 'done', files: null, invite: null }, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null, shared: { at: START, skills: [{ path: SEO.path, title: '검색 광고 정리' }], landing: SEO.path } })
     try {
       // nobody ran a team skill yet: the shared skill the link opens, with nobody yet
       expect((await goal()).skill).toMatchObject({ path: SEO.path, name: '검색 광고 정리', runners: 0, people: [] })

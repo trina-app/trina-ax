@@ -84,48 +84,26 @@ describe('Available skills', () => {
     expect(render(null)).not.toContain('skill-row')
   })
 
-  test('a team with skills but no marketing ones: owners and admins get one quiet "add the marketing skills" line, nobody else, not while searching', () => {
+  test('a team with skills: no pack line or install button for anyone (nothing offers a pack but the empty page: docs/DECISIONS.md "DS3")', () => {
     setLocale('ko')
-    const general: SkillInfo[] = [{ path: 'skills/general/meeting-tasks/SKILL.md', name: 'meeting-tasks', title: '할 일 정리', description: '' }]
+    const general: SkillInfo[] = [{ path: 'skills/general/card-news/SKILL.md', name: 'card-news', title: '카드뉴스', description: '' }]
     try {
-      for (const role of ['owner', 'admin'] as const) {
+      for (const role of ['owner', 'admin', 'member'] as const) {
         as(role)
         const html = render(general)
-        expect(html).toContain('data-testid="skill-pack-marketing"')
-        expect(html).toContain('>마케팅 스킬 7개 넣기<')
-        // what goes in, as its tooltip; no second button or card
-        expect(html).toContain(`title="${translate('ko', 'skillPack.adminHint')}"`)
-        expect(html).not.toContain('skill-pack-offer')
-        // a marketing skill already there (or a search): nothing
-        expect(render([...general, { path: 'skills/marketing/ad-copy/SKILL.md', name: 'ad-copy', description: '' }])).not.toContain('skill-pack-marketing')
-        expect(render(general, '할 일')).not.toContain('skill-pack-marketing')
+        expect(html).not.toContain('skill-pack')
+        expect(html).not.toContain(translate('ko', 'skillPack.adminHint'))
       }
-      as('member')
-      expect(render(general)).not.toContain('skill-pack-marketing')
-      // a personal skill under a folder named marketing is not the team's pack
-      as('owner')
-      expect(render([...general, { path: 'users/u1/skills/marketing-note.md', name: 'marketing-note', description: '', personal: true }])).toContain('skill-pack-marketing')
     } finally { as(null) }
   })
 
-  test('the optional HR pack: owners and admins get one quiet "add the HR document skills" line until one of its skills is in the team', () => {
-    setLocale('ko')
-    const team: SkillInfo[] = [
-      { path: 'skills/general/meeting-tasks/SKILL.md', name: 'meeting-tasks', title: '할 일 정리', description: '' },
-      { path: 'skills/marketing/ad-copy/SKILL.md', name: 'ad-copy', description: '' },
-    ]
-    try {
-      for (const role of ['owner', 'admin'] as const) {
-        as(role)
-        const html = render(team)
-        expect(html).toContain('data-testid="skill-pack-hr"')
-        expect(html).toContain('>인사 서류 스킬 3개 넣기<')
-        expect(html).toContain(`title="${translate('ko', 'skillPack.hrHint')}"`)
-        expect(render([...team, { path: 'skills/hr/annual-leave/SKILL.md', name: 'annual-leave', description: '' }])).not.toContain('skill-pack-hr')
-        expect(render(team, '할 일')).not.toContain('skill-pack-hr')
-      }
-      as('member')
-      expect(render(team)).not.toContain('skill-pack-hr')
-    } finally { as(null) }
+  test('the empty page names the four skills that ship: its words in every language hold no pack that is gone', () => {
+    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+      const hint = translate(l, 'skillPack.adminHint')
+      expect(hint).not.toMatch(/7|seven|sieben|siete|tujuh|７|マーケティング|marketing|마케팅|pemasaran/i)
+      expect(translate(l, 'skillPack.install', { n: 4 })).toContain('4')
+    }
+    expect(translate('ko', 'skillPack.adminHint')).toContain('회사 소개서')
+    expect(translate('ko', 'skillPack.adminHint')).toContain('자연스러운 글')
   })
 })

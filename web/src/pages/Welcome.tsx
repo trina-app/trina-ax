@@ -754,7 +754,7 @@ function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onSkip }: 
 }
 
 /** The invite (stream E's step): people who join land on the skill everything points at (lib/welcome.ts inviteSkill: the
- * first shared skill, else 할 일 정리; never the intro deck), and the message names that one skill. The link is made as
+ * first shared skill; never the intro deck; none: Home), and the message names that one skill. The link is made as
  * the step opens, so the message and its one copy button are there at once (docs/DECISIONS.md "W2"); an open link that
  * leads elsewhere is changed to that skill (same address). */
 function InviteWizardStep({ progress, onDone, onSkip }: { progress: WelcomeProgress; onDone: () => void; onSkip: () => void }) {
@@ -763,7 +763,7 @@ function InviteWizardStep({ progress, onDone, onSkip }: { progress: WelcomeProgr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const skillPath = inviteSkill(progress)
-  // "들어오면 '{skill}'부터 열려요" also when nothing was shared (할 일 정리): one option, so no 바꾸기
+  // "들어오면 '{skill}'부터 열려요" also for a landing skill outside the shared list: one option, so no 바꾸기
   const shared = sharedForInvite(progress) ?? (skillPath ? { landing: skillPath, options: [{ path: skillPath, title: '' }], onLanding: () => {} } : null)
   return <InviteStep skillPath={skillPath} retarget={!!skillPath} shared={shared} prepare onDone={onDone} onSkip={onSkip} />
 }
@@ -777,7 +777,8 @@ const deckLine = (p: WelcomeProgress) => p.deckStarted ?? !!p.resultChatId
  * 준비 끝났어요 (docs/DECISIONS.md "W5"), once (`doneShownAt`). When the intro deck started, one line says where it is
  * ("트리나 기록의 '우리 회사 소개서'": the sidebar's heading, historyName; no button: its row has its own marker); without a deck, no line. The one primary is
  * the owner's own run of the skill everything points at ("'{skill}' 먼저 써 보기": the same form a member lands on), or
- * "AI 연결하기" while no AI answers; 홈으로 is a quiet link.
+ * "AI 연결하기" while no AI answers; 홈으로 is a quiet link. With no such skill (nothing shared: docs/DECISIONS.md "DS3")
+ * 홈으로 is the one button.
  */
 function DoneStep({ progress, aiReady }: { progress: WelcomeProgress; aiReady: boolean }) {
   const t = useT()

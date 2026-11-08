@@ -112,7 +112,9 @@ describe('Team skills page', () => {
         signIn(role)
         const html = render([])
         expect(html).toContain('data-testid="skill-pack-install"')
-        expect(html).toContain(translate(l, 'skillPack.install'))
+        // one button: the recommended skills that ship (docs/DECISIONS.md "DS3"), counted
+        expect(html).toContain(translate(l, 'skillPack.install', { n: 4 }))
+        expect((html.match(/<button/g) ?? []).length).toBe(1)
       }
       signIn('member')
       const html = render([])

@@ -4,7 +4,7 @@
 // point at, and where the owner goes right after /setup. The steps: AI 연결 (only while no AI answers) → 회사 소개 (its
 // "저장하고 계속" starts the intro deck once per team) → 내 스킬 → 팀 파일 → 팀원 초대 → the end screen. The intro deck is
 // no step: it is an ordinary chat ("우리 회사 소개서") found by its row in the chat list.
-import { GENERAL_DECK_SKILL, GENERAL_TASKS_SKILL, WELCOME_COUNTED, type User, type WelcomeProgress, type WelcomeStep } from '@mycel/shared/api'
+import { GENERAL_DECK_SKILL, WELCOME_COUNTED, type User, type WelcomeProgress, type WelcomeStep } from '@mycel/shared/api'
 import type { MessageKey, Params } from '../i18n'
 import { aiName } from './tabs'
 
@@ -117,12 +117,14 @@ export function setupRowWords(t: (key: MessageKey, params?: Params) => string, p
 
 /** Every team's start (POST /api/onboarding/welcome/team): the general pack and the team's own group with its brand
  * folder, while any is missing (the server installs and creates each once, whatever the page asks; a group recorded
- * before the brand folder existed gets it then). */
+ * before the brand folder existed gets it then). The general pack is recorded once any of its skills is there, so no
+ * one skill missing keeps asking (docs/DECISIONS.md "DS3"). */
 export const wantsTeam = (p: WelcomeProgress | null) => !!p && (!p.general || !p.teamGroup || !p.teamGroup.brandFolder)
 
-/** The name a skill is run by ("/meeting-tasks"): the folder of a SKILL.md, else the file name of a legacy skill. */
+/** The name a skill is run by ("/intro-deck"): the folder of a SKILL.md, else the file name of a legacy skill; "" for
+ * none. */
 export function skillNameOf(path: string | null | undefined): string {
-  const parts = (path ?? GENERAL_TASKS_SKILL).split('/')
+  const parts = (path ?? '').split('/')
   const file = parts.at(-1) ?? ''
   return file === 'SKILL.md' ? (parts.at(-2) ?? '') : file.replace(/\.md$/, '')
 }
@@ -191,14 +193,15 @@ export const isLanding = (l: { key: string; state: unknown; search?: string }) =
 
 /** The skill everything points at (the invite, the end screen's "먼저 써 보기", the 7-day goal: docs/DECISIONS.md "W5"):
  * the server's own choice, sent with the progress (`landingSkill`, server/src/onboarding/welcome.ts landingSkill: the
- * skill the owner shared first from 내 스킬 가져오기 while it is there, else the general pack's 할 일 정리 while it is
- * there; never the intro deck), so the invite, the end screen, the goal card and the link agree. An older server without
- * it: the shared one, else 할 일 정리, unless that is the deck. null: none (the team's start was blocked, the skills
- * deleted). */
+ * skill the owner shared first from 내 스킬 가져오기 while it is there; never the intro deck), so the invite, the end
+ * screen, the goal card and the link agree. An older server without it: the shared one, unless that is the deck. null:
+ * none (nothing shared, or it was deleted): the invite link lands on Home and the end screen offers 홈으로 only
+ * (docs/DECISIONS.md "DS3"). */
 export function inviteSkill(p: WelcomeProgress): string | null {
   if (p.landingSkill !== undefined) return p.landingSkill
   const deck = p.general?.introDeckPath ?? GENERAL_DECK_SKILL
-  return [p.shared?.landing, p.general?.tasksPath].find((x): x is string => !!x && x !== deck && x !== GENERAL_DECK_SKILL) ?? null
+  const shared = p.shared?.landing
+  return shared && shared !== deck && shared !== GENERAL_DECK_SKILL ? shared : null
 }
 
 /** Home's one line after "자료 없이 해 볼게요" (router state): where meeting notes go. */

@@ -2,7 +2,7 @@
 
 [한국어](README.ko.md)
 
-Every team already has these six skills, rewritten for the team's own files, under `skills/work/` (Team skills page), in the team's language, with the general and marketing skills. The files below are the fictional quick-try versions with their sample data.
+The files below are fictional quick-try skills with their sample data.
 
 These files do not install themselves. A skill manager can create `skills/<name>/SKILL.md` in the app's **Files** view and paste the matching [skill file](skills/meeting-summary/SKILL.md), preserving its folder name and YAML header. For example: folder `skills/meeting-summary`, file `SKILL.md`, name `meeting-summary`. Upload the input files to `shared/demo/`. Members can suggest a skill for review by the target folder's skill manager.
 
