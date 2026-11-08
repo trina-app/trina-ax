@@ -14630,3 +14630,14 @@ and its developer page "User presence and status" (what was copied and what was 
   request at 01:00 KST on the 1st under November, shows November's "this month" and sends November's notice);
   `tests/unit/g-timezone.test.ts` drops the "without a zone" case.
 - Version impact: **patch** (a fix and one hint string; no API, setting or data format change).
+
+## The release feed also serves the Android APK (feat/feed-android-apk, 2026-11-08, product owner)
+
+- **Why.** The Android app is in Google Play review, so the website links an APK people install themselves. GitHub's
+  `releases/download/` addresses answered 504 for every repository for over an hour on 2026-11-08, while the same files
+  came through the API; the Windows installer the website links is already on the feed (`office/<version>/`).
+- **What.** The feed Worker serves `apps/android/<version>/<file>.apk` only (no other platform, no other extension),
+  immutable, with Range, like `plugins/`. The root line stays `Updates: office/, server/, plugins/` because
+  publish-server.ts and its tests read it. Redeploy once (`bun scripts/release/hosting.ts setup`) before uploading.
+- **Not.** No listing, no "latest" alias, no signature: the APK's own signature is what Android checks, and the website
+  shows the SHA-256 on the GitHub release.
