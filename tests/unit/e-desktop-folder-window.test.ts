@@ -6,8 +6,12 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { folderKey, FolderGrants, PICKABLE_BLOCKED_ROOTS, restrictedFolderAction, type RestrictedFolder } from '../../desktop/src/common/folder-access'
+import { folderKey, FolderGrants, opensHome, PICKABLE_BLOCKED_ROOTS, restrictedFolderAction, type FolderSystem, type RestrictedFolder } from '../../desktop/src/common/folder-access'
 
+/** a made-up computer: every path here is a string, nothing is read (realpath answers from `links`) */
+const fakeSystem = (home: string, links: Record<string, string> = {}): FolderSystem => ({ home: () => home, realpath: (p) => links[p] ?? p })
+const MAC = fakeSystem('/Users/alex')
+const WIN = fakeSystem('C:\\Users\\Alex')
 const TEAM = 'https://acme.treesoop.com'
 const LAN = 'https://192.168.0.10:8443'
 const ALLOWED = [TEAM, LAN]
@@ -22,13 +26,13 @@ const blocked = (path: string, over: Partial<RestrictedFolder> = {}): Restricted
 
 describe('a pick (the request after the folder window)', () => {
   test('the team page\'s top frame at the team address or its office address, reading: allowed', () => {
-    const g = new FolderGrants('darwin')
+    const g = new FolderGrants('darwin', MAC)
     expect(g.request(picked('/Users/alex/Documents/company'), ALLOWED)).toBe(true)
     expect(g.request(picked('/Users/alex/.claude', { requestingUrl: `${LAN}/` }), ALLOWED)).toBe(true)
   })
 
   test('another origin, a frame, a write or a request without its details: refused', () => {
-    const g = new FolderGrants('darwin')
+    const g = new FolderGrants('darwin', MAC)
     expect(g.request(picked('/x', { requestingUrl: 'https://evil.example/' }), ALLOWED)).toBe(false)
     expect(g.request(picked('/x', { requestingUrl: 'https://acme.treesoop.com.evil.example/' }), ALLOWED)).toBe(false)
     expect(g.request(picked('/x', { requestingUrl: 'http://acme.treesoop.com/' }), ALLOWED)).toBe(false) // scheme counts
@@ -46,7 +50,7 @@ describe('a pick (the request after the folder window)', () => {
 
 describe('a read (the check before every read through a handle)', () => {
   test('a picked folder and what is inside it, for the origin it was picked by', () => {
-    const g = new FolderGrants('darwin')
+    const g = new FolderGrants('darwin', MAC)
     g.request(picked('/Users/alex/Documents/company'), ALLOWED)
     expect(g.check(`${TEAM}/`, read('/Users/alex/Documents/company'), ALLOWED)).toBe(true)
     expect(g.check(TEAM, read('/Users/alex/Documents/company/'), ALLOWED)).toBe(true)
@@ -59,7 +63,7 @@ describe('a read (the check before every read through a handle)', () => {
   })
 
   test('never a write, never another origin, and not once the origin is no longer allowed', () => {
-    const g = new FolderGrants('darwin')
+    const g = new FolderGrants('darwin', MAC)
     g.request(picked('/Users/alex/.claude'), ALLOWED)
     expect(g.check(`${TEAM}/`, { ...read('/Users/alex/.claude'), fileAccessType: 'writable' }, ALLOWED)).toBe(false)
     expect(g.check(`${TEAM}/`, { filePath: '/Users/alex/.claude' }, ALLOWED)).toBe(false)
@@ -75,11 +79,11 @@ describe('a read (the check before every read through a handle)', () => {
 
   test('a handle that did not come from the folder window (a drop, one saved by the page in an earlier run): nothing', () => {
     // a new session's grants: nothing was picked since the app started
-    expect(new FolderGrants('darwin').check(`${TEAM}/`, read('/Users/alex/Documents/company'), ALLOWED)).toBe(false)
+    expect(new FolderGrants('darwin', MAC).check(`${TEAM}/`, read('/Users/alex/Documents/company'), ALLOWED)).toBe(false)
   })
 
   test('Windows: either slash, any case, a drive root', () => {
-    const g = new FolderGrants('win32')
+    const g = new FolderGrants('win32', WIN)
     g.request(picked('C:\\Users\\Alex\\OneDrive\\Documents\\Company'), ALLOWED)
     expect(g.check(`${TEAM}/`, read('c:/users/alex/onedrive/documents/company/Sub'), ALLOWED)).toBe(true)
     expect(g.check(`${TEAM}/`, read('C:\\Users\\Alex\\OneDrive\\Documents\\CompanyX'), ALLOWED)).toBe(false)
@@ -92,11 +96,11 @@ describe('a read (the check before every read through a handle)', () => {
   })
 
   test('. and .. are resolved before comparing: a path cannot climb out of a picked folder', () => {
-    const g = new FolderGrants('darwin')
+    const g = new FolderGrants('darwin', MAC)
     g.request(picked('/Users/alex/Documents/company'), ALLOWED)
     expect(g.check(`${TEAM}/`, read('/Users/alex/Documents/company/../../.aws'), ALLOWED)).toBe(false)
     expect(g.check(`${TEAM}/`, read('/Users/alex/Documents/company/./2026/../q1'), ALLOWED)).toBe(true)
-    const w = new FolderGrants('win32')
+    const w = new FolderGrants('win32', WIN)
     w.request(picked('C:\\Users\\Alex\\Documents\\Company'), ALLOWED)
     expect(w.check(`${TEAM}/`, read('C:\\Users\\Alex\\Documents\\Company\\..\\..\\AppData'), ALLOWED)).toBe(false)
   })
@@ -105,13 +109,13 @@ describe('a read (the check before every read through a handle)', () => {
 describe('a folder Chromium refuses (file-system-access-restricted)', () => {
   test('exactly Desktop, Documents and Downloads: allowed', () => {
     expect(ROOTS).toEqual(['/Users/alex/Desktop', '/Users/alex/Documents', '/Users/alex/Downloads'])
-    for (const root of ROOTS) expect(restrictedFolderAction(blocked(root), ALLOWED, ROOTS, 'darwin')).toBe('allow')
-    expect(restrictedFolderAction(blocked('/Users/alex/Documents/'), ALLOWED, ROOTS, 'darwin')).toBe('allow')
-    expect(restrictedFolderAction(blocked('/Users/alex/Desktop', { origin: `${LAN}/` }), ALLOWED, ROOTS, 'darwin')).toBe('allow')
+    for (const root of ROOTS) expect(restrictedFolderAction(blocked(root), ALLOWED, ROOTS, 'darwin', MAC)).toBe('allow')
+    expect(restrictedFolderAction(blocked('/Users/alex/Documents/'), ALLOWED, ROOTS, 'darwin', MAC)).toBe('allow')
+    expect(restrictedFolderAction(blocked('/Users/alex/Desktop', { origin: `${LAN}/` }), ALLOWED, ROOTS, 'darwin', MAC)).toBe('allow')
     // Windows: Documents moved to OneDrive (app.getPath gives the moved folder), case and slashes as the dialog gives them
     const win = ['C:\\Users\\Alex\\OneDrive\\Desktop', 'C:\\Users\\Alex\\OneDrive\\Documents', 'C:\\Users\\Alex\\Downloads']
-    expect(restrictedFolderAction(blocked('c:\\users\\alex\\onedrive\\documents'), ALLOWED, win, 'win32')).toBe('allow')
-    expect(restrictedFolderAction(blocked('C:/Users/Alex/Downloads/'), ALLOWED, win, 'win32')).toBe('allow')
+    expect(restrictedFolderAction(blocked('c:\\users\\alex\\onedrive\\documents'), ALLOWED, win, 'win32', WIN)).toBe('allow')
+    expect(restrictedFolderAction(blocked('C:/Users/Alex/Downloads/'), ALLOWED, win, 'win32', WIN)).toBe('allow')
   })
 
   test('the home folder itself is refused: it would open ~/.config, ~/.aws, ~/.netrc, ~/.codex/auth.json and the like', () => {
@@ -119,31 +123,118 @@ describe('a folder Chromium refuses (file-system-access-restricted)', () => {
     // readable inside a pick (every read is checked against the picked folder), so home is not one of the roots
     expect(PICKABLE_BLOCKED_ROOTS).toEqual(['desktop', 'documents', 'downloads'])
     expect(PICKABLE_BLOCKED_ROOTS as readonly string[]).not.toContain('home')
-    for (const path of ['/Users/alex', '/Users/alex/']) expect(restrictedFolderAction(blocked(path), ALLOWED, ROOTS, 'darwin')).toBe('deny')
-    expect(restrictedFolderAction(blocked('C:\\Users\\Alex'), ALLOWED, ['C:\\Users\\Alex\\Desktop', 'C:\\Users\\Alex\\Documents', 'C:\\Users\\Alex\\Downloads'], 'win32')).toBe('deny')
+    for (const path of ['/Users/alex', '/Users/alex/']) expect(restrictedFolderAction(blocked(path), ALLOWED, ROOTS, 'darwin', MAC)).toBe('deny')
+    expect(restrictedFolderAction(blocked('C:\\Users\\Alex'), ALLOWED, ['C:\\Users\\Alex\\Desktop', 'C:\\Users\\Alex\\Documents', 'C:\\Users\\Alex\\Downloads'], 'win32', WIN)).toBe('deny')
     // folders inside home are no blocked root at all: Chromium lets the person pick them (a .claude or .codex folder)
   })
 
   test('everything else Chromium blocks stays refused', () => {
     for (const path of ['/Users/alex/Library', '/Users/alex/Library/Application Support', '/Users/alex/.ssh', '/Users/alex/.gnupg', '/Users', '/', '/Applications', '/Users/alex/Documents/../Library', '/Users/alexander']) {
-      expect(restrictedFolderAction(blocked(path), ALLOWED, ROOTS, 'darwin')).toBe('deny')
+      expect(restrictedFolderAction(blocked(path), ALLOWED, ROOTS, 'darwin', MAC)).toBe('deny')
     }
     // a case that only matches on Windows
-    expect(restrictedFolderAction(blocked('/users/alex/documents'), ALLOWED, ROOTS, 'darwin')).toBe('deny')
-    expect(restrictedFolderAction(blocked('C:\\Windows'), ALLOWED, ['C:\\Users\\Alex'], 'win32')).toBe('deny')
+    expect(restrictedFolderAction(blocked('/users/alex/documents'), ALLOWED, ROOTS, 'darwin', MAC)).toBe('deny')
+    expect(restrictedFolderAction(blocked('C:\\Windows'), ALLOWED, ['C:\\Users\\Alex'], 'win32', WIN)).toBe('deny')
   })
 
   test('only for a folder picked by the team page\'s top frame at an allowed origin', () => {
     const docs = '/Users/alex/Documents'
-    expect(restrictedFolderAction(blocked(docs), ALLOWED, ROOTS, 'darwin')).toBe('allow')
-    expect(restrictedFolderAction(blocked(docs, { origin: 'https://evil.example/' }), ALLOWED, ROOTS, 'darwin')).toBe('deny')
-    expect(restrictedFolderAction(blocked(docs, { origin: 'null' }), ALLOWED, ROOTS, 'darwin')).toBe('deny')
-    expect(restrictedFolderAction(blocked(docs, { isTopFrame: false }), ALLOWED, ROOTS, 'darwin')).toBe('deny')
-    expect(restrictedFolderAction(blocked(docs, { isDirectory: false }), ALLOWED, ROOTS, 'darwin')).toBe('deny')
-    expect(restrictedFolderAction(blocked(docs), [], ROOTS, 'darwin')).toBe('deny')
+    expect(restrictedFolderAction(blocked(docs), ALLOWED, ROOTS, 'darwin', MAC)).toBe('allow')
+    expect(restrictedFolderAction(blocked(docs, { origin: 'https://evil.example/' }), ALLOWED, ROOTS, 'darwin', MAC)).toBe('deny')
+    expect(restrictedFolderAction(blocked(docs, { origin: 'null' }), ALLOWED, ROOTS, 'darwin', MAC)).toBe('deny')
+    expect(restrictedFolderAction(blocked(docs, { isTopFrame: false }), ALLOWED, ROOTS, 'darwin', MAC)).toBe('deny')
+    expect(restrictedFolderAction(blocked(docs, { isDirectory: false }), ALLOWED, ROOTS, 'darwin', MAC)).toBe('deny')
+    expect(restrictedFolderAction(blocked(docs), [], ROOTS, 'darwin', MAC)).toBe('deny')
     // a root the system could not tell (app.getPath threw): never matches
-    expect(restrictedFolderAction(blocked(''), ALLOWED, ['', ''], 'darwin')).toBe('deny')
-    expect(restrictedFolderAction(blocked('/Users/alex/Documents'), ALLOWED, ['', '/Users/alex/Desktop'], 'darwin')).toBe('deny')
+    expect(restrictedFolderAction(blocked(''), ALLOWED, ['', ''], 'darwin', MAC)).toBe('deny')
+    expect(restrictedFolderAction(blocked('/Users/alex/Documents'), ALLOWED, ['', '/Users/alex/Desktop'], 'darwin', MAC)).toBe('deny')
+  })
+})
+
+describe('never the home folder or a folder that holds it, whatever the path looks like (made-up paths only)', () => {
+  test('Windows: Documents moved to the home folder itself, or to the drive', () => {
+    const homeAsDocs = ['C:\\Users\\Alex\\Desktop', 'C:\\Users\\Alex', 'C:\\Users\\Alex\\Downloads']
+    expect(restrictedFolderAction(blocked('C:\\Users\\Alex'), ALLOWED, homeAsDocs, 'win32', WIN)).toBe('deny')
+    expect(restrictedFolderAction(blocked('c:/users/alex/'), ALLOWED, homeAsDocs, 'win32', WIN)).toBe('deny')
+    const driveAsDocs = ['C:\\Users\\Alex\\Desktop', 'C:\\', 'C:\\Users\\Alex\\Downloads']
+    expect(restrictedFolderAction(blocked('C:\\'), ALLOWED, driveAsDocs, 'win32', WIN)).toBe('deny')
+    // the other roots still work
+    expect(restrictedFolderAction(blocked('C:\\Users\\Alex\\Downloads'), ALLOWED, driveAsDocs, 'win32', WIN)).toBe('allow')
+    const g = new FolderGrants('win32', WIN)
+    for (const path of ['C:\\Users\\Alex', 'C:\\', 'c:\\USERS', 'C:/Users/Alex/']) expect(g.request(picked(path), ALLOWED)).toBe(false)
+    expect(g.request(picked('C:\\Users\\Alex\\Documents\\Company'), ALLOWED)).toBe(true)
+  })
+
+  test('macOS: Desktop is a link to the home folder (or to a folder above it)', () => {
+    const linked = fakeSystem('/Users/alex', { '/Users/alex/Desktop': '/Users/alex' })
+    expect(restrictedFolderAction(blocked('/Users/alex/Desktop'), ALLOWED, ROOTS, 'darwin', linked)).toBe('deny')
+    expect(new FolderGrants('darwin', linked).request(picked('/Users/alex/Desktop'), ALLOWED)).toBe(false)
+    const up = fakeSystem('/Users/alex', { '/Users/alex/Downloads': '/Users' })
+    expect(restrictedFolderAction(blocked('/Users/alex/Downloads'), ALLOWED, ROOTS, 'darwin', up)).toBe('deny')
+    // Documents is an ordinary folder there: still allowed
+    expect(restrictedFolderAction(blocked('/Users/alex/Documents'), ALLOWED, ROOTS, 'darwin', linked)).toBe('allow')
+  })
+
+  test('macOS: the Data volume\'s name for the same folders, and case', () => {
+    const g = new FolderGrants('darwin', MAC)
+    for (const path of ['/System/Volumes/Data/Users/alex', '/System/Volumes/Data/Users', '/System/Volumes/Data', '/System/Volumes', '/System', '/Users', '/', '/users/ALEX', '/USERS']) {
+      expect(g.request(picked(path), ALLOWED)).toBe(false)
+      expect(opensHome(path, MAC, 'darwin')).toBe(true)
+    }
+    // a link whose target is the Data volume's name for home
+    const viaData = fakeSystem('/Users/alex', { '/Users/alex/Desktop': '/System/Volumes/Data/Users/alex' })
+    expect(restrictedFolderAction(blocked('/Users/alex/Desktop'), ALLOWED, ROOTS, 'darwin', viaData)).toBe('deny')
+    // home itself given under the Data volume's name
+    expect(opensHome('/Users/alex', fakeSystem('/System/Volumes/Data/Users/alex'), 'darwin')).toBe(true)
+    // folders inside home are fine, under either name
+    expect(g.request(picked('/System/Volumes/Data/Users/alex/Documents/company'), ALLOWED)).toBe(true)
+    expect(g.request(picked('/Users/alex/.claude'), ALLOWED)).toBe(true)
+    expect(opensHome('/Users/alexander', MAC, 'darwin')).toBe(false)
+    expect(opensHome('/Volumes/USB', MAC, 'darwin')).toBe(false)
+  })
+
+  test('home given through a link, and a home that cannot be told', () => {
+    const linkedHome = fakeSystem('/home/alex', { '/home/alex': '/data/alex' })
+    expect(opensHome('/data', linkedHome, 'linux')).toBe(true)
+    expect(opensHome('/data/alex', linkedHome, 'linux')).toBe(true)
+    expect(opensHome('/data/alex/docs', linkedHome, 'linux')).toBe(false)
+    // Linux compares with case
+    expect(opensHome('/HOME/alex', fakeSystem('/home/alex'), 'linux')).toBe(false)
+    // no home: nothing is allowed
+    expect(opensHome('/Users/alex/Documents/company', fakeSystem(''), 'darwin')).toBe(true)
+    const thrower: FolderSystem = { home: () => { throw new Error('no home') }, realpath: (p) => p }
+    expect(new FolderGrants('darwin', thrower).request(picked('/Users/alex/Documents/company'), ALLOWED)).toBe(false)
+    expect(restrictedFolderAction(blocked('/Users/alex/Documents'), ALLOWED, ROOTS, 'darwin', thrower)).toBe('deny')
+    // a realpath that fails: the path as written is still checked
+    const broken: FolderSystem = { home: () => '/Users/alex', realpath: () => { throw new Error('gone') } }
+    expect(opensHome('/Users', broken, 'darwin')).toBe(true)
+    expect(opensHome('/Users/alex/Documents', broken, 'darwin')).toBe(false)
+  })
+})
+
+describe('the picks belong to the person who made them', () => {
+  test('a sign-out or another person signing in forgets them; the same person keeps them', () => {
+    const g = new FolderGrants('darwin', MAC)
+    g.person({ signedIn: true, userId: 'u-alex' })
+    g.request(picked('/Users/alex/Documents/company'), ALLOWED)
+    const reads = () => g.check(`${TEAM}/`, read('/Users/alex/Documents/company'), ALLOWED)
+    expect(reads()).toBe(true)
+    g.person({ signedIn: true, userId: 'u-alex' })
+    expect(reads()).toBe(true)
+    g.person({ signedIn: true, userId: 'u-bora' })
+    expect(reads()).toBe(false)
+    g.request(picked('/Users/alex/Documents/company'), ALLOWED)
+    expect(reads()).toBe(true)
+    g.person({ signedIn: false })
+    expect(reads()).toBe(false)
+  })
+
+  test('the app tells the team session who is signed in, with every /api/me read', () => {
+    const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
+    expect(win).toContain('this.folderGrants.set(ses, hardenAppSession(ses, () => this.allowedOrigins()))')
+    const fetch = win.slice(win.indexOf('private async fetchTeamInfo()'), win.indexOf('private async fetchTeamInfo()') + 1500)
+    expect(fetch).toContain('this.folderPerson({ signedIn: false })')
+    expect(fetch).toContain('this.folderPerson({ signedIn: true, userId: me.data.user.id })')
   })
 })
 
@@ -161,10 +252,14 @@ describe('the team session wiring (desktop/src/main/security.ts)', () => {
     expect(harden).toContain('return allowedOrigins().includes(requestingOrigin) && PAGE_PERMISSIONS.has(permission)')
     expect(harden).toContain('ses.setDevicePermissionHandler(() => false)')
     // one set of picks per team session
-    expect(harden).toContain('const folders = new FolderGrants(process.platform)')
+    expect(harden).toContain('const folders = new FolderGrants(process.platform, FOLDER_SYSTEM)')
+    expect(harden).toContain('return folders')
+    expect(security).toContain("home: () => app.getPath('home')")
+    expect(security).toContain('realpath: (path) => realpathSync.native(path)')
+    expect(harden).toContain('process.platform, FOLDER_SYSTEM)')
   })
 
-  test('the restricted folder event is answered on the team session, from the top frame, with the four roots', () => {
+  test('the restricted folder event is answered on the team session, from the top frame, with the three roots', () => {
     expect(harden).toContain("ses.on('file-system-access-restricted'")
     expect(harden).toContain('const isTopFrame = !!d.frame && d.frame.parent === null')
     expect(harden).toContain('action = restrictedFolderAction(')
@@ -175,7 +270,8 @@ describe('the team session wiring (desktop/src/main/security.ts)', () => {
     expect(listener.indexOf('} catch {')).toBeLessThan(listener.indexOf('callback(action)'))
     expect(listener.indexOf('} catch {')).toBeGreaterThan(listener.indexOf('action = restrictedFolderAction('))
     expect(security).toContain('return PICKABLE_BLOCKED_ROOTS.map((name) => {')
-    expect(security).not.toMatch(/getPath\('home'\)|'home'/)
+    // home is no root (it is only what the roots are checked against)
+    expect(security.slice(security.indexOf('function folderRoots('), security.indexOf('\n}\n', security.indexOf('function folderRoots(')))).not.toContain('home')
   })
 
   test('the in-app browser pane and the app\'s own screens get no folder access', () => {

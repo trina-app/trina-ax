@@ -5,8 +5,9 @@
 // (artifact and preview frames cannot navigate away), WebRTC limited to proxied UDP, and RTCPeerConnection removed
 // from every subframe before its scripts run (an artifact must not leak data over WebRTC, which CSP doesn't cover).
 import { app, shell, type Session, type WebContents } from 'electron'
+import { realpathSync } from 'node:fs'
 import { originOf } from '../common/address'
-import { FolderGrants, PICKABLE_BLOCKED_ROOTS, restrictedFolderAction, type FolderCheck, type FolderRequest } from '../common/folder-access'
+import { FolderGrants, PICKABLE_BLOCKED_ROOTS, restrictedFolderAction, type FolderCheck, type FolderRequest, type FolderSystem } from '../common/folder-access'
 import { isOwnUiUrl } from '../common/trust'
 
 /** Permissions the team page may ask for (voice input, notifications, copy button, fullscreen video). The folder
@@ -23,6 +24,13 @@ function folderRoots(): string[] {
       return ''
     }
   })
+}
+
+/** The computer as the folder rules see it: the home folder, and a path with its links resolved (only the path's own
+ * entry is looked at, nothing in it is read). */
+const FOLDER_SYSTEM: FolderSystem = {
+  home: () => app.getPath('home'),
+  realpath: (path) => realpathSync.native(path),
 }
 
 export const APP_WEB_PREFERENCES = {
@@ -53,10 +61,11 @@ export function openExternal(url: string) {
  * Team session: permissions only for the team origin(s), top frame. The folder window (showDirectoryPicker): a folder
  * the person picks is readable by the team page, never writable (common/folder-access.ts); without this the pick ended
  * as the page's AbortError (Cancel), and a pick of the home folder, Desktop, Documents or Downloads never answered.
- * Desktop, Documents and Downloads are allowed now; the home folder and the rest of Chromium's blocklist are refused.
+ * Desktop, Documents and Downloads are allowed now, unless one of them is home or holds it; the home folder and the
+ * rest of Chromium's blocklist are refused.
  */
-export function hardenAppSession(ses: Session, allowedOrigins: () => readonly string[]) {
-  const folders = new FolderGrants(process.platform)
+export function hardenAppSession(ses: Session, allowedOrigins: () => readonly string[]): FolderGrants {
+  const folders = new FolderGrants(process.platform, FOLDER_SYSTEM)
   ses.setPermissionRequestHandler((_wc, permission, done, details) => {
     if (permission === 'fileSystem') return done(folders.request(details as FolderRequest, allowedOrigins()))
     done(details.isMainFrame && allowedOrigins().includes(originOf(details.requestingUrl)) && PAGE_PERMISSIONS.has(permission))
@@ -71,12 +80,14 @@ export function hardenAppSession(ses: Session, allowedOrigins: () => readonly st
     let action: 'allow' | 'deny' = 'deny'
     try {
       const isTopFrame = !!d.frame && d.frame.parent === null
-      action = restrictedFolderAction({ origin: d.origin, path: d.path, isDirectory: d.isDirectory, isTopFrame }, allowedOrigins(), folderRoots(), process.platform)
+      action = restrictedFolderAction({ origin: d.origin, path: d.path, isDirectory: d.isDirectory, isTopFrame }, allowedOrigins(), folderRoots(), process.platform, FOLDER_SYSTEM)
     } catch {
       action = 'deny' // the frame went away meanwhile, or anything else unexpected
     }
     callback(action)
   })
+  // the caller tells it who is signed in (FolderGrants.person): a sign-out or another person forgets the picks
+  return folders
 }
 
 /** Install the guards. Resolves once the subframe script is registered (call after the view has a renderer). */

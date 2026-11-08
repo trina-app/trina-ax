@@ -1,25 +1,46 @@
 // The folder window on the team page (docs/DECISIONS.md "W6"): a picked folder is readable, never writable; a dropped
 // folder that was not picked, another origin and a write get nothing; Chromium's refused roots Desktop, Documents and
-// Downloads are allowed, the home folder and everything else it blocks stay refused, and none leaves the page waiting.
-// Real Electron, hidden window (fixtures/folder-main.ts).
+// Downloads are allowed unless one is home or holds it, the home folder and everything else Chromium blocks stay
+// refused, and none leaves the page waiting. Real Electron, hidden window (fixtures/folder-main.ts), in a made-up home
+// folder inside a temporary folder: HOME and every app.getPath point there, nothing of this computer's home is touched.
+// Run on every Electron upgrade: it pins Electron behaviour the rules rely on (a page's own requestPermission() is
+// answered by the check and never reaches the request handler).
 import { expect, test } from '@playwright/test'
 import { execFile } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 const exec = promisify(execFile)
 
-test('a folder picked in the window is readable by the team page, read only', async () => {
+/** A made-up home: Documents with a company folder and a folder that is a link to home, Downloads, app data and a
+ * made-up secret. The fixture also moves Desktop to the home folder itself. */
+function fakeHome(dir: string): string {
+  const home = join(dir, 'home')
+  mkdirSync(join(home, 'Documents', 'company', 'sub'), { recursive: true })
+  writeFileSync(join(home, 'Documents', 'company', 'a.txt'), 'A')
+  writeFileSync(join(home, 'Documents', 'company', 'sub', 'c.txt'), 'C')
+  mkdirSync(join(home, 'Downloads'))
+  mkdirSync(join(home, 'Library', 'Application Support'), { recursive: true })
+  mkdirSync(join(home, '.aws'))
+  writeFileSync(join(home, '.aws', 'credentials'), 'FAKE-SECRET-FOR-THIS-TEST')
+  symlinkSync(home, join(home, 'Documents', 'home-link'))
+  return home
+}
+
+test('a folder picked in the window is readable by the team page, read only; never the home folder', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'folder-native-'))
   try {
+    const home = fakeHome(dir)
     const output = join(dir, 'main.cjs')
     await exec('bun', ['build', join(import.meta.dirname, 'fixtures/folder-main.ts'), '--target=node', '--format=cjs', '--external=electron', `--outfile=${output}`])
     const electron = createRequire(import.meta.url)('electron') as string
-    const { stdout } = await exec(electron, [output], { env: { ...process.env, FOLDER_TEST_PROFILE: join(dir, 'profile') }, timeout: 60_000 })
+    const env = { ...process.env, HOME: home, FOLDER_TEST_HOME: home, FOLDER_TEST_PROFILE: join(dir, 'profile') }
+    const { stdout } = await exec(electron, [output], { env, timeout: 60_000 })
     const { out, fromChromium, restricted } = JSON.parse(stdout.split('\n').find((line) => line.startsWith('FOLDER_RESULT '))!.slice(14))
     const none = { state: 'handle', kind: 'directory', read: 'denied', write: 'denied', listError: 'NotAllowedError' }
+    const refused = { state: 'error', error: 'AbortError' }
     // a handle that did not come from the folder window reads nothing
     expect(out.droppedNotPicked).toEqual(none)
     // nor can the page widen it: its own requestPermission() is answered by the check (the request handler cannot tell
@@ -32,14 +53,17 @@ test('a folder picked in the window is readable by the team page, read only', as
     expect(out.createFile).toBe('NotAllowedError')
     expect(out.askWrite).toBe('denied')
     expect(out.inside).toEqual({ state: 'handle', kind: 'directory', read: 'granted', write: 'denied', names: ['c.txt'] })
-    // Chromium's refused roots: Downloads' block is lifted (a drop is still no pick); the home folder itself and other
-    // blocked folders stay refused, with an answer (before, the page waited forever)
+    // the home folder (also Desktop here: one of the allowed roots) and a link to it: no pick, no handle, the made-up
+    // secret stays unread
+    expect([out.pickHome, out.pickLinkToHome]).toEqual([false, false])
+    expect(out.home).toEqual(refused)
+    expect(out.homeSecret).toBe('no handle')
+    // Downloads' block is lifted (a drop is still no pick); app data stays refused, with an answer
     expect(out.downloads).toEqual({ state: 'handle', kind: 'directory', read: 'denied', write: 'denied' })
-    expect(out.home).toEqual({ state: 'error', error: 'AbortError' })
-    expect(out.appData).toEqual({ state: 'error', error: 'AbortError' })
+    expect(out.appData).toEqual(refused)
     // another origin in the same session
     expect(out.otherOrigin).toEqual(none)
-    expect(out.otherOriginDownloads).toEqual({ state: 'error', error: 'AbortError' })
+    expect(out.otherOriginDownloads).toEqual(refused)
     // Chromium asked the request handler nothing in this run: no pick happened, every page request went to the check
     expect(fromChromium).toEqual([])
     expect(restricted).toEqual([{ path: 'downloads', action: 'allow' }, { path: 'home', action: 'deny' }, { path: 'appData', action: 'deny' }, { path: 'downloads', action: 'deny' }])
