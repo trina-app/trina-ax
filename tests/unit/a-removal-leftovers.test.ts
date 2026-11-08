@@ -108,12 +108,16 @@ describe('a connection switched off because everyone it was for was deleted', ()
       }
       expect(getRow(h.ctx.db, id)!.disabled).toBe(1)
     }
-    // a rename alone keeps the mark; a rename that also says who uses it is the edit dialog's save: the mark goes
+    // the edit dialog's save of a rename or a limit (it always sends its list, here the empty "팀 전체" it opens with)
+    // is no choice: the mark stays and the switch is still refused
     await owner.call('PATCH', `/api/admin/credentials/${on}`, { label: 'Was on 2' })
+    await owner.call('PATCH', `/api/admin/credentials/${on}`, { label: 'Was on 2b', assignments: [], spendLimit: { usd: 5, tokens: null, action: 'block' } })
+    expect(JSON.parse(getRow(h.ctx.db, on)!.meta).assigneesGone).toBe(true)
     expect((await owner.try('PATCH', `/api/admin/credentials/${on}`, { disabled: false })).status).toBe(409)
+    // a group picked: the mark goes, and the switch works
     await owner.call('PATCH', `/api/admin/credentials/${on}`, { label: 'Was on 3', assignments: [{ subjectType: 'group', subjectId: g2.id }] })
     expect(await owner.call('PATCH', `/api/admin/credentials/${on}`, { disabled: false })).toMatchObject({ disabled: false, detail: null, assignments: [{ subjectId: g2.id }] })
-    // the whole team is a choice too, when made on purpose (sent with the switch, or from the dialog)
+    // the whole team is a choice too when it is made on purpose: sent together with the switch (never the dialog's save)
     expect(await owner.call('PATCH', `/api/admin/credentials/${off}`, { disabled: false, assignments: [] })).toMatchObject({ disabled: false, assignments: [] })
     expect(JSON.parse(getRow(h.ctx.db, off)!.meta).assigneesGone).toBeUndefined()
   })

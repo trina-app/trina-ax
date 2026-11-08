@@ -15,7 +15,7 @@ import { codexExport, codexLogout } from '../native'
 import { REJECTED_KEY, TokenReader, tokenFile } from '../proxy/subscription'
 import { accessExpiry, accountRef, idClaims, maskEmail } from './openai-oauth'
 import { duplicateOf, insertRow } from './service'
-import { CLAUDE_TOKEN_LIFETIME_MS, fingerprintOf, getRow, writeSecret, type CredCtx, type Secrets } from './store'
+import { CLAUDE_TOKEN_LIFETIME_MS, fingerprintOf, getRow, metaOf, writeSecret, type CredCtx, type Secrets } from './store'
 import { ANTHROPIC_KEY_RE, CLAUDE_TOKEN_RE } from './validate'
 
 export const MIGRATED_KEY = 'credentials.migratedV1'
@@ -46,7 +46,7 @@ export function importTokenFile(cc: CredCtx, secretsDir: string): 'imported' | '
   const status = rejected ? 'invalid' as const : 'ok' as const
   const old = prev?.id ? getRow(cc.db, prev.id) : null
   if (old && old.kind === 'anthropic-oauth') {
-    cc.db.transaction(() => writeSecret(cc, old.id, 'anthropic-oauth', secret, { fingerprint: fp, status, status_code: rejected ? 'upstream_401' : null, limited_until: null, expires_at: expires, checked_at: null, meta: JSON.stringify({ issuedAt: new Date(issued).toISOString(), from: 'claude-oauth-token' }) }))()
+    cc.db.transaction(() => writeSecret(cc, old.id, 'anthropic-oauth', secret, { fingerprint: fp, status, status_code: rejected ? 'upstream_401' : null, limited_until: null, expires_at: expires, checked_at: null, meta: JSON.stringify({ issuedAt: new Date(issued).toISOString(), from: 'claude-oauth-token', ...(metaOf(old).assigneesGone ? { assigneesGone: true } : {}) }) }))()
     setSetting(cc.db, FILE_TOKEN_KEY, { id: old.id, fp })
     audit(cc.db, { actor: null, action: 'credential.secret_replaced', target: old.id, detail: { kind: 'anthropic-oauth', from: 'claude-oauth-token', verified: false } })
     return 'updated'

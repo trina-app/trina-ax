@@ -15001,9 +15001,13 @@ connections and files are core. Plan: `docs/AGENTS/plan/20261108-0930-removal-le
   would be left with none is **switched off** (`disabled`), the state a connection already has, rather than left to
   serve everyone: a paid key for one group must not suddenly be the whole team's. It is also **marked**
   (`meta.assigneesGone`, also when it was off already), so a later click cannot widen it either: the row says "쓰던
-  그룹·사람이 삭제돼서 꺼졌어요. '대상 바꾸기'에서 누가 쓸지 고른 뒤 켜 주세요.", the bare switch-on (`PATCH
-  {disabled: false}`) is refused with that text (409 `assignees_gone`), and a save that chooses who uses it (any list,
-  the whole team included, as the edit dialog always sends) clears the mark. Each connection changed gets its own
+  그룹·사람이 삭제돼서 꺼졌어요. '대상 바꾸기'에서 그룹이나 사람을 고른 뒤 켜 주세요.", the bare switch-on (`PATCH
+  {disabled: false}`) is refused with that text (409 `assignees_gone`), and a save that picks a group or person clears
+  the mark. The edit dialog always sends its list, and for such a connection that is the empty "팀 전체" it opens with,
+  so an empty list is not a choice (a rename keeps the mark); the whole team counts only when the same request also
+  switches it on (`{assignments: [], disabled: false}`, never the dialog's save). Through the screens the way to the
+  whole team is the one for any connection: pick someone, then change it to the whole team. The token-file sync
+  (`credentials/migrate.ts`), which rewrites `meta`, keeps the mark. Each connection changed gets its own
   `credential.update` line (reason `assignees_deleted`, before and after), `group.delete` / `user.delete` list the
   connections switched off (`aiConnectionsOff`), an admin's delete tells the owner like any admin's switch-off
   (`noticeOwners` 'disabled'), the engines' state is read again, and the connector's `group_delete` names them.
