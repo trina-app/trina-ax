@@ -47,8 +47,22 @@ const messages = async (user: string, chatId: string): Promise<Message[]> => (aw
 const trashIds = async (user: string) => (await h.api(user).call(API.listChats, { query: { trash: '1' } })).items.map((c) => c.id)
 const row = (id: string) => db().query('SELECT user_id, project_id, shared_at, deleted_at, deleted_by FROM chats WHERE id = ?').get(id) as { user_id: string; project_id: string | null; shared_at: string | null; deleted_at: string | null; deleted_by: string | null } | null
 type Updated = Extract<ServerFrame, { type: 'chat.updated' }>
-const updates = (user: string, chatId: string, from = 0) => ws[user]!.frames.slice(from).filter((f): f is Updated => f.type === 'chat.updated' && f.data.chatId === chatId)
-const mark = () => Object.fromEntries(Object.entries(ws).map(([u, s]) => [u, s.frames.length])) as Record<string, number>
+// A step's frames are those the server sent after its mark: by their seq (each person's own count), not by the order
+// they reach the test. A frame an earlier step sent (alice's delete, a turn's run state) can land on a slow socket after
+// the HTTP answer that came after it, and is not this step's (CI on PR #217, twice).
+const seqOf = (f: ServerFrame) => ('seq' in f && typeof f.seq === 'number' ? f.seq : 0)
+// a frame without a seq (presence) has no place in that count: kept, so a check that something is absent sees it too
+const since = (user: string, from: number) => ws[user]!.frames.filter((f) => !('seq' in f) || seqOf(f) > from)
+const updates = (user: string, chatId: string, from: number) => since(user, from).filter((f): f is Updated => f.type === 'chat.updated' && f.data.chatId === chatId)
+const mark = () => Object.fromEntries(Object.keys(ws).map((u) => [u, h.rt().hub.lastSeq(u)])) as Record<string, number>
+// before "hears nothing": every frame the server has sent each person so far reached their socket (hello counts: it
+// carries the seq at connecting)
+async function caughtUp() {
+  const to = mark()
+  const behind = () => Object.keys(to).filter((u) => ws[u]!.frames.reduce((n, f) => Math.max(n, seqOf(f)), 0) < to[u]!)
+  await waitFor(() => !behind().length, { timeoutMs: 10_000 })
+  expect(behind()).toEqual([])
+}
 
 describe('deleting a project', () => {
   test("its shared chats go to their creators' trash, unshared and without project; the others hear they are gone", async () => {
@@ -84,6 +98,7 @@ describe('deleting a project', () => {
       await ws[u]!.next('chat.updated', (f) => f.data.chatId === chat.id && f.data.change === 'purged')
       expect(updates(u, chat.id, from[u]).map((f) => [f.data.change, f.data.chat])).toEqual([['purged', null]])
     }
+    await caughtUp()
     expect(updates('erin', chat.id, from.erin)).toEqual([])
     expect(await trashIds('bob')).toEqual(expect.arrayContaining([chat.id, trashed.id]))
     // dana deleted the second one, but it is not hers to restore any more (no project): not in her trash
@@ -280,9 +295,10 @@ describe('access changes', () => {
     updateGroupAs(h.ctx, 'dana', 'finance', { memberIds: [] }, 'en')
     try {
       await ws.bob!.next('chat.updated', (f) => f.data.chatId === chat.id && f.data.change === 'deleted')
+      await caughtUp()
       expect(updates('bob', chat.id, from.bob).map((f) => [f.data.change, f.data.chat])).toEqual([['deleted', null]])
-      expect(JSON.stringify(ws.bob!.frames.slice(from.bob))).not.toContain('LIVE-TITLE-WORD')
-      // a chat in the trash is in nobody's list: nothing for it
+      expect(JSON.stringify(since('bob', from.bob))).not.toContain('LIVE-TITLE-WORD')
+      // a chat in the trash is in nobody's list: nothing for it (alice's delete before the mark told bob, who saw it then)
       expect(updates('bob', gone.id, from.bob)).toEqual([])
       for (const u of ['alice', 'carol', 'dana', 'erin']) expect(updates(u, chat.id, from[u])).toEqual([])
       expect((await h.api('bob').call(API.listChats, { query: {} })).items.map((c) => c.id)).not.toContain(chat.id)
@@ -306,10 +322,12 @@ describe('access changes', () => {
     await ws.bob!.next('chat.updated', (f) => f.data.chatId === chat.id && f.data.change === 'purged')
     await waitFor(() => !h.rt().activeTurn(chat.id), { timeoutMs: 10_000 })
     await Bun.sleep(300)
+    await caughtUp()
     const toBob = updates('bob', chat.id, from.bob)
     const purgedAt = toBob.findIndex((f) => f.data.change === 'purged')
     expect(toBob.slice(purgedAt + 1).filter((f) => f.data.chat !== null)).toEqual([])
-    // dana's: in her trash; whatever she hears of it says so
+    // dana's: in her trash; she is told so, and whatever she hears of it says so
+    expect(updates('dana', chat.id, from.dana).map((f) => f.data.change)).toContain('deleted')
     for (const f of updates('dana', chat.id, from.dana)) if (f.data.chat) expect(f.data.chat.deletedAt).not.toBeNull()
     expect(await trashIds('dana')).toContain(chat.id)
   })
