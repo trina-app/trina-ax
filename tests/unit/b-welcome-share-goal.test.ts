@@ -3,8 +3,8 @@
 // landingSkill: the first shared skill, else none: docs/DECISIONS.md "DS3"), never the intro deck, which is the owner's
 // own first run. The 7-day goal counts runs per team skill PATH (server/src/onboarding/goal.ts), so the owner's run
 // from the end screen and a member's run through the invite must run the same file. End to end on the real server
-// with the fake engine: the owner's intro deck (the real first-result start, run once; a second start is refused), no
-// goal skill while nothing is shared (never the deck the owner ran), then the goal naming the shared landing skill with
+// with the fake engine: 회사 소개's brand materials (no deck starts: docs/DECISIONS.md "W6"), the owner's own intro deck
+// run (회사 소개서 picked, run from 준비 끝), no goal skill while nothing is shared (never the deck the owner ran), then the goal naming the shared landing skill with
 // nobody yet, the link carrying it, a member who joins with it, lands on its form and runs it, the owner's own run; the
 // goal says 2/3.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from 'bun:test'
@@ -12,6 +12,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API, GENERAL_DECK_SKILL, isChoice, type SkillInfo } from '@mycel/shared/api'
 import { landingSkill, recordShared } from '../../server/src/onboarding/welcome'
+import { installPackSkill } from '../../server/src/onboarding/skill-packs'
 import { addTestPerson, startHarness, type Harness } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 
@@ -39,16 +40,17 @@ test('the owner\'s deck never takes the landing skill\'s place: no goal skill wh
   await h.api('dana').call(API.updateWelcome, { body: {} })
   const team = (await h.api('dana').call(API.setupWelcomeTeam)).progress.teamGroup!
   await h.api('dana').call(API.saveCompanyProfile, { body: { website: 'https://www.acme.example/', name: 'Acme', oneLine: 'Quiet desk fans', products: 'Desk fans', audience: '', tone: [], avoid: '', sources: [], colors: [] } })
-  // "저장하고 계속" starts the deck, as pages/Welcome.tsx sends it
-  const r = await h.api('dana').call(API.startFirstResult, { body: { files: [] } })
-  expect(r.skillPath).toBe(GENERAL_DECK_SKILL)
-  const attached = await Promise.all(r.files.map((p) => h.api('dana').call(API.attachTeamFile, { body: { chatId: r.chatId, path: p } })))
-  const owner = await send('dana', r.chatId, `/intro-deck Make our company profile\n${fake({ say: 'I made a company profile for Acme.' })}`, attached.map((a) => a.id))
+  // "저장하고 계속" puts the brand materials in and starts nothing (docs/DECISIONS.md "W6"); the owner picks 회사 소개서
+  // on 내 스킬 and runs it from 준비 끝's "'회사 소개서' 만들어 보기", an ordinary chat of theirs
+  const chats = (h.ctx.db.query('SELECT COUNT(*) AS n FROM chats').get() as { n: number }).n
+  const brand = await h.api('dana').call(API.welcomeBrand, { body: { files: [] } })
+  expect((h.ctx.db.query('SELECT COUNT(*) AS n FROM chats').get() as { n: number }).n).toBe(chats)
+  expect(fs.existsSync(path.join(h.team, GENERAL_DECK_SKILL))).toBe(false)
+  installPackSkill(h.ctx, 'dana', 'general', 'intro-deck')
+  const chatId = (await h.api('dana').call(API.createChat, { body: {} })).id
+  const attached = await Promise.all([brand.intro!].map((p) => h.api('dana').call(API.attachTeamFile, { body: { chatId, path: p } })))
+  const owner = await send('dana', chatId, `/intro-deck Make our company profile\n${fake({ say: 'I made a company profile for Acme.' })}`, attached.map((a) => a.id))
   expect(runs(owner)).toEqual([{ path: GENERAL_DECK_SKILL, source: 'command' }])
-  // saving 회사 소개 again starts no second deck
-  const again = await h.req('dana', '/api/onboarding/welcome/first-result', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ files: [] }) })
-  expect(again.status).toBe(409)
-  expect((await again.json() as { error: { params: { reason: string } } }).error.params.reason).toBe('deck_started')
 
   // nothing shared: no landing skill, and no goal skill either: never the deck the owner ran
   expect(landingSkill(h.ctx)).toBeNull()
