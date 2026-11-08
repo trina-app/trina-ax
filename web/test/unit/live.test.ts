@@ -3,6 +3,8 @@
 // the screen they are on.
 import { beforeEach, describe, expect, test } from 'bun:test'
 import type { Me, ServerEvent } from '@mycel/shared/api'
+import { t } from '../../src/i18n'
+import { setNavigator } from '../../src/lib/nav'
 import { dispatch } from '../../src/store/live'
 import { useSession } from '../../src/store/session'
 import { usePeople } from '../../src/store/people'
@@ -42,5 +44,24 @@ describe('profile_changed', () => {
       expect([loads, mes]).toEqual([2, 1])
       expect(JSON.stringify(useUi.getState())).toBe(before)
     } finally { usePeople.setState({ load }); useSession.setState({ refreshMe }); useSession.getState().signedOut() } // later files expect no half-made session
+  })
+})
+
+describe('skill_changed', () => {
+  const changed = (link: string): ServerEvent => ({ type: 'notice', seq: 9, at: Date.now(), data: { level: 'info', code: 'skill_changed', message: 'skills/weekly.md', link } })
+  test('a deleted team skill opens 파일 › 휴지통 ("열기"); a changed one its version history', () => {
+    const went: string[] = []
+    setNavigator((to) => went.push(to))
+    useUi.setState({ toasts: [] })
+    try {
+      dispatch(changed('/files?view=trash'))
+      // a notice from before this change still says the chats' /trash, with the same button
+      dispatch(changed('/trash'))
+      dispatch(changed('/files?path=skills&select=skills%2Fweekly.md&history=skills%2Fweekly.md'))
+      const actions = useUi.getState().toasts.map((x) => x.action!)
+      expect(actions.map((a) => a.label)).toEqual([t('notice.open'), t('notice.open'), t('notice.openHistory')])
+      actions[0]!.run()
+      expect(went).toEqual(['/files?view=trash'])
+    } finally { setNavigator(null); useUi.setState({ toasts: [] }) }
   })
 })

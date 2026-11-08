@@ -100,9 +100,13 @@ export function quoteOf(m: RoomMessage): RoomQuote {
 
 /**
  * A new message: once (by id) in the open room's timeline; its room moves to the top with it as the last line. A
- * message after the room's last position that is not mine and arrives while the room is not on screen counts as unread
- * (and "mentions me" when it does); a message seen before (a replay, my own send's answer) counts nothing again. My
- * own message moves my read position to it (the server does the same), so the room has nothing unread for me then.
+ * message after the room's last position and my read position that is not mine and arrives while the room is not on
+ * screen counts as unread (and "mentions me" when it does); a message seen before (a replay, my own send's answer)
+ * counts nothing again. Who may see a message is the server's to say, not repeated here: it sends one only to them
+ * (server/src/rooms/store.ts canSee), so what arrives counts as its unreadCount counts it, @트리나's private answer to
+ * my question included. My private answer shared to the room from another window read the room up to it there first
+ * (room.read comes before the message), so it counts nothing. My own message moves my read position to it (the
+ * server does the same), so the room has nothing unread for me then.
  * An event line (a rename, people invited, someone left) only takes its place: no unread, no last line, no move.
  * A reply goes to its thread when that is open; it is in the timeline (and counts there) only when sent to the room too.
  * A followed thread's badge comes from the server (room.updated with my room).
@@ -122,7 +126,7 @@ export function withMessage(d: RoomsData, roomId: string, m: RoomMessage, meId: 
   // my message in the room reads the room up to it (as the server does); my reply sent to the room too does not: it was
   // written in the thread, maybe with the room out of sight (the server moves only my place in the thread)
   const read = mine && !m.threadRootId
-  const counts = fresh && !mine && m.visibility === 'room' && !m.deletedAt && d.openRoomId !== roomId
+  const counts = fresh && m.seq > room.lastReadSeq && !mine && !m.deletedAt && d.openRoomId !== roomId
   const next: Room = {
     ...room,
     lastSeq: Math.max(room.lastSeq, m.seq),

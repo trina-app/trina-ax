@@ -57,9 +57,10 @@ function kindOf(ctx: AppContext, rel: string): SkillChange['kind'] {
   } catch { return null }
 }
 
-/** History link for a changed file (the file screen opens its version history), the trash for a deleted one. */
+/** History link for a changed file (the file screen opens its version history), the files trash for a deleted one
+ * (파일 › 휴지통, web/src/lib/nav.ts FILES_TRASH; `/trash` is the deleted AI chats). */
 export function historyLink(rel: string, change: SkillChange['change'], kind: SkillChange['kind']): string {
-  if (change === 'delete') return '/trash'
+  if (change === 'delete') return '/files?view=trash'
   const dir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : ''
   if (kind === 'folder') return `/files?path=${encodeURIComponent(rel)}`
   return `/files?path=${encodeURIComponent(dir)}&select=${encodeURIComponent(rel)}&history=${encodeURIComponent(rel)}`
