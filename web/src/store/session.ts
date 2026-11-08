@@ -34,6 +34,8 @@ interface SessionState {
   /** the person's language: one of their own, or null = follow the team default */
   setLocale: (l: Locale | null) => Promise<void>
   setTheme: (t: Theme) => Promise<void>
+  /** set myself away, or back to automatic (the account menu; docs/DECISIONS.md "접속 상태") */
+  setAway: (away: boolean) => Promise<void>
   /** shown at once on this device; the account keeps it for the others */
   setTextSize: (s: TextSize) => Promise<void>
 }
@@ -184,6 +186,24 @@ export const useSession = create<SessionState>((set, get) => ({
     storeTheme(theme)
     applyTheme(theme)
     await get().updatePrefs({ theme })
+  },
+
+  async setAway(away) {
+    const st = get().status
+    if (st.kind !== 'signed-in') return
+    const put = (v: boolean) => {
+      const cur = get().status
+      if (cur.kind === 'signed-in') set({ status: { kind: 'signed-in', me: { ...cur.me, user: { ...cur.me.user, prefs: { ...cur.me.user.prefs, away: v || undefined } } } } })
+    }
+    // the menu's word follows at once; the server keeps it and tells the team
+    const before = !!st.me.user.prefs.away
+    put(away)
+    try {
+      await api.call(API.setMyAway, { body: { away } })
+    } catch (e) {
+      put(before)
+      throw e
+    }
   },
 
   async setTextSize(textSize) {

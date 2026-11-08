@@ -9,7 +9,10 @@
 //   'offline' (the banner then says "can't reach the team server"); a dropped link alone is 'reconnecting'.
 // - Close 4401 = signed out (no reconnect), 4409 = the same window id connected elsewhere (duplicated tab): take a
 //   new window id and reconnect. App-level ping every 20 s; no pong within 10 s → treat the link as dead.
-import { ClientFrame, ServerEvent as ServerEventSchema, ServerFrame, WS_PATH, WS_PROTOCOL, WsClose, type ServerEvent } from '@mycel/shared/api'
+// - `presence` (who is online or away, docs/DECISIONS.md "접속 상태") is a state, not an event: the whole list after
+//   each hello, then changes, never replayed (onPresence). This window's own `presence` frame is never queued while
+//   disconnected (only the newest state matters, and it is sent again after each hello).
+import { ClientFrame, ServerEvent as ServerEventSchema, ServerFrame, WS_PATH, WS_PROTOCOL, WsClose, type PresenceFrame, type ServerEvent } from '@mycel/shared/api'
 
 /** the event names this page knows (one it cannot read is then a shape it no longer agrees with) */
 const KNOWN_EVENTS: ReadonlySet<string> = new Set(ServerEventSchema.options.map((o) => o.shape.type.value as string))
@@ -49,6 +52,8 @@ export interface RealtimeOptions {
   onState?: (s: ConnState) => void
   /** server version from hello (to notice an update) */
   onHello?: (h: { serverVersion: string; resumed: boolean; epoch: string }) => void
+  /** who is online or away: the whole list (full) after each hello, then changes */
+  onPresence?: (f: PresenceFrame) => void
   timers?: Timers
   random?: () => number
   pingIntervalMs?: number
@@ -140,7 +145,7 @@ export class RealtimeClient {
   send(frame: ClientFrame) {
     const s = JSON.stringify(ClientFrame.parse(frame))
     if (this.ws && this.ws.readyState === OPEN && this.state === 'open') this.ws.send(s)
-    else if (frame.type !== 'ping') {
+    else if (frame.type !== 'ping' && frame.type !== 'presence') {
       this.outbox.push(s)
       this.outboxBytes += s.length
       while (this.outbox.length > OUTBOX_MAX_FRAMES || (this.outboxBytes > OUTBOX_MAX_BYTES && this.outbox.length > 1)) this.outboxBytes -= this.outbox.shift()!.length
@@ -241,6 +246,9 @@ export class RealtimeClient {
         this.pongTimer = null
         return
       case 'error':
+        return
+      case 'presence':
+        this.o.onPresence?.(f)
         return
       default: {
         if (f.seq <= this.lastSeq) return // replayed twice
