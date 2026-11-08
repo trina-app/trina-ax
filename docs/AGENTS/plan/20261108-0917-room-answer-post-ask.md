@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-08 09:17
 - Branch: `feat/room-answer-post-ask`
-- Status: in progress
+- Status: done
 - Where: trina-ax core, `server/src/rooms/` (a new `earlier-sources.ts`, small edits in `ai.ts`), `shared/src/api/rooms.ts`,
   `web/src/components/rooms/RoomMessages.tsx`. Why: rooms, the room AI's share rule and permissions are core (see
   docs/REPOSITORY-RULES.md)
@@ -96,4 +96,18 @@ private; a changed reason is said and the notice follows.
 
 ## Result
 
-Filled in at the end.
+Built as planned: `rooms/earlier-sources.ts` (the resolver and `reasonsChanged`), `rooms/ai-redecide.ts` (the start-up
+pass), small edits in `rooms/ai.ts` (`decide()`'s room branch and per-folder counts, `share()`'s comparison and audit
+detail, three helpers exported), `preview.earlier` / `preview.unable`, the one-line notice with "방에 올리기…" and the
+confirm in `RoomMessages.tsx`, five languages, the server's refusal sentence. PR #198 (room AI allowances, migration 266)
+landed meanwhile and merged without touching this (its `rooms/ai.ts` change is in `ended()`).
+
+Differs from the first brief, decided with the coordinator before code: the confirm is the app's generic `confirmDialog`
+and posting is the existing `RoomAi.share`, not the share-to-room dialog (it posts as the person from their own chat and
+attaches copies; it would have needed a new endpoint and a fixed-room mode). The coordinator's first rule refused any
+hidden answer with a room among its sources; every room answer has this room in its scope (the room context), so this
+room is followed through its hidden answers instead. Also found while building: people's words or files in a hidden
+answer's thread are refused (they are no team file the confirm could name), and previews kept as refused before this
+build are decided again at start, so the owner's own preview gets its button.
+
+PR: PR_LINK

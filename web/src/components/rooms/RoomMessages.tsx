@@ -470,11 +470,12 @@ function AskedBy({ roomId, m, onJump }: { roomId: string; m: RoomMessage; onJump
   )
 }
 
+/** the skills folders: the team rules and skills the AI was given (how it works, not what it found), never named */
+const isSkills = (f: string) => f === 'skills' || f.startsWith('skills/')
 /** The folders of a private preview as people know them: the last part of each path ("마케팅팀", not
  * "shared/경영/팀별/마케팅팀/"), the top of the team folder in words; never the skills folders (the team rules and
  * skills the AI was given: how it works, not what it found). Each with how many members (not me) cannot see it
  * (`unable`; a name of two folders keeps the larger count; undefined: a preview decided before the counts). */
-const isSkills = (f: string) => f === 'skills' || f.startsWith('skills/')
 function previewFolders(p: NonNullable<RoomMessage['preview']>, words: { root: string }): { name: string; n: number | undefined }[] {
   const out = new Map<string, number | undefined>()
   for (const f of p.folders) {
