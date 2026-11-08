@@ -19,10 +19,10 @@ Four ready-made skills ship with the product, in the team's language (Korean or 
 
 | Folder | Skills | How they get in |
 |---|---|---|
-| `skills/general/` | Company profile, Promo cards, Promo video | The welcome steps add them once, when the owner sets up the team |
-| `skills/work/` | Natural writing | **Add 4 recommended skills** on an empty **Available skills** page (owners and admins) |
+| `skills/general/` | Company profile, Promo cards, Promo video | **Add 4 recommended skills** on an empty **Available skills** page (owners and admins) |
+| `skills/work/` | Natural writing | The same button |
 
-The button on the empty page adds all four; it adds only what is missing. They are your team's own files: skill managers can edit, move or delete them. A skill you edited is never replaced, one you deleted never comes back by itself, and one whose name another team skill already uses is skipped.
+The welcome steps add none of them by themselves: a skill goes in only on a press that names it. The button on the empty page adds all four; it adds only what is missing. When the team has one of them at the end of the welcome steps, the last screen offers to make a first result with it (Promo cards first): the press opens the skill's form and nothing runs until you press **Run**. They are your team's own files: skill managers can edit, move or delete them. A skill you edited is never replaced, one you deleted never comes back by itself, and one whose name another team skill already uses is skipped.
 
 **Natural writing** rewrites text that reads as AI-written so it sounds like a person wrote it, without changing any fact. The Korean version was written by the company and knows Korean genres (blog, Shorts titles, Instagram, proposals, notices); the English one is adapted from the open-source "humanizer" skill (MIT License, its notice is inside the skill).
 
