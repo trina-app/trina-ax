@@ -26,6 +26,7 @@ import { RoomMenu, useRowMenu } from '../components/rooms/RoomMenu'
 import { Button, ErrorNote, PageHeader, Skeleton } from '../components/ui'
 import { useNameOf } from '../store/people'
 import { useResumeOnLanding } from '../components/onboarding/WelcomeResume'
+import { PresenceText } from '../components/Presence'
 
 
 export default function Rooms() {
@@ -150,13 +151,16 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
   return (
     <li className="group relative" {...menu.row}>
     <Link to={`/rooms/${room.id}`} onClick={menu.guard} className={clsx(className, 'pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none] group-has-[[aria-expanded=true]]:bg-hover',
+      // the ring of a DM's online dot takes the row's colour (index.css .presence-dot)
+      '[--presence-bg:var(--c-canvas)] hover:[--presence-bg:var(--c-hover)] group-has-[[aria-expanded=true]]:[--presence-bg:var(--c-hover)]',
       // while the "⋯" shows over the row's end, the preview stops before it (the time and the count give way)
       'pointer-fine:group-hover:pr-14 group-has-[:focus-visible]:pr-14 pointer-fine:group-has-[[aria-expanded=true]]:pr-14')} data-testid="rooms-row">
-      <RoomIcon room={room} size={40} tile />
+      <RoomIcon room={room} size={40} tile presence />
       {/* the time on the name's line and the count on the preview's, so the preview has the whole width */}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-1.5">
           <span className={unread > 0 ? 'truncate text-base font-semibold text-ink' : 'truncate text-base font-medium text-ink'}>{title}</span>
+          {room.kind === 'dm' && room.peers[0] && <PresenceText userId={room.peers[0].id} />}
           {room.muted && (
             <>
               <BellOff size={12} className="shrink-0 text-faint" aria-hidden />
