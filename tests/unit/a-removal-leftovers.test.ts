@@ -14,6 +14,7 @@ import { credentialsOf, getRow } from '../../server/src/credentials/store'
 import { resolveCredential } from '../../server/src/credentials/resolve'
 import { ALL_CREDENTIAL_KINDS } from '../../server/src/app-config'
 import { MIGRATIONS_DIR, migrate, openDb, readMigrations } from '../../server/src/db'
+import { saveAvatar } from '../../server/src/auth/profiles'
 
 // people are made with password hashing and deletes re-check access across the team: slow on a busy machine
 setDefaultTimeout(30_000)
@@ -85,6 +86,50 @@ describe('deleting a group', () => {
     expect(audits(off).at(-1)).toMatchObject({ changed: ['assignments'] })
     const del = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'group.delete' AND target = ?").get(g.id) as { detail: string }
     expect(JSON.parse(del.detail).aiConnectionsOff).toBeUndefined()
+  })
+})
+
+describe('a connection switched off because everyone it was for was deleted', () => {
+  test('is marked, says why, and is not switched on by the bare switch; choosing who uses it clears the mark', async () => {
+    clearCreds()
+    const g = await owner.call('POST', '/api/admin/groups', { name: 'Gone soon' })
+    const g2 = await owner.call('POST', '/api/admin/groups', { name: 'Stays' })
+    const on = addCred(cc(), 'anthropic-api-key', key('was-on'), { label: 'Was on', assignments: [{ subjectType: 'group', subjectId: g.id }] })
+    const off = addCred(cc(), 'anthropic-api-key', key('was-off'), { label: 'Was off', disabled: true, assignments: [{ subjectType: 'group', subjectId: g.id }] })
+    await owner.call('DELETE', `/api/admin/groups/${g.id}`)
+    const listed = (await admin.client.call('GET', '/api/admin/credentials')).items
+    for (const id of [on, off]) {
+      expect(listed.find((c: any) => c.id === id)).toMatchObject({ disabled: true, state: 'disabled', assignments: [], detail: expect.stringContaining('대상') })
+      // the row's 켜기 (only `disabled`): refused for the owner and an admin alike, nothing changes
+      for (const who of [owner, admin.client]) {
+        const r = await who.try('PATCH', `/api/admin/credentials/${id}`, { disabled: false })
+        expect(r.status).toBe(409)
+        expect(r.body.error.params).toMatchObject({ reason: 'assignees_gone' })
+      }
+      expect(getRow(h.ctx.db, id)!.disabled).toBe(1)
+    }
+    // a rename alone keeps the mark; a rename that also says who uses it is the edit dialog's save: the mark goes
+    await owner.call('PATCH', `/api/admin/credentials/${on}`, { label: 'Was on 2' })
+    expect((await owner.try('PATCH', `/api/admin/credentials/${on}`, { disabled: false })).status).toBe(409)
+    await owner.call('PATCH', `/api/admin/credentials/${on}`, { label: 'Was on 3', assignments: [{ subjectType: 'group', subjectId: g2.id }] })
+    expect(await owner.call('PATCH', `/api/admin/credentials/${on}`, { disabled: false })).toMatchObject({ disabled: false, detail: null, assignments: [{ subjectId: g2.id }] })
+    // the whole team is a choice too, when made on purpose (sent with the switch, or from the dialog)
+    expect(await owner.call('PATCH', `/api/admin/credentials/${off}`, { disabled: false, assignments: [] })).toMatchObject({ disabled: false, assignments: [] })
+    expect(JSON.parse(getRow(h.ctx.db, off)!.meta).assigneesGone).toBeUndefined()
+  })
+
+  test('a person who is disabled, not deleted, keeps their assignments everywhere', async () => {
+    clearCreds()
+    const d = await addMember(h, owner, { username: 'dora' })
+    await owner.call('PATCH', `/api/admin/users/${d.id}`, { status: 'disabled' })
+    const g = await owner.call('POST', '/api/admin/groups', { name: 'Doomed' })
+    const id = addCred(cc(), 'anthropic-api-key', key('dora'), { label: 'Dora', assignments: [{ subjectType: 'user', subjectId: d.id }, { subjectType: 'group', subjectId: g.id }] })
+    // a delete prunes every dead row in the team: dora's is not dead
+    await owner.call('DELETE', `/api/admin/groups/${g.id}`)
+    expect(assignments(id)).toEqual([{ subject_type: 'user', subject_id: d.id }])
+    expect(getRow(h.ctx.db, id)!.disabled).toBe(0)
+    // and a save keeps her
+    expect(await owner.call('PATCH', `/api/admin/credentials/${id}`, { label: 'Dora 2', assignments: [{ subjectType: 'user', subjectId: d.id }] })).toMatchObject({ disabled: false, assignments: [{ subjectId: d.id }] })
   })
 })
 
@@ -171,6 +216,25 @@ describe('deleting a member', () => {
   })
 })
 
+describe('the transfer\'s archive name and a photo upload during the delete', () => {
+  test('a name an earlier archive left in the database is skipped; a photo saved after the delete is refused', async () => {
+    const m = await addMember(h, owner, { username: 'ula' })
+    const ownerId = (await owner.call('GET', '/api/me')).user.id
+    // a folders row an earlier archive left at users/<owner>/보관된 계정/<id> (its folder gone from disk)
+    h.ctx.db.query("INSERT INTO folders (id, path) VALUES (?, ?)").run(crypto.randomUUID(), `users/${ownerId}/보관된 계정/${m.id}`)
+    fs.writeFileSync(path.join(h.ctx.files.fx.root, 'users', m.id, 'a.md'), 'a')
+    await owner.call('DELETE', `/api/admin/users/${m.id}`)
+    expect(fs.readFileSync(path.join(h.ctx.files.fx.root, 'users', ownerId, '보관된 계정', `${m.id}-2`, 'a.md'), 'utf8')).toBe('a')
+    const del = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'user.delete' AND target = ?").get(m.id) as { detail: string }
+    expect(JSON.parse(del.detail)).toMatchObject({ movedTo: `users/${ownerId}/보관된 계정/${m.id}-2` })
+    expect(JSON.parse(del.detail).folderError).toBeUndefined()
+    // an upload that was still being read when the account was deleted
+    const body = (async function* () { yield new Uint8Array([1]) })()
+    await expect(saveAvatar(h.ctx.db, m.id, body, 'image/png', 'en')).rejects.toMatchObject({ code: 'unauthorized' })
+    expect(h.ctx.db.query('SELECT COUNT(*) AS n FROM user_profiles WHERE user_id = ?').get(m.id)).toEqual({ n: 0 })
+  })
+})
+
 describe('migration 117', () => {
   test('profiles and own connections of people already deleted go; dead assignments go, and a connection left with none is switched off', () => {
     const dir = path.join(WORK, 'removal-leftovers-migrate'), part = path.join(dir, 'before')
@@ -178,30 +242,35 @@ describe('migration 117', () => {
     for (const m of readMigrations().filter((m) => m.version !== 117)) fs.copyFileSync(path.join(MIGRATIONS_DIR, m.name), path.join(part, m.name))
     const db = openDb(path.join(dir, 'app.db'), { migrationsDir: part })
     try {
-      db.query("INSERT INTO users (id, username, name, role) VALUES ('ann','ann','Ann','member'), ('bo','bo#deleted-1','Bo','member')").run()
+      db.query("INSERT INTO users (id, username, name, role) VALUES ('ann','ann','Ann','member'), ('bo','bo#deleted-1','Bo','member'), ('cy','cy','Cy','member')").run()
+      db.query("UPDATE users SET status = 'disabled' WHERE id = 'cy'").run()
       db.query("UPDATE users SET deleted_at = '2026-10-01T00:00:00.000Z', status = 'disabled' WHERE id = 'bo'").run()
       db.query("INSERT INTO groups (id, name) VALUES ('g-live', 'Live')").run()
       db.query("INSERT INTO user_profiles (user_id, title) VALUES ('ann', 'Lead'), ('bo', 'Gone')").run()
       const cred = (id: string, owner: string | null, disabled = 0) => db.query(`INSERT INTO engine_credentials (id, kind, label, owner_user_id, disabled, secret_enc, fingerprint)
         VALUES (?, 'anthropic-api-key', ?, ?, ?, 'x', ?)`).run(id, id, owner, disabled, id)
-      cred('bo-own', 'bo'); cred('ann-own', 'ann'); cred('only-dead', null); cred('mixed', null); cred('team', null); cred('off-dead', null, 1)
+      cred('bo-own', 'bo'); cred('ann-own', 'ann'); cred('only-dead', null); cred('mixed', null); cred('team', null); cred('off-dead', null, 1); cred('for-cy', null)
       const asg = db.query('INSERT INTO engine_credential_assignments (credential_id, subject_type, subject_id) VALUES (?, ?, ?)')
       asg.run('only-dead', 'group', 'g-gone'); asg.run('only-dead', 'user', 'bo')
       asg.run('mixed', 'group', 'g-gone'); asg.run('mixed', 'group', 'g-live'); asg.run('mixed', 'user', 'ann')
       asg.run('off-dead', 'user', 'bo')
+      asg.run('for-cy', 'user', 'cy')
 
       migrate(db, { backupDir: path.join(dir, 'backups') })
 
       expect(db.query('SELECT user_id FROM user_profiles ORDER BY user_id').all()).toEqual([{ user_id: 'ann' }])
-      expect(db.query('SELECT id, disabled FROM engine_credentials ORDER BY id').all()).toEqual([
-        { id: 'ann-own', disabled: 0 }, { id: 'mixed', disabled: 0 }, { id: 'off-dead', disabled: 1 }, { id: 'only-dead', disabled: 1 }, { id: 'team', disabled: 0 },
+      expect(db.query("SELECT id, disabled, json_extract(meta, '$.assigneesGone') AS gone FROM engine_credentials ORDER BY id").all()).toEqual([
+        { id: 'ann-own', disabled: 0, gone: null }, { id: 'for-cy', disabled: 0, gone: null }, { id: 'mixed', disabled: 0, gone: null },
+        { id: 'off-dead', disabled: 1, gone: 1 }, { id: 'only-dead', disabled: 1, gone: 1 }, { id: 'team', disabled: 0, gone: null },
       ])
+      // a disabled person is not a deleted one: their row stays
       expect(db.query('SELECT credential_id, subject_type, subject_id FROM engine_credential_assignments ORDER BY credential_id, subject_type, subject_id').all()).toEqual([
+        { credential_id: 'for-cy', subject_type: 'user', subject_id: 'cy' },
         { credential_id: 'mixed', subject_type: 'group', subject_id: 'g-live' }, { credential_id: 'mixed', subject_type: 'user', subject_id: 'ann' },
       ])
       // the switched-off connection still serves nobody: not the whole team
       expect(resolveCredential(db, { userId: 'ann', engine: 'claude-code', allowedKinds: ALL })).toMatchObject({ ok: true, credentialId: 'ann-own' })
-      db.query("DELETE FROM engine_credentials WHERE id IN ('ann-own', 'team')").run()
+      db.query("DELETE FROM engine_credentials WHERE id IN ('ann-own', 'team', 'for-cy')").run()
       expect(resolveCredential(db, { userId: 'ann', engine: 'claude-code', allowedKinds: ALL })).toMatchObject({ ok: true, credentialId: 'mixed' })
       db.query("DELETE FROM engine_credentials WHERE id = 'mixed'").run()
       expect(resolveCredential(db, { userId: 'ann', engine: 'claude-code', allowedKinds: ALL }).ok).toBe(false)

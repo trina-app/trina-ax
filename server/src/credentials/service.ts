@@ -14,7 +14,7 @@ import { candidates, familyOfKind, MEMBER_OWN_KEY, memberOwnAllowed } from './re
 import { SHARED_SUBSCRIPTIONS_KEY, sharedSubscriptionsAllowed } from './policy'
 import { SealError } from './seal'
 import {
-  CLAUDE_TOKEN_LIFETIME_MS, fingerprintOf, getRow, listRows, mainSecret, metaOf, noticeMember, noticeOwners, otherGateway, secretOf, SUBSCRIPTION, toCredential, writeSecret,
+  ASSIGNEES_GONE, CLAUDE_TOKEN_LIFETIME_MS, fingerprintOf, getRow, listRows, mainSecret, metaOf, noticeMember, noticeOwners, otherGateway, secretOf, SUBSCRIPTION, toCredential, writeSecret,
   type CredCtx, type CredMeta, type CredRow, type Secrets,
 } from './store'
 import { formatProblem, verifySecret } from './validate'
@@ -238,6 +238,11 @@ export function updateCredential(cc: CredCtx, id: string, b: UpdateInput, actor:
   const assignments = b.assignments?.filter((x) => alive(cc, x))
   const orphaned = !!b.assignments?.length && !assignments!.length
   const disabled = orphaned ? true : b.disabled
+  // switched off because everyone it was for was deleted (meta.assigneesGone): on again only together with a choice of
+  // who uses it (the edit dialog's target, any list, the whole team included), never by the bare switch, which would
+  // quietly give it to the whole team
+  const gone = !!metaOf(row).assigneesGone
+  if (gone && disabled === false && row.disabled && !assignments) fail('conflict', ct('assigneesGone', locale), { params: { reason: 'assignees_gone' } })
   const changed: string[] = []
   const before = assignmentsOf(cc, id)
   cc.db.transaction(() => {
@@ -246,6 +251,9 @@ export function updateCredential(cc: CredCtx, id: string, b: UpdateInput, actor:
     if (b.label !== undefined && b.label !== row.label) { sets.push('label = ?'); args.push(b.label); changed.push('label') }
     if (b.priority !== undefined && b.priority !== row.priority) { sets.push('priority = ?'); args.push(b.priority); changed.push('priority') }
     if (disabled !== undefined && (disabled ? 1 : 0) !== row.disabled) { sets.push('disabled = ?'); args.push(disabled ? 1 : 0); changed.push('disabled') }
+    // nothing sent is left: marked like a delete's (credentials/assignees.ts); a choice of who uses it clears the mark
+    if (orphaned && !row.owner_user_id) sets.push(`meta = ${ASSIGNEES_GONE}`)
+    else if (gone && assignments) sets.push("meta = json_remove(meta, '$.assigneesGone')")
     // only what differs counts as a change (the edit dialog always sends its whole form, so a rename arrives with the
     // unchanged assignments and limit; those are neither audited as changes nor told to the owner)
     if (b.spendLimit && (b.spendLimit.usd !== row.spend_limit_usd || b.spendLimit.tokens !== row.spend_limit_tokens || b.spendLimit.action !== row.spend_limit_action)) {

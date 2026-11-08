@@ -14999,8 +14999,11 @@ connections and files are core. Plan: `docs/AGENTS/plan/20261108-0930-removal-le
   the whole team. Deleting a group or a person now removes their `engine_credential_assignments` rows inside the
   delete's transaction (`pruneAssignments`, which removes every row whose group or person is gone). A connection that
   would be left with none is **switched off** (`disabled`), the state a connection already has, rather than left to
-  serve everyone: a paid key for one group must not suddenly be the whole team's. Turning it on again is a person's
-  choice in Admin › AI providers, where the row says "팀 전체" next to "꺼짐". Each connection changed gets its own
+  serve everyone: a paid key for one group must not suddenly be the whole team's. It is also **marked**
+  (`meta.assigneesGone`, also when it was off already), so a later click cannot widen it either: the row says "쓰던
+  그룹·사람이 삭제돼서 꺼졌어요. '대상 바꾸기'에서 누가 쓸지 고른 뒤 켜 주세요.", the bare switch-on (`PATCH
+  {disabled: false}`) is refused with that text (409 `assignees_gone`), and a save that chooses who uses it (any list,
+  the whole team included, as the edit dialog always sends) clears the mark. Each connection changed gets its own
   `credential.update` line (reason `assignees_deleted`, before and after), `group.delete` / `user.delete` list the
   connections switched off (`aiConnectionsOff`), an admin's delete tells the owner like any admin's switch-off
   (`noticeOwners` 'disabled'), the engines' state is read again, and the connector's `group_delete` names them.
@@ -15011,8 +15014,9 @@ connections and files are core. Plan: `docs/AGENTS/plan/20261108-0930-removal-le
   switches them off either way).
 - **Saving a connection that names a group or person that is gone.** The edit dialog sends its whole form, and a dead
   id has no checkbox to untick, so every save of such a connection failed with `unknownAssignee`. `updateCredential`
-  now drops ids whose group or person is gone; when none of the ones sent is left, the connection is switched off in
-  the same write (also when the request says `disabled: false`), never saved as team-wide. An empty list sent on
+  now drops ids whose group or person is gone; when none of the ones sent is left, the connection is switched off and
+  marked in the same write (also when the request says `disabled: false`), never saved as team-wide. A person who is
+  disabled but not deleted still counts: their rows stay everywhere. An empty list sent on
   purpose still means the whole team. Adding a connection keeps refusing an unknown id: there is nothing to keep.
 - **Rows earlier deletes left: migration 117.** Data only (reader 1). The same rule once: a team connection every one
   of whose assignments is gone served nobody, so it is switched off before its rows go, with an Activity log line
@@ -15029,11 +15033,16 @@ connections and files are core. Plan: `docs/AGENTS/plan/20261108-0930-removal-le
   private step, `relocate`, that both use): version rows, folders rows, projects and the text cache follow the folder,
   two file events say where it went (`tool: member-delete`), and the Files screen and the knowledge graph hear of it.
   The chat attachments (`.attachments/`) are still removed first. No access check: nobody can open a deleted
-  account's folder, and the delete was the decision. Two rules of `move` stay as they are: items the member had put in
-  the trash do not follow across the edge of a personal folder, and a version saved where only the member could read
-  stays theirs (`versionVisible` judges it by `path_at_save`), so the owner sees the files and their history from the
-  transfer on, not the member's earlier versions. Changing that would show the owner drafts the member never shared:
-  left for the owner to decide. The archive name now also skips a name a folders row already holds.
+  account's folder, and the delete was the decision. So the member's personal projects (name and instructions, which
+  live only in the database) follow too and the owner sees them in the archive, as the task asked; before, they pointed
+  at a path nobody had. Two rules of `move` stay as they are: items the member had put in the trash do not follow
+  across the edge of a personal folder, and a version saved where only the member could read stays theirs
+  (`versionVisible` judges it by `path_at_save`; a version whose folders row moved with it is judged by that row, a
+  rare case), so the owner mostly sees the files and their history from the transfer on, not the member's earlier
+  versions. Changing that would show the owner drafts the member never shared: left for the owner to decide. The
+  archive name now also skips a name a folders row or a project already holds.
+- **A photo upload during the delete.** `saveAvatar` reads the whole upload before it writes; it now refuses (401) when
+  the account was deleted meanwhile, so the photo does not come back after `deleteUser` removed it.
 - **Docs.** `docs/security-and-permissions.md` (and the Korean copy) said only owners remove members; owners and
   admins do (admins plain members, after their password). `docs/PERMISSIONS.md` says the personal folder moves to the
   owner's archive on delete, what happens to AI connection assignments, and has a table of who reviews each kind of

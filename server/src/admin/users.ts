@@ -207,9 +207,13 @@ function handlePersonalFolder(ctx: AppContext, id: string, how: 'transfer' | 'de
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
   // the archive must be a real folder inside the owner's personal folder, not a link leading elsewhere
   for (const p of [ownerDir, dir]) if (!fs.lstatSync(p).isDirectory()) throw new Error(`archive folder is not a plain folder: ${p}`)
-  // a name free on disk and in the database (a folders row or a project an earlier archive left at that path)
+  // a name free on disk and in the database (a folders row or a project an earlier archive left at or under that path:
+  // the move refuses to land on either)
   const rel = (n: string) => ['users', owner.id, label, n].join('/')
-  const taken = (n: string) => fs.existsSync(path.join(dir, n)) || !!ctx.db.query("SELECT 1 FROM folders WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || '/'").get(rel(n), rel(n), rel(n))
+  const under = (col: string) => `${col} = ? OR substr(${col}, 1, length(?) + 1) = ? || '/'`
+  const taken = (n: string) => fs.existsSync(path.join(dir, n))
+    || !!ctx.db.query(`SELECT 1 FROM folders WHERE ${under('path')}`).get(rel(n), rel(n), rel(n))
+    || !!ctx.db.query(`SELECT 1 FROM projects WHERE trashed_with IS NULL AND (${under('folder_path')})`).get(rel(n), rel(n), rel(n))
   let name = id
   for (let i = 2; taken(name); i++) name = `${id}-${i}`
   componentC(ctx).files.archiveFolder(actorId, `users/${id}`, rel(name))

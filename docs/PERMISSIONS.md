@@ -17,7 +17,7 @@ Trina AX에서 각자 볼 수 있는 범위와, 그 범위를 AI가 넘지 못�
 | `users/<id>/skills/` (personal skills) | **The owner only**, the same as all of `users/<id>/`. Owner and admins cannot see them. |
 | 스킬 제안 ("스킬로 제안") | 제안한 사람과 **제안을 넣을 폴더의 스킬 관리자**만. 다른 사람에게는 있다는 것도 안 보임 |
 | 내 스킬 가져오기 (공유 제안) | **만든 사람만** (owner·관리자만 만들 수 있음). 다른 관리자도 못 봄(404). 멤버는 만들 수 없고(403) 지금처럼 "스킬로 제안"을 씀 |
-| `users/<id>/` (개인 폴더) | **본인만**. owner·admin도 못 봄. 단, 그 사람을 지우면 기본(`personalFolder=transfer`)으로 폴더가 owner의 개인 폴더 안 `보관된 계정/<id>/`(팀 기본 언어 이름)로 옮겨지고 그때부터 **owner만** 봄(채팅 첨부 `.attachments/`는 지움). 지운 사람이 admin이어도 owner에게 감. `personalFolder=delete`(API)면 함께 지움 |
+| `users/<id>/` (개인 폴더) | **본인만**. owner·admin도 못 봄. 단, 그 사람을 지우면 기본(`personalFolder=transfer`)으로 폴더가 owner의 개인 폴더 안 `보관된 계정/<id>/`(팀 기본 언어 이름)로 옮겨지고 그때부터 **owner만** 봄(채팅 첨부 `.attachments/`는 지움). 그 안의 개인 프로젝트(이름·지침)도 폴더를 따라가 owner에게 보임. 그 사람이 개인 폴더에 있을 때 저장된 이전 버전은 보통 owner에게도 안 보임. 지운 사람이 admin이어도 owner에게 감. `personalFolder=delete`(API)면 함께 지움 |
 | `.system/` | 아무도 못 봄 (서버 내부용) |
 | 채팅 | **본인만**. 관리자 화면의 기록에는 AI가 어떤 파일을 읽었는지만 나오고, 대화 내용은 나오지 않음. **공유 프로젝트 채팅**은 그 프로젝트 폴더를 지금 읽을 수 있는 사람(owner·관리자 포함; 폴더가 휴지통에 있으면 owner·관리자만). 아래 "공유 프로젝트 채팅" |
 
@@ -63,7 +63,7 @@ As the code works today (`server/src/skills/suggestions.ts`, `server/src/skills/
 
 | Proposal | Who sends it | Who reviews it |
 |---|---|---|
-| "스킬로 제안" of one file into the team's `skills/` | anyone, from their own personal folder | the managers of the target skills folder (the proposer too, when they are one) |
+| "스킬로 제안" into the team's `skills/` | anyone: a file of their own personal folder, or an AI answer in their own chat | the managers of the target skills folder (the proposer too, when they are one) |
 | A member's skill folders ("내 스킬 올리기", MC) | members only | the owner and admins only |
 | "내 스킬 가져오기" to the team (share proposal) | the owner and admins only | the proposer only, while still owner or admin |
 | A share proposal to a group | the owner or an admin who is in the group and may write its skills folder | the group's members who may write its skills folder (the proposer included); the owner and admins outside the group do not see it |

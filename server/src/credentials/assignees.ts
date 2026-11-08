@@ -2,12 +2,14 @@
 // member or group leaves behind"). A team connection with any assignment serves only the people and groups it names
 // (resolve.ts candidates); one with none serves the whole team. So the rows of a deleted group or person go, and a
 // connection that would be left with none is switched off instead: it must never start serving everyone (a paid key
-// for one group would suddenly be the whole team's). Migration 117 did the same for rows older builds left behind.
+// for one group would suddenly be the whole team's). It is also marked (meta.assigneesGone): switching it on again is
+// refused until someone chooses who uses it, so no later click gives it to everyone either. Migration 117 did the same
+// for rows older builds left behind.
 import type { Database } from 'bun:sqlite'
 import { audit } from '../admin/audit'
 import { engineStatusCache } from '../admin/engines'
 import type { AppContext } from '../context'
-import { credentialsOf, noticeOwners } from './store'
+import { ASSIGNEES_GONE as MARK, credentialsOf, noticeOwners } from './store'
 
 /** An assignment whose group or person is gone (the group row deleted; the person deleted, or never there). */
 const DEAD = `((engine_credential_assignments.subject_type = 'group' AND NOT EXISTS (SELECT 1 FROM groups g WHERE g.id = engine_credential_assignments.subject_id))
@@ -32,9 +34,11 @@ export function pruneAssignments(db: Database, actor: string | null, now: string
     const before = db.query('SELECT subject_type AS subjectType, subject_id AS subjectId FROM engine_credential_assignments WHERE credential_id = ? ORDER BY subject_type, subject_id').all(id) as { subjectType: string; subjectId: string }[]
     const gone = new Set(dead.filter((d) => d.credential_id === id).map((d) => `${d.subject_type}:${d.subject_id}`))
     const after = before.filter((a) => !gone.has(`${a.subjectType}:${a.subjectId}`))
-    // (a member's own connection never has assignments: it is only its holder's either way)
-    const switchedOff = !after.length && !row.disabled && row.owner_user_id === null
-    if (switchedOff) db.query('UPDATE engine_credentials SET disabled = 1, updated_at = ? WHERE id = ?').run(now, id)
+    // (a member's own connection never has assignments: it is only its holder's either way). One already off is marked
+    // too: switching it on later must not be the one click that gives it to everyone
+    const orphaned = !after.length && row.owner_user_id === null
+    const switchedOff = orphaned && !row.disabled
+    if (orphaned) db.query(`UPDATE engine_credentials SET disabled = 1, meta = ${MARK}, updated_at = ? WHERE id = ?`).run(now, id)
     out.push({ id, label: row.label, switchedOff })
     audit(db, { actor, action: 'credential.update', target: id, detail: {
       changed: switchedOff ? ['disabled', 'assignments'] : ['assignments'], reason: 'assignees_deleted', assignmentsBefore: before, assignmentsAfter: after,
