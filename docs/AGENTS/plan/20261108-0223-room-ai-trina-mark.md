@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-08 02:23
 - Branch: `feat/room-ai-trina-mark`
-- Status: in progress
+- Status: done
 - Where: trina-ax core web app (`web/src/components/`). Why: rooms are core; the star is Trina's mark and shows only
   where the product is named after its AI (`PRODUCT_NAMED_AFTER_AI`), as the name 트리나 does, so another edition keeps
   the sparkle (see docs/REPOSITORY-RULES.md)
@@ -27,8 +27,8 @@ In:
   (RoomAiStatus), the "트리나 답변" head of an answer shared into a room, and the Inbox row of an AI answer
   (RoomNoticeRow). Decorative (`aria-hidden`) next to the name; labels unchanged.
 
-Out (left as they are): "트리나에게 묻기" and the phone's AI tab (actions), generic AI sparkles elsewhere (skills,
-files' "AI에게 묻기", onboarding), the app icon in the rooms list's pinned AI row and the sidebar.
+Out (left as they are): the phone's AI tab and the other AI sparkles (Files' "AI에게 묻기", skills, onboarding):
+actions, not the participant; the app icon in the rooms list's pinned AI row and the sidebar.
 
 ## Steps
 
@@ -53,4 +53,16 @@ download-only-actions), `bun run build:web`, then the room, mention, answer-shar
 
 ## Result
 
-Filled in at the end.
+Built as planned: `TrinaStar.tsx` (the site's path and gradient, one gradient id per drawing, the viewBox centred
+on the crossing of the arms) and `rooms/AiFace.tsx` (22px star on a 32px `bg-hover` circle, 16 in the 22px menu
+circle, 26 in the 36px Inbox circle, 14px alone in the quote head; the old sparkle where `PRODUCT_NAMED_AFTER_AI` is
+false), used at the five places. The neutral circle was chosen over no circle: the same footprint as the people's
+faces beside it. On the light look the star's contrast is low (1.5–2.6:1; decorative, beside its name), noted in
+docs/DESIGN-SYSTEM.md.
+
+Differs from the first draft: the first version drew the tile-less mark of `web/public/favicon.svg` (star over book),
+then a filled lucide `Sparkle`; the owner then named the trina.app star, which is what shipped. "트리나에게 묻기" turned
+out to use `MessageSquarePlus`, not a sparkle, so the plan's "left alone" list names the phone's AI tab and Files'
+"AI에게 묻기" instead.
+
+PR: https://github.com/trina-app/trina-ax/pull/184
