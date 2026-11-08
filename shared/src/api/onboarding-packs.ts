@@ -132,6 +132,6 @@ export const PackCatalog = z.object({
 export type PackCatalog = z.infer<typeof PackCatalog>
 
 export const ONBOARDING_PACKS = {
-  listSkillPacks: endpoint({ method: 'GET', path: '/api/onboarding/packs', auth: 'admin', owner: 'B', response: PackCatalog, summary: 'The kept skills an owner or admin can put in the team (내 스킬, the Team skills catalog): each with its title, one line, whether the team has it (by path or skill name), its example and its source.' }),
+  listSkillPacks: endpoint({ method: 'GET', path: '/api/onboarding/packs', auth: 'admin', owner: 'B', response: PackCatalog, summary: 'The kept skills an owner or admin can put in the team (the setup step that chooses skills, the Team skills catalog): each with its title, one line, whether the team has it (by path or skill name), its example and its source.' }),
   installSkillPack: endpoint({ method: 'POST', path: '/api/onboarding/packs/:id/install', auth: 'admin', owner: 'B', body: InstallSkillPack, response: SkillPackInstallResult, summary: 'Install the skills of a recommended pack (id: general or work) the caller named (`skills`; absent: the whole pack), as the caller: under skills/<id>/, in the team language. Adds only what is missing; never replaces a file.' }),
 } as const

@@ -313,11 +313,12 @@ export function SkillsStep({ team, nextLabel, onApplied, onNext, onSkip, busy, n
    * press failed) */
   const putKept = async (items: PackCatalogSkill[], ownNow: number, advance = true) => {
     const r = items.length ? await installPacks(items) : outcomeEmpty()
-    const all = { ...r, went: [...(outcome?.went ?? []), ...r.went] }
+    // a retry keeps what the press before it said about the others (a name taken stays said)
+    const all = { ...r, went: [...(outcome?.went ?? []), ...r.went], taken: [...(outcome?.taken ?? []), ...r.taken], blocked: [...(outcome?.blocked ?? []), ...r.blocked] }
     setOutcome(all)
     // what a press tried leaves the checks: what went in is marked, the rest says why (and 다시 retries the failed ones)
     setChecked((x) => { const next = new Set(x); for (const s of items) next.delete(s.name); return next })
-    if (advance && !r.failed.length && !r.taken.length && !r.blocked.length) {
+    if (advance && !all.failed.length && !all.taken.length && !all.blocked.length) {
       const n = ownNow + r.went.length
       if (n > 0) toast({ level: 'success', text: t('welcome.skills.installed', { n }) })
       onNext()
