@@ -386,8 +386,13 @@ export async function transferOwnership(c: Context<AppEnv>, ctx: AppContext, b: 
     ready(liveUser(ctx, b.userId))
     const lead = ctx.db.query('SELECT id FROM invites WHERE lead_hint = 1 AND lead_hint_by = ? AND used_by = ? AND used_at IS NOT NULL LIMIT 1').get(me, b.userId) as { id: string } | null
     if (lead) via = 'lead_card'
-    if (ctx.db.query("UPDATE users SET role = 'admin' WHERE id = ? AND role = 'owner' AND status = 'active' AND deleted_at IS NULL").run(me).changes !== 1) changedMeanwhile()
-    if (ctx.db.query("UPDATE users SET role = 'owner' WHERE id = ? AND role != 'owner' AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0").run(b.userId).changes !== 1) changedMeanwhile()
+    // Each update targets one id, so it changes one row or none. `changes` is not compared with 1: the users table has
+    // AFTER UPDATE triggers (safe_ops_policy), and Bun 1.3 counts their rows too (2 here), Bun 1.4 does not. So none
+    // means someone changed it meanwhile, and the end state is checked directly: exactly one owner, the target.
+    if (ctx.db.query("UPDATE users SET role = 'admin' WHERE id = ? AND role = 'owner' AND status = 'active' AND deleted_at IS NULL").run(me).changes < 1) changedMeanwhile()
+    if (ctx.db.query("UPDATE users SET role = 'owner' WHERE id = ? AND role != 'owner' AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0").run(b.userId).changes < 1) changedMeanwhile()
+    const owners = ctx.db.query("SELECT id FROM users WHERE role = 'owner' AND deleted_at IS NULL").all() as { id: string }[]
+    if (owners.length !== 1 || owners[0]!.id !== b.userId) changedMeanwhile()
     // the ex-owner is now an admin, who may not make admin invites: the ones made while owner die with that power
     // (their member invites stay: an admin may still make those). Reset links need nothing here: resetUsable
     // already limits an admin's links to members, so those made for admins or the new owner stop working.
