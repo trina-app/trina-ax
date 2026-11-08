@@ -174,6 +174,60 @@ test('groups: delete (after a confirm) refreshes the list and focus moves to the
   expect(realErrors(errors)).toEqual([])
 })
 
+// An AI connection only a group or a person may use is switched off when they are deleted, never given to the whole team
+// (server/src/credentials/assignees.ts): the confirmation names it, in one line under the usual text.
+test('group and member delete: the confirmation names the AI connections only they use; the connection is then off', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  await signIn(page)
+  const g = await post(page, '/api/admin/groups', { name: '영업팀', memberIds: [] })
+  // two keys added through Admin › AI providers (sealed in the page), then given to the group and to bob
+  await page.goto('/admin/providers')
+  for (const [label, n] of [['영업 키', 'a'], ['밥 키', 'b']] as const) {
+    await page.getByTestId('provider-add-claude').click()
+    await page.getByTestId('kind-anthropic-api-key').check()
+    await page.getByTestId('credential-label').fill(label)
+    await page.getByTestId('credential-secret').fill('sk-ant-api03-' + n.repeat(40) + 'WXYZ')
+    await page.getByTestId('credential-submit').click()
+    await expect(page.getByTestId('credentials-claude')).toContainText(label)
+  }
+  const items = (await (await page.request.get('/api/admin/credentials')).json()).items as { id: string; label: string }[]
+  const assign = async (label: string, a: { subjectType: 'group' | 'user'; subjectId: string }) => {
+    const r = await page.request.patch(`/api/admin/credentials/${items.find((c) => c.label === label)!.id}`, { headers: { [CSRF_HEADER]: '1' }, data: { assignments: [a] } })
+    expect(r.ok()).toBe(true)
+  }
+  await assign('영업 키', { subjectType: 'group', subjectId: g.id })
+  await assign('밥 키', { subjectType: 'user', subjectId: 'bob' })
+
+  await page.goto('/admin/groups')
+  const groups = page.getByTestId('group-list').locator('li')
+  await groups.filter({ hasText: '영업팀' }).getByTestId('member-more').click()
+  await page.getByRole('menu').getByTestId('group-delete').click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText(t['groups.deleteBody'])
+  await expect(dialog.getByTestId('group-delete-ai-off')).toHaveText(translate('ko', 'groups.deleteAiOff', { names: '영업 키' }))
+  await page.getByTestId('dialog-confirm').click()
+  await expect(groups.filter({ hasText: '영업팀' })).toHaveCount(0)
+  // a group nothing is assigned to only: no such line
+  await groups.filter({ hasText: '재무팀' }).getByTestId('member-more').click()
+  await page.getByRole('menu').getByTestId('group-delete').click()
+  await expect(page.getByRole('dialog')).toContainText(t['groups.deleteBody'])
+  await expect(page.getByTestId('group-delete-ai-off')).toHaveCount(0)
+  await page.getByRole('dialog').getByRole('button', { name: t['common.cancel'], exact: true }).click()
+
+  await page.goto('/admin/members')
+  await page.getByTestId('members-table').getByRole('row').filter({ hasText: 'Bob' }).getByTestId('member-more').click()
+  await page.getByTestId('delete-member-bob').click()
+  await expect(page.getByRole('dialog').getByTestId('member-delete-ai-off')).toHaveText(translate('ko', 'members.removeAiOff', { names: '밥 키' }))
+  await page.getByTestId('dialog-confirm').click()
+  await expect(page.getByTestId('delete-member-bob')).toHaveCount(0)
+
+  // both are off now and for nobody in particular
+  const after = (await (await page.request.get('/api/admin/credentials')).json()).items as { label: string; disabled: boolean; assignments: unknown[] }[]
+  for (const label of ['영업 키', '밥 키']) expect(after.find((c) => c.label === label)).toMatchObject({ disabled: true, assignments: [] })
+  expect(realErrors(errors)).toEqual([])
+})
+
 test('usage limits go at once: a held Enter deletes one, focus goes to the next Edit, then to the title', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)

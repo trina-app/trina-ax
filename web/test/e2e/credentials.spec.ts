@@ -211,6 +211,46 @@ test('personal connections are available by default, prefer subscriptions, and p
   await expect(page).toHaveURL(/\/settings$/)
 })
 
+// "Chosen groups and people" with none ticked would be sent as an empty list, which the API reads as the whole team:
+// neither the add nor the edit dialog saves it, and the line under the list says why.
+test('the target picker: "chosen groups and people" with none ticked does not save, in the add and the edit dialog', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  await signIn(page)
+  const t = DICTS.ko
+  await page.goto('/admin/providers')
+  await page.getByTestId('provider-add-claude').click()
+  await page.getByTestId('kind-anthropic-api-key').check()
+  await page.getByTestId('credential-label').fill('재무 키')
+  await page.getByTestId('credential-secret').fill(KEY)
+  const dialog = page.getByRole('dialog')
+  const submit = page.getByTestId('credential-submit')
+  await expect(submit).toBeEnabled()
+  await dialog.getByRole('radio', { name: t['credentials.target.pick'] }).check()
+  await expect(dialog.getByTestId('target-pick-none')).toHaveText(t['credentials.target.pickNone'])
+  await expect(submit).toBeDisabled()
+  await dialog.getByRole('checkbox', { name: '재무팀' }).check()
+  await expect(dialog.getByTestId('target-pick-none')).toHaveCount(0)
+  const added = page.waitForRequest((r) => r.url().endsWith('/api/admin/credentials') && r.method() === 'POST')
+  await submit.click()
+  expect((await added).postDataJSON().assignments).toHaveLength(1)
+  const rows = page.getByTestId('credentials-claude').getByTestId('credential-row')
+  await expect(rows).toHaveCount(1)
+
+  // the edit dialog opens on the chosen group; unticking it leaves nothing: no save until one is ticked or 팀 전체
+  await rows.first().getByTestId('credential-menu').click()
+  await page.getByRole('menuitem', { name: new RegExp(t['credentials.changeTarget']) }).click()
+  const edit = page.getByRole('dialog')
+  const save = edit.getByRole('button', { name: t['common.save'], exact: true })
+  await edit.getByRole('checkbox', { name: '재무팀' }).uncheck()
+  await expect(edit.getByTestId('target-pick-none')).toBeVisible()
+  await expect(save).toBeDisabled()
+  await edit.getByRole('radio', { name: t['credentials.target.team'] }).check()
+  await expect(edit.getByTestId('target-pick-none')).toHaveCount(0)
+  await expect(save).toBeEnabled()
+  expect(realErrors(errors)).toEqual([])
+})
+
 test('where the browser cannot seal (no crypto.subtle: http on a LAN address), adding says to use https', async ({ page }) => {
   await reset(page)
   await page.addInitScript(() => { Object.defineProperty(window.crypto, 'subtle', { value: undefined, configurable: true }) })

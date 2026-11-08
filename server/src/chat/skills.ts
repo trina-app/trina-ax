@@ -13,7 +13,7 @@ import { isMap, isScalar, parseDocument } from 'yaml'
 import { parseSkillInputs, readSkillTitle, SKILL_EXAMPLE_MAX, type SkillInput } from '@mycel/shared/api'
 import type { FileService } from '../files/service'
 import { readRegular } from '../files/store'
-import type { Principal } from '../policy/access'
+import { atLeast, type Principal, type RuleSet } from '../policy/access'
 import { authorize } from '../policy/authorize'
 
 /** `inputs`: the short form the skill runs from (metadata `inputs`, shared/src/api/skill-inputs.ts), only when valid.
@@ -105,6 +105,29 @@ export function groupOfFolder(db: Database, folder: string): SkillGroup | null {
     return hit ? { id: hit.id, name: hit.name } : null
   } catch { return null }
 }
+/**
+ * Who of `people` may not use this team path as the AI is shown it (a skill list, a skill it loads, the team's rules):
+ * whoever cannot read it, and for a group's skill (isGroupSkill: groups/<folder>/skills/…) whoever is not in that group
+ * (docs/DECISIONS.md "Group skills": the owner and admins read every group folder, but its skills are its members').
+ * An account that cannot be loaded (null) may use nothing. The ids, in `people`'s order (a null counts as '').
+ */
+export function mayNotUse(db: Database, rules: RuleSet, people: readonly (Principal | null)[], rel: string): string[] {
+  const segs = rel.split('/').filter(Boolean)
+  const group = isGroupSkill(segs.join('/')) ? groupOfFolder(db, segs.slice(0, 2).join('/')) : undefined
+  return people.filter((p) => !p || !atLeast(rules.access(p, segs), 'read') || (group !== undefined && (!group || !p.groups.includes(group.id)))).map((p) => p?.id ?? '')
+}
+
+/** May every one of `people` use this team path (mayNotUse is empty)? Kept per path for the caller's life: a room's
+ * members (rooms/ai.ts) and the people who see a shared project chat (chat/turn.ts) both go by it. */
+export function everyoneMayUse(db: Database, rules: RuleSet, people: readonly (Principal | null)[]): (rel: string) => boolean {
+  const seen = new Map<string, boolean>()
+  return (rel) => {
+    let ok = seen.get(rel)
+    if (ok === undefined) { ok = mayNotUse(db, rules, people, rel).length === 0; seen.set(rel, ok) }
+    return ok
+  }
+}
+
 /** The group root that holds `segs` (a path as authorize resolved it) among `roots`, or null. */
 const groupRootOf = (roots: readonly GroupSkillRoot[], segs: readonly string[]) =>
   segs[0] === GROUPS_DIR && segs[2] === SKILLS_DIR && segs[1] ? roots.find((g) => g.root === `${GROUPS_DIR}/${segs[1]!.normalize('NFC')}/${SKILLS_DIR}`) ?? null : null

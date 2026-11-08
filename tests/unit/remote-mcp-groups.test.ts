@@ -10,6 +10,8 @@ import { GROUP_LIMITS } from '../../server/src/connectors/remote-mcp/groups'
 import { setMemberChoice } from '../../server/src/admin/engine-choice'
 import { setShareAccess, shareAccess } from '../../server/src/integrations/google-drive/shares'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
+import { addCred } from '../lib/credentials'
+import { credentialsOf } from '../../server/src/credentials/store'
 
 const live: Harness[] = []
 afterEach(async () => { for (const h of live.splice(0)) await h.close() })
@@ -318,6 +320,20 @@ test('group_delete removes the group and its rules as the web does; members lose
   expect(f.audits('folder.access_lost').at(-1)!.detail.via).toBe('connector')
   const again = await f.call(g.token, 'group_delete', { group: id })
   expect(again.isError).toBe(true); expect(text(again)).toContain('No group')
+})
+
+test('group_delete: an AI connection only that group could use is switched off and named, never given to the team', async () => {
+  const f = await setup('delete-ai')
+  const g = await f.connect(f.owner.cookie!)
+  await f.call(g.token, 'group_create', { name: 'Sales', members: ['reader'] })
+  const id = (f.h.ctx.db.query("SELECT id FROM groups WHERE name = 'Sales'").get() as { id: string }).id
+  const cred = addCred(credentialsOf(f.h.ctx), 'anthropic-api-key', 'sk-ant-api03-' + 'sales'.padEnd(40, 'k'), { label: 'Sales key', assignments: [{ subjectType: 'group', subjectId: id }] })
+  const r = await f.call(g.token, 'group_delete', { group: 'Sales' })
+  expect(r.isError).toBeUndefined()
+  expect(text(r)).toContain('Switched off the AI connections only this group could use')
+  expect(text(r)).toContain('"Sales key"')
+  expect(f.h.ctx.db.query('SELECT disabled FROM engine_credentials WHERE id = ?').get(cred)).toEqual({ disabled: 1 })
+  expect(f.h.ctx.db.query('SELECT COUNT(*) AS n FROM engine_credential_assignments WHERE credential_id = ?').get(cred)).toEqual({ n: 0 })
 })
 
 test('limits: input sizes, the change rate per person, and bounded access words', async () => {
