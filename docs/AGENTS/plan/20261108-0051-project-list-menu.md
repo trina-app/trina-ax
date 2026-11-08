@@ -50,7 +50,8 @@ Out:
 - Permissions: the menu shows rename and delete only with `canEdit`; the server checks again (403 otherwise).
 - Shared project chats: unchanged. A shared chat gets no move item; moving a private chat into a sharing project keeps
   it private (the server's rule).
-- Phones: the card's "…" is always shown there and opens a bottom sheet; on a computer it shows on hover and focus.
+- Touch screens: the card's "…" is always shown there; below 768 px it opens a bottom sheet. With a mouse it shows on
+  hover and keyboard focus.
 - No migration; no new strings, so nothing to translate.
 
 ## Tests
@@ -60,4 +61,18 @@ Out:
 
 ## Result
 
-Filled in at the end.
+PR: (link added when the PR is open)
+
+Built as planned, plus what the review found:
+- `Projects.tsx`: `ProjectCardMenu` on each card (`MenuButton`), and `useDeleteProject()` for the card and the project
+  page. Delete reads the project again before the confirm, so the shared-chats line uses the server's count at that
+  moment. A successful delete also clears the project from the person's private chats in the sidebar (the server does the
+  same). A project that is not found any more (deleted by someone else, or no longer visible to this person) just
+  leaves the list. After a delete, focus moves to the next card.
+- `Sidebar.tsx` `ChatItem`: the move item and its dialog, which is rendered beside the row rather than inside it (React
+  would otherwise send the dialog's pointer events to the row's hover peek). Esc now closes the row menu only. The "…"
+  button is 24 px on a computer, because axe's WCAG 2.2 target-size check failed with the menu open.
+- `account-settings.spec.ts` checked the old two-item row menu. It now expects the move item too.
+- Not done: the chat rows on a project's page and in the search dialog, focus after a move while the history is grouped by
+  project, a length check in the rename prompt (chat rename has none either), and project names that change while the
+  history is grouped by project (they were already read only once).
