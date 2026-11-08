@@ -34,7 +34,7 @@ Everything in it is just for you; what applies to the whole team is in Admin.
 Pick a section on the left, or type in **Search settings**.
 
 #### Change what you need
-Profile, language, your default engine, MCP connections, app connectors, notifications and more.
+Profile, language, theme (light, dark or the system's, in Profile), your default engine, MCP connections, app connectors, notifications and more.
 
 #### Close it
 Press **Esc** or choose **✕**. You are back where you were.
