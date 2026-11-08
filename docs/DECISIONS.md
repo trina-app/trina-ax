@@ -14085,8 +14085,8 @@ menu with cmd+k". The owner approved it on 2026-11-08.
   none walks everything); the FTS stream 0.1–1.7 ms, a 2-character word that matches nothing 17 ms over 100,000 rows.
   The AI tool keeps its own scan (its filters by person and date are not this).
 - **Measured in the suite** (`b-rooms-search.test.ts`, a 50,000-message team room, the whole `searchRoomMessages`
-  call, median of 5): "견적" 8.8 ms, "네" 8.9, "견적서" 9.2, "budget" 9.1, "특별견적" (1 in 1,000) 10.1, a 6-character word
-  that matches nothing 0.08, a 2-character word that matches nothing 13.5. Most of a page with hits is `messagesOut`'s
+  call, median of 5, with visibility in the query): "견적" 10.1 ms, "네" 9.1, "견적서" 9.1, "budget" 10.7, "특별견적" (1 in
+  1,000) 9.5, a 6-character word that matches nothing 0.5, a 2-character word that matches nothing 15.1. Most of a page with hits is `messagesOut`'s
   `threadSummaries`, whose grouped count takes the room's `(room_id, seq)` index over the whole room (about 5 ms on
   50,000 messages; the same in every timeline page of such a room; left for its own change). Migration 267 backfills
   about 2–3 s per 100,000 messages, once.
