@@ -76,4 +76,4 @@ its text); a room answer built on shared chat answers carries the places they re
 them), and the room search counts a word only through what everyone in the room sees; searches run one full-text query
 per request. Differs from the plan: a read nobody had to confirm is recorded too (everyone then is its group), so a later
 reader who may not read the place gets the line; rolling back to a build with 265 but not 273 shows every answer again
-while it runs (written down, no reader-level bump). PR: fix/shared-chat-audience to dev.
+while it runs (written down, no reader-level bump). PR: https://github.com/trina-app/trina-ax/pull/213.
