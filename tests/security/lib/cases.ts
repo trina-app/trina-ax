@@ -20,6 +20,7 @@ import { PROMO_VIDEO_SPECS } from './promo-video-cases'
 import { INTRO_DECK_SPECS } from './intro-deck-cases'
 import { SKILL_SHARE_SPECS } from './skill-share-cases'
 import { KNOWLEDGE_GRAPH_SPECS } from './knowledge-graph-cases'
+import { ONBOARDING_FILES_SPECS } from './onboarding-files-cases'
 
 type Build = (c: Client, w: World) => Promise<Resp>
 /** scope decides the allow/deny beyond the auth level for a signed-in, password-ok caller */
@@ -111,6 +112,7 @@ export const SPECS: Record<string, Spec> = {
   ...INTRO_DECK_SPECS,
   ...SKILL_SHARE_SPECS,
   ...KNOWLEDGE_GRAPH_SPECS,
+  ...ONBOARDING_FILES_SPECS,
   // ---- auth / me (self or public) ----
   setupStatus: { build: (c) => c.get('/api/setup'), scope: 'byLevel' },
   setup: { skipPositive: true, build: (c) => c.post('/api/setup', { setupToken: 'x', teamName: 't', owner: { username: 'z', name: 'z', password: 'Zebra-copper-1-kite' } }), scope: 'byLevel',

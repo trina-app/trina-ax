@@ -13,7 +13,7 @@
 // Leaving the first step sets up every team once (a group named after the team with its folders, POST
 // /api/onboarding/welcome/team; no pack is installed); the server keeps every guarantee.
 import clsx from 'clsx'
-import { ArrowLeft, Check, CircleAlert, ExternalLink, Loader2, Paperclip, Upload } from 'lucide-react'
+import { ArrowLeft, Check, CircleAlert, ExternalLink, Loader2, Paperclip } from 'lucide-react'
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { WELCOME_BRAND_FILES_MAX, skillLabel, uuidv7, type CompanyProfile, type WelcomeProgress, type WelcomeStep, type WelcomeStepState } from '@mycel/shared/api'
@@ -23,7 +23,7 @@ import { joinPath } from '../lib/paths'
 import { setupSite } from '../lib/setupLink'
 import { skillRunLink } from '../lib/skillForm'
 import { uploadFile, type UploadProgress } from '../lib/upload'
-import { countedSteps, firstResultSkill, historyName, inviteSkill, markStepsSeen, needsAi, nextStep, phoneSkips, prevStep, resumeStep, skillNameOf, teamReach, wantsTeam } from '../lib/welcome'
+import { countedSteps, firstResultSkill, historyName, inviteSkill, markStepsSeen, needsAi, nextStep, phoneSkips, prevStep, resumeStep, skillNameOf, wantsTeam } from '../lib/welcome'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useAiAccess } from '../store/aiAccess'
 import { isOwner, useMeStrict } from '../store/session'
@@ -33,6 +33,7 @@ import { ConnectAiButton, ConnectAiPanel } from '../components/onboarding/Connec
 import { InviteStep, sharedForInvite } from '../components/onboarding/InviteStep'
 import ProfileStep, { shortUrl } from '../components/onboarding/ProfileStep'
 import { SkillsStep } from '../components/onboarding/SkillsStep'
+import { TeamFilesStep } from '../components/onboarding/TeamFilesStep'
 import { ToolsStep } from '../components/onboarding/ToolsStep'
 import { UploadLabel } from '../components/UploadLabel'
 import { Button, ErrorNote, Modal, Skeleton, useMediaQuery } from '../components/ui'
@@ -415,58 +416,6 @@ function AiStep({ busy, onLater }: { busy: boolean; onLater: () => void }) {
   )
 }
 
-/** "여기 올린 파일은 {팀} n명만 봐요 · 채팅은 각자만 봐요", with the real count (the group's members and the owners and
- * admins), and, when members of the team are not in its group yet, one quiet "지금 있는 팀원 n명도 넣기" that adds them
- * (the owner's choice: nobody is added by itself). Until the count is known, or when it cannot be read, the line
- * without a number. The owner alone reads "지금은 나만 봐요 · 팀원을 초대하면 {팀} 모두가 봐요" ("{팀} 1명만 봐요" read
- * oddly: docs/DECISIONS.md "W3"). */
-function TeamReach({ team, groupId }: { team: string; groupId: string | null }) {
-  const t = useT()
-  const locale = useLocale()
-  const [reach, setReach] = useState<{ viewers: number; outside: string[]; memberIds: string[] } | null>(null)
-  const [adding, setAdding] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const load = async (id: string) => {
-    const [users, groups] = await Promise.all([api.call(API.listUsers), api.call(API.listGroups)])
-    const group = groups.items.find((g) => g.id === id)
-    if (!group) return setReach(null)
-    setReach({ ...teamReach(users.items, group.memberIds), memberIds: group.memberIds })
-  }
-  useEffect(() => {
-    if (!groupId) return
-    void load(groupId).catch(() => setReach(null))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupId])
-  const add = async () => {
-    if (!groupId || !reach) return
-    setAdding(true)
-    setError(null)
-    try {
-      await api.call(API.updateGroup, { params: { id: groupId }, body: { memberIds: [...new Set([...reach.memberIds, ...reach.outside])] } })
-      await load(groupId)
-    } catch (e) {
-      setError(errorText(e, locale, t('error.network')))
-    } finally {
-      setAdding(false)
-    }
-  }
-  return (
-    <div className="space-y-1">
-      <p className="text-label leading-5 text-muted" data-testid="welcome-files-who">
-        {!reach ? t('welcome.files.who', { team }) : reach.viewers <= 1 ? t('welcome.files.whoAlone', { team }) : t('welcome.files.whoCount', { team, n: reach.viewers })}
-      </p>
-      {reach && reach.outside.length > 0 && (
-        <p className="text-label">
-          <button type="button" className={quietLink} disabled={adding} onClick={() => void add()} data-testid="welcome-files-add-members">
-            {t('welcome.files.addMembers', { n: reach.outside.length })}
-          </button>
-        </p>
-      )}
-      {error && <ErrorNote>{error}</ErrorNote>}
-    </div>
-  )
-}
-
 interface Picked {
   id: string
   file: File
@@ -582,149 +531,6 @@ function IntroFiles({ files, disabled }: { files: ReturnType<typeof useIntroFile
       )}
       {files.cut && <p className="text-label text-muted" data-testid="welcome-files-cut">{t('welcome.files.max', { n: WELCOME_FILES_MAX })}</p>}
       {(files.error || failed) && <ErrorNote onRetry={files.retry}>{files.error ?? t('welcome.teamFiles.failed')}</ErrorNote>}
-    </div>
-  )
-}
-
-/** Files one pick takes in 팀 파일 가져오기 (each goes up on its own; more in another pick or later in Files). */
-export const TEAM_FILES_MAX = 20
-
-/** A group folder the team's files can go to: the team's own first, then the other groups' folders the owner made. */
-interface Place { groupId: string; name: string; folder: string }
-
-/**
- * 팀 파일 가져오기 (docs/DECISIONS.md "SK"): the team's documents (a company intro, past reports, forms) into the team's
- * own folder, or another group's. The same pieces as 회사 소개's intro files: one
- * primary (pick files; a drop works too on a computer), each file up on its own through the normal upload into that
- * folder (its folder rules decide; a name already there gets a new one), and the who-sees line of that group
- * (TeamReach). "나중에 하기" goes on; after files went in, the primary is the next step.
- */
-function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onSkip }: { progress: WelcomeProgress; busy: boolean; nextLabel: string; onDone: (n: number) => void; onSkip: () => void }) {
-  const t = useT()
-  const locale = useLocale()
-  const me = useMeStrict()
-  const input = useRef<HTMLInputElement>(null)
-  const [items, setItemsState] = useState<Picked[]>([])
-  const itemsRef = useRef(items)
-  const setItems = (next: Picked[]) => { itemsRef.current = next; setItemsState(next) }
-  const patch = (id: string, p: Partial<Picked>) => setItems(itemsRef.current.map((x) => (x.id === id ? { ...x, ...p } : x)))
-  const [busy, setBusy] = useState(false)
-  const [over, setOver] = useState(false)
-  const [cut, setCut] = useState(false)
-  const team = progress.teamGroup
-  // the team's own folder, and other groups' folders (Admin's folder list knows which folder is whose)
-  const [places, setPlaces] = useState<Place[]>(() => (team ? [{ groupId: team.id, name: team.name, folder: team.folder }] : []))
-  const [placeId, setPlaceId] = useState<string | null>(team?.id ?? null)
-  useEffect(() => {
-    let live = true
-    void Promise.all([api.call(API.listGroups), api.call(API.listFolders)]).then(([groups, folders]) => {
-      if (!live) return
-      const other = groups.items.filter((g) => g.id !== team?.id).flatMap((g) => {
-        const f = folders.items.find((x) => x.groupId === g.id && x.exists)
-        return f ? [{ groupId: g.id, name: g.name, folder: f.path }] : []
-      })
-      setPlaces((p) => [...p.filter((x) => x.groupId === team?.id), ...other])
-      setPlaceId((id) => id ?? other[0]?.groupId ?? null)
-    }, () => {})
-    return () => { live = false }
-  }, [team?.id])
-  const place = places.find((p) => p.groupId === placeId) ?? null
-  const done = items.filter((x) => x.status === 'done').length
-
-  const send = async (list: Picked[], folder: string) => {
-    setBusy(true)
-    const release = markBusy('upload')
-    try {
-      await Promise.allSettled(list.map(async (x) => {
-        patch(x.id, { status: 'uploading', progress: null, error: undefined })
-        try {
-          const r = await uploadFile(x.file, { kind: 'path', path: joinPath(folder, x.file.name), onExists: 'rename' }, { client: api, onProgress: (progress) => patch(x.id, { progress }) })
-          if (r.kind !== 'path') throw new Error('unexpected upload result')
-          patch(x.id, { status: 'done', path: r.entry.path, progress: null })
-        } catch (e) {
-          patch(x.id, { status: 'failed', progress: null, error: errorText(e, locale, t('error.network')) })
-        }
-      }))
-    } finally {
-      release()
-      setBusy(false)
-    }
-  }
-  const pick = (list: File[]) => {
-    if (!list.length || busy || !place) return
-    setCut(list.length > TEAM_FILES_MAX)
-    const next = list.slice(0, TEAM_FILES_MAX).map((file): Picked => ({ id: uuidv7(), file, status: 'waiting', progress: null, path: null }))
-    setItems([...itemsRef.current, ...next])
-    void send(next, place.folder)
-  }
-  const retry = () => { if (place) void send(itemsRef.current.filter((x) => x.status === 'failed'), place.folder) }
-  const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes('Files')
-  const drop = (e: DragEvent) => {
-    if (!hasFiles(e)) return
-    e.preventDefault()
-    setOver(false)
-    // read now (the browser empties the lists when the event ends); a folder is a false file here: files only
-    const entries = [...(e.dataTransfer.items ?? [])].map((i) => (i.kind === 'file' ? i.webkitGetAsEntry?.() : null))
-    pick([...e.dataTransfer.files].filter((_, i) => !entries[i]?.isDirectory))
-  }
-  const failed = items.some((x) => x.status === 'failed')
-
-  return (
-    <div
-      className={clsx('space-y-5 rounded-xl', over && 'ring-2 ring-accent/30')}
-      onDragOver={(e) => { if (hasFiles(e) && !busy && place) { e.preventDefault(); setOver(true) } }}
-      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false) }}
-      onDrop={drop}
-      data-testid="welcome-team-files"
-    >
-      <StepHead title={t('welcome.teamFiles.title')} desc={t('welcome.teamFiles.desc')} />
-      <div className="space-y-3">
-        <input ref={input} type="file" multiple className="hidden" onChange={(e) => { const list = [...(e.target.files ?? [])]; e.target.value = ''; pick(list) }} data-testid="welcome-team-files-input" />
-        {places.length > 1 && (
-          <p className="flex flex-wrap items-center gap-2 text-sm text-muted">
-            <label htmlFor="welcome-team-files-place">{t('welcome.teamFiles.where')}</label>
-            <select id="welcome-team-files-place" className="h-8 rounded-lg border border-field-border bg-surface px-2 text-sm text-ink" value={placeId ?? ''} disabled={busy} onChange={(e) => setPlaceId(e.target.value)} data-testid="welcome-team-files-place">
-              {places.map((p) => <option key={p.groupId} value={p.groupId}>{t('welcome.files.homeFolder', { team: p.name })}</option>)}
-            </select>
-          </p>
-        )}
-        <div className="flex flex-wrap items-center gap-3">
-          <Button variant={done ? 'secondary' : 'primary'} className="max-sm:w-full" busy={busy} disabled={stepBusy || !place} onClick={() => input.current?.click()} data-testid="welcome-team-files-pick">
-            <Upload size={14} aria-hidden /> {t(done ? 'welcome.teamFiles.more' : 'welcome.files.pick')}
-          </Button>
-          <span className="text-sm text-faint max-sm:hidden">{t('welcome.files.dropHint')}</span>
-        </div>
-        {place ? <TeamReach team={place.name} groupId={place.groupId} /> : <p className="text-label text-muted">{t('welcome.teamFiles.noFolder')}</p>}
-        {items.length > 0 && (
-          <ul className="space-y-1 text-sm" aria-label={t('welcome.teamFiles.title')} data-testid="welcome-team-files-list">
-            {items.map((x) => (
-              <li key={x.id} className="flex min-w-0 items-center gap-2" data-testid="welcome-team-file" data-status={x.status}>
-                {x.status === 'done' ? <Check size={14} className="shrink-0 text-ok" aria-hidden /> : x.status === 'failed' ? <CircleAlert size={14} className="shrink-0 text-danger" aria-hidden /> : <Loader2 size={14} className="shrink-0 animate-spin text-faint" aria-hidden />}
-                <span className="min-w-0 truncate text-ink">{x.file.name}</span>
-                {x.status === 'uploading' && (
-                  <span className="shrink-0 text-xs text-faint tabular-nums">
-                    <UploadLabel progress={x.progress} busy={t('files.uploadingName', { name: x.file.name })} />
-                  </span>
-                )}
-                {x.status === 'done' && <span className="sr-only">{t('files.uploadedName', { name: x.file.name })}</span>}
-                {x.status === 'failed' && <span className="min-w-0 truncate text-xs text-danger">{x.error}</span>}
-              </li>
-            ))}
-          </ul>
-        )}
-        {cut && <p className="text-label text-muted" data-testid="welcome-team-files-cut">{t('welcome.files.max', { n: TEAM_FILES_MAX })}</p>}
-        {failed && !busy && <ErrorNote onRetry={retry}>{t('welcome.teamFiles.failed')}</ErrorNote>}
-      </div>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        {done > 0 ? (
-          <Button variant="primary" className="max-sm:w-full" disabled={busy || stepBusy} onClick={() => onDone(done)} data-testid="welcome-team-files-next">
-            {nextLabel}
-          </Button>
-        ) : <span />}
-        {/* once files went in, the next step is the one way on (not "later": nothing is put off) */}
-        {done === 0 && <Later onClick={onSkip} disabled={busy || stepBusy} />}
-      </div>
-      {done > 0 && <p className="sr-only" aria-live="polite">{t('welcome.teamFiles.added', { n: done, folder: place?.name ?? me.team.name })}</p>}
     </div>
   )
 }
