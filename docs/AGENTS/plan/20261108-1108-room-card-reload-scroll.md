@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-08 11:08
 - Branch: `fix/room-card-reload-scroll`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/rooms/`, `server/src/routes/`, `shared/src/api/`, `web/src/`). Why: rooms and the
   AI's confirmation cards are core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. Three fixes; one new read-only endpoint (additive: an older app does not call it, a newer app
@@ -71,4 +71,20 @@ Out: a "new below" button; changes to the cards' words.
 
 ## Result
 
-Filled in at the end.
+Built as planned:
+
+- Bug 1: `GET /api/rooms/:id/ai/requests` (`RoomAi.requests`, `TurnExec.cardsFor`, also used by the chat's list); the
+  web app reads it with the room's AI state (`loadAi`: opening a room, `resync`) and merges it with
+  `mergeOpenRequests`, which now takes a scope. A sign-out while it is on its way keeps nothing of it.
+- Bug 2: the race was the room's own scroll event: the room jumps to the bottom when the step event arrives, the card
+  arrives before that jump's scroll event fires, and the event then measured the card's height as "the reader scrolled
+  up". `followsAfterScroll` (room, thread panel, chat) stops following only on a move up. The e2e test forces the race
+  (content added, then a late scroll event) and fails on the old code at 1440 and 390.
+- Bug 3: `ChoiceRow` in `AskCard.tsx`, also for the address and dev-environment cards, which had the same flipped order.
+  The room card's note under the buttons is right-aligned from `sm`, like the two-button card's.
+
+Differs from the plan: nothing in scope. Not added: a "new below" button (rooms have none to reuse).
+
+Tests: `tests/unit/b-rooms-ai-cards.test.ts` (5), web unit tests (`room-ai-cards.test.ts`, `stick-to-bottom.test.ts`,
+`ask-card-confirm.test.tsx`), `web/test/e2e/room-ai-cards.spec.ts` (6, one of them screenshots only with SHOTS_DIR);
+`room-ai-allow.spec.ts` follows the new order.

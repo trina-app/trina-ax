@@ -216,7 +216,8 @@ test('button order: the main button last, on the right, on the two-button and th
   expect(stacked[0]!.y).toBeLessThan(stacked[1]!.y)
   expect(stacked[1]!.y).toBeLessThan(stacked[2]!.y)
   for (const b of stacked) {
-    expect(b.width).toBeGreaterThan(card.width - 2 * 16 - 2)
+    // the card's inner width: its 1px border and 16px padding on each side
+    expect(b.width).toBeGreaterThanOrEqual(card.width - 2 * 17 - 0.5)
     expect(b.height).toBeGreaterThanOrEqual(36)
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)

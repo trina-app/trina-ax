@@ -646,13 +646,14 @@ export const useRooms = create<RoomsState>((set, get) => {
       // (store/chats.ts loadThread): after a reload, in another browser or after a reconnect the events that opened
       // them are not replayed, and the question would wait for an answer nobody can give
       const before = new Set(Object.keys(useChats.getState().requests))
+      const who = myId()
       const [r, open] = await Promise.all([
         api.call(API.getRoomAi, { params: { id: roomId } }).catch(() => null),
         // an older server without the list: the cards that come over the socket, as before
         api.call(API.listRoomAiRequests, { params: { id: roomId } }).catch(() => null),
       ])
-      // an older server without the AI in rooms: nothing shows
-      if (!r) return
+      // an older server without the AI in rooms: nothing shows; signed out meanwhile: nothing of it stays
+      if (!r || myId() !== who) return
       // the questions of mine the list speaks for: the room's as this window knew them and as the server lists them
       const turns = new Set([...(get().ai[roomId]?.runs ?? []), ...r.mine].map((x) => x.turnId))
       set((s) => {
