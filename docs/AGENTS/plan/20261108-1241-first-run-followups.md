@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-08 12:41
 - Branch: `fix/first-run-followups`
-- Status: in progress
+- Status: done
 - Where: trina-ax `shared/src/team-link.ts` (and its phone copy), `desktop/` (host strip), `mobile/` (start-up
   removals), `docs/DECISIONS.md`. Why: small fixes the re-review of the first-run work asked for (see
   docs/REPOSITORY-RULES.md)
@@ -47,4 +47,14 @@ The strip delay must never hide the address on a sign-in page or after a signed-
 
 ## Result
 
-(filled in at the end)
+All five done. Besides the asked queue, the phone's stored devices now change one short storage step at a time, with no
+network inside, and a retry takes out only what it removed: a single queue around the network would have held a leave
+behind a slow removal, so a registration of the new team could land first and be cleared (a test covers both races).
+The glued-host cut also takes the sentence's period after the word (`https://acme.trina.app입니다.`).
+
+Checks: `typecheck`, `typecheck:mobile`, `check:i18n` (0 issues), `check:docs`, `docs:api` (no change) pass. Units
+(parser on both copies, desktop, mobile, app links, i18n, route registry): 324 pass, 0 fail. Web unit tests in Docker:
+1752 pass, 1 fail (the `team-files.test.ts` case that fails on an untouched dev). Web e2e (first-run, team-link, auth,
+settings-ia, apps-install): 37 passed. Built desktop app against a local dev server with fake data: a signed-in reopen
+never attached the strip (0 of about 100 samples in each of 3 reopens, every 10 ms for 4 s); `/login` had it in every
+sample, from the first one.
