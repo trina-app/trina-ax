@@ -114,34 +114,45 @@ for (const phone of [false, true]) {
   })
 }
 
-// phase 2 (docs/AGENTS/plan/20261108-1025-first-run-open-links.md): "앱에서 열기" on both join pages, a trina-ax:// link
-// that carries this page's own link (the team link's token from memory: the address bar no longer has it)
-test('"앱에서 열기" on both join pages opens the same page in the app (Mac and iPhone browsers)', async ({ page, browser }) => {
+// phase 2 (docs/AGENTS/plan/20261108-1025-first-run-open-links.md): "앱에서 열기" on both join pages carries this page's own
+// link (the team link's token from memory: the address bar no longer has it), and only where our own app receives it:
+// the desktop app's scheme on a Mac or Windows, an intent naming our package on Android, nothing on an iPhone or Linux
+const UA = {
+  mac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
+  windows: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+  android: 'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36',
+  iphone: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+  linux: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+}
+test('"앱에서 열기": the desktop scheme on computers, an intent with our package on Android, none on iPhone or Linux', async ({ page, browser }) => {
   await reset(page)
   await signIn(page)
   const { token } = await post(page, '/api/admin/invites', { role: 'member', groupIds: [] })
   const link = await post(page, '/api/admin/team-link', {})
   const linkUrl = new URL(link.link.url)
-  for (const ua of ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15', 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1']) {
+  for (const [system, ua] of Object.entries(UA)) {
     const ctx = await browser.newContext({ locale: 'ko-KR', userAgent: ua })
     const p = await ctx.newPage()
     await p.goto(`/invite/${token}`)
-    const open = p.getByTestId('open-in-app')
-    await expect(open).toHaveText(ko('auth.openInApp'))
+    await expect(p.getByTestId('join-form')).toBeVisible()
     const origin = new URL(p.url()).origin
-    expect(await open.getAttribute('href')).toBe(`trina-ax://open?url=${encodeURIComponent(`${origin}/invite/${token}`)}`)
+    const invite = encodeURIComponent(`${origin}/invite/${token}`)
+    const open = p.getByTestId('open-in-app')
+    if (system === 'mac' || system === 'windows') {
+      await expect(open).toHaveText(ko('auth.openInApp'))
+      expect(await open.getAttribute('href')).toBe(`trina-ax://open?url=${invite}`)
+    } else if (system === 'android') {
+      expect(await open.getAttribute('href')).toBe(`intent://open?url=${invite}#Intent;scheme=trina-ax;package=app.trina.ax;end`)
+    } else {
+      await expect(open).toHaveCount(0)
+    }
     await p.goto(linkUrl.pathname + linkUrl.hash)
     await expect(p.getByTestId('join-form')).toBeVisible()
-    // the page took the token out of the address bar; the link still carries it
+    // the page took the token out of the address bar; a link that carries it is only where our app receives it
     expect(new URL(p.url()).hash).toBe('')
-    expect(await p.getByTestId('open-in-app').getAttribute('href')).toBe(`trina-ax://open?url=${encodeURIComponent(`${origin}/join${linkUrl.hash}`)}`)
+    const join = encodeURIComponent(`${origin}/join${linkUrl.hash}`)
+    const href = (await p.getByTestId('open-in-app').count()) ? await p.getByTestId('open-in-app').getAttribute('href') : null
+    expect({ system, href }).toEqual({ system, href: system === 'mac' || system === 'windows' ? `trina-ax://open?url=${join}` : system === 'android' ? `intent://open?url=${join}#Intent;scheme=trina-ax;package=app.trina.ax;end` : null })
     await ctx.close()
   }
-  // a system the apps do not run on: no line
-  const linux = await browser.newContext({ locale: 'ko-KR', userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36' })
-  const lp = await linux.newPage()
-  await lp.goto(`/invite/${token}`)
-  await expect(lp.getByTestId('join-form')).toBeVisible()
-  await expect(lp.getByTestId('open-in-app')).toHaveCount(0)
-  await linux.close()
 })

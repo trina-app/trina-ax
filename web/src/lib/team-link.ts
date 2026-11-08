@@ -51,13 +51,23 @@ export const afterJoinTarget = (): string => afterJoin ?? '/'
 export const clearAfterJoin = () => { afterJoin = null }
 
 /**
- * "앱에서 열기" on the join pages (docs/DECISIONS.md "First run, phase 2"): `<linkScheme>://open?url=<this page's
- * link>`. Both apps answer it with their screen ④ before anything loads. The team link's token comes from memory (the
- * page took it out of the address bar). Shown only in a web browser on a system the apps run on: not inside the
- * desktop or phone app (they are the app), not on Linux or anything else.
+ * "앱에서 열기" on the join pages (docs/DECISIONS.md "First run, phase 2"): the same join page in the app, whose screen
+ * ④ asks before anything loads. The link carries the invite or team-link token, so it goes only where our own app
+ * receives it:
+ * - Android: an `intent://` link naming our package (`package=`): no other app can take it, as one could take a bare
+ *   custom scheme.
+ * - macOS and Windows: `<scheme>://open?url=…`, answered by the installed desktop app. Another program installed on
+ *   the same computer could claim the scheme too (the residual risk, in DECISIONS).
+ * - iPhone: none. iOS hands a custom scheme to whichever app claims it, and no package can be named; the verified
+ *   universal link (the team link itself on `*.<team domain>`) opens the app there instead.
+ * - Anything else (Linux, unknown): none.
+ * The team link's token comes from memory (the page took it out of the address bar).
  */
-export function openInAppHref(scheme: string, origin: string, path: string): string {
-  return `${scheme}://open?url=${encodeURIComponent(origin + path)}`
+export function openInAppHref(o: { scheme: string; origin: string; path: string; platform: 'ios' | 'android' | 'mac' | 'windows' | 'other'; androidPackage: string }): string | null {
+  const url = encodeURIComponent(o.origin + o.path)
+  if (o.platform === 'android') return `intent://open?url=${url}#Intent;scheme=${o.scheme};package=${o.androidPackage};end`
+  if (o.platform === 'mac' || o.platform === 'windows') return `${o.scheme}://open?url=${url}`
+  return null
 }
-export const openInAppShown = (client: 'web' | 'desktop' | 'mobile', platform: 'ios' | 'android' | 'mac' | 'windows' | 'other'): boolean =>
-  client === 'web' && platform !== 'other'
+/** Shown only in a web browser (inside the apps the page already is the app) with a link for this system. */
+export const openInAppShown = (client: 'web' | 'desktop' | 'mobile', href: string | null): href is string => client === 'web' && href !== null

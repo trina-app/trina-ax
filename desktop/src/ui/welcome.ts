@@ -182,9 +182,22 @@ function outsideBox(o: { kind: 'outside' | 'renamed'; host: string; address: str
  * outside note when the hosted service does not run it, [취소] (focus) [연결]. Nothing was fetched yet; [연결] runs the
  * address check, then opens the link's page (the main process holds the link: this screen only names the host).
  */
+/** ④'s [연결] is on only after this long on screen (the main process's LinkGate counts 600 ms from linkShown) */
+const LINK_READY_MS = 650
+let linkSeen = 0
+let linkReady = false
 function linkAsk(link: { id: number; host: string; hosted: boolean }) {
-  // the yes counts only some time after ④ is on screen (the main process's LinkGate)
-  queueMicrotask(() => ui.welcome.linkShown(link.id))
+  // the yes counts only some time after ④ is on screen (the main process's LinkGate); until then [연결] is off
+  if (link.id !== linkSeen) {
+    linkSeen = link.id
+    linkReady = false
+    queueMicrotask(() => ui.welcome.linkShown(link.id))
+    setTimeout(() => {
+      if (linkSeen !== link.id) return
+      linkReady = true
+      render()
+    }, LINK_READY_MS)
+  }
   return h(
     'section',
     { class: 'card', role: 'alertdialog', 'aria-labelledby': 'link-title', 'aria-describedby': 'link-body', 'data-testid': 'link-ask' },
@@ -203,7 +216,7 @@ function linkAsk(link: { id: number; host: string; hosted: boolean }) {
           type: 'button',
           class: 'primary',
           'data-testid': 'link-connect',
-          disabled: busy,
+          disabled: busy || !linkReady,
           onclick: async () => {
             if (busy) return
             busy = true

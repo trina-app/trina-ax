@@ -27,9 +27,12 @@ export function parseTeamAddress(raw: string): ParsedAddress {
 export const LINK_SCHEME: string = PRODUCT.linkScheme
 
 /** A link that opened the app from outside: `<scheme>://open?url=<team link>` only (the desktop declares no web
- * domains), read with the box's rules (https; http only to this machine). null: not a link for this app. */
+ * domains), read with the box's rules but stricter: https only, and never this machine (a link from a web page must
+ * not point the app, its team view and its bridge at a local port). Typed addresses keep http to this machine for
+ * development. null: not a link for this app. */
 export function readDesktopLink(raw: string): TeamInput | null {
-  return readAppLink(raw, { ...DESKTOP_INPUT, scheme: LINK_SCHEME, universal: false })
+  const p = readAppLink(raw, { ...DESKTOP_INPUT, loopbackHttp: false, scheme: LINK_SCHEME, universal: false })
+  return p?.ok && p.loopback ? { ok: false, error: 'insecure' } : p
 }
 
 /** The link in a command line: Windows and Linux start the app (or its second instance) with the link as an argument.

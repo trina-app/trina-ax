@@ -133,6 +133,9 @@ test('links open the app only through screen ④ (phase 2): the hosted domain\'s
   // ④ reports itself on screen (the yes counts only a while after), keeps its state per link, and asks again for a rename
   expect(app).toContain('gate.shown(offer.id, Date.now())')
   expect(app).toContain('<LinkAsk key={link.id}')
+  // [연결] is off until ④ has been on screen as long as the gate wants
+  expect(app).toContain('const on = setTimeout(() => setReady(true), 650)')
+  expect(app).toContain('disabled={busy || !ready}')
   expect(app).toMatch(/if \(r\.renamed\) \{ setMoved\(\{ origin: r\.origin, entryPath: o\.entryPath \}\); return \}/)
   expect(app).toMatch(/const o = gate\.answer\(true, offer\.host, Date\.now\(\)\)\n\s*if \(!o\) return\n[\s\S]{0,80}const r = await checkTeam\(o\.origin, service\.teamDomain\)/)
   expect(app.match(/Linking\.(getInitialURL|addEventListener)\(/g)?.length).toBe(2)

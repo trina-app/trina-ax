@@ -17,6 +17,7 @@ import { setAfterSetup } from '../lib/welcome'
 import { landingPath } from '../lib/tabs'
 import { joinNext, openInAppHref, openInAppShown, readJoinToken, setAfterJoin } from '../lib/team-link'
 import { platform } from '../lib/pwa'
+import { APP_LINKS } from '@mycel/shared/app-links'
 import { holdMadeBy } from '../lib/starter'
 import { SourceCodeLink } from '../components/SourceCodeLink'
 import { Button, Field, IconButton, inputCls } from '../components/ui'
@@ -410,10 +411,11 @@ function SignInInstead() {
  * systems only. */
 function OpenInApp({ path }: { path: string }) {
   const t = useT()
-  if (!openInAppShown(clientKind(), platform())) return null
+  const href = openInAppHref({ scheme: PRODUCT.linkScheme, origin: window.location.origin, path, platform: platform(), androidPackage: APP_LINKS.androidPackage })
+  if (!openInAppShown(clientKind(), href)) return null
   return (
     <p className="mt-2 text-center text-sm">
-      <a href={openInAppHref(PRODUCT.linkScheme, window.location.origin, path)} className="text-accent-text underline" data-testid="open-in-app">
+      <a href={href} className="text-accent-text underline" data-testid="open-in-app">
         {t('auth.openInApp')}
       </a>
     </p>

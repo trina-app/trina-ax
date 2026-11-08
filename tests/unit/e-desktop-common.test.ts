@@ -165,8 +165,10 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
   test('a team link or invite link inside opens its page; the host shown is the one connected to', () => {
     expect(readDesktopLink(link(`https://acme.${TEAM_DOMAIN}/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E`))).toMatchObject({ ok: true, host: `acme.${TEAM_DOMAIN}`, hosted: true, entryPath: '/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E' })
     expect(readDesktopLink(link('https://team.example.com/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk'))).toMatchObject({ ok: true, host: 'team.example.com', hosted: false, entryPath: '/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk' })
-    // http only to this machine, as typed addresses
-    expect(readDesktopLink(link('http://127.0.0.1:19100/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk'))).toMatchObject({ ok: true, host: '127.0.0.1:19100' })
+    // a link from outside never points the app at this machine, http or https (typed addresses still may: development)
+    for (const inner of ['http://127.0.0.1:19100/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk', 'https://127.0.0.1:19100/', 'http://localhost:19100/', 'https://localhost/', 'http://acme.localhost:19883/', 'https://[::1]:8443/', 'https://127.1/'])
+      expect(readDesktopLink(link(inner))).toEqual({ ok: false, error: 'insecure' })
+    expect(parseTeamAddress('http://127.0.0.1:19100')).toMatchObject({ ok: true, dev: true })
   })
   test('a crafted link cannot load http to another machine, javascript:, file:, data:, user:password, or hide its host', () => {
     expect(readDesktopLink(link('http://evil.example'))).toEqual({ ok: false, error: 'insecure' })
@@ -174,9 +176,11 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
     expect(readDesktopLink(link(`https://acme.${TEAM_DOMAIN}:x@evil.example`))).toEqual({ ok: false, error: 'credentials' })
     for (const inner of ['javascript:alert(1)', 'file:///etc/passwd', 'data:text/html,<script>x</script>', 'acme', `acme.${TEAM_DOMAIN}`, 'https://a b'])
       expect(readDesktopLink(link(inner))).toBeNull()
-    // the host ④ shows is the URL parser's: a numeric trick is 127.0.0.1, a backslash ends the host, never hosted
-    expect(readDesktopLink(link('https://0x7f.1/'))).toMatchObject({ ok: true, host: '127.0.0.1', hosted: false })
-    expect(readDesktopLink(link('https://2130706433/'))).toMatchObject({ ok: true, host: '127.0.0.1', hosted: false })
+    // the host ④ shows is the URL parser's: a numeric trick for this machine is refused, a backslash ends the host,
+    // another numeric address is shown as numbers and never counts as hosted
+    expect(readDesktopLink(link('https://0x7f.1/'))).toEqual({ ok: false, error: 'insecure' })
+    expect(readDesktopLink(link('https://2130706433/'))).toEqual({ ok: false, error: 'insecure' })
+    expect(readDesktopLink(link('https://0xc0a8000a/'))).toMatchObject({ ok: true, host: '192.168.0.10', hosted: false })
     expect(readDesktopLink(link(`https://evil.example\\@acme.${TEAM_DOMAIN}`))).toMatchObject({ ok: true, host: 'evil.example', hosted: false })
     expect(readDesktopLink(link(`https://acme.${TEAM_DOMAIN}.evil.example/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E`))).toMatchObject({ ok: true, host: `acme.${TEAM_DOMAIN}.evil.example`, hosted: false })
     expect(readDesktopLink(link('https://xn--bcher-kva.de'))).toMatchObject({ host: 'xn--bcher-kva.de' })
@@ -209,7 +213,11 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
     // ④ counts from when the screen says it is up, and a team view taking over drops a waiting link
     expect(win).toContain('this.linkGate.shown(id, Date.now())')
     expect(win).toMatch(/async openTeam\(id: string, entryPath = '\/'\) \{[\s\S]{0,200}this\.linkGate\.clear\(\)/)
-    expect(readFileSync(join(import.meta.dir, '../../desktop/src/ui/welcome.ts'), 'utf8')).toContain('ui.welcome.linkShown(link.id)')
+    const welcome = readFileSync(join(import.meta.dir, '../../desktop/src/ui/welcome.ts'), 'utf8')
+    expect(welcome).toContain('ui.welcome.linkShown(link.id)')
+    // [연결] is off until ④ has been on screen as long as the gate wants (no click that silently does nothing)
+    expect(welcome).toContain('const LINK_READY_MS = 650')
+    expect(welcome).toContain('disabled: busy || !linkReady,')
     // a development run never takes the scheme over by itself
     expect(main).toContain("if (app.isPackaged) app.setAsDefaultProtocolClient(LINK_SCHEME)")
   })

@@ -14914,13 +14914,16 @@ Builds on "First run: one box" (PR 1). Plan: `docs/AGENTS/plan/20261108-1025-fir
   ④ showed, only 600 ms after ④ reported itself on screen (also when it appears late, after a cold start), and once; a
   newer link replaces the waiting one (each offer has an id; the phone's ④ keeps its state per offer and drops an
   answer whose link is no longer the one on screen), and a team view taking over drops it. A rename found after the
-  yes is asked once more with the new host ("팀 주소가 {host}(으)로 바뀌었어요…"). A tapped universal link that was cut
+  yes is asked once more with the new host ("팀 주소가 {host}(으)로 바뀌었어요…"). [연결] is off (greyed) for its first
+  650 ms on screen, so a tap never silently does nothing. A tapped universal link that was cut
   off says so; a bad scheme link never covers a waiting ④. Esc and Android back answer no.
 - **Desktop**: the packaged app is the scheme's handler (`app.setAsDefaultProtocolClient(PRODUCT.linkScheme)`; a
   development run only with `MYCEL_DESKTOP_REGISTER_SCHEME=1`, so tests and dev builds never take the scheme over);
   macOS `open-url` (registered before `ready`, so the link that launched the app is kept until the window exists);
   Windows and Linux: the first instance's argv and the second instance's argv (`linkFromArgv`, only an argument that
-  starts with the scheme). Every path calls `AppWindow.offerLink`, which fetches nothing; only `answerLink` connects,
+  starts with the scheme). A link never points the desktop app at this machine (`readDesktopLink`: https only, no
+  loopback host, so a web page cannot aim the team view and its bridge at a local port; a typed address keeps http to
+  this machine for development). Every path calls `AppWindow.offerLink`, which fetches nothing; only `answerLink` connects,
   and only with the gate's offer. The renderer names the host it showed; the main process holds the link. The base
   electron-builder config declares `protocols`, which the dmg and the Mac App Store build turn into `CFBundleURLTypes`
   and the Microsoft Store package into a `windows.protocol` extension (its manifest template's `${extensions}`).
@@ -14937,9 +14940,15 @@ Builds on "First run: one box" (PR 1). Plan: `docs/AGENTS/plan/20261108-1025-fir
   page). Public, the same for everyone, nothing about the team; JSON, no redirect, no cookie. Self-hosted servers serve
   them too (harmless), but the apps declare only `*.trina.app`: on a domain of one's own a tapped link opens the
   browser, and the join page's "앱에서 열기" is the way into the app.
-- **"앱에서 열기"** on both join pages (one line under "이미 가입했어요? 로그인"): `trina-ax://open?url=<this page's link>`,
-  the team link's token from memory (the page already took it out of the address bar). Only in a web browser on iOS,
-  Android, macOS and Windows; not inside the apps, not on Linux or anything else. Five languages.
+- **"앱에서 열기"** on both join pages (one line under "이미 가입했어요? 로그인"), only in a web browser. The link carries
+  the invite or team-link token (the team link's from memory: the page already took it out of the address bar), and a
+  team link joins without anyone's approval, so it goes only where our own app receives it (review must-fix): on
+  **Android** an `intent://open?url=…#Intent;scheme=trina-ax;package=app.trina.ax;end` link, which only our package can
+  take (a bare custom scheme can be claimed by any app); on **macOS and Windows** `trina-ax://open?url=…`, answered by the
+  installed desktop app; on an **iPhone none** (iOS gives a custom scheme to whichever app claims it and lets no link
+  name the app; the verified universal link, the team link itself, opens the app there once Apple's setup is done);
+  nothing on Linux or anything else. Residual risk on computers: another program the person installed could register
+  `trina-ax` too and receive the token; it would already run as that person. Five languages.
 - **Outside this repository** (the PR lists them): the App ID's Associated Domains capability before a signed iOS build;
   the files on `trina.app` itself for the wildcards (Android checks a wildcard host at its root; for Apple, serve both);
   the Play signing fingerprint in `shared/src/app-links.ts`; new iOS, Android and Mac App Store builds; the signup's

@@ -297,6 +297,8 @@ function Setup({ current, onDone, onBack, onSame }: { current: string | null; on
  */
 function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: LinkOffer; gate: LinkGate; current: string | null; onClose: () => void; onSame: (path: string) => void; onDone: (address: TeamAddress) => Promise<void> }) {
   const [busy, setBusy] = useState(false), [error, setError] = useState('')
+  // [연결] is on only once ④ has been on screen a while (the gate counts 600 ms from gate.shown)
+  const [ready, setReady] = useState(false)
   // the team moved at its relay: its new address, asked once more before anything is saved
   const [moved, setMoved] = useState<TeamAddress | null>(null)
   const cancelRef = useRef<ComponentRef<typeof Pressable>>(null)
@@ -325,9 +327,10 @@ function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: Lin
   }
   useEffect(() => {
     gate.shown(offer.id, Date.now())
+    const on = setTimeout(() => setReady(true), 650)
     const id = setTimeout(() => { const n = cancelRef.current && findNodeHandle(cancelRef.current); if (n) AccessibilityInfo.setAccessibilityFocus(n) }, 300)
     const back = BackHandler.addEventListener('hardwareBackPress', () => { no(); return true })
-    return () => { clearTimeout(id); back.remove() }
+    return () => { clearTimeout(id); clearTimeout(on); back.remove() }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [offer])
   return <View style={[s.fill, s.center, { backgroundColor: c.canvas, paddingTop: i.top + 24, paddingBottom: i.bottom + 24, paddingLeft: i.left + 24, paddingRight: i.right + 24 }]} accessibilityViewIsModal testID="link-ask">
@@ -339,7 +342,7 @@ function LinkAsk({ offer, gate, current, onClose, onSame, onDone }: { offer: Lin
       {!!error && <Text accessibilityRole="alert" style={[s.error, { color: c.danger }]} testID="link-error">{error}</Text>}
       <View style={s.askRow}>
         <Pressable ref={cancelRef} style={[s.secondary, s.askButton]} onPress={no} testID="link-cancel" accessibilityRole="button"><Text style={[s.secondaryText, { color: c.ink, borderColor: c.field }]}>{t.cancel}</Text></Pressable>
-        {!error && <Pressable style={[s.button, s.askButton]} onPress={() => void yes()} disabled={busy} testID="link-connect" accessibilityRole="button">
+        {!error && <Pressable style={[s.button, s.askButton, !ready && s.off]} onPress={() => void yes()} disabled={busy || !ready} testID="link-connect" accessibilityRole="button" accessibilityState={{ disabled: busy || !ready }}>
           {busy ? <ActivityIndicator color={accentInk(product.accent)} /> : <Text style={s.buttonText}>{switching ? t.switchYes : t.outsideConnect}</Text>}</Pressable>}
       </View>
     </View>
@@ -552,5 +555,5 @@ const s = StyleSheet.create({
   ask: { marginTop: 16, borderWidth: 1, borderRadius: 12, padding: 16 }, askTitle: { fontSize: 16, fontWeight: '600', lineHeight: 22, marginBottom: 6 },
   askHost: { fontSize: 15, fontWeight: '600', marginBottom: 6 }, askText: { fontSize: 15, lineHeight: 21, marginBottom: 6 },
   askRow: { flexDirection: 'row', gap: 10, marginTop: 8 }, askButton: { flex: 1, minWidth: 0, marginTop: 0 },
-  footerHost: { fontSize: 13, paddingHorizontal: 16 }, linkCard: { width: '100%', maxWidth: 480 },
+  footerHost: { fontSize: 13, paddingHorizontal: 16 }, linkCard: { width: '100%', maxWidth: 480 }, off: { opacity: 0.5 },
 })
