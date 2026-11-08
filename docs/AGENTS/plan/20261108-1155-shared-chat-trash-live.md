@@ -72,4 +72,4 @@ someone else that ends after the delete tells only the creator (`publishChat`). 
 their trash, and a project whose folder is in the files trash is judged by that folder's own rules; only a creator
 who would not see the project (or a deleted account) loses them for good. The independent review's must-fix (the
 wider-audience card named places other people's turns read) and should-fixes are fixed. Decisions and
-what is left out: docs/DECISIONS.md "Shared project chats: the trash and live lists". PR: (linked in the PR).
+what is left out: docs/DECISIONS.md "Shared project chats: the trash and live lists". PR: https://github.com/trina-app/trina-ax/pull/217
