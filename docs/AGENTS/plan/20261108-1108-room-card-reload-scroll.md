@@ -71,6 +71,8 @@ Out: a "new below" button; changes to the cards' words.
 
 ## Result
 
+PR: https://github.com/trina-app/trina-ax/pull/218
+
 Built as planned:
 
 - Bug 1: `GET /api/rooms/:id/ai/requests` (`RoomAi.requests`, `TurnExec.cardsFor`, also used by the chat's list); the
