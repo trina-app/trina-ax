@@ -88,3 +88,9 @@ Checks: typecheck, check:i18n (0 issues), check:docs pass; server unit tests of 
 `skills.test.ts`, failing the same on a clean origin/dev); web unit 1657 pass / 1 fail / 1 error (a send-queue timing
 test that passes alone, and the suite-level unhandled error origin/dev has too); full chromium e2e 806 passed, 13
 skipped, 0 failed (after merging #183/#184: 62 targeted e2e passed). PR: https://github.com/trina-app/trina-ax/pull/186
+
+Review round 1: invite links to the intro deck now go to the landing skill or Home and the run is always recorded; the
+goal leaves the deck's paths out everywhere (not every skill of the deck's chat); the hosting status keeps counting
+`skills/marketing` and `skills/hr`; PATCH team-link ignores `starter` for one release; new `general` records keep
+`tasksPath`/`briefPath` null for a rollback; the retire write cannot fail the team's start; the humanizer notice is in
+NOTICE. Checks after it: server 237/0, web unit 120/0 (requested sets), e2e 52/0 (requested specs).
