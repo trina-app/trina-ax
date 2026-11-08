@@ -14862,7 +14862,8 @@ refused, and that connected AIs never saw the team rules every in-app turn follo
   go on working. It is set over a stored `false`: Team settings' save sent `limitFallback: false` with every "who may
   pick" change, and that `false` only ever meant the limit case. The one visible change for hosted teams: the Claude
   limit case comes on with it (a Claude answer at its limit is finished by Codex when the person has a Codex
-  connection); an admin who does not want either turns the switch off, and it stays off. A hosted server with Codex
+  connection; the owner accepted this, 2026-11-08); an admin who does not want either turns the switch off, and it
+  stays off. A hosted server with Codex
   off at that start is left off (switching Codex on later does not quietly turn it on, as before).
 - **Not changed.** No API shape, no migration file (settings rows), no Codex-limit fallback to Claude Code, no audit
   row for a no-connection answer (the step says it; an audit row on every turn of a ChatGPT-only team would drown the
