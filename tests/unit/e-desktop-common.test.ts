@@ -53,8 +53,8 @@ describe('team addresses', () => {
     const want = { ok: true as const, origin: 'https://team.example.com', host: 'team.example.com', dev: false, entryPath: '/', name: null, hosted: false }
     for (const typed of ['team.example.com', 'https://team.example.com', ' https://Team.Example.com/ ', 'team.example.com/chats/1']) expect(parseTeamAddress(typed)).toEqual(want)
     // the invite or team link opens its own join page in the app (it used to lose its token here)
-    expect(parseTeamAddress('team.example.com/invite/abcdEFGH1234')).toEqual({ ...want, entryPath: '/invite/abcdEFGH1234' })
-    expect(parseTeamAddress('https://team.example.com/join#t=0INpvAqjFG3OhdmwH4CfCuxr')).toEqual({ ...want, entryPath: '/join#t=0INpvAqjFG3OhdmwH4CfCuxr' })
+    expect(parseTeamAddress('team.example.com/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk')).toEqual({ ...want, entryPath: '/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk' })
+    expect(parseTeamAddress('https://team.example.com/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E')).toEqual({ ...want, entryPath: '/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E' })
     expect(parseTeamAddress('team.example.com/invite/abc')).toEqual({ ok: false, error: 'link' })
     expect(parseTeamAddress('http://team.example.com')).toEqual({ ok: false, error: 'insecure' })
     // the office's Mac off: Cloudflare answers 530 (error 1033); the address is right, the server is just not reachable
@@ -87,24 +87,32 @@ describe('team addresses', () => {
 
 describe('first run: what the team address answered, the help screens, the host strip', () => {
   const o = `https://acme.${TEAM_DOMAIN}`
-  const health = (status: number, finalUrl = `${o}/api/health`, relayError: string | null = null, bodyOk = true) => healthVerdict(o, { status, finalUrl, relayError, bodyOk })
+  const health = (status: number, relayError: string | null = null, bodyOk = true, location: string | null = null) => healthVerdict(o, { status, location, relayError, bodyOk })
   test('the relay\'s own answers are told apart from "not a team server"', () => {
-    expect(health(200)).toEqual({ ok: true, origin: o })
-    expect(health(404, `${o}/api/health`, 'team_unknown', false)).toEqual({ ok: false, error: 'teamUnknown' })
-    expect(health(403, `${o}/api/health`, 'team_suspended', false)).toEqual({ ok: false, error: 'suspended' })
-    expect(health(403, `${o}/api/health`, 'team_suspended_billing', false)).toEqual({ ok: false, error: 'suspended' })
-    expect(health(503, `${o}/api/health`, 'team_offline', false)).toEqual({ ok: false, error: 'unreachable' })
-    expect(health(530, `${o}/api/health`, null, false)).toEqual({ ok: false, error: 'unreachable' })
+    expect(health(200)).toEqual({ ok: true })
+    expect(health(404, 'team_unknown', false)).toEqual({ ok: false, error: 'teamUnknown' })
+    expect(health(403, 'team_suspended', false)).toEqual({ ok: false, error: 'suspended' })
+    expect(health(403, 'team_suspended_billing', false)).toEqual({ ok: false, error: 'suspended' })
+    expect(health(503, 'team_offline', false)).toEqual({ ok: false, error: 'unreachable' })
+    expect(health(530, null, false)).toEqual({ ok: false, error: 'unreachable' })
     // a 404 from something that is not the relay, or a page that is not the health answer
-    expect(health(404, `${o}/api/health`, null, false)).toEqual({ ok: false, error: 'notTeamServer' })
-    expect(health(200, `${o}/api/health`, null, false)).toEqual({ ok: false, error: 'notTeamServer' })
+    expect(health(404, null, false)).toEqual({ ok: false, error: 'notTeamServer' })
+    expect(health(200, null, false)).toEqual({ ok: false, error: 'notTeamServer' })
     expect(t('ko', 'err.teamUnknown', { name: 'acme' })).toBe("'acme' 팀을 찾지 못했어요. 철자를 확인하거나 초대 링크를 붙여 넣어 주세요.")
   })
-  test('a rename at the relay is followed only to another name under the team domain', () => {
-    expect(health(200, `https://acme-corp.${TEAM_DOMAIN}/api/health`)).toEqual({ ok: true, origin: `https://acme-corp.${TEAM_DOMAIN}` })
-    for (const away of ['https://evil.example/api/health', `http://acme-corp.${TEAM_DOMAIN}/api/health`, `https://acme-corp.${TEAM_DOMAIN}:8443/api/health`, `https://a.b.${TEAM_DOMAIN}/api/health`])
-      expect(health(200, away)).toEqual({ ok: false, error: 'notTeamServer' })
-    expect(healthVerdict('http://acme.localhost:19883', { status: 200, finalUrl: 'http://acme-co.localhost:19883/api/health', relayError: null, bodyOk: true })).toEqual({ ok: true, origin: 'http://acme-co.localhost:19883' })
+  test('a redirect is never followed by the network stack: only a relay rename to another name under the team domain', () => {
+    // the health check reads the 3xx itself (app-window.ts fetchHealth: net.request with redirect 'manual')
+    const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
+    expect(win).toContain("redirect: 'manual'")
+    expect(win).not.toMatch(/\.fetch\(`\$\{p\.origin\}\/api\/health`/)
+    expect(health(308, null, false, `https://acme-corp.${TEAM_DOMAIN}/api/health`)).toEqual({ ok: false, rename: `https://acme-corp.${TEAM_DOMAIN}` })
+    for (const away of ['https://evil.example/api/health', `http://acme-corp.${TEAM_DOMAIN}/api/health`, `https://acme-corp.${TEAM_DOMAIN}:8443/api/health`, `https://a.b.${TEAM_DOMAIN}/api/health`, `https://acme-corp.${TEAM_DOMAIN}./api/health`, 'http://192.168.0.10/api/health', null])
+      expect(health(302, null, false, away)).toEqual({ ok: false, error: 'notTeamServer' })
+    expect(healthVerdict('http://acme.localhost:19883', { status: 308, location: 'http://acme-co.localhost:19883/api/health', relayError: null, bodyOk: false })).toEqual({ ok: false, rename: 'http://acme-co.localhost:19883' })
+    // a rename is asked before the new address is remembered, and followed once only
+    expect(win).toMatch(/if \(!v\.ok && 'rename' in v\) return fail\('notTeamServer'\)/)
+    expect(win).toMatch(/if \(origin !== p\.origin && !known\) return \{ ok: false, error: 'renamed'/)
+    expect(t('ko', 'err.renamed', { host: 'acme-corp.trina.app' })).toBe('팀 주소가 acme-corp.trina.app(으)로 바뀌었어요. 새 주소로 연결할까요?')
   })
   test('the host strip shows on the team\'s sign-in pages only, in punycode', () => {
     for (const p of ['/login', '/join', '/setup', '/invite/abc', '/reset-password/abc']) expect(isSignInPath(p)).toBe(true)
@@ -125,7 +133,7 @@ describe('first run: what the team address answered, the help screens, the host 
   test('the first connect to an address the hosted service does not run asks once', () => {
     const ask = (typed: string, known = false, confirmed = false) => { const p = parseTeamAddress(typed); if (!p.ok) throw new Error(p.error); return asksOutside({ hosted: p.hosted, dev: p.dev, known, confirmed }) }
     expect(ask('acme')).toBe(false)
-    expect(ask(`https://acme.${TEAM_DOMAIN}/join#t=0INpvAqjFG3OhdmwH4CfCuxr`)).toBe(false)
+    expect(ask(`https://acme.${TEAM_DOMAIN}/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E`)).toBe(false)
     expect(ask('team.example.com')).toBe(true)
     expect(ask(`https://acme.${TEAM_DOMAIN}.evil.example`)).toBe(true)
     expect(ask('https://1.2.3.4')).toBe(true)

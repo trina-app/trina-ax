@@ -55,6 +55,9 @@ const TABLE: [string, unknown, unknown?][] = [
   ['https://acme.trina.app/invite/abc', err('link')],
   ['https://acme.trina.app/join', err('link')],
   ['https://acme.trina.app/join#t=short', err('link')],
+  // tokens are 43 characters: a link cut part-way says so too
+  [`https://acme.trina.app/invite/${INVITE.slice(0, 20)}`, err('link')],
+  [`https://acme.trina.app/join#t=${JOIN.slice(0, 30)}`, err('link')],
   [`https://acme.trina.app/invite/${INVITE}?x=1`, err('link')],
   // safety: https only (http to this machine only on the desktop), no user:password, no other scheme
   ['http://acme.trina.app', err('insecure')],
@@ -93,8 +96,11 @@ describe('the first-run box (one table, desktop and phone)', () => {
     expect(shared.parseTeamInput('acme', { teamDomain: null, loopbackHttp: false })).toEqual(err('invalid') as never)
     expect(shared.parseTeamInput('team.example.com', { teamDomain: null, loopbackHttp: false })).toMatchObject({ ok: true, hosted: false })
   })
-  test('very long input is refused without work', () => {
+  test('very long input is refused without work; punctuation after a link is trimmed in linear time', () => {
     expect(shared.parseTeamInput('a'.repeat(9000), DESKTOP)).toEqual(err('invalid') as never)
+    const t0 = performance.now()
+    expect(shared.parseTeamInput(`see https://acme.trina.app${'.'.repeat(8000)}`, DESKTOP)).toEqual(acme() as never)
+    expect(performance.now() - t0).toBeLessThan(50)
   })
 })
 
@@ -114,7 +120,7 @@ describe('what the relay answered', () => {
     for (const m of [shared, phone]) {
       expect(m.relayRename('https://acme.trina.app', 'https://acme-corp.trina.app/api/health', PHONE)).toBe('https://acme-corp.trina.app')
       expect(m.relayRename('https://acme.trina.app', '/api/health', PHONE)).toBeNull()
-      for (const away of ['https://evil.example/api/health', 'http://acme-corp.trina.app/', 'https://acme-corp.trina.app:444/', 'https://x.acme.trina.app/', 'https://u@acme-corp.trina.app/', 'https://trina.app/', 'javascript:alert(1)', null])
+      for (const away of ['https://evil.example/api/health', 'http://acme-corp.trina.app/', 'https://acme-corp.trina.app:444/', 'https://x.acme.trina.app/', 'https://u@acme-corp.trina.app/', 'https://trina.app/', 'https://acme-corp.trina.app./api/health', 'javascript:alert(1)', null])
         expect(m.relayRename('https://acme.trina.app', away, PHONE)).toBeNull()
       // from an address that is not a hosted one, nothing is followed
       expect(m.relayRename('https://team.example.com', 'https://acme.trina.app/', PHONE)).toBeNull()

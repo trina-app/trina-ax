@@ -15,7 +15,7 @@ export interface WelcomeState {
   /** the "no team yet" screen offers [팀 만들기] (not in the Mac App Store build) */
   signup?: boolean
 }
-export type AddTeamResult = { ok: true; teamId: string } | { ok: false; error: string; message: string; host?: string }
+export type AddTeamResult = { ok: true; teamId: string } | { ok: false; error: string; message: string; host?: string; next?: string }
 export interface PanePrompt {
   id: string
   scope: 'site' | 'private'

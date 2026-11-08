@@ -42,13 +42,21 @@ const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i
 /** Hangul syllables, jamo, compatibility jamo and the extended jamo blocks */
 const HANGUL = /[\u1100-\u11ff\u3130-\u318f\ua960-\ua97f\uac00-\ud7a3\ud7b0-\ud7ff]/
 const EMAIL = /^[^\s@/:]+@[^\s@/:]+\.[^\s@/:]+$/
-const TOKEN = /^[A-Za-z0-9_-]{8,200}$/
-const JOIN_TOKEN = /^[A-Za-z0-9_-]{16,200}$/
+/** invite and team link tokens are 32 random bytes in base64url, 43 characters (server/src/auth/passwords.ts
+ * newToken); a shorter one is a link cut off on the way */
+const TOKEN = /^[A-Za-z0-9_-]{43,200}$/
+const JOIN_TOKEN = TOKEN
 /** an http(s) address inside text: ASCII address characters only, so it ends at a space, a quote, a parenthesis or the
  * Korean word glued to it ("https://…/join#t=abc입니다") */
 const URL_IN_TEXT = /https?:\/\/[A-Za-z0-9\-._~:/?#@!$&*+,;=%[\]]+/gi
 /** punctuation a sentence puts right after a link ("링크: https://…/join#t=abc." or "(https://…)") */
-const TRAILING = /[.,;:!?'"’”」』）)\]}>…。、]+$/
+const TRAILING = '.,;:!?\'"\u2019\u201d\u300d\u300f\uff09)]}>\u2026\u3002\u3001'
+/** the text without the punctuation at its end (a loop, not a regex: linear on any input) */
+function trimTrailing(s: string): string {
+  let end = s.length
+  while (end > 0 && TRAILING.includes(s[end - 1]!)) end--
+  return s.slice(0, end)
+}
 
 /** Hosts that only exist on this machine (development): plain http is allowed only for these. */
 export function isLoopbackHost(hostname: string): boolean {
@@ -64,7 +72,7 @@ export function linkInText(raw: string): string | null {
   const s = raw.trim()
   // one word that is not an address with something glued in front ("링크:https://…")
   if (!/\s/.test(s) && !/.https?:\/\//i.test(s)) return s
-  const found = (s.match(URL_IN_TEXT) ?? []).map((u) => u.replace(TRAILING, ''))
+  const found = (s.match(URL_IN_TEXT) ?? []).map(trimTrailing)
   const isLink = (u: string) => /^https?:\/\/[^/]+\/(?:invite\/[A-Za-z0-9_-]|join#)/i.test(u)
   return found.find(isLink) ?? found[0] ?? null
 }
@@ -153,7 +161,7 @@ export function relayRename(fromOrigin: string, location: string | null | undefi
   try {
     const from = new URL(fromOrigin)
     const to = new URL(location, fromOrigin)
-    if (to.protocol !== from.protocol || to.port !== from.port || to.username || to.password || to.origin === from.origin) return null
+    if (to.protocol !== from.protocol || to.port !== from.port || to.username || to.password || to.origin === from.origin || to.hostname.endsWith('.')) return null
     const domains = [o.teamDomain, ...(o.loopbackHttp ? ['localhost'] : [])].filter((d): d is string => !!d)
     for (const d of domains) if (hostedName(from.hostname, d) && hostedName(to.hostname, d)) return to.origin
     return null

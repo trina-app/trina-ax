@@ -23,31 +23,32 @@ export function parseTeamAddress(raw: string): ParsedAddress {
   return { ok: true, origin: p.origin, host: p.host, dev: p.loopback, entryPath: p.entryPath, name: p.name, hosted: p.hosted }
 }
 
-/** How the team address answered GET /api/health (the main process fetches it, following redirects). */
+/** One answer of GET /api/health, read without following redirects (main/app-window.ts fetchHealth). */
+export interface HealthAnswer { status: number; location: string | null; relayError: string | null; bodyOk: boolean }
+/** What the app does with it: connect, follow a relay rename once (to `rename`), or say why not. */
 export type HealthVerdict =
-  | { ok: true; origin: string }
+  | { ok: true }
+  | { ok: false; rename: string }
   | { ok: false; error: 'unreachable' | 'notTeamServer' | 'teamUnknown' | 'suspended' }
 
 /**
- * `finalUrl`: where the request ended after redirects. A team renamed at its relay answers 308 with its new address: the
- * app follows it only to another <name>.<team domain> (shared relayRename) and keeps the new address. Any other
- * redirect is not a team server. `relayError`: the relay's x-relay-error header (unknown name 404, suspended 403).
+ * A team renamed at its relay answers 308 with its new address: the app follows it once, only to another
+ * <name>.<team domain> with the same scheme and port (shared relayRename), and asks before it remembers the new
+ * address. Any other redirect is not a team server: no hop to another host, plain http or an office address.
+ * `relayError`: the relay's x-relay-error header (unknown name 404, suspended 403).
  */
-export function healthVerdict(origin: string, r: { status: number; finalUrl: string; relayError: string | null; bodyOk: boolean }): HealthVerdict {
+export function healthVerdict(origin: string, r: HealthAnswer): HealthVerdict {
+  if (r.status >= 300 && r.status < 400) {
+    const rename = relayRename(origin, r.location, DESKTOP_INPUT)
+    return rename ? { ok: false, rename } : { ok: false, error: 'notTeamServer' }
+  }
   const answer: RelayAnswer = relayAnswer(r.status, r.relayError)
   if (answer === 'unknown') return { ok: false, error: 'teamUnknown' }
   if (answer === 'suspended') return { ok: false, error: 'suspended' }
   // a tunnel / relay error page (e.g. Cloudflare 530 while the office's Mac is off) is "cannot reach", not "not a team server"
   if (answer === 'offline' || isGatewayDown(r.status)) return { ok: false, error: 'unreachable' }
-  let landed = origin
-  const final = originOf(r.finalUrl)
-  if (final && final !== origin) {
-    const renamed = relayRename(origin, r.finalUrl, DESKTOP_INPUT)
-    if (!renamed || renamed !== final) return { ok: false, error: 'notTeamServer' }
-    landed = renamed
-  }
   if (r.status < 200 || r.status > 299 || !r.bodyOk) return { ok: false, error: 'notTeamServer' }
-  return { ok: true, origin: landed }
+  return { ok: true }
 }
 
 /** Origin of a URL, or '' (about:blank, garbage). */

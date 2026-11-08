@@ -6,11 +6,11 @@
 //   └───────────────────────────────────────┴─────┘
 //   shell view (welcome.html) covers everything when no team is open, the team list is shown, or the team
 //   server cannot be reached.
-import { app as electronApp, BaseWindow, dialog, Notification, session, WebContentsView, type Session } from 'electron'
+import { app as electronApp, BaseWindow, dialog, net, Notification, session, WebContentsView, type Session } from 'electron'
 import { join } from 'node:path'
 import { PRODUCT, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
 import { Health, Me } from '@mycel/shared/api'
-import { asksOutside, firstRunLinks, healthVerdict, hostOf, isSignInPath, originOf, parseTeamAddress, teamLabel, type AddressError } from '../common/address'
+import { asksOutside, firstRunLinks, healthVerdict, hostOf, isSignInPath, originOf, parseTeamAddress, teamLabel, type AddressError, type HealthAnswer } from '../common/address'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { teamHostnames } from '../common/browser-block'
 import { SitePermissions, type SiteSettings } from '../common/site-permissions'
@@ -45,7 +45,7 @@ export interface WelcomeState {
  * hosted service and not remembered yet: the screen asks once, then calls again with `confirmed`. */
 export type AddTeamResult =
   | { ok: true; teamId: string }
-  | { ok: false; error: AddressError | 'unreachable' | 'notTeamServer' | 'teamUnknown' | 'suspended' | 'confirmOutside'; message: string; host?: string }
+  | { ok: false; error: AddressError | 'unreachable' | 'notTeamServer' | 'teamUnknown' | 'suspended' | 'confirmOutside' | 'renamed'; message: string; host?: string; next?: string }
 
 /**
  * How a request from the team page's Settings > Browser to turn on "Allow all websites" ended (bridge
@@ -223,23 +223,24 @@ export class AppWindow {
     const p = parseTeamAddress(address)
     const L = this.o.locale()
     if (!p.ok) return { ok: false, error: p.error, message: t(L, `err.${p.error}` as UiKey) }
-    let health: Response
+    const fail = (error: 'unreachable' | 'notTeamServer' | 'teamUnknown' | 'suspended'): AddTeamResult => ({ ok: false, error, message: t(L, `err.${error}` as UiKey, { name: p.name ?? p.host }) })
+    let origin = p.origin
+    let v
     try {
-      health = await session.fromPartition('mycel-ui').fetch(`${p.origin}/api/health`, { signal: AbortSignal.timeout(8000), headers: { accept: 'application/json' } })
+      v = healthVerdict(origin, await fetchHealth(origin))
+      // a team renamed at its relay: one hop to its new <name>.<team domain>, and no further
+      if (!v.ok && 'rename' in v) {
+        origin = v.rename
+        v = healthVerdict(origin, await fetchHealth(origin))
+        if (!v.ok && 'rename' in v) return fail('notTeamServer')
+      }
     } catch {
-      return { ok: false, error: 'unreachable', message: t(L, 'err.unreachable') }
+      return fail('unreachable')
     }
-    let bodyOk = false
-    try {
-      bodyOk = Health.safeParse(await health.json()).success
-    } catch {
-      bodyOk = false
-    }
-    const v = healthVerdict(p.origin, { status: health.status, finalUrl: health.url, relayError: health.headers.get('x-relay-error'), bodyOk })
-    if (!v.ok) return { ok: false, error: v.error, message: t(L, `err.${v.error}` as UiKey, { name: p.name ?? p.host }) }
-    const origin = v.origin
+    if (!v.ok) return 'error' in v ? fail(v.error) : fail('notTeamServer')
     const known = this.teams.teams.find((x) => x.origin === origin)
-    // a renamed team's new address is under the team domain too (healthVerdict follows nothing else)
+    // the person sees the new address before it is remembered
+    if (origin !== p.origin && !known) return { ok: false, error: 'renamed', message: t(L, 'err.renamed', { host: hostOf(origin) }), host: hostOf(origin), next: origin + p.entryPath }
     if (asksOutside({ hosted: p.hosted, dev: p.dev, known: Boolean(known), confirmed })) return { ok: false, error: 'confirmOutside', message: t(L, 'outside.body'), host: hostOf(origin) }
     const r = addTeam(this.teams, origin, teamLabel(origin), this.o.store.newTeamId(), new Date().toISOString())
     if (!r.existed) this.saveTeams(r.file)
@@ -909,6 +910,54 @@ export class AppWindow {
     const L = this.o.locale()
     return this.notifier.test({ title: t(L, 'notify.test.title'), body: t(L, 'notify.test.body') })
   }
+}
+
+/**
+ * GET <origin>/api/health without following a redirect (net.fetch has no usable 'manual': it throws), through the
+ * app's own session, with an 8 s limit and at most 64 KB read. A 3xx comes back with its Location for healthVerdict.
+ */
+function fetchHealth(origin: string): Promise<HealthAnswer> {
+  return new Promise((resolve, reject) => {
+    const req = net.request({ url: `${origin}/api/health`, method: 'GET', session: session.fromPartition('mycel-ui'), redirect: 'manual', useSessionCookies: false })
+    req.setHeader('accept', 'application/json')
+    const timer = setTimeout(() => {
+      req.abort()
+      reject(new Error('timeout'))
+    }, 8000)
+    req.on('redirect', (status, _method, location) => {
+      clearTimeout(timer)
+      req.abort()
+      resolve({ status, location, relayError: null, bodyOk: false })
+    })
+    req.on('response', (res) => {
+      const chunks: Buffer[] = []
+      let size = 0
+      res.on('data', (c: Buffer) => {
+        size += c.length
+        if (size <= 65_536) chunks.push(c)
+      })
+      res.on('end', () => {
+        clearTimeout(timer)
+        const header = res.headers['x-relay-error']
+        let bodyOk = false
+        try {
+          bodyOk = size <= 65_536 && Health.safeParse(JSON.parse(Buffer.concat(chunks).toString('utf8'))).success
+        } catch {
+          bodyOk = false
+        }
+        resolve({ status: res.statusCode, location: null, relayError: (Array.isArray(header) ? header[0] : header) ?? null, bodyOk })
+      })
+      res.on('error', (e: Error) => {
+        clearTimeout(timer)
+        reject(e)
+      })
+    })
+    req.on('error', (e) => {
+      clearTimeout(timer)
+      reject(e)
+    })
+    req.end()
+  })
 }
 
 function clamp(v: number, lo: number, hi: number) {

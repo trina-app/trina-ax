@@ -36,8 +36,8 @@ test('base64 boundary is exact and malformed or oversized chunks are rejected', 
 })
 test('team address keeps the page of an invite or team link, never a cut-off link; edition settings cannot add capabilities or URLs', () => {
   expect(parseTeamAddress('team.example')).toEqual({ origin: 'https://team.example', entryPath: '/' })
-  expect(parseTeamAddress('https://team.example/invite/abcd1234')).toEqual({ origin: 'https://team.example', entryPath: '/invite/abcd1234' })
-  expect(parseTeamAddress('https://team.example/join#t=0INpvAqjFG3OhdmwH4CfCuxr')).toEqual({ origin: 'https://team.example', entryPath: '/join#t=0INpvAqjFG3OhdmwH4CfCuxr' })
+  expect(parseTeamAddress('https://team.example/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk')).toEqual({ origin: 'https://team.example', entryPath: '/invite/K-PTTVic_Q_pfdW4-06s4zsJJlKEInlO2rHLV9HryGk' })
+  expect(parseTeamAddress('https://team.example/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E')).toEqual({ origin: 'https://team.example', entryPath: '/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E' })
   // another page of the team (copied from a browser's address bar) opens the team's start
   for (const s of ['https://team.example/random', 'https://team.example?token=a']) expect(parseTeamAddress(s)).toEqual({ origin: 'https://team.example', entryPath: '/' })
   for (const s of ['http://team.example', 'https://user:pass@team.example', 'javascript:alert(1)', 'https://team.example/invite/x', 'https://team.example/join', 'acme']) expect(parseTeamAddress(s)).toBeNull()
@@ -102,6 +102,11 @@ test('the phone has no "create a team" link (App Review 3.1.1, Google Play payme
   expect(app).not.toMatch(/signup|accountHost|noTeamCreate|account\./i)
   // leaving happens in connect(), which only the box's yes (or a first team) reaches
   expect(app.match(/leaveTeam\(/g)?.length).toBe(1)
-  expect(app).toMatch(/async function connect\(address: TeamAddress\) \{\n\s*if \(team && team\.origin !== address\.origin\) await leave\(team\.origin\)/)
+  // the new team is saved before the old one is left: a refused save leaves the phone where it was
+  const connect = app.slice(app.indexOf('  async function connect(address: TeamAddress) {'), app.indexOf('  async function connect(address: TeamAddress) {') + 600)
+  expect(connect.indexOf('await saveTeamUrl(address.origin)')).toBeGreaterThan(0)
+  expect(connect.indexOf('if (old) await leave(old)')).toBeGreaterThan(connect.indexOf('await saveTeamUrl(address.origin)'))
+  const leave = app.slice(app.indexOf('  async function leave(origin: string) {'), app.indexOf('  async function leave(origin: string) {') + 400)
+  expect(leave).not.toContain('saveTeamUrl(null)')
   expect(app).toMatch(/onChangeTeam=\{\(\) => setAdding\(true\)\}/)
 })
