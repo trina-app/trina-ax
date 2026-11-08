@@ -186,6 +186,10 @@ test("the welcome steps' invite step: tick, say for whom, make the owner link; a
   await page.goto('/welcome')
   await page.getByTestId('welcome-profile').getByRole('button', { name: '나중에 하기' }).click()
   await page.getByTestId('skills-later').click()
+  // 팀 파일, then 도구 연결, put off
+  await expect(page.getByTestId('welcome-team-files')).toBeVisible()
+  await page.getByTestId('welcome-later').click()
+  await expect(page.getByTestId('welcome-tools')).toBeVisible()
   await page.getByTestId('welcome-later').click()
   await expect(page.getByTestId('invite-step')).toBeVisible()
   // unticked: the team link's message as before
