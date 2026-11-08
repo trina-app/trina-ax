@@ -14082,8 +14082,13 @@ names it, and the four kept skills (DS3) are chosen, not installed for the owner
   자연스러운 글 (the company's own Korean writing skill); `adapted` for the English one (Siqi Chen's MIT "humanizer",
   rewritten), the only link out ("원본 보기 ↗" → github.com/blader/humanizer). Teams in id, ja and es get the English text,
   so its source line and example.
-- **Examples** (EXAMPLES-PLAN.md): registered in `PACK_EXAMPLES` by the language of the skill text and the skill name
-  once their files exist; none yet, so the viewer says "예시를 준비하고 있어요". An image is
+- **Examples** (EXAMPLES-PLAN.md): registered in `PACK_EXAMPLES` (`onboarding/skill-examples.ts`, which the web tests'
+  mock imports too) by the language of the skill text and the skill name; all eight are in (each kept skill in Korean
+  and English), made by the skills themselves on a local dev server for the invented 예시커피 / Example Coffee
+  (`examples/data/example-coffee/`: its intro, a type-only wordmark, no photos, no web search), so the viewer says
+  "예시를 준비하고 있어요" only for a skill shipped without one. Each records the `skillHash` of the SKILL.md it was made
+  from (the first 12 hex digits of its sha256), and the catalog test fails when a SKILL.md changes until its example is
+  made again; `web/scripts/skill-examples.ts` makes the picture from the artifact. An image is
   `web/public/skill-examples/<locale>/<name>.webp` (≤ 90 KB, `PACK_EXAMPLE_LIMITS`), loaded only when the viewer opens;
   a text is `resources/skill-packs/<pack>/<locale>/<name>/EXAMPLE.md`, imported as text like the SKILL.md (front matter
   `fictional: true`, `company`, `made`, `engine`, `skillHash`, then a before → after excerpt in Markdown, ≤ 900 / 1,200
