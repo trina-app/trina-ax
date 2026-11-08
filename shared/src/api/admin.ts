@@ -9,6 +9,7 @@ import { AuditEntry, Budget, EngineAccount, Folder, FolderRuleInput, Group, Invi
 import { Password, PersonName, Username } from './auth'
 import { TEAM_ICON_MAX_BYTES, TEAM_ICON_TYPES, TEAM_ICON_VERSION_RE } from '../team-icon'
 import { SealedSecret } from './credentials'
+import { EndedConnection, HandoverConnectionRef, LeadFor } from './handover'
 
 // ---------------- users ----------------
 export const CreateUserBody = z.object({
@@ -68,8 +69,14 @@ export const UsersResponse = z.object({
   deletionRequested: z.array(UserId).optional(),
 })
 export type UsersResponse = z.infer<typeof UsersResponse>
-/** Hand the owner role to another active member (the old owner becomes admin). */
-export const TransferOwnershipBody = z.object({ userId: UserId, password: z.string().min(1).max(256) })
+/** Hand the owner role to another active member (the old owner becomes admin). The target must be active, not the
+ * caller, past their temporary password and signed in at least once. `end`: the caller's own connections to end after
+ * the transfer (handover.ts HandoverState.connections; the confirm starts with all of them ticked); omitted = none. */
+export const TransferOwnershipBody = z.object({ userId: UserId, password: z.string().min(1).max(256), end: z.array(HandoverConnectionRef).max(100).default([]) })
+/** `ended`: what became of each connection asked to be ended (handover.ts EndedConnection). Older servers answer
+ * `{ ok: true }` only. A transfer that lost a race (the owner changed meanwhile) is 409 with params.reason
+ * `owner_changed`; a target not ready (temporary password, never signed in) is 409 with `target_not_ready`. */
+export const TransferResult = z.object({ ok: z.literal(true), ended: z.array(EndedConnection).optional() })
 
 // ---------------- invites ----------------
 export const CreateInviteBody = z.object({
@@ -77,9 +84,15 @@ export const CreateInviteBody = z.object({
   groupIds: z.array(Uuid7).default([]),
   /** default 7 days (tab 1, tab 5) */
   expiresInHours: z.number().int().min(1).max(24 * 30).default(24 * 7),
+  /** "이 사람이 팀장이에요 · 누구에게 보내나요?" (docs/DECISIONS.md "W6"; handover.ts): the owner only (403 otherwise; 409
+   * reason lead_not_offered on a hosted team without handoverSafe). The invite is then always a member in the team's
+   * group for 3 days (role, groupIds and expiresInHours are not used; role admin is refused), and the open lead invite
+   * before it stops working in the same write. A hint only: nothing about the join changes a role. */
+  leadFor: LeadFor.optional(),
 })
-/** No mail in v1: the admin copies the link. The token is shown only here. */
-export const CreatedInvite = z.object({ invite: Invite, token: z.string(), url: z.string() })
+/** No mail in v1: the admin copies the link. The token is shown only here. `replacedLead`: a lead invite made with
+ * leadFor stopped an earlier open one (the form says "이전에 보낸 팀장 링크는 더 이상 안 돼요"). */
+export const CreatedInvite = z.object({ invite: Invite, token: z.string(), url: z.string(), replacedLead: z.boolean().optional() })
 
 // ---------------- groups ----------------
 export const GroupBody = z.object({ name: z.string().trim().min(1).max(100), description: z.string().max(500).nullable().optional(), memberIds: z.array(UserId).default([]) })
@@ -536,7 +549,7 @@ export const ADMIN = {
   deleteUser: endpoint({ method: 'DELETE', path: '/api/admin/users/:id', auth: 'admin', owner: 'A', query: DeleteUserQuery, body: DeleteUserBody, response: empty, status: 204, summary: 'The owner removes anyone but themselves; an admin removes a member only (never the owner, an admin or themselves), with their password again in the body. Sessions end now, chats and memories are purged after the chat retention period; the personal folder goes to the owner or is deleted.' }),
   resetPassword: endpoint({ method: 'POST', path: '/api/admin/users/:id/reset-password', auth: 'admin', owner: 'A', body: ResetPasswordBody, response: ResetPasswordResult, summary: 'New temporary password (given, or a memorable one is made); the person must change it at next sign-in; valid 7 days; audited.' }),
   createResetLink: endpoint({ method: 'POST', path: '/api/admin/users/:id/reset-link', auth: 'admin', owner: 'A', response: ResetLinkResult, summary: 'One-time password reset link (24 h) to hand over; ends their sessions when used; audited.' }),
-  transferOwnership: endpoint({ method: 'POST', path: '/api/admin/transfer-ownership', auth: 'owner-reauth', owner: 'A', body: TransferOwnershipBody, response: Ok, summary: 'Make another member the owner (password re-entry); the old owner becomes admin.' }),
+  transferOwnership: endpoint({ method: 'POST', path: '/api/admin/transfer-ownership', auth: 'owner-reauth', owner: 'A', body: TransferOwnershipBody, response: TransferResult, summary: 'Make another member the owner (password re-entry; 5 wrong tries per 15 minutes, then the owner gets an Inbox note): one locked write, 409 when the owner changed meanwhile. The old owner becomes admin; every lead flag is cleared; the connections in `end` that are the caller\'s own are ended after the commit. Both people, the other admins and their open windows are told.' }),
 
   listInvites: endpoint({ method: 'GET', path: '/api/admin/invites', auth: 'admin', owner: 'A', response: z.object({ items: z.array(Invite) }), summary: 'Open and used invite links.' }),
   createInvite: endpoint({ method: 'POST', path: '/api/admin/invites', auth: 'admin', owner: 'A', status: 201, body: CreateInviteBody, response: CreatedInvite, summary: 'New invite link (copy it; no mail in v1).' }),

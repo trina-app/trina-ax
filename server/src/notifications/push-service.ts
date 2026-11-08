@@ -13,6 +13,7 @@ import { pushMessages, TEXT } from './text'
 import { eventEnabled, getPreferences } from './preferences'
 import { onPushCancellation, cancelPushUser, pushPathOf } from './push-events'
 import { noticeWanted } from '../rooms/alerts'
+import { leadPushWanted } from '../admin/handover-notices'
 import { roomNoticeOut } from '../rooms/inbox'
 import { readPushConfig, pushConfigKey, type PushConfig } from './push-config'
 import { bounded, createPushTransport, pushFailure, validatePushSubscription, type PushSubscription, type PushTransport } from './push-transport'
@@ -38,6 +39,8 @@ const services=new WeakMap<AppContext,PushService>()
 const SOURCES=[
   {inbox:'notification_inbox',deliveries:'push_deliveries',only:'',wanted:null},
   {inbox:'room_notices',deliveries:'room_push_deliveries',only:'AND quiet=0',wanted:noticeWanted},
+  // 팀장 넘기기 (migration 270): only the lead join is pushed, and only while its card still holds
+  {inbox:'handover_notices',deliveries:'handover_push_deliveries',only:"AND event_type='owner.lead_joined'",wanted:leadPushWanted},
 ] as const
 type Source=typeof SOURCES[number]
 export class PushService {

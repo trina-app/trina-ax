@@ -6,7 +6,7 @@ import path from 'node:path'
 import type { Context } from 'hono'
 import type { z } from 'zod'
 import { tempPasswordCharsOk } from '@mycel/shared'
-import type { CreateUserBody, Locale, ResetPasswordBody, Role, UpdateUserBody, User } from '@mycel/shared/api'
+import type { CreateUserBody, EndedConnection, HandoverConnectionRef, Locale, ResetPasswordBody, Role, UpdateUserBody, User } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import type { AppEnv } from '../http/env'
 import { fail } from '../http/errors'
@@ -28,6 +28,8 @@ import { integrationsOf } from '../integrations/connections/service'
 import { syncRoomsNow } from '../rooms/service'
 import { closeDeletionRequest } from '../auth/deletion-requests'
 import { notificationsOf, notifyTemplateOffers, settleDeletionRequestNotices } from '../notifications/service'
+import { newId } from '../db'
+import { endConnections, handoverText, setRecoveryLockIn, tellTransfer } from './handover'
 
 type In<T extends z.ZodType> = z.output<T>
 
@@ -307,19 +309,61 @@ export function guardResetLink(c: Context<AppEnv>, ctx: AppContext, id: string):
   return target
 }
 
-export function transferOwnership(c: Context<AppEnv>, ctx: AppContext, userId: string): void {
+/**
+ * 팀장 넘기기 (docs/DECISIONS.md "W6"; admin/handover.ts). The password was checked by the route (owner-reauth: 5 wrong
+ * tries per 15 minutes) before this runs. Everything that decides is read again inside one `.immediate()` write, so two
+ * transfers at once can never leave two owners (security review S1: the role check ran before two awaits, and the
+ * swap never looked at what it changed):
+ *   - the caller is still the active owner, the target an active non-owner who changed their temporary password and
+ *     signed in at least once (an expiring temporary password would strand the team: nobody can reset an owner);
+ *   - the demote and the promote must each change exactly one row; anything else rolls back with 409 owner_changed.
+ * In the same write: the ex-owner's admin invites stop (an admin may not make them), every lead flag is cleared (used
+ * or not: no card is left urging a handover to someone the old owner picked), the transfer is recorded with where it
+ * came from (`via`: lead_card when the target joined with this owner's lead link, decided here, never by the client),
+ * and on a hosted team with handoverSafe the recovery lock is set (system/cli.ts reset-link). After the commit: the
+ * access change is applied, the connections the caller asked to end are ended (each on its own; a failure never undoes
+ * the transfer), and both people, the other admins and their open windows are told.
+ * Sessions are not ended: the role is read on every request (auth/service.ts resolve).
+ */
+export async function transferOwnership(c: Context<AppEnv>, ctx: AppContext, b: { userId: string; end?: readonly HandoverConnectionRef[] }): Promise<{ ok: true; ended: EndedConnection[] }> {
   const auth = c.get('auth')!
   const locale = c.get('locale')
-  if (userId === auth.user.id) fail('forbidden', msg('notOnSelf', locale))
-  const target = liveUser(ctx, userId)
-  if (target.status !== 'active') fail('conflict', msg('accountDisabled', locale))
+  const me = auth.user.id
+  if (b.userId === me) fail('forbidden', msg('notOnSelf', locale))
+  const changedMeanwhile = () => fail('conflict', handoverText('ownerChanged', locale), { params: { reason: 'owner_changed' } })
+  const ready = (t: UserRow) => {
+    if (t.status !== 'active') fail('conflict', msg('accountDisabled', locale))
+    if (t.role === 'owner') changedMeanwhile()
+    if (t.must_change_password || !t.last_seen_at) fail('conflict', handoverText('targetNotReady', locale), { params: { reason: 'target_not_ready' } })
+  }
+  ready(liveUser(ctx, b.userId))
+  const before = captureState(ctx.db)
+  const at = new Date(authOf(ctx).now()).toISOString()
+  const transferId = newId()
+  let via: 'lead_card' | 'members_menu' = 'members_menu'
   ctx.db.transaction(() => {
-    ctx.db.query("UPDATE users SET role = 'admin' WHERE id = ? AND role = 'owner'").run(auth.user.id)
-    ctx.db.query("UPDATE users SET role = 'owner' WHERE id = ?").run(userId)
+    const caller = ctx.db.query('SELECT role, status, deleted_at FROM users WHERE id = ?').get(me) as { role: Role; status: string; deleted_at: string | null } | null
+    if (!caller || caller.deleted_at || caller.status !== 'active' || caller.role !== 'owner') changedMeanwhile()
+    ready(liveUser(ctx, b.userId))
+    const lead = ctx.db.query('SELECT id FROM invites WHERE lead_hint = 1 AND lead_hint_by = ? AND used_by = ? AND used_at IS NOT NULL LIMIT 1').get(me, b.userId) as { id: string } | null
+    if (lead) via = 'lead_card'
+    if (ctx.db.query("UPDATE users SET role = 'admin' WHERE id = ? AND role = 'owner' AND status = 'active' AND deleted_at IS NULL").run(me).changes !== 1) changedMeanwhile()
+    if (ctx.db.query("UPDATE users SET role = 'owner' WHERE id = ? AND role != 'owner' AND status = 'active' AND deleted_at IS NULL AND must_change_password = 0").run(b.userId).changes !== 1) changedMeanwhile()
     // the ex-owner is now an admin, who may not make admin invites: the ones made while owner die with that power
     // (their member invites stay: an admin may still make those). Reset links need nothing here: resetUsable
     // already limits an admin's links to members, so those made for admins or the new owner stop working.
-    const revoked = revokeInvitesBy(ctx, auth.user.id, 'admin')
-    audit(ctx.db, { actor: auth.user.id, action: 'owner.transfer', target: userId, detail: { from: auth.user.id, ...(revoked ? { adminInvitesRevoked: revoked } : {}) } })
-  })()
+    const revoked = revokeInvitesBy(ctx, me, 'admin')
+    const unflagged = ctx.db.query('UPDATE invites SET lead_hint = 0 WHERE lead_hint = 1').run().changes
+    ctx.db.query('INSERT INTO owner_transfers (id, from_user, to_user, via, invite_id, at) VALUES (?, ?, ?, ?, ?, ?)').run(transferId, me, b.userId, via, lead?.id ?? null, at)
+    const locked = setRecoveryLockIn(ctx, transferId, at)
+    audit(ctx.db, { actor: me, action: 'owner.transfer', target: b.userId, detail: { from: me, to: b.userId, via, ...(revoked ? { adminInvitesRevoked: revoked } : {}), ...(unflagged ? { leadHintsCleared: unflagged } : {}), ...(locked ? { recoveryLocked: true } : {}) } })
+  }).immediate()
+  // what an owner or admin handles in the account-deletion inbox follows the roles (the reconcile pass gives each
+  // their entries again: an admin only the members')
+  try { notificationsOf(ctx).forgetDeletionNotices({ userId: me }) } catch { /* the inbox row ages out */ }
+  try { notificationsOf(ctx).forgetDeletionNotices({ requesterId: b.userId }) } catch { /* the inbox row ages out */ }
+  afterAccessChange(ctx, before, { actor: me, target: b.userId })
+  const ended = b.end?.length ? await endConnections(ctx, me, b.end) : []
+  tellTransfer(ctx, { id: transferId, from: me, to: b.userId }, ended)
+  return { ok: true, ended }
 }

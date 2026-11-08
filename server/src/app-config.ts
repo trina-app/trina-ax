@@ -190,6 +190,12 @@ export const AppConfigFile = z.object({
    * the default) or "hosted" (the hosted service: the operator owns server.json, the team's server account only reads
    * it; the control plane writes it at enrolment). Office mode and dev stay what `office` / `mode` say. */
   deployment: z.enum(['self', 'hosted']).optional(),
+  /** 팀장 넘기기 on the hosted service (server/src/admin/handover.ts, docs/DECISIONS.md "W6"): the hosting operator sets it
+   * once its control plane refuses owner and admin reset links after a transfer (both forms of `reset-link`) until the
+   * new owner claims recovery. Until then a hosted team gets no lead flag and no card, and both people are told who can
+   * still reset passwords. With it on, a transfer sets the recovery lock that `mycel-ctl reset-link` keeps. Ignored on a
+   * self-installed server, office mode and dev. */
+  handoverSafe: z.boolean().optional(),
   /** the knowledge graph (server/src/knowledge-graph/, docs/KNOWLEDGE-GRAPH.md): `codegraph` is the CodeGraph command
    * to use (a path; relative to this file's folder), '' never to use one. Absent: `codegraph` on the PATH, if any. */
   knowledgeGraph: z.object({ codegraph: z.string().max(1000).optional() }).strict().optional(),
@@ -238,6 +244,8 @@ export interface AppConfig {
   validateResponses: boolean
   /** see AppConfigFile.deployment; absent = "self" (server/src/system/deployment.ts deploymentOf) */
   deployment?: 'self' | 'hosted'
+  /** see AppConfigFile.handoverSafe; absent = off */
+  handoverSafe?: boolean
   /** first-run setup token (POST /api/setup). Dev: printed at start; prod: written by the installer. */
   setupToken: string | null
   /** demo mode (MYCEL_DEMO, `bun run demo:company`): the fictional company's demo people. Only ever set on a development
@@ -339,6 +347,7 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
     validateResponses: f.validateResponses ?? mode === 'dev',
     setupToken: env[P + 'SETUP_TOKEN'] ?? null,
     ...(deployment ? { deployment } : {}),
+    ...(f.handoverSafe ? { handoverSafe: true } : {}),
     ...(demo ? { demo } : {}),
     ...(f.knowledgeGraph?.codegraph !== undefined ? { knowledgeGraph: { codegraph: f.knowledgeGraph.codegraph === '' ? '' : abs(f.knowledgeGraph.codegraph) } } : {}),
   }

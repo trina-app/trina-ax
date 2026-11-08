@@ -21,6 +21,7 @@ import { roomNoticeOut, roomRowOf, roomRowOut, roomRows, type RoomRow } from '..
 import { getUser } from '../auth/users'
 import { teamDefaultLocale } from '../admin/settings'
 import { GOAL_PEOPLE } from '@mycel/shared/api'
+import { handoverNoticeOut, isHandoverEvent, type HandoverEvent } from '../admin/handover-notices'
 
 /** At most this many template notices per 30-second backstop pass (security review 2, #1). */
 const OFFER_BATCH = 500
@@ -44,15 +45,16 @@ const isTemplateEvent = (e: NotificationEventType): e is TemplateNoticeEvent => 
 /** a reconnect notice's source: the template and the version its address, sign-in method or header changed to (one
  * notice per change, never one per member's dropped row) */
 const reconnectSource = (templateId: string, version: number) => `${templateId}.v${version}`
-const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : 'notification_inbox'
+const tableOf = (e: NotificationEventType) => isSkillEvent(e) ? 'skill_notices' : isDevEnvEvent(e) ? 'dev_env_notices' : e === 'integration.request' ? 'integration_request_notices' : e === 'onboarding.ai_request' ? 'onboarding_notices' : e === 'team.joined' ? 'team_join_notices' : e === 'onboarding.first_run' ? 'onboarding_goal_notices' : isRoomEvent(e) ? 'room_notices' : e === 'account.deletion_request' ? 'account_deletion_notices' : isTemplateEvent(e) ? 'integration_template_notices' : e === 'drive.share_reconnect' ? 'drive_share_notices' : e === 'skills.merge_waiting' ? 'skill_merge_notices' : e === 'credential.change' ? 'credential_change_notices' : isHandoverEvent(e) ? 'handover_notices' : 'notification_inbox'
 /** One inbox over the tables: skill notices (migration 211, R2-SKILL-12), dev environment notices (migration 219),
  * requests to connect a service (migration 220), a member's request for an AI connection (migration 231), joins
  * through the team invite link (migration 111), a member's first run of a team skill during the 7-day team goal
  * (migration 223), room notices (a DM message or an @mention, migration 241), a person's request to have their
  * account deleted (migration 244), connection templates to connect or reconnect (migration 334) and, for admins, a
  * Drive shared with the team that needs a new sign-in (migration 337) and, for the owner at the end of the welcome
- * steps, the skills to merge that waited for it (migration 253) have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
-const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices'] as const
+ * steps, the skills to merge that waited for it (migration 253), and the handover's (a join with the owner's lead link,
+ * a transfer, a locked password check: migration 270) have their own tables, because notification_inbox has a fixed event_type CHECK list and tables are never rebuilt. */
+const NOTICE_TABLES = ['notification_inbox', 'skill_notices', 'dev_env_notices', 'integration_request_notices', 'onboarding_notices', 'team_join_notices', 'onboarding_goal_notices', 'room_notices', 'account_deletion_notices', 'integration_template_notices', 'drive_share_notices', 'skill_merge_notices', 'credential_change_notices', 'handover_notices'] as const
 const union = (tables: readonly string[]) => `(${tables.map((t) => `SELECT id,user_id,event_type,source_id,created_at,read_at,suppressed FROM ${t}`).join(' UNION ALL ')})`
 const INBOX = union(NOTICE_TABLES)
 /** What the Inbox lists and counts besides the rooms' notices, newest first: every other notice. The rooms' notices
@@ -143,6 +145,17 @@ export class Notifications {
    * source is the new account's id only. Shown always: there is no setting for it, and a join is rare. */
   teamJoined(userId: string, joinedUserId: string, createdAt = new Date().toISOString()) {
     this.record(userId, 'team.joined', joinedUserId, createdAt, true)
+  }
+  /** 팀장 넘기기 (admin/handover.ts): a join with the owner's lead link (source: the invite; also pushed), a transfer
+   * (source: the transfer, to both people and the other admins), a locked password check (source: its window). Shown
+   * always: there is no setting for them, and each needs the person's eye. */
+  handoverNotice(userId: string, event: HandoverEvent, sourceId: string, createdAt = new Date().toISOString()) {
+    this.record(userId, event, sourceId, createdAt, true)
+  }
+  /** The owner handed the team over: their lead-join notices count as read (the card and its [넘기기] are gone). */
+  settleLeadNotices(userId: string) {
+    const n = this.ctx.db.query("UPDATE handover_notices SET read_at=? WHERE user_id=? AND event_type='owner.lead_joined' AND read_at IS NULL").run(new Date().toISOString(), userId).changes
+    if (n && this.active(userId)) this.signal(userId)
   }
   /** A person asks this owner (or admin) to delete their account (auth/deletion-requests.ts). The source is the person's id only;
    * one row per owner or admin and person (UNIQUE, migration 244): asking again after a cancel re-arms it (unread, new time)
@@ -379,6 +392,8 @@ export class Notifications {
         ...(contribution ? { contribution } : {}) }
     }
     if (isDevEnvEvent(row.event_type)) return this.devEnvOut(row)
+    // the handover's: what each row offers is read now (admin/handover-notices.ts)
+    if (isHandoverEvent(row.event_type)) return handoverNoticeOut(this.ctx, row)
     // a room notice links to the room (a reply: its thread) and says who wrote what where while the person is still in
     // the room and may read the message (rooms/inbox.ts); the first line of the message only in the Inbox's list
     if (isRoomEvent(row.event_type)) {

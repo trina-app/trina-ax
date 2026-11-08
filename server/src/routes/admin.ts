@@ -26,6 +26,8 @@ import { credentialsOf, noticeOwners } from '../credentials/store'
 import { unsealOrFail } from '../credentials/service'
 import { speechKeyStatus, writeSpeechKey } from '../credentials/speech-key'
 import { createUser, deleteUser, guardResetLink, listUsers, resetPassword, transferOwnership, updateUser } from '../admin/users'
+import { dismissLead, handoverState, noteReauthFailure } from '../admin/handover'
+import { onReauthFailed } from '../http/route'
 import { openDeletionRequests } from '../auth/deletion-requests'
 import { withoutAi } from '../credentials/access'
 import type { Locale } from '@mycel/shared/api'
@@ -83,7 +85,12 @@ export const adminRoutes: RouteModule = {
       guardResetLink(c, ctx, params.id)
       return createResetLink(ctx, params.id, auth.user.id, linkBase(c, ctx))
     })
-    kit.handle(API.transferOwnership, ({ c, body }) => { transferOwnership(c, ctx, body.userId); return { ok: true as const } })
+    kit.handle(API.transferOwnership, ({ c, body }) => transferOwnership(c, ctx, body))
+    // 팀장 넘기기 (admin/handover.ts): the owner's state and the card's ✕; a wrong password that locks the transfer's
+    // check tells the owner (http/route.ts onReauthFailed)
+    kit.handle(API.handoverState, ({ auth }) => handoverState(ctx, auth.user.id))
+    kit.handle(API.dismissLeadCard, ({ c, body }) => { dismissLead(c, ctx, body.inviteId); return { ok: true as const } })
+    onReauthFailed(ctx, (ep, userId) => noteReauthFailure(ctx, ep, userId))
 
     // ---------------- invites ----------------
     kit.handle(API.listInvites, () => ({ items: listInvites(ctx) }))

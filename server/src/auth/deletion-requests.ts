@@ -39,7 +39,7 @@ export function myDeletionRequest(c: Context<AppEnv>, ctx: AppContext): AccountD
 export function requestAccountDeletion(c: Context<AppEnv>, ctx: AppContext): AccountDeletionRequest {
   const { user } = c.get('auth')!
   const locale = c.get('locale')
-  // the owner's account is deleted only after someone else became the owner (Admin › Team settings): a state to
+  // the owner's account is deleted only after someone else became the owner (Admin › Members › ··· › 팀장 넘기기): a state to
   // change first, not a permission the caller lacks
   if (user.role === 'owner') fail('conflict', msg('deletionOwner', locale))
   const nowMs = authOf(ctx).now()
