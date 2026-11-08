@@ -13778,8 +13778,9 @@ visible transcript, so the visible messages are what gets disclosed: the same in
   the newest answer to a first message; otherwise "not all known" (an older chat, or the first message edited since):
   "이 채팅이 참고한 자료를 다 알 수 없어요" and everyone else counts. The order is the order answers were written (rowid),
   not the clock. An answer that ran dev environment commands (a `box_shell` step or a `devEnvRun`, also a sub-agent's)
-  is "not all known" too: a command reads whatever the person may read there and neither the source list nor the scope
-  records it (`useOf`, so "대화방에 보내기" counts it the same way now; the PC runner must too once it is merged). The
+  is "not all known" too, also when a crash lost the step and only its `dev_env.command` audit line (with the turn id)
+  is left: a command reads whatever the person may read there and neither the source list nor the scope records it
+  (`useOf`, so "대화방에 보내기" counts it the same way now; the PC runner must too once it is merged). The
   audience is the project's people now but the creator. Left out: what all of them read, and the hash rule (identical content a turn of this chat saved where all of
   them read it now, still there). `rooms_seen` without a room in the scope counts everyone, and a member who would see a
   room it read but for old answers hidden from them is never shown it: 409 `share_hidden`, confirmed or not (as
@@ -13796,7 +13797,8 @@ visible transcript, so the visible messages are what gets disclosed: the same in
   `confirmKey`: an HMAC with the process secret of "대화방에 보내기" over `kind: 'chat.share'`, the chat, the project, the
   audience, each source with who misses it, the places, the memories and the id of every message on every branch. Sent
   back while nothing changed, it shares; anything changed (someone joined or left, a rule, a new message on any branch,
-  a restart) is asked again with `reason: 'changed'`. The check waits for file hashes, so the state it was made for
+  a restart) is asked again with `reason: 'changed'`. A key that is sent must match also when nothing applies (a yes to
+  "share with 3 people?" is no yes once 30 would see it), and the audit's `confirmed` means a key matched. The check waits for file hashes, so the state it was made for
   (the chat's project, its people, every message) is read again synchronously right before the update; a change during
   the wait (the chat moved to another project, someone joined, a new message) is checked again, never shared as it is.
 - **Sharing.** The refusals are checked again synchronously right before the update, so no turn of the private chat
@@ -13836,7 +13838,10 @@ visible transcript, so the visible messages are what gets disclosed: the same in
   `cat` a finance file through `box_shell` was shared at once (must-fix: "not all known", above, for both features);
   the title menu's item shared on one click (now `ask`); "before the share" and the scope's order went by the clock (now
   the turns' mark and rowid); earlier steps kept a connection's tool name; the memory note was skipped with nobody else
-  in the project; a move during the check could share into a project nobody checked (fixed during the review). Kept,
+  in the project; a move during the check could share into a project nobody checked (fixed during the review). Round 2
+  (on the fixes): a stale or made-up key shared when nothing applied (should-fix: any key sent must match); notes taken:
+  the command check also reads the `dev_env.command` audit line, an answer without a turn row counts as before the share.
+  An older build after a rollback shows the earlier steps in full (inherent to rolling back). Kept,
   written down: names the AI saw only through list or glob, and the folder, skill and connection lists of a private
   chat's instructions, are not recorded (the known limit of "대화방에 보내기", here for a whole chat); in a project of two
   the count says whether the other can read a place (as a two-person room does for "대화방에 보내기"; both behind the

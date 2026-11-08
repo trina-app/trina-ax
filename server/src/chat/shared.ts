@@ -153,9 +153,11 @@ export function chatView(rt: ChatRuntime, viewer: string, r: ChatRow, o: { aud?:
   return { ...c, title: hide(c.title), shared: sharedOf(rt, viewer, r, o.aud ?? new Audiences(rt.db, rt.files)) }
 }
 
-/** Was this shared chat shared after it was made (chat/share-chat.ts marks the turns it had then SHARED_LATER)? */
+/** Was this shared chat shared after it was made (chat/share-chat.ts marks the turns it had then SHARED_LATER)? An answer
+ * without a turn row (older data: a chat shared at creation never has one) counts as from before the share too. */
 const sharedLater = (db: Database, r: Pick<ChatRow, 'id'>): boolean =>
-  !!db.query('SELECT 1 FROM turns WHERE chat_id = ? AND shared_checked = ? LIMIT 1').get(r.id, SHARED_LATER)
+  !!db.query(`SELECT 1 FROM messages m LEFT JOIN turns t ON t.id = m.turn_id WHERE m.chat_id = ? AND m.role = 'assistant'
+    AND (t.id IS NULL OR t.shared_checked = ?) LIMIT 1`).get(r.id, SHARED_LATER)
 
 /** How `viewer` sees the messages of a shared chat (ChatStore.toMessage); undefined for a chat of one person. */
 export function messageView(rt: ChatRuntime, r: Pick<ChatRow, 'id' | 'shared_at' | 'project_id'>, viewer: string, locale: Locale): MessageView | undefined {

@@ -124,12 +124,14 @@ export function filesRead(db: Database, ids: readonly string[]): BranchUse['file
     .filter((r) => !notCounted(r.path)) : []
 }
 
-/** Did one of these answers run commands in the dev environment (devenv/tool.ts box_shell, a step of it or of its
- * sub-agents)? A command reads whatever the person may read there, and neither the answer's source list nor the read
- * scope records it. */
+/** Did one of these answers run commands in the dev environment (devenv/tool.ts box_shell: a step of it or of its
+ * sub-agents, or the dev_env.command audit line of its turn, written even when a crash lost the step)? A command reads
+ * whatever the person may read there, and neither the answer's source list nor the read scope records it. */
 function ranCommands(db: Database, ids: readonly string[]): boolean {
   if (!ids.length) return false
-  return !!db.query(`SELECT 1 FROM messages WHERE id IN (${ids.map(() => '?').join(',')}) AND (steps LIKE '%box_shell"%' OR steps LIKE '%"devEnvRun"%') LIMIT 1`).get(...ids)
+  if (db.query(`SELECT 1 FROM messages WHERE id IN (${ids.map(() => '?').join(',')}) AND (steps LIKE '%box_shell"%' OR steps LIKE '%"devEnvRun"%') LIMIT 1`).get(...ids)) return true
+  const turns = turnsOf(db, ids)
+  return turns.length > 0 && !!db.query(`SELECT 1 FROM audit_log WHERE action = 'dev_env.command' AND json_extract(detail, '$.turnId') IN (${turns.map(() => '?').join(',')}) LIMIT 1`).get(...turns)
 }
 
 /** The rest of a use once it is known whether the chat's scope describes these answers: the scope's sources the

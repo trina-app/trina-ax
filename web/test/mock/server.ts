@@ -3999,7 +3999,7 @@ export class MockServer {
       const memories = msgs.some((m) => m.role === 'user' && /memory/i.test(m.content))
       const confirmKey = `mock-share-${chat.id}-${this.shareEpoch}-${others.length}`
       // `ask` (the title menu): the question first even when nothing applies
-      if ((blind.size || memories || (c.body.ask && c.body.confirmKey === undefined)) && c.body.confirmKey !== confirmKey) {
+      if ((blind.size || memories || c.body.ask || c.body.confirmKey !== undefined) && c.body.confirmKey !== confirmKey) {
         return {
           status: 'confirm', audience: others.length, memories, confirmKey,
           provenance: blind.size ? { people: blind.size, places: [...places.values()], otherPlaces } : null,

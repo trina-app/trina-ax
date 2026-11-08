@@ -140,8 +140,9 @@ export async function shareChat(ctx: AppContext, rt: ChatRuntime, userId: string
     if (audience.length && prov.hidden) fail('conflict', tr('chatShareHidden', locale), { params: { reason: 'share_hidden' } })
     const people = prov.unknown ? audience.length : prov.missing.size
     const applies = people > 0 || memories
-    // `ask` (the title menu): the question comes first even when nothing applies; the key then shares
-    if ((applies || (body.ask && body.confirmKey === undefined)) && body.confirmKey !== key) {
+    // `ask` (the title menu): the question comes first even when nothing applies; the key then shares. A key that is
+    // sent must be this state's, whatever applies: a yes to "share with 3 people?" is no yes once 30 would see it
+    if ((applies || body.ask || body.confirmKey !== undefined) && body.confirmKey !== key) {
       return {
         status: 'confirm', audience: audience.length, memories, confirmKey: key,
         provenance: people > 0 ? { people, places: prov.places, otherPlaces: prov.otherPlaces, ...(prov.unknown ? { unknown: true as const } : {}) } : null,

@@ -365,6 +365,19 @@ describe('after sharing', () => {
     const id = dbChat('alice', { scope: [{ type: 'folder', id: folderId('shared') }], listed: true })
     dbAnswer(id, 'alice', null, 'ran it', { read: ['shared/glossary.md'], steps: [{ id: 'b1', kind: 'tool', tool: 'box_shell', label: 'Dev environment command · cat groups/finance/budget.md', status: 'ok', startedAt: at(), endedAt: at() }] })
     expect(confirmOf(await share('alice', id)).provenance).toMatchObject({ people: 3, unknown: true })
+    // a crash lost the step, the command's audit line is there
+    const lost = dbChat('alice', { scope: [{ type: 'folder', id: folderId('shared') }], listed: true })
+    const a = dbAnswer(lost, 'alice', null, 'ran it', { read: ['shared/glossary.md'] })
+    db().query("INSERT INTO audit_log (actor_id, action, target, detail, at) VALUES ('alice', 'dev_env.command', ?, ?, ?)").run(projectId, JSON.stringify({ turnId: a.turnId, command: 'cat x' }), at())
+    expect(confirmOf(await share('alice', lost)).provenance).toMatchObject({ unknown: true })
+  })
+
+  test('an answer without a turn row (older data) counts as before the share: its steps are the words alone for others', async () => {
+    const id = dbChat('alice', { scope: [] })
+    const a = dbAnswer(id, 'alice', null, 'old', { steps: [{ id: 's1', kind: 'tool', tool: 'read', label: 'Read · users/alice/old.md', status: 'ok', startedAt: at(), endedAt: at() }] })
+    db().query('DELETE FROM turns WHERE id = ?').run(a.turnId)
+    expect((await share('alice', id)).status).toBe('shared')
+    expect((await messages('bob', id)).find((m) => m.id === a.answerId)!.steps[0]!.label).toBe('파일 읽기')
   })
 
   test('the scope\'s order is the order answers were written: a clock set back does not hide an emptied scope', async () => {
@@ -383,6 +396,18 @@ describe('after sharing', () => {
     expect(sharedAt(id)).toBeNull()
     expect((await share('alice', id, r.confirmKey)).status).toBe('shared')
     expect(audits(id)).toEqual([{ actor: 'alice', audience: 3, people: 0, unknown: false, memories: false, confirmed: true }])
+    // a key that is sent must be this state's, also when nothing applies: stale or made up, it asks again
+    const other = dbChat('alice', { scope: [] })
+    dbAnswer(other, 'alice', null, 'nothing narrow', { read: ['shared/glossary.md'] })
+    const k1 = confirmOf(await h.api('alice').call(API.shareChat, { params: { id: other }, body: { ask: true } })).confirmKey
+    expect(confirmOf(await share('alice', other, 'not-a-key')).reason).toBe('changed')
+    db().query("INSERT INTO group_members VALUES ('finance', 'erin')").run()
+    try {
+      const again = confirmOf(await share('alice', other, k1))
+      expect(again).toMatchObject({ reason: 'changed', audience: 4, provenance: null })
+      expect(sharedAt(other)).toBeNull()
+      expect((await share('alice', other, again.confirmKey)).status).toBe('shared')
+    } finally { db().query("DELETE FROM group_members WHERE group_id = 'finance' AND user_id = 'erin'").run() }
   })
 
   test('a move during the check: the chat is checked again for the project it is in, never shared into one nobody checked', async () => {
