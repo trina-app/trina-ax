@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-08 10:25
 - Branch: `feat/first-run-open-links` (on top of `feat/first-run-one-box`, PR 1)
-- Status: in progress
+- Status: done
 - Where: trina-ax `shared/` (link reader, app ids), `desktop/` (protocol handler, store configs), `mobile/` (link
   handler, associated domains, app links), `server/` (`/.well-known` files), `web/` (join pages). Why: opening the
   team's link in the app is core; the store and domain setup outside the repository is listed below (see
@@ -66,7 +66,15 @@ docs. 8. Checks, screenshots, the walk.
 
 ## Outside this repository
 
-(filled in with the PR)
+- Apple: the Associated Domains capability on the App ID `app.trina.ax` (and a refreshed profile) before the next
+  signed iOS build; then a new iOS build.
+- `trina.app` itself serves the same `/.well-known/apple-app-site-association` and `assetlinks.json` (Android verifies
+  a wildcard host at its root; for Apple, serve both).
+- Google Play: the app signing certificate's SHA-256 in `assetlinks.json` and in `shared/src/app-links.ts`; a new Play
+  build.
+- A new Mac App Store build (signing blocked on certificates, known) and Microsoft Store package (identity pending).
+- account.trina.app: the signup's last page shows the team address and "앱에서 열기".
+- From phase 1: block `acme`, `trina`, `trina-ax` in the live relay registry and the signup's name list.
 
 ## Tests
 
@@ -76,4 +84,11 @@ routes, the build configs declaring the scheme; web unit + e2e for "앱에서 �
 
 ## Result
 
-(filled in at the end)
+Built as planned. An independent review's findings were fixed before the PR: ④ counts its 600 ms from when it is on
+screen (it reports itself), not from when the link arrived (a cold start could show it late); each link offer has an id
+and the phone's ④ keeps its state per offer and drops a stale answer; a team view taking over drops a waiting link; a
+relay rename found after the yes is asked again with the new host; a cut-off universal link says so; the address inside
+a scheme link must be the address alone; a bad link never covers a waiting ④. Walked in the built desktop app
+(links handed over as macOS does, `open-url`, and as a second instance's argv) and on the iPhone simulator with
+`simctl`/Maestro links, light and dark. Associated domains and app links cannot be checked without the store setup
+above.
