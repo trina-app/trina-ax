@@ -9,7 +9,9 @@
 // sight only (screen readers and a keyboard still reach them), and the branch switch ("‹ 1 / 2 ›") always shows.
 // A file sent with a message is a small card above the bubble: its name, its type and its size.
 // A shared project chat (docs/DECISIONS.md "Shared project chats"): every question, mine too, has its sender's picture
-// and name above it, and edit, regenerate and "대화방에 보내기" are only on what I asked myself.
+// and name above it, and edit, regenerate and "대화방에 보내기" are only on what I asked myself. An answer hidden from me
+// there (Message.withheld: it used something I cannot open, and I did not see the chat then) is one faint line in its
+// place, the rooms' words ("볼 수 없는 자료를 참고한 답이라 가려졌어요"), with only its branch switch.
 import clsx from 'clsx'
 import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, History, Loader2, MessageSquareShare, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
@@ -544,6 +546,19 @@ export function AssistantMessage({
   const [tapped, setTapped] = useState(false)
   const untilTap = !isLast && !tapped
   const branched = m.branch.count > 1
+
+  if (m.withheld) {
+    return (
+      <div className="group" data-testid="assistant-message" data-message-id={m.id} data-status={m.status} data-withheld="">
+        <p className="text-reading leading-reading text-faint" data-testid="answer-withheld">{t('rooms.withheldAnswer')}</p>
+        {branched && (
+          <div className="mt-1.5 -ml-1.5 flex items-center" data-testid="withheld-branch">
+            <BranchNav m={m} onSelect={onSelectBranch} disabled={busy} />
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="group" data-testid="assistant-message" data-message-id={m.id} data-status={m.status} aria-busy={streaming} onClick={() => setTapped(true)}>

@@ -116,7 +116,20 @@ export const SEE_SQL = "m.seq > ? AND COALESCE(m.thread_root_seq, m.seq) > ? AND
 /** The timeline's and a thread's listings only (same parameters): a hidden answer itself stays in the list, where
  * messagesOut shows it as one line without its content; what is in its thread does not. */
 export const LIST_SQL = "m.seq > ? AND COALESCE(m.thread_root_seq, m.seq) > ? AND (m.visibility = 'room' OR (m.visible_to = ? AND COALESCE(m.thread_root_seq, m.seq) > ?)) AND (? = 0 OR NOT EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = ? AND h.message_id = m.thread_root_id))"
-export const seeArgs = (member: SeeMember) => [seesFrom(member), seesFrom(member), member.user_id, member.visible_from_seq, member.has_hidden === 0 ? 0 : 1, member.user_id] as const
+/** The order of SEE_SQL's (and LIST_SQL's) parameters, once: where they see from, the person, their join, whether to
+ * look for hidden answers. seeArgs gives values; SEE_MEMBER_SQL the same as columns. */
+const seeParts = <F, U, J, P>(from: F, user: U, joined: J, probe: P) => [from, from, user, joined, probe, user] as const
+export const seeArgs = (member: SeeMember) => seeParts(seesFrom(member), member.user_id, member.visible_from_seq, member.has_hidden === 0 ? 0 : 1)
+/** SEE_SQL for messages of many rooms at once: the member's values read from a joined room_members row `mm` of the
+ * message's room (seesFrom as COALESCE; hidden answers always looked for). The same rule, filled from seeParts: a search
+ * across rooms (rooms/search.ts) decides in SQL, so what it counts, skips and points a cursor at is only what they see. */
+export const SEE_MEMBER_SQL = (() => {
+  const cols: readonly string[] = seeParts('COALESCE(mm.history_from_seq, mm.visible_from_seq)', 'mm.user_id', 'mm.visible_from_seq', '1')
+  let i = 0
+  const sql = SEE_SQL.replace(/\?/g, () => cols[i++] ?? '?')
+  if (i !== cols.length) throw new Error('SEE_SQL and seeParts are out of step')
+  return sql
+})()
 /** The room's timeline on room_messages `m`: no thread replies but those sent to the room too. */
 export const TIMELINE_SQL = '(m.thread_root_id IS NULL OR m.also_in_room = 1)'
 /** Can a thread hang under this message (or is one there): a message of the timeline, for the whole room, not an event
@@ -256,7 +269,9 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow):
       try {
         const d = JSON.parse(t.decision ?? 'null')
         const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x: unknown): x is string => typeof x === 'string') : [])
-        if (d) previews.set(t.answer_id, { folders: strings(d.folders), ...(d.otherFolders ? { otherFolders: true } : {}), personal: !!d.personal, outside: !!d.outside, joinedLater: strings(d.joinedLater), ...(d.hidden ? { hidden: true as const } : {}) })
+        const unable = d?.unable && typeof d.unable === 'object' ? Object.fromEntries(Object.entries(d.unable as Record<string, unknown>).filter((e): e is [string, number] => Number.isInteger(e[1]) && (e[1] as number) >= 0)) : null
+        if (d) previews.set(t.answer_id, { folders: strings(d.folders), ...(d.otherFolders ? { otherFolders: true } : {}), personal: !!d.personal, outside: !!d.outside, joinedLater: strings(d.joinedLater), ...(d.hidden ? { hidden: true as const } : {}),
+          ...(d.earlier && !d.hidden ? { earlier: true as const } : {}), ...(unable ? { unable } : {}) })
       } catch { /* no reason shown */ }
     }
   }
@@ -495,20 +510,27 @@ export function managerOf(db: Database, room: Pick<RoomRow, 'id' | 'kind' | 'cre
   return (db.query('SELECT user_id FROM room_members WHERE room_id = ? ORDER BY joined_at, user_id LIMIT 1').get(room.id) as { user_id: string } | null)?.user_id ?? null
 }
 
-/** `prefs`: the viewer's notification preferences when the caller has them (a list of rooms), else read here. */
-export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: Preferences = getPreferences(db, viewer.user_id)): Room {
+/** What names a room to a viewer: its own name or the group's, how many are in it, up to 4 other members (a DM: the
+ * other person). The rooms list's (roomOut) and the search's (rooms/search.ts). */
+export function roomNaming(db: Database, room: RoomRow, viewerId: string): Pick<Room, 'name' | 'memberCount' | 'peers'> {
   // the room's own name wins over the server's (the group's name); a DM is always the other person
   const name = room.kind !== 'dm' && room.name ? room.name : groupName(db, room)
   const memberCount = (db.query('SELECT COUNT(*) n FROM room_members WHERE room_id = ?').get(room.id) as { n: number }).n
   const peers = db.query(`SELECT u.id, u.name FROM room_members m JOIN users u ON u.id = m.user_id WHERE m.room_id = ? AND m.user_id <> ?
-    ORDER BY m.joined_at, u.name LIMIT 4`).all(room.id, viewer.user_id) as UserRef[]
+    ORDER BY m.joined_at, u.name LIMIT 4`).all(room.id, viewerId) as UserRef[]
+  return { name, memberCount, peers: peers.map((p) => ({ id: p.id, name: p.name })) }
+}
+
+/** `prefs`: the viewer's notification preferences when the caller has them (a list of rooms), else read here. */
+export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: Preferences = getPreferences(db, viewer.user_id)): Room {
+  const { name, memberCount, peers } = roomNaming(db, room, viewer.user_id)
   const unread = unreadCount(db, room.id, viewer)
   const threads = threadsUnread(db, room.id, viewer)
   const last = lastMessage(db, room.id, viewer)
   const since = viewer.joined_at > room.created_at ? viewer.joined_at : room.created_at
   return {
     id: room.id, kind: room.kind, name, canRename: mayRename(db, room, viewer.user_id), managerId: managerOf(db, room), groupId: room.kind === 'team' ? room.group_id : null, memberCount,
-    peers: peers.map((p) => ({ id: p.id, name: p.name })),
+    peers,
     unreadCount: unread.n, threadsUnread: threads.n, nextThreadId: threads.next, mentioned: unread.mentioned || threads.mentioned,
     lastReadSeq: Math.max(viewer.last_read_seq, viewer.visible_from_seq), lastSeq: Math.max(lastSeqFor(db, room.id, viewer), viewer.visible_from_seq),
     lastMessage: last, muted: !!viewer.muted, notify: roomNotifyOut(room.kind, viewer, prefs), createdAt: room.created_at,

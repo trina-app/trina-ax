@@ -10,6 +10,8 @@ import { ChevronLeft, ChevronRight, Minus, MonitorDown, MoreHorizontal, MoreVert
 import type { ReactNode } from 'react'
 import { PRODUCT } from '@mycel/shared'
 import { useT, type MessageKey } from '../../i18n'
+import { useMe } from '../../store/session'
+import { teamAddressHost } from '../../lib/team-address'
 
 type Translate = ReturnType<typeof useT>
 
@@ -29,7 +31,12 @@ function Phone({ children }: { children: ReactNode }) {
 const TabIcon = ({ className }: { className: string }) => <img src="/favicon.svg" alt="" className={className} />
 /** the installed app's icon (install sheets, home screen, Dock, its window): the product's (web/public/icons) */
 const AppIcon = ({ className }: { className: string }) => <img src="/icons/icon-512.png" alt="" className={className} data-testid="install-app-icon" />
-const host = () => (typeof location === 'undefined' ? '' : location.host)
+/** the address in the pictures' address bars: the team's own address (GET /api/me team.address), else the one this
+ * page is at. Not location.host first: in the desktop app over the office network that is 192.168.x.x */
+function Host() {
+  const me = useMe()
+  return <>{teamAddressHost(me?.team.address) ?? (typeof location === 'undefined' ? '' : location.host)}</>
+}
 
 /** the team page, as a calm outline */
 function Page() {
@@ -82,7 +89,7 @@ function SafariBar({ target }: { target?: boolean }) {
   return (
     <div className="flex items-center gap-1 bg-subtle px-1.5 py-1.5">
       <ChevronLeft size={13} className="shrink-0 text-muted" />
-      <span className="min-w-0 flex-1 truncate rounded-full bg-surface px-2 py-1 text-center text-[9px] text-muted">{host()}</span>
+      <span className="min-w-0 flex-1 truncate rounded-full bg-surface px-2 py-1 text-center text-[9px] text-muted"><Host /></span>
       <span className={`flex size-5 shrink-0 items-center justify-center rounded-full ${target ? TARGET : 'text-muted'}`}><MoreHorizontal size={13} /></span>
     </div>
   )
@@ -108,7 +115,7 @@ function IosShare({ t }: { t: Translate }) {
         <div className="flex min-h-0 flex-1 flex-col rounded-t-xl bg-surface p-1">
           <span className="flex items-center gap-1.5 p-1.5">
             <TabIcon className="size-5 rounded" />
-            <span className="min-w-0 truncate text-[9px] text-muted">{host()}</span>
+            <span className="min-w-0 truncate text-[9px] text-muted"><Host /></span>
           </span>
           <Rows n={3} />
           <Row icon={<SquarePlus size={12} className="shrink-0" />}>{t('apps.mockAddHome')}</Row>
@@ -132,7 +139,7 @@ function IosAdd({ t }: { t: Translate }) {
             <AppIcon className="size-7 shrink-0 rounded-md" />
             <span className="min-w-0">
               <span className="block truncate font-semibold">{PRODUCT.displayName}</span>
-              <span className="block truncate text-[9px] text-muted">{host()}</span>
+              <span className="block truncate text-[9px] text-muted"><Host /></span>
             </span>
           </span>
           <span className="flex items-center justify-between gap-1 rounded-lg bg-subtle p-1.5">
@@ -149,7 +156,7 @@ function IosAdd({ t }: { t: Translate }) {
 function ChromeBar({ target }: { target?: boolean }) {
   return (
     <div className="flex items-center gap-1 bg-subtle px-1.5 py-1.5">
-      <span className="min-w-0 flex-1 truncate rounded-full bg-surface px-2 py-1 text-[9px] text-muted">{host()}</span>
+      <span className="min-w-0 flex-1 truncate rounded-full bg-surface px-2 py-1 text-[9px] text-muted"><Host /></span>
       <span className={`flex size-5 shrink-0 items-center justify-center rounded-full ${target ? TARGET : 'text-muted'}`}><MoreVertical size={13} /></span>
     </div>
   )
@@ -190,7 +197,7 @@ function AndroidInstall({ t }: { t: Translate }) {
             <AppIcon className="size-7 shrink-0 rounded-full" />
             <span className="min-w-0">
               <span className="block truncate font-semibold">{PRODUCT.displayName}</span>
-              <span className="block truncate text-[9px] text-muted">{host()}</span>
+              <span className="block truncate text-[9px] text-muted"><Host /></span>
             </span>
           </span>
           <span className="flex items-center justify-end gap-1">
@@ -282,7 +289,7 @@ function BrowserBar({ install, target }: { install?: boolean; target?: boolean }
         <ChevronLeft size={10} className="shrink-0 text-muted" />
         <ChevronRight size={10} className="shrink-0 text-muted" />
         <span className="flex min-w-0 flex-1 items-center gap-1 rounded-full bg-subtle py-0.5 pr-0.5 pl-2">
-          <span className="min-w-0 flex-1 truncate text-muted">{host()}</span>
+          <span className="min-w-0 flex-1 truncate text-muted"><Host /></span>
           {install && <span className={`flex size-4 shrink-0 items-center justify-center rounded-full ${target ? TARGET : 'text-muted'}`}><MonitorDown size={10} /></span>}
         </span>
         <MoreVertical size={10} className="shrink-0 text-muted" />
@@ -311,7 +318,7 @@ function ChromeInstall({ t }: { t: Translate }) {
           <AppIcon className="size-5 shrink-0 rounded" />
           <span className="min-w-0">
             <span className="block truncate font-semibold">{PRODUCT.displayName}</span>
-            <span className="block truncate text-[8px] text-muted">{host()}</span>
+            <span className="block truncate text-[8px] text-muted"><Host /></span>
           </span>
         </span>
         <span className="flex items-center justify-end gap-1">
@@ -361,7 +368,7 @@ function SafariFileMenu({ t }: { t: Translate }) {
         <span className="text-muted">{t('apps.mockView')}</span>
       </span>
       <div className="flex items-center gap-1 border-b border-line bg-subtle px-1.5 py-1">
-        <span className="min-w-0 flex-1 truncate rounded-md bg-surface px-2 py-0.5 text-center text-muted">{host()}</span>
+        <span className="min-w-0 flex-1 truncate rounded-md bg-surface px-2 py-0.5 text-center text-muted"><Host /></span>
       </div>
       <Page />
       <div className="absolute top-4 left-8 flex w-[52%] flex-col rounded-md border border-line bg-surface p-0.5 shadow-md">
@@ -384,7 +391,7 @@ function SafariAdd({ t }: { t: Translate }) {
           <AppIcon className="size-6 shrink-0 rounded-md" />
           <span className="min-w-0 flex-1">
             <span className="block truncate rounded border border-line px-1 py-0.5">{PRODUCT.displayName}</span>
-            <span className="mt-0.5 block truncate text-[8px] text-muted">{host()}</span>
+            <span className="mt-0.5 block truncate text-[8px] text-muted"><Host /></span>
           </span>
         </span>
         <span className="flex items-center justify-end gap-1">

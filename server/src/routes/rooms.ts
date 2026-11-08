@@ -14,6 +14,7 @@ import { hashFile, writeTemp } from '../team-files/place'
 import { roomsOf } from '../rooms/service'
 import { roomFilesOf } from '../rooms/files'
 import { roomAiOf } from '../rooms/ai'
+import { redecideRoomSoon, startRedecide } from '../rooms/ai-redecide'
 import { deleteGrant, listGrants } from '../rooms/ai-grants'
 import { getChatRuntime } from '../chat/runtime'
 import { windowOf } from './chats'
@@ -32,6 +33,10 @@ export const roomsRoutes: RouteModule = {
     try {
       getChatRuntime(ctx).rooms = roomAiOf(ctx)
       roomAiOf(ctx).reconcile()
+      // previews kept as not postable before what a hidden answer used could be named (rooms/earlier-sources.ts): tried
+      // again after start, in steps; and a room's refused ones when people leave it or its history changes for someone
+      startRedecide(ctx)
+      rooms.onAccessChanged = (roomId) => redecideRoomSoon(ctx, roomId)
     } catch (e) { ctx.log.error('room AI start failed', { err: e }) }
     const tick = setInterval(() => { rooms.syncSoon(); try { roomFilesOf(ctx).sweep() } catch (e) { ctx.log.warn('room file sweep failed', { err: e }) } }, 60_000)
     ;(tick as { unref?: () => void }).unref?.()
@@ -47,6 +52,8 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.getRoom, ({ c, auth, params }) => { c.header('Cache-Control', 'no-store'); return rooms.get(auth.user.id, params.id) })
     kit.handle(API.updateRoom, ({ auth, params, body }) => rooms.update(auth.user.id, params.id, body))
     kit.handle(API.listRoomMessages, ({ c, auth, params, query }) => { c.header('Cache-Control', 'no-store'); return rooms.messages(auth.user.id, params.id, query) })
+    // ⌘K: the messages I can see in my rooms (docs/DECISIONS.md "⌘K에서 대화방 메시지 찾기", rooms/search.ts)
+    kit.handle(API.searchRoomMessages, ({ c, auth, query }) => { c.header('Cache-Control', 'no-store'); return rooms.search(auth.user.id, query) })
     // "@트리나 …" asks the AI as the sender (rooms/ai.ts): the window for the desktop browser, the screen's language
     kit.handle(API.sendRoomMessage, ({ c, auth, params, body }) => rooms.send(auth.user.id, params.id, body, { windowId: windowOf(c), clientKind: auth.session.client, locale: c.get('locale') }))
     // threads and reactions (docs/DECISIONS.md "스레드와 반응"): a reply is a send with threadRootId

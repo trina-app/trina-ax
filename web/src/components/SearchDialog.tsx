@@ -6,12 +6,19 @@
 // instruction, and then the row shows the matching part of it, so the match is not hidden). Files: file names are
 // searched on the server (GET /api/files/find); the dialog does not search file contents itself, so a key press starts
 // no content search (R2-ETC-02); its last row opens the file screen's content search with the same text.
+// Messages of the rooms, 1:1 and group chats I am in (docs/DECISIONS.md "⌘K에서 대화방 메시지 찾기"): searched on the
+// server (GET /api/room-messages), only what I would see by opening the room, on the 전체 tab after the chat records:
+// the first few, then a "메시지 더 보기" row that shows more in place (and asks for the next page). A row: the sender's
+// picture and name, the room ("#팀방", "1:1 대화", a group chat's name), "스레드" for a reply, the time, and one line of
+// the text around the match; it opens the room at that message (a reply: its thread), marked for a moment.
 import clsx from 'clsx'
-import { Bell, BookMarked, Cable, CalendarClock, CalendarPlus, CornerDownLeft, File as FileIcon, FileSearch, Folder, FolderKanban, FolderOpen, FolderPlus, MessageSquare, MessageSquarePlus, MoreHorizontal, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { Bell, BookMarked, Cable, CalendarClock, CalendarPlus, ChevronDown, CornerDownLeft, File as FileIcon, FileSearch, Folder, FolderKanban, FolderOpen, FolderPlus, MessageSquare, MessageSquarePlus, MoreHorizontal, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { skillTitle, type Chat, type FileEntry, type Integration, type Project, type Schedule } from '@mycel/shared/api'
+import { skillTitle, type Chat, type FileEntry, type Integration, type Project, type RoomSearchHit, type RoomSearchRoom, type Schedule } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
+import { listTime } from '../lib/format'
+import { plainLine } from '../lib/rooms'
 import { platform } from '../lib/pwa'
 import { scheduleName } from '../lib/scheduleText'
 import { useLocale, useT, type MessageKey } from '../i18n'
@@ -22,6 +29,10 @@ import { contentQueryReady } from './FileContentSearch'
 import { skillFileLink } from './AvailableSkills'
 import { useChatActions } from './chat/chatActions'
 import { Tooltip } from './Tooltip'
+import { Avatar } from './Avatar'
+import { AiFace } from './rooms/AiFace'
+import { useRoomTitle } from './rooms/RoomIcon'
+import { useAvatarOf } from '../store/people'
 
 export default function SearchDialog() {
   const open = useUi((s) => s.searchOpen)
@@ -37,7 +48,7 @@ const TAB_LABEL: Record<SearchTab, MessageKey> = {
   skills: 'search.tab.skills', scheduled: 'search.tab.scheduled', mcp: 'search.tab.mcp',
 }
 
-type Kind = 'chat' | 'project' | 'file' | 'skill' | 'schedule' | 'mcp' | 'action'
+type Kind = 'chat' | 'message' | 'project' | 'file' | 'skill' | 'schedule' | 'mcp' | 'action'
 interface Row {
   key: string
   kind: Kind
@@ -54,6 +65,10 @@ interface Row {
   icon: typeof MessageSquare
   href: string
   chat?: Chat
+  /** a room message found (MessageHit draws it) */
+  hit?: { hit: RoomSearchHit; room: RoomSearchRoom | undefined }
+  /** done in place of opening `href`: the dialog stays (메시지 더 보기) */
+  run?: () => void
 }
 interface Section { id: string; label: string; rows: Row[] }
 interface Skill { path: string; name: string; description: string; title?: string }
@@ -69,6 +84,19 @@ export function snippetAround(text: string, q: string, before = 24, after = 48):
   if (i < 0) return ''
   const from = Math.max(0, i - before), to = Math.min(flat.length, i + q.length + after)
   return `${from > 0 ? '…' : ''}${flat.slice(from, to)}${to < flat.length ? '…' : ''}`
+}
+
+/** Room messages on the 전체 tab before 메시지 더 보기, and how many more each press shows */
+export const MESSAGES_FEW = 5
+const MESSAGES_PAGE = 20
+/** Where a room message found opens: its room at it, or a reply's thread at it (pages/Room.tsx ?m=). */
+export const hitHref = (h: Pick<RoomSearchHit, 'id' | 'roomId' | 'threadRootId'>) =>
+  h.threadRootId ? `/rooms/${h.roomId}/t/${h.threadRootId}?m=${h.id}` : `/rooms/${h.roomId}?m=${h.id}`
+/** A hit's text as the row shows it: an answer's Markdown as plain text, starting a little before the match so it is
+ * in sight on a phone too. */
+export function hitText(h: Pick<RoomSearchHit, 'snippet' | 'markdown'>, q: string): string {
+  const text = h.markdown ? plainLine(h.snippet) : h.snippet.replace(/\s+/g, ' ').trim()
+  return snippetAround(text, q, 16, 400) || text
 }
 
 /** Chats found by the server (newest first) with those whose title has the text first, so Enter opens the chat the
@@ -110,6 +138,12 @@ function SearchBox({ onClose }: { onClose: () => void }) {
   // files whose name contains the text (null while it loads or with no text), and whether that search failed
   const [names, setNames] = useState<FileEntry[] | null>(null)
   const [namesFailed, setNamesFailed] = useState(false)
+  // room messages that hold the text (null while they load or with no text), the next page's cursor, how many rows
+  // show, and whether that search failed
+  const [hits, setHits] = useState<{ items: RoomSearchHit[]; rooms: Map<string, RoomSearchRoom>; next: string | null } | null>(null)
+  const [hitsShown, setHitsShown] = useState(MESSAGES_FEW)
+  const [hitsFailed, setHitsFailed] = useState(false)
+  const [hitsMore, setHitsMore] = useState(false)
   // Esc closes an open row menu first, then the dialog
   useFocusTrap(ref, true, () => (menu ? closeMenu() : onClose()))
 
@@ -172,6 +206,54 @@ function SearchBox({ onClose }: { onClose: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, wantNames])
 
+  // room messages, on the server, only on the 전체 tab
+  const wantMessages = !!query && tab === 'all'
+  useEffect(() => {
+    setHits(null)
+    setHitsShown(MESSAGES_FEW)
+    setHitsFailed(false)
+    setHitsMore(false)
+    if (!wantMessages) return
+    let live = true
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => {
+      api.call(API.searchRoomMessages, { query: { q: q.trim(), limit: MESSAGES_PAGE }, signal: ctrl.signal }).then(
+        (r) => live && setHits({ items: r.items, rooms: new Map(r.rooms.map((x) => [x.id, x])), next: r.nextCursor }),
+        () => {
+          if (!live || ctrl.signal.aborted) return
+          setHits({ items: [], rooms: new Map(), next: null })
+          setHitsFailed(true)
+        },
+      )
+    }, 200)
+    return () => {
+      live = false
+      ctrl.abort()
+      clearTimeout(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, wantMessages])
+  /** 메시지 더 보기: more of what is here, and the next page when that runs out */
+  const moreHits = () => {
+    if (!hits) return
+    const want = hitsShown + MESSAGES_PAGE
+    setHitsShown(want)
+    if (want <= hits.items.length || !hits.next || hitsMore) return
+    setHitsMore(true)
+    const asked = query
+    api.call(API.searchRoomMessages, { query: { q: q.trim(), limit: MESSAGES_PAGE, cursor: hits.next } }).then(
+      (r) => {
+        if (asked !== norm(inputRef.current?.value.trim() ?? '')) return
+        setHits((h) => (h ? { items: [...h.items, ...r.items.filter((x) => !h.items.some((y) => y.id === x.id))], rooms: new Map([...h.rooms, ...r.rooms.map((x) => [x.id, x] as const)]), next: r.nextCursor } : h))
+        setHitsMore(false)
+      },
+      () => {
+        setHitsMore(false)
+        setHitsFailed(true)
+      },
+    )
+  }
+
   const projectName = useMemo(() => new Map((ok(projects) ?? []).map((p) => [p.id, p.name])), [projects])
   const chatRow = (c: Chat, attention?: string): Row => ({
     key: `chat:${c.id}`, kind: 'chat', icon: MessageSquare, title: c.title || t('chat.untitled'), href: `/c/${c.id}`, chat: c,
@@ -199,6 +281,8 @@ function SearchBox({ onClose }: { onClose: () => void }) {
     href: f.type === 'folder' ? `/files?path=${encodeURIComponent(f.path)}` : skillFileLink(f.path),
   })
   const filesRow = (): Row => ({ key: 'files', kind: 'file', icon: FileSearch, title: t('search.inFiles', { q: q.trim() }), href: `/files?q=${encodeURIComponent(q.trim())}` })
+  const messageRow = (h: RoomSearchHit): Row => ({ key: `message:${h.id}`, kind: 'message', icon: MessageSquare, title: h.snippet, href: hitHref(h), hit: { hit: h, room: hits?.rooms.get(h.roomId) } })
+  const moreMessagesRow = (): Row => ({ key: 'messages:more', kind: 'message', icon: ChevronDown, title: t('search.moreMessages'), href: '', run: moreHits })
 
   const actions: Row[] = useMemo(() => {
     const list: Row[] = [
@@ -259,6 +343,7 @@ function SearchBox({ onClose }: { onClose: () => void }) {
 
     const few = tab === 'all' ? 4 : 50
     if (tab === 'all' || tab === 'chats') push('chats', typeLabel('chats'), titleFirst(found ?? [], query).slice(0, tab === 'all' ? 5 : 30).map((c) => chatRow(c)))
+    if (tab === 'all' && hits) push('messages', t('search.messages'), [...hits.items.slice(0, hitsShown).map(messageRow), ...(hitsShown < hits.items.length || hits.next ? [moreMessagesRow()] : [])])
     if (tab === 'all' || tab === 'projects') push('projects', typeLabel('projects'), allProjects.filter((p) => has(query, p.name, p.folderPath)).slice(0, few).map(projectRow))
     if (tab === 'all' || tab === 'skills') push('skills', typeLabel('skills'), allSkills.filter((s) => has(query, s.name, s.title, s.description)).slice(0, few).map(skillRow))
     if (tab === 'all' || tab === 'scheduled') push('scheduled', typeLabel('scheduled'), allSchedules.filter((s) => has(query, scheduleName(s, t), scheduleText(s))).slice(0, few).map((s) => scheduleRow(s)))
@@ -268,7 +353,7 @@ function SearchBox({ onClose }: { onClose: () => void }) {
     if (tab === 'all') push('actions', t('search.actions'), actions.filter((a) => has(query, a.title, a.terms)))
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, tab, recent, projects, skills, schedules, mcp, found, names, actions, locale])
+  }, [query, tab, recent, projects, skills, schedules, mcp, found, names, hits, hitsShown, hitsMore, actions, locale])
 
   const rows = useMemo(() => sections.flatMap((s) => s.rows), [sections])
   const active = rows[Math.min(sel, rows.length - 1)]
@@ -278,6 +363,12 @@ function SearchBox({ onClose }: { onClose: () => void }) {
   }, [active])
 
   const go = (r: Row) => {
+    if (r.run) {
+      // done in place (메시지 더 보기): the keys stay with the box, as after choosing a tab
+      r.run()
+      inputRef.current?.focus()
+      return
+    }
     onClose()
     navigate(r.href)
   }
@@ -302,7 +393,7 @@ function SearchBox({ onClose }: { onClose: () => void }) {
     row.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [tab])
   const moveTab = (d: 1 | -1) => setTab((x) => SEARCH_TABS[(SEARCH_TABS.indexOf(x) + d + SEARCH_TABS.length) % SEARCH_TABS.length]!)
-  const loading = (tab === 'chats' && (query ? found === null && !error : recent === null)) || (tab === 'projects' && projects === null) || (tab === 'skills' && skills === null) || (tab === 'scheduled' && schedules === null) || (tab === 'mcp' && mcp === null) || (tab === 'files' && wantNames && names === null)
+  const loading = (tab === 'all' && !!query && ((found === null && !error) || (wantMessages && hits === null))) || (tab === 'chats' && (query ? found === null && !error : recent === null)) || (tab === 'projects' && projects === null) || (tab === 'skills' && skills === null) || (tab === 'scheduled' && schedules === null) || (tab === 'mcp' && mcp === null) || (tab === 'files' && wantNames && names === null)
   const failed = (tab === 'projects' && projects === 'error') || (tab === 'skills' && skills === 'error') || (tab === 'scheduled' && schedules === 'error') || (tab === 'mcp' && mcp === 'error') || (tab === 'chats' && !query && recent === 'error')
 
   const mark = (text: string): ReactNode => {
@@ -403,12 +494,30 @@ function SearchBox({ onClose }: { onClose: () => void }) {
           {error && <p className="px-3 py-2 text-sm text-danger">{error}</p>}
           {failed && <p className="px-3 py-2 text-sm text-danger">{t('search.loadFailed')}</p>}
           {namesFailed && wantNames && <p className="px-3 py-2 text-sm text-danger" data-testid="search-names-failed">{t('search.fileNamesFailed')}</p>}
+          {hitsFailed && wantMessages && <p className="px-3 py-2 text-sm text-danger" data-testid="search-messages-failed">{t('search.messagesFailed')}</p>}
           {sections.map((s) => (
             <div key={s.id} role="group" aria-labelledby={`sh-${s.id}`} data-testid={`search-section-${s.id}`} className="pb-1">
               <p id={`sh-${s.id}`} className="px-3 pt-3 pb-1.5 text-xs text-faint">{s.label}</p>
               {s.rows.map((r) => {
                 const on = r === active
                 const Icon = r.icon
+                if (r.hit)
+                  return (
+                    <div
+                      key={r.key}
+                      id={optId(r)}
+                      data-key={r.key}
+                      role="option"
+                      aria-selected={on}
+                      onMouseMove={() => !on && setSel(rows.indexOf(r))}
+                      onClick={() => go(r)}
+                      className={clsx('flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2', on && 'bg-hover')}
+                      data-testid="search-message"
+                    >
+                      <MessageHit hit={r.hit.hit} room={r.hit.room} text={mark(hitText(r.hit.hit, query))} />
+                      {on && <CornerDownLeft size={15} className="shrink-0 text-faint max-md:hidden" aria-hidden />}
+                    </div>
+                  )
                 return (
                   <div
                     key={r.key}
@@ -493,6 +602,36 @@ function SearchBox({ onClose }: { onClose: () => void }) {
         </div>
       </div>
     </div>
+  )
+}
+
+/** A room message found: the sender's picture (the AI's mark for its answer), name, the room, "스레드" for a reply,
+ * the time, and one line of its text with the typed text marked. */
+function MessageHit({ hit, room, text }: { hit: RoomSearchHit; room: RoomSearchRoom | undefined; text: ReactNode }) {
+  const t = useT()
+  const locale = useLocale()
+  const title = useRoomTitle()
+  const person = useAvatarOf(hit.author)
+  const ai = hit.authorKind === 'ai'
+  const name = ai ? aiName(t) : hit.author?.name ?? t('rooms.goneUser')
+  // a team room and the everyone room as #name; a 1:1 chat as such, with the other person unless they wrote it
+  const peer = room?.kind === 'dm' ? room.peers[0] : undefined
+  const where = !room ? '' : room.kind === 'team' || room.kind === 'all' ? `#${title(room)}` : room.kind === 'dm' ? (peer && peer.id !== hit.author?.id ? `${t('search.dm')} · ${title(room)}` : t('search.dm')) : title(room)
+  return (
+    <>
+      {ai ? <AiFace size={32} /> : person ? <Avatar user={person} size={32} /> : <span aria-hidden className="size-8 shrink-0 rounded-full bg-hover" />}
+      <span className="min-w-0 flex-1">
+        <span className="flex min-w-0 items-baseline gap-1.5 text-sm">
+          <span className="shrink-0 font-medium text-ink">{name}</span>
+          <span className="min-w-0 truncate text-xs text-faint" data-testid="search-message-room">
+            {where}
+            {hit.threadRootId && ` · ${t('search.inThread')}`}
+          </span>
+          <span className="ml-auto shrink-0 pl-2 text-xs text-faint tabular-nums">{listTime(hit.createdAt, locale, t('sidebar.yesterday'))}</span>
+        </span>
+        <span className="block truncate text-sm text-muted" data-testid="search-message-text">{text}</span>
+      </span>
+    </>
   )
 }
 

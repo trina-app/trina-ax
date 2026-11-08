@@ -36,7 +36,8 @@ import { finishCard } from '../chat/connect-service'
 import { refuseDraftAttachments } from '../onboarding/draft'
 import { refuseSkillDraftAttachments } from '../onboarding/skill-draft'
 import { refuseShareJudgeAttachments } from '../skills/share-judge'
-import { Audiences, chatFor, chatPeople, chatView, isSharedRow, messageFor, projectCanShare, projectShare, sharesNewChats, type ChatAccess, type ChatPeople } from '../chat/shared'
+import { Audiences, chatFor, chatPeople, chatView, isSharedRow, messageFor, messageView, projectCanShare, projectShare, sharesNewChats, type ChatAccess, type ChatPeople } from '../chat/shared'
+import { AnswerSight, sharedHits, type ChatHit } from '../chat/shared-answers'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { forgetPurgedChats } from '../chat/forget'
 
@@ -116,7 +117,9 @@ function messagesPage(rt: ChatRuntime, chat: ChatRow, cursor: string | undefined
   }
   const start = Math.max(0, end - limit)
   const slice = pathRows.slice(start, end)
-  return { items: slice.map((m) => messageFor(rt, chat, m, viewer, locale)), nextCursor: start > 0 ? encodeCursor({ before: slice[0]!.id }) : null }
+  // one view for the page (a shared chat: the answers hidden from the viewer are worked out once)
+  const view = messageView(rt, chat, viewer, locale)
+  return { items: slice.map((m) => messageFor(rt, chat, m, viewer, locale, view)), nextCursor: start > 0 ? encodeCursor({ before: slice[0]!.id }) : null }
 }
 
 /** The turn's engine and model: the chat's (or the team default when the admin switched it off); a choice in the
@@ -191,9 +194,23 @@ export const chatsRoutes: RouteModule = {
       }
       const cur = decodeCursor(query.cursor, ['u', 'id'])
       if (query.cursor && !cur) fail('validation', undefined, { fields: { 'query.cursor': 'bad cursor' } })
-      // a shared chat only while I see its project now (its creator too): pages are read until one is full
+      // a shared chat only while I see its project now (its creator too): pages are read until one is full. A search
+      // finds a shared chat by its title or a message I see: never by an answer hidden from me (chat/shared-answers.ts)
       const aud = new Audiences(ctx.db, ctx.files)
-      const visible = (r: ChatRow) => { if (!isSharedRow(r)) return true; const p = rt.store.projectRow(r.project_id!); return !!p && aud.sees(me, p) }
+      const sight = new AnswerSight(ctx.db, ctx.files)
+      // the messages of shared chats that hold the words: one search for the request (the chat id is not indexed)
+      let hits: Map<string, ChatHit> | null = null
+      const found = (r: ChatRow) => {
+        const like = `%${likeEscape(q!)}%`
+        if (ctx.db.query("SELECT 1 FROM chats WHERE id = ? AND title LIKE ? ESCAPE '\\'").get(r.id, like)) return true
+        hits ??= sharedHits(ctx.db, like)
+        const hit = hits.get(r.id)
+        if (!hit) return false
+        if (hit.question) return true
+        const hidden = sight.withheld(r.id, me)
+        return hit.answers.some((id) => !hidden.has(id))
+      }
+      const visible = (r: ChatRow) => { if (!isSharedRow(r)) return true; const p = rt.store.projectRow(r.project_id!); return !!p && aud.sees(me, p) && (!q || found(r)) }
       const out: ChatRow[] = []
       let after = cur
       for (let round = 0; round < 50 && out.length <= limit; round++) {
@@ -330,6 +347,8 @@ export const chatsRoutes: RouteModule = {
       const chat = chatOf(rt, c, auth, params.id, 'view', { deleted: true }).row
       const m = messageInChat(rt, chat.id, params.messageId)
       if (m.role !== 'assistant') return { files: [], unavailable: 0 }
+      // a shared chat's answer hidden from me: nothing of it (chat/shared-answers.ts)
+      if (messageView(rt, chat, auth.user.id, c.get('locale'))?.withheld?.(m.id) && (!m.turn_id || rt.store.turnUser(m.turn_id) !== auth.user.id)) return { files: [], unavailable: 0 }
       return viewSources(ctx.db, ctx.files.fx, () => ctx.files.rules(), auth.user.id, m.id)
     })
 

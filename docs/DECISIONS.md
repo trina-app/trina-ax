@@ -13790,7 +13790,8 @@ enters a shared transcript; that check is new here, and turns never run on the c
   share it after a check: "An existing chat shared" below). Who sees a shared chat is not
   stored: the project's audience now (`canSeeProject`: who can read its folder, owner and admins included; while the
   folder is in the trash, owner and admins only). Losing access hides the chat, from its creator too; gaining it shows
-  the whole history (the card said "project people"). Owner decisions: turning the setting off keeps the chats already
+  the history (the card said "project people"), but for answers built on what the newcomer may not read (decided
+  since: "People who see a shared chat later" below). Owner decisions: turning the setting off keeps the chats already
   shared (D1); no "나만 보기" per chat (D2); attachments are team files only, a computer upload is refused with "공유
   채팅에는 팀 파일만 붙일 수 있어요…" (D3).
 - **Every chat id goes through `chatFor`** (`ChatStore.ownChat` stays only for the server's own flows on a person's
@@ -13860,7 +13861,8 @@ enters a shared transcript; that check is new here, and turns never run on the c
   tainted. (5) A display name loses brackets, parentheses and quotes in the transcript labels; step labels keep a path's
   spellings on disk too. (6) A team-file attachment by a creator who lost the project is refused. Left as a design
   point for the owner: an admin repoint (or a folder rule change) shows existing shared transcripts to the new readers;
-  the repoint dialog says how many chats and people, nothing asks again.
+  the repoint dialog says how many chats and people, nothing asks again (decided since: the rooms' rule, "People who
+  see a shared chat later" below).
 - **Not in phase 1.** Live answers for viewers, unseen markers per viewer, a chat file store for uploads, connections
   and Drive behind the gate, share-to-room for every viewer, a gate that checks searches after they run. Not added: a
   toggle per chat, sharing existing chats (added since: "An existing chat shared" below), avatars (added since: "Who
@@ -14010,6 +14012,89 @@ visible transcript, so the visible messages are what gets disclosed: the same in
   `web/test/e2e/share-existing-chat.spec.ts`.
 - Version impact: **minor** (a new endpoint and an audit action; no migration).
 
+### People who see a shared chat later — 나중에 보는 사람 (fix/shared-chat-audience, 2026-11-08, product owner)
+
+A design audit of dev: the audience of a shared chat is whoever can read its project folder now, so people who gain
+access later saw the whole transcript, also what the read card confirmed only for the people there then (Mina confirms
+`groups/finance/` for five people; twenty join a group that reads the project and see it). The owner decided: the same
+rule as team rooms ("지난 대화", `rooms/history.ts`). Plan: `docs/AGENTS/plan/20261108-0940-shared-chat-audience.md`.
+
+- **The rule** (`chat/shared-answers.ts`). An answer stays visible to the person whose turn it was, to the people who
+  saw the chat when it read what it used, and to anyone who may read every one of those places now; for everyone else
+  it is one faint line in its place, the rooms' words ("볼 수 없는 자료를 참고한 답이라 가려졌어요", `rooms.withheldAnswer`).
+  The walk goes down each branch, so an answer built on one hidden from a viewer is hidden from them too, unless that
+  one was not in its context (its runner did not see it either). People's messages always show (as in rooms).
+- **What is kept** (migration 273 `shared_answer_reads`, add-only). Per answer: groups `{c, s, x?}` (the people who saw
+  the chat, the places read then; `x`: not all known, so only `c`) and `left_out` (the answers above it its runner did
+  not see). The read gate records every call's sources when it lets the call go on (`confirmSharedRead`: with the
+  card's audience on a yes, with everyone then when nobody missed a place; calls, "/name", attached team files,
+  sub-agents), and the turn the team rules and company profile its instructions hold, as a room does. A record that
+  cannot be written refuses the read, and the turn does not start without its `left_out` (fails closed). The record
+  exists from `createTurn` (in its transaction); an answer without one is hidden from everyone but its runner. A chat
+  shared later (`chat/share-chat.ts`) records every earlier answer for the share's audience and its creator, with the
+  places the check counted, not known when the check could not tell or memories were in play; answers from before
+  this build get, once at start, the people who see the chat then, not known (`recordOlderAnswers`; a project in the
+  trash: the readers of its folder).
+- **Everywhere the transcript reaches someone.** `Message.withheld` (optional, `true`): content '', no steps, files,
+  sources, artifacts, model or error; its branch switch stays; never on an answer of one's own question. The sources
+  list answers empty; an artifact version made by a hidden answer is not listed or opened, nor any later version of
+  the same key but one's own (a version may carry the one before it, on any branch: fails closed), an `update` by
+  someone it is hidden from finds no artifact and a new version takes nothing from it (its number goes on). Chat
+  search counts a word only in a title or a message the person sees, from one full-text search per request (the chat
+  id is not indexed). Export: the line
+  in place of a hidden answer (without the check, every answer of a shared chat). The engine of a later reader's turn
+  gets `WITHHELD_ANSWER` in place of each hidden answer (`labelledTranscript` / `sharedTranscriptText` take the hidden
+  set), and no "the previous answer paused" note for one; a resumed session is only the runner's own (as before), and
+  its answer's `left_out` keeps only what its earlier answer left out too. Notifications and live text were the
+  runner's already.
+- **A room's @트리나** (`chat/room-project-chats.ts`). `project_chat` reads the transcript as the asker sees it (a
+  hidden answer is one line). What the answers it was given read joins the question's read scope (`carry`), as a
+  file's folder does: `decide()` keeps the room answer private for a member who may not read it and names the folders
+  the asker may open, and `rooms/history.ts` judges a member who joins the room later by it. An answer whose reads are
+  not all known (or has no record) counts as something outside the team files (never to the room by itself, hidden
+  from later members), and so does a question whose answers someone here may not see when their places alone would
+  not keep it private (built on another hidden answer). `project_chats` counts a word only in a title, a project name,
+  a person's message, or an answer the asker and everyone in the room who sees the project see; the answers it
+  counted through are carried the same way. At most 200 chats are looked into through their answers per search (each
+  is worked out for every member).
+- **Group skills are their members' only, in shared chats too.** One helper for rooms and shared chats,
+  `chat/skills.ts everyoneMayUse` / `mayNotUse` (read it, and for `groups/<folder>/skills/…` be in that group; the
+  owner and admins read every group folder). The skill list, the skill tool's names and `find_skills` of a shared chat
+  go by it (`TurnExec.audienceReadable`), and loading a group's skill when someone who sees the chat is not in the group
+  asks on the card with its own words: "AI가 {곳}의 스킬을 쓰려고 해요. 이 채팅을 보는 프로젝트 사람 {n}명 중 {m}명은 이
+  스킬을 쓸 수 없어요. 쓰면 모두가 이 채팅에서 내용을 보게 돼요." (five languages; the tool and "/name").
+- **Decided here, the least visible change that never widens access.** A covered person whose own access narrowed
+  keeps the answer (rooms keep theirs too); the runner always keeps theirs. A read nobody had to confirm counts like a
+  confirmed one (its group is everyone then): a later reader who may not read the place gets the line. The
+  instructions' skill list is not recorded (rooms do not either). A room's answer built on a shared chat goes by what
+  its members may read, as for a file: someone the card covered who may not read the place keeps the chat's answer
+  but not a room's answer about it (the room's decision has places, not people).
+- **Rollback.** A build with migration 265 and without 273 shows every answer to everyone who sees the chat again while
+  it runs (as before this change; raising `min_compatible_reader` would refuse the database instead, which is worse);
+  when this build comes back, the answers that build made are recorded for the people who see the chat then.
+- **Independent security review (2026-11-08).** Fixed: an artifact version on another branch built on a hidden one
+  (an `update` of the same key) showed its title and text to a later reader (must-fix: later versions of a key are
+  hidden with it); a room's `project_chats` search counted words in answers hidden from someone in the room, so a find
+  or a "no match" told them about it (should-fix: only messages everyone there sees count); a search ran one full-text
+  query per shared chat (should-fix: one per request); every viewer's walk read and parsed the chat again (should-fix:
+  read once per request, `c` as a set); the migration's note on older builds was wrong for builds with 265 (fixed,
+  above). Kept, written down: a chat that stops being shared is its creator's own again (the rollback guard, a lost
+  project), and they see every answer in it; the skill names and folder lists of the instructions are not recorded (as
+  in rooms); the URL gate counts addresses a hidden answer's web search showed as seen (no content reaches anyone);
+  each answer's groups keep the audience's ids (a few KB for a big team). Round 2 (on the fixes): no must-fix; a
+  search walked every chat for every member with a fresh account and rule cache (should-fix: kept per person for the
+  request, a person's message counts without a walk, at most 200 chats through answers, the full-text search limited
+  to the candidate chats); a room answer's kept places were only the project, so a member who joins the room later
+  was judged without the answers it was built on (should-fix: their places always go with it). Kept: a search's "no
+  match" says nothing about answers a later room member may not see only for the members there when it ran.
+- **Not here.** A card when someone joins; the chat's title (no `set_title` in shared chats; a chat shared later keeps
+  its private title); a source type of its own for a project in rooms.
+- Tests: `tests/unit/b-shared-chat-audience.test.ts` (a confirmed read and an unconfirmed one, covered, reader, later
+  reader continuing, built on a hidden answer, search, sources, artifacts, export, older answers, a missing record,
+  group skills), `tests/unit/b-rooms-ai-shared-chats.test.ts` ("an answer hidden from someone who sees the chat"),
+  `b-share-existing-chat`, `web/test/unit/shared-chat-withheld.test.tsx`, `web/test/e2e/shared-project-chats.spec.ts`.
+- Version impact: **minor** (an optional API field, an add-only migration, a stricter rule for later readers).
+
 ## 대화방의 트리나가 공유 프로젝트 채팅을 읽는다 — a room's AI reads shared project chats (feat/room-reads-shared-chats, 2026-11-07, product owner)
 
 넣을 곳: trina-ax `server/src/chat` (room-project-chats.ts, shared.ts, prompt.ts, tools.ts, subagents.ts),
@@ -14111,6 +14196,115 @@ the project's audience, the answer goes to the room; otherwise it stays private 
   instructions, the audit), `tests/security/room-reads-shared-chats.test.ts` (people × states, a member outside the
   audience, a planted instruction), `b-shared-chats`, `step-labels-tools`, `b-codex-rooms`.
 - Version impact: **minor** (two AI tools in rooms and an audit action; no API or database change).
+
+## ⌘K에서 대화방 메시지 찾기 — room, 1:1 and group chat messages in the search palette (feat/search-room-messages, 2026-11-08, product owner)
+넣을 곳: trina-ax `server/src/rooms` (search.ts, service.ts, store.ts), migration 267, `shared/src/api/rooms.ts`,
+`web/src/components/SearchDialog.tsx`, `web/src/store/rooms.ts`, `web/src/pages/Room.tsx`, 이유: rooms, their visibility
+rule and the search palette are core chat.
+
+From the team chat: "Chat search: search the messages in rooms and DMs", "search chat must be included on the search
+menu with cmd+k". The owner approved it on 2026-11-08.
+
+- **Where: the palette there is.** No new screen, no new tab, no filter chips. On the 전체 tab, after the chat records
+  (기록), a "대화방 메시지" section: the first 5 hits, then "메시지 더 보기", which shows more in place and asks for the
+  next page when those run out (the dialog stays, the keys stay with the box). Arrows, Enter, Esc, ← → as before. The
+  placeholder says it: "기록·대화 메시지, 파일, 프로젝트 등 검색", shorter than the one before, so it still fits a 390 px
+  phone; five languages. Rejected: a 대화 tab (one more chip in a row that already scrolls on a phone; the owner wants
+  lean screens), Slack's from:/in:/date filters (not asked for; the AI's own `rooms` tool has them).
+- **Who sees a hit: the rooms' one rule, not a copy.** A hit is a message the person would see by opening its room now.
+  Candidates come only from `reader.ts myRooms` (the rooms they are in now, not archived: what the rooms list holds,
+  hidden rooms included as its "숨긴 대화"), and who sees which is decided in the query itself: `store.ts
+  SEE_MEMBER_SQL` is `SEE_SQL` filled with the values of the member row of each message's room (from the same list of
+  parameters as `seeArgs`, `seeParts`; a test checks it against `canSee` for every member and message of the suite's
+  rooms), and `canSee` runs again on each row. So the page, its LIMIT and its cursor only count or name messages they
+  see. What the rule gives: where they see the room from (a later member of a group chat or a 1:1 from their join,
+  per member; a team room's and the everyone room's whole history once it is opened, `Rooms.syncFor` before each
+  search, as for the person's own AI chat), others' private previews never (their own, yes, as in the room), the old
+  answers hidden from them (#161) and everything in their threads never. Leaving or being taken out ends it at once (no
+  member row). Deleted messages and event lines have body '' and never match. The hit is built from `messagesOut`'s own
+  row (a `withheld` one is dropped), so the snippet is the message's own visible text: never a quote, a file name or a
+  hidden answer's words. A thread reply is found by whoever sees its thread; its hit names the thread and opens it.
+- **The text as one part**, as the chat records' search: `LIKE '%text%'` (A–Z in any case; `%` and `_` as themselves),
+  NFC. "견적" finds "견적서를"; "견적 보내" finds that phrase, not two words apart.
+- **Index: FTS5 trigram, migration 267**, as `messages_fts` (201) for the chat records. `room_messages_fts(body)`, its
+  rowid the message's rowid, kept by triggers: insert (body not ''), `UPDATE OF body` (an edit replaces it, a delete
+  empties it: the row goes) and delete (a room deleted with its messages); backfilled and `optimize`d in the migration
+  (without it the first new messages paid 2–4 ms of merge work each). 3+ characters: a phrase `MATCH` (the index);
+  1–2 characters ("견적"): the trigram `LIKE`, a scan of the index's text. Both read newest first by rowid and stop when a
+  page is full; `CROSS JOIN` keeps SQLite on the index first (a test reads the plan). Every candidate's own body is
+  matched again with `LIKE … ESCAPE`, so an index row out of step can never show a message without the text. Rowids of
+  `room_messages` survive VACUUM and VACUUM INTO (the backups; a test checks a backup copy and a VACUUM). Note: the chat
+  records' `LIKE … ESCAPE` is never handed to FTS5 (an ESCAPE is a 3-argument `like()`), so that search scans
+  `messages_fts`; here the phrase `MATCH` is used instead.
+- **Why not the bounded LIKE** (what the person's own AI chat's `rooms` tool does, `reader.ts searchRooms`: the newest
+  20,000 positions of each room, 100,000 in all). Measured on this Mac before choosing (150,000 messages in 20 rooms,
+  the person in 5, one of 50,000): a newest-first LIKE over the person's rooms took 85–345 ms per query (a rare word or
+  none walks everything); the FTS stream 0.1–1.7 ms, a 2-character word that matches nothing 17 ms over 100,000 rows.
+  The AI tool keeps its own scan (its filters by person and date are not this).
+- **Measured in the suite** (`b-rooms-search.test.ts`, a 50,000-message team room, the whole `searchRoomMessages`
+  call, median of 5, with visibility in the query): "견적" 10.1 ms, "네" 9.1, "견적서" 9.1, "budget" 10.7, "특별견적" (1 in
+  1,000) 9.5, a 6-character word that matches nothing 0.5, a 2-character word that matches nothing 15.1. Most of a page with hits is `messagesOut`'s
+  `threadSummaries`, whose grouped count takes the room's `(room_id, seq)` index over the whole room (about 5 ms on
+  50,000 messages; the same in every timeline page of such a room; left for its own change). Migration 267 backfills
+  about 2–3 s per 100,000 messages, once.
+- **Pages.** At most 30 a page (20 by default), newest first, the cursor below the page's last hit (a message they
+  see). The index is walked past matches they do not see until the page is full.
+- **API.** `GET /api/room-messages?q=&cursor=&limit=` (`searchRoomMessages`; `/api/rooms/search` would be taken by
+  `/api/rooms/:id`): `items` (id, roomId, threadRootId, authorKind, author, askedBy, markdown, snippet, createdAt),
+  `rooms` (each hit's room: kind, name, peers, memberCount, from `store.ts roomNaming`, which `roomOut` now uses too),
+  `nextCursor`. The snippet: room links as `#name`, one line, at most 200 characters, up to 60 before the match.
+- **Opening a hit: the room at that message.** `/rooms/:id?m=<message>`, a reply `/rooms/:id/t/:root?m=<reply>` (as the
+  Inbox). The room used to look 10 older pages back for `?m=` (500 messages); a search hit can be years back, so
+  `ListRoomMessagesQuery.around=<id>` now gives the page around a message the person can see (a reply that stays in its
+  thread: around its first message; anything else is not looked for: the newest page, as for an id that is not there)
+  and `newerCursor` while the page does not reach the newest. The timeline is then a window: newer pages load on
+  scrolling down; new messages are not added to it until it reaches the newest (no gap); nothing in it is marked read; a
+  "최근 메시지로" pill goes back to the newest, and so does sending. The Inbox's links use the same (one request). A thread
+  still looks 10 pages back for its reply.
+- **The row.** The sender's picture (32 px; the AI's face for its answer), name (14 px), the room (12 px: `#name` for a
+  team room and the everyone room, "1:1 대화" for a DM, with the other person when they did not write it, a group chat's
+  name), "· 스레드" for a reply, the time (12 px, as the rooms list) and one line of the text (14 px, an answer's Markdown
+  as plain text) from a little before the match, the match marked as elsewhere in the palette. On a phone the room name
+  gives way first.
+- **Not here.** Room file names and file contents, filters, results in the 기록 tab, highlighting more than the first
+  match, searching the AI's steps. Known limits: a word that spans a room link (`#[name](room:…)`) or Markdown marks in
+  the middle ("견적**서**") is not found as typed; the order is the order the messages were written (an AI answer posted
+  from a preview later sorts by when the preview was made). The time a search takes grows with the matches the index
+  walks past, those in rooms the person is not in too: a word written thousands of times only in other rooms takes
+  tens of milliseconds more, and a 1–2 character word scans the index's text (as the chat records' search does); the
+  same for matches in their own rooms they do not see (from before they joined, others' previews). A request has no
+  upper bound: at worst one pass over every match in the index (a row budget whose cursor went on from the last row
+  looked at would bring the cursor leak below back). Over a network that tells little (one match or none is
+  microseconds); scoping the index walk to the person's rooms (a room column FTS5 can filter on) is left for its own
+  change.
+- **Independent review (security, 2026-11-08) fixes.** The first version filtered with `canSee` after the query and
+  looked at 2,000 candidates a request at most; a page that ran out answered with a cursor at the last candidate looked
+  at, often a message the person does not see: an empty page with a cursor told that unseen messages held the word, the
+  cursor gave its position, and a cursor made by hand one above and at an unseen message told whether it held a word
+  (reproduced on a group chat joined late). Now visibility is decided in the query (above) and the cursor is always
+  the page's last hit; a test makes cursors at, above and below an unseen message. A NUL in the text ended the index's
+  query (500): refused by the contract (400) and dropped by the function. `around` with `limit=1` gave no
+  `newerCursor`: fixed. Deleted and edited text stays in the index's pages, so in the database file and its backups,
+  until its segment is merged (found by the review; the chat records' `messages_fts` is the same): FTS5
+  `secure-delete` would take it out at once, but SQLite before 3.42 refuses the option, so 267 would stop a server on
+  macOS 13 (whose own SQLite 3.39 bun uses there) from starting, and an index that used it cannot be read by such a
+  SQLite again (a database moved there would refuse every room message). Left as a known limit; the round-2 review
+  found this. Not leaking, per the review: `around` for an id they cannot see (the same newest page as for
+  none), which rooms, hidden answers and their threads, private previews, the rowid join (a stale index row cannot
+  show another message's text), the FTS query quoting (operators, wildcards, odd Unicode), the web.
+- **Tests.** `tests/unit/b-rooms-search.test.ts` (a non-member, an owner and an admin get nothing; after leaving a group
+  chat and after being taken out of a team room, nothing; a later member of a group chat finds nothing from before their
+  join nor a later reply in an older thread; a later member of a team room finds the history; a hidden answer never
+  matches, nor its thread, and its words are in no response, a quote of it is found by its own words; a DM only by its
+  two people; a private preview only by its person; archived rooms; thread replies; edited and deleted text gone, from
+  the index too; Korean parts, case, `%` and `_`, NUL; the snippet; pages; no cursor at an unseen message, also made by
+  hand; `SEE_MEMBER_SQL` against `canSee`; 50,000 messages and the plan; a backup copy and VACUUM; the migration's
+  backfill; `around`, also with a page of one), `web/test/unit/search-room-messages.test.tsx`,
+  `web/test/e2e/search-room-messages.spec.ts` (⌘K → a word → Enter opens an old message in its room with the pill; a
+  thread hit opens the thread; nothing found; axe light and dark; the phone; `SHOTS_DIR` for 1440 and 390, light and
+  dark).
+- Version impact: **minor** (a new result type in search, one endpoint, an optional query field and response field,
+  one additive migration).
 
 ## 대화방에서 새 파일은 미리 허용 — "이 방에서는 항상 허용" (feat/room-ai-allowances, 2026-11-08, product owner)
 
@@ -14255,8 +14449,13 @@ names it, and the four kept skills (DS3) are chosen, not installed for the owner
   자연스러운 글 (the company's own Korean writing skill); `adapted` for the English one (Siqi Chen's MIT "humanizer",
   rewritten), the only link out ("원본 보기 ↗" → github.com/blader/humanizer). Teams in id, ja and es get the English text,
   so its source line and example.
-- **Examples** (EXAMPLES-PLAN.md): registered in `PACK_EXAMPLES` by the language of the skill text and the skill name
-  once their files exist; none yet, so the viewer says "예시를 준비하고 있어요". An image is
+- **Examples** (EXAMPLES-PLAN.md): registered in `PACK_EXAMPLES` (`onboarding/skill-examples.ts`, which the web tests'
+  mock imports too) by the language of the skill text and the skill name; all eight are in (each kept skill in Korean
+  and English), made by the skills themselves on a local dev server for the invented 예시커피 / Example Coffee
+  (`examples/data/example-coffee/`: its intro, a type-only wordmark, no photos, no web search), so the viewer says
+  "예시를 준비하고 있어요" only for a skill shipped without one. Each records the `skillHash` of the SKILL.md it was made
+  from (the first 12 hex digits of its sha256), and the catalog test fails when a SKILL.md changes until its example is
+  made again; `web/scripts/skill-examples.ts` makes the picture from the artifact. An image is
   `web/public/skill-examples/<locale>/<name>.webp` (≤ 90 KB, `PACK_EXAMPLE_LIMITS`), loaded only when the viewer opens;
   a text is `resources/skill-packs/<pack>/<locale>/<name>/EXAMPLE.md`, imported as text like the SKILL.md (front matter
   `fictional: true`, `company`, `made`, `engine`, `skillHash`, then a before → after excerpt in Markdown, ≤ 900 / 1,200
@@ -14621,6 +14820,113 @@ and its developer page "User presence and status" (what was copied and what was 
   header).
 - Version impact: **minor** (a visible feature, a WebSocket control frame each way and one endpoint; no migration).
 
+## First run: one box (feat/first-run-one-box, 2026-11-08, product owner)
+
+The desktop and phone apps' first screen asked for "팀 주소", which nobody is told: people get an invite link or a team
+link in KakaoTalk or Slack. Plan: `docs/AGENTS/plan/20261108-0930-first-run-one-box.md` (with the exit walk). Owner
+approval 2026-11-08 (phases 1 and 2); the design review's must-changes are folded in. Placement: Team AX core (apps,
+accounts, relay names); nothing about plans or billing.
+
+- **One box takes everything** (screen ①, both apps): "팀에 들어가요 / 팀장에게 받은 초대 링크를 붙여 넣어 주세요. 팀
+  주소(예: acme)를 알면 주소만 넣어도 돼요." It reads an invite link (`/invite/<t>`), a team link (`/join#t=<t>`, the
+  fragment kept), a full address, a bare name (`acme` → `https://acme.<teamDomain>`) and any pasted text: the first
+  invite or team link in it, else its first http(s) address (a KakaoTalk long-press copies the whole bubble, sentences
+  around the link; a Korean word, punctuation or a zero-width character glued right after the link ends it; input is
+  NFKC-normalized first, so fullwidth `ｈｔｔｐｓ：／／` reads as ASCII; `/invite` and `/join` match in any letter case).
+  Another page of the team (an address copied from a browser) opens the team's start. Rejected: a "처음이세요?" question (ambiguous), a name-only box (nobody is told the
+  name), an email lookup (no central member list, and it would say who is a customer).
+- **One parser, two copies.** `shared/src/team-link.ts` is pure (no imports). The phone app cannot import `shared/` (its
+  own npm project and Metro), so `mobile/src/team-link.ts` is a byte-identical copy; `tests/unit/team-link.test.ts` fails
+  when they differ and runs one table (every input kind, every hint, the safety rules) against both. Desktop:
+  `loopbackHttp` (plain http only to this machine); phone: https only. Hosts are ASCII as the URL parser gives them
+  (punycode); a parser that cannot make one is refused.
+- **Hints instead of "형식이 맞지 않아요"**: Hangul or jamo typed ("ㅁ츼" is `acme` typed in 한글 mode) → "한글로
+  입력됐어요. 한/영 키를 누르고 다시 입력하거나 초대 링크를 붙여 넣어 주세요."; an email → "이메일 주소는 쓰지 않아요.
+  초대 링크나 팀 주소를 넣어 주세요."; a cut-off invite or team link (its token shorter than the 43 characters every token
+  has) → "링크가 중간에 잘린 것 같아요…" (never silently the sign-in page). Trailing punctuation is trimmed with a loop,
+  in linear time. The address is checked only on the button, only under the team domain: no other domain is tried.
+- **What the relay answered** (`x-relay-error`, `relayAnswer`): 404 `team_unknown` → "'{name}' 팀을 찾지 못했어요.
+  철자를 확인하거나 초대 링크를 붙여 넣어 주세요."; 403 `team_suspended*` → "이 팀은 지금 이용이 멈춰 있어요. 팀장에게
+  물어보세요."; the relay's offline answers and gateway errors → "cannot reach". Before, 404 and 403 both said "not a
+  team server". The JSON `code` is `not_found`/`forbidden`; the kind is only in `reason` and the header.
+- **A renamed team** (308 from the relay, control-plane D40) is followed only to another `<name>.<teamDomain>` with the
+  same scheme and port (`relayRename`; `<name>.localhost` for the desktop's development relay), and the new address is
+  the one remembered after the person said yes ("팀 주소가 {host}(으)로 바뀌었어요. 새 주소로 연결할까요?"). Neither app
+  lets the network stack follow a redirect: the desktop reads the health answer with `net.request` and `redirect:
+  'manual'` (Electron's `net.fetch` throws on 'manual'), the phone with expo/fetch's `redirect: 'manual'` (iOS and
+  Android return the 3xx). One hop only; any other redirect (another host, plain http, an office address, a trailing
+  dot) is "not a team server".
+- **Screens ② and ③.** ② "주소를 모르겠어요": paste the link you got (a used link leads to the sign-in page), Settings ›
+  앱 on a signed-in device, ask your team lead; [뒤로]. ③ "아직 팀이 없어요": "팀은 팀장이 만들고, 팀원은 초대 링크로
+  들어와요." [팀 만들기 ↗] (the account site, `https://<accountHost>/`; the repository does not know the signup page's
+  path), [직접 설치 안내 ↗], "팀을 만들면 팀 주소가 생겨요. 브라우저에서 설정을 마친 뒤 이 화면으로 돌아와 그 주소를
+  넣어 주세요." (after signup the owner gets a one-time `/setup#token=` link, not an invite), [팀 주소 넣기]. Esc and
+  Android back go back too; the typed text stays.
+- **No [팀 만들기] in store builds.** App Review 3.1.1(a) bans calls to action for purchases outside the app (the signup
+  leads to a paid plan after the trial; 3.1.3(f) applies only without one), so the iPhone app and the Mac App Store build
+  have none, and their docs link is the repository's install guide (`docs/INSTALL-LINUX.md`, `.en.md`), which links no
+  plan, signup or product site (a test checks); the docs site's install page has the plans link. Google Play's payments
+  policy also bans leading users to another payment method from the app, so Android gets the same rule. The Microsoft
+  Store allows a non-game app its own payment: the Windows store build keeps the button. The desktop's main process
+  picks both addresses (`firstRunLinks`); the screen only names which (`ui:open-link`), so a screen can never open
+  another address. The phone opens the guide in the browser sheet; closing it returns to ③.
+- **The app draws the host, not the page.** A fake server can draw any address on its own sign-in page, and the desktop
+  app may show the page from the office-network address (direct.ts), so `location.host` is not the team address there.
+  Both apps show it on the sign-in pages (`/login`, `/invite/…`, `/join`, `/setup`, `/reset-password/…`) **and on every
+  page until the team answered GET /api/me for a signed-in person** (`hostLineShown`, shared), because a fake sign-in
+  page can sit at `/` or `/signin`. Desktop: a 36 px strip above the page, "팀 주소 acme.trina.app [다른 팀]", in its
+  own UI view (`hostbar.html`, its IPC answered only for that view); signed in = the main process's own `/api/me` read
+  (`fetchTeamInfo`, after every load and in-page navigation). Phone: the footer shows the host above "다른 팀에
+  연결"; the app injects one `/api/me` fetch into the page after each load and route change (`src/session-check.ts`)
+  and hides the footer only on a yes. A fake server can answer its own `/api/me`; the line is for the person on a real
+  team who meets a look-alike page, not a proof. Always the team address the app connected to, in punycode with its port. The
+  web login page gets no host line. Off the sign-in pages the line waits up to 300 ms for that `/api/me` answer before it
+  takes space (`hostLineNow`, shared), so a signed-in open does not show it and then hide it (the page jumped on every
+  team open); a sign-in page shows it at once, a signed-out answer or no answer in time shows it. **The line is a hint,
+  not the protection**: on the phone a page script can answer the injected check and hide the footer, on the desktop a
+  fake server can answer its own `/api/me`. The protection is ④ (a link names its host before it connects) and the
+  question before the first connect to an address outside trina.app. Links from outside never point the desktop at this
+  machine, also written as an IPv4-mapped (`[::ffff:127.0.0.1]`) or unspecified address (`[::]`, `0.0.0.0`, `0`).
+- **The first connect to an address the hosted service does not run asks once**: "트리나가 운영하는 주소가 아니에요.
+  회사에서 직접 설치한 서버인지 확인하세요." [취소] [연결], the focus on [취소]. Not for this machine, not for a team
+  already remembered (desktop) or the one the phone is in, not in a phone build without a team domain. Look-alikes
+  (`acme.trina.app.evil.example`, an IP address) are outside.
+- **The phone leaves its team only after the new one answered and the person said yes.** "다른 팀에 연결" and the failure
+  screen's "팀 주소 바꾸기" used to remove the phone from its team at once. Now they open ① over the team page (kept
+  mounted, hidden from screen readers) with [{old}(으)로 돌아가기]; the new address must answer `/api/health`, then
+  "{old}에서 나가고 {new}에 연결할까요? 이제 {old} 알림은 이 휴대폰으로 오지 않아요." with the new host and the
+  outside note when it applies, [취소] (focus) [바꾸기]. Only [바꾸기] runs the leave (`leaveTeam`, the label key, the
+  delivered notifications), and only after the new team was saved (a refused save leaves the phone in its team). If the app stops between the
+  two, the next start finds the old team's device record (`startRemovals`: a device for another origin than the saved
+  team) and makes it a removal still owed, so the old team's push does not stay on the phone. The stored devices change one
+  short storage step at a time with no network inside (the start, a leave, a registration, a retry), and a retry takes
+  out only what it removed: a slow removal can neither write an older owed list over the old team's entry nor hold back
+  a leave or the new team's device. The new team's push starts only after sign-in there, so the question promises nothing about
+  it. The same team again opens the link's page in place.
+- **Desktop**: a pasted link opens its page in the app (`openTeam(id, entryPath)`; a team already open loads it where it
+  is, the office-network address included); the 팀 menu's "팀 추가…" and "팀 목록…" (the same screen) are one "팀
+  목록·추가…"; a kit build still fills in its address; the welcome screen draws in dark mode too.
+- **Settings › 앱: "팀 주소 · 새 기기에서 앱을 열고 이 주소를 넣으세요 [복사]".** `GET /api/me` `team.address`
+  (`teamAddressOf`): the relay address when the server has one, else `https://<publicAddress>`, else absent (no row).
+  Signed-in people only (it is in `/api/me`); never the address a request came in at, so the office-network address
+  never shows. The install pictures draw the same address (they drew `location.host`). Anonymous visitors still get no
+  team name (`SetupStatus.teamName` stays null).
+- **Used or expired links lead with signing in**: the invite and team-link problem pages add "이미 가입했다면
+  로그인하세요." and a full-width [로그인]; both join forms end with "이미 가입했어요? 로그인".
+- **Reserved relay names**: `acme` (the screens' example: someone typing it must never reach a real team), `trina`,
+  `trina-ax`. The demo company (`scripts/demo/acme`, `bun run demo:company`) registers `acme` on its local development
+  relay: `scripts/dev.ts` now adds its own `--team` to `RELAY_DEV_NAMES`. The relay tests use `acme-co` / `acme-inc`.
+  A team already called `acme` on a live relay keeps working (routing reads the teams table, not reservations) but could
+  not be renamed back to it; the live registry and the signup's own list need the same names (outside this repository).
+- **Docs**: the install page and the Linux guides say what the apps need from a server of your own: a certificate the
+  computer trusts (desktop), a public-CA certificate and no redirect on `/api/health` (phone), `MYCEL_PUSH_GATEWAY` for
+  phone notifications, and where people find the address.
+- Tests: `tests/unit/team-link.test.ts` (the table on both copies, relay answers, renames), `e-desktop-common` (the
+  desktop address shape, invite and team links kept, the health verdict, the outside question, the sign-in paths,
+  punycode, the store links, the merged menu), `mobile-security` (stored addresses, bare names, the edition's domain and
+  guide, the phone strings and the switch copy, no signup link, leaving only in `connect`), `f-frames` (reserved names),
+  `a-team-address` (the `/api/me` field), `web/test/unit/first-run.test.tsx`, `web/test/e2e/first-run.spec.ts`.
+
 ## Migrations that would be skipped say so (chore/migration-guard, 2026-11-08)
 
 - **Why.** The runner (`server/src/db.ts` `readMigrations`) applies only `NNN_<lower-case letters, digits, _>.sql`
@@ -14687,6 +14993,70 @@ and its developer page "User presence and status" (what was copied and what was 
   request at 01:00 KST on the 1st under November, shows November's "this month" and sends November's notice);
   `tests/unit/g-timezone.test.ts` drops the "without a zone" case.
 - Version impact: **patch** (a fix and one hint string; no API, setting or data format change).
+
+## First run, phase 2: a tapped link opens the app, behind screen ④ (feat/first-run-open-links, 2026-11-08, product owner)
+
+Builds on "First run: one box" (PR 1). Plan: `docs/AGENTS/plan/20261108-1025-first-run-open-links.md`.
+
+- **One link reader** (`readAppLink`, `shared/src/team-link.ts`, the phone's copy identical): `trina-ax://open?url=<encoded
+  team link>`, nothing else in it (one `url`, no other parameter, no fragment, no user, no port, host `open`), and on the
+  phone also the hosted domain's own invite or team link (`https://<name>.trina.app/invite/…`, `/join#t=…`, a universal
+  link / app link). The address inside goes through the box's rules: https (http only to this machine on the desktop),
+  no user:password, no `javascript:` / `file:` / `data:` / scheme-relative / bare names, no text around it. The host is
+  what the URL parser makes of it, so a numeric trick (`0x7f.1`, `2130706433`, `127.1`) shows as `127.0.0.1` and a
+  backslash ends the host (`evil.example\@acme.trina.app` is `evil.example`); none of them counts as hosted.
+- **Screen ④ for every link from outside**, in both apps: "{host}에 연결할까요? 직접 받은 링크가 맞을 때만
+  연결하세요.", the phase-1 outside note ("트리나가 운영하는 주소가 아니에요…") when the hosted service does not run it,
+  and on a phone in another team the switch line ("이제 {old} 알림은 이 휴대폰으로 오지 않아요.", [바꾸기]). [취소] has
+  the focus. Nothing is fetched or loaded before the yes; the yes runs the phase-1 path (health check, relay answers,
+  the link's page; the phone leaves its old team only then). `LinkGate` keeps the offer: a yes counts only for the host
+  ④ showed, only 600 ms after ④ reported itself on screen (also when it appears late, after a cold start), and once; a
+  newer link replaces the waiting one (each offer has an id; the phone's ④ keeps its state per offer and drops an
+  answer whose link is no longer the one on screen), and a team view taking over drops it. A rename found after the
+  yes is asked once more with the new host ("팀 주소가 {host}(으)로 바뀌었어요…"). [연결] is off (greyed) for its first
+  650 ms on screen, so a tap never silently does nothing. A tapped universal link that was cut
+  off says so; a bad scheme link never covers a waiting ④. Esc and Android back answer no.
+- **Desktop**: the packaged app is the scheme's handler (`app.setAsDefaultProtocolClient(PRODUCT.linkScheme)`; a
+  development run only with `MYCEL_DESKTOP_REGISTER_SCHEME=1`, so tests and dev builds never take the scheme over);
+  macOS `open-url` (registered before `ready`, so the link that launched the app is kept until the window exists);
+  Windows and Linux: the first instance's argv and the second instance's argv (`linkFromArgv`, only an argument that
+  starts with the scheme). A link never points the desktop app at this machine (`readDesktopLink`: https only, no
+  loopback host, so a web page cannot aim the team view and its bridge at a local port; a typed address keeps http to
+  this machine for development). Every path calls `AppWindow.offerLink`, which fetches nothing; only `answerLink` connects,
+  and only with the gate's offer. The renderer names the host it showed; the main process holds the link. The base
+  electron-builder config declares `protocols`, which the dmg and the Mac App Store build turn into `CFBundleURLTypes`
+  and the Microsoft Store package into a `windows.protocol` extension (its manifest template's `${extensions}`).
+- **Phone**: `Linking.getInitialURL()` and the `url` event; the `trina-ax` scheme was already registered (`scheme`);
+  `ios.associatedDomains: applinks:*.trina.app` and an Android intent filter with `autoVerify` for
+  `https://*.trina.app` `/invite/…` and `/join`, both only for an edition with a team domain (the neutral app declares
+  none).
+- **The scheme is `PRODUCT.linkScheme`** (`trina-ax`), the phone's `scheme` in `editions/trina/branding/mobile.json`; a
+  test keeps them equal. The web's "앱에서 열기" uses it too.
+- **Team servers serve the platforms' files** (`server/src/routes/app-links.ts`, off the API contract like the OAuth
+  metadata): `/.well-known/apple-app-site-association` (iOS 13+ `components`: `/invite/*`, and `/join` with `#t=*`; the
+  app id `<appleTeamId>.<bundleId>` from the branding, `shared/src/app-links.ts`) and `/.well-known/assetlinks.json`
+  (the package and the Play app signing certificate's SHA-256; 404 until that fingerprint is known, never the web app's
+  page). Public, the same for everyone, nothing about the team; JSON, no redirect, no cookie. Self-hosted servers serve
+  them too (harmless), but the apps declare only `*.trina.app`: on a domain of one's own a tapped link opens the
+  browser, and the join page's "앱에서 열기" is the way into the app.
+- **"앱에서 열기"** on both join pages (one line under "이미 가입했어요? 로그인"), only in a web browser. The link carries
+  the invite or team-link token (the team link's from memory: the page already took it out of the address bar), and a
+  team link joins without anyone's approval, so it goes only where our own app receives it (review must-fix): on
+  **Android** an `intent://open?url=…#Intent;scheme=trina-ax;package=app.trina.ax;end` link, which only our package can
+  take (a bare custom scheme can be claimed by any app); on **macOS and Windows** `trina-ax://open?url=…`, answered by the
+  installed desktop app; on an **iPhone none** (iOS gives a custom scheme to whichever app claims it and lets no link
+  name the app; the verified universal link, the team link itself, opens the app there once Apple's setup is done);
+  nothing on Linux or anything else. Residual risk on computers: another program the person installed could register
+  `trina-ax` too and receive the token; it would already run as that person. Five languages.
+- **Outside this repository** (the PR lists them): the App ID's Associated Domains capability before a signed iOS build;
+  the files on `trina.app` itself for the wildcards (Android checks a wildcard host at its root; for Apple, serve both);
+  the Play signing fingerprint in `shared/src/app-links.ts`; new iOS, Android and Mac App Store builds; the signup's
+  last page.
+- Tests: `tests/unit/team-link.test.ts` (the reader on both copies: every crafted case, universal links, the gate),
+  `e-desktop-common` (the desktop reader, argv, the handlers reaching only `offerLink`, `answerLink` only with the
+  gate's offer, the configs declaring the scheme), `mobile-security` (the edition's associated domains and intent
+  filter, links only through ④), `app-links.test.ts` (the files, served signed out over the relay and directly, the
+  ids equal to the branding), `web/test/unit/first-run.test.tsx` and `web/test/e2e/first-run.spec.ts` ("앱에서 열기").
 
 ## The release feed also serves the Android APK (feat/feed-android-apk, 2026-11-08, product owner)
 
@@ -14877,6 +15247,178 @@ refused, and that connected AIs never saw the team rules every in-app turn follo
   admin's off stays, Codex off; the notice), `web/test/e2e/engine-choice.spec.ts` (the new label and warning).
 - Version impact: **patch** (a scheduled run follows its owner's engine; the switch's wording and its no-connection
   case; no API or data shape change).
+
+## What a deleted member or group leaves behind (fix/removal-leftovers, 2026-11-08)
+
+넣을 곳: trina-ax core (`server/src/credentials/assignees.ts`, `server/src/admin/groups.ts`, `server/src/admin/users.ts`,
+`server/src/credentials/service.ts`, `server/src/team-files/service.ts`, migration 117, the group and member delete
+dialogs), 이유: a design audit of dev found what deleting a member or a group left in place; members, groups, AI
+connections and files are core. Plan: `docs/AGENTS/plan/20261108-0930-removal-leftovers.md`.
+
+- **AI connection assignments go with the group or person, and never widen access.** A team connection with any
+  assignment serves only the groups and people it names (`credentials/resolve.ts` `candidates`); one with none serves
+  the whole team. Deleting a group or a person now removes their `engine_credential_assignments` rows inside the
+  delete's transaction (`pruneAssignments`, which removes every row whose group or person is gone). A connection that
+  would be left with none is **switched off** (`disabled`), the state a connection already has, rather than left to
+  serve everyone: a paid key for one group must not suddenly be the whole team's. It is also **marked**
+  (`meta.assigneesGone`, also when it was off already), so a later click cannot widen it either: the row says "쓰던
+  그룹·사람이 삭제돼서 꺼졌어요. '대상 바꾸기'에서 그룹이나 사람을 고른 뒤 켜 주세요.", the bare switch-on (`PATCH
+  {disabled: false}`) is refused with that text (409 `assignees_gone`), and a save that picks a group or person clears
+  the mark. The edit dialog always sends its list, and for such a connection that is the empty "팀 전체" it opens with,
+  so an empty list is not a choice (a rename keeps the mark); the whole team counts only when the same request also
+  switches it on (`{assignments: [], disabled: false}`, never the dialog's save). Through the screens the way to the
+  whole team is the one for any connection: pick someone, then change it to the whole team. The token-file sync
+  (`credentials/migrate.ts`), which rewrites `meta`, keeps the mark. Each connection changed gets its own
+  `credential.update` line (reason `assignees_deleted`, before and after), `group.delete` / `user.delete` list the
+  connections switched off (`aiConnectionsOff`), an admin's delete tells the owner like any admin's switch-off
+  (`noticeOwners` 'disabled'), the engines' state is read again, and the connector's `group_delete` names them.
+- **The confirmation names them.** The group delete and member delete dialogs add one line, "이 그룹만 쓰던 AI 연결이
+  꺼져요: …" / "이 사람만 쓰던 AI 연결이 꺼져요: …", for the switched-on team connections assigned to that group or
+  person alone. The list is read with the page (`GET /api/admin/credentials`, which owners and admins see), so the
+  dialog opens as fast as before and keeps its focus return; when it cannot be read the line is left out (the server
+  switches them off either way).
+- **Saving a connection that names a group or person that is gone.** The edit dialog sends its whole form, and a dead
+  id has no checkbox to untick, so every save of such a connection failed with `unknownAssignee`. `updateCredential`
+  now drops ids whose group or person is gone; when none of the ones sent is left, the connection is switched off and
+  marked in the same write (also when the request says `disabled: false`), never saved as team-wide. A person who is
+  disabled but not deleted still counts: their rows stay everywhere. An empty list sent on
+  purpose still means the whole team. Adding a connection keeps refusing an unknown id: there is nothing to keep.
+- **"Chosen groups and people" with none ticked.** In the add and the edit dialog, picking that option and ticking
+  nobody used to save an empty list, which the API reads as the whole team. Neither dialog saves it now: the button
+  stays off and one line under the list says "그룹이나 사람을 하나 이상 골라 주세요." The server cannot refuse it
+  too: the request body has one list, and an empty list is how the whole team is asked for, so "chosen, none" and
+  "team" look the same there. Telling them apart would need a new field in the contract; not done.
+- **Rows earlier deletes left: migration 117.** Data only (reader 1). The same rule once: a team connection every one
+  of whose assignments is gone served nobody, so it is switched off before its rows go, with an Activity log line
+  without an actor (`via: upgrade`), like migration 216 did for paused schedules. A migration rather than the sweeper:
+  this is a one-time repair of what older builds wrote, and the delete paths keep it from coming back.
+- **A deleted person's profile and own AI connections.** Users are tombstones, so the `ON DELETE CASCADE` of
+  `user_profiles` (migration 115) and of `engine_credentials.owner_user_id` never ran: the photo, title and status, and
+  the person's own Claude or ChatGPT token or API key, stayed (Admin › AI providers still listed the connection). Both
+  are deleted inside `deleteUser`'s transaction now, like their own service connections already were; migration 117
+  does it for people deleted before. The photo is a BLOB in `user_profiles`, so there is no file to remove. App Store
+  account deletion (5.1.1(v)) needs the profile gone.
+- **The personal folder's transfer is a move.** `personalFolder=transfer` (the default, kept: owner decision
+  2026-11-08) used a raw rename. It now runs `TeamFiles.archiveFolder`, the database and disk part of `move` (now one
+  private step, `relocate`, that both use): version rows, folders rows, projects and the text cache follow the folder,
+  two file events say where it went (`tool: member-delete`), and the Files screen and the knowledge graph hear of it.
+  The chat attachments (`.attachments/`) are still removed first. No access check: nobody can open a deleted
+  account's folder, and the delete was the decision. So the member's personal projects (name and instructions, which
+  live only in the database) follow too and the owner sees them in the archive, as the task asked; before, they pointed
+  at a path nobody had. Two rules of `move` stay as they are: items the member had put in the trash do not follow
+  across the edge of a personal folder, and a version saved where only the member could read stays theirs
+  (`versionVisible` judges it by `path_at_save`; a version whose folders row moved with it is judged by that row, a
+  rare case), so the owner mostly sees the files and their history from the transfer on, not the member's earlier
+  versions. Changing that would show the owner drafts the member never shared: left for the owner to decide. The
+  archive name now also skips a name a folders row or a project already holds.
+- **A photo upload during the delete.** `saveAvatar` reads the whole upload before it writes; it now refuses (401) when
+  the account was deleted meanwhile, so the photo does not come back after `deleteUser` removed it.
+- **Docs.** `docs/security-and-permissions.md` (and the Korean copy) said only owners remove members; owners and
+  admins do (admins plain members, after their password). `docs/PERMISSIONS.md` says the personal folder moves to the
+  owner's archive on delete, what happens to AI connection assignments, and has a table of who reviews each kind of
+  skill proposal as the code works today (documentation only: nobody's review changed).
+- Tests: `tests/unit/a-removal-leftovers.test.ts` (group delete by an admin: a connection only for it switched off and
+  not team-wide, a mixed one keeps the person, audit lines and the owner's notice; team-wide and already-off
+  connections untouched; saving with dead ids; member delete: profile, own connection, assignment; the transfer's
+  history, project and file events; migration 117 on an older database).
+- Version impact: **patch** (fixes what deletes left behind; one data-only migration, no API change).
+
+## 방에 올리기… — a private room answer asks, also after a hidden earlier answer (feat/room-answer-post-ask, 2026-11-08, product owner)
+넣을 곳: trina-ax `server/src/rooms` (earlier-sources.ts, ai.ts, ai-redecide.ts, store.ts), `shared/src/api/rooms.ts`,
+`web/src/components/rooms/RoomMessages.tsx`, 이유: the room AI's share rule and permissions are core.
+
+The owner, on "🔒 나만 볼 수 있어요 · 방 사람 중 일부에게 가려진 예전 답을 참고해서 대화방에 올릴 수 없어요": "그냥 포스팅을 못한다고
+하면 어케해? 포스팅을 할지 물어봐야지". This amends "대화방의 트리나" (where the answer goes, posting a preview, the UX review's
+one-sentence reasons) and "지난 대화" (the AI's share rule: a preview that used an old answer hidden from some member was
+not postable, 409 `room_ai_hidden`, because its asker could not see what was at stake for them).
+
+- **What a hidden earlier answer was built on is followed and named** (`rooms/earlier-sources.ts`, called from
+  `RoomAi.decide`). For the old answers hidden from the members who keep the answer private (the ones `decide()` found
+  before, the asker's own hidden ones still exempt), what each used as kept (`room_ai_turns.scope`, a person's
+  message's `source_scope`) is followed: this room as a source through the answers in it hidden from those members that
+  the answer could have seen (before its own seq), a hidden thread reply through its thread's first message when that is
+  hidden too, a hidden answer through the answers in its thread; at most 8 levels (`EARLIER_DEPTH`) and 100 answers
+  (`EARLIER_MAX`), each once. When every source reached is one the asker may open now (a team folder or the top of the
+  team folder they may read, a name where they may read it, so it is named like a folder, their own folder), those
+  sources join the answer's own in `decide()`
+  and are judged as its own are: named folders, `personal`. `hidden` is then cleared and `earlier` set; such an answer
+  never goes to the room by itself (`post` is false even when every member could read all of it now, e.g. a hidden row
+  not checked again yet): its asker decides.
+  - **Why this is safe.** "The asker cannot see what is at stake" was true because the preview named nothing. What a
+    member who cannot see the old answer would learn from the new one is what the old answer was built on, and that is
+    now in the asker's sight: every source is one they may open themselves, named to them, with how many members cannot
+    see it. Following more than the old answer used (an answer of the room it did not see) only names more folders the
+    asker may open, or refuses. The others are never named; the count is the one the share-to-room dialog already gives
+    ("대화방에 보내기", A and B), not who.
+  - **Still refused** (no button, 409 `room_ai_hidden`, the reason alone: "가려진 예전 답을 참고해서 방에 올릴 수 없어요."):
+    a source in another room (a 1:1, a group chat, another team room), a connection, a shared Drive, the web or any tool
+    outside the team files, nothing kept, a source type this build does not know, someone else's own folder, a folder or
+    name the asker cannot open now, people's words (a message in a hidden answer's thread, deleted ones too since they
+    may have been given; a hidden person's message other than a shared answer without a note, as the note or a message
+    an AI app sent is their own words; a deleted person's message, whose content is gone) and files on a hidden message
+    (no team file to name), too deep or too many, and a team room's or the everyone room's member whose history is not
+    worked out yet (what they will see is not known). Also an answer of the room's AI that read shared project chats
+    (`project_chats` / `project_chat` in its turn's tool lines): the scope keeps such a read as the project's folder
+    (`chat/room-project-chats.ts`), whose rule can be wider than the chat's audience, so the confirm would name a folder
+    where a private chat was read (naming the chat would need the chats it read, which nothing records by design). And a
+    name that is not there now (moved or renamed): it would be judged on a path that no longer says what it was. No "ask
+    again" hint: asking again in the same place brings the same messages back.
+- **Counts.** `Decision.unable` (in `room_ai_turns.decision`, JSON, no migration) keeps for each named folder how many
+  members other than the asker cannot see it (read, or list for a name); `RoomMessage.preview.unable` and
+  `preview.earlier` carry them to the asker only.
+- **One line, one button, a confirm.** The preview's top line is "🔒 나만 볼 수 있어요 · 방에 올리기…" and under it one plain
+  line (supersedes the UX review's sentence per reason): "방 사람 중 일부가 볼 수 없는 자료를 참고한 답이라 지금은 나만 보고
+  있어요." (a 1:1: "상대가 볼 수 없는 …"; the web or a connection alone: "웹이나 연결된 서비스의 내용을 참고한 답이라 …"; no
+  reasons kept: "올리면 대화방 모두가 이 내용을 봐요."). The button shows exactly when `!preview.hidden`, the server's own
+  rule in `share()`. It opens the app's generic `confirmDialog` (no new dialog; the share-to-room dialog is not used, as
+  it posts as the person from their own chat and attaches copies): "이 답을 방에 올릴까요?", one row per reason ("단가표 · 방
+  사람 중 2명은 못 봐요", "… · 다른 사람은 못 봐요" when nobody else can, "다른 폴더 · 방 사람 중 일부는 못 봐요" for folders
+  the asker cannot open and the skills folders, "내 폴더 · 다른 사람은 못 봐요", "들어오기 전 대화 · ○○ 님은 못 봤어요", "웹이나
+  연결된 서비스의 내용"), a line when it went through a hidden earlier answer ("… 위 목록에는 그 답이 참고한 자료도 들어
+  있어요."; with no row left, as when every member can now read what it used: "… 그 답이 참고한 자료는 이제 방 사람 모두가
+  볼 수 있어요.", never "올리면 대화방 모두가 …" as if nothing were behind it), then [방에 올리기] / [취소]. 취소 changes
+  nothing. Every postable preview asks this way, also the ones one click posted before: posting something some members
+  cannot see always shows what is at stake first. Posting is `share()` as before (the AI's message, "○○ 님이 물어봄", the
+  sources some cannot read leave its list, `room.ai_share` audited, now with `earlier: true` when it applies).
+- **Reasons that changed.** `share()` decides again; a different decision, now also a different count (a member who
+  cannot see a folder joined), is saved, sent as `room.message.updated` and answered 409 `room_ai_reasons_changed`; the
+  app shows the server's sentence as a toast and the notice follows the update. A decision kept before the counts is
+  compared without them (`reasonsChanged`), so it is not asked again for that alone.
+- **Previews kept as not postable before this** (`rooms/ai-redecide.ts`, amended after the PR review). Every private
+  preview whose decision says `hidden` and that was made before this build's first start (`until`) is decided again
+  once, on its own question's scope, oldest first, in steps (20 rows or 250 ms, at least one row, 2 s apart, the first
+  5 s after start, when the server listens): never in the way of start-up. Where it got to (`after`: the last row by
+  creation time and turn id) is kept in `settings` (`rooms.redecideHidden.v2`) after every row, so a restart goes on
+  from there, a row is never tried twice and the pass ends when no row is left (not after a fixed number). A row's own
+  cost is decide()'s (`DECIDE_HISTORY_MS`, `EARLIER_DEPTH`, `EARLIER_MAX`). One that now qualifies gets its button: its
+  decision is saved and the preview sent to the asker's windows again. Nothing is posted. Previews made after `until`
+  were decided by this build.
+- **When people leave.** A member out of a team room or the everyone room (`Rooms.forgetMember`), or members' view of
+  its history changing (a later member's hidden answers checked again, `historiesOpened`), decides that room's refused
+  previews of the last 14 days again (at most 10), off the request (`redecideRoomSoon`, through the
+  `Rooms.onAccessChanged` hook set at start: `service.ts` does not import it, which would be a cycle). Amended
+  (fix/room-redecide-guards, re-review of #212): rooms wait in one queue per server and go one at a time, a step being
+  one room's previews for about 250 ms (at least one; the rest of that room in the next step), steps 200 ms apart, the
+  first on the next turn of the event loop; rooms with nothing to decide are looked past. People removed from many
+  rooms at once (a group's members changed, accounts removed: `Rooms.sync` calls `forgetMember` per row) so never run
+  every room's `decide()` back to back. A new decision is saved only on a turn still private (`AND status =
+  'private'`): one its asker posted meanwhile keeps what it is, and nothing is sent. Known limit: a
+  folder rule change that makes a refused preview postable without changing anyone's hidden answers (e.g. the asker
+  gets read access to a folder the earlier answer used) is not followed; that preview gets its button only when it is
+  sent again (the asker asks anew, or someone leaves).
+- **Independent review (2026-11-08) fixes.** A shared answer's note and a reply deleted from a hidden answer's thread
+  were let through unnamed (both are people's words); a name the asker could only list showed as "다른 폴더" instead of
+  by name (now a name must be readable by the asker); the start-up pass ran at every start; a preview whose only reason
+  was the hidden earlier answer had a confirm saying everyone would see it with nothing behind it.
+- Tests: `tests/unit/b-rooms-history.test.ts` ("an answer built on an old answer hidden from someone": followed through
+  two answers to the folder with its count, 404 for anyone else, posted and audited; another room, a connection,
+  someone else's folder, a folder the asker cannot open and people's words in its thread refused with 409; a note, a
+  deleted reply, files and an AI answer in a hidden thread refused, a shared answer without a note followed; a hidden
+  reply through its hidden first message; the asker's own folder and a name; a chain to `EARLIER_DEPTH` and past it; a
+  member whose history cannot be worked out refused; a count that changed answered 409 and then posted; a thread; the
+  start pass in steps over more rows than one step takes, each tried once, done when none is left; someone leaving;
+  project chats and a name no longer there refused; `reasonsChanged`), `b-rooms-ai.test.ts`,
+  `web/test/unit/room-messages.test.tsx`, `web/test/e2e/room-answer-post.spec.ts`.
 
 ## 대화방의 확인 카드는 다시 읽는다 — a room's AI cards come back (fix/room-card-reload-scroll, 2026-11-08)
 

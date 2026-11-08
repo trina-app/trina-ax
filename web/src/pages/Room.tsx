@@ -3,20 +3,23 @@
 // 초대하기, the members, 나가기), and the bell (my notifications for the room, components/rooms/RoomNotifyMenu.tsx); the messages (components/rooms/RoomMessages.tsx),
 // older ones loaded on scrolling up; the message box at the bottom. What I see is marked read (POST
 // /api/rooms/:id/read with the newest message) while the window has the focus and the bottom of the room is in sight.
+// A link or a search result (?m=<message>) older than the newest page opens the room as a window around it
+// (store/rooms.ts loadAround): newer pages load on scrolling down, nothing in it is marked read, new messages wait, and
+// "최근 메시지로" (or sending) goes back to the newest.
 // Phones: a back arrow in the header (the bottom tab bar stays away here: the box and the keyboard need the room).
 // A thread (/rooms/:roomId/t/:messageId, components/rooms/ThreadPanel.tsx) opens beside the room on computers and over
 // it on phones; while threads I follow have new replies, a small thread mark in the header opens the newest of them.
 // Beside the bell, the room's "⋯" (components/rooms/RoomMenu.tsx: 알림 설정, 링크 복사, and 대화방 나가기 or 숨기기 by
 // kind). A room I hid opens all the same (a link, a notice, the full list) and is shown again by opening it
 // (docs/DECISIONS.md "대화 숨기기").
-import { ChevronLeft, Loader2, MessagesSquare } from 'lucide-react'
+import { ArrowDown, ChevronLeft, Loader2, MessagesSquare } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useNavigationType, useParams, type NavigationType } from 'react-router-dom'
 import { isUuid7, type RoomMember, type RoomMessage } from '@mycel/shared/api'
 import { errorText, isApiError } from '../lib/api'
 import { lookingAt } from '../lib/attention'
-import { newestSeq, TARGET_PAGES, threadClosing, threadOpening } from '../lib/rooms'
+import { newestSeq, threadClosing, threadOpening } from '../lib/rooms'
 import { useBackLink } from '../lib/back'
 import { followsAfterScroll, jumpToBottom, stickToBottom } from '../lib/stickToBottom'
 import { useLocale, useT } from '../i18n'
@@ -143,13 +146,13 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
       .fetchRoom(roomId)
       .then((r) => !r && setMissing(true), () => {})
   }, [loaded, room, roomId, missing])
-  // the message a link points at but older than the newest page: older pages until it is there, at most TARGET_PAGES
-  const tries = useRef(0)
+  // the message a link or a search result points at but not in the newest page: the page around it, once for each
+  const aroundFor = useRef<string | null>(null)
   useEffect(() => {
-    if (!target || threadId || !timeline || timeline.loading || timeline.error || !timeline.nextCursor || tries.current >= TARGET_PAGES) return
+    if (!target || threadId || !timeline || timeline.loading || timeline.error || aroundFor.current === target) return
     if (timeline.messages.some((m) => m.id === target)) return
-    tries.current++
-    void useRooms.getState().loadOlder(roomId)
+    aroundFor.current = target
+    void useRooms.getState().loadAround(roomId, target)
   }, [target, threadId, timeline, roomId])
   const notFound = missing || badThread || (!!timeline?.error && (isApiError(timeline.error, 'not_found') || isApiError(timeline.error, 'forbidden')))
 
@@ -167,19 +170,27 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   /** where the list was last: its last scroll event or its own last jump to the bottom (followsAfterScroll) */
   const lastTop = useRef(0)
   const last = messages.at(-1)
+  // a window around an older message: its bottom is not the room's, so nothing sticks to it
+  const detached = !!timeline?.newerCursor
+  const detachedNow = useRef(detached)
+  detachedNow.current = detached
 
   // follow new messages while the reader is at the bottom (and always after my own send)
   useLayoutEffect(() => {
     const el = scroller.current
-    if (el && stick.current) jumpToBottom(el, lastTop)
+    if (el && stick.current && !detachedNow.current) jumpToBottom(el, lastTop)
   }, [last?.id, messages.length, pending.length, aiKey])
   // thumbnails load after the text, a card of the AI's appears or grows (its preview), and a phone's keyboard shrinks
   // the list: stay at the bottom if we were there, so the whole card is in sight above the message box
   useEffect(() => {
     const s = scroller.current, c = content.current
     if (!s || !c) return
-    return stickToBottom(s, c, () => stick.current, undefined, () => { lastTop.current = s.scrollTop })
+    return stickToBottom(s, c, () => stick.current && !detachedNow.current, undefined, () => { lastTop.current = s.scrollTop })
   }, [])
+  const toNewest = () => {
+    stick.current = true
+    void useRooms.getState().loadNewest(roomId)
+  }
 
   const tryRead = useCallback(() => {
     const el = scroller.current
@@ -187,6 +198,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     const r = s.rooms.find((x) => x.id === roomId)
     const th = s.timeline
     if (!el || !r || !th || th.roomId !== roomId || !th.messages.length) return
+    // a window around an older message: the newest is not on screen
+    if (th.newerCursor) return
     // the timeline out of sight (a phone shows the thread over it): nothing in it is read
     if (!el.clientHeight) return
     // on screen and looked at (the phone app: on screen; lib/attention.ts)
@@ -210,9 +223,14 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   const onScroll = () => {
     const el = scroller.current
     if (!el) return
-    stick.current = followsAfterScroll(el, stick.current, lastTop.current)
-    lastTop.current = el.scrollTop
+    const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
     const th = useRooms.getState().timeline
+    // near the bottom, or no move up since the list was there (followsAfterScroll); never in a window around an older
+    // message, whose bottom is not the room's
+    stick.current = followsAfterScroll(el, stick.current, lastTop.current) && !th?.newerCursor
+    lastTop.current = el.scrollTop
+    // a window around an older message: newer pages as its bottom comes into sight
+    if (fromBottom < 200 && th?.roomId === roomId && th.newerCursor && !th.loading) void useRooms.getState().loadNewer(roomId)
     if (el.scrollTop < 200 && th?.roomId === roomId && th.nextCursor && !th.loading) {
       const before = el.scrollHeight
       void useRooms
@@ -282,6 +300,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
         {room && <RoomNotifyMenu room={room} openRequest={notifyRequest} />}
         {room && <RoomMenu room={room} onNotify={() => setNotifyRequest((n) => n + 1)} className="shrink-0" buttonClassName="touch-hit" />}
       </div>
+      <div className="relative flex min-h-0 flex-1 flex-col">
       <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto" data-testid="room-scroller">
         <div ref={content} className="mx-auto max-w-[780px] px-4 pt-2 pb-4">
           {timeline?.loading && messages.length > 0 && <Loader2 size={16} className="mx-auto my-2 animate-spin text-faint" aria-label={t('common.loading')} />}
@@ -294,7 +313,16 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
           {timeline && !timeline.loading && !timeline.error && !messages.length && !pending.length && <p className="py-12 text-center text-sm text-muted">{t('rooms.empty')}</p>}
           <RoomMessages roomId={roomId} messages={messages} pending={pending} meId={meId} members={members} onThread={openThread} highlight={threadId ? null : target} />
           <RoomAiStatus roomId={roomId} />
+          {detached && timeline?.loading && <Loader2 size={16} className="mx-auto my-2 animate-spin text-faint" aria-label={t('common.loading')} />}
         </div>
+      </div>
+      {/* a window around an older message (a search result, a link): one tap back to the newest */}
+      {detached && (
+        <button type="button" onClick={toNewest} className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line bg-surface px-3.5 py-1.5 text-sm text-muted shadow-md hover:bg-hover hover:text-ink" data-testid="room-to-newest">
+          <ArrowDown size={14} aria-hidden />
+          {t('rooms.toNewest')}
+        </button>
+      )}
       </div>
       <RoomComposer
         roomId={roomId}

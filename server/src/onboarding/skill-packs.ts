@@ -17,8 +17,8 @@
 //
 // The pack text is in resources/skill-packs/<pack>/<locale>/<name>/SKILL.md, imported as text so a release bundle
 // carries it inside the server code (no extra resource files to list or verify). The examples follow the same rule
-// (PACK_EXAMPLES).
-import type { Locale, PackCatalog, PackCatalogSkill, PackExample, PackItemStatus, PackSkillSource, SkillPackId, SkillPackInstallResult } from '@mycel/shared/api'
+// (skill-examples.ts PACK_EXAMPLES).
+import type { Locale, PackCatalog, PackCatalogSkill, PackItemStatus, PackSkillSource, SkillPackId, SkillPackInstallResult } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { audit } from '../admin/audit'
 import { teamDefaultLocale } from '../admin/settings'
@@ -28,6 +28,7 @@ import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { listTeamSkills, parseSkill, sameSkillName, SKILL_FILE_MAX_BYTES } from '../chat/skills'
 import { readCompanyProfile } from './profile'
+import { packExample } from './skill-examples'
 import { FileError } from '../team-files/errors'
 import koCardNews from '../../../resources/skill-packs/general/ko/card-news/SKILL.md' with { type: 'text' }
 import enCardNews from '../../../resources/skill-packs/general/en/card-news/SKILL.md' with { type: 'text' }
@@ -189,26 +190,8 @@ const SUMMARY: Record<string, Record<Locale, string>> = {
   },
 }
 
-/** An example of a kept skill (EXAMPLES-PLAN.md; FLOW-v6 §2.2, §8), registered by the language of the skill text and
- * the skill name once its file is in (none yet: the viewer says the example is being made):
- * - an image: `'intro-deck': { kind: 'image' }`, with web/public/skill-examples/<locale>/intro-deck.webp in the web build
- *   (WebP, at most PACK_EXAMPLE_LIMITS.imageBytes);
- * - a text: `humanizer: { kind: 'text', text: koHumanizerExample }`, imported as text like the SKILL.md from
- *   resources/skill-packs/<pack>/<locale>/<name>/EXAMPLE.md (front matter `fictional: true`, `company`, `made`,
- *   `engine`, `skillHash`, then the before → after excerpt in Markdown, at most PACK_EXAMPLE_LIMITS.textChars). It is
- *   never installed into a team: only SKILL.md (and LICENSE) are.
- * Teams in other languages see the English one (the text they get is English). */
-export const PACK_EXAMPLES: Record<'ko' | 'en', Partial<Record<string, { kind: 'image' } | { kind: 'text'; text: string }>>> = { ko: {}, en: {} }
-
-/** An EXAMPLE.md without its front matter. */
-export const exampleBody = (text: string): string => text.replace(/^\uFEFF?---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(\r?\n|$)/, '').trim()
-
-export function packExample(locale: Locale, name: string): PackExample | null {
-  const at = locale === 'ko' ? 'ko' : 'en'
-  const e = PACK_EXAMPLES[at][name]
-  if (!e) return null
-  return e.kind === 'image' ? { kind: 'image', url: `/skill-examples/${at}/${name}.webp` } : { kind: 'text', markdown: exampleBody(e.text) }
-}
+// The examples (EXAMPLES-PLAN.md; FLOW-v6 §2.2, §8): skill-examples.ts, which the web tests' mock server imports too.
+export { exampleBody, PACK_EXAMPLES, packExample } from './skill-examples'
 
 /** Whether the team has this kept skill: its own path, or another team skill of its name ("/<name>" would run either
  * one, so placeSkill blocks it). */

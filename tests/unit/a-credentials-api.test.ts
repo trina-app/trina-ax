@@ -187,7 +187,10 @@ describe('changing, checking, removing', () => {
     expect(r).toMatchObject({ label: 'Design Max', priority: 5, assignments: [{ subjectType: 'group', subjectId: groups.id, name: 'design' }], spendLimit: { usd: null, tokens: 1000000, action: 'warn' } })
     expect((await owner.call('PATCH', `/api/admin/credentials/${id}`, { disabled: true })).state).toBe('disabled')
     expect((await member.client.try('PATCH', `/api/admin/credentials/${id}`, { label: 'x' })).status).toBe(403)
-    expect((await owner.try('PATCH', `/api/admin/credentials/${id}`, { assignments: [{ subjectType: 'group', subjectId: 'nope' }] })).status).toBe(400)
+    // a group that does not exist (deleted since the dialog opened, or never there) does not block the save: it is
+    // dropped, and with nothing left the connection stays off for nobody, never the whole team's (credentials/assignees.ts)
+    expect(await owner.call('PATCH', `/api/admin/credentials/${id}`, { assignments: [{ subjectType: 'group', subjectId: 'nope' }] })).toMatchObject({ disabled: true, assignments: [] })
+    expect((await owner.try('PATCH', `/api/admin/credentials/${id}`, { disabled: false })).status).toBe(409)
     await owner.call('PATCH', `/api/admin/credentials/${id}`, { disabled: false, assignments: [] })
   })
   test('a new token on the same connection (password again): state back to ok', async () => {
