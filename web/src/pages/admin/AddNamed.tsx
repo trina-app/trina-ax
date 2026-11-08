@@ -1,13 +1,20 @@
 // One search for a person or a group, shared by Admin › Folder permissions' edit panel (AccessEdit.tsx) and the Team
 // skills page's "who can edit" dialog (SkillManagers.tsx).
 import clsx from 'clsx'
-import { Search, UserRound, UsersRound } from 'lucide-react'
+import { Search } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MutableRefObject, type RefObject } from 'react'
 import type { Group, User } from '@mycel/shared/api'
 import { useT } from '../../i18n'
 import { Badge } from '../../components/ui'
+import { Avatar } from '../../components/Avatar'
+import { GroupTile } from '../../components/GroupTile'
+import { useFaceOf } from '../../store/people'
 
 export interface NamedOption { kind: 'user' | 'group'; id: string; name: string; sub: string; off: boolean }
+
+/** the active option (the arrow keys' or the mouse's) is filled with the tiles' colour: a letter's or a group's tile
+ * takes the list's there, so it keeps its shape */
+const ON_ROW = 'group-aria-selected:bg-surface'
 
 /** Whether the list is open, and a way to close it: the panel's Esc closes the list first. */
 export type ListControl = MutableRefObject<{ open: boolean; close: () => void }>
@@ -36,6 +43,7 @@ export function AddNamed({ users, groups, taken, list, inputRef, onAdd, inline, 
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(0)
   const [said, setSaid] = useState('')
+  const faceOf = useFaceOf()
   if (list) list.current = { open, close: () => setOpen(false) }
   const box = useRef<HTMLDivElement>(null)
   /** the last thing that moved the focus was a pointer (not a key) */
@@ -151,11 +159,11 @@ export function AddNamed({ users, groups, taken, list, inputRef, onAdd, inline, 
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => pick(o)}
               onMouseMove={() => setActive(i)}
-              className={clsx('flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm max-sm:min-h-10', i === cur ? 'bg-hover' : '')}
+              className={clsx('group flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm max-sm:min-h-10', i === cur ? 'bg-hover' : '')}
               data-testid="edit-add-option"
               data-subject={`${o.kind}:${o.id}`}
             >
-              {o.kind === 'group' ? <UsersRound size={14} className="shrink-0 text-faint" aria-hidden /> : <UserRound size={14} className="shrink-0 text-faint" aria-hidden />}
+              {o.kind === 'group' ? <GroupTile size={20} className={ON_ROW} /> : <Avatar user={faceOf(o)} size={20} className={ON_ROW} />}
               <span className="min-w-0 truncate text-ink">{o.name}</span>
               <span className="min-w-0 shrink-[100] truncate text-xs text-faint">{o.sub}</span>
               {o.off && <Badge className="ml-auto">{t('accessEdit.disabled')}</Badge>}
