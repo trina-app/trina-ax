@@ -13,7 +13,8 @@ import {
 } from '../../src/lib/teamFiles'
 
 const DAY = 86_400_000
-const T0 = Date.UTC(2026, 9, 1)
+// local noon, so the local date is 2026-10-01 in every time zone (ymd reads the local date)
+const T0 = new Date(2026, 9, 1, 12).getTime()
 const file = (name: string, o: { size?: number; at?: number; rel?: string } = {}) => {
   const f = new File([new Uint8Array(o.size ?? 3)], name, { lastModified: o.at ?? T0 })
   if (o.rel) Object.defineProperty(f, 'webkitRelativePath', { value: o.rel })
