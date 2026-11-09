@@ -77,3 +77,4 @@ Buttons, the hover bar (34 px), the header and menu rows keep their size; the si
 round button. The circle stays where the AI is someone in the room (beside its answers, the status line, the "@" menu,
 Inbox, the rooms list). The room composer has no spinner while it sends, so the side chat's button has none either;
 while the AI answers it is disabled (grey), as before.
+PR: https://github.com/trina-app/trina-ax/pull/268
