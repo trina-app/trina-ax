@@ -15854,8 +15854,6 @@ page, no migration. Placement: Team AX core (Home, the skills routes, onboarding
   risk is the person's choice to make, and the switch is one tap away.
 - Migration 275 (additive, reader 1): `notification_preferences.message_preview INTEGER NOT NULL DEFAULT 1`.
 
-||||||| 59b9fe47
-
 
 ## Transparent pictures keep their transparency in thumbnails (fix/transparent-thumbnails, 2026-11-09)
 
