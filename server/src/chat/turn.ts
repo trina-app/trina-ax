@@ -137,6 +137,8 @@ const ENGINE_TEXT_STEP_KIND = (tool: string): Step['kind'] =>
 
 /** Tools whose calls get no step under the answer (their tool_end then finds no step and changes nothing). */
 const HIDDEN_STEP_TOOLS = new Set(['set_title'])
+/** a file of the person's own folder this big or bigger is not hashed to find who made its bytes (bytesOutsideLevel) */
+const OWN_HASH_MAX = 64 * 1024 * 1024
 /** sha256 of no bytes: an empty file carries nothing (bytesOutsideLevel) */
 const EMPTY_SHA256 = sha256(new Uint8Array(0))
 /** Tools that patch their own step exactly once per call (chat/room-tools.ts label): a cover's step words go with it. */
@@ -1468,9 +1470,15 @@ export class TurnExec {
   }
 
   /** The most any AI turn that produced the bytes of `rel` carries (file_events by sha256, the hash the AI read or the
-   * file's bytes now); 0 for an empty file. */
+   * file's bytes now); 0 for an empty file; 2 for a file over OWN_HASH_MAX the AI did not read whole (a search hit in a
+   * big document: not hashed on the server's thread). */
   private bytesOutsideLevel(rel: string): number {
-    const sha = this.files.allReads.get(rel) ?? sha256Regular(path.join(this.rt.files.fx.root, ...rel.split('/')))
+    let sha = this.files.allReads.get(rel)
+    if (!sha) {
+      const abs = path.join(this.rt.files.fx.root, ...rel.split('/'))
+      if (fs.lstatSync(abs).size > OWN_HASH_MAX) return 2
+      sha = sha256Regular(abs)
+    }
     if (sha === EMPTY_SHA256) return 0
     const rows = this.rt.db.query(`SELECT DISTINCT turn_id AS t FROM file_events WHERE sha256 = ? AND turn_id IS NOT NULL AND action IN ('create', 'update', 'upload', 'restore')`).all(sha) as { t: string }[]
     let level = 0

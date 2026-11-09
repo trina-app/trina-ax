@@ -17,10 +17,11 @@ ALTER TABLE turns ADD COLUMN outside_content INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS file_events_sha256 ON file_events(sha256) WHERE sha256 IS NOT NULL;
 UPDATE chats SET room_outside = 1 WHERE room_id IS NULL AND room_outside = 0 AND EXISTS (
   SELECT 1 FROM messages m WHERE m.chat_id = chats.id AND m.role = 'assistant' AND json_valid(m.steps) AND EXISTS (
-    SELECT 1 FROM json_each(m.steps) s WHERE json_type(s.value) = 'object' AND json_extract(s.value, '$.tool') IS NOT NULL
+    SELECT 1 FROM json_each(m.steps) s WHERE json_type(s.value) = 'object'
+      AND (json_extract(s.value, '$.kind') IN ('web_search', 'browser') OR json_extract(s.value, '$.tool') IS NOT NULL
       AND json_extract(s.value, '$.tool') NOT IN ('agent', 'artifact', 'ask_user', 'copy_files', 'edit', 'edit_files',
         'edit_hwp', 'find_skills', 'glob', 'grep', 'hwp_render', 'knowledge_explore', 'list', 'make_file', 'move_files',
         'project_chat', 'project_chats', 'read', 'remember', 'rename_file', 'room_file', 'room_read', 'room_thread',
-        'save_room_file', 'search', 'set_title', 'share_file', 'skill', 'write', 'attachment')));
+        'save_room_file', 'search', 'set_title', 'share_file', 'skill', 'write', 'attachment'))));
 UPDATE turns SET outside_content = COALESCE((SELECT CASE WHEN c.rooms_seen = 1 OR c.room_id IS NOT NULL OR c.room_outside = 1 THEN 2
   WHEN c.session_tainted = 1 THEN 1 ELSE 0 END FROM chats c WHERE c.id = turns.chat_id), 2);
