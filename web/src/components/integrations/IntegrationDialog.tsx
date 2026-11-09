@@ -356,7 +356,7 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
 function AppSection({ f, stored, storedUrl, change, errorOf, blur, template }: {
   f: IntegrationForm
   stored?: OAuthClientView | null
-  /** the saved address: a found app's secret does not follow a new one */
+  /** the saved address: a stored secret does not follow a new one */
   storedUrl?: string
   change: (patch: Partial<IntegrationForm>, ...fields: FormField[]) => void
   errorOf: (k: FormField) => string | null
@@ -410,7 +410,8 @@ function AppSection({ f, stored, storedUrl, change, errorOf, blur, template }: {
           </Field>
         </>
       )}
-      <Field label={t('integrations.field.scope')} hint={t(api ? 'integrations.field.scopeHint.http' : 'integrations.field.scopeHint.mcp')} error={errorOf('scope')}>
+      {/* an MCP server with both addresses given looks nothing up: an empty field asks for no scope at all */}
+      <Field label={t('integrations.field.scope')} hint={t(api ? 'integrations.field.scopeHint.http' : f.authUrl.trim() && f.tokenUrl.trim() ? 'integrations.field.scopeHint.given' : 'integrations.field.scopeHint.mcp')} error={errorOf('scope')}>
         <input className={inputCls} value={f.scope} maxLength={SCOPE_MAX} autoComplete="off" spellCheck={false} onChange={(e) => change({ scope: e.target.value }, 'scope')} onBlur={blur('scope')} data-testid="integration-app-scope" />
       </Field>
     </div>

@@ -16,7 +16,8 @@
 // A template may carry the team's own app at the service (oauthClient: a service that does not register apps itself,
 // docs/INTEGRATIONS.md "Your own app"): each member signs in through it with their own account (service.ts appOf). Its
 // client secret is sealed for the template (templateClientAad) and only ever goes to the service's token address;
-// members see neither the secret nor the app.
+// members see neither the secret nor the app. Any new address of the template (its service address, or the app's
+// sign-in or token address) drops the secret: the admin enters it again (service.ts appAfter).
 import { addressHasSecret } from '@mycel/shared'
 import { INTEGRATION_TEMPLATES_MAX, type Integration, type IntegrationAccess, type IntegrationTemplate, type IntegrationTemplateAnswer, type IntegrationTemplateInput, type IntegrationTemplateMember, type IntegrationTemplatePatch, type Locale, type MyIntegrationTemplate, type OAuthClientInput } from '@mycel/shared/api'
 import type { Database } from 'bun:sqlite'
@@ -77,7 +78,7 @@ export class ConnectionTemplates {
     const connected = (this.db.query('SELECT count(*) AS n FROM integrations WHERE template_id = ? AND secret_enc IS NOT NULL').get(t.id) as { n: number }).n
     return {
       id: t.id, kind: t.kind, name: t.name, url: t.url, auth: t.auth, authHeader: t.auth_header, notes: t.notes, access: templateAccess(this.db, t.id),
-      oauthClient: clientView(t.oauth_client, t.oauth_client_enc),
+      oauthClient: clientView(t.oauth_client, t.oauth_client_enc, t.url),
       connected, createdBy: this.person(t.created_by), createdAt: t.created_at, updatedAt: t.updated_at,
     }
   }
@@ -125,9 +126,10 @@ export class ConnectionTemplates {
     return v.auth === 'header' ? this.svc.headerName(v.authHeader ?? null, L) : null
   }
 
-  /** The template's app after a change (service.ts appAfter): its secret stays only where it went before. */
-  private appAfter(t: Pick<TemplateRow, 'id' | 'oauth_client' | 'oauth_client_enc' | 'oauth_client_key_version'>, kind: TemplateRow['kind'], auth: TemplateRow['auth'], input: OAuthClientInput | null | undefined, moved: boolean, L: Locale) {
-    return this.svc.appAfter(templateClientAad(t.id), { json: t.oauth_client, enc: t.oauth_client_enc, keyVersion: t.oauth_client_key_version }, kind, auth, input, moved, L)
+  /** The template's app after a change (service.ts appAfter) to the address `url`: its secret stays only where it went
+   * before, with the same service address too (members' tokens go there). */
+  private appAfter(t: Pick<TemplateRow, 'id' | 'url' | 'oauth_client' | 'oauth_client_enc' | 'oauth_client_key_version'>, kind: TemplateRow['kind'], auth: TemplateRow['auth'], input: OAuthClientInput | null | undefined, url: string, L: Locale) {
+    return this.svc.appAfter(templateClientAad(t.id), { json: t.oauth_client, enc: t.oauth_client_enc, keyVersion: t.oauth_client_key_version }, kind, auth, input, { before: t.url, after: url }, L)
   }
 
   create(viewer: Viewer, input: IntegrationTemplateInput, L: Locale): IntegrationTemplate {
@@ -140,7 +142,7 @@ export class ConnectionTemplates {
       id: newId(), created_by: viewer.id, kind: input.kind, name: oneLine(input.name), url: normUrl(input.url), auth: input.auth, auth_header: authHeader,
       notes: cleanNotes(input.notes), version: 1, created_at: at, updated_at: at, oauth_client: null, oauth_client_enc: null, oauth_client_key_version: 1,
     }
-    const app = this.appAfter(t, t.kind, t.auth, input.oauthClient, false, L)
+    const app = this.appAfter(t, t.kind, t.auth, input.oauthClient, t.url, L)
     t.oauth_client = app.json; t.oauth_client_enc = app.enc; t.oauth_client_key_version = app.keyVersion
     this.db.transaction(() => {
       this.db.query(`INSERT INTO integration_templates (${COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
@@ -164,12 +166,13 @@ export class ConnectionTemplates {
     if (next.auth === 'header') next.auth_header = patch.authHeader !== undefined ? patch.authHeader : t.auth_header
     else next.auth_header = null
     next.auth_header = this.check(L, { name: next.name, url: next.url, auth: next.auth, kind: next.kind, authHeader: next.auth_header, notes: next.notes, access: patch.access })
-    const app = this.appAfter(t, next.kind, next.auth, patch.oauthClient, next.url !== t.url, L)
+    const app = this.appAfter(t, next.kind, next.auth, patch.oauthClient, next.url, L)
     next.oauth_client = app.json; next.oauth_client_enc = app.enc; next.oauth_client_key_version = app.keyVersion
     // a key is never sent to another address or in another way than the member connected it for; a sign-in made through
     // one app is never used with another
     const moved = next.url !== t.url || next.auth !== t.auth || next.auth_header !== t.auth_header || app.changed
-    const changed = [...(['name', 'url', 'auth', 'auth_header', 'notes'] as const).filter((k) => next[k] !== t[k]), ...(app.changed ? ['oauthClient'] : [])]
+    // the same app with its found token address forgotten (the secret entered again) is audited, and drops nothing
+    const changed = [...(['name', 'url', 'auth', 'auth_header', 'notes'] as const).filter((k) => next[k] !== t[k]), ...(app.changed ? ['oauthClient'] : app.forgot ? ['tokenAddress'] : [])]
     const before = templateAccess(this.db, id)
     const at = this.now()
     this.db.transaction(() => {

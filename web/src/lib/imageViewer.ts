@@ -9,6 +9,8 @@
 // any group opens alone.
 // Every address is one of the app's own, with its checks (a room file through the room, a team file by its path): no
 // new address is made here.
+// Phones: the file's thread or Trina side chat is a sheet over the viewer (ImageViewer.tsx), with a history entry of its
+// own on top of the viewer's, so Back closes the sheet first, then the viewer, then leaves the page.
 import { useSyncExternalStore } from 'react'
 import { API, type Attachment, type Me, type RoomFile, type UserRef } from '@mycel/shared/api'
 import { api, fileUrl, roomFileUrl, startDownload, thumbnailUrl } from './api'
@@ -149,6 +151,28 @@ export function documentSwipe(dx: number, dy: number, ms: number): 'next' | 'pre
   return dx < 0 ? 'next' : 'prev'
 }
 
+/** Where the phone's sheet (the file's thread or Trina) settles when the finger leaves its handle: `height` is where it
+ * was let go, `part` its usual height (70 % of the screen), `full` the whole height, `vy` the finger's speed (px/ms,
+ * down positive). A flick goes its way (down from above `part` to `part`, from below it closed); a slow drag settles at
+ * the nearer height, or closes once it is well below `part`. */
+export function sheetSnap(height: number, part: number, full: number, vy: number): 'closed' | 'part' | 'full' {
+  if (vy > 0.5) return height > part + 1 ? 'part' : 'closed'
+  if (vy < -0.5) return 'full'
+  if (height < part * 0.65) return 'closed'
+  return height > (part + full) / 2 ? 'full' : 'part'
+}
+
+/** A PDF's page thumbnails are 128 px wide (viewers/PdfView `Thumbnails`, w-32). */
+export const PDF_RAIL_PX = 128
+/** The narrowest document worth a rail beside it: what a 1,024 px window leaves it (the rail's first width, step d). */
+export const PDF_RAIL_DOCUMENT_PX = 896
+/** The viewer's stage (the space left of the right column) has room for a PDF's thumbnails and a readable document:
+ * the rail goes by the stage, not the window, so the column beside it takes the rail away before the document narrows
+ * under 896 px. */
+export function pdfRailFits(stageWidth: number): boolean {
+  return stageWidth >= PDF_RAIL_PX + PDF_RAIL_DOCUMENT_PX
+}
+
 // ---------------- the pictures ----------------
 
 /** A photo sent in a room: its thumbnail, then the original through the room (its members, on every read). A picture the
@@ -231,21 +255,29 @@ export interface ViewerOpen {
 }
 
 let current: ViewerOpen | null = null
+/** the phone's sheet over the viewer (the file's thread or Trina) is open */
+let sheet = false
 const listeners = new Set<() => void>()
 const emit = () => {
   for (const l of listeners) l()
+}
+const subscribe = (l: () => void) => {
+  listeners.add(l)
+  return () => {
+    listeners.delete(l)
+  }
 }
 
 export const getImageViewer = () => current
 
 export function useImageViewer(): ViewerOpen | null {
-  return useSyncExternalStore(
-    (l) => {
-      listeners.add(l)
-      return () => listeners.delete(l)
-    },
-    () => current,
-  )
+  return useSyncExternalStore(subscribe, () => current)
+}
+
+/** Whether the phone's sheet over the viewer is open (ImageViewer.tsx draws it; Back closes it before the viewer). */
+export const getViewerSheet = () => sheet
+export function useViewerSheet(): boolean {
+  return useSyncExternalStore(subscribe, () => sheet)
 }
 
 /** Show another picture of the same pane (next / previous). */
@@ -259,7 +291,11 @@ export function showEntry(entry: ViewerEntry) {
 // copied (its idx, key and usr), so the router and the app's own back (lib/back.ts) see the page they saw before. A
 // popstate that leaves that entry (the browser's Back, Android's back through the phone app's WebView, iOS's edge
 // swipe) closes the viewer; closing it any other way goes back off that entry, so none is left behind.
+// The phone's sheet adds one more entry on top, a copy of the viewer's marked as the sheet's: Back from it lands on the
+// viewer's and closes only the sheet; Forward onto it opens the sheet again. Closing the viewer with the sheet open goes
+// back off both, one at a time (each once the last has landed).
 const MARK = '__imageViewer'
+const SHEET = '__viewerSheet'
 let token = 0
 /** a history.back() of ours is on its way: a viewer opened meanwhile adds its entry once it has landed */
 let backPending = false
@@ -268,40 +304,71 @@ let pushOwed = false
 type HistoryState = Record<string, unknown> | null
 const stateNow = () => window.history.state as HistoryState
 const onOurEntry = () => stateNow()?.[MARK] === token
+const onSheetEntry = () => onOurEntry() && stateNow()?.[SHEET] === token
 const idxOf = (s: HistoryState) => (typeof s?.idx === 'number' ? s.idx : null)
+/** An entry of a viewer's (`mark`: its viewer; `sheet`: the sheet's on top of it), or null: the router's own. */
+type Spot = { mark: unknown; sheet: boolean } | null
+const spotOf = (s: HistoryState): Spot => (s?.[MARK] === undefined ? null : { mark: s[MARK], sheet: s[SHEET] !== undefined && s[SHEET] === s[MARK] })
+/** the entry the page is on as last seen (a push of ours, a page shown, a popstate): where the next popstate came from */
+let here: Spot = null
 
 function onPop() {
-  if (current && !onOurEntry()) shut()
+  if (!current) return
+  if (!onOurEntry()) return shut()
+  // on the viewer's own entry the sheet is closed, on the sheet's it is open
+  const on = onSheetEntry()
+  if (on !== sheet) {
+    sheet = on
+    emit()
+  }
 }
 
 function pushEntry() {
   token += 1
   try {
     window.history.pushState({ ...(stateNow() ?? {}), [MARK]: token }, '')
+    here = spotOf(stateNow())
   } catch {
     // a history the page may not change (a sandbox): the viewer still opens, Back just leaves the page as before
   }
   window.addEventListener('popstate', onPop)
 }
 
-/** what waits for our history.back() to land (closeImageViewer's `then`) */
+/** what waits for our history.back() to land (closeImageViewer's `then`, the next step back) */
 let afterBack: (() => void)[] = []
 
 function onBackDone() {
   window.removeEventListener('popstate', onBackDone)
   backPending = false
-  if (pushOwed && current) {
-    pushOwed = false
-    pushEntry()
-  }
   const then = afterBack
   afterBack = []
   for (const f of then) f()
+  // a viewer opened while we were going back: its entry, once the last of our backs has landed
+  if (!backPending && pushOwed && current) {
+    pushOwed = false
+    pushEntry()
+  }
 }
 
-/** closed: no picture, no listener */
+/** one step back, with `then` once it has landed */
+function goBack(then?: () => void) {
+  backPending = true
+  if (then) afterBack.push(then)
+  window.addEventListener('popstate', onBackDone)
+  window.history.back()
+}
+
+/** Back off the entries of the viewer that had `mine` (the sheet's, then its own), one at a time, then `then`. */
+function backOff(mine: number, then?: () => void) {
+  if (backPending) return void afterBack.push(() => backOff(mine, then))
+  if (stateNow()?.[MARK] !== mine) return then?.()
+  goBack(() => backOff(mine, then))
+}
+
+/** closed: no picture, no sheet, no listener */
 function shut() {
   current = null
+  sheet = false
   pushOwed = false
   if (typeof window !== 'undefined') window.removeEventListener('popstate', onPop)
   emit()
@@ -315,37 +382,72 @@ export function openImageViewer(open: ViewerOpen) {
     else pushEntry()
   }
   emit()
+  // a picture or file opened from the sheet (its thread's): shown whole, the sheet gives way
+  if (was) closeViewerSheet()
 }
 
-/** Close it (✕, Esc, the backdrop, a swipe; `back` false for a route change, which left our entry already). `then`
- * runs once the page is back where it was (after our history entry is gone): a change of address it makes (the room
+/** Close it (✕, Esc, the backdrop, a swipe; `back` false for a route change, which left our entries already). `then`
+ * runs once the page is back where it was (after our history entries are gone): a change of address it makes (the room
  * page closing its thread) is not undone by that Back. */
 export function closeImageViewer(back = true, then?: () => void) {
   if (!current) return then?.()
+  const mine = token
   shut()
-  if (back && typeof window !== 'undefined' && onOurEntry()) {
-    backPending = true
-    if (then) afterBack.push(then)
-    window.addEventListener('popstate', onBackDone)
-    window.history.back()
-  } else then?.()
+  if (back && typeof window !== 'undefined') backOff(mine, then)
+  else then?.()
 }
 
-// A viewer's entry is left behind when the page changed while it was open (a notice opened another page on top of it).
-// Back from that page would land on it: the same page again, a Back that does nothing. So a popstate that lands on such
-// an entry with no viewer open goes on, the way it came (ImageViewerHost listens; React Router's idx tells the way).
+/** Open the phone's sheet over the viewer, with its own history entry (none while a back of ours is on its way: Back
+ * then closes the viewer, as before). */
+export function openViewerSheet() {
+  if (!current || sheet) return
+  sheet = true
+  if (typeof window !== 'undefined' && !backPending && onOurEntry()) {
+    try {
+      window.history.pushState({ ...(stateNow() ?? {}), [SHEET]: token }, '')
+      here = spotOf(stateNow())
+    } catch {
+      // a history the page may not change: Back closes the viewer, sheet and all
+    }
+  }
+  emit()
+}
+
+/** Close the phone's sheet (its ✕ or ‹, a drag down, a tap beside it, Esc): back off its entry. */
+export function closeViewerSheet() {
+  if (!sheet) return
+  sheet = false
+  emit()
+  if (typeof window !== 'undefined' && !backPending && onSheetEntry()) goBack()
+}
+
+// A viewer's entries are left behind when the page changed while it was open (a notice opened another page on top of
+// it, a link in the sheet), and stay ahead of the page as Forward entries once it closed. Landing on them is the same
+// page again, a Back or Forward that does nothing. So a popstate that lands on such an entry with no viewer open goes
+// on, the way it came (ImageViewerHost listens): from the other entry of the same viewer, the sheet's to the viewer's
+// is back and the viewer's to the sheet's forward (both have the page's idx); from any other entry, React Router's idx
+// tells the way. A Forward with nothing after the sheet's entry stays there, and the next Back goes past both.
 /** the router's entry number of the page last shown (ImageViewerHost notes it on every page change) */
 let shownIdx: number | null = null
 export function notePage() {
-  shownIdx = typeof window === 'undefined' ? null : idxOf(stateNow())
+  if (typeof window === 'undefined') return void (shownIdx = null)
+  shownIdx = idxOf(stateNow())
+  here = spotOf(stateNow())
 }
 
 /** For ImageViewerHost's popstate listener (added before any viewer's own, so it runs first). */
 export function skipLeftEntry() {
   const s = stateNow()
-  if (current || backPending || !s?.[MARK]) return
-  const idx = idxOf(s)
-  if (idx === null || shownIdx === null) return
-  if (idx < shownIdx) window.history.back()
-  else window.history.forward()
+  const from = here
+  const at = spotOf(s)
+  here = at
+  if (current || backPending || !at) return
+  let way: -1 | 1 | 0
+  if (from && from.mark === at.mark && from.sheet !== at.sheet) way = from.sheet ? -1 : 1
+  else {
+    const idx = idxOf(s)
+    way = idx === null || shownIdx === null ? 0 : idx < shownIdx ? -1 : 1
+  }
+  if (way < 0) window.history.back()
+  else if (way > 0) window.history.forward()
 }
