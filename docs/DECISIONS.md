@@ -17592,3 +17592,25 @@ review). Amends "대화방에 보내기" and "Trina side chat".
 - Tests: `tests/unit/ai-delete-files.test.ts`, `remote-mcp-tools.test.ts` (the connector), `b-shared-chats.test.ts`,
   `b-rooms-ai.test.ts`, `i-wiring.test.ts` (tool lists).
 - Version impact: **minor** (a new AI tool and card; no HTTP API, setting or data change).
+
+## delete_files follow-ups — nothing stranded in the trash storage (fix/ai-delete-followups, 2026-11-09)
+
+- **Why:** the security review of #277 found no MUST. Its SHOULD: a double fault in `TeamFiles.remove`. A folder changed
+  by a writer outside the process on its way to the trash, something took its old place so it could not go back, and
+  then its `trash_items` insert failed: it sat in `.system/trash/<month>/<uuid>` with no row, nobody could restore it,
+  and the AI said "Nothing was moved".
+- **Never without a row if one can be written:** when the rows fail and the item cannot go back, the server logs it at
+  error level with the storage path, writes the same rows once more (the file event says `rescued`), and failing that
+  the trash row alone (restore works from it). Only when no row can be written at all does `remove()` throw
+  `TrashStranded` with the storage path; delete_files then reports the item as moved out of its place, not in Files ›
+  Trash, for an admin to recover (audit `stranded`), never as "nothing moved". The Files screen's delete shares this.
+- **The rollback never writes over what took the old place:** both branches put the item back with `putBack` (only
+  where nothing is), so a file an outside writer made there in that instant stays, and the item takes the rescue path.
+- **Audit:** a call where every item failed, and none changed after the card, is `failed` (it said `changed`).
+- **Left as they are (the review's optional nits):** the card's purge date counts from when the card opens and
+  `purge_at` from the move, so the card never promises more time than the trash gives. `aiTrashed()` keeps reading the
+  AI's trash rows that are still in the trash: SQL cannot fold letter case and Unicode form the way the volume does, so
+  narrowing it there would let a variant spelling of a trashed path count as new for a room grant.
+- Tests: `tests/unit/ai-delete-files.test.ts` "a double fault never strands an item without a trash row" (a rescued
+  row, no row possible, a file made at the old place in that instant, the `failed` audit), each failing without its fix.
+- Version impact: **patch** (bug fixes; nothing changes when nothing fails).
