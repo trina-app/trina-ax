@@ -72,7 +72,7 @@ async function openRoom(page: Page, o: { at?: string; hwp?: boolean; sheet?: boo
       ] } },
       { id: id(3), author: BEN, body: '검사 중인 파일', extra: { files: [file(507, 'acme-held.pdf', 'pdf', 'application/pdf', pdf.length)] } },
       ...(o.hwp ? [{ id: id(6), author: BEN, body: '신청서 양식이에요', extra: { files: [file(601, 'acme-신청서.hwp', 'other', 'application/x-hwp', HWP.length)] } }] : []),
-      ...(o.sheet ? [{ id: id(7), author: BEN, body: '예산표예요', extra: { files: [file(701, 'acme-budget.xlsx', 'sheet', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', xlsx.length)] } }] : []),
+      ...(o.sheet ? [{ id: id(7), author: BEN, body: '예산표예요', extra: { files: [file(701, 'acme-budget.xlsx', 'spreadsheet', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', xlsx.length)] } }] : []),
       { id: id(4), author: BEN, body: '메모 하나 더', threadRootId: id(1), extra: { files: [file(508, 'acme-reply.md', 'text', 'text/markdown', REPLY_MD.length)] } },
     ],
   })

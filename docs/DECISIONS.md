@@ -16973,7 +16973,9 @@ previews are core. Step (b) of the plan `docs/AGENTS/plan/20261109-0939-room-fil
   list was a new array on each render); the open document was read again whenever the room drew again; "deleted" was
   guessed from the chip leaving the page; a sheet lost its pinned tabs; a team-file link in a document opened the panel
   under the viewer. Also taken: no bar download for a file not found, the media and sideways-scroll keys, the swipe on
-  the cards, the column in the Tab order, "미리보기" said only for a chip with a preview.
+  the cards, the column in the Tab order, "미리보기" said only for a chip with a preview. The sheet's own scroll box
+  (`SheetView`, in the panel too) is now in the Tab order, named by the sheet, so a keyboard can scroll a long or wide
+  sheet (axe's `scrollable-region-focusable` flagged it once a sheet of 80 rows was audited).
 - Tests: `web/test/unit/image-viewer.test.ts` (a document's source and download, a picture without a thumbnail, each
   card case, pictures and files in message order and their steps, a deleted file's steps, the swipe),
   `web/test/unit/room-files-open.test.tsx` (the chip's name opens the viewer with its message, every chip has its
