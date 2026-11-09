@@ -88,4 +88,4 @@ Built as planned, plus the card-fatigue audit's change 3 (the other tools with t
 independent review before the PR: `carriesAddress` reads `call_tool`'s JSON-text arguments as the tool takes them and
 catches `https:/…`, `https:host`, full-width hosts and a whole host value; the own-card skip runs after the
 instruction-file rule, so a copy of a planted `CLAUDE.md` is still refused. Cards after a room read: a Notion read 1 → 0,
-a Notion write 2 → 1, a read with an address 1 → 1. PR: see the branch's pull request to `dev`.
+a Notion write 2 → 1, a read with an address 1 → 1. PR: https://github.com/trina-app/trina-ax/pull/274
