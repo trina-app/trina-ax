@@ -11,6 +11,9 @@ import { assertStorageRoom } from '../system/storage'
 import { streamFile } from '../team-files/download'
 import { SAFE_OPS_TEXT } from '../safe-ops/strings'
 import { hashFile, writeTemp } from '../team-files/place'
+import { HwpError } from '../files/hwp-engine'
+import { componentC } from '../team-files/component'
+import { httpError } from '../team-files/errors'
 import { roomsOf } from '../rooms/service'
 import { roomFilesOf } from '../rooms/files'
 import { roomAiOf } from '../rooms/ai'
@@ -79,6 +82,9 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.leaveRoom, ({ auth, params }) => rooms.leave(auth.user.id, params.id))
     // hiding a DM, a team room or the everyone room from my own lists (docs/DECISIONS.md "대화 숨기기"): mine only
     kit.handle(API.setRoomHidden, ({ auth, params, body }) => rooms.setHidden(auth.user.id, params.id, body.hidden))
+    // "상단에 고정" / "고정 해제" (docs/DECISIONS.md "Pinned conversations"): mine only; only my own windows hear it
+    kit.handle(API.pinRoom, ({ c, auth, params }) => rooms.pin(auth.user.id, params.id, c.get('locale')))
+    kit.handle(API.unpinRoom, ({ auth, params }) => rooms.unpin(auth.user.id, params.id))
     // "이 방에서는 항상 허용" (rooms/ai-grants.ts): my own only; another person's id answers like one that is not there
     kit.handle(API.listAiAllowances, ({ c, auth }) => { c.header('Cache-Control', 'no-store'); return { items: listGrants(ctx.db, auth.user.id) } })
     kit.handle(API.deleteAiAllowance, ({ auth, params }) => { if (!deleteGrant(ctx.db, auth.user.id, params.id)) fail('not_found') })
@@ -107,6 +113,21 @@ export const roomsRoutes: RouteModule = {
       const dest = c.req.raw.headers.get('sec-fetch-dest')
       if (f.quarantined && (query.thumb || !query.download || (dest && dest !== 'document' && dest !== 'empty'))) fail('unavailable', SAFE_OPS_TEXT.quarantined[c.get('locale')], { params: { reason: 'quarantined' } })
       return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.download ? 'attachment' : 'inline' })
+    })
+    // a Hangul file's pages from the HWP Preview plugin (files/hwp-preview.ts: the team file preview's renderer, limits,
+    // isolation and cache). The inline read's checks run on every request, before the cache and the render and again
+    // after it (rooms/files.ts hwpSource); the plugin off or not usable here answers as for a team file (disabled)
+    kit.handle(API.roomFileHwpPreview, async ({ c, auth, params, query }) => {
+      c.header('Cache-Control', 'private, no-store')
+      c.header('X-Content-Type-Options', 'nosniff')
+      const locale = c.get('locale')
+      try {
+        const r = await componentC(ctx).hwp.pageOf(auth.user.id, (admission) => files.hwpSource(auth.user.id, params.id, params.fileId, admission, locale), query.page, c.req.raw.signal, query.cacheId)
+        return { ...r.meta, id: r.id, png: r.bytes.toString('base64') }
+      } catch (e) {
+        if (e instanceof HwpError) throw httpError('unavailable', 'noPreview', locale, undefined, { reason: e.reason })
+        throw e
+      }
     })
   },
 }

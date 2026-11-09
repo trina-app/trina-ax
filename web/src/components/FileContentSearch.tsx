@@ -9,6 +9,7 @@ import { api, API, errorText, isApiError } from '../lib/api'
 import { highlightParts } from '../lib/highlight'
 import { openTeamFile } from '../lib/sidePanel'
 import { useLocale, useT } from '../i18n'
+import { useFolderWords } from '../lib/folderLabels'
 import { EmptyState, ErrorNote, Skeleton } from './ui'
 
 /** the wait after the last key press before a search starts */
@@ -39,6 +40,7 @@ export function Highlighted({ text, query }: { text: string; query: string }) {
 
 export function FileContentResults({ q, path, folderLabel }: { q: string; path: string; folderLabel: string }) {
   const t = useT()
+  const words = useFolderWords()
   const locale = useLocale()
   const [res, setRes] = useState<FileContentHits | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -102,7 +104,7 @@ export function FileContentResults({ q, path, folderLabel }: { q: string; path: 
               <button type="button" className="flex w-full items-center gap-2 rounded-t-lg px-3 py-2 text-left text-sm hover:bg-hover" onClick={() => openTeamFile(p)} data-testid="content-hit-file">
                 <FileText size={15} className="shrink-0 text-faint" aria-hidden />
                 <span className="min-w-0 flex-1 truncate font-medium">{hits[0]!.name}</span>
-                <span className="min-w-0 shrink truncate text-xs text-faint max-sm:hidden">{p}</span>
+                <span className="min-w-0 shrink truncate text-xs text-faint max-sm:hidden" title={p}>{words.path(p)}</span>
               </button>
               <ul className="border-t border-line">
                 {hits.map((h) => (

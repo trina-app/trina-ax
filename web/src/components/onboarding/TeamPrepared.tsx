@@ -3,27 +3,33 @@
 // - Skills: up to 3 rows (the landing skill, then 자연스러운 글 → 카드뉴스 → 홍보 영상 → 회사 소개서, then the others), each
 //   its title, its one line, [예시] (a kept skill's example, only when there is one) and [써 보기] (its form over Home;
 //   자연스러운 글 fills the box with "/humanizer 아래 글을 자연스럽게 다듬어 줘:" and a new line instead: its form has no box
-//   for the text), then "팀 스킬 N개 더 ›". They stay until the person ran a team skill, however many chats they have.
+//   for the text; the box then waits for the person's text before it sends), then "팀 스킬 N개 더 ›". They stay until
+//   the person ran a team skill, however many chats they have.
 // - Team files: while the person has no chats and the team folder holds documents they can read: "{folder} · 파일 n개"
-//   with [물어보기], which puts a question that names the folder in the box (names and types only, the brand folder and
-//   the group's skills left out as the count leaves them out; not sent).
-// - Nothing of that: "이렇게 시작해 보세요" with one ready question (a saved company profile: what the company does;
-//   else what is in the person's own folder), and the "no team folder" line when they can open none.
+//   with [물어보기], which puts a question that names the folder in the box as people read it ("예시커피 폴더", never
+//   "groups/…"; names and types only, the brand folder and the skills folder left out as the count leaves them out,
+//   said in words; not sent).
+// - Nothing of that: "이렇게 시작해 보세요" with one ready question that needs no team file (a saved company profile: what
+//   the company does; else how the AI can help with the team's work), and the "no team folder" line when they can open
+//   none.
 // One filled button for a member: the first skill's 써 보기, else 물어보기, else the ready question. Owners and admins get
 // no filled button here (the goal card or the setup row is the one thing on Home: docs/DECISIONS.md "Y") and, with
-// nothing prepared, "스킬 넣기 · 팀 파일 넣기" instead of a question. `readOnly` (a member under the no-AI card): the rows
-// and 예시 only. Phones (below 768px): a skill row's tap is 써 보기, with 예시 as its own target at the row's end; the
+// nothing prepared, "스킬 넣기 · 팀 파일 넣기" instead of a question (스킬 넣기 opens 팀 스킬 with the ready-made skills
+// unfolded). `readOnly` (a member under the no-AI card): the rows and 예시 only. Phones (below 768px): a skill row's tap
+// is 써 보기 (it says so at its end, as the files row says 물어보기), with 예시 as its own target at the row's end; the
 // files row is one row. The block reads again when skills, files or access change (once per burst of changes); a failed
 // read is one quiet "다시 불러오기", never the empty state. While its skill rows show, Home leaves 「자주 쓰는 스킬」 out.
 import clsx from 'clsx'
 import { ArrowUpLeft, ChevronRight } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { WORK_HUMANIZER_SKILL, type FileChange, type PackCatalogSkill, type PreparedSkill, type TeamPrepared as TeamPreparedData } from '@mycel/shared/api'
+import { labeledPath } from '@mycel/shared'
+import { WORK_HUMANIZER_SKILL, type FileChange, type Locale, type PackCatalogSkill, type PreparedSkill, type TeamPrepared as TeamPreparedData } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
+import { SKILL_CATALOG } from '../../lib/nav'
 import { isSkillsPath } from '../../lib/skillIssues'
 import { visibleFolders } from '../../lib/visibleFolders'
-import { useT } from '../../i18n'
+import { useLocale, useT } from '../../i18n'
 import { accessChanged, filesChanged, reloadAsked, skillsChanged } from '../../store/live'
 import { isAdmin, useMeStrict } from '../../store/session'
 import { quietLink } from './SkillShareReview'
@@ -35,8 +41,9 @@ import { Button, useMediaQuery } from '../ui'
 export const PREPARED_SKILL_ROWS = 3
 const PHONE = '(max-width: 767.98px)'
 
-/** A file change the block cares about: a skill, the team's group folders, the company profile. */
-const touches = (changes: FileChange[]) => changes.some((c) => [c.path, c.from].some((p) => !!p && (isSkillsPath(p) || p.startsWith('groups/'))))
+/** A file change the block cares about: a skill, the team's group folders, shared/ (the company start of a team that
+ * began after docs/DECISIONS.md "Team folder basics"), the company profile. */
+const touches = (changes: FileChange[]) => changes.some((c) => [c.path, c.from].some((p) => !!p && (isSkillsPath(p) || p.startsWith('groups/') || p.startsWith('shared/'))))
 
 /** How long the block waits after a change it hears of before it reads again: a team folder where many files change at
  * once (a folder upload, a sync) is one read, not one per file. */
@@ -70,8 +77,14 @@ export function useTeamPrepared(enabled = true, again: unknown = null): { data: 
   return { data, failed, reload: () => { setFailed(false); setAttempt((n) => n + 1) } }
 }
 
-/** The team folder as people read it: "groups/Acme/회사 자료" → "Acme › 회사 자료". */
-export const folderLabel = (path: string) => path.replace(/^groups\//, '').split('/').join(' › ')
+/** The team folder as people read it: "groups/Acme/회사 자료" → "Acme › 회사 자료", "shared" → "전사 공유" (the top
+ * folders' words, shared/src/folder-labels.ts). */
+export const folderLabel = (path: string, locale: Locale = 'ko') => (path.startsWith('groups/') ? path.slice('groups/'.length).split('/').join(' › ') : labeledPath(path, locale, null, ' › '))
+
+/** 물어보기's question: the folder by the name people read ("예시커피 폴더"), the brand folder (`without[0]`, its name in
+ * the team's language) and the skills folder left out in words, as the count leaves them out. */
+export const filesQuestion = (t: (k: 'home.prepared.filesAsk', p: Record<string, string>) => string, f: Pick<NonNullable<TeamPreparedData['teamFolder']>, 'path' | 'without'>, locale: Locale = 'ko') =>
+  t('home.prepared.filesAsk', { folder: folderLabel(f.path, locale), brand: f.without[0] ?? '' })
 
 /** What the block shows for this person (the rules above), apart from the data load. Exported for its test. */
 export function preparedView(d: TeamPreparedData, o: { firstTime: boolean; admin: boolean; readOnly: boolean }) {
@@ -91,8 +104,9 @@ export function preparedView(d: TeamPreparedData, o: { firstTime: boolean; admin
 export interface TeamPreparedProps {
   /** the person has no chats yet: the files row and the ready question can show */
   firstTime: boolean
-  /** puts a request in the message box (never sends it) */
-  onCompose: (text: string) => void
+  /** puts a request in the message box (never sends it); `waits`: it needs the person's own text after it, and this
+   * line says so under the box while the box holds only the request (nothing is sent meanwhile) */
+  onCompose: (text: string, waits?: string) => void
   /** no AI answers the person (a member under the no-AI card): rows and 예시 only */
   readOnly?: boolean
   /** whether skill rows show, once that is known (false after a failed read): Home leaves 「자주 쓰는 스킬」 out while they
@@ -102,6 +116,7 @@ export interface TeamPreparedProps {
 
 export function TeamPrepared({ firstTime, onCompose, readOnly = false, onSkillRows }: TeamPreparedProps) {
   const t = useT()
+  const locale = useLocale()
   const me = useMeStrict()
   const admin = isAdmin(me)
   const phone = useMediaQuery(PHONE)
@@ -128,11 +143,11 @@ export function TeamPrepared({ firstTime, onCompose, readOnly = false, onSkillRo
 
   const tryIt = (s: PreparedSkill) => {
     // 자연스러운 글 works on the person's own text: the box, where they paste it (its form has nowhere for it)
-    if (s.path === WORK_HUMANIZER_SKILL) onCompose(`/${s.name} ${t('home.prepared.humanizerAsk')}\n`)
+    if (s.path === WORK_HUMANIZER_SKILL) onCompose(`/${s.name} ${t('home.prepared.humanizerAsk')}\n`, t('home.prepared.humanizerPaste'))
     else setRunning(s)
   }
   // the folders the count leaves out (the brand folder, the group's skills): the question leaves them out too
-  const askFiles = (f: NonNullable<TeamPreparedData['teamFolder']>) => onCompose(t('home.prepared.filesAsk', { path: f.path, skip: f.without.join(', ') }))
+  const askFiles = (f: NonNullable<TeamPreparedData['teamFolder']>) => onCompose(filesQuestion(t, f, locale))
   const example = (s: PreparedSkill) => s.example && (
     <button
       ref={(el) => { if (el) exampleButtons.current.set(s.path, el); else exampleButtons.current.delete(s.path) }}
@@ -168,7 +183,9 @@ export function TeamPrepared({ firstTime, onCompose, readOnly = false, onSkillRo
                   <div className="min-w-0 flex-1 px-3 py-1.5"><SkillText s={s} /></div>
                 ) : (
                   <button type="button" onClick={() => tryIt(s)} aria-label={t('home.prepared.tryNamed', { title: s.title })} className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg px-3 py-1.5 text-left transition hover:bg-hover" data-testid="team-prepared-try">
-                    <SkillText s={s} accent={filled} />
+                    <SkillText s={s} />
+                    {/* what the tap does, as the files row says 물어보기 */}
+                    <span className={clsx('shrink-0 text-label font-medium', filled ? 'text-accent-text' : 'text-muted')} aria-hidden data-testid="team-prepared-try-label">{t('home.prepared.try')}</span>
                   </button>
                 )}
                 {example(s)}
@@ -207,7 +224,7 @@ export function TeamPrepared({ firstTime, onCompose, readOnly = false, onSkillRo
           ) : (
             <li className="flex min-h-11 items-center gap-3 py-1.5" data-testid="team-prepared-files" data-primary={v.primary === 'files' || undefined}>
               <span className="w-32 shrink-0 text-sm font-medium text-ink">{t('home.prepared.files')}</span>
-              <span className="min-w-0 flex-1 truncate text-label text-muted" title={v.files.path}>{folderLabel(v.files.path)} · {count(v.files)}</span>
+              <span className="min-w-0 flex-1 truncate text-label text-muted" title={v.files.path}>{folderLabel(v.files.path, locale)} · {count(v.files)}</span>
               {!readOnly && (
                 <Button size="sm" variant={v.primary === 'files' ? 'primary' : 'secondary'} onClick={() => askFiles(v.files!)} aria-label={t('home.prepared.askNamed')} data-testid="team-prepared-ask">
                   {t('home.prepared.ask')}
@@ -220,7 +237,7 @@ export function TeamPrepared({ firstTime, onCompose, readOnly = false, onSkillRo
       {v.ready && <ReadyQuestion hasProfile={data.hasProfile} onCompose={onCompose} />}
       {v.add && (
         <p className="py-1.5 text-label text-muted max-md:px-3" data-testid="team-prepared-add">
-          <Link to="/skills" className={clsx(quietLink, 'touch-hit')} data-testid="team-prepared-add-skills">{t('home.prepared.addSkills')}</Link>
+          <Link to={SKILL_CATALOG} className={clsx(quietLink, 'touch-hit')} data-testid="team-prepared-add-skills">{t('home.prepared.addSkills')}</Link>
           <span aria-hidden> · </span>
           <Link to="/files" className={clsx(quietLink, 'touch-hit')} data-testid="team-prepared-add-files">{t('home.prepared.addFiles')}</Link>
         </p>
@@ -232,10 +249,10 @@ export function TeamPrepared({ firstTime, onCompose, readOnly = false, onSkillRo
 }
 
 /** A phone row's two lines: the title and its one line. */
-function SkillText({ s, accent }: { s: PreparedSkill; accent?: boolean }) {
+function SkillText({ s }: { s: PreparedSkill }) {
   return (
     <span className="min-w-0 flex-1">
-      <span className={clsx('block truncate text-sm font-medium', accent ? 'text-accent-text' : 'text-ink')}>{s.title}</span>
+      <span className="block truncate text-sm font-medium text-ink">{s.title}</span>
       <span className="block truncate text-label text-muted">{s.summary}</span>
     </span>
   )
@@ -249,7 +266,6 @@ const asCatalog = (s: PreparedSkill): Pick<PackCatalogSkill, 'name' | 'title' | 
  * under it the "no team folder" line when they can open none (their own folder and attachments still work). */
 function ReadyQuestion({ hasProfile, onCompose }: { hasProfile: boolean; onCompose: (text: string) => void }) {
   const t = useT()
-  const me = useMeStrict()
   const [noFolders, setNoFolders] = useState(false)
   useEffect(() => {
     let live = true
@@ -259,11 +275,13 @@ function ReadyQuestion({ hasProfile, onCompose }: { hasProfile: boolean; onCompo
     )
     return () => { live = false }
   }, [])
-  // the path, as the AI finds it ("users/kim"), not "내 폴더"
-  const text = hasProfile ? t('home.prepared.profileAsk') : t('home.example1', { folder: `users/${me.user.id}` })
+  // a saved profile: what the company does (the prompt carries the profile); else what the AI can do for this team, which
+  // needs no file at all (never a path such as "users/kim")
+  const text = hasProfile ? t('home.prepared.profileAsk') : t('home.prepared.startAsk')
   return (
     <div className="space-y-2 py-1.5 max-md:px-3">
-      <Button variant="primary" className="h-auto min-h-9 max-w-full justify-start py-2 text-left whitespace-normal max-md:w-full" onClick={() => onCompose(text)} data-testid="team-prepared-ready">
+      {/* a question longer than a phone's line wraps inside the button (the Button's own nowrap and height give way) */}
+      <Button variant="primary" className="h-auto! min-h-9 max-w-full justify-start py-2 text-left whitespace-normal! max-md:w-full" onClick={() => onCompose(text)} data-testid="team-prepared-ready">
         <ArrowUpLeft size={14} className="shrink-0" aria-hidden />
         <span className="min-w-0">{text}</span>
       </Button>

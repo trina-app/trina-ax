@@ -92,6 +92,8 @@ export interface MockRoomSpec {
   mentioned?: boolean
   muted?: boolean
   hidden?: boolean
+  /** when I pinned it (docs/DECISIONS.md "Pinned conversations"); absent: not pinned */
+  pinnedAt?: string
   /** minutes before the fixed "now" of its last message (smaller: higher in the list) */
   ago: number
   last: string
@@ -104,6 +106,8 @@ export interface MockRooms {
   left: string[]
   /** PATCH /api/rooms/:id bodies, in order */
   updated: { roomId: string; body: Record<string, unknown> }[]
+  /** POST (true) and DELETE (false) /api/rooms/:id/pin, in order */
+  pinned: { roomId: string; pinned: boolean }[]
 }
 
 /** Several rooms of every kind for the specs of the rooms' "⋯" and hidden rooms: GET /api/rooms and each room's own
@@ -112,7 +116,7 @@ export interface MockRooms {
  * contract-shaped.
  * The signed-in owner (olga) is in all of them. */
 export async function routeRooms(page: Page, specs: MockRoomSpec[]): Promise<MockRooms> {
-  const state: MockRooms = { hidden: [], left: [], updated: [] }
+  const state: MockRooms = { hidden: [], left: [], updated: [], pinned: [] }
   const NOW = Date.parse('2026-11-07T09:00:00.000Z')
   const when = (ago: number) => new Date(NOW - ago * 60_000).toISOString()
   const live = new Map(specs.map((s) => [s.id, { ...s, own: null as null | 'all' | 'mentions' | 'off' }]))
@@ -128,6 +132,7 @@ export async function routeRooms(page: Page, specs: MockRoomSpec[]): Promise<Moc
       lastMessage: { id: msgId(i), seq: 3, author: s.peers[0] ?? null, excerpt: s.last, fileCount: 0, deleted: false, createdAt: when(s.ago) },
       muted: level === 'off', notify: { own: s.own, byDefault, level }, createdAt: when(600), activityAt: when(s.ago),
       ...(s.hidden ? { hidden: true } : {}),
+      ...(s.pinnedAt ? { pinnedAt: s.pinnedAt } : {}),
     }
   }
   const all = () => [...live.values()].map((s) => roomOf(s, specs.findIndex((x) => x.id === s.id))).sort((a, b) => b.activityAt.localeCompare(a.activityAt))
@@ -137,7 +142,7 @@ export async function routeRooms(page: Page, specs: MockRoomSpec[]): Promise<Moc
     const path = new URL(req.url()).pathname
     const method = req.method()
     if (method === 'GET' && path === '/api/rooms') return route.fulfill(json({ items: all(), alerts: { threadReplies: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false }, timeZone: 'Asia/Seoul' } }))
-    const m = /^\/api\/rooms\/([^/]+)(?:\/(messages|members|ai|read|hidden|leave))?$/.exec(path)
+    const m = /^\/api\/rooms\/([^/]+)(?:\/(messages|members|ai|read|hidden|leave|pin))?$/.exec(path)
     const s = m && live.get(m[1]!)
     if (!m || !s) return route.fulfill(json({ error: { code: 'not_found', message: 'not in this mock' } }, 404))
     const i = specs.findIndex((x) => x.id === s.id)
@@ -155,6 +160,16 @@ export async function routeRooms(page: Page, specs: MockRoomSpec[]): Promise<Moc
       state.hidden.push({ roomId: s.id, hidden: b.hidden })
       if (b.hidden && s.kind === 'group') return route.fulfill(json({ error: { code: 'forbidden', message: 'leave it instead' } }, 403))
       s.hidden = b.hidden
+      // hiding unpins it, as the server does
+      if (b.hidden) delete s.pinnedAt
+      return route.fulfill(json(roomOf(s, i)))
+    }
+    // "상단에 고정" / "고정 해제" (server/src/rooms/service.ts pin): a hidden room is refused, as the server does
+    if (what === 'pin' && (method === 'POST' || method === 'DELETE')) {
+      state.pinned.push({ roomId: s.id, pinned: method === 'POST' })
+      if (method === 'POST' && s.hidden) return route.fulfill(json({ error: { code: 'conflict', message: 'hidden' } }, 409))
+      if (method === 'POST' && !s.pinnedAt) s.pinnedAt = new Date(Math.max(Date.now(), ...[...live.values()].map((x) => (x.pinnedAt ? Date.parse(x.pinnedAt) + 1 : 0)))).toISOString()
+      if (method === 'DELETE') delete s.pinnedAt
       return route.fulfill(json(roomOf(s, i)))
     }
     if (method === 'POST' && what === 'leave') {

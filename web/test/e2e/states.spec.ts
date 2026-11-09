@@ -17,13 +17,14 @@ test('a server in DEV mode says so on every screen, and the banner cannot be clo
   }
 })
 
-test("a member's first screen on a team with nothing: one ready question about their own folder, never the users/ folder", async ({ page }) => {
+test("a member's first screen on a team with nothing: one ready question that needs no file, never a path", async ({ page }) => {
   await reset(page)
   await signIn(page, BOB)
   const block = page.getByTestId('team-prepared')
   await expect(block).toHaveAttribute('data-state', 'ready')
   await expect(block.getByRole('heading')).toHaveText('이렇게 시작해 보세요')
-  await expect(block.getByTestId('team-prepared-ready')).toHaveText('users/bob 폴더에 어떤 파일이 있는지 정리해 줘')
+  await expect(block.getByTestId('team-prepared-ready')).toHaveText('우리 팀 일을 어떻게 도와줄 수 있는지 3가지만 알려 줘')
+  expect(await block.innerText()).not.toContain('users/')
   // the folder card and its examples are gone (docs/DECISIONS.md "W6.3")
   await expect(page.getByTestId('first-time-folders')).toHaveCount(0)
   await expect(page.getByTestId('example')).toHaveCount(0)

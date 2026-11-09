@@ -13,15 +13,22 @@
 // without its row is set aside in .system/rooms-orphans/ for 30 days, a row without its file is only counted.
 // fromTeamFile() makes a room upload from a team file the sender may read now ("대화방에 보내기" attaching the files an
 // answer links to, chat/answer-share.ts): the same limits (≤ 50 MB, the storage check), then create().
+// hwpSource() gives a Hangul file's bytes to the HWP preview (files/hwp-preview.ts, the HWP Preview plugin's renderer;
+// GET /api/rooms/:id/files/:fileId/hwp-preview) with the inline read's checks, made again on every call.
 import { createHash, randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
 import { which } from '../config'
-import { SMALL_UPLOAD_MAX, type RoomFile } from '@mycel/shared/api'
+import { SMALL_UPLOAD_MAX, type Locale, type RoomFile } from '@mycel/shared/api'
+import { HWP_LIMITS } from '@mycel/shared/hwp'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
 import { ext } from '../files/extract'
+import { HwpError } from '../files/hwp-engine'
+import type { HwpSource } from '../files/hwp-preview'
+import type { SearchAdmission } from '../files/search-admission'
+import { sha256 } from '../files/store'
 import { fail } from '../http/errors'
 import { loadPrincipal } from '../policy/access'
 import { authorize, visiblePath } from '../policy/authorize'
@@ -34,6 +41,7 @@ import { displaySize, makeThumbnail, type ThumbExt } from '../uploads/image'
 import { cleanImage, imageFormat, PHOTO } from '../uploads/metadata'
 import { personLocale } from '../files/media-text'
 import { tr } from '../chat/i18n'
+import { SAFE_OPS_TEXT } from '../safe-ops/strings'
 import { canSee, fileOut, memberRow, messageRow, roomRow, type FileRow } from './store'
 
 /** GIF, BMP or SVG by its first bytes (and its name for SVG, which has none): pictures shown as they are. */
@@ -186,7 +194,7 @@ export class RoomFiles {
    * own upload not sent yet. thumb: the small preview (or the image itself when it is a small web image). quarantined:
    * its bytes are on the team's download-only list (the route then sends it only as a download).
    */
-  open(userId: string, roomId: string, fileId: string, thumb: boolean): { abs: string; name: string; quarantined: boolean } {
+  open(userId: string, roomId: string, fileId: string, thumb: boolean): { abs: string; name: string; quarantined: boolean; sha256: string } {
     const me = this.member(userId, roomId)
     const f = this.ctx.db.query('SELECT * FROM room_files WHERE id = ? AND room_id = ?').get(fileId, roomId) as FileRow | null
     if (!f) return fail('not_found')
@@ -201,13 +209,41 @@ export class RoomFiles {
       if (f.thumb) {
         for (const e of THUMB_EXTS) {
           const t = `${this.thumbBase(f)}.${e}`
-          try { checkRegular(t); return { abs: t, name: `${f.name}.${e}`, quarantined } } catch { /* the next, then the original below */ }
+          try { checkRegular(t); return { abs: t, name: `${f.name}.${e}`, quarantined, sha256: f.sha256 } } catch { /* the next, then the original below */ }
         }
       }
       if (f.kind !== 'image' || !/^(png|jpe?g|gif|webp)$/.test(ext(f.name)) || f.size > 2 * 1024 * 1024) fail('not_found')
     }
     try { checkRegular(abs) } catch { fail('not_found') }
-    return { abs, name: f.name, quarantined }
+    return { abs, name: f.name, quarantined, sha256: f.sha256 }
+  }
+
+  /**
+   * A Hangul file sent in a room, for the HWP preview (files/hwp-preview.ts pageOf), checked as its inline read is, on
+   * every call (the preview calls it before any cache lookup or render, and again after the render): open() (in the room
+   * now, the message visible to me and not deleted, or my own upload not sent yet; else 404) and not on the download-only
+   * list (503 quarantined, the inline read's answer; no inline read, no preview). The bytes are read from one open file
+   * bound to that check (SearchAdmission: no link, no swap, a quarantined hash refused) and must be the bytes the file
+   * was sent with (its sha256). The cache knows it by its room, its id and that sha256.
+   */
+  hwpSource(userId: string, roomId: string, fileId: string, admission: SearchAdmission, locale: Locale): HwpSource {
+    const checked = () => {
+      const f = this.open(userId, roomId, fileId, false)
+      if (f.quarantined) fail('unavailable', SAFE_OPS_TEXT.quarantined[locale], { params: { reason: 'quarantined' } })
+      return f
+    }
+    const f = checked()
+    if (!/\.hwpx?$/i.test(f.name)) throw new HwpError('unsupported')
+    let st: fs.Stats
+    try { st = checkRegular(f.abs) } catch { return fail('not_found') }
+    if (st.size > HWP_LIMITS.inputBytes) throw new HwpError('limit')
+    const read = admission.read(f.abs, () => {
+      try { const now = checked(); return now.abs === f.abs && now.sha256 === f.sha256 && checkRegular(now.abs) } catch { return false }
+    }, HWP_LIMITS.inputBytes)
+    if (!read) throw new HwpError('changed')
+    const hash = sha256(read.bytes)
+    if (hash !== f.sha256) throw new HwpError('changed')
+    return { key: `room:${roomId}/${fileId}`, bytes: read.bytes, hash, version: f.sha256, ext: /\.hwpx$/i.test(f.name) ? 'hwpx' : 'hwp' }
   }
 
   /** A message was deleted: its files go from disk and from the table. */

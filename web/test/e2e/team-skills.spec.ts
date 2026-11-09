@@ -69,7 +69,7 @@ test('"고칠 수 있는 사람" on Team skills: admins only; [바꾸기] adds a
   await dialog.locator(`[data-testid="edit-add-option"][data-subject="group:${sales.id}"]`).click()
   await expect(dialog.getByTestId('skill-manager-warning')).toBeVisible()
   await dialog.getByTestId('skill-manager-on').click()
-  await expect(dialog.locator(`[data-testid="skill-editor"][data-subject="group:${sales.id}"]`)).toContainText('영업팀그룹')
+  await expect(dialog.locator(`[data-testid="skill-editor"][data-subject="group:${sales.id}"]`)).toContainText('영업팀부서')
   // a person already there for all of skills/ is not offered again
   await dialog.getByTestId('edit-add').fill('Bob')
   await expect(dialog.locator('[data-testid="edit-add-option"][data-subject="user:bob"]')).toHaveCount(0)
@@ -78,7 +78,7 @@ test('"고칠 수 있는 사람" on Team skills: admins only; [바꾸기] adds a
   await bobRow.getByRole('button', { name: 'Bob: skills/ 빼기' }).click()
   const confirm = page.getByRole('dialog', { name: 'Bob: 고칠 수 있는 사람에서 뺄까요?' })
   await expect(confirm).toContainText('skills/에 대한 쓰기 권한이 빠져요')
-  await expect(confirm).toContainText('그룹이나 모두에게 준 규칙으로 계속 고칠 수 있어요')
+  await expect(confirm).toContainText('부서나 모두에게 준 규칙으로 계속 고칠 수 있어요')
   await confirm.getByRole('button', { name: '빼기' }).click()
   await expect(bobRow).toHaveCount(0)
   await expect(page.getByText('고칠 수 있는 사람에서 뺐어요.')).toBeVisible()
@@ -104,7 +104,7 @@ test('"고칠 수 있는 사람" on Team skills: admins only; [바꾸기] adds a
   // Admin > 폴더 권한 shows the group's rule on skills/, labelled, and points back at the Team skills page
   await page.goto('/admin/folders?folder=skills')
   const detail = page.getByTestId('folder-detail')
-  await expect(detail.getByTestId('folder-rules')).toContainText('영업팀 그룹: 읽기·쓰기')
+  await expect(detail.getByTestId('folder-rules')).toContainText('영업팀 부서: 읽기·쓰기')
   await expect(detail.getByTestId('skill-manager-badge')).toBeVisible()
   await expect(detail).toContainText('팀 스킬 화면의 "고칠 수 있는 사람"과 같은 설정')
   // no team skills column on Members and Groups any more
@@ -214,7 +214,7 @@ test('who can edit, in words (the tree, the panel, the Team skills line); throug
   const own = dialog.locator('[data-testid="skill-editor"][data-subject="user:bob"][data-path="skills"]')
   await own.getByTestId('skill-editor-remove').click()
   const still = page.getByRole('dialog', { name: 'Bob: 고칠 수 있는 사람에서 뺄까요?' })
-  await expect(still).toContainText('그룹이나 모두에게 준 규칙으로 계속 고칠 수 있어요')
+  await expect(still).toContainText('부서나 모두에게 준 규칙으로 계속 고칠 수 있어요')
   await still.getByRole('button', { name: '빼기' }).click()
   await expect(own).toHaveCount(0)
   await expect(text).toHaveText('고칠 수 있는 사람: 팀장·관리자, 영업팀 1명')
@@ -263,7 +263,7 @@ test('the line counts the folders with editors of their own; an admin\'s old rul
   await carolSub.getByTestId('skill-editor-remove').click()
   let confirm = page.getByRole('dialog', { name: '최다은: 고칠 수 있는 사람에서 뺄까요?' })
   await expect(confirm).toContainText('skills/에 준 본인 규칙으로 계속 고칠 수 있어요.')
-  await expect(confirm).not.toContainText('그룹이나 모두에게')
+  await expect(confirm).not.toContainText('부서나 모두에게')
   await confirm.getByRole('button', { name: '빼기' }).click()
   await expect(carolSub).toHaveCount(0)
   // rows now: Carol (skills/), Bob (skills/재무/). Removing the first, the focus goes to the next row's button…
@@ -624,5 +624,7 @@ test('no skill to use yet: the tab says so, who puts skills in, and how one gets
   await expect(page.getByTestId('skill-list')).toHaveCount(0)
   // a member: the owner or an admin puts the team skills in (docs/DECISIONS.md "W6")
   await expect(page.getByText('아직 팀 스킬이 없어요 · 팀장이나 관리자가 넣으면 여기에 보여요')).toBeVisible()
-  await expect(page.getByText('"스킬로 제안"을 눌러 제안할 수 있어요')).toBeVisible()
+  // how one gets there, without the folder path ("skills/ 폴더")
+  await expect(page.getByTestId('skill-none-member')).toHaveText('채팅 답변 아래나 내 폴더의 파일 메뉴에서 "스킬로 제안"을 눌러 팀에 스킬을 제안할 수 있어요.')
+  await expect(page.locator('main')).not.toContainText('skills/')
 })

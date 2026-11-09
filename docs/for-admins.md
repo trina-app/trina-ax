@@ -28,6 +28,13 @@ By default one answer may use tools up to 150 times (tools the AI uses together 
 
 After owner creation: **permissions → AI connection → invite the team → first skill → first backup**. Managed connections prefer eligible personal credentials. On fresh teams one company connection can serve the whole team; existing choices and connection-level consent remain. Provider authorization is separate.
 
+The team folder's real folder names (`shared/`, `groups/`, `projects/`, `skills/`, `users/`), the API paths and the
+paths the AI sees are unchanged; the Files screen shows them as Company-wide, Groups, Projects, Team skills and Personal
+(the person's own as My folder), and in Korean as 전사 공유, 부서, 프로젝트, 팀 스킬 and 개인. The Korean screens call admin
+groups **부서** (Admin › 부서; group chats people start themselves keep 그룹 대화). A new team gets `shared/Templates/`
+(named in the team's language, `shared/양식/` in Korean), and the setup puts the company intro, brand, meeting notes and
+first team files under `shared/`. Teams that started before keep theirs in `groups/<team name>/`; nothing is moved.
+
 Pilot acceptance: demonstrate two users' different file access, review a skill result against its sources, inspect usage and perform an encrypted off-host backup/restore drill. [Starter examples](../examples/README.md) · [Backup and restore](BACKUP-RESTORE.md).
 
 Before updating, read the [latest release](https://github.com/trina-app/trina-ax/releases/latest), including default changes, and back up. Linux and office Mac use the Trina feed. App rollback is not database/file rollback. A Linux server keeps the current version and the previous one (for roll-back) and removes older ones by itself, so the app takes about 1–1.5 GB of disk ([Kept versions](INSTALL-LINUX.en.md#kept-versions)). [Configuration](CONFIGURATION.md) · [Troubleshooting](TROUBLESHOOTING.md).

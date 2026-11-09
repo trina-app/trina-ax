@@ -1,8 +1,9 @@
 // Every team's start (docs/DECISIONS.md "M — One meeting note, everyone's own tasks", "W6"; server/src/onboarding/welcome.ts
 // setupWelcomeTeam, POST /api/onboarding/welcome/team): no skill is installed (a skill goes in only on a press that
 // names it); the general pack's record is written with no paths for older builds; the team's own group named after the
-// team with its folder groups/<name>/ (its members read and write) and the meeting notes folder in it, the owner in the
-// group, made once. "자료 없이" ends the steps (finish).
+// team with its folder groups/<name>/ (its members read and write), the owner in the group, made once; the meeting notes
+// and brand folders in shared/ (docs/DECISIONS.md "Team folder basics": everyone in the team sees them). "자료 없이"
+// ends the steps (finish).
 import { afterEach, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -41,19 +42,26 @@ test('the team group with its folders, once; no skill installed; the owner in it
   expect(count('onboarding.pack_install')).toBe(0)
   expect(r.progress.general).toEqual({ at: expect.any(String) })
   expect(getSetting<any>(h.ctx.db, WELCOME_SETTING).general).toEqual({ at: expect.any(String), tasksPath: null, briefPath: null })
-  // the group is named after the team; its folder and the meeting notes folder (in the team language) are there
+  // the group is named after the team; its folder is there, and the meeting notes and brand folders (in the team
+  // language) are in shared/, the team's home
   const g = r.progress.teamGroup
-  expect(g).toMatchObject({ name: 'Acme', folder: 'groups/Acme', notesFolder: 'groups/Acme/회의록' })
-  expect(fs.statSync(path.join(root, 'groups/Acme/회의록')).isDirectory()).toBe(true)
+  expect(g).toMatchObject({ name: 'Acme', folder: 'groups/Acme', notesFolder: 'shared/회의록', brandFolder: 'shared/브랜드', home: 'shared' })
+  expect(fs.statSync(path.join(root, 'groups/Acme')).isDirectory()).toBe(true)
+  expect(fs.statSync(path.join(root, 'shared/회의록')).isDirectory()).toBe(true)
+  expect(fs.statSync(path.join(root, 'shared/브랜드/이미지')).isDirectory()).toBe(true)
+  expect(fs.existsSync(path.join(root, 'groups/Acme/회의록'))).toBe(false)
   const groups = await owner.call('GET', '/api/admin/groups')
   expect(groups.items.find((x: any) => x.id === g.id)).toMatchObject({ name: 'Acme', memberIds: [ownerId] })
   expect(count('group.create')).toBe(1)
   // the group writes its folder (the default for group folders); someone outside it does not even read it
   const rule = h.ctx.db.query("SELECT r.access FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE f.path = 'groups/Acme' AND r.subject_type = 'group' AND r.subject_id = ?").get(g.id) as { access: string }
   expect(rule.access).toBe('write')
-  expect(can(mia.id, 'groups/Acme/회의록/x.md', 'read')).toBe(false)
+  expect(can(mia.id, 'groups/Acme/x.md', 'read')).toBe(false)
   await owner.call('PATCH', `/api/admin/groups/${g.id}`, { memberIds: [ownerId, mia.id] })
-  expect(can(mia.id, 'groups/Acme/회의록/x.md', 'write')).toBe(true)
+  expect(can(mia.id, 'groups/Acme/x.md', 'write')).toBe(true)
+  // the company's notes are everyone's, in the group or not
+  expect(can(ada.id, 'shared/회의록/x.md', 'write')).toBe(true)
+  expect(can(mia.id, 'shared/회의록/x.md', 'write')).toBe(true)
 
   // the skills, once put in on a press (the Team skills catalog), load with their forms and titles for a member, and
   // nobody gets a loader warning
@@ -104,7 +112,7 @@ test('a group the steps did not make is never taken over; a recorded group delet
   // a group of its own beside it: "Acme 2", the owner in it; the admin's group keeps its members and rules
   const g = r.progress.teamGroup
   expect(g.id).not.toBe(made.id)
-  expect(g).toMatchObject({ name: 'Acme 2', folder: 'groups/Acme 2', notesFolder: 'groups/Acme 2/회의록' })
+  expect(g).toMatchObject({ name: 'Acme 2', folder: 'groups/Acme 2', notesFolder: 'shared/회의록', home: 'shared' })
   const groups = (await owner.call('GET', '/api/admin/groups')).items
   expect(groups.find((x: any) => x.id === made.id).memberIds).toEqual([])
   expect(groups.find((x: any) => x.id === g.id).memberIds).toEqual([ownerId])
@@ -116,6 +124,8 @@ test('a group the steps did not make is never taken over; a recorded group delet
   const next = (await owner.call('POST', '/api/onboarding/welcome/team')).progress.teamGroup
   expect([made.id, g.id]).not.toContain(next.id)
   expect(next.folder).not.toBe(g.folder)
+  // the company's material stays where it is (shared/), recorded again
+  expect(next).toMatchObject({ notesFolder: g.notesFolder, brandFolder: g.brandFolder, home: 'shared' })
   expect((await owner.call('GET', '/api/admin/groups')).items.find((x: any) => x.id === next.id).memberIds).toEqual([ownerId])
 })
 

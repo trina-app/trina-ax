@@ -101,15 +101,22 @@ describe('team folders in words on screen (docs/DECISIONS.md "W2")', () => {
     expect(shown('read', 'Read · groups/Acme/Brand/Images/hero.png', 'ja').label).toBe('読み取り · ブランド画像フォルダー › hero.png')
     // macOS writes Hangul decomposed: still the brand folder
     expect(shown('read', `Read · groups/Acme/${'브랜드'.normalize('NFD')}/a.md`, 'en').label).toBe('Read · Brand folder › a.md')
+    // a team that started since docs/DECISIONS.md "Team folder basics": the brand and meeting notes folders in shared/
+    expect(shown('read', '파일 읽기 · shared/브랜드/이미지/홈페이지-6.jpg', 'ko')).toEqual({ label: '파일 읽기 · 브랜드 이미지 폴더 › 홈페이지-6.jpg', path: 'shared/브랜드/이미지/홈페이지-6.jpg' })
+    expect(shown('read', 'Read · shared/Brand/Company intro.md', 'ko').label).toBe('파일 읽기 · 브랜드 폴더 › Company intro.md')
+    expect(shown('list', 'List · shared/회의록', 'en').label).toBe('List · Meeting notes folder')
+    expect(shown('read', 'Read · shared/양식/견적서.xlsx', 'ko').label).toBe('파일 읽기 · 전사 공유 › 양식 › 견적서.xlsx')
   })
 
   test('the person\'s own folder, their attachments, the shared folder; edit_files keeps "+N", search its words', () => {
     expect(shown('read', 'Read · users/0192f/.attachments/0193a/견적서.pdf', 'ko').label).toBe('파일 읽기 · 첨부한 파일 › 견적서.pdf')
     expect(shown('write', 'Save · users/0192f/drafts/plan.md', 'es').label).toBe('Guardar · Mi carpeta › drafts › plan.md')
-    expect(shown('read', 'Read · shared/fruit.md', 'id').label).toBe('Baca berkas · Folder bersama › fruit.md')
-    expect(shown('edit_files', 'Edit files · shared/a.md +29', 'en')).toEqual({ label: 'Edit files · Shared folder › a.md +29', path: 'shared/a.md' })
+    // shared/ by the name the file screen gives it (docs/DECISIONS.md "Team folder basics")
+    expect(shown('read', 'Read · shared/fruit.md', 'id').label).toBe('Baca berkas · Seluruh perusahaan › fruit.md')
+    expect(shown('read', 'Read · shared/fruit.md', 'ko').label).toBe('파일 읽기 · 전사 공유 › fruit.md')
+    expect(shown('edit_files', 'Edit files · shared/a.md +29', 'en')).toEqual({ label: 'Edit files · Company-wide › a.md +29', path: 'shared/a.md' })
     expect(shown('hwp_render', 'View HWP page · groups/Acme/brief.hwpx #2', 'en').label).toBe('View HWP page · Acme folder › brief.hwpx #2')
-    expect(shown('grep', 'Search "fee · 2%" · shared/', 'en').label).toBe('Search "fee · 2%" · Shared folder')
+    expect(shown('grep', 'Search "fee · 2%" · shared/', 'en').label).toBe('Search "fee · 2%" · Company-wide')
   })
 
   test('anything else stays as it is, without a path', () => {
