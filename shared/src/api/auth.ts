@@ -81,6 +81,9 @@ export const Me = z.object({
     /** Safe operations 1A is on (MYCEL_SAFE_OPS_1A): every conversation is confidential, and so is every HTML / SVG
      * file preview (shown without scripts outside the desktop app). Absent = off. */
     allChatsConfidential: z.literal(true).optional(),
+    /** "@트리나 …" in a room asks the AI there (AppConfig.roomAiMentions; off by default since the side chat). Absent =
+     * off: the room's box offers no AI in its "@" list and points to the side chat. */
+    roomAiMentions: z.literal(true).optional(),
     /** the dev environment experiment is on (MYCEL_DEV_ENV=1): Team settings shows its section. Absent = off. */
     devEnv: z.literal(true).optional(),
     /** this server can print HTML to PDF (a headless browser in the converter isolation, server/src/files/html-pdf.ts):

@@ -3414,6 +3414,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.editLabel": "Edit pesan",
   "rooms.placeholder": "Tulis pesan",
   "rooms.placeholderEmpty": "Tulis pesan · tanya @Trina",
+  "rooms.placeholderEmptySide": "Tulis pesan · ✦ untuk tanya Trina di samping ruang",
   "rooms.removeFile": "Hapus {name}",
   "rooms.uploading": "Mengunggah {name}…",
   "rooms.tooBig": "{name} lebih besar dari {max} dan tidak bisa dikirim.",

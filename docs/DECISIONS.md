@@ -16389,3 +16389,17 @@ of a web page could not be read. Pictures should open like Slack, across the app
   and down; screenshots), `room-files-open.spec.ts` (the photo
   opens the viewer over the panel; the right-click there reaches the original).
 - Version impact: **minor** (a visible UX change; no API or data change).
+
+## Trina side chat, PR 2: no "@트리나" in rooms (feat/remove-room-trina-mention, 2026-11-09, product owner)
+
+- **Decision (option A, after PR 1 added the side chat):** "@트리나 …" in a room's timeline, a thread or a DM no longer
+  asks the AI. The text is an ordinary message. People ask in the side chat (✦) and share an answer with "Share to
+  room".
+- **How:** server.json `roomAiMentions` (AppConfig, absent = off) gates the ask in Rooms.send; `Me.server.roomAiMentions`
+  tells the app, which then offers the AI in the "@" list and the old placeholder. Off: no AI row, and the empty room's
+  box says "✦ asks Trina beside the room". The room AI code (rooms/ai.ts) stays for the switch and for earlier answers:
+  their private previews, "Post to room…" and sources keep working.
+- **Tests:** the test harness turns the switch on (tests/unit/a-lib.ts testConfig), so the room AI tests keep covering
+  the old way while it exists; tests/unit/b-room-ai-mentions-off.test.ts covers the default.
+- **Later:** remove the room AI ask and its switch once no team needs it (a decision of its own).
+

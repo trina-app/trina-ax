@@ -3414,6 +3414,7 @@ export const en: Record<MessageKey, string> = {
   "rooms.editLabel": "Edit message",
   "rooms.placeholder": "Write a message",
   "rooms.placeholderEmpty": "Write a message · ask @Trina",
+  "rooms.placeholderEmptySide": "Write a message · ✦ asks Trina beside the room",
   "rooms.removeFile": "Remove {name}",
   "rooms.uploading": "Uploading {name}…",
   "rooms.tooBig": "{name} is larger than {max} and can't be sent.",
