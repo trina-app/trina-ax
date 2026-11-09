@@ -3,8 +3,11 @@
 // room (no new address); a click zooms to 100 % about its point; ← → walk the pane's pictures; Esc, ✕, the backdrop
 // and Back close it, and focus goes back to the picture. The desktop app's 이미지 복사 copies what is under the pointer:
 // that is the original, drawn on the page itself. A phone: the bar hides on a tap, a swipe sideways steps, a swipe down
-// closes. The room is answered through page.route as the team server sends it (rooms-mock.ts).
-// SHOTS_DIR=<folder>: the screenshots (1440 light fitted, 1440 dark zoomed, 390 light) go there.
+// closes. 복사 and ⌘C put the picture on the clipboard as a PNG (the browser's own clipboard in this run: Chromium's,
+// granted by playwright.config.ts, never the computer's). The room is answered through page.route as the team server
+// sends it (rooms-mock.ts).
+// SHOTS_DIR=<folder>: the screenshots (1440 light fitted, 1440 dark zoomed, 390 light; 복사 at 1440 light and its toast at
+// 390 light) go there.
 import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
@@ -59,7 +62,8 @@ type Msg = NonNullable<Parameters<typeof routeRoom>[1]['messages']>[number]
 
 /** The room: Ben's screenshot and his icon, or `messages`; its photos as the team server sends them (any other id is
  * the icon). */
-async function openRoom(page: Page, o: { messages?: Msg[]; at?: string } = {}) {
+type Served = { body: Buffer; type: string }
+async function openRoom(page: Page, o: { messages?: Msg[]; at?: string; bodies?: Record<string, Served & { thumb?: Served }> } = {}) {
   await reset(page)
   const messages = o.messages ?? [
     { id: id(1), author: BEN, body: '이 페이지 좀 봐 주세요', extra: { files: [shotFile] } },
@@ -73,12 +77,13 @@ async function openRoom(page: Page, o: { messages?: Msg[]; at?: string } = {}) {
     const thumb = u.searchParams.get('thumb') === '1'
     const download = u.searchParams.get('download') === '1'
     served.push(`${fid === SHOT_ID ? 'page' : 'icon'}${u.search}`)
-    const body = fid === SHOT_ID ? (thumb ? SHOT_THUMB : SHOT) : ICON
+    const own = o.bodies?.[fid] ? (thumb ? (o.bodies[fid]!.thumb ?? o.bodies[fid]!) : o.bodies[fid]!) : undefined
+    const body = own ? own.body : fid === SHOT_ID ? (thumb ? SHOT_THUMB : SHOT) : ICON
     // the original comes a moment after the thumbnail, as a large file over a network does
     if (!thumb && !download) await new Promise((r) => setTimeout(r, 300))
     return route.fulfill({
       status: 200, body,
-      headers: { 'content-type': 'image/png', 'content-disposition': `${download ? 'attachment' : 'inline'}; filename="${fid === SHOT_ID ? 'acme-page.png' : 'acme-icon.png'}"`, 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox" },
+      headers: { 'content-type': own?.type ?? 'image/png', 'content-disposition': `${download ? 'attachment' : 'inline'}; filename="${fid === SHOT_ID ? 'acme-page.png' : 'acme-icon.png'}"`, 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox" },
     })
   })
   await signIn(page)
@@ -247,6 +252,169 @@ test('the desktop app\'s 이미지 복사 gets the original: the viewer\'s pictu
   await expect(viewer(page)).not.toHaveAttribute('data-zoomed', '')
 })
 
+/** The PNG on the browser's clipboard: its size, and the pixels (RGBA) at the points asked; null: no PNG there. */
+async function clipboardPng(page: Page, at: { x: number; y: number }[] = []) {
+  return page.evaluate(async (points) => {
+    const item = (await navigator.clipboard.read()).find((i) => i.types.includes('image/png'))
+    if (!item) return null
+    const blob = await item.getType('image/png')
+    const bmp = await createImageBitmap(blob)
+    const g = new OffscreenCanvas(bmp.width, bmp.height).getContext('2d')!
+    g.drawImage(bmp, 0, 0)
+    return { type: blob.type, width: bmp.width, height: bmp.height, px: points.map(({ x, y }) => [...g.getImageData(x, y, 1, 1).data]) }
+  }, at)
+}
+const emptyClipboard = (page: Page) => page.evaluate(() => navigator.clipboard.writeText(''))
+const toastText = (page: Page) => page.getByTestId('toast').last()
+
+test('복사 puts the original on the clipboard as a PNG, with no new request; ⌘C / Ctrl+C does too', async ({ page }) => {
+  const { served } = await openRoom(page)
+  await page.getByTestId('room-image').first().click()
+  await shown(page)
+  const asked = served.length
+  const copy = page.getByTestId('image-viewer-copy')
+  await expect(copy).toHaveAccessibleName('복사')
+  // beside the download
+  const [cb, db] = [(await copy.boundingBox())!, (await page.getByTestId('image-viewer-download').boundingBox())!]
+  expect(db.x - (cb.x + cb.width)).toBeLessThan(8)
+  await emptyClipboard(page)
+  await copy.click()
+  await expect(toastText(page)).toHaveText('이미지를 복사했어요')
+  // said inside the dialog too (a screen reader may not read the toast outside it)
+  await expect(page.getByTestId('image-viewer-said')).toHaveText(/^이미지를 복사했어요/)
+  // the original at its own size (the thumbnail is 640 × 400)
+  expect(await clipboardPng(page, [{ x: 10, y: 10 }])).toEqual({ type: 'image/png', width: 2880, height: 1800, px: [[30, 30, 34, 255]] })
+  // the keys, ⌘C with the focus on the picture as it opened and Ctrl+C on a button of the bar
+  await emptyClipboard(page)
+  await page.getByTestId('image-viewer-stage').focus()
+  await page.keyboard.press('Meta+c')
+  await expect.poll(async () => (await clipboardPng(page))?.width).toBe(2880)
+  await emptyClipboard(page)
+  await page.getByTestId('image-viewer-download').focus()
+  await page.keyboard.press('Control+c')
+  await expect.poll(async () => (await clipboardPng(page))?.width).toBe(2880)
+  // the picture already drawn: nothing was asked of the server again
+  expect(served.slice(asked)).toEqual([])
+  // the viewer stays open, not zoomed
+  await expect(viewer(page)).toBeVisible()
+  await expect(viewer(page)).not.toHaveAttribute('data-zoomed', '')
+  await audit(page, 'viewer after a copy')
+})
+
+test('a JPEG and a WebP are copied as PNGs, the WebP\'s transparency kept; a copy while the original loads waits for it', async ({ page }) => {
+  // made by the browser itself: a 200 × 100 picture, its left half transparent and its right half red; its thumbnail
+  // is 100 × 50, so the size on the clipboard tells which was copied
+  const made = await page.evaluate(async () => {
+    const draw = (w: number, h: number) => {
+      const c = new OffscreenCanvas(w, h)
+      const g = c.getContext('2d')!
+      g.fillStyle = 'rgb(220, 20, 30)'
+      g.fillRect(w / 2, 0, w / 2, h)
+      return c
+    }
+    const b64 = async (c: OffscreenCanvas, type: string) => {
+      const bytes = new Uint8Array(await (await c.convertToBlob({ type, quality: 1 })).arrayBuffer())
+      return btoa(Array.from(bytes, (x) => String.fromCharCode(x)).join(''))
+    }
+    return { webp: await b64(draw(200, 100), 'image/webp'), jpeg: await b64(draw(200, 100), 'image/jpeg'), thumb: await b64(draw(100, 50), 'image/png') }
+  })
+  const webp = Buffer.from(made.webp, 'base64')
+  const jpeg = Buffer.from(made.jpeg, 'base64')
+  const small = { body: Buffer.from(made.thumb, 'base64'), type: 'image/png' }
+  const pic = (n: number, name: string, mime: string, body: Buffer) => ({ id: id(n), name, size: body.length, mime, kind: 'image', width: 200, height: 100, thumb: true })
+  await openRoom(page, {
+    messages: [
+      { id: id(1), author: BEN, body: '도장', extra: { files: [pic(811, 'acme-stamp.webp', 'image/webp', webp)] } },
+      { id: id(2), author: BEN, body: '사진', extra: { files: [pic(812, 'acme-photo.jpg', 'image/jpeg', jpeg)] } },
+    ],
+    bodies: { [id(811)]: { body: webp, type: 'image/webp', thumb: small }, [id(812)]: { body: jpeg, type: 'image/jpeg', thumb: small } },
+  })
+  // the stamp's original is held on its way: the thumbnail shows meanwhile
+  let release = () => {}
+  const held = new Promise<void>((r) => (release = r))
+  await page.route((u) => u.pathname === `/api/rooms/${ROOM_ID}/files/${id(811)}` && !u.search, async (route) => {
+    await held
+    await route.fallback()
+  })
+  await page.getByTestId('room-image').first().click()
+  await expect(page.getByTestId('image-viewer-thumb')).toBeVisible()
+  await expect(original(page)).toHaveAttribute('data-state', 'loading')
+  await emptyClipboard(page)
+  await page.getByTestId('image-viewer-copy').click()
+  // the copy waits for the original: nothing yet, then the original itself (not the thumbnail: no "small" line)
+  await page.waitForTimeout(400)
+  await expect(page.getByTestId('toast')).toHaveCount(0)
+  release()
+  await expect(toastText(page)).toHaveText('이미지를 복사했어요')
+  const stamp = await clipboardPng(page, [{ x: 20, y: 50 }, { x: 180, y: 50 }])
+  expect(stamp).toMatchObject({ type: 'image/png', width: 200, height: 100 })
+  expect(stamp!.px[0]![3]).toBe(0)
+  expect(stamp!.px[1]![3]).toBe(255)
+  expect(stamp!.px[1]![0]).toBeGreaterThan(200)
+  await page.keyboard.press('ArrowRight')
+  await expect(page.getByTestId('image-viewer-name')).toHaveText('acme-photo.jpg')
+  await shown(page)
+  await emptyClipboard(page)
+  const said = page.getByTestId('image-viewer-said')
+  const before = await said.textContent()
+  await page.keyboard.press('ControlOrMeta+c')
+  // a second result, said again (the toast of the first may still be on screen)
+  await expect.poll(() => said.textContent()).not.toBe(before)
+  await expect(said).toHaveText(/^이미지를 복사했어요\s*$/)
+  const photo = await clipboardPng(page, [{ x: 180, y: 50 }])
+  expect(photo).toMatchObject({ width: 200, height: 100 })
+  expect(photo!.px[0]![0]).toBeGreaterThan(180)
+})
+
+test('a copy still waiting for its original is given up when the viewer closes: what was copied since stays', async ({ page }) => {
+  await openRoom(page)
+  let release = () => {}
+  const held = new Promise<void>((r) => (release = r))
+  await page.route((u) => u.pathname === `/api/rooms/${ROOM_ID}/files/${SHOT_ID}` && !u.search, async (route) => {
+    await held
+    await route.fallback()
+  })
+  await page.getByTestId('room-image').first().click()
+  await expect(original(page)).toHaveAttribute('data-state', 'loading')
+  await page.getByTestId('image-viewer-copy').click()
+  await page.keyboard.press('Escape')
+  await expect(viewer(page)).toHaveCount(0)
+  // something else copied meanwhile, then the original arrives
+  await page.evaluate(() => navigator.clipboard.writeText('acme note'))
+  release()
+  await page.waitForTimeout(800)
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('acme note')
+  expect(await clipboardPng(page)).toBeNull()
+  await expect(page.getByTestId('toast')).toHaveCount(0)
+})
+
+test('a picture over the 20 MB preview limit copies its thumbnail, and the toast says so', async ({ page }) => {
+  await openRoom(page, { messages: [{ id: id(1), author: BEN, body: '큰 사진', extra: { files: [{ ...shotFile, size: 25 * 1024 * 1024 }] } }] })
+  await page.getByTestId('room-image').first().click()
+  await expect(page.getByTestId('image-viewer-note')).toBeVisible()
+  await expect(original(page)).toHaveCount(0)
+  await emptyClipboard(page)
+  await page.getByTestId('image-viewer-copy').click()
+  await expect(toastText(page)).toContainText('이미지를 복사했어요')
+  await expect(toastText(page)).toContainText('원본 대신 화면에 보이는 작은 사진을 복사했어요.')
+  expect(await clipboardPng(page)).toMatchObject({ width: 640, height: 400 })
+})
+
+test('no 복사 where the clipboard takes no picture: ⌘C then does nothing of the viewer\'s', async ({ page }) => {
+  // a browser without ClipboardItem (an older Firefox, a plain http page)
+  await page.addInitScript(() => {
+    delete (window as { ClipboardItem?: unknown }).ClipboardItem
+  })
+  await openRoom(page)
+  await page.getByTestId('room-image').first().click()
+  await shown(page)
+  await expect(page.getByTestId('image-viewer-download')).toBeVisible()
+  await expect(page.getByTestId('image-viewer-copy')).toHaveCount(0)
+  await page.keyboard.press('ControlOrMeta+c')
+  await page.waitForTimeout(300)
+  await expect(page.getByTestId('toast')).toHaveCount(0)
+})
+
 test('an AI chat attachment opens in the viewer, then its file panel picture does too', async ({ page }) => {
   await reset(page)
   await signIn(page)
@@ -409,6 +577,18 @@ test('screenshots of the image viewer (SHOTS_DIR)', async ({ page }) => {
   await page.screenshot({ path: `${dir}/image-viewer-1440-dark-zoomed.png` })
 })
 
+test('screenshot of 복사 in the bar (SHOTS_DIR)', async ({ page }) => {
+  const dir = process.env.SHOTS_DIR
+  test.skip(!dir, 'only with SHOTS_DIR')
+  fs.mkdirSync(dir!, { recursive: true })
+  await openRoom(page)
+  await page.getByTestId('room-image').first().click()
+  await shown(page)
+  await page.getByTestId('image-viewer-copy').hover()
+  await expect(page.getByRole('tooltip')).toHaveText('복사')
+  await page.screenshot({ path: `${dir}/image-viewer-copy-1440-light.png` })
+})
+
 test.describe('screenshots on a phone (SHOTS_DIR)', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
   test('390 light', async ({ page }) => {
@@ -419,5 +599,16 @@ test.describe('screenshots on a phone (SHOTS_DIR)', () => {
     await shown(page)
     await page.waitForTimeout(300)
     await page.screenshot({ path: `${dir}/image-viewer-390-light.png` })
+  })
+  test('390 light, the toast after 복사', async ({ page }) => {
+    const dir = process.env.SHOTS_DIR
+    test.skip(!dir, 'only with SHOTS_DIR')
+    await openRoom(page)
+    await page.getByTestId('room-image').first().tap()
+    await shown(page)
+    await page.getByTestId('image-viewer-copy').tap()
+    await expect(page.getByTestId('toast').last()).toHaveText('이미지를 복사했어요')
+    await page.waitForTimeout(300)
+    await page.screenshot({ path: `${dir}/image-viewer-copy-toast-390-light.png` })
   })
 })

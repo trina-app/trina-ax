@@ -4304,6 +4304,14 @@ export const ko = {
   "viewer.thumbOnly": "작은 사진으로 보여요. 원본은 내려받아서 보세요.",
   "viewer.failed": "원본을 불러오지 못했어요. 작은 사진으로 보여요.",
   "viewer.noPicture": "이 사진은 여기서 보여 줄 수 없어요.",
+  "viewer.copied": "이미지를 복사했어요",
+  "viewer.copiedThumb": "원본 대신 화면에 보이는 작은 사진을 복사했어요.",
+  "viewer.copiedScaled": "사진이 너무 커서 줄여서 복사했어요.",
+  "viewer.copyFailed": "이미지를 복사하지 못했어요",
+  "viewer.copyDenied": "브라우저가 클립보드에 쓰지 못하게 했어요. 창을 한 번 누르고 다시 해 보세요.",
+  "viewer.copyTooBig": "사진이 너무 커서 복사할 수 없어요. 내려받아서 쓰세요.",
+  "viewer.copyNotLoaded": "사진을 불러오지 못했어요.",
+  "viewer.copyError": "다시 해 보세요. 안 되면 내려받아서 쓰세요.",
 } as const
 
 export type MessageKey = keyof typeof ko
