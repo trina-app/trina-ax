@@ -12,7 +12,8 @@ export const IntegrationKind = z.enum(['mcp', 'http'])
 export type IntegrationKind = z.infer<typeof IntegrationKind>
 export const IntegrationScope = z.enum(['personal', 'team'])
 export type IntegrationScope = z.infer<typeof IntegrationScope>
-/** none; bearer = "Authorization: Bearer <key>"; header = "<authHeader>: <key>"; oauth = sign in at the service (mcp only) */
+/** none; bearer = "Authorization: Bearer <key>"; header = "<authHeader>: <key>"; oauth = sign in at the service (an MCP
+ * server; an HTTP API with its own app, oauthClient) */
 export const IntegrationAuth = z.enum(['none', 'bearer', 'header', 'oauth'])
 export type IntegrationAuth = z.infer<typeof IntegrationAuth>
 /** what the AI may do that changes something at the service: ask the person each time (default), allow, or refuse */
@@ -57,6 +58,35 @@ const HeaderName = z.string().regex(/^[A-Za-z0-9-]{1,64}$/, 'a header name such 
 const ServiceUrl = z.string().url().max(2000)
   .refine((u) => { try { const x = new URL(u); return x.protocol === 'https:' && !x.username && !x.password && !x.hash } catch { return false } }, 'an https address without a user name, password or #')
 
+/** Your own app at the service, for signing in where the service does not let apps register themselves (Google's MCP
+ * servers, NAVER WORKS ...): the client ID and secret made in its console. An MCP server's sign-in and token addresses
+ * are found from its address unless given here; an HTTP API needs both. scope: the scopes to ask for, separated by
+ * spaces (an MCP server: left out = what the server lists). The secret is write-only: a change without it keeps the
+ * stored one while the client ID stays. docs/INTEGRATIONS.md "Your own app". */
+export const OAuthClientInput = z.object({
+  clientId: z.string().trim().min(1).max(1000).regex(/^[^\s]+$/, 'no spaces'),
+  clientSecret: z.string().min(1).max(4000).regex(/^[^\r\n\0]+$/, 'one line').optional(),
+  authorizationUrl: ServiceUrl.optional(),
+  tokenUrl: ServiceUrl.optional(),
+  scope: z.string().trim().max(2000).regex(/^[^\r\n\0]*$/, 'one line').optional(),
+}).strict().refine((v) => !v.authorizationUrl === !v.tokenUrl, { message: 'give both the sign-in and the token address, or neither', path: ['tokenUrl'] })
+export type OAuthClientInput = z.infer<typeof OAuthClientInput>
+/** what whoever manages the connection or template sees of its app: never the secret */
+export const OAuthClientView = z.object({
+  clientId: z.string(),
+  authorizationUrl: z.string().nullable(),
+  tokenUrl: z.string().nullable(),
+  scope: z.string().nullable(),
+  hasSecret: z.boolean(),
+})
+export type OAuthClientView = z.infer<typeof OAuthClientView>
+/** sign-in at an HTTP API needs your own app with its addresses (there is nothing to find them from) */
+const oauthFits = (v: { kind: IntegrationKind; auth: IntegrationAuth; oauthClient?: OAuthClientInput | null }) =>
+  v.auth !== 'oauth' || v.kind === 'mcp' || !!v.oauthClient?.tokenUrl
+const clientFits = (v: { auth?: IntegrationAuth; oauthClient?: OAuthClientInput | null }) => !v.oauthClient || v.auth === undefined || v.auth === 'oauth'
+const OAUTH_HTTP = { message: 'sign-in at an API needs your own app with its sign-in and token addresses', path: ['oauthClient'] }
+const CLIENT_OAUTH = { message: 'an app is for sign-in (oauth)', path: ['oauthClient'] }
+
 export const Integration = z.object({
   id: z.string(),
   scope: IntegrationScope,
@@ -98,6 +128,10 @@ export const Integration = z.object({
   /** a member's own connection made from an admin's template (its address, sign-in method and header are the
    * template's; the member changes only their key or sign-in and the write rule). Older servers omit it. */
   templateId: z.string().nullable().optional(),
+  /** sign-in through your own app at the service (oauthClient), as whoever manages it sees it: never the secret. null
+   * when the service registers the app itself, for people who only use it, and on a member's connection made from a
+   * template (the template's app). Older servers omit it. */
+  oauthClient: OAuthClientView.nullable().optional(),
 })
 export type Integration = z.infer<typeof Integration>
 
@@ -116,7 +150,10 @@ export const IntegrationInput = z.object({
   writePolicy: WritePolicy.default('ask'),
   /** team connections (admin endpoint) only */
   access: IntegrationAccess.optional(),
-}).refine((v) => v.auth !== 'oauth' || v.kind === 'mcp', { message: 'sign-in (oauth) is for MCP servers', path: ['auth'] })
+  /** sign-in through your own app at the service (auth oauth only; an HTTP API needs it) */
+  oauthClient: OAuthClientInput.optional(),
+}).refine(oauthFits, OAUTH_HTTP)
+  .refine(clientFits, CLIENT_OAUTH)
   .refine((v) => v.auth !== 'header' || !!v.authHeader, { message: 'give the header name', path: ['authHeader'] })
 export type IntegrationInput = z.infer<typeof IntegrationInput>
 
@@ -131,6 +168,9 @@ export const IntegrationPatch = z.object({
   notes: Notes.nullable().optional(),
   writePolicy: WritePolicy.optional(),
   access: IntegrationAccess.optional(),
+  /** your own app at the service; null: back to the service's own registration (an MCP server). A new app drops the
+   * sign-in. */
+  oauthClient: OAuthClientInput.nullable().optional(),
 })
 export type IntegrationPatch = z.infer<typeof IntegrationPatch>
 
@@ -234,6 +274,9 @@ export const IntegrationTemplate = z.object({
   notes: z.string().nullable(),
   /** who it is for (admins are not implied) */
   access: IntegrationAccess,
+  /** the team's own app at the service that each member signs in through (never its secret); null: none. Older servers
+   * omit it. */
+  oauthClient: OAuthClientView.nullable().optional(),
   /** members who connected it with a key or sign-in now */
   connected: z.number().int().nonnegative(),
   createdBy: Person.nullable(),
@@ -251,12 +294,17 @@ export const IntegrationTemplateInput = z.object({
   notes: Notes.nullable().optional(),
   // who sees it to connect with their own key; left out = the whole team (a template carries no key)
   access: IntegrationAccess.optional(),
+  /** the team's own app at the service: each member signs in through it with their own account (auth oauth only; an
+   * HTTP API needs it). Its secret stays on the server: members never see it, and the API shows them nothing of the app
+   * (its client ID and scopes are in the sign-in address, as with any app). */
+  oauthClient: OAuthClientInput.optional(),
   // strict: a key sent with a template is refused, not quietly dropped
-}).strict().refine((v) => v.auth !== 'oauth' || v.kind === 'mcp', { message: 'sign-in (oauth) is for MCP servers', path: ['auth'] })
+}).strict().refine(oauthFits, OAUTH_HTTP)
+  .refine(clientFits, CLIENT_OAUTH)
   .refine((v) => v.auth !== 'header' || !!v.authHeader, { message: 'give the header name', path: ['authHeader'] })
 export type IntegrationTemplateInput = z.infer<typeof IntegrationTemplateInput>
 
-/** A new address, sign-in method or header drops every member's connection made from it (they connect again). */
+/** A new address, sign-in method, header or app drops every member's connection made from it (they connect again). */
 export const IntegrationTemplatePatch = z.object({
   name: Name.optional(),
   url: ServiceUrl.optional(),
@@ -264,6 +312,8 @@ export const IntegrationTemplatePatch = z.object({
   authHeader: HeaderName.nullable().optional(),
   notes: Notes.nullable().optional(),
   access: IntegrationAccess.optional(),
+  /** the team's own app; null: none (an MCP server that registers apps itself) */
+  oauthClient: OAuthClientInput.nullable().optional(),
 }).strict()
 export type IntegrationTemplatePatch = z.infer<typeof IntegrationTemplatePatch>
 
@@ -308,7 +358,7 @@ export const INTEGRATIONS = {
   updateIntegration: endpoint({ method: 'PATCH', path: '/api/integrations/:id', auth: 'user', owner: 'C', body: IntegrationPatch, response: Integration, summary: 'Change a connection: the owner of a personal one, an admin for a team one. A new address drops the stored key.' }),
   deleteIntegration: endpoint({ method: 'DELETE', path: '/api/integrations/:id', auth: 'user', owner: 'C', response: empty, status: 204, summary: 'Delete a connection (OAuth: revocation is tried, the local tokens go first).' }),
   refreshIntegration: endpoint({ method: 'POST', path: '/api/integrations/:id/refresh', auth: 'user', owner: 'C', body: z.object({}), response: Integration, summary: 'Check the connection now; MCP: save its current tool list.' }),
-  authorizeIntegration: endpoint({ method: 'POST', path: '/api/integrations/:id/authorize', auth: 'user', owner: 'C', body: z.object({}), response: z.object({ flowId: z.string(), authorizationUrl: z.string().url(), expiresAt: IsoTime }), summary: 'Start signing in at an MCP server (OAuth with PKCE) in a browser window.' }),
+  authorizeIntegration: endpoint({ method: 'POST', path: '/api/integrations/:id/authorize', auth: 'user', owner: 'C', body: z.object({}), response: z.object({ flowId: z.string(), authorizationUrl: z.string().url(), expiresAt: IsoTime }), summary: 'Start signing in at the service (OAuth with PKCE) in a browser window: an MCP server, or an API with your own app.' }),
   setIntegrationTool: endpoint({ method: 'POST', path: '/api/integrations/:id/tools', auth: 'user', owner: 'C', body: z.object({ name: z.string().min(1).max(200), enabled: z.boolean() }).strict(), response: Integration, summary: 'Turn one tool of an MCP connection on or off for the AI (whoever manages the connection). New tools are on.' }),
   integrationFlow: endpoint({ method: 'GET', path: '/api/integrations/flows/:id', auth: 'user', owner: 'C', response: IntegrationFlow, summary: 'Poll a sign-in started by this same session.' }),
   listTeamIntegrations: endpoint({ method: 'GET', path: '/api/admin/integrations', auth: 'admin', owner: 'C', response: z.object({ items: z.array(Integration) }), summary: 'Every team connection, with who may use it.' }),
@@ -323,7 +373,7 @@ export const INTEGRATIONS = {
   connectIntegrationTemplate: endpoint({ method: 'POST', path: '/api/integration-templates/:id/connect', auth: 'user', owner: 'C', body: IntegrationTemplateAnswer, response: Integration, summary: 'Connect a template shared with me as my own connection, with my key, or made for signing in next (MCP OAuth). Again with a key: replaces my key. 404 when it is not shared with me; 409 when it changed since the version I send.' }),
   listTeamIntegrationTemplates: endpoint({ method: 'GET', path: '/api/admin/integration-templates', auth: 'admin', owner: 'C', response: z.object({ items: z.array(IntegrationTemplate) }), summary: 'Every template, with who it is for and how many members connected it. Never a key.' }),
   createIntegrationTemplate: endpoint({ method: 'POST', path: '/api/admin/integration-templates', auth: 'admin', owner: 'C', status: 201, body: IntegrationTemplateInput, response: IntegrationTemplate, summary: 'Register a service once for the team; each member it is for connects it with their own key or sign-in.' }),
-  updateIntegrationTemplate: endpoint({ method: 'PATCH', path: '/api/admin/integration-templates/:id', auth: 'admin', owner: 'C', body: IntegrationTemplatePatch, response: IntegrationTemplate, summary: 'Change a template. A new address, sign-in method or header deletes every member\'s connection made from it (and its key); they connect again. The address may not have a query (a key there would reach every member).' }),
+  updateIntegrationTemplate: endpoint({ method: 'PATCH', path: '/api/admin/integration-templates/:id', auth: 'admin', owner: 'C', body: IntegrationTemplatePatch, response: IntegrationTemplate, summary: 'Change a template. A new address, sign-in method, header or app deletes every member\'s connection made from it (and its key); they connect again. The address may not have a query (a key there would reach every member).' }),
   listIntegrationTemplateMembers: endpoint({ method: 'GET', path: '/api/admin/integration-templates/:id/members', auth: 'admin', owner: 'C', response: z.object({ items: z.array(IntegrationTemplateMember) }), summary: 'Who a template is for, each with whether they connected it and when, or whether their key stopped working. Names and states only: never a key, an address or service data.' }),
   deleteIntegrationTemplate: endpoint({ method: 'DELETE', path: '/api/admin/integration-templates/:id', auth: 'admin', owner: 'C', response: empty, status: 204, summary: 'Delete a template and every member\'s connection made from it (OAuth: revocation is tried, the local tokens go first).' }),
   withdrawIntegrationRequest: endpoint({ method: 'POST', path: '/api/admin/integration-requests/:id/withdraw', auth: 'admin', owner: 'C', body: z.object({}), response: IntegrationRequest, summary: 'Withdraw a waiting request.' }),

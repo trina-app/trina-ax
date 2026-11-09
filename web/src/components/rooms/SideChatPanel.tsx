@@ -17,7 +17,7 @@
 // the composer's stash, `side:<room id>`): every panel of the room is the same chat. The files were uploaded into the chat
 // shown, so another chat (New chat, 🕘) drops them. The column around it is components/rooms/RoomSideColumn.tsx: drawn
 // here (`frame`), or by the room page around this (frame={false}).
-import { ChevronLeft, ExternalLink, Eye, History, Loader2, Paperclip, SquarePen, X } from 'lucide-react'
+import { ArrowUp, ChevronLeft, ExternalLink, Eye, History, Loader2, Paperclip, SquarePen, X } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -36,6 +36,7 @@ import { toast } from '../../store/ui'
 import { ComposerFileList, useComposerFiles, useFileDrop } from '../chat/ComposerFiles'
 import { AssistantMessage, UserMessage } from '../chat/Messages'
 import { ImageGroup, ViewerMeta } from '../ImageViewer'
+import { Tooltip } from '../Tooltip'
 import { ErrorNote, IconButton } from '../ui'
 import { AiFace } from './AiFace'
 import { RoomSideColumn } from './RoomSideColumn'
@@ -221,6 +222,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   const fail = (e: unknown) => toast({ level: 'warn', text: errorText(e, locale, t('error.network')) })
   // what the box sends: its text and its files (all uploaded); an answer to the AI's question is the text alone
   const canSend = chatId !== undefined && (question ? !!draft.trim() : !busy && !files.uploading && (!!draft.trim() || files.ready.length > 0))
+  const sendLabel = question ? t('sideChat.answer') : t('sideChat.send')
   const send = async (asked?: string) => {
     const text = (asked ?? draft).trim()
     // the box's files go with what is typed in it; a starter or quick question goes alone (and leaves them, as it leaves
@@ -443,17 +445,25 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
             className="block max-h-40 w-full resize-none bg-transparent px-3 pt-2.5 text-sm text-ink outline-none placeholder:text-faint"
             data-testid="side-chat-input"
           />
-          <div className="flex items-center justify-between gap-2 pr-3 pb-2 pl-1.5">
-            <div className="flex min-w-0 items-center gap-1">
-              <IconButton tip label={t('composer.attach')} onClick={() => picker.current?.click()} className="touch-hit" data-testid="side-chat-attach">
-                <Paperclip size={15} aria-hidden />
-              </IconButton>
-              <input ref={picker} type="file" multiple hidden onChange={files.onPicked} data-testid="side-chat-file-input" />
-              <span className="truncate text-xs text-faint" data-testid="side-chat-private">{t('sideChat.private')}</span>
-            </div>
-            <button type="button" onClick={() => void send()} disabled={!canSend} className="shrink-0 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-on-accent disabled:opacity-40" data-testid="side-chat-send">
-              {question ? t('sideChat.answer') : t('sideChat.send')}
-            </button>
+          <div className="flex items-center justify-between gap-2 pr-2 pb-2 pl-1.5">
+            <IconButton tip label={t('composer.attach')} onClick={() => picker.current?.click()} className="touch-hit" data-testid="side-chat-attach">
+              <Paperclip size={15} aria-hidden />
+            </IconButton>
+            <input ref={picker} type="file" multiple hidden onChange={files.onPicked} data-testid="side-chat-file-input" />
+            {/* the room box's send button (RoomComposer): ↑ on a round button, its name (보내기, or 답하기 while the AI waits
+                for an answer to its question) in the tooltip */}
+            <Tooltip label={sendLabel}>
+              <button
+                type="button"
+                onClick={() => void send()}
+                disabled={!canSend}
+                aria-label={sendLabel}
+                className={clsx('touch-hit flex size-9 shrink-0 items-center justify-center rounded-full transition max-sm:size-10', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')}
+                data-testid="side-chat-send"
+              >
+                <ArrowUp size={18} aria-hidden />
+              </button>
+            </Tooltip>
           </div>
         </div>
         {fileError && <p role="alert" className="pt-1.5 text-xs text-danger" data-testid="side-chat-file-error">{fileError}</p>}

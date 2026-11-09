@@ -62,6 +62,7 @@ import { z } from 'zod'
 import type { DriveShare as MockDriveShare, DriveShareFolder as MockDriveFolder } from '@mycel/shared/api'
 import type { KnowledgeGraphStatus, LocalSpeechTool } from '@mycel/shared/api'
 import type { SkillMoveTarget } from '@mycel/shared/api'
+import type { IntegrationAuth, IntegrationKind, OAuthClientInput, OAuthClientView } from '@mycel/shared/api'
 import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
@@ -3378,7 +3379,7 @@ export class MockServer {
     },
     authorizeIntegration: (c) => {
       const x = this.manageableIntegration(c.user, c.params.id)
-      if (x.kind !== 'mcp' || x.auth !== 'oauth') fail('conflict', 409, '이 연결은 로그인을 쓰지 않아요.')
+      if (x.auth !== 'oauth') fail('conflict', 409, '이 연결은 로그인을 쓰지 않아요.')
       const flow: IntegrationFlow = { flowId: uuidv7(), state: 'pending', expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(), reason: null }
       this.integrationFlows.set(flow.flowId, { flow, integrationId: x.id, userId: c.user.id, polls: 0 })
       return { flowId: flow.flowId, authorizationUrl: `https://auth.example.test/authorize?client_id=mock&state=${flow.flowId}`, expiresAt: flow.expiresAt }
@@ -3445,7 +3446,8 @@ export class MockServer {
     listIntegrationTemplates: (c) => ({
       items: this.integrationTemplates.filter((t) => this.templateCovers(t, c.user)).map((t) => {
         const mine = this.integrations.find((x) => x.templateId === t.id && x.ownerId === c.user.id)
-        const { access: _a, createdAt: _c, updatedAt: _u, ...rest } = t
+        // never the team's app (like templates.ts listMine)
+        const { access: _a, createdAt: _c, updatedAt: _u, oauthClient: _app, ...rest } = t
         return { ...rest, url: new URL(t.url).origin + new URL(t.url).pathname, connection: mine ? this.integrationView(mine, c.user) : null }
       }),
     }),
@@ -3468,6 +3470,7 @@ export class MockServer {
       const t = {
         id: uuidv7(), kind: c.body.kind, name: c.body.name, url: c.body.url, auth: c.body.auth, authHeader: c.body.auth === 'header' ? c.body.authHeader ?? null : null,
         notes: c.body.notes ?? null, access: c.body.access ?? { everyone: true, groups: [], users: [] }, createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), updatedAt: now(), version: 1,
+        oauthClient: this.nextApp(c.body.kind, c.body.auth, null, c.body.oauthClient).app,
       }
       this.integrationTemplates.push(t)
       return { status: 201, body: this.templateView(t) }
@@ -3476,7 +3479,9 @@ export class MockServer {
       const t = this.integrationTemplates.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
       const auth = c.body.auth ?? t.auth
       const authHeader = auth === 'header' ? (c.body.authHeader !== undefined ? c.body.authHeader : t.authHeader) : null
-      const moved = (c.body.url !== undefined && c.body.url !== t.url) || auth !== t.auth || authHeader !== t.authHeader
+      const app = this.nextApp(t.kind, auth, t.oauthClient, c.body.oauthClient)
+      const moved = (c.body.url !== undefined && c.body.url !== t.url) || auth !== t.auth || authHeader !== t.authHeader || app.changed
+      t.oauthClient = app.app
       Object.assign(t, { ...(c.body.name !== undefined ? { name: c.body.name } : {}), ...(c.body.url !== undefined ? { url: c.body.url } : {}), auth, authHeader, ...(c.body.notes !== undefined ? { notes: c.body.notes } : {}), ...(c.body.access ? { access: c.body.access } : {}), updatedAt: now(), version: t.version + 1 })
       // a new address or sign-in method drops every member's key; a member it no longer covers loses theirs
       for (const x of this.integrations.filter((y) => y.templateId === t.id)) {
@@ -3878,7 +3883,23 @@ export class MockServer {
   integrationView(x: MockIntegration, u: User): Integration {
     const canManage = x.scope === 'personal' ? x.ownerId === u.id : u.role !== 'member'
     const { ownerId: _o, checks: _c, disabledTools: _d, ...rest } = x
-    return { ...rest, hasSecret: this.integrationSecrets.has(x.id), access: x.scope === 'team' && canManage ? x.access : null, canManage }
+    // like store.ts view: the own app is for whoever manages the connection (a template's app is the admin's)
+    return { ...rest, hasSecret: this.integrationSecrets.has(x.id), access: x.scope === 'team' && canManage ? x.access : null, canManage, oauthClient: canManage && !x.templateId ? x.oauthClient ?? null : null }
+  }
+  /** like service.ts appFrom / nextApp: an own app is for sign-in; an API's sign-in needs one with both addresses; the
+   * secret is write-only (kept while the client ID stays). `changed`: another ID, secret, address or scope. */
+  nextApp(kind: IntegrationKind, auth: IntegrationAuth, prev: OAuthClientView | null | undefined, input: OAuthClientInput | null | undefined): { app: OAuthClientView | null; changed: boolean } {
+    if (input && auth !== 'oauth') fail('validation', 400, '앱(Client ID)은 로그인 방식에서만 넣을 수 있어요.', { 'body.oauthClient': 'sign-in only' })
+    let app: OAuthClientView | null = prev ?? null
+    let changed = false
+    if (auth !== 'oauth' || input === null) { changed = !!prev; app = null }
+    else if (input) {
+      app = { clientId: input.clientId, authorizationUrl: input.authorizationUrl ?? null, tokenUrl: input.tokenUrl ?? null, scope: input.scope ?? null,
+        hasSecret: input.clientSecret ? true : !!prev?.hasSecret && prev.clientId === input.clientId }
+      changed = !prev || prev.clientId !== app.clientId || prev.authorizationUrl !== app.authorizationUrl || prev.tokenUrl !== app.tokenUrl || prev.scope !== app.scope || !!input.clientSecret || prev.hasSecret !== app.hasSecret
+    }
+    if (auth === 'oauth' && kind === 'http' && !app?.tokenUrl) fail('validation', 400, 'API에 로그인하려면 서비스에서 만든 앱의 Client ID와 로그인 주소, 토큰 주소가 필요해요.', { 'body.oauthClient': 'an app with its addresses' })
+    return { app, changed }
   }
   /** may use it in their chats: the owner of a personal one; the access rule of a team one (admins are not implied) */
   requestState(r: IntegrationRequest): IntegrationRequest['state'] {
@@ -3948,7 +3969,10 @@ export class MockServer {
     const base = body.slug ?? (body.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12) || 'conn')
     let slug = base
     for (let n = 2; siblings.some((y) => y.slug === slug); n++) slug = base.slice(0, 12 - String(n).length) + n
+    // a template's members sign in through the template's app
+    const app = templateId ? null : this.nextApp(body.kind, body.auth, null, body.oauthClient).app
     const x: MockIntegration = {
+      oauthClient: app,
       id: uuidv7(), scope, kind: body.kind, name: body.name, slug, url: body.url, auth: body.auth, authHeader: body.auth === 'header' ? body.authHeader ?? null : null,
       account: null, notes: body.kind === 'http' ? body.notes ?? null : null, writePolicy: body.writePolicy, status: 'needs_auth', lastError: null, tools: [], toolsUpdatedAt: null,
       access: scope === 'team' ? body.access ?? NO_ACCESS : null, createdBy: { id: u.id, name: u.name }, createdAt: now(), updatedAt: now(), lastUsedAt: null,
@@ -3962,14 +3986,16 @@ export class MockServer {
   patchIntegration(u: User, id: string, b: IntegrationPatch): Integration {
     const x = this.manageableIntegration(u, id)
     // made from an admin's template: only the member's key and the write rule are theirs (templates.ts)
-    if (x.templateId) for (const k of ['name', 'url', 'auth', 'authHeader', 'notes', 'access'] as const) if (b[k] !== undefined) fail('validation', 400, '팀이 정한 항목이라 바꿀 수 없어요.', { [`body.${k}`]: 'set by the template' })
+    if (x.templateId) for (const k of ['name', 'url', 'auth', 'authHeader', 'notes', 'access', 'oauthClient'] as const) if (b[k] !== undefined) fail('validation', 400, '팀이 정한 항목이라 바꿀 수 없어요.', { [`body.${k}`]: 'set by the template' })
     if (b.writePolicy === 'allow' && x.scope !== 'team') fail('validation', 400, '"묻지 않고 실행"은 팀 연결에서만 고를 수 있어요.', { 'body.writePolicy': 'team connections only' })
     if (b.access && x.scope !== 'team') fail('validation', 400, '사용할 사람은 팀 연결에만 정해요.', { 'body.access': 'team connections only' })
     const auth = b.auth ?? x.auth
-    if (auth === 'oauth' && x.kind !== 'mcp') fail('validation', 400, undefined, { 'body.auth': 'sign-in (oauth) is for MCP servers' })
     const header = auth === 'header' ? (b.authHeader !== undefined ? b.authHeader : x.authHeader) : null
     if (auth === 'header' && !header) fail('validation', 400, undefined, { 'body.authHeader': 'give the header name' })
-    const moved = (b.url !== undefined && b.url !== x.url) || auth !== x.auth
+    const app = x.templateId ? { app: null, changed: false } : this.nextApp(x.kind, auth, x.oauthClient, b.oauthClient)
+    // like the server: a sign-in made through one app is never used with another
+    const moved = (b.url !== undefined && b.url !== x.url) || auth !== x.auth || app.changed
+    x.oauthClient = app.app
     if (b.url !== undefined && privateHost(new URL(b.url).hostname)) fail('validation', 400, '사내망이나 이 컴퓨터의 주소는 쓸 수 없어요.', { 'body.url': 'private or local address' })
     if (b.name !== undefined) x.name = b.name
     if (b.url !== undefined) x.url = b.url
