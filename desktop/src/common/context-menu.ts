@@ -16,13 +16,11 @@ export interface ContextFacts {
   editFlags: { canCut: boolean; canCopy: boolean; canPaste: boolean; canSelectAll: boolean }
 }
 
-/** What the app does itself; the text items are Electron's edit roles. */
-export type ContextAction = 'copyImage' | 'saveImage' | 'copyLink'
+/** What an item does (main/context-menu.ts). The text items are the page's own edit commands, run on the page that
+ * was right-clicked (not an edit role, which goes to whichever view has the focus). */
+export type ContextAction = 'copyImage' | 'saveImage' | 'copyLink' | 'cut' | 'copy' | 'paste' | 'selectAll'
 
-export type ContextItem =
-  | { id: ContextAction; label: string }
-  | { role: 'cut' | 'copy' | 'paste' | 'selectAll'; label: string; enabled: boolean }
-  | { type: 'separator' }
+export type ContextItem = { id: ContextAction; label: string; enabled: boolean } | { type: 'separator' }
 
 /** The items for what was right-clicked, in groups with a line between; none: no menu at all. `canSave`: whether the
  * image's address may be saved through the app (saveableImage). */
@@ -32,21 +30,21 @@ export function contextMenuItems(p: ContextFacts, locale: UiLocale, o: { canSave
     // a text field: the four edit items, each greyed out when it cannot apply (nothing selected, nothing to paste)
     groups.push(
       [
-        { role: 'cut', label: t(locale, 'ctx.cut'), enabled: p.editFlags.canCut },
-        { role: 'copy', label: t(locale, 'ctx.copy'), enabled: p.editFlags.canCopy },
-        { role: 'paste', label: t(locale, 'ctx.paste'), enabled: p.editFlags.canPaste },
+        { id: 'cut', label: t(locale, 'ctx.cut'), enabled: p.editFlags.canCut },
+        { id: 'copy', label: t(locale, 'ctx.copy'), enabled: p.editFlags.canCopy },
+        { id: 'paste', label: t(locale, 'ctx.paste'), enabled: p.editFlags.canPaste },
       ],
-      [{ role: 'selectAll', label: t(locale, 'ctx.selectAll'), enabled: p.editFlags.canSelectAll }],
+      [{ id: 'selectAll', label: t(locale, 'ctx.selectAll'), enabled: p.editFlags.canSelectAll }],
     )
   } else {
-    if (p.linkURL) groups.push([{ id: 'copyLink', label: t(locale, 'ctx.copyLink') }])
+    if (p.linkURL) groups.push([{ id: 'copyLink', label: t(locale, 'ctx.copyLink'), enabled: true }])
     if (p.mediaType === 'image') {
       const image: ContextItem[] = []
-      if (p.hasImageContents) image.push({ id: 'copyImage', label: t(locale, 'ctx.copyImage') })
-      if (p.srcURL && o.canSave(p.srcURL)) image.push({ id: 'saveImage', label: t(locale, 'ctx.saveImage') })
+      if (p.hasImageContents) image.push({ id: 'copyImage', label: t(locale, 'ctx.copyImage'), enabled: true })
+      if (p.srcURL && o.canSave(p.srcURL)) image.push({ id: 'saveImage', label: t(locale, 'ctx.saveImage'), enabled: true })
       if (image.length) groups.push(image)
     }
-    if (p.selectionText.trim() && p.editFlags.canCopy) groups.push([{ role: 'copy', label: t(locale, 'ctx.copy'), enabled: true }])
+    if (p.selectionText.trim() && p.editFlags.canCopy) groups.push([{ id: 'copy', label: t(locale, 'ctx.copy'), enabled: true }])
   }
   return groups.flatMap((g, i) => (i ? [{ type: 'separator' as const }, ...g] : g))
 }

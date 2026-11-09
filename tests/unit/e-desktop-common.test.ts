@@ -701,8 +701,8 @@ describe("the team page's right-click menu", () => {
   const none = { canCut: false, canCopy: false, canPaste: false, canSelectAll: false }
   const at = (o: Partial<ContextFacts> = {}): ContextFacts => ({ mediaType: 'none', srcURL: '', hasImageContents: false, linkURL: '', selectionText: '', isEditable: false, editFlags: none, ...o })
   const items = (o: Partial<ContextFacts>, locale: UiLocale = 'ko', canSave = (src: string) => saveableImage(src, [TEAM])) => contextMenuItems(at(o), locale, { canSave })
-  /** each item as one word: its action, its role (with "-" when greyed out) or "|" for a line */
-  const shape = (list: ContextItem[]) => list.map((it) => ('id' in it ? it.id : 'role' in it ? `${it.role}${it.enabled ? '' : '-'}` : '|'))
+  /** each item as one word: its action (with "-" when greyed out) or "|" for a line */
+  const shape = (list: ContextItem[]) => list.map((it) => ('id' in it ? `${it.id}${it.enabled ? '' : '-'}` : '|'))
   const labels = (list: ContextItem[]) => list.map((it) => ('label' in it ? it.label : '|'))
 
   test('a photo: 이미지 복사 and 이미지 저장…; a link: 링크 복사; selected text: 복사; a text field: the four edit items', () => {
