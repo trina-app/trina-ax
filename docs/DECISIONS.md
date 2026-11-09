@@ -17342,6 +17342,9 @@ asks.**
   - the path as the file layer resolves it (`authorize(…, 'write')`: letter case, NFC/NFD, ".." and links refused) is
     inside `users/<me>/`, never in a hidden folder (`.attachments`), a plugin's folder or `users/<me>/skills/`, never an
     instruction-named file (`instructionLike`: CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md and the existing list);
+  - not inside a project's folder (a personal project, `users/<me>/projects/…`): its dev environment may run a new file
+    by its name (conftest.py, a Makefile, a package's scripts) with the person's login, and the dev environment's own
+    card only counts other people's changes (`devenv/track.ts changesByOthers`);
   - not a confidential chat.
   A file that existed before this answer always asks (an overwrite, an edit), and so do edit_files, moves, copies,
   renames and every other tool. **save_url keeps its card:** the name it saves under comes from the download (its
@@ -17376,6 +17379,11 @@ asks.**
     chat (`remember` asks); 2 also marks it as having used outside content (`markOutside`: no room card is skipped). The
     reading chat's own writes then carry the mark on (`syncOutsideMark`). Server tools' reads are now drained right
     after the call (`chat/tools.ts`), as the file tools' were, so the next card or memory sees them.
+  - **The bytes too** (`bytesOutsideLevel`): every AI turn that produced exactly the bytes read (`file_events.sha256`, new
+    index `file_events_sha256`; the hash the AI read, or the file's now), so a copy on the Files screen or of a whole
+    folder, a restore from the trash or a version, and a copy whose source changed since keep the mark. An empty file
+    carries none.
+  - An attached file of the person's own folder counts like a read (`attachmentsForTurn`).
   - Team files are unchanged: reading them taints as before, and for room cards they stay the team's own words (#198).
 - **One yes covers a team folder for the rest of the answer** (the room's #198 rule in the own chat). In the own chat
   after a room read, a new file (or one this answer made) in a team folder gets the room card's words after the
@@ -17397,7 +17405,9 @@ asks.**
   outside the team's own words marks it (`OWN_CHAT_TEAM_TOOLS`: a room session's `ROOM_FILE_TOOLS`, reading the person's
   rooms, `set_title`, `remember`; anything else fails closed: the web and its search, a connection's tools and
   `call_tool`, Google Drive, the browser, box_shell, video, tools added later), and so does reading an own-folder file
-  marked 2. **It lasts until a new session**, not one answer as the brief said: an own chat's session carries its
+  marked 2. So does `rooms`: its list names other rooms (a group chat's name is its members' words) without putting
+  them in the read scope, so their members would not be weighed. Own chats from before this build are marked by
+  migration 281 from their answers' stored steps (any tool outside that list, as this build has it). **It lasts until a new session**, not one answer as the brief said: an own chat's session carries its
   earlier answers (a room question's does not), so web text read three answers ago can still steer. A new chat (the side
   chat's "새 대화") starts clean.
 - **"이 방에서는 항상 허용" in the side chat** (`TurnExec.sideGrantRoom`). A ✦ side chat whose read scope holds its own
@@ -17413,6 +17423,13 @@ asks.**
 - **One name for the AI on a card.** The wider-audience card said "AI가" while the rooms-seen line before it, merged on
   one card, said "트리나가". `widenConfirm` now names the AI as the room cards do (`aiCalled`: 트리나 where the product is
   named after its AI, `PRODUCT_NAMED_AFTER_AI`, the plain word elsewhere), on every wider-audience card.
+- **edit_hwp's output** is judged where the tool puts it: its extension comes from the document as the file layer
+  resolves it (`writeTargetOf`, as `tools/edit-hwp.ts` does), so `file_path: "x.hwp/"` with `output: "x"` is the
+  existing x.hwp and asks. This also closes the same gap for a room session's grant, which dev had.
+- **Independent review** (security, tried to break it): fixed the edit_hwp output above (must-fix), the mark lost
+  through copies, folder copies and restores, older own chats without the outside mark, an attached own file not
+  counted, `rooms` names not weighed, and new files in a project's folder. Left as notes: file names the AI writes in
+  the own folder reach later chats through `list` and `glob` (names, not content; they carry no mark).
 - **Words for the AI.** `ROOMS_RULE` and `room_read`'s description say that a new file in the user's own folder is the
   one change after a room read that needs no card.
 - **What remains.** Planted room text can add new files in the person's own folder, and, after one [이번만] or a grant,
@@ -17437,7 +17454,9 @@ asks.**
   folder without a card; a file saved after a room read, after the web or as a copy of one makes `remember` ask in a
   later chat, also through grep's lines, while one I or a clean chat wrote does not and one this chat wrote adds
   nothing; 5 new files in one folder one card, a second folder another, an existing file its own; the web or a
-  connection a card per file, in later answers too; two rooms [이번만] only; the side chat's [항상] makes the room's
+  connection a card per file, in later answers too; listing rooms the same; two rooms [이번만] only; edit_hwp's output
+  on its own document; a project's folder still asks; a byte copy made without the AI keeps the mark; migration 281's
+  backfill; the side chat's [항상] makes the room's
   grant, listed in Settings, used by the next answer, lapsed by a member joining; a room's grant in the side chat and
   its 30 days; a member who cannot write: no "always" and no cover; a scheduled run saves in my folder, never in a team
   folder), `b-chat-rooms-save.test.ts` (into my own folder no card, an existing file a card), `b-chat-rooms.test.ts`

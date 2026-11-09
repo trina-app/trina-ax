@@ -53,7 +53,7 @@ import { ConnectOutcome, type ConnectCard } from './connect-service'
 import { devEnvFlag, devEnvRunner, mayUseBox, mayUseDevEnv } from '../devenv/setting'
 import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, widening, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
-import { readRegular, sha256 } from '../files/store'
+import { readRegular, sha256, sha256Regular } from '../files/store'
 import { hwpOutputPath } from '../files/hwpx-check'
 import { audit as auditLog } from '../admin/audit'
 import { ANY_CONTENT, editedText, inSkills, skillRootOf } from '../skills/guard'
@@ -137,6 +137,8 @@ const ENGINE_TEXT_STEP_KIND = (tool: string): Step['kind'] =>
 
 /** Tools whose calls get no step under the answer (their tool_end then finds no step and changes nothing). */
 const HIDDEN_STEP_TOOLS = new Set(['set_title'])
+/** sha256 of no bytes: an empty file carries nothing (bytesOutsideLevel) */
+const EMPTY_SHA256 = sha256(new Uint8Array(0))
 /** Tools that patch their own step exactly once per call (chat/room-tools.ts label): a cover's step words go with it. */
 const SELF_LABELLED_TOOLS = new Set(['save_room_file'])
 
@@ -1442,22 +1444,38 @@ export class TurnExec {
   }
   private branchTurnIds: Set<string> | null = null
 
-  /** How much outside content the newest content of `rel` (a file as the file layer names it) carries: the mark of the
-   * AI turn that wrote it (turns.outside_content; a turn row that is gone counts as 2), and for a copy also its source's
-   * (`depth` copies back, then 2). A person's own save, or a file with no known history, carries none. */
+  /** How much outside content the content of `rel` (a file as the file layer names it) carries, the most of: the mark of
+   * the AI turn that wrote its newest content (turns.outside_content; a turn row that is gone counts as 2), for a copy
+   * also its source's (`depth` copies back, then 2), and the marks of every AI turn that produced exactly these bytes
+   * anywhere (bytesOutsideLevel: a copy on the Files screen or of a folder, a restore from the trash or a version, a copy
+   * whose source changed since). A person's own save of new bytes, or bytes with no known history, carry none. */
   private fileOutsideLevel(rel: string, depth = 0): number {
     if (depth > 4) return 2
     try {
       const [e] = fileTimeline(this.rt.db, rel, { limit: 1000, stop: (x) => CONTENT_KINDS.has(x.kind) }).filter((x) => CONTENT_KINDS.has(x.kind))
-      if (!e?.turnId) return 0
-      let level = 0
-      if (!this.branchTurns().has(e.turnId)) {
-        const t = this.rt.db.query('SELECT outside_content AS o FROM turns WHERE id = ?').get(e.turnId) as { o: number } | null
-        level = t ? t.o : 2
-      }
-      if (level < 2 && e.kind === 'copied' && e.from) level = Math.max(level, this.fileOutsideLevel(e.from, depth + 1))
+      let level = e?.turnId ? this.turnOutsideLevel(e.turnId) : 0
+      if (level < 2 && e?.kind === 'copied' && e.from) level = Math.max(level, this.fileOutsideLevel(e.from, depth + 1))
+      if (level < 2 && depth === 0) level = Math.max(level, this.bytesOutsideLevel(rel))
       return level
     } catch { return 2 }
+  }
+
+  /** A turn's mark (turns.outside_content), 0 for a turn of this chat's branch (branchTurns), 2 for one that is gone. */
+  private turnOutsideLevel(turnId: string): number {
+    if (this.branchTurns().has(turnId)) return 0
+    const t = this.rt.db.query('SELECT outside_content AS o FROM turns WHERE id = ?').get(turnId) as { o: number } | null
+    return t ? t.o : 2
+  }
+
+  /** The most any AI turn that produced the bytes of `rel` carries (file_events by sha256, the hash the AI read or the
+   * file's bytes now); 0 for an empty file. */
+  private bytesOutsideLevel(rel: string): number {
+    const sha = this.files.allReads.get(rel) ?? sha256Regular(path.join(this.rt.files.fx.root, ...rel.split('/')))
+    if (sha === EMPTY_SHA256) return 0
+    const rows = this.rt.db.query(`SELECT DISTINCT turn_id AS t FROM file_events WHERE sha256 = ? AND turn_id IS NOT NULL AND action IN ('create', 'update', 'upload', 'restore')`).all(sha) as { t: string }[]
+    let level = 0
+    for (const r of rows) { level = Math.max(level, this.turnOutsideLevel(r.t)); if (level >= 2) break }
+    return level
   }
   get roomsSeen(): boolean {
     return !!(this.rt.db.query('SELECT rooms_seen FROM chats WHERE id = ?').get(this.spec.chatId) as { rooms_seen: number } | null)?.rooms_seen
@@ -1778,7 +1796,7 @@ export class TurnExec {
     if (!rooms.length || this.spec.clientKind === 'schedule') return null
     try {
       if (confidentialChat(this.rt.db, this.spec.chatId)) return null
-      const t = writeTargetOf(tool, input)
+      const t = writeTargetOf(tool, input, (src) => this.sourceRel(src))
       if (!t) return null
       const fx = this.rt.files.fx, rules = this.rt.files.rules()
       const r = authorize(fx, rules, this.livePrincipal(), t.path, 'write', { createDirs: true })
@@ -1799,14 +1817,14 @@ export class TurnExec {
    * edit_hwp of a file this answer made (roomMadeHere); save_room_file making a new file (where its widen hook says it
    * goes: the file's own name in a folder). The path as the file layer resolves it for the person (authorize 'write':
    * letter case, Unicode form; ".." and links refused there), inside users/<them>/, never in a hidden folder
-   * (.attachments), a plugin's folder or users/<them>/skills, never an instruction-named file (instructionLike), never in
-   * a confidential chat. A file that was there before this answer always asks, and so do save_url (the name it saves
+   * (.attachments), a plugin's folder, users/<them>/skills or a project's folder, never an instruction-named file
+   * (instructionLike), never in a confidential chat. A file that was there before this answer always asks, and so do save_url (the name it saves
    * under comes from what it downloads), edit_files, moves, copies, renames and every other tool. Fails closed.
    */
   private ownFolderTarget(tool: string, input: unknown, widen?: WidenOf): string[] | null {
     try {
       if (confidentialChat(this.rt.db, this.spec.chatId)) return null
-      const t = tool === 'save_room_file' ? (widen?.target ? { path: widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input)
+      const t = tool === 'save_room_file' ? (widen?.target ? { path: widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
       if (!t) return null
       const fx = this.rt.files.fx
       const r = authorize(fx, this.rt.files.rules(), this.livePrincipal(), t.path, 'write', { createDirs: true })
@@ -1816,8 +1834,26 @@ export class TurnExec {
       if (!r.exists && !t.mayBeNew) return null
       if (segs.some((x) => x.startsWith('.')) || inSkills(r.rel) || instructionLike(r.rel)) return null
       if (fx.managed?.managerOf(segs) || fx.managed?.managerOf(segs.slice(0, -1))) return null
+      // a project's folder (a personal project): its dev environment may run a new file by its name (conftest.py, a
+      // Makefile, a package's scripts) with the person's login, so a file there still asks
+      if (this.inProjectFolder(r.rel)) return null
       return segs
     } catch { return null }
+  }
+
+  /** Is `rel` (actual names) a project's folder or inside one (any project, as its folder_path names it; one on the team
+   * root holds everything)? A failure says yes. */
+  private inProjectFolder(rel: string): boolean {
+    try {
+      const fold = (p: string) => { const n = p.normalize('NFC'); return this.rt.files.fx.caseInsensitive ? n.toLowerCase() : n }
+      const k = fold(rel)
+      return (this.rt.db.query('SELECT folder_path AS f FROM projects').all() as { f: string }[]).some(({ f }) => { const d = fold(f).replace(/\/+$/, ''); return d === '' || k === d || k.startsWith(d + '/') })
+    } catch { return true }
+  }
+
+  /** A document an edit_hwp call names, as the file layer resolves it for the person (tools/edit-hwp.ts), or null. */
+  private sourceRel(p: string): string | null {
+    try { return authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), p, 'read').rel } catch { return null }
   }
 
   /** Did this answer make the file at `rel` (as the file layer names it): a create of this turn (not an update, not a
@@ -2120,6 +2156,7 @@ export class TurnExec {
     const L = this.spec.locale
     const add: ReadSource[] = []
     const refused = new Set<string>()
+    const given: string[] = []
     for (const a of now) {
       if (a.source !== 'team') continue
       const id = attachStepId(a.id)
@@ -2132,10 +2169,13 @@ export class TurnExec {
         continue
       }
       add.push(sourceOf(this.rt.db, rules, a.path))
+      given.push(a.path)
       if (a.changed) this.addStep({ id, kind: 'tool', tool: 'attachment', label: tr('attachChanged', L, { path: a.path }), status: 'ok' })
       else if (a.moved) this.addStep({ id, kind: 'tool', tool: 'attachment', label: tr('attachMoved', L, { path: a.path }), status: 'ok' })
     }
     addSources(this.rt.db, this.spec.chatId, add)
+    // a file of the person's own folder carries what the chat that wrote it had seen, as when the AI reads it
+    if (given.length) this.noteOwnReads(given)
     return refused.size ? now.map((a) => (refused.has(a.id) ? blankTeamAttachment(a) : a)) : now
   }
 
@@ -2757,8 +2797,10 @@ function teamSegs(p: unknown): string[] | null {
 /** Where write, make_file, edit_hwp or edit saves, as the call names it, and whether the call may make a new file there
  * (edit and edit_hwp without an output change a file in place); null for any other tool or an input it cannot be read
  * from. make_file: its output with the format's extension (tools/make-file.ts); a folder-like output ("x/") is not
- * followed (no cover: the card). */
-function writeTargetOf(tool: string, input: unknown): { path: string; mayBeNew: boolean } | null {
+ * followed (no cover: the card). edit_hwp with an output: the output's extension comes from the document as the file
+ * layer resolves it (`source`, as tools/edit-hwp.ts does: "x.hwp/" is x.hwp), so an output that lands on the document
+ * itself is seen as the existing file it is; a document that cannot be resolved: null. */
+export function writeTargetOf(tool: string, input: unknown, source: (p: string) => string | null): { path: string; mayBeNew: boolean } | null {
   const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
   const str = (v: unknown) => (typeof v === 'string' ? v : '')
   let p: string, mayBeNew: boolean
@@ -2769,10 +2811,14 @@ function writeTargetOf(tool: string, input: unknown): { path: string; mayBeNew: 
       p = ext(str(a.output)) === str(a.format) ? str(a.output) : `${str(a.output)}.${str(a.format)}`
       mayBeNew = true
       break
-    case 'edit_hwp':
-      if (str(a.output)) { p = hwpOutputPath(str(a.output), str(a.file_path)); mayBeNew = true }
-      else { p = str(a.file_path); mayBeNew = false }
+    case 'edit_hwp': {
+      if (!str(a.output)) { p = str(a.file_path); mayBeNew = false; break }
+      const src = source(str(a.file_path))
+      if (src === null) return null
+      p = hwpOutputPath(str(a.output), src)
+      mayBeNew = true
       break
+    }
     case 'edit': p = str(a.file_path); mayBeNew = false; break
     default: return null
   }

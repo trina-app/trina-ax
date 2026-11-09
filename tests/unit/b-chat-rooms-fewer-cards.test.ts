@@ -7,7 +7,10 @@
 // that folder for the rest of the answer (a second folder, an existing file, the web or a connection: a card each);
 // the side chat's [이 방에서는 항상 허용] is the room's own grant (Settings lists it, the next answer uses it, a grant made
 // in the room works there too), never offered when a member cannot write the folder, and it lapses (a member joins, 30
-// days); a chat that read two rooms gets [이번만] only.
+// days); a chat that read two rooms gets [이번만] only. Review fixes: an edit_hwp output that lands on its own document
+// ("x.hwp/") is that document, a file in a project's folder still asks, a byte copy made without the AI (the Files
+// screen, a folder copy, a restore) keeps the mark, listing rooms counts as outside, and migration 281's backfill marks an
+// older own chat by the tools its answers used.
 //
 // Rooms here are alice, erin, carol and dana (the people who may read groups/marketing), so a folder there is not wider
 // than the room and no wider-audience card comes first.
@@ -17,6 +20,7 @@ import path from 'node:path'
 import { API, uuidv7, type RoomMessage, type TurnRequest } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { createGrant, type GrantRow } from '../../server/src/rooms/ai-grants'
+import { writeTargetOf } from '../../server/src/chat/turn'
 import type { TurnToolProvider } from '../../server/src/services'
 
 setDefaultTimeout(120_000)
@@ -163,6 +167,32 @@ describe('my own folder after a room read', () => {
   })
 })
 
+describe('my own folder: where it still asks', () => {
+  test("edit_hwp's output is judged where the tool puts it: the document as the file layer names it", () => {
+    const doc = (p: string) => (p.replace(/\/+$/, '') === 'users/alice/budget.hwp' ? 'users/alice/budget.hwp' : null)
+    // "budget.hwp/" with the output "budget": the tool writes budget.hwp itself (an existing file: no cover), not budget.hwpx
+    expect(writeTargetOf('edit_hwp', { file_path: 'users/alice/budget.hwp/', output: 'users/alice/budget', changes: [] }, doc)).toEqual({ path: 'users/alice/budget.hwp', mayBeNew: true })
+    expect(writeTargetOf('edit_hwp', { file_path: 'users/alice/none.hwp', output: 'users/alice/x', changes: [] }, doc)).toBeNull()
+    expect(writeTargetOf('edit_hwp', { file_path: 'users/alice/budget.hwp', changes: [] }, doc)).toEqual({ path: 'users/alice/budget.hwp', mayBeNew: false })
+  })
+
+  test("a new file in a project's folder (its dev environment may run it by name) still asks", async () => {
+    const roomId = await teamRoom()
+    const tag = uuidv7().slice(-6)
+    const proj = `users/alice/projects/app-${tag}`
+    fs.mkdirSync(at(proj), { recursive: true })
+    h.ctx.db.query('INSERT INTO projects (id, name, folder_path, created_by) VALUES (?, ?, ?, ?)').run(uuidv7(), `app-${tag}`, proj, 'alice')
+    const chat = await sideChat('alice', roomId)
+    const r = await run('alice', chat, fake(roomRead(roomId), write(`${proj}/conftest.py`, 'import os\n'), write(`users/alice/notes-${tag}.md`), { say: 'done' }))
+    expect(r.cards).toHaveLength(1)
+    expect(r.cards[0]!.question).toContain(`${proj}/conftest.py`)
+    expect(exists(`${proj}/conftest.py`)).toBe(false)
+    expect(exists(`users/alice/notes-${tag}.md`)).toBe(true)
+    fs.rmSync(at(proj), { recursive: true, force: true })
+    fs.rmSync(at(`users/alice/notes-${tag}.md`), { force: true })
+  })
+})
+
 describe('outside content saved into my folder', () => {
   test('a file the AI saved after a room read, the web or as a copy of one counts later: remember asks; mine and a clean chat\'s do not', async () => {
     const roomId = await teamRoom()
@@ -204,6 +234,12 @@ describe('outside content saved into my folder', () => {
     expect(turnMark(copy.turnId)).toBe(0)
     const copyRead = await run('alice', await newChat('alice'), fake({ tool: 'read', args: { file_path: `${base}/copies/from-room.md` } }, { tool: 'remember', args: { text: `copy fact ${tag}` } }, { say: 'ok' }), () => 'no')
     expect(copyRead.cards).toHaveLength(1)
+
+    // the same bytes copied without the AI (the Files screen, a folder copy, a restore leave no AI turn on them): the mark
+    // follows the bytes
+    fs.copyFileSync(at(`${base}/from-room.md`), at(`${base}/duplicate.md`))
+    const dup = await run('alice', await newChat('alice'), fake({ tool: 'read', args: { file_path: `${base}/duplicate.md` } }, { tool: 'remember', args: { text: `dup fact ${tag}` } }, { say: 'ok' }), () => 'no')
+    expect(dup.cards).toHaveLength(1)
 
     // a file a clean chat wrote, and one I wrote myself: no card, the memory is kept
     const clean = await run('alice', await newChat('alice'), fake(write(`${base}/clean.md`, 'clean\n'), { say: 'ok' }))
@@ -280,6 +316,36 @@ describe('one yes per team folder in my own chat', () => {
     const used = audits('room.ai_grant_use').find((x) => x.detail.turnId === r.turnId)!
     expect((used.detail.rooms as { roomId: string }[]).map((x) => x.roomId).sort()).toEqual([a, b].sort())
     expect(grantsOf('alice', a)).toEqual([])
+  })
+})
+
+describe('what counts as outside', () => {
+  test("listing my rooms (other rooms' names come in, their members not weighed): no cover for the rest of the chat", async () => {
+    const roomId = await teamRoom()
+    const dir = folder()
+    const chat = await sideChat('alice', roomId)
+    const r = await run('alice', chat, fake({ tool: 'rooms', args: {} }, roomRead(roomId), write(`${dir}/1.md`), write(`${dir}/2.md`), { say: 'done' }), () => 'allow')
+    expect(r.cards).toHaveLength(2)
+    for (const c of r.cards) expect(values(c)).toEqual(['allow', 'skip'])
+    expect(chatRow(chat).room_outside).toBe(1)
+  })
+
+  test("migration 281's backfill: an older own chat whose answers used the web or a connection is marked, one that read files is not", () => {
+    const db = h.ctx.db
+    const sql = fs.readFileSync(path.join(import.meta.dir, '../../server/migrations/281_b_turn_outside_content.sql'), 'utf8')
+    const updates = sql.split(';').map((x) => x.replace(/^(\s*--[^\n]*\n)*/g, '').trim()).filter((x) => x.startsWith('UPDATE chats'))
+    expect(updates).toHaveLength(1)
+    const chatWith = (steps: unknown[]) => {
+      const id = uuidv7()
+      db.query("INSERT INTO chats (id, user_id, title) VALUES (?, 'alice', 'old')").run(id)
+      db.query("INSERT INTO messages (id, chat_id, parent_id, role, author_id, content, attachments, steps, status) VALUES (?, ?, NULL, 'assistant', NULL, 'x', '[]', ?, 'done')").run(uuidv7(), id, JSON.stringify(steps))
+      return id
+    }
+    const web = chatWith([{ id: 's1', kind: 'web_search', tool: 'WebSearch', label: 'Web search', status: 'ok' }, { id: 's2', kind: 'tool', tool: 'write', label: 'Save', status: 'ok' }])
+    const conn = chatWith([{ id: 's1', kind: 'tool', tool: 'notion__search', label: 'Notion', status: 'ok' }])
+    const files = chatWith([{ id: 's1', kind: 'thinking', label: 'Thinking', status: 'ok' }, { id: 's2', kind: 'tool', tool: 'read', label: 'Read', status: 'ok' }, { id: 's3', kind: 'tool', tool: 'attachment', label: 'x', status: 'ok' }])
+    db.exec(updates[0]!)
+    expect([web, conn, files].map((c) => chatRow(c).room_outside)).toEqual([1, 1, 0])
   })
 })
 

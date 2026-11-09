@@ -108,10 +108,12 @@ export const ROOMS_SEEN_BROWSER_READ_TOOLS: ReadonlySet<string> = new Set(['read
 
 /**
  * A person's own AI chat (docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기"): the tools whose use keeps what the chat holds
- * to the team's own words, like a room session's ROOM_FILE_TOOLS, with reading the person's rooms (their words are what
- * a room card weighs) and naming the chat or keeping a memory (nothing comes in). Any other tool (the web and its
- * search, a connection's tools and call_tool, Google Drive, the browser, box_shell, video, tools added later: fails
- * closed) marks the chat as having used something from outside (chats.room_outside, until a new session: an own chat's
- * session carries earlier answers), and then no room card is skipped there.
+ * to the team's own words, like a room session's ROOM_FILE_TOOLS, with reading one of the person's rooms (room_read: its
+ * words are what a room card weighs, its room joins the read scope) and naming the chat or keeping a memory (nothing
+ * comes in). Any other tool (the web and its search, a connection's tools and call_tool, Google Drive, the browser,
+ * box_shell, video, tools added later: fails closed) marks the chat as having used something from outside
+ * (chats.room_outside, until a new session: an own chat's session carries earlier answers), and then no room card is
+ * skipped there. So does `rooms`: its list names other rooms (a group chat's name is its members' words) without
+ * putting them in the read scope, so their members would not be weighed.
  */
-export const OWN_CHAT_TEAM_TOOLS: ReadonlySet<string> = new Set([...ROOM_FILE_TOOLS, 'rooms', 'room_read', 'set_title', 'remember'])
+export const OWN_CHAT_TEAM_TOOLS: ReadonlySet<string> = new Set([...ROOM_FILE_TOOLS, 'room_read', 'set_title', 'remember'])
