@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-09 09:39
 - Branch: `plan/room-file-viewer` (the work: one `feat/room-file-viewer-*` branch per PR below)
-- Status: in progress (a #249, b0 #259, f #254, b #261 on dev; d #262; c0 and c #263; e to come; #247 is on dev now)
+- Status: in progress (a #249, b0 #259, f #254, b #261, d #262 on dev; c0 and c #263; e to come; #247 is on dev now)
 - Where: trina-ax core (`web/src/`; if question 2 is a yes, one optional field on the chat send body in `shared/` and
   `server/src/chat/`). Why: rooms, chat and file previews are core (see docs/REPOSITORY-RULES.md)
 - Version impact: minor. A visible UX change; no migration, no new endpoint.
@@ -284,8 +284,8 @@ Built on step b (docs/DECISIONS.md "Lazy PDF pages and the viewer's page thumbna
 
 ### Step c: the right column (c0 and c, `feat/room-viewer-column`)
 
-Built with the owner's change to "The right column" (docs/DECISIONS.md "The room's right column"); PR PR_LINK. What
-differs from the plan or was found:
+Built with the owner's change to "The right column" (docs/DECISIONS.md "The room's right column"); PR
+https://github.com/trina-app/trina-ax/pull/263. What differs from the plan or was found:
 - **One thing at a time, no 스레드 · 트리나 switch** (owner): the file's thread by default, ✦ 트리나에게 묻기 in the bar
   switches to the side chat with the file quoted, "스레드로 돌아가기" at the side chat's top switches back. The column
   starts on the side chat when the room page had it open (`side[roomId]` in the rooms store).
