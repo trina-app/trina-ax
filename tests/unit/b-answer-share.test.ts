@@ -19,7 +19,8 @@ import { API, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, uuidv7, type AnswerShareFile, 
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { roomsOf, SEND_BURST } from '../../server/src/rooms/service'
 import { roomFilesOf } from '../../server/src/rooms/files'
-import { answerCutLine } from '../../server/src/chat/answer-share'
+import { answerCutLine, prepareShare, sendShare, shareChoice } from '../../server/src/chat/answer-share'
+import { HttpError } from '../../server/src/http/errors'
 import { readMigrations } from '../../server/src/db'
 import { addSources, type ReadSource } from '../../server/src/chat/read-scope'
 import { SourceLog } from '../../server/src/files/sources'
@@ -1005,6 +1006,81 @@ describe('the sending budget', () => {
       expect(over.status).toBe(429)
       expect(over.json.error).toMatchObject({ code: 'rate_limited', retryAfter: expect.any(Number) })
     } finally { rs.clock = () => (clock = t + 3_600_000) }
+  })
+})
+
+// The AI's post_to_room (server/src/chat/post-to-room.ts) goes through the same prepareShare / sendShare as the button:
+// the same "confirm" (rows, line, counts), the same refusals, the same message and audit row (with via 'ai'), and a
+// change after the key was made asks again. The card's two choices are shareChoice's.
+describe("the AI's post_to_room: the button's checks and results (prepareShare, sendShare)", () => {
+  const prepared = async (a: { chatId: string; answerId: string }, content: string, roomId: string, extra: { threadRootId?: string } = {}) => {
+    const p = await prepareShare(h.ctx, 'alice', a.chatId, { messageId: a.answerId, content }, { roomId, clientMessageId: cm(), ...extra }, 'en')
+    if (p.status !== 'prepared') throw new Error('sent already')
+    return p
+  }
+  const refusal = async (f: () => Promise<unknown>) => { try { await f(); return null } catch (e) { return e instanceof HttpError ? { status: e.status, reason: e.extra.params?.reason ?? null } : e } }
+
+  test('the same confirm as the button; sent with its key and the files, the same message and audit row, with via ai', async () => {
+    const at = 'users/alice/plan-ai.md'
+    put(at, '# 기획안\n')
+    const content = `기획안: ${link(at)} (브리프 기준)`
+    // the button: an answer, asked, then sent with the file
+    const a = answer('alice', content, { read: [BRIEF] })
+    const body = { roomId: rooms.all, clientMessageId: cm() }
+    const ask = await share('alice', a, body)
+    expect(ask.json.status).toBe('confirm')
+    const button = await share('alice', a, { ...body, confirmKey: ask.json.confirmKey, attach: [at] })
+    expect(button.json.status).toBe('sent')
+    // the tool path: a twin answer (the same text and reads)
+    const b = answer('alice', content, { read: [BRIEF] })
+    const p = await prepared(b, content, rooms.all)
+    expect(p.applies).toBe(true)
+    expect([...p.offered]).toEqual([at])
+    const all = await shareChoice(h.ctx, 'alice', p, p.offered)
+    // the same rows, line and counts (the key is the answer's own)
+    expect({ ...all.confirm, confirmKey: '' }).toEqual({ ...ask.json, confirmKey: '' })
+    expect(all.key).toBe(all.confirm.confirmKey)
+    const none = await shareChoice(h.ctx, 'alice', p, new Set())
+    expect(none.unableFiles).toBe(1)
+    expect(all.unableFiles).toBe(0)
+    const sent = await sendShare(h.ctx, 'alice', p, { clientMessageId: cm(), confirmKey: all.key, attach: [at] }, 'en', { via: 'ai' })
+    if (sent.status !== 'sent') throw new Error('not sent')
+    const mine = sent.message, theirs = button.json.message as RoomMessage
+    expect({ body: mine.body, files: mine.files.map((f) => f.name), sharedAnswer: mine.sharedAnswer, mentions: mine.mentions }).toEqual({ body: theirs.body, files: theirs.files.map((f) => f.name), sharedAnswer: theirs.sharedAnswer, mentions: theirs.mentions })
+    expect(audit(mine.id)).toEqual({ ...audit(theirs.id), via: 'ai' })
+    expect(audit(theirs.id).via).toBeUndefined()
+  })
+
+  test('without the files: the key of that choice sends with the line for it', async () => {
+    const at = 'users/alice/plan-ai-2.md'
+    put(at, '# 기획안 2\n')
+    const content = `기획안: ${link(at)}`
+    const p = await prepared(answer('alice', content, { read: [BRIEF] }), content, rooms.all)
+    const none = await shareChoice(h.ctx, 'alice', p, new Set())
+    const sent = await sendShare(h.ctx, 'alice', p, { clientMessageId: cm(), confirmKey: none.key, attach: [] }, 'en', { via: 'ai' })
+    if (sent.status !== 'sent') throw new Error('not sent')
+    expect(sent.message.files).toEqual([])
+    expect(audit(sent.message.id)).toMatchObject({ people: none.people, confirmed: true, files: 0, via: 'ai' })
+  })
+
+  test('the same refusals: a confidential chat, a room I am not in, a gone thread; a change after the key asks again', async () => {
+    const c = answer('alice', '기밀 답')
+    h.ctx.db.query('INSERT INTO safe_ops_chats (chat_id, material) VALUES (?, 1)').run(c.chatId)
+    expect(await refusal(() => prepared(c, '기밀 답', rooms.marketing))).toEqual({ status: 409, reason: 'confidential' })
+    expect((await share('alice', c, { roomId: rooms.marketing })).json.error.params.reason).toBe('confidential')
+    const a = answer('alice', '요약')
+    expect(await refusal(() => prepared(a, '요약', rooms.finance))).toEqual({ status: 404, reason: null })
+    expect(await refusal(() => prepared(a, '요약', rooms.marketing, { threadRootId: uuidv7() }))).toEqual({ status: 409, reason: 'thread_root' })
+    // a group of three: the key made, then a member swapped for another (the same count): "confirm" again, changed
+    const g = (await h.api('alice').call(API.createRoom, { body: { kind: 'group', userIds: ['bob', 'erin'] } })).id
+    const m = answer('alice', '내 메모 요약', { read: ['users/alice/notes.md'] })
+    const before = await prepared(m, '내 메모 요약', g)
+    const key = (await shareChoice(h.ctx, 'alice', before, new Set())).key
+    h.ctx.db.query("DELETE FROM room_members WHERE room_id = ? AND user_id = 'erin'").run(g)
+    h.ctx.db.query("INSERT INTO room_members (room_id, user_id, joined_at) VALUES (?, 'carol', ?)").run(g, new Date().toISOString())
+    const after = await prepared(m, '내 메모 요약', g)
+    const r = await sendShare(h.ctx, 'alice', after, { clientMessageId: cm(), confirmKey: key, attach: [] }, 'en', { via: 'ai' })
+    expect(r).toMatchObject({ status: 'confirm', reason: 'changed' })
   })
 })
 

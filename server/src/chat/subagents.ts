@@ -22,10 +22,11 @@ export const MAX_SUBAGENT_TURNS = 50
  * does not know into its report and the main AI asks). The chat title, memories (Claude Code subagents do not get the
  * main session's memory), schedules and videos (side effects and cost the person decides on with the main AI) and the
  * desktop browser (one screen of the person's, not to be driven by several agents at once) stay with the main AI, and
- * so do the person's team chat rooms (chat/room-tools.ts: other people's words, read where the person watches).
+ * so do the person's team chat rooms (chat/room-tools.ts: other people's words, read where the person watches) and
+ * posting to them (chat/post-to-room.ts: the person answers its card).
  * Turn.patchToolStep relies on this: every tool that patches its step is here, so its FIFO per tool stays right.
  */
-export const PARENT_ONLY_TOOLS: ReadonlySet<string> = new Set(['ask_user', 'connect_service', 'set_title', 'remember', 'forget', 'move_skill', ...SCHEDULE_TOOLS, 'generate_video', ...BROWSER_TOOL_NAMES, 'box_shell', 'rooms', 'room_read', 'room_file', 'save_room_file', 'room_thread', 'project_chats', 'project_chat'])
+export const PARENT_ONLY_TOOLS: ReadonlySet<string> = new Set(['ask_user', 'connect_service', 'set_title', 'remember', 'forget', 'move_skill', ...SCHEDULE_TOOLS, 'generate_video', ...BROWSER_TOOL_NAMES, 'box_shell', 'rooms', 'room_read', 'room_file', 'save_room_file', 'room_thread', 'project_chats', 'project_chat', 'post_to_room'])
 /** what the read-only Explore helper may use (of the tools the turn has): the tools that only look things up, which the
  * web app's steps list also uses (shared READ_ONLY_TOOLS) */
 export const EXPLORE_TOOLS: ReadonlySet<string> = READ_ONLY_TOOLS

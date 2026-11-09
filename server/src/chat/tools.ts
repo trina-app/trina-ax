@@ -41,6 +41,7 @@ import { ROOM_TOOLS, SEARCH_TOOLS, SHARED_TOOLS } from '../rooms/ai-tools'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
 import { roomReadTools, roomSessionTools } from './room-tools'
 import { projectChatTools } from './room-project-chats'
+import { postToRoomOff, postToRoomTool } from './post-to-room'
 import { hideUrls } from '../tools/audit-url'
 import { SHARE_JUDGE_REFUSAL } from '../skills/share-judge'
 import { FILE_RANK_REFUSAL } from '../onboarding/file-rank'
@@ -142,6 +143,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // a room's own session also finds and reads the shared project chats the asker may view (chat/room-project-chats.ts;
   // ROOM_TOOLS lists them, SHARED_TOOLS does not, and a person's own chat never gets them)
   if (!exec.templateRun && !exec.shared && exec.room) for (const t of projectChatTools(exec)) add(t)
+  // the AI posts to one of the person's rooms, or a thread there, after their yes on one server card
+  // (chat/post-to-room.ts): only in their own chat, never in a room's session, a shared, confidential, draft or template
+  // chat, a scheduled run or a question from Slack (postToRoomOff)
+  if (!postToRoomOff(exec)) add(postToRoomTool(exec))
   // edit_files is listed here so the engines and the model proxy allow it, but the MCP handler runs it
   // (mcp/protocol.ts editFiles): each file as its own edit call with the checks above. Never offered in confidential
   // chats (add() keeps to the local tools there). Reaching this call() means the handler did not: nothing is changed.
