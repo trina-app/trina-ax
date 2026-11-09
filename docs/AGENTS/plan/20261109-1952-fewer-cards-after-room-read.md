@@ -93,3 +93,4 @@ Built as planned, with these differences:
   (`file_events.sha256`, new index), older own chats are marked from their answers' steps, an attached own file counts,
   `rooms` counts as outside, and a project's folder still asks (its dev environment may run a new file by name).
 - Cards in the audit's six flows: a 1 → 0, b 1 → 1, c 4 → 4 (change 3), d 3 → 3, e 3 → 2, f 5 → 1.
+- PR: https://github.com/trina-app/trina-ax/pull/275
