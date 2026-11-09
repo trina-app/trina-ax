@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-09 15:30
 - Branch: `feat/oauth-own-client`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`shared/src/api/integrations.ts`, `server/src/integrations/connections/`, `web/src/`). Why:
   connecting outside services for the AI is core (see docs/REPOSITORY-RULES.md)
 - Version impact: minor. A new optional field on the connection and template API, one add-only migration.
@@ -68,4 +68,17 @@ every `tests/unit/c-integration*` file and the new one, `bun run test:web`, `bun
 
 ## Result
 
-Filled in at the end.
+Built as planned: `oauthClient` on connections and templates, migration 338, the sign-in through an own app (MCP and
+HTTP API), the dialog fields with the redirect address, five languages, docs with the Google and NAVER WORKS steps.
+
+Differs from the plan, from three rounds of independent review:
+- A stored client secret only goes where it went before: the same client ID and addresses and, for an app whose
+  addresses are found, the same server address (round 1 found that a second admin could point the token address
+  elsewhere). The dialog applies the same rule.
+- The first sign-in remembers the token address it found; a server that later names another is refused. A client
+  secret goes to a revocation address only on the token address's server.
+- The three columns are policy columns of both safe-operations triggers (the plan said the triggers would stay).
+- A change that leaves the app alone never opens its secret (round 2: an unreadable key folder dropped it on a rename).
+- A template's members see "ask your admin" where an admin would see the own-app hint.
+- An MCP server's own-app choice sits in Advanced (most MCP servers register an app themselves); an API's fields are in
+  the form.

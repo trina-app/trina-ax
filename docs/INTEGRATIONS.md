@@ -433,8 +433,9 @@ cannot start: Google's MCP servers (`https://gmailmcp.googleapis.com/mcp/v1`, `c
   comes with the change (a second admin cannot point the token address elsewhere and have the first admin's secret sent
   there). A change that leaves the app where it was never opens the secret (an unreadable key folder must not cost it on
   a rename). Another client ID, secret, address or scope drops the sign-in (and revokes it), like a new address: tokens
-  are bound to the app. Revoking sends the secret only to the token address's own server (`oauth.ts revoke`): a
-  revocation address elsewhere is not told. On a template it deletes the members' connections; they are told to connect
+  are bound to the app. Revoking sends a client secret only to the token address's own server (`oauth.ts revoke`): a
+  revocation address elsewhere is not told. This holds for any client with a secret, also one a server registered and
+  gave a secret (best effort either way). On a template it deletes the members' connections; they are told to connect
   again. Leaving sign-in removes the app; `oauthClient: null` goes back to the service's own registration.
 - **Redirect address** to register in the app at the service: `https://<team address>/api/integrations/oauth/callback`,
   the address the app is open at (the server builds it from the page's own address; the dialog shows it with a copy
