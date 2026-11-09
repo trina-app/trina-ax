@@ -60,11 +60,14 @@ function findSideChat(roomId: string): Promise<string | null> {
   return p
 }
 
-/** the side chat being made for a first file (once however many files come at once), per room */
+/** the side chat being made for the room's first question or file, per room */
 const making = new Map<string, Promise<string>>()
-/** The side chat a file goes into: the one the panel shows; while it is still looked for, the room's newest; none, a new
- * side chat of the room, which the panel shows from then on. */
-export function chatForFiles(roomId: string): Promise<string> {
+/** the chat each room's box files were uploaded into (they go with a question there only) */
+const filesOf = new Map<string, string>()
+/** The side chat a question or a file goes into: the one the panel shows; while it is still looked for, the room's
+ * newest; none, a new side chat of the room, made once however many files and questions come at once (one path for both,
+ * so a file and the first question never make two), which the panel shows from then on. */
+function chatToWrite(roomId: string): Promise<string> {
   const shown = sideChatOf(useSideChats.getState(), roomId).chatId
   if (shown) return Promise.resolve(shown)
   let p = making.get(roomId)
@@ -78,7 +81,7 @@ export function chatForFiles(roomId: string): Promise<string> {
         id = c.id
       }
       if (!current()) useSideChats.getState().patch(roomId, { chatId: id })
-      // the chat the panel shows by now (its first question may have made one meanwhile): the files are that chat's
+      // the chat the panel shows by now (another one picked from 🕘 meanwhile: that one)
       return current() || id!
     })().finally(() => making.delete(roomId))
     making.set(roomId, p)
@@ -147,16 +150,30 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   const lastTop = useRef(0)
   // the box's files (the full chat box's own parts), kept per room like the draft, in every panel of the room
   const [fileError, setFileError] = useState<string | null>(null)
-  const files = useComposerFiles({ userId: me.user.id, draftId: `side:${roomId}`, ensureChat: () => chatForFiles(roomId), onError: setFileError, reload: false })
+  const files = useComposerFiles({
+    userId: me.user.id,
+    draftId: `side:${roomId}`,
+    ensureChat: async () => {
+      const id = await chatToWrite(roomId)
+      filesOf.set(roomId, id)
+      return id
+    },
+    onError: setFileError,
+    reload: false,
+  })
   const { drag, dropProps } = useFileDrop((all) => void files.addFiles(all))
   const picker = useRef<HTMLInputElement>(null)
-  // they were uploaded into the chat shown: another one (New chat, 🕘, the chat deleted meanwhile) drops them (a chat made
-  // for them, from none, keeps them)
-  const filesChat = useRef(chatId)
+  // they were uploaded into one chat: once another shows (New chat, 🕘, the chat deleted meanwhile, the room left and
+  // joined again), they go, in every panel of the room
+  const clearFiles = useRef(files.clear)
+  clearFiles.current = files.clear
   useEffect(() => {
-    if (filesChat.current && chatId !== filesChat.current) files.clear()
-    filesChat.current = chatId
-  }, [chatId])
+    const owner = filesOf.get(roomId)
+    if (!owner || chatId === undefined || chatId === owner) return
+    filesOf.delete(roomId)
+    clearFiles.current()
+    setFileError(null)
+  }, [roomId, chatId])
 
   const load = useCallback(async () => {
     setLoadError(null)
@@ -229,8 +246,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
     setQuoted(null)
     try {
       const content = withQuote(q, text, (iso) => formatDateTime(iso, locale))
-      // a side chat being made for a file just now is the one the question goes to
-      const into = chatId ?? (await making.get(roomId)) ?? null
+      // the room's first question makes its side chat the way a first file does (one path: never two chats)
+      const into = chatId ?? (await chatToWrite(roomId))
       const r = await useChats.getState().send({ chatId: into, content, attachments: atts, author: { id: me.user.id, name: me.user.name }, sideRoomId: roomId })
       if (r.chatId !== chatId) setChatId(r.chatId)
       // the files are in the message now (a send that fails keeps them there, with "send again")
@@ -290,7 +307,13 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
 
   const body = (
     // files dropped anywhere on the panel go with the next question (the box shows the drop)
-    <div className="flex min-h-0 flex-1 flex-col" {...dropProps} data-testid="side-chat-panel">
+    <div
+      className="flex min-h-0 flex-1 flex-col"
+      {...dropProps}
+      // moving between the panel's own parts is not leaving it (the box's drop ring would flicker)
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) dropProps.onDragLeave() }}
+      data-testid="side-chat-panel"
+    >
       <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-2 max-md:pl-0.5 md:px-4">
         <IconButton tip label={t('sideChat.close')} onClick={onClose} className="touch-hit p-3 md:hidden" data-testid="side-chat-back">
           <ChevronLeft size={20} aria-hidden />
@@ -307,7 +330,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
         <IconButton tip label={t('sideChat.history')} onClick={() => void toggleHistory()} disabled={historyBusy} aria-expanded={!!history} className={clsx('touch-hit', history && 'bg-hover')} data-testid="side-chat-history">
           <History size={15} aria-hidden />
         </IconButton>
-        <IconButton tip label={t('sideChat.new')} onClick={newChat} disabled={busy || !chatId} className="touch-hit" data-testid="side-chat-new">
+        {/* (a chat with nothing in it yet, made for a file, is a new chat already) */}
+        <IconButton tip label={t('sideChat.new')} onClick={newChat} disabled={busy || !chatId || !messages.length} className="touch-hit" data-testid="side-chat-new">
           <SquarePen size={15} aria-hidden />
         </IconButton>
         <IconButton tip label={t('sideChat.close')} onClick={onClose} className="touch-hit max-md:hidden" data-testid="side-chat-close">

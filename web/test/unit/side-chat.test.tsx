@@ -38,7 +38,10 @@ let answerUpload: (name: string, chatId: string, size: number) => { status: numb
   return { status: 201, body: a }
 }
 const answerAttachment = answerUpload
+let xhrs: FakeXhr[] = []
 class FakeXhr {
+  aborted = false
+  constructor() { xhrs.push(this) }
   upload = { onprogress: null as unknown, onload: null as (() => void) | null }
   onload: (() => void) | null = null
   onerror: (() => void) | null = null
@@ -62,7 +65,7 @@ class FakeXhr {
       this.onload?.()
     }, 0)
   }
-  abort() { this.onabort?.() }
+  abort() { this.aborted = true; this.onabort?.() }
 }
 const realXhr = globalThis.XMLHttpRequest
 
@@ -75,6 +78,7 @@ afterEach(() => {
   forgetTeamAttach()
   uploads = []
   attached = []
+  xhrs = []
   answerUpload = answerAttachment
 })
 afterAll(() => { removeDom(); useLocaleStore.setState({ locale }); globalThis.XMLHttpRequest = realXhr })
@@ -475,6 +479,8 @@ test('a picture pasted into the box shows as itself at once (not pasted as text)
     expect(m.get('side-chat-send').hasAttribute('disabled')).toBe(true)
     await m.click(chips(m)[0]!.querySelector(`[aria-label="${en('composer.removeAttachment', { name: 'image.png' })}"]`)! as FakeElement)
     expect(chips(m)).toHaveLength(0)
+    // its upload stops
+    expect(xhrs[0]!.aborted).toBe(true)
     expect(m.get('side-chat-send').hasAttribute('disabled')).toBe(false)
     // text pasted is the box's own (nothing attached, the browser pastes it)
     expect((await paste(m, [])).defaultPrevented).toBe(false)
@@ -531,8 +537,9 @@ test('no side chat yet: the first file makes one of the room and goes into it; a
     expect(calls.find((c) => c.method === 'POST' && c.path === '/api/chats')!.body).toMatchObject({ sideRoomId: team.id })
     expect(calls.filter((c) => c.method === 'POST' && c.path === '/api/chats')).toHaveLength(1)
     expect(uploads).toEqual([{ chatId: made, name: 'image.png' }])
-    // the panel shows the chat made for it
+    // the panel shows the chat made for it; with nothing in it yet it is a new chat already
     await m.until(() => !!m.find('side-chat-open-full'), 'the chat shown')
+    expect(m.get('side-chat-new').hasAttribute('disabled')).toBe(true)
     // a starter's question goes alone and leaves the picture in the box
     await m.click('side-chat-starter-forMe')
     await m.until(() => sentTo(made), 'the starter sent')
@@ -566,6 +573,83 @@ test('two panels of a room show the same files', async () => {
     // taken out in one, gone from both
     await m.click(m.get('page').querySelector(`[aria-label="${en('composer.removeAttachment', { name: 'acme-brief.pdf' })}"]`)!)
     expect(inBoth()).toEqual([0, 0])
+  } finally {
+    await m.unmount()
+  }
+})
+
+test('the first question and a file at the same moment make one side chat, and both go into it', async () => {
+  signIn()
+  const { made } = serve(null)
+  // the side chat is still being made when the picture comes
+  const inner = globalThis.fetch
+  let release!: () => void
+  const held = new Promise<void>((r) => (release = r))
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if ((init?.method ?? 'GET') === 'POST' && new URL(String(input), 'http://team.localhost').pathname === '/api/chats') await held
+    return inner(input, init)
+  }) as typeof fetch
+  const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
+  try {
+    await m.until(() => !!m.find('side-chat-empty'), 'the empty line')
+    await m.type('side-chat-input', 'what did I miss?')
+    await m.click('side-chat-send')
+    await paste(m, [png()])
+    release()
+    await m.until(() => sentTo(made), 'the question sent')
+    await m.until(() => chips(m)[0]?.getAttribute('data-status') === 'done', 'the picture attached')
+    expect(calls.filter((c) => c.method === 'POST' && c.path === '/api/chats')).toHaveLength(1)
+    expect(uploads).toEqual([{ chatId: made, name: 'image.png' }])
+    // the question went alone (the picture came after it) and the picture waits for the next one
+    expect(sentTo(made)!.body!.attachmentIds).toEqual([])
+  } finally {
+    await m.unmount()
+  }
+})
+
+test('while the AI waits for the answer to its question, the box answers with its text alone; the files stay for the next message', async () => {
+  signIn()
+  const id = uuidv7()
+  serve(id)
+  const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
+  try {
+    await m.until(() => !!m.find('side-chat-open-full'), 'the chat found')
+    await pick(m, [pdf()])
+    await m.until(() => chips(m)[0]?.getAttribute('data-status') === 'done', 'the file attached')
+    useChats.setState({ requests: { q1: { turnId: 'turn-1', chatId: id, messageId: 'a1', request: { kind: 'ask_user', requestId: 'q1', question: 'Which meeting?', allowText: true } } } } as never)
+    await m.until(() => m.get('side-chat-send').textContent === en('sideChat.answer'), 'the answer button')
+    // files alone do not answer it
+    expect(m.get('side-chat-send').hasAttribute('disabled')).toBe(true)
+    await m.type('side-chat-input', 'the client meeting')
+    await m.click('side-chat-send')
+    await m.until(() => calls.some((c) => c.path === '/api/turns/turn-1/answer'), 'the answer sent')
+    expect(calls.find((c) => c.path === '/api/turns/turn-1/answer')!.body).toEqual({ kind: 'ask_user', requestId: 'q1', answer: 'the client meeting' })
+    expect(sentTo(id)).toBeUndefined()
+    expect(chips(m)).toHaveLength(1)
+  } finally {
+    await m.unmount()
+  }
+})
+
+test('another side chat from 🕘 drops the files (they were uploaded into the one shown)', async () => {
+  signIn()
+  const id = uuidv7(), old = uuidv7()
+  serve(id, [old])
+  const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
+  try {
+    await m.until(() => !!m.find('side-chat-open-full'), 'the chat found')
+    await pick(m, [pdf()])
+    await m.until(() => chips(m)[0]?.getAttribute('data-status') === 'done', 'the file attached')
+    await m.click('side-chat-history')
+    await m.until(() => !!m.find('side-chat-history-list'), 'the list')
+    await m.click(m.container.ownerDocument!.body.querySelectorAll('[data-testid="side-chat-history-item"]')[1]!)
+    await m.until(() => chips(m).length === 0, 'the files dropped')
+    // the chat that was open again: nothing comes back
+    await m.click('side-chat-history')
+    await m.until(() => !!m.find('side-chat-history-list'), 'the list')
+    await m.click(m.container.ownerDocument!.body.querySelectorAll('[data-testid="side-chat-history-item"]')[0]!)
+    await m.settle()
+    expect(chips(m)).toHaveLength(0)
   } finally {
     await m.unmount()
   }
