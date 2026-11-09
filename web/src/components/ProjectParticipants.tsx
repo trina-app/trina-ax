@@ -57,7 +57,9 @@ export function ParticipantPicker({ options, value, onChange, fixed = new Map(),
   const [q, setQ] = useState('')
   const searchId = useId()
   const picked = new Set(value.map(participantKey))
+  // the fixed ones (me, the creator, a rule set in Admin) first, then the picker's order
   const shown = options.filter((x) => !q.trim() || x.name.toLowerCase().includes(q.trim().toLowerCase()))
+    .sort((a, b) => Number(fixed.has(participantKey(b))) - Number(fixed.has(participantKey(a))))
   const toggle = (x: ParticipantOption) =>
     onChange(picked.has(participantKey(x)) ? value.filter((y) => participantKey(y) !== participantKey(x)) : [...value, { subjectType: x.subjectType, subjectId: x.subjectId }])
   return (
