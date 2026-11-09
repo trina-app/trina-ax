@@ -23,14 +23,14 @@ export type RegisteredExample = { kind: 'image'; skillHash: string } | { kind: '
 export const PACK_EXAMPLES: Record<'ko' | 'en', Partial<Record<string, RegisteredExample>>> = {
   ko: {
     'intro-deck': { kind: 'image', skillHash: 'bdb11396144f' },
-    'card-news': { kind: 'image', skillHash: '770cfeb3af9b' },
-    'promo-video': { kind: 'image', skillHash: 'ce31de7f81c7' },
+    'card-news': { kind: 'image', skillHash: '65f4638c14b7' },
+    'promo-video': { kind: 'image', skillHash: 'b5561aed57bc' },
     humanizer: { kind: 'text', text: koHumanizerExample },
   },
   en: {
-    'intro-deck': { kind: 'image', skillHash: 'ebe3af93e19e' },
-    'card-news': { kind: 'image', skillHash: '6d167c88a374' },
-    'promo-video': { kind: 'image', skillHash: 'ca6b242b7734' },
+    'intro-deck': { kind: 'image', skillHash: '4833e256c1df' },
+    'card-news': { kind: 'image', skillHash: 'fd16b67cef75' },
+    'promo-video': { kind: 'image', skillHash: 'd63330fdbb71' },
     humanizer: { kind: 'text', text: enHumanizerExample },
   },
 }
