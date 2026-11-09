@@ -18,6 +18,7 @@ import { useProjects } from '../store/projects'
 import { isAdmin, useMe } from '../store/session'
 import FolderPicker from './FolderPicker'
 import { refusalKey } from '../lib/sharedChat'
+import { projectSkillsOn } from '../lib/bulkFiles'
 import { Button, Field, Modal, Switch, confirmDialog, inputCls } from './ui'
 import { useFolderWords } from '../lib/folderLabels'
 import { AccessSummary, ParticipantPicker, participantKey, sameParticipants, summaryNames, useAccessCount, useParticipantOptions, widenLines, type ParticipantOption } from './ProjectParticipants'
@@ -118,14 +119,14 @@ export function ProjectForm({ project, onClose, onSaved }: {
     })
   }
 
-  const save = async () => {
+  const save = async (skillsOk = false) => {
     setBusy(true)
     setError(null)
     setTakenBy(null)
     try {
       let p: Project
       if (project) {
-        if (participantsChanged) {
+        if (participantsChanged && !skillsOk) {
           if (!(await confirmWiden())) return
           const a = await api.call(API.putProjectParticipants, { params: { id: project.id }, body: { participants, expectedHash: access!.rulesHash } })
           setAccess(a)
@@ -133,7 +134,7 @@ export function ProjectForm({ project, onClose, onSaved }: {
         p = await api.call(API.updateProject, { params: { id: project.id }, body: { name: finalName, instructions,
           ...(repointable && folderPicked ? { folderPath: folder } : {}),
           // the setting goes only when it changed (and never while safe operations hold it)
-          ...(canShare && !safeOps && shareChats !== !!project.shareChats ? { shareChats } : {}) } })
+          ...(canShare && !safeOps && shareChats !== !!project.shareChats ? { shareChats } : {}), ...(skillsOk ? { skillsOk } : {}) } })
       } else {
         p = await api.call(API.createProject, { body: mode === 'personal' ? { name: finalName, scope: 'personal', instructions, participants: [] } : { name: finalName, scope: 'team', instructions, participants } })
       }
@@ -141,6 +142,13 @@ export function ProjectForm({ project, onClose, onSaved }: {
       onSaved(p)
       onClose()
     } catch (e) {
+      // the chosen projects/<name> holds skills: they switch on in this project's chats once the person says yes
+      const skills = projectSkillsOn(e)
+      if (skills && !skillsOk) {
+        setBusy(false)
+        if (await confirmDialog({ title: t('files.skillsOnTitle'), body: t('projects.skillsOnBody', { n: skills.length, names: skills.join(', ') }), confirm: t('common.save') })) await save(true)
+        return
+      }
       // someone changed who sees it meanwhile: show what is there now
       if (project && isApiError(e, 'conflict') && (e as ApiError).body.params?.reason === 'rules_changed')
         api.call(API.getProjectAccess, { params: { id: project.id } }).then((a) => { setAccess(a); setParticipants(a.participants.filter((x) => !x.creator).map(({ subjectType, subjectId }) => ({ subjectType, subjectId }))) }, () => {})
@@ -164,7 +172,7 @@ export function ProjectForm({ project, onClose, onSaved }: {
           <Button variant="ghost" onClick={onClose}>
             {t('common.cancel')}
           </Button>
-          <Button variant="primary" busy={busy} disabled={!finalName} onClick={save} data-testid="project-save">
+          <Button variant="primary" busy={busy} disabled={!finalName} onClick={() => void save()} data-testid="project-save">
             {t('common.save')}
           </Button>
         </>

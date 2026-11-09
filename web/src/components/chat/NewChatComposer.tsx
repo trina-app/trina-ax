@@ -98,6 +98,7 @@ export function NewChatComposer({ projectId, project, initialText, resetKey = 0,
       footer={sharedLine}
       phoneFooter={sharedLine}
       teamFilesOnly={shared ? t('chat.sharedTeamFiles') : undefined}
+      projectId={projectId}
       waitsFor={waitsFor}
     />
     </>

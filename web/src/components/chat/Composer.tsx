@@ -104,6 +104,7 @@ export default function Composer({
   hold,
   queueing = true,
   teamFilesOnly,
+  projectId,
   waitsFor,
 }: {
   ref?: Ref<ComposerHandle>
@@ -144,6 +145,8 @@ export default function Composer({
   queueing?: boolean
   /** files of the team folder only (a shared chat): no upload from this computer, and this says why */
   teamFilesOnly?: string
+  /** the chat's project: its own skills are in the "/" menu (docs/DECISIONS.md "Project skills") */
+  projectId?: string | null
   /** the box was filled with a request that needs the person's own text after it (자연스러운 글's "/humanizer 아래 글을
    * …:"): while the box holds only `text` (and no file), nothing is sent and `hint` shows under the box */
   waitsFor?: { text: string; hint: string }
@@ -164,7 +167,7 @@ export default function Composer({
   const [text, setText] = useState(initial.text)
   // the chosen skill's chip (taken out with its X: the question then goes without the skill)
   const [chosen, setChosen] = useState(skill ?? null)
-  const skillMenu = useSkillMenu(text, setText)
+  const skillMenu = useSkillMenu(text, setText, projectId)
   const taRef = useRef<HTMLTextAreaElement>(null)
   // a confidential chat keeps to its local tools: no room is read there, so "#" lists none (closed while not known);
   // nor while the box answers the AI's question (that answer is plain text, it carries no room)

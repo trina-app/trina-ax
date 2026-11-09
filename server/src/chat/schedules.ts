@@ -32,7 +32,7 @@ import { rememberUrls } from '../tools/url-gate'
 import { audit } from '../admin/audit'
 import { missingTemplateKey } from '../integrations/connections/schedule-needs'
 
-type LastOutcome = 'done' | 'problems' | 'error' | 'stopped' | 'interrupted' | 'budget_exceeded' | 'user_unavailable' | 'needs_key'
+type LastOutcome = 'done' | 'problems' | 'error' | 'stopped' | 'interrupted' | 'budget_exceeded' | 'user_unavailable' | 'needs_key' | 'project_gone'
 
 export const SCHEDULES_PER_PERSON = 20
 /** a run refused because the queue was full is tried again this much later */
@@ -207,6 +207,8 @@ export class Schedules {
     // said now, not run without the service (integrations/connections/schedule-needs.ts)
     const need = missingTemplateKey(this.db, s)
     if (need) throw new HttpError('conflict', tr('scheduleNeedsKey', locale, { name: need.name }), { params: { reason: 'schedule_needs_key', templateId: need.templateId } })
+    // its project is gone for its owner: never run as a chat without it (docs/DECISIONS.md "Project skills")
+    if (s.project_id && !this.rt.projectForChat(s.project_id, this.rt.ctx.files.principal(userId))) throw new HttpError('conflict', tr('scheduleProjectGone', locale), { params: { reason: 'schedule_project_gone' } })
     const blocked = budgetBlock(this.db, userId, locale, now)
     if (blocked) throw new HttpError('budget_exceeded', blocked.message)
     // its own occurrence key: never a whole minute, so never the key of a scheduled occurrence (turns_schedule_occurrence)
@@ -232,7 +234,8 @@ export class Schedules {
       SELECT status code, run_outcome, ended_at at FROM turns WHERE schedule_id=? AND user_id=? AND status IN ('done','error','stopped','interrupted')
       UNION ALL SELECT code, NULL run_outcome, created_at at FROM schedule_outcomes WHERE schedule_id=? AND user_id=?
       UNION ALL SELECT 'needs_key' code, NULL run_outcome, created_at at FROM schedule_template_skips WHERE schedule_id=? AND user_id=?
-    ) ORDER BY at DESC LIMIT 1`).get(id, userId, id, userId, id, userId) as { code: LastOutcome; run_outcome: string | null } | null
+      UNION ALL SELECT 'project_gone' code, NULL run_outcome, created_at at FROM schedule_project_skips WHERE schedule_id=? AND user_id=?
+    ) ORDER BY at DESC LIMIT 1`).get(id, userId, id, userId, id, userId, id, userId) as { code: LastOutcome; run_outcome: string | null } | null
     if (!row) return null
     if (row.code !== 'done') return row.code
     const outcome = storedRunOutcome({ status: 'done', run_outcome: row.run_outcome })
@@ -277,13 +280,22 @@ export class Schedules {
         // start, and its result and the owner's inbox say which template to connect (never anyone else's key)
         const ownerActive = !!this.db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(s.user_id)
         const need = ownerActive ? missingTemplateKey(this.db, s) : null
-        const chatId = need ? null : this.start(s, now, originalDue, commit)
+        // a task in a project its owner no longer sees (the folder's access was taken away, or it is in the trash): the
+        // run does not start, rather than run as a chat without the project (docs/DECISIONS.md "Project skills")
+        const gone = ownerActive && !need && s.project_id && !this.rt.projectForChat(s.project_id, this.rt.ctx.files.principal(s.user_id)) ? s.project_id : null
+        const chatId = need || gone ? null : this.start(s, now, originalDue, commit)
         if (chatId) started.push(s.id)
         else this.db.transaction(() => {
           commit(null)
           const active = this.db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL").get(s.user_id)
           if (!active) this.db.query('UPDATE schedules SET enabled=0,next_run_at=NULL WHERE id=?').run(s.id)
-          if (need) {
+          if (gone) {
+            this.db.query('INSERT INTO schedule_project_skips(id,user_id,schedule_id,scheduled_for,project_id,created_at) VALUES(?,?,?,?,?,?) ON CONFLICT(schedule_id,scheduled_for) DO NOTHING')
+              .run(newId(), s.user_id, s.id, originalDue, gone, now.toISOString())
+            // paused after this one notice (not one at every run while the project stays gone); its owner turns it on again
+            this.db.query('UPDATE schedules SET enabled=0,next_run_at=NULL WHERE id=?').run(s.id)
+            this.db.query("INSERT INTO audit_log(actor_id,action,target,detail) VALUES(NULL,'schedule.project_gone',?,?)").run(s.id, JSON.stringify({ originalDue, project: gone, paused: true }))
+          } else if (need) {
             this.db.query('INSERT INTO schedule_template_skips(id,user_id,schedule_id,scheduled_for,template_id,template_name,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(schedule_id,scheduled_for) DO NOTHING')
               .run(newId(), s.user_id, s.id, originalDue, need.templateId, need.name, now.toISOString())
             this.db.query("INSERT INTO audit_log(actor_id,action,target,detail) VALUES(NULL,'schedule.needs_key',?,?)").run(s.id, JSON.stringify({ originalDue, template: need.templateId }))
@@ -325,6 +337,8 @@ export class Schedules {
     const locale = this.rt.userLocale(s.user_id)
     if (budgetBlock(this.db, s.user_id, locale, now)) { this.rt.log.info('scheduled task skipped: budget used up', { schedule: s.id }); return null }
     const project = s.project_id ? this.rt.projectForChat(s.project_id, this.rt.ctx.files.principal(s.user_id)) : null
+    // a project gone since the caller looked: no run outside it (runDue and runNow say why)
+    if (s.project_id && !project) return null
     // the owner's AI, as for a chat they start now (admin/engine-choice.ts, the same as Slack and rooms): their own
     // default engine and model when they may pick and it is on, else the team default; decided at each run, so a later
     // change of either applies. Every run is a new chat, so there is no chat engine to keep.

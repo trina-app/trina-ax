@@ -23,6 +23,7 @@ import { openTeamFile } from '../lib/sidePanel'
 import { aiName } from '../lib/tabs'
 import { useLocale, useT } from '../i18n'
 import { toast } from '../store/ui'
+import { projectSkillsOn } from '../lib/bulkFiles'
 import { useChats } from '../store/chats'
 import { chatChanged } from '../store/live'
 import { chatTrashDays } from '../lib/chat-trash'
@@ -458,14 +459,21 @@ function ShareProjectDialog({ project, onClose, onShared }: { project: Project; 
   const count = useAccessCount(participants, { enabled: true })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const share = async () => {
+  const share = async (skillsOk = false) => {
     setBusy(true)
     setError(null)
     try {
-      const r = await api.call(API.shareProject, { params: { id: project.id }, body: { participants } })
+      const r = await api.call(API.shareProject, { params: { id: project.id }, body: { participants, ...(skillsOk ? { skillsOk } : {}) } })
       if ('id' in r) onShared(r)
       onClose()
     } catch (e) {
+      // its skills/ holds skills: copied into projects/<name> they switch on in this project's chats once the person says yes
+      const skills = projectSkillsOn(e)
+      if (skills && !skillsOk) {
+        setBusy(false)
+        if (await confirmDialog({ title: t('files.skillsOnTitle'), body: t('projects.skillsOnBody', { n: skills.length, names: skills.join(', ') }), confirm: t('projects.shareConfirm') })) await share(true)
+        return
+      }
       setError(errorText(e, locale, t('error.network')))
     } finally {
       setBusy(false)
@@ -476,7 +484,7 @@ function ShareProjectDialog({ project, onClose, onShared }: { project: Project; 
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
-          <Button variant="primary" busy={busy} onClick={share} data-testid="project-share-confirm">{t('projects.shareConfirm')}</Button>
+          <Button variant="primary" busy={busy} onClick={() => void share()} data-testid="project-share-confirm">{t('projects.shareConfirm')}</Button>
         </>
       }
     >

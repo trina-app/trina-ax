@@ -79,8 +79,11 @@ export const MkdirBody = z.object({ path: RelPath })
  * confirm: moving an ordinary item into the caller's own users/<me>/ that other people can read now answers 409
  * conflict {params: {reason:'audience_narrowed', lostViewers}} unless confirm is true (design tab 4 move).
  * Folders that are or contain group / project / rule folders (a folders row) move only for admins, never under users/.
+ * skillsOk: a project's folder moved to projects/<name> from elsewhere turns on the skills in its skills/ folder (in that
+ * project's chats): 409 conflict {params: {reason:'project_skills_on', skills (their names, one per line, at most 20),
+ * count}} unless skillsOk is true (docs/DECISIONS.md "Project skills").
  */
-export const MoveBody = z.object({ from: RelPath, to: RelPath, onExists: z.enum(['fail', 'rename']).default('fail'), confirm: z.boolean().default(false) })
+export const MoveBody = z.object({ from: RelPath, to: RelPath, onExists: z.enum(['fail', 'rename']).default('fail'), confirm: z.boolean().default(false), skillsOk: z.boolean().default(false) })
 export const MoveResult = z.object({ entry: FileEntry })
 /**
  * Share by copying (design tab 2 rule 3, tab 4): a file the caller can read -> `to` in a folder the caller can write.

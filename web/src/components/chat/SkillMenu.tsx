@@ -1,6 +1,7 @@
 // The "/" list of skills in the message box. Typing "/" at the start of the message lists the skills the person
 // can use (GET /api/skills: skills/**/*.md with a name header that they can read, the skills of their groups, marked
-// with the group's name, and their own personal skills in users/<me>/skills/, marked "Personal"); choosing one
+// with the group's name, and their own personal skills in users/<me>/skills/, marked "Personal"; inside a project's
+// chat also that project's own skills, marked with the project's name: docs/DECISIONS.md "Project skills"); choosing one
 // writes "/<name> " and the server puts that
 // skill in front of the message (server/src/chat/skills.ts). Arrow keys move, Enter / Tab choose, Esc closes. Every
 // match is in the list, which scrolls (like Claude Code's "/" menu): the arrow keys keep the chosen row in sight, so a
@@ -34,7 +35,8 @@ export function scrollToShow(row: { top: number; height: number }, view: { scrol
   return view.scrollTop
 }
 
-export function useSkillMenu(text: string, setText: (s: string) => void) {
+/** `projectId`: the chat's project (its own skills join the list, with their badge); none outside a project. */
+export function useSkillMenu(text: string, setText: (s: string) => void, projectId?: string | null) {
   const t = useT()
   const [skills, setSkills] = useState<SkillInfo[] | null>(null)
   const [active, setActive] = useState(0)
@@ -48,9 +50,9 @@ export function useSkillMenu(text: string, setText: (s: string) => void) {
     if (!wanted) { setSkills(null); return }
     if (skills) return
     let live = true
-    api.call(API.listSkills).then((r) => live && setSkills(r.items), () => live && setSkills([]))
+    api.call(API.listSkills, projectId ? { query: { projectId } } : undefined).then((r) => live && setSkills(r.items), () => live && setSkills([]))
     return () => { live = false }
-  }, [wanted, skills])
+  }, [wanted, skills, projectId])
   const hits = useMemo(() => (skills && closedFor !== text ? matchSkills(skills, text) : null), [skills, text, closedFor])
   const open = !!hits?.length
   useEffect(() => setActive(0), [text])
@@ -123,8 +125,10 @@ export function useSkillMenu(text: string, setText: (s: string) => void) {
                 {s.personal && <span className="shrink-0 rounded-full bg-hover px-1.5 text-micro font-normal text-muted" data-testid="skill-personal">{t('skills.personal')}</span>}
                 {/* a skill of one of the person's groups: the group's name (only its members see it) */}
                 {s.group && <span className="max-w-[10rem] shrink-0 truncate rounded-full bg-hover px-1.5 text-micro font-normal text-muted" title={t('skills.groupBadge', { group: s.group.name })} data-testid="skill-group">{s.group.name}</span>}
-                {/* it runs instead of a team (or group) skill of the same name: that one is not in this list */}
-                {s.replaces && <span className="shrink-0 text-micro font-normal text-faint" data-testid="skill-replaces">{t(s.replaces === 'team' ? 'skills.replacesTeam' : 'skills.replacesGroup')}</span>}
+                {/* a skill of this chat's project: the project's name (only its chats use it) */}
+                {s.project && <span className="max-w-[10rem] shrink-0 truncate rounded-full bg-accent-soft px-1.5 text-micro font-normal text-accent-text" title={t('skills.projectBadge', { project: s.project.name })} data-testid="skill-project">{s.project.name}</span>}
+                {/* it runs instead of a team (or group, or project) skill of the same name: that one is not in this list */}
+                {s.replaces && <span className="shrink-0 text-micro font-normal text-faint" data-testid="skill-replaces">{t(s.replaces === 'team' ? 'skills.replacesTeam' : s.replaces === 'group' ? 'skills.replacesGroup' : 'skills.replacesProject')}</span>}
               </span>
               <span className="truncate text-xs text-muted">{skillSummary(s) || s.path}</span>
             </button>

@@ -89,6 +89,10 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'schedule.failure' && item.needsKey) return title
     ? isolate(locale, 'notifications.event.schedule.needsKeyNamed', { title, name: item.needsKey.name }, ['title', 'name'])
     : t('notifications.event.schedule.needsKey', { name: item.needsKey.name })
+  // a run that did not start because its owner no longer sees the task's project
+  if (item.code === 'schedule.failure' && item.projectGone) return title
+    ? isolate(locale, 'notifications.event.schedule.projectGoneNamed', { title }, ['title'])
+    : t('notifications.event.schedule.projectGone')
   if (item.code === 'schedule.failure' && item.review) return t('notifications.event.schedule.review')
   if (item.code === 'schedule.success' || item.code === 'schedule.failure') {
     const kind = item.code === 'schedule.success' ? 'success' : item.outcome === 'problems' ? 'problems' : 'failure'

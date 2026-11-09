@@ -34,7 +34,7 @@ import { sideRoomOf } from './side-room'
 import { looseArea, placementNote } from './file-placement'
 import { buildAgentDefinitions, initProblem, LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS, PARENT_ONLY_TOOLS, SUBTASK_STEPS_KEPT, subtaskSummary } from './subagents'
 import { getTeamSettings } from '../admin/settings'
-import { everyoneMayUse, invokedSkill, isGroupSkill, listSkills, mayNotUse, skillFolder } from './skills'
+import { everyoneMayUse, invokedSkill, isGroupSkill, listSkills, mayNotUse, projectOfFolder, projectSkillSections, sameSkillName, skillFolder, skillTier, widerSkillsNamed, type ChatProject, type SkillScope } from './skills'
 import { buildSkillList, chatSkillOrder, descriptionOrder, hintSkills, listedFor, recordListed, skillChanges, skillChangesText, usageScores } from './skill-list'
 import { describeSchedule, scheduledRunBlock, type ScheduleRow } from './schedules'
 import { safeModel, type EngineConfs } from './engines'
@@ -272,8 +272,10 @@ export class TurnExec {
   private toolSet: ChatToolSet | null = null
   /** what this Claude attempt was started with (the init check, docs/DECISIONS.md "Sub-agents") */
   private lockdown: { webSearch: boolean; subagents: boolean; team?: ReadonlySet<string> } = { webSearch: true, subagents: false }
-  /** the folder of the chat's project (find_skills prefers skills whose folders share its words), null: none */
+  /** the folder of the chat's project (loose files saved there get no placement note), null: none */
   projectFolder: string | null = null
+  /** the chat's project whose skills this turn uses (docs/DECISIONS.md "Project skills": never in a room), null: none */
+  skillProject: ChatProject | null = null
   /** the sub-tasks of this answer (Claude Code's Agent calls), by the call's id: for the end audit row and the totals */
   private subtasks = new Map<string, { type: string; description: string; stats: AgentStats; done: boolean }>()
   /** the stored secrets of the person's connections, hidden in the answer, the steps, the audit lines and the title
@@ -542,6 +544,8 @@ export class TurnExec {
     // a draft chat gets no project (no instructions, no folder): no team content in a card-free web turn
     const project = this.restricted ? null : rt.projectForChat(chat.project_id, this.principal)
     this.projectFolder = project?.folderPath ?? null
+    // a project's own skills: only in its chats (a room session has no project), as the person sees the project now
+    this.skillProject = project && !this.room ? { id: project.id, name: project.name, folderPath: project.folderPath } : null
     if (rt.projectTaints(project, spec.userId)) this.taint()
     // project instructions go into the prompt: their folder joins the read scope (tab 7)
     if (project && project.instructions.trim()) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), project.folderPath)])
@@ -561,8 +565,12 @@ export class TurnExec {
     // from turn to turn)
     // a room session lists only the skills everyone in the room may read: their names and descriptions may reach the
     // room in an answer. "/name" still runs any skill of the person's (its folder then joins the read scope)
-    const allSkills = listSkills(rt.files, this.principal)
-    const skills = this.roomReadable ? allSkills.filter((s) => this.roomReadable!(s.path)) : allSkills
+    // a shared project chat: the skills everyone who sees it may use are picked first, then the winner of each name, so a
+    // team skill all may use is not hidden by a group's only some may; a project skill never takes a name the sender has
+    // at a higher tier (docs/DECISIONS.md "Project skills")
+    const allSkills = listSkills(rt.files, this.principal, this.skillScope(false))
+    const usableSkills = this.shared && this.roomReadable ? listSkills(rt.files, this.principal, this.skillScope(true)) : null
+    const skills = usableSkills ?? (this.roomReadable ? allSkills.filter((s) => this.roomReadable!(s.path)) : allSkills)
     const skillScores = usageScores(rt.db, spec.userId, skills.map((s) => s.path))
     const skillList = buildSkillList(skills, { order: chatSkillOrder(rt.db, spec.chatId, spec.userId, () => descriptionOrder(skills, skillScores)), tag: neutralizeTags })
     const shared = this.shared ? { project: this.shared.project.name, audience: audienceOf(rt.db, rt.files, this.shared.project).length, asker: this.principal.name } : null
@@ -609,6 +617,7 @@ export class TurnExec {
     // "/<skill name> …": that skill goes in front of the message for this turn (skills.ts); its folder joins the read
     // scope like a file the AI read. The list is that of the person who runs the turn (the sender; for a scheduled run
     // the schedule owner): team skills they can read and their own personal skills
+    // the sender's own skill of that name (in a shared chat, one some of its people cannot read asks first, below)
     let invoked = this.restricted ? null : invokedSkill(allSkills, userMsg.content)
     // a shared project chat: a skill some of its people cannot read goes in only after the person's yes
     let skillNotShared = ''
@@ -618,6 +627,9 @@ export class TurnExec {
     }
     if (this.stopReason) return
     if (invoked) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), skillFolder(invoked.skill.path))])
+    // a project's skill: anyone who writes the project's folder may have written it (outside content, as project
+    // instructions are: chat/runtime.ts projectTaints)
+    if (invoked?.skill.project) this.taint()
     // a scheduled task's run: nobody is watching (waitForPerson answers at once), and the AI is told so
     let scheduled = ''
     if (spec.clientKind === 'schedule') {
@@ -631,7 +643,7 @@ export class TurnExec {
     const continued = cutOff ? `${continuationBlock(cutOff)}\n\n` : ''
     // the skill list is cut (more skills than fit): the few whose words match this message go in front of it, so the
     // AI does not miss one only because it is listed by name only (not for a "/name" message: that skill is given)
-    const hints = !invoked && !this.restricted && skillList.cut ? skillHintsBlock(hintSkills(skills, userMsg.content, { scores: skillScores, projectFolder: this.projectFolder })) : ''
+    const hints = !invoked && !this.restricted && skillList.cut ? skillHintsBlock(hintSkills(skills, userMsg.content, { scores: skillScores })) : ''
     // rooms the person picked with "#" (#[name](room:<id>), shared/src/api/rooms.ts): the AI is told their ids, so it
     // reads exactly those (room_read checks membership when it reads). A title is a room's name, which any member of a
     // group chat sets: it reaches the AI only inside the data block, the message says "[#room N]"
@@ -1716,6 +1728,12 @@ export class TurnExec {
     } catch { return null }
   }
 
+  /** What a skill listing of this turn is for: the chat's project, and in a shared chat (`usable`) only what everyone
+   * who sees it may use, before a name's winner is picked. */
+  skillScope(usable: boolean): SkillScope {
+    return { project: this.skillProject, usable: usable && this.shared ? this.roomReadable : null }
+  }
+
   // ---------------- shared project chats (chat/shared.ts) ----------------
   /** The people who see this shared chat now (its project's audience: who can read the project folder). */
   private sharedAudience(): string[] {
@@ -2134,6 +2152,9 @@ export class TurnExec {
     // a group's skills folder (docs/DECISIONS.md "Group skills"): the card names the group, by its current name (the
     // folder's own name when no group has that folder any more)
     const group = root.kind === 'group' ? groupOfFolder(this.rt.db, root.folder) ?? { id: null, name: root.folder.split('/')[1]! } : null
+    // a project's skills folder (docs/DECISIONS.md "Project skills"): the card names the project by its current name (the
+    // folder's own name when no live project has that folder)
+    const project = root.kind === 'project' ? (() => { const p = projectOfFolder(this.rt.db, root.folder); return { live: !!p, folder: root.folder, project: { id: p?.id ?? null, name: p?.name ?? root.folder.split('/')[1]! } } })() : null
     const L = this.spec.locale
     let before: string | null = ''
     let after: string | null = null
@@ -2160,21 +2181,51 @@ export class TurnExec {
     const skill = after !== null && kind === 'skill' ? parseSkillHeader(after, r.rel) : null
     const d = after === null ? null : before === null ? null : lineDiff(r.exists ? before : '', after)
     const diff = d ? d.text : after === null ? st('producedFile', L, { format: String(a.format ?? (tool === 'edit_hwp' ? (/\.hwp$/i.test(target) ? 'hwp' : 'hwpx') : '')).toUpperCase() }) : st('whatFile', L)
-    const what = group
+    const what = project
+      ? skill ? st(r.exists ? 'whatProjectSkill' : 'whatNewProjectSkill', L, { name: skill.name }) : st('whatProjectFile', L)
+      : group
       ? skill ? st(r.exists ? 'whatGroupSkill' : 'whatNewGroupSkill', L, { name: skill.name }) : st('whatGroupFile', L)
       : skill ? st(r.exists ? 'whatSkill' : 'whatNewSkill', L, { name: skill.name }) : kind === 'rule' ? st(r.exists ? 'whatRule' : 'whatNewRule', L) : st('whatFile', L)
     const problem = after !== null ? skillFileProblem(fs_.fx.root, r.rel, after) : null
-    const preview: SkillWritePreview = { kind: 'skill_write', path: r.rel, isNew: !r.exists, skillName: skill?.name ?? null, ...(problem ? { problem } : {}), diff, added: d?.added ?? 0, removed: d?.removed ?? 0, truncated: d?.truncated ?? false }
+    // a skill of the same name at another level the person sees (a project only adds names): a new project skill under
+    // a wider one's name would never run, so the card offers another name or the wider one instead of saving
+    const same = skill ? this.sameNameElsewhere(me, skill.name, r.rel, project ? 'project' : 'wider', L) : null
+    const dead = !!same?.hidden && !r.exists
+    const preview: SkillWritePreview = { kind: 'skill_write', path: r.rel, isNew: !r.exists, skillName: skill?.name ?? null, ...(problem ? { problem } : {}), ...(same ? { sameName: { text: same.text, hidden: same.hidden } } : {}), diff, added: d?.added ?? 0, removed: d?.removed ?? 0, truncated: d?.truncated ?? false }
+    const options = dead
+      ? [{ label: st('renameSave', L), value: 'rename' }, ...(same!.fix ? [{ label: st(same!.fix.label, L), value: 'fix' }] : []), { label: st('dont', L), value: 'skip' }]
+      : [{ label: st('save', L), value: 'save' }, { label: st('dont', L), value: 'skip' }]
     const answer = await this.waitForPerson({
-      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: group ? st('confirmGroup', L, { group: group.name, path: r.rel, what }) : st('confirm', L, { path: r.rel, what }),
-      options: [{ label: st('save', L), value: 'save' }, { label: st('dont', L), value: 'skip' }], multiple: false, allowText: false, preview,
+      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
+      // a project's skills folder no live project has (yet): saved there, no chat follows it
+      question: project ? (project.live ? st('confirmProject', L, { project: project.project.name, path: r.rel, what }) : st('confirmProjectNone', L, { folder: project.folder, path: r.rel, what })) : group ? st('confirmGroup', L, { group: group.name, path: r.rel, what }) : st('confirm', L, { path: r.rel, what }),
+      options, multiple: false, allowText: false, preview, ...(options.length === 3 ? { buttons: true as const } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
-    if (answer === 'save' || (Array.isArray(answer) && answer.length === 1 && answer[0] === 'save')) {
+    const picked = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
+    if (picked === 'save' && !dead) {
       this.files.skillApprovals.set(r.rel, approval)
       return null
     }
-    auditLog(this.rt.db, { actor: this.spec.userId, action: 'skills.ai_write_refused', target: r.rel, detail: { tool, turnId: this.id, chatId: this.spec.chatId, answer: answer === null || answer === undefined ? 'none' : 'declined', ...(group ? { group: { id: group.id, name: group.name } } : {}) } })
+    auditLog(this.rt.db, { actor: this.spec.userId, action: 'skills.ai_write_refused', target: r.rel, detail: { tool, turnId: this.id, chatId: this.spec.chatId, answer: answer === null || answer === undefined ? 'none' : picked === 'rename' || picked === 'fix' ? picked : 'declined', ...(group ? { group: { id: group.id, name: group.name } } : {}), ...(project ? { project: { id: project.project.id, name: project.project.name } } : {}) } })
+    if (dead && picked === 'rename') {
+      return {
+        refusal: `Nothing was saved to '${r.rel}': a skill called "${neutralizeTags(skill!.name)}" is already in ${neutralizeTags(same!.whereEn)}, and that one runs in this project's chats (a project skill only adds new names). The user wants it saved under another name: pick a new name (lowercase a-z, 0-9 and hyphens; the folder takes the same name), or ask the user for one, and save it again (the user confirms on a new card).`,
+        summary: `${tool} -> not saved: the name is taken (rename)`,
+      }
+    }
+    if (dead && picked === 'fix' && same?.fix) {
+      return {
+        refusal: `Nothing was saved to '${r.rel}': the user wants to change the existing "${neutralizeTags(skill!.name)}" skill in ${neutralizeTags(same.whereEn)} (${same.fix.path}) instead. Read it, then edit it there; the user confirms that change on its own card.`,
+        summary: `${tool} -> not saved: change the existing skill instead`,
+      }
+    }
+    if (project) {
+      return {
+        refusal: `The user did not allow saving '${r.rel}' in the skills of the project "${neutralizeTags(project.project.name)}" (skills the AI follows in that project's chats), so nothing was saved. Do not save it there or in another skills folder unless the user asks again; you may offer to save it in their personal folder instead.`,
+        summary: `${tool} -> not allowed by the user (project skills)`,
+      }
+    }
     if (group) {
       return {
         refusal: `The user did not allow saving '${r.rel}' in the skills of the group "${neutralizeTags(group.name)}" (skills every member of that group's AI follows), so nothing was saved. Do not save it there or in another skills folder unless the user asks again; you may offer to save it in their personal folder instead.`,
@@ -2185,6 +2236,30 @@ export class TurnExec {
       refusal: `The user did not allow saving '${r.rel}' under skills/ (team skills and team rules every teammate's AI follows), so nothing was saved. Do not save it there or anywhere else in skills/ unless the user asks again; you may offer to save it in their personal folder instead.`,
       summary: `${tool} -> not allowed by the user (team skills)`,
     }
+  }
+
+  /**
+   * A skill called `name` at another level the person sees (docs/DECISIONS.md "Project skills"). `project`: saving into
+   * a project: a wider skill (personal, group, team) of that name, or whose file or folder name it is, runs instead
+   * there (`hidden`), with how to change that one when the person may write it. `wider`: saving a team or group skill:
+   * a project skill of that name in a project the person sees would be hidden by it. null: none.
+   */
+  sameNameElsewhere(me: Principal, name: string, except: string, target: 'project' | 'wider', L: Locale): { text: string; hidden: boolean; where: string; whereEn: string; fix: { label: 'fixTeam' | 'fixGroup' | 'fixMine'; path: string } | null } | null {
+    try {
+      if (target === 'project') {
+        const hit = widerSkillsNamed(this.rt.files, me, name, except)[0]
+        if (!hit) return null
+        const t = skillTier(hit)
+        const whereIn = (l: Locale) => (t === 0 ? st('wherePersonal', l) : hit.group ? st('whereGroup', l, { group: hit.group.name }) : st('whereTeam', l))
+        const where = whereIn(L)
+        const writes = this.rt.files.rules().access(me, skillFolder(hit.path).split('/')) === 'write'
+        return { text: st('sameNameWider', L, { name, where }), hidden: true, where, whereEn: whereIn('en'), fix: writes ? { label: t === 0 ? 'fixMine' : t === 1 ? 'fixGroup' : 'fixTeam', path: hit.path } : null }
+      }
+      const hit = projectSkillSections(this.rt.files, me).find((x) => x.skill.path !== except && sameSkillName(x.skill.name, name))
+      if (!hit?.skill.project) return null
+      const where = st('whereProject', L, { project: hit.skill.project.name })
+      return { text: st('sameNameNarrower', L, { name, where }), hidden: false, where, whereEn: st('whereProject', 'en', { project: hit.skill.project.name }), fix: null }
+    } catch { return null }
   }
 
   // ---------------- people answering (ask_user, browser site) ----------------

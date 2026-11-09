@@ -21,6 +21,7 @@ import { activePrincipals, Audiences } from './shared'
 import { projectFolderName, projectPaths } from './projects'
 import type { ProjectRow } from './store'
 import { tr } from './i18n'
+import { skillsUnder } from '../skills/switch-on'
 
 const isAdminRole = (p: Pick<Principal, 'role'>) => p.role === 'owner' || p.role === 'admin'
 const segsOf = (p: string) => (p === '' ? [] : p.split('/'))
@@ -185,7 +186,7 @@ const WRITES = "('create','update','upload','restore')"
  * What people who start to see a project would see there: its files (left out: its skills/ folder, counted as skills),
  * those that someone other than `caller` put there (by the last write recorded for the file, else for the nearest
  * folder above it inside the project: a copied folder; nothing recorded counts as someone else's), and its project
- * skills (skills/<name>/SKILL.md, counted by path).
+ * skills (each SKILL.md folder in skills/ that loads, skills/<name>/ or a folder below one, counted by path).
  */
 function whatTheySee(ctx: AppContext, folder: string, caller: string, readable: (segs: string[]) => boolean): { files: number; othersFiles: number; skills: number; skillNames: string[] } {
   const root = ctx.files.fx.root
@@ -212,15 +213,12 @@ function whatTheySee(ctx: AppContext, folder: string, caller: string, readable: 
     }
   }
   walk(base)
-  const names: string[] = []
-  const dir = path.join(root, ...base, 'skills')
-  try {
-    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (!e.isDirectory() || e.isSymbolicLink() || hiddenEntry(e.name, base.length + 1) || badSegment(e.name)) continue
-      try { if (fs.lstatSync(path.join(dir, e.name, 'SKILL.md')).isFile() && readable([...base, 'skills', e.name, 'SKILL.md'])) names.push(e.name.normalize('NFC')) } catch {}
-    }
-  } catch {}
-  names.sort((a, b) => a.localeCompare(b))
+  // the skills that load there (chat/skills.ts walks skills/ the same way: a SKILL.md folder one or two levels down)
+  const found = skillsUnder(root, folder)
+  const names = found.names.filter((_, i) => {
+    const segs = [...base, ...found.paths[i]!.split('/')]
+    return segs.slice(base.length).every((x, j) => !hiddenEntry(x, base.length + j) && !badSegment(x)) && readable(segs)
+  }).map((n) => n.normalize('NFC')).sort((a, b) => a.localeCompare(b))
   return { files, othersFiles, skills: names.length, skillNames: names.slice(0, 10) }
 }
 

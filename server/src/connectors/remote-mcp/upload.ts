@@ -49,8 +49,8 @@ export const isOutcome = (v: Authorized | UploadOutcome): v is UploadOutcome => 
 
 const fold = (s: string) => s.normalize('NFC').toLowerCase()
 /**
- * A path a connector may not write: the team skills and rules (skills/…), a group's skills (groups/<folder>/skills/…)
- * and a person's own skills (users/<id>/skills/…), which the team app changes only after its confirmation
+ * A path a connector may not write: the team skills and rules (skills/…), a group's skills (groups/<folder>/skills/…),
+ * a project's skills (projects/<name>/skills/…) and a person's own skills (users/<id>/skills/…), which the team app changes only after its confirmation
  * (skills/guard.ts). Compared without letter case or Unicode form, on the path as given and as resolved, so a
  * case-insensitive team folder cannot be used to miss it; also by foldKey (NFKC), because a macOS disk folds "ſkills"
  * into the same folder as "skills" (fail closed: such a name is refused as a root even where no root is there yet).
@@ -60,7 +60,7 @@ export function skillWriteTarget(rel: string): boolean {
   if (!segs.length) return false
   if (inSkills(segs.join('/'))) return true
   const k = segs.map(foldKey)
-  return k[0] === 'skills' || (k.length >= 3 && (k[0] === 'users' || k[0] === 'groups') && k[2] === 'skills')
+  return k[0] === 'skills' || (k.length >= 3 && (k[0] === 'users' || k[0] === 'groups' || k[0] === 'projects') && k[2] === 'skills')
 }
 
 /** What the AI is told when it tries to write into a real skill root: the way in is a proposal (share_skills) or the app. */

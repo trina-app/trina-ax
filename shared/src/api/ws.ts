@@ -96,6 +96,10 @@ export const SkillWritePreview = z.object({
   skillName: z.string().nullable(),
   /** why this file does not load as a skill (the same codes as GET /api/skills/issues); absent: nothing to warn about */
   problem: SkillProblem.optional(),
+  /** a skill of the same name at another level the person sees (docs/DECISIONS.md "Project skills": a project only adds
+   * names): the line to show, in the person's language. `hidden`: this one would never run (a project skill under a
+   * wider one's name), so the card offers another name instead of saving */
+  sameName: z.object({ text: z.string().max(400), hidden: z.boolean() }).optional(),
   /** "@@ … @@" unified diff of the text (a new file: every line added), or a one-line summary for other files */
   diff: z.string(),
   added: z.number().int().nonnegative(),

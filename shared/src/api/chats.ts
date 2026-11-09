@@ -309,6 +309,9 @@ export const ShareProjectBody = z.object({
   dryRun: z.boolean().default(false),
   /** older clients: only 'projects' is accepted (anything else: 400 project_location) */
   toParent: RelPath.optional(),
+  /** the personal folder's skills/ holds skills: copied into projects/<name>/skills they switch on in the project's
+   * chats: 409 project_skills_on unless true (docs/DECISIONS.md "Project skills") */
+  skillsOk: z.boolean().optional(),
 })
 export const ShareProjectResult = z.union([Project, z.object({ viewersAdded: z.number().int().nonnegative() })])
 /** Creator or admin+ only. folderPath (repoint): admins only, only for a project whose folder is in the trash or missing,
@@ -321,6 +324,9 @@ export const UpdateProjectBody = z.object({
    * project_personal (a personal project), safe_ops (safe operations are on) or project_in_trash. Off keeps the chats
    * already shared. */
   shareChats: z.boolean().optional(),
+  /** repointed at a projects/<name> folder that holds skills: they switch on in the project's chats: 409
+   * project_skills_on unless true (docs/DECISIONS.md "Project skills") */
+  skillsOk: z.boolean().optional(),
 })
 export const DeleteProjectQuery = z.object({
   /** also put its folder in the files trash (a team project in projects/<name> whose folder is in place) */

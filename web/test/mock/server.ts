@@ -61,6 +61,7 @@
 import { z } from 'zod'
 import type { DriveShare as MockDriveShare, DriveShareFolder as MockDriveFolder } from '@mycel/shared/api'
 import type { KnowledgeGraphStatus, LocalSpeechTool } from '@mycel/shared/api'
+import type { SkillMoveTarget } from '@mycel/shared/api'
 import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
@@ -554,6 +555,7 @@ export class MockServer {
     this.queuePositions.clear()
     this.queueRevision = 0
     this.revoked.clear()
+    this.restricted.clear()
     this.downloadOnly.clear()
     this.connection = defaultConnection()
     this.teamAddress = null
@@ -623,6 +625,8 @@ export class MockServer {
   // ---------------- access (simplified policy) ----------------
   /** folders taken away from everyone by POST /__test/revoke (an admin's rule change) */
   revoked = new Set<string>()
+  /** POST /__test/restrict {path, users}: a folder only those people may open (a project's participants) */
+  restricted = new Map<string, string[]>()
   /** answers' "참고한 파일" as recorded (GET .../messages/:messageId/sources checks each against the viewer now) */
   sources = new Map<string, MessageSourceFile[]>()
   /** POST /__test/confidential {all: true}: Safe operations 1A is on (Me.server.allChatsConfidential) */
@@ -632,6 +636,7 @@ export class MockServer {
   access(path: string, user: User): 'none' | 'read' | 'write' {
     if (path === '' ) return 'write'
     if ([...this.revoked].some((r) => path === r || path.startsWith(r + '/'))) return 'none'
+    if ([...this.restricted].some(([r, ids]) => (path === r || path.startsWith(r + '/')) && !ids.includes(user.id))) return 'none'
     if (path === 'secret' || path.startsWith('secret/')) return 'none'
     if (path.startsWith('users/')) {
       const owner = path.split('/')[1]
@@ -839,18 +844,32 @@ export class MockServer {
     }
     return { title: '견적서 쓰기', description: '팀 양식으로 새 견적서를 만들어요', recurring: false, inputs: [], files: asked.slice(0, 1).map((p) => ({ path: p, latest: false })) }
   }
+  /** A live team project on exactly projects/<name> has skills of its own (server/src/skills/guard.ts
+   * projectLevelPossible): its projects/<name>/skills/, for people who can read the folder. */
+  projectRoots(u: User) {
+    return this.projects.filter((p) => /^projects\/[^/]+$/.test(p.folderPath) && !p.inTrash && this.access(p.folderPath, u) !== 'none').map((p) => ({ p, root: `${p.folderPath}/skills/` }))
+  }
   /** like server/src/chat/skills.ts listSkills: skills/**.md and the caller's own users/<id>/skills/ with a name header,
-   * only where the caller can read */
-  skillsFor(u: User, shadowed = false): { path: string; name: string; description: string; title?: string; inputs?: SkillInput[]; personal?: true; group?: { id: string; name: string }; shadowedBy?: { tier: 'personal' | 'group'; group?: { id: string; name: string } }; replaces?: 'team' | 'group' }[] {
+   * only where the caller can read; `projectId`: a chat of that project (its SKILL.md folders join, lowest of the four
+   * levels); `projects`: the Skills page's project sections (every project's skills, each with shadowedBy when a wider
+   * one of its name runs) */
+  skillsFor(u: User, shadowed = false, o: { projectId?: string; projects?: boolean } = {}): { path: string; name: string; description: string; title?: string; inputs?: SkillInput[]; personal?: true; group?: { id: string; name: string }; project?: { id: string; name: string }; shadowedBy?: { tier: 'personal' | 'group' | 'team'; group?: { id: string; name: string } }; replaces?: 'team' | 'group' | 'project' }[] {
     const mine = `users/${u.id}/skills/`
     // the skills of the person's groups (docs/DECISIONS.md "Group skills"): groups/<folder>/skills/, the group's folder
     // row (its path stays when the group is renamed), else groups/<name>
     const groupRoots = this.groups.filter((g) => u.groupIds.includes(g.id) || g.memberIds.includes(u.id))
       .map((g) => ({ g, root: `${this.folders.find((f) => f.groupId === g.id)?.path ?? `groups/${g.name}`}/skills/` }))
-    const out: { path: string; name: string; description: string; title?: string; inputs?: SkillInput[]; personal?: true; group?: { id: string; name: string }; shadowedBy?: { tier: 'personal' | 'group'; group?: { id: string; name: string } }; replaces?: 'team' | 'group' }[] = []
+    const out: { path: string; name: string; description: string; title?: string; inputs?: SkillInput[]; personal?: true; group?: { id: string; name: string }; project?: { id: string; name: string }; shadowedBy?: { tier: 'personal' | 'group' | 'team'; group?: { id: string; name: string } }; replaces?: 'team' | 'group' | 'project' }[] = []
+    const projectRoots = this.projectRoots(u)
+    const chatProject = o.projectId ? projectRoots.find((r) => r.p.id === o.projectId) : undefined
+    const extra: typeof out = []
     for (const [p, n] of this.files) {
       const inGroup = groupRoots.find((r) => p.startsWith(r.root))
-      if (n.type !== 'file' || !p.endsWith('.md') || !(p.startsWith('skills/') || p.startsWith(mine) || inGroup) || this.access(p, u) === 'none') continue
+      const inProject = p.endsWith('/SKILL.md') ? projectRoots.find((r) => p.startsWith(r.root)) : undefined
+      if (n.type !== 'file' || !p.endsWith('.md') || !(p.startsWith('skills/') || p.startsWith(mine) || inGroup || inProject) || this.access(p, u) === 'none') continue
+      // a project's skill: only for its own chats (or the Skills page's sections, below)
+      const into = inProject ? (inProject === chatProject ? out : o.projects ? extra : null) : out
+      if (!into) continue
       const head = /^---\n([\s\S]*?)\n---/.exec(dec.decode(n.data!))?.[1]
       const name = head ? /^name:\s*(.+)$/m.exec(head)?.[1]?.trim() : undefined
       if (!name) continue
@@ -860,10 +879,10 @@ export class MockServer {
       const form = p.endsWith('/SKILL.md') ? /^[ \t]+inputs:[ \t]*\|\n((?:[ \t]{4,}.*\n?)+)/m.exec(head!)?.[1] : undefined
       let inputs: SkillInput[] | undefined
       try { inputs = form ? (JSON.parse(form) as SkillInput[]) : undefined } catch { inputs = undefined }
-      out.push({ path: p, name, description: /^description:\s*(.+)$/m.exec(head!)?.[1]?.trim().replace(/^"(.*)"$/, '$1') ?? '', ...(title ? { title } : {}), ...(inputs?.length ? { inputs } : {}), ...(p.startsWith(mine) ? { personal: true as const } : {}), ...(inGroup ? { group: { id: inGroup.g.id, name: inGroup.g.name } } : {}) })
+      into.push({ path: p, name, description: /^description:\s*(.+)$/m.exec(head!)?.[1]?.trim().replace(/^"(.*)"$/, '$1') ?? '', ...(title ? { title } : {}), ...(inputs?.length ? { inputs } : {}), ...(p.startsWith(mine) ? { personal: true as const } : {}), ...(inGroup ? { group: { id: inGroup.g.id, name: inGroup.g.name } } : {}), ...(inProject ? { project: { id: inProject.p.id, name: inProject.p.name } } : {}) })
     }
-    // one name: personal > group > team (server/src/chat/skills.ts scanSkills)
-    const tier = (s: (typeof out)[number]) => (s.personal ? 0 : s.group ? 1 : 2)
+    // one name: personal > group > team > project (server/src/chat/skills.ts scanSkills)
+    const tier = (s: (typeof out)[number]) => (s.personal ? 0 : s.project ? 3 : s.group ? 1 : 2)
     const best = new Map<string, number>()
     for (const s of out) best.set(s.name.toLowerCase(), Math.min(best.get(s.name.toLowerCase()) ?? 3, tier(s)))
     const byName = (a: (typeof out)[number], b: (typeof out)[number]) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path)
@@ -871,14 +890,70 @@ export class MockServer {
     const kept = out.filter((s) => tier(s) === best.get(key(s))).sort(byName)
     // what a better tier replaced: `replaces` on the one that runs ("/" menu hint), the loser itself with ?shadowed=1
     const lost = out.filter((s) => tier(s) !== best.get(key(s))).sort(byName)
-    const replaces = new Map<string, 'team' | 'group'>()
+    const replaces = new Map<string, 'team' | 'group' | 'project'>()
+    const by = (w: (typeof out)[number]) => (w.personal ? { tier: 'personal' as const } : w.group ? { tier: 'group' as const, group: w.group } : { tier: 'team' as const })
     const losers = lost.map((l) => {
       const winners = kept.filter((w) => key(w) === key(l))
-      for (const w of winners) if (replaces.get(w.path) !== 'team') replaces.set(w.path, tier(l) === 2 ? 'team' : 'group')
-      const w = winners[0]!
-      return { ...l, shadowedBy: w.personal ? { tier: 'personal' as const } : { tier: 'group' as const, group: w.group } }
+      for (const w of winners) if (replaces.get(w.path) !== 'team') replaces.set(w.path, tier(l) === 2 ? 'team' : tier(l) === 3 ? 'project' : 'group')
+      return { ...l, shadowedBy: by(winners[0]!) }
     })
-    return [...kept.map((s) => (replaces.has(s.path) ? { ...s, replaces: replaces.get(s.path) } : s)), ...(shadowed ? losers : [])]
+    // the Skills page's project sections: every project's skills, marked when a wider one of the name runs instead
+    const sections = extra.sort(byName).map((s) => { const w = kept.find((x) => key(x) === key(s) && tier(x) < 3); return w ? { ...s, shadowedBy: by(w) } : s })
+    return [...kept.map((s) => (replaces.has(s.path) ? { ...s, replaces: replaces.get(s.path) } : s)), ...(shadowed ? losers.filter((l) => !l.project) : []), ...sections]
+  }
+  /** the skills folder of a level for `u` (server/src/skills/move.ts levelsOf) */
+  levelRoot(u: User, to: { level: string; groupId?: string; projectId?: string }): string | null {
+    if (to.level === 'team') return 'skills'
+    if (to.level === 'personal') return `users/${u.id}/skills`
+    if (to.level === 'group') { const g = this.groups.find((x) => x.id === to.groupId); return g ? `${this.folders.find((f) => f.groupId === g.id)?.path ?? `groups/${g.name}`}/skills` : null }
+    return this.projectRoots(u).find((r) => r.p.id === to.projectId)?.root.replace(/\/$/, '') ?? null
+  }
+  /** who gets a skill at a level (counts only): everyone for the team, a group's members, a project's readers, me */
+  levelPeople(u: User, to: { level: string; groupId?: string; projectId?: string }): string[] {
+    if (to.level === 'personal') return [u.id]
+    if (to.level === 'group') { const g = this.groups.find((x) => x.id === to.groupId); return this.users.filter((x) => g?.memberIds.includes(x.id) || x.groupIds.includes(to.groupId!)).map((x) => x.id) }
+    if (to.level === 'project') { const p = this.projects.find((x) => x.id === to.projectId); return p ? this.users.filter((x) => this.access(p.folderPath, x) !== 'none').map((x) => x.id) : [] }
+    return this.users.map((x) => x.id)
+  }
+  skillMoveOptions(u: User, path: string) {
+    const all = [...this.skillsFor(u), ...this.skillsFor(u, false, { projects: true }).filter((s) => s.project)]
+    const s = all.find((x) => x.path === path) ?? fail('not_found', 404, '그 스킬을 찾을 수 없어요.')
+    const folder = s.path.endsWith('/SKILL.md') ? s.path.slice(0, -'/SKILL.md'.length) : s.path
+    const levels: { to: { level: 'team' } | { level: 'personal' } | { level: 'group'; groupId: string } | { level: 'project'; projectId: string }; label: string }[] = [
+      { to: { level: 'team' }, label: '팀 전체' },
+      ...this.groups.filter((g) => u.groupIds.includes(g.id) || g.memberIds.includes(u.id)).map((g) => ({ to: { level: 'group' as const, groupId: g.id }, label: `${g.name} 부서` })),
+      ...this.projectRoots(u).map((r) => ({ to: { level: 'project' as const, projectId: r.p.id }, label: `${r.p.name} 프로젝트 채팅` })),
+      { to: { level: 'personal' }, label: '나만' },
+    ]
+    const fromTo = s.project ? { level: 'project', projectId: s.project.id } : s.group ? { level: 'group', groupId: s.group.id } : s.personal ? { level: 'personal' } : { level: 'team' }
+    const fromPeople = new Set(this.levelPeople(u, fromTo))
+    const fromLabel = levels.find((l) => JSON.stringify(l.to) === JSON.stringify(fromTo))?.label ?? ''
+    const fromEditors = new Set(fromTo.level === 'personal' ? [u.id] : this.users.filter((x) => this.access(folder, x) === 'write').map((x) => x.id))
+    const files = [...this.files].filter(([p, n]) => n.type === 'file' && (p === folder || p.startsWith(folder + '/'))).map(([p, n]) => ({ path: p, size: n.data!.length }))
+    const token = 'tok-' + Bun.hash(files.map((f) => `${f.path}:${dec.decode(this.files.get(f.path)!.data!)}`).join('|')).toString(36)
+    const targets = levels.filter((l) => JSON.stringify(l.to) !== JSON.stringify(fromTo)).map((l) => {
+      const people = new Set(this.levelPeople(u, l.to))
+      const root = this.levelRoot(u, l.to)!
+      const taken = [...this.files.keys()].some((p) => p.startsWith(`${root}/${s.name}/`) || p === `${root}/${s.name}.md`)
+      const blocked = l.to.level === 'project' && !s.path.endsWith('/SKILL.md') ? '프로젝트 스킬은 SKILL.md 폴더여야 해요.' : taken ? `${l.label}에 이미 "${s.name}" 스킬이 있어요.` : undefined
+      // who may change it there: who may write the target (a person's own folder: that person)
+      const editors = l.to.level === 'personal' ? [u.id] : this.users.filter((x) => this.access(`${root}/${s.name}`, x) === 'write').map((x) => x.id)
+      const t: SkillMoveTarget = { to: l.to, label: l.label, people: people.size, gained: [...people].filter((x) => !fromPeople.has(x)).length, lost: [...fromPeople].filter((x) => !people.has(x)).length,
+        editors: editors.length, editorsGained: editors.filter((x) => !fromEditors.has(x)).length, ...(blocked ? { blocked } : { token }) }
+      return t
+    })
+    return { path: s.path, name: s.name, from: { label: fromLabel, people: fromPeople.size, level: fromTo.level as 'team' }, files, text: dec.decode(this.files.get(s.path)!.data!), targets }
+  }
+  /** every file of a skill (its folder, or its single file) to another level's skills folder; the new entry */
+  moveSkillFiles(path: string, root: string): string {
+    const folder = path.endsWith('/SKILL.md') ? path.slice(0, -'/SKILL.md'.length) : path
+    const base = folder.split('/').pop()!
+    for (const [p, n] of [...this.files]) {
+      if (p !== folder && !p.startsWith(folder + '/')) continue
+      this.files.delete(p)
+      this.files.set(`${root}/${base}${p.slice(folder.length)}`, n)
+    }
+    return path.endsWith('/SKILL.md') ? `${root}/${base}/SKILL.md` : `${root}/${base}`
   }
   manages(u: User, folder: string) {
     return this.managed(u).some((m) => folder === m || folder.startsWith(m + '/'))
@@ -1249,6 +1324,70 @@ export class MockServer {
       pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
       prompt += ` answered:${JSON.stringify(answer)}`
     }
+    // like server/src/chat/turn.ts confirmSkillWrite into a project's skills folder (projects/<name>/skills/): a name a
+    // wider skill already has is not saved under that name (docs/DECISIONS.md "Project skills"); and move_skill's card
+    // (server/src/chat/tools.ts): a group's skill to this chat's project, only when nobody gains it
+    const finish = (text: string) => {
+      assistant.content = text
+      pub({ type: 'message.delta', data: { chatId, messageId: assistant.id, offset: 0, text } })
+      assistant.status = 'done'
+      const chat = this.chats.find((c) => c.id === chatId)!
+      chat.runState = 'idle'
+      if (!chat.title) chat.title = 'skill'
+      pub({ type: 'message.done', data: { chatId, messageId: assistant.id, status: 'done', message: this.view(assistant) } })
+      pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat } })
+    }
+    const ask = async (request: TurnRequest) => {
+      this.openAsks.set(turnId, { turnId, chatId, messageId: assistant.id, request })
+      pub({ type: 'turn.request', data: { turnId, chatId, messageId: assistant.id, request } })
+      const answer = await new Promise((r) => this.pendingAsk.set(turnId, r))
+      this.openAsks.delete(turnId)
+      pub({ type: 'turn.request.closed', data: { turnId, requestId: (request as { requestId: string }).requestId, reason: 'answered' } })
+      return Array.isArray(answer) ? answer[0] : answer
+    }
+    const chatProject = () => this.projects.find((x) => x.id === this.chats.find((c) => c.id === chatId)?.projectId)
+    if (/projectskillsave/i.test(prompt)) {
+      const project = chatProject() ?? this.projects[0]
+      const name = /projectskillsave\s+([a-z0-9-]+)/i.exec(prompt)?.[1] ?? 'quote'
+      const path = `${project?.folderPath ?? 'projects/x'}/skills/${name}/SKILL.md`
+      const after = `---\nname: ${name}\ndescription: 견적 프로젝트용 견적 절차\n---\n1. 요청서를 읽어요\n2. 단가표로 금액을 계산해요\n`
+      const wider = this.skillsFor(user).find((x) => x.name === name)
+      const where = wider ? (wider.personal ? '내 스킬' : wider.group ? `${wider.group.name} 부서` : '팀 전체') : null
+      const fix = wider ? (wider.personal ? '내 것 고치기' : wider.group ? '부서 것 고치기' : '팀 것 고치기') : ''
+      const answer = await ask({
+        kind: 'ask_user', origin: 'server', requestId: 'k2', allowText: false, multiple: false,
+        question: `프로젝트 "${project?.name ?? ''}"의 스킬로 저장할까요? 이 프로젝트 채팅에서 AI가 따라요.\n\n${path} (새 프로젝트 스킬 "${name}")`,
+        options: where ? [{ label: '이름 바꿔 저장', value: 'rename' }, { label: fix, value: 'fix' }, { label: '저장하지 않기', value: 'skip' }] : [{ label: '저장', value: 'save' }, { label: '저장하지 않기', value: 'skip' }],
+        ...(where ? { buttons: true as const } : {}),
+        preview: { kind: 'skill_write', path, isNew: true, skillName: name, ...(where ? { sameName: { text: `"${name}" 스킬이 ${where}에 있어 이 프로젝트에선 그게 쓰여요. 이 이름으로는 저장하지 않아요.`, hidden: true } } : {}), diff: '@@ -0,0 +1,6 @@\n' + after.trimEnd().split('\n').map((l) => '+' + l).join('\n'), added: 6, removed: 0, truncated: false },
+      })
+      if (answer === 'save') this.putFile(path, after)
+      finish(answer === 'save' ? `Saved ${path}.` : answer === 'rename' ? '다른 이름으로 저장할게요. 어떤 이름이 좋을까요?' : answer === 'fix' ? `${where}의 "${name}" 스킬을 고칠게요.` : 'Not saved.')
+      return
+    }
+    if (/moveskill/i.test(prompt)) {
+      const project = chatProject()
+      const wanted = /moveskill\s+([a-z0-9-]+)/i.exec(prompt)?.[1]
+      const skill = this.skillsFor(user).find((x) => x.group && (!wanted || x.name === wanted))
+      const o = skill ? this.skillMoveOptions(user, skill.path) : null
+      const t = project && o ? o.targets.find((x) => x.to.level === 'project' && x.to.projectId === project.id) : undefined
+      if (!skill || !o || !t || t.blocked) { finish(t?.blocked ?? '옮길 스킬이나 프로젝트를 찾지 못했어요.'); return }
+      // the AI only narrows (server/src/skills/move.ts AI_MOVES): the team's or a group's to a project, nobody new gets
+      // it or may change it; everything else is the Skills page's
+      if (t.gained > 0 || t.editorsGained > 0) { finish('이 스킬은 더 많은 사람이 받거나 고칠 수 있게 되어 제가 옮길 수 없어요. 팀 스킬 화면의 옮기기…에서 옮겨 주세요.'); return }
+      const kb = (n: number) => `${Math.max(1, Math.round(n / 1024))} KB`
+      const answer = await ask({
+        kind: 'ask_user', origin: 'server', requestId: 'mv1', allowText: false, multiple: false,
+        question: [`"${skill.name}" 스킬을 옮길까요?\n\n${o.from.label} ${o.from.people}명 → ${t.label} ${t.people}명`, t.lost ? `${t.lost}명은 이 스킬을 더 쓰지 않아요.` : '', `옮기면 ${t.editors}명이 고칠 수 있어요.`].filter(Boolean).join('\n\n'),
+        options: [{ label: '옮기기', value: 'move' }, { label: '옮기지 않기', value: 'skip' }],
+        details: [{ label: '옮길 파일', text: o.files.map((f) => `${f.path} (${kb(f.size)})`).join('\n') }],
+      })
+      if (answer !== 'move') { finish('옮기지 않았어요.'); return }
+      const entry = this.moveSkillFiles(skill.path, this.levelRoot(user, t.to)!)
+      this.skillChange({ id: uuidv7(), at: now(), actor: { id: user.id, name: user.name }, path: entry, change: 'move', from: skill.path, byAi: true, kind: 'skill' })
+      finish(`옮겼어요: "${skill.name}" → ${t.label} (${entry})`)
+      return
+    }
     if (/skillsave/i.test(prompt)) {
       // like server/src/chat/turn.ts confirmSkillWrite: the server's card before anything is saved under skills/
       const requestId = 'k1'
@@ -1508,7 +1647,17 @@ export class MockServer {
     listSkillIssues: () => ({ items: [] }),
     // the "/" menu, the Skills page and the owner's checklist on the home screen: like the server, the skills the caller
     // can read (none in the seed; POST /__test/skills adds some)
-    listSkills: (c) => ({ items: this.skillsFor(c.user, c.query.shadowed === '1') }),
+    listSkills: (c) => ({ items: this.skillsFor(c.user, c.query.shadowed === '1', { projectId: c.query.projectId, projects: c.query.projects === '1' }) }),
+    // "옮기기…" (server/src/skills/move.ts): the levels with counts, then the move as seen
+    skillMoveOptions: (c) => this.skillMoveOptions(c.user, c.query.path),
+    moveSkill: (c) => {
+      const o = this.skillMoveOptions(c.user, c.body.path)
+      const t = o.targets.find((x) => JSON.stringify(x.to) === JSON.stringify(c.body.to))
+      if (!t || t.blocked) fail('conflict', 409, t?.blocked ?? 'not there')
+      if (t!.token !== c.body.token) fail('conflict', 409, '카드를 보여 준 뒤 스킬 파일이 바뀌어서 옮기지 않았어요. 다시 확인해 주세요.')
+      const entry = this.moveSkillFiles(o.path, this.levelRoot(c.user, t!.to)!)
+      return { path: entry, name: o.name, from: o.from.label, to: t!.label }
+    },
     health: () => ({ ok: true, version: this.serverVersion, schema: { applied: 2, readerLevel: 1 }, uptimeSec: 1, time: now() }),
     setupStatus: () => ({ needed: this.setupNeeded, teamName: this.setupNeeded ? null : this.settings.teamName, defaultLocale: this.settings.defaultLocale }),
     setup: (c) => {
@@ -1905,6 +2054,9 @@ export class MockServer {
       if (!p.folderPath.startsWith(`users/${c.user.id}/`)) fail('validation', 400, '팀 폴더로 복사해 공유하는 것은 내 프로젝트만 할 수 있어요.')
       const people = this.users.filter((u) => u.status === 'active' && (u.role !== 'member' || (c.body.participants ?? []).some((x: { subjectType: string; subjectId: string }) => (x.subjectType === 'user' ? x.subjectId === u.id : u.groupIds.includes(x.subjectId))))).filter((u) => u.id !== c.user.id)
       if (c.body.dryRun) return { viewersAdded: people.length }
+      // its skills/ holds skills: copied into projects/<name> they switch on there, asked first (server/src/skills/switch-on.ts)
+      const skills = [...this.files.keys()].filter((k) => k.startsWith(`${p.folderPath}/skills/`)).map((k) => /^skills\/([^/]+)\/SKILL\.md$/.exec(k.slice(p.folderPath.length + 1))?.[1]).filter((x): x is string => !!x).sort()
+      if (skills.length && !c.body.skillsOk) fail('conflict', 409, `이 폴더의 스킬 ${skills.length}개가 이 프로젝트 채팅에서 켜져요: ${skills.join(', ')}`, undefined, { reason: 'project_skills_on', skills: skills.join('\n'), count: skills.length })
       let name = p.name
       for (let i = 2; this.files.has(`projects/${name}`); i++) name = `${p.name}-${i}`
       const to = `projects/${name}`
@@ -4113,6 +4265,7 @@ export class MockServer {
       // something changed since the last "confirm" (someone joined, lost access): its key is stale
       this.shareEpoch++
     }
+    else if (p === '/__test/restrict') this.restricted.set(String(body.path), (body.users as string[]) ?? [])
     else if (p === '/__test/revoke') {
       // like the server after a folder-rule change: the folder is gone for everyone, who get an access_changed notice
       this.revoked.add(String(body.path))

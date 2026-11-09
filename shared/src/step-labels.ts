@@ -46,6 +46,7 @@ export const FILE_STEP_VERB: Record<string, T> = {
   ask_user: t('질문', 'Question', 'Pertanyaan', "質問", "Pregunta"),
   skill: t('스킬 사용', 'Use skill', 'Pakai skill', "スキルを使用", "Usar habilidad"),
   find_skills: t('스킬 찾기', 'Find skills', 'Cari skill', "スキルを探す", "Buscar habilidades"),
+  move_skill: t('스킬 옮기기', 'Move skill', 'Pindahkan skill', "スキルを移動", "Mover habilidad"),
   find_tools: t('도구 찾기', 'Find tools', 'Cari alat', "ツールを探す", "Buscar herramientas"),
   remember: t('기억하기', 'Remember', 'Ingat', "記憶", "Recordar"),
   forget: t('기억 지우기', 'Forget', 'Lupakan', "忘れる", "Olvidar"),
@@ -224,6 +225,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'generate_video': return `${verb} · ${clip(a.prompt, 80)}`
     case 'promo_video': case 'intro_deck': return `${verb} · ${clip(a.title, 80)}`
     case 'skill': return `${verb} · ${clip(a.name, 80)}`
+    case 'move_skill': return `${verb} · ${clip(a.skill, 60)} → ${clip(a.to === 'group' ? a.group ?? a.to : a.to === 'project' ? a.project ?? a.to : a.to, 40)}`
     case 'find_skills': case 'find_tools': return `${verb} "${clip(a.query, 60)}"`
     // a room the AI passed as an id is named by the server once it is found (the step is patched); "#" tokens by title
     case 'rooms': { const w = roomWord(a.room ?? a.person); return `${verb}${a.query ? ` "${clip(a.query, 60)}"` : ''}${w ? ` · ${clip(w, 60)}` : ''}` }

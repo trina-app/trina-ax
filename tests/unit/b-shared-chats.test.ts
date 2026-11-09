@@ -616,3 +616,67 @@ describe('reusable pieces (a room\'s AI may use a shared chat later only when ev
     expect(text).toContain('answer B')
   })
 })
+
+// ---------------- project skills (docs/DECISIONS.md "Project skills") ----------------
+describe('project skills in a shared chat', () => {
+  test('what everyone who sees it may use comes first; a project skill never takes a name the sender has: theirs, after the card', async () => {
+    // alice's group (marketing) has a "brief" bob is not in; the project has one everyone who sees the chat may read
+    for (const g of ['marketing', 'finance']) db().query('UPDATE groups SET folder_id = (SELECT id FROM folders WHERE path = ?) WHERE id = ?').run(`groups/${g}`, g)
+    const put = (rel: string, text: string) => { fs.mkdirSync(path.dirname(path.join(h.team, rel)), { recursive: true }); fs.writeFileSync(path.join(h.team, rel), text) }
+    put('groups/marketing/skills/brief/SKILL.md', '---\nname: brief\ndescription: MARKETING-BRIEF\n---\nMARKETING-BRIEF-STEPS\n')
+    put('projects/falcon/skills/brief/SKILL.md', '---\nname: brief\ndescription: FALCON-BRIEF\n---\nFALCON-BRIEF-STEPS\n')
+    try {
+      const chat = await newShared('alice')
+      // alice: her group's brief is not on the list (bob may not use it), and the project's does not take its name
+      const one = await ask('alice', chat.id, fake({ echo: 'system' }))
+      expect(one.done.content).not.toContain('MARKETING-BRIEF')
+      expect(one.done.content).not.toContain('FALCON-BRIEF')
+      // bob has no brief of his own: the project's, on his list
+      const bobList = await ask('bob', chat.id, fake({ echo: 'system' }))
+      expect(bobList.done.content).toContain('- brief [project: Falcon]: FALCON-BRIEF')
+      // "/brief" by alice: her own (the group's), after the read card; never the project's in its place
+      const mine = await askWithCard('alice', chat.id, '/brief go\n' + fake({ echo: 'message' }), 'share')
+      expect(mine.done.content).toContain('path="groups/marketing/skills/brief/SKILL.md"')
+      // "/brief" by bob: the project's (everyone who sees the chat may read it: no card)
+      const three = await ask('bob', chat.id, '/brief go\n' + fake({ echo: 'message' }))
+      expect(three.done.content).toContain('path="projects/falcon/skills/brief/SKILL.md"')
+      // the skill tool for alice: hers too, after the card
+      const four = await askWithCard('alice', chat.id, fake({ tool: 'skill', args: { name: 'brief' }, sayResult: true }), 'share')
+      expect(four.done.content).toContain('MARKETING-BRIEF-STEPS')
+      // and move_skill is not offered in a shared chat
+      const five = await ask('alice', chat.id, fake({ echo: 'tools' }))
+      expect(five.done.content.split(',')).not.toContain('move_skill')
+    } finally {
+      fs.rmSync(path.join(h.team, 'groups/marketing/skills'), { recursive: true, force: true })
+      fs.rmSync(path.join(h.team, 'projects/falcon/skills'), { recursive: true, force: true })
+    }
+  })
+
+  test('a name the sender has a personal skill of stays theirs: not the team\'s on the list, and "/name" and the skill tool load the same one', async () => {
+    const put = (rel: string, text: string) => { fs.mkdirSync(path.dirname(path.join(h.team, rel)), { recursive: true }); fs.writeFileSync(path.join(h.team, rel), text) }
+    put('skills/report/SKILL.md', '---\nname: report\ndescription: TEAM-REPORT\n---\nTEAM-REPORT-STEPS\n')
+    put('users/alice/skills/report.md', '---\nname: report\ndescription: ALICE-REPORT\n---\nALICE-REPORT-STEPS\n')
+    try {
+      const chat = await newShared('alice')
+      // alice's list: neither (hers is not for the others, and it hides the team's for her, as before)
+      const list = await ask('alice', chat.id, fake({ echo: 'system' }))
+      expect(list.done.content).not.toContain('TEAM-REPORT')
+      expect(list.done.content).not.toContain('ALICE-REPORT')
+      // bob has none of his own: the team's
+      const bobList = await ask('bob', chat.id, fake({ echo: 'system' }))
+      expect(bobList.done.content).toContain('TEAM-REPORT')
+      // "/report" and skill("report") by alice: both hers, after the read card
+      const slash = await askWithCard('alice', chat.id, '/report go\n' + fake({ echo: 'message' }), 'share')
+      expect(slash.done.content).toContain('ALICE-REPORT-STEPS')
+      const tool = await askWithCard('alice', chat.id, fake({ tool: 'skill', args: { name: 'report' }, sayResult: true }), 'share')
+      expect(tool.done.content).toContain('ALICE-REPORT-STEPS')
+      expect(tool.done.content).not.toContain('TEAM-REPORT-STEPS')
+      // bob's skill("report"): the team's, no card (everyone who sees the chat may read it)
+      const bobTool = await ask('bob', chat.id, fake({ tool: 'skill', args: { name: 'report' }, sayResult: true }))
+      expect(bobTool.done.content).toContain('TEAM-REPORT-STEPS')
+    } finally {
+      fs.rmSync(path.join(h.team, 'skills/report'), { recursive: true, force: true })
+      fs.rmSync(path.join(h.team, 'users/alice/skills/report.md'), { force: true })
+    }
+  })
+})

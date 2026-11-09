@@ -18,7 +18,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { type FileEntry, type FileHistoryEvent, type FileVersion, type HistoryResponse, type Project, type TrashItem, type TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloadUrl } from '../lib/api'
-import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, moveMany, selectable, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
+import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, moveMany, projectSkillsOn, selectable, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
 import { formatDateTime, formatSize } from '../lib/format'
 import { folderGeneration } from '../lib/folderRuns'
 import { topFoldersFirst, useFolderWords } from '../lib/folderLabels'
@@ -329,6 +329,7 @@ export default function Files() {
       const r = await moveMany(ok, folder, {
         move: (body) => api.call(API.move, { body }),
         confirmNarrow: (count, n) => confirmDialog({ title: t('files.narrowTitle'), body: t('files.bulk.narrowBody', { count, n }), confirm: t('files.moveAnyway'), danger: true }),
+        confirmSkills: confirmSkillsOn,
       })
       reportBatch(
         r,
@@ -465,12 +466,22 @@ export default function Files() {
     }
   }
 
-  /** POST /api/files/move; when other people would lose sight of the item (into users/<me>/), ask first, then confirm. */
-  const moveConfirmed = async (body: { from: string; to: string; onExists: 'fail' | 'rename' }): Promise<boolean> => {
+  /** A project's folder moved to projects/<name>: the skills in it start to count in that project's chats (named). */
+  const confirmSkillsOn = (skills: string[]) =>
+    confirmDialog({ title: t('files.skillsOnTitle'), body: t('files.skillsOnBody', { n: skills.length, names: skills.join(', ') }), confirm: t('files.moveAnyway') })
+
+  /** POST /api/files/move; when other people would lose sight of the item (into users/<me>/), ask first, then confirm.
+   * A project's folder moved to projects/<name> turns its skills on in that project's chats: that is asked first too. */
+  const moveConfirmed = async (body: { from: string; to: string; onExists: 'fail' | 'rename'; skillsOk?: boolean }): Promise<boolean> => {
     try {
       await api.call(API.move, { body })
       return true
     } catch (err) {
+      const skills = projectSkillsOn(err)
+      if (skills) {
+        if (!(await confirmSkillsOn(skills))) return false
+        return moveConfirmed({ ...body, skillsOk: true })
+      }
       if (!(isApiError(err, 'conflict') && err.body.params?.reason === 'audience_narrowed')) throw err
       const n = Number(err.body.params.lostViewers ?? 0)
       if (!(await confirmDialog({ title: t('files.narrowTitle'), body: t('files.narrowBody', { n }), confirm: t('files.moveAnyway'), danger: true }))) return false

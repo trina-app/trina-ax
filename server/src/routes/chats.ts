@@ -42,6 +42,7 @@ import { AnswerSight, sharedHits, type ChatHit } from '../chat/shared-answers'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { forgetPurgedChats } from '../chat/forget'
 import { dropChatPins, dropUnseenPins, pin, pinsOf, unpin } from '../chat/pins'
+import { askSkillsOn, recordSkillsOn, skillsUnder } from '../skills/switch-on'
 
 const WINDOW_RE = /^[A-Za-z0-9_-]{8,64}$/
 export const windowOf = (c: Context<AppEnv>) => { const w = c.req.header(WINDOW_HEADER); return w && WINDOW_RE.test(w) ? w : null }
@@ -685,6 +686,9 @@ export const chatsRoutes: RouteModule = {
         if (!look.exists) fail('conflict', tr('projectFolderMissing', locale), { fields: { 'body.folderPath': 'project_folder_missing' }, params: { reason: 'project_folder_missing' } })
         folder = look.path
       }
+      // pointed at a projects/<name> that holds skills: they switch on in this project's chats (asked first: skills/switch-on.ts)
+      const skillsOn = repoint ? skillsUnder(ctx.files.fx.root, folder) : null
+      askSkillsOn(skillsOn?.names ?? [], body.skillsOk, locale)
       const next = { name: body.name ?? r!.name, instructions: body.instructions ?? r!.instructions }
       // who wrote the instructions: one person only while every saved version is theirs (and the text is still what
       // they saved: a build without these columns may have changed it); otherwise nobody (chat/runtime.ts projectTaints)
@@ -721,6 +725,7 @@ export const chatsRoutes: RouteModule = {
         }
       })
       save()
+      if (skillsOn?.names.length) recordSkillsOn(ctx.db, auth.user.id, folder, skillsOn.paths, { id: r!.id, name: next.name }, 'project_folder')
       const after = rt.store.projectRow(r!.id)!
       if (after.instructions !== r!.instructions) notifyInstructionsChanged(ctx, after, auth.user)
       return projectOut(after, mayEdit(ctx, p, after))
@@ -741,6 +746,10 @@ export const chatsRoutes: RouteModule = {
       assertMayCreateTeamProject(ctx.db, p, locale)
       const participants = checkParticipants(ctx.db, p, body.participants, locale)
       if (body.dryRun) return { viewersAdded: Math.max(0, previewAccess(ctx, p, { participants }, null, locale).people - 1) }
+      // its skills/ is copied into projects/<name>/skills: those skills switch on in this project's chats (asked first:
+      // skills/switch-on.ts)
+      const skillsOn = skillsUnder(ctx.files.fx.root, r!.folder_path)
+      askSkillsOn(skillsOn.names, body.skillsOk, locale)
       const rules = newProjectRules(participants, p.id)
       validateRules(ctx.db, rules, locale, 'body.participants')
       const before = captureState(ctx.db)
@@ -758,6 +767,7 @@ export const chatsRoutes: RouteModule = {
         })()
       } catch (e) { unmakeProjectFolder(ctx, made); throw e }
       afterAccessChange(ctx, before, { actor: auth.user.id, target: made.path, created: [made.path] })
+      if (skillsOn.names.length) recordSkillsOn(ctx.db, auth.user.id, made.path, skillsOn.paths, { id: r!.id, name: r!.name }, 'project_share')
       const after = rt.store.projectRow(r!.id)!
       return projectOut(after, mayEdit(ctx, p, after))
     })

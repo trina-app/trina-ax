@@ -1,5 +1,7 @@
-// Change tracking of skills/ (docs/DECISIONS.md "팀 스킬 관리") and of each group's groups/<folder>/skills/
-// (docs/DECISIONS.md "Group skills": the audit row names the group): every create / edit / move / delete / restore
+// Change tracking of skills/ (docs/DECISIONS.md "팀 스킬 관리"), of each group's groups/<folder>/skills/
+// (docs/DECISIONS.md "Group skills": the audit row names the group) and of each project's projects/<name>/skills/
+// (docs/DECISIONS.md "Project skills": the row names the project, and its creator hears of it too while they can read
+// the project's folder): every create / edit / move / delete / restore
 // there, by a person on the file screen or by the AI in a chat turn, is written to the audit log (who, which file,
 // AI or not) and announced to the owner and admins (an in-app banner with a link to the file's version history,
 // where the previous version can be restored). Hooked on files/store.ts fileEvent: every team-file change records
@@ -11,14 +13,15 @@ import type { AppContext } from '../context'
 import { audit, redactPersonal } from '../admin/audit'
 import { teamDefaultLocale } from '../admin/settings'
 import { onFileEvent, readRegular, type FileEventInput } from '../files/store'
-import { groupOfFolder, skillFileKind, SKILL_FILE_MAX_BYTES } from '../chat/skills'
+import { groupOfFolder, projectOfFolder, skillFileKind, SKILL_FILE_MAX_BYTES } from '../chat/skills'
 import { verifyChain } from '../policy/resolve'
+import { atLeast } from '../policy/access'
 import { inSkills, skillRootOf } from './guard'
 import { st } from './text'
 
 export const SKILL_CHANGE_ACTION = 'skills.change'
 
-interface ChangeDetail { change: SkillChange['change']; from: string | null; byAi: boolean; turnId: string | null; kind: SkillChange['kind']; tool: string | null; group?: { id: string | null; name: string } }
+interface ChangeDetail { change: SkillChange['change']; from: string | null; byAi: boolean; turnId: string | null; kind: SkillChange['kind']; tool: string | null; group?: { id: string | null; name: string }; project?: { id: string | null; name: string } }
 
 const parse = (d: unknown): Record<string, unknown> => (d && typeof d === 'object' ? d as Record<string, unknown> : {})
 
@@ -66,11 +69,17 @@ export function historyLink(rel: string, change: SkillChange['change'], kind: Sk
   return `/files?path=${encodeURIComponent(dir)}&select=${encodeURIComponent(rel)}&history=${encodeURIComponent(rel)}`
 }
 
-/** Owners and admins who should hear about it (active, not the person who made the change). */
-function watchers(db: Database, except: string): { id: string; locale: Locale }[] {
+/** Owners and admins who should hear about it (active, not the person who made the change), and for a project's skill
+ * its creator while they can read the project's folder. */
+function watchers(ctx: AppContext, except: string, project?: { createdBy: string | null; folder: string }): { id: string; locale: Locale }[] {
+  const db = ctx.db
   const def = teamDefaultLocale(db)
-  return (db.query("SELECT id, locale FROM users WHERE role IN ('owner', 'admin') AND status = 'active' AND deleted_at IS NULL AND id <> ?").all(except) as { id: string; locale: string }[])
-    .map((u) => ({ id: u.id, locale: Locale.safeParse(u.locale).success ? (u.locale as Locale) : def }))
+  const rows = db.query("SELECT id, locale FROM users WHERE role IN ('owner', 'admin') AND status = 'active' AND deleted_at IS NULL AND id <> ?").all(except) as { id: string; locale: string }[]
+  const creator = project?.createdBy && project.createdBy !== except && !rows.some((r) => r.id === project.createdBy)
+    ? db.query("SELECT id, locale FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(project.createdBy) as { id: string; locale: string } | null : null
+  let reads = false
+  if (creator) { try { reads = atLeast(ctx.files.rules().access(ctx.files.principal(creator.id), project!.folder.split('/')), 'read') } catch { reads = false } }
+  return [...rows, ...(creator && reads ? [creator] : [])].map((u) => ({ id: u.id, locale: Locale.safeParse(u.locale).success ? (u.locale as Locale) : def }))
 }
 
 export function recordSkillChange(ctx: AppContext, e: FileEventInput): void {
@@ -79,20 +88,25 @@ export function recordSkillChange(ctx: AppContext, e: FileEventInput): void {
   const kind = c.kind ?? (c.change === 'delete' ? null : kindOf(ctx, c.path))
   // a group's skills folder: the group by its name now (docs/DECISIONS.md "Group skills"); a folder no group has any
   // more is still recorded, by its folder
+  // a moved file is recorded where it went, unless it left the skill roots (then where it was)
   const root = skillRootOf(c.path)
   const group = root?.kind === 'group' ? groupOfFolder(ctx.db, root.folder) ?? { id: null, name: root.folder.split('/')[1]! } : null
-  const detail: ChangeDetail = { change: c.change, from: c.from, byAi: c.byAi, turnId: c.turnId, kind, tool: c.tool, ...(group ? { group } : {}) }
+  // a project's skills folder: the project by its name now; a folder no live project has is still recorded, by its name
+  const live = root?.kind === 'project' ? projectOfFolder(ctx.db, root.folder) : null
+  const project = root?.kind === 'project' ? { id: live?.id ?? null, name: live?.name ?? root.folder.split('/')[1]! } : null
+  const detail: ChangeDetail = { change: c.change, from: c.from, byAi: c.byAi, turnId: c.turnId, kind, tool: c.tool, ...(group ? { group } : {}), ...(project ? { project } : {}) }
   audit(ctx.db, { actor: e.userId, action: SKILL_CHANGE_ACTION, target: c.path, detail: detail as unknown as Record<string, unknown> })
   const who = (ctx.db.query('SELECT name FROM users WHERE id = ?').get(e.userId) as { name: string } | null)?.name ?? e.userId
   const link = historyLink(c.path, c.change, kind)
-  const people = watchers(ctx.db, e.userId)
+  const people = watchers(ctx, e.userId, live ? { createdBy: live.createdBy, folder: live.folder } : undefined)
   // after the change is committed (fileEvent can run inside a transaction)
   queueMicrotask(() => {
     for (const u of people) {
       const p = redactPersonal(c.path, u.id)
       const vars = { path: p, who, ai: c.byAi ? st('viaAi', u.locale) : '' }
       try {
-        ctx.services.realtime.publish(u.id, { type: 'notice', data: { level: 'info', code: 'skill_changed', message: group ? st('changedGroup', u.locale, { ...vars, group: group.name }) : st('changed', u.locale, vars), link } })
+        const message = group ? st('changedGroup', u.locale, { ...vars, group: group.name }) : project ? st('changedProject', u.locale, { ...vars, project: project.name }) : st('changed', u.locale, vars)
+        ctx.services.realtime.publish(u.id, { type: 'notice', data: { level: 'info', code: 'skill_changed', message, link } })
       } catch (err) { ctx.log.warn('skill change notice failed', { err }) }
     }
   })
@@ -123,6 +137,7 @@ export function listSkillChanges(db: Database, viewer: string, o: { cursor?: str
         actor: r.actor_id ? { id: r.actor_id, name: r.actor_name ?? r.actor_id } : null,
         path: r.target, change: d.change ?? 'update', from: d.from ? redactPersonal(d.from, viewer) : null,
         byAi: !!d.byAi, kind: d.kind ?? null, ...(d.group && typeof d.group.name === 'string' ? { group: { id: d.group.id ?? null, name: d.group.name } } : {}),
+        ...(d.project && typeof d.project.name === 'string' ? { project: { id: d.project.id ?? null, name: d.project.name } } : {}),
       }
     }),
     nextCursor: rows.length > limit ? String(page[page.length - 1]!.id) : null,
