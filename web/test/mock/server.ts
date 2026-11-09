@@ -1397,7 +1397,8 @@ export class MockServer {
         details: [
           ...(fields.length ? [{ label: '누가 바뀌나요', text: '', fields }] : []),
           { label: 'SKILL.md 전체 내용', text: o.text, ...(t.gained ? {} : { collapsedAt: 600 }) },
-          { label: '옮길 파일', text: o.files.map((f) => `${f.path} (${kb(f.size)})`).join('\n') },
+          // where each file lands
+          { label: '옮길 파일', text: o.files.map((f) => { const folder = skill.path.endsWith('/SKILL.md') ? skill.path.slice(0, -'/SKILL.md'.length) : skill.path; return `${this.levelRoot(user, t.to)}/${folder.split('/').pop()}${f.path.slice(folder.length)} (${kb(f.size)})` }).join('\n') },
         ],
       })
       if (answer !== 'move') { finish('옮기지 않았어요.'); return }
