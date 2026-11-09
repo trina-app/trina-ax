@@ -189,7 +189,7 @@ export function roomNoticeOut(db: Database, notice: { id: string; user_id: strin
   const line = o.preview && s.visibility === 'room' ? messageLine(s) : ''
   return {
     id: s.room_id, ...who, ...(s.thread_root_id ? { thread: s.thread_root_id } : {}), kind: room.kind, name, reason, message: s.id, count: 1, people: 1, at: s.created_at,
-    ...(line ? { preview: line } : {}),
+    ...(line ? { preview: line } : {}), seq: s.seq,
     label: roomLabel(db, { roomId: s.room_id, userId: notice.user_id, kind: room.kind, name, thread: !!s.thread_root_id, who: who.from ?? (who.ai ? ROOM_WORDS[locale].ai : null) }, locale),
   }
 }

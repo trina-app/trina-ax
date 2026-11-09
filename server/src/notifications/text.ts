@@ -45,6 +45,8 @@ export const TEXT = {
     id: 'Kata sandi Anda beberapa kali salah dimasukkan. Periksa di aplikasi.', ja: "パスワードの確認で何度も間違いがありました。アプリで確認してください。", es: "Su contraseña se introdujo mal varias veces. Revíselo en la aplicación.",
   },
 } satisfies Record<'title' | PushEventType, Record<Locale, string>>
+/** the button on a room notification that marks the room (or the thread) read without opening the app */
+export const MARK_READ: Record<Locale, string> = { ko: '읽음으로 표시', en: 'Mark as read', id: 'Tandai dibaca', ja: '既読にする', es: 'Marcar como leído' }
 
 /** The words of a room notice's title on a device ("민준 · #마케팅 › 스레드": rooms/inbox.ts roomLabel, shown by the web
  * app's service worker), the same as the app's (rooms.thread, rooms.all, rooms.aiName, rooms.nameSep,
@@ -76,5 +78,5 @@ export function pushMessages(locale: Locale) {
     'room.mention': TEXT['room.mention'][locale],
     'owner.lead_joined': TEXT['owner.lead_joined'][locale],
     'owner.reauth_locked': TEXT['owner.reauth_locked'][locale],
-  } }
+  }, markRead: MARK_READ[locale] }
 }

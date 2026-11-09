@@ -180,7 +180,12 @@ self.addEventListener('push', event => {
       // (the person's "show message preview" is on, a message the whole room sees), else the generic line
       const shownTitle = (roomId && roomTitle(item.room?.label)) || title
       const preview = roomId && typeof item.room?.preview === 'string' ? item.room.preview.replace(/[\p{Cc}\u2028\u2029]/gu, ' ').trim().slice(0, 200) : ''
-      await self.registration.showNotification(shownTitle, { body: preview || body, tag, renotify: false, silent, data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}) } : { notificationId: payload.notificationId, ...(HOME_CODES.has(payload.code) ? { home: true } : {}) } })
+      // "Mark as read" (Chrome, Edge, Android; Safari shows no buttons): the message's place in its room, from the same
+      // signed-in fetch; the label in the person's language from /api/push
+      const seq = roomId && Number.isSafeInteger(item.room?.seq) && item.room.seq >= 0 ? item.room.seq : undefined
+      const markRead = typeof settings.messages?.markRead === 'string' && settings.messages.markRead ? settings.messages.markRead.slice(0, 40) : ''
+      const actions = seq !== undefined && markRead ? [{ action: 'read', title: markRead }] : []
+      await self.registration.showNotification(shownTitle, { body: preview || body, tag, renotify: false, silent, ...(actions.length ? { actions } : {}), data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}), ...(seq !== undefined ? { seq } : {}) } : { notificationId: payload.notificationId, ...(HOME_CODES.has(payload.code) ? { home: true } : {}) } })
       if (generation !== pushEpoch) {
         for (const item of await self.registration.getNotifications({ tag })) item.close()
         return
@@ -193,8 +198,21 @@ self.addEventListener('push', event => {
   })())
 })
 
+/** "Mark as read" on a room notification: my read position in the room (or the thread) moves to the message, as opening
+ * it would, and nothing opens. The ids and the place come from the signed-in notice stored at show time. A failure
+ * (signed out, the room left) changes nothing; the notice stays unread in the Inbox. */
+async function markRead(data) {
+  const roomId = data?.roomId, threadId = data?.threadId, seq = data?.seq
+  if (!opaqueId(roomId) || !Number.isSafeInteger(seq) || seq < 0) return
+  const path = opaqueId(threadId) ? `/api/rooms/${roomId}/messages/${threadId}/thread/read` : `/api/rooms/${roomId}/read`
+  try {
+    await fetch(path, { method: 'POST', credentials: 'include', cache: 'no-store', redirect: 'error', headers: { 'content-type': 'application/json', 'x-mycel-csrf': '1' }, body: JSON.stringify({ seq }) })
+  } catch {}
+}
+
 self.addEventListener('notificationclick', event => {
   event.notification.close()
+  if (event.action === 'read') { event.waitUntil(markRead(event.notification.data)); return }
   event.waitUntil((async () => {
     // The payload cannot choose a URL or open a chat whose access has since changed. A room notice opens its room (the
     // id stored at show time from the authenticated notice; the room page checks membership again).

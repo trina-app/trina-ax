@@ -168,19 +168,21 @@ export function chatUpdated(ev: Extract<ServerEvent, { type: 'chat.updated' }>, 
 
 // ---------------- rooms ----------------
 type RoomWhy = 'ai' | 'room.mention' | 'room.dm'
-const pendingRoom = new Map<string, { timer: ReturnType<typeof setTimeout>; why: RoomWhy; line?: string }>()
+/** a told message: its first line (noticeLine) and "Mark as read"'s place ("<room>@<seq>", "<room>/<thread root>@<seq>") */
+type Told = { line?: string; read?: string }
+const pendingRoom = new Map<string, { timer: ReturnType<typeof setTimeout>; why: RoomWhy; told?: Told }>()
 /** the room is on screen in this window and the window is visible */
 const viewingHere = (roomId: string) => useSessionMarkers.getState().visible && useRooms.getState().openRoomId === roomId
 const titleOf = (r: Room) => roomTitle(r, { all: t('rooms.all'), gone: t('rooms.goneUser'), alone: t('rooms.groupAlone'), sep: t('rooms.nameSep'),
   names: (names, n) => (n > 0 ? t('rooms.groupNamesMore', { names, n }) : names) })
 
 const ROOM_WHY: Record<RoomWhy, MessageKey> = { ai: 'rooms.aiWaits', 'room.mention': 'rooms.mentionedYou', 'room.dm': 'rooms.newMessage' }
-function laterRoom(roomId: string, why: RoomWhy, line?: string) {
+function laterRoom(roomId: string, why: RoomWhy, told?: Told) {
   // one per room: the "?" wins over a message told in the same moment, a newer message replaces an older one
   const was = pendingRoom.get(roomId)
   if (was?.why === 'ai' && why !== 'ai') return
   if (was) clearTimeout(was.timer)
-  pendingRoom.set(roomId, { why, line, timer: setTimeout(() => { pendingRoom.delete(roomId); tellRoom(roomId, why, line) }, tellTiming.delayMs) })
+  pendingRoom.set(roomId, { why, told, timer: setTimeout(() => { pendingRoom.delete(roomId); tellRoom(roomId, why, told) }, tellTiming.delayMs) })
 }
 /** The first line of a message as a notification on the computer says it (the server's push does the same, rooms/inbox.ts
  * previewLine): only for a message the whole room sees, its first line with text, without Markdown marks, one plain
@@ -189,16 +191,30 @@ export function noticeLine(m: Pick<RoomMessage, 'body' | 'visibility'>): string 
   if (m.visibility !== 'room') return ''
   return plainLabel(m.body.split('\n').map((l) => plainLine(l).trim()).find(Boolean) ?? '', 200)
 }
-function tellRoom(roomId: string, why: RoomWhy, line?: string) {
+/** "Mark as read"'s place for a message: its room (a reply in a thread: the thread) up to its seq */
+export function readToken(m: Pick<RoomMessage, 'roomId' | 'seq' | 'threadRootId'>): string {
+  return `${m.roomId}${m.threadRootId ? `/${m.threadRootId}` : ''}@${m.seq}`
+}
+/** A notification's "Mark as read" (desktop onRead): the room or the thread read up to seq, as opening it would. */
+export function markReadFrom(token: string) {
+  const m = /^([0-9a-f-]{36})(?:\/([0-9a-f-]{36}))?@(\d{1,15})$/.exec(String(token))
+  if (!m) return
+  const [, roomId, rootId, seq] = m
+  if (rootId) void useRooms.getState().markThreadRead(roomId!, rootId, Number(seq))
+  else void useRooms.getState().markRead(roomId!, Number(seq))
+}
+function tellRoom(roomId: string, why: RoomWhy, told?: Told) {
   const r = useRooms.getState().rooms.find((x) => x.id === roomId)
   // read meanwhile (here or on another device), its AI no longer waiting, or on screen here: nothing
   if (!r || viewingHere(roomId) || (why === 'ai' ? !r.aiWaits : !roomWantsMe(r, useRooms.getState().alerts?.threadReplies ?? true))) return
   // people's names in a notice on the computer: one plain line (no control or bidirectional characters), capped
   const title = plainLabel(titleOf(r), 120)
   // the message's first line while my "show message preview" is on (Settings › Notifications), else the generic line
-  const preview = why !== 'ai' && line && useRooms.getState().alerts?.messagePreview === true ? line : ''
+  const preview = why !== 'ai' && told?.line && useRooms.getState().alerts?.messagePreview === true ? told.line : ''
   const body = preview || t(ROOM_WHY[why])
-  desktop()?.notify({ title, body, tag: `room-${roomId}`, open: `/rooms/${roomId}` })
+  // "Mark as read" (macOS): a message's notice only, never the AI-waits one (a question to answer)
+  const read = why !== 'ai' && told?.read ? told.read : undefined
+  desktop()?.notify({ title, body, tag: `room-${roomId}`, open: `/rooms/${roomId}`, ...(read ? { read } : {}) })
   // a message rings the room sound here and the phone's own notification there; only the AI's "?" gets a toast
   if (why === 'ai' && sidebarHidden() && pageVisible()) toast({ level: 'info', text: title, detail: body, ms: 10_000, action: { label: t('marker.open'), primary: true, run: () => navigateTo(`/rooms/${roomId}`) } })
 }
@@ -208,7 +224,7 @@ function tellRoom(roomId: string, why: RoomWhy, line?: string) {
 export function roomMessage(ev: Extract<ServerEvent, { type: 'room.message' }>, meta: { replay: boolean }) {
   const why = ev.data.notice
   if (!why || meta.replay || !desktop() || viewingHere(ev.data.roomId)) return
-  laterRoom(ev.data.roomId, why, noticeLine(ev.data.message))
+  laterRoom(ev.data.roomId, why, { line: noticeLine(ev.data.message), read: readToken(ev.data.message) })
 }
 /** A room changed, before the rooms store applies it: its AI started waiting on me (a card of my question). */
 export function roomUpdated(ev: Extract<ServerEvent, { type: 'room.updated' }>, meta: { replay: boolean }) {
@@ -264,6 +280,8 @@ export function startSessionMarkers() {
     else if (typeof path === 'string' && /^\/[A-Za-z0-9/_-]*$/.test(path)) navigateTo(path)
   })
   if (onOpen) offs.push(onOpen)
+  const onRead = app?.onRead?.((token) => markReadFrom(token))
+  if (onRead) offs.push(onRead)
   if (app?.setBadgeCount) {
     let shown = -1
     const badge = () => {

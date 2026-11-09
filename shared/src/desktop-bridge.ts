@@ -115,8 +115,10 @@ export interface DesktopBridge {
   /** Native notification (a chat or a room that wants the person, admin alerts). Shown only while the window is not
    * focused, at most 10 a minute. `tag`: one notification per tag (a newer one replaces it; "chat-<id>": one per chat).
    * `open`: an address of the team page ("/c/<chatId>", "/rooms/<id>") the page goes to when the person clicks it
-   * (onOpen); desktop apps before this addition only focus the window. A team switch closes them. */
-  notify(n: { title: string; body: string; tag?: string; open?: string }): void
+   * (onOpen); desktop apps before this addition only focus the window. A team switch closes them. `read`: a room
+   * notification's "Mark as read" button (macOS), "<room id>@<seq>" or "<room id>/<thread root id>@<seq>", given back
+   * through onRead when pressed; older desktop apps show no button. */
+  notify(n: { title: string; body: string; tag?: string; open?: string; read?: string }): void
   /** Settings › Notifications' "Test notification": one notification now, even while the window is focused (the person
    * asked for it), in the desktop app's own words (the page gives none) and a small limit a minute of its own; a newer
    * test replaces the older one. Says how it went (DesktopNotifyTest). Optional: desktop apps before this addition do
@@ -125,6 +127,9 @@ export interface DesktopBridge {
   /** A notification's click asks the page to go to its address (an app path, checked by the desktop app). Optional:
    * desktop apps before session markers do not have it. */
   onOpen?(cb: (path: string) => void): () => void
+  /** A notification's "Mark as read" was pressed: the page marks that room (or thread) read up to seq (the token from
+   * notify's `read`). Optional: older desktop apps do not have it. */
+  onRead?(cb: (token: string) => void): () => void
   /** The dock badge (macOS only; Windows shows no count): how many chats and rooms want the person (docs/DECISIONS.md
    * "Session markers"); 0 clears it. Optional: older desktop apps do not have it. */
   setBadgeCount?(n: number): void

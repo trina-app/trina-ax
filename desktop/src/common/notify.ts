@@ -28,6 +28,12 @@ export function tagOf(v: unknown): string | null {
   return typeof v === 'string' && v.length > 0 && v.length <= 100 && /^[A-Za-z0-9_:.-]+$/.test(v) ? v : null
 }
 
+/** A room notification's "Mark as read" (the page's `read`): "<room id>@<seq>", or "<room id>/<thread root id>@<seq>"
+ * for a reply in a thread. Anything else: null (no button). */
+export function readTokenOf(v: unknown): string | null {
+  return typeof v === 'string' && /^[0-9a-f-]{36}(?:\/[0-9a-f-]{36})?@\d{1,15}$/.test(v) ? v : null
+}
+
 /** The dock badge: a whole number 0..9999 (anything else: 0, which clears it). */
 export function badgeCountOf(v: unknown): number {
   return typeof v === 'number' && Number.isInteger(v) && v > 0 ? Math.min(v, 9999) : 0
@@ -42,13 +48,13 @@ export const TEST_TAG = 'notify-test'
 
 export interface NoteLike {
   /** show: the system took it; failed (macOS, Windows): the system refused it (notifications off for the app) */
-  on(event: 'click' | 'close' | 'show' | 'failed', listener: () => void): void
+  on(event: 'click' | 'close' | 'show' | 'failed' | 'action', listener: () => void): void
   show(): void
   close(): void
 }
 export interface NotifierDeps {
-  /** a system notification (Electron's Notification) */
-  create(n: { title: string; body: string }): NoteLike
+  /** a system notification (Electron's Notification); `actions`: its buttons (macOS) */
+  create(n: { title: string; body: string; actions?: { type: 'button'; text: string }[] }): NoteLike
   supported(): boolean
   /** is the window focused now (BaseWindow.isFocused): then nothing shows */
   focused(): boolean
@@ -63,8 +69,13 @@ export interface NotifierDeps {
   ask?: () => void
   /** the system's 'show' means the person sees it (default). false on macOS: it also takes one it will not show */
   showIsSeen?: boolean
+  /** the "Mark as read" button's words in the app's language, or null where the system shows no buttons (Windows,
+   * Linux: Electron's actions are macOS only). Absent: no button. */
+  markReadLabel?: () => string | null
+  /** the button was pressed: the team page marks it read (bridge:read) */
+  read?(token: string): void
 }
-export interface NotifyInput { title: string; body: string; tag?: unknown; open?: unknown }
+export interface NotifyInput { title: string; body: string; tag?: unknown; open?: unknown; read?: unknown }
 export type TestOutcome = 'shown' | 'off' | 'unsupported' | 'limited' | 'unknown'
 export interface Notifier {
   /** the bridge's notify: false when nothing was shown (focused, unsupported, too many) */
@@ -114,9 +125,10 @@ export function makeNotifier(d: NotifierDeps): Notifier {
   }
   const allowed = () => take(times, NOTIFY_PER_MINUTE, (l) => { times = l })
   /** a system notification, one per tag; a click brings the window up and opens `open` (when the team is still the same) */
-  const post = (n: { title: unknown; body: unknown }, tag: string | null, open: string | null, events?: (note: NoteLike) => void) => {
+  const post = (n: { title: unknown; body: unknown }, tag: string | null, open: string | null, events?: (note: NoteLike) => void, read: string | null = null) => {
     const born = generation
-    const note = d.create({ title: String(n.title ?? '').slice(0, 200), body: String(n.body ?? '').slice(0, 1000) })
+    const label = read && d.read ? d.markReadLabel?.() ?? null : null
+    const note = d.create({ title: String(n.title ?? '').slice(0, 200), body: String(n.body ?? '').slice(0, 1000), ...(label ? { actions: [{ type: 'button' as const, text: label }] } : {}) })
     if (tag) {
       const before = byTag.get(tag)
       byTag.delete(tag)
@@ -133,6 +145,12 @@ export function makeNotifier(d: NotifierDeps): Notifier {
       d.reveal()
       if (open && born === generation) d.open(open)
     })
+    // "Mark as read": the page marks it read; the window stays where it is (only while the team is still the same)
+    if (label) note.on('action', () => {
+      live.delete(note)
+      if (tag && byTag.get(tag) === note) byTag.delete(tag)
+      if (born === generation) d.read!(read!)
+    })
     events?.(note)
     note.show()
   }
@@ -140,7 +158,7 @@ export function makeNotifier(d: NotifierDeps): Notifier {
     notify(n) {
       if (d.focused() || !d.supported()) return false
       if (!allowed()) return false
-      post(n, tagOf(n.tag), openPathOf(n.open))
+      post(n, tagOf(n.tag), openPathOf(n.open), undefined, readTokenOf(n.read))
       return true
     },
     test(n) {
