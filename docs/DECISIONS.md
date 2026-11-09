@@ -15894,3 +15894,49 @@ square. Placement: Team AX core (`server/src/uploads/image.ts`, `server/src/room
   `web/test/unit/attachment-thumb.test.tsx` (the soft box only while loading), e2e `room-transparent-image.spec.ts`
   (a seal stamp in a room, light and dark: nothing painted behind it).
 - Version impact: **patch** (a fix; no API or data change).
+
+## Desktop: a right-click menu; a pasted picture shows as one above the box (fix/image-copy-paste-preview, 2026-11-09)
+
+Two things the owner met in team rooms: in the Mac app a right-click on a photo to copy it did nothing, and a picture
+pasted into a room's box showed no picture above the text. Placement: Team AX core (`desktop/src/`, the two message
+boxes); no contract, setting or data change.
+
+- **Why nothing happened on a right-click.** Electron shows no context menu of its own: without a `context-menu`
+  handler a right-click on a photo, a link or selected text does nothing in the app. The web app takes none of them
+  (checked: a message's long press blocks the menu only right after a finger touched it, the voice mic only while held;
+  the thumbnail is an `<img>` under the pointer, not a background or a covered button), so a browser's own menu
+  (Copy Image) works on the message's thumbnail and on the preview panel's picture. An e2e now guards that.
+- **The menu** (`desktop/src/common/context-menu.ts` picks the items, pure and unit-tested; `desktop/src/main/
+  context-menu.ts` runs them), on the team page only: a photo **이미지 복사** / **이미지 저장…**, a link **링크 복사**,
+  selected text **복사**, a text field **잘라내기 / 복사 / 붙여넣기 / 모두 선택** (greyed out when they cannot apply).
+  Only what applies shows; empty space gets no menu. Words in the five languages, in the app's language like its other
+  menus; the Korean ones are the browser's context-menu words (the menu bar keeps macOS's 오려두기 / 복사하기).
+  - 이미지 복사 is Electron's `copyImageAt` at the click: the picture as drawn. The preview panel draws the original
+    from its bytes (a `blob:` address), so copying there copies the original; a message copies its thumbnail, as a
+    browser does.
+  - 이미지 저장… is `downloadURL`, so the app's usual save dialog asks where (Electron's default; the web's own
+    downloads go the same way). Only for the team page's own images: the team or office address, or a `blob:` picture
+    of those origins. A picture from elsewhere (an artifact's `data:` image, another site) is copied, not saved through
+    the app: the save would fetch it with the team's session. Checked again at the click.
+  - 링크 복사 writes the address as text; no item opens a link or navigates (the page's own rules for links stay as
+    they are, `security.ts`). No Inspect, also not in a development build.
+  - The text items call the right-clicked page's own `cut / copy / paste / selectAll`, not Electron's edit roles: a
+    role goes to whichever view has the focus (on a Mac the first responder), which can be another view of the window.
+  - Not on the in-app browser pane's tabs (the AI's browser, with rules of its own).
+- **A pasted picture shows as one.** Both boxes put a pasted file in their row at once and upload it in the background
+  (nothing waited for the upload). The AI chat's chip already drew a picture; the room's chip showed a file icon and
+  the name "image.png", which read as "no preview". The room's chip now draws the picture from the file itself (one
+  `LocalThumb` for both boxes, 32 px), with the spinner after the name while it uploads and its ✕; a photo of a send the
+  server gave back shows its room thumbnail. A picture the browser cannot draw (a HEIC photo in Chrome) falls back to
+  the file icon. A paste whose `clipboardData.files` is empty takes the file items (`web/src/lib/paste.ts`); in
+  Chromium a screenshot and a picture copied from a page (its HTML with the picture) both come as files, and the HTML is
+  not pasted as text. Not chosen: a larger picture tile above the box (a new look for one case; the chip is the
+  pattern both boxes have).
+- Tests: `tests/unit/e-desktop-common.test.ts` (the items for a photo, a linked photo, a link, text, a field, empty
+  space; which images may be saved; wired to the team page only, nothing that opens), `desktop/e2e/context-menu.spec.ts`
+  (a right-click in the app: the menu caught where it would pop up; a photo in a button and a `blob:` original copy and
+  save, the save reaching will-download; a picture from elsewhere copy only; link, text, field, empty space; nothing
+  on the computer's clipboard), `web/test/unit/paste.test.ts`, e2e `composer-paste-preview.spec.ts` (both boxes: a
+  screenshot and a page's picture show as pictures before the upload ends, ✕, then attached / sent) and
+  `room-files-open.spec.ts` (the right-click reaches the browser's menu on the thumbnail and the panel's original).
+- Version impact: **patch** (a fix; no API or data change).
