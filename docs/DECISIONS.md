@@ -17075,6 +17075,12 @@ previews are core. Step (b) of the plan `docs/AGENTS/plan/20261109-0939-room-fil
     others who have that one). It is refused with that reason in the AI's text, which suggests a `name` or moving
     instead. The owner's leads → quotation copy needs a name.
   - A skill folder with folder rules inside it is not copied (the copy would land without them).
+  - Code review follow-ups (fix/skill-copy-followups): a hard-linked file in the skill folder refuses a move or a copy,
+    as every other walker skips one (a copy would make it an ordinary file at a level more people read); a copy's
+    `name` follows the skill parser's own rule (`SKILL_NAME_RE`: no `a--b`), the name line rewrite also takes a name
+    written as a block (`name: >-`), and the SKILL.md as it would be must load under the new name (`checkSkill`) or
+    nothing is copied; a folder of the target's name in other letter case counts as taken; the card lists where each
+    file lands and says the text is cut at 65,536 characters.
   - Audited as `skills.copy` (both levels, a person's own folder never named; the files; the SKILL.md written and the
     original's hashes; by the AI or not; the turn); its file event carries `copiedFrom`, which Admin › 팀 스킬 shows as
     the change's `from`. Nothing is written into the skill's files.

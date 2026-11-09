@@ -78,10 +78,10 @@ test('a project chat asked to move the files and the skills: the move card, then
   // by name for the owner
   await expect(card.getByTestId('ask-detail-fields')).toContainText('더 못 쓰게 돼요')
   await expect(card.getByTestId('ask-detail-fields')).toContainText('Dana')
-  // SKILL.md always, folded after its start when nobody new gets it; every file it holds
+  // SKILL.md always, folded after its start when nobody new gets it; every file it holds, where it lands
   await expect(card.getByTestId('ask-details')).toContainText('SKILL.md 전체 내용')
   await expect(card.getByTestId('ask-details')).toContainText('name: quote-check')
-  await expect(card.getByTestId('ask-details')).toContainText('groups/리드/skills/quote-check/SKILL.md')
+  await expect(card.getByTestId('ask-details')).toContainText('projects/quotation/skills/quote-check/SKILL.md')
   await card.getByTestId('ask-yes').click()
   await expect(page.getByTestId('ask-card')).toHaveCount(0)
   await page.goto('/skills')

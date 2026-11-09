@@ -18,13 +18,14 @@ import { audit } from '../admin/audit'
 import { atLeast, type Principal } from '../policy/access'
 import { authorize } from '../policy/authorize'
 import { foldKey } from '../policy/names'
-import { groupSkillRoots, isPersonalSkill, isSkillManifest, listGroupSkills, listSkills, listTeamSkills, liveProjectRoots, personalSkillsDir, projectOfFolder, projectSkillSections, readSkill, sameSkillName, skillFolder, skillTier, widerSkillsNamed, type Skill } from '../chat/skills'
+import { checkSkill, groupSkillRoots, isPersonalSkill, isSkillManifest, listGroupSkills, listSkills, listTeamSkills, liveProjectRoots, personalSkillsDir, projectOfFolder, projectSkillSections, readSkill, sameSkillName, SKILL_NAME_MAX, SKILL_NAME_RE, skillFolder, skillTier, widerSkillsNamed, type Skill } from '../chat/skills'
 import { mayEditProject } from '../chat/projects'
 import { HttpError } from '../http/errors'
 import { componentC } from '../team-files/component'
 import { activePeople } from '../team-files/service'
 import { SKILLS_DIR, skillRootOf } from './guard'
 import { SKILL_TEXT, st } from './text'
+const st_ = st
 
 /** A skill folder this large is moved on the Files screen. */
 export const MOVE_MAX_FILES = 500
@@ -163,8 +164,9 @@ export function skillAt(ctx: AppContext, user: Principal, rel: string): { skill:
 
 interface FileHash { path: string; size: number; sha: string; bytes: Buffer }
 /** Every regular file of the skill (its folder, or the single file), by path, with its hash and the bytes hashed (the
- * card shows them, a copy writes them); no links. */
-function skillFiles(ctx: AppContext, user: Principal, from: string): FileHash[] {
+ * card shows them, a copy writes them); no links. A hard link refuses it, as every other walker skips one: a copy would
+ * make what is linked from elsewhere an ordinary file at a level more people read. */
+function skillFiles(ctx: AppContext, user: Principal, from: string, L: Locale): FileHash[] {
   const root = ctx.files.fx.root
   const out: FileHash[] = []
   let total = 0
@@ -174,6 +176,7 @@ function skillFiles(ctx: AppContext, user: Principal, from: string): FileHash[] 
     if (st.isSymbolicLink()) throw new HttpError('conflict', 'a link in the skill folder')
     if (st.isDirectory()) { for (const n of fs.readdirSync(r.abs).sort()) walk(`${r.rel}/${n}`); return }
     if (!st.isFile()) return
+    if (st.nlink > 1) throw new HttpError('conflict', st_('moveHardLink', L, { path: r.rel }), { params: { reason: 'skill_hard_link' } })
     if (out.length >= MOVE_MAX_FILES || (total += st.size) > MOVE_MAX_BYTES) throw new HttpError('payload_too_large', 'too many files', { params: { reason: 'skill_too_large' } })
     const bytes = fs.readFileSync(path.join(root, ...r.rel.split('/')))
     out.push({ path: r.rel, size: bytes.length, sha: crypto.createHash('sha256').update(bytes).digest('hex'), bytes })
@@ -182,16 +185,18 @@ function skillFiles(ctx: AppContext, user: Principal, from: string): FileHash[] 
   return out
 }
 
-/** A copy's name: what a folder name may be (lowercase a-z, 0-9, hyphens; at most 64). */
-export const COPY_NAME = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/
+/** A copy's name: what the skill parser takes as a SKILL.md folder's name (chat/skills.ts SKILL_NAME_RE, at most
+ * SKILL_NAME_MAX): lowercase letters and digits in words joined by single hyphens. */
+export const copyNameOk = (name: string) => name.length <= SKILL_NAME_MAX && SKILL_NAME_RE.test(name)
 
-/** SKILL.md (or a single-file skill) with its header's name line set to `name`; null when it has no header name. Only
- * that line changes. */
+/** SKILL.md (or a single-file skill) with its header's name set to `name`; null when it has no header name. Only the
+ * name changes: its line, and the indented lines under it when the name was written as a block (`name: >-`). The
+ * caller checks that the result loads with that name (planMove). */
 export function withName(text: string, name: string): string | null {
-  const m = /^(﻿?---[ \t]*\r?\n)([\s\S]*?)(\r?\n---[ \t]*(?:\r?\n|$))/.exec(text)
+  const m = /^(\uFEFF?---[ \t]*\r?\n)([\s\S]*?)(\r?\n---[ \t]*(?:\r?\n|$))/.exec(text)
   if (!m) return null
   let done = false
-  const head = m[2]!.replace(/^name[ \t]*:.*$/m, () => { done = true; return `name: ${name}` })
+  const head = m[2]!.replace(/^name[ \t]*:[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*/m, () => { done = true; return `name: ${name}` })
   return done ? m[1]! + head + m[3]! + text.slice(m[0].length) : null
 }
 
@@ -269,21 +274,23 @@ export function planMove(ctx: AppContext, user: Principal, have: { skill: Skill;
   const base = copy && o.name ? (manifest ? o.name : `${o.name}.md`) : source.split('/').pop()!
   const target = `${to.root}/${base}`
   const entry = manifest ? `${target}/SKILL.md` : target
-  const files = skillFiles(ctx, user, source)
+  const files = skillFiles(ctx, user, source, L)
   const rules = ctx.files.rules()
   const toWords = levelLabel(to, L)
   let blocked: MovePlan['blocked'] = null
   const block = (key: keyof typeof SKILL_TEXT, vars: Record<string, string> = {}) => { blocked ??= { key, vars } }
   if (!copy && sameLevel(from, to)) block('moveSame')
-  if (copy && o.name !== undefined && !COPY_NAME.test(o.name)) block('folderName')
+  if (copy && o.name !== undefined && !copyNameOk(o.name)) block('folderName')
   if (!copy && rules.access(user, source.split('/')) !== 'write') block('moveNoWrite', { where: levelFolder(from, L) })
   if (to.level === 'project' && !manifest) block('moveNotFolder', { name: skill.name })
   if (to.level !== 'personal' && rules.access(user, target.split('/')) !== 'write') block('moveNoWrite', { where: levelFolder(to, L) })
   // a copy lands without the folder rules inside the skill's folder: its restricted files would reach more people
   if (copy && manifest && rules.ruleFolders().some((f) => foldKey(f).startsWith(foldKey(source) + '/'))) block('copyRuled', { name: skill.name })
   // a skills folder that is not there yet (a project's first skill, a person's first own skill) is free: runMove makes it
+  // a name that cannot be made there (a folder of the same name in other letter case, a look-alike) is taken too; the
+  // person's rights to write there were checked above
   let exists = false
-  try { exists = authorize(ctx.files.fx, rules, user, target, 'write', { mustExist: false, createDirs: true }).exists } catch { exists = false }
+  try { exists = authorize(ctx.files.fx, rules, user, target, 'write', { mustExist: false, createDirs: true }).exists } catch { exists = true }
   if (exists || skillsAtLevel(ctx, user, to).some((s) => s.path !== (copy ? '' : skill.path) && sameSkillName(s.name, name))) block('moveTaken', { to: toWords, name })
   if (to.level === 'project') {
     // the moved skill leaves: what it hides now counts too; a copied one stays and keeps winning for its people
@@ -295,7 +302,10 @@ export function planMove(ctx: AppContext, user: Principal, have: { skill: Skill;
   let text = own ? own.bytes.toString('utf8') : ''
   if (copy && o.name && o.name !== skill.name) {
     const renamed = withName(text, o.name)
+    // the copy must load under its new name where it lands (the parser's own check), or it is not made
+    const loads = renamed === null ? null : checkSkill(renamed, entry)
     if (renamed === null) block('copyNoName', { name: skill.name })
+    else if (!loads?.ok || loads.name !== o.name) block('copyNotLoadable', { name: skill.name, as: o.name })
     else text = renamed
   }
   // at a wider level than a project, a project skill of that name the person sees is hidden for those who get this one
@@ -335,7 +345,7 @@ export function moveOptions(ctx: AppContext, userId: string, rel: string, L: Loc
     first ??= p
     targets.push({ to: levelRef(to), label: levelLabel(to, L), people: p.toPeople, gained: p.gained, lost: p.lost, editors: p.editors, editorsGained: p.editorsGained, ...(p.blocked ? { blocked: st(p.blocked.key, L, p.blocked.vars) } : { token: p.token }) })
   }
-  const files = first?.files ?? skillFiles(ctx, user, isSkillManifest(have.skill.path) ? skillFolder(have.skill.path) : have.skill.path)
+  const files = first?.files ?? skillFiles(ctx, user, isSkillManifest(have.skill.path) ? skillFolder(have.skill.path) : have.skill.path, L)
   // the text from the bytes that were hashed (what the token binds), not read again
   const own = files.find((f) => f.path === have.skill.path) ?? files.find((f) => foldKey(f.path) === foldKey(have.skill.path))
   return {
