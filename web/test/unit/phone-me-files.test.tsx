@@ -236,6 +236,10 @@ describe('Files rows on a phone', () => {
     const m = await page()
     try {
       await m.until(() => m.find('file-row'), 'the rows')
+      // the team root in its fixed order (the server listed groups, shared, skills): 전사 공유, 부서, 팀 스킬
+      // (부서 is pass-through here: its row also carries the "이동만" badge after the name)
+      const names = m.container.querySelectorAll('tr[data-testid="file-row"]').map((r) => nameButton(r).textContent?.trim() ?? '')
+      expect(names.map((n, i) => n.startsWith(['전사 공유', '부서', '팀 스킬'][i]!))).toEqual([true, true, true])
       const shared = nameButton(row(m, 'shared'))
       await pointer(shared, 'pointerdown')
       await m.settle(650)

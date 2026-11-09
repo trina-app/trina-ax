@@ -8,7 +8,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { FileEntry, TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { formatSize } from '../../lib/format'
-import { useFolderWords } from '../../lib/folderLabels'
+import { topFoldersFirst, useFolderWords } from '../../lib/folderLabels'
 import { crumbs } from '../../lib/paths'
 import { useLocale, useT } from '../../i18n'
 import { Button, ErrorNote, Modal, Skeleton, inputCls } from '../ui'
@@ -112,7 +112,8 @@ export default function TeamFilePicker({ open, onClose, onPick, room, max, attac
     })
   const full = picked.size >= room
 
-  const folders = useMemo(() => tree?.entries.filter((e) => e.type === 'folder') ?? [], [tree])
+  // at the team root 전사 공유, 부서, 프로젝트, 팀 스킬, 개인 first, as on the file screen
+  const folders = useMemo(() => topFoldersFirst(tree?.entries.filter((e) => e.type === 'folder') ?? [], tree?.path ?? path), [tree, path])
   const files = useMemo(() => tree?.entries.filter((e) => e.type === 'file') ?? [], [tree])
 
   // arrow keys move through the rows (checkboxes and folders) of the list

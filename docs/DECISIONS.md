@@ -16528,8 +16528,10 @@ what each one is for.
   and copy toasts, the search scope, the upload lines), the folder picker (move, save to team folder, projects, admin
   rules), the team-file picker of the message box (its rows, breadcrumbs, path lines; it already named 내 폴더), the
   message box's team file chips, Home's team files line and the 팀 파일 step; a step line names shared/ the same way
-  (`STEP_PLACE.shared`). A row's hover title stays the disk name. Disk names, API paths, links, drag and drop and every
-  path the AI is given are unchanged. Not changed: the Admin › 폴더 권한 pages (they set rules on paths and show them),
+  (`STEP_PLACE.shared`). A row's hover title stays the disk name. At the team root the five come first in a fixed order,
+  전사 공유, 부서, 프로젝트, 팀 스킬, 개인 (`topFoldersFirst`: Files, the folder picker and the team-file picker), then the
+  rest as the server lists it; a deeper folder keeps that sorting (display only: the API's order and pages do not
+  change). Disk names, API paths, links, drag and drop and every path the AI is given are unchanged. Not changed: the Admin › 폴더 권한 pages (they set rules on paths and show them),
   the Projects page's folder lines.
 - **"부서" for admin groups in Korean.** Every ko string that names an admin group says 부서 (Admin › 부서, rules, the
   access views and editor, pickers for AI connections, credentials, integrations and budgets, usage, audit lines, group

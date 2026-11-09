@@ -5,7 +5,7 @@ import { ChevronRight, Folder, FolderPlus, Home, Lock } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { FileEntry, TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
-import { useFolderWords } from '../lib/folderLabels'
+import { topFoldersFirst, useFolderWords } from '../lib/folderLabels'
 import { crumbs, joinPath, nameProblem } from '../lib/paths'
 import { useLocale, useT } from '../i18n'
 import { Button, ErrorNote, Modal, Skeleton, promptDialog } from './ui'
@@ -59,7 +59,8 @@ export default function FolderPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, path, rev])
 
-  const folders = tree?.entries.filter((e: FileEntry) => e.type === 'folder') ?? []
+  // at the team root 전사 공유, 부서, 프로젝트, 팀 스킬, 개인 first, as on the file screen
+  const folders = topFoldersFirst(tree?.entries.filter((e: FileEntry) => e.type === 'folder') ?? [], path)
   const inRoot = !selectableRoot || path === selectableRoot || path.startsWith(selectableRoot + '/')
   const canPick = !!tree && tree.access !== 'none' && (!needWrite || tree.access === 'write') && inRoot
 

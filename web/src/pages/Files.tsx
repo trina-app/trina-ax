@@ -21,7 +21,7 @@ import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloa
 import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, moveMany, selectable, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
 import { formatDateTime, formatSize } from '../lib/format'
 import { folderGeneration } from '../lib/folderRuns'
-import { useFolderWords } from '../lib/folderLabels'
+import { topFoldersFirst, useFolderWords } from '../lib/folderLabels'
 import { droppedEntries, planFromEntries, planFromInput, type FolderPlan } from '../lib/folderUpload'
 import { baseName, crumbs, isConflictCopy, isInside, joinPath, nameProblem, parentPath } from '../lib/paths'
 import { iconKind, previewKind, type FileIconKind } from '../lib/preview'
@@ -257,8 +257,10 @@ export default function Files() {
     setChecked((c) => (c.size ? new Set() : c))
     anchor.current = null
   }, [path, view])
+  /** the rows as listed: at the team root 전사 공유, 부서, 프로젝트, 팀 스킬, 개인 first (display only) */
+  const rows = useMemo(() => (tree ? topFoldersFirst(tree.entries, path) : []), [tree, path])
   /** the rows that can be selected, as listed */
-  const order = useMemo(() => tree?.entries.filter(selectable).map((e) => e.path) ?? [], [tree])
+  const order = useMemo(() => rows.filter(selectable).map((e) => e.path), [rows])
   // the listing changed (moved away, deleted by someone else): only rows still listed stay selected
   useEffect(() => {
     const here = new Set(order)
@@ -848,7 +850,7 @@ export default function Files() {
                       </tr>
                     </thead>
                     <tbody>
-                      {tree.entries.map((e) => (
+                      {rows.map((e) => (
                         <FileRow
                           key={e.path}
                           e={e}

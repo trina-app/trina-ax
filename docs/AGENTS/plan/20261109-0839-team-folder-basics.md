@@ -79,4 +79,6 @@ Built as planned (DECISIONS "Team folder basics"). Differences and choices:
   파일 step does not offer the team group's own folder.
 - The pack skills 회사 소개서, 카드뉴스 and 홍보 영상 name shared/브랜드/ first (they named only groups/<team>/브랜드/).
 - The connector's folder guide got only the projects/ loose-file words (its length budget, 1,700 characters).
+- Added after review: the team root lists 전사 공유, 부서, 프로젝트, 팀 스킬, 개인 first in that order (display only; Files and
+  the pickers); deeper folders keep their sorting.
 - PR: see the branch's pull request to dev.
