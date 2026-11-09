@@ -110,7 +110,7 @@ test('R3: every actual policy column changes and restores its epoch; bookkeeping
     users:'id username password_hash role status must_change_password deleted_at temp_password_expires_at',
     groups:'id folder_id',group_members:'group_id user_id',folders:'id path',
     folder_rules:'id folder_id subject_type subject_id access',
-    integrations:'id scope owner_user_id kind slug url auth auth_header secret_enc key_version account write_policy status tools_json disabled_tools version template_id',
+    integrations:'id scope owner_user_id kind slug url auth auth_header secret_enc key_version account write_policy status tools_json disabled_tools version template_id oauth_client oauth_client_enc oauth_client_key_version',
     integration_access:'integration_id subject_type subject_id',connected_folders:'id name source',
   }
   const epoch=()=> (db.query('SELECT generation FROM safe_ops_policy WHERE id=1').get() as {generation:number}).generation

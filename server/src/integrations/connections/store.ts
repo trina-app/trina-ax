@@ -5,7 +5,7 @@
 import type { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
-import type { Integration, IntegrationAccess, Locale, Role } from '@mycel/shared/api'
+import type { Integration, IntegrationAccess, Locale, OAuthClientView, Role } from '@mycel/shared/api'
 import { Vault, detectVersion } from '../../credentials/vault'
 import { audit } from '../../admin/audit'
 import { getTeamSettings } from '../../admin/settings'
@@ -30,6 +30,29 @@ export interface Row {
   disabled_tools: string
   /** a member's own connection made from an admin's template (templates.ts, migration 333); null otherwise */
   template_id?: string | null
+  /** sign-in through its own app (migration 338): ClientInfo as JSON, and the client secret sealed with clientAad */
+  oauth_client?: string | null
+  oauth_client_enc?: string | null
+  oauth_client_key_version?: number
+}
+
+/** what is not secret about an own app (integrations.oauth_client, integration_templates.oauth_client). foundTokenUrl:
+ * the token address its first sign-in found from the server (service.ts pinFound), never shown */
+export interface ClientInfo { clientId: string; authorizationUrl: string | null; tokenUrl: string | null; scope: string | null; foundTokenUrl?: string | null }
+/** The stored app, or null (none, or a value that is not one: the column is ours alone). */
+export function clientInfo(json: string | null | undefined): ClientInfo | null {
+  if (!json) return null
+  try {
+    const v = JSON.parse(json)
+    if (!v || typeof v.clientId !== 'string' || !v.clientId) return null
+    const str = (x: unknown) => (typeof x === 'string' && x ? x : null)
+    return { clientId: v.clientId, authorizationUrl: str(v.authorizationUrl), tokenUrl: str(v.tokenUrl), scope: str(v.scope), ...(str(v.foundTokenUrl) ? { foundTokenUrl: str(v.foundTokenUrl) } : {}) }
+  } catch { return null }
+}
+/** what whoever manages it sees of an own app: never the secret */
+export function clientView(json: string | null | undefined, enc: string | null | undefined): OAuthClientView | null {
+  const c = clientInfo(json)
+  return c ? { clientId: c.clientId, authorizationUrl: c.authorizationUrl, tokenUrl: c.tokenUrl, scope: c.scope, hasSecret: !!enc } : null
 }
 export interface FlowRow {
   id: string; integration_id: string; integration_version: number; user_id: string; session_id: string; state_hash: string
@@ -226,6 +249,8 @@ export function view(db: Database, row: Row, viewer: Viewer, locale: Locale): In
     toolsUpdatedAt: row.tools_updated_at, access: row.scope === 'team' && manage ? accessOf(db, row.id) : null,
     createdBy: creator, createdAt: row.created_at, updatedAt: row.updated_at, lastUsedAt: row.last_used_at, canManage: manage,
     templateId: row.template_id ?? null,
+    // the app's ID and addresses are for whoever manages the connection (a template's app is the admin's)
+    oauthClient: manage && !row.template_id ? clientView(row.oauth_client, row.oauth_client_enc) : null,
   }
 }
 
@@ -258,6 +283,9 @@ export class SecretBox {
 
 export const connectionAad = (r: Pick<Row, 'id' | 'scope' | 'owner_user_id'>) => `${r.scope}:${r.owner_user_id ?? 'team'}:${r.id}`
 export const flowAad = (f: Pick<FlowRow, 'id' | 'user_id'>) => `flow:${f.user_id}:${f.id}`
+/** an own app's client secret: bound to its connection, or to its template */
+export const clientAad = (r: Pick<Row, 'id' | 'scope' | 'owner_user_id'>) => `${connectionAad(r)}:client`
+export const templateClientAad = (id: string) => `template:${id}:client`
 
 // ---------------- an admin's request to connect a service as one's own (requests.ts, migration 331) ----------------
 export interface RequestRow {
