@@ -106,4 +106,4 @@ Changed from the plan:
   silently doing nothing.
 - The web mock still takes a `folderPath` from specs (fixtures of older projects); the real server refuses it.
 
-PR: see the branch `feat/projects-in-projects`.
+PR: https://github.com/trina-app/trina-ax/pull/257
