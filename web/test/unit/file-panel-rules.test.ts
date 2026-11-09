@@ -1,5 +1,5 @@
 // The file panel's small rules (2026-11-06 e2e polish): a Markdown file's YAML front matter becomes a quiet name /
-// description block instead of one bold line (lib/markdown.ts splitFrontMatter, components/FilePanel.tsx); a CSV
+// description block instead of one bold line (lib/markdown.ts splitFrontMatter, components/FileBody.tsx); a CSV
 // preview right-aligns its number columns (lib/preview.ts numberColumns); a file panel stays on the page it was
 // opened on, the Files page, or the chat a new-chat page's first message opens (lib/sidePanel.ts keepsFilePanel,
 // components/Layout.tsx). How they look is checked in the browser.
