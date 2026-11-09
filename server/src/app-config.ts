@@ -194,9 +194,9 @@ export const AppConfigFile = z.object({
    * once its control plane refuses owner and admin reset links after a transfer (both forms of `reset-link`) until the
    * new owner claims recovery. Until then a hosted team gets no lead flag and no card, and both people are told who can
    * still reset passwords. With it on, a transfer sets the recovery lock that `mycel-ctl reset-link` keeps until
-   * `admin.js owner-recovery-claimed` clears it. Do not turn it on before the control plane can run that claim (a
-   * tenant command in shared/src/cloud-protocol and mycel-ctl): until then a lock could not be cleared, and nobody could
-   * reset an owner or admin password of that team from outside. Ignored on a self-installed server, office mode and dev. */
+   * `admin.js owner-recovery-claimed` clears it (the tenant command `owner-recovery-claimed`, shared/src/cloud-protocol and
+   * mycel-ctl). Do not turn it on before the control plane runs that command after the new owner's claim: until then a
+   * lock could not be cleared, and nobody could reset an owner or admin password of that team from outside. Ignored on a self-installed server, office mode and dev. */
   handoverSafe: z.boolean().optional(),
   /** the knowledge graph (server/src/knowledge-graph/, docs/KNOWLEDGE-GRAPH.md): `codegraph` is the CodeGraph command
    * to use (a path; relative to this file's folder), '' never to use one. Absent: `codegraph` on the PATH, if any. */
