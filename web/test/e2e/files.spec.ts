@@ -625,14 +625,15 @@ test('move several files: one question for all that would become private, one to
   await bar(page).getByRole('button', { name: '옮기기' }).click()
   const picker = page.getByRole('dialog', { name: '3개 옮기기' })
   await picker.getByRole('button', { name: '팀 폴더' }).click()
-  await picker.getByRole('button', { name: 'users' }).click()
-  await picker.getByRole('button', { name: 'olga' }).click()
+  // the top folders by their words (docs/DECISIONS.md "Team folder basics"): users/ is 개인, Olga's own is 내 폴더
+  await picker.getByRole('button', { name: '개인' }).click()
+  await picker.getByRole('button', { name: '내 폴더' }).click()
   await picker.getByTestId('folder-pick').click()
   // Bob can read marketing and not Olga's own folder: asked once for the three, with the single move's words
   const ask = page.getByRole('dialog', { name: '나만 보게 옮길까요?' })
   await expect(ask).toContainText('3개를 개인 폴더로 옮기면 1명이 더 이상 볼 수 없어요.')
   await ask.getByTestId('dialog-confirm').click()
-  await expect(page.getByText('3개를 users/olga(으)로 옮겼어요.')).toBeVisible()
+  await expect(page.getByText('3개를 내 폴더(으)로 옮겼어요.')).toBeVisible()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   // three tries answered audience_narrowed, then the same three with confirm
   expect((await moves(page)) - before).toBe(6)

@@ -29,7 +29,7 @@ test('templates stay dormant, select readable source/private output, and reuse t
   await form.getByTestId('template-kind').selectOption('weekly-summary')
   await form.getByTestId('template-source').click()
   await expect(page.getByTestId('folder-pick')).toBeDisabled()
-  await page.getByRole('dialog').getByRole('button', { name: 'shared' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: '전사 공유' }).click()
   await page.getByTestId('folder-pick').click()
   await form.getByTestId('template-time').fill('08:30')
   await form.getByTestId('template-weekday').selectOption('1')
@@ -218,7 +218,7 @@ for (const [locale, dict] of [['ko', ko], ['en', en], ['id', id]] as const) {
     await page.getByTestId('new-task-template').click()
     const form = page.getByTestId('schedule-templates')
     await form.getByTestId('template-source').click()
-    await page.getByRole('dialog').getByRole('button', { name: 'shared' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: '전사 공유' }).click()
     await page.getByTestId('folder-pick').click()
     for (let i = 0; i < 2; i++) {
       await form.getByTestId('template-create').click()
