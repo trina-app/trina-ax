@@ -57,8 +57,9 @@ export function projectLevelPossible(folder: string): boolean {
 export const projectSkillsDir = (folder: string) => `${folder}/${SKILLS_DIR}`
 
 /** The file tools' refusal for a skill folder (move, copy, rename): the AI once answered "use write / edit or the
- * Files screen" by leaving a README in a project folder as a stand-in for the skills it could not move. */
-export const SKILL_FILES_REFUSAL = 'skill folders (skills/, a group\'s or a project\'s skills: what people\'s AI follows) do not move with files. Skills do not move with files: to put a skill at another level (the team, a group, a project, the user\'s own), ask with move_skill; to change one, write / edit it (the user confirms on a card). Never make a skills folder, a README or a copy somewhere else as a stand-in.'
+ * Files screen" by leaving a README in a project folder as a stand-in for the skills it could not move, and later
+ * refused to copy a skill the person asked to copy. A move and a copy are move_skill's (`keep` for a copy). */
+export const SKILL_FILES_REFUSAL = 'skill folders (skills/, a group\'s or a project\'s skills: what people\'s AI follows) do not move or copy with the file tools. To put a skill at another level (the team, a group, a project, the user\'s own), use move_skill: to move it, or with keep: true to copy it when the user asks for a copy (the original stays; every file, on one card the user confirms). To change one, write / edit it (the user confirms on a card). Never leave a README or an empty skills folder as a stand-in.'
 
 /** How the AI is told where a skill root is (refusals). */
 export function skillRootWords(root: SkillRoot | null): string {

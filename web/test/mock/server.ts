@@ -1326,7 +1326,7 @@ export class MockServer {
     }
     // like server/src/chat/turn.ts confirmSkillWrite into a project's skills folder (projects/<name>/skills/): a name a
     // wider skill already has is not saved under that name (docs/DECISIONS.md "Project skills"); and move_skill's card
-    // (server/src/chat/tools.ts): a group's skill to this chat's project, only when nobody gains it
+    // (server/src/chat/tools.ts): a group's skill to this chat's project, behind the card that says who gains and loses it
     const finish = (text: string) => {
       assistant.content = text
       pub({ type: 'message.delta', data: { chatId, messageId: assistant.id, offset: 0, text } })
@@ -1372,15 +1372,27 @@ export class MockServer {
       const o = skill ? this.skillMoveOptions(user, skill.path) : null
       const t = project && o ? o.targets.find((x) => x.to.level === 'project' && x.to.projectId === project.id) : undefined
       if (!skill || !o || !t || t.blocked) { finish(t?.blocked ?? '옮길 스킬이나 프로젝트를 찾지 못했어요.'); return }
-      // the AI only narrows (server/src/skills/move.ts AI_MOVES): the team's or a group's to a project, nobody new gets
-      // it or may change it; everything else is the Skills page's
-      if (t.gained > 0 || t.editorsGained > 0) { finish('이 스킬은 더 많은 사람이 받거나 고칠 수 있게 되어 제가 옮길 수 없어요. 팀 스킬 화면의 옮기기…에서 옮겨 주세요.'); return }
+      // like server/src/chat/tools.ts move_skill: any move the Skills page makes, behind the server's card: who gains and
+      // who loses it in one line, by name for the owner and admins (counts for everyone else), who may change it there,
+      // SKILL.md always (in full when anyone new gets it) and every file
       const kb = (n: number) => `${Math.max(1, Math.round(n / 1024))} KB`
+      const fromIds = new Set(this.levelPeople(user, skill.project ? { level: 'project', projectId: skill.project.id } : skill.group ? { level: 'group', groupId: skill.group.id } : { level: 'team' }))
+      const toIds = new Set(this.levelPeople(user, t.to))
+      const gainedIds = [...toIds].filter((x) => !fromIds.has(x)), lostIds = [...fromIds].filter((x) => !toIds.has(x))
+      const change = t.gained && t.lost ? `${t.gained}명이 새로 쓰고 ${t.lost}명은 못 쓰게 돼요 (${o.from.people}명 → ${t.people}명).` : t.gained ? `${t.gained}명이 새로 쓰게 돼요 (${o.from.people}명 → ${t.people}명).` : t.lost ? `${t.lost}명은 못 쓰게 돼요 (${o.from.people}명 → ${t.people}명).` : `쓰는 사람은 그대로예요 (${t.people}명).`
+      const editors = t.editorsGained ? `옮기면 ${t.editors}명이 고칠 수 있어요. 그중 ${t.editorsGained}명은 새로 고칠 수 있게 돼요.` : `옮기면 ${t.editors}명이 고칠 수 있어요.`
+      const names = (ids: string[]) => { const n = ids.map((id) => this.users.find((u) => u.id === id)?.name ?? id).sort((a, b) => a.localeCompare(b, 'ko')); return n.slice(0, 5).join(', ') + (n.length > 5 ? ` 외 ${n.length - 5}명` : '') }
+      const sees = user.role !== 'member'
+      const fields = sees ? [...(gainedIds.length ? [{ name: '새로 쓰게 돼요', value: names(gainedIds) }] : []), ...(lostIds.length ? [{ name: '더 못 쓰게 돼요', value: names(lostIds) }] : [])] : []
       const answer = await ask({
         kind: 'ask_user', origin: 'server', requestId: 'mv1', allowText: false, multiple: false,
-        question: [`"${skill.name}" 스킬을 옮길까요?\n\n${o.from.label} ${o.from.people}명 → ${t.label} ${t.people}명`, t.lost ? `${t.lost}명은 이 스킬을 더 쓰지 않아요.` : '', `옮기면 ${t.editors}명이 고칠 수 있어요.`].filter(Boolean).join('\n\n'),
+        question: [`"${skill.name}" 스킬을 옮길까요?\n\n${o.from.label} → ${t.label}\n${change}\n${editors}`, t.gained ? '새로 쓰는 사람의 AI가 이 스킬을 따라요. 아래 전체 내용을 확인해 주세요.' : ''].filter(Boolean).join('\n\n'),
         options: [{ label: '옮기기', value: 'move' }, { label: '옮기지 않기', value: 'skip' }],
-        details: [{ label: '옮길 파일', text: o.files.map((f) => `${f.path} (${kb(f.size)})`).join('\n') }],
+        details: [
+          ...(fields.length ? [{ label: '누가 바뀌나요', text: '', fields }] : []),
+          { label: 'SKILL.md 전체 내용', text: o.text, ...(t.gained ? {} : { collapsedAt: 600 }) },
+          { label: '옮길 파일', text: o.files.map((f) => `${f.path} (${kb(f.size)})`).join('\n') },
+        ],
       })
       if (answer !== 'move') { finish('옮기지 않았어요.'); return }
       const entry = this.moveSkillFiles(skill.path, this.levelRoot(user, t.to)!)

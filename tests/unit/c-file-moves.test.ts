@@ -174,12 +174,14 @@ describe('move_files', () => {
     expect(has('shared/archive/gs-sales/skills/offer.md')).toBe(true)
   })
 
-  test('the refusal points at move_skill and forbids stand-ins (docs/DECISIONS.md "Project skills")', async () => {
+  test('the refusal points at move_skill for a move and for a copy, and forbids stand-ins (docs/DECISIONS.md "Project skills")', async () => {
     const r = await call('carol', 'move_files', { paths: ['skills/team-rules.md'], to_folder: 'projects/falcon' }, { person: ask(true), turn: true })
     expect(r.isError).toBe(true)
-    expect(r.text).toContain('Skills do not move with files')
-    expect(r.text).toContain('ask with move_skill')
-    expect(r.text).toContain('Never make a skills folder, a README or a copy somewhere else as a stand-in')
+    expect(r.text).toContain('do not move or copy with the file tools')
+    expect(r.text).toContain('use move_skill: to move it, or with keep: true to copy it when the user asks for a copy')
+    expect(r.text).toContain('Never leave a README or an empty skills folder as a stand-in')
+    // a copy the person asked for is no longer forbidden
+    expect(r.text).not.toContain('or a copy')
     // the old pointer at the Files screen is gone
     expect(r.text).not.toContain('or the Files screen')
   })
@@ -196,13 +198,13 @@ describe('move_files', () => {
     // a folder holding a skills/ folder into projects/: it would become a project's skills folder
     put('shared/kit/skills/x/SKILL.md', '---\nname: x\ndescription: x\n---\nsteps\n')
     const turnId = A.turn('carol', A.chat('carol'))
-    expect(() => componentC(A.ctx).files.move('carol', 'shared/kit', 'projects/kit', 'fail', { turnId })).toThrow(/Skills do not move with files/)
+    expect(() => componentC(A.ctx).files.move('carol', 'shared/kit', 'projects/kit', 'fail', { turnId })).toThrow(/do not move or copy with the file tools/)
     // emptied, or carried off with the project's folder
     put('projects/falcon/skills/kept/SKILL.md', '---\nname: kept\ndescription: x\n---\nsteps\n')
     const out = await call('alice', 'move_files', { paths: ['projects/falcon/skills/kept'], to_folder: 'projects/falcon/drafts' }, { person: ask(true), turn: true })
     expect(out.isError).toBe(true)
-    expect(() => componentC(A.ctx).files.move('carol', 'projects/falcon', 'shared/falcon-old', 'fail', { turnId })).toThrow(/Skills do not move with files/)
-    await expect(componentC(A.ctx).files.copy('carol', 'shared/glossary.md', 'projects/falcon/skills/kept/notes.md', { turnId })).rejects.toThrow(/Skills do not move with files/)
+    expect(() => componentC(A.ctx).files.move('carol', 'projects/falcon', 'shared/falcon-old', 'fail', { turnId })).toThrow(/do not move or copy with the file tools/)
+    await expect(componentC(A.ctx).files.copy('carol', 'shared/glossary.md', 'projects/falcon/skills/kept/notes.md', { turnId })).rejects.toThrow(/do not move or copy with the file tools/)
     expect(has('projects/falcon/skills/kept/SKILL.md')).toBe(true)
   })
 

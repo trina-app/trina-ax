@@ -168,13 +168,16 @@ export const SkillInput = z.strictObject({
 export const FindSkillsInput = z.strictObject({
   query: z.string().min(1).max(500).describe('A few words of what the user wants, in their language, e.g. "quote for a customer" or "weekly report".'),
 })
-/** Move one skill to another level (server/src/skills/move.ts): the user confirms on the server's card; the AI only
- * moves a skill where fewer people get it. */
+/** Move one skill to another level (server/src/skills/move.ts), as the Skills page's Move does, or copy it (`keep`;
+ * `name`: the copy's new name): the user confirms on the server's card, which says who gains and loses it and shows
+ * its SKILL.md. */
 export const MoveSkillInput = z.strictObject({
   skill: z.string().min(1).max(300).describe('The skill\'s name as listed in your instructions, or its path from find_skills.'),
   to: z.enum(['team', 'group', 'project', 'personal']).describe('The level to move it to: the whole team, one of the user\'s groups, a project (only that project\'s chats use it), or the user\'s own skills.'),
   group: z.string().min(1).max(200).optional().describe('For "group": the group\'s name.'),
   project: z.string().min(1).max(300).optional().describe('For "project": the project\'s name or folder; without it, this chat\'s project.'),
+  keep: z.boolean().optional().describe('true when the user asked for a copy: the original stays where it is and a copy goes to the level.'),
+  name: z.string().min(1).max(64).optional().describe('Only with keep: the copy\'s new name (lowercase a-z, 0-9 and hyphens, at most 64). Needed for a project copy of a skill the user keeps at a wider level under the same name.'),
 })
 
 export const AskUserInput = z.strictObject({

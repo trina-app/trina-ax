@@ -17035,21 +17035,51 @@ previews are core. Step (b) of the plan `docs/AGENTS/plan/20261109-0939-room-fil
 - **Moving between levels:** one action, `skills/move.ts`, for the AI's `move_skill` and the Skills page's
   **옮기기…**. Write on both places, no skill of that name at the target, a SKILL.md folder for a project, and for a
   project no wider skill of the name. A skills folder that is not there yet (a project's first skill, a person's first
-  own skill) is made, with no rules of its own. The card says who gains and who loses it with counts ("리드 부서 6명 →
-  견적 프로젝트 채팅 4명"), who may change it there ("옮기면 9명이 고칠 수 있어요") and lists every file; its yes is bound to
-  a hash of every file, the target, who gets it and who may change it there, checked again as it moves (anything
-  different: refused, look again).
-- **The AI only narrows, by level and by people** (review): `move_skill` moves only the team's skill to a group or a
-  project, or a group's to a project (`AI_MOVES`), and only where nobody new reads it and nobody new may change it. A
-  skill never leaves a project by the AI and nothing goes into one person's own skills: a planted project skill telling
-  the AI to move it to "personal" would otherwise run in all of that person's chats, above their team and group skills,
-  no longer counted as outside content, with a card saying "4 → 1". Everything else is the Skills page's 옮기기…, which
-  shows the whole text first. Refused in scheduled runs; not offered in rooms, shared chats or sub-agents. A folder that
-  is not a project yet: "먼저 폴더를 프로젝트로 만들어 주세요". Audited as `skills.move` (both levels, the gained and lost
-  counts, the editors; a person's own folder never named) and each file as `skills.change`. For a team skill the card
-  also says that a rule on `skills/<name>/` can narrow it instead.
-- **The file tools' refusal** for skill folders now says "Skills do not move with files; ask with move_skill; never
-  make a skills folder, README or copy as a stand-in" instead of pointing at the Files screen.
+  own skill) is made, with no rules of its own. The card says who gains and who loses it in one line ("2명이 새로 쓰고
+  2명은 못 쓰게 돼요 (3명 → 3명)": never "2 more (3 → 3)"), who may change it there ("옮기면 3명이 고칠 수 있어요. 그중
+  1명은 새로 고칠 수 있게 돼요") and lists every file; its yes is bound to a hash of every file, the name, the target, who
+  gets it and who may change it there, checked again as it moves (anything different: refused, look again; the AI is
+  told what changed and to call `move_skill` again for a new card).
+- **The AI moves like the Skills page, behind the server card** (owner, 2026-11-10; this replaces "the AI only narrows"
+  of the #248 review). The owner asked the AI to move two leads skills into the project "견적서 제작"; `move_skill`
+  refused ("2 more people would get this skill (3 → 3)"), could not say who, and sent the owner to the Skills page. The
+  owner found the narrowing-only rule too restrictive ("왜케 제약이 많아?? … 이유도 모르고?"), and it was not the design
+  they had approved: the card says who gains and loses, and the person decides on a card the AI cannot forge. Now:
+  - `move_skill` may propose any move the person could make with 옮기기…, with the same checks; `AI_MOVES` and the
+    "more people / more editors" refusals are gone. Still refused in scheduled runs; not offered in rooms, shared chats
+    or sub-agents.
+  - **Names only where the person can already see them:** the owner and admins see who gains, loses and newly may
+    change it by name (Admin › People and folder permissions show it), a project's creator for that project's side (its
+    access screen shows it); everyone else gets the counts in the line above. Members do not see group membership or a
+    project's participants anywhere (`/api/people` has no groups; `GET /api/projects/:id/access` is its creator's and
+    admins'). The AI gets the same names or counts, so it can answer "who?" without guessing.
+  - **SKILL.md is always on the card**, from the bytes the token binds: in full when anyone new gets it or it would be
+    followed ahead of where it is now (out of a project's chats, where it was marked `[project: …]`; into a group or the
+    person's own), folded after its start (one click) otherwise. A planted project skill asking to be moved into the
+    person's own skills now reaches a card with every word of it, instead of a refusal.
+  - A move to a wider level over a project skill's name says that project skill is hidden for the people who get this
+    one (personal > group > team > project).
+  - **Every refusal says why and what to do**, in the tool result: whose folder cannot be written and who can (by the
+    same name rule), which name is taken where, the user's groups or projects when the one named is not theirs.
+  - Moving into a person's own skills needs no more than before: the AI already writes `users/<me>/skills/` without a
+    card. A card for that is a follow-up.
+- **Copies** (owner, 2026-11-10: "복사도 안 되면 새 스킬은 추가할 수 있어? 그거나 복사나 같은 거 아냐?"). The AI could
+  write a new project skill behind the save card, which is a copy in effect, but every text told it never to copy, so
+  it refused when asked. `move_skill` with `keep: true` copies (the original stays), with an optional `name`:
+  - One card, like a move's, for the whole skill: read on the original is enough, write on the target; nobody loses it
+    ("2명이 새로 쓰게 돼요 (3명 → 5명)": the after count holds either one). The copy is every file byte for byte, the
+    bytes the token binds (binary files too); with `name` only the folder (or file) name and SKILL.md's `name:` line
+    change, and the card shows the SKILL.md the copy will have.
+  - **Same name at a narrower level:** one name runs personal > group > team > project, and the person keeps the
+    original, so a project copy under the name of their group's or team's skill would never run for them (nor for the
+    others who have that one). It is refused with that reason in the AI's text, which suggests a `name` or moving
+    instead. The owner's leads → quotation copy needs a name.
+  - A skill folder with folder rules inside it is not copied (the copy would land without them).
+  - Audited as `skills.copy` (both levels, a person's own folder never named; the files; the SKILL.md written and the
+    original's hashes; by the AI or not; the turn); its file event carries `copiedFrom`, which Admin › 팀 스킬 shows as
+    the change's `from`. Nothing is written into the skill's files.
+  - The file tools still never move or copy a skill folder; their refusal points at `move_skill` for both and says
+    never to leave a README or an empty skills folder as a stand-in.
 - **Switching on:** three ways turn skills on in a project's chats, after "Projects live only in projects/": a person
   moving a project's folder into `projects/<name>` from elsewhere on the Files screen, an admin pointing a project whose
   folder is in the trash or gone at an existing `projects/<name>` that holds skills (that folder had no project, so its
@@ -17065,7 +17095,7 @@ previews are core. Step (b) of the plan `docs/AGENTS/plan/20261109-0939-room-fil
   missing number, so 279 applies on a database that already has 280).
 - **Out:** sharing a skill to a project from the share flow, project skill usage in Admin › Usage (not recorded, as
   personal skills), the project-folder word bonus in `find_skills` (removed).
-- Tests: `tests/unit/project-skills.test.ts`, `tests/unit/move-skill.test.ts`, cases in `c-file-moves`, `b-rooms-ai`,
+- Tests: `tests/unit/project-skills.test.ts`, `tests/unit/move-skill.test.ts` (the owner's case, names and counts, copies, refusals, stale cards), cases in `c-file-moves`, `b-rooms-ai`,
   `b-shared-chats`, `skill-permissions` and `remote-mcp-share`; web e2e `project-skills.spec.ts`.
 - Version impact: **minor** (a new level, a tool, two endpoints, optional API fields, one add-only migration).
 
