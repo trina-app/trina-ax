@@ -17,31 +17,13 @@ import { Denied } from '../policy/errors'
 import { sha256 } from '../files/store'
 import type { ToolCtx } from '../files/service'
 
-export const SKILLS_DIR = 'skills'
-const GROUPS_DIR = 'groups'
-export const PROJECTS_DIR = 'projects'
+// the path rule itself is in shared/ (no dependencies: the dev environment's srt runner uses it in its own image)
+import { PROJECTS_DIR, skillRootOf, SKILLS_DIR, type SkillRoot } from '@mycel/shared/skill-roots'
+export { PROJECTS_DIR, skillRootOf, SKILLS_DIR, type SkillRoot }
 /** An approval for a produced file (make_file, generated media): the bytes are made after the card. */
 export const ANY_CONTENT = '*'
 
 const fold = (s: string) => s.normalize('NFC').toLowerCase()
-
-export type SkillRoot = { kind: 'team' } | { kind: 'group'; folder: string } | { kind: 'project'; folder: string }
-
-/** The skill root `rel` is in, by the resolved path: the team's (skills/ and below), a group's (groups/<folder>/
- * skills/ and below, `folder` the group's folder groups/<name>), a project's (projects/<name>/skills/ and below,
- * `folder` the project's folder projects/<name>), or null for every other path. Each name is compared without letter
- * case or Unicode form (a case-insensitive team folder serves 'Skills/x.md' from skills/), so the check never misses
- * the real folder. Any groups/<name>/skills and projects/<name>/skills counts, whether or not a group or a project has
- * that folder now (fail closed: a folder left behind is guarded too). */
-export function skillRootOf(rel: string): SkillRoot | null {
-  const segs = rel.split('/')
-  if (fold(segs[0] ?? '') === SKILLS_DIR) return { kind: 'team' }
-  if (segs.length >= 3 && segs[1] && fold(segs[2]!) === SKILLS_DIR) {
-    if (fold(segs[0]!) === GROUPS_DIR) return { kind: 'group', folder: `${segs[0]}/${segs[1]}` }
-    if (fold(segs[0]!) === PROJECTS_DIR) return { kind: 'project', folder: `${segs[0]}/${segs[1]}` }
-  }
-  return null
-}
 
 /** In a skill root that more than one person's AI follows: skills/ (the team's), groups/<folder>/skills/ (a group's)
  * or projects/<name>/skills/ (a project's), the folder itself or anything below it (skillRootOf). */

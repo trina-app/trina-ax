@@ -33,7 +33,8 @@
 import crypto from 'node:crypto'
 import { PRODUCT } from '@mycel/shared'
 import { atLeast, type Access, type Principal, type RuleSet } from '../../policy/access'
-import { skillRootOf } from '../../skills/guard'
+// the path rule of skill roots, from shared/ (this folder runs on its own in tests/linux/Dockerfile.srt)
+import { skillRootOf } from '@mycel/shared/skill-roots'
 
 /** Team-relative folder paths ('' = the team root), each list shallowest first. */
 export interface FolderView { read: string[]; write: string[]; denyRead: string[]; denyWrite: string[] }

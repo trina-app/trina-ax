@@ -442,6 +442,31 @@ describe('the plan file (the same rules as mycel-boxd)', () => {
   })
 })
 
+describe('the srt attack image builds from what it copies (tests/linux/Dockerfile.srt)', () => {
+  test('the files the attack suite loads import only node, @mycel/shared, the srt folder and policy/access.ts', () => {
+    // the image copies shared/, server/src/devenv/srt and server/src/policy/access.ts only: a new import of anything else
+    // breaks the CI step "Dev environment on srt, attack suite" (it did once: skills/guard from access.ts)
+    const docker = fs.readFileSync(path.join(REPO, 'tests/linux/Dockerfile.srt'), 'utf8')
+    expect(docker).toContain('COPY server/src/devenv/srt /opt/mycel/server/src/devenv/srt')
+    expect(docker).toContain('COPY server/src/policy/access.ts /opt/mycel/server/src/policy/access.ts')
+    const seen = new Set<string>()
+    const visit = (rel: string) => {
+      if (seen.has(rel)) return
+      seen.add(rel)
+      const text = fs.readFileSync(path.join(REPO, rel), 'utf8')
+      for (const m of text.matchAll(/^(?:import|export)[^'"]*from\s+['"]([^'"]+)['"]/gm)) {
+        const spec = m[1]!
+        if (spec.startsWith('node:') || spec === 'bun:sqlite' || spec.startsWith('@mycel/shared')) continue
+        const next = path.posix.normalize(path.posix.join(path.posix.dirname(rel), spec)) + '.ts'
+        expect([rel, spec, next.startsWith('server/src/devenv/srt/') || next === 'server/src/policy/access.ts']).toEqual([rel, spec, true])
+        visit(next)
+      }
+    }
+    for (const m of fs.readFileSync(path.join(REPO, 'tests/linux/srt-attack.ts'), 'utf8').matchAll(/from\s+'\.\.\/\.\.\/(server\/src\/[^']+)'/g)) visit(`${m[1]}.ts`)
+    expect([...seen]).toContain('server/src/devenv/srt/access.ts')
+  })
+})
+
 describe('srt\'s write denies in a shared cwd (placeholders.ts)', () => {
   test('the absent names exist while a run in the cwd lives; the empty ones go when the last run ends', () => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'srt-ph-'))
