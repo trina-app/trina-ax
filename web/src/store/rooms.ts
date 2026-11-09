@@ -683,7 +683,11 @@ export const useRooms = create<RoomsState>((set, get) => {
         const room = await api.call(API.setRoomHidden, { params: { id: roomId }, body: { hidden } })
         set((s) => withRoom(s, room))
       } catch (e) {
-        set((s) => withHidden(s, roomId, !!was.hidden))
+        // as it was: shown or hidden, and its pin (hiding took it off)
+        set((s) => {
+          const d = withHidden(s, roomId, !!was.hidden)
+          return was.pinnedAt ? { ...d, rooms: d.rooms.map((r) => (r.id === roomId ? { ...r, pinnedAt: was.pinnedAt } : r)) } : d
+        })
         throw e
       }
     },

@@ -77,10 +77,11 @@ test('pin and unpin every kind: mine only, the same again changes nothing, only 
   const theirs = await pin(nora.client, dm.id)
   expect(theirs.body.pinnedAt).not.toBe((await roomOf(mia.client, dm.id)).pinnedAt)
   expect(pinRows(dm.id)).toEqual([mia.id, nora.id].sort())
-  // a message in the room sends each member their own copy, each with their own pin
+  // a rename sends each member their own copy of the room, each with their own pin
   hub.clear()
   await mia.client.call('PATCH', `/api/rooms/${chat.id}`, { name: 'plans' })
   const copies = (u: string) => hub.of(u).filter((e) => e.type === 'room.updated' && e.data.roomId === chat.id).map((e) => e.data.room.pinnedAt)
+  expect(copies(mia.id).length).toBeGreaterThan(0)
   expect(copies(mia.id).every((x) => typeof x === 'string')).toBe(true)
   expect(copies(nora.id).length).toBeGreaterThan(0)
   expect(copies(nora.id).every((x) => x === undefined)).toBe(true)
@@ -103,17 +104,43 @@ test('pin and unpin every kind: mine only, the same again changes nothing, only 
   expect((h.ctx.db.query('SELECT COUNT(*) n FROM audit_log').get() as { n: number }).n).toBe(audits)
 })
 
-test('the order: the most recently pinned first, also two pins in the same instant; the list keeps its order by activity', async () => {
+test('the order: the most recently pinned first, also when the clock is behind the last pin; the list keeps its order by activity', async () => {
   const { mia, rooms, pin, team, all, dm, chat } = await setup()
   const before = (await rooms(mia.client)).map((r) => r.id)
-  for (const room of [team, dm, all, chat]) await pin(mia.client, room.id)
+  for (const room of [team, dm]) await pin(mia.client, room.id)
+  // the last pin a minute ahead of the clock (a clock set back, two pins in the same instant): the next ones still come
+  // after it, a millisecond apart
+  const ahead = new Date(Date.now() + 60_000).toISOString()
+  h.ctx.db.query('UPDATE room_pins SET pinned_at = ? WHERE user_id = ? AND room_id = ?').run(ahead, mia.id, dm.id)
+  for (const room of [all, chat]) await pin(mia.client, room.id)
   const list = await rooms(mia.client)
   // the server's list stays by latest activity (the app puts the pins first)
   expect(list.map((r) => r.id)).toEqual(before)
   const byPin = list.filter((r) => r.pinnedAt).sort((a, b) => b.pinnedAt.localeCompare(a.pinnedAt)).map((r) => r.id)
   expect(byPin).toEqual([chat.id, all.id, dm.id, team.id])
-  // pins made in the same millisecond still differ
-  expect(new Set(list.map((r) => r.pinnedAt)).size).toBe(4)
+  const at = (id: string) => Date.parse(list.find((r) => r.id === id).pinnedAt)
+  expect([at(all.id) - Date.parse(ahead), at(chat.id) - Date.parse(ahead)]).toEqual([1, 2])
+})
+
+test('pins an older build left: a hidden room\'s and one from before I joined never show or count; pinning again replaces them', async () => {
+  const { mia, nora, pin, roomOf, pinRows, team, dm } = await setup()
+  const db = h.ctx.db
+  // an older build hid the DM and kept its pin
+  await pin(mia.client, dm.id)
+  db.query('UPDATE room_members SET hidden_at = ? WHERE room_id = ? AND user_id = ?').run(new Date().toISOString(), dm.id, mia.id)
+  expect((await roomOf(mia.client, dm.id)).pinnedAt).toBeUndefined()
+  expect((await mia.client.call('GET', `/api/rooms/${dm.id}`)).pinnedAt).toBeUndefined()
+  // hiding it again drops the row
+  await mia.client.call('PUT', `/api/rooms/${dm.id}/hidden`, { hidden: true })
+  expect(pinRows(dm.id)).toEqual([])
+  // an older build let nora leave the team room with her pin, and she is back: the old pin does not show
+  const old = new Date(Date.now() - 60_000).toISOString()
+  db.query('INSERT INTO room_pins (user_id, room_id, pinned_at) VALUES (?, ?, ?)').run(nora.id, team.id, '2000-01-01T00:00:00.000Z')
+  expect((await roomOf(nora.client, team.id)).pinnedAt).toBeUndefined()
+  // pinning again replaces it
+  const r = await pin(nora.client, team.id)
+  expect(r.body.pinnedAt > old).toBe(true)
+  expect((await roomOf(nora.client, team.id)).pinnedAt).toBe(r.body.pinnedAt)
 })
 
 test('members only: anyone else gets 404, the owner included, and nothing is written', async () => {

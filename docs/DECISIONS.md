@@ -16472,8 +16472,9 @@ pins wherever a room allows it.
   rows of the member. A room that goes: an archived room has no members left (the last one out, a deleted group's team
   room), and the room's row going cascades. A deleted person: their DMs keep their member row (a DM keeps its two), so
   `deleteUser` drops their pins in its transaction, as it drops their chat pins. In a room, seeing it is being a member,
-  so "can no longer see it" is one of the above; a pin that outlives its member row (a database an older build left)
-  never shows (the list reads members' rooms only) and does not count.
+  so "can no longer see it" is one of the above. An older build (reader 1) keeps pins when someone hides or leaves a
+  room, so only a pin of the membership now shows or counts (`pinOf`): never one of a hidden room, nor one older than
+  the member's `joined_at`; hiding a room that is hidden already drops such a row, and pinning again replaces it.
 - **The order (the app's, not the server's).** `GET /api/rooms` stays by latest activity (it is not paged, so the pins
   need no first page of their own, and older apps see the same list); `pinnedAt` rides along. The app's lists put my
   pins first, the most recently pinned first, then the rest by activity (`lib/rooms.ts` `pinnedFirst`). The sidebar's
@@ -16495,10 +16496,15 @@ pins wherever a room allows it.
 - Tests: `tests/unit/b-rooms-pins.test.ts` (pin and unpin of every kind, idempotent, my windows only, each member's
   copy with their own pin; the order of pins; members only; leaving, removal, a group change and a disabled account
   take it; a deleted group's room, the last one out and the row's cascade; a deleted person; hiding unpins, a hidden
-  room is refused and a new message brings it back unpinned; the cap and pins that do not count), the security
+  room is refused and a new message brings it back unpinned; the cap and pins that do not count; pins an older build
+  left), the security
   permission matrix (`pinRoom` / `unpinRoom`: the DM's two people only), `web/test/unit/room-pins.test.tsx` (the order
   and the caps, the rows and their pin on the sidebar and the conversations page, the menu's pin and unpin, the hide's
-  undo, another window's event), `web/test/unit/room-hide.test.tsx` (the menu by kind), e2e `room-pins.spec.ts` (the
+  undo, a refused hide, another window's event), `web/test/unit/room-hide.test.tsx` (the menu by kind), e2e `room-pins.spec.ts` (the
   sidebar's "⋯", a right-click, after a reload, unpin, hide and undo; the conversations page's order; the phone's long
   press) and the menu lists in `room-leave-hide.spec.ts`.
+- **Independent review (2026-11-09) fixes.** The endpoints' summaries named the menu in Korean (the language test; dev
+  had fixed the chat pins' the same way); a refused hide left a pinned room unpinned on screen (the store puts the pin
+  back); pins an older build leaves behind never show or count (above); the same-instant order test now sets the last
+  pin ahead of the clock.
 - Version impact: **minor** (new endpoints, an additive field and an additive migration).

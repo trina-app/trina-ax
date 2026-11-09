@@ -30,6 +30,8 @@ const realFetch = globalThis.fetch
 const locale = useLocaleStore.getState().locale
 const status = useSession.getState().status
 let pinClock = Date.parse('2026-11-09T09:00:00.000Z')
+/** PUT …/hidden answers 500 */
+let refuseHide = false
 beforeAll(() => {
   installDom()
   useLocaleStore.setState({ locale: 'ko' })
@@ -43,12 +45,14 @@ beforeAll(() => {
     const r = m && useRooms.getState().rooms.find((x) => x.id === m[2])
     if (!m || !r) return json({ error: { code: 'not_found', message: key } }, 404)
     const { pinnedAt: _p, hidden: _h, ...rest } = r
+    if (m[3] === 'hidden' && refuseHide) return json({ error: { code: 'internal', message: 'no' } }, 500)
     if (m[3] === 'pin') return json(m[1] === 'POST' ? { ...rest, ...(r.hidden ? { hidden: true } : {}), pinnedAt: new Date((pinClock += 1000)).toISOString() } : { ...rest, ...(r.hidden ? { hidden: true } : {}) })
     return json(body.hidden ? { ...rest, hidden: true } : { ...rest, ...(r.pinnedAt ? { pinnedAt: r.pinnedAt } : {}) })
   }) as unknown as typeof fetch
 })
 afterEach(() => {
   sent.length = 0
+  refuseHide = false
   useRooms.getState().reset()
   useSession.setState({ status })
 })
@@ -170,6 +174,15 @@ describe('the menu', () => {
       expect(sent.map((s) => s.key)).toEqual([`PUT /api/rooms/${r.id}/hidden`, `PUT /api/rooms/${r.id}/hidden`, `POST /api/rooms/${r.id}/pin`])
       await m.until(() => !!useRooms.getState().rooms[0]!.pinnedAt && !useRooms.getState().rooms[0]!.hidden, 'pinned again')
     } finally { await m.unmount() }
+  })
+
+  test('a refused hide puts the room back as it was, its pin too', async () => {
+    const r = room({ kind: 'dm', name: null, groupId: null, pinnedAt: pinned(4) })
+    useRooms.setState({ rooms: [r], loaded: true })
+    refuseHide = true
+    await expect(useRooms.getState().setHidden(r.id, true)).rejects.toBeTruthy()
+    const back = useRooms.getState().rooms[0]!
+    expect([back.hidden, back.pinnedAt]).toEqual([undefined, pinned(4)])
   })
 
   test('my other window: the server\'s room.updated brings the pin', () => {

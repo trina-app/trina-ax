@@ -45,7 +45,7 @@ import { teamTimeZone } from '../admin/settings'
 import { alertSettings, ownLevel, setOwnLevel } from './alerts'
 import {
   canSee, groupName, isHiddenFor, LIST_SQL, seenSeq, seesFrom, hideable, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, seeArgs, setRoomPathCheck, sharedAnswerOf,
-  lastSeqFor, MENTIONS_SQL, pinnedAt, threadable, threadSummary, threadsUnread, TIMELINE_SQL, unreadCount,
+  lastSeqFor, MENTIONS_SQL, PIN_COUNTS_SQL, pinOf, threadable, threadSummary, threadsUnread, TIMELINE_SQL, unreadCount,
   type EventData, type MemberRow, type MessageRow, type RoomRow,
 } from './store'
 import { roomFilesOf } from './files'
@@ -279,11 +279,14 @@ export class Rooms {
   setHidden(userId: string, roomId: string, hidden: boolean): Room {
     const { room, me } = this.mine(userId, roomId)
     if (hidden && !hideable(room.kind)) fail('forbidden')
+    // hiding it unpins it ("Pinned conversations"): shown again, it is in its place by activity. Hidden already: a pin an
+    // older build kept goes too (it never shows)
+    const unpin = () => this.db.query('DELETE FROM room_pins WHERE user_id = ? AND room_id = ?').run(userId, roomId)
+    if (hidden && me.hidden_at) unpin()
     if (hidden && !me.hidden_at) {
       this.db.transaction(() => {
         this.db.query('UPDATE room_members SET hidden_at = ? WHERE room_id = ? AND user_id = ? AND hidden_at IS NULL').run(nowIso(), roomId, userId)
-        // hiding it unpins it ("Pinned conversations"): shown again, it is in its place by activity
-        this.db.query('DELETE FROM room_pins WHERE user_id = ? AND room_id = ?').run(userId, roomId)
+        unpin()
       })()
       this.roomEvent(roomId, 'updated', new Set([userId]))
       // a push of this room that waits or is on its way is checked again: a hidden room pushes nothing (alerts.ts)
@@ -300,16 +303,19 @@ export class Rooms {
    * windows get the room (room.updated). */
   pin(userId: string, roomId: string, locale: Locale = DEFAULT_LOCALE): Room {
     const { me } = this.mine(userId, roomId)
-    if (pinnedAt(this.db, roomId, userId)) return this.get(userId, roomId)
     if (me.hidden_at) fail('conflict', tr('roomPinHidden', locale), { params: { reason: 'room_hidden' } })
-    // pins of rooms I am still in (a pin leaves with its member row; a deleted person's DM is the exception)
-    const n = (this.db.query('SELECT COUNT(*) n FROM room_pins p JOIN room_members m ON m.room_id = p.room_id AND m.user_id = p.user_id JOIN rooms r ON r.id = p.room_id AND r.archived_at IS NULL WHERE p.user_id = ?').get(userId) as { n: number }).n
+    if (pinOf(this.db, roomId, me)) return this.get(userId, roomId)
+    // the pins that show (pinOf) of rooms I am still in: a pin leaves with its member row (a deleted person's DM is the
+    // exception), and one an older build left does not count
+    const n = (this.db.query(`SELECT COUNT(*) n FROM room_pins p JOIN room_members m ON m.room_id = p.room_id AND m.user_id = p.user_id
+      JOIN rooms r ON r.id = p.room_id AND r.archived_at IS NULL WHERE p.user_id = ? AND ${PIN_COUNTS_SQL}`).get(userId) as { n: number }).n
     if (n >= ROOM_PINS_MAX) fail('conflict', tr('roomPinsFull', locale, { n: String(ROOM_PINS_MAX) }), { params: { reason: 'room_pins_full' } })
     // one pin a millisecond after my last at most: two pins in the same instant still keep their order
     const last = (this.db.query('SELECT MAX(pinned_at) t FROM room_pins WHERE user_id = ?').get(userId) as { t: string | null }).t
     let at = new Date().toISOString()
     if (last && at <= last) at = new Date(Date.parse(last) + 1).toISOString()
-    this.db.query('INSERT OR IGNORE INTO room_pins (user_id, room_id, pinned_at) VALUES (?, ?, ?)').run(userId, roomId, at)
+    // (a pin an older build left, which does not show, is replaced)
+    this.db.query('INSERT INTO room_pins (user_id, room_id, pinned_at) VALUES (?, ?, ?) ON CONFLICT (user_id, room_id) DO UPDATE SET pinned_at = excluded.pinned_at').run(userId, roomId, at)
     this.roomEvent(roomId, 'updated', new Set([userId]))
     return this.get(userId, roomId)
   }
