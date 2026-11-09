@@ -16,14 +16,21 @@ const has = (rel: string) => fs.existsSync(path.join(A.team, ...rel.split('/')))
 const bytes = (rel: string) => fs.readFileSync(path.join(A.team, ...rel.split('/')))
 const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0xff, 0x00, 0xfe])
 
-type Asked = { answer: boolean; questions: string[]; beforeAnswer?: () => Promise<void> }
+type Asked = { answer: boolean; questions: string[]; beforeAnswer?: () => Promise<void>; end?: 'timeout' | 'ended'; unattended?: boolean }
 let rpcId = 0
 async function call(user: Person, name: string, args: unknown, o: { person?: Asked; turn?: boolean; locale?: 'ko' | 'en' | 'es' } = {}) {
   const turnId = o.turn ? A.turn(user, A.chat(user)) : null
   const tc = A.toolCtx(user, turnId)
   if (o.person) {
     const p = o.person
-    tc.person = { locale: o.locale ?? 'ko', async confirm(q) { p.questions.push(q); await p.beforeAnswer?.(); return p.answer }, *turnUrls() {} }
+    // like chat/tools.ts turnPerson: confirmWhy says how the card ended (a timeout is not a no); a scheduled run's person
+    // is unattended and never asked
+    tc.person = {
+      locale: o.locale ?? 'ko', unattended: p.unattended,
+      async confirm(q) { p.questions.push(q); await p.beforeAnswer?.(); return p.answer },
+      async confirmWhy(q) { p.questions.push(q); await p.beforeAnswer?.(); return p.answer ? 'yes' : p.end ?? 'declined' },
+      *turnUrls() {},
+    }
   }
   const h = makeHandler(A.ctx.files, A.ctx.db, tc)
   const r = await h({ jsonrpc: '2.0', id: ++rpcId, method: 'tools/call', params: { name, arguments: args } })
@@ -110,11 +117,89 @@ describe('move_files', () => {
     expect(has('users/alice/private-plan.md')).toBe(true)
   })
 
+  // bug 1 (docs/DECISIONS.md "Refusals say why, who and what next"): a scheduled run's person is never asked, and the
+  // text said "the user did not allow this"
+  test('a scheduled run (an unattended person): nobody is asked, and the text says so, never "did not allow"', async () => {
+    put('users/alice/weekly.md', 'w')
+    const p: Asked = { answer: true, questions: [], unattended: true }
+    const r = await call('alice', 'move_files', { paths: ['users/alice/weekly.md'], to_folder: 'shared' }, { person: p })
+    expect(r.isError).toBe(true)
+    expect(p.questions).toHaveLength(0)
+    expect(r.text).toContain('Nothing was moved.')
+    expect(r.text).toContain('Why: nobody could be asked: this is a scheduled run with nobody watching')
+    expect(r.text).toContain('The user did not refuse anything')
+    expect(r.text).not.toContain('did not allow')
+    expect(r.text).toContain('Next step: the user can do it in a chat, where they answer the card, or on the Files screen ("파일")')
+    expect(has('users/alice/weekly.md')).toBe(true)
+  })
+
+  test('a card that timed out is not a no; a no says so', async () => {
+    put('users/alice/late.md', 'l')
+    const late: Asked = { answer: false, questions: [], end: 'timeout' }
+    const r = await call('alice', 'copy_files', { paths: ['users/alice/late.md'], to_folder: 'shared' }, { person: late })
+    expect(r.isError).toBe(true)
+    expect(late.questions).toHaveLength(1)
+    expect(r.text).toContain('Nothing was copied.')
+    expect(r.text).toContain('did not answer the confirmation card in time')
+    expect(r.text).toContain('This is not a no')
+    expect(r.text).not.toContain('did not allow')
+    const no = await call('alice', 'copy_files', { paths: ['users/alice/late.md'], to_folder: 'shared' }, { person: ask(false) })
+    expect(no.text).toContain('The user did not allow this, so nothing was copied.')
+    expect(no.text).toContain('Why: the user did not allow it: they said no on the confirmation card.')
+    expect(no.text).toContain('Next step: ask the user what they want.')
+    expect(has('shared/late.md')).toBe(false)
+  })
+
+  // B9 / bug 5: the target folder is made (the prompt told the AI to write a README.md to make one)
+  test('into a folder that is not there yet: the card says it is new, the folder is made after the yes, and nothing else is written', async () => {
+    put('users/alice/contracts/a.pdf', '%PDF-1.4 a')
+    put('users/alice/contracts/b.pdf', '%PDF-1.4 b')
+    const no = ask(false)
+    const r0 = await call('alice', 'move_files', { paths: ['users/alice/contracts/a.pdf', 'users/alice/contracts/b.pdf'], to_folder: 'shared/계약서/2026' }, { person: no })
+    expect(r0.isError).toBe(true)
+    expect(no.questions[0]).toContain('AI가 2개 항목을 새로 만들 shared/계약서/2026 폴더로 옮기려고 해요.')
+    expect(r0.text).toContain('shared/계약서/2026 (a new folder)')
+    // a no makes no folder
+    expect(has('shared/계약서')).toBe(false)
+
+    const en = ask(false)
+    await call('alice', 'move_files', { paths: ['users/alice/contracts/a.pdf'], to_folder: 'shared/계약서/2026' }, { person: en, locale: 'en' })
+    expect(en.questions[0]).toContain('The AI wants to move 1 item to shared/계약서/2026, a new folder it will make.')
+
+    const yes = ask(true)
+    const r = await call('alice', 'move_files', { paths: ['users/alice/contracts/a.pdf', 'users/alice/contracts/b.pdf'], to_folder: 'shared/계약서/2026' }, { person: yes, turn: true })
+    expect(r.isError).toBe(false)
+    expect(yes.questions).toHaveLength(1)
+    expect(r.text).toContain('Made the new folder shared/계약서/2026.')
+    expect(r.text).toContain('Moved 2 to shared/계약서/2026')
+    expect(fs.readdirSync(path.join(A.team, 'shared/계약서/2026')).sort()).toEqual(['a.pdf', 'b.pdf'])
+    expect(fs.readdirSync(path.join(A.team, 'shared/계약서'))).toEqual(['2026'])
+    // no README or any other file was made on the way
+    expect(has('shared/계약서/README.md') || has('shared/계약서/2026/README.md')).toBe(false)
+    // each new folder is in the file history with the turn and the tool
+    const made = A.ctx.db.query("SELECT path, detail FROM file_events WHERE turn_id = ? AND action = 'create' AND detail LIKE '%\"folder\":true%' ORDER BY id").all(r.turnId) as { path: string; detail: string }[]
+    expect(made.map((m) => m.path)).toEqual(['shared/계약서', 'shared/계약서/2026'])
+    expect(JSON.parse(made[0]!.detail)).toMatchObject({ folder: true, tool: 'move_files' })
+
+    // the same audience (no card): copy_files makes the folder too
+    put('shared/inbox-n/note.md', 'n')
+    const quiet = ask(false)
+    const c = await call('alice', 'copy_files', { paths: ['shared/inbox-n/note.md'], to_folder: 'shared/new-copies/2026' }, { person: quiet })
+    expect(c.isError).toBe(false)
+    expect(quiet.questions).toHaveLength(0)
+    expect(bytes('shared/new-copies/2026/note.md').toString()).toBe('n')
+  })
+
+  test('a new folder where the person may not write is refused like any save there', async () => {
+    put('users/alice/x.md', 'x')
+    const r = await call('alice', 'move_files', { paths: ['users/alice/x.md'], to_folder: 'groups/finance/new' }, { person: ask(true) })
+    expect(r.isError).toBe(true)
+    expect(r.text).toContain('not found or no access')
+    expect(has('groups/finance/new')).toBe(false)
+  })
+
   test('a path the person may not use fails alone (same answer as a missing one); the rest is moved', async () => {
     put('users/bob/mine.md', 'bob')
-    const r = await call('bob', 'move_files', { paths: ['groups/marketing/campaign-brief.md', 'users/bob/mine.md', 'users/bob/nope.md'], to_folder: 'users/bob/archive-x' }, { person: ask(true) })
-    // the target folder must exist
-    expect(r.isError).toBe(true)
     fs.mkdirSync(path.join(A.team, 'users/bob/archive'), { recursive: true })
     const r2 = await call('bob', 'move_files', { paths: ['groups/marketing/campaign-brief.md', 'users/bob/mine.md', 'users/bob/nope.md'], to_folder: 'users/bob/archive' }, { person: ask(true) })
     expect(r2.isError).toBe(false)
@@ -237,10 +322,11 @@ describe('move_files', () => {
     expect(has('skills/copied-glossary.md')).toBe(true)
   })
 
-  test('a group folder moves only for admins and owners, as on the Files screen', async () => {
+  test('a group folder moves only for admins and owners, as on the Files screen; the text names them (B14)', async () => {
     fs.mkdirSync(path.join(A.team, 'shared/elsewhere'), { recursive: true })
     const r = await call('alice', 'move_files', { paths: ['groups/marketing'], to_folder: 'shared/elsewhere' }, { person: ask(true) })
     expect(r.isError).toBe(true)
+    expect(r.text).toContain('can only be moved, renamed or deleted by an admin. The user is not an admin; Dana Choi and Carol Park can do it on the Files screen ("파일").')
     expect(has('groups/marketing/campaign-brief.md')).toBe(true)
   })
 

@@ -15,10 +15,12 @@
 import crypto from 'node:crypto'
 import { z } from 'zod'
 import { TEAM_TOOL_PREFIX } from '@mycel/shared'
-import { INTEGRATION_TOOLS_OLD_MAX } from '@mycel/shared/api'
+import { INTEGRATION_TOOLS_OLD_MAX, type Locale } from '@mycel/shared/api'
 import type { AppContext } from '../../context'
 import type { TurnTool, TurnToolContext, TurnToolProvider, TurnToolResult } from '../../services'
 import { addSources } from '../../chat/read-scope'
+import { adminNames, cardEndShort, cardNext, cardReason, refusal, SCREEN } from '../../policy/refusal'
+import { askConfirm } from '../../tools/url-gate'
 import { MAX_BODY, type NetResponse } from './net'
 import { CallError, integrationsOf } from './service'
 import { bareUrl, disabledTools, savedTools, templateCovers, toolsOffered, type Row } from './store'
@@ -147,6 +149,12 @@ export function recipientFields(args: unknown): { name: string; value: string }[
 
 /** A scheduled run may send to an "allow" connection only when the person allowed that on the schedule's card, which
  * offers only the connections the task names (tools/schedules.ts taskConnections). */
+/** Where a connection's settings are changed, by whom (E6, E11): a team connection by an admin, a personal one by its
+ * owner. */
+function connectionSettings(row: Pick<Row, 'scope'>, L: Locale): string {
+  return row.scope === 'team' ? `an admin, in ${SCREEN.adminMcp(L)}` : `in ${SCREEN.settingsMcp(L)}`
+}
+
 function scheduleMayWrite(ctx: AppContext, turnId: string, connectionId: string): boolean {
   const r = ctx.db.query('SELECT s.write_connections AS w FROM turns t JOIN schedules s ON s.id = t.schedule_id WHERE t.id = ?').get(turnId) as { w: string | null } | null
   try { const ids = JSON.parse(r?.w ?? '[]'); return Array.isArray(ids) && ids.includes(connectionId) } catch { return false }
@@ -159,21 +167,38 @@ function scheduleMayWrite(ctx: AppContext, turnId: string, connectionId: string)
  * connection sends only when the schedule's card allowed it (tools/schedules.ts), everything else is refused.
  */
 async function gate(ctx: AppContext, row: Row, what: string, sent: Sent, b: BuildCtx, tc: TurnToolContext): Promise<boolean> {
-  if (row.write_policy === 'deny') throw new CallError(`${row.name} is set to refuse changes from the AI, so nothing was sent. Tell the user; whoever manages the connection can change that in its settings.`, 'refused (write policy deny)')
+  if (row.write_policy === 'deny') {
+    throw new CallError(refusal({
+      done: `Nothing was sent to ${row.name}.`,
+      why: { kind: 'permission', what: `${row.name} is set to refuse changes from the AI`, grant: row.scope === 'team' ? adminNames(ctx.db) : ['the user themselves'], how: connectionSettings(row, tc.locale) },
+      next: 'tell the user; once the setting allows it, ask again', names: [row.name],
+    }), 'refused (write policy deny)')
+  }
   if (row.write_policy === 'allow' && row.scope === 'team') {
     if (!b.scheduled || scheduleMayWrite(ctx, b.turnId, row.id)) return false
     throw new CallError(`this is a scheduled run and this scheduled task may not send to ${row.name} (its card offers sending only to the connections the task names, and only when the user allows it there), so nothing was sent. Say so in the summary; the user can do it in a chat, or edit the task in Scheduled tasks (or create it again) naming ${row.name} and allow sending to it.`, 'refused (scheduled run not allowed)')
   }
   const person = b.scheduled ? null : tc.files.person
-  if (!person) throw new CallError(`this would change something at ${row.name} and nobody can confirm it here (a scheduled run), so nothing was sent. Ask the user to do it in a chat.`, 'refused (nobody to ask)')
+  if (!person || person.unattended) {
+    throw new CallError(refusal({
+      done: `Nothing was sent to ${row.name}.`, why: cardReason('unattended'),
+      also: `this would change something at ${row.name}, which needs the user's yes on a card`,
+      next: 'say so in the summary; the user can do it in a chat, where they answer the card', names: [row.name],
+    }), 'refused (nobody to ask)')
+  }
   // the address (an api_request query can be long) counts as well: everything the card shows
   const size = sent.text.length + sent.fields.reduce((n, f) => n + f.name.length + f.value.length, 0)
   if (size > MAX_CARD_PAYLOAD) throw new CallError(`what this would send is ${size} characters, more than the ${MAX_CARD_PAYLOAD} the user can check on a card, so nothing was sent. Send less at a time.`, 'refused (too large to confirm)')
   const L = person.locale
   const question = `${say('confirm', L, { name: row.name, what })}\n\n${say('checkBelow', L)}\n\n${say('ask', L)}`
   const details = [{ label: say('sendsLabel', L), text: sent.text.trim() ? sent.text : say('nothing', L), ...(sent.fields.length ? { fields: sent.fields } : {}) }]
-  if (!(await person.confirm(question, say('yes', L), say('no', L), { details }))) {
-    throw new CallError(`the user did not allow this, so nothing was sent to ${row.name}. Do not try it another way; ask the user what they want.`, 'not allowed by the user')
+  const end = await askConfirm(person, question, say('yes', L), say('no', L), { details })
+  if (end !== 'yes') {
+    throw new CallError(refusal({
+      done: end === 'declined' ? `The user did not allow this, so nothing was sent to ${row.name}.` : `Nothing was sent to ${row.name}.`,
+      why: cardReason(end), also: 'Do not try it another way',
+      next: end === 'declined' ? 'ask the user what they want' : cardNext(end), names: [row.name],
+    }), cardEndShort(end))
   }
   return true
 }
@@ -338,7 +363,13 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         const t = savedTools(ctx.db, current).find((x) => x.name === tool.name)
         if (!t) throw new CallError(`${current.name} no longer offers ${tool.name}`, 'tool gone')
         // turned off since the turn began: the person who manages the connection said no to this tool
-        if (disabledTools(current).has(t.name)) throw new CallError(`${tool.name} of ${current.name} was turned off for the AI, so it did not run. Do not try it another way; tell the user (whoever manages the connection can turn it on in its settings).`, 'tool off')
+        if (disabledTools(current).has(t.name)) {
+          throw new CallError(refusal({
+            done: `${tool.name} of ${current.name} did not run.`,
+            why: { kind: 'permission', what: `${tool.name} was turned off for the AI in the connection's settings`, grant: current.scope === 'team' ? adminNames(ctx.db) : ['the user themselves'], how: connectionSettings(current, tc.locale) },
+            also: 'Do not try it another way', next: 'tell the user who can turn it on', names: [current.name],
+          }), 'tool off')
+        }
         if (!t.readOnly) {
           confirmed = await gate(ctx, current, t.name, { text: JSON.stringify(args ?? {}, null, 2), fields: recipientFields(args) }, b, tc)
           // the card may have waited for minutes: rules, settings and the connection are read again

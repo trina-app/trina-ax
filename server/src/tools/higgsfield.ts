@@ -11,12 +11,14 @@ import { z } from 'zod'
 import type { Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { ToolError } from '../policy/errors'
+import { cardNext, cardReason, refusal } from '../policy/refusal'
 import { componentC } from '../team-files/component'
 import { placeProduced } from './make-file'
 import { inSkills } from '../skills/guard'
 import type { ToolRegistry } from './registry'
 import { downloadToFile, type DownloadOptions } from './download'
 import { egressOf } from './egress'
+import { askConfirm } from './url-gate'
 
 export const HIGGSFIELD_API = 'https://api.higgsfield.ai'
 /** testing only: a local stand-in for the API (its result URLs may then be http / local too) */
@@ -113,14 +115,31 @@ export function registerHiggsfield(ctx: AppContext, reg: ToolRegistry): boolean 
       const key = higgsfieldKey(dataDir)
       if (!key) throw new ToolError('Higgsfield is not set up on this server')
       if (!t.person) throw new ToolError('this tool only works inside a chat turn (the person confirms each video)')
+      // a scheduled run: nobody is there to confirm the credits (not "the person did not allow"; policy/refusal.ts)
+      if (t.person.unattended) throw new ToolError(refusal({ done: 'No video was made and no credits were spent.', why: cardReason('unattended'), next: 'the user can ask for the video in a chat, where they confirm it' }))
       // skills/ is for team skills and rules (skills/guard.ts): refused before any credits are spent
       if (a.save_as && inSkills(a.save_as.replace(/^\/+/, ''))) throw new ToolError('videos cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
       const used = (ctx.db.query("SELECT count(*) AS n FROM tool_events WHERE user_id = ? AND tool = 'generate_video' AND ok = 1 AND at >= ?")
         .get(t.user.id, new Date(Date.now() - 24 * 3600_000).toISOString()) as { n: number }).n
-      if (used >= daily) throw new ToolError(`daily video limit reached (${daily} per person per 24 hours)`)
+      if (used >= daily) {
+        // when the oldest of the last 24 hours' videos leaves the window, one more can be made (H2)
+        const oldest = (ctx.db.query("SELECT min(at) AS at FROM tool_events WHERE user_id = ? AND tool = 'generate_video' AND ok = 1 AND at >= ?")
+          .get(t.user.id, new Date(Date.now() - 24 * 3600_000).toISOString()) as { at: string | null }).at
+        const free = oldest ? new Date(Date.parse(oldest) + 24 * 3600_000).toISOString().replace(/\.\d+Z$/, 'Z') : null
+        throw new ToolError(refusal({
+          done: 'No video was made and no credits were spent.',
+          why: { kind: 'limit', limit: `${daily} videos per person in any 24 hours`, resets: free ? `when the oldest of them is 24 hours old, at ${free} UTC (give the time in the user's time zone)` : 'within 24 hours', setBy: 'the server\'s operator (MYCEL_HIGGSFIELD_DAILY)' },
+          next: 'the user can ask again after that time',
+        }))
+      }
       const L = t.person.locale
-      const ok = await t.person.confirm(fill(TEXT.confirm[L], { duration: String(a.duration), aspect: a.aspect_ratio, resolution: a.resolution, prompt: a.prompt }), TEXT.allow[L], TEXT.deny[L])
-      if (!ok) throw new ToolError('the person did not allow this video; ask what to change')
+      const end = await askConfirm(t.person, fill(TEXT.confirm[L], { duration: String(a.duration), aspect: a.aspect_ratio, resolution: a.resolution, prompt: a.prompt }), TEXT.allow[L], TEXT.deny[L])
+      if (end !== 'yes') {
+        throw new ToolError(refusal({
+          done: end === 'declined' ? 'The person did not allow this video, so no video was made and no credits were spent.' : 'No video was made and no credits were spent.',
+          why: cardReason(end), next: end === 'declined' ? 'ask what to change' : cardNext(end),
+        }))
+      }
       const r = await runHiggsfield({ key, endpoint, idempotencyKey: `${t.turnId ?? 'x'}-${Bun.hash(a.prompt + a.duration + a.aspect_ratio + a.resolution)}`, body: { prompt: a.prompt, duration: a.duration, aspect_ratio: a.aspect_ratio, resolution: a.resolution } })
       const work = fs.mkdtempSync(path.join(os.tmpdir(), 'mycel-hf-'))
       try {

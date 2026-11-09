@@ -56,12 +56,16 @@ describe('the rule in the instructions', () => {
     expect(RULE).toContain('is the area, not the exact spot')
     expect(RULE).toContain('list that area')
     expect(RULE).toContain('create one named like the ones already there (same language, letter case and pattern;')
-    expect(RULE).toContain('move_files and copy_files need a folder that exists')
+    // move_files and copy_files make a missing folder: no README or placeholder to make one (B9, bug 5)
+    expect(RULE).toContain('move_files and copy_files make a folder that is not there yet, so never write a placeholder file just to make a folder')
+    expect(RULE).not.toContain('README')
     // nothing loose at the top of shared/, a group's folder, projects/ or the team root unless asked for exactly that
     expect(RULE).toContain('Never leave a file loose at the top of shared/, of a group\'s folder, of projects/ or of the team root unless the user asked for exactly that spot')
     // finished work goes to 보관 in its own area when the person asks to tidy up (docs/DECISIONS.md "Team folder basics")
     expect(RULE).toContain('When the user asks to tidy up, finished work (a closed project\'s files, past events, old versions) moves into a "보관" subfolder of its own area (shared/보관/, groups/<name>/보관/, projects/<name>/보관/)')
-    expect(RULE).toContain('nothing is deleted unless the user asks')
+    // the AI has no delete tool: no promise of one (bug 4; deleteRule says where the person deletes)
+    expect(RULE).toContain('nothing is deleted (you cannot delete files)')
+    expect(RULE).not.toContain('unless the user asks')
     // no duplicate; the server's note is the server's; one line on where it went, and the wider audience said
     expect(RULE).toContain('Move rather than copy')
     expect(RULE).toContain('the server adds a note about it at the end of that save\'s result (only ever about a file you just saved)')
@@ -184,21 +188,22 @@ describe('the note in a chat turn', () => {
     expect(done.data.message.content).toContain('Copied 1 to shared:')
     expect(done.data.message.content).toContain(`${NOTE} "shared/quote.html" was saved directly in "shared/"`)
 
-    // the first answer it should have given: a new subfolder that follows the names there (a README makes it: move_files
-    // needs a folder that exists), then the quote moved into it
+    // the first answer it should have given: a new subfolder that follows the names there, made by move_files itself
+    // (no README to make it: B9, bug 5), its card saying the folder is new, then the quote moved into it
     put('users/alice/견적/acme2/quote.html', '<h1>Quote</h1>\n')
     const c2 = await chat('alice')
     const sent2 = await h.api('alice').call(API.sendMessage, { params: { id: c2 }, body: { clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [], content: fake(
-      write('shared/Sales/Quotes/acme2/README.md', '# acme2 quotes\n'),
       { tool: 'move_files', args: { paths: ['users/alice/견적/acme2/quote.html'], to_folder: 'shared/Sales/Quotes/acme2' }, sayResult: true }) } })
     const card2 = await socks.alice!.next('turn.request', (f) => f.data.turnId === sent2.turnId)
+    expect((card2.data.request as { question: string }).question).toMatch(/새로 만들 shared\/Sales\/Quotes\/acme2 폴더|shared\/Sales\/Quotes\/acme2, a new folder/)
     await h.api('alice').call(API.answerTurn, { params: { id: sent2.turnId }, body: { kind: 'ask_user', requestId: card2.data.request.requestId, answer: 'allow' } })
     const done2 = await socks.alice!.next('message.done', (f) => f.data.messageId === sent2.assistantMessage.id, 30_000)
-    expect(done2.data.message.content).toContain('Created shared/Sales/Quotes/acme2/README.md')
+    expect(done2.data.message.content).toContain('Made the new folder shared/Sales/Quotes/acme2.')
     expect(done2.data.message.content).toContain('Moved 1 to shared/Sales/Quotes/acme2')
     expect(done2.data.message.content).not.toContain(NOTE)
     expect(has('users/alice/견적/acme2/quote.html')).toBe(false)
     expect(has('shared/Sales/Quotes/acme2/quote.html')).toBe(true)
+    expect(fs.readdirSync(path.join(h.team, 'shared/Sales/Quotes/acme2'))).toEqual(['quote.html'])
   })
 
   test('a group\'s folder and the team root', async () => {

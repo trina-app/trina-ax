@@ -43,6 +43,7 @@ import { conflictCopyName, fileEvent, readRegular, recordConflictCopy, sha256 } 
 import { sourceOf, widening } from '../chat/read-scope'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
+import { writeLimitText } from '../policy/refusal'
 import { badSegment } from '../policy/names'
 import { bundledFontDir, which } from '../config'
 import { publishChanges } from '../team-files/changes'
@@ -616,7 +617,7 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
   // lstat, never the size of what a link left by a converter points at (hashFile below refuses such a link anyway)
   const size = checkRegular(produced).size
   const counted = po.turnBytes !== false
-  if (counted && c.files.bytesWritten + size > cfg.maxWriteBytesPerTurn) throw new ToolError('write limit for this turn reached')
+  if (counted && c.files.bytesWritten + size > cfg.maxWriteBytesPerTurn) throw new ToolError(writeLimitText('bytes', cfg.maxWriteBytesPerTurn, segs.join('/')))
   assertStorageRoomForAI(size) // the team disk near full (system/storage.ts; Linux / a plan)
   const fx = files.fx
   // Finish asynchronous work BEFORE the fresh principal/content/conflict check. The final
@@ -653,7 +654,7 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
       conflictOf = rel0
     }
   }
-  if (!c.files.filesWritten.has(target.join('/')) && c.files.filesWritten.size >= cfg.maxFilesWrittenPerTurn) throw new ToolError('file count limit for this turn reached')
+  if (!c.files.filesWritten.has(target.join('/')) && c.files.filesWritten.size >= cfg.maxFilesWrittenPerTurn) throw new ToolError(writeLimitText('files', cfg.maxFilesWrittenPerTurn, target.join('/')))
   // final check right before the rename (rules may have changed during the conversion)
   authorize(fx, files.rules(), c.user, target.join('/'), 'write', { mustExist: false, createDirs: true })
   installFile(fx.root, target, produced)
