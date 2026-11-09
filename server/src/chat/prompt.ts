@@ -389,7 +389,7 @@ const GROUP_NAME_MAX = 40
  * to make one. `user` is the person who runs this turn (the schedule owner for a scheduled run): the list holds the
  * team skills the folder rules let them read and their own personal skills, never anyone else's. `list`: the turn's
  * list (with the chat's fixed order); without it the list is built here (no usage order). */
-export function skillsSection(files: FileService, user: Principal, list?: SkillList, roomReadable?: ((rel: string) => boolean) | null, o: { project?: ChatProject | null; moveSkill?: boolean } = {}): string {
+export function skillsSection(files: FileService, user: Principal, list?: SkillList, roomReadable?: ((rel: string) => boolean) | null, o: { project?: ChatProject | null } = {}): string {
   const l = list ?? buildSkillList(listSkills(files, user, { project: o.project }), { tag: neutralizeTags })
   // a room session names only skill folders everyone in the room may read (the person's managed ones included)
   const top = managedSkillRoots(files, user).filter((f) => !roomReadable || roomReadable(f))
@@ -436,7 +436,6 @@ export function skillsSection(files: FileService, user: Principal, list?: SkillL
     lines.push(`To save a workflow as a skill for this project only, when the user asks for that: write ${projectShown.root}/<short-name>/SKILL.md (a folder per skill; the folder name is the name), with the same header. The AI follows it only in this project's chats; the same confirmation card shows before anything there is saved. Pick a name no team, group or personal skill has: a project skill only adds new names.`)
   }
   lines.push(`To keep a workflow only for this user, write ${personalSkillsDir(user.id)}/<short-name>.md with the same header. Only this user can see or use a personal skill; they can suggest it to the team with "Suggest as skill" on the Files screen.`)
-  if (o.moveSkill) lines.push('Skills do not move with files (move_files, copy_files and rename_file refuse skill folders). To put a skill at another level (the team, one of the user\'s groups, a project, the user\'s own), use move_skill: the user confirms on a card. You may only move a skill where fewer people get it; when the user wants more people to get one, tell them to use 옮기기… on the Skills page. Never make a skills folder, a README or a copy somewhere else as a stand-in.')
   return lines.join('\n')
 }
 
@@ -512,7 +511,6 @@ export function buildSubagentPrompt(files: FileService, i: PromptInput, tools: s
 export function subagentPromptSections(files: FileService, i: PromptInput, tools: string[]): Section[] {
   const has = new Set(tools)
   const rules = teamRules(files, i.user, i.shared ? i.roomReadable : null)
-  // a sub-agent never moves skills (move_skill is the main AI's: chat/subagents.ts PARENT_ONLY_TOOLS)
   const skills = skillsSection(files, i.user, i.skillList, i.roomReadable, { project: chatProjectOf(i) })
   const base = [
     '# Rules from the team server for sub-agents',
@@ -645,7 +643,8 @@ export const ROOMS_RULE = 'The user\'s team chat rooms (their conversations: tea
 export function turnPromptSections(files: FileService, i: PromptInput): Section[] {
   const tools = new Set(i.tools)
   const rules = teamRules(files, i.user, i.shared ? i.roomReadable : null)
-  const skills = skillsSection(files, i.user, i.skillList, i.roomReadable, { project: chatProjectOf(i), moveSkill: i.tools.includes('move_skill') })
+  // the same section for every engine and the sub-agents (move_skill's own description says how to move one)
+  const skills = skillsSection(files, i.user, i.skillList, i.roomReadable, { project: chatProjectOf(i) })
   const base = [
     `You are the team assistant of ${PRODUCT.displayName}, working in the team's shared drive.`,
     `Team files are available ONLY through the ${TEAM_TOOL_PREFIX}* tools (list, glob, grep, read, write, edit). Paths are relative to the team root, e.g. "shared/notes.md".`,

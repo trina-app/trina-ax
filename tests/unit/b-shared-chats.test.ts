@@ -615,3 +615,34 @@ describe('reusable pieces (a room\'s AI may use a shared chat later only when ev
     expect(text).toContain('answer B')
   })
 })
+
+// ---------------- project skills (docs/DECISIONS.md "Project skills") ----------------
+describe('project skills in a shared chat', () => {
+  test('what everyone who sees it may use comes first, then each name\'s winner: the project\'s brief, not a group\'s', async () => {
+    // alice's group (marketing) has a "brief" bob is not in; the project has one everyone who sees the chat may read
+    for (const g of ['marketing', 'finance']) db().query('UPDATE groups SET folder_id = (SELECT id FROM folders WHERE path = ?) WHERE id = ?').run(`groups/${g}`, g)
+    const put = (rel: string, text: string) => { fs.mkdirSync(path.dirname(path.join(h.team, rel)), { recursive: true }); fs.writeFileSync(path.join(h.team, rel), text) }
+    put('groups/marketing/skills/brief/SKILL.md', '---\nname: brief\ndescription: MARKETING-BRIEF\n---\nmarketing steps\n')
+    put('projects/falcon/skills/brief/SKILL.md', '---\nname: brief\ndescription: FALCON-BRIEF\n---\nFALCON-BRIEF-STEPS\n')
+    try {
+      const chat = await newShared('alice')
+      const one = await ask('alice', chat.id, fake({ echo: 'system' }))
+      expect(one.done.content).toContain('- brief [project: Falcon]: FALCON-BRIEF')
+      expect(one.done.content).not.toContain('MARKETING-BRIEF')
+      // "/brief": the same one, for whoever sends it (no card: everyone who sees the chat may read it)
+      const two = await ask('alice', chat.id, '/brief go\n' + fake({ echo: 'message' }))
+      expect(two.done.content).toContain('path="projects/falcon/skills/brief/SKILL.md"')
+      const three = await ask('bob', chat.id, '/brief go\n' + fake({ echo: 'message' }))
+      expect(three.done.content).toContain('path="projects/falcon/skills/brief/SKILL.md"')
+      // the skill tool too
+      const four = await ask('alice', chat.id, fake({ tool: 'skill', args: { name: 'brief' }, sayResult: true }))
+      expect(four.done.content).toContain('FALCON-BRIEF-STEPS')
+      // and move_skill is not offered in a shared chat
+      const five = await ask('alice', chat.id, fake({ echo: 'tools' }))
+      expect(five.done.content.split(',')).not.toContain('move_skill')
+    } finally {
+      fs.rmSync(path.join(h.team, 'groups/marketing/skills'), { recursive: true, force: true })
+      fs.rmSync(path.join(h.team, 'projects/falcon/skills'), { recursive: true, force: true })
+    }
+  })
+})

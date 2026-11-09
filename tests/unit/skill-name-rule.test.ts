@@ -78,7 +78,10 @@ describe('at the save', () => {
     expect(skillFileProblem(root, 'skills/acme-quote/SKILL.md', md('other-name'))).toBe('name_folder')
     expect(skillFileProblem(root, 'skills/acme-ok/SKILL.md', md('acme-ok'))).toBeNull()
     expect(skillFileProblem(root, 'skills/rule.md', 'A rule without a header')).toBeNull()
-    expect(skillFileProblem(root, 'projects/acme-video/skills/acme-견적/SKILL.md', md('acme-견적'))).toBeNull()
+    // a project's skills folder is a skill root (docs/DECISIONS.md "Project skills"): the same rule; a SKILL.md for
+    // another tool anywhere else is just a file
+    expect(skillFileProblem(root, 'projects/acme-video/skills/acme-견적/SKILL.md', md('acme-견적'))).toBe('name')
+    expect(skillFileProblem(root, 'shared/acme-video/skills/acme-견적/SKILL.md', md('acme-견적'))).toBeNull()
     expect(skillFileProblem(root, 'projects/acme-video/notes.md', '---\nbroken\n---\nBody')).toBeNull()
   })
 

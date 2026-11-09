@@ -394,6 +394,29 @@ describe('what an answer may carry into the room', () => {
     } finally { fs.rmSync(abs, { force: true }) }
   })
 
+  test('a project\'s skills never reach a room, even when everyone there reads the project (docs/DECISIONS.md "Project skills")', async () => {
+    const id = '01900000-0000-7000-8000-0000000a1001'
+    h.ctx.db.query('INSERT INTO projects (id, name, folder_path, created_by, created_at) VALUES (?,?,?,?,?)').run(id, 'Falcon', 'projects/falcon', 'alice', new Date().toISOString())
+    const abs = path.join(h.team, 'projects/falcon/skills/room-project/SKILL.md')
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, '---\nname: room-project\ndescription: PROJECT-ROOM-SKILL\n---\nsteps\n')
+    try {
+      // alice writes the project's folder and bob reads it: both could read the file, the room still has no project
+      const roomId = await room(['alice', 'bob'])
+      const { q } = await ask('alice', roomId, `@트리나 which skills?\n${fake({ echo: 'system' }, { tool: 'find_skills', args: { query: 'room project' }, sayResult: true }, { tool: 'skill', args: { name: 'projects/falcon/skills/room-project/SKILL.md' }, sayResult: true })}`)
+      const body = (await answerTo('alice', roomId, q))!.body
+      expect(body).not.toContain('PROJECT-ROOM-SKILL')
+      expect(body).not.toContain('[project:')
+      expect(body).toContain('No skill called')
+      // nor "/name" in a room
+      const two = await ask('alice', roomId, `@트리나 /room-project now\n${fake({ echo: 'message' })}`)
+      expect((await answerTo('alice', roomId, two.q))!.body).not.toContain('<team_skill')
+    } finally {
+      fs.rmSync(path.join(h.team, 'projects/falcon/skills'), { recursive: true, force: true })
+      h.ctx.db.query('DELETE FROM projects WHERE id = ?').run(id)
+    }
+  })
+
   test('an account that cannot read anything fails every check (fail closed)', async () => {
     const roomId = await room(['alice', 'erin'])
     const one = await ask('alice', roomId, `@트리나 glossary\n${fake({ tool: 'read', args: { file_path: 'shared/glossary.md' } }, { say: 'ok' })}`)

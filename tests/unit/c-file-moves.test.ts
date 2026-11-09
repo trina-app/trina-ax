@@ -174,6 +174,57 @@ describe('move_files', () => {
     expect(has('shared/archive/gs-sales/skills/offer.md')).toBe(true)
   })
 
+  test('the refusal points at move_skill and forbids stand-ins (docs/DECISIONS.md "Project skills")', async () => {
+    const r = await call('carol', 'move_files', { paths: ['skills/team-rules.md'], to_folder: 'projects/falcon' }, { person: ask(true), turn: true })
+    expect(r.isError).toBe(true)
+    expect(r.text).toContain('Skills do not move with files')
+    expect(r.text).toContain('ask with move_skill')
+    expect(r.text).toContain('Never make a skills folder, a README or a copy somewhere else as a stand-in')
+    // the old pointer at the Files screen is gone
+    expect(r.text).not.toContain('or the Files screen')
+  })
+
+  test('a project\'s skills folder (projects/<name>/skills) cannot be made, emptied or taken along by the AI', async () => {
+    const { componentC } = await import('../../server/src/team-files/component')
+    put('projects/falcon/drafts/skills/evil/SKILL.md', '---\nname: evil\ndescription: x\n---\nsteps\n')
+    // made by a rename or a move into the project folder
+    const renamed = await call('alice', 'rename_file', { path: 'projects/falcon/drafts', new_name: 'skills' }, { person: ask(true), turn: true })
+    expect(renamed.isError).toBe(true)
+    const moved = await call('alice', 'move_files', { paths: ['projects/falcon/drafts/skills'], to_folder: 'projects/falcon' }, { person: ask(true), turn: true })
+    expect(moved.isError).toBe(true)
+    expect(has('projects/falcon/skills/evil')).toBe(false)
+    // a folder holding a skills/ folder into projects/: it would become a project's skills folder
+    put('shared/kit/skills/x/SKILL.md', '---\nname: x\ndescription: x\n---\nsteps\n')
+    const turnId = A.turn('carol', A.chat('carol'))
+    expect(() => componentC(A.ctx).files.move('carol', 'shared/kit', 'projects/kit', 'fail', { turnId })).toThrow(/Skills do not move with files/)
+    // emptied, or carried off with the project's folder
+    put('projects/falcon/skills/kept/SKILL.md', '---\nname: kept\ndescription: x\n---\nsteps\n')
+    const out = await call('alice', 'move_files', { paths: ['projects/falcon/skills/kept'], to_folder: 'projects/falcon/drafts' }, { person: ask(true), turn: true })
+    expect(out.isError).toBe(true)
+    expect(() => componentC(A.ctx).files.move('carol', 'projects/falcon', 'shared/falcon-old', 'fail', { turnId })).toThrow(/Skills do not move with files/)
+    await expect(componentC(A.ctx).files.copy('carol', 'shared/glossary.md', 'projects/falcon/skills/kept/notes.md', { turnId })).rejects.toThrow(/Skills do not move with files/)
+    expect(has('projects/falcon/skills/kept/SKILL.md')).toBe(true)
+  })
+
+  test('a person moving a project\'s folder into projects/ is asked first: its skills switch on there', async () => {
+    const { componentC } = await import('../../server/src/team-files/component')
+    put('shared/pricing/skills/margin/SKILL.md', '---\nname: margin\ndescription: x\n---\nsteps\n')
+    put('shared/pricing/skills/README.md', '# x\n')
+    A.ctx.db.query('INSERT INTO projects (id, name, folder_path, created_by, created_at) VALUES (?,?,?,?,?)').run('01900000-0000-7000-8000-0000000c0001', 'Pricing', 'shared/pricing', 'carol', new Date().toISOString())
+    const svc = componentC(A.ctx).files
+    let err: unknown
+    try { svc.move('carol', 'shared/pricing', 'projects/pricing', 'fail') } catch (e) { err = e }
+    expect((err as { params?: Record<string, unknown> }).params).toEqual({ reason: 'project_skills_on', skills: 'margin', count: 1 })
+    expect(has('shared/pricing/skills/margin/SKILL.md')).toBe(true)
+    svc.move('carol', 'shared/pricing', 'projects/pricing', 'fail', { skillsOk: true })
+    expect(has('projects/pricing/skills/margin/SKILL.md')).toBe(true)
+    const a = A.ctx.db.query("SELECT target, detail FROM audit_log WHERE action = 'skills.change' AND target = 'projects/pricing/skills/margin/SKILL.md'").get() as { target: string; detail: string }
+    expect(JSON.parse(a.detail)).toMatchObject({ change: 'move', from: 'shared/pricing/skills/margin/SKILL.md', kind: 'skill', project: { name: 'Pricing' } })
+    // a rename inside projects/ keeps them on: nothing to ask
+    svc.move('carol', 'projects/pricing', 'projects/pricing-2', 'fail')
+    expect(has('projects/pricing-2/skills/margin/SKILL.md')).toBe(true)
+  })
+
   test('the AI cannot copy into skills/ or a group\'s skills folder (the file layer); a person can', async () => {
     const { componentC } = await import('../../server/src/team-files/component')
     put('groups/marketing/skills/.keep', '')

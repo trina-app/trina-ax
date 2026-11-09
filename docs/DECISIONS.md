@@ -15986,3 +15986,62 @@ boxes); no contract, setting or data change.
 - **Words:** the server's (`/api/push` `messages.markRead`) for Web Push, the desktop app's own i18n for the Mac.
 - **Not yet:** Windows (toast XML), the iPhone app (a notification category in the extension) and Android (no FCM
   yet). A failure (signed out, room left) changes nothing; the notice stays unread in the Inbox.
+
+## Project skills — a fourth level only a project's chats use (feat/project-skills, 2026-11-09, product owner)
+
+- **Why:** a team asked the AI, in a project chat, to move a lead group's quoting skills into the project. Skills had
+  three levels (the team, a group, one person) and nothing was "for this project's chats only"; the AI could not move a
+  skill, so it left a README in the project folder as a stand-in.
+- **Where:** `projects/<name>/skills/<skill>/SKILL.md` of a live team project whose folder is exactly
+  `projects/<name>` (owner's option A: team projects live in `projects/<name>/`). Not a personal project, not an older
+  project on another folder, not a nested one; a parent project's skills are never inherited. Only `SKILL.md` folders
+  load: a single `.md` there is told it is in the wrong place, a README is a file. The rule is one function,
+  `skills/guard.ts projectLevelPossible`.
+- **Who gets them:** the chats of that project (private, shared and scheduled), for the people who see the project
+  (`projectForChat`: they read its folder and it is not in the trash). Owners and admins too, in their own project
+  chats. Never rooms (a room session has no project), never the person's other chats.
+- **Same name:** the rule people read is **"프로젝트 스킬은 새 이름만 더할 수 있어요"**: personal > group > team >
+  project. A project skill is also hidden when its name is a wider skill's file or folder name ("/report" runs
+  `skills/report.md`), and "/name" never picks it over a wider skill of the same length. The save card looks at every
+  level the saver sees: a new project skill under a taken name is not saved (it would never run); the card offers
+  **이름 바꿔 저장**, **팀 것 고치기** (or the group's or one's own, when they may write it) and **저장하지 않기**.
+  Saving a wider skill over a project skill's name says that one will be hidden. The Skills page puts a small
+  **같은 이름: 팀 전체** chip on such project rows only.
+- **Who edits:** whoever the folder rules let write `projects/<name>/skills`, as for group skills, recorded knowingly:
+  a project's participants write its folder. Its reach is its project's chats and it cannot replace a name. The AI's
+  write goes through the same card ("프로젝트 '견적'의 스킬로 저장할까요? 이 프로젝트 채팅에서 AI가 따라요"). Every change
+  is audited as `skills.change` with `project {id, name}`; the notice goes to the owner and admins and to the project's
+  creator while they can read its folder.
+- **Shared chats:** the skills everyone who sees the chat may use are picked first, then each name's winner (before, a
+  lead's group "quote" won, was filtered out, and the project "quote" everyone could use never showed; each sender got
+  a different one). The read card for the rest is unchanged.
+- **Prompt injection:** project members write instructions everyone in the project follows. Limits: no name can be
+  replaced, the AI's card and the audit apply, the AI's list marks them `[project: <name>]` (the name one line, cut at
+  40, no brackets, neutralised) with a note that anyone who writes the folder may have written them, nothing is
+  granted, and a run with "/name" taints the session (as project instructions do).
+- **The guard decides by path:** any `projects/<name>/skills` (letter case and Unicode form folded), with or without
+  a project there, like `groups/<g>/skills`; no database lookup. The AI's write needs the card; move, copy and rename
+  refuse it; the AI cannot move a folder holding a `skills/` folder into `projects/<name>`, nor `projects/<name>` or
+  `projects/` holding one; connectors refuse it as a real skill root.
+- **Moving between levels:** one action, `skills/move.ts`, for the AI's `move_skill` and the Skills page's
+  **옮기기…**. Write on both places, no skill of that name at the target, a SKILL.md folder for a project, and for a
+  project no wider skill of the name. The card says who gains and who loses it with counts ("리드 그룹 6명 → 견적 프로젝트
+  채팅 4명") and lists every file; its yes is bound to a hash of every file and the target, checked again as it moves.
+  **The AI only narrows** (nobody gains): a widening move is refused with a pointer to the Skills page, where the whole
+  text is shown first, so a planted message cannot widen a skill's reach. Refused in scheduled runs; not offered in
+  rooms, shared chats or sub-agents. A folder that is not a project yet: "먼저 폴더를 프로젝트로 만들어 주세요". Audited
+  as `skills.move` (both levels, the gained and lost counts; a person's own folder never named) and each file as
+  `skills.change`. For a team skill the card also says that a rule on `skills/<name>/` can narrow it instead.
+- **The file tools' refusal** for skill folders now says "Skills do not move with files; ask with move_skill; never
+  make a skills folder, README or copy as a stand-in" instead of pointing at the Files screen.
+- **Switching on:** a person moving a project's folder into `projects/<name>` from elsewhere turns its `skills/` on;
+  the move asks first with their names (409 `project_skills_on` unless `skillsOk`) and records each as `skills.change`.
+  Creating, repointing and sharing projects are the project work's (another branch); no other path switches them on.
+- **Scheduled tasks:** a task whose project its owner no longer sees is skipped and the owner told (inbox, the task's
+  last result "프로젝트 없음"); before, the run's chat silently dropped the project. Migration 276 (add-only,
+  `schedule_project_skips`).
+- **Out:** sharing a skill to a project from the share flow, project skill usage in Admin › Usage (not recorded, as
+  personal skills), the project-folder word bonus in `find_skills` (removed).
+- Tests: `tests/unit/project-skills.test.ts`, `tests/unit/move-skill.test.ts`, cases in `c-file-moves`, `b-rooms-ai`,
+  `b-shared-chats`, `skill-permissions` and `remote-mcp-share`; web e2e `project-skills.spec.ts`.
+- Version impact: **minor** (a new level, a tool, two endpoints, optional API fields, one add-only migration).

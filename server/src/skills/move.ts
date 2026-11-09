@@ -16,7 +16,7 @@ import { audit } from '../admin/audit'
 import { atLeast, type Principal } from '../policy/access'
 import { authorize } from '../policy/authorize'
 import { foldKey } from '../policy/names'
-import { groupSkillRoots, isPersonalSkill, isSkillManifest, listGroupSkills, listSkills, listTeamSkills, liveProjectRoots, personalSkillsDir, projectOfFolder, readSkill, sameSkillName, skillAlias, skillFolder, skillTier, type Skill } from '../chat/skills'
+import { groupSkillRoots, isPersonalSkill, isSkillManifest, listGroupSkills, listSkills, listTeamSkills, liveProjectRoots, personalSkillsDir, projectOfFolder, readSkill, sameSkillName, skillFolder, skillTier, widerSkillsNamed, type Skill } from '../chat/skills'
 import { HttpError } from '../http/errors'
 import { componentC } from '../team-files/component'
 import { activePeople } from '../team-files/service'
@@ -142,8 +142,8 @@ export interface MovePlan {
 
 /** Where "the same name" is for the person: the label of a wider skill whose name, or file or folder name, `name` is. */
 function widerSameName(ctx: AppContext, user: Principal, name: string, except: string, L: Locale): string | null {
-  const hit = listSkills(ctx.files, user).filter((s) => s.path !== except && (sameSkillName(s.name, name) || sameSkillName(skillAlias(s.path), name)))
-    .sort((a, b) => skillTier(a) - skillTier(b))[0]
+  // the moved skill leaves: what it hides now counts too
+  const hit = widerSkillsNamed(ctx.files, user, name, except)[0]
   if (!hit) return null
   return skillTier(hit) === 0 ? st('wherePersonal', L) : hit.group ? st('whereGroup', L, { group: hit.group.name }) : st('whereTeam', L)
 }

@@ -530,8 +530,9 @@ function moveSkillTool(exec: TurnExec): Tool {
         }
       }
       if (!to) return bad('That level cannot be used.', 'no level')
+      const said = (e: unknown, other: string) => (e instanceof HttpError && e.message ? e.message : other).replace(/\.+$/, '')
       let plan
-      try { plan = planMove(ctx, user, have, to, L) } catch (e) { return bad(`Not moved: ${e instanceof HttpError && e.message ? e.message : 'the skill\'s files could not be read'}.`, 'refused: files') }
+      try { plan = planMove(ctx, user, have, to, L) } catch (e) { return bad(`Not moved: ${said(e, 'the skill\'s files could not be read')}.`, 'refused: files') }
       if (plan.blocked) return bad(`Not moved: ${skillText(plan.blocked.key, 'en', plan.blocked.vars)}`, `refused: ${plan.blocked.key}`)
       const from = levelLabel(plan.from, L), dest = levelLabel(plan.to, L)
       // the AI only narrows (a planted message must not widen a skill's reach)
@@ -554,10 +555,11 @@ function moveSkillTool(exec: TurnExec): Tool {
         return bad(`The user did not allow moving the skill "${neutralizeTags(plan.skill.name)}", so nothing was moved. Do not move it another way (no copy, folder or README elsewhere) unless the user asks again.`, 'not allowed by the user')
       }
       try {
-        const done = runMove(ctx, user.id, plan.skill.path, levelRef(plan.to), plan.token, L, { turnId: spec.turnId, tool: 'move_skill' })
+        // checked again as it moves (the files, the target, the rights); its answer is for the AI: in English
+        const done = runMove(ctx, user.id, plan.skill.path, levelRef(plan.to), plan.token, 'en', { turnId: spec.turnId, tool: 'move_skill' })
         return { ...text(`Moved the skill "${neutralizeTags(done.skill.name)}" from ${levelLabel(done.from, 'en')} (${done.fromPeople} people) to ${levelLabel(done.to, 'en')} (${done.toPeople} people): ${done.entry}.${done.to.level === 'project' ? ' The AI now follows it only in that project\'s chats.' : ''}`), summary: `move_skill -> moved to ${done.to.level}` }
       } catch (e) {
-        return bad(`Not moved: ${e instanceof HttpError && e.message ? e.message : 'the move failed'}.`, 'failed')
+        return bad(`Not moved: ${said(e, 'the move failed')}.`, 'failed')
       }
     },
   }

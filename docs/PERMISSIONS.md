@@ -15,6 +15,7 @@ Trina AX에서 각자 볼 수 있는 범위와, 그 범위를 AI가 넘지 못�
 | `skills/` (팀 스킬·팀 규칙) | 모두 읽기. 바꾸는 사람은 **스킬 관리자**: owner·관리자, 그리고 관리자가 팀 스킬 화면의 "고칠 수 있는 사람" **[바꾸기]**로 맡긴 사람·그룹(`skills/` 전체) 또는 폴더 권한에서 `skills/재무/` 같은 하위 폴더에 쓰기를 준 사람·그룹 |
 | `skills/<sub>/` (restricted team skills) | The folder rules, the same as for files. Only people who can **read** the folder see and use its skills. See "Skills" below. |
 | `users/<id>/skills/` (personal skills) | **The owner only**, the same as all of `users/<id>/`. Owner and admins cannot see them. |
+| `projects/<name>/skills/` (project skills) | The folder rules of the project's folder: who **reads** it gets them, **only in that project's chats**; who **writes** it changes them (the AI after a card). A rule on `projects/<name>/skills/` narrows them. See "Skills" below. |
 | 스킬 제안 ("스킬로 제안") | 제안한 사람과 **제안을 넣을 폴더의 스킬 관리자**만. 다른 사람에게는 있다는 것도 안 보임 |
 | 내 스킬 가져오기 (공유 제안) | **만든 사람만** (owner·관리자만 만들 수 있음). 다른 관리자도 못 봄(404). 멤버는 만들 수 없고(403) 지금처럼 "스킬로 제안"을 씀 |
 | `users/<id>/` (개인 폴더) | **본인만**. owner·admin도 못 봄. 단, 그 사람을 지우면 기본(`personalFolder=transfer`)으로 폴더가 owner의 개인 폴더 안 `보관된 계정/<id>/`(팀 기본 언어 이름)로 옮겨지고 그때부터 **owner만** 봄(채팅 첨부 `.attachments/`는 지움). 그 안의 개인 프로젝트(이름·지침)도 폴더를 따라가 owner에게 보임. 그 사람이 개인 폴더에 있을 때 저장된 이전 버전은 보통 owner에게도 안 보임. 지운 사람이 admin이어도 owner에게 감. `personalFolder=delete`(API)면 함께 지움 |
@@ -29,7 +30,7 @@ Trina AX에서 각자 볼 수 있는 범위와, 그 범위를 AI가 넘지 못�
 - 그룹에서 빠지거나 규칙이 바뀌면 **바로** 적용됩니다. AI 도구는 호출할 때마다 권한을 다시 읽고, 권한을 잃은 채팅은 AI 세션을 새로 시작합니다.
 - AI는 **묻는 사람의 권한만큼만** 일합니다. alice의 AI는 alice가 볼 수 있는 것만 봅니다.
 - **내 스킬 가져오기**(DECISIONS "SK"): owner나 관리자가 자기 Claude 스킬을 팀에 넣는 길. 고른 `.claude` 폴더(브라우저·데스크톱 앱)나 Claude Code(커넥터의 `share_skills`)가 보낸 스킬은 **공유 제안**으로만 서버에 남고, 파일은 팀 폴더 밖(`<data>/skill-shares/<id>/`)에서 기다립니다. 비밀 키가 든 스킬은 어디에도 쓰지 않습니다. 그 사람이 [팀에 공유]를 눌러야 그 사람 권한으로 저장되고(스킬 제안 승인과 같은 길: 폴더 규칙, 버전, `skills/` 변경 기록과 알림), 이름이 같은 팀 스킬은 바로 덮어쓰지 않고 채팅에서 확인 카드를 거쳐 합칩니다. 도구 연결은 키 없이 템플릿으로만 들어가 팀원이 각자 연결합니다.
-- **커넥터는 스킬을 쓰지 못합니다.** 바깥 AI 앱(커넥터)은 `skills/`뿐 아니라 개인 스킬 `users/<id>/skills/`에도 쓰지 못합니다(write, edit, upload_file, create_upload_link와 그 PUT 모두, 대소문자 무관). 앱의 확인 카드를 바깥 모델이 대신할 수 없기 때문입니다. `users/<id>/`의 다른 파일은 그대로 쓸 수 있습니다.
+- **커넥터는 스킬을 쓰지 못합니다.** 바깥 AI 앱(커넥터)은 `skills/`뿐 아니라 그룹·프로젝트 스킬(`groups/<g>/skills/`, `projects/<name>/skills/`)과 개인 스킬 `users/<id>/skills/`에도 쓰지 못합니다(write, edit, upload_file, create_upload_link와 그 PUT 모두, 대소문자 무관). 앱의 확인 카드를 바깥 모델이 대신할 수 없기 때문입니다. `users/<id>/`의 다른 파일은 그대로 쓸 수 있습니다.
 - **팀 스킬은 따로 조심합니다.** `skills/`의 내용은 팀 전체 AI가 따르는 지침입니다. 그래서 "팀 스킬 관리"는 별도 권한 표가 아니라 `skills/`(또는 하위 폴더)의 **쓰기 규칙** 그 자체입니다(폴더 권한 화면에도 같은 규칙으로 보임). 스킬 관리자의 AI라도 `skills/`에 저장하기 전에는 서버가 바뀌는 내용을 보여 주며 확인을 받고(AI가 대신 답할 수 없는 카드), 확인이 없으면 쓰지 않습니다. 사람이든 AI든 `skills/`가 바뀌면 감사 기록에 남고, owner·관리자에게 버전 기록 링크가 붙은 알림이 갑니다.
 
 ## 공유 프로젝트 채팅 (Shared project chats)
@@ -54,6 +55,7 @@ A skill is an instruction that the person can read. It never gives more access. 
 - **Personal skills** are in `users/<id>/skills/` (a `.md` file with a skill header, or a `<name>/SKILL.md` folder). Only the owner sees and uses them. Owner and admins cannot see them. The owner can suggest one to the team with "Suggest as skill" on the Files screen. A manager of the target folder reviews it.
 - **One rule for every path.** The skill list is always the list of the person who runs the turn: the "/" menu (`GET /api/skills`), the skill list in the AI instructions, the AI's `skill` and `find_skills` tools (also in sub-agents; each call checks again), "/name" in a message, `skills_list` of the remote MCP connector, popular skills on the home screen, skill issues and the skill screens. In a shared project chat, this is the person who sent the message. In a scheduled task, this is the owner of the schedule.
 - **Same name.** When a personal skill has the same name as a team skill, the personal skill replaces the team skill for its owner only. The screens show it as "Personal".
+- **Project skills** are in `projects/<name>/skills/<skill>/SKILL.md` of a team project on exactly `projects/<name>`. They are used only in that project's chats (private, shared and scheduled), by the people who read its folder, owner and admins included; never in rooms or other chats. A project only adds names: personal > group > team > project. A skill moves between levels with the AI's `move_skill` (only where fewer people get it, after a card) or 옮기기… on the Skills page (write on both places). Decisions: [DECISIONS.md](DECISIONS.md) "Project skills".
 - **No usage records for personal skills.** Admin > Usage and popular skills count team skills only, so no admin sees the name of a personal skill.
 - Team rules (a `skills/*.md` file without a skill header) are unchanged. A file without a header in `users/<id>/skills/` is not a rule.
 

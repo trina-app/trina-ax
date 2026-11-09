@@ -634,6 +634,15 @@ export function scanSkillsWithShadowed(files: FileService, user: Principal, scop
   return { skills, capped, shadowed, replaces }
 }
 
+/** Every personal, group and team skill `user` sees (the ones that run and the ones a better tier hides) whose name, or
+ * whose file or folder name, is `name`, but `except`: what a project skill of that name would give way to (a project only
+ * adds names), widest first. For the save and move cards (docs/DECISIONS.md "Project skills"). */
+export function widerSkillsNamed(files: FileService, user: Principal, name: string, except?: string): Skill[] {
+  const { skills, shadowed } = scanSkillsWithShadowed(files, user)
+  return [...skills, ...shadowed.map((x) => x.skill)].filter((s) => s.path !== except && skillTier(s) < 3 && (sameSkillName(s.name, name) || sameSkillName(skillAlias(s.path), name)))
+    .sort((a, b) => skillTier(a) - skillTier(b) || a.path.localeCompare(b.path))
+}
+
 /** The Skills page's project sections: the skills of every live team project the person sees (reads its folder), each
  * with its project, and with `shadowedBy` when one of the person's own, group or team skills runs instead (a project
  * only adds names). Paths the person cannot read are never listed. */

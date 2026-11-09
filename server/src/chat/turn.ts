@@ -33,7 +33,7 @@ import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlo
 import { looseArea, placementNote } from './file-placement'
 import { buildAgentDefinitions, initProblem, LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS, PARENT_ONLY_TOOLS, SUBTASK_STEPS_KEPT, subtaskSummary } from './subagents'
 import { getTeamSettings } from '../admin/settings'
-import { everyoneMayUse, invokedSkill, isGroupSkill, listSkills, mayNotUse, projectOfFolder, projectSkillSections, sameSkillName, skillAlias, skillFolder, skillTier, type ChatProject, type SkillScope } from './skills'
+import { everyoneMayUse, invokedSkill, isGroupSkill, listSkills, mayNotUse, projectOfFolder, projectSkillSections, sameSkillName, skillFolder, skillTier, widerSkillsNamed, type ChatProject, type SkillScope } from './skills'
 import { buildSkillList, chatSkillOrder, descriptionOrder, hintSkills, listedFor, recordListed, skillChanges, skillChangesText, usageScores } from './skill-list'
 import { describeSchedule, scheduledRunBlock, type ScheduleRow } from './schedules'
 import { safeModel, type EngineConfs } from './engines'
@@ -2233,8 +2233,7 @@ export class TurnExec {
   sameNameElsewhere(me: Principal, name: string, except: string, target: 'project' | 'wider', L: Locale): { text: string; hidden: boolean; where: string; fix: { label: 'fixTeam' | 'fixGroup' | 'fixMine'; path: string } | null } | null {
     try {
       if (target === 'project') {
-        const hit = listSkills(this.rt.files, me).filter((s) => s.path !== except && (sameSkillName(s.name, name) || sameSkillName(skillAlias(s.path), name)))
-          .sort((a, b) => skillTier(a) - skillTier(b))[0]
+        const hit = widerSkillsNamed(this.rt.files, me, name, except)[0]
         if (!hit) return null
         const t = skillTier(hit)
         const where = t === 0 ? st('wherePersonal', L) : hit.group ? st('whereGroup', L, { group: hit.group.name }) : st('whereTeam', L)

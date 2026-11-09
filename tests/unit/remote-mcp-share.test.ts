@@ -176,8 +176,10 @@ test('personal skills: write, edit, upload_file, create_upload_link and the link
 })
 
 test('the connector\'s skill paths, without letter case or Unicode form', () => {
-  for (const p of ['skills', 'skills/a.md', 'SKILLS/a.md', 'users/u1/skills', 'users/u1/skills/a/SKILL.md', 'USERS/u1/Skills/x', './users/u1/skills/x', 'users\\u1\\skills\\x'])
+  for (const p of ['skills', 'skills/a.md', 'SKILLS/a.md', 'users/u1/skills', 'users/u1/skills/a/SKILL.md', 'USERS/u1/Skills/x', './users/u1/skills/x', 'users\\u1\\skills\\x',
+    // a project's skills (docs/DECISIONS.md "Project skills"), with or without a project there
+    'projects/acme/skills/a/SKILL.md', 'Projects/ACME/Skills/x', 'projects/nobody/\u017fkills/x'])
     expect(skillWriteTarget(p), p).toBe(true)
-  for (const p of ['users/u1/notes.md', 'users/u1/my-skills/a.md', 'shared/skills/a.md', 'groups/skills/x', 'users/skills', ''])
+  for (const p of ['users/u1/notes.md', 'users/u1/my-skills/a.md', 'shared/skills/a.md', 'groups/skills/x', 'users/skills', '', 'projects/acme/notes.md', 'projects/acme/sub/skills/x/SKILL.md', 'projects/skills'])
     expect(skillWriteTarget(p), p).toBe(false)
 })
