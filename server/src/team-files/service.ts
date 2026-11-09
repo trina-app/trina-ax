@@ -18,7 +18,8 @@ import { Denied, ToolError } from '../policy/errors'
 import { inSkills, SKILL_FILES_REFUSAL, SKILLS_DIR, skillRootOf, takeSkillAction, type SkillActionGrant } from '../skills/guard'
 import { recordCarriedSkills, skillOwner, type CarriedSkill } from '../skills/changes'
 import { badSegment, foldKey, hiddenEntry, volumeKey } from '../policy/names'
-import { skillEntriesIn, skillsUnder } from '../skills/switch-on'
+import { skillsUnder } from '../skills/switch-on'
+import { skillEntriesOnDisk } from '../chat/skills'
 import { currentPlan } from '../system/limits'
 import { assertStorageRoom, assertStorageRoomForAI } from '../system/storage'
 import { parseInput, verifyChain } from '../policy/resolve'
@@ -415,14 +416,20 @@ export class TeamFiles {
     // keeps its old ones as a version, and is recorded as changed once moved
     const fresh = grant?.fresh ? this.freshTree(target, isDir, grant.fresh, fr.abs) : null
     const changed = grant?.fresh ? this.freshChanges(fr, isDir, grant.fresh) : []
+    let aside: string | null = null
     try {
       // the card's plan again, right before the rename: files, hashes, target, readers and editors as shown
       grant?.recheck()
       // the old bytes of a changed file as a version, in the move's own transaction (after its history was moved, so at
       // the new path)
       const inTx = changed.length ? () => { for (const c of changed) saveVersion(this.ctx.db, this.root, [...target, ...c.segs].join('/'), c.old, { userId, turnId: o.turnId ?? null }) } : undefined
-      this.relocate(userId, fr, target, isDir, { ...o, narrowed, ...(fresh ? { fresh } : {}), ...(inTx ? { inTx } : {}) })
+      aside = this.relocate(userId, fr, target, isDir, { ...o, narrowed, ...(fresh ? { fresh } : {}), ...(inTx ? { inTx } : {}) })
     } catch (e) { if (fresh) fs.rmSync(fresh, { recursive: true, force: true }); throw e }
+    // what was moved: the files the card showed go; anything else (written after the last check) goes to the trash
+    if (aside && grant?.fresh) {
+      const was = new Map(changed.map((c) => [c.segs.join('/'), sha256(c.old)]))
+      this.settleAside(userId, aside, fr, isDir, new Map(grant.fresh.map((f) => [f.segs.join('/'), was.get(f.segs.join('/')) ?? sha256(f.bytes)])), o.turnId ?? null)
+    }
     for (const c of changed) {
       const rel = [...target, ...c.segs].join('/')
       fileEvent(this.ctx.db, { turnId: o.turnId ?? null, userId, path: rel, action: 'update', size: c.bytes.length, sha256: sha256(c.bytes), detail: { tool: o.tool ?? 'file-screen' } })
@@ -448,15 +455,15 @@ export class TeamFiles {
   private carriedSkills(fr: { rel: string; abs: string }, target: string[]): CarriedSkill[] {
     const toRel = target.join('/')
     if (inSkills(fr.rel)) {
-      // a skills folder itself, or a folder in one, moved out of the skill roots: each skill in it stops (its folder
-      // event says that the folder moved); within the skill roots its folder event says it all
+      // a skills folder itself, or a folder in one, moved out of the skill roots: each skill at or below it stops (its
+      // folder event says that the folder moved); within the skill roots its folder event says it all. The skills as
+      // the loader finds them (chat/skills.ts skillEntriesOnDisk), single-file skills in subfolders included
       if (inSkills(toRel)) return []
       const root = skillRootOf(fr.rel)!
-      const segs = fr.rel.split('/')
-      const atRoot = segs.length === (root.kind === 'team' ? 1 : 3)
-      const entries = atRoot ? skillEntriesIn(fr.abs, root.kind !== 'project') : fs.existsSync(path.join(fr.abs, 'SKILL.md')) ? ['SKILL.md'] : skillEntriesIn(fr.abs, false)
+      const rootRel = fr.rel.split('/').slice(0, root.kind === 'team' ? 1 : 3).join('/')
       const owner = skillOwner(this.ctx, `${fr.rel}/x`)
-      return [...new Set(entries)].map((e) => ({ from: `${fr.rel}/${e}`, to: `${toRel}/${e}`, state: 'off' as const, owner }))
+      return skillEntriesOnDisk(this.root, rootRel).map((e) => `${rootRel}/${e.path}`).filter((p) => p === fr.rel || p.startsWith(fr.rel + '/'))
+        .map((p) => ({ from: p, to: toRel + p.slice(fr.rel.length), state: 'off' as const, owner }))
     }
     const dir = (abs: string) => { try { return fs.lstatSync(abs).isDirectory() } catch { return false } }
     const roots: string[] = []
@@ -469,10 +476,10 @@ export class TeamFiles {
       const before = `${fr.rel}/${r}`, after = `${toRel}/${r}`
       const a = inSkills(before), b = inSkills(after)
       if (!a && !b) continue
-      const groupRoot = skillRootOf(before)?.kind === 'group' || skillRootOf(after)?.kind === 'group'
       // whose skills they were, read now: the group or project follows the folder when it moves
       const owner = a && !b ? skillOwner(this.ctx, `${before}/x`) : undefined
-      for (const e of skillEntriesIn(path.join(fr.abs, ...r.split('/')), groupRoot)) out.push({ from: `${before}/${e}`, to: `${after}/${e}`, state: a && b ? 'moved' : a ? 'off' : 'on', ...(owner ? { owner } : {}) })
+      // the skills as the loader finds them there (as the skills folder it is now, or the one it becomes)
+      for (const e of skillEntriesOnDisk(this.root, before, a ? before : after)) out.push({ from: `${before}/${e.path}`, to: `${after}/${e.path}`, state: a && b ? 'moved' : a ? 'off' : 'on', ...(owner ? { owner } : {}) })
     }
     return out
   }
@@ -504,6 +511,38 @@ export class TeamFiles {
       }
     } catch (e) { fs.rmSync(tmp, { recursive: true, force: true }); throw e }
     return tmp
+  }
+
+  /**
+   * After skill_files placed the card's files (relocate `fresh`): what was moved, put aside under a server temp name.
+   * The files the card showed, as they were then (`shown`: hash by path below it), are removed; anything else, written
+   * there after the last check (by a dev-environment job, say), goes to the trash at the path it was moved from, where
+   * the person can look at it and restore it (never removed for good). A failure here never undoes the move.
+   */
+  private settleAside(userId: string, aside: string, fr: { rel: string; segs: string[] }, isDir: boolean, shown: Map<string, string>, turnId: string | null) {
+    const same = (abs: string, key: string) => { try { return shown.get(key) === sha256(readRegular(abs).bytes) } catch { return false } }
+    try {
+      if (!isDir) { if (same(aside, '')) { fs.rmSync(aside, { force: true }); return } }
+      else {
+        const prune = (abs: string, segs: string[]) => {
+          for (const d of fs.readdirSync(abs, { withFileTypes: true })) {
+            const p = path.join(abs, d.name), key = [...segs, d.name].join('/')
+            if (d.isDirectory()) { prune(p, [...segs, d.name]); try { fs.rmdirSync(p) } catch { /* something left in it */ } }
+            else if (d.isFile() && same(p, key)) fs.rmSync(p, { force: true })
+          }
+        }
+        prune(aside, [])
+        if (!fs.readdirSync(aside).length) { fs.rmdirSync(aside); return }
+      }
+      const storage = moveIntoTrash(this.root, [...fr.segs.slice(0, -1), path.basename(aside)])
+      const id = newId()
+      const size = isDir ? treeSize(path.join(this.root, ...storage.split('/'))).bytes : fs.lstatSync(path.join(this.root, ...storage.split('/'))).size
+      const purgeAt = iso(Date.now() + getTeamSettings(this.ctx.db).trashRetentionDays * DAY)
+      this.ctx.db.query('INSERT INTO trash_items (id, original_path, storage_path, size, deleted_by, turn_id, purge_at, kind) VALUES (?,?,?,?,?,?,?,?)')
+        .run(id, fr.rel, storage, size, userId, turnId, purgeAt, isDir ? 'folder' : 'file')
+      fileEvent(this.ctx.db, { turnId, userId, path: fr.rel, action: 'delete', size, detail: { folder: isDir, trashId: id, leftAfterSkillMove: true } })
+      this.ctx.log.warn('files written after a skill placement\'s last check went to the trash', { path: fr.rel, trashId: id })
+    } catch (err) { this.ctx.log.warn('moved files not settled after a skill placement', { err, path: fr.rel }) }
   }
 
   /** The fresh files whose bytes differ from the file they replace (a renamed skill's SKILL.md with its new name line),
@@ -566,7 +605,7 @@ export class TeamFiles {
    * trash items of the moved path follow it, two file events record it, then the rename and the text cache. move()
    * checks the caller's access first; archiveFolder() is the server's own move of a deleted member's folder.
    */
-  private relocate(userId: string, fr: { rel: string; segs: string[]; abs: string }, target: string[], isDir: boolean, o: By & { narrowed?: number; fresh?: string; inTx?: () => void }) {
+  private relocate(userId: string, fr: { rel: string; segs: string[]; abs: string }, target: string[], isDir: boolean, o: By & { narrowed?: number; fresh?: string; inTx?: () => void }): string | null {
     const toRel = target.join('/')
     const narrowed = o.narrowed ?? 0
     const db = this.ctx.db
@@ -642,10 +681,9 @@ export class TeamFiles {
         }
       }
     })()
-    // the moved files are no longer anyone's: removed, but a failure here (something still writing in them) never undoes
-    // a move that happened
-    if (o.fresh) { try { fs.rmSync(aside, { recursive: true, force: true }) } catch (err) { this.ctx.log.warn('moved files not removed after a skill placement', { err, path: fr.rel }) } }
     this.moveTextCache(fr.rel, toRel, isDir)
+    // what was moved, put aside: the caller settles it (settleAside)
+    return o.fresh ? aside : null
   }
 
   /**

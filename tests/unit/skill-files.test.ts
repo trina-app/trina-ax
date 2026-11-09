@@ -82,6 +82,16 @@ function setup(db: import('bun:sqlite').Database, team: string) {
   put('users/alice/drafts/scripted/SKILL.md', md('scripted', 'runs a script'))
   put('users/alice/drafts/scripted/run.sh', '#!/bin/sh\necho hi\n')
   fs.chmodSync(path.join(team, 'users/alice/drafts/scripted/run.sh'), 0o755)
+  // the second review: a single-file skill in a subfolder, a skill folder hiding a SKILL.md folder and a .md skill, a
+  // team skill a group's would replace, a group's skill a team one would give way to
+  put('skills/sales/quote.md', md('quote', 'a single-file team skill in a subfolder', 'QUOTE-BODY'))
+  put('skills/sales/notes.md', '# just notes, no header\n')
+  put('skills/hider/SKILL.md', md('hider', 'hides what is inside'))
+  put('skills/hider/sub/SKILL.md', md('hidden-sub', 'hidden while hider is there'))
+  put('skills/hider/notes.md', md('hidden-notes', 'hidden while hider is there'))
+  put('skills/teamkit/SKILL.md', md('teamkit', 'the team kit'))
+  put('users/alice/drafts/teamkit/SKILL.md', md('teamkit', 'the marketing kit'))
+  put('users/carol/brief/SKILL.md', md('brief', 'a team brief'))
 }
 
 describe('the plan and the file service (M2, M3, M4, M5, M10)', () => {
@@ -367,6 +377,62 @@ describe('the plan and the file service (M2, M3, M4, M5, M10)', () => {
     const off = A.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'skills.change' AND target = 'groups/marketing/skills/brief/SKILL.md' ORDER BY id DESC LIMIT 1").get() as { detail: string }
     expect(JSON.parse(off.detail)).toMatchObject({ change: 'move', switchedOff: 'folder_move', to: 'groups/marketing/old-skills/brief/SKILL.md', group: { id: 'marketing' } })
     s.move('carol', 'groups/marketing/old-skills', 'groups/marketing/skills', 'fail')
+  })
+
+  test('review 2 MUST 1: a single-file skill in a subfolder is on the card, bound and recorded, as the loader finds it', async () => {
+    // the loader runs it for the whole team
+    expect(listSkills(A.ctx.files, who('alice')).some((x) => x.name === 'quote')).toBe(true)
+    const file = ok(plan('carol', { action: 'move', path: 'skills/sales/quote.md', to_folder: 'shared/archive' }))
+    expect(file.skills.map((x) => [x.name, x.effect])).toEqual([['quote', 'stops']])
+    expect(file.lostIds).toEqual(['alice', 'bob', 'carol', 'dana', 'erin'])
+    const folder = ok(plan('carol', { action: 'move', path: 'skills/sales', to_folder: 'shared/archive' }))
+    // the header-less notes are no skill and no rule (rules are right in skills/ only)
+    expect(folder.skills.map((x) => [x.entry, x.effect])).toEqual([['skills/sales/quote.md', 'stops']])
+    // the Files screen's move of the folder records it switched off
+    const s = await svc()
+    s.move('carol', 'skills/sales', 'shared/archive/sales', 'fail')
+    const off = A.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'skills.change' AND target = 'skills/sales/quote.md' ORDER BY id DESC LIMIT 1").get() as { detail: string }
+    expect(JSON.parse(off.detail)).toMatchObject({ change: 'move', switchedOff: 'folder_move', to: 'shared/archive/sales/quote.md' })
+    s.move('carol', 'shared/archive/sales', 'skills/sales', 'fail')
+  })
+
+  test('review 2 MUST 2: a skill\'s SKILL.md is not moved out alone (what it hides would become skills); the whole folder is', () => {
+    expect(listSkills(A.ctx.files, who('alice')).map((x) => x.name)).not.toContain('hidden-notes')
+    expect(why(plan('carol', { action: 'move', path: 'skills/hider/SKILL.md', to_folder: 'shared/archive' }))).toContain('move the whole skill folder (skills/hider) out instead')
+    // a copy leaves it in place: allowed
+    expect(ok(plan('carol', { action: 'copy', path: 'skills/hider/SKILL.md', to_folder: 'shared/archive' })).kind).toBe('out')
+    // the whole folder: the one skill that runs stops, nothing new starts
+    expect(ok(plan('carol', { action: 'move', path: 'skills/hider', to_folder: 'shared/archive' })).skills.map((x) => x.name)).toEqual(['hider'])
+  })
+
+  test('review 2 SHOULD: a group skill that takes the team\'s place, a team skill a group\'s runs ahead of, counted', () => {
+    // alice's "teamkit" into Marketing: for alice and erin it replaces the team's "teamkit"
+    const g = ok(plan('alice', { action: 'copy', path: 'users/alice/drafts/teamkit', to_folder: 'groups/marketing/skills' }))
+    expect(g.replaces).toBe(2)
+    // carol's "brief" into the team: for Marketing's members their group's "brief" runs instead (carol, an admin, reads it)
+    const t = ok(plan('carol', { action: 'copy', path: 'users/carol/brief', to_folder: 'skills' }))
+    expect(t.hiddenFor).toBe(2)
+  })
+
+  test('review 2 SHOULD: the team\'s skills/ folder itself is not moved or renamed', () => {
+    expect(why(plan('carol', { action: 'rename', path: 'skills', new_name: 'skills-old' }))).toContain('skills/ is the team\'s skills folder')
+    expect(why(plan('carol', { action: 'move', path: 'skills', to_folder: 'shared/archive' }))).toContain('skills/ is the team\'s skills folder')
+  })
+
+  test('review 2 NIT: a file written into the source after the last check goes to the trash, not away for good', async () => {
+    const s = await svc()
+    const src = 'users/carol/trash-kit'
+    fs.mkdirSync(path.join(A.team, src), { recursive: true })
+    fs.writeFileSync(path.join(A.team, src, 'SKILL.md'), md('trash-kit', 'x'))
+    const turnId = A.turn('carol', A.chat('carol'))
+    // the check right before the move is when a job writes one more file
+    const g = allowSkillAction(A.ctx.files, { userId: 'carol', turnId, action: 'move', from: src, to: 'skills/trash-kit', recheck: () => fs.writeFileSync(path.join(A.team, src, 'LATE.md'), 'written after the check\n'), fresh: [{ segs: ['SKILL.md'], bytes: Buffer.from(md('trash-kit', 'x')) }] })
+    s.move('carol', src, 'skills/trash-kit', 'fail', { turnId, skillGrant: g, confirm: true })
+    expect(fs.readdirSync(path.join(A.team, 'skills/trash-kit'))).toEqual(['SKILL.md'])
+    expect(has(src)).toBe(false)
+    const t = A.ctx.db.query("SELECT storage_path, kind FROM trash_items WHERE original_path = ? ORDER BY rowid DESC LIMIT 1").get(src) as { storage_path: string; kind: string }
+    expect(t.kind).toBe('folder')
+    expect(fs.readdirSync(path.join(A.team, ...t.storage_path.split('/')))).toEqual(['LATE.md'])
   })
 
   test('M1: an approval is used up by its check, even when the save then fails; a wrong one leaves nothing behind', () => {

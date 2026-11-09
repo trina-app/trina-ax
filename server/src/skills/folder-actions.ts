@@ -28,7 +28,7 @@ import path from 'node:path'
 import type { Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { audit } from '../admin/audit'
-import { groupOfFolder, listGroupSkills, listSkills, listTeamSkills, liveProjectRoots, parseSkill, projectOfFolder, sameSkillName, skillAlias, skillFileKind, skillFileProblem, widerSkillsNamed, type Skill } from '../chat/skills'
+import { groupOfFolder, listGroupSkills, listSkills, listTeamSkills, liveProjectRoots, parseSkill, projectOfFolder, sameSkillName, skillAlias, skillEntriesOnDisk, skillFileProblem, skillTier, widerSkillsNamed, type Skill } from '../chat/skills'
 import { ext } from '../files/extract'
 import { readRegular } from '../files/store'
 import { atLeast, RuleSet, type Principal } from '../policy/access'
@@ -40,7 +40,6 @@ import { FileError } from '../team-files/errors'
 import { activePeople } from '../team-files/service'
 import { allowSkillAction, dropSkillAction, projectLevelPossible, skillRootOf, type SkillActionGrant } from './guard'
 import { copyNameOk, withName, type Level } from './move'
-import { skillEntriesIn } from './switch-on'
 
 export type FolderAction = 'move' | 'copy' | 'rename'
 export interface FolderActionInput { action: FolderAction; path: string; to_folder?: string; new_name?: string }
@@ -87,8 +86,11 @@ export interface FolderPlan {
   /** I and R into a wider level: for how many who get it a project skill of the same name is hidden, and the projects
    * the asker can read */
   shadow: { people: number; projects: string[] } | null
-  /** I and R into a project: for how many who get it a wider skill of the same name runs instead */
+  /** I and R: for how many who get it a wider skill of the same name runs instead (a project's: a group's or the team's;
+   * the team's: a group's) */
   hiddenFor: number
+  /** I and R into a group: for how many who get it this one takes the place of the team's skill of the same name */
+  replaces: number
   /** R: the new name and SKILL.md as it will be (its hash before: what the rewrite expects) */
   rename: { name: string; entry: string; text: string; oldSha: string } | null
   token: string
@@ -273,62 +275,63 @@ function skillsAt(ctx: AppContext, user: Principal, l: Level): Skill[] {
 /** A new skill called `name` at `l` for `who`: refused when the asker would not get it (a wider one of that name runs
  * instead in a project) or the level has one of that name; for a project, how many of `who` keep a wider one; for a
  * wider level, for how many of `who` it hides a project skill of that name, and those projects the asker sees. */
-function nameCheck(ctx: AppContext, user: Principal, rules: RuleSet, l: Level, name: string, who: readonly string[], except?: string): { shadow: FolderPlan['shadow']; hiddenFor: number } {
+function nameCheck(ctx: AppContext, user: Principal, rules: RuleSet, l: Level, name: string, who: readonly string[], except?: string): { shadow: FolderPlan['shadow']; hiddenFor: number; replaces: number } {
   if (skillsAt(ctx, user, l).some((s) => s.path !== except && (sameSkillName(s.name, name) || sameSkillName(skillAlias(s.path), name)))) {
     refuse(`a skill called "${name}" is already there; one of the two needs another name first`, 'tell the user which name is taken and ask which one to rename')
   }
+  // one name runs personal > group > team > project. For how many who get it another skill of the name wins, or loses to
+  // this one, counting only skills the asker can read too: never someone's own skills, nor a group's or the team's the
+  // asker cannot see (review S5: a count must not tell names)
+  const seen = (s: Skill) => !personalSkills(s.path) && atLeast(rules.access(user, segsOf(s.path)), 'read') && (!s.group || user.groups.includes(s.group.id) || user.role === 'owner' || user.role === 'admin')
+  const count = (tier: (t: number) => boolean, skipAsker: boolean) => {
+    let n = 0
+    for (const id of who) {
+      if (skipAsker && id === user.id) continue
+      try { if (widerSkillsNamed(ctx.files, ctx.files.principal(id), name, except).some((s) => seen(s) && tier(skillTier(s)))) n++ } catch { /* not loadable: not counted */ }
+    }
+    return n
+  }
   if (l.level === 'project') {
     if (widerSkillsNamed(ctx.files, user, name, except).length) refuse(`the user has a skill called "${name}" at a wider level (their own, a group's or the team's), which runs ahead of a project skill of that name, so this one would never run for them`, 'give it another name first (a SKILL.md folder\'s name and its name: line)')
-    // for how many who get it a wider one runs instead, counting only skills the asker can read too: never someone's
-    // own skills, nor a group's or the team's the asker cannot see (review S5: a count must not tell names)
-    const seen = (s: Skill) => !personalSkills(s.path) && atLeast(rules.access(user, segsOf(s.path)), 'read') && (!s.group || user.groups.includes(s.group.id) || user.role === 'owner' || user.role === 'admin')
-    let hiddenFor = 0
-    for (const id of who) { if (id === user.id) continue; try { if (widerSkillsNamed(ctx.files, ctx.files.principal(id), name, except).some(seen)) hiddenFor++ } catch { /* not loadable: not counted */ } }
-    return { shadow: null, hiddenFor }
+    return { shadow: null, hiddenFor: count((t) => t < 3, true), replaces: 0 }
   }
+  // a group's skill takes the place of the team's of the same name for its members (review SHOULD); a team skill gives
+  // way to a group's of that name
+  const replaces = l.level === 'group' ? count((t) => t === 2, false) : 0
+  const groupFirst = l.level === 'team' ? count((t) => t === 1, false) : 0
   // the live projects with a skill of this name (read from disk), and who of `who` sees them
   const hits: { project: string; folder: string; entry: string }[] = []
   for (const p of liveProjectRoots(ctx.db)) {
-    for (const e of skillEntriesIn(path.join(ctx.files.fx.root, ...p.root.split('/')), false)) {
-      const entry = `${p.root}/${e}`
-      let n = skillAlias(entry)
-      try { n = parseSkill(readRegular(path.join(ctx.files.fx.root, ...entry.split('/')), 128 * 1024).bytes.toString('utf8'), entry)?.name ?? n } catch { /* the folder's name */ }
+    for (const e of skillEntriesOnDisk(ctx.files.fx.root, p.root)) {
+      const entry = `${p.root}/${e.path}`
+      const n = e.name
       // only projects and skills the asker reads (review S5: a count must not tell that a name exists elsewhere)
       if (entry !== except && sameSkillName(n, name) && atLeast(rules.access(user, segsOf(p.folder)), 'read') && atLeast(rules.access(user, segsOf(entry)), 'read')) hits.push({ project: p.name, folder: p.folder, entry })
     }
   }
-  if (!hits.length) return { shadow: null, hiddenFor: 0 }
+  if (!hits.length) return { shadow: null, hiddenFor: groupFirst, replaces }
   const people = new Map(activePeople(ctx.db).map((p) => [p.id, p]))
-  let count = 0
+  let shadowed = 0
   for (const id of who) {
     const p = people.get(id)
-    if (p && hits.some((h) => atLeast(rules.access(p, segsOf(h.folder)), 'read') && atLeast(rules.access(p, segsOf(h.entry)), 'read'))) count++
+    if (p && hits.some((h) => atLeast(rules.access(p, segsOf(h.folder)), 'read') && atLeast(rules.access(p, segsOf(h.entry)), 'read'))) shadowed++
   }
   const named = [...new Set(hits.map((h) => h.project))]
-  return { shadow: count ? { people: count, projects: named } : null, hiddenFor: 0 }
+  return { shadow: shadowed ? { people: shadowed, projects: named } : null, hiddenFor: groupFirst, replaces }
 }
 
-/** What leaves a skill root with `from` (O): every skill entry in it (a SKILL.md folder, and a .md right in a team's or
- * group's skills folder: a rule or a single-file skill), and the SKILL.md folder it is part of (that skill changes). */
-function leaving(ctx: AppContext, user: Principal, rules: RuleSet, from: string, isDir: boolean, files: FileHash[], level: Level | null): SkillTouched[] {
+/** What leaves a skill root with `from` (O): every skill entry the loader finds at or below it (chat/skills.ts
+ * skillEntriesOnDisk: SKILL.md folders, single-file skills in any subfolder, the team's rules), and the SKILL.md folder
+ * it is part of (that skill changes). */
+function leaving(ctx: AppContext, user: Principal, rules: RuleSet, from: string, files: FileHash[], level: Level | null): SkillTouched[] {
   const rf = rootFolder(from)!
-  const kind = skillRootOf(from)!.kind
-  const bytesOf = (p: string) => files.find((f) => f.path === p)?.bytes
+  const bytesOf = (p: string) => files.find((f) => f.path === p)?.bytes ?? (() => { try { return readRegular(path.join(ctx.files.fx.root, ...p.split('/')), 128 * 1024).bytes } catch { return undefined } })()
   const out: SkillTouched[] = []
-  const add = (entry: string, effect: SkillTouched['effect']) => {
-    const b = bytesOf(entry)
-    const k = entry.endsWith('/SKILL.md') ? 'skill' : b && skillFileKind(ctx.files.fx.root, entry, b.toString('utf8')) === 'rule' ? 'rule' : 'skill'
-    out.push({ name: k === 'rule' ? nameOf(entry) : entryName(entry, b), entry, kind: k, effect, followers: followers(ctx, rules, level, entry), readable: atLeast(rules.access(user, segsOf(entry)), 'read') })
-  }
+  const add = (entry: string, kind: 'skill' | 'rule', effect: SkillTouched['effect']) =>
+    out.push({ name: kind === 'rule' ? nameOf(entry) : entryName(entry, bytesOf(entry)), entry, kind, effect, followers: followers(ctx, rules, level, entry), readable: atLeast(rules.access(user, segsOf(entry)), 'read') })
   const pkg = packageOf(ctx, from)
-  if (pkg && pkg !== from) add(`${pkg}/SKILL.md`, from === `${pkg}/SKILL.md` ? 'stops' : 'changes')
-  if (isDir) {
-    // the packages inside it, and (the skills folder itself) the .md right in it
-    const atRoot = from === rf
-    const base = path.join(ctx.files.fx.root, ...from.split('/'))
-    const inside = atRoot ? skillEntriesIn(base, kind !== 'project') : pkg === from ? ['SKILL.md'] : skillEntriesIn(base, false).concat(fs.existsSync(path.join(base, 'SKILL.md')) ? ['SKILL.md'] : [])
-    for (const e of [...new Set(inside)]) add(`${from}/${e}`, 'stops')
-  } else if (!pkg && parentOf(from) === rf && from.toLowerCase().endsWith('.md') && kind !== 'project') add(from, 'stops')
+  if (pkg && !under(pkg, from) && from !== `${pkg}/SKILL.md`) add(`${pkg}/SKILL.md`, 'skill', 'changes')
+  for (const e of skillEntriesOnDisk(ctx.files.fx.root, rf)) { const p = `${rf}/${e.path}`; if (under(p, from)) add(p, e.kind, 'stops') }
   return out
 }
 
@@ -388,6 +391,7 @@ function plan(ctx: AppContext, user: Principal, a: FolderActionInput): FolderPla
   const dirThere = (rel: string) => { try { return fs.lstatSync(path.join(fx.root, ...segsOf(rel))).isDirectory() } catch { return false } }
   const toFolder = parentOf(to)
   if (!dirThere(toFolder) && !(dstRoot && rootFolder(to) === toFolder && dirThere(parentOf(toFolder)))) refuse(`the folder '${toFolder}' is not there`, 'pick a folder that is there (list), or the user can make it on the Files screen')
+  if (isDir && fromSegs.length === 1 && fold(fromSegs[0]!) === 'skills') refuse('skills/ is the team\'s skills folder: moving or renaming it would stop every team skill and team rule for everyone at once', ADMIN)
   if (isDir && fromSegs.length === 1 && holderWord(fromSegs[0]!)) refuse(`${from}/ holds every ${fold(fromSegs[0]!) === 'groups' ? 'group' : 'project'}'s folder; moving or renaming it would stop all their skills at once`, ADMIN)
   const skillsDir = isDir ? skillsChild(path.join(fx.root, ...from.split('/'))) : null
   const holder = isDir && !!skillsDir && holderPos(from) && !srcRoot
@@ -413,10 +417,9 @@ function renameFolder(ctx: AppContext, user: Principal, rules: RuleSet, a: Folde
   const before = levelAt(ctx, `${sd}/x`), later = levelAt(ctx, `${td}/x`, { from, to })
   if (!!before !== !!later || (before && later && (before.level !== later.level))) refuse('renamed this way, the skills in it would stop applying', 'pick a name that keeps it a group\'s or project\'s folder, or the user can do it on the Files screen')
   const files = walk(ctx, user, rules, sd)
-  const isGroup = skillRootOf(`${sd}/x`)?.kind === 'group'
   const skills: SkillTouched[] = []
-  for (const e of skillEntriesIn(path.join(ctx.files.fx.root, ...sd.split('/')), isGroup)) {
-    const was = `${sd}/${e}`, now = `${td}/${e}`
+  for (const e of skillEntriesOnDisk(ctx.files.fx.root, sd)) {
+    const was = `${sd}/${e.path}`, now = `${td}/${e.path}`
     const fb = followers(ctx, rules, before, was), fa = followers(ctx, after, later, now)
     const eb = editors(ctx, rules, was), ea = editors(ctx, after, now)
     const name = entryName(was, files.find((f) => f.path === was)?.bytes)
@@ -427,7 +430,7 @@ function renameFolder(ctx: AppContext, user: Principal, rules: RuleSet, a: Folde
   // and nobody gains or loses a file in it
   const sb = readers(ctx, rules, from, user.id), sa = readers(ctx, after, to, user.id)
   if (!same(sb, sa)) refuse('renamed, other people than now could see what is in it', 'the user can do it on the Files screen, where the folder permissions show who gets what')
-  return finish({ kind: 'rename_folder', action: a.action, holder: true, from, to, isDir: true, files, texts: [], skills, level: later, lostIds: [], gainedIds: [], editorIds: [], editorsGainedIds: [], seeAdded: [], seeLost: [], narrowed, shadow: null, hiddenFor: 0, rename: null })
+  return finish({ kind: 'rename_folder', action: a.action, holder: true, from, to, isDir: true, files, texts: [], skills, level: later, lostIds: [], gainedIds: [], editorIds: [], editorsGainedIds: [], seeAdded: [], seeLost: [], narrowed, shadow: null, hiddenFor: 0, replaces: 0, rename: null })
 }
 
 /** R: a skill's own folder renamed in its skills folder, its SKILL.md's name line with it (else it stops loading). */
@@ -451,7 +454,7 @@ function renameSkill(ctx: AppContext, user: Principal, rules: RuleSet, a: Folder
   const eb = editors(ctx, rules, from), ea = editors(ctx, after, to)
   if (!same(fb, fa) || !same(eb, ea)) refuse('renamed, other people than now would get or could change it', FILES)
   const old = entryName(manifest, own!.bytes)
-  const checked = level ? nameCheck(ctx, user, rules, level, name, fa, manifest) : { shadow: null, hiddenFor: 0 }
+  const checked = level ? nameCheck(ctx, user, rules, level, name, fa, manifest) : { shadow: null, hiddenFor: 0, replaces: 0 }
   const skills: SkillTouched[] = [{ name: old, entry, kind: 'skill', effect: 'renamed', followers: fa, readable: true }]
   return finish({ kind: 'rename_skill', action: a.action, holder: false, from, to, isDir: true, files, texts: [{ path: entry, text: text! }], skills, level, lostIds: [], gainedIds: [], editorIds: ea, editorsGainedIds: [], seeAdded: [], seeLost: [], narrowed: 0, ...checked, rename: { name, entry, text: text!, oldSha: own!.sha } })
 }
@@ -460,6 +463,10 @@ function renameSkill(ctx: AppContext, user: Principal, rules: RuleSet, a: Folder
 function out(ctx: AppContext, user: Principal, rules: RuleSet, a: FolderActionInput, from: string, to: string, isDir: boolean, skillsDir: string | null, narrowed: number): FolderPlan {
   if (a.action === 'copy' && isDir) refuse('only single files are copied out of a skill folder', 'copy a whole skill to another level with move_skill (keep: true); for a folder, the user can use the Files screen')
   if (a.action === 'rename' && !skillsDir && rootFolder(from) !== from) refuse('a rename keeps it in the same skill folder', 'the user can do it on the Files screen')
+  // a skill's SKILL.md alone: the rest of its folder stays, and what it hid (a SKILL.md folder or a .md skill inside it)
+  // would start to apply as skills of their own, which this card never showed (review MUST 2)
+  const pkg = !isDir && a.action !== 'copy' ? packageOf(ctx, from) : null
+  if (pkg && from === `${pkg}/SKILL.md`) refuse('moving a skill\'s SKILL.md out on its own leaves the rest of its folder behind, and files in it could start to apply as skills of their own', `move the whole skill folder (${pkg}) out instead`)
   const after = a.action === 'copy' ? rules : rulesAfterMove(ctx, from, to)
   let files: FileHash[]
   let skills: SkillTouched[]
@@ -468,17 +475,17 @@ function out(ctx: AppContext, user: Principal, rules: RuleSet, a: FolderActionIn
     const sd = `${from}/${skillsDir}`
     level = levelAt(ctx, `${sd}/x`)
     files = walk(ctx, user, rules, sd)
-    skills = leaving(ctx, user, rules, sd, true, files, level)
+    skills = leaving(ctx, user, rules, sd, files, level)
   } else {
     level = levelAt(ctx, from)
     files = walk(ctx, user, rules, from)
-    skills = leaving(ctx, user, rules, from, isDir, files, level)
+    skills = leaving(ctx, user, rules, from, files, level)
   }
   if (a.action === 'copy') for (const s of skills) s.effect = 'kept'
   const lostIds = a.action === 'copy' ? [] : [...new Set(skills.filter((s) => s.effect === 'stops').flatMap((s) => s.followers))].sort()
   const sb = readers(ctx, rules, from, user.id), sa = readers(ctx, after, to, user.id)
   const seeAdded = sa.filter((x) => !sb.includes(x)), seeLost = a.action === 'copy' ? [] : sb.filter((x) => !sa.includes(x))
-  return finish({ kind: 'out', action: a.action, holder: !!skillsDir, from, to, isDir, files, texts: [], skills, level, lostIds, gainedIds: [], editorIds: [], editorsGainedIds: [], seeAdded, seeLost, narrowed, shadow: null, hiddenFor: 0, rename: null })
+  return finish({ kind: 'out', action: a.action, holder: !!skillsDir, from, to, isDir, files, texts: [], skills, level, lostIds, gainedIds: [], editorIds: [], editorsGainedIds: [], seeAdded, seeLost, narrowed, shadow: null, hiddenFor: 0, replaces: 0, rename: null })
 }
 
 /** The next step when a file that is not text would go into a skill folder (the product owner, 2026-11-10: no picture,
@@ -543,7 +550,7 @@ function finish(p: Omit<FolderPlan, 'token'>): FolderPlan {
   const token = crypto.createHash('sha256').update(JSON.stringify({
     kind: p.kind, action: p.action, holder: p.holder, from: p.from, to: p.to, isDir: p.isDir, files: p.files.map((f) => [f.path, f.sha]), texts: p.texts.map((t) => [t.path, sha256(Buffer.from(t.text, 'utf8'))]),
     skills: p.skills.map((s) => [s.entry, s.effect, s.followers]), level: p.level ? [p.level.level, p.level.root] : null, lost: p.lostIds, gained: p.gainedIds, editors: p.editorIds, editorsGained: p.editorsGainedIds,
-    seeAdded: p.seeAdded, seeLost: p.seeLost, narrowed: p.narrowed, shadow: p.shadow, hiddenFor: p.hiddenFor, rename: p.rename ? [p.rename.name, p.rename.oldSha] : null,
+    seeAdded: p.seeAdded, seeLost: p.seeLost, narrowed: p.narrowed, shadow: p.shadow, hiddenFor: p.hiddenFor, replaces: p.replaces, rename: p.rename ? [p.rename.name, p.rename.oldSha] : null,
   })).digest('hex')
   return { ...p, token }
 }

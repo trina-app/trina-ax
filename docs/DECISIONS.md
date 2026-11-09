@@ -17431,6 +17431,19 @@ all of it on the Files screen. The plan ("B1") was narrowed by the security revi
     `projects/` themselves, folders that would switch a group's or project's skills on (cut by the review: switching on
     goes through `move_skill` per skill), deletes, and producers (save_url, generate_video, room files) writing into
     skill folders.
+- **Which skills a change touches** is listed as the loader finds them (chat/skills.ts `skillEntriesOnDisk`, next to
+  `walkSkillRoot`): SKILL.md folders below the root, single-file skills in any subfolder up to three levels (a team's
+  or a group's), the team's rules right in `skills/`. The card, its token, the rename check and the on/off records all
+  use that one list (the second review found a single-file skill in `skills/sales/` left off the card while it stopped
+  for everyone).
+- **A skill's SKILL.md is not moved out on its own**: the rest of its folder would stay, and a SKILL.md folder or a
+  `.md` skill inside it, hidden while the SKILL.md was there, would start to apply without having been on the card. The
+  refusal says to move the whole skill folder. A copy of it out is fine (nothing changes in place).
+- **One name, several levels**: a skill put into a group's folder says for how many of the people who get it it takes
+  the place of the team's skill of that name; a team skill says for how many a group's skill of that name runs
+  instead. Counted only over skills the asker can read.
+- **The team's `skills/` folder itself** is never moved or renamed by skill_files (it would stop every team skill and
+  rule at once), like `groups/` and `projects/`.
 - **Who may call it**: only the main AI of the person's own chat. Rooms and shared chats do not offer it; a chat others
   wrote in, a Slack thread's chat (a channel may read its answer), a scheduled run, a template run, a confidential
   chat, a draft and a sub-agent (`PARENT_ONLY_TOOLS`, and
@@ -17444,6 +17457,8 @@ all of it on the Files screen. The plan ("B1") was narrowed by the security revi
   the card showed as new files, so a dev-environment job that kept the old file open cannot change the skill after the
   yes (for "I", text only); they go into place in the move's own step (the database part and both renames happen together or not at all),
   and a skill's folder renamed gets its SKILL.md with the new name line the same way, the old text kept as a version.
+  What was moved is then removed only where it is what the card showed; anything else (written after the last check,
+  by a dev-environment job, say) goes to the trash at its old path, never away for good.
   A script keeps its execute bit. Without such a grant the service refuses every AI turn's move or copy into or out of
   a skill folder (a copy out too, now), as before.
 - **Audit**: `skills.files` (kind, paths, the skills and counts), `skills.files_refused` for a no or no answer; each

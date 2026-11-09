@@ -151,6 +151,7 @@ export function skillFilesTool(exec: TurnExec) {
     }
     if (p.shadow) lines.push(st('fileShadow', L, { n: String(p.shadow.people), where: p.shadow.projects.length ? ` (${p.shadow.projects.map((x) => st('whereProject', L, { project: x })).join(', ')})` : '' }))
     if (p.hiddenFor) lines.push(st('fileHidden', L, { n: String(p.hiddenFor) }))
+    if (p.replaces) lines.push(st('fileReplaces', L, { n: String(p.replaces), name: p.skills[0]!.kind === 'rule' ? '' : (p.rename?.name ?? p.skills[0]!.name) }))
     if (p.seeAdded.length) lines.push(st('fileSeeMore', L, { n: String(p.seeAdded.length) }))
     if (p.seeLost.length) lines.push(st('fileSeeFewer', L, { n: String(p.seeLost.length) }))
     if (p.texts.length) lines.push(st('fileFollow', L))
@@ -186,6 +187,7 @@ function forAi(p: FolderPlan, user: import('../policy/access').Principal, ctx: T
   if (p.editorsGainedIds.length) parts.push(`Newly may change it: ${who(p.editorsGainedIds)}.`)
   if (p.shadow) parts.push(`For ${p.shadow.people} of them a project skill of the same name is hidden${p.shadow.projects.length ? ` (${p.shadow.projects.map((x) => neutralizeTags(x)).join(', ')})` : ''}.`)
   if (p.hiddenFor) parts.push(`For ${p.hiddenFor} of them a wider skill of the same name runs instead.`)
+  if (p.replaces) parts.push(`For ${p.replaces} of them it replaces the team's skill "${neutralizeTags(p.rename?.name ?? p.skills[0]!.name)}".`)
   if (p.seeAdded.length) parts.push(`${p.seeAdded.length} more people can see the files.`)
   if (p.seeLost.length) parts.push(`${p.seeLost.length} people can no longer see the files.`)
   return parts.join(' ')
