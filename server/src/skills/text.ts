@@ -1,6 +1,7 @@
 // Server texts of team skills (ko / en / id): the confirmation card, notices, refusals.
 import type { Locale } from '@mycel/shared/api'
 import { dropDoubleHonorifics } from '@mycel/shared/honorific'
+import { fillPlurals } from '@mycel/shared/plural'
 
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string): T => ({ ko, en, id, ja, es })
@@ -69,9 +70,9 @@ export const SKILL_TEXT = {
   levelGroup: t('{group} 그룹', '{group} group', 'grup {group}', "{group}グループ", "grupo {group}"),
   levelProject: t('{project} 프로젝트 채팅', '{project} project chats', 'chat proyek {project}', "{project}プロジェクトのチャット", "chats del proyecto {project}"),
   levelPersonal: t('나만', 'only me', 'hanya saya', "自分だけ", "solo yo"),
-  moveConfirm: t('"{name}" 스킬을 옮길까요?\n\n{from} {fromN}명 → {to} {toN}명', 'Move the skill "{name}"?\n\n{from}, {fromN} people → {to}, {toN} people', 'Pindahkan skill "{name}"?\n\n{from}, {fromN} orang → {to}, {toN} orang', "スキル「{name}」を移動しますか？\n\n{from} {fromN}人 → {to} {toN}人", "¿Mover la habilidad \"{name}\"?\n\n{from}, {fromN} personas → {to}, {toN} personas"),
-  moveLost: t('{n}명은 이 스킬을 더 쓰지 않아요.', '{n} people will no longer have this skill.', '{n} orang tidak akan memakai skill ini lagi.', "{n}人はこのスキルを使えなくなります。", "{n} personas dejarán de tener esta habilidad."),
-  moveGained: t('{n}명이 새로 이 스킬을 따라요. 전체 내용을 확인해 주세요.', '{n} more people will follow this skill. Check all of it.', '{n} orang lagi akan mengikuti skill ini. Periksa seluruh isinya.', "{n}人が新たにこのスキルに従います。内容をすべて確認してください。", "{n} personas más seguirán esta habilidad. Revísela entera."),
+  moveConfirm: t('"{name}" 스킬을 옮길까요?\n\n{from} {fromN}명 → {to} {toN}명', 'Move the skill "{name}"?\n\n{from}, {fromN, plural, one {# person} other {# people}} → {to}, {toN, plural, one {# person} other {# people}}', 'Pindahkan skill "{name}"?\n\n{from}, {fromN} orang → {to}, {toN} orang', "スキル「{name}」を移動しますか？\n\n{from} {fromN, plural, one {#人} other {#人}} → {to} {toN, plural, one {#人} other {#人}}", "¿Mover la habilidad \"{name}\"?\n\n{from}, {fromN, plural, one {# persona} other {# personas}} → {to}, {toN, plural, one {# persona} other {# personas}}"),
+  moveLost: t('{n}명은 이 스킬을 더 쓰지 않아요.', '{n, plural, one {# person} other {# people}} will no longer have this skill.', '{n} orang tidak akan memakai skill ini lagi.', "{n, plural, one {#人} other {#人}}はこのスキルを使えなくなります。", "{n, plural, one {# persona dejará} other {# personas dejarán}} de tener esta habilidad."),
+  moveGained: t('{n}명이 새로 이 스킬을 따라요. 전체 내용을 확인해 주세요.', '{n, plural, one {# more person} other {# more people}} will follow this skill. Check all of it.', '{n} orang lagi akan mengikuti skill ini. Periksa seluruh isinya.', "{n, plural, one {#人} other {#人}}が新たにこのスキルに従います。内容をすべて確認してください。", "{n, plural, one {# persona más seguirá} other {# personas más seguirán}} esta habilidad. Revísela entera."),
   moveFiles: t('옮길 파일', 'Files to move', 'Berkas yang dipindah', "移動するファイル", "Archivos que se moverán"),
   moveNarrowHint: t('팀 스킬은 그대로 두고 skills/{name}/ 폴더 권한으로 쓸 사람을 줄일 수도 있어요.', 'You can also keep the team skill and narrow who uses it with the folder permissions of skills/{name}/.', 'Anda juga bisa membiarkan skill tim dan mempersempit penggunanya lewat izin folder skills/{name}/.', "チームスキルのまま、skills/{name}/のフォルダー権限で使う人を絞ることもできます。", "También puede dejar la habilidad del equipo y limitar quién la usa con los permisos de la carpeta skills/{name}/."),
   moveYes: t('옮기기', 'Move', 'Pindahkan', "移動", "Mover"),
@@ -92,7 +93,8 @@ export const SKILL_TEXT = {
 
 export function st(key: keyof typeof SKILL_TEXT, locale: Locale, vars: Record<string, string> = {}): string {
   // no second honorific after a name that has one ("{who} 님이" with 대표님, shared/src/honorific.ts)
-  let s = dropDoubleHonorifics(SKILL_TEXT[key][locale] ?? SKILL_TEXT[key].en, vars)
+  // counts first ("{n, plural, one {# person} other {# people}}", shared/src/plural.ts), then the plain values
+  let s = fillPlurals(dropDoubleHonorifics(SKILL_TEXT[key][locale] ?? SKILL_TEXT[key].en, vars), vars, locale)
   for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(v)
   return s
 }
