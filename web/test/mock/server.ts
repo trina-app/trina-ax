@@ -2398,14 +2398,16 @@ export class MockServer {
       const all = [...kept, ...others]
       const skills = landing ? [...all.filter((x) => x.path === landing), ...all.filter((x) => x.path !== landing)] : all
       const tg = this.welcome?.teamGroup ?? null
-      const inGroup = !!tg && (c.user.role !== 'member' || c.user.groupIds.includes(tg.id) || !!this.groups.find((g) => g.id === tg.id)?.memberIds.includes(c.user.id))
+      // the team's home: shared/ (everyone) since docs/DECISIONS.md "Team folder basics", else the team group's folder
+      const home = tg ? tg.home ?? tg.folder : null
+      const inGroup = !!tg && (!!tg.home || c.user.role !== 'member' || c.user.groupIds.includes(tg.id) || !!this.groups.find((g) => g.id === tg.id)?.memberIds.includes(c.user.id))
       let teamFolder: { path: string; files: number; more: boolean; without: string[] } | null = null
-      if (tg && inGroup && this.files.get(tg.folder)?.type === 'folder' && this.access(tg.folder, c.user) !== 'none') {
-        const skip = [tg.brandFolder ?? `${tg.folder}/브랜드`, `${tg.folder}/skills`]
+      if (tg && home && inGroup && this.files.get(home)?.type === 'folder' && this.access(home, c.user) !== 'none') {
+        const skip = [tg.brandFolder ?? `${home}/브랜드`, ...(tg.home ? [] : [`${home}/skills`])]
         const system = /^(\.|~\$)|^(thumbs\.db|desktop\.ini)$/i
-        const docs = [...this.files.entries()].filter(([p, n]) => n.type === 'file' && p.startsWith(`${tg.folder}/`) && !skip.some((k) => p === k || p.startsWith(`${k}/`))
-          && !p.slice(tg.folder.length + 1).split('/').some((seg) => system.test(seg)) && this.access(p, c.user) !== 'none').length
-        teamFolder = { path: tg.folder, files: Math.min(docs, 100), more: docs > 100, without: skip.map((k) => k.slice(tg.folder.length + 1)) }
+        const docs = [...this.files.entries()].filter(([p, n]) => n.type === 'file' && p.startsWith(`${home}/`) && !skip.some((k) => p === k || p.startsWith(`${k}/`))
+          && !p.slice(home.length + 1).split('/').some((seg) => system.test(seg)) && this.access(p, c.user) !== 'none').length
+        teamFolder = { path: home, files: Math.min(docs, 100), more: docs > 100, without: skip.map((k) => k.slice(home.length + 1)) }
       }
       const teamNames = mine.filter((x) => x.path.startsWith('skills/')).map((x) => x.name.toLowerCase())
       const ran = (text: string) => { const t = text.trim().toLowerCase(); return teamNames.some((n) => t === `/${n}` || t.startsWith(`/${n} `) || t.startsWith(`/${n}\n`)) }
@@ -2496,8 +2498,8 @@ export class MockServer {
       return { progress: this.welcome }
     },
     // every team's start (server/src/onboarding/welcome.ts): no pack (docs/DECISIONS.md "W6": the record with no paths),
-    // and the team's group (named after the team, the owner in it) with groups/<name>/, its meeting notes folder and its
-    // brand folder, once
+    // and the team's group (named after the team, the owner in it) with groups/<name>/, once; the meeting notes and brand
+    // folders in shared/ (`home`, docs/DECISIONS.md "Team folder basics"); a row recorded before keeps them in the group's
     setupWelcomeTeam: (c) => {
       const at = now()
       const p = (this.handlers.updateWelcome!({ ...c, body: {} }) as { progress: WelcomeProgress }).progress
@@ -2509,13 +2511,13 @@ export class MockServer {
         const name = !taken(team) ? team : [2, 3, 4, 5, 6, 7, 8, 9].map((n) => `${team} ${n}`).find((n) => !taken(n)) ?? `${team} ${Date.now()}`
         const g = (this.handlers.createGroup!({ ...c, body: { name, memberIds: [c.user.id] } }) as { body: Group }).body
         const folder = `groups/${g.name}`
-        const notesFolder = `${folder}/${NOTES_FOLDER[this.settings.defaultLocale as keyof typeof NOTES_FOLDER] ?? NOTES_FOLDER.en}`
-        for (const d of ['groups', folder, notesFolder]) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
-        p.teamGroup = { id: g.id, name: g.name, folder, notesFolder }
+        const notesFolder = `shared/${NOTES_FOLDER[this.settings.defaultLocale as keyof typeof NOTES_FOLDER] ?? NOTES_FOLDER.en}`
+        for (const d of ['groups', folder, 'shared', notesFolder]) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
+        p.teamGroup = { id: g.id, name: g.name, folder, notesFolder, home: 'shared' }
       }
       // the brand folder (docs/DECISIONS.md "N"), also for a group recorded before it
       if (!p.teamGroup.brandFolder) {
-        const brandFolder = `${p.teamGroup.folder}/${this.localized(BRAND_FOLDER)}`
+        const brandFolder = `${p.teamGroup.home ?? p.teamGroup.folder}/${this.localized(BRAND_FOLDER)}`
         this.files.set(brandFolder, this.files.get(brandFolder) ?? { type: 'folder', mtime: at })
         p.teamGroup = { ...p.teamGroup, brandFolder }
       }
@@ -2560,7 +2562,7 @@ export class MockServer {
       if (c.user.role === 'member') fail('forbidden', 403)
       const path = c.body.path as string
       const p = this.welcome
-      if (!p || p.steps.files === 'done' || !path.startsWith('groups/') || this.files.get(path)?.type !== 'file') return { recorded: false }
+      if (!p || p.steps.files === 'done' || !(path.startsWith('groups/') || path.startsWith('shared/')) || this.files.get(path)?.type !== 'file') return { recorded: false }
       p.steps.files = 'done'
       this.welcome = this.welcomeSaved(p, now())
       return { recorded: true }

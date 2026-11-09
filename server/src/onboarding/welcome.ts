@@ -10,14 +10,15 @@
 // as it was (unknown fields too). A recorded general pack counts as handled whatever its shape, so nothing resets it.
 // A row that is not a JSON object at all is refused for writes (never replaced by a fresh one).
 //
-// Every team's start (docs/DECISIONS.md "M — One meeting note, everyone's own tasks", "W6", setupWelcomeTeam): the
-// team's own group named after the team, with its folder groups/<name>/ (the group's members read and write it, as
-// every group folder) and the meeting notes and brand folders in it, made once with the owner in it, and recorded in
-// the row, so the steps never make them again by themselves. No skill is installed (docs/DECISIONS.md "W6": a skill
+// Every team's start (docs/DECISIONS.md "M — One meeting note, everyone's own tasks", "W6", "Team folder basics",
+// setupWelcomeTeam): the team's own group named after the team (the invite link puts joiners in it; its team room), made
+// once with the owner in it, and the meeting notes and brand folders in shared/ (everyone in the team sees the company's
+// own material), recorded in the row with `home: 'shared'`, so the steps never make them again by themselves. A row
+// from before keeps them in the group's folder groups/<name>/ (its members read and write it): nothing is moved. No skill is installed (docs/DECISIONS.md "W6": a skill
 // goes in only on a press that names it); the general pack's record is written with no paths for older builds.
 import { z } from 'zod'
 import {
-  BRAND_FOLDER, BRAND_IMAGES_FOLDER, GENERAL_CARDNEWS_SKILL, GENERAL_DECK_SKILL, GENERAL_PROMO_SKILL, NOTES_FOLDER, TeamGroupRef, TeamType, WELCOME_STEPS, WelcomeProgress, WelcomeStepState, normalizeWebsite,
+  BRAND_FOLDER, BRAND_IMAGES_FOLDER, GENERAL_CARDNEWS_SKILL, SHARED_HOME, GENERAL_DECK_SKILL, GENERAL_PROMO_SKILL, NOTES_FOLDER, TeamGroupRef, TeamType, WELCOME_STEPS, WelcomeProgress, WelcomeStepState, normalizeWebsite,
   type Locale, type WelcomeTeamResult, type WelcomeUpdate,
 } from '@mycel/shared/api'
 import type { AppContext } from '../context'
@@ -332,9 +333,9 @@ function ensureNotesFolder(ctx: AppContext, userId: string, rel: string): void {
   if (!r.exists) componentC(ctx).files.mkdir(userId, rel)
 }
 
-/** The brand folder inside the team folder (groups/<team>/브랜드, localized) and its images folder, made when missing:
- * the company intro, 회사 소개.md and the website's pictures go there (docs/DECISIONS.md "N", "W6"); 회사 소개서, 카드뉴스
- * and 홍보 영상 read them. */
+/** The brand folder inside the team's home (shared/브랜드, or groups/<team>/브랜드 on a row from before "Team folder
+ * basics"; localized) and its images folder, made when missing: the company intro, 회사 소개.md and the website's
+ * pictures go there (docs/DECISIONS.md "N", "W6"); 회사 소개서, 카드뉴스 and 홍보 영상 read them. */
 export function brandFoldersOf(ctx: AppContext, userId: string, folder: string, recorded?: string): { brandFolder: string; imagesFolder: string } {
   const locale = teamDefaultLocale(ctx.db)
   // the one recorded keeps its name when the team's language changes later (the page uploads into it)
@@ -345,15 +346,26 @@ export function brandFoldersOf(ctx: AppContext, userId: string, folder: string, 
   return { brandFolder, imagesFolder }
 }
 
+/** The company's material in shared/ (docs/DECISIONS.md "Team folder basics"): the notes and brand folders recorded
+ * there, else new ones named in the team's language, made when missing. */
+function sharedStart(ctx: AppContext, userId: string, recorded: TeamGroupRef | null): Pick<TeamGroupRef, 'notesFolder' | 'brandFolder' | 'home'> {
+  const kept = recorded?.home === SHARED_HOME
+  const notesFolder = kept && recorded.notesFolder.startsWith(`${SHARED_HOME}/`) ? recorded.notesFolder : `${SHARED_HOME}/${NOTES_FOLDER[teamDefaultLocale(ctx.db)]}`
+  ensureNotesFolder(ctx, userId, notesFolder)
+  return { notesFolder, brandFolder: brandFoldersOf(ctx, userId, SHARED_HOME, kept ? recorded.brandFolder : undefined).brandFolder, home: SHARED_HOME }
+}
+
 /** The team's own group: the one these steps recorded while it is there, else a new one named after the team with the
  * owner in it. A group these steps did not make is never taken over, even with the team's name (an admin's group may
  * carry rules on other folders that the team link would hand to everyone who joins): a name already taken gets a
- * number ("Acme 2"). */
+ * number ("Acme 2"). The company's material goes to shared/ (`home`), except on a row from before "Team folder basics"
+ * whose group is still there: its notes and brand folders stay in the group's folder, as before. */
 function teamGroupFor(ctx: AppContext, userId: string, recorded: TeamGroupRef | null, locale: Locale): TeamGroupRef {
   const notes = NOTES_FOLDER[teamDefaultLocale(ctx.db)]
   if (recorded) {
     const folder = groupFolder(ctx, recorded.id)
     const name = (ctx.db.query('SELECT name FROM groups WHERE id = ?').get(recorded.id) as { name: string } | null)?.name
+    if (folder && name && recorded.home === SHARED_HOME) return { id: recorded.id, name, folder, ...sharedStart(ctx, userId, recorded) }
     if (folder && name) {
       const notesFolder = recorded.folder === folder ? recorded.notesFolder : `${folder}/${notes}`
       ensureNotesFolder(ctx, userId, notesFolder)
@@ -366,9 +378,7 @@ function teamGroupFor(ctx: AppContext, userId: string, recorded: TeamGroupRef | 
   const g = createGroupAs(ctx, userId, { name, memberIds: [userId] }, locale)
   const folder = groupFolder(ctx, g.id)
   if (!folder) return fail('internal')
-  const notesFolder = `${folder}/${notes}`
-  ensureNotesFolder(ctx, userId, notesFolder)
-  return { id: g.id, name: g.name, folder, notesFolder, brandFolder: brandFoldersOf(ctx, userId, folder).brandFolder }
+  return { id: g.id, name: g.name, folder, ...sharedStart(ctx, userId, recorded) }
 }
 
 /**
@@ -379,8 +389,9 @@ function teamGroupFor(ctx: AppContext, userId: string, recorded: TeamGroupRef | 
  *   the Skills page) is recorded as it is, with the paths it has; any other team gets `{ at, tasksPath: null,
  *   briefPath: null }` with no skill paths (`introDeckPath` absent: no deck is started);
  * - the team group: the recorded one while it exists, else a new one named after the team ("Acme 2" when the name is
- *   taken: a group these steps did not make is never taken over) with the owner in it; its folder and the meeting notes
- *   and brand folders in it (made when missing, through the file layer).
+ *   taken: a group these steps did not make is never taken over) with the owner in it; the meeting notes and brand
+ *   folders in shared/ (`home`; made when missing, through the file layer), or in the group's folder on a row from
+ *   before docs/DECISIONS.md "Team folder basics".
  * The old seeder's settings row gets its keys recorded as retired (a settings write, no files:
  * onboarding/retired-skills.ts).
  */
