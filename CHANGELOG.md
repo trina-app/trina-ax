@@ -5,6 +5,16 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+## 0.4.0 — 2026-11-09
+
+[Published release and notes](https://github.com/trina-app/trina-ax/releases/tag/v0.4.0)
+
+The stable release of 0.4.0-beta.1 to 0.4.0-beta.10 (below): team chat rooms with the AI, the iPhone app with push, welcome steps for teams that are not developers, Slack, MCP templates, and calmer Admin and Settings pages.
+
+**Upgrade note (from 0.3.0):** the database migrations of the betas run by themselves at the first start; they add tables and columns. The root part changed (`mycel-ctl`, `mycel-launcher`), so a Linux server takes this with a root update: the update timer applies it in the team's update window, or run `sudo mycel-ctl update`. Take a backup first (Admin › System › Backups › Back up now). Two things a 0.3.0 server did differently: the AI makes and fills in Hangul documents only while the HWP plugin is installed and on (Admin › Plugins; 0.4.0-beta.2), and the dev environment is on by default (an admin can turn it off in Admin › Team settings; 0.4.0-beta.10).
+
+- Desktop app icon: the Trina mark is bigger, so it no longer looks lost on the Dock and the taskbar.
+
 ## 0.4.0-beta.10 — 2026-11-06
 
 Beta channel only; stable stays on 0.3.0
