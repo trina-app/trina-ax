@@ -4,14 +4,17 @@
 // its room tools as I see it (chat/room-tools.ts); nothing goes to the room until I press "Share to room" under an
 // answer (the "send to a chat room" dialog, components/chat/ShareToRoom.tsx, with this room picked: the files and
 // material some members cannot see are checked there). The newest side chat of the room opens again; "New chat"
-// starts another one with the next question. Cards the AI raises (a yes before a change, a question) are answered in
-// the full chat: "Open as a full chat" goes there.
-import { ChevronLeft, ExternalLink, Loader2, SquarePen, X } from 'lucide-react'
+// starts another one with the next question; 🕘 lists the room's side chats (newest first) and opens one. Cards the AI
+// raises (a yes before a change, a question) show under its answer as in the full chat; while it waits for the answer
+// to its question, what I type in the box answers it (lib/askAnswer.ts), as the full chat's box does.
+import { ChevronLeft, ExternalLink, History, Loader2, SquarePen, X } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { EngineId } from '@mycel/shared/api'
+import type { Chat, EngineId } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
+import { composerAnswer, composerQuestion, picksOf } from '../../lib/askAnswer'
+import { formatDate } from '../../lib/format'
 import { aiName } from '../../lib/tabs'
 import { followsAfterScroll, jumpToBottom, stickToBottom } from '../../lib/stickToBottom'
 import { THREAD_PANEL } from '../../lib/panelWidth'
@@ -30,6 +33,8 @@ export async function newestSideChat(roomId: string): Promise<string | null> {
   const r = await api.call(API.listChats, { query: { sideRoomId: roomId, limit: 1 } })
   return r.items[0]?.id ?? null
 }
+/** how many of the room's side chats 🕘 lists */
+export const SIDE_HISTORY_MAX = 30
 
 export function SideChatPanel({ roomId, roomTitle, onClose }: { roomId: string; roomTitle: string; onClose: () => void }) {
   const t = useT()
@@ -40,6 +45,11 @@ export function SideChatPanel({ roomId, roomTitle, onClose }: { roomId: string; 
   const [chatId, setChatId] = useState<string | null | undefined>(undefined)
   const [loadError, setLoadError] = useState<unknown>(null)
   const [draft, setDraft] = useState('')
+  /** 🕘: the room's side chats, newest first (null: the list is not open) */
+  const [history, setHistory] = useState<Chat[] | null>(null)
+  const [historyBusy, setHistoryBusy] = useState(false)
+  // the AI's open question in this chat: the box answers it
+  const question = useChats((s) => (chatId ? composerQuestion(s.requests, chatId) : null))
   const thread = useChats((s) => (chatId ? s.threads[chatId] : undefined)) ?? emptyThread()
   const chat = useChats((s) => (chatId ? s.chats.find((c) => c.id === chatId) : undefined))
   const messages = thread.messages
@@ -85,7 +95,20 @@ export function SideChatPanel({ roomId, roomTitle, onClose }: { roomId: string; 
   const fail = (e: unknown) => toast({ level: 'warn', text: errorText(e, locale, t('error.network')) })
   const send = async () => {
     const text = draft.trim()
-    if (!text || busy || chatId === undefined) return
+    if (!text || chatId === undefined) return
+    // the AI waits for the answer to its question: the text answers it (never a new message while its answer runs)
+    if (question && chatId) {
+      stick.current = true
+      setDraft('')
+      try {
+        await useChats.getState().answer(question.request.requestId, { kind: 'ask_user', answer: composerAnswer(question.request, picksOf(question.request.requestId), text) })
+      } catch (e) {
+        setDraft((d) => d || text)
+        fail(e)
+      }
+      return
+    }
+    if (busy) return
     stick.current = true
     setDraft('')
     try {
@@ -99,9 +122,33 @@ export function SideChatPanel({ roomId, roomTitle, onClose }: { roomId: string; 
   }
   const newChat = () => {
     if (busy) return
+    setHistory(null)
     setChatId(null)
     setDraft('')
     box.current?.focus()
+  }
+  const toggleHistory = async () => {
+    if (history) return setHistory(null)
+    setHistoryBusy(true)
+    try {
+      const r = await api.call(API.listChats, { query: { sideRoomId: roomId, limit: SIDE_HISTORY_MAX } })
+      setHistory(r.items)
+    } catch (e) {
+      fail(e)
+    } finally {
+      setHistoryBusy(false)
+    }
+  }
+  const openPast = async (id: string) => {
+    setHistory(null)
+    if (id === chatId) return
+    stick.current = true
+    try {
+      await useChats.getState().loadThread(id)
+      setChatId(id)
+    } catch (e) {
+      fail(e)
+    }
   }
   const onRegenerate = (m: ViewMessage) => {
     if (!chatId) return
@@ -138,6 +185,9 @@ export function SideChatPanel({ roomId, roomTitle, onClose }: { roomId: string; 
             <ExternalLink size={15} aria-hidden />
           </IconButton>
         )}
+        <IconButton tip label={t('sideChat.history')} onClick={() => void toggleHistory()} disabled={historyBusy} aria-expanded={!!history} className={clsx('touch-hit', history && 'bg-hover')} data-testid="side-chat-history">
+          <History size={15} aria-hidden />
+        </IconButton>
         <IconButton tip label={t('sideChat.new')} onClick={newChat} disabled={busy || !chatId} className="touch-hit" data-testid="side-chat-new">
           <SquarePen size={15} aria-hidden />
         </IconButton>
@@ -147,15 +197,32 @@ export function SideChatPanel({ roomId, roomTitle, onClose }: { roomId: string; 
       </div>
       <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto" data-testid="side-chat-scroller">
         <div ref={content} className="space-y-5 px-4 pt-3 pb-4">
-          {chatId === undefined && !loadError && <Loader2 size={16} className="mx-auto my-6 animate-spin text-faint" aria-label={t('common.loading')} />}
-          {!!loadError && <ErrorNote onRetry={() => void load()}>{errorText(loadError, locale, t('error.network'))}</ErrorNote>}
-          {chatId !== undefined && !messages.length && (
+          {history && (
+            <nav aria-label={t('sideChat.history')} className="-mx-2" data-testid="side-chat-history-list">
+              <p className="px-2 pb-1 text-xs text-faint">{t('sideChat.historyTitle', { room: roomTitle })}</p>
+              {!history.length && <p className="px-2 py-3 text-sm text-muted" data-testid="side-chat-history-empty">{t('sideChat.historyEmpty')}</p>}
+              <ul>
+                {history.map((c) => (
+                  <li key={c.id}>
+                    <button type="button" onClick={() => void openPast(c.id)} aria-current={c.id === chatId ? 'true' : undefined}
+                      className={clsx('flex w-full items-baseline gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-hover', c.id === chatId ? 'font-medium text-ink' : 'text-muted')} data-testid="side-chat-history-item">
+                      <span className="min-w-0 flex-1 truncate">{c.title || t('chat.untitled')}</span>
+                      <span className="shrink-0 text-xs text-faint">{formatDate(c.updatedAt, locale)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          )}
+          {!history && chatId === undefined && !loadError && <Loader2 size={16} className="mx-auto my-6 animate-spin text-faint" aria-label={t('common.loading')} />}
+          {!history && !!loadError && <ErrorNote onRetry={() => void load()}>{errorText(loadError, locale, t('error.network'))}</ErrorNote>}
+          {!history && chatId !== undefined && !messages.length && (
             <div className="flex flex-col items-center gap-3 py-10 text-center" data-testid="side-chat-empty">
               <AiFace size={40} />
               <p className="max-w-[280px] text-sm text-muted">{t('sideChat.empty', { name })}</p>
             </div>
           )}
-          {chatId && messages.map((m, i) =>
+          {!history && chatId && messages.map((m, i) =>
             m.role === 'user' ? (
               <UserMessage key={m.id} m={m} chatId={chatId} busy={busy} onEdit={onEdit} onSelectBranch={onSelectBranch} />
             ) : (
@@ -178,15 +245,15 @@ export function SideChatPanel({ roomId, roomTitle, onClose }: { roomId: string; 
             }}
             rows={2}
             maxLength={20_000}
-            placeholder={t('sideChat.placeholder', { name })}
-            aria-label={t('sideChat.placeholder', { name })}
+            placeholder={question ? t('sideChat.answerPlaceholder', { name }) : t('sideChat.placeholder', { name })}
+            aria-label={question ? t('sideChat.answerPlaceholder', { name }) : t('sideChat.placeholder', { name })}
             className="block max-h-40 w-full resize-none bg-transparent px-3 pt-2.5 text-sm text-ink outline-none placeholder:text-faint"
             data-testid="side-chat-input"
           />
           <div className="flex items-center justify-between gap-2 px-3 pb-2">
             <span className="text-xs text-faint" data-testid="side-chat-private">{t('sideChat.private')}</span>
-            <button type="button" onClick={() => void send()} disabled={!draft.trim() || busy || chatId === undefined} className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-on-accent disabled:opacity-40" data-testid="side-chat-send">
-              {t('sideChat.send')}
+            <button type="button" onClick={() => void send()} disabled={!draft.trim() || (busy && !question) || chatId === undefined} className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-on-accent disabled:opacity-40" data-testid="side-chat-send">
+              {question ? t('sideChat.answer') : t('sideChat.send')}
             </button>
           </div>
         </div>

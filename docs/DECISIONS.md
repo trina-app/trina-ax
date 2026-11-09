@@ -16008,8 +16008,11 @@ boxes); no contract, setting or data change.
   `Chat.sideRoomId`. No new endpoint.
 - **Web:** the ✦ button in the room header (components/rooms/SideChatPanel.tsx) opens the panel where a thread opens,
   one of the two at a time. It opens the room's newest side chat; "New chat" starts another with the next question;
-  "Open as a full chat" goes to /c/<id> (cards the AI raises are answered there). Under a finished answer "Share to
-  room" is a labelled button and the dialog starts with this room picked.
+  "Open as a full chat" goes to /c/<id>; 🕘 lists the room's side chats (newest 30) and opens one. Cards the AI
+  raises show under its answer as in the full chat, and while it waits for the answer to its question the panel's box
+  answers it (lib/askAnswer.ts), never a new message. Under a finished answer "Share to room" is a labelled button and
+  the dialog starts with this room picked. In the chat history a side chat shows its room ("# design") after its
+  title, while I am in that room.
 - **Defaults for the doc's open questions (to confirm):** old private previews stay inline (PR 2); the room context is
   what the person can see, read by the AI with room_read; sharing uses the existing dialog; on a phone the panel takes
   the whole screen like a thread. Side chats are also listed in the person's chat history.

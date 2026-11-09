@@ -44,6 +44,8 @@ import { isUnused, SessionMarker, useChatMarker } from './chat/ChatState'
 import { SidebarRooms } from './rooms/SidebarRooms'
 import { MenuButton, type MenuItem } from './rooms/MenuButton'
 import { useRowMenu } from './rooms/RoomMenu'
+import { useRoomTitle } from './rooms/RoomIcon'
+import { useRooms } from '../store/rooms'
 import { SetupRow } from './onboarding/SetupRow'
 import { SidebarSectionTitle, useMediaQuery } from './ui'
 import { settingsOpenedFrom } from './settings/SettingsDialog'
@@ -405,6 +407,9 @@ function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNavigate: 
   const ref = useRef<HTMLLIElement>(null)
   const menu = useRowMenu()
   const title = chat.title || t('chat.untitled')
+  // a room's side chat (✦ Trina): the room it was asked beside, small after the title ("# design"); a room I left: none
+  const sideRoom = useRooms((s) => (chat.sideRoomId ? s.rooms.find((r) => r.id === chat.sideRoomId) ?? null : null))
+  const roomTitle = useRoomTitle()
   const items: MenuItem[] = [
     ...(rights.creator ? [{ label: t('chat.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: () => void actions.rename(chat), testId: 'chat-row-rename' }] : []),
     // the item goes with the menu: the dialog gives the keyboard back to "···" when it closes
@@ -438,6 +443,7 @@ function ChatItem({ chat, onNavigate, peek, onMove }: { chat: Chat; onNavigate: 
       >
         {rights.shared && <SharedIcon className="text-faint" />}
         <span className="truncate">{title}</span>
+        {sideRoom && <span className="shrink-0 truncate text-xs font-normal text-faint max-w-[40%]" data-testid="chat-row-room">{sideRoom.kind === 'dm' ? roomTitle(sideRoom) : `# ${roomTitle(sideRoom)}`}</span>}
         {marker && (
           // one marker at the right end (session markers): its reason is part of the link's name. On a computer it sits in
           // the "···" spot, its right edge in line with the rooms' pills above, and gives way to "···" on hover and focus;

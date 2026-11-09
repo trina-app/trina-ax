@@ -35,7 +35,7 @@ afterAll(() => { removeDom(); useLocaleStore.setState({ locale }) })
 const team = room({ name: 'Marketing', memberCount: 6, activityAt: at(5) })
 const signIn = () => useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name }, server: { allChatsConfidential: false } } as unknown as Me } })
 
-function serve(existing: string | null) {
+function serve(existing: string | null, older: string[] = []) {
   calls = []
   const made = uuidv7()
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -45,9 +45,10 @@ function serve(existing: string | null) {
     calls.push({ method, path: u.pathname, search: u.search, body })
     const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { 'content-type': 'application/json' } })
     const chat = (id: string) => ({ id, projectId: null, title: '', engine: 'claude-code', model: null, createdAt: at(1), updatedAt: at(1), deletedAt: null, runState: 'idle', sideRoomId: team.id })
-    if (method === 'GET' && u.pathname === '/api/chats') return json({ items: existing ? [chat(existing)] : [], nextCursor: null })
+    if (method === 'GET' && u.pathname === '/api/chats') return json({ items: existing ? [chat(existing), ...older.map(chat)] : [], nextCursor: null })
     if (method === 'POST' && u.pathname === '/api/chats') return json(chat(made))
     if (method === 'GET' && /^\/api\/chats\/[^/]+\/messages$/.test(u.pathname)) return json({ items: [], nextCursor: null, activeLeafId: null })
+    if (method === 'POST' && /^\/api\/turns\/[^/]+\/answer$/.test(u.pathname)) return new Response(null, { status: 204 })
     return json({ error: { code: 'not_found', message: 'not here' } }, 404)
   }) as typeof fetch
   return { made }
@@ -108,4 +109,46 @@ test('a side chat\'s answer: "Share to room" in words; the dialog starts with th
     await m.unmount()
   }
   expect(en('sideChat.open', { name: aiName((k) => en(k)) })).toContain('privately')
+})
+
+test('🕘 lists the room\'s side chats and opens one; "New chat" leaves the list', async () => {
+  signIn()
+  const id = uuidv7(), old = uuidv7()
+  serve(id, [old])
+  const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
+  try {
+    await m.until(() => !!m.find('side-chat-open-full'), 'the chat found')
+    await m.click('side-chat-history')
+    await m.until(() => !!m.find('side-chat-history-list'), 'the list')
+    const listCall = calls.filter((c) => c.method === 'GET' && c.path === '/api/chats').at(-1)!
+    expect(listCall.search).toContain(`sideRoomId=${team.id}`)
+    expect(listCall.search).toContain('limit=30')
+    const items = m.container.ownerDocument!.body.querySelectorAll('[data-testid="side-chat-history-item"]')
+    expect(items).toHaveLength(2)
+    expect(items[0]!.getAttribute('aria-current')).toBe('true')
+    await m.click(items[1]!)
+    await m.until(() => !m.find('side-chat-history-list'), 'the list closed')
+    expect(calls.some((c) => c.path === `/api/chats/${old}/messages`)).toBe(true)
+  } finally {
+    await m.unmount()
+  }
+})
+
+test('while the AI waits for the answer to its question, the box answers it (not a new message)', async () => {
+  signIn()
+  const id = uuidv7()
+  serve(id)
+  const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
+  try {
+    await m.until(() => !!m.find('side-chat-open-full'), 'the chat found')
+    useChats.setState({ requests: { q1: { turnId: 'turn-1', chatId: id, messageId: 'a1', request: { kind: 'ask_user', requestId: 'q1', question: 'Which meeting?', allowText: true } } } } as never)
+    await m.until(() => m.get('side-chat-send').textContent === en('sideChat.answer'), 'the answer button')
+    await m.type('side-chat-input', 'the client meeting')
+    await m.click('side-chat-send')
+    await m.until(() => calls.some((c) => c.path === '/api/turns/turn-1/answer'), 'the answer sent')
+    expect(calls.find((c) => c.path === '/api/turns/turn-1/answer')!.body).toMatchObject({ kind: 'ask_user', requestId: 'q1', answer: 'the client meeting' })
+    expect(calls.some((c) => c.method === 'POST' && c.path === `/api/chats/${id}/messages`)).toBe(false)
+  } finally {
+    await m.unmount()
+  }
 })
