@@ -31,6 +31,7 @@ import { chatEnginesFor, checkChatEngineChange, newChatEngine, turnEngine, type 
 import { budgetBlock } from '../admin/budgets'
 import { viewSources } from '../files/sources'
 import { shareAnswerToRoom } from '../chat/answer-share'
+import { roomsOf } from '../rooms/service'
 import { shareChat } from '../chat/share-chat'
 import { finishCard } from '../chat/connect-service'
 import { refuseDraftAttachments } from '../onboarding/draft'
@@ -187,6 +188,8 @@ export const chatsRoutes: RouteModule = {
         // of their own)
         where.push('deleted_at IS NULL', "(user_id = ? OR (shared_at IS NOT NULL AND id IN (SELECT chat_id FROM messages WHERE role = 'user' AND author_id = ?)))"); args.push(me, me)
       }
+      // a room's side panel (✦ Trina): my own chats opened from it (never a shared chat)
+      if (query.sideRoomId) { where.push('side_room_id = ?', 'user_id = ?'); args.push(query.sideRoomId, me) }
       const q = query.q?.trim()
       if (q) {
         const like = `%${likeEscape(q)}%`
@@ -253,6 +256,12 @@ export const chatsRoutes: RouteModule = {
       // a chat made in a project that shares its chats is a shared chat, from its first moment and for good (never a
       // personal project, never while safe operations are on: chat/shared.ts sharesNewChats)
       let shared = false
+      // a side chat of a room (✦ Trina): mine alone, and only of a room I am in now (the same 404 as a room that is not
+      // there)
+      if (body.sideRoomId) {
+        if (body.projectId) fail('validation', undefined, { fields: { 'body.projectId': 'side_chat_no_project' } })
+        roomsOf(ctx).mine(auth.user.id, body.sideRoomId)
+      }
       if (body.projectId) {
         const p = rt.store.projectRow(body.projectId)
         if (!p || !canSeeProject(ctx.files, principal(ctx, auth), p)) fail('not_found')
@@ -265,8 +274,8 @@ export const chatsRoutes: RouteModule = {
       // a title given here is the person's own (the AI does not rename it); none: the first message gives one
       // a stored connection secret or a secret-looking part is never kept in a title (QA B-W5-1, SEC-16, B-W47-3)
       const title = hideTitle(body.title?.trim() ?? '', redactorFor(ctx, auth.user.id).hide)
-      ctx.db.query('INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at, shared_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
-        .run(id, auth.user.id, body.projectId ?? null, title, title ? 'user' : 'auto', engine, model ?? null, now, now, shared ? now : null)
+      ctx.db.query('INSERT INTO chats (id, user_id, project_id, title, title_source, engine, model, created_at, updated_at, shared_at, side_room_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+        .run(id, auth.user.id, body.projectId ?? null, title, title ? 'user' : 'auto', engine, model ?? null, now, now, shared ? now : null, body.sideRoomId ?? null)
       rt.publishChat(auth.user.id, id, 'created')
       return chatOut(rt, auth.user.id, rt.store.chatRow(id)!)
     })

@@ -122,9 +122,14 @@ export const ListChatsQuery = PageQuery.extend({
   /** list the chat trash (deleted within the team's chat retention) instead: my own chats and the shared chats I deleted,
    * each while I may restore it */
   trash: QueryBool.optional(),
+  /** only my chats opened from this room's side panel (✦ Trina), newest first */
+  sideRoomId: Uuid7.optional(),
 })
 export const CreateChatBody = z.object({
   projectId: Uuid7.nullable().optional(),
+  /** a side chat of this room (✦ Trina, docs/DECISIONS.md "트리나 사이드 채팅"): I must be in the room; never with a
+   * project (a side chat is mine alone) */
+  sideRoomId: Uuid7.optional(),
   title: z.string().max(200).optional(),
   engine: EngineId.optional(),
   model: z.string().max(100).nullable().optional(),

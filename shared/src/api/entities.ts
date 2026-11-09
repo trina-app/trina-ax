@@ -187,6 +187,9 @@ export const Chat = z.object({
    * person; the chat page starts it when it is on screen (POST /api/skill-shares/merge-chats/:id/start), so the save
    * cards it raises are there while they look. Absent = no. */
   mergeWaiting: z.literal(true).optional(),
+  /** the room whose side panel (✦ Trina) this chat was opened from (docs/DECISIONS.md "트리나 사이드 채팅"): the AI is
+   * told the room, and an answer goes there only with "Share to room". Absent: an ordinary chat. */
+  sideRoomId: z.string().optional(),
   /** a shared project chat (docs/DECISIONS.md "Shared project chats"): the people who can see its project see it and may
    * continue it, each turn as the person who sent it. Absent: a chat of one person. */
   shared: z.object({

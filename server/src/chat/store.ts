@@ -19,6 +19,8 @@ export interface ChatRow {
   seen_at: string | null
   /** migration 265: made as a shared chat of its project (chat/shared.ts); null: one person's chat */
   shared_at: string | null
+  /** migration 276: a chat opened from this room's side panel (✦ Trina); null: an ordinary chat */
+  side_room_id: string | null
 }
 export interface MessageRow {
   id: string; chat_id: string; parent_id: string | null; role: 'user' | 'assistant'; author_id: string | null; content: string
@@ -40,7 +42,7 @@ export interface ProjectRow {
   share_chats: number
 }
 
-export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source, room_id, seen_at, shared_at'
+export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source, room_id, seen_at, shared_at, side_room_id'
 export const MESSAGE_COLS = 'id, chat_id, parent_id, role, author_id, content, attachments, steps, status, error, turn_id, engine, model, files, client_message_id, created_at, updated_at, stop_reason, history_trimmed'
 export const PROJECT_COLS = 'id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, trashed_with, share_chats'
 
@@ -203,6 +205,7 @@ export class ChatStore {
       ...(waiting ? { waiting: true as const } : {}),
       ...(o.answersOf === null ? {} : this.answerState(r, o.answersOf)),
       ...(this.mergeWaiting(r.id) ? { mergeWaiting: true as const } : {}),
+      ...(r.side_room_id ? { sideRoomId: r.side_room_id } : {}),
     }
   }
   /** The newest finished answer (done, error or stopped), in one read: whether it finished after the person last had
