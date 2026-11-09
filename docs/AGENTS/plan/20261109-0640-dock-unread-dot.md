@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-09 06:40
 - Branch: `fix/dock-unread-dot`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`web/src/lib/sessionMarkers.ts`, `web/src/store/sessionMarkers.ts`, `desktop/src/`,
   `shared/src/desktop-bridge.ts`). Why: the one count and the desktop shell are core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. A dot on the Dock where there was nothing; no API, setting or data change.
@@ -50,4 +50,8 @@ no new setting.
 
 ## Result
 
-Filled in at the end.
+Built as planned. `attentionCount` returns `unread` (lib/rooms.ts `roomLightsDot`), `iconBadge` picks the number, the
+dot or nothing for both the Dock and the installed web app's icon, and the main process takes only a number or the dot
+(`dockBadgeOf`). Checked on Electron 44 with a throwaway app: `app.setBadgeCount(0)` clears a `dock.setBadge('•')`, and
+a number replaces it. Not checked: what an iPhone Home Screen web app shows for `setAppBadge()` with no number (the
+service worker already made that call). No PR yet: committed locally, the manager pushes.

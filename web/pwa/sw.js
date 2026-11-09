@@ -131,8 +131,8 @@ async function pageSounds() {
 }
 
 // An installed web app with no window open here: a dot on its icon (the Badging API, no number: the worker does not know
-// the count). The first window that opens sets the exact count, or clears it (web/src/store/sessionMarkers.ts). With a
-// window open the page keeps the count itself. Never fails a push: a browser without it, or one that refuses, is fine.
+// the count). The first window that opens sets the exact count, keeps the dot while rooms have unread messages the count
+// leaves out, or clears it (web/src/store/sessionMarkers.ts). With a window open the page keeps the count itself. Never fails a push: a browser without it, or one that refuses, is fine.
 async function badgeDot() {
   try {
     if (typeof self.navigator?.setAppBadge !== 'function') return

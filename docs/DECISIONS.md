@@ -15986,3 +15986,26 @@ boxes); no contract, setting or data change.
 - **Words:** the server's (`/api/push` `messages.markRead`) for Web Push, the desktop app's own i18n for the Mac.
 - **Not yet:** Windows (toast XML), the iPhone app (a notification category in the extension) and Android (no FCM
   yet). A failure (signed out, room left) changes nothing; the notice stays unread in the Inbox.
+
+## The Dock's dot for unread rooms (fix/dock-unread-dot, 2026-11-09)
+
+The owner saw a red "2" on a team room in the Mac desktop app's sidebar and nothing on the Dock icon, while Discord in
+the same Dock showed a red dot. The Dock number is the one count n ("Session markers"): AI chats that need me and rooms
+that want me by my level for them. A plain message in a team room or the everyone room at its default (mentions only)
+is unread in the sidebar but not in n, so the Dock stayed empty.
+
+- **Decision (as Slack and Discord):** n stays as it is. When n is 0 and some room has unread messages n does not
+  count, the Dock shows a plain dot "•"; when they are read, it clears. A number always wins over the dot.
+- **Which rooms light it** (web/src/lib/rooms.ts `roomLightsDot`): unread messages or followed replies (`roomUnread`,
+  the sidebar's count), in a room I did not hide and did not turn off: level 끄기, its own or by my default "nothing"
+  (an older server without levels: `muted`). A followed reply while "내가 참여한 스레드의 답글" is off lights it too: the
+  sidebar shows it.
+- **The bridge:** `setBadgeCount(n, dot?)`; the page sends `dot` only with n 0 (lib/sessionMarkers.ts `iconBadge`). The
+  main process accepts a whole number or the dot, nothing else (`dockBadgeOf`: the dot only for a flag that is exactly
+  `true`), and shows it with `app.dock.setBadge('•')`. `app.setBadgeCount(0)` sets the same Dock label, so a team
+  switch still clears it (checked on Electron 44). Desktop apps before this ignore the flag: nothing at 0, as before.
+- **The installed web app follows:** `navigator.setAppBadge()` with no number is the browser's dot (as the service
+  worker's for a push with no window open), so an installed web app on Windows (Chrome, Edge) now shows a dot on its
+  taskbar icon too. What an iPhone Home Screen web app shows for it is not checked (the worker's push already made the
+  same call). Windows has no Dock: the desktop app is unchanged there.
+- **Unchanged:** the tab title "(n)", the phone ☰ dot and the 대화 tab's count. No new setting.
