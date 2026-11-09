@@ -19,7 +19,7 @@ import { waitFor } from '../lib/wait'
 import { CONFIRMED } from '../lib/schedule-card'
 import { componentC } from '../../server/src/team-files/component'
 import { AI_SKILL_TRASH_REFUSAL, type AiTrashPlan } from '../../server/src/team-files/service'
-import { AI_TRASH_MAX_ENTRIES, stampTree } from '../../server/src/team-files/ai-trash'
+import { AI_TRASH_MAX_ENTRIES, stampTree, TrashStranded } from '../../server/src/team-files/ai-trash'
 import { DELETE_REFUSAL, DELETE_TEXT, deleteCard, deleteFilesRefusal, deleteFilesTool, MAX_DELETE_CARDS, type DeleteExec } from '../../server/src/chat/delete-files'
 import { ROOM_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
 import { buildAgentDefinitions, PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
@@ -422,6 +422,49 @@ describe('a double fault never strands an item without a trash row (review of #2
     expect(fs.readFileSync(abs('users/alice/df4.md'), 'utf8')).toBe('stays\n')
     expect(trashRows('original_path = ?', 'users/alice/df4.md')).toEqual([])
     expect(audits(turnId).map((a) => a.detail.outcome)).toEqual(['failed'])
+  })
+
+  test('a closed folder whose rows fail twice, its old place taken: no bare row (its rules would stay behind), so its files never become readable to members', async () => {
+    // the review's probe: an admin deletes a folder only she may see; the full rows fail twice and something appears at
+    // the old place. A row alone would leave the rules on the old path (the new folder there gets them) and bring the
+    // folder back from the trash with none: every member could read "shared/h4 (restored)/secret.md"
+    const db = h.ctx.db
+    put('shared/h4/secret.md', 'CLOSED-FOLDER-CANARY\n')
+    db.query("INSERT INTO folders (id, path) VALUES ('f_del_h4', 'shared/h4')").run()
+    db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_del_h4_all', 'f_del_h4', 'everyone', NULL, 'none'), ('r_del_h4_carol', 'f_del_h4', 'user', 'carol', 'write')").run()
+    const readable = async (user: string, rel: string) => { try { return (await svc().content(user, rel)).content } catch { return null } }
+    expect(await readable('alice', 'shared/h4/secret.md')).toBeNull()
+    const logged = errorsLogged()
+    const undo = failTrashRows(2, () => { if (!has('shared/h4')) put('shared/h4/other.md', 'appeared at the old place\n') })
+    let thrown: unknown = null
+    try { svc().remove('carol', 'shared/h4') } catch (e) { thrown = e } finally { undo(); logged.restore() }
+    // whatever row there may be: restored, its files stay closed to members
+    for (const row of trashRows('original_path = ?', 'shared/h4')) {
+      const back = svc().restoreTrash('carol', row.id)
+      expect(await readable('alice', `${back.entry.path}/secret.md`)).toBeNull()
+    }
+    expect(thrown).toBeInstanceOf(TrashStranded)
+    expect(trashRows('original_path = ?', 'shared/h4')).toEqual([])
+    // the rules stay where they were: the folder at the old place keeps them, and the member sees neither
+    expect(db.query("SELECT path FROM folders WHERE id = 'f_del_h4'").get()).toEqual({ path: 'shared/h4' })
+    expect(await readable('alice', 'shared/h4/other.md')).toBeNull()
+    for (const u of ['alice', 'carol']) expect((await h.api(u).call(API.trash, { query: {} })).items.some((x) => x.originalPath.startsWith('shared/h4'))).toBe(false)
+    // not lost: logged at error level with where it is, and there whole, for an admin to recover
+    const storage = (thrown as TrashStranded).storage
+    expect(logged.seen.some((x) => x.storage === storage && x.msg.includes('carries folder rules or a project'))).toBe(true)
+    expect(fs.readFileSync(path.join(h.team, ...storage.split('/'), 'secret.md'), 'utf8')).toBe('CLOSED-FOLDER-CANARY\n')
+  })
+
+  test('…while a folder with no folder rows and no project still gets its trash row alone, and comes back from the trash', () => {
+    put('users/alice/df5/a.md', 'mine\n')
+    const undo = failTrashRows(2, () => { if (!has('users/alice/df5')) put('users/alice/df5/new.md', 'appeared\n') })
+    let r
+    try { r = svc().remove('alice', 'users/alice/df5') } finally { undo() }
+    const [row] = trashRows('original_path = ?', 'users/alice/df5')
+    expect(row?.id).toBe(r.trashId)
+    const back = svc().restoreTrash('alice', row!.id)
+    expect(fs.readFileSync(abs(`${back.entry.path}/a.md`), 'utf8')).toBe('mine\n')
+    expect(fs.readFileSync(abs('users/alice/df5/new.md'), 'utf8')).toBe('appeared\n')
   })
 })
 

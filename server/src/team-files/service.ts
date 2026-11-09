@@ -881,12 +881,20 @@ export class TeamFiles {
       this.ctx.log.error('an item in the trash storage could not go back and its trash rows failed; writing them again', { path: r.rel, storage: s.storage, err: s.cause })
       let rescued = false
       try { db.transaction(() => record(s.storage, true))(); rescued = true } catch (again) {
-        this.ctx.log.error('the trash rows failed again; writing the trash row alone', { path: r.rel, storage: s.storage, err: again })
-        try {
-          db.query('INSERT INTO trash_items (id, original_path, storage_path, size, deleted_by, turn_id, purge_at, kind) VALUES (?,?,?,?,?,?,?,?)')
-            .run(id, r.rel, s.storage, size, userId, turnId, purgeAt, isDir ? 'folder' : 'file')
-          rescued = true
-        } catch (last) { this.ctx.log.error('no trash row could be written: the item is only in the trash storage', { path: r.rel, storage: s.storage, err: last }) }
+        // the row alone only for an item that carries no folders rows and no project: a folder's rules (and a project's
+        // place) stay at the old path without rebaseFolders, so whatever took that place would get them, and the item
+        // would come back from the trash with none (review of #278: a closed folder's files readable by every member
+        // after a restore). Such an item stays only in the trash storage, logged above, for an admin to recover
+        if (isDir && this.holdsFolderRows(r.rel)) {
+          this.ctx.log.error('the trash rows failed again and the folder carries folder rules or a project: it stays only in the trash storage', { path: r.rel, storage: s.storage, err: again })
+        } else {
+          this.ctx.log.error('the trash rows failed again; writing the trash row alone', { path: r.rel, storage: s.storage, err: again })
+          try {
+            db.query('INSERT INTO trash_items (id, original_path, storage_path, size, deleted_by, turn_id, purge_at, kind) VALUES (?,?,?,?,?,?,?,?)')
+              .run(id, r.rel, s.storage, size, userId, turnId, purgeAt, isDir ? 'folder' : 'file')
+            rescued = true
+          } catch (last) { this.ctx.log.error('no trash row could be written: the item is only in the trash storage', { path: r.rel, storage: s.storage, err: last }) }
+        }
       }
       if (!rescued) throw new TrashStranded(r.rel, s.storage)
     }
@@ -904,6 +912,19 @@ export class TeamFiles {
     if (ai) { try { followUp() } catch (e) { this.ctx.log.warn('after the AI put an item in the trash, a follow-up failed', { err: e, path: r.rel }) } }
     else followUp()
     return { trashId: id, purgeAt, ...(changed ? { changed: true as const } : {}) }
+  }
+
+  /** Any folders row (rules, a group's folder, a stamp versions are judged by) or any project at `rel` or below it. Fails
+   * closed: a table that cannot be read counts as rows. */
+  private holdsFolderRows(rel: string): boolean {
+    const db = this.ctx.db
+    // exact, and on a case-insensitive volume also without letter case (SQLite folds ASCII only; the exact form covers
+    // the names as the file layer resolved them)
+    const one = (c: string) => `(${c} = ?1 OR substr(${c}, 1, length(?1) + 1) = ?1 || '/')`
+    const under = (col: string) => this.fx.caseInsensitive ? `(${one(col)} OR ${one(`lower(${col})`).replaceAll('?1', 'lower(?1)')})` : one(col)
+    try {
+      return !!db.query(`SELECT 1 FROM folders WHERE ${under('path')} LIMIT 1`).get(rel) || !!db.query(`SELECT 1 FROM projects WHERE ${under('folder_path')} LIMIT 1`).get(rel)
+    } catch { return true }
   }
 
   /** Put an item the AI was moving into the trash back at `segs` (it changed on the way). Only where nothing took its
