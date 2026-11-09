@@ -528,6 +528,8 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
   const threads = threadsUnread(db, room.id, viewer)
   const last = lastMessage(db, room.id, viewer)
   const since = viewer.joined_at > room.created_at ? viewer.joined_at : room.created_at
+  // the viewer's own pin: each member's copy of the room carries theirs only
+  const pinned = pinOf(db, room.id, viewer)
   return {
     id: room.id, kind: room.kind, name, canRename: mayRename(db, room, viewer.user_id), managerId: managerOf(db, room), groupId: room.kind === 'team' ? room.group_id : null, memberCount,
     peers,
@@ -537,8 +539,20 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
     activityAt: last && last.createdAt > since ? last.createdAt : since,
     ...(aiWaiting.get(db)?.(room.id, viewer.user_id) ? { aiWaits: true as const } : {}),
     ...(viewer.hidden_at ? { hidden: true as const } : {}),
+    ...(pinned ? { pinnedAt: pinned } : {}),
   }
 }
+
+/** When this member pinned the room to the top of their 대화 list (docs/DECISIONS.md "Pinned conversations"), or null.
+ * Only a pin of their membership now counts: never one of a room they hid, nor one made before they joined (a row an
+ * older build left when they hid or left the room; the server drops both itself). */
+export function pinOf(db: Database, roomId: string, viewer: Pick<MemberRow, 'user_id' | 'joined_at' | 'hidden_at'>): string | null {
+  if (viewer.hidden_at) return null
+  const at = (db.query('SELECT pinned_at FROM room_pins WHERE user_id = ? AND room_id = ?').get(viewer.user_id, roomId) as { pinned_at: string } | null)?.pinned_at ?? null
+  return at && at >= viewer.joined_at ? at : null
+}
+/** The same rule in SQL, for room_pins p joined with the member's row m. */
+export const PIN_COUNTS_SQL = 'm.hidden_at IS NULL AND p.pinned_at >= m.joined_at'
 
 /** Can a member hide this kind of room (docs/DECISIONS.md "대화 숨기기"): a DM, a team room, the everyone room. A group
  * chat is left instead. */

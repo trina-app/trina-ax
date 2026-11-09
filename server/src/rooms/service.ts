@@ -21,6 +21,11 @@
 // for them arrives, decided here when the message is stored (notify → unhideFor), so every device agrees; a hidden room
 // that stays hidden makes no notice. Opening it again (the app, openDm) shows it again.
 //
+// Pinning (docs/DECISIONS.md "Pinned conversations"): a member pins a room to the top of their own 대화 list (pin;
+// room_pins, migration 278). Nobody else is told: Room.pinnedAt is each member's own. The pin goes when they leave or
+// are taken out (forgetMember), when they hide the room (a hidden room is never pinned: pinning one is refused), with
+// the room and with the person.
+//
 // The AI (rooms/ai.ts, docs/DECISIONS.md "대화방의 트리나"): send() is the one place a person's message is written,
 // and a message that calls the AI ("@트리나 …") starts its turn there, checked before the message is written. The
 // answer is the other writer of room_messages (author_kind 'ai', asked_by = who asked); a private preview (visibility
@@ -40,7 +45,7 @@ import { teamTimeZone } from '../admin/settings'
 import { alertSettings, ownLevel, setOwnLevel } from './alerts'
 import {
   canSee, groupName, isHiddenFor, LIST_SQL, seenSeq, seesFrom, hideable, isOwnerOrAdmin, managerOf, mayRename, roomAuditRef, memberRow, members, membersOut, messageRow, messagesOut, MSG_COLS, reactionsOf, roomOut, roomRow, seeArgs, setRoomPathCheck, sharedAnswerOf,
-  lastSeqFor, MENTIONS_SQL, threadable, threadSummary, threadsUnread, TIMELINE_SQL, unreadCount,
+  lastSeqFor, MENTIONS_SQL, PIN_COUNTS_SQL, pinOf, threadable, threadSummary, threadsUnread, TIMELINE_SQL, unreadCount,
   type EventData, type MemberRow, type MessageRow, type RoomRow,
 } from './store'
 import { roomFilesOf } from './files'
@@ -64,6 +69,8 @@ export const GROUPS_PER_HOUR = 10
 const HOUR_MS = 3_600_000
 /** How long one sync works on members still waiting for a room's history (the rest on the next one) */
 const HISTORY_BUDGET_MS = 250
+/** The most rooms one person pins (docs/DECISIONS.md "Pinned conversations"), as many as chats (chat/pins.ts). */
+export const ROOM_PINS_MAX = 50
 
 export interface SendInput { body: string; replyToId?: string | null; threadRootId?: string | null; alsoInRoom?: boolean; mentions: string[]; mentionsAll?: boolean; fileIds: string[]; clientMessageId: string }
 /** Rooms.send's `answer` (never from a request body): the message carries an answer of the sender's own AI chat
@@ -272,14 +279,51 @@ export class Rooms {
   setHidden(userId: string, roomId: string, hidden: boolean): Room {
     const { room, me } = this.mine(userId, roomId)
     if (hidden && !hideable(room.kind)) fail('forbidden')
+    // hiding it unpins it ("Pinned conversations"): shown again, it is in its place by activity. Hidden already: a pin an
+    // older build kept goes too (it never shows)
+    const unpin = () => this.db.query('DELETE FROM room_pins WHERE user_id = ? AND room_id = ?').run(userId, roomId)
+    if (hidden && me.hidden_at) unpin()
     if (hidden && !me.hidden_at) {
-      this.db.query('UPDATE room_members SET hidden_at = ? WHERE room_id = ? AND user_id = ? AND hidden_at IS NULL').run(nowIso(), roomId, userId)
+      this.db.transaction(() => {
+        this.db.query('UPDATE room_members SET hidden_at = ? WHERE room_id = ? AND user_id = ? AND hidden_at IS NULL').run(nowIso(), roomId, userId)
+        unpin()
+      })()
       this.roomEvent(roomId, 'updated', new Set([userId]))
       // a push of this room that waits or is on its way is checked again: a hidden room pushes nothing (alerts.ts)
       cancelPushUser(this.ctx, userId)
       // its rows leave the Inbox (rooms/inbox.ts): when one counted, the count is read again
       if (countedUnreadIn(this.db, userId, roomId)) this.notifySignal(userId)
     } else if (!hidden) this.unhide(roomId, [userId])
+    return this.get(userId, roomId)
+  }
+
+  /** Pin the room to the top of my own 대화 list (docs/DECISIONS.md "Pinned conversations"; "상단에 고정"). A member's
+   * own: nobody else is told, and it changes nothing about who sees the room. Pinned already: kept as it was (its place
+   * does not move). A hidden room: 409 (hiding unpins, so a room is never both). At most ROOM_PINS_MAX (409). Only my
+   * windows get the room (room.updated). */
+  pin(userId: string, roomId: string, locale: Locale = DEFAULT_LOCALE): Room {
+    const { me } = this.mine(userId, roomId)
+    if (me.hidden_at) fail('conflict', tr('roomPinHidden', locale), { params: { reason: 'room_hidden' } })
+    if (pinOf(this.db, roomId, me)) return this.get(userId, roomId)
+    // the pins that show (pinOf) of rooms I am still in: a pin leaves with its member row (a deleted person's DM is the
+    // exception), and one an older build left does not count
+    const n = (this.db.query(`SELECT COUNT(*) n FROM room_pins p JOIN room_members m ON m.room_id = p.room_id AND m.user_id = p.user_id
+      JOIN rooms r ON r.id = p.room_id AND r.archived_at IS NULL WHERE p.user_id = ? AND ${PIN_COUNTS_SQL}`).get(userId) as { n: number }).n
+    if (n >= ROOM_PINS_MAX) fail('conflict', tr('roomPinsFull', locale, { n: String(ROOM_PINS_MAX) }), { params: { reason: 'room_pins_full' } })
+    // one pin a millisecond after my last at most: two pins in the same instant still keep their order
+    const last = (this.db.query('SELECT MAX(pinned_at) t FROM room_pins WHERE user_id = ?').get(userId) as { t: string | null }).t
+    let at = new Date().toISOString()
+    if (last && at <= last) at = new Date(Date.parse(last) + 1).toISOString()
+    // (a pin an older build left, which does not show, is replaced)
+    this.db.query('INSERT INTO room_pins (user_id, room_id, pinned_at) VALUES (?, ?, ?) ON CONFLICT (user_id, room_id) DO UPDATE SET pinned_at = excluded.pinned_at').run(userId, roomId, at)
+    this.roomEvent(roomId, 'updated', new Set([userId]))
+    return this.get(userId, roomId)
+  }
+
+  /** "고정 해제": not pinned, nothing changes (and nothing is sent). */
+  unpin(userId: string, roomId: string): Room {
+    this.mine(userId, roomId)
+    if (this.db.query('DELETE FROM room_pins WHERE user_id = ? AND room_id = ?').run(userId, roomId).changes) this.roomEvent(roomId, 'updated', new Set([userId]))
     return this.get(userId, roomId)
   }
 
@@ -399,15 +443,15 @@ export class Rooms {
     for (const id of r.lines) this.messageEvent('room.message', messageRow(this.db, roomId, id)!)
   }
 
-  /** Someone is out of a room: their member row, notices, the threads they followed and their reactions there go, and
-   * so do the folders they let @트리나 save new files in there ("이 방에서는 항상 허용", rooms/ai-grants.ts). */
+  /** Someone is out of a room: their member row, notices, the threads they followed, their reactions and their pin there
+   * go, and so do the folders they let @트리나 save new files in there ("이 방에서는 항상 허용", rooms/ai-grants.ts). */
   private forgetMember(roomId: string, userId: string) {
     this.onAccessChanged?.(roomId)
     // their rows of the room leave the Inbox (rooms/inbox.ts): when one counted, the count is read again
     const counted = countedUnreadIn(this.db, userId, roomId)
     dropGrantsOf(this.db, { id: roomId }, userId)
     // (and the old answers hidden from them: joining again works them out again, rooms/history.ts)
-    for (const t of ['room_members', 'room_notices', 'room_thread_follows', 'room_reactions', 'room_hidden_answers']) this.db.query(`DELETE FROM ${t} WHERE room_id = ? AND user_id = ?`).run(roomId, userId)
+    for (const t of ['room_members', 'room_notices', 'room_thread_follows', 'room_reactions', 'room_hidden_answers', 'room_pins']) this.db.query(`DELETE FROM ${t} WHERE room_id = ? AND user_id = ?`).run(roomId, userId)
     if (counted) this.notifySignal(userId)
   }
 
