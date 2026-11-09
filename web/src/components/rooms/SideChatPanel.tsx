@@ -70,17 +70,16 @@ export function chatForFiles(roomId: string): Promise<string> {
   let p = making.get(roomId)
   if (!p) {
     p = (async () => {
+      const current = () => sideChatOf(useSideChats.getState(), roomId).chatId
       let id = shown === undefined ? await findSideChat(roomId) : null
-      // the panel found or made one meanwhile
-      const now = sideChatOf(useSideChats.getState(), roomId).chatId
-      if (now) return now
-      if (!id) {
+      if (!current() && !id) {
         const c = await api.call(API.createChat, { body: { projectId: null, sideRoomId: roomId } })
         useChats.getState().upsertChat(c)
         id = c.id
       }
-      if (!sideChatOf(useSideChats.getState(), roomId).chatId) useSideChats.getState().patch(roomId, { chatId: id })
-      return id
+      if (!current()) useSideChats.getState().patch(roomId, { chatId: id })
+      // the chat the panel shows by now (its first question may have made one meanwhile): the files are that chat's
+      return current() || id!
     })().finally(() => making.delete(roomId))
     making.set(roomId, p)
   }
