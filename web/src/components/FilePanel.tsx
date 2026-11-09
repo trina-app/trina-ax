@@ -1,10 +1,11 @@
 // File preview next to the chat or the file screen: PDF, Word, PowerPoint, Excel/CSV, Markdown, text/code, HTML/SVG
-// (isolated frame), images, audio/video. Bytes come from /api/files/download (always an attachment with a sandbox
-// CSP on the server side) and are drawn here; HTML/SVG only run in the sandbox frame (SandboxFrame, /sandbox/frame),
-// never as srcdoc or a blob: page of this origin. A file sent in a team chat room comes the same way from
-// /api/rooms/:id/files/:fileId (its members only; a page or script type as text with the sandbox CSP) and is drawn by
-// the same viewers; it is not in a team folder, so a page pulls in no team images (HTML and SVG resolve none, Markdown
-// shows a team picture as a link to open), and it has only the download.
+// (isolated frame), images (a click on one opens the image viewer, components/ImageViewer.tsx), audio/video. Bytes come
+// from /api/files/download (always an attachment with a sandbox CSP on the server side) and are drawn here; HTML/SVG
+// only run in the sandbox frame (SandboxFrame, /sandbox/frame), never as srcdoc or a blob: page of this origin. A file
+// sent in a team chat room comes the same way from /api/rooms/:id/files/:fileId (its members only; a page or script
+// type as text with the sandbox CSP) and is drawn by the same viewers; it is not in a team folder, so a page pulls in
+// no team images (HTML and SVG resolve none, Markdown shows a team picture as a link to open), and it has only the
+// download.
 // Text files the person may write can be fixed in place (tab 5 "텍스트 파일 고치기"): the editor keeps the sha256 it
 // loaded and saves with it as baseSha256 (PUT /api/files/content); when someone changed the file in between, the
 // server keeps their version and saves this one as a conflict copy, which the panel then opens.
@@ -23,7 +24,7 @@ import { formatSize } from '../lib/format'
 import { splitFrontMatter } from '../lib/markdown'
 import { parentPath } from '../lib/paths'
 import { decodePreviewText, languageOf, numberColumns, previewKind, previewLimit, PREVIEW_TEXT_MAX, serverPreview, type PreviewKind } from '../lib/preview'
-import { openTeamFile, type PreviewFile } from '../lib/sidePanel'
+import { openTeamFile, setPanelExpanded, type PreviewFile } from '../lib/sidePanel'
 import type { SourceLoc } from '@mycel/shared/api'
 import { TEAM_FILE_DRAG_TYPE } from '../lib/teamAttach'
 import { useTeamAttach } from '../lib/useTeamAttach'
@@ -37,6 +38,8 @@ import { useMe } from '../store/session'
 import { Button, confirmDialog, IconButton } from './ui'
 import { MenuButton, type MenuItem } from './rooms/MenuButton'
 import { Tooltip } from './Tooltip'
+import { useViewerItem } from './ImageViewer'
+import { PanelExpandButton } from './SidePanelFrame'
 
 const HwpView = lazy(() => import('./viewers/HwpView'))
 const PdfView = lazy(() => import('./viewers/PdfView'))
@@ -174,13 +177,49 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file, rev])
 
+  // the viewers fit the panel's width. When it changes (크게 보기, the divider, the window) the pages grow or shrink: the
+  // place being read, as a share of the scroll height, is brought back while they settle (until the person scrolls)
   useLayoutEffect(() => {
     const el = body.current
     if (!el) return
-    const ro = new ResizeObserver(() => setWidth(el.clientWidth))
+    let share = 0
+    let last = el.clientWidth
+    let until = 0
+    let frame = 0
+    const settling = () => until > performance.now()
+    const settle = () => {
+      frame = 0
+      if (!settling()) return
+      el.scrollTop = share * el.scrollHeight
+      frame = requestAnimationFrame(settle)
+    }
+    const onScroll = () => {
+      if (!settling()) share = el.scrollHeight > 0 ? el.scrollTop / el.scrollHeight : 0
+    }
+    // the person scrolls: theirs from now on
+    const stop = () => {
+      until = 0
+      cancelAnimationFrame(frame)
+    }
+    const ro = new ResizeObserver(() => {
+      setWidth(el.clientWidth)
+      if (el.clientWidth === last) return
+      last = el.clientWidth
+      if (share <= 0) return
+      until = performance.now() + 800
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(settle)
+    })
     ro.observe(el)
     setWidth(el.clientWidth)
-    return () => ro.disconnect()
+    el.addEventListener('scroll', onScroll, { passive: true })
+    for (const e of ['wheel', 'touchmove', 'keydown', 'pointerdown'] as const) el.addEventListener(e, stop, { passive: true })
+    return () => {
+      ro.disconnect()
+      cancelAnimationFrame(frame)
+      el.removeEventListener('scroll', onScroll)
+      for (const e of ['wheel', 'touchmove', 'keydown', 'pointerdown'] as const) el.removeEventListener(e, stop)
+    }
   }, [])
 
   const download = () =>
@@ -190,7 +229,12 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   // phones: "add to chat", "open in Files" and "download" sit behind one ⋯ (a computer keeps them as icons)
   const teamPath = file.source === 'team' ? file.path : null
   const addToChat = teamPath && chatActionsFor(file, error, downloadOnly) && chatAttach.target ? { title: chatAttach.target.title, add: () => chatAttach.addToChat([teamPath]) } : null
-  const openInFiles = () => teamPath && navigate(`/files?path=${encodeURIComponent(parentPath(teamPath))}&select=${encodeURIComponent(file.name)}`)
+  // the folder shows beside the panel: a big panel goes back side by side
+  const openInFiles = () => {
+    if (!teamPath) return
+    setPanelExpanded(false)
+    navigate(`/files?path=${encodeURIComponent(parentPath(teamPath))}&select=${encodeURIComponent(file.name)}`)
+  }
   const canDownload = error?.kind !== 'missing'
   // an .html team file the server can print (never a button that cannot work), not while editing or after an error
   const canPdf = file.source === 'team' && kind === 'html' && !!me?.server.htmlPdf && !error && !editing
@@ -204,7 +248,8 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
 
   return (
     <aside aria-label={t('preview.panel')} className="flex h-full min-w-0 flex-col bg-surface" data-testid="file-panel">
-      <header className="flex items-center gap-2 border-b border-line px-3 py-2">
+      {/* @container: a narrow panel (the divider at its least) shows "AI에게 묻기" as its icon, so the name keeps room */}
+      <header className="@container flex items-center gap-2 border-b border-line px-3 py-2">
         <FileText size={16} className="shrink-0 text-muted" aria-hidden />
         <h2
           className={clsx('min-w-0 truncate text-sm font-semibold', file.source === 'team' && 'cursor-grab')}
@@ -225,7 +270,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
             <Tooltip label={t('files.askAi')}>
               <button type="button" onClick={() => chatAttach.askAi([file.path])} className="touch-hit mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-accent-soft max-md:p-1.5 max-sm:p-2" data-testid="file-ask-ai">
                 {/* phones: the icon alone, as large as the header's other icons, in an IconButton's padding */}
-                <Sparkles size={14} className="max-md:size-4" aria-hidden /> <span className="max-md:sr-only">{t('files.askAiShort')}</span>
+                <Sparkles size={14} className="max-md:size-4" aria-hidden /> <span className="max-md:sr-only @max-md:sr-only">{t('files.askAiShort')}</span>
               </button>
             </Tooltip>
           )}
@@ -255,6 +300,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
             </IconButton>
           )}
           {more.length > 0 && <MenuButton label={t('files.actionsFor', { name: file.name })} items={more} className="md:hidden" muted testId="file-panel-more" />}
+          <PanelExpandButton />
           <IconButton label={t('common.close')} onClick={onClose}>
             <X size={16} />
           </IconButton>
@@ -310,7 +356,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
           </p>
         ) : (
           <Suspense fallback={<p className="p-6 text-sm text-faint">{t('common.loading')}</p>}>
-            <Viewer kind={kind} blob={blob} width={width} name={file.name} at={file.source === 'team' ? file.at : undefined} path={file.source === 'team' ? file.path : null} download={download} />
+            <Viewer kind={kind} blob={blob} width={width} name={file.name} at={file.source === 'team' ? file.at : undefined} path={file.source === 'team' ? file.path : null} download={download} file={file} />
           </Suspense>
         )}
       </div>
@@ -320,7 +366,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
 
 /** `at`: the place to open the file at (an answer's source, a link): a PDF page, a slide, a sheet and its range. Word
  * and Hangul previews have no such place and open at the top. */
-function Viewer({ kind, blob, width, name, at, path, download }: { kind: PreviewKind; blob: Blob; width: number; name: string; at?: SourceLoc; path: string | null; download: () => void }) {
+function Viewer({ kind, blob, width, name, at, path, download, file }: { kind: PreviewKind; blob: Blob; width: number; name: string; at?: SourceLoc; path: string | null; download: () => void; file: PreviewFile }) {
   switch (kind) {
     case 'pdf':
       // `download`: a PDF that pdf.js cannot read shows a Download button in place of the pages
@@ -332,6 +378,7 @@ function Viewer({ kind, blob, width, name, at, path, download }: { kind: Preview
     case 'sheet':
       return <SheetView blob={blob} startSheet={at?.kind === 'sheet' ? at.sheet : undefined} range={at?.kind === 'sheet' ? at.range : undefined} />
     case 'image':
+      return <PanelPicture blob={blob} file={file} download={download} />
     case 'audio':
     case 'video':
       return <MediaView kind={kind} blob={blob} name={name} />
@@ -340,7 +387,27 @@ function Viewer({ kind, blob, width, name, at, path, download }: { kind: Preview
   }
 }
 
-function MediaView({ kind, blob, name }: { kind: 'image' | 'audio' | 'video'; blob: Blob; name: string }) {
+/** The panel's picture, from the bytes it read: a click opens it in the image viewer, alone (zoom, the whole window),
+ * with the panel's own download; a team or room file's original can open in a new tab there too. The panel stays. */
+function PanelPicture({ blob, file, download }: { blob: Blob; file: PreviewFile; download: () => void }) {
+  const t = useT()
+  const url = useMemo(() => URL.createObjectURL(blob), [blob])
+  useEffect(() => () => URL.revokeObjectURL(url), [url])
+  const href = file.source === 'team' ? (serverPreview(file.name) ? null : fileUrl(file.path, 'inline')) : file.source === 'room' ? roomFileUrl(file.roomId, file.fileId) : null
+  const key = file.source === 'team' ? `team:${file.path}` : file.source === 'room' ? `room:${file.roomId}:${file.fileId}` : `local:${file.name}`
+  const viewer = useViewerItem(() => ({ key, name: file.name, original: null, blob, download: file.source === 'local' ? undefined : download, href }))
+  return (
+    <div className="flex justify-center p-4">
+      <Tooltip label={t('md.openImage', { name: file.name })}>
+        <button type="button" ref={viewer.ref} onClick={viewer.open} aria-label={t('md.openImage', { name: file.name })} className="max-w-full cursor-zoom-in rounded" data-testid="file-panel-image">
+          <img src={url} alt={file.name} className="max-w-full rounded shadow-sm" />
+        </button>
+      </Tooltip>
+    </div>
+  )
+}
+
+function MediaView({ kind, blob, name }: { kind: 'audio' | 'video'; blob: Blob; name: string }) {
   const url = useMemo(() => URL.createObjectURL(blob), [blob])
   useEffect(() => () => URL.revokeObjectURL(url), [url])
   if (kind === 'audio')
@@ -349,15 +416,9 @@ function MediaView({ kind, blob, name }: { kind: 'image' | 'audio' | 'video'; bl
         <audio controls src={url} className="w-full" aria-label={name} />
       </div>
     )
-  if (kind === 'video')
-    return (
-      <div className="p-4">
-        <video controls src={url} className="max-h-[80vh] w-full rounded" aria-label={name} />
-      </div>
-    )
   return (
-    <div className="flex justify-center p-4">
-      <img src={url} alt={name} className="max-w-full rounded shadow-sm" />
+    <div className="p-4">
+      <video controls src={url} className="max-h-[80vh] w-full rounded" aria-label={name} />
     </div>
   )
 }

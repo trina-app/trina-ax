@@ -23,7 +23,7 @@ function inbox(): Item[] {
     { ...base(3, 'room.mention', 35, true), room: { id: id(402), from: JIHO.name, fromId: JIHO.id, kind: 'dm', name: null, reason: 'mention', message: id(311), preview: '@Olga 점심 같이 하실래요?', count: 1, people: 1, at: ago(35) } },
     { ...base(4, 'room.mention', 60, true), room: { id: id(403), from: HAEUN.name, fromId: HAEUN.id, kind: 'all', name: null, reason: 'everyone', message: id(312), preview: '@전체 다음 주 화요일은 사무실이 쉬어요', count: 1, people: 1, at: ago(60) } },
     { ...base(5, 'room.dm', 80, true), room: { id: ROOM_ID, from: null, fromId: null, ai: true, thread: ROOT, kind: 'team', name: '디자인 리뷰', reason: 'reply', message: id(313), preview: '**요약**: 이번 주 안에 시안 두 개를 정리하면 돼요', count: 1, people: 1, at: ago(80) } },
-    { id: id(6), eventType: 'schedule.success', sourceId: id(1006), code: 'schedule.success', createdAt: ago(120), readAt: null, chatId: id(500), link: 'chat', outcome: 'succeeded' },
+    { id: id(6), eventType: 'schedule.success', sourceId: id(1006), code: 'schedule.success', createdAt: ago(120), readAt: null, chatId: id(500), link: 'chat', outcome: 'succeeded', schedule: { title: '주간 보고서 정리' } },
   ]
 }
 
@@ -66,6 +66,17 @@ test('a thread row says who and where with the newest line and the count; a clic
   await expect(rows.nth(3).getByTestId('notification-room-line')).toHaveText('@@전체: @전체 다음 주 화요일은 사무실이 쉬어요')
   await expect(rows.nth(4).getByTestId('notification-room-who')).toHaveText('트리나')
   await expect(rows.nth(4).getByTestId('notification-room-line')).toHaveText('요약: 이번 주 안에 시안 두 개를 정리하면 돼요')
+  // a scheduled run's row reads like them: the task by name, the time on the right, the whole row opens its result
+  // (no "결과 열기" under it, no date line); keyboard: one link with that name
+  const run = page.getByTestId('notification-chat-link')
+  await expect(run).toHaveAttribute('href', `/c/${id(500)}`)
+  await expect(run.getByTestId('notification-text')).toHaveText('"주간 보고서 정리" 예약 작업이 끝났어요.')
+  await expect(run.locator('time')).toBeVisible()
+  await expect(page.getByTestId('notifications-inbox')).not.toContainText('결과 열기')
+  await expect(page.getByRole('link', { name: /주간 보고서 정리/ })).toHaveCount(1)
+  const box = (await run.boundingBox())!, time = (await run.locator('time').boundingBox())!, rowTime = (await first.locator('time').boundingBox())!
+  expect(Math.abs(time.x + time.width - (rowTime.x + rowTime.width))).toBeLessThan(2)
+  expect(time.y - box.y).toBeLessThan(24)
   // the click: the thread, the reply in the middle of it picked out and in sight, the notice read
   await first.click()
   await expect(page).toHaveURL(new RegExp(`/rooms/${ROOM_ID}/t/${ROOT}\\?m=${TARGET.id}$`))

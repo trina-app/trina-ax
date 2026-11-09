@@ -265,10 +265,17 @@ export const ProjectChatsInput = z.strictObject({
 export const ProjectChatInput = z.strictObject({
   chat: z.string().min(1).max(100).describe('The chat\'s id: chat_id="…" of a result of project_chats.'),
 })
-/** save_room_file: a copy of a file sent in this room put into the team folder (a room's own AI session) */
+const saveAs = z.string().max(300).optional().describe('Team path to save to, e.g. "shared/photos/receipt.jpg"; a path ending in "/" keeps the file\'s own name ("shared/"). Default: users/<you>/downloads/.')
+/** save_room_file in a person's own chat: a copy of a file sent in one of their rooms put into the team folder */
 export const SaveRoomFileInput = z.strictObject({
+  room: z.string().min(1).max(200).describe('The room the file was sent in (its room_id, best, or its name, as for room_read).'),
+  file: z.string().min(1).max(300).describe('The file\'s id from room_read ("file_id=…"); a name is not taken, as two files may share one.'),
+  save_as: saveAs,
+})
+/** save_room_file in a room's own AI session (rooms/ai.ts): a copy of a file sent in this room */
+export const SaveRoomFileHereInput = z.strictObject({
   file: z.string().min(1).max(300).describe('The file\'s id (file_id=… in the <attachments> list or after a message in <room_context>); a name is not taken, as two files may share one.'),
-  save_as: z.string().max(300).optional().describe('Team path to save to, e.g. "shared/photos/receipt.jpg"; a path ending in "/" keeps the file\'s own name ("shared/"). Default: users/<you>/downloads/.'),
+  save_as: saveAs,
 })
 
 export const ToolError = z.object({ error: z.object({ code: z.string(), message: z.string() }) })

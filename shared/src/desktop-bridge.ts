@@ -131,8 +131,10 @@ export interface DesktopBridge {
    * notify's `read`). Optional: older desktop apps do not have it. */
   onRead?(cb: (token: string) => void): () => void
   /** The dock badge (macOS only; Windows shows no count): how many chats and rooms want the person (docs/DECISIONS.md
-   * "Session markers"); 0 clears it. Optional: older desktop apps do not have it. */
-  setBadgeCount?(n: number): void
+   * "Session markers"); 0 clears it. `dot` with n 0: a plain dot instead, some room has unread messages n does not
+   * count ("The Dock's dot for unread rooms"); desktop apps before it ignore the flag (nothing at 0). Optional: older
+   * desktop apps do not have it. */
+  setBadgeCount?(n: number, dot?: boolean): void
   /** Whether this window is focused, as the desktop app sees it. The page's own document.hasFocus() is false while the
    * in-app browser pane holds the keyboard, which is still the person looking at the window. Optional (older apps). */
   focus?: {

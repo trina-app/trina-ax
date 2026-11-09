@@ -1,9 +1,10 @@
 // Files sent in a room reach @트리나 (docs/DECISIONS.md "대화방의 트리나", files): the asking message's own files are
 // listed after it like a chat's attachments and read with room_file (pictures as pictures, documents as text); an
-// earlier file the asker can see is read by its id or name; save_room_file puts a copy into a team folder after the
-// room's card (and the wider-audience card). Covered: an image and a PDF with the question, a question in a thread, a
-// copy into the shared folder, a later member who cannot reach an earlier file, where the answer goes when it used a
-// file, files held by the safety check, and that personal chats keep their own room tools.
+// earlier file the asker can see is read by its id or name; save_room_file puts a copy into a team folder after one
+// card (the room's, or the wider-audience card with the room card's details when the copy goes wider). Covered: an
+// image and a PDF with the question, a question in a thread, a copy into the shared folder and into one's own folder, a
+// later member who cannot reach an earlier file, where the answer goes when it used a file, files held by the safety
+// check, and that personal chats keep their own room tools (b-chat-rooms-save.test.ts saves from them).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
@@ -134,16 +135,21 @@ describe("the asking message's own files", () => {
 })
 
 describe('saving a copy', () => {
-  test('"공용 폴더에 넣어줘": the room card, then the wider-audience card; the copy lands in shared/, the room file stays', async () => {
+  test('"공용 폴더에 넣어줘": one card, the wider-audience card with what the call saves; the copy lands in shared/, the room file stays', async () => {
     const roomId = await teamRoom(['alice', 'erin'])
     const bytes = makePng(40, 40, [200, 30, 30])
     const png = await upload('alice', roomId, `poster-${uuidv7().slice(-6)}.png`, bytes)
     const q = await send('alice', roomId, `@트리나 이거 우리 공용 폴더에 넣어줘\n${fake({ tool: 'save_room_file', args: { file: png.id, save_as: 'shared/' }, sayResult: true })}`, { fileIds: [png.id] })
     const turnId = await runOf('alice', q)
+    // the team room's two members can see the file; everyone can read shared/: the wider-audience card, which also asks
+    // for the room change (docs/DECISIONS.md "대화방에서 새 파일은 미리 허용": one card per call)
     const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user', 15_000)
-    expect((card.data.request as { question: string }).question).toContain(png.name)
+    const req = card.data.request as { question: string; options: { value: string }[]; buttons?: boolean; details?: { fields?: { name: string; value: string }[] }[] }
+    expect(req.options.map((o) => o.value)).toEqual(['save', 'skip'])
+    expect(req.buttons).toBeUndefined()
+    expect(req.question).toContain(`shared/${png.name}`)
     // in words: what it does, the file by its name, where it goes; never the call's arguments
-    const details = (card.data.request as { details?: { fields?: { name: string; value: string }[] }[] }).details
+    const details = req.details
     const fields = details?.[0]?.fields ?? []
     expect(fields.map((f) => f.name)).toEqual(['Action', 'File', 'Save as'])
     expect(fields[0]!.value).toBe('Save conversation file')
@@ -151,15 +157,30 @@ describe('saving a copy', () => {
     expect(fields[1]!.value).toMatch(new RegExp(`^${png.name.replace('.', '\\.')} \\(Alice Kim, \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}, \\d+ KB\\)$`))
     expect(fields[2]!.value).toBe('shared/')
     expect(JSON.stringify(details)).not.toContain(png.id)
-    await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'allow' } })
-    // the team room's two members can see the file; everyone can read shared/: the wider-audience card
-    const widen = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user' && f.data.request.requestId !== card.data.request.requestId, 15_000)
-    await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: widen.data.request.requestId, answer: 'save' } })
+    await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'save' } })
     expect((await done('alice', q)).state).toBe('done')
+    expect(ws.alice!.frames.filter((f) => f.type === 'turn.request' && f.data.turnId === turnId)).toHaveLength(1)
     const saved = path.join(h.team, 'shared', png.name)
     expect(fs.existsSync(saved)).toBe(true)
     expect(Buffer.compare(fs.readFileSync(saved), fs.readFileSync(roomFilesOf(h.ctx).open('alice', roomId, png.id, false).abs))).toBe(0)
     expect(events(turnId).find((e) => e.tool === 'save_room_file')).toMatchObject({ ok: 1, summary: `save_room_file -> shared/${png.name} (${fs.statSync(saved).size} B)` })
+    fs.rmSync(saved, { force: true })
+  })
+
+  test('into a place no wider than the room (my downloads): the room card, two buttons (a copy is never granted ahead)', async () => {
+    const roomId = await teamRoom(['alice', 'erin'])
+    const png = await upload('alice', roomId, `mine-${uuidv7().slice(-6)}.png`, makePng(12, 12))
+    const q = await send('alice', roomId, `@트리나 내 폴더에 저장해줘\n${fake({ tool: 'save_room_file', args: { file: png.id }, sayResult: true })}`, { fileIds: [png.id] })
+    const turnId = await runOf('alice', q)
+    const card = await ws.alice!.next('turn.request', (f) => f.data.turnId === turnId && f.data.request.kind === 'ask_user', 15_000)
+    const req = card.data.request as { options: { value: string }[]; buttons?: boolean }
+    expect(req.options.map((o) => o.value)).toEqual(['allow', 'skip'])
+    expect(req.buttons).toBeUndefined()
+    await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'allow' } })
+    expect((await done('alice', q)).state).toBe('done')
+    expect(ws.alice!.frames.filter((f) => f.type === 'turn.request' && f.data.turnId === turnId)).toHaveLength(1)
+    const saved = path.join(h.team, 'users/alice/downloads', png.name)
+    expect(fs.existsSync(saved)).toBe(true)
     fs.rmSync(saved, { force: true })
   })
 
@@ -174,6 +195,21 @@ describe('saving a copy', () => {
     await h.api('alice').call(API.answerTurn, { params: { id: turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'skip' } })
     expect((await done('alice', q)).state).toBe('done')
     expect(fs.existsSync(path.join(h.team, 'shared', png.name))).toBe(false)
+  })
+
+  test('a place refused before the card still counts as a name read: an answer about a folder some members cannot see stays private', async () => {
+    // bob (finance) may read projects/falcon, but not write it; erin may not see it at all
+    const roomId = await teamRoom(['bob', 'erin'])
+    const pdf = await upload('bob', roomId, 'probe.pdf', makePdf(['probe']))
+    const q = await send('bob', roomId, `@트리나 save\n${fake({ tool: 'save_room_file', args: { file: pdf.id, save_as: 'projects/falcon/plan.md' }, sayResult: true }, { say: ' | ' }, { tool: 'save_room_file', args: { file: pdf.id, save_as: 'projects/falcon/nothere.md' }, sayResult: true })}`, { fileIds: [pdf.id] })
+    const run = await done('bob', q)
+    expect(run.state).toBe('done')
+    expect(ws.bob!.frames.some((f) => f.type === 'turn.request' && f.data.turnId === run.turnId)).toBe(false)
+    // the refusals say what is there for bob ("read-only"): his answer is his alone, erin never reads it
+    expect((await answerTo('bob', roomId, q))?.body).toContain('read-only')
+    expect((await answerTo('erin', roomId, q))?.body ?? '').not.toContain('projects/falcon')
+    // the audit lines never quote the refusal (it names the room file's place)
+    for (const e of events(run.turnId).filter((x) => x.tool === 'save_room_file')) expect(e).toMatchObject({ ok: 0, summary: 'save_room_file -> refused: access denied' })
   })
 
   test('never under skills/ nor as an instruction file: refused without a card', async () => {
@@ -381,14 +417,15 @@ describe('second review: names, the fold, lookups', () => {
     const body = (await answerTo('alice', roomId, q))!.body
     expect(body).toContain('Several files in that room the user can see are called "twin.md"')
     expect(body).not.toContain('twin\n')
-    // a save by "file_id=<id>" into "shared" (an existing folder, no "/"): the room's card, then the copy
+    // a save by "file_id=<id>" into "shared" (an existing folder, no "/"): one card (shared/ is wider than the room),
+    // then the copy
     const q2 = await send('alice', roomId, `@트리나 save\n${fake({ tool: 'save_room_file', args: { file: `file_id=${a.id}`, save_as: 'shared' }, sayResult: true })}`)
     const t2 = await runOf('alice', q2)
     const c1 = await ws.alice!.next('turn.request', (f) => f.data.turnId === t2 && f.data.request.kind === 'ask_user', 15_000)
-    await h.api('alice').call(API.answerTurn, { params: { id: t2 }, body: { kind: 'ask_user', requestId: c1.data.request.requestId, answer: 'allow' } })
-    const c2 = await ws.alice!.next('turn.request', (f) => f.data.turnId === t2 && f.data.request.kind === 'ask_user' && f.data.request.requestId !== c1.data.request.requestId, 15_000)
-    await h.api('alice').call(API.answerTurn, { params: { id: t2 }, body: { kind: 'ask_user', requestId: c2.data.request.requestId, answer: 'save' } })
+    expect((c1.data.request as { question: string }).question).toContain('shared/twin.md')
+    await h.api('alice').call(API.answerTurn, { params: { id: t2 }, body: { kind: 'ask_user', requestId: c1.data.request.requestId, answer: 'save' } })
     expect((await done('alice', q2)).state).toBe('done')
+    expect(ws.alice!.frames.filter((f) => f.type === 'turn.request' && f.data.turnId === t2)).toHaveLength(1)
     expect(fs.readFileSync(path.join(h.team, 'shared/twin.md'), 'utf8')).toBe('first twin\n')
     fs.rmSync(path.join(h.team, 'shared/twin.md'), { force: true })
   })

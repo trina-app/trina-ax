@@ -7,8 +7,11 @@
 // - "답변 필요" and the new-answer dot come from the chat list itself (Chat.waiting / Chat.unseen), with no request per
 //   chat; the dot stays away from the chat on screen;
 // - the phone's drawer keeps its own layout (the AI's history only);
-// - a chat row's "…": rename, "프로젝트로 옮기기…" ("프로젝트 바꾸기…" in a project) and delete for a chat of my own, the
-//   move dialog of the chat's title menu; a shared chat never offers the move.
+// - a chat row's "…": "상단에 고정" / "고정 해제" for every row, rename, "프로젝트로 옮기기…" ("프로젝트 바꾸기…" in a
+//   project) and delete for a chat of my own, the move dialog of the chat's title menu; a shared chat never offers the
+//   move;
+// - pinned chats (docs/DECISIONS.md "Pinned chats"): first, the most recently pinned first, a pin before the title; at
+//   most ten above the five latest on a computer, all of them first in "모두 보기" and in the phone's drawer.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { act } from 'react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
@@ -550,16 +553,17 @@ describe('a chat row\'s "…"', () => {
     return out
   }
 
-  test('a chat of my own: rename, "프로젝트로 옮기기…" ("프로젝트 바꾸기…" in a project), delete; a shared chat: never the move', async () => {
-    useChats.setState({ chats: [chat(1), chat(2, { projectId: P }), chat(3, { projectId: P, shared: shared('mina', true) }), chat(4, { projectId: P, shared: shared('bob', true) }), chat(5, { projectId: P, shared: shared('bob', false) })] })
+  test('a chat of my own: pin, rename, "프로젝트로 옮기기…" ("프로젝트 바꾸기…" in a project), delete; a shared chat: never the move', async () => {
+    useChats.setState({ chats: [chat(1), chat(2, { projectId: P }), chat(3, { projectId: P, shared: shared('mina', true) }), chat(4, { projectId: P, shared: shared('bob', true) }), chat(5, { projectId: P, shared: shared('bob', false), pinnedAt: '2026-11-02T00:00:00.000Z' })] })
     const m = await render()
+    const pin = ['chat-row-pin', ko('chat.pin')]
     try {
-      expect(await items(m, '채팅 1')).toEqual([['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.add')], ['chat-row-delete', ko('common.delete')]])
-      expect(await items(m, '채팅 2')).toEqual([['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.change')], ['chat-row-delete', ko('common.delete')]])
-      // shared project chats stay in their project: mine to rename and delete, an editor's to delete, else no "…"
-      expect(await items(m, '채팅 3')).toEqual([['chat-row-rename', ko('chat.rename')], ['chat-row-delete', ko('common.delete')]])
-      expect(await items(m, '채팅 4')).toEqual([['chat-row-delete', ko('common.delete')]])
-      expect(await items(m, '채팅 5')).toBeNull()
+      expect(await items(m, '채팅 1')).toEqual([pin, ['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.add')], ['chat-row-delete', ko('common.delete')]])
+      expect(await items(m, '채팅 2')).toEqual([pin, ['chat-row-rename', ko('chat.rename')], ['chat-row-move', ko('chat.project.change')], ['chat-row-delete', ko('common.delete')]])
+      // shared project chats stay in their project: mine to rename and delete, an editor's to delete; a pin for anyone
+      expect(await items(m, '채팅 3')).toEqual([pin, ['chat-row-rename', ko('chat.rename')], ['chat-row-delete', ko('common.delete')]])
+      expect(await items(m, '채팅 4')).toEqual([pin, ['chat-row-delete', ko('common.delete')]])
+      expect(await items(m, '채팅 5')).toEqual([['chat-row-unpin', ko('chat.unpin')]])
     } finally {
       await m.unmount()
     }
@@ -600,7 +604,7 @@ describe('a chat row\'s "…"', () => {
       await m.settle(0)
       const e = new FakeEvent('contextmenu', { bubbles: true, cancelable: true })
       link.dispatchEvent(e)
-      await m.until(() => shown() === 3, 'the menu')
+      await m.until(() => shown() === 4, 'the menu')
       expect(e.defaultPrevented).toBe(true)
       await m.click(row.querySelector(`button[aria-label="${ko('chat.menu')}"]`)!)
       expect(shown()).toBe(0)
@@ -608,7 +612,7 @@ describe('a chat row\'s "…"', () => {
       press('pointerdown')
       await m.settle(600)
       press('pointerup')
-      await m.until(() => shown() === 3, 'the sheet')
+      await m.until(() => shown() === 4, 'the sheet')
       expect(m.get('menu-sheet-title').textContent).toBe('채팅 1')
       // the click that follows the finger lifting is no tap on the row
       await m.click(link)
@@ -625,9 +629,9 @@ describe('a chat row\'s "…"', () => {
       hold('pointerdown')
       await m.settle(600)
       hold('pointerup')
-      await m.until(() => shown() === 3, 'the sheet again')
+      await m.until(() => shown() === 4, 'the sheet again')
       await m.click(more)
-      expect(shown()).toBe(3)
+      expect(shown()).toBe(4)
     } finally {
       await m.unmount()
     }
@@ -664,6 +668,77 @@ describe('a chat row\'s "…"', () => {
       expect(sent).toEqual([{ projectId: P }])
       expect(useUi.getState().toasts.at(-1)?.text).toBe(ko('chat.project.moved', { name: 'Acme launch' }))
       await m.until(() => !m.find('chat-project-choices'), 'the dialog to close')
+    } finally {
+      await m.unmount()
+    }
+  })
+})
+
+describe('pinned chats', () => {
+  const at = (n: number) => `2026-11-02T00:${String(n).padStart(2, '0')}:00.000Z`
+  const links = (el: { querySelectorAll: (s: string) => { map: <T>(f: (a: { textContent?: string | null; closest: (s: string) => { getAttribute: (n: string) => string | null } | null }) => T) => T[] } }) =>
+    el.querySelectorAll('a[href^="/c/"]').map((a) => a.textContent)
+  const pinned = (m: Awaited<ReturnType<typeof render>>) => m.get('recents-list').querySelectorAll('li[data-pinned]').map((li) => li.textContent)
+
+  test('a computer: my pins first, the most recently pinned first, at most ten, then the five latest of the others; "모두 보기" has every pin first', async () => {
+    // chats 1–12 pinned (chat 3 the most recently), 13–20 not
+    useChats.setState({ chats: Array.from({ length: 20 }, (_, i) => chat(i + 1, i < 12 ? { pinnedAt: at(i === 2 ? 59 : 12 - i) } : {})) })
+    const m = await render()
+    try {
+      const shown = links(m.get('ai-chats-latest') as never)
+      expect(shown.slice(0, 10)).toEqual(['채팅 3', '채팅 1', '채팅 2', '채팅 4', '채팅 5', '채팅 6', '채팅 7', '채팅 8', '채팅 9', '채팅 10'])
+      expect(shown.slice(10)).toEqual(['채팅 20', '채팅 19', '채팅 18', '채팅 17', '채팅 16'])
+      expect(pinned(m)).toHaveLength(10)
+      // the pin before the title, named for a screen reader; none on the others
+      const first = m.get('ai-chats-latest').querySelectorAll('li')[0]!
+      expect(first.querySelector('[data-testid="chat-pin-icon"]')?.getAttribute('aria-label')).toBe(ko('chat.pinned'))
+      expect(m.get('ai-chats-latest').querySelectorAll('li')[10]!.querySelector('[data-testid="chat-pin-icon"]')).toBeNull()
+      // the whole history: all twelve pins first, without a header, then the rest by date
+      await m.click('ai-chats-all')
+      expect(links(m.get('ai-chats-pinned') as never)).toEqual(['채팅 3', '채팅 1', '채팅 2', '채팅 4', '채팅 5', '채팅 6', '채팅 7', '채팅 8', '채팅 9', '채팅 10', '채팅 11', '채팅 12'])
+      expect(m.get('ai-chats-pinned').querySelector('h3')).toBeNull()
+      expect(links(m.get('recents-list') as never).slice(12)).toEqual(['채팅 20', '채팅 19', '채팅 18', '채팅 17', '채팅 16', '채팅 15', '채팅 14', '채팅 13'])
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('the phone drawer: every pin first', async () => {
+    wide = false
+    useChats.setState({ chats: [chat(1, { pinnedAt: at(1) }), chat(2), chat(3, { pinnedAt: at(2) }), chat(4)] })
+    const m = await render()
+    try {
+      expect(links(m.get('recents-list') as never)).toEqual(['채팅 3', '채팅 1', '채팅 4', '채팅 2'])
+      expect(pinned(m)).toEqual(['채팅 3', '채팅 1'])
+    } finally {
+      await m.unmount()
+    }
+  })
+
+  test('"상단에 고정" pins the chat and its row goes to the top; "고정 해제" puts it back', async () => {
+    const id = chat(2).id
+    const sent: string[] = []
+    routes = {
+      [`POST /api/chats/${id}/pin`]: () => (sent.push('pin'), json({ ...chat(2), pinnedAt: at(30) })),
+      [`DELETE /api/chats/${id}/pin`]: () => (sent.push('unpin'), json(chat(2))),
+    }
+    useChats.setState({ chats: Array.from({ length: 8 }, (_, i) => chat(i + 1)) })
+    const m = await render()
+    const rowOf = (title: string) => m.get('recents-list').querySelectorAll('li').find((li) => li.textContent?.includes(title))!
+    try {
+      // chat 2 is not among the five latest
+      expect(links(m.get('ai-chats-latest') as never)).not.toContain('채팅 2')
+      await m.click('ai-chats-all')
+      await m.click(rowOf('채팅 2').querySelector(`button[aria-label="${ko('chat.menu')}"]`)!)
+      await m.click('chat-row-pin')
+      await m.until(() => (pinned(m).length === 1 ? true : null), 'the pinned row')
+      expect(links(m.get('recents-list') as never)[0]).toBe('채팅 2')
+      expect(rowOf('채팅 2').querySelector('[data-testid="chat-pin-icon"]')).not.toBeNull()
+      await m.click(rowOf('채팅 2').querySelector(`button[aria-label="${ko('chat.menu')}"]`)!)
+      await m.click('chat-row-unpin')
+      await m.until(() => (pinned(m).length === 0 ? true : null), 'no pinned row')
+      expect(links(m.get('recents-list') as never).at(-1)).toBe('채팅 1')
+      expect(sent).toEqual(['pin', 'unpin'])
     } finally {
       await m.unmount()
     }

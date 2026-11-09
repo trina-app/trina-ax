@@ -369,7 +369,7 @@ describe('what a shared turn has', () => {
   test('SHARED_TOOLS is ROOM_TOOLS without the room tools; a turn offers nothing else', async () => {
     // (nor the room's reading of shared project chats: docs/DECISIONS.md "대화방의 트리나가 공유 프로젝트 채팅을 읽는다")
     expect([...SHARED_TOOLS].sort()).toEqual([...ROOM_TOOLS].filter((t) => !ROOM_OWN_TOOLS.has(t) && !ROOM_PROJECT_CHAT_TOOLS.has(t)).sort())
-    for (const t of ['remember', 'forget', 'set_title', 'connect_service', 'room_read', 'rooms', 'room_file', 'drive_search', 'schedule_create', 'box_shell', 'project_chats', 'project_chat']) expect(SHARED_TOOLS.has(t)).toBe(false)
+    for (const t of ['remember', 'forget', 'set_title', 'connect_service', 'room_read', 'rooms', 'room_file', 'save_room_file', 'drive_search', 'schedule_create', 'box_shell', 'project_chats', 'project_chat']) expect(SHARED_TOOLS.has(t)).toBe(false)
     const chat = await newShared()
     const r = await ask('alice', chat.id, fake({ echo: 'tools' }))
     const offered = r.done.content.split(',').map((t) => t.replace(/^mcp__team__/, ''))
@@ -380,7 +380,7 @@ describe('what a shared turn has', () => {
 
   test('the instructions: only SHARED_PROMPT_SECTIONS, nothing about the person; the transcript says who wrote what', async () => {
     expect(Object.keys(SHARED_PROMPT_SECTIONS).sort()).toEqual(Object.keys(ROOM_PROMPT_SECTIONS).sort())
-    expect(Object.entries(SHARED_PROMPT_SECTIONS).filter(([, ok]) => !ok).map(([id]) => id).sort()).toEqual(['browser', 'connected', 'memories', 'room'])
+    expect(Object.entries(SHARED_PROMPT_SECTIONS).filter(([, ok]) => !ok).map(([id]) => id).sort()).toEqual(['browser', 'connected', 'memories', 'room', 'sideRoom'])
     const user = loadPrincipal(db(), 'alice')!
     const input: PromptInput = {
       user, groupNames: ['ZZ-GROUP-CANARY'], locale: 'en', timeZone: 'UTC', memories: [{ id: 'm1', text: 'MEMORY-CANARY' }],

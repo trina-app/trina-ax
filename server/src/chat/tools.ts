@@ -23,7 +23,7 @@ import { addSources, sourceOf } from './read-scope'
 import { authorize } from '../policy/authorize'
 import type { Principal } from '../policy/access'
 import { tr } from './i18n'
-import type { TurnExec } from './turn'
+import type { TurnExec, WidenOf } from './turn'
 import type { TurnFiles } from '../files/service'
 import { extractUrls, gateUrl, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
 import { ToolError } from '../policy/errors'
@@ -54,6 +54,9 @@ export interface Tool {
   label?(args: unknown, locale: Locale): string
   /** a call the tool will refuse whatever the person says, refused before any card is raised (null: go on) */
   refuse?(args: unknown): { text: string; summary: string } | null
+  /** where a call saves and where its bytes come from, so a room change and the wider-audience card are one card
+   * (chat/turn.ts confirmRoomChange); for a tool that saves itself after asking confirmWidening (save_room_file) */
+  widen?(args: unknown): WidenOf | undefined
   /** `files`: the calling agent's turn state (the main AI's, or a sub-agent's: TurnFiles.forAgent) */
   call(args: unknown, files: TurnFiles): Promise<{ content: McpContent[]; isError?: boolean; summary?: string }>
 }
@@ -218,8 +221,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       exec.noteTaint(name, args)
       exec.noteRoomTool(name, args)
       // a room's AI session: anything that may change something waits for the person's yes (rooms/ai-tools.ts); a call
-      // that also needs the wider-audience card below gets that one card (widenOf: where it saves, what it copies)
-      const roomNo = await exec.confirmRoomChange(name, args, { widen: widenOf(name, args), main: files === exec.files })
+      // that also needs the wider-audience card below gets that one card (widenOf, or the tool's own widen: where it
+      // saves, what it copies, where its bytes come from)
+      const roomNo = await exec.confirmRoomChange(name, args, { widen: t.widen ? t.widen(args) : widenOf(name, args), main: files === exec.files })
       if (roomNo) return { ...text(roomNo, true), summary: `${name} -> not allowed by the user (${exec.room ? 'room' : 'after a room read'})` }
       // what the AI sends leaves marks, so an address that a connection repeats back is not taken as the service's own
       // (tools/connection-urls.ts; before the call: its own answer is checked against them)
@@ -315,7 +319,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
 /** Where a call's wider-audience check (below the room card) saves, and the files it copies bytes from: the same
  * arguments as the checks in call() and beforeFileTool (write and edit: the file; make_file: its output and source;
  * edit_hwp: the new file and the document, or the document itself). undefined for any other tool. */
-export function widenOf(name: string, args: unknown): { target: string; extra: string[] } | undefined {
+export function widenOf(name: string, args: unknown): WidenOf | undefined {
   const a = args && typeof args === 'object' && !Array.isArray(args) ? args as Record<string, unknown> : null
   if (!a) return undefined
   if (name === 'write' || name === 'edit') return typeof a.file_path === 'string' ? { target: a.file_path, extra: [] } : undefined

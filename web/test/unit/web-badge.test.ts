@@ -1,7 +1,8 @@
 // An installed web app's icon badge (store/sessionMarkers.ts, the Badging API): the same n as the tab title and the
-// desktop app's Dock (chats and rooms that want me, a hidden room never), set once a burst of changes settles, cleared
-// at 0 and when this window stops; never inside the desktop app (its own badge) or the phone app; no API, a refusal
-// or a throw changes nothing. The settings line (components/settings/PushNotifications.tsx badgeHintKey): only on an
+// desktop app's Dock (chats and rooms that want me, a hidden room never), set once a burst of changes settles; at 0 the
+// browser's dot while a room I did not turn off or hide has unread messages n does not count, else cleared, and when
+// this window stops; never inside the desktop app (its own badge) or the phone app; no API, a refusal or a throw changes
+// nothing. The settings line (components/settings/PushNotifications.tsx badgeHintKey): only on an
 // installed web app that can badge, with the place for its system.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { uuidv7, type Chat, type Me } from '@mycel/shared/api'
@@ -79,6 +80,28 @@ describe('the icon of an installed web app', () => {
     useRooms.setState({ rooms: [] })
     await settle()
     expect(calls).toEqual(['clear', 3, 2, 'clear'])
+  })
+
+  test('n 0 with a plain team-room message unread: the browser\'s dot (no number); a muted room or reading it clears it', async () => {
+    stub('navigator', badging())
+    const plain = room({ kind: 'team', unreadCount: 2 })
+    useRooms.setState({ rooms: [plain] })
+    startSessionMarkers()
+    expect(calls).toEqual(['dot'])
+    useRooms.setState({ rooms: [plain, room({ kind: 'team', unreadCount: 1, mentioned: true })] })
+    await settle()
+    expect(calls).toEqual(['dot', 1])
+    useRooms.setState({ rooms: [plain] })
+    await settle()
+    expect(calls).toEqual(['dot', 1, 'dot'])
+    useRooms.setState({ rooms: [{ ...plain, muted: true }] })
+    await settle()
+    expect(calls).toEqual(['dot', 1, 'dot', 'clear'])
+    useRooms.setState({ rooms: [plain] })
+    await settle()
+    useRooms.setState({ rooms: [{ ...plain, unreadCount: 0 }] })
+    await settle()
+    expect(calls).toEqual(['dot', 1, 'dot', 'clear', 'dot', 'clear'])
   })
 
   test('signed out (this window stops): the count leaves the icon', async () => {

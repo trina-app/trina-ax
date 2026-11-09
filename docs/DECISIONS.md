@@ -15987,6 +15987,527 @@ boxes); no contract, setting or data change.
 - **Not yet:** Windows (toast XML), the iPhone app (a notification category in the extension) and Android (no FCM
   yet). A failure (signed out, room left) changes nothing; the notice stays unread in the Inbox.
 
+## Trina side chat (트리나 사이드 채팅) — a private side chat beside a room (feat/trina-side-chat, 2026-11-09, product owner)
+
+- **Decision (option A of the "Trina side chat: decision" doc, 2026-11-09):** people ask @트리나 about a room in a
+  private side chat beside it, and share an answer to the room on purpose. PR 1 (this one) adds the side chat; @트리나
+  in the room's timeline stays as it is. PR 2 removes @트리나 from rooms and DMs (the composer and the "@" list) and
+  decides what happens to old private previews.
+- **Model: the side chat is an ordinary chat of the person** (`chats.side_room_id`, migration 276), not a room
+  message. Rooms gain no private messages, so the timeline, threads, unread counts, badges, notices, the Inbox, room
+  search and other members' AI context are untouched. The AI already reads rooms from a person's own chat with its
+  room tools (chat/room-tools.ts: the person's own view, read scope, the change cards after reading a room), and the
+  answer goes to the room only through "대화방에 보내기" (chat/answer-share.ts), which already checks linked files and
+  material some members cannot see.
+- **The AI is told the room** (chat/prompt.ts sideRoomSection, chat/side-room.ts) while the person is still in the
+  room and it is not archived: its kind, name and id, that "this discussion" means it, that it reads it with room_read,
+  and that nothing it writes goes to the room. Never in a room session's or a shared project chat's instructions (the
+  allowlists say false). After the person leaves the room the chat stays theirs, as an ordinary chat.
+- **API:** `CreateChatBody.sideRoomId` (the person must be in the room: else the same 404 as a room that is not there;
+  never with a project), `ListChatsQuery.sideRoomId` (the person's own side chats of that room, newest first),
+  `Chat.sideRoomId`. No new endpoint.
+- **Web:** the ✦ button in the room header (components/rooms/SideChatPanel.tsx) opens the panel where a thread opens,
+  one of the two at a time. It opens the room's newest side chat; "New chat" starts another with the next question;
+  "Open as a full chat" goes to /c/<id>; 🕘 lists the room's side chats (newest 30) and opens one. Cards the AI
+  raises show under its answer as in the full chat, and while it waits for the answer to its question the panel's box
+  answers it (lib/askAnswer.ts), never a new message. Under a finished answer "Share to room" is a labelled button and
+  the dialog starts with this room picked. In the chat history a side chat shows its room ("# design") after its
+  title, while I am in that room.
+- **Defaults for the doc's open questions (to confirm):** old private previews stay inline (PR 2); the room context is
+  what the person can see, read by the AI with room_read; sharing uses the existing dialog; on a phone the panel takes
+  the whole screen like a thread. Side chats are also listed in the person's chat history.
+
+## 내 AI 채팅에서 대화방 파일 저장 — the AI chat saves a room's file into the team folder (feat/room-file-to-team, 2026-11-09, product owner)
+
+Amends "내 AI 채팅에서 대화방 읽기" and "Files sent in the room" ("대화방의 트리나"). The owner, in the AI chat: "leads 채널에 올린
+트리나 사업자 등록증, 다른 사람들도 다 볼 수 있게 저장해줘". The AI could read the PDF as text (`room_file`) but had no way to
+copy it (`write` saves text), so it asked for the PDF again. A room's own @트리나 session already had `save_room_file`
+("not offered in personal chats" until now).
+
+- **Decision:** the person's own AI chat gets `save_room_file` too, with the room session's name (as `room_file` has one
+  name in both): `room` (as room_read takes it), `file` (its file_id only: two files may share a name, and the card's
+  yes is for that one file) and `save_as` (a folder keeps the file's own name; the person's downloads by default).
+  `SaveRoomFileInput` is the own chat's input, `SaveRoomFileHereInput` the room session's.
+- **One path for both** (`chat/room-tools.ts` `saveTarget`, `saveRoomFile`). Reading: `findRoomFile` with the person's
+  member row, the check `room_file` uses (a room they are in now and not archived, a message they see from their join
+  on, a thread by its root, never an old answer hidden from them nor someone else's private preview, not deleted), then
+  `RoomFiles.open` again after the cards. A non-member gets the answer of a room that does not exist. Writing: the AI's
+  other byte saves' path (`placeProduced`: write access again right before the write, the skill approval it requires,
+  the storage check and per-turn file count, versions, file events, text extraction, files.changed), the placement
+  note (`chat/file-placement.ts`) and the audit line (`tool_events`).
+- **Refused before any card** (`Tool.refuse`): a name instead of a file id, a file the person cannot see, a held file,
+  skills/, an instruction file's name and, new for both, a place the person may not write (`authorize(…, 'write')`: a
+  read-only folder, one they cannot see). A call refused there counts as nothing read.
+- **The download-only list is the quarantine list.** The brief named two lists; in the code they are one
+  (`safe_ops_artifacts`, "download-only" in its messages). Such bytes are refused, as `room_file` refuses to read them
+  and as the AI cannot copy a team file with them (`authorize` refuses it without `download`). Not chosen: saving them
+  "as a file": it would hand the AI a way past the list for room files only.
+- **The room is the bytes' source.** The wider-audience check counts the room from the file's message on (a reply by its
+  root's seq), and the person alone when the message is their own private preview, as room_read records one. The owner
+  and admins rule for team rooms (`withoutTeamRoomsAdminsSee`) applies as for every save.
+- **One card per call** (as "대화방에서 새 파일은 미리 허용" for write and make_file). A tool may now say where it saves and
+  where its bytes come from (`Tool.widen`, `WidenOf.read`; `TurnExec.widenNeed` takes read sources), so the
+  wider-audience need is known before the rooms-seen card (own chat) or the room card (room session). Both needed: the
+  wider-audience card alone, with the rooms-seen line in front in the own chat and the call's details (the file by its
+  name, its room as the person sees it in the own chat ("#leads"), sender, time and size; where it goes); its yes saves
+  it. The owner's request is exactly that card and one yes. Only one of them: that one. The own chat's call marks the
+  chat (`markRoomsSeen`) before it looks anything up, a refused call too, so every save there asks one card, also first
+  thing in a new chat (a file id planted in a team file or a page copies nothing unasked). The room session's save had
+  two cards until now.
+- **No silent overwrite:** as save_url and make_file, a file already at the target that was not read in this turn is
+  kept and the copy goes next to it (a conflict copy, told to the AI); one read in this turn is updated with a version.
+- **Room sessions:** no "이 방에서는 항상 허용" for a copy. "대화방에서 새 파일은 미리 허용" left save_room_file out of grants
+  on purpose (copies, moves, save_url); the room card keeps its two buttons. Not widened here.
+- **Audit:** a save names the saved team path (it is a team file now); a refusal is audited without its words
+  ("refused: access denied", or the error's code), since they name the room file's place; no room, person or file id
+  anywhere. In a room session that was the refusal's text until now.
+- **Independent review (security, tried to break it):** two leaks fixed, both from the new refusal before the card.
+  In a room session, a refused place (read-only, hidden) told the AI what is there before `noteRoomTool` ran, so the
+  answer went to the whole room: a refusal about the place now counts save_as as a name read (`place`), and such an
+  answer stays private for a member who cannot see it. In the own chat, a refusal could show room names (several match
+  the name) or the file's name before the chat was marked as one that read rooms: the call now marks it first. Also: the
+  card's place is the place written (`plannedTargets`: a folder made where save_as named a file while the card waited
+  refuses the save). Left as is: a leading "/" in save_as is dropped (as before); a call whose input fails the schema
+  still gets the card before its error (as every tool).
+- **Words:** no new strings. The step and the card reuse "대화방 파일 저장" and the cards' strings in the five languages.
+  The instructions (`ROOMS_RULE`) and `room_file`'s description say a room file can be saved as it is, and not to ask for
+  it again; `room_file`'s notes for video, audio and scanned PDF pages point to save_room_file in a chat (the connector
+  keeps its own words).
+- **Not here:** the MCP connector. It has no card, so its read-scope guard (`checkUploadTarget`) would refuse a room
+  file into any folder wider than the room, the owner's case (shared/). Follow-up once the connector has a confirmation
+  path; until then it reads room files only.
+- Tests: `tests/unit/b-chat-rooms-save.test.ts` (offered and in the instructions; a member's PDF from a team room into a
+  new folder in shared/ with one card naming the room, the same bytes, the step, the audit line and the file event; the
+  same file again next to a changed one; a "no"; into one's own folder first thing in a new chat, the rooms-seen card
+  alone; a refusal marks the chat; a place changed while the card waited; a non-member like an unknown room; a hidden
+  answer's file, another's private preview and a name refused, the preview's owner may save; a read-only target, a
+  held file, skills/ and CLAUDE.md refused before any card; a planted request in a room needs the yes),
+  `b-rooms-ai-files.test.ts` (one card into shared/; the room card, two buttons, into one's own folder; a refused place
+  keeps the answer private), `b-chat-rooms`, `b-codex-rooms`, `b-chat`, `b-browser`, `i-wiring` (the tool in the own
+  chat's list).
+- Version impact: **minor** (a new tool in the AI chat; no API, setting or data change).
+## A picture in a message box shows as a 64 px square (fix/bigger-paste-preview, 2026-11-09)
+
+Since #234 a pasted or picked picture showed as itself in its chip above the box, in a room and in the AI chat, but at
+32 px: too small to tell one screenshot from another. The owner: at least 64. Placement: Team AX core
+(`web/src/components/ChipThumb.tsx`, the two message boxes); no contract, setting or data change.
+
+- **A square, not a bigger chip.** Slack and iMessage show a picture waiting to be sent as the picture itself, a
+  rounded square with no name, its ✕ on the corner; files get a card. Here: a 64 × 64 square (`object-cover`, 8 px
+  corners, a hairline edge so a white screenshot keeps its outline on the white box), one `PictureTile` for both boxes.
+  Not chosen: the chip with a 64 px picture and the name and size beside it. On a 390 px phone such a chip is about
+  180 px wide, so three pictures took three rows (about 230 px above the box, with the keyboard open); three squares
+  take one row of 70 px.
+- **What the chip said moves.** The name is the picture's alt text and its tip on hover (no tip on touch); the status
+  (uploading, attached, the size) stays in the same live regions, now for screen readers only, so a screen reader still
+  hears each change. While it uploads the picture is a shade darker with the spinner on a dark pill (readable on a light
+  or a dark picture), with the AI chat's percent when it is known; "준비 중" / "마무리 중" are not shown there (too
+  wide for 64 px in Indonesian and Spanish). A failed one gets a red edge and its reason beside it, as words.
+- **The ✕** is a 20 px dark dot (light in dark mode) standing 6 px out of the top-right corner, on a ring of the box's
+  colour; it takes a 36 px tap, 44 px on phones (an `::after`, not `touch-hit`, which would make the absolutely placed
+  dot `relative` on phones). The tap area reaches further out to the right than over the picture, so a tap on the
+  picture's corner stays the picture's (in the AI chat it opens it), and not above the box's top edge. The row item
+  keeps the 6 px the dot stands out (`pt-1.5 pr-1.5`), so the dot touches neither the box's top edge nor the next
+  picture, and the next picture, painted after it, keeps its own clicks.
+- In the AI chat a click on the picture opens it (the side panel's preview), as a click on its name did; the room's
+  chip had no such click and still has none.
+- A file that is not a picture keeps its compact chip; the row centres its items, so a chip beside a square keeps its
+  own height (before, the row's items stretched, which only mattered once one was taller). A chip restored after a
+  reload (no file in the tab, only the attachment) stays a file chip, as before. A picture the browser cannot draw (a
+  HEIC photo in Chrome) shows a square with a picture icon, named for screen readers as the picture was.
+- Tests: e2e `composer-paste-preview.spec.ts` (the square is 64 × 64 and `cover` in both boxes, the spinner while it
+  uploads, the name as alt text; on a 390 px phone three pasted pictures in one row inside the box, each ✕ taking a tap
+  20 px above and below its dot's centre, inside the box, and 16 px to its left; a ✕ takes out that picture only; a
+  text file on a picture's row a compact chip under 40 px tall, centred on the picture).
+- Version impact: **patch** (a fix; no API or data change).
+## The Dock's dot for unread rooms (fix/dock-unread-dot, 2026-11-09)
+
+The owner saw a red "2" on a team room in the Mac desktop app's sidebar and nothing on the Dock icon, while Discord in
+the same Dock showed a red dot. The Dock number is the one count n ("Session markers"): AI chats that need me and rooms
+that want me by my level for them. A plain message in a team room or the everyone room at its default (mentions only)
+is unread in the sidebar but not in n, so the Dock stayed empty.
+
+- **Decision (as Slack and Discord):** n stays as it is. When n is 0 and some room has unread messages n does not
+  count, the Dock shows a plain dot "•"; when they are read, it clears. A number always wins over the dot.
+- **Which rooms light it** (web/src/lib/rooms.ts `roomLightsDot`): unread messages or followed replies (`roomUnread`,
+  the sidebar's count), in a room I did not hide and did not turn off: level 끄기, its own or by my default "nothing"
+  (an older server without levels: `muted`). A followed reply while "내가 참여한 스레드의 답글" is off lights it too: the
+  sidebar shows it.
+- **The bridge:** `setBadgeCount(n, dot?)`; the page sends `dot` only with n 0 (lib/sessionMarkers.ts `iconBadge`). The
+  main process accepts a whole number or the dot, nothing else (`dockBadgeOf`: the dot only for a flag that is exactly
+  `true`), and shows it with `app.dock.setBadge('•')`. `app.setBadgeCount(0)` sets the same Dock label, so a team
+  switch still clears it (checked on Electron 44). Desktop apps before this ignore the flag: nothing at 0, as before.
+- **The installed web app follows:** `navigator.setAppBadge()` with no number is the browser's dot (as the service
+  worker's for a push with no window open), so an installed web app on Windows (Chrome, Edge) now shows a dot on its
+  taskbar icon too. What an iPhone Home Screen web app shows for it is not checked (the worker's push already made the
+  same call). Windows has no Dock: the desktop app is unchanged there.
+- **Unchanged:** the tab title "(n)", the phone ☰ dot and the 대화 tab's count. No new setting.
+## The schedule card offers only the connections the task names (fix/schedule-card-connections, 2026-11-09, product owner)
+
+- **Why.** Every schedule card (the AI's `schedule_create`, "수정" in Settings, "다시 확인") named every "allow" team
+  connection the person could use ("이 연결 서비스는 AI가 묻지 않고 보내도록 설정돼 있어요: …") with three answers, and
+  the answer with sends allowed them all. A one-time news briefing asked about an image service the team had once added
+  as an example.
+- **The rule** (`tools/schedules.ts taskConnections`). The card names, and offers sending to, only the "allow" team
+  connections the task names: the connection's whole name in the title or the instruction (the rule for a template
+  named in an instruction, `schedule-needs.ts namesTemplate`: any case, not part of a longer Latin word, a Korean
+  particle after it is fine, too short or everyday a name never matches), or listed in `schedule_create`'s new optional
+  `connections` (by name, slug or `team_<slug>` key, ignoring case). With none, the card has no connections line, the
+  plain answers (만들기 / 만들지 않기, 바꾸기 / 바꾸지 않기, 다시 켜기 / 계속 멈춰 두기), and runs send to no connection.
+  Only what the card offered is stored (`write_connections`), so a task sends to the same or fewer connections than
+  before; the run-side gate is unchanged.
+- **`connections`.** A listed name that is not an "allow" team connection the person can use (a connection that asks,
+  a personal one, a misspelling) is refused before the card and nothing is created: the AI is told the names a run can
+  send to and, when the task needs none of them, to tell the user that runs cannot send there. The tool description
+  says to list a connection only when runs must call its tools that change something there. A "send" is any tool not
+  marked read-only (the run-side gate), so a task that only searches a service whose search tool is not marked so must
+  list it too.
+- **Edit and "다시 확인".** An edit offers the connections the edited title or instruction names plus the ones the task
+  may already send to (a task the AI listed a connection for has it on offer again when only its time changes; plain
+  "바꾸기" drops the sends, as before). A task nobody confirmed
+  never had any allowed: its card offers only the names in its title or instruction. Both cards' `requestId` binds the
+  offered connections (id and version) instead of every "allow" one, so a change to an unrelated connection no longer
+  invalidates the card.
+- **Accepted.** A task that needs a service it does not name cannot send there in a run; the run's refusal now tells
+  the AI that the card offers only named connections and that the user can edit the task (or create it again) naming
+  it. A connection the task names only as a topic ("GitHub 소식 요약") is still offered; the person chooses on the card.
+  Tasks made before this keep their record (no migration): one that was allowed every "allow" connection on the old
+  card keeps those sends, and its edit card offers them again until the person saves with plain "바꾸기". Pruning them
+  would change what existing runs do, so it is left to the person.
+- **Not changed.** The card's wording, the address checks, `allowed_urls`, the unattended rules. No API, migration or
+  web change.
+- Tests: `tests/unit/schedule-connections.test.ts`.
+- Version impact: **patch** (fewer connections on a card; one optional tool input).
+## Menus stay inside the window (fix/menu-viewport-clip, 2026-11-09)
+
+A bug the owner saw in the English UI: a sidebar room row's "…" › Notification settings opened under the row with its
+right edge at the "…" and ran off the window's left edge, cutting the first words of each choice ("…ult (from
+settings)"). Placement: Team AX core (`web/src/components/rooms/MenuButton.tsx`); no contract, data or text change. Plan:
+`docs/AGENTS/plan/20261109-0720-menu-viewport-clip.md`.
+
+- **Why.** Since chore/web-tidy (#221) the shared menu is as wide as its longest item (`w-max`). Right-aligned to a
+  button about 270 px from the window's left, a 300 px English menu started at -30 px. It was also `absolute` inside
+  the sidebar's list, which scrolls, so the list cut whatever lay outside its box.
+- **On a computer the menu is fixed to the window and placed by measuring it** (`menuSpot`, in a layout effect, before
+  it is drawn): under the button with right edges in line, 4 px apart, as before; above it where it would run off the
+  bottom (the real height, not the old guess of 40 px an item); moved in to stay 8 px clear of each side, so the
+  sidebar's menu slides right over the main column's edge. Wider than the window less 16 px: capped, the words wrap.
+  Taller: capped, it scrolls. It is measured at 0,0 first, so a parent with a transform (which holds fixed boxes) does
+  not move it; it has no transition (with reduced motion index.css gives every property a 0.01 ms one, which held it
+  at 0,0 in a test and would spoil that measure). It follows the button on any scroll outside it and on resize, and
+  closes once the button is scrolled out of its list's sight (the list used to cut it off with the button). Not
+  followed: a layout shift without a scroll or resize (a banner appearing), rare while a menu is open.
+- **Kept:** the menu stays in the DOM where it was (clicks in it are not "outside", tests find it in its row or card);
+  phones (below 768 px) keep the bottom sheet; the anchor is the box the old `absolute` menu hung from (MenuButton's
+  wrapper: the button's own box, a row's full height, or the 0×0 point at a row's bottom right for the row's level menu,
+  which has no button of its own), so each menu opens where it did.
+- **Not changed:** menus with their own code and fixed widths (Files rows, admin rows, the account menu, the recents
+  filter, which was already fixed and kept inside).
+- Tests: `web/test/unit/menu-spot.test.ts` (the rule), e2e `room-leave-hide.spec.ts` (English, 1440 and 900 px: a
+  sidebar row's and the room header's notification menus inside the window, the longest item on one line, under the
+  row, its right end over the main column; 900 px with reduced motion; a short window opens a row's menu above it).
+- Version impact: **patch** (a fix; no API or data change).
+## 알림함의 앱 알림 — the app's own notices read like conversation rows (fix/inbox-notice-rows, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/components/settings/Notifications.tsx` (`NoticeRow`, `noticeText`, `noticeLink`),
+`server/src/notifications/service.ts` and `shared/src/api/notifications.ts`, 이유: the Inbox is core.
+
+The owner, on a screenshot of the Inbox: the scheduled task's row with its small "결과 열기" link looks bad. Beside the
+message rows ("알림함의 대화 알림") it was not clickable, its date sat on a line of its own, and it did not say which task.
+
+- **A row is a row.** The bell where a message row has the photo, the words, the time on the right in the 대화 list's
+  format (`listTime`). With a place to open (`link`, or the review notice's 예약 작업), the whole row is one link to it, with
+  the hover and focus ring of a message row, and opening it reads the notice; while unread a dot sits where a message row
+  has its count. The separate links under the words (결과 열기, 대화 열기, 대화방 열기, 확인하기, the page names) are gone; their
+  test ids are on the row. A notice with nowhere to go is not a link, has no hover and keeps **읽음 표시** (the only way to
+  read it). A job's log and the handover's lines and buttons stay under the link, not in it (no button inside a link; the
+  log is there to be selected). A dev job's project, which the old link named, is a quiet line under the words.
+- **Not kept: 읽음 표시 on a row that opens something.** It sat beside the time and would be a button inside the link;
+  the message rows have none either. Opening the row reads it.
+- **Which task.** `InboxNotification.schedule.title` for one task's run (a run, an admission skip, a run that needed my own
+  key), read from `schedules` when the notice is read, while the task is mine (`user_id`) and there; one plain line
+  (`plainLabel`). Not stored with the notice ("Inbox stores only generic event metadata", migration 207), so no
+  migration, and a deleted task, an older server and the review notice (several tasks) keep the generic line. Read now,
+  so a renamed task shows its new name on older notices too, and notices from before this change get it. A push's
+  text stays generic (`notifications/text.ts`: never a task name on a lock screen). Words: `"{title}" 예약 작업이
+  끝났어요` and the same for 마치지 못했어요, 일부 단계가 안 됐어요 and 내 키가 필요해요: the title comes first, so no 이(가)
+  after it; the title in `<bdi>` (`isolate`).
+- Tests: `web/test/unit/inbox-notice-rows.test.tsx` (the words with and without a title, where each row goes, the row as
+  one link with its time and dot that reads, no link with 읽음 표시, the log outside the link), `tests/unit/notifications.test.ts`
+  (the title for a run, a skip and a needed key; never another person's task; none once deleted), e2e
+  `inbox-rooms.spec.ts` (the run's row among message rows: its words, its time where theirs is, one link);
+  `web/test/unit/push-worker.test.ts` (a notice with a title still pushes the generic line). `schedule-notifications.spec.ts`
+  still covers a row with no link and its 읽음 표시.
+- Version impact: **patch** (additive API field; no data change).
+
+## CI unit tests in shards (ci/shard-unit-tests, 2026-11-09)
+
+- **Why:** of the ~35 minutes of the one CI job, ~30 were the unit tests (about 440 files, one after another). Every
+  PR waited for them.
+- **Decision:** the unit tests run as 5 jobs at once (`unit`, a matrix), beside `static` (typecheck, docs, native
+  build, go test, the pinned browser) and `other` (fast fuzz, web tests and build, relay). scripts/ci/unit-shard.ts
+  splits the files by their times in an earlier CI run (scripts/ci/unit-times.json): the longest first, each to the
+  shard with the least time so far, a new file counted as the median. Expected: about 6 minutes of tests per shard,
+  about 10 minutes per run.
+- **The required check stays:** the last job keeps the old name, "typecheck, native, unit, fast fuzz, web, relay",
+  which the default branch's ruleset requires and release.yml's test waits for; it passes only when every job passed.
+- **Cost:** public repository, standard runners: no charge. Each run now holds 8 jobs at a time (the organisation's
+  free plan allows about 20 at once); 5 shards, not more, for that.
+- **Caches** (actions/cache): pandoc's package by version, bun's package store by bun.lock, and the pinned rhwp CLI
+  by resources/hwp/manifest.json (prepare:hwp still checks its sha256). A cached run does not reach GitHub releases or
+  the npm registry for them (GitHub's anonymous downloads gave HTTP 504 on 2026-11-09); a miss downloads as before.
+- **Refresh the times** when the split drifts: `bun scripts/ci/unit-shard.ts --times <the unit step's log>`.
+
+## Pinned chats — 상단에 고정 in 트리나 기록 (feat/pin-chats, 2026-11-09, product owner)
+
+넣을 곳: trina-ax core (`server/src/chat/pins.ts`, `server/src/routes/chats.ts`, migration 277, `shared/src/api/chats.ts`,
+`web/src/components/Sidebar.tsx`, `web/src/pages/Projects.tsx`), 이유: chats and their list are core. Plan:
+`docs/AGENTS/plan/20261109-0825-pin-chats.md`.
+
+The owner: "trina history more 버튼에서 상단 고정 pin 기능 만들자." A chat row's "···" in the sidebar's 트리나 기록 has
+**상단에 고정** / **고정 해제**, and pinned chats stay at the top of the list.
+
+- **A pin is the person's own.** One row per person and chat, `chat_pins(user_id, chat_id, pinned_at)` (migration 277),
+  not a column on chats. A shared project chat someone else made can be pinned too, for the one who pinned it only:
+  `Chat.pinnedAt` is worked out per viewer (`ChatStore.toChat`'s `viewer`, from `chatView` and `publishChat`), so a
+  shared chat's `chat.updated` carries each person's own pin, and nobody else hears of a pin or an unpin.
+- **Who may pin.** Anyone who may view the chat (`chatFor` 'view', not in the trash; 404 otherwise, as every chat route;
+  also 404 for the server's own draft chats, which are in no list).
+  Pinning changes nothing about who sees it. Pinned again: kept as it was (its place does not move); unpinned when not
+  pinned: no change. At most 50 pins (409 `chat_pins_full`, "상단에 고정은 50개까지 할 수 있어요…"), so the first page
+  that carries them all stays bounded; pins of chats the person no longer sees do not count.
+- **What takes a pin away.** The trash: a delete drops everyone's pin of the chat (also a deleted project's shared chats
+  going to their creators' trash); restored, it comes back unpinned. A purge: the foreign key's cascade. A deleted
+  person: their pins go in the delete's transaction (the users row stays as a tombstone, so the cascade never runs). A
+  chat the person can no longer see (a shared chat whose project they lost, one that stopped being shared and is
+  someone else's now): not shown, and its pin is dropped when their chat list's first page is read (`dropUnseenPins`).
+  A pin is not dropped at the moment access goes; regaining access before the list is read keeps it.
+- **The order.** `GET /api/chats` without a search or the trash (my list, and a project's page with `projectId`): the
+  first page starts with my pinned chats of that list, the most recently pinned first, and every page leaves them out of
+  the rest, so paging still gives each chat once. A pinned shared chat shows in my list only when it would anyway (I
+  made it or wrote in it). A search and the trash keep their order and mark the pins. Older clients see the pinned
+  chats on the first page and sort them by date as before. ⌘K's 최근 reads the same first page: it now sorts by date
+  before it takes the newest eight, so old pins do not push the recent chats out.
+- **The sidebar (lean).** No header of their own: a 12 px pin before the title (named 고정됨 for screen readers, as the
+  shared chat's people icon is named) on pinned rows. On a computer the short list has at most ten pins, the most
+  recently pinned first, then the five latest of the others and the chat on screen; "모두 보기" and the phone's drawer
+  have every pin first, then the date groups (the filters apply to pins too; a pinned chat that does not pass them is not
+  shown). "답 필요 N" counts what neither part shows. The project page lists my pins there first with the same pin.
+  Not built: drag to reorder (no manual order), pinning from the chat's title menu or from the project page's rows.
+- **The row menu.** 상단에 고정 / 고정 해제 is the first item of every row's "···" (the shared row menu of #221/#241, so
+  right-click, long press and the phone's sheet work too), with the pin and pin-off icons. A shared chat I may neither
+  rename nor delete used to have no "···"; it now has one, with only the pin.
+- **Live.** A pin or unpin answers the chat and sends `chat.updated` ('updated') to the person's own windows only.
+- Tests: `tests/unit/b-chat-pins.test.ts` (pin, unpin, idempotent, my windows only; the order and its pages, a project's
+  page, a search, the trash; a shared chat's pin per viewer, also on a later turn's events; lost access hides and drops
+  it; delete, restore, purge, a deleted project, a deleted person; the cap), the security permission matrix (only the
+  chat's person), `web/test/unit/sidebar.test.tsx` (the menu items, the order and the cap, the drawer, pin and unpin from
+  the menu), `web/test/unit/search-room-messages.test.tsx` (⌘K's 최근 by date with nine pins), e2e `chat-pins.spec.ts`
+  (pin from the "···" moves the row to the top with the pin, after a reload too; unpin; a right-click; the phone's sheet;
+  a project's page), and the row-menu lists in `account-settings.spec.ts` and `project-list-menu.spec.ts`.
+- Version impact: **minor** (new endpoints, an additive field and an additive migration).
+
+## One image viewer — a picture opens over the whole window, like Slack (feat/image-viewer, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/components/ImageViewer.tsx`, `web/src/lib/imageViewer.ts`, `web/src/lib/zoom.ts` and the places
+that open a picture, 이유: rooms, chat and file previews are core. Plan: `docs/AGENTS/plan/20261109-0817-image-viewer.md`.
+
+The owner, on a screenshot: a picture clicked in a room opened in the right-hand panel, small, with no zoom; a screenshot
+of a web page could not be read. Pictures should open like Slack, across the app.
+
+- **The rule, app-wide: a picture opens the viewer; a name, chip or link opens the panel.** Pictures: a room or thread
+  photo's thumbnail, an AI chat attachment's, a team picture in an answer (AI chat, a room's AI answer, a shared answer,
+  and Markdown elsewhere: a `.md` file in the panel, an artifact, project instructions, skills), a picture in either
+  message box (the room's box now opens its pictures too, like the AI chat's), and the picture the file panel shows
+  (Files, FileView, links and sources keep opening the panel, with its actions; its picture opens the viewer alone). Not
+  pictures: file chips (an image without a thumbnail too), links, the deck stepper, the skill example's own dialog,
+  artifacts' frames (a frame cannot and should not open the page's viewer), external pictures (never loaded).
+- **No new address.** A room photo: its thumbnail, then `GET /api/rooms/:id/files/:fileId` inline (the member and
+  message check on every read), download `?download=1`. An attachment: its thumbnail, then the team file by its path
+  (`/api/files/download?disposition=inline`), a HEIC photo as `/api/files/preview`. An answer's team picture is the
+  original already. A box's picture and the panel's picture are drawn from the bytes the page has. A picture the panel
+  could not show either (a HEIC sent in a room, anything over the 20 MB image preview limit) keeps its thumbnail, with a
+  line saying so and the download.
+- **Loading and transparency.** The thumbnail is drawn at once at the original's stored size (when its shape matches,
+  else its own), under the original, which is decoded before it shows; then the thumbnail is removed. Nothing else is
+  painted behind the picture (fix/transparent-thumbnails): a transparent one sits on the dark backdrop, no checkerboard.
+  The backdrop is opaque; the page shows through only while a swipe down is closing it.
+- **Zoom, hand-written** (`lib/zoom.ts`, pure and unit-tested; Pointer Events and one CSS transform): fitted = the whole
+  picture in the stage at most 100 %, centred; a click toggles fitted and 100 % (2× the fitted size for a picture already
+  shown at 80 % or more) about the click; ⌘/Ctrl + wheel and Chromium's trackpad pinch (wheel + ctrlKey, a non-passive
+  listener so the page never zooms) and Safari's `gesture*` events zoom about the pointer; a drag (4 px with a mouse, 10
+  px with a finger) pans and is no click; + − 0 and the bar's − / % / + step by 1.5×, stopping at 100 % on the way (or
+  landing on it when a step would end within 5 % of it); 400 % at most; a right-click or a Mac's control-click is left
+  to the menu. Not chosen: a
+  library (react-zoom-pan-pinch, yet-another-react-lightbox, PhotoSwipe: MIT, roughly 10–25 kB gzipped each), which
+  brings its own DOM, styles and item model to bend to the app's bar, words, focus trap and the one-picture rule below.
+- **Next / previous: the pane that was clicked** (`ImageGroup`): the room's timeline (replies also sent to the room
+  included), the thread panel (its root and replies), the AI chat (this branch: attachments and answers' pictures), a
+  room's side chat with the AI (its own pane, like the AI chat), a message box's row. Each picture registers itself and the list is the pane's pictures in page order, which is message
+  order; only pictures drawn on the page are in it, so a file someone may not open (a lock), a withheld answer or an
+  unavailable attachment never is. It never crosses into another thread or loads older messages. A picture outside any
+  pane opens alone. The list follows the pane while open ("3 / 8" when a photo arrives).
+- **The bar**: the sender's picture (the AI's mark for an answer), the file's name, who and when (where known: not for a
+  picture not sent yet), "3 / 7", − % + (computers), download, the original in a new tab, ✕. Always shown on a computer;
+  on a phone it overlays the picture and a tap shows or hides it with the arrows. The new tab is for a plain browser only:
+  the desktop app and the phone app would open the system browser, which is not signed in. The download is the one the
+  panel uses (`startDownload`): in the phone app (iOS and Android) the page fetches the file with its own session and
+  hands the bytes to the app over the bridge, which opens the system share sheet (`downloadToApp`, up to 50 MB; a
+  larger one says so); a WebView swallows a plain link download, so that path is never used there.
+- **Phones**: pinch about the fingers, double tap to toggle, one finger pans when zoomed; when not zoomed a swipe down
+  (past a fifth of the height, or a flick) closes and a swipe sideways steps (added to the brief: the arrows hide with
+  the bar). `touch-action: none` on the stage.
+- **Back closes it.** Opening pushes one history entry at the same address with the router's state copied (React
+  Router's `idx`, `key`, `usr`), so the router, `lib/back.ts` and deep links see the page they saw; a `popstate` that
+  leaves the entry closes the viewer (the browser's Back, Android's back through the phone app's WebView, iOS's edge
+  swipe). ✕, Esc, the backdrop and a swipe call `history.back()` while that entry is the current one, so none is left
+  behind; stepping to another picture adds none. Closed and opened again before that back has landed, the new entry is
+  added once it lands (else its `popstate` would close the new viewer). A page change while it is open (a notice) closes
+  it without going back; Back from that page then lands on the viewer's entry, which goes on back (Forward onto it goes on
+  forward: React Router's `idx` against the page last shown says which way). The router re-renders on that `popstate`
+  with the same location key, so effects keyed on the pathname or the key do not run again. Left over: after a reload
+  with the viewer open, one Back lands on the same page again.
+- **The desktop app's 이미지 복사** (fix/image-copy-paste-preview) copies the picture under the pointer
+  (`copyImageAt`): the viewer is a portal on the team page's `<body>`, never a frame, the thumbnail takes no pointer and
+  is gone once the original is there, so the original is what is copied and what 이미지 저장… saves. A right-click is
+  left to the browser or the app (no zoom, no close). Each showing draws its pictures anew, so the same picture twice in
+  a pane (two answers showing one chart) loads each time. Nothing drawn (a HEIC in a box in Chrome): a click or a swipe
+  down still closes.
+- **Focus and screen readers**: `role="dialog"`, `aria-modal`, named "이미지 보기: {name}"; the app's `useFocusTrap`
+  (Tab stays inside, Esc closes); focus starts on the stage (the keys work at once, no button ring; Tab and Shift+Tab go
+  from there to the bar's first and last buttons) and goes back to the picture that opened it, found again by its key
+  when its message was drawn anew. While it is open the page's own shortcuts (⌘K search, ⌘⇧O new chat) wait. The name and "3 / 7" are announced
+  on a step. Reduced motion: the eases are CSS transitions, which index.css already turns off.
+- Tests: `web/test/unit/image-zoom.test.ts` (fit never upscales, the click target, zoom about a point, the pan's limits,
+  steps, wheel, pinch, swipes, the layout size before the original), `web/test/unit/image-viewer.test.ts` (page order,
+  pictures off the page, a group's notices, each kind's addresses, Back: one entry with the router's state, ✕ goes back,
+  Back closes, a page change does not go back, a step adds none, a reopen before the back lands, the left-behind entry
+  skipped both ways), e2e `image-viewer.spec.ts` (a room photo fitted with
+  its bar and download, no upscale, click zoom about its point, drag, ⌘/Ctrl + wheel, keys, ← → with focus back after
+  Esc, backdrop, ✕ and Back, the right-click on the original on the page itself, an AI chat attachment, both boxes'
+  pictures and the file panel's picture, a thread's own pane, a room AI answer's picture twice, a phone's swipe sideways
+  and down; screenshots), `room-files-open.spec.ts` (the photo
+  opens the viewer over the panel; the right-click there reaches the original).
+- Version impact: **minor** (a visible UX change; no API or data change).
+
+## 크게 보기 — the side panel can take the whole page (feat/panel-expand, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/lib/sidePanel.ts`, `web/src/components/Layout.tsx`, `SidePanelFrame.tsx` and the file and
+artifact panels' headers, 이유: the side panel is core. Step (a) of the plan
+`docs/AGENTS/plan/20261109-0939-room-file-viewer.md` (branch `plan/room-file-viewer`), its question 7 answered by the
+owner: not remembered.
+
+- **One toggle, left of ✕**, in the file panel's and the artifact panel's headers (also while an intro deck is built),
+  not on the Browser pane: ⤢ **크게 보기** / ⤡ **나란히 보기** (`Maximize2` / `Minimize2`, an `IconButton`, so its name
+  is its tooltip). Computers only (`max-md:hidden`): below 768 px the panel is a full-screen sheet already.
+- **Big:** `<main>` is hidden (`md:hidden`, still mounted: the chat, its draft and its scroll stay; Chromium and WebKit
+  keep a scroll box's position across `display: none`), the panel is `flex-1` beside the sidebar, without its own left
+  line (the sidebar's edge is the line) and without its divider. Beside a room's open thread it covers room and thread
+  alike. The skip link goes to the panel then. Side by side again, the divider mounts and fits the width it remembers
+  (`mycel.sidePanel.widthFraction`), so the panel comes back at the width it had.
+- **What runs behind it:** the two message boxes (`Composer`, `RoomComposer`) measure their height when their text or
+  hint changes; not drawn, they measured 0 and came back as a sliver (an answer that ended behind the panel changes the
+  hint). Now a box that measures 0 keeps its height and is measured again when the page shows. The thread's and side
+  chat's dividers fit a 0-wide row while hidden and fit again when it shows (they never store that).
+- **The place being read:** the file panel's viewers fit its width, so a PDF's pages grow when it goes big. The panel
+  keeps the scroll position as a share of the scroll height and brings it back for 0.8 s after a width change, while the
+  pages settle, until the person scrolls (also for the divider and a window resize). Before, a PDF read at page 4 showed
+  the end of page 3 once big.
+- **The header at its narrowest:** the new button takes 28 px; in a panel under 448 px (`@container`, the divider at its
+  least) "AI에게 묻기" shows as its icon (the name stays its accessible name and tooltip), so the file's name keeps room.
+- **How long:** `expanded` in `lib/sidePanel.ts`, beside the panel itself, never stored. Another file or an artifact
+  opened in the panel keeps it (a link in a Markdown file, the AI opening an artifact); closing the panel (✕, Esc, a
+  page that does not keep it) or the Browser pane taking it ends it, so the next panel opens side by side. Any move
+  (`location.key`: the sidebar's **Files**, a folder link, a link to the page already open) ends it too: a page the
+  person went to must show, and a page that keeps the panel (the Files screen) would otherwise stay hidden behind it.
+  The image viewer's history entry is not a move (it copies React Router's state).
+- **Actions:** download, edit and save, PDF로 저장, copy and the artifact's versions work in place. **Add to chat**,
+  **Ask AI** (`useTeamAttach`) and **Show in Files** first go back side by side: their result is in the page behind the
+  panel (a chip in the composer, the folder with the file selected), which a big panel would keep hidden.
+- **Esc order** (`escapeAction`, Layout's window handler): a dialog keeps its Esc; the phone drawer closes; a big panel
+  goes back side by side; then the panel closes. The Files screen's own Esc, which clears a selection before the panel
+  closes, waits while the panel is big (the list it would clear is hidden), so there it is: side by side, the
+  selection, the panel. On a phone width a leftover big state counts as not big (`panelExpandedNow`), so Esc closes.
+  The image viewer (#246) over a big panel is a dialog whose focus trap takes its Esc: the first Esc closes the viewer
+  (focus back on the panel's picture), the next one brings the panel side by side, the third closes it. The viewer's
+  history entry is at the same address, so opening or closing it does not end the big state.
+- **Not done:** no keyboard shortcut and no double-click on the header; the PDF keeps fitting the panel's width (as a
+  panel dragged wide does), with no reading-width cap. The PDF toolbar's "fit width" also draws `Maximize2`; left as
+  is (it sits in the toolbar under the header, with its own tooltip).
+- Tests: `web/test/unit/side-panel-expand.test.ts` (nothing open, kept for another file or an artifact, ended on close
+  and by the Browser pane, the Esc order), e2e `side-panel-expand.spec.ts` (from the AI chat: the chat hidden, the
+  panel as wide as the page area, no divider, Esc and the button back at the divider's width, Esc twice closes,
+  reopened side by side; add to chat; from Files: a link in a big Markdown file opens the PDF still big, editing works
+  there, Esc before the selection, Show in Files; an answer that ends behind a big panel leaves the message box whole;
+  the image viewer over a big panel and Esc's order; no button at 390 px).
+- Version impact: **minor** (a visible UX addition; no API or data change).
+
+## Pinned conversations — 상단에 고정 in 대화 (feat/pin-rooms, 2026-11-09, product owner)
+
+넣을 곳: trina-ax core (`server/src/rooms/service.ts`, `server/src/rooms/store.ts`, migration 278,
+`shared/src/api/rooms.ts`, `web/src/components/rooms/RoomMenu.tsx`, `SidebarRooms.tsx`, `web/src/pages/Rooms.tsx`), 이유:
+rooms and their lists are core. Plan: `docs/AGENTS/plan/20261109-0931-pin-rooms.md`.
+
+The owner, after "Pinned chats" above: the same for the team chat list. A room, DM or group chat in the sidebar's
+**대화** and on /rooms gets **상단에 고정** / **고정 해제**, and pinned conversations stay at the top. It follows the chat
+pins wherever a room allows it.
+
+- **A pin is the person's own.** One row per person and room, `room_pins(user_id, room_id, pinned_at)` (migration 278),
+  not a column on `room_members`, as `chat_pins` is its own table. `Room.pinnedAt` is worked out per member in
+  `roomOut`, so every `room.updated` a room's members get (a rename, a member change) carries each one's own pin, and
+  nobody else hears of a pin or an unpin. Not audited, as hiding is not.
+- **Who may pin.** A member of the room (`Rooms.mine`; 404 otherwise, the owner and admins included, as every room
+  route). Pinning changes nothing about who sees it. Pinned again: kept as it was (its place does not move); unpinned
+  when not pinned: no change and nothing sent. At most 50 pins, the same as chats (409 `room_pins_full`, "상단에 고정은
+  50개까지 할 수 있어요. 고정한 대화 하나를 해제한 뒤 다시 해 주세요."); only pins of rooms the person is still in count.
+- **Hidden rooms: hiding unpins.** Of the two choices (pinning shows a hidden room again, or hiding unpins it), hiding
+  unpins: a person who hides a conversation wants it out of the way, and it should not come back at the top when a
+  new message brings it back. So a room is never pinned and hidden at once: `setHidden` drops the pin in the same
+  transaction, a hidden room's "⋯" has no 상단에 고정 (다시 보이기 is there), and the server refuses to pin one (409
+  `room_hidden`, "숨긴 대화는 고정할 수 없어요. 다시 보이게 한 뒤 고정해 주세요."; only an older window or a script can
+  ask). The hide's toast 실행 취소 shows it again and pins it again when it was pinned (as the newest pin). A group chat
+  is never hidden (it is left).
+- **What takes a pin away.** Leaving or being taken out of a group chat, leaving a team room's group, a disabled or
+  deleted account leaving its rooms: all of them run `Rooms.forgetMember`, which now drops `room_pins` with the other
+  rows of the member. A room that goes: an archived room has no members left (the last one out, a deleted group's team
+  room), and the room's row going cascades. A deleted person: their DMs keep their member row (a DM keeps its two), so
+  `deleteUser` drops their pins in its transaction, as it drops their chat pins. In a room, seeing it is being a member,
+  so "can no longer see it" is one of the above. An older build (reader 1) keeps pins when someone hides or leaves a
+  room, so only a pin of the membership now shows or counts (`pinOf`): never one of a hidden room, nor one older than
+  the member's `joined_at`; hiding a room that is hidden already drops such a row, and pinning again replaces it.
+- **The order (the app's, not the server's).** `GET /api/rooms` stays by latest activity (it is not paged, so the pins
+  need no first page of their own, and older apps see the same list); `pinnedAt` rides along. The app's lists put my
+  pins first, the most recently pinned first, then the rest by activity (`lib/rooms.ts` `pinnedFirst`). The sidebar's
+  대화 (lean, as the chat pins): at most ten pins, then the five latest of the others, and the room on screen wherever it
+  is (`sidebarRows`); "더 보기 (N)" holds the rest and counts what is unread there as before. /rooms (모든 대화) and the
+  phone's 대화 tab (the same page): the 트리나 row stays the very first row (computers), then every pin, then the
+  others. Hidden rooms stay under "숨긴 대화" (never pinned). Other room lists (⌘K, the room picker, the AI's room
+  list) keep their order.
+- **The look.** No header: the chat pins' 12 px pin, named 고정됨 for screen readers, after the name (room rows start with
+  the room's picture, so a pin before the name would push the pinned names out of line with the others), beside the
+  muted bell; in the sidebar it gives way to the "⋯" on hover like the bell. Unread pills, the "?" and presence dots
+  are unchanged.
+- **The menu.** 상단에 고정 / 고정 해제 is the first item of the room's "⋯" (`RoomMenu`), as on the AI chats' rows, with the
+  pin and pin-off icons and the chat pins' words (`chat.pin`, `chat.unpin`, `chat.pinned`). It is the one menu of every
+  row (hover, keyboard, right-click, long press and the phone's sheet) and of the room's header, so the header has it
+  too (no change to `Room.tsx`).
+- **Live.** A pin or unpin answers the room and sends `room.updated` ('updated') to the person's own windows only; hiding
+  sends the one it sent before, now without the pin.
+- Tests: `tests/unit/b-rooms-pins.test.ts` (pin and unpin of every kind, idempotent, my windows only, each member's
+  copy with their own pin; the order of pins; members only; leaving, removal, a group change and a disabled account
+  take it; a deleted group's room, the last one out and the row's cascade; a deleted person; hiding unpins, a hidden
+  room is refused and a new message brings it back unpinned; the cap and pins that do not count; pins an older build
+  left), the security
+  permission matrix (`pinRoom` / `unpinRoom`: the DM's two people only), `web/test/unit/room-pins.test.tsx` (the order
+  and the caps, the rows and their pin on the sidebar and the conversations page, the menu's pin and unpin, the hide's
+  undo, a refused hide, another window's event), `web/test/unit/room-hide.test.tsx` (the menu by kind), e2e `room-pins.spec.ts` (the
+  sidebar's "⋯", a right-click, after a reload, unpin, hide and undo; the conversations page's order; the phone's long
+  press) and the menu lists in `room-leave-hide.spec.ts`.
+- **Independent review (2026-11-09) fixes.** The endpoints' summaries named the menu in Korean (the language test; dev
+  had fixed the chat pins' the same way); a refused hide left a pinned room unpinned on screen (the store puts the pin
+  back); pins an older build leaves behind never show or count (above); the same-instant order test now sets the last
+  pin ahead of the clock.
+- Version impact: **minor** (new endpoints, an additive field and an additive migration).
 ## Project skills — a fourth level only a project's chats use (feat/project-skills, 2026-11-09, product owner)
 
 - **Why:** a team asked the AI, in a project chat, to move a lead group's quoting skills into the project. Skills had

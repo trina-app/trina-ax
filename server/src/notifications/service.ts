@@ -20,7 +20,7 @@ import { ROOM_ALERTS_CHANGED } from '../rooms/alerts'
 import { roomNoticeOut, roomRowOf, roomRowOut, roomRows, type RoomRow } from '../rooms/inbox'
 import { getUser } from '../auth/users'
 import { teamDefaultLocale } from '../admin/settings'
-import { GOAL_PEOPLE } from '@mycel/shared/api'
+import { GOAL_PEOPLE, plainLabel } from '@mycel/shared/api'
 import { handoverNoticeOut, isHandoverEvent, type HandoverEvent } from '../admin/handover-notices'
 
 /** At most this many template notices per 30-second backstop pass (security review 2, #1). */
@@ -481,19 +481,24 @@ export class Notifications {
     // a scheduled run that did not start for want of the owner's own key for a template: which one (by the name it had
     // then), and Settings › MCP to connect it
     if (row.event_type === 'schedule.failure') {
-      const skip = this.ctx.db.query('SELECT template_id, template_name FROM schedule_template_skips WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { template_id: string; template_name: string } | null
-      if (skip) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'integrations', outcome: 'failed', needsKey: { templateId: skip.template_id, name: skip.template_name } }
+      const skip = this.ctx.db.query('SELECT template_id, template_name, schedule_id FROM schedule_template_skips WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { template_id: string; template_name: string; schedule_id: string } | null
+      if (skip) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'integrations', outcome: 'failed', needsKey: { templateId: skip.template_id, name: skip.template_name },
+        ...this.scheduleOf(row.user_id, skip.schedule_id) }
       // a run whose project its owner no longer sees: says so, no link (the project is not theirs to open now)
-      if (this.ctx.db.query('SELECT 1 FROM schedule_project_skips WHERE id=? AND user_id=?').get(row.source_id, row.user_id)) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: 'failed', projectGone: true }
+      const gone = this.ctx.db.query('SELECT schedule_id FROM schedule_project_skips WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { schedule_id: string } | null
+      if (gone) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: 'failed', projectGone: true, ...this.scheduleOf(row.user_id, gone.schedule_id) }
     }
     if (row.event_type === 'schedule.failure' && row.source_id.startsWith(REVIEW_SOURCE)) {
       // paused tasks to check again: the schedules list, never a chat
       return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: null, review: true }
     }
+    let schedule: Pick<InboxNotification, 'schedule'> = {}
     if (row.event_type !== 'connection.reconnect') {
       // Metadata only: the stored result code, never the turn's error text. No turn = an admission skip (failed).
-      const run = this.ctx.db.query('SELECT status,run_outcome FROM turns WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { status: string; run_outcome: string | null } | null
+      const run = this.ctx.db.query('SELECT status,run_outcome,schedule_id FROM turns WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { status: string; run_outcome: string | null; schedule_id: string | null } | null
       outcome = run ? storedRunOutcome(run) : 'failed'
+      const skipped = run ? null : this.ctx.db.query('SELECT schedule_id FROM schedule_outcomes WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { schedule_id: string } | null
+      schedule = this.scheduleOf(row.user_id, run?.schedule_id ?? skipped?.schedule_id)
       const chat = this.ctx.db.query(`SELECT c.id,c.project_id,t.template_source_path FROM turns t JOIN chats c ON c.id=t.chat_id
         WHERE t.id=? AND t.user_id=? AND c.user_id=? AND c.deleted_at IS NULL`).get(row.source_id, row.user_id, row.user_id) as { id: string; project_id: string | null; template_source_path: string | null } | null
       if (chat) {
@@ -523,7 +528,16 @@ export class Notifications {
       }
     }
     return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at,
-      chatId, link: chatId ? 'chat' : row.event_type === 'connection.reconnect' ? 'connections' : null, outcome }
+      chatId, link: chatId ? 'chat' : row.event_type === 'connection.reconnect' ? 'connections' : null, outcome, ...schedule }
+  }
+  /** A scheduled run's task by its title, while the task is the person's and there (a deleted one: nothing, and the
+   * Inbox says "a scheduled task"). The person's own words, read now and never stored with the notice; a push never
+   * carries it (the lock screen's text is generic, text.ts). */
+  private scheduleOf(userId: string, scheduleId: string | null | undefined): Pick<InboxNotification, 'schedule'> {
+    if (!scheduleId) return {}
+    const s = this.ctx.db.query('SELECT title FROM schedules WHERE id=? AND user_id=?').get(scheduleId, userId) as { title: string } | null
+    const title = s ? plainLabel(s.title) : ''
+    return title ? { schedule: { title } } : {}
   }
   list(userId: string, o: { cursor?: string; limit?: number }) {
     const cur = decodeCursor(o.cursor, ['t', 'id'])

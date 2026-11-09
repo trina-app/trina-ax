@@ -34,12 +34,14 @@ import { previewKind, serverPreview } from '../../lib/preview'
 import { useVoiceInput } from '../../lib/useVoiceInput'
 import { micState, voiceBlockedHere } from '../../lib/voice'
 import { useConfidentialChat } from '../../lib/confidential'
-import { openFilePreview, openTeamFile } from '../../lib/sidePanel'
+import { openFilePreview, openTeamFile, usePanelExpanded } from '../../lib/sidePanel'
 import { loadChips, patchStash, readStash, registerComposer, saveChips, subscribeStash, TEAM_FILE_DRAG_TYPE, writeStash, type AttachResult } from '../../lib/teamAttach'
-import { cancelUpload, uploadFile, type UploadProgress } from '../../lib/upload'
+import { cancelUpload, uploadFile, uploadPercent, type UploadProgress } from '../../lib/upload'
 import { pastedFiles } from '../../lib/paste'
 import { UploadLabel } from '../UploadLabel'
-import { ChipThumb, isLocalImage } from '../ChipThumb'
+import { isLocalImage, PictureTile } from '../ChipThumb'
+import { ImageGroup } from '../ImageViewer'
+import { attachmentItem, localItem } from '../../lib/imageViewer'
 import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { useLocale, useT } from '../../i18n'
 import { useMe } from '../../store/session'
@@ -243,15 +245,18 @@ export default function Composer({
   const hint = transcribing ? voice.transcribingText : answering ? t('composer.answerPlaceholder') : running && queueing ? t(choiceWaiting ? 'outbox.placeholderChoice' : 'outbox.placeholder') : (placeholder ?? t('composer.placeholder'))
   // the box grows with its text, and also with a long placeholder (an empty box measures its placeholder), so a hint
   // that needs 2 lines on a phone is not cut in half when it changes while the text stays the same; and again when the
-  // person's text size changes (Settings > Profile, over this page)
+  // person's text size changes (Settings > Profile, over this page). Behind a big side panel (lib/sidePanel.ts) the box
+  // is not drawn and measures 0: it keeps its height, and is measured again when the page shows
   const textSize = useTextSize()
+  const behindPanel = usePanelExpanded()
   useEffect(() => {
     const ta = taRef.current
     if (!ta) return
+    const was = ta.style.height
     ta.style.height = 'auto'
-    ta.style.height = Math.min(ta.scrollHeight, 240) + 'px'
+    ta.style.height = ta.scrollHeight ? Math.min(ta.scrollHeight, 240) + 'px' : was
     // (and again when the box comes back after a recording: the bar stood in its place)
-  }, [text, hint, textSize, voice.recording])
+  }, [text, hint, textSize, voice.recording, behindPanel])
 
   useEffect(() => {
     if (autoFocus && window.matchMedia?.('(pointer: fine)').matches && !document.querySelector('[role="dialog"]')) taRef.current?.focus()
@@ -606,74 +611,105 @@ export default function Composer({
         data-testid="composer"
       >
         {files.length > 0 && (
-          <ul className="flex flex-wrap gap-2 px-4 pt-3" aria-label={t('composer.attachments')}>
-            {files.map((f) => (
-              <li
-                key={f.id}
-                className={clsx('inline-flex max-w-full items-center gap-2 rounded-xl border py-1.5 pr-2 pl-2.5 text-xs', f.status === 'failed' ? 'border-danger/40 bg-danger-soft' : f.source === 'team' ? 'border-accent/30 bg-accent-soft' : 'border-line bg-subtle')}
-                title={f.source === 'team' ? t('composer.teamFile', { path: f.attachment?.path ?? f.path ?? '' }) : undefined}
-                data-testid="attachment-chip"
-                data-source={f.source}
-                data-status={f.status}
-              >
-                {f.source === 'team' ? (
-                  <FolderOpen size={15} className="text-accent-text" aria-label={t('composer.teamFile', { path: f.attachment?.path ?? f.path ?? '' })} />
-                ) : f.file && isLocalImage(f.file) ? (
-                  // a picture shows at once, while it uploads (a pasted screenshot too)
-                  <ChipThumb file={f.file} fallback={<FileText size={15} className="text-muted" aria-hidden />} />
-                ) : (f.file?.type ?? f.attachment?.mime ?? '').startsWith('audio/') ? (
-                  <FileAudio size={15} className="text-accent-text" aria-hidden />
-                ) : (
-                  <FileText size={15} className="text-muted" aria-hidden />
-                )}
-                <span className="flex min-w-0 flex-col">
-                  {previewKind(f.name) && (f.source === 'upload' || f.status === 'done') ? (
-                    <button
-                      type="button"
-                      className="max-w-[180px] truncate text-left font-medium hover:underline"
-                      onClick={() => (f.source === 'team' || !f.file || (serverPreview(f.name) && f.attachment?.path) ? openTeamFile(f.attachment?.path ?? f.path!) : openFilePreview({ source: 'local', name: f.name, blob: f.file }))}
-                    >
-                      {f.name}
-                    </button>
+          // centred on the row: a file's compact chip beside a picture's 64 px square keeps its own height
+          // the box's pictures: ← → in the image viewer walks through these
+          <ImageGroup>
+          <ul className="flex flex-wrap items-center gap-2 px-4 pt-3" aria-label={t('composer.attachments')}>
+            {files.map((f) => {
+              const canOpen = !!previewKind(f.name) && (f.source === 'upload' || f.status === 'done')
+              const open = () => (f.source === 'team' || !f.file || (serverPreview(f.name) && f.attachment?.path) ? openTeamFile(f.attachment?.path ?? f.path!) : openFilePreview({ source: 'local', name: f.name, blob: f.file }))
+              // a picture from this computer shows as itself at once, while it uploads (a pasted screenshot too); its
+              // words for screen readers, a failure's reason beside it. Both regions stay through the whole upload.
+              if (f.source === 'upload' && f.file && isLocalImage(f.file))
+                return (
+                  <li key={f.id} className="flex max-w-full items-center gap-2 pt-1.5 pr-1.5 text-xs" data-testid="attachment-chip" data-source={f.source} data-status={f.status}>
+                    <PictureTile
+                      name={f.name}
+                      file={f.file}
+                      busy={f.status === 'uploading'}
+                      percent={f.status === 'uploading' ? uploadPercent(f.progress) : null}
+                      failed={f.status === 'failed'}
+                      removeLabel={t('composer.removeAttachment', { name: f.name })}
+                      onRemove={() => removeFile(f)}
+                      // its own bytes in the image viewer; a HEIC photo, once uploaded, as the server's JPEG
+                      item={!canOpen ? null : serverPreview(f.name) && f.attachment ? attachmentItem(f.attachment) : localItem(f.id, f.file, f.name)}
+                    />
+                    <span className="sr-only" role="status">
+                      {f.status === 'uploading' && t('composer.attaching', { name: f.name })}
+                      {f.status === 'done' && `${t('composer.attached', { name: f.name })} ${f.size !== null ? formatSize(f.size, locale) : ''}`}
+                    </span>
+                    <span className={f.status === 'failed' ? 'max-w-[160px] truncate text-danger' : 'sr-only'} role="alert" title={f.error}>
+                      {f.status === 'failed' && (
+                        <>
+                          <span className="sr-only">{f.name}: </span>
+                          {f.error}
+                        </>
+                      )}
+                    </span>
+                  </li>
+                )
+              return (
+                <li
+                  key={f.id}
+                  className={clsx('inline-flex max-w-full items-center gap-2 rounded-xl border py-1.5 pr-2 pl-2.5 text-xs', f.status === 'failed' ? 'border-danger/40 bg-danger-soft' : f.source === 'team' ? 'border-accent/30 bg-accent-soft' : 'border-line bg-subtle')}
+                  title={f.source === 'team' ? t('composer.teamFile', { path: f.attachment?.path ?? f.path ?? '' }) : undefined}
+                  data-testid="attachment-chip"
+                  data-source={f.source}
+                  data-status={f.status}
+                >
+                  {f.source === 'team' ? (
+                    <FolderOpen size={15} className="text-accent-text" aria-label={t('composer.teamFile', { path: f.attachment?.path ?? f.path ?? '' })} />
+                  ) : (f.file?.type ?? f.attachment?.mime ?? '').startsWith('audio/') ? (
+                    <FileAudio size={15} className="text-accent-text" aria-hidden />
                   ) : (
-                    <span className="max-w-[180px] truncate font-medium">{f.name}</span>
+                    <FileText size={15} className="text-muted" aria-hidden />
                   )}
-                  {/* the team folder it is in, visible without hovering (phones) */}
-                  {f.source === 'team' && <span className="max-w-[180px] truncate text-micro leading-tight text-faint" data-testid="chip-folder">{folderOf(f.attachment?.path ?? f.path ?? '') || t('files.root')}</span>}
-                </span>
-                {/* both stay through the whole upload, so a screen reader hears each change */}
-                <span className="flex items-center">
-                  <span className="flex items-center gap-1 text-faint" role="status">
-                    {f.status === 'uploading' && (
-                      <>
-                        <Loader2 size={12} className="animate-spin" aria-hidden />
-                        {f.source === 'upload' ? <UploadLabel progress={f.progress} busy={t('composer.attaching', { name: f.name })} /> : <span className="sr-only">{t('composer.attaching', { name: f.name })}</span>}
-                      </>
+                  <span className="flex min-w-0 flex-col">
+                    {canOpen ? (
+                      <button type="button" className="max-w-[180px] truncate text-left font-medium hover:underline" onClick={open}>
+                        {f.name}
+                      </button>
+                    ) : (
+                      <span className="max-w-[180px] truncate font-medium">{f.name}</span>
                     )}
-                    {f.status === 'done' && (
-                      <>
-                        <span className="sr-only">{t('composer.attached', { name: f.name })} </span>
-                        {f.size !== null && formatSize(f.size, locale)}
-                      </>
-                    )}
+                    {/* the team folder it is in, visible without hovering (phones) */}
+                    {f.source === 'team' && <span className="max-w-[180px] truncate text-micro leading-tight text-faint" data-testid="chip-folder">{folderOf(f.attachment?.path ?? f.path ?? '') || t('files.root')}</span>}
                   </span>
-                  <span className="max-w-[160px] truncate text-danger" role="alert" title={f.error}>
-                    {f.status === 'failed' && (
-                      <>
-                        <span className="sr-only">{f.name}: </span>
-                        {f.error}
-                      </>
-                    )}
+                  {/* both stay through the whole upload, so a screen reader hears each change */}
+                  <span className="flex items-center">
+                    <span className="flex items-center gap-1 text-faint" role="status">
+                      {f.status === 'uploading' && (
+                        <>
+                          <Loader2 size={12} className="animate-spin" aria-hidden />
+                          {f.source === 'upload' ? <UploadLabel progress={f.progress} busy={t('composer.attaching', { name: f.name })} /> : <span className="sr-only">{t('composer.attaching', { name: f.name })}</span>}
+                        </>
+                      )}
+                      {f.status === 'done' && (
+                        <>
+                          <span className="sr-only">{t('composer.attached', { name: f.name })} </span>
+                          {f.size !== null && formatSize(f.size, locale)}
+                        </>
+                      )}
+                    </span>
+                    <span className="max-w-[160px] truncate text-danger" role="alert" title={f.error}>
+                      {f.status === 'failed' && (
+                        <>
+                          <span className="sr-only">{f.name}: </span>
+                          {f.error}
+                        </>
+                      )}
+                    </span>
                   </span>
-                </span>
-                <Tooltip label={t('composer.removeAttachment', { name: f.name })}>
-                  <button type="button" aria-label={t('composer.removeAttachment', { name: f.name })} title="" onClick={() => removeFile(f)} className="-my-1 -mr-1 rounded-md p-1 text-faint hover:bg-hover hover:text-ink max-sm:p-1.5">
-                    <X size={14} />
-                  </button>
-                </Tooltip>
-              </li>
-            ))}
+                  <Tooltip label={t('composer.removeAttachment', { name: f.name })}>
+                    <button type="button" aria-label={t('composer.removeAttachment', { name: f.name })} title="" onClick={() => removeFile(f)} className="-my-1 -mr-1 rounded-md p-1 text-faint hover:bg-hover hover:text-ink max-sm:p-1.5">
+                      <X size={14} />
+                    </button>
+                  </Tooltip>
+                </li>
+              )
+            })}
           </ul>
+          </ImageGroup>
         )}
 
         {voice.recording ? (

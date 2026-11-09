@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import clsx from 'clsx'
 import { Bell } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import type { InboxNotification, NotificationPreferences } from '@mycel/shared/api'
+import type { InboxNotification, Locale, NotificationPreferences } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
-import { formatDateTime } from '../../lib/format'
+import { listTime } from '../../lib/format'
 import { firstRunText } from '../../lib/teamGoal'
 import { useLocale, useT } from '../../i18n'
 import { accessChanged, notificationsChanged, reloadAsked } from '../../store/live'
@@ -18,6 +19,7 @@ import { RoomNotifySettings } from './RoomNotifySettings'
 import { isRoomRow, roomNoticeLink, RoomNoticeRow } from './RoomNoticeRow'
 import { useRooms } from '../../store/rooms'
 import { HandoverNoticeExtras, handoverNoticeNode } from '../handover/HandoverNotice'
+import { isolate } from '../handover/isolate'
 
 /** 작업·연결 알림: the server's switches for what is not a conversation (the rooms' are in RoomNotifySettings) */
 const workKeys = ['scheduleSuccess', 'scheduleFailure', 'connectionReconnect', 'skillSuggestions'] as const
@@ -63,6 +65,99 @@ const devEnvText = (item: InboxNotification, t: ReturnType<typeof useT>) => {
   if (d?.stopCode === 'disk') return t('notifications.event.dev_env.boxDisk', { project: d.projectName })
   if (d?.stopCode === 'busy_max') return t('notifications.event.dev_env.boxBusy', { project: d.projectName })
   return t(`notifications.event.${item.code as 'dev_env.job' | 'dev_env.box'}`)
+}
+
+type T = ReturnType<typeof useT>
+
+/** The words of a notice of the app's own. A scheduled run names its task while the task is there (the person's own
+ * words, in <bdi>); without it, "a scheduled task" as before. */
+export function noticeText(item: InboxNotification, t: T, locale: Locale): ReactNode {
+  if (item.handover) return handoverNoticeNode(locale, item.handover)
+  if (item.code === 'credential.change' && item.credentialChange) return credentialChangeText(item.credentialChange, t)
+  if (item.code === 'room.dm' || item.code === 'room.mention') return roomText(item, t)
+  if (item.code === 'dev_env.job' || item.code === 'dev_env.box') return devEnvText(item, t)
+  if (item.code === 'onboarding.ai_request' && item.requester) return t('notifications.event.onboarding.ai_requestNamed', { name: item.requester.name })
+  if (item.code === 'skills.merge_waiting' && item.merges) return t('notifications.event.skills.merge_waitingN', { n: item.merges.n })
+  if (item.code === 'skill.suggested' && item.contribution) return item.contribution.name ? t('notifications.event.skill.contributed', { name: item.contribution.name, n: item.contribution.n }) : t('notifications.event.skill.contributedGone', { n: item.contribution.n })
+  if (item.code === 'team.joined') return item.joined ? t('teamLink.joinedNotice', { name: item.joined.name }) : t('teamLink.joinedNoticeGone')
+  if (item.code === 'onboarding.first_run') return firstRunText(t, locale, item)
+  if (item.code === 'account.deletion_request') return deletionNoticeText(t, item)
+  if (item.code === 'integration.request' && item.request) return t('notifications.event.integration.requestNamed', { name: item.request.name, host: item.request.host })
+  if (item.code === 'drive.share_reconnect' && item.driveShare) return t('notifications.event.drive.share_reconnectNamed', { name: item.driveShare.name })
+  if (item.template) return t(item.code === 'integration.template_reconnect' ? 'notifications.event.integration.template_reconnectNamed' : 'notifications.event.integration.templateNamed', { name: item.template.name })
+  const title = item.schedule?.title
+  if (item.code === 'schedule.failure' && item.needsKey) return title
+    ? isolate(locale, 'notifications.event.schedule.needsKeyNamed', { title, name: item.needsKey.name }, ['title', 'name'])
+    : t('notifications.event.schedule.needsKey', { name: item.needsKey.name })
+  // a run that did not start because its owner no longer sees the task's project
+  if (item.code === 'schedule.failure' && item.projectGone) return title
+    ? isolate(locale, 'notifications.event.schedule.projectGoneNamed', { title }, ['title'])
+    : t('notifications.event.schedule.projectGone')
+  if (item.code === 'schedule.failure' && item.review) return t('notifications.event.schedule.review')
+  if (item.code === 'schedule.success' || item.code === 'schedule.failure') {
+    const kind = item.code === 'schedule.success' ? 'success' : item.outcome === 'problems' ? 'problems' : 'failure'
+    return title ? isolate(locale, `notifications.event.schedule.${kind}Named`, { title }, ['title']) : t(`notifications.event.schedule.${kind}`)
+  }
+  return t(`notifications.event.${item.code}`)
+}
+
+/** Where a notice of the app's own opens, with its link's test id: the result chat of a scheduled run, the page of the
+ * rest. Null: nowhere (a source I may no longer read, a notice that only tells), and its row is no link. */
+export function noticeLink(item: InboxNotification): { to: string; testId: string } | null {
+  if (item.link === 'chat' && item.chatId) return { to: `/c/${encodeURIComponent(item.chatId)}`, testId: 'notification-chat-link' }
+  if (item.link === 'room' && item.room) return { to: roomNoticeLink(item.room), testId: 'notification-room-link' }
+  if (item.link === 'project' && item.devEnv) return { to: `/projects/${encodeURIComponent(item.devEnv.projectId)}`, testId: 'notification-project-link' }
+  if (item.review) return { to: '/scheduled', testId: 'notification-review-link' }
+  if (item.link === 'connections') return { to: '/settings/connectors?drive=1', testId: 'notification-connections-link' }
+  if (item.link === 'integrations') return { to: integrationsLink(item), testId: item.template || item.needsKey ? 'notification-template-link' : 'notification-request-link' }
+  if (item.link === 'admin_connectors') return { to: '/admin/connectors?drive=1', testId: 'notification-drive-share-link' }
+  if (item.link === 'admin_credentials') return { to: '/admin/providers', testId: item.code === 'credential.change' ? 'notification-credential-link' : 'notification-ai-request-link' }
+  if (item.code === 'team.joined') return { to: '/admin/members', testId: 'notification-joined-link' }
+  if (item.link === 'admin_members') return { to: `/admin/members?member=${encodeURIComponent(item.sourceId)}`, testId: 'notification-deletion-link' }
+  if (item.link === 'skills') return { to: skillsLink(item), testId: 'notification-skills-link' }
+  return null
+}
+
+/** A notice of the app's own, read like a conversation row (RoomNoticeRow): a quiet bell where a conversation row has
+ * the writer's photo, so the text of every row starts at one edge; the words; the time on the right, as the 대화 list
+ * shows it. With a place to open, the whole row is that link and opening it reads the notice (while unread, a dot where
+ * a conversation row has its count). With none, the row is still, no hover, and keeps its 읽음 표시. A job's log and the
+ * handover's buttons sit under the link, not in it (the log is there to be selected). */
+function NoticeRow({ item, onRead, onChanged }: { item: InboxNotification; onRead: () => void; onChanged: () => void }) {
+  const t = useT(), locale = useLocale()
+  const unread = !item.readAt
+  const link = noticeLink(item)
+  const d = item.devEnv
+  // the project a link used to name, when the words do not (a stopped box's do)
+  const project = item.link === 'project' && d?.projectName && !(item.code === 'dev_env.box' && (d.stopCode === 'disk' || d.stopCode === 'busy_max')) ? d.projectName : null
+  // under the words: the handover's lines and buttons, a job's log (never inside a link)
+  const below = item.handover || d?.job?.tail ? <>
+    {item.handover && <HandoverNoticeExtras item={item} onRead={onRead} onChanged={onChanged} />}
+    {d?.job?.tail && <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-faint" data-testid="notification-job-tail">{d.job.tail}</pre>}
+  </> : null
+  const row = (inside: ReactNode) => <>
+    <span aria-hidden className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-hover text-muted"><Bell size={16} /></span>
+    <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 items-baseline gap-2">
+        <div className={clsx('min-w-0 flex-1 text-sm', unread ? 'font-medium text-ink' : 'text-muted')} data-testid="notification-text">{noticeText(item, t, locale)}</div>
+        {/* the time where a conversation row has it; under it, while unread, the dot (a link reads the notice) or 읽음 표시 */}
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <time dateTime={item.createdAt} className="text-xs text-faint">{listTime(item.createdAt, locale, t('sidebar.yesterday'))}</time>
+          {unread && (link
+            ? <span className="size-2 rounded-full bg-accent" data-testid="notification-unread"><span className="sr-only">{t('notifications.unreadMark')}</span></span>
+            : <Button size="sm" onClick={onRead}>{t('notifications.markRead')}</Button>)}
+        </div>
+      </div>
+      {project && <p className="mt-0.5 truncate text-xs text-muted" data-testid="notification-project"><bdi>{project}</bdi></p>}
+      {d?.job?.exitCode === null && d.job.note && <p className="mt-1 text-xs text-muted" data-testid="notification-job-note">{d.job.note}</p>}
+      {inside}
+    </div>
+  </>
+  if (!link) return <li className="flex items-start gap-3 py-3" data-testid="notification-item" data-unread={unread ? '' : undefined}>{row(below)}</li>
+  return <li data-testid="notification-item">
+    <Link to={link.to} onClick={onRead} className="-mx-2 flex min-w-0 items-start gap-3 rounded-lg px-2 py-3 hover:bg-hover" data-testid={link.testId} data-unread={unread ? '' : undefined}>{row(null)}</Link>
+    {below && <div className="-mt-2 min-w-0 pb-3 pl-12">{below}</div>}
+  </li>
 }
 
 export function Notifications() {
@@ -152,28 +247,9 @@ export function Notifications() {
     {items && <div data-testid="notifications-inbox">
       <h3 className="mb-3 text-base font-semibold">{t('inbox.title')} <span className="font-normal text-muted">· {t('notifications.unread', { count: unread })}</span></h3>
       {!items.length && <p className="text-sm text-muted">{t('notifications.empty')}</p>}
-      <ul className="divide-y divide-line">{items.map(item => isRoomRow(item) ? <li key={item.id} data-testid="notification-item"><RoomNoticeRow item={item} onOpen={() => void read(item)} /></li> : <li key={item.id} className="flex items-start gap-3 py-3" data-testid="notification-item">
-        {/* the app's own notices: a quiet bell where a conversation row has the writer's photo, so the text of every row
-            starts at one edge */}
-        <span aria-hidden className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-hover text-muted"><Bell size={16} /></span>
-        <div className="min-w-0 flex-1"><p className={`text-sm ${item.readAt ? 'text-muted' : 'font-medium'}`}>{item.handover ? handoverNoticeNode(locale, item.handover) : item.code === 'credential.change' && item.credentialChange ? credentialChangeText(item.credentialChange, t) : item.code === 'room.dm' || item.code === 'room.mention' ? roomText(item, t) : item.code === 'dev_env.job' || item.code === 'dev_env.box' ? devEnvText(item, t) : item.code === 'onboarding.ai_request' && item.requester ? t('notifications.event.onboarding.ai_requestNamed', { name: item.requester.name }) : item.code === 'skills.merge_waiting' && item.merges ? t('notifications.event.skills.merge_waitingN', { n: item.merges.n }) : item.code === 'skill.suggested' && item.contribution ? (item.contribution.name ? t('notifications.event.skill.contributed', { name: item.contribution.name, n: item.contribution.n }) : t('notifications.event.skill.contributedGone', { n: item.contribution.n })) : item.code === 'team.joined' ? (item.joined ? t('teamLink.joinedNotice', { name: item.joined.name }) : t('teamLink.joinedNoticeGone')) : item.code === 'onboarding.first_run' ? firstRunText(t, locale, item) : item.code === 'account.deletion_request' ? deletionNoticeText(t, item) : item.code === 'integration.request' && item.request ? t('notifications.event.integration.requestNamed', { name: item.request.name, host: item.request.host }) : item.code === 'drive.share_reconnect' && item.driveShare ? t('notifications.event.drive.share_reconnectNamed', { name: item.driveShare.name }) : item.template ? t(item.code === 'integration.template_reconnect' ? 'notifications.event.integration.template_reconnectNamed' : 'notifications.event.integration.templateNamed', { name: item.template.name }) : item.code === 'schedule.failure' && item.needsKey ? t('notifications.event.schedule.needsKey', { name: item.needsKey.name }) : item.code === 'schedule.failure' && item.projectGone ? t('notifications.event.schedule.projectGone') : t(item.code === 'schedule.failure' && item.review ? 'notifications.event.schedule.review' : item.code === 'schedule.failure' && item.outcome === 'problems' ? 'notifications.event.schedule.problems' : `notifications.event.${item.code}`)}</p><p className="mt-1 text-xs text-faint">{formatDateTime(item.createdAt, locale)}</p>
-          {item.handover && <HandoverNoticeExtras item={item} onRead={() => void read(item)} onChanged={() => void load()} />}
-          {item.devEnv?.job?.exitCode === null && item.devEnv.job.note && <p className="mt-1 text-xs text-muted" data-testid="notification-job-note">{item.devEnv.job.note}</p>}
-          {item.devEnv?.job?.tail && <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-faint" data-testid="notification-job-tail">{item.devEnv.job.tail}</pre>}
-          {item.link === 'chat' && item.chatId && <Link className="text-sm text-accent-text hover:underline" to={`/c/${encodeURIComponent(item.chatId)}`} onClick={() => void read(item)}>{t(item.code === 'dev_env.job' || item.code === 'skills.merge_waiting' ? 'notifications.openChat' : 'scheduled.openResult')}</Link>}
-          {item.link === 'room' && item.room && <Link className="text-sm text-accent-text hover:underline" to={roomNoticeLink(item.room)} onClick={() => void read(item)} data-testid="notification-room-link">{t('notifications.openRoom')}</Link>}
-          {item.link === 'project' && item.devEnv && <Link className="text-sm text-accent-text hover:underline" to={`/projects/${encodeURIComponent(item.devEnv.projectId)}`} onClick={() => void read(item)}>{item.devEnv.projectName}</Link>}
-          {item.review && <Link className="text-sm text-accent-text hover:underline" to="/scheduled" onClick={() => void read(item)} data-testid="notification-review-link">{t('settings.schedules')}</Link>}
-          {item.link === 'connections' && <Link className="text-sm text-accent-text hover:underline" to="/settings/connectors?drive=1" onClick={() => void read(item)}>{t('drive.title')}</Link>}
-          {item.link === 'integrations' && <Link className="text-sm text-accent-text hover:underline" to={integrationsLink(item)} onClick={() => void read(item)} data-testid={item.template || item.needsKey ? 'notification-template-link' : 'notification-request-link'}>{item.template || item.needsKey ? t('integrations.template.connectOwn') : t('integrations.title')}</Link>}
-          {item.link === 'admin_connectors' && <Link className="text-sm text-accent-text hover:underline" to="/admin/connectors?drive=1" onClick={() => void read(item)} data-testid="notification-drive-share-link">{t('drive.title')}</Link>}
-          {item.link === 'admin_credentials' && <Link className="text-sm text-accent-text hover:underline" to="/admin/providers" onClick={() => void read(item)} data-testid={item.code === 'credential.change' ? 'notification-credential-link' : 'notification-ai-request-link'}>{t(item.code === 'credential.change' ? 'admin.providers' : 'aiAccess.connectTeam')}</Link>}
-          {item.code === 'team.joined' && <Link className="text-sm text-accent-text hover:underline" to="/admin/members" onClick={() => void read(item)} data-testid="notification-joined-link">{t('admin.members')}</Link>}
-          {item.link === 'admin_members' && <Link className="text-sm text-accent-text hover:underline" to={`/admin/members?member=${encodeURIComponent(item.sourceId)}`} onClick={() => void read(item)} data-testid="notification-deletion-link">{t('admin.members')}</Link>}
-          {item.link === 'skills' && <Link className="text-sm text-accent-text hover:underline" to={skillsLink(item)} onClick={() => void read(item)} data-testid="notification-skills-link">{item.contribution ? t('notifications.check') : t('skills.title')}</Link>}
-        </div>
-        {!item.readAt && <Button size="sm" onClick={() => void read(item)}>{t('notifications.markRead')}</Button>}
-      </li>)}</ul>
+      <ul className="divide-y divide-line">{items.map(item => isRoomRow(item)
+        ? <li key={item.id} data-testid="notification-item"><RoomNoticeRow item={item} onOpen={() => void read(item)} /></li>
+        : <NoticeRow key={item.id} item={item} onRead={() => void read(item)} onChanged={() => void load()} />)}</ul>
       {cursor && <Button onClick={() => void load(cursor)}>{t('common.loadMore')}</Button>}
     </div>}
     {preferences && <RoomNotifySettings prefs={preferences} onChange={(patch) => void update(patch)} />}

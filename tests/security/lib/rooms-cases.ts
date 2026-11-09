@@ -137,6 +137,22 @@ export const ROOM_SPECS: Record<string, Spec> = {
       if (still.json?.hidden !== undefined) throw new Error('the DM is left hidden for the caller')
     },
   },
+  // pinning a conversation to the top of my own list (docs/DECISIONS.md "Pinned conversations"): the DM's two people,
+  // each for themselves. The check takes the pin off again (the world stays as it was), and the other person's view is
+  // untouched
+  pinRoom: {
+    build: (c, w) => c.post(`/api/rooms/${w.ids.dmRoom}/pin`), scope: 'room-dm',
+    check: async (r, w, who) => {
+      if (r.status !== 200) return
+      const me = w.as[who]
+      if (r.json?.id !== w.ids.dmRoom || typeof r.json?.pinnedAt !== 'string') throw new Error(`the DM was not pinned for the caller: ${r.text.slice(0, 200)}`)
+      const peer = await w.as[who === 'memberIn' ? 'other' : 'memberIn'].get(`/api/rooms/${w.ids.dmRoom}`)
+      if (peer.status !== 200 || peer.json?.pinnedAt !== undefined) throw new Error(`pinning changed the other person's view: ${peer.status} ${peer.text.slice(0, 200)}`)
+      const back = await me.req('DELETE', `/api/rooms/${w.ids.dmRoom}/pin`)
+      if (back.status !== 200 || back.json?.pinnedAt !== undefined) throw new Error(`the DM was not unpinned: ${back.status} ${back.text.slice(0, 200)}`)
+    },
+  },
+  unpinRoom: { build: (c, w) => c.del(`/api/rooms/${w.ids.dmRoom}/pin`), scope: 'room-dm' },
   uploadRoomFile: { build: (c, w) => c.req('POST', `/api/rooms/${w.ids.dmRoom}/files`, undefined, { form: form(), headers: { [CSRF_HEADER]: '1' } }), scope: 'room-dm' },
   // the AI in rooms: the DM's count and my own runs (both people), alice's preview and her question's turn (alice only;
   // erin, in the DM, is refused like everyone else), the sources of a message (both)

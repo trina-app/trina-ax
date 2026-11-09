@@ -225,6 +225,13 @@ export function totalUnread(rooms: (Pick<Room, 'unreadCount' | 'muted'> & Partia
 export const shownInLists = <R extends Pick<Room, 'id'> & Partial<Pick<Room, 'hidden'>>>(rooms: R[], openId: string | null = null): R[] =>
   rooms.filter((r) => !r.hidden || r.id === openId)
 
+type Pinnable = Pick<Room, 'id'> & Partial<Pick<Room, 'pinnedAt'>>
+/** My pinned rooms (docs/DECISIONS.md "Pinned conversations"), the most recently pinned first. */
+export const pinnedRooms = <R extends Pinnable>(rooms: R[]): R[] => rooms.filter((r) => r.pinnedAt).sort((a, b) => b.pinnedAt!.localeCompare(a.pinnedAt!) || b.id.localeCompare(a.id))
+/** A list as the 대화 lists show it: my pinned rooms first (the most recently pinned first), then the others in the
+ * order they came (by latest activity). */
+export const pinnedFirst = <R extends Pinnable>(rooms: R[]): R[] => [...pinnedRooms(rooms), ...rooms.filter((r) => !r.pinnedAt)]
+
 /** A room's one badge: "?" while its AI waits on me (docs/DECISIONS.md "Session markers"), else "@" when one of the
  * unread messages (or followed replies) mentions me (the count would read as a count of mentions), else the count. */
 export const roomBadge = (r: Pick<Room, 'unreadCount' | 'mentioned'> & Partial<Pick<Room, 'threadsUnread' | 'aiWaits'>>) => (r.aiWaits ? '?' : r.mentioned ? '@' : badgeText(roomUnread(r)))
@@ -239,9 +246,19 @@ export function roomWantsMe(r: Pick<Room, 'kind' | 'unreadCount' | 'mentioned' |
   // a room I hid wants nothing of me: whatever is for me brings it back first (the server decides it)
   if (r.hidden) return false
   if (r.aiWaits) return true
-  const level = r.notify?.level ?? (r.muted ? 'off' : r.kind === 'team' || r.kind === 'all' ? 'mentions' : 'all')
+  const level = levelOf(r)
   if (level === 'off' || roomUnread(r) <= 0) return false
   return r.mentioned || (threadReplies && (r.threadsUnread ?? 0) > 0) || (level === 'all' && r.unreadCount > 0)
+}
+/** My level for the room (Room.notify.level); an older server without levels: muted is 끄기, DMs and group chats are 모든
+ * 메시지, team rooms and the everyone room mentions. */
+const levelOf = (r: Pick<Room, 'kind' | 'muted'> & Partial<Pick<Room, 'notify'>>) =>
+  r.notify?.level ?? (r.muted ? 'off' : r.kind === 'team' || r.kind === 'all' ? 'mentions' : 'all')
+
+/** The room has unread messages (or followed replies) and I neither hid it nor turned it off (끄기: its own level, or my
+ * default "nothing"): the Mac Dock's dot while nothing wants me (docs/DECISIONS.md "The Dock's dot for unread rooms"). */
+export function roomLightsDot(r: Pick<Room, 'kind' | 'unreadCount' | 'muted'> & Partial<Pick<Room, 'threadsUnread' | 'notify' | 'hidden'>>): boolean {
+  return !r.hidden && levelOf(r) !== 'off' && roomUnread(r) > 0
 }
 
 /** Who put a reaction there, for its tooltip: the names given ("가나, 다라"), then how many more ("외 3명"). */

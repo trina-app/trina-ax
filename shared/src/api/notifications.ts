@@ -62,6 +62,11 @@ export const InboxNotification = z.object({
   createdAt: z.string(), readAt: z.string().nullable(), chatId: z.string().nullable(), link: z.enum(['chat', 'connections', 'skills', 'project', 'integrations', 'admin_credentials', 'room', 'admin_members', 'admin_connectors']).nullable(),
   /** scheduled runs only: succeeded / finished with problems / failed (the inbox text follows it; older servers omit it) */
   outcome: ScheduleRunOutcome.nullable().optional(),
+  /** 'schedule.success' and 'schedule.failure' for one task's run (not `review`), while the task is the person's and
+   * there: its title, one plain line (plainLabel), so the Inbox says which task it was. Read when the notice is read,
+   * never stored with it, and never in a push (the lock screen stays generic, server/src/notifications/text.ts). A
+   * deleted task and older servers omit it: the app then says "a scheduled task". */
+  schedule: z.object({ title: z.string() }).optional(),
   /** 'integration.request' only, while the request is there: the service's name and the host of its address (where the
    * member's key or sign-in would go); older servers omit it */
   request: z.object({ name: z.string(), host: z.string() }).optional(),

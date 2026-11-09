@@ -17,7 +17,8 @@ function worker(database = new IDBFactory(), pages: Page[] = [{}], nav?: BadgeNa
   const requests: { path: string; options: RequestInit }[] = [], navigated: string[] = [], asked: unknown[] = [], closed = { n: 0 }
   let settings = { configured: true, enabled: true, subscriptionId: 'subscription-1', messages: pushMessages('en') }
   let preferences = { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true }
-  let item: any = { id: 'event-1', code: 'schedule.success', readAt: null }
+  // the signed-in notice names the task for the Inbox (schedule.title); the lock screen never shows it
+  let item: any = { id: 'event-1', code: 'schedule.success', readAt: null, schedule: { title: 'PRIVATE TASK TITLE' } }
   let status = 200, gate: Promise<void> | null = null
   const self = {
     location: { origin: 'https://team.example' },
