@@ -17322,3 +17322,55 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
   `integrations.spec.ts` "your own app"; `safe-ops-policy-epoch.test.ts` and every `c-integration*`, `c-drive*`,
   `c-slack*` test file pass.
 - Version impact: **minor** (optional API fields, one add-only migration).
+
+## The room file viewer on phones — the file's thread and Trina in a sheet over it (feat/room-viewer-phones, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/components/ImageViewer.tsx`, `web/src/components/rooms/ViewerColumn.tsx`,
+`web/src/lib/imageViewer.ts` (with small props on `ThreadPanel` and `SideChatPanel`, and the PDF rail in
+`ViewerDocument.tsx` / `viewers/PdfView.tsx`), 이유: rooms and file previews are core. Step (e) of the plan
+`docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room's right column" (#263) and "Lazy PDF pages" (#262).
+
+- **The column is a sheet on a phone (< 768 px, the phone app):** 💬 in the bar opens the file's thread in it, with the
+  reply count beside the icon when there are replies ("스레드 보기, 답글 3"); ✦ opens my Trina side chat in it with the
+  file quoted, and no longer closes the viewer for the room page's side chat (step c's way, `askTrinaInRoom`, stays the
+  side panel's). The sheet is `ViewerColumn` with `sheet`: the same `ThreadPanel` and `SideChatPanel` as on computers and
+  on the room page, not a copy, one thing at a time, "스레드로 돌아가기" at the side chat's top. Their new `closeX` prop
+  shows the ✕ at every width instead of a phone's ‹, which in a sheet over the file would read as "back a page".
+- **Size:** 70 % of the part of the screen above the keyboard (`--app-h`, lib/viewport.ts; the WebView and Chromium
+  shrink it themselves with `interactive-widget=resizes-content`), so the file shows above it. The handle drags it to
+  the whole height (under the status bar, `--safe-top`) or down to close (`sheetSnap`: a flick goes its way, a slow drag
+  settles at the nearer height and closes once well below 70 %); a tap or Enter on the handle switches the two heights.
+  With the keyboard up (`.keyboard-open`) it takes the whole height above the keyboard, so the thread stays readable
+  over the reply box. The reply box keeps its own bottom inset (`--safe-bottom`, 0 with the keyboard up).
+- **Back order:** the sheet adds a history entry of its own on top of the viewer's, a copy of it marked as the sheet's,
+  so React Router and `lib/back.ts` still see the room page. Back (the browser's, Android's through the phone app's
+  WebView, iOS's edge swipe) closes the sheet, the next one the viewer, the next leaves the page; Forward onto the sheet's
+  entry opens it again. ✕, a drag down, a tap on the dimmed file and Esc close the sheet by going back off its entry.
+  Closing the viewer with the sheet open goes back off both entries one at a time, each once the last has landed (two
+  backs queued at once could land as one or three); a viewer opened meanwhile adds its entry after the last back. A page
+  change while both are open (a link in the sheet) leaves both behind: Back or Forward onto them goes on past both the
+  same way (the way is kept between the two, as the router shows the page under them in between).
+- **Under the sheet** the stage, the bar and the edge arrows are inert and dimmed; the focus goes into the sheet and
+  back to the button that opened it. A picture or file tapped in the sheet's thread opens whole (the sheet gives way).
+  Picture gestures (pinch, double tap, swipes) and document stepping (a swipe where nothing scrolls sideways, ‹ › in
+  the bar) are unchanged. The stage isolates what is in it: a PDF's sticky toolbar painted over the sheet and its dim.
+- **The phone's bar** leaves out the sender's picture for a room's file or photo (the line under the name says who) and
+  its buttons are 40 px wide with a 44 px target (`touch-hit`), so the name keeps about 65 px beside ‹ 3 / 7 ›,
+  download, ✦, 💬 and ✕.
+- **Computers, the PDF rail goes by the stage:** the thumbnails show where the stage left of the right column is at
+  least 1,024 px (`pdfRailFits`: the 128 px rail and an 896 px document, what a 1,024 px window gave it in step d), not
+  from a 1,024 px window: beside the column they show from 1,424 px, and at 1,280 px the document takes the 880 px. The
+  viewer measures the stage already (its ResizeObserver) and passes the width down; `PdfView` no longer reads the window.
+  Without the column nothing changes.
+- **Computers, two icons:** 패널에서 열기 shows ⤡ (`Minimize2`, the side panel's own "나란히 보기" after 크게 보기)
+  instead of a panel icon, which looked like the column's toggle beside it. No new button.
+- Text in all five languages: 스레드 보기 (with the reply count), and the handle's 위로 펼치기 / 아래로 줄이기.
+- Tests: `web/test/unit/image-viewer.test.ts` (the sheet's entry: Back closes the sheet, then the viewer; Forward opens
+  it again; its ✕ backs off one entry; the viewer closed with it open backs off both, one at a time, never three; a
+  picture from the sheet's thread; left-behind entries skipped both ways; `sheetSnap`; `pdfRailFits`); e2e
+  `room-file-viewer.spec.ts` at 390 px with CDP touch (💬 with the count opens the thread sheet at 70 %, a reply from it
+  is in the room's thread, the keyboard up, the handle up, down and closed, a tap beside it, Back twice; ✦ opens Trina
+  in the sheet with the file quoted, 스레드로 돌아가기, ✕, Back twice from a thread page; a swipe still steps, a photo's
+  💬; the two icons at 1440; screenshots), `pdf-lazy-pages.spec.ts` (no rail at 1,280 px beside the column, back with the
+  column hidden, there at 1,600 px; a screenshot at 1,280).
+- Version impact: **minor** (a visible UX change; no API or data change).

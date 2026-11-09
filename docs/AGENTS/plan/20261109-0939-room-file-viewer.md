@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-09 09:39
 - Branch: `plan/room-file-viewer` (the work: one `feat/room-file-viewer-*` branch per PR below)
-- Status: in progress (a #249, b0 #259, f #254, b #261, d #262 on dev; c0 and c #263; e to come; #247 is on dev now)
+- Status: in progress (a #249, b0 #259, f #254, b #261, d #262, c0 and c #263 on dev; e #266 in review; #247 is on dev)
 - Where: trina-ax core (`web/src/`; if question 2 is a yes, one optional field on the chat send body in `shared/` and
   `server/src/chat/`). Why: rooms, chat and file previews are core (see docs/REPOSITORY-RULES.md)
 - Version impact: minor. A visible UX change; no migration, no new endpoint.
@@ -304,3 +304,29 @@ https://github.com/trina-app/trina-ax/pull/263. What differs from the plan or wa
   top. A phone's ✦ closes the viewer first and waits for its Back to land (`closeImageViewer`'s `then`) before the room
   page opens its side chat, or a thread's own close could be undone by that Back.
 - **Phones:** ✦ stays and goes through `askTrinaInRoom` (the room page's side chat); the sheet is step e.
+
+### Step e: phones (`feat/room-viewer-phones`, #266)
+
+Built on step c (docs/DECISIONS.md "The room file viewer on phones"); PR https://github.com/trina-app/trina-ax/pull/266.
+What differs from the plan or was found:
+- **A sheet, not a full-height column:** 💬 in the bar (with the reply count when there are replies) opens the file's
+  thread, ✦ the Trina side chat with the file quoted, in a sheet over the viewer about 70 % of the screen high. It is
+  `ViewerColumn` itself (`sheet`), so ThreadPanel and SideChatPanel are the same ones, with ✕ in place of a phone's ‹
+  (`closeX`). The handle drags it to the whole height (under the status bar) or down to close; a tap or Enter on it
+  switches the two heights; a tap on the dimmed file closes it. With the keyboard up it takes the whole height above it
+  (`--app-h`, `.keyboard-open`). One thing at a time as in step c: no 스레드 · 트리나 switch, "스레드로 돌아가기" in it.
+- **Back:** the sheet has a history entry of its own on top of the viewer's (a copy of it, so the router sees the same
+  page). Back closes the sheet, then the viewer; Forward onto it opens it again; closing the viewer with the sheet open
+  goes back off both, one at a time; a page change that left both entries behind is skipped past both, either way.
+- **✦ stays in the viewer:** it no longer closes the viewer for the room page's side chat (`askTrinaInRoom` is the side
+  panel's only now).
+- **The bar on a phone** leaves out the sender's picture for a room's file (the line under the name says who), and its
+  buttons are 40 px wide with a 44 px target, so the name keeps about 65 px beside ‹ 3 / 7 ›, download, ✦, 💬 and ✕.
+- **Picture mode** keeps its gestures; under the sheet the stage and the bar are inert. A picture or file tapped in the
+  sheet's thread is shown whole: the sheet gives way.
+- **Found on the way:** a PDF's sticky toolbar painted over the sheet and its dim (its own z-index): the stage isolates
+  what is in it.
+- **Computers:** the PDF rail goes by the stage left of the column, not the window (`pdfRailFits`: 1,024 px, so the
+  document never narrows under 896 px for it); beside the column it shows from a 1,424 px window, and at 1,280 px the
+  document takes the 880 px instead. 패널에서 열기 shows ⤡ (the side panel's own "나란히 보기") instead of a second
+  panel icon beside the column's toggle.
