@@ -259,6 +259,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         const p = (args as { path?: unknown } | null)?.path
         try { if (typeof p === 'string') files.namePaths.add(authorize(exec.rt.files.fx, exec.rt.files.rules(), exec.livePrincipal(), p, 'read').rel) } catch { /* the call already failed for it */ }
       }
+      // what the call read (search passages, make_file's sources) counts now, as the file tools' reads do (afterFileTool):
+      // a file of the person's own folder may carry outside content (turn.ts noteOwnReads) before the next card or memory
+      exec.noteReads()
       exec.afterTool()
       // a new file left loose at the top of shared/, a group's folder or the team root: the server's note (chat/file-placement.ts)
       const note = exec.placementNote(tools.has('move_files'))

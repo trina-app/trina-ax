@@ -84,11 +84,12 @@ import { shareMergeOf, shareMergeSystemPrompt, type ShareMergeScope } from '../s
 import { backdateChat, DEMO_REPLAY_TOOL, demoReplayFor, runReplay } from '../demo/replay'
 import { getUser } from '../auth/users'
 import { findRoomFile, localTime } from '../rooms/reader'
-import { PATH_ARGS, ROOM_FILE_TOOLS, ROOM_READ_ONLY_TOOLS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
+import { OWN_CHAT_TEAM_TOOLS, PATH_ARGS, ROOM_FILE_TOOLS, ROOM_READ_ONLY_TOOLS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
 import { auditOnceUse, createGrant, everyoneWrites, folderAudience, folderId, grantFor, grantsOn, readersOf, ruledBetween, within } from '../rooms/ai-grants'
 import { wouldSeeFrom } from '../rooms/history'
 import { isOwnerOrAdmin, roomRow } from '../rooms/store'
 import { ext } from '../files/extract'
+import { CONTENT_KINDS, fileTimeline } from '../files/timeline'
 import type { RoomTurnContext } from './runtime'
 import { audienceOf, isSharedRow, messageFor, stashWrittenBy } from './shared'
 import { answerRecord, setAnswerReads, setLeftOut, withheldFrom, type ReadGroup } from './shared-answers'
@@ -136,6 +137,8 @@ const ENGINE_TEXT_STEP_KIND = (tool: string): Step['kind'] =>
 
 /** Tools whose calls get no step under the answer (their tool_end then finds no step and changes nothing). */
 const HIDDEN_STEP_TOOLS = new Set(['set_title'])
+/** Tools that patch their own step exactly once per call (chat/room-tools.ts label): a cover's step words go with it. */
+const SELF_LABELLED_TOOLS = new Set(['save_room_file'])
 
 export class TurnExec {
   content = ''
@@ -550,6 +553,8 @@ export class TurnExec {
     // project instructions go into the prompt: their folder joins the read scope (tab 7)
     if (project && project.instructions.trim()) addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), project.folderPath)])
     if (hasAttachments(userMsg)) this.taint() // attached files are outside content too (tab 3 "remember 보호")
+    // what the chat has seen so far goes on this turn before it writes anything (turns.outside_content)
+    this.syncOutsideMark()
     // nor attachments (the send refuses them in a draft chat; an older message that has some is sent without them)
     const atts = this.restricted ? [] : await this.attachmentsForTurn(userMsg)
     if (this.stopReason) return
@@ -1369,14 +1374,91 @@ export class TurnExec {
     this.rt.db.query('UPDATE chats SET session_tainted = 0, room_outside = 0 WHERE id = ?').run(this.spec.chatId)
     clearScope(this.rt.db, this.spec.chatId)
   }
-  taint() { this.rt.db.query('UPDATE chats SET session_tainted = 1 WHERE id = ?').run(this.spec.chatId) }
+  taint() { this.rt.db.query('UPDATE chats SET session_tainted = 1 WHERE id = ?').run(this.spec.chatId); this.syncOutsideMark() }
   get tainted(): boolean {
     return !!(this.rt.db.query('SELECT session_tainted FROM chats WHERE id = ?').get(this.spec.chatId) as { session_tainted: number } | null)?.session_tainted
   }
   /** A team chat room's content entered this chat (a room tool was called, chat/room-tools.ts): kept on the chat for
    * good (chats.rooms_seen: no new session, edited first message or restart clears it), and the session is tainted.
-   * From then on every change waits for the person's yes on a card (confirmRoomChange). */
-  markRoomsSeen() { this.rt.db.query('UPDATE chats SET rooms_seen = 1, session_tainted = 1 WHERE id = ?').run(this.spec.chatId) }
+   * From then on changes wait for the person's yes on a card (confirmRoomChange). */
+  markRoomsSeen() { this.rt.db.query('UPDATE chats SET rooms_seen = 1, session_tainted = 1 WHERE id = ?').run(this.spec.chatId); this.syncOutsideMark() }
+  /** Something from outside the team's own words came in (chats.room_outside): a room session's question that used it
+   * posts nothing on its own and skips no card; the person's own chat skips no room card from then on, until a new
+   * session (its session carries earlier answers; docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기"). */
+  markOutside() {
+    this.rt.db.query('UPDATE chats SET room_outside = 1 WHERE id = ? AND room_outside = 0').run(this.spec.chatId)
+    this.syncOutsideMark()
+  }
+
+  /**
+   * What this turn's chat has seen, kept on the turn (turns.outside_content, migration 281): 2 a room's messages (its
+   * own chat after a room read, a room's session) or something from outside the team (chats.room_outside), 1 content
+   * someone else wrote (chats.session_tainted), else 0. Only ever raised. Kept in step at the start, on every mark and
+   * after every tool call, before anything the turn writes next: a file of the person's own folder this turn wrote
+   * carries it when a later chat reads it (fileOutsideLevel).
+   */
+  syncOutsideMark() {
+    try {
+      const c = this.rt.db.query('SELECT session_tainted t, rooms_seen r, room_outside o FROM chats WHERE id = ?').get(this.spec.chatId) as { t: number; r: number; o: number } | null
+      // a chat row that is gone: unknown, as outside
+      const level = !c || this.room || c.r || c.o ? 2 : c.t ? 1 : 0
+      if (level > this.outsideMark) {
+        this.rt.db.query('UPDATE turns SET outside_content = MAX(outside_content, ?) WHERE id = ?').run(level, this.id)
+        this.outsideMark = level
+      }
+    } catch (e) { this.rt.log.warn('turn outside mark failed', { err: e, turn: this.id }) }
+  }
+  private outsideMark = 0
+
+  /**
+   * Files of the person's own folder whose content went to the model (TurnFiles.readPaths, noteReads): reading the own
+   * folder is no outside content in itself, but a file whose newest content an AI turn wrote carries what that turn's
+   * chat had seen (fileOutsideLevel): 1 taints this chat (remember asks), 2 also marks it as having used something from
+   * outside (markOutside: no room card is skipped). Web text, a room's words or a connection's answer saved into the
+   * person's folder do not come back in as the person's own (docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기").
+   */
+  private noteOwnReads(paths: Iterable<string>) {
+    const mine = `users/${this.spec.userId}/`
+    let level = 0
+    for (const p of paths) {
+      if (!p.startsWith(mine)) continue
+      level = Math.max(level, this.fileOutsideLevel(p))
+      if (level >= 2) break
+    }
+    if (level >= 1 && !this.tainted) this.taint()
+    if (level >= 2) this.markOutside()
+  }
+
+  /** The turns of this chat on the branch this answer continues, and this turn (in the person's own chat): their files
+   * hold nothing the chat's own marks do not already say (its session carries them). */
+  private branchTurns(): Set<string> {
+    if (this.branchTurnIds) return this.branchTurnIds
+    const ids = new Set<string>([this.id])
+    if (!this.room) {
+      try { for (const m of this.rt.store.pathTo(this.spec.userMessageId)) if (m.role === 'assistant' && m.turn_id) ids.add(m.turn_id) } catch { /* none: only this turn */ }
+    }
+    this.branchTurnIds = ids
+    return ids
+  }
+  private branchTurnIds: Set<string> | null = null
+
+  /** How much outside content the newest content of `rel` (a file as the file layer names it) carries: the mark of the
+   * AI turn that wrote it (turns.outside_content; a turn row that is gone counts as 2), and for a copy also its source's
+   * (`depth` copies back, then 2). A person's own save, or a file with no known history, carries none. */
+  private fileOutsideLevel(rel: string, depth = 0): number {
+    if (depth > 4) return 2
+    try {
+      const [e] = fileTimeline(this.rt.db, rel, { limit: 1000, stop: (x) => CONTENT_KINDS.has(x.kind) }).filter((x) => CONTENT_KINDS.has(x.kind))
+      if (!e?.turnId) return 0
+      let level = 0
+      if (!this.branchTurns().has(e.turnId)) {
+        const t = this.rt.db.query('SELECT outside_content AS o FROM turns WHERE id = ?').get(e.turnId) as { o: number } | null
+        level = t ? t.o : 2
+      }
+      if (level < 2 && e.kind === 'copied' && e.from) level = Math.max(level, this.fileOutsideLevel(e.from, depth + 1))
+      return level
+    } catch { return 2 }
+  }
   get roomsSeen(): boolean {
     return !!(this.rt.db.query('SELECT rooms_seen FROM chats WHERE id = ?').get(this.spec.chatId) as { rooms_seen: number } | null)?.rooms_seen
   }
@@ -1401,8 +1483,10 @@ export class TurnExec {
    * tell about them with the person's access (below); a listing records its own (files/service.ts list).
    */
   noteRoomTool(tool: string, input?: unknown) {
-    if (!this.room) return
-    if (!ROOM_FILE_TOOLS.has(tool)) { this.rt.db.query('UPDATE chats SET room_outside = 1 WHERE id = ? AND room_outside = 0').run(this.spec.chatId); return }
+    // the person's own chat: a tool outside the team's own words marks it for the rest of its session (rooms/ai-tools.ts
+    // OWN_CHAT_TEAM_TOOLS); then no room card is skipped there
+    if (!this.room) { if (!OWN_CHAT_TEAM_TOOLS.has(tool)) this.markOutside(); return }
+    if (!ROOM_FILE_TOOLS.has(tool)) { this.markOutside(); return }
     const a = input && typeof input === 'object' ? input as Record<string, unknown> : {}
     const rules = this.rt.files.rules()
     let me: Principal | null = null
@@ -1507,6 +1591,8 @@ export class TurnExec {
    * connections and later tools included) waits for the person who asked to allow it on a server card, whatever
    * the room's messages said: one of them may be another member telling the AI to write, move or send something. The
    * same call allowed once in this answer goes on without a second card. Returns the refusal for the AI, or null.
+   * The person's own chat after a room read (chats.rooms_seen) the same, for the tools outside
+   * ROOMS_SEEN_READ_ONLY_TOOLS.
    *
    * New team files (docs/DECISIONS.md "대화방에서 새 파일은 미리 허용"): a call that only makes new files, or changes a file
    * this same answer made (roomGrantTarget), in a folder every member of the room may write, goes on without a card
@@ -1518,6 +1604,13 @@ export class TurnExec {
    * needs the wider-audience card too, that card alone is asked (with what the call writes, no "always"), and its yes
    * is this call's room yes (one card per call). `main`: the main AI's own call (its step line says what let it
    * through). `noCover`: asked again at write time (recheckRoomCover): no cover, no widening.
+   *
+   * The person's own chat (docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기"): a new file in their own folder, or one this
+   * answer made, needs no card (ownFolderTarget: nobody else reads it; never skills, instruction files, .attachments or
+   * a file that was there before the answer). A new team file is covered as in a room, for the rooms its read scope holds
+   * (every member of each may write the folder): [이번만 허용] for the rest of the answer, and in a ✦ side chat that read
+   * its own room only, that room's grant ([이 방에서는 항상 허용], sideGrantRoom). Nothing is covered once the chat used
+   * something from outside the team (chats.room_outside, kept until a new session: noteRoomTool, noteOwnReads).
    */
   async confirmRoomChange(tool: string, input: unknown, o: { widen?: WidenOf; main?: boolean; noCover?: boolean } = {}): Promise<string | null> {
     // a room's session: always; the person's own chat: once a room's messages came into it (chats.rooms_seen), for
@@ -1535,21 +1628,31 @@ export class TurnExec {
     try { args = JSON.stringify(input ?? null) } catch { args = String(input) }
     const key = `${tool}\u0000${args}`
     if (this.roomAllowed.has(key)) return null
+    // the person's own chat: a new file in their own folder (or one this answer made) goes on without a card; nobody but
+    // them reads it, and the steps and the answer's file list show it
+    if (own && !o.noCover && this.ownFolderTarget(tool, input, o.widen)) {
+      if (o.main !== false) this.coverStep(tool, 'ownFolderStep')
+      return null
+    }
     // a new file (or one this answer made) in a folder the person allowed: no card (every check is made again now, and
-    // once more right before it writes: recheckRoomCover)
-    const target = own ? null : this.roomGrantTarget(tool, input)
+    // once more right before it writes: recheckRoomCover). The rooms whose words are in this session: the room's own; in
+    // the person's own chat every room its read scope holds (none: nothing is covered)
+    const rooms = own ? this.scopeRooms() : [this.room!.roomId]
+    const target = this.roomGrantTarget(tool, input, rooms)
     const coverable = !!target && !this.roomOutside()
+    // where a grant is kept: the room session's room; a side chat's own room when it is the only room the chat read
+    const grantRoom = own ? this.sideGrantRoom(rooms) : this.room!.roomId
     if (target && coverable && !o.noCover) {
       const once = this.answerCovers(target)
       if (once) {
-        auditOnceUse(this.rt.db, { userId: this.spec.userId, roomId: this.room!.roomId, folder: once.join('/'), segs: target.segs, tool, turnId: this.id })
-        this.roomCovered.set(key, target.segs.join('/'))
+        auditOnceUse(this.rt.db, { userId: this.spec.userId, rooms, folder: once.join('/'), segs: target.segs, tool, turnId: this.id, chat: own })
+        this.roomCovered.set(key, { rel: target.segs.join('/'), rooms })
         if (o.main !== false) this.coverStep(tool, 'roomOnceStep')
         return null
       }
-      const g = grantFor(this.rt.db, this.rt.files.fx, this.rt.files.rules(), { userId: this.spec.userId, roomId: this.room!.roomId, segs: target.segs, tool, turnId: this.id })
+      const g = grantRoom ? grantFor(this.rt.db, this.rt.files.fx, this.rt.files.rules(), { userId: this.spec.userId, roomId: grantRoom, segs: target.segs, tool, turnId: this.id }) : null
       if (g) {
-        this.roomCovered.set(key, target.segs.join('/'))
+        this.roomCovered.set(key, { rel: target.segs.join('/'), rooms })
         if (o.main !== false) this.coverStep(tool, 'roomGrantStep')
         return null
       }
@@ -1570,13 +1673,17 @@ export class TurnExec {
       this.roomAllowed.add(key)
       return null
     }
-    // "always" only for a call a grant could cover, in a room whose every member may write there, with the team's switch
-    // on and nothing from outside the team files in this question; only such a card's [이번만] covers the folder
-    const always = coverable && !!target && target.exists && grantsOn(this.rt.db)
+    // only for a call a grant could cover (every member of the rooms may write there, the team's switch on, the folder
+    // there, nothing from outside) does [이번만] cover the folder for the rest of the answer; "always" where a grant is
+    // kept (a room's session, a side chat that read its own room only)
+    const coverOnce = coverable && !!target && target.exists && grantsOn(this.rt.db)
+    const always = coverOnce && !!grantRoom
     // anyone who joins the room from now on lapses a grant this card makes (rooms/ai-grants.ts members_since)
     const askedAt = new Date().toISOString()
-    const question = own ? tr('roomsSeenConfirm', L, { what, ai: aiCalled(L) })
-      : target ? tr(target.isNew ? 'roomAiConfirmNew' : 'roomAiConfirmMade', L, { ai: aiCalled(L), folder: target.segs.slice(0, -1).join('/'), file: target.segs.at(-1)! })
+    // the person's own chat: why it asks first (the room card's words after it for a new team file)
+    const question = target
+      ? (own ? `${tr('roomsSeenWhy', L)} ` : '') + tr(target.isNew ? 'roomAiConfirmNew' : 'roomAiConfirmMade', L, { ai: aiCalled(L), folder: target.segs.slice(0, -1).join('/'), file: target.segs.at(-1)! })
+      : own ? tr('roomsSeenConfirm', L, { what, ai: aiCalled(L) })
       : tr('roomAiConfirm', L, { what, ai: aiCalled(L) })
     const answer = await this.waitForPerson({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: question + instruction,
@@ -1588,15 +1695,15 @@ export class TurnExec {
     const v = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
     if (v === 'allow' || (v === 'always' && always)) {
       this.roomAllowed.add(key)
-      if (target && always) {
-        // [이번만 허용] on a card that offered "always": the rest of this answer for this folder, the same kind of calls
-        // only (roomGrantTarget)
+      if (target && coverOnce) {
+        // [이번만 허용] on such a card: the rest of this answer for this folder, the same kind of calls only
+        // (roomGrantTarget)
         const rules = this.rt.files.rules(), fx = this.rt.files.fx
         const folder = target.segs.slice(0, -1)
         const id = folderId(fx, folder)
         if (id) this.roomAnswerAllowed.push({ folder, audience: folderAudience(this.rt.db, rules, folder), id })
-        if (v === 'always') {
-          try { createGrant(this.rt.db, fx, rules, { userId: this.spec.userId, roomId: this.room!.roomId, folder: folder.join('/'), turnId: this.id, since: askedAt }) }
+        if (v === 'always' && grantRoom) {
+          try { createGrant(this.rt.db, fx, rules, { userId: this.spec.userId, roomId: grantRoom, folder: folder.join('/'), turnId: this.id, since: askedAt }) }
           catch (e) { this.rt.log.warn('room grant not saved', { err: e, turn: this.id }) }
         }
       }
@@ -1614,78 +1721,102 @@ export class TurnExec {
    * and in subfolders with the same readers and writers, and the files this answer made there (answerCovers); `id`: the
    * folder on disk then (rooms/ai-grants.ts folderId) */
   private roomAnswerAllowed: { folder: string[]; audience: string; id: string }[] = []
-  /** calls a grant or [이번만] let through without a card, by tool and input, with the file: checked again right before
-   * they write (recheckRoomCover) */
-  private roomCovered = new Map<string, string>()
+  /** calls a grant or [이번만] let through without a card, by tool and input, with the file and the rooms whose members
+   * must all still write it: checked again right before they write (recheckRoomCover) */
+  private roomCovered = new Map<string, { rel: string; rooms: readonly string[] }>()
 
-  /** The question used something from outside the team files (a web page, a search: chats.room_outside, rooms/ai.ts):
-   * its author is no member of the room, so nothing is let through without the card. */
+  /** The session used something from outside the team's own words (chats.room_outside: a web page, a search, a
+   * connection): its author is no member of the room, so nothing is let through without the card. A room question's mark
+   * is its own (rooms/ai.ts); the person's own chat keeps it until a new session (markOutside). */
   private roomOutside(): boolean {
     return !!(this.rt.db.query('SELECT room_outside FROM chats WHERE id = ?').get(this.spec.chatId) as { room_outside: number } | null)?.room_outside
   }
 
+  /** The rooms whose messages the person's own chat holds (its read scope's room sources), each once. */
+  private scopeRooms(): string[] {
+    return [...new Set((readScope(this.rt.db, this.spec.chatId) ?? []).flatMap((s) => (s.type === 'room' ? [s.id] : [])))]
+  }
+
+  /** A ✦ side chat (chats.side_room_id) whose read scope holds its own room and no other: that room, whose grants for this
+   * person cover the side chat too (and one made here covers the room); else null. The person still in the room, the
+   * room not archived (sideRoomOf). */
+  private sideGrantRoom(rooms: readonly string[]): string | null {
+    if (rooms.length !== 1) return null
+    const side = sideRoomOf(this.rt.db, this.spec.chatId, this.spec.userId)
+    return side && side.id === rooms[0] ? side.id : null
+  }
+
   /**
    * Right before a call a grant or [이번만] let through writes (after a wider-audience card may have waited, and again
-   * after make_file's own card for its pictures or template, chat/tools.ts toolContext): every member
-   * of the room must still be able to write there and nothing from outside the team files may have come in since; else
-   * the room card is asked now, as for any call (no cover). Returns the refusal, or null. Calls nothing let through: null.
+   * after make_file's own card for its pictures or template, chat/tools.ts toolContext): every member of the rooms it
+   * was covered for must still be able to write there and nothing from outside the team files may have come in since;
+   * else the room card is asked now, as for any call (no cover). Returns the refusal, or null. Calls nothing let
+   * through: null.
    */
   async recheckRoomCover(tool: string, input: unknown, o: { main?: boolean } = {}): Promise<string | null> {
-    if (!this.room) return null
     let args = ''
     try { args = JSON.stringify(input ?? null) } catch { args = String(input) }
     const key = `${tool}\u0000${args}`
-    const rel = this.roomCovered.get(key)
-    if (rel === undefined) return null
+    const c = this.roomCovered.get(key)
+    if (!c) return null
     let still = false
-    try { still = !this.roomOutside() && everyoneWrites(this.rt.db, this.rt.files.fx, this.rt.files.rules(), this.room.roomId, rel) } catch { still = false }
+    try { still = !this.roomOutside() && c.rooms.length > 0 && c.rooms.every((id) => everyoneWrites(this.rt.db, this.rt.files.fx, this.rt.files.rules(), id, c.rel)) } catch { still = false }
     return still ? null : this.confirmRoomChange(tool, input, { ...o, noCover: true })
   }
 
   /**
-   * The one place a room call writes when a grant (or this answer's yes for a folder) could cover it, or null: a
-   * room session that is not a scheduled run or a confidential chat; write, make_file or edit_hwp making a new file,
-   * or edit, write or edit_hwp of a file this answer made (roomMadeHere: a create of this turn, not an update, that
-   * nobody else changed since); the path as the file layer resolves it for the person (letter case, Unicode form;
-   * ".." and links refused there), in a folder below the top folders (never the team root, a top folder, a group's or
-   * a person's own folder, a plugin's folder, a skills folder or a hidden one), never an instruction-like file; and
-   * every member of the room may write it. `exists`: its folder is there (only then is "always" offered, a grant
-   * names a folder that is there). Fails closed: any error is null.
+   * The one place a room call writes when a grant (or this answer's yes for a folder) could cover it, or null: not a
+   * scheduled run or a confidential chat, with the rooms whose words are in the session (`rooms`; none: null); write,
+   * make_file or edit_hwp making a new file, or edit, write or edit_hwp of a file this answer made (roomMadeHere: a
+   * create of this turn, not an update, that nobody else changed since); the path as the file layer resolves it for the
+   * person (letter case, Unicode form; ".." and links refused there), in a folder below the top folders (never the team
+   * root, a top folder, a group's or a person's own folder, a plugin's folder, a skills folder or a hidden one), never an
+   * instruction-like file; and every member of each room may write it. `exists`: its folder is there (only then is
+   * "always" offered, a grant names a folder that is there). Fails closed: any error is null.
    */
-  private roomGrantTarget(tool: string, input: unknown): { segs: string[]; isNew: boolean; exists: boolean } | null {
-    if (!this.room || this.spec.clientKind === 'schedule') return null
+  private roomGrantTarget(tool: string, input: unknown, rooms: readonly string[]): { segs: string[]; isNew: boolean; exists: boolean } | null {
+    if (!rooms.length || this.spec.clientKind === 'schedule') return null
     try {
       if (confidentialChat(this.rt.db, this.spec.chatId)) return null
-      const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
-      const str = (v: unknown) => (typeof v === 'string' ? v : '')
-      let p: string, mayBeNew: boolean
-      switch (tool) {
-        case 'write': p = str(a.file_path); mayBeNew = true; break
-        // where make_file saves: its output with the format's extension (tools/make-file.ts); a folder-like output ("x/") is
-        // not followed here (no cover: the card)
-        case 'make_file':
-          if (!str(a.format) || /\/\s*$/.test(str(a.output))) return null
-          p = ext(str(a.output)) === str(a.format) ? str(a.output) : `${str(a.output)}.${str(a.format)}`
-          mayBeNew = true
-          break
-        case 'edit_hwp':
-          if (str(a.output)) { p = hwpOutputPath(str(a.output), str(a.file_path)); mayBeNew = true }
-          else { p = str(a.file_path); mayBeNew = false }
-          break
-        case 'edit': p = str(a.file_path); mayBeNew = false; break
-        default: return null
-      }
-      if (!p.trim()) return null
+      const t = writeTargetOf(tool, input)
+      if (!t) return null
       const fx = this.rt.files.fx, rules = this.rt.files.rules()
-      const r = authorize(fx, rules, this.livePrincipal(), p, 'write', { createDirs: true })
+      const r = authorize(fx, rules, this.livePrincipal(), t.path, 'write', { createDirs: true })
       if (r.exists && (!r.st?.isFile() || !this.roomMadeHere(r.rel))) return null
-      if (!r.exists && !mayBeNew) return null
+      if (!r.exists && !t.mayBeNew) return null
       const segs = r.segs, folder = segs.slice(0, -1)
       if (folder.length < 2 || ((folder[0] === 'groups' || folder[0] === 'users') && folder.length < 3)) return null
       if (segs.some((x) => x.startsWith('.')) || inSkills(r.rel) || instructionLike(r.rel)) return null
       if (fx.managed?.managerOf(segs) || fx.managed?.managerOf(folder)) return null
-      if (!everyoneWrites(this.rt.db, fx, rules, this.room.roomId, r.rel)) return null
+      if (!rooms.every((id) => everyoneWrites(this.rt.db, fx, rules, id, r.rel))) return null
       return { segs, isNew: !r.exists, exists: r.existing >= folder.length }
+    } catch { return null }
+  }
+
+  /**
+   * In the person's own chat after a room read: the file in their own folder a call makes, when it needs no card, else
+   * null (docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기"). write, make_file or edit_hwp making a new file, or edit, write or
+   * edit_hwp of a file this answer made (roomMadeHere); save_room_file making a new file (where its widen hook says it
+   * goes: the file's own name in a folder). The path as the file layer resolves it for the person (authorize 'write':
+   * letter case, Unicode form; ".." and links refused there), inside users/<them>/, never in a hidden folder
+   * (.attachments), a plugin's folder or users/<them>/skills, never an instruction-named file (instructionLike), never in
+   * a confidential chat. A file that was there before this answer always asks, and so do save_url (the name it saves
+   * under comes from what it downloads), edit_files, moves, copies, renames and every other tool. Fails closed.
+   */
+  private ownFolderTarget(tool: string, input: unknown, widen?: WidenOf): string[] | null {
+    try {
+      if (confidentialChat(this.rt.db, this.spec.chatId)) return null
+      const t = tool === 'save_room_file' ? (widen?.target ? { path: widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input)
+      if (!t) return null
+      const fx = this.rt.files.fx
+      const r = authorize(fx, this.rt.files.rules(), this.livePrincipal(), t.path, 'write', { createDirs: true })
+      const segs = r.segs
+      if (segs.length < 3 || segs[0] !== 'users' || segs[1] !== this.spec.userId) return null
+      if (r.exists && (!r.st?.isFile() || !this.roomMadeHere(r.rel))) return null
+      if (!r.exists && !t.mayBeNew) return null
+      if (segs.some((x) => x.startsWith('.')) || inSkills(r.rel) || instructionLike(r.rel)) return null
+      if (fx.managed?.managerOf(segs) || fx.managed?.managerOf(segs.slice(0, -1))) return null
+      return segs
     } catch { return null }
   }
 
@@ -1706,12 +1837,18 @@ export class TurnExec {
     return this.roomAnswerAllowed.find((a) => within(a.folder, folder) && !ruledBetween(rules, a.folder, folder) && folderAudience(this.rt.db, rules, folder) === a.audience && folderId(fx, a.folder) === a.id)?.folder ?? null
   }
 
-  /** The step of a call let through without a card says why ("항상 허용으로 진행", "이번만 허용으로 진행"); the room's
-   * answer lists the files (rooms/ai.ts). */
-  private coverStep(tool: string, why: 'roomGrantStep' | 'roomOnceStep') {
+  /** The step of a call let through without a card says why ("항상 허용으로 진행", "이번만 허용으로 진행", "내 폴더라 묻지 않고
+   * 저장"); the room's answer lists the files (rooms/ai.ts). */
+  private coverStep(tool: string, why: 'roomGrantStep' | 'roomOnceStep' | 'ownFolderStep') {
     const said = tr(why, this.spec.locale)
+    // a tool that labels its own step patches it once per call (save_room_file): the words go with that patch
+    if (SELF_LABELLED_TOOLS.has(tool)) { this.stepSuffixes.set(tool, [...(this.stepSuffixes.get(tool) ?? []), said]); return }
     this.patchToolStep(tool, (st) => ({ label: st.label.endsWith(said) ? st.label : `${st.label} · ${said}` }))
   }
+  /** coverStep's words for the next step a self-labelled tool patches (first in, first out, like patchToolStep) */
+  private stepSuffixes = new Map<string, string[]>()
+  /** The words a cover adds to this call's step, for a tool that patches its own step once per call ('' for none). */
+  takeStepSuffix(tool: string): string { return this.stepSuffixes.get(tool)?.shift() ?? '' }
 
   /** A file of this room by its id, as the person sees it (rooms/reader.ts findRoomFile), for the card: its name, who
    * sent it, when and how big (two files may share a name), or null. In the person's own chat the room the call names
@@ -2021,6 +2158,8 @@ export class TurnExec {
     const inLog = [...paths].filter(inList)
     const add: ReadSource[] = [...[...paths].filter((p) => !inList(p)), ...(names ?? [])].map((p) => sourceOf(this.rt.db, rules, p))
     for (const p of listed ?? []) add.push({ type: 'name', path: p })
+    // the person's own files carry what the chat that wrote them had seen (noteOwnReads)
+    if (paths.size) this.noteOwnReads(paths)
     paths.clear()
     names?.clear()
     listed?.clear()
@@ -2098,7 +2237,7 @@ export class TurnExec {
     const from = [...new Set(need.narrower.map((s) => label(s, true)))].join(', ')
     const fromForAi = [...new Set(need.narrower.map((s) => label(s, false)))].join(', ')
     const answer = await this.waitForPerson({
-      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: (o.lead ?? '') + tr('widenConfirm', L, { sources: from, target: need.segs.join('/'), n: String(need.viewers) }) + (o.extra ?? '') + (o.binding ? '\nSHA-256: ' + JSON.parse(o.binding).hash : ''),
+      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: (o.lead ?? '') + tr('widenConfirm', L, { ai: aiCalled(L), sources: from, target: need.segs.join('/'), n: String(need.viewers) }) + (o.extra ?? '') + (o.binding ? '\nSHA-256: ' + JSON.parse(o.binding).hash : ''),
       options: [{ label: tr('widenSave', L), value: 'save' }, { label: tr('widenDont', L), value: 'skip' }], multiple: false, allowText: false,
       ...(o.details?.length ? { details: o.details } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
@@ -2346,6 +2485,8 @@ export class TurnExec {
   // ---------------- files ----------------
   /** After every tool call: new file_events of this turn -> files.changed for everyone who can see the path. */
   afterTool() {
+    // a tool may mark the chat itself (a connection's or Google Drive's answer taints it): on the turn before its next call
+    this.syncOutsideMark()
     const rows = this.rt.db.query('SELECT id, path, action, detail FROM file_events WHERE turn_id = ? AND id > ? ORDER BY id').all(this.id, this.lastFileEvent) as { id: number; path: string; action: string; detail: string | null }[]
     if (!rows.length) return
     this.lastFileEvent = rows[rows.length - 1]!.id
@@ -2613,6 +2754,31 @@ function teamSegs(p: unknown): string[] | null {
 /** Files that tell an AI what to do: team skills and rules (skills/), a person's skills, and instruction files by name,
  * matched on the path as the file layer resolves it (any spelling: "./", "//", "a/./b", a trailing "/", letter case).
  * What a call would write there is shown in full on a room's change card, or the call is not made from a room. */
+/** Where write, make_file, edit_hwp or edit saves, as the call names it, and whether the call may make a new file there
+ * (edit and edit_hwp without an output change a file in place); null for any other tool or an input it cannot be read
+ * from. make_file: its output with the format's extension (tools/make-file.ts); a folder-like output ("x/") is not
+ * followed (no cover: the card). */
+function writeTargetOf(tool: string, input: unknown): { path: string; mayBeNew: boolean } | null {
+  const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
+  const str = (v: unknown) => (typeof v === 'string' ? v : '')
+  let p: string, mayBeNew: boolean
+  switch (tool) {
+    case 'write': p = str(a.file_path); mayBeNew = true; break
+    case 'make_file':
+      if (!str(a.format) || /\/\s*$/.test(str(a.output))) return null
+      p = ext(str(a.output)) === str(a.format) ? str(a.output) : `${str(a.output)}.${str(a.format)}`
+      mayBeNew = true
+      break
+    case 'edit_hwp':
+      if (str(a.output)) { p = hwpOutputPath(str(a.output), str(a.file_path)); mayBeNew = true }
+      else { p = str(a.file_path); mayBeNew = false }
+      break
+    case 'edit': p = str(a.file_path); mayBeNew = false; break
+    default: return null
+  }
+  return p.trim() ? { path: p, mayBeNew } : null
+}
+
 export function instructionLike(rel: string): boolean {
   const segs = teamSegs(rel)
   if (!segs?.length) return false

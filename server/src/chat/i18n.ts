@@ -121,9 +121,10 @@ export const TEXT = {
   connectConnected: STEP_TEXT.connectConnected,
   connectNotConnected: STEP_TEXT.connectNotConnected,
   browserSite: t('사내망 주소 {host}를 열어도 될까요?', 'May the AI open the office-network address {host}?', 'Bolehkan AI membuka alamat jaringan kantor {host}?', "AIが社内ネットワークのアドレス{host}を開いてもよろしいですか？", "¿Puede la IA abrir la dirección de red interna {host}?"),
-  widenConfirm: t('AI가 볼 수 있는 사람이 더 적은 내용({sources})을 읽은 뒤 {target}에 저장하려고 해요. 이곳은 {n}명이 볼 수 있어요. 저장할까요?',
-    'The AI read content fewer people can see ({sources}) and now wants to save to {target}, which {n, plural, one {# person} other {# people}} can see. Save it?',
-    'AI membaca konten yang hanya bisa dilihat lebih sedikit orang ({sources}) dan sekarang ingin menyimpan ke {target}, yang bisa dilihat {n} orang. Simpan?', "AIは閲覧できる人が少ない内容（{sources}）を読み取り、{n}人が閲覧できる{target}に保存しようとしています。保存しますか？", "La IA leyó contenido que menos personas pueden ver ({sources}) y quiere guardarlo en {target}, visible para {n, plural, one {# persona} other {# personas}}. ¿Guardarlo?"),
+  /** {ai}: the AI as the room cards name it (aiCalled), so a card that asks for both says one name */
+  widenConfirm: t('{ai}가 볼 수 있는 사람이 더 적은 내용({sources})을 읽은 뒤 {target}에 저장하려고 해요. 이곳은 {n}명이 볼 수 있어요. 저장할까요?',
+    '{ai} read content fewer people can see ({sources}) and now wants to save to {target}, which {n, plural, one {# person} other {# people}} can see. Save it?',
+    '{ai} membaca konten yang hanya bisa dilihat lebih sedikit orang ({sources}) dan sekarang ingin menyimpan ke {target}, yang bisa dilihat {n} orang. Simpan?', "{ai}は閲覧できる人が少ない内容（{sources}）を読み取り、{n}人が閲覧できる{target}に保存しようとしています。保存しますか？", "{ai} leyó contenido que menos personas pueden ver ({sources}) y quiere guardarlo en {target}, visible para {n, plural, one {# persona} other {# personas}}. ¿Guardarlo?"),
   widenSave: t('저장하기', 'Save', 'Simpan', "保存", "Guardar"),
   widenDont: t('저장하지 않기', 'Don’t save', 'Jangan simpan', "保存しない", "No guardar"),
   scopeMine: t('내 개인 폴더나 앱 안 브라우저', 'your personal folder or the in-app browser', 'folder pribadi Anda atau browser di aplikasi', "自分の個人フォルダーまたはアプリ内ブラウザー", "su carpeta personal o el navegador integrado"),
@@ -157,6 +158,8 @@ export const TEXT = {
   roomGrantStep: t('항상 허용으로 진행', 'allowed: always in this room', 'diizinkan: selalu di ruang ini', "常に許可で実行", "permitido: siempre en esta sala"),
   /** the step of a call this answer's [이번만 허용] for its folder let through */
   roomOnceStep: t('이번만 허용으로 진행', 'allowed once in this answer', 'diizinkan sekali di jawaban ini', "今回だけ許可で実行", "permitido esta vez en esta respuesta"),
+  /** the step of a call that made a new file in the person's own folder after a room read, with no card */
+  ownFolderStep: t('내 폴더라 묻지 않고 저장', 'saved without asking: your own folder', 'disimpan tanpa bertanya: folder Anda sendiri', "自分のフォルダーなので確認せずに保存", "guardado sin preguntar: su propia carpeta"),
   /** under a room answer: the files a grant or [이번만 허용] let the AI save without a card (links) */
   roomGrantFiles: t('미리 허용한 폴더에 저장한 파일: {files}', 'Saved in a folder allowed in advance: {files}', 'Disimpan di folder yang sudah diizinkan: {files}', "事前に許可したフォルダーに保存したファイル：{files}", "Guardado en una carpeta permitida de antemano: {files}"),
   roomAiConfirmFiles: t('바꿀 파일', 'Files', 'Berkas', "変更するファイル", "Archivos"),

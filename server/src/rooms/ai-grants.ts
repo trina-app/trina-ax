@@ -169,11 +169,13 @@ export function grantFor(db: Database, fx: FsCtx, rules: RuleSet, o: { userId: s
 }
 
 /** A call this answer's [이번만 허용] for its folder let through without a card: audited like a grant's use (`once`, no
- * grant), so the room's answer names its file too (grantMadeFiles). */
-export function auditOnceUse(db: Database, o: { userId: string; roomId: string; folder: string; segs: readonly string[]; tool: string; turnId: string | null }) {
-  const room = roomRow(db, o.roomId)
-  if (!room) return
-  audit(db, { actor: o.userId, action: 'room.ai_grant_use', target: null, detail: { ...roomAuditRef(room), folder: o.folder, path: o.segs.join('/'), tool: o.tool, turnId: o.turnId, once: true } })
+ * grant), so the room's answer names its file too (grantMadeFiles). `rooms`: the room of a room session, or the rooms
+ * the person's own chat read (`chat`: docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기"); several are named under `rooms`,
+ * each as roomAuditRef names it. */
+export function auditOnceUse(db: Database, o: { userId: string; rooms: readonly string[]; folder: string; segs: readonly string[]; tool: string; turnId: string | null; chat?: boolean }) {
+  const refs = o.rooms.map((id) => roomRow(db, id)).filter((r): r is RoomRow => !!r).map(roomAuditRef)
+  if (!refs.length) return
+  audit(db, { actor: o.userId, action: 'room.ai_grant_use', target: null, detail: { ...(refs.length === 1 ? refs[0] : { rooms: refs }), folder: o.folder, path: o.segs.join('/'), tool: o.tool, turnId: o.turnId, once: true, ...(o.chat ? { chat: true } : {}) } })
 }
 
 /** The files this answer saved without a card through a grant or its own [이번만 허용] (its room.ai_grant_use rows whose

@@ -96,10 +96,22 @@ export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'out
  * Drive's search, list and read, finding a connection's tools, the in-app browser's reading tools). set_title names the
  * chat for the person alone; remember raises its own card with the text it would keep (chat/tools.ts). Every other
  * tool (writes, moves, schedules, connections' tools and call_tool, the browser's clicks and pages, box_shell, forget,
- * connect_service, tools added later) waits for the person's yes on a card for the rest of that chat (fails closed).
+ * connect_service, tools added later) waits for the person's yes on a card for the rest of that chat (fails closed),
+ * but a new file in the person's own folder, and a new team file the person allowed for the answer or the room
+ * (chat/turn.ts confirmRoomChange; docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기").
  */
 export const ROOMS_SEEN_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   ...ROOM_READ_ONLY_TOOLS, 'rooms', 'room_read', 'room_file', 'set_title', 'remember', 'find_tools', 'schedule_list', 'drive_search', 'drive_list', 'drive_read',
 ])
 /** ...and the in-app browser's reading tools, only in a turn that has the browser (by name otherwise: no exemption) */
 export const ROOMS_SEEN_BROWSER_READ_TOOLS: ReadonlySet<string> = new Set(['read_page', 'get_page_text', 'find', 'tabs_context', 'read_console_messages', 'read_network_requests'])
+
+/**
+ * A person's own AI chat (docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기"): the tools whose use keeps what the chat holds
+ * to the team's own words, like a room session's ROOM_FILE_TOOLS, with reading the person's rooms (their words are what
+ * a room card weighs) and naming the chat or keeping a memory (nothing comes in). Any other tool (the web and its
+ * search, a connection's tools and call_tool, Google Drive, the browser, box_shell, video, tools added later: fails
+ * closed) marks the chat as having used something from outside (chats.room_outside, until a new session: an own chat's
+ * session carries earlier answers), and then no room card is skipped there.
+ */
+export const OWN_CHAT_TEAM_TOOLS: ReadonlySet<string> = new Set([...ROOM_FILE_TOOLS, 'rooms', 'room_read', 'set_title', 'remember'])

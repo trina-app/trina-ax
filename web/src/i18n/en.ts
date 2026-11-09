@@ -499,7 +499,7 @@ export const en: Record<MessageKey, string> = {
   'settings.allowances': "Allowed for Trina",
   'settings.allowancesAi': "Allowed for the AI",
   'settings.find.allowances': "always allow room folder new files permission",
-  'allowances.desc': "Folders you picked \"Always allow in this room\" for. Delete one and you are asked again in that room.",
+  'allowances.desc': "Folders you picked \"Always allow in this room\" for, in a room or its side chat. Delete one and you are asked again in that room and its side chats.",
   'allowances.empty': "Nothing allowed yet.",
   'allowances.newFiles': "Save new files",
   'allowances.delete': "Delete",

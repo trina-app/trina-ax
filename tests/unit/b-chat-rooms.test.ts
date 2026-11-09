@@ -3,9 +3,10 @@
 // offered (own chat yes; a room's session, a confidential chat no), exactly the person's view (membership, a later
 // member, threads, others' private previews, deleted messages, event lines), a room the person is not in answers like
 // an unknown one, limits, search, room files, the "#" room tokens, the change card after a room read (and not before)
-// kept for the rest of the chat and across a restart, a planted instruction that cannot change anything without the
-// person's yes, and audit lines that name no room. Each test makes its own rooms; rows written straight into the
-// database are the test's own rooms (the sending budget would slow a test of hundreds of messages).
+// kept for the rest of the chat and across a restart (a new file in the person's own folder goes without one:
+// b-chat-rooms-fewer-cards), a planted instruction that cannot change anything without the person's yes, and audit lines
+// that name no room. Each test makes its own rooms; rows written straight into the database are the test's own rooms
+// (the sending budget would slow a test of hundreds of messages).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import fs from 'node:fs'
@@ -640,18 +641,23 @@ describe('second review round', () => {
     } finally { h.ctx.services.turnToolProviders = savedProviders; fs.rmSync(abs(), { force: true }) }
   })
 
-  test('a scheduled run in a chat that read rooms changes nothing (nobody is there to say yes)', async () => {
+  test('a scheduled run in a chat that read rooms changes no team file (nobody is there to say yes); a new file of my own goes', async () => {
     fs.writeFileSync(abs(), 'original\n')
     const roomId = await teamRoom(['alice', 'erin'])
     const chat = await newChat('alice')
     await turn('alice', chat, fake({ tool: 'room_read', args: { room: roomId } }, { say: 'read' }))
     const row = h.rt().store.chatRow(chat)!
+    // "매일 저녁 방 대화 요약해서 내 폴더에 저장": a new file in my own folder needs no card (docs/DECISIONS.md "대화방을 읽은
+    // 뒤 카드 줄이기"), so the run saves it
+    const own = `users/alice/room-digest-${uuidv7().slice(-6)}.md`
     const started = h.rt().createTurn({ chat: row, userId: 'alice', locale: 'en', windowId: null, clientKind: 'schedule', engine: row.engine as 'claude-code', model: null,
-      user: { parentId: row.active_leaf_id, content: fake({ tool: 'read', args: { file_path: target } }, { tool: 'write', args: { file_path: target, content: 'scheduled change' } }, { say: 'done' }), attachments: [], clientMessageId: cm() } })
+      user: { parentId: row.active_leaf_id, content: fake({ tool: 'read', args: { file_path: target } }, { tool: 'write', args: { file_path: target, content: 'scheduled change' } }, { tool: 'write', args: { file_path: own, content: 'digest\n' } }, { say: 'done' }), attachments: [], clientMessageId: cm() } })
     await ws.alice!.next('message.done', (f) => f.data.message.turnId === started.turnId, 30_000)
     expect(fs.readFileSync(abs(), 'utf8')).toBe('original\n')
-    expect(events(started.turnId).find((e) => e.tool === 'write')).toMatchObject({ ok: 0 })
+    expect(events(started.turnId).filter((e) => e.tool === 'write').map((e) => e.ok)).toEqual([0, 1])
+    expect(fs.readFileSync(path.join(h.team, own), 'utf8')).toBe('digest\n')
     expect(ws.alice!.frames.some((f) => f.type === 'turn.request' && f.data.turnId === started.turnId)).toBe(false)
     fs.rmSync(abs(), { force: true })
+    fs.rmSync(path.join(h.team, own), { force: true })
   })
 })
