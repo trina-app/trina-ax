@@ -119,4 +119,4 @@ Differs from the plan: the new tool is `skill_files` (one item per call); the ol
 what to use. `fix/ai-refusals-clear` had not landed, so the refusals use their own why / next-step texts in that shape.
 New audit actions `skills.files` and `skills.files_refused` have words on the Admin audit screen (five languages).
 
-Checks: see the PR.
+Checks: see the PR, https://github.com/trina-app/trina-ax/pull/276.
