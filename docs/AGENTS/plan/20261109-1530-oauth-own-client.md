@@ -2,6 +2,7 @@
 
 - Date (UTC): 2026-11-09 15:30
 - Branch: `feat/oauth-own-client`
+- PR: https://github.com/trina-app/trina-ax/pull/267
 - Status: done
 - Where: trina-ax core (`shared/src/api/integrations.ts`, `server/src/integrations/connections/`, `web/src/`). Why:
   connecting outside services for the AI is core (see docs/REPOSITORY-RULES.md)
