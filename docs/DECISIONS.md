@@ -17566,15 +17566,18 @@ told to point at the button and never claim it posted, so "이 요약 #영업팀
   content is `text` through the sender's redactor; the room by `findRoom` among mine (`Rooms.mine` checks it again), the
   thread by `Rooms.threadRootOf`.
 - **The card** (an `ask_user` card with origin server: the AI cannot write one that passes for it). "#영업팀(12명)에
-  보낼까요?" (a thread: "#영업팀(12명)에서 '…' 메시지의 스레드에 보낼까요?"); the text in full under 보낼 내용, folded past 600
-  characters; only when they apply, "3명은 이 내용의 일부 출처(shared/재무/)를 볼 수 없어요." and "링크된 파일 2개를 4명이 열 수
+  보낼까요?" (a thread: "#영업팀(12명)에서 '…' 메시지의 스레드에 보낼까요?"); the note apart under 한마디 (it goes as the
+  person's own words); the text in full under 보낼 내용, folded past 600 characters; the paths [파일도 함께 보내기] would
+  attach, by name (a link far down a folded text is not missed); only when they apply, "3명은 이 내용의 일부 출처(shared/재무/)를 볼 수 없어요." and "링크된 파일 2개를 4명이 열 수
   없어요." (counts and places I may look myself, never who), and, when attaching the files changes them, "파일도 함께 보내면:
   …"; [보내기], [파일도 함께 보내기] (only when a linked file can go as a copy), [보내지 않기]. The number is everyone in the
   room. After it the step reads "대화방에 보내기 · #영업팀" (shared step-labels.ts); a no adds "보내지 않았어요".
 - **Bound to what was shown.** Each choice carries the key of the line it showed (`shareChoice`: with no files, or with
-  the files offered). On yes the check runs again (`prepareShare`) and `sendShare` gets that key and the files; a
-  "confirm" then means something changed while the card waited (a member, someone's access, a linked file): refused,
-  "ask again", nothing posted. Nothing at stake any more after the card: it goes, as the button's does.
+  the files offered). On yes the check runs again (`prepareShare`) and the key of the pressed choice must be the same
+  as the card's, also when nothing is at stake now: the card named the number of people, and someone added meanwhile
+  was not asked about (stricter than the button, which sends when nothing applies). Then `sendShare` gets that key and
+  the files. A change (a member, someone's access, a linked file) is refused, "ask again", nothing posted. Each post
+  takes from the sending budget before the card and again after the yes, as the button's confirm does.
 - **Retries.** `clientMessageId` is `ai-<turnId>-<n>`, `n` per room, thread, note and text in this answer: the same call
   again finds the first message (no second card, no second post), as the button's retry does.
 - **A side chat.** Without `room` it posts to the side chat's room, or to the thread the nearest earlier question that

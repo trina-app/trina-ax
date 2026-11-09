@@ -1013,6 +1013,8 @@ describe('the sending budget', () => {
 // the same "confirm" (rows, line, counts), the same refusals, the same message and audit row (with via 'ai'), and a
 // change after the key was made asks again. The card's two choices are shareChoice's.
 describe("the AI's post_to_room: the button's checks and results (prepareShare, sendShare)", () => {
+  // (the budget's clock moves again: the block before may have left it standing)
+  beforeAll(() => { roomsOf(h.ctx).clock = () => (clock += 10_000) })
   const prepared = async (a: { chatId: string; answerId: string }, content: string, roomId: string, extra: { threadRootId?: string } = {}) => {
     const p = await prepareShare(h.ctx, 'alice', a.chatId, { messageId: a.answerId, content }, { roomId, clientMessageId: cm(), ...extra }, 'en')
     if (p.status !== 'prepared') throw new Error('sent already')

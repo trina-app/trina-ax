@@ -148,6 +148,8 @@ export function postToRoomTool(exec: TurnExec): Tool {
         try { mine = rooms.mine(spec.userId, roomId) } catch { return no('Nothing was posted: that room is archived or the user is no longer in it. Call rooms to see the rooms they are in now.', 'refused: not my room') }
         const title = roomTitleFor(db, mine.room, mine.me, L)
         named = title
+        // (for the AI: a group chat's name is any member's words)
+        const titleAi = neutralizeTags(title)
         let threadRootId: string | undefined
         if (a.data.thread_id !== undefined) {
           if (!isUuid7(a.data.thread_id)) return no('Nothing was posted: thread_id is the id of the thread\'s first message (from room_read, or the thread_id a quoted question names). Call again with that id, or without thread_id to post to the room.', 'refused: not a message id')
@@ -157,7 +159,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
           threadRootId = nearestThreadOf(questionsAbove(db, spec.assistantId)) ?? undefined
         }
         const root = threadRootId !== undefined ? rooms.threadRootOf(roomId, threadRootId, mine.me) : null
-        if (threadRootId !== undefined && !root) return no(`Nothing was posted: that message's thread in ${neutralizeTags(title)} cannot take a reply (the message may have been deleted, or it is not one that can have a thread). If the user wants it in the room instead, call post_to_room again with room "${roomId}" and no thread_id.`, 'refused: thread root')
+        if (threadRootId !== undefined && !root) return no(`Nothing was posted: that message's thread in ${titleAi} cannot take a reply (the message may have been deleted, or it is not one that can have a thread). If the user wants it in the room instead, call post_to_room again with room "${roomId}" and no thread_id.`, 'refused: thread root')
 
         // ---- what: the text, as the room will get it ----
         const content = redactorFor(ctx, spec.userId).hide(a.data.text)
@@ -171,18 +173,18 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const share = { roomId, ...(note ? { note } : {}), ...(threadRootId !== undefined ? { threadRootId } : {}), clientMessageId: `ai-${spec.turnId}-${n}` }
         const answer = { messageId: spec.assistantId, content }
         const prepare = async (): Promise<PreparedShare | Extract<ShareAnswerToRoomResult, { status: 'sent' }> | { refused: { content: { type: 'text'; text: string }[]; isError?: boolean; summary: string } }> => {
-          try { return await prepareShare(ctx, spec.userId, spec.chatId, answer, share, L) } catch (e) { return { refused: refusalOf(e, title, roomId) } }
+          try { return await prepareShare(ctx, spec.userId, spec.chatId, answer, share, L) } catch (e) { return { refused: refusalOf(e, titleAi, roomId) } }
         }
         const sent = (r: Extract<ShareAnswerToRoomResult, { status: 'sent' }>, again: boolean) => {
           const fileCount = r.message.files?.length ?? 0
           detail = undefined
           return {
             ...text(JSON.stringify({
-              status: 'sent', room: title, room_id: roomId, ...(threadRootId ? { thread_id: threadRootId } : {}), message_id: r.message.id,
+              status: 'sent', room: titleAi, room_id: roomId, ...(threadRootId ? { thread_id: threadRootId } : {}), message_id: r.message.id,
               ...(fileCount ? { files_attached: fileCount } : {}),
               note: again
                 ? `Already posted earlier in this answer (the same text to the same place); nothing was posted twice.`
-                : `Posted to ${title}${threadRootId ? ' as a reply in the thread' : ''} as the user's message, your text quoted as the AI's answer${fileCount ? `, with ${fileCount} linked file${fileCount === 1 ? '' : 's'} attached` : ''}.`,
+                : `Posted to ${titleAi}${threadRootId ? ' as a reply in the thread' : ''} as the user's message, your text quoted as the AI's answer${fileCount ? `, with ${fileCount} linked file${fileCount === 1 ? '' : 's'} attached` : ''}.`,
             })),
             summary: `post_to_room -> ${again ? 'already sent' : 'sent'}${threadRootId ? ' (thread)' : ''}${fileCount ? `, ${fileCount} files` : ''}`,
           }
@@ -203,6 +205,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const linesAll = all ? linesOf(all, L) : []
         const extra = all && linesAll.join('\n') !== linesNone.join('\n') ? (linesAll.length ? tr('postRoomWithFiles', L, { line: linesAll.join(' ') }) : tr('postRoomWithFilesAll', L)) : ''
         const question = [ask, [...linesNone, extra].filter(Boolean).join('\n')].filter(Boolean).join('\n\n')
+        const shown = first.body.slice(first.at)
         const options = [
           { label: tr('postRoomSend', L), value: 'send' },
           ...(all ? [{ label: tr('postRoomSendFiles', L), value: 'send_files' }] : []),
@@ -210,7 +213,13 @@ export function postToRoomTool(exec: TurnExec): Tool {
         ]
         const reply = await exec.waitForPerson({
           kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, options, multiple: false, allowText: false,
-          details: [{ label: tr('postRoomText', L), text: first.body, ...(first.body.length > POST_TEXT_FOLD ? { collapsedAt: POST_TEXT_FOLD } : {}) }],
+          details: [
+            // the note goes as the person's own words, the text as the AI's answer: apart, as the room shows them
+            ...(first.at > 0 ? [{ label: tr('postRoomNote', L), text: first.body.slice(0, first.at).trim() }] : []),
+            { label: tr('postRoomText', L), text: shown, ...(shown.length > POST_TEXT_FOLD ? { collapsedAt: POST_TEXT_FOLD } : {}) },
+            // what [파일도 함께 보내기] attaches, by name (a link far down a folded text is not missed)
+            ...(all ? [{ label: tr('postRoomFilesToSend', L), text: [...first.offered].join('\n') }] : []),
+          ],
           ...(options.length === 3 ? { buttons: true as const } : {}),
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
         } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })
@@ -218,8 +227,8 @@ export function postToRoomTool(exec: TurnExec): Tool {
         if (v !== 'send' && v !== 'send_files') {
           detail = tr('postRoomNotSent', L)
           return v === 'no'
-            ? no(`The user chose not to send it, so nothing was posted to ${title}. Do not post it another way unless the user asks again.`, 'not sent: the user said no')
-            : no(`Nothing was posted to ${title}: the card got no answer in time. Ask the user whether to post it; if they want it, call post_to_room again.`, 'not sent: no answer')
+            ? no(`The user chose not to send it, so nothing was posted to ${titleAi}. Do not post it another way unless the user asks again.`, 'not sent: the user said no')
+            : no(`Nothing was posted to ${titleAi}: the card got no answer in time. Ask the user whether to post it; if they want it, call post_to_room again.`, 'not sent: no answer')
         }
 
         // ---- yes: checked again, then sent with the key of the line the person saw for that choice ----
@@ -227,14 +236,18 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const again = await prepare()
         if ('refused' in again) return again.refused
         if (again.status === 'sent') return sent(again, true)
+        const changed = () => {
+          detail = tr('postRoomNotSent', L)
+          return no(`Nothing was posted: who can see or open what changed while the card waited (the people in ${titleAi}, their access, or a linked file), so the user's yes no longer fits. Ask them again: call post_to_room again so they see a new card.`, 'refused: changed while waiting')
+        }
+        // the state the card showed, also when nothing is at stake now (the button sends then): the card named the number
+        // of people, and someone added meanwhile was not asked about
+        try { if ((await shareChoice(ctx, spec.userId, again, withFiles ? first.offered : new Set())).key !== (withFiles ? all!.key : none.key)) return changed() } catch (e) { return refusalOf(e, titleAi, roomId) }
         let r: ShareAnswerToRoomResult
         try {
           r = await sendShare(ctx, spec.userId, again, { clientMessageId: share.clientMessageId, ...(threadRootId !== undefined ? { threadRootId } : {}), confirmKey: withFiles ? all!.key : none.key, attach: withFiles ? [...first.offered] : [] }, L, { via: 'ai' })
-        } catch (e) { return refusalOf(e, title, roomId) }
-        if (r.status === 'confirm') {
-          detail = tr('postRoomNotSent', L)
-          return no(`Nothing was posted: who can see or open what changed while the card waited (the people in ${title}, their access, or a linked file), so the user's yes no longer fits. Ask them again: call post_to_room again so they see a new card.`, 'refused: changed while waiting')
-        }
+        } catch (e) { return refusalOf(e, titleAi, roomId) }
+        if (r.status === 'confirm') return changed()
         return sent(r, false)
       } finally {
         label(named, detail)

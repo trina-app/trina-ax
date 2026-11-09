@@ -110,8 +110,8 @@ describe('the card, and the post', () => {
   test('[보내지 않기] posts nothing and says so; a card left unanswered posts nothing either', async () => {
     const before = authored(rooms.all, 'bob')
     const r = await turn('bob', post({ room: '전체', text: '보내지 말 것', note: '공유드려요' }), { answer: 'no' })
-    // the note is part of what goes, so it is on the card too
-    expect(r.card!.details![0]!.text).toBe('공유드려요\n\n보내지 말 것')
+    // the note goes too, as bob's own words: on the card apart from the text
+    expect(r.card!.details).toEqual([{ label: '한마디', text: '공유드려요' }, { label: '보낼 내용', text: '보내지 말 것' }])
     expect(r.content).toContain('The user chose not to send it, so nothing was posted to #전체')
     expect(r.content).toContain('Do not post it another way unless the user asks again')
     expect(r.steps.find((s) => s.tool === 'post_to_room')).toMatchObject({ label: '대화방에 보내기 · #전체', detail: '보내지 않았어요' })
@@ -138,6 +138,8 @@ describe('the card, and the post', () => {
     expect(r.card!.question).toBe("Send this to #Everyone (5 people)?\n\n1 person there can't see some of the sources of this (groups/marketing/).\n1 person can't open 1 linked file.\nWith the files: 1 person there can't see some of the sources of this (groups/marketing/).")
     expect(r.card!.options!.map((x) => x.value)).toEqual(['send', 'send_files', 'no'])
     expect(r.card!.buttons).toBe(true)
+    // the file that [파일도 함께 보내기] attaches, by its path
+    expect(r.card!.details!.map((d) => [d.label, d.text])).toEqual([['What will be sent', text], ['Attached with “Send with the files”', 'groups/marketing/launch-plan.md']])
     const m = (await messagesAs('alice', rooms.all)).at(-1)!
     expect(m.body).toBe(text)
     expect(m.files.map((f) => f.name)).toEqual(['launch-plan.md'])
@@ -149,7 +151,7 @@ describe('where it may not post', () => {
   test('never offered in a scheduled run, and the refusal says why and what to do', async () => {
     const rt = h.rt()
     const now = new Date()
-    const made = rt.schedules.create('bob', { title: 'Daily post', prompt: [fake({ echo: 'tools' }), post({ room: rooms.all, text: 'daily' })].join('\n'), repeat: 'daily', time: '09:00' }, new Date(now.getTime() - 2 * 86_400_000), CONFIRMED)
+    const made = rt.schedules.create('bob', { title: 'Daily post', prompt: [fake({ echo: 'tools' }, { say: ' | ' }), post({ room: rooms.all, text: 'daily' })].join('\n'), repeat: 'daily', time: '09:00' }, new Date(now.getTime() - 2 * 86_400_000), CONFIRMED)
     const before = authored(rooms.all, 'bob')
     expect(rt.schedules.runDue(now)).toEqual([made.id])
     const chatId = rt.schedules.get('bob', made.id)!.last_chat_id!
@@ -157,7 +159,7 @@ describe('where it may not post', () => {
     const answer = (h.ctx.db.query("SELECT content FROM messages WHERE chat_id = ? AND role = 'assistant'").get(chatId) as { content: string }).content
     // the tool list of the run has the room reading tools, not post_to_room
     expect(answer).toContain('room_read')
-    expect(answer).not.toContain('post_to_room,')
+    expect(answer.split(' | ')[0]!.split(',')).not.toContain('post_to_room')
     expect(authored(rooms.all, 'bob')).toBe(before)
     // the reason, when reached anyway
     const off = postToRoomOff({ room: null, shared: null, restricted: false, templateRun: false, rt: h.rt() as never, spec: { clientKind: 'schedule', chatId, locale: 'ko' } as never })
@@ -303,5 +305,17 @@ describe('injection, retries and changes', () => {
       expect(r.content).toContain('call post_to_room again so they see a new card')
       expect(authored(rooms.all, 'alice')).toBe(before)
     } finally { h.ctx.db.query('DELETE FROM folder_rules WHERE id = ?').run(rule) }
+  })
+
+  test('someone added to the room while the card waits, nothing at stake either way: refused too (the card named the number)', async () => {
+    const g = (await h.api('bob').call(API.createRoom, { body: { kind: 'group', userIds: ['alice', 'erin'] } })).id
+    const before = authored(g, 'bob')
+    const r = await turn('bob', post({ room: g, text: '점심 메뉴 정리' }), {
+      answer: 'send',
+      meanwhile: () => { h.ctx.db.query("INSERT INTO room_members (room_id, user_id, joined_at) VALUES (?, 'dana', ?)").run(g, new Date().toISOString()) },
+    })
+    expect(r.card!.question).toMatch(/\(3명\)에 보낼까요\?$/)
+    expect(r.content).toContain('changed while the card waited')
+    expect(authored(g, 'bob')).toBe(before)
   })
 })
