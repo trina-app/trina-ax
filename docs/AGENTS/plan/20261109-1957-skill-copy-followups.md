@@ -61,4 +61,4 @@ for a skill folder as the source is left out: `fix/ai-refusals-clear` had not la
 
 Checks: typecheck, `check:i18n`, `check:docs` clean; `move-skill` 25 pass, `project-skills` and `c-file-moves` pass,
 the e2e `project-skills` spec passes; the permission matrix's 3 failures and the whole `tests/unit`'s 53 failures are
-the same as on dev. PR: PR_LINK.
+the same as on dev. PR: https://github.com/trina-app/trina-ax/pull/272.
