@@ -9,7 +9,8 @@
 // logo (the computer's sidebar header; the tab and app icons stay the product's; shared/src/team-icon.ts), the
 // company profile every chat's AI is told (components/onboarding/CompanyProfileCard.tsx), the dev environment
 // (DevEnvTeam.tsx, hidden when the server has it off), and whether a room's change card may offer "이 방에서는 항상 허용"
-// (roomAlwaysAllow, docs/DECISIONS.md "대화방에서 새 파일은 미리 허용"). The owner hands the role over from Admin › Members'
+// (roomAlwaysAllow, docs/DECISIONS.md "대화방에서 새 파일은 미리 허용"), whether members make team projects (projectCreators,
+// docs/DECISIONS.md "Projects live only in projects/"). The owner hands the role over from Admin › Members'
 // "…" (팀장 넘기기, components/handover/HandoverDialog.tsx). After the form, the team's AI settings (AI defaults, who picks the engine, members' own AI
 // accounts, usage limits; TeamAiSettings.tsx, #ai and #ai-limits) and the knowledge graph (KnowledgeGraph.tsx,
 // #knowledge-graph), which save on their own. The OpenRouter key is sealed in the
@@ -61,7 +62,7 @@ export default function TeamSettingsPage() {
     if (r && ('updateWindow' in changed || 'timeZone' in changed)) void office.reload()
     // people who follow the team default (maybe this admin) now see the new language: refresh the own view at once,
     // and the chat retention that the chat delete, chat trash and member delete dialogs name (read from /api/me)
-    if (r && (changed.defaultLocale || changed.speechProvider || changed.chatTrashRetentionDays !== undefined)) await api.call(API.me).then(signedIn, () => {})
+    if (r && (changed.defaultLocale || changed.speechProvider || changed.chatTrashRetentionDays !== undefined || changed.projectCreators !== undefined)) await api.call(API.me).then(signedIn, () => {})
   }
   // what is not saved yet (text fields and switches alike), and what blocks Save: the save bar says both
   const unsaved = !!f && !!state.data && Object.entries(f).some(([k, v]) => state.data![k as keyof TeamSettings] !== v)
@@ -127,6 +128,8 @@ export default function TeamSettingsPage() {
                   <AiVisionSwitch value={f.aiVision} onChange={(v) => setF({ ...f, aiVision: v })} />
                   <AiSubagentsSwitch value={f.aiSubagents} onChange={(v) => setF({ ...f, aiSubagents: v })} />
                   <SwitchRow id="ts-room-always" testId="team-room-always" value={f.roomAlwaysAllow} onChange={(v) => setF({ ...f, roomAlwaysAllow: v })} title={t('teamSettings.roomAlways')} desc={t('teamSettings.row.roomAlwaysDesc')} />
+                  {/* who makes team projects (docs/DECISIONS.md "Projects live only in projects/"): members by default */}
+                  <SwitchRow id="ts-project-creators" testId="team-project-creators" value={f.projectCreators !== 'admins'} onChange={(v) => setF({ ...f, projectCreators: v ? 'members' : 'admins' })} title={t('teamSettings.projectCreators')} desc={t('teamSettings.row.projectCreatorsDesc')} />
                   <AnswerStepLimitField value={f.answerStepLimit} onChange={(v) => setF((x) => (x ? { ...x, answerStepLimit: v } : x))} />
                   <DeckTierField value={f.introDeckTier} onChange={(v) => setF((x) => (x ? { ...x, introDeckTier: v } : x))} />
                 </SettingsSection>

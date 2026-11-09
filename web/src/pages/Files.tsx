@@ -10,8 +10,8 @@
 // that row is selected), with the selection's "move" rules and toast; computer files dropped on a folder row are
 // uploaded into it. The "move" action stays the keyboard way to do the same.
 // A whole folder goes up from the picker or a drop, with its subfolders (lib/folderUpload.ts, components/FolderUploads.tsx).
-// A project is a folder with instructions: a folder's menu opens its project, or makes the folder one where the person
-// can write it (lib/projectFolders.ts, components/ProjectForm.tsx).
+// A project is a folder with instructions: a folder's menu opens its project (lib/projectFolders.ts). New projects are made
+// on the Projects page, in a new projects/<name> (docs/DECISIONS.md "Projects live only in projects/").
 import clsx from 'clsx'
 import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, MoreHorizontal, Paperclip, Pencil, Presentation, Search, Signpost, Sparkles, RefreshCw, Trash2, Upload, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
@@ -39,7 +39,6 @@ import FileUploads from '../components/FileUploads'
 import FolderPicker from '../components/FolderPicker'
 import FolderUploads, { startFolderUpload, useFolderUploadsSettled } from '../components/FolderUploads'
 import { TeamFilesEntry } from '../components/onboarding/TeamFilesStep'
-import { ProjectForm } from '../components/ProjectForm'
 import SuggestSkillDialog from '../components/SuggestSkillDialog'
 import { SkillIssues } from '../components/SkillIssues'
 import { isSkillsPath } from '../lib/skillIssues'
@@ -140,7 +139,6 @@ export default function Files() {
   const [sharing, setSharing] = useState<FileEntry | null>(null)
   // the projects the person can see, by folder: a folder's menu opens its project or makes it one
   const [projects, setProjects] = useState<Project[]>([])
-  const [makingProject, setMakingProject] = useState<FileEntry | null>(null)
   const loadProjects = useCallback(() => api.call(API.listProjects).then((r) => setProjects(r.items), () => {}), [])
   useEffect(() => {
     void loadProjects()
@@ -872,7 +870,7 @@ export default function Files() {
                           onDelete={() => void remove(e)}
                           onHistory={() => setHistory(e.path)}
                           project={folderProjectAction(e, byFolder)}
-                          onProject={(a) => (a.kind === 'open' ? navigate(`/projects/${a.project.id}`) : setMakingProject(e))}
+                          onProject={(a) => navigate(`/projects/${a.project.id}`)}
                           onSuggest={e.type === 'file' && e.path.startsWith(`users/${me.user.id}/`) && /\.(md|txt)$/i.test(e.name) ? () => setSuggesting(e.path) : null}
                         />
                       ))}
@@ -911,17 +909,6 @@ export default function Files() {
             if (params.get('history')) setParams(select ? { path, select } : path ? { path } : {}, { replace: true })
           }}
           onRestored={() => void load()}
-        />
-      )}
-      {makingProject && (
-        <ProjectForm
-          initialFolder={makingProject.path}
-          initialName={makingProject.name}
-          onClose={() => setMakingProject(null)}
-          onSaved={(p) => {
-            void loadProjects()
-            navigate(`/projects/${p.id}`)
-          }}
         />
       )}
       {suggesting && <SuggestSkillDialog source={{ kind: 'file', path: suggesting }} initialName={baseName(suggesting).replace(/\.(md|txt)$/i, '')} onClose={() => setSuggesting(null)} />}
@@ -1156,8 +1143,8 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
             )}
             {aiOff && <p id={`${menuId}-ai-off`} className="px-2 pb-1.5 text-xs text-muted" data-testid="file-ai-off-reason">{t('files.askAiDownloadOnly')}</p>}
             {project && (
-              <button role="menuitem" type="button" className={item} onClick={() => onProject(project)} data-testid={project.kind === 'open' ? 'open-project' : 'make-project'}>
-                <FolderKanban size={14} aria-hidden /> <span className="min-w-0 truncate">{t(project.kind === 'open' ? 'files.openProject' : 'files.makeProject')}</span>
+              <button role="menuitem" type="button" className={item} onClick={() => onProject(project)} data-testid="open-project">
+                <FolderKanban size={14} aria-hidden /> <span className="min-w-0 truncate">{t('files.openProject')}</span>
               </button>
             )}
             {!folder && (
