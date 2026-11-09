@@ -202,6 +202,13 @@ export function startComponentC(ctx: AppContext): ComponentC {
       .catch((e) => ctx.log.warn('document text upgrade stopped', { err: String(e) }))
   }, firstRefreshMs(installId(ctx.db)))
   upgrade?.unref?.()
-  ctx.onClose(async () => { clearTimeout(first); clearInterval(timer); if (upgrade) clearTimeout(upgrade); stopUpgrade.abort(); await c.jobs.close() })
+  // once, a minute after start: the JPEG thumbnails of transparent images attached before become PNG ones
+  // (uploads/attachments.ts refreshThumbs)
+  const stopThumbs = new AbortController()
+  const thumbs = process.env.NODE_ENV === 'test' ? null : setTimeout(() => {
+    void c.attachments.refreshThumbs(stopThumbs.signal).catch((e) => ctx.log.warn('thumbnail refresh failed', { err: e }))
+  }, 60_000)
+  thumbs?.unref?.()
+  ctx.onClose(async () => { clearTimeout(first); clearInterval(timer); if (upgrade) clearTimeout(upgrade); stopUpgrade.abort(); if (thumbs) clearTimeout(thumbs); stopThumbs.abort(); await c.jobs.close() })
   return c
 }

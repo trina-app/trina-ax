@@ -29,6 +29,14 @@ export const roomsRoutes: RouteModule = {
     try { rooms.sync() } catch (e) { ctx.log.error('room sync failed', { err: e }) }
     // after a restore the database and the team folder can be from different moments: rows and files are matched
     try { roomFilesOf(ctx).reconcile() } catch (e) { ctx.log.error('room file reconcile failed', { err: e }) }
+    // once, a minute after start: the JPEG thumbnails of transparent pictures sent before become PNG ones (rooms/files.ts
+    // refreshThumbs)
+    if (process.env.NODE_ENV !== 'test') {
+      const stop = new AbortController()
+      const later = setTimeout(() => { void roomFilesOf(ctx).refreshThumbs(stop.signal).catch((e) => ctx.log.warn('room thumbnail refresh failed', { err: e })) }, 60_000)
+      ;(later as { unref?: () => void }).unref?.()
+      ctx.onClose(() => { clearTimeout(later); stop.abort() })
+    }
     // the AI in rooms (rooms/ai.ts): the chat runtime's room hooks, and the questions that ended while it was down
     try {
       getChatRuntime(ctx).rooms = roomAiOf(ctx)

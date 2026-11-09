@@ -277,12 +277,16 @@ test("a photo's thumbnail takes its own shape once loaded (an older row with a l
   const m = await mount(<RoomMessages roomId={R} messages={[m0]} pending={[]} meId={ME.id} members={[ME, BEN]} onThread={() => {}} />)
   try {
     const img = m.get('room-image').querySelector('img')!
-    // before it loads: the box from the stored size (landscape)
+    // before it loads: the box from the stored size (landscape), a soft box holding the place
     expect([img.style.width, img.style.height]).toEqual(['320px', '240px'])
+    expect(img.className).toContain('bg-subtle')
+    expect(m.get('room-image').className).not.toContain('bg-')
     // the thumbnail ffmpeg made is upright: 480 x 640
     Object.assign(img, { naturalWidth: 480, naturalHeight: 640 })
     await act(async () => { img.dispatchEvent(new Ev('load')) })
     expect([img.style.width, img.style.height]).toEqual(['180px', '240px'])
+    // once it is there nothing is painted behind it: a transparent picture (a seal stamp) sits on the message itself
+    expect(img.className).not.toContain('bg-')
   } finally {
     await m.unmount()
     removeDom()
