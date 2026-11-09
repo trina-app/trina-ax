@@ -66,7 +66,7 @@ export const EDIT_FILES_DESCRIPTION = 'Make the same exact-string replacement in
 // ---------------- other tools (stage 1: contracts only) ----------------
 export const HwpRenderInput = z.strictObject({ source: relPath, page: z.number().int().min(1).max(200), format: z.literal('png') })
 export const MakeFileInput = z.strictObject({
-  source: optRelPath.describe('.md/.csv file to convert (source or content)'),
+  source: optRelPath.describe('.md/.csv file to convert, or an .html page to print to PDF (format "pdf"); source or content'),
   content: z.string().optional(),
   format: z.enum(['docx', 'pptx', 'xlsx', 'pdf', 'hwpx']),
   output: relPath.describe('Where to save (write access needed; a conflict copy is made if it exists)'),
@@ -76,7 +76,7 @@ export const MakeFileInput = z.strictObject({
   expected_layouts: z.array(z.enum(['Title Slide','Title and Content','Section Header','Two Content','Comparison','Content with Caption','Blank'])).min(1).max(30).optional().describe('Safe PowerPoint only: required bundled layout for each slide in order. A mismatch saves nothing. One ## heading per ordinary slide; columns select Two Content, text then image selects Content with Caption.'),
 }).refine((v) => (v.source === undefined) !== (v.content === undefined), { message: 'give exactly one of source or content' })
   .refine((v) => v.format === 'pptx' || (v.expected_slides === undefined && v.expected_notes === undefined && v.expected_layouts === undefined), { message: 'expected_slides and expected_notes are only for format "pptx"' })
-export const MakeFileOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string(), slides: z.number().optional(), notes: z.number().optional() })
+export const MakeFileOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string(), slides: z.number().optional(), notes: z.number().optional(), pages: z.number().optional() })
 
 /** edit_hwp: the text of an existing Hangul document (.hwp or .hwpx) changed, the rest of the file kept as it was
  * (server/src/tools/edit-hwp.ts, server/src/files/hwpx-edit.ts, server/src/files/hwp-edit.ts). */
@@ -208,6 +208,68 @@ export const SaveUrlInput = z.strictObject({
 })
 export const SaveUrlOutput = z.object({ url: z.string(), path: z.string(), size: z.number(), sha256: z.string(), type: z.string(), conflictCopyOf: z.string().optional() })
 
+// The person's own team chat rooms, read from their AI chat (server/src/chat/room-tools.ts, docs/DECISIONS.md "내 AI
+// 채팅에서 대화방 읽기"). Never offered in a room's own AI session, a confidential or a draft chat.
+const when = z.string().min(1).max(40)
+/** rooms: the rooms the person is in now, or (with query, person, since or until) the messages they can see that match */
+export const RoomsInput = z.strictObject({
+  query: z.string().min(1).max(200).optional().describe('Words to look for in the messages (all of them, any case). Without query, person, since and until the rooms are listed.'),
+  person: z.string().min(1).max(100).optional().describe('Only messages written by this person (their name or part of it, e.g. "Minji").'),
+  room: z.string().min(1).max(200).optional().describe('Only this room (its name, the other person\'s name for a 1:1 chat, or its id). Without a search it narrows the list.'),
+  since: when.optional().describe('Messages from this date or time on, e.g. "2026-11-01" or "2026-11-01T09:00" (the team\'s time zone).'),
+  until: when.optional().describe('Messages before this date or time (a date alone: up to the end of that day).'),
+  limit: z.number().int().min(1).max(100).optional().describe('At most this many results (default 30).'),
+})
+/** room_read: one room's messages (or one thread's), as the person sees them */
+export const RoomReadInput = z.strictObject({
+  room: z.string().min(1).max(200).describe('The room: its id (best: from rooms, or a #[name](room:<id>) the user picked), its name, or the other person\'s name for a 1:1 chat.'),
+  thread: z.string().min(1).max(100).optional().describe('The id of a message that has a thread ("thread: N replies" in an earlier result): read that thread instead of the room.'),
+  since: when.optional().describe('Only messages from this date or time on, e.g. "2026-11-01" (the team\'s time zone).'),
+  until: when.optional().describe('Only messages before this date or time; to read further back, the time of the oldest message shown.'),
+  limit: z.number().int().min(1).max(200).optional().describe('At most this many messages, the newest ones (default 50, at most 200).'),
+})
+/** room_file: the text (or the picture) of a file sent in a room */
+export const RoomFileInput = z.strictObject({
+  room: z.string().min(1).max(200).describe('The room the file was sent in (its id or name, as for room_read).'),
+  file: z.string().min(1).max(300).describe('The file\'s id from room_read ("file_id=…"), or its exact name.'),
+  offset: z.number().int().min(0).optional().describe('Characters of the text to skip (to read on after a cut result).'),
+})
+
+/** room_file in a room's own AI session (rooms/ai.ts): a file of this room, nothing else */
+export const RoomFileHereInput = z.strictObject({
+  file: z.string().min(1).max(300).describe('The file\'s id (file_id=… in the <attachments> list or after a message in <room_context>), or its exact name.'),
+  offset: z.number().int().min(0).optional().describe('Characters of the text to skip (to read on after a cut result).'),
+})
+/** room_thread in a room's own AI session (rooms/ai.ts): one whole thread of this room, nothing else */
+export const RoomThreadHereInput = z.strictObject({
+  thread: z.string().min(1).max(100).describe('The id of the thread\'s first message: id="…" of a message in <room_context> that has thread_replies, or thread_reply_of="…" of a reply (in a thread: thread_id).'),
+  before: z.string().min(1).max(100).optional().describe('To read further back in a long thread: the reply id an earlier result named ("before=…").'),
+})
+/** project_chats in a room's own AI session (rooms/ai.ts, chat/room-project-chats.ts): the shared project chats the asker
+ * may view, or those that match */
+export const ProjectChatsInput = z.strictObject({
+  query: z.string().min(1).max(200).optional().describe('Words to look for in a chat\'s title, its project\'s name and its messages (all of them, any case). Without query and project the chats are listed, the latest activity first.'),
+  project: z.string().min(1).max(200).optional().describe('Only the chats of the project whose name is this or contains it (e.g. "견적").'),
+  limit: z.number().int().min(1).max(50).optional().describe('At most this many chats (default 20).'),
+  include_all: z.boolean().optional().describe('Also look in the projects that some people in this room cannot see (default: only the projects everyone here can see). Your answer then stays private to the user when someone here cannot see one of them.'),
+})
+/** project_chat: one shared project chat's messages, its current branch (a room's own AI session) */
+export const ProjectChatInput = z.strictObject({
+  chat: z.string().min(1).max(100).describe('The chat\'s id: chat_id="…" of a result of project_chats.'),
+})
+const saveAs = z.string().max(300).optional().describe('Team path to save to, e.g. "shared/photos/receipt.jpg"; a path ending in "/" keeps the file\'s own name ("shared/"). Default: users/<you>/downloads/.')
+/** save_room_file in a person's own chat: a copy of a file sent in one of their rooms put into the team folder */
+export const SaveRoomFileInput = z.strictObject({
+  room: z.string().min(1).max(200).describe('The room the file was sent in (its room_id, best, or its name, as for room_read).'),
+  file: z.string().min(1).max(300).describe('The file\'s id from room_read ("file_id=…"); a name is not taken, as two files may share one.'),
+  save_as: saveAs,
+})
+/** save_room_file in a room's own AI session (rooms/ai.ts): a copy of a file sent in this room */
+export const SaveRoomFileHereInput = z.strictObject({
+  file: z.string().min(1).max(300).describe('The file\'s id (file_id=… in the <attachments> list or after a message in <room_context>); a name is not taken, as two files may share one.'),
+  save_as: saveAs,
+})
+
 export const ToolError = z.object({ error: z.object({ code: z.string(), message: z.string() }) })
 /** File tools return plain text (like Claude Code's built-ins). */
 export const TextOutput = z.object({ text: z.string() })
@@ -241,6 +303,13 @@ export const OTHER_TOOLS = {
   find_skills: { input: FindSkillsInput, output: TextOutput },
   web_fetch: { input: WebFetchInput, output: WebFetchOutput },
   save_url: { input: SaveUrlInput, output: SaveUrlOutput },
+  rooms: { input: RoomsInput, output: TextOutput },
+  room_read: { input: RoomReadInput, output: TextOutput },
+  room_file: { input: RoomFileInput, output: TextOutput },
+  save_room_file: { input: SaveRoomFileInput, output: TextOutput },
+  room_thread: { input: RoomThreadHereInput, output: TextOutput },
+  project_chats: { input: ProjectChatsInput, output: TextOutput },
+  project_chat: { input: ProjectChatInput, output: TextOutput },
 } as const
 
 /** Exactly what the engine may have, in addition to mcp__team__<file tool>. Lockdown test asserts this. */

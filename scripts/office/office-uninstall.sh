@@ -4,7 +4,7 @@
 #   bash office-uninstall.sh [--prefix DIR] [--delete-data [--yes]]
 #
 # Stops and removes the LaunchAgents (the server, the nightly updater and, with an internet address, cloudflared) and
-# deletes the program (app/, app.previous/, app.failed/, update/, the teamax link, ADDRESSES.txt, config/server.json). Keeps data/ (database, backups), team/ (the team folder), tls/ (the office CA the desks
+# deletes the program (app/, app.previous/, app.failed/, update/, browser/, the teamax link, ADDRESSES.txt, config/server.json). Keeps data/ (database, backups), team/ (the team folder), tls/ (the office CA the desks
 # trust), config/office.env and logs/ unless --delete-data, which deletes the whole install folder after you type
 # "delete" (or with --yes).
 set -euo pipefail
@@ -56,6 +56,6 @@ if [ "$DELETE" = 1 ]; then
   rm -rf "$PREFIX"
   echo "office-uninstall: removed $LABEL and $PREFIX"
 else
-  rm -rf "$PREFIX/app" "$PREFIX/app.previous" "$PREFIX/app.new" "$PREFIX/app.failed" "$PREFIX/update" "$PREFIX/teamax" "$PREFIX/ADDRESSES.txt" "$PREFIX/config/server.json"
+  rm -rf "$PREFIX/app" "$PREFIX/app.previous" "$PREFIX/app.new" "$PREFIX/app.failed" "$PREFIX/update" "$PREFIX/browser" "$PREFIX/teamax" "$PREFIX/ADDRESSES.txt" "$PREFIX/config/server.json"
   echo "office-uninstall: removed $LABEL and the program; kept $PREFIX/{data,team,tls,config,logs} (--delete-data removes them)"
 fi

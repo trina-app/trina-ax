@@ -12,13 +12,13 @@
 // start (a hosted team's backup restored on the team's own server must not keep using the hosting service's key).
 import type { Database } from 'bun:sqlite'
 import type { SpeechKeyStatus } from '@mycel/shared/api'
-import { getSetting, getTeamSettings, HOSTED_SPEECH_KEY_SETTING, setSetting } from '../admin/settings'
+import { getSetting, getTeamSettings, HOSTED_SPEECH_KEY_SETTING, setSetting, SPEECH_KEY_SETTING } from '../admin/settings'
+import { missingLocalTools, type TranscribeConfig } from '../jobs/transcribe'
 import { VaultError, type Vault } from './vault'
 import type { CredCtx } from './store'
 import { hostedSpeechUsage } from './hosted-speech'
 
-export const SPEECH_KEY_SETTING = 'speech.openrouterKey'
-export { HOSTED_SPEECH_KEY_SETTING }
+export { HOSTED_SPEECH_KEY_SETTING, SPEECH_KEY_SETTING }
 const ID = 'speech.openrouter'
 const HOSTED_ID = 'speech.hosted'
 const KIND = 'openrouter-api-key'
@@ -117,8 +117,10 @@ export function rekeySpeechKey(db: Database, from: Vault, next: Vault): { versio
 export function voiceInputOutside(db: Database): boolean {
   return getTeamSettings(db).speechProvider === 'openrouter' && speechKeySource(db) !== null
 }
-/** Voice input works now: on this server, or OpenRouter with the team's key or the hosting service's. */
-export function voiceInputOn(db: Database): boolean {
+/** Voice input works now: on this server when it has whisper-cli and ffmpeg (`local`: the transcribe config the voice
+ * input jobs use; without them the mic showed and every recording failed, e.g. on an office Mac), or OpenRouter with the
+ * team's key or the hosting service's. */
+export function voiceInputOn(db: Database, local: Pick<TranscribeConfig, 'whisperBin' | 'ffmpegBin'>): boolean {
   const p = getTeamSettings(db).speechProvider
-  return p === 'local' || (p === 'openrouter' && speechKeySource(db) !== null)
+  return (p === 'local' && missingLocalTools(local).length === 0) || (p === 'openrouter' && speechKeySource(db) !== null)
 }

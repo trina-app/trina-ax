@@ -12,6 +12,7 @@ import { crumbs } from '../../lib/paths'
 import { useLocale, useT } from '../../i18n'
 import { useMe } from '../../store/session'
 import { Button, ErrorNote, Modal, Skeleton, inputCls } from '../ui'
+import { Tooltip } from '../Tooltip'
 
 const ext = (name: string) => (name.includes('.') ? name.slice(name.lastIndexOf('.') + 1).toLowerCase() : '')
 /** A team path as the person reads it: their own users/<id> is "My folder". */
@@ -220,9 +221,11 @@ export default function TeamFilePicker({ open, onClose, onPick, room, max, attac
           data-autofocus={fine ? '' : undefined}
         />
         {query && (
-          <button type="button" className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-faint hover:bg-hover" aria-label={t('picker.clearSearch')} onClick={() => { setQuery(''); searchRef.current?.focus() }}>
-            <X size={14} />
-          </button>
+          <Tooltip label={t('picker.clearSearch')}>
+            <button type="button" className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-faint hover:bg-hover" aria-label={t('picker.clearSearch')} onClick={() => { setQuery(''); searchRef.current?.focus() }}>
+              <X size={14} />
+            </button>
+          </Tooltip>
         )}
       </div>
       <p className="mb-2 text-xs text-muted">{t('picker.hint')}</p>

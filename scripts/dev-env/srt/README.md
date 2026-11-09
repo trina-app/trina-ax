@@ -28,18 +28,23 @@ scripts/dev-env/srt/install-srt.sh --id mycel
 On a hosted team VM the plan file `<base>/root/dev-env.json` must be there (root-owned, format 1). Self-hosted servers
 without the file get half of the memory and of the CPUs for all runs together. The first run restarts the team server.
 
-Then, in the app, an owner or admin turns on the dev environment of a project and accepts the warning (version 2).
+Then, in the app, an owner or admin turns on the dev environment for the team in Team settings › Dev environment and
+accepts the warning (version 2).
 
 ## Check
 
 - `systemctl show -p Environment <ID>-server.service` names `MYCEL_DEV_ENV_RUNNER=srt`.
-- The project page says the dev environment is available. If not, it says why (a missing file, polkit).
+- Team settings › Dev environment shows no "cannot run" note. If it does, `GET /api/admin/dev-env` says why in
+  `availability.detail` (a missing file, polkit).
 - `systemctl list-units 'trina-dev-*'` lists the runs while they run.
 
 ## A new srt version
 
 1. Change the version in `package.json`, run `npm install --package-lock-only --ignore-scripts` in this folder.
-2. Change `SRT_VERSION` in `install-srt.sh` and in `server/src/devenv/srt/config.ts` (a unit test compares them).
+2. Change the `srt` artifact in `scripts/system/packages.json` (version, url, sha256 and size of the npm tarball; the
+   lockfile's `resolved`) and `SRT_VERSION` in `server/src/devenv/srt/config.ts`. `install-srt.sh` reads the version
+   from the list; `tests/unit/system-packages.test.ts` compares the list, the server, `package.json` and the lockfile.
+   Node is pinned in the same list (`node`: version, and url, sha256 and size per platform from `SHASUMS256.txt`).
 3. Read srt's release notes: it is a "beta research preview".
 4. Run `bun tests/linux/srt-run.ts` (the Docker attack suite).
 

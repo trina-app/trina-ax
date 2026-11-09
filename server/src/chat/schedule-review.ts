@@ -1,11 +1,11 @@
 // "다시 확인" (check again) for a free-text scheduled task nobody confirmed on its card (docs/DECISIONS.md "Scheduled
 // tasks nobody confirmed"). Such a task never runs (chat/schedules.ts needsReview); its owner sees the same server card
 // the AI's schedule_create raises (tools/schedules.ts scheduleCard: title, schedule, the whole instruction, its
-// addresses with long random-looking parts marked, the "allow" team connections a run could send to) and resumes it
-// from there. Resuming is the confirmation the task never had: only the addresses that card showed open without asking
-// in its runs, and only the connections the person picked may be written to. The answer is bound to the card's
-// content (requestId): when something it showed changed in between (a connection turned to "allow"), the answer is
-// refused and the card is shown again.
+// addresses with long random-looking parts marked, the "allow" team connections its title or instruction names that a
+// run could send to: tools/schedules.ts taskConnections) and resumes it from there. Resuming is the confirmation the
+// task never had: only the addresses that card showed open without asking in its runs, and only the connections the
+// person picked may be written to. The answer is bound to the card's content (requestId): when something it showed
+// changed in between (a connection it names turned to "allow"), the answer is refused and the card is shown again.
 import crypto from 'node:crypto'
 import type { Locale, ScheduleReviewCard } from '@mycel/shared/api'
 import { audit } from '../admin/audit'
@@ -15,11 +15,12 @@ import { tr } from './i18n'
 import type { ChatRuntime } from './runtime'
 import { needsReview, nextRun, type ScheduleRow } from './schedules'
 import { egressOf } from '../tools/egress'
-import { scheduleCard, scheduleOptions, writableConnections } from '../tools/schedules'
+import { scheduleCard, scheduleOptions, taskConnections, writableConnections } from '../tools/schedules'
 
 function build(ctx: AppContext, s: ScheduleRow, L: Locale) {
-  const writable = writableConnections(ctx, s.user_id)
   const input = { title: s.title, prompt: s.prompt, repeat: s.repeat, time: s.time, weekday: s.weekday ?? undefined, day: s.day ?? undefined, date: s.date ?? undefined }
+  // only the connections the task names (never every "allow" connection the person can use); nobody ever allowed it any
+  const writable = taskConnections(writableConnections(ctx, s.user_id), input)
   // what a run can open on this server now (tools/egress.ts): the card promises nothing it cannot keep
   const card = scheduleCard(input, writable.map((r) => r.name), L, 'review', { urlsOpen: egressOf(ctx).known })
   const options = scheduleOptions(L, writable.length > 0, 'review')

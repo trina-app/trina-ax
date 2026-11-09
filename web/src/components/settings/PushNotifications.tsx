@@ -1,36 +1,81 @@
-import clsx from 'clsx'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { z } from 'zod'
-import type { PushSettings } from '@mycel/shared/api'
-import { api, API } from '../../lib/api'
-import { disablePush, enablePush, pushRegistration, pushSupported } from '../../lib/push'
+import type { Locale, PushSettings } from '@mycel/shared/api'
+import { api, API, errorText } from '../../lib/api'
+import { disablePush, enablePush, isBrave, logPushFailure, notificationPermission, PushError, pushFailure, pushRegistration, pushRetryHelps, pushSupport, type PushFailure } from '../../lib/push'
 import { askLater, mobilePushApp, phonePushView, refreshPhonePush, registerMobilePush, usePhonePush } from '../../lib/mobile-push'
-import { canOpenAppSettings, openAppSettings } from '../../lib/mobile'
-import { pushNeedsInstall } from '../../lib/pwa'
+import { canOpenAppSettings, mobileApp, openAppSettings } from '../../lib/mobile'
+import { isStandalone, platform, pushNeedsInstall, type Platform } from '../../lib/pwa'
+import { isDesktop } from '../../lib/desktop'
 import { useRealPath } from '../../lib/realPath'
-import { useT } from '../../i18n'
+import { useLocale, useT } from '../../i18n'
 import { isAdmin, useMe } from '../../store/session'
 import { notificationsChanged } from '../../store/live'
-import { hidesTabs } from '../BottomTabs'
+import { hidesTabs } from '../../lib/tabs'
 import { Button, ErrorNote } from '../ui'
 
+/** What a browser's push failure says (Settings › Notifications and the web ask, components/WebPushAsk.tsx): the reason
+ * in plain words (lib/push.ts pushFailure), never the generic "check your connection and try again" when that cannot
+ * help. null: nothing to say (the account changed meanwhile). A missing or broken server key is an admin's matter: a
+ * member is only told to let an admin know. */
+export function pushFailureText(f: PushFailure, t: ReturnType<typeof useT>, locale: Locale, o: { admin: boolean; brave?: boolean }): string | null {
+  switch (f.kind) {
+    case 'cancelled': return null
+    case 'unsupported': return t('push.unsupported')
+    case 'insecure': return t('push.insecure')
+    case 'service': return t((o.brave ?? isBrave()) ? 'push.serviceBrave' : 'push.service')
+    case 'browserService': return t('push.browserService')
+    case 'worker': return t('push.worker')
+    case 'storage': return t('push.storage')
+    case 'busy': return t('push.busy')
+    case 'key': return t(o.admin ? 'push.keyAdmin' : 'push.keyMember')
+    case 'denied': return t('push.denied')
+    case 'dismissed': return t('push.dismissed')
+    case 'tooMany': return t('push.tooMany', { off: t('push.disable') })
+    case 'network': return t('error.network')
+    case 'server': return f.error ? errorText(f.error, locale, t('error.network')) : t('push.failedUnknown')
+    default: return t('push.failedUnknown')
+  }
+}
+
+/** An installed web app (display-mode: standalone, or an iPhone's Home Screen) whose browser can put a number on its
+ * icon (the Badging API; store/sessionMarkers.ts sets it): where the system lets that number show, when it does not.
+ * Elsewhere (a tab, the desktop app with its own badge, the phone app, a browser without the API): null. */
+export function badgeHintKey(o: { installed: boolean; badging: boolean; app: boolean; p: Platform }): 'push.badgeHint.mac' | 'push.badgeHint.windows' | 'push.badgeHint.ios' | 'push.badgeHint.other' | null {
+  if (!o.installed || !o.badging || o.app) return null
+  return o.p === 'mac' ? 'push.badgeHint.mac' : o.p === 'windows' ? 'push.badgeHint.windows' : o.p === 'ios' ? 'push.badgeHint.ios' : 'push.badgeHint.other'
+}
+const badgeHintHere = () => badgeHintKey({
+  installed: isStandalone(), badging: typeof navigator !== 'undefined' && typeof (navigator as { setAppBadge?: unknown }).setAppBadge === 'function',
+  app: isDesktop() || !!mobileApp(), p: platform(),
+})
+
 export function PushNotifications() {
-  const t = useT()
+  const t = useT(), locale = useLocale()
   const [settings, setSettings] = useState<z.infer<typeof PushSettings> | null>(null)
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null)
-  const [busy, setBusy] = useState(false), [failed, setFailed] = useState(false)
-  const [denied, setDenied] = useState(false)
+  const [busy, setBusy] = useState(false)
+  // why the last load or change did not work (the phone app keeps its one line: push.failed)
+  const [failure, setFailure] = useState<PushFailure | null>(null)
+  const retry = useRef<(() => void) | null>(null)
   const [deviceReady, setDeviceReady] = useState(false)
   const life = useRef(0), revision = useRef(0)
-  const supported = pushSupported(), needsInstall = pushNeedsInstall()
+  const support = pushSupport(), supported = support === 'ok', needsInstall = pushNeedsInstall(), badgeHint = badgeHintHere()
   // Inside the phone app: native push through the team's push gateway instead of Web Push.
   const app = mobilePushApp(), me = useMe()
   const phone = usePhonePush()
+  const fail = (error: unknown, again: () => void) => {
+    const f = pushFailure(error)
+    if (!app) logPushFailure(error, f)
+    retry.current = again
+    setFailure(f)
+  }
   const load = async () => {
     const generation = life.current, rev = ++revision.current
     try {
-      const next = await api.call(API.getPushSettings)
+      let next: z.infer<typeof PushSettings>
+      try { next = await api.call(API.getPushSettings) } catch (error) { throw new PushError('server', error) }
       if (generation !== life.current || rev !== revision.current) return
       setSettings(next)
       if (next.configured && supported && !needsInstall) {
@@ -38,7 +83,7 @@ export function PushNotifications() {
         const subscription = await worker.pushManager.getSubscription()
         if (generation === life.current && rev === revision.current) { setRegistration(worker); setDeviceReady(!!subscription && Notification.permission === 'granted') }
       }
-    } catch { if (generation === life.current && rev === revision.current) setFailed(true) }
+    } catch (error) { if (generation === life.current && rev === revision.current) fail(error, () => { setFailure(null); void load() }) }
   }
   useEffect(() => {
     life.current++; void load()
@@ -54,7 +99,7 @@ export function PushNotifications() {
   const change = async (enabled: boolean) => {
     if (busy || !settings) return
     const generation = life.current
-    setBusy(true); setFailed(false); setDenied(false)
+    setBusy(true); setFailure(null)
     try {
       if (enabled && app) await registerMobilePush()
       else if (enabled) {
@@ -64,34 +109,53 @@ export function PushNotifications() {
       if (generation === life.current) await load()
     } catch (error) {
       // the phone app: a "no" from the OS is shown as the status line below, not as an error
-      if (generation === life.current && !(app && (error as Error)?.message === 'push_denied')) { setFailed(true); setDenied(!app && typeof Notification !== 'undefined' && Notification.permission === 'denied') }
+      if (generation === life.current && !(app && (error as Error)?.message === 'push_denied')) fail(error, () => void change(enabled))
     } finally { if (generation === life.current) setBusy(false) }
   }
   const view = phonePushView({ permission: phone.permission, on: !!(settings?.enabled && settings.native?.deviceId), canOpenSettings: canOpenAppSettings() })
-  // Phones: no frame inside the Settings card, and hints as large as the status line (they are read on a small screen).
-  return <section className="space-y-3 md:rounded-xl md:border md:border-line md:p-4" data-testid="push-notifications">
-    <h3 className="text-sm font-semibold">{t('push.title')}</h3>
-    {/* the description is about the browser's push service: the phone app's status line says what matters there, and on
-        a phone a server without push says only that (there is nothing to turn on) */}
-    {!app && <p className={clsx('text-xs text-muted max-md:text-sm', !settings?.configured && 'max-md:hidden')}>{t('push.description')}</p>}
-    {/* the phone app: one status line and one action */}
-    {settings && app && (settings.native?.available ? <>
-      <p className="text-sm" data-testid="phone-push-status">{t(view.status)}</p>
-      {view.action === 'open-settings' ? <Button onClick={() => void openAppSettings().catch(() => {})} data-testid="phone-push-settings">{t('push.openSettings')}</Button>
+  // the browser blocked notifications for this site: the status line says so and how to undo it
+  const blocked = !app && supported && notificationPermission() === 'denied'
+  // One row of 이 기기 (Settings › Notifications): the name, where push stands on this device under it, the action on the
+  // right; what push sends (and, for admins, the phone gateway) in a quieter line below. No frame.
+  let status: ReactNode = null, action: ReactNode = null
+  if (settings && app) {
+    if (settings.native?.available) {
+      status = <span data-testid="phone-push-status">{t(view.status)}</span>
+      action = view.action === 'open-settings' ? <Button onClick={() => void openAppSettings().catch(() => {})} data-testid="phone-push-settings">{t('push.openSettings')}</Button>
         : view.action === 'disable' ? <Button busy={busy} onClick={() => void change(false)}>{t('push.disable')}</Button>
-          : <Button variant="primary" busy={busy} onClick={() => void change(true)} data-testid="phone-push-enable">{t('push.turnOn')}</Button>}
-    </> : <p className="text-sm text-muted">{t('push.notConfigured')}</p>)}
-    {settings && !app && !settings.configured && <p className="text-sm text-muted">{t('push.notConfigured')}</p>}
-    {settings?.configured && !app && <>
-      {needsInstall ? <p className="text-sm text-muted">{t('push.installIos')}{' '}<Link to="/settings/apps" className="text-accent-text underline">{t('push.installGuide')}</Link></p> : !supported ? <p className="text-sm text-muted">{t('push.unsupported')}</p> : <>
-        <p className="text-sm">{t(settings.enabled && settings.subscriptionId && deviceReady ? 'push.on' : 'push.off')}</p>
-        {(!settings.enabled || !settings.subscriptionId || !deviceReady) && <Button busy={busy} disabled={!registration} onClick={() => void change(true)}>{t('push.enable')}</Button>}
-      </>}
-      {settings.enabled && <Button className="ml-2" busy={busy} onClick={() => void change(false)}>{t('push.disable')}</Button>}
-    </>}
-    {settings?.native && me && isAdmin(me) && <p className="text-xs text-muted max-md:text-sm" data-testid="phone-push-gateway">{settings.native.gateway ? t('push.phoneGateway', { host: settings.native.gateway }) : t('push.phoneOff')}</p>}
-    {failed && <ErrorNote>{t(denied ? 'push.denied' : 'push.failed')}</ErrorNote>}
-  </section>
+          : <Button variant="primary" busy={busy} onClick={() => void change(true)} data-testid="phone-push-enable">{t('push.turnOn')}</Button>
+    } else status = t('push.notConfigured')
+  } else if (settings && !settings.configured) status = t('push.notConfigured')
+  else if (settings?.configured) {
+    if (needsInstall) status = <>{t('push.installIos')}{' '}<Link to="/settings/apps" className="text-accent-text underline">{t('push.installGuide')}</Link></>
+    else if (!supported) status = t(support === 'insecure' ? 'push.insecure' : 'push.unsupported')
+    else {
+      const on = !!(settings.enabled && settings.subscriptionId && deviceReady)
+      status = <span data-testid="push-status">{on ? t('push.on') : blocked ? t('push.denied') : t('push.off')}</span>
+      if (!on) action = <Button busy={busy} disabled={!registration} onClick={() => void change(true)}>{t('push.enable')}</Button>
+    }
+    if (settings.enabled) action = <>{action}<Button busy={busy} onClick={() => void change(false)}>{t('push.disable')}</Button></>
+  }
+  // the reason in words; the status line already says a blocked site
+  const failureText = !failure ? null : app ? t('push.failed') : failure.kind === 'denied' && blocked ? null : pushFailureText(failure, t, locale, { admin: isAdmin(me) })
+  return (
+    <div className="py-3.5" data-testid="push-notifications">
+      <div className="flex items-start gap-4 max-sm:flex-col max-sm:gap-2.5">
+        <div className="min-w-0 flex-1">
+          <h4 className="text-sm font-medium text-ink">{t('push.title')}</h4>
+          {status && <p className="mt-0.5 text-sm text-muted">{status}</p>}
+        </div>
+        {action && <div className="flex shrink-0 flex-wrap items-center gap-2">{action}</div>}
+      </div>
+      {/* what push sends: about the browser's push service (the phone app's status line says what matters there) */}
+      {!app && settings?.configured && <p className="mt-2 text-xs text-faint max-md:text-sm">{t('push.description')}</p>}
+      {/* an installed web app: where the system lets the count show on its icon (one quiet line) */}
+      {badgeHint && <p className="mt-2 text-xs text-faint max-md:text-sm" data-testid="push-badge-hint">{t(badgeHint)}</p>}
+      {settings?.native && me && isAdmin(me) && <p className="mt-2 text-xs text-faint max-md:text-sm" data-testid="phone-push-gateway">{settings.native.gateway ? t('push.phoneGateway', { host: settings.native.gateway }) : t('push.phoneOff')}</p>}
+      {/* "다시 시도" only where trying again can help: the team server could not be reached or had a passing fault */}
+      {failureText && <div className="mt-2" data-testid="push-failure" data-kind={failure?.kind}><ErrorNote onRetry={!app && failure && pushRetryHelps(failure) ? () => retry.current?.() : undefined}>{failureText}</ErrorNote></div>}
+    </div>
+  )
 }
 
 /** Signed in inside the phone app, when the OS has not been asked yet: the app's own question, above the tab bar (not

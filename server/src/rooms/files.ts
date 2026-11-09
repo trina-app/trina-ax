@@ -4,27 +4,44 @@
 // owner's export (policy/access.ts, policy/resolve.ts, system/export.ts), yet it is in every backup, archive and
 // restore of the team folder (system/backup.ts), so room files go wherever the database goes. They are reached only
 // through GET /api/rooms/:id/files/:fileId, which checks on every read that the caller is in the room now and may see
-// the message the file was sent with. The upload path and its limits are the chat attachments' (multipart ≤ 50 MB, the
+// the message the file was sent with. It sends them like a team file's download (team-files/download.ts streamFile:
+// nosniff, a sandbox CSP, a page or script type inline as text/plain); the app's preview panel reads those bytes and
+// draws them (an HTML page only in its sandbox frame), never as a page of this origin. A file whose bytes are on the
+// team's download-only list goes only as a download (no inline read, no thumbnail). The upload path and its limits are the chat attachments' (multipart ≤ 50 MB, the
 // storage check, the temp file and its sha256, the image size and thumbnail helpers, the quarantine list).
 // reconcile() runs at every start: after a restore the database and the folder may be from different moments; a file
 // without its row is set aside in .system/rooms-orphans/ for 30 days, a row without its file is only counted.
-import { createHash } from 'node:crypto'
+// fromTeamFile() makes a room upload from a team file the sender may read now ("대화방에 보내기" attaching the files an
+// answer links to, chat/answer-share.ts): the same limits (≤ 50 MB, the storage check), then create().
+// hwpSource() gives a Hangul file's bytes to the HWP preview (files/hwp-preview.ts, the HWP Preview plugin's renderer;
+// GET /api/rooms/:id/files/:fileId/hwp-preview) with the inline read's checks, made again on every call.
+import { createHash, randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
-import type { RoomFile } from '@mycel/shared/api'
+import { which } from '../config'
+import { SMALL_UPLOAD_MAX, type Locale, type RoomFile } from '@mycel/shared/api'
+import { HWP_LIMITS } from '@mycel/shared/hwp'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
 import { ext } from '../files/extract'
+import { HwpError } from '../files/hwp-engine'
+import type { HwpSource } from '../files/hwp-preview'
+import type { SearchAdmission } from '../files/search-admission'
+import { sha256 } from '../files/store'
 import { fail } from '../http/errors'
+import { loadPrincipal } from '../policy/access'
+import { authorize, visiblePath } from '../policy/authorize'
 import { badSegment } from '../policy/names'
-import { checkRegular } from '../team-files/place'
+import { assertStorageRoom } from '../system/storage'
+import { checkRegular, openChecked } from '../team-files/place'
 import { mimeOf } from '../team-files/service'
 import { attachmentKind } from '../uploads/attachments'
-import { displaySize, makeThumbnail } from '../uploads/image'
+import { displaySize, makeThumbnail, type ThumbExt } from '../uploads/image'
 import { cleanImage, imageFormat, PHOTO } from '../uploads/metadata'
 import { personLocale } from '../files/media-text'
 import { tr } from '../chat/i18n'
+import { SAFE_OPS_TEXT } from '../safe-ops/strings'
 import { canSee, fileOut, memberRow, messageRow, roomRow, type FileRow } from './store'
 
 /** GIF, BMP or SVG by its first bytes (and its name for SVG, which has none): pictures shown as they are. */
@@ -38,7 +55,11 @@ function plainPicture(b: Uint8Array, name: string): boolean {
 export const UNSENT_FILE_MS = 24 * 3600_000
 /** Room files without a database row are kept this long in .system/rooms-orphans/ (reconcile). */
 export const ORPHAN_KEEP_MS = 30 * 86400_000
-const THUMB = '.thumb.jpg'
+/** a picture's thumbnail beside it: <file id>.thumb.jpg, or .thumb.png for one with transparency (uploads/image.ts) */
+const THUMB = /\.thumb\.(jpg|png)$/
+const THUMB_EXTS = ['png', 'jpg'] as const
+/** settings: set once every thumbnail from before transparent ones were PNG was looked at (refreshThumbs) */
+export const THUMBS_REFRESHED_SETTING = 'rooms.thumbsTransparent'
 const MOVING = '.moving'
 const stamp = (ms: number) => new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')
 /** the time in an orphan batch's name (<stamp>-<pid>-<n>; a bare <stamp> from before is read too) */
@@ -53,7 +74,8 @@ export class RoomFiles {
   root() { return path.join(this.ctx.files.fx.root, PRODUCT.systemDir, 'rooms') }
   private dir(roomId: string) { return path.join(this.root(), roomId) }
   private abs(f: Pick<FileRow, 'room_id' | 'id'>) { return path.join(this.dir(f.room_id), f.id) }
-  private thumbAbs(f: Pick<FileRow, 'room_id' | 'id'>) { return path.join(this.dir(f.room_id), `${f.id}.thumb.jpg`) }
+  private thumbBase(f: Pick<FileRow, 'room_id' | 'id'>) { return path.join(this.dir(f.room_id), `${f.id}.thumb`) }
+  private removeThumbs(f: Pick<FileRow, 'room_id' | 'id'>) { for (const e of THUMB_EXTS) fs.rmSync(`${this.thumbBase(f)}.${e}`, { force: true }) }
 
   private member(userId: string, roomId: string) {
     const room = roomRow(this.ctx.db, roomId)
@@ -101,7 +123,7 @@ export class RoomFiles {
     fs.chmodSync(dst, 0o600)
     let thumb = false
     if (kind === 'image' && !quarantined) {
-      try { thumb = await makeThumbnail(dst, this.thumbAbs({ room_id: roomId, id }), 640, path.join(this.ctx.config.dataDir, 'work')) } catch (e) { this.ctx.log.debug('room thumbnail failed', { err: e }) }
+      try { thumb = !!(await makeThumbnail(dst, this.thumbBase({ room_id: roomId, id }), 640, path.join(this.ctx.config.dataDir, 'work'))) } catch (e) { this.ctx.log.debug('room thumbnail failed', { err: e }) }
     }
     this.ctx.db.query(`INSERT INTO room_files (id, room_id, user_id, name, size, mime, kind, width, height, sha256, thumb, created_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, roomId, userId, clean, size, mimeOf(clean) ?? 'application/octet-stream', kind, dims?.width ?? null, dims?.height ?? null, stored, thumb ? 1 : 0, nowIso())
@@ -109,30 +131,125 @@ export class RoomFiles {
   }
 
   /**
-   * The file for `userId`, checked now: in the room, and either sent in a message they may see (not deleted) or their
-   * own upload not sent yet. thumb: the small preview (or the image itself when it is a small web image).
+   * A copy of the team file `rel` as `userId`'s upload in this room, not sent yet (Rooms.send takes its id). Checked now,
+   * with their access today: they are in the room, may read the file (a folder, a link, a hard-linked or quarantined file
+   * and one they may not read all answer 404, the same as a missing one), it is at most 50 MB (413) and the team disk has
+   * room (507). The bytes are read from one open file (no swap between the check and the copy), hashed on the way to a
+   * temp file, then kept like an upload (create: the metadata of a photo is cut out, a quarantined hash gets no preview).
    */
-  open(userId: string, roomId: string, fileId: string, thumb: boolean): { abs: string; name: string } {
+  async fromTeamFile(userId: string, roomId: string, rel: string): Promise<RoomFile> {
+    this.member(userId, roomId)
+    const who = loadPrincipal(this.ctx.db, userId) ?? fail('not_found')
+    const fx = this.ctx.files.fx, rules = this.ctx.files.rules()
+    let abs: string, name: string
+    try {
+      const a = authorize(fx, rules, who, rel, 'read', { mustExist: true })
+      if (!a.st?.isFile() || !visiblePath(fx, rules, who, a.rel)) throw new Error('not a file I may open')
+      checkRegular(a.abs)
+      abs = a.abs
+      name = a.segs[a.segs.length - 1]!
+    } catch { return fail('not_found') }
+    let opened: { fd: number; st: fs.Stats }
+    try { opened = openChecked(abs) } catch { return fail('not_found') }
+    const tmpDir = path.join(this.ctx.config.dataDir, 'uploads', 'tmp')
+    const tmp = path.join(tmpDir, `${PRODUCT.tmpPrefix}room-${randomBytes(8).toString('hex')}`)
+    let sha: string
+    try {
+      if (opened.st.size > SMALL_UPLOAD_MAX) fail('payload_too_large')
+      assertStorageRoom(opened.st.size)
+      fs.mkdirSync(tmpDir, { recursive: true, mode: 0o700 })
+      const out = fs.openSync(tmp, 'wx', 0o600)
+      const h = createHash('sha256')
+      try {
+        const buf = Buffer.allocUnsafe(1024 * 1024)
+        let pos = 0
+        for (;;) {
+          const n = fs.readSync(opened.fd, buf, 0, buf.length, pos)
+          if (!n) break
+          pos += n
+          // it grew past the limit while being read
+          if (pos > SMALL_UPLOAD_MAX) fail('payload_too_large')
+          h.update(buf.subarray(0, n))
+          fs.writeSync(out, buf, 0, n)
+        }
+      } finally { fs.closeSync(out) }
+      sha = h.digest('hex')
+    } catch (e) {
+      fs.rmSync(tmp, { force: true })
+      throw e
+    } finally { fs.closeSync(opened.fd) }
+    try { return await this.create(userId, roomId, name, tmp, sha) } finally { fs.rmSync(tmp, { force: true }) }
+  }
+
+  /** Uploads of `userId` in this room not sent with a message: removed (a shared answer that did not go after all). */
+  discardUnsent(userId: string, roomId: string, fileIds: readonly string[]) {
+    if (!fileIds.length) return
+    const rows = this.ctx.db.query(`DELETE FROM room_files WHERE room_id = ? AND user_id = ? AND message_id IS NULL AND id IN (${fileIds.map(() => '?').join(',')}) RETURNING id, room_id`)
+      .all(roomId, userId, ...fileIds) as Pick<FileRow, 'id' | 'room_id'>[]
+    for (const f of rows) { fs.rmSync(this.abs(f), { force: true }); this.removeThumbs(f) }
+  }
+
+  /**
+   * The file for `userId`, checked now: in the room, and either sent in a message they may see (not deleted) or their
+   * own upload not sent yet. thumb: the small preview (or the image itself when it is a small web image). quarantined:
+   * its bytes are on the team's download-only list (the route then sends it only as a download).
+   */
+  open(userId: string, roomId: string, fileId: string, thumb: boolean): { abs: string; name: string; quarantined: boolean; sha256: string } {
     const me = this.member(userId, roomId)
     const f = this.ctx.db.query('SELECT * FROM room_files WHERE id = ? AND room_id = ?').get(fileId, roomId) as FileRow | null
     if (!f) return fail('not_found')
     if (f.message_id) {
       const m = messageRow(this.ctx.db, roomId, f.message_id)
-      if (!m || m.deleted_at || !canSee(m, me)) fail('not_found')
+      if (!m || m.deleted_at || !canSee(this.ctx.db, m, me)) fail('not_found')
     } else if (f.user_id !== userId) fail('not_found')
     const abs = this.abs(f)
+    const quarantined = this.ctx.files.quarantine.hasHash(f.sha256)
     if (thumb) {
-      if (f.thumb) { try { checkRegular(this.thumbAbs(f)); return { abs: this.thumbAbs(f), name: `${f.name}.jpg` } } catch { /* the original below */ } }
+      // a PNG one (a picture with transparency), else the JPEG one (every other picture, and those from before)
+      if (f.thumb) {
+        for (const e of THUMB_EXTS) {
+          const t = `${this.thumbBase(f)}.${e}`
+          try { checkRegular(t); return { abs: t, name: `${f.name}.${e}`, quarantined, sha256: f.sha256 } } catch { /* the next, then the original below */ }
+        }
+      }
       if (f.kind !== 'image' || !/^(png|jpe?g|gif|webp)$/.test(ext(f.name)) || f.size > 2 * 1024 * 1024) fail('not_found')
     }
     try { checkRegular(abs) } catch { fail('not_found') }
-    return { abs, name: f.name }
+    return { abs, name: f.name, quarantined, sha256: f.sha256 }
+  }
+
+  /**
+   * A Hangul file sent in a room, for the HWP preview (files/hwp-preview.ts pageOf), checked as its inline read is, on
+   * every call (the preview calls it before any cache lookup or render, and again after the render): open() (in the room
+   * now, the message visible to me and not deleted, or my own upload not sent yet; else 404) and not on the download-only
+   * list (503 quarantined, the inline read's answer; no inline read, no preview). The bytes are read from one open file
+   * bound to that check (SearchAdmission: no link, no swap, a quarantined hash refused) and must be the bytes the file
+   * was sent with (its sha256). The cache knows it by its room, its id and that sha256.
+   */
+  hwpSource(userId: string, roomId: string, fileId: string, admission: SearchAdmission, locale: Locale): HwpSource {
+    const checked = () => {
+      const f = this.open(userId, roomId, fileId, false)
+      if (f.quarantined) fail('unavailable', SAFE_OPS_TEXT.quarantined[locale], { params: { reason: 'quarantined' } })
+      return f
+    }
+    const f = checked()
+    if (!/\.hwpx?$/i.test(f.name)) throw new HwpError('unsupported')
+    let st: fs.Stats
+    try { st = checkRegular(f.abs) } catch { return fail('not_found') }
+    if (st.size > HWP_LIMITS.inputBytes) throw new HwpError('limit')
+    const read = admission.read(f.abs, () => {
+      try { const now = checked(); return now.abs === f.abs && now.sha256 === f.sha256 && checkRegular(now.abs) } catch { return false }
+    }, HWP_LIMITS.inputBytes)
+    if (!read) throw new HwpError('changed')
+    const hash = sha256(read.bytes)
+    if (hash !== f.sha256) throw new HwpError('changed')
+    return { key: `room:${roomId}/${fileId}`, bytes: read.bytes, hash, version: f.sha256, ext: /\.hwpx$/i.test(f.name) ? 'hwpx' : 'hwp' }
   }
 
   /** A message was deleted: its files go from disk and from the table. */
   removeForMessage(messageId: string) {
     const rows = this.ctx.db.query('DELETE FROM room_files WHERE message_id = ? RETURNING id, room_id').all(messageId) as Pick<FileRow, 'id' | 'room_id'>[]
-    for (const f of rows) { fs.rmSync(this.abs(f), { force: true }); fs.rmSync(this.thumbAbs(f), { force: true }) }
+    for (const f of rows) { fs.rmSync(this.abs(f), { force: true }); this.removeThumbs(f) }
   }
 
   /**
@@ -172,7 +289,7 @@ export class RoomFiles {
       try { names = fs.readdirSync(dir) } catch { continue }
       for (const n of names) {
         if (n.endsWith(MOVING)) { fs.rmSync(path.join(dir, n), { force: true }); continue } // an interrupted copy
-        const id = n.endsWith(THUMB) ? n.slice(0, -THUMB.length) : n
+        const id = n.replace(THUMB, '')
         if (known.has(`${room}/${id}`)) continue
         fs.mkdirSync(path.join(batch, room), { recursive: true, mode: 0o700 })
         fs.renameSync(path.join(dir, n), path.join(batch, room, n))
@@ -254,11 +371,49 @@ export class RoomFiles {
     return n
   }
 
+  /**
+   * Once (THUMBS_REFRESHED_SETTING), a while after start: a picture sent before transparent ones got a PNG thumbnail
+   * has a JPEG one, black where the picture is see-through (a seal stamp on a black square). Each picture that can have
+   * transparency (a PNG, WebP or GIF: makeThumbnail transparentOnly) is looked at again, one at a time below
+   * interactive work; one with see-through pixels gets its PNG thumbnail and the JPEG one goes. A picture ffmpeg cannot
+   * read, or one on the download-only list, keeps what it has; reads go on meanwhile (open() takes either). Stopped by
+   * `signal` (the server closing) before it is done: the next start looks again.
+   */
+  async refreshThumbs(signal?: AbortSignal): Promise<{ refreshed: number } | null> {
+    // no ffmpeg now (a server without it, or one being installed): not done, the next start looks again
+    if (this.ctx.db.query('SELECT 1 FROM settings WHERE key = ?').get(THUMBS_REFRESHED_SETTING) || !which('ffmpeg')) return null
+    const rows = this.ctx.db.query("SELECT id, room_id, sha256 FROM room_files WHERE kind = 'image' AND thumb = 1").all() as Pick<FileRow, 'id' | 'room_id' | 'sha256'>[]
+    // the room files folder not there (a team folder on a share not mounted yet): not now, so none is passed over
+    if (rows.length && !fs.existsSync(this.root())) return null
+    const work = path.join(this.ctx.config.dataDir, 'work')
+    let refreshed = 0
+    for (const f of rows) {
+      await new Promise((r) => setImmediate(r)) // a row without alpha ends without waiting: requests get their turn between rows
+      if (signal?.aborted) return { refreshed }
+      const base = this.thumbBase(f)
+      if (fs.existsSync(`${base}.png`) || !fs.existsSync(`${base}.jpg`) || this.ctx.files.quarantine.hasHash(f.sha256)) continue
+      let made: ThumbExt | null = null
+      try {
+        checkRegular(this.abs(f))
+        made = await makeThumbnail(this.abs(f), base, 640, work, undefined, { transparentOnly: true, background: true, signal })
+      } catch (e) { this.ctx.log.debug('room thumbnail refresh failed', { err: e }) }
+      if (made !== 'png') continue
+      // the message may have been deleted meanwhile: its new thumbnail goes too
+      if (!this.ctx.db.query('SELECT 1 FROM room_files WHERE id = ?').get(f.id)) { this.removeThumbs(f); continue }
+      fs.rmSync(`${base}.jpg`, { force: true })
+      refreshed++
+    }
+    if (signal?.aborted) return { refreshed }
+    this.ctx.db.query('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(THUMBS_REFRESHED_SETTING, nowIso())
+    if (refreshed) this.ctx.log.info('room thumbnails of transparent pictures made again', { refreshed })
+    return { refreshed }
+  }
+
   /** Uploads never sent, and files of rooms that are gone. */
   sweep(now = Date.now()) {
     const cutoff = new Date(now - UNSENT_FILE_MS).toISOString()
     const rows = this.ctx.db.query('DELETE FROM room_files WHERE message_id IS NULL AND created_at < ? RETURNING id, room_id').all(cutoff) as Pick<FileRow, 'id' | 'room_id'>[]
-    for (const f of rows) { fs.rmSync(this.abs(f), { force: true }); fs.rmSync(this.thumbAbs(f), { force: true }) }
+    for (const f of rows) { fs.rmSync(this.abs(f), { force: true }); this.removeThumbs(f) }
     return rows.length
   }
 }

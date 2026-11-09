@@ -2,6 +2,8 @@
 
 [English](README.md)
 
+아래 파일은 예제 데이터로 바로 해 보는 가상 스킬입니다.
+
 저장소의 파일이 자동 설치되지는 않습니다. 스킬 관리자가 앱 **파일** 화면에서 `skills/<이름>/SKILL.md`를 만들고 예제 내용을 붙여 넣습니다. 예: `skills/meeting-summary/SKILL.md`, YAML의 `name: meeting-summary`. 폴더 이름과 영문 name을 그대로 유지하세요. 팀원은 대상 폴더의 스킬 관리자에게 검토할 스킬을 제안할 수 있습니다.
 
 [예제 목록·입력 파일](README.md): 대표·팀장은 `weekly-team-report`, 영업은 `sales-follow-up`, 마케팅은 `brand-brief`, 재무는 `expense-review`, 인사는 `new-hire-guide`, 공통 업무는 `meeting-summary`입니다.

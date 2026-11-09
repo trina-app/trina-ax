@@ -267,6 +267,9 @@ describe('events', () => {
     expect(useChats.getState().chats.map((c) => c.id)).toEqual([chat.id, older.id])
     h({ type: 'chat.updated', seq: 3, at: 0, data: { chatId: chat.id, change: 'deleted', chat: null } })
     expect(useChats.getState().chats.map((c) => c.id)).toEqual([older.id])
+    // a chat in the trash is in no list, also when an 'updated' says so (the end of a turn after the delete)
+    h({ type: 'chat.updated', seq: 4, at: 0, data: { chatId: older.id, change: 'updated', chat: { ...older, deletedAt: '2026-01-02T00:00:00.000Z' } } })
+    expect(useChats.getState().chats).toEqual([])
   })
 })
 

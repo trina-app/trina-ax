@@ -4,10 +4,21 @@
 // Settings; the setup page sends the browser's); without one: MYCEL_TEAM_TZ (set by the control plane), else the
 // process's own zone, else UTC. Calendar arithmetic in a zone is here so every part uses the same two functions.
 
+// One formatter per zone: building one costs about 0.2 ms, and the model proxy counts every request by the team's day.
+const formatters = new Map<string, Intl.DateTimeFormat>()
+function formatterOf(tz: string): Intl.DateTimeFormat {
+  let f = formatters.get(tz)
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', weekday: 'short' })
+    if (formatters.size >= 64) formatters.clear()
+    formatters.set(tz, f)
+  }
+  return f
+}
+
 /** Calendar parts of an instant in a time zone. */
 export function zonedParts(t: Date, tz: string) {
-  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', weekday: 'short' })
-    .formatToParts(t).map((x) => [x.type, x.value]))
+  const p = Object.fromEntries(formatterOf(tz).formatToParts(t).map((x) => [x.type, x.value]))
   return { y: +p.year!, m: +p.month!, d: +p.day!, h: +p.hour!, min: +p.minute!, s: +p.second!, wd: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(p.weekday!) }
 }
 

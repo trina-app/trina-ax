@@ -2,7 +2,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
-import { reset, signIn } from './helpers'
+import { reset, signIn, adv } from './helpers'
 import { makePng, SVG } from '../../../tests/lib/images'
 
 // Keyboard order needs real key presses: axe cannot detect autofocus skipping the skip link.
@@ -12,7 +12,7 @@ for (const address of ['/', '/?prompt=Draft%20from%20a%20link']) {
     await signIn(page, { username: 'bob', password: 'bob password 1' })
     await page.goto(address)
     const input = page.getByTestId('composer-input')
-    await expect(page.getByTestId('first-time-folders')).toBeVisible()
+    await expect(page.getByTestId('team-prepared')).toBeVisible()
     await expect(input).not.toBeFocused()
     if (address.includes('prompt')) await expect(input).toHaveValue('Draft from a link')
     await page.keyboard.press('Tab')
@@ -54,7 +54,7 @@ test('new chat navigation focuses the composer but reloading does not', async ({
   await expect(page.locator('a[href="#main"]')).toBeFocused()
 })
 
-test('choosing examples and frequent questions focuses the filled composer', async ({ page }) => {
+test('choosing the ready question and frequent questions focuses the filled composer', async ({ page }) => {
   await reset(page)
   await page.route('**/api/questions/frequent', r => r.fulfill({ json: { days: 30, sampled: false, items: [
     { question: 'Summarize my weekly report', count: 3, lastUsedAt: '2026-10-20T00:00:00.000Z' },
@@ -62,7 +62,7 @@ test('choosing examples and frequent questions focuses the filled composer', asy
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await page.goto('/')
   const input = page.getByTestId('composer-input')
-  const example = page.getByTestId('example').first()
+  const example = page.getByTestId('team-prepared-ready')
   const text = await example.innerText()
   await example.focus()
   await page.keyboard.press('Enter')
@@ -98,14 +98,15 @@ test.describe('home focus on touch devices', () => {
     await page.goto('/')
     expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true)
     const input = page.getByTestId('composer-input')
-    await expect(page.getByTestId('first-time-folders')).toBeVisible()
+    await expect(page.getByTestId('team-prepared')).toBeVisible()
     await expect(input).not.toBeFocused()
-    const example = page.getByTestId('example').first()
+    const example = page.getByTestId('team-prepared-ready')
     const text = await example.innerText()
     await example.tap()
     await expect(input).toHaveValue(text)
     await expect(input).not.toBeFocused()
-    await page.getByRole('main').getByRole('button', { name: '새 채팅', exact: true }).tap()
+    // a phone starts a new chat from the 트리나 tab (the top bar has no new-chat icon)
+    await page.getByTestId('tab-ai').tap()
     await expect(input).not.toBeFocused()
   })
 })
@@ -231,7 +232,7 @@ for (const scheme of ['light', 'dark'] as const) {
       await page.waitForTimeout(300)
       await audit(page, `admin/${s}`)
     }
-    for (const s of ['security', 'providers', 'memory', 'apps', 'notifications', 'connectors', 'about']) {
+    for (const s of ['security', 'providers', 'memory', 'allowances', 'apps', 'notifications', 'connectors', 'about']) {
       await page.goto(`/settings/${s}`)
       await page.waitForTimeout(300)
       await audit(page, `settings/${s}`)
@@ -272,7 +273,7 @@ async function seedIntegrations(page: Page) {
 }
 
 async function auditIntegrations(page: Page, where: string) {
-  await page.goto('/settings/integrations')
+  await page.goto('/settings/connectors')
   await expect(page.getByTestId('integrations-mine')).toBeVisible()
   await audit(page, `settings/integrations, rows closed${where}`)
   await page.getByTestId('integration-row').filter({ hasText: 'Linear' }).getByTestId('integration-toggle').click()
@@ -284,12 +285,12 @@ async function auditIntegrations(page: Page, where: string) {
   await page.getByRole('button', { name: 'Notion 추가' }).click()
   await audit(page, `add from discover${where}`)
   await page.keyboard.press('Escape')
-  await page.getByRole('tab', { name: '연결됨' }).click()
+  await page.getByRole('tab', { name: '내 커넥터' }).click()
   await page.getByTestId('integration-add').click()
-  await page.getByTestId('integration-write-deny').check()
+  await (await adv(page, 'integration-write-deny')).check()
   await page.getByTestId('integration-save').click() // shows the field errors
   await audit(page, `integration add (MCP)${where}`)
-  await page.getByTestId('integration-kind-http').check()
+  await (await adv(page, 'integration-kind-http')).check()
   await page.getByTestId('integration-header-custom').check()
   await audit(page, `integration add (API)${where}`)
   await page.keyboard.press('Escape')
@@ -298,13 +299,13 @@ async function auditIntegrations(page: Page, where: string) {
   await expect(page.getByTestId('integration-key-saved')).toBeVisible()
   await audit(page, `integration edit${where}`)
   await page.keyboard.press('Escape')
-  await page.goto('/admin/integrations')
+  await page.goto('/admin/connectors')
   await expect(page.getByTestId('team-integrations')).toBeVisible()
   await audit(page, `admin/integrations${where}`)
   await page.getByTestId('integration-add').click()
-  await page.getByTestId('integration-access').getByRole('checkbox', { name: /Olga/ }).uncheck()
-  await page.getByTestId('integration-access').getByRole('checkbox', { name: 'Bob' }).check()
-  await expect(page.getByTestId('integration-access-not-me')).toBeVisible()
+  await (await adv(page, 'integration-access')).getByRole('checkbox', { name: /Olga/ }).uncheck()
+  await (await adv(page, 'integration-access')).getByRole('checkbox', { name: 'Bob' }).check()
+  await expect((await adv(page, 'integration-access-not-me'))).toBeVisible()
   await audit(page, `admin integration add${where}`)
   await page.keyboard.press('Escape')
 }
@@ -327,8 +328,8 @@ test('external services have no serious accessibility problems at phone width', 
   await auditIntegrations(page, ' (phone)')
 })
 
-// The team logo (Admin › Team settings): a refused file's message, then a logo with its previews on light and dark
-// backgrounds and the remove button, in both themes and at phone width.
+// The team logo (Admin › Team settings): a refused file's message, then a logo with the remove button and its preview
+// (the sidebar header in the light and the dark look) open, in both themes and at phone width.
 async function auditTeamIcon(page: Page, where: string) {
   await page.goto('/admin/settings')
   await expect(page.getByTestId('team-icon')).toBeVisible()
@@ -338,6 +339,8 @@ async function auditTeamIcon(page: Page, where: string) {
   await audit(page, `team logo (refused)${where}`)
   await page.getByTestId('team-icon-input').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: Buffer.from(makePng(256, 256)) })
   await expect(page.getByTestId('team-icon-remove')).toBeVisible()
+  await page.getByTestId('team-icon-previews').click()
+  await expect(page.getByTestId('team-icon-preview-dark')).toBeVisible()
   await audit(page, `team logo (set)${where}`)
 }
 
@@ -376,6 +379,9 @@ for (const scheme of ['light', 'dark'] as const) {
     const colour = (sel: string) => page.evaluate((v) => { const e = document.createElement('span'); e.style.color = `var(${v})`; document.body.append(e); const c = getComputedStyle(e).color; e.remove(); return c }, sel)
     expect(await deny.evaluate((e) => getComputedStyle(e).color)).toBe(await colour('--c-muted'))
     expect(await deny.evaluate((e) => getComputedStyle(e).color)).not.toBe(await colour('--c-danger'))
+    // in the page the main button comes first and the quiet "no" last (a phone stacks them so; a computer shows the row
+    // reversed, [거부] [항상 허용] [이번만 허용]): the keyboard goes 이번만 허용 → 항상 허용 → 거부
+    await expect(site.getByTestId('ask-choices').getByRole('button')).toHaveText(['이번만 허용', '항상 허용', '거부'])
     await site.getByRole('button', { name: '항상 허용' }).focus()
     await page.keyboard.press('Tab')
     await expect(deny).toBeFocused()
@@ -405,7 +411,7 @@ for (const scheme of ['light', 'dark'] as const) {
   test(`team skills have no serious accessibility problems (${scheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: scheme })
     await reset(page)
-    await page.route('**/api/skills', (r) => r.fulfill({ json: { items: [
+    await page.route(/\/api\/skills(\?.*)?$/, (r) => r.fulfill({ json: { items: [
       { path: 'skills/proposal/SKILL.md', name: 'proposal', description: 'Writes a client proposal deck' },
       { path: 'skills/weekly.md', name: 'weekly', description: '' },
       { path: 'users/olga/skills/tone.md', name: 'tone', description: 'My mail tone', personal: true },

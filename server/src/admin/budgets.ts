@@ -15,15 +15,9 @@ type In<T extends z.ZodType> = z.output<T>
 type UsageRes = z.output<typeof UsageResponse>
 interface BudgetRow { id: string; subject_type: Budget['subjectType']; subject_id: string | null; period: Budget['period']; limit_usd: number; limit_tokens: number | null; action: Budget['action'] }
 
-/** Start of the current period in the team's time zone (`tz`: admin/settings.ts teamTimeZone; without one the
- * process's zone, as before). A Linux server runs in UTC: a Korean team's day starts at 00:00 KST, not 09:00. */
-export function periodStart(period: Budget['period'], now = new Date(), tz?: string): Date {
-  if (!tz) {
-    const d = new Date(now)
-    d.setHours(0, 0, 0, 0)
-    if (period === 'month') d.setDate(1)
-    return d
-  }
+/** Start of the current period in the team's time zone (`tz`: admin/settings.ts teamTimeZone). Never the process's: a
+ * Linux server runs in UTC, and a Korean team's day starts at 00:00 KST, not 09:00. */
+export function periodStart(period: Budget['period'], now: Date, tz: string): Date {
   const p = zonedParts(now, tz)
   return zonedToUtc(p.y, p.m, period === 'month' ? 1 : p.d, 0, 0, tz)
 }
@@ -104,14 +98,8 @@ export function checkBudgets(db: Database, userId: string, now = new Date()): { 
 type T3 = Record<Locale, string>
 export const PERIOD: Record<Budget['period'], T3> = { day: { ko: '오늘', en: "today's", id: 'hari ini', ja: "今日", es: "de hoy" }, month: { ko: '이번 달', en: "this month's", id: 'bulan ini', ja: "今月", es: "de este mes" } }
 
-/** When the period of a budget starts again (midnight / the 1st in the team's time zone; `tz` absent: the process's). */
-export function periodEnd(period: Budget['period'], now = new Date(), tz?: string): Date {
-  if (!tz) {
-    const d = periodStart(period, now)
-    if (period === 'day') d.setDate(d.getDate() + 1)
-    else d.setMonth(d.getMonth() + 1)
-    return d
-  }
+/** When the period of a budget starts again (midnight / the 1st in the team's time zone). */
+export function periodEnd(period: Budget['period'], now: Date, tz: string): Date {
   const p = zonedParts(now, tz)
   // Date.UTC normalises day 32 / month 13; the wall-clock date is then placed in the zone (DST-safe)
   const next = period === 'day' ? new Date(Date.UTC(p.y, p.m - 1, p.d + 1)) : new Date(Date.UTC(p.y, p.m, 1))

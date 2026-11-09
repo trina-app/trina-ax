@@ -26,7 +26,9 @@ export interface LiveArtifact {
   version: number | null
 }
 
-export interface OpenRequest { turnId: string; chatId: string; messageId: string; request: TurnRequest }
+/** An open card of a turn. `chatId`: the chat it shows in; none for a room's card read again (GET
+ * /api/rooms/:id/ai/requests): a room finds its cards by their turn (components/rooms/RoomAiStatus.tsx). */
+export interface OpenRequest { turnId: string; chatId?: string; messageId: string; request: TurnRequest }
 /** What a connect_service card's button sends (POST /api/turns/:id/connect) besides the card's id. A key only ever
  * goes sealed (lib/connectCard.ts): the store never holds one. */
 export type ConnectAction = TurnConnectBody extends infer B ? (B extends unknown ? Omit<B, 'requestId'> : never) : never
@@ -35,6 +37,10 @@ type Pending = { deltas: Delta[]; steps: ServerEventData<'message.step'>[]; done
 
 interface ChatsState {
   chats: Chat[]
+  /** shared project chats on screen that are not in my list (I neither made them nor wrote in them: Chat.shared.mine is
+   * false): kept up to date by chat.updated without being added to the sidebar (docs/DECISIONS.md "Shared project
+   * chats") */
+  others: Record<string, Chat>
   chatsCursor: string | null
   chatsLoaded: boolean
   threads: Record<string, Thread>
@@ -49,13 +55,18 @@ interface ChatsState {
   /** artifact the panel should open by itself (the AI started writing one, or an intro deck, a promo video or a card news
    * was saved) */
   autoOpen: { chatId: string; key: string; at: number } | null
+  /** chatId -> the answer whose intro deck build already opened the panel by itself (store/deckBuilds.ts): its saved
+   * deck does not open it again (the person may have closed it meanwhile) */
+  buildOpened: Record<string, string>
 
   loadChats: (reset?: boolean) => Promise<void>
   upsertChat: (c: Chat) => void
   removeChat: (id: string) => void
   loadThread: (chatId: string) => Promise<void>
   loadOlder: (chatId: string) => Promise<void>
-  send: (o: SendInput) => Promise<{ chatId: string }>
+  /** `sent`: settles when the server took the message (rejects with its reason when it was not sent in the end); the
+   * message shows as "sending" meanwhile, so most callers need not wait for it */
+  send: (o: SendInput) => Promise<{ chatId: string; sent: Promise<void> }>
   resend: (chatId: string, localId: string) => Promise<void>
   discardLocal: (chatId: string, localId: string) => void
   stop: (chatId: string) => Promise<void>
@@ -83,6 +94,8 @@ export interface SendInput {
   clientMessageId?: string
   /** the server still has an answer running in this chat (409): the message is taken back instead of "not sent" */
   onConflict?: () => void
+  /** a new chat is a side chat of this room (✦ Trina, components/rooms/SideChatPanel.tsx) */
+  sideRoomId?: string
 }
 
 /** Sends waiting for the network to come back: localId -> body. */
@@ -115,12 +128,15 @@ const rememberClosed = (id: string) => {
 /**
  * This chat's open cards after a listTurnRequests answer: the server's list, plus cards that arrived over the socket
  * while the request was on its way (not in `before`); cards closed meanwhile stay closed; other chats untouched.
+ * `scope` is the chat's id, or which cards the list speaks for (a room's: those of my questions there, store/rooms.ts
+ * loadAi with listRoomAiRequests).
  */
-export function mergeOpenRequests(current: Record<string, OpenRequest>, chatId: string, open: OpenRequest[], before: ReadonlySet<string>): Record<string, OpenRequest> {
+export function mergeOpenRequests(current: Record<string, OpenRequest>, scope: string | ((r: OpenRequest) => boolean), open: OpenRequest[], before: ReadonlySet<string>): Record<string, OpenRequest> {
+  const ours = typeof scope === 'string' ? (r: OpenRequest) => r.chatId === scope : scope
   const listed = new Set(open.map((r) => r.request.requestId))
   const next: Record<string, OpenRequest> = {}
-  for (const [id, r] of Object.entries(current)) if (r.chatId !== chatId || listed.has(id) || !before.has(id)) next[id] = r
-  for (const r of open) if (r.chatId === chatId && !closedRequests.has(r.request.requestId)) next[r.request.requestId] = r
+  for (const [id, r] of Object.entries(current)) if (!ours(r) || listed.has(id) || !before.has(id)) next[id] = r
+  for (const r of open) if (ours(r) && !closedRequests.has(r.request.requestId)) next[r.request.requestId] = r
   return next
 }
 export const PENDING_MESSAGES_MAX = 50
@@ -138,6 +154,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 const initial = () => ({
   chats: [] as Chat[],
+  others: {} as Record<string, Chat>,
   chatsCursor: null as string | null,
   chatsLoaded: false,
   threads: {} as Record<string, Thread>,
@@ -146,6 +163,7 @@ const initial = () => ({
   liveArtifacts: {} as Record<string, Record<string, LiveArtifact>>,
   artifactsRev: {} as Record<string, number>,
   autoOpen: null as ChatsState['autoOpen'],
+  buildOpened: {} as Record<string, string>,
 })
 
 const sortChats = (list: Chat[]) => list.slice().sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0))
@@ -215,7 +233,8 @@ export const useChats = create<ChatsState>((set, get) => {
         if (!terminal && !output && next.position !== null) queue[next.messageId] = next.position
       }
       const state = terminal ? 'idle' : output ? 'running' : next.state
-      return { queue, chats: s.chats.map(c => c.id === chatId ? { ...c, runState: state } : c) }
+      const other = s.others[chatId]
+      return { queue, chats: s.chats.map(c => c.id === chatId ? { ...c, runState: state } : c), ...(other ? { others: { ...s.others, [chatId]: { ...other, runState: state } } } : {}) }
     })
     return true
   }
@@ -319,14 +338,20 @@ export const useChats = create<ChatsState>((set, get) => {
     },
 
     upsertChat(c) {
-      set((s) => ({ chats: sortChats([c, ...s.chats.filter((x) => x.id !== c.id)]) }))
+      set((s) => {
+        // someone else's shared chat that I have not written in is not mine to list: it is kept only while a screen
+        // shows it (its thread is open), so its header and composer follow along
+        if (c.shared && !c.shared.mine && !s.chats.some((x) => x.id === c.id)) return s.threads[c.id] || s.others[c.id] ? { others: { ...s.others, [c.id]: c } } : s
+        const others = c.id in s.others ? Object.fromEntries(Object.entries(s.others).filter(([id]) => id !== c.id)) : s.others
+        return { chats: sortChats([c, ...s.chats.filter((x) => x.id !== c.id)]), others }
+      })
     },
 
     removeChat(id) {
       const active = queueVersions.get(id)
       if (active?.messageId) { remember(finishedMessages, active.messageId); clearQueue(active.messageId) }
       queueVersions.delete(id)
-      set((s) => ({ chats: s.chats.filter((c) => c.id !== id) }))
+      set((s) => ({ chats: s.chats.filter((c) => c.id !== id), others: id in s.others ? Object.fromEntries(Object.entries(s.others).filter(([k]) => k !== id)) : s.others }))
     },
 
     async loadThread(chatId) {
@@ -360,7 +385,7 @@ export const useChats = create<ChatsState>((set, get) => {
       const session = generation
       let chatId = o.chatId
       if (!chatId) {
-        const chat = await api.call(API.createChat, { body: { projectId: o.projectId ?? null, engine: o.engine, model: o.model ?? undefined } })
+        const chat = await api.call(API.createChat, { body: { projectId: o.projectId ?? null, engine: o.engine, model: o.model ?? undefined, ...(o.sideRoomId ? { sideRoomId: o.sideRoomId } : {}) } })
         if (session !== generation) throw new Error('Session changed while creating the chat')
         get().upsertChat(chat)
         chatId = chat.id
@@ -376,8 +401,9 @@ export const useChats = create<ChatsState>((set, get) => {
       setThread(chatId, (th) => ({ ...th, messages: [...th.messages, msg] }))
       outbox.set(localId, { chatId, clientMessageId, content: o.content, attachmentIds: o.attachments.map((a) => a.id), parentId: last?.id, engine: o.engine, model: o.model, firstTry: Date.now(), onConflict: o.onConflict })
       // the message shows as "sending" right away; a failure turns it into "not sent [send again]"
-      void deliver(localId).catch(() => {})
-      return { chatId }
+      const sent = deliver(localId)
+      sent.catch(() => {})
+      return { chatId, sent }
     },
 
     async resend(chatId, localId) {
@@ -514,7 +540,8 @@ export const useChats = create<ChatsState>((set, get) => {
           return
         case 'chat.updated': {
           const { chatId, change, chat } = ev.data
-          if (change === 'deleted' || change === 'purged') get().removeChat(chatId)
+          // a chat in the trash is in no list, also when the end of a turn there tells about it after the delete
+          if (change === 'deleted' || change === 'purged' || chat?.deletedAt) get().removeChat(chatId)
           else if (chat) get().upsertChat(chat)
           return
         }
@@ -552,7 +579,8 @@ export const useChats = create<ChatsState>((set, get) => {
             // previews yet, only the saved artifact: an intro deck, a promo video or a card news opens when it is saved,
             // since it is the whole answer (the welcome steps' first result and every later run, docs/DECISIONS.md "W2",
             // "V", "D2")
-            autoOpen: !prev && (d.status === 'writing' || OPENS_BY_ITSELF.has(d.key)) ? { chatId: d.chatId, key: d.key, at: Date.now() } : s.autoOpen,
+            // ("D2" round 2: an intro deck whose build opened the panel already does not open it again when it is saved)
+            autoOpen: !prev && (d.status === 'writing' || (OPENS_BY_ITSELF.has(d.key) && !(d.key === DECK_ARTIFACT_KEY && d.messageId && s.buildOpened[d.chatId] === d.messageId))) ? { chatId: d.chatId, key: d.key, at: Date.now() } : s.autoOpen,
           }))
           return
         }

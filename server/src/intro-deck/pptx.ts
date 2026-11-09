@@ -6,13 +6,20 @@
 // as srcRect; gradients as gradFill with alpha; hairlines as lines; the sources of each slide in its notes.
 // Pretendard is embedded (the owner's decision 1, EMBED_FONTS): Regular and Bold as the family "Pretendard", ExtraBold
 // as its own family, as Pretendard names them.
+// Round 2: a path is a native shape a person can edit (custGeom in its own box: moveTo, lnTo, cubicBezTo, close; a
+// solid fill with alpha, never gradFill; the outline with its width, dash, cap and join), consecutive paths of one
+// `group` are one group (an icon, a slab); outlines on rects and ellipses, dashed and capped lines; a drawn ground
+// (pattern) is a picture of exactly its geometry (grounds.ts), the AI's accent a PNG made from its SVG by the caller
+// (`svgPng`; none: the accent is left out).
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Locale } from '@mycel/shared/api'
 import { writeZip, type ZipEntry } from '../files/zip-write'
 import { eotOf, panoseHex } from './eot'
-import { SLIDE_H, SLIDE_W, type DeckOut, type Fill, type Item, type SlideOut, type TextItem } from './layout'
+import { patternPng } from './grounds'
+import { SLIDE_H, SLIDE_W, type DeckOut, type Fill, type Item, type PathItem, type SlideOut, type Stroke, type TextItem } from './layout'
 import { gradientPng, recolorPng } from './png'
+import { dashOf, lineStroke, parsePath, pathBox, withXmlns } from './vector'
 
 /** The owner's decision 1 (2026-11-06): Pretendard goes into the PowerPoint file. One constant to change. */
 export const EMBED_FONTS = true
@@ -50,6 +57,59 @@ function fill(f: Fill): string {
 const xfrm = (px: number, py: number, w: number, h: number) => `<a:xfrm><a:off x="${e(px)}" y="${e(py)}"/><a:ext cx="${Math.max(0, e(w))}" cy="${Math.max(0, e(h))}"/></a:xfrm>`
 const geom = (radius: number, w: number, h: number, ellipse = false) => ellipse ? '<a:prstGeom prst="ellipse"><a:avLst/></a:prstGeom>'
   : radius > 0 ? `<a:prstGeom prst="roundRect"><a:avLst><a:gd name="adj" fmla="val ${Math.min(50000, Math.round((radius / Math.max(1, Math.min(w, h))) * 100000))}"/></a:avLst></a:prstGeom>` : '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>'
+
+/** An outline: width, colour (alpha kept), dash, cap and join; none when it draws nothing. DrawingML measures a dash
+ * in line widths and, with round caps, counts the caps inside the dash (SVG and typst add them outside), so a round
+ * dash [on, off] is written as [on + w, off − w]. */
+export function ln(s: Stroke | undefined): string {
+  const v = s && /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(s.color)
+  if (!s || !v || v[2] === '00' || !(s.width > 0) || !Number.isFinite(s.width)) return '<a:ln><a:noFill/></a:ln>'
+  const round = s.cap === 'round'
+  const d = dashOf(s.dash)
+  const pc = (px: number) => Math.max(0, Math.round((px / s.width) * 100000))
+  const dash = d ? `<a:custDash><a:ds d="${pc(round ? d[0] + s.width : d[0])}" sp="${pc(round ? d[1] - s.width : d[1])}"/></a:custDash>` : ''
+  return `<a:ln w="${e(s.width)}" cap="${round ? 'rnd' : 'flat'}"><a:solidFill>${color(s.color)}</a:solidFill>${dash}${s.join === 'round' ? '<a:round/>' : '<a:miter lim="400000"/>'}</a:ln>`
+}
+
+/** A path as a native shape in its own box (the box of all its points, control points too, so every coordinate is
+ * inside it); null when its `d` is not one we read. */
+function pathShape(c: Ctx, it: PathItem): { xml: string; box: [number, number, number, number] } | null {
+  const cmds = parsePath(it.d)
+  if (!cmds) return null
+  const fillOk = !!it.fill && /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(it.fill) && !/^#[0-9a-f]{6}00$/i.test(it.fill)
+  const line = ln(it.stroke)
+  const stroked = line !== '<a:ln><a:noFill/></a:ln>'
+  if (!fillOk && !stroked) return null
+  const b = pathBox(cmds)
+  const X = e(b.x), Y = e(b.y), W = Math.max(1, e(b.x + b.w) - X), H = Math.max(1, e(b.y + b.h) - Y)
+  const pt = (px: number, py: number) => `<a:pt x="${Math.min(W, Math.max(0, e(px) - X))}" y="${Math.min(H, Math.max(0, e(py) - Y))}"/>`
+  const segs = cmds.map((k) => k[0] === 'M' ? `<a:moveTo>${pt(k[1], k[2])}</a:moveTo>` : k[0] === 'L' ? `<a:lnTo>${pt(k[1], k[2])}</a:lnTo>`
+    : k[0] === 'C' ? `<a:cubicBezTo>${pt(k[1], k[2])}${pt(k[3], k[4])}${pt(k[5], k[6])}</a:cubicBezTo>` : '<a:close/>').join('')
+  const id = ++c.id
+  const name = it.role ? `${x(it.role.slice(0, 40))} ${id}` : `Shape ${id}`
+  const geom = `<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/><a:rect l="l" t="t" r="r" b="b"/><a:pathLst><a:path w="${W}" h="${H}"${fillOk ? '' : ' fill="none"'}${stroked ? '' : ' stroke="0"'}>${segs}</a:path></a:pathLst></a:custGeom>`
+  const xml = `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${name}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${X}" y="${Y}"/><a:ext cx="${W}" cy="${H}"/></a:xfrm>${geom}${fillOk ? `<a:solidFill>${color(it.fill!)}</a:solidFill>` : '<a:noFill/>'}${line}</p:spPr></p:sp>`
+  return { xml, box: [X, Y, W, H] }
+}
+
+/** Consecutive paths of one group as one group shape (its child space is the slide's, so the children keep their
+ * boxes); a single path stays a shape of its own. */
+function pathGroup(c: Ctx, items: PathItem[]): string {
+  const gid = ++c.id
+  const kids = items.map((it) => pathShape(c, it)).filter((k): k is NonNullable<typeof k> => !!k)
+  if (kids.length < 2) return kids.map((k) => k.xml).join('')
+  const x0 = Math.min(...kids.map((k) => k.box[0])), y0 = Math.min(...kids.map((k) => k.box[1]))
+  const x1 = Math.max(...kids.map((k) => k.box[0] + k.box[2])), y1 = Math.max(...kids.map((k) => k.box[1] + k.box[3]))
+  const off = `x="${x0}" y="${y0}"`, ext = `cx="${x1 - x0}" cy="${y1 - y0}"`
+  return `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="${gid}" name="Group ${gid}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off ${off}/><a:ext ${ext}/><a:chOff ${off}/><a:chExt ${ext}/></a:xfrm></p:grpSpPr>${kids.map((k) => k.xml).join('')}</p:grpSp>`
+}
+
+/** A PNG's width and height from its header */
+const pngSize = (b: Uint8Array): [number, number] | null => (b.length > 24 && extOf(b) === 'png' ? [((b[16]! << 24) | (b[17]! << 16) | (b[18]! << 8) | b[19]!) >>> 0, ((b[20]! << 24) | (b[21]! << 16) | (b[22]! << 8) | b[23]!) >>> 0] : null)
+function picture(c: Ctx, name: string, rid: string, bx: number, by: number, bw: number, bh: number): string {
+  const id = ++c.id
+  return `<p:pic><p:nvPicPr><p:cNvPr id="${id}" name="${name} ${id}" descr=""/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>${xfrm(bx, by, bw, bh)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`
+}
 
 /** A run's fonts: Regular and Bold are "Pretendard" (bold by b="1"), ExtraBold its own family. */
 function rPr(lang: Locale, size: number, weight: number, tracking: number, c: string, tag = 'a:rPr'): string {
@@ -90,8 +150,27 @@ function textBox(c: Ctx, t: TextItem): string {
     + lines.join(br) + end + '</a:p></p:txBody></p:sp>'
 }
 
-function item(c: Ctx, it: Item, read: (src: string) => Uint8Array | null): string {
+function item(c: Ctx, it: Item, o: PptxOptions): string {
+  const read = o.read
   if (it.t === 'text') return textBox(c, it)
+  if (it.t === 'path') return pathShape(c, it)?.xml ?? ''
+  if (it.t === 'pattern') {
+    const bytes = patternPng(it)
+    const rid = c.media(`pattern|${JSON.stringify(it)}`, bytes, 'png')
+    // the picture covers exactly the box, one slide px a pixel
+    return picture(c, 'Pattern', rid, it.x, it.y, it.w, it.h)
+  }
+  if (it.t === 'svg') {
+    // the accent as a picture made from its SVG (by typst, outside this writer); none: left out
+    let png: Uint8Array | null = null
+    try { png = o.svgPng?.(withXmlns(it.svg), it.w, it.h) ?? null } catch { png = null }
+    const size = png ? pngSize(png) : null
+    if (!png || !size || !size[0] || !size[1]) return ''
+    // its own proportions kept, centred in the box
+    const k = Math.min(it.w / size[0], it.h / size[1]), w = size[0] * k, h = size[1] * k
+    const rid = c.media(`accent|${it.svg}|${it.w}|${it.h}`, png, 'png')
+    return picture(c, 'Accent', rid, it.x + (it.w - w) / 2, it.y + (it.h - h) / 2, w, h)
+  }
   if (it.t === 'rect' && !('solid' in it.fill)) {
     // a gradient (photo scrims, the ink glow) as a picture with alpha: the same in PowerPoint, Keynote and Quick Look
     const f = it.fill
@@ -99,16 +178,26 @@ function item(c: Ctx, it: Item, read: (src: string) => Uint8Array | null): strin
     const stops = 'radial' in f ? f.radial.stops : f.linear.stops
     const rid = c.media(`gradient|${dir}|${JSON.stringify(stops)}`, gradientPng(stops, dir), 'png')
     const id = ++c.id
-    return `<p:pic><p:nvPicPr><p:cNvPr id="${id}" name="Shade ${id}" descr=""/><p:cNvPicPr><a:picLocks noChangeAspect="0"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>${xfrm(it.x, it.y, it.w, it.h)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`
+    const shade = `<p:pic><p:nvPicPr><p:cNvPr id="${id}" name="Shade ${id}" descr=""/><p:cNvPicPr><a:picLocks noChangeAspect="0"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>${xfrm(it.x, it.y, it.w, it.h)}${geom(it.radius, it.w, it.h, it.ellipse)}</p:spPr></p:pic>`
+    if (!it.stroke) return shade
+    // its outline as a shape of its own over the picture
+    const sid = ++c.id
+    return shade + `<p:sp><p:nvSpPr><p:cNvPr id="${sid}" name="Shape ${sid}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(it.x, it.y, it.w, it.h)}${geom(it.radius, it.w, it.h, it.ellipse)}<a:noFill/>${ln(it.stroke)}</p:spPr></p:sp>`
   }
   if (it.t === 'rect') {
     const id = ++c.id
-    return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="Shape ${id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(it.x, it.y, it.w, it.h)}${geom(it.radius, it.w, it.h, it.ellipse)}${fill(it.fill)}<a:ln><a:noFill/></a:ln></p:spPr></p:sp>`
+    const f = 'solid' in it.fill && /^#[0-9a-f]{6}00$/i.test(it.fill.solid) ? '<a:noFill/>' : fill(it.fill)
+    return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="Shape ${id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr>${xfrm(it.x, it.y, it.w, it.h)}${geom(it.radius, it.w, it.h, it.ellipse)}${f}${ln(it.stroke)}</p:spPr></p:sp>`
   }
   if (it.t === 'line') {
     const id = ++c.id
     const x0 = Math.min(it.x1, it.x2), y0 = Math.min(it.y1, it.y2)
-    return `<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="${id}" name="Line ${id}"/><p:cNvCxnSpPr/><p:nvPr/></p:nvCxnSpPr><p:spPr>${xfrm(x0, y0, Math.abs(it.x2 - it.x1), Math.abs(it.y2 - it.y1))}<a:prstGeom prst="line"><a:avLst/></a:prstGeom><a:ln w="${e(it.width)}"><a:solidFill>${color(it.color)}</a:solidFill></a:ln></p:spPr></p:cxnSp>`
+    // the preset line runs from its box's top left to its bottom right: flipped for a line that rises
+    const flip = (it.x2 - it.x1) * (it.y2 - it.y1) < 0 ? ' flipV="1"' : ''
+    const box = xfrm(x0, y0, Math.abs(it.x2 - it.x1), Math.abs(it.y2 - it.y1)).replace('<a:xfrm>', `<a:xfrm${flip}>`)
+    const plain = !dashOf(it.dash) && !it.cap
+    const stroke = plain ? `<a:ln w="${e(it.width)}"><a:solidFill>${color(it.color)}</a:solidFill></a:ln>` : ln(lineStroke(it))
+    return `<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="${id}" name="Line ${id}"/><p:cNvCxnSpPr/><p:nvPr/></p:nvCxnSpPr><p:spPr>${box}<a:prstGeom prst="line"><a:avLst/></a:prstGeom>${stroke}</p:spPr></p:cxnSp>`
   }
   const src = read(it.src)
   if (!src) return ''
@@ -161,6 +250,9 @@ export interface PptxOptions {
   embed?: boolean
   /** the document's date (the deck's own), so the same deck gives the same bytes every time */
   created?: string
+  /** the AI's accent as a PNG (its SVG, the box's width and height in slide px), made before the build; null or
+   * absent: the accent is left out of the file */
+  svgPng?: (svg: string, w: number, h: number) => Uint8Array | null
 }
 
 export function buildPptx(deck: DeckOut, o: PptxOptions): Uint8Array {
@@ -184,7 +276,18 @@ export function buildPptx(deck: DeckOut, o: PptxOptions): Uint8Array {
         return rid
       },
     }
-    const shapes = s.items.map((it) => item(c, it, o.read)).join('')
+    const parts: string[] = []
+    for (let i = 0; i < s.items.length;) {
+      const it = s.items[i]!
+      if (it.t === 'path' && it.group) {
+        let j = i + 1
+        while (j < s.items.length && s.items[j]!.t === 'path' && (s.items[j] as PathItem).group === it.group) j++
+        if (j - i > 1) { parts.push(pathGroup(c, s.items.slice(i, j) as PathItem[])); i = j; continue }
+      }
+      parts.push(item(c, it, o))
+      i++
+    }
+    const shapes = parts.join('')
     put(`ppt/slides/slide${i + 1}.xml`, `${XML}<p:sld ${NS}><p:cSld><p:bg><p:bgPr><a:solidFill>${color(s.ground)}</a:solidFill><a:effectLst/></p:bgPr></p:bg>${SP_TREE_START}${shapes}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`)
     put(`ppt/slides/_rels/slide${i + 1}.xml.rels`, `${XML}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels.map((r) => `<Relationship Id="${r.id}" Type="${r.type}" Target="${r.target}"/>`).join('')}</Relationships>`)
     const notes = s.notes.length ? s.notes : ['']

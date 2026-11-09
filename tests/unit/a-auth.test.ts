@@ -6,6 +6,7 @@ import { DEFAULT_LIMITS } from '../../server/src/auth/rate-limit'
 import { passwordProblem, temporaryPassword } from '../../server/src/auth/passwords'
 import { weakPasswordMessage } from '../../server/src/auth/messages'
 import { OWNER_PW, SETUP_TOKEN, addMember, harness, withOwner, type Client, type Harness } from './a-lib'
+const SEALED = { kid: '0123456789abcdef', epk: 'A'.repeat(87), iv: 'A'.repeat(16), ct: 'A'.repeat(40) } // well-formed, never opened
 
 // argon2id with 64 MiB per hash, 4 at a time (auth/passwords.ts): the rate-limit cases hash dozens of passwords and take
 // about 2 s alone, more on a busy machine; the 5 s default cut them off there
@@ -153,6 +154,21 @@ describe('sign-in and sessions', () => {
     const me = await c.call('PATCH', '/api/me', { prefs: { theme: 'light' }, locale: 'id' })
     expect(me.user.prefs).toEqual({ theme: 'light', engine: 'codex' })
     expect(me.user.locale).toBe('id')
+  })
+  test('the text size is one of the five steps, kept with the other preferences (no migration: prefs is JSON)', async () => {
+    const c = h.client()
+    await c.login('olga', OWNER_PW)
+    const before = (await c.call('GET', '/api/me')).user.prefs
+    let me = await c.call('PATCH', '/api/me', { prefs: { textSize: 'largest' } })
+    expect(me.user.prefs).toEqual({ ...before, textSize: 'largest' })
+    expect((await c.try('PATCH', '/api/me', { prefs: { textSize: 'huge' } })).status).toBe(400)
+    me = await c.call('PATCH', '/api/me', { prefs: { theme: 'dark' } })
+    expect(me.user.prefs.textSize).toBe('largest')
+    expect((await c.call('GET', '/api/me')).user.prefs.textSize).toBe('largest')
+    // a step this version does not know (stored by a later one) reads as none and hides nothing else
+    const id = (await c.call('GET', '/api/me')).user.id
+    h.ctx.db.query('UPDATE users SET prefs = ? WHERE id = ?').run(JSON.stringify({ theme: 'dark', textSize: 'huge' }), id)
+    expect((await c.call('GET', '/api/me')).user.prefs).toEqual({ theme: 'dark' })
   })
 })
 
@@ -319,6 +335,16 @@ describe('rate limits (per account and per real client IP)', () => {
     }
     const r = await m.client.try('POST', '/api/auth/password', { currentPassword: 'cloud forest path 33', newPassword: 'cloud desert road 44' })
     expect(r.status).toBe(429)
+    expect(await h.auth.verifyPassword('olga', OWNER_PW, { ip: null, via: 'test' })).toBe(true)
+  })
+  test('admin-reauth (the API engine) is limited per person like owner-reauth: wrong passwords count, then even the right one waits', async () => {
+    h.advance(DEFAULT_LIMITS.windowMs + 1000)
+    const adm = await addMember(h, owner, { username: 'adriana', role: 'admin', password: 'harbor lamp stone 55' })
+    const body = (password: string) => ({ baseUrl: 'https://93.184.216.34/v1', model: 'm', password })
+    for (let i = 0; i < DEFAULT_LIMITS.perReauth; i++) expect((await adm.client.try('PUT', '/api/admin/engines/api-config', body('wrong wrong'))).status).toBe(403)
+    // the right password is now refused too (429)
+    expect((await adm.client.try('PUT', '/api/admin/engines/api-config', body('harbor lamp stone 55'))).status).toBe(429)
+    // other people are not affected
     expect(await h.auth.verifyPassword('olga', OWNER_PW, { ip: null, via: 'test' })).toBe(true)
   })
   test('failed sign-ins are audited with the real IP, never with the tried password', async () => {

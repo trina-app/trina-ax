@@ -20,6 +20,11 @@ export const PUSH_PERMISSION_CAPABILITY = 'push-permission-v1'
  * (env(safe-area-inset-*), and the --app-inset-* CSS variables the app sets before the page loads, for WebViews that
  * do not report the insets). */
 export const APPEARANCE_CAPABILITY = 'appearance-v1'
+/** Optional, versioned: the iPhone app shows who and where in a room push (its notification service extension asks
+ * the team for the title with a label key the app made and keeps in the keychain). The `push-token` reply then also has
+ * `labelHash` (sha256 hex of that key), which the page registers with the token. Only iPhone builds with the extension
+ * offer it (1.0.1 on); Android stays generic. */
+export const PUSH_LABEL_CAPABILITY = 'push-label-v1'
 /** undetermined: the app may still show the OS prompt (Android 13+ before the question, iOS before an answer). */
 export type PushPermission = 'granted' | 'undetermined' | 'denied'
 export type PushPlatform = 'ios' | 'android'
@@ -38,7 +43,9 @@ export type FileMessage = Envelope & (
   | { type: 'file-abort' }
 )
 export type MobileMessage = FileMessage | (Envelope & (
-  | { type: 'session-reset' }
+  // signedOut: the session ended (sign-out, or it expired while the page was open), not a sign-in or a reload; the app
+  // then takes the names off the lock screen (delivered notifications) and forgets the label key. Older apps ignore it.
+  | { type: 'session-reset'; signedOut?: boolean }
   | { type: 'external-open'; url: string; purpose: 'google-oauth' }
   | { type: 'push-token' }
   // the page registered the token with its team: the app keeps the device id (taps from other teams are ignored) and
@@ -50,7 +57,7 @@ export type MobileMessage = FileMessage | (Envelope & (
   // appearance-v1: the page's look (dark or light) and whether it follows the phone's (its theme is "system")
   | { type: 'appearance'; dark: boolean; system?: boolean }
 ))
-export interface MobileReply extends Envelope { type: 'mobile-result'; for: MobileMessage['type']; ok: boolean; seq?: number; error?: string; nextGeneration?: number; push?: PushToken; permission?: PushPermission }
+export interface MobileReply extends Envelope { type: 'mobile-result'; for: MobileMessage['type']; ok: boolean; seq?: number; error?: string; nextGeneration?: number; push?: PushToken; permission?: PushPermission; labelHash?: string }
 export const pushPermission = (v: unknown): v is PushPermission => v === 'granted' || v === 'undetermined' || v === 'denied'
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const generation = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v > 0 && v < 0x7fffffff
@@ -92,7 +99,8 @@ export function parseMessage(raw: string): MobileMessage | null {
       break
     case 'file-chunk': if (!seq(m.seq) || base64Size(m.b64) === null) return null; break
     case 'file-end': if (!seq(m.seq)) return null; break
-    case 'file-abort': case 'session-reset': case 'push-token': case 'push-permission': case 'open-settings': break
+    case 'file-abort': case 'push-token': case 'push-permission': case 'open-settings': break
+    case 'session-reset': if (m.signedOut !== undefined && typeof m.signedOut !== 'boolean') return null; break
     case 'appearance': if (typeof m.dark !== 'boolean' || (m.system !== undefined && typeof m.system !== 'boolean')) return null; break
     case 'push-registered': if (!deviceId(m.deviceId) || typeof m.removeKey !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(m.removeKey)) return null; break
     case 'external-open': if (m.purpose !== 'google-oauth' || typeof m.url !== 'string' || !googleOAuthUrl(m.url)) return null; break

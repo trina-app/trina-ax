@@ -2,7 +2,7 @@
 // not raw rows. Server code maps rows -> these shapes; clients only ever see these.
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
-import { Access, ApiErrorBody, ClientKind, EngineId, IsoTime, Locale, RelPath, Role, Theme, UserStatus } from './common'
+import { Access, ApiErrorBody, ClientKind, EngineId, IsoTime, Locale, RelPath, Role, TextSize, Theme, UserStatus } from './common'
 
 // ---------------- people ----------------
 /** Minimal person reference (chat authors, audit actors, file authors). */
@@ -11,11 +11,17 @@ export type UserRef = z.infer<typeof UserRef>
 
 export const UserPrefs = z.object({
   theme: Theme.optional(),
+  /** the person's text size on every device they sign in on (Settings > Profile); absent = default. A stored value this
+   * version does not know (a later version's step) reads as absent instead of hiding the other preferences. */
+  textSize: TextSize.optional().catch(undefined),
   /** language for AI answers if different from the UI language */
   answerLocale: Locale.optional(),
   /** own default engine/model for new chats ("내 기본 엔진/모델"; only for people who may pick the engine) */
   engine: EngineId.optional(),
   model: z.string().max(100).optional(),
+  /** set themselves away (the account menu's "자리 비움으로 표시"; docs/DECISIONS.md "접속 상태"): their dot shows away
+   * until they change it. Only PUT /api/me/away sets it; PATCH /api/me leaves it as it is. */
+  away: z.boolean().optional(),
 })
 export type UserPrefs = z.infer<typeof UserPrefs>
 
@@ -72,6 +78,9 @@ export const Invite = z.object({
   expiresAt: IsoTime,
   usedAt: IsoTime.nullable(),
   usedBy: UserRef.nullable(),
+  /** a lead invite ("이 사람이 팀장이에요", docs/DECISIONS.md "W6"): the owner's words for whom it is, while it is still
+   * flagged (a transfer clears every flag); absent or null otherwise and from older servers */
+  leadFor: z.string().nullable().optional(),
 })
 export type Invite = z.infer<typeof Invite>
 
@@ -132,12 +141,24 @@ export const Project = z.object({
    * get none of it; restoring the folder, or pointing the project at a folder (PATCH folderPath, also the same path),
    * ends that. Absent from older servers: false. */
   inTrash: z.boolean().optional(),
+  /** shared project chats (docs/DECISIONS.md "Shared project chats"): new chats in this project are shared with its
+   * people. Team projects only; absent from older servers and for personal projects: off. Turning it off keeps the
+   * chats already shared. */
+  shareChats: z.boolean().optional(),
+  /** how many active people see this project now (who can read its folder, owner and admins included; while its folder
+   * is in the trash, the owner and admins): the people a shared chat of it is shown to. A count, never names. */
+  audience: z.number().int().nonnegative().optional(),
+  /** how many shared chats it has (not in the trash): the delete dialog says they go to their creators' trash, the
+   * repoint dialog who will see them */
+  sharedChats: z.number().int().nonnegative().optional(),
 })
 export type Project = z.infer<typeof Project>
 
 /** Run state of a chat, from the turn queue. */
 export const ChatRunState = z.enum(['idle', 'queued', 'running'])
 export type ChatRunState = z.infer<typeof ChatRunState>
+/** At most this many of a shared chat's writers come with it (Chat.shared.people): the faces a project page's row shows. */
+export const CHAT_PEOPLE_SHOWN = 3
 export const Chat = z.object({
   id: Uuid7,
   projectId: Uuid7.nullable(),
@@ -152,6 +173,47 @@ export const Chat = z.object({
   /** Safe operations 1A (docs/SAFE-OPS-1A.md): a confidential conversation. Egress tools are off on the server, and
    * the web app shows its artifacts and HTML / SVG previews without scripts outside the desktop app. Absent = no. */
   confidential: z.literal(true).optional(),
+  /** the AI asked me something in this chat and waits (an open ask_user / connect_service card shown in every window;
+   * a card for one desktop window only is not counted). Absent = no. */
+  waiting: z.literal(true).optional(),
+  /** an answer finished here after I last had the chat on screen (POST /api/chats/:id/seen; migration 252). Absent = no. */
+  unseen: z.literal(true).optional(),
+  /** how the newest finished answer ended when it did not end well (docs/DECISIONS.md "Session markers"): 'error' (it
+   * failed, a server stop included) or 'paused' (it stopped at the per-answer limit of tool rounds or working time,
+   * Message.stopReason). Absent = it finished normally (or the person stopped it), or no answer finished yet. With
+   * `unseen` it is the row's "?". */
+  lastOutcome: z.enum(['error', 'paused']).optional(),
+  /** 내 스킬 가져오기 (docs/DECISIONS.md "W5"): a merge chat made at the end of the welcome steps whose turn waits for its
+   * person; the chat page starts it when it is on screen (POST /api/skill-shares/merge-chats/:id/start), so the save
+   * cards it raises are there while they look. Absent = no. */
+  mergeWaiting: z.literal(true).optional(),
+  /** the room whose side panel (✦ Trina) this chat was opened from (docs/DECISIONS.md "Trina side chat"): the AI is
+   * told the room, and an answer goes there only with "Share to room". Absent: an ordinary chat. */
+  sideRoomId: z.string().optional(),
+  /** when I pinned it to the top of my chat list ("상단에 고정", POST /api/chats/:id/pin; migration 277). Mine only: on
+   * a shared project chat nobody else sees my pin. Absent = not pinned. */
+  pinnedAt: IsoTime.optional(),
+  /** a shared project chat (docs/DECISIONS.md "Shared project chats"): the people who can see its project see it and may
+   * continue it, each turn as the person who sent it. Absent: a chat of one person. */
+  shared: z.object({
+    /** who made it */
+    by: UserRef,
+    /** how many people see it now (the project's audience) */
+    audience: z.number().int().nonnegative(),
+    /** someone else's question is being answered now (their name; `waiting`: the AI waits for their yes on a card);
+     * null when nobody's is, or when it is mine */
+    answering: z.object({ name: z.string(), waiting: z.literal(true).optional() }).nullable(),
+    /** I made it or wrote in it: it is in my chat list */
+    mine: z.boolean(),
+    /** I may delete it (its creator or an editor of its project) */
+    canDelete: z.boolean(),
+    /** who wrote in it (sent a question there, its creator included), the most recent first, at most
+     * CHAT_PEOPLE_SHOWN of them: the project page's faces. Only in a project's chat list (GET /api/chats?projectId=);
+     * absent elsewhere, and empty while nobody wrote yet. People the viewer sees in the chat anyway. */
+    people: z.array(UserRef).max(CHAT_PEOPLE_SHOWN).optional(),
+    /** how many people wrote in it (with `people`) */
+    peopleCount: z.number().int().nonnegative().optional(),
+  }).optional(),
 })
 export type Chat = z.infer<typeof Chat>
 
@@ -323,6 +385,11 @@ export const Message = z.object({
    * skill (its file's first version), when that is someone else than the person who asked and not a starter pack's
    * text: "김지훈님의 팀 스킬 '견적서 쓰기' · 팀 파일 1개" */
   receipt: z.object({ skill: z.object({ path: z.string(), name: z.string(), by: z.string().optional() }), teamFiles: z.number().int().nonnegative() }).optional(),
+  /** a shared project chat's answer hidden from me (docs/DECISIONS.md "People who see a shared chat later"): it used
+   * something I cannot open, and I did not see the chat when it did. Shown as one line in its place: content is '' and
+   * nothing of it comes (no steps, files, sources, artifacts, model or error); its place in the branch stays. Never on
+   * an answer of my own question */
+  withheld: z.literal(true).optional(),
 })
 export type Message = z.infer<typeof Message>
 
@@ -548,7 +615,7 @@ export const SMALL_SERVER_CORES = 2
  * provider is this server (the sound stays here) and it has more than SMALL_SERVER_CORES cores, off on a smaller one
  * (too slow; frames still go), off for OpenRouter with the team's own key (team files' sound would go to a third party
  * the team did not pick for it) and on for OpenRouter with the hosting service's key (`hostedKey`: the hosted plan's
- * speech-to-text, zero data retention, 10 free hours a month; docs/DECISIONS.md "Hosted speech-to-text"). `cpuCores`:
+ * speech-to-text, zero data retention, the plan's free hours a month; docs/DECISIONS.md "Hosted speech-to-text"). `cpuCores`:
  * the server's (system/limits.ts cpuBudget; GET /api/admin/speech-host for the settings page). An admin's choice
  * always wins. The one place this default lives (docs/DECISIONS.md "AI reads video and audio"). */
 export const mediaTranscriptsDefault = (provider: SpeechProvider, cpuCores: number, hostedKey = false): boolean =>
@@ -601,11 +668,16 @@ export const TeamSettings = z.object({
    * same tools as the AI (minus asking the person, memories, the chat title, schedules, video and the browser) and the
    * same person's access. Off: the AI does everything itself (docs/DECISIONS.md "Sub-agents") */
   aiSubagents: z.boolean(),
+  /** "대화방에서 '항상 허용' 쓰기" (default on): a room's change card may offer "이 방에서는 항상 허용" (new team files in
+   * one folder, docs/DECISIONS.md "대화방에서 새 파일은 미리 허용"). Off: the card never offers it and the grants people
+   * made are ignored (kept: they work again when it is turned back on, if nothing else changed) */
+  roomAlwaysAllow: z.boolean(),
   /** tool rounds per answer (Claude Code `--max-turns`, default 150): at the limit the answer pauses and "continue" goes
    * on. Sub-agents keep their own 50 rounds each; the API engine keeps its own 30 */
   answerStepLimit: z.number().int().min(ANSWER_STEP_LIMIT_MIN).max(ANSWER_STEP_LIMIT_MAX),
-  /** voice input: 'off' (default; 'openrouter' on a hosted server with the hosting service's key) | 'openrouter' (the
-   * team's OpenRouter key, Admin > Team settings, else the hosting service's) | 'local' */
+  /** voice input: 'off' (default; 'openrouter' while not chosen and there is the hosting service's key or the team's own
+   * OpenRouter key) | 'openrouter' (the team's OpenRouter key, Admin > Team settings, else the hosting service's) |
+   * 'local' (whisper.cpp here; voice input needs whisper-cli and ffmpeg on the server) */
   speechProvider: SpeechProvider,
   /** the OpenRouter speech-to-text model */
   speechModel: SpeechModel,
@@ -614,5 +686,9 @@ export const TeamSettings = z.object({
    * team's key, on with the hosting service's key). A change of speechProvider
    * puts it back to null, so a choice made for one provider never sends sound to another. */
   aiMediaTranscripts: z.boolean().nullable(),
+  /** how long the company intro deck may take (docs/DECISIONS.md "D2", round 2; server/src/intro-deck/tiers.ts):
+   * quick ≈ 3 min, standard ≈ 5 min (the default, DEFAULT_DECK_TIER: more of the site, sourced web facts), deep ≈ 10 min
+   * (more again, the strongest model, two reviews). Owners and admins choose it. */
+  introDeckTier: z.enum(['quick', 'standard', 'deep']),
 })
 export type TeamSettings = z.infer<typeof TeamSettings>

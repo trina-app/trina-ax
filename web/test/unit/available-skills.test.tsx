@@ -30,8 +30,10 @@ describe('Available skills', () => {
       const html = render(items)
       expect((html.match(/data-testid="skill-row"/g) ?? []).length).toBe(3)
       for (const s of items) expect(html).toContain(`data-path="${s.path}"`)
-      expect(html).toContain('skills/ · Friday team report')
-      expect(html).toContain('>skills/<')
+      expect(html).toContain('>/weekly<')
+      expect(html).toContain('>Friday team report<')
+      expect(html).not.toContain('skills/ ·')
+      expect(html).not.toContain('>skills/<')
       expect((html.match(new RegExp(`>${translate('en', 'skills.personal')}<`, 'g')) ?? []).length).toBe(1)
       expect(html).toContain(`>${translate('en', 'skills.fromTeam')}<`)
       expect(html).not.toContain('users/bob/skills/ ·')
@@ -72,37 +74,50 @@ describe('Available skills', () => {
     expect(skillFileLink('users/bob/skills/my-tone.md')).toBe('/files?path=users%2Fbob%2Fskills&select=users%2Fbob%2Fskills%2Fmy-tone.md')
   })
 
-  test('none yet: says so and how one gets there; nothing while loading', () => {
-    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
-      setLocale(l)
-      const html = render([])
-      expect(html).toContain(translate(l, 'skills.noSkills'))
-      expect(html).not.toContain('skill-row')
-    }
+  test('none yet: says so (owners and admins: none yet; members: the owner or an admin puts them in, and how one gets there); nothing while loading', () => {
+    try {
+      for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+        setLocale(l)
+        for (const role of ['owner', 'admin'] as const) {
+          as(role)
+          const html = render([])
+          expect(html).toContain(translate(l, 'skills.noSkills'))
+          expect(html).not.toContain('skill-none-member')
+          expect(html).not.toContain('skill-row')
+        }
+        as('member')
+        const member = render([])
+        expect(member).toContain(translate(l, 'skills.catalog.memberEmpty'))
+        expect(member).toContain('data-testid="skill-none-member"')
+        expect(member).toContain(translate(l, 'skills.noSkillsHint').replace(/'/g, '&#x27;').replace(/"/g, '&quot;'))
+        expect(member).not.toContain('skill-row')
+      }
+    } finally { as(null) }
     expect(render(null)).not.toContain('skill-row')
   })
 
-  test('a team with skills but no marketing ones: owners and admins get one quiet "add the marketing skills" line, nobody else, not while searching', () => {
+  test('nothing installs by itself and no install button sits on the page (docs/DECISIONS.md "DS3", "W6"): the kept skills wait in the fold, read after the page shows', () => {
     setLocale('ko')
-    const general: SkillInfo[] = [{ path: 'skills/general/meeting-tasks/SKILL.md', name: 'meeting-tasks', title: '할 일 정리', description: '' }]
+    const general: SkillInfo[] = [{ path: 'skills/general/card-news/SKILL.md', name: 'card-news', title: '카드뉴스', description: '' }]
     try {
-      for (const role of ['owner', 'admin'] as const) {
+      for (const role of ['owner', 'admin', 'member'] as const) {
         as(role)
-        const html = render(general)
-        expect(html).toContain('data-testid="skill-pack-marketing"')
-        expect(html).toContain('>마케팅 스킬 7개 넣기<')
-        // what goes in, as its tooltip; no second button or card
-        expect(html).toContain(`title="${translate('ko', 'skillPack.adminHint')}"`)
-        expect(html).not.toContain('skill-pack-offer')
-        // a marketing skill already there (or a search): nothing
-        expect(render([...general, { path: 'skills/marketing/ad-copy/SKILL.md', name: 'ad-copy', description: '' }])).not.toContain('skill-pack-marketing')
-        expect(render(general, '할 일')).not.toContain('skill-pack-marketing')
+        for (const list of [general, []]) {
+          const html = render(list)
+          expect(html).not.toContain('skill-pack')
+          expect(html).not.toContain('skill-catalog')
+        }
       }
-      as('member')
-      expect(render(general)).not.toContain('skill-pack-marketing')
-      // a personal skill under a folder named marketing is not the team's pack
-      as('owner')
-      expect(render([...general, { path: 'users/u1/skills/marketing-note.md', name: 'marketing-note', description: '', personal: true }])).toContain('skill-pack-marketing')
     } finally { as(null) }
+  })
+
+  test('the catalog\'s words name no pack that is gone, in any language', () => {
+    for (const l of ['ko', 'en', 'id', 'ja', 'es'] as const) {
+      for (const k of ['skills.catalog.title', 'skills.catalog.more', 'skills.catalog.install', 'skills.catalog.memberEmpty', 'skillPack.installed', 'skillPack.taken'] as const) {
+        expect(translate(l, k, { n: 4 })).not.toMatch(/seven|sieben|siete|tujuh|マーケティング|marketing|마케팅|pemasaran/i)
+      }
+      expect(translate(l, 'skills.catalog.more', { n: 4 })).toContain('4')
+      expect(translate(l, 'skills.catalog.install', { n: 2 })).toContain('2')
+    }
   })
 })

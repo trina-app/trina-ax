@@ -1,15 +1,17 @@
 // The sections of the personal Settings dialog (components/settings/SettingsDialog.tsx, pages/Settings.tsx), in named
 // groups the dialog's list shows: Account (you and this device: profile, security, the in-app browser, your own usage,
-// what the AI remembers about you; the whole team's usage is Admin › Usage) · Connections (Providers: your own AI
-// accounts, while the team lets members add their own or one is still there; MCP: the AI using other services with
-// your accounts, and the team connections you may use; App connectors: apps the AI here uses with your account, Google
-// Drive for now; AI apps: outside AI apps such as Claude using this server) · App (notices, the apps to install, about).
+// what the AI remembers about you, what you allowed it in advance (트리나에게 허용한 것: room folders for new files,
+// components/settings/AiAllowances.tsx); the whole team's usage is Admin › Usage) · Connections (Providers: your own AI
+// accounts, while the team lets members add their own or one is still there; Connectors: the AI using other services
+// with your accounts, MCP servers and Google Drive in one place, plus the team connections you may use; AI apps: outside
+// AI apps such as Claude using this server) · App (notices, the apps to install, about).
 // The same groups as Admin's menu, which has no AI group either. Every section is just for you (Admin is the team's).
-// "Browser" is there only inside a desktop app that offers it. Old addresses: /settings/drive (App connectors) and
-// /settings/credentials (Providers, /settings/providers), SettingsDialog.tsx. "Dev environment sites" (the sites the
-// person allowed for her own dev-environment commands, and her Full internet switch) is there while the dev environment
-// on srt is on for her.
-import { Bell, Bot, Brain, Cable, Download, Gauge, Globe, Info, KeyRound, Laptop, Network, Plug, User } from 'lucide-react'
+// "Browser" is there only inside a desktop app that offers it. Old addresses: /settings/integrations (MCP) and
+// /settings/drive (Connectors), /settings/credentials (Providers, /settings/providers), SettingsDialog.tsx. "Dev
+// environment sites" (the sites the person allowed for her own dev-environment commands, and her Full internet switch)
+// is there while the dev environment on srt is on for her.
+import { Bell, Bot, Brain, Cable, Download, Gauge, Globe, Info, KeyRound, Laptop, Network, ShieldCheck, User } from 'lucide-react'
+import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
 
 export interface SettingsTab {
@@ -32,9 +34,10 @@ const TABS: SettingsTab[] = [
   { id: 'browser', label: 'settings.browser', find: 'settings.find.browser', icon: Globe, group: 'account' },
   { id: 'usage', label: 'settings.usage', find: 'settings.find.usage', icon: Gauge, group: 'account' },
   { id: 'memory', label: 'settings.memory', find: 'settings.find.memory', icon: Brain, group: 'account' },
+  // named after the AI where the product is (트리나에게 허용한 것), else "AI에게 허용한 것"
+  { id: 'allowances', label: PRODUCT_NAMED_AFTER_AI ? 'settings.allowances' : 'settings.allowancesAi', find: 'settings.find.allowances', icon: ShieldCheck, group: 'account' },
   { id: 'providers', label: 'settings.providers', find: 'settings.find.credentials', icon: KeyRound, group: 'connections', keywords: ['Claude', 'Codex', 'ChatGPT', 'AI'] },
-  { id: 'integrations', label: 'integrations.title', find: 'settings.find.integrations', icon: Cable, group: 'connections' },
-  { id: 'connectors', label: 'connectors.title', find: 'settings.find.drive', icon: Plug, group: 'connections', keywords: ['Google Drive', 'Slack'] },
+  { id: 'connectors', label: 'integrations.title', find: 'settings.find.integrations', icon: Cable, group: 'connections', keywords: ['MCP', 'Google Drive', 'Slack', 'Notion', 'Linear'] },
   { id: 'ai-apps', label: 'aiApps.title', find: 'settings.find.connectors', icon: Bot, group: 'connections', keywords: ['Claude', 'Claude Code'] },
   { id: 'dev-env-sites', label: 'settings.devEnvSites', find: 'settings.find.devEnvSites', icon: Network, group: 'connections' },
   { id: 'notifications', label: 'notifications.title', find: 'settings.find.notifications', icon: Bell, group: 'app' },

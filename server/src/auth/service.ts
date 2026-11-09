@@ -21,11 +21,14 @@ import { limitIp, RateLimiter, reauthKey } from './rate-limit'
 import { isLoopback } from '../http/tunnel'
 import { USER_COLS, getUser, localeChoice, parsePrefs, userRef, type UserRow } from './users'
 import { canChooseEngine } from '../admin/engine-choice'
-import { teamIconVersion } from '../admin/team-icon'
+import { teamIconOfMe } from '../admin/team-icon'
 import { deploymentOf, featuresOf } from '../system/deployment'
 import { windowsAppSourceOf } from '../system/windows-app'
+import { teamAddressOf } from '../system/connection'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { devEnvFlag } from '../devenv/setting'
+import { htmlPdfUnavailable } from '../files/html-pdf'
+import { pluginsOf } from '../plugins/manager'
 import { cancelPushSession } from '../notifications/push-events'
 
 export const SESSION_TTL_MS = 30 * 24 * 3600_000
@@ -88,6 +91,9 @@ export function sessionCookie(reqUrl: string, token: string, maxAgeSec: number):
 
 export class AuthService implements SessionService {
   readonly limiter: RateLimiter
+  /** Told when a wrong password locks a person's re-check (owner-reauth, admin-reauth, the current password): the
+   * owner's Inbox note and push (admin/handover.ts noteReauthLocked). Never lets an error through. */
+  onReauthLocked: ((userId: string) => void) | null = null
   /** clock (tests move it) */
   now: () => number = () => Date.now()
 
@@ -136,7 +142,11 @@ export class AuthService implements SessionService {
     let ok = false
     try { ok = !!u && u.status === 'active' && (await verifyPassword(password, u.password_hash)) } catch (e) { hold.release(); throw e }
     if (ok) hold.release()
-    else audit(this.db, { actor: userId, action: 'auth.reauth_failed', target: userId })
+    else {
+      audit(this.db, { actor: userId, action: 'auth.reauth_failed', target: userId })
+      // this wrong try used up the window: whoever holds the session may be guessing
+      if (this.onReauthLocked && this.limiter.retryAfter([key]) > 0) try { this.onReauthLocked(userId) } catch { /* the listener's own problem */ }
+    }
     return ok
   }
 
@@ -223,6 +233,11 @@ export class AuthService implements SessionService {
     c.header('Set-Cookie', sessionCookie(c.req.url, '', 0), { append: true })
   }
 
+  /** The HWP Preview plugin is on and usable here (plugins/manager.ts); a plugin store that cannot be read is off. */
+  private hwpPreviewOn(): boolean {
+    try { return pluginsOf(this.ctx).hwpPreviewOn() } catch { return false }
+  }
+
   me(userId: string, sessionId: string): Me {
     const u = getUser(this.db, userId)
     if (!u) return fail('unauthorized')
@@ -235,6 +250,8 @@ export class AuthService implements SessionService {
     const prefs = parsePrefs(u.prefs)
     if (!choose) { delete prefs.engine; delete prefs.model }
     const windowsApp = windowsAppSourceOf(this.ctx.config)
+    // the team's own address for its members (Settings › 앱): the relay's or the public one, never the request's host
+    const address = teamAddressOf(this.ctx)
     return {
       user: {
         id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.locale, localeChoice: localeChoice(u),
@@ -243,13 +260,15 @@ export class AuthService implements SessionService {
         ...profileOf(this.db, u.id),
       },
       groups,
-      team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, iconVersion: teamIconVersion(this.ctx.config.dataDir), voiceInput: voiceInputOn(this.db), ...(voiceInputOutside(this.db) ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: settings.chatTrashRetentionDays },
+      team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, ...teamIconOfMe(this.ctx.config.dataDir), voiceInput: voiceInputOn(this.db, this.ctx.files.speech), ...(voiceInputOutside(this.db) ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: settings.chatTrashRetentionDays, ...(address ? { address } : {}) },
       session: { id: s.id, client: s.client, expiresAt: s.expires_at, tempLogin: tempLoginOf(s, u) },
       // office mode runs dev's engine setup on purpose (docs/OFFICE.md): the office's desks get no DEV banner
       server: { version: this.ctx.version, dev: this.ctx.config.mode === 'dev' && !this.ctx.config.office,
         deployment: deploymentOf(this.ctx.config), features: featuresOf(this.ctx.config), timeZone: settings.timeZone,
         ...(safeOpsEnabled() ? { allChatsConfidential: true as const } : {}),
         ...(devEnvFlag() ? { devEnv: true as const } : {}),
+        ...(htmlPdfUnavailable() === null ? { htmlPdf: true as const } : {}),
+        ...(this.hwpPreviewOn() ? { hwpPreview: true as const } : {}),
         ...(windowsApp ? { windowsApp } : {}) },
       passwordReset: u.password_reset_at ? { by: userRef(this.db, u.password_reset_by), at: u.password_reset_at } : null,
     }

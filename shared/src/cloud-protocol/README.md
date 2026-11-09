@@ -19,11 +19,12 @@ here as `@mycel/shared/cloud-protocol` and only adds what the control plane and 
 | `enroll.ts` | `/run/ax/enroll.json`, `POST /enroll` request and answer (modes `new`, `restore`, `verify`, `reattach`), `/run/ax/enroll-status.json` | control-plane 3.5.2, isolation §5.4 |
 | `tenant-commands.ts` | the `mycel-ctl` commands ax-hostd may run for the control plane (`tenantCommand`), their args, stdin and output, `TenantStatus`, the gate `tenantCommandProblem()` | control-plane 3.5.3 |
 | `common.ts` | shared field rules: `TenantId` (ULID), `TeamSlug`, `RelayTeamId`, `PlanId`, `TimeZoneName`, `AccountUsername` (= the team server's username rule), `HttpsUrl` (https, http only to this machine), `CredentialKind`, `CLOUD_DEFAULT_CREDENTIAL_KINDS` | — |
-| `files.ts` | `plan.json` (runtime field names + the control plane's `maxActiveMembers`, `display`, `links`; the team server reads plan.json with this schema), `notices.json`, `<data>/relay/registration.json`, `PlanResources` (ax-hostd's VM resources), `PlanLimits` | control-plane 3.5.6, linux-runtime 3.8.5 |
+| `files.ts` | `plan.json` (runtime field names + the control plane's `maxActiveMembers`, `display`, `links`, `speechFreeHours`; the team server reads plan.json with this schema), `notices.json`, `<data>/relay/registration.json`, `PlanResources` (ax-hostd's VM resources), `PlanLimits` | control-plane 3.5.6, linux-runtime 3.8.5 |
 | `release.ts` | `server/<channel>.json` and `server/<version>/release.json` (the server's `ReleaseFeed` + optional fields) | control-plane 3.7.1, linux-runtime 3.6.3 |
 | `relay-ops.ts` | relay operator API: types, `opsSigningString`, the `Authorization: MycelRelayOps` header, scopes, plain validators. **Erasable TypeScript, no zod** (the relay loads it with Node type stripping) | control-plane 3.6.2 |
 | `relay-ops-schema.ts` | zod mirrors of the operator API bodies for the control plane | control-plane 3.6.2 |
 | `push-gateway.ts` | push gateway API (`push-gateway/`, team server → native push): `POST /v1/send` body (`parsePushGatewaySend`, strict), the `Authorization: MycelPush` header, `pushGatewaySigningString`, error codes and their status. **Erasable TypeScript, no imports at all** (Node and Bun load it as it is) | `push-gateway/README.md` |
+| `drive-broker.ts` | Google Drive sign-in broker (control plane `src/drive-broker/`, hosted teams): `POST /api/drive-broker/v1/{status,start,redeem,refresh,revoke}` bodies (strict parsers), the `Authorization: TrinaDriveBroker` header signed with the relay team key, `driveBrokerSigningString`, the one Google return address and the team return address, error codes. **Erasable TypeScript, no imports at all** | `docs/GOOGLE-DRIVE.md` "Hosted teams" |
 | `signing.ts` | canonical JSON (signed JSON documents, e.g. ax-hostd job `cpSig`) and the signing strings (`register`, `rotate`, `reattach`) | control-plane 3.5.2, isolation §6.1 |
 | `vectors.ts`, `vectors/vectors.json` | test vectors for other implementations (Go: mycel-enroll, ax-hostd): canonical JSON, signatures from a fixed RFC 8032 test seed, tenant-command gate cases, enroll documents | — |
 
@@ -31,6 +32,12 @@ Rules:
 
 - Additive changes only once a field is in use (new optional fields, new commands). A removed or renamed field needs a
   new version (`v: 2` / `format: 2`).
+- **plan.json: a new optional field is not free.** The Go reader (`native/internal/plan`, used by mycel-ctl apply-plan,
+  the launcher and mycel-boxd) refuses a key it does not know, even with a `null` value, and a refused plan fails
+  `apply-plan` (the previous plan stays) and, in an enroll answer, the whole enroll. So a new plan.json field has no
+  zod default (parsing must not add it), and the control plane writes it only to a tenant whose kit knows it:
+  `TenantStatus.rootVersion` for apply-plan, `EnrollRequest.kitVersion` for an enroll (`""`/unknown = older). Fields
+  and the first kit that reads them: `speechFreeHours`, the first release after 0.4.0-beta.10.
 - Signed strings are UTF-8, signatures Ed25519 in standard base64. Signed JSON documents use `canonicalJson()`.
 - `TenantStatus` never carries conversations, file names, people's names, mail addresses, IP addresses or tokens: it is
   a strict schema, an extra field fails.

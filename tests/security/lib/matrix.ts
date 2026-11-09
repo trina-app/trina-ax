@@ -28,13 +28,15 @@ const ALICE_OWN = [C.aliceSkill, C.aliceFile, C.aliceFileOld, C.aliceFileName, C
 const FIN = [C.finSkill, C.finFile, C.finFileOld, C.finTrashName, C.finName]
 // the AI connections' secrets are in no persona's VISIBLE list: any response that carries one fails, for everyone
 const DM = [C.dmMsg, C.dmFileName]
-const ALL = [...ALICE_OWN, ...FIN, ...DM, C.bobFile, C.salary, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion, C.teamSecret, C.aliceSecret]
+// the group chat of alice, erin and frank
+const GROUP = [C.groupMsg, C.groupName]
+const ALL = [...ALICE_OWN, ...FIN, ...DM, ...GROUP, C.bobFile, C.salary, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion, C.teamSecret, C.aliceSecret]
 export const VISIBLE: Record<Who, string[]> = {
   // a skill alice suggested reaches the managers of its target folder (skills/: owner and admins), nobody else
   owner: [...FIN, C.salary, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion],
   admin: [...FIN, C.salary, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion],
-  memberIn: [...ALICE_OWN, ...DM, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion],
-  other: [...DM, C.mktBrief, C.mktInstr],
+  memberIn: [...ALICE_OWN, ...DM, ...GROUP, C.mktBrief, C.mktInstr, C.falconPlan, C.falconInstr, C.aliceSuggestion],
+  other: [...DM, ...GROUP, C.mktBrief, C.mktInstr],
   memberOut: [...FIN, C.bobFile, C.falconPlan, C.falconInstr],
   pwchange: [],
   anon: [],
@@ -70,7 +72,7 @@ export function levelExp(route: string, who: Who): Exp {
   if (who === 'anon') return 'deny'
   if (who === 'pwchange' && !ep.allowWhilePasswordChange) return 'deny'
   if (ep.auth === 'user') return 'allow'
-  if (ep.auth === 'admin') return who === 'owner' || who === 'admin' ? 'allow' : 'deny'
+  if (ep.auth === 'admin' || ep.auth === 'admin-reauth') return who === 'owner' || who === 'admin' ? 'allow' : 'deny'
   return who === 'owner' ? 'allow' : 'deny' // owner, owner-reauth
 }
 

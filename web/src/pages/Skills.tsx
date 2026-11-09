@@ -1,17 +1,23 @@
 // 팀 스킬 (docs/DECISIONS.md "팀 스킬 관리"): the skills I can use (everyone, read-only: components/AvailableSkills.tsx),
 // suggestions to review for the folders I manage ([등록] writes the skill under skills/, [거절] turns it down), my own
 // suggestions with their status, and for the owner and admins every recent change under skills/ with a link to its
-// version history (where the previous version can be restored). Quiet on purpose: rows keep to a line or two, the
+// version history (where the previous version can be restored). The owner and admins also read, under the heading, who
+// can change the team skills, with [바꾸기] (admin/SkillManagers.tsx). Quiet on purpose: rows keep to a line or two, the
 // details open on demand. /skills?run=<path> opens that skill's form (components/skills/SkillForm.tsx; the invite
 // link and the welcome steps link here).
+// Members contribute (docs/DECISIONS.md "MC"): 검토 groups the suggestions by person, so three members give three
+// groups; a skill folder from a member's computer reads as such (its app, its files, a path on their computer, a team
+// skill of the same name) and is registered as skills/<folder name>/ with its files. /skills?batch=<id> (the Inbox
+// line of a batch) opens 검토 at that person. /skills?catalog=open ("스킬 넣기" on Home and in the goal card) opens the
+// ready-made skills the team lacks, unfolded, for owners and admins.
 import clsx from 'clsx'
-import { Bot, History, Lightbulb, Search } from 'lucide-react'
+import { Bot, History, Lightbulb, Search, Trash2, Users } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import type { SkillChange, SkillSuggestion, SkillsOverview } from '@mycel/shared/api'
+import { Link, useSearchParams } from 'react-router-dom'
+import { skillLabel, type SkillChange, type SkillShare, type SkillSuggestion, type SkillsOverview } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
-import { formatDateTime } from '../lib/format'
-import { navigateTo } from '../lib/nav'
+import { formatDateTime, formatSize } from '../lib/format'
+import { FILES_TRASH, navigateTo } from '../lib/nav'
 import { useLocale, useT } from '../i18n'
 import { skillsChanged } from '../store/live'
 import { isAdmin, useMeStrict } from '../store/session'
@@ -21,12 +27,15 @@ import { Markdown } from '../components/Markdown'
 import { SkillIssues } from '../components/SkillIssues'
 import { SkillListNote } from '../components/SkillListNote'
 import { SkillFormDialog } from '../components/skills/SkillForm'
+import { SkillEditorsLine } from './admin/SkillManagers'
 import { Badge, Button, EmptyState, ErrorNote, Field, Modal, Skeleton, StickyHeader, TabPanel, Tabs, inputCls, pageColumn, promptDialog } from '../components/ui'
 
 type Tab = 'skills' | 'review' | 'mine' | 'changes'
 
+/** a changed file's version history, a folder; a deleted one is in 파일 › 휴지통 (as the server's notice links:
+ * server/src/skills/changes.ts historyLink) */
 const historyLink = (c: SkillChange) => {
-  if (c.change === 'delete') return '/trash'
+  if (c.change === 'delete') return FILES_TRASH
   const dir = c.path.includes('/') ? c.path.slice(0, c.path.lastIndexOf('/')) : ''
   if (c.kind === 'folder') return `/files?path=${encodeURIComponent(c.path)}`
   return `/files?path=${encodeURIComponent(dir)}&select=${encodeURIComponent(c.path)}&history=${encodeURIComponent(c.path)}`
@@ -39,8 +48,13 @@ export default function Skills() {
   const [params, setParams] = useSearchParams()
   const [overview, setOverview] = useState<SkillsOverview | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const manages = !!overview?.managedFolders.length
-  const [tab, setTab] = useState<Tab>(params.get('mine') ? 'mine' : params.get('review') ? 'review' : 'skills')
+  // a manager of a skills folder (the team's, or a group's: docs/DECISIONS.md "Group skills"), or someone with a share
+  // proposal to one of their groups to apply
+  const manages = !!overview?.managedFolders.length || !!overview?.sharesToReview
+  const [shares, setShares] = useState<SkillShare[] | null>(null)
+  const [tab, setTab] = useState<Tab>(params.get('mine') ? 'mine' : params.get('review') || params.get('batch') ? 'review' : 'skills')
+  // ?batch=<id>: the person whose batch the Inbox line named, once the review list is in
+  const [batch, setBatch] = useState<string | null>(params.get('batch'))
   const [query, setQuery] = useState('')
   const [review, setReview] = useState<SkillSuggestion[] | null>(null)
   const [mine, setMine] = useState<SkillSuggestion[] | null>(null)
@@ -60,6 +74,8 @@ export default function Skills() {
       setOverview(o)
       setMine((await api.call(API.listSkillSuggestions, { query: { scope: 'mine', limit: 100 } })).items)
       if (o.managedFolders.length) setReview((await api.call(API.listSkillSuggestions, { query: { scope: 'review', limit: 100 } })).items)
+      // share proposals to the person's groups that others made (the server lists only what they may apply)
+      setShares(o.sharesToReview ? (await api.call(API.listSkillShares, { query: { scope: 'review' } })).items : [])
       if (isAdmin(me)) setChanges((await api.call(API.listSkillChanges, { query: { limit: 100 } })).items)
       setError(null)
     } catch (e) {
@@ -71,22 +87,29 @@ export default function Skills() {
     void load()
     return skillsChanged.on(() => void load())
   }, [load])
-  // a link to "my suggestions" chose the tab (its ?mine= is gone from the address by then)
-  const linkedMine = useRef(!!params.get('mine'))
+  // a link chose the tab: "my suggestions" (its ?mine= is gone from the address by then) or 스킬 넣기's open catalog
+  const linkedTab = useRef(!!params.get('mine') || params.get('catalog') === 'open')
   // first visit: managers land on what waits for them
   useEffect(() => {
-    if (overview && !linkedMine.current && overview.pendingReview > 0) setTab('review')
+    if (overview && !linkedTab.current && overview.pendingReview + (overview.sharesToReview ?? 0) > 0) setTab('review')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overview === null])
   // a banner's link while already on this page; ?mine= goes once applied, like ?review=, so the same link works again
   useEffect(() => {
     if (params.get('mine')) {
-      linkedMine.current = true
+      linkedTab.current = true
       setTab('mine')
       const next = new URLSearchParams(params)
       next.delete('mine')
       setParams(next, { replace: true })
     } else if (params.get('review')) setTab('review')
+    else if (params.get('batch')) {
+      setTab('review')
+      setBatch(params.get('batch'))
+      const next = new URLSearchParams(params)
+      next.delete('batch')
+      setParams(next, { replace: true })
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params])
   // a banner's link: /skills?review=<id> opens that suggestion
@@ -100,10 +123,12 @@ export default function Skills() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [review, params])
 
+  // suggestions and share proposals to the person's groups, together
+  const waiting = (overview?.pendingReview ?? 0) + (overview?.sharesToReview ?? 0)
   const tabs: { id: Tab; label: string }[] = [
     // what everyone can use, members included (before: a member's page listed no skill at all)
     { id: 'skills', label: t('skills.tabSkills') },
-    ...(manages ? [{ id: 'review' as const, label: `${t('skills.tabReview')}${overview!.pendingReview ? ` (${overview!.pendingReview})` : ''}` }] : []),
+    ...(manages ? [{ id: 'review' as const, label: `${t('skills.tabReview')}${waiting ? ` (${waiting})` : ''}` }] : []),
     { id: 'mine', label: t('skills.tabMine') },
     ...(isAdmin(me) ? [{ id: 'changes' as const, label: t('skills.tabChanges') }] : []),
   ]
@@ -114,7 +139,8 @@ export default function Skills() {
     <div className="flex h-full flex-col overflow-y-auto">
       <div className={clsx(pageColumn, 'p-4 sm:p-6')}>
         <StickyHeader className="-mt-3 mb-2 flex flex-wrap items-center gap-x-4 gap-y-3 py-3" testId="skills-header">
-          <h1 className="text-xl font-semibold tracking-tight">{t('skills.title')}</h1>
+          {/* phones: the top bar says the name (components/PhoneTopBar.tsx) */}
+          <h1 className="text-xl font-semibold tracking-tight max-md:sr-only">{t('skills.title')}</h1>
           {overview && <Tabs segmented value={current} onChange={setTab} items={tabs} label={t('skills.title')} panels={panels} />}
           {overview && current === 'skills' && (
             <div className="relative w-full sm:ml-auto sm:w-56">
@@ -123,18 +149,21 @@ export default function Skills() {
             </div>
           )}
         </StickyHeader>
+        {/* the owner and admins: who can change the team skills, one line (members and other skill managers do not see it) */}
+        {isAdmin(me) && <SkillEditorsLine key={`editors-${me.user.id}`} className="mb-4" />}
         <SkillIssues key={`issues-${me.user.id}`} className="mb-5" />
         <SkillListNote list={overview?.aiList} className="mb-5" />
         {error && <ErrorNote onRetry={() => void load()}>{error}</ErrorNote>}
         {!overview && !error && <Skeleton lines={5} />}
         {overview && (
           <TabPanel base={panels} value={current}>
-            {current === 'skills' && <AvailableSkills key={`skills-${me.user.id}`} query={query} />}
+            {current === 'skills' && <AvailableSkills key={`skills-${me.user.id}`} query={query} catalogOpen={params.get('catalog') === 'open'} />}
             {current === 'review' && (
               <>
                 {/* phones: each row already says the folder it goes into */}
-                <p className="mb-3 text-xs text-muted max-md:hidden">{t('skills.managedHint', { folders: overview.managedFolders.map((f) => f + '/').join(', ') })}</p>
-                <SuggestionList items={review} empty={t('skills.noReview')} onOpen={setOpen} testId="review-list" />
+                {overview.managedFolders.length > 0 && <p className="mb-3 text-xs text-muted max-md:hidden">{t('skills.managedHint', { folders: overview.managedFolders.map((f) => f + '/').join(', ') })}</p>}
+                <ShareReviews items={shares} />
+                {(overview.managedFolders.length > 0 || !shares?.length) && <SuggestionList items={review ?? (overview.managedFolders.length ? null : [])} empty={t('skills.noReview')} onOpen={setOpen} testId="review-list" grouped focusBatch={batch} />}
               </>
             )}
             {current === 'mine' && <SuggestionList items={mine} empty={t('skills.noMine')} testId="mine-list" />}
@@ -158,33 +187,83 @@ export default function Skills() {
   )
 }
 
+/** Share proposals (내 스킬 가져오기) that others made to one of the person's groups (docs/DECISIONS.md "Group skills"):
+ * one row each, who and which group, opening the share page where the person applies or leaves it. */
+function ShareReviews({ items }: { items: SkillShare[] | null }) {
+  const t = useT()
+  if (!items?.length) return null
+  return (
+    <section className="mb-5" aria-label={t('skills.sharesToReview')} data-testid="share-review-list">
+      <h2 className="mb-1 text-sm font-medium">{t('skills.sharesToReview')}</h2>
+      <ul className="-mx-2 divide-y divide-line">
+        {items.map((s) => (
+          <li key={s.id}>
+            <Link to={`/skills/share/${s.id}`} className="flex items-center gap-3 rounded-lg p-2 text-sm hover:bg-hover" data-testid="share-review-row" data-id={s.id}>
+              <Users size={16} className="shrink-0 text-muted" aria-hidden />
+              <span className="min-w-0 flex-1 truncate">{t('skills.shareRow', { who: s.proposer?.name ?? '', group: s.targetGroup?.name ?? '', n: s.candidates.filter((c) => c.group !== 'excluded').length })}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 function StatusBadge({ s }: { s: SkillSuggestion }) {
   const t = useT()
   return <Badge tone={s.status === 'approved' ? 'ok' : s.status === 'rejected' ? 'danger' : 'warn'}>{t(`skills.status.${s.status}`)}</Badge>
 }
 
-function SuggestionList({ items, empty, onOpen, testId }: { items: SkillSuggestion[] | null; empty: string; onOpen?: (s: SkillSuggestion) => void; testId: string }) {
+/** A skill folder's app by its own name. */
+const appName = (app: 'claude' | 'codex') => (app === 'codex' ? 'Codex' : 'Claude')
+/** The name a person reads: a skill folder's title (else its folder name as words); another suggestion's name. */
+const suggestionTitle = (s: SkillSuggestion) => (s.source.kind === 'folder' ? skillLabel({ name: s.name, title: s.folder?.title }) : s.name)
+
+/** The suggestions in groups by who sent them, in the order the list has them (waiting first). */
+export function byPerson(items: readonly SkillSuggestion[]): { id: string; name: string; items: SkillSuggestion[] }[] {
+  const groups = new Map<string, { id: string; name: string; items: SkillSuggestion[] }>()
+  for (const s of items) {
+    const g = groups.get(s.suggester.id) ?? { id: s.suggester.id, name: s.suggester.name, items: [] }
+    g.items.push(s)
+    groups.set(s.suggester.id, g)
+  }
+  return [...groups.values()]
+}
+
+function SuggestionList({ items, empty, onOpen, testId, grouped, focusBatch }: { items: SkillSuggestion[] | null; empty: string; onOpen?: (s: SkillSuggestion) => void; testId: string; grouped?: boolean; focusBatch?: string | null }) {
   const t = useT()
   const locale = useLocale()
+  const list = useRef<HTMLDivElement>(null)
+  // the Inbox line of a batch: its person's group comes into view
+  const focusPerson = focusBatch ? items?.find((s) => s.batchId === focusBatch)?.suggester.id ?? null : null
+  useEffect(() => {
+    if (!focusPerson) return
+    const el = [...(list.current?.querySelectorAll<HTMLElement>('[data-person]') ?? [])].find((x) => x.getAttribute('data-person') === focusPerson)
+    el?.scrollIntoView?.({ block: 'start' })
+  }, [focusPerson])
   if (!items) return <Skeleton lines={3} />
   if (!items.length) return <EmptyState icon={<Lightbulb size={22} />} title={empty} />
   const meta = (s: SkillSuggestion) => [
-    t('skills.into', { folder: s.targetFolder + '/' }),
-    t('skills.by', { name: s.suggester.name, time: formatDateTime(s.createdAt, locale) }),
+    s.folder ? t('skills.folderMeta', { app: appName(s.folder.app), n: s.folder.files.length }) : t('skills.into', { folder: s.targetFolder + '/' }),
+    // grouped: the group's heading names the person
+    grouped ? formatDateTime(s.createdAt, locale) : t('skills.by', { name: s.suggester.name, time: formatDateTime(s.createdAt, locale) }),
     ...(s.reviewer ? [t('skills.reviewedBy', { name: s.reviewer.name })] : []),
   ].join(' · ')
-  return (
-    <ul className="divide-y divide-line" data-testid={testId}>
-      {items.map((s) => (
-        <li key={s.id} className="flex flex-wrap items-start gap-3 py-3 text-sm" data-testid="suggestion" data-status={s.status}>
+  const rows = (group: SkillSuggestion[]) => (
+    <ul className="divide-y divide-line" data-testid={grouped ? undefined : testId}>
+      {group.map((s) => (
+        <li key={s.id} className="flex flex-wrap items-start gap-3 py-3 text-sm" data-testid="suggestion" data-status={s.status} data-kind={s.source.kind}>
           <span className="min-w-0 flex-1">
             <span className="flex flex-wrap items-center gap-2">
-              <span className="font-medium">{s.name}</span>
+              <span className="font-medium">{suggestionTitle(s)}</span>
+              {s.folder && <span className="font-mono text-xs text-faint">/{s.name}</span>}
               {/* in the review tab ("검토 대기") a waiting row needs no badge saying so; decided ones keep theirs */}
               {!(onOpen && s.status === 'pending') && <StatusBadge s={s} />}
             </span>
             {s.description && <span className="mt-0.5 block truncate text-xs text-muted" title={s.description}>{s.description}</span>}
             <span className="block truncate text-xs text-faint" title={meta(s)}>{meta(s)}</span>
+            {s.status === 'pending' && s.folder?.sameName && <span className="block text-xs text-warn" data-testid="suggestion-same-name">{t('skills.folderSameName', { title: s.folder.sameName.title })}</span>}
+            {s.status === 'pending' && s.folder?.personalPath && <span className="block text-xs text-warn">{t('skills.folderPersonalPath')}</span>}
             {s.reviewNote && <span className="block text-xs text-muted" data-testid="review-note">{t('skills.reviewNote', { note: s.reviewNote })}</span>}
             {s.resultPath && (
               <button type="button" className="block text-xs text-accent-text hover:underline" onClick={() => navigateTo(`/files?path=${encodeURIComponent(s.resultPath!.slice(0, s.resultPath!.lastIndexOf('/')))}&select=${encodeURIComponent(s.resultPath!)}`)}>
@@ -193,13 +272,27 @@ function SuggestionList({ items, empty, onOpen, testId }: { items: SkillSuggesti
             )}
           </span>
           {onOpen && s.status === 'pending' && s.canReview && (
-            <Button size="sm" variant="primary" onClick={() => onOpen(s)} data-testid="review-open">
+            // one per waiting row: quiet, so a list of several is not a column of primaries (the dialog has the primary)
+            <Button size="sm" onClick={() => onOpen(s)} data-testid="review-open">
               {t('skills.review')}
             </Button>
           )}
         </li>
       ))}
     </ul>
+  )
+  if (!grouped) return rows(items)
+  return (
+    <div ref={list} className="space-y-5" data-testid={testId}>
+      {byPerson(items).map((g) => (
+        <section key={g.id} data-testid="review-group" data-person={g.id} className="scroll-mt-20">
+          <h3 className={clsx('border-b border-line pb-1.5 text-xs font-semibold text-muted', g.id === focusPerson && 'text-ink')}>
+            {t('skills.groupBy', { name: g.name, n: g.items.length })}
+          </h3>
+          {rows(g.items)}
+        </section>
+      ))}
+    </div>
   )
 }
 
@@ -221,6 +314,7 @@ function ChangeList({ items }: { items: SkillChange[] | null }) {
             <span className="block text-xs text-faint">
               {c.actor?.name ?? '—'} · {formatDateTime(c.at, locale)}
               {c.from ? ` · ${t('skills.change.from', { path: c.from })}` : ''}
+              {c.group ? ` · ${t('skills.fromGroup', { group: c.group.name })}` : ''}
             </span>
           </span>
           {c.byAi && (
@@ -230,7 +324,7 @@ function ChangeList({ items }: { items: SkillChange[] | null }) {
             </Badge>
           )}
           <Button size="sm" variant="ghost" onClick={() => navigateTo(historyLink(c))}>
-            <History size={13} aria-hidden /> {c.change === 'delete' ? t('sidebar.trash') : t('skills.change.history')}
+            {c.change === 'delete' ? <><Trash2 size={13} aria-hidden /> {t('files.trash')}</> : <><History size={13} aria-hidden /> {t('skills.change.history')}</>}
           </Button>
         </li>
       ))}
@@ -238,9 +332,32 @@ function ChangeList({ items }: { items: SkillChange[] | null }) {
   )
 }
 
+/** A skill folder's name as the server takes it (skills/<name>/SKILL.md): lowercase letters, digits and hyphens. */
+export const FOLDER_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
 function ReviewDialog({ s, folders, onClose, onDone }: { s: SkillSuggestion; folders: string[]; onClose: () => void; onDone: () => void }) {
   const t = useT()
   const locale = useLocale()
+  const isDir = s.source.kind === 'folder'
+  // a skill folder: the files that go with it, with their text (GET …/:id gives it to its reviewer), so the owner reads
+  // everything the team's AI would read, not only SKILL.md
+  const [full, setFull] = useState<SkillSuggestion['folder'] | null>(null)
+  useEffect(() => {
+    if (!isDir) return
+    let live = true
+    api.call(API.getSkillSuggestion, { params: { id: s.id } }).then((x) => live && setFull(x.folder ?? null), () => {})
+    return () => { live = false }
+  }, [isDir, s.id])
+  const dir = isDir ? full ?? s.folder ?? null : null
+  // a skill folder goes into a folder of skills, never into another skill's folder (the server refuses that too)
+  const [skillDirs, setSkillDirs] = useState<string[] | null>(null)
+  useEffect(() => {
+    if (!isDir) return
+    let live = true
+    api.call(API.listSkills).then((r) => live && setSkillDirs(r.items.filter((x) => /\/SKILL\.md$/i.test(x.path)).map((x) => x.path.slice(0, x.path.lastIndexOf('/')))), () => live && setSkillDirs([]))
+    return () => { live = false }
+  }, [isDir])
+  const places = isDir ? folders.filter((f) => !(skillDirs ?? []).some((d) => f === d || f.startsWith(d + '/'))) : folders
   const [folder, setFolder] = useState(folders.includes(s.targetFolder) ? s.targetFolder : (folders[0] ?? s.targetFolder))
   const [name, setName] = useState(s.name)
   const [description, setDescription] = useState(s.description)
@@ -250,7 +367,8 @@ function ReviewDialog({ s, folders, onClose, onDone }: { s: SkillSuggestion; fol
   const contentTabs = useId()
   const [busy, setBusy] = useState<'approve' | 'reject' | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const ready = !!name.trim() && !name.includes('/') && !!content.trim()
+  const nameBad = isDir ? !!name.trim() && !(FOLDER_NAME.test(name.trim()) && name.trim().length <= 64) : name.includes('/')
+  const ready = !!name.trim() && !nameBad && !!content.trim()
   const run = async (what: 'approve' | 'reject') => {
     let note: string | null = null
     if (what === 'reject') {
@@ -261,7 +379,7 @@ function ReviewDialog({ s, folders, onClose, onDone }: { s: SkillSuggestion; fol
     setError(null)
     try {
       if (what === 'approve') {
-        const r = await api.call(API.approveSkillSuggestion, { params: { id: s.id }, body: { targetFolder: folder, name: name.trim(), description: description.trim(), content, ...(fileName.trim() ? { fileName: fileName.trim() } : {}) } })
+        const r = await api.call(API.approveSkillSuggestion, { params: { id: s.id }, body: { targetFolder: folder, name: name.trim(), description: description.trim(), content, ...(!isDir && fileName.trim() ? { fileName: fileName.trim() } : {}) } })
         toast({ level: 'success', text: t('skills.registered', { path: r.resultPath ?? '' }) })
       } else {
         await api.call(API.rejectSkillSuggestion, { params: { id: s.id }, body: note ? { note } : {} })
@@ -296,7 +414,7 @@ function ReviewDialog({ s, folders, onClose, onDone }: { s: SkillSuggestion; fol
       <div className="space-y-3" data-testid="review-dialog">
         <p className="text-xs text-faint">
           {t('skills.by', { name: s.suggester.name, time: formatDateTime(s.createdAt, locale) })} ·{' '}
-          {s.source.kind === 'file' && s.source.path ? t('skills.source.file', { path: s.source.path }) : t('skills.source.message')}
+          {dir ? t('skills.folderMeta', { app: appName(dir.app), n: dir.files.length }) : s.source.kind === 'file' && s.source.path ? t('skills.source.file', { path: s.source.path }) : t('skills.source.message')}
         </p>
         <p role="note" className="rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn">
           {t('skills.registerWarn')}
@@ -304,23 +422,54 @@ function ReviewDialog({ s, folders, onClose, onDone }: { s: SkillSuggestion; fol
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label={t('suggest.folder')}>
             <select className={inputCls} value={folder} onChange={(e) => setFolder(e.target.value)} data-testid="review-folder">
-              {(folders.length ? folders : [s.targetFolder]).map((f) => (
+              {(places.length ? places : [s.targetFolder]).map((f) => (
                 <option key={f} value={f}>
                   {f}/
                 </option>
               ))}
             </select>
           </Field>
-          <Field label={t('skills.fileName')} hint={`${folder}/${fileName.trim() || name.trim().replace(/\s+/g, '-') || '…'}.md`}>
-            <input className={inputCls} value={fileName} onChange={(e) => setFileName(e.target.value)} maxLength={80} placeholder={name.trim().replace(/\s+/g, '-')} data-testid="review-file-name" />
-          </Field>
+          {isDir ? (
+            // a skill folder: its folder name is its name (/name runs it); the title stays as the member wrote it
+            <Field label={t('skills.folderName')} hint={`${folder}/${name.trim() || '…'}/SKILL.md`} error={nameBad ? t('skills.folderNameRule') : null}>
+              <input className={`${inputCls} font-mono`} value={name} onChange={(e) => setName(e.target.value)} maxLength={64} spellCheck={false} autoCapitalize="off" data-testid="review-name" />
+            </Field>
+          ) : (
+            <Field label={t('skills.fileName')} hint={`${folder}/${fileName.trim() || name.trim().replace(/\s+/g, '-') || '…'}.md`}>
+              <input className={inputCls} value={fileName} onChange={(e) => setFileName(e.target.value)} maxLength={80} placeholder={name.trim().replace(/\s+/g, '-')} data-testid="review-file-name" />
+            </Field>
+          )}
         </div>
-        <Field label={t('suggest.name')} error={name.includes('/') ? t('suggest.nameSlash') : null}>
-          <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={60} data-testid="review-name" />
-        </Field>
+        {dir?.sameName && name.trim() === s.name && <p className="text-xs text-warn" role="note">{t('skills.folderSameName', { title: dir.sameName.title })}</p>}
+        {dir?.personalPath && <p className="text-xs text-warn" role="note">{t('skills.folderPersonalPath')}</p>}
+        {!isDir && (
+          <Field label={t('suggest.name')} error={name.includes('/') ? t('suggest.nameSlash') : null}>
+            <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={60} data-testid="review-name" />
+          </Field>
+        )}
         <Field label={t('suggest.description')}>
-          <input className={inputCls} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={300} data-testid="review-description" />
+          <input className={inputCls} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={isDir ? 1024 : 300} data-testid="review-description" />
         </Field>
+        {dir && dir.files.some((f) => f.path !== 'SKILL.md') && (
+          <div className="space-y-1" data-testid="review-files">
+            <p className="text-label font-medium text-ink">{t('skills.folderFiles')}</p>
+            <ul className="space-y-1 text-xs text-muted">
+              {dir.files.filter((f) => f.path !== 'SKILL.md').map((f) => (
+                <li key={f.path} data-testid="review-file">
+                  {f.text === undefined ? (
+                    <span className="font-mono break-all">{f.path} <span className="font-sans text-faint">· {formatSize(f.bytes, locale)}</span></span>
+                  ) : (
+                    <details>
+                      <summary className="cursor-pointer font-mono break-all hover:text-ink">{f.path} <span className="font-sans text-faint">· {formatSize(f.bytes, locale)}</span></summary>
+                      <pre className="mt-1 max-h-48 overflow-auto rounded-lg border border-line bg-subtle px-3 py-2 font-mono text-xs whitespace-pre-wrap break-words text-ink" data-testid="review-file-text">{f.text}</pre>
+                    </details>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {dir && dir.scriptsDropped > 0 && <p className="text-xs text-muted">{t('skills.folderScripts', { n: dir.scriptsDropped })}</p>}
         <div>
           <Tabs value={preview ? 'preview' : 'edit'} onChange={(v) => setPreview(v === 'preview')} items={[{ id: 'preview', label: t('skills.preview') }, { id: 'edit', label: t('skills.edit') }]} label={t('suggest.content')} panels={contentTabs} />
           <TabPanel base={contentTabs} value={preview ? 'preview' : 'edit'}>
@@ -329,7 +478,7 @@ function ReviewDialog({ s, folders, onClose, onDone }: { s: SkillSuggestion; fol
                 <Markdown text={content} />
               </div>
             ) : (
-              <textarea className={`${inputCls} mt-2 h-auto min-h-60 resize-y py-2 font-mono text-label`} value={content} onChange={(e) => setContent(e.target.value)} maxLength={16000} aria-label={t('suggest.content')} data-testid="review-content" />
+              <textarea className={`${inputCls} mt-2 h-auto min-h-60 resize-y py-2 font-mono text-label`} value={content} onChange={(e) => setContent(e.target.value)} maxLength={isDir ? 128 * 1024 : 16000} aria-label={t('suggest.content')} data-testid="review-content" />
             )}
           </TabPanel>
         </div>

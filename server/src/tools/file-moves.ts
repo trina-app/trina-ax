@@ -38,7 +38,7 @@ export const TEXT = {
 /** A count's form first ("{n, plural, one {# item} other {# items}}", shared/src/plural.ts), then the plain values. */
 const fill = (s: string, v: Record<string, string | number>, L: Locale) => fillPlurals(s, v, L).replace(/\{(\w+)\}/g, (_, k) => String(v[k]))
 
-const SKILLS = 'skills/ (team skills and rules) cannot be changed with this tool: use write / edit, which ask the user, or the Files screen'
+const SKILLS = 'skills/ and a group\'s skills folder (skills and rules people\'s AI follows) cannot be changed with this tool: use write / edit, which ask the user, or the Files screen'
 // Match the policy resolver's dot/empty-segment normalization before checking protected skills paths.
 const clean = (p: string) => p.normalize('NFC').split('/').filter(s => s !== '' && s !== '.').join('/')
 const nameOf = (p: string) => p.split('/').pop() ?? ''
@@ -62,7 +62,8 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     const audiences = new Map<string, string>()
     const failed: { path: string; error: string }[] = []
     for (const p of [...new Set(a.paths.map(clean))]) {
-      if (inSkills(p)) { failed.push({ path: p, error: SKILLS }); continue }
+      // nor into one: a folder named "skills" moved into groups/<g>/ would become that group's skills folder
+      if (inSkills(p) || inSkills(join(folder, nameOf(p)))) { failed.push({ path: p, error: SKILLS }); continue }
       try { audiences.set(p, svc.audienceChange(tc.user.id, [p], folder, mode).fingerprint); ok.push(p) } catch (e) { failed.push({ path: p, error: why(e) }) }
     }
     const lines = (rows: { path: string; error: string }[]) => rows.map((f) => `- ${f.path}: ${f.error}`).join('\n')
@@ -142,7 +143,8 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
       if (name.includes('/')) throw new ToolError('new_name is a name, not a path: use move_files to put it in another folder')
       const bad = badSegment(name)
       if (bad) throw new ToolError(`invalid name: ${bad}`)
-      if (inSkills(p)) throw new ToolError(SKILLS)
+      // the new name counts too: groups/<g>/drafts renamed "skills" would become that group's skills folder
+      if (inSkills(p) || inSkills(join(parentOf(p), name))) throw new ToolError(SKILLS)
       try {
         // the same folder: the same people see it, nothing to ask
         const r = svc.move(tc.user.id, p, join(parentOf(p), name), 'fail', { turnId: tc.turnId, tool: 'rename_file' })

@@ -102,9 +102,9 @@ export async function credentialsEscrowOut(secretsDir: string, recipient: string
 
 /**
  * hosted-speech-key: the OpenRouter key the hosting service made for this team (hosted voice input and video sound,
- * 10 free hours a month; credentials/speech-key.ts), or null to take it away. Hosted servers only. The key comes on
- * stdin (never in argv), is stored encrypted with the credentials vault, and is in no output, error or audit row: the
- * audit says "set" or "removed". The server reads it at its next speech request (no restart).
+ * the plan's free hours a month; credentials/speech-key.ts), or null to take it away. Hosted servers only. The key
+ * comes on stdin (never in argv), is stored encrypted with the credentials vault, and is in no output, error or audit
+ * row: the audit says "set" or "removed". The server reads it at its next speech request (no restart).
  */
 export function setHostedSpeechKey(o: { db: Database; secretsDir: string; config: AppConfig; log: Pick<Logger, 'info' | 'warn' | 'error'> }, input: unknown): { ok: true; set: boolean } {
   if (!isHosted(o.config)) throw new CloudTenantError('hosted-speech-key is for hosted servers only (server.json deployment "hosted")')

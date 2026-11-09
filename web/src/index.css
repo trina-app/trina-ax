@@ -73,15 +73,21 @@
      boxes), label (field labels, steps, small buttons), micro (tab labels, dates, counts), nano (badges) and code (code
      blocks and the file editor; code-sm: diffs and card details; code-file: the plain-text file preview). No
      --line-height companions: each keeps the line height around it, as the px sizes they replace did. Phones get one
-     step up (the @media block below); leading-reading is the line of room messages and the message boxes. */
-  --text-reading: 15px;
-  --text-label: 13px;
-  --text-micro: 11px;
-  --text-nano: 10px;
-  --text-code: 13px;
-  --text-code-sm: 12px;
-  --text-code-file: 12.5px;
+     step up (the @media block below); leading-reading is the line of room messages and the message boxes. In rem, as
+     Tailwind's own, so the person's text size (lib/textSize.ts: the root font size) scales them; the px are at 기본. */
+  --text-reading: 0.9375rem; /* 15px */
+  --text-label: 0.8125rem; /* 13px */
+  --text-micro: 0.6875rem; /* 11px */
+  --text-nano: 0.625rem; /* 10px */
+  --text-code: 0.8125rem; /* 13px */
+  --text-code-sm: 0.75rem; /* 12px */
+  --text-code-file: 0.78125rem; /* 12.5px */
   --leading-reading: 1.5rem;
+  /* A message box's slot for a control beside the text (the clip, "+", the mic, send) and the recording bar: one text
+     line's box, the reading line with 8px (py-2) above and below. The row is bottom-aligned and each control sits
+     centred in its slot, so with one line the buttons and the text share one centre, and with more lines the buttons
+     stay on the last line. Follows the phone's larger line (the @media block below) and the person's text size (rem). */
+  --spacing-composer-line: calc(var(--leading-reading) + 1rem);
 
   --color-canvas: var(--c-canvas);
   --color-surface: var(--c-surface);
@@ -130,6 +136,39 @@ body { background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing:
    overflowing. Elements that set their own word-break (break-all, overflow-wrap:anywhere) keep it. */
 :lang(ko) body { word-break: keep-all; overflow-wrap: break-word; }
 ::selection { background: var(--c-accent-soft); }
+/* components/TokenTextarea.tsx: while the box has text, its own letters are not drawn. The layer over it draws them,
+   its tokens in colour, and the one under it only the tokens' backgrounds; the box's caret, selection (see-through, so a
+   token's background shows under it), an IME's background, spell check and placeholder are in between. */
+textarea[data-token-input]:not(:placeholder-shown) { -webkit-text-fill-color: transparent; }
+textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; background: color-mix(in srgb, var(--c-accent) 24%, transparent); }
+[data-token-layer="back"] > div, [data-token-layer="back"] [data-token] { color: transparent !important; }
+[data-token-box]:not([data-composing]) > [data-token-layer="front"] [data-token] { background: none !important; box-shadow: none !important; }
+/* While an IME writes, the box paints its own letters, so the IME's underline (drawn in their colour) shows; the front
+   layer then draws only the tokens, on their background, over the box's letters there. The same pixels either way. */
+[data-token-box][data-composing] > textarea[data-token-input]:not(:placeholder-shown) { -webkit-text-fill-color: currentcolor; }
+[data-token-box][data-composing] > [data-token-layer="front"] > div { color: transparent !important; }
+/* with the system's forced colours the box draws its own letters and the layer stays away */
+@media (forced-colors: active) {
+  textarea[data-token-input]:not(:placeholder-shown), textarea[data-token-input]::selection { -webkit-text-fill-color: currentcolor; }
+  [data-token-layer] { visibility: hidden; }
+}
+/* The AI chat's message box with "#" room tokens (components/chat/RoomRefMenu.tsx): a layer behind it draws the text,
+   so its own is transparent; the caret stays, and the selection lets that text show through. */
+.room-ref-field { color: transparent; caret-color: var(--c-ink); }
+.room-ref-field::selection { color: transparent; background: color-mix(in srgb, var(--c-accent) 26%, transparent); }
+
+/* The online-status dot on a picture (components/Presence.tsx; docs/DECISIONS.md "접속 상태"): a 2 px ring in the
+   colour behind the picture, as Slack draws it; a row sets --presence-bg to its own (its hover, the current row). Online
+   is filled with the "ok" green (3:1 and more against every background here, in both looks); away is hollow: the same
+   background inside a ring of --c-faint. Filled, hollow or none: the state does not hang on the colour alone. */
+.presence-dot { --presence-ring: var(--presence-bg, var(--c-canvas)); box-shadow: 0 0 0 2px var(--presence-ring); }
+.presence-dot[data-presence-dot='online'] { background: var(--c-ok); }
+.presence-dot[data-presence-dot='away'] { background: var(--presence-ring); box-shadow: inset 0 0 0 2px var(--c-faint), 0 0 0 2px var(--presence-ring); }
+@media (forced-colors: active) {
+  .presence-dot { forced-color-adjust: none; box-shadow: 0 0 0 2px Canvas; }
+  .presence-dot[data-presence-dot='online'] { background: CanvasText; }
+  .presence-dot[data-presence-dot='away'] { background: Canvas; box-shadow: inset 0 0 0 2px CanvasText, 0 0 0 2px Canvas; }
+}
 
 /* Phones (below 768px, where the phone top bar and the tabs show): every text size one step up, to the phone floor
    (docs/DESIGN-SYSTEM.md "Typography"): body and rows 15px, labels 14px, meta, times and hints 13px, code 13px, badges
@@ -144,20 +183,20 @@ body { background: var(--c-canvas); color: var(--c-ink); -webkit-font-smoothing:
     --text-sm--line-height: calc(1.375 / 0.9375);
     --text-base: 1.0625rem; /* 17/24 */
     --text-base--line-height: calc(1.5 / 1.0625);
-    --text-reading: 17px;
-    --leading-reading: 26px;
-    --text-label: 14px;
-    --text-micro: 13px;
-    --text-nano: 11px;
-    --text-code-sm: 13px;
-    --text-code-file: 13px;
+    --text-reading: 1.0625rem; /* 17px */
+    --leading-reading: 1.625rem; /* 26px */
+    --text-label: 0.875rem; /* 14px */
+    --text-micro: 0.8125rem; /* 13px */
+    --text-nano: 0.6875rem; /* 11px */
+    --text-code-sm: 0.8125rem; /* 13px */
+    --text-code-file: 0.8125rem; /* 13px */
   }
 }
 
-/* iOS Safari zooms into fields under 16px and stays zoomed: touch screens get 16px fields. The message boxes keep the
-   reading size where it is larger (17px on phones). */
+/* iOS Safari zooms into fields under 16px and stays zoomed: touch screens get 16px fields, or 1rem where the person's
+   text size makes that larger. The message boxes keep the reading size where it is larger (17px on phones). */
 @media (hover: none) and (pointer: coarse) {
-  input, textarea, select { font-size: 16px; }
+  input, textarea, select { font-size: max(16px, 1rem); }
   textarea.text-reading { font-size: max(16px, var(--text-reading)); }
 }
 
@@ -215,8 +254,18 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--c-accent); }
 .dot:nth-child(2) { animation-delay: .2s }
 .dot:nth-child(3) { animation-delay: .4s }
 
+/* The slide an intro deck is making now (components/chat/DeckProgress.tsx): a soft light passing over its tile. */
+@keyframes deck-shimmer { from { background-position: 120% 0 } to { background-position: -20% 0 } }
+.deck-shimmer {
+  background-color: var(--c-subtle);
+  background-image: linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--c-surface) 85%, transparent) 50%, transparent 70%);
+  background-size: 250% 100%;
+  animation: deck-shimmer 1.8s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+  .deck-shimmer { background-image: none; }
 }
 
 /* Answer typography: Tailwind typography wired to our tokens (both themes). */

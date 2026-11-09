@@ -6,6 +6,9 @@
 // sending a learned link on leaves no marks, the decision is taken as the link comes, and web_fetch checks each
 // redirect like save_url. Local test servers stand in for sites; nothing resolves or opens a real name.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { API } from '@mycel/shared/api'
 import { uuidv7 } from '@mycel/shared'
 import { startHarness, type Harness } from '../lib/b-harness'
@@ -296,7 +299,11 @@ test('migration 329: chat_seen_urls.echo, additive, no newer reader needed; an o
   expect(m.name).toBe('329_c_seen_url_echo.sql')
   expect(m.minCompatibleReader).toBe(1)
   expect(m.sql).not.toMatch(/DROP|RENAME|CREATE TABLE/i)
-  const db = openDb(':memory:')
+  // the database 0.2.17 would meet: every migration but those that need a newer reader for reasons of their own
+  // (250_b_group_rooms: reader 5)
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mig-reader4-'))
+  for (const x of readMigrations(MIGRATIONS_DIR)) if (x.minCompatibleReader <= 4) fs.writeFileSync(path.join(dir, x.name), x.sql)
+  const db = openDb(':memory:', { migrationsDir: dir })
   try {
     const cols = (db.query('PRAGMA table_info(chat_seen_urls)').all() as { name: string; dflt_value: string | null; notnull: number }[])
     expect(cols.find((c) => c.name === 'echo')).toMatchObject({ dflt_value: '0', notnull: 1 })
@@ -305,7 +312,7 @@ test('migration 329: chat_seen_urls.echo, additive, no newer reader needed; an o
     db.exec('PRAGMA foreign_keys = OFF')
     db.query("INSERT OR IGNORE INTO chat_seen_urls (chat_id, url, source) VALUES ('c1', 'https://old.example/', 'fetched')").run()
     expect(db.query("SELECT echo FROM chat_seen_urls WHERE chat_id = 'c1'").get()).toEqual({ echo: 0 })
-  } finally { db.close() }
+  } finally { db.close(); fs.rmSync(dir, { recursive: true, force: true }) }
 })
 
 test('the numbers in use', () => {

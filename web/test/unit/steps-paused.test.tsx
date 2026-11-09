@@ -24,16 +24,18 @@ describe('a step the time limit paused', () => {
       expect(rows).toContain(`<span class="shrink-0 text-xs text-muted" data-testid="step-cut">${translate(locale, 'steps.paused')}</span>`)
       expect(rows).toContain('data-testid="step-paused"')
       expect(rows).not.toContain(`aria-label="${translate(locale, 'steps.failed')}"`)
-      // folded under the finished answer: no "some steps failed" mark for it, but still for a real failure
-      expect(renderToStaticMarkup(<Steps steps={[paused]} streaming={false} />)).not.toContain('data-testid="steps-failed"')
-      expect(renderToStaticMarkup(<Steps steps={[paused, failed]} streaming={false} />)).toContain(`aria-label="${translate(locale, 'steps.someFailed')}"`)
+      // folded under the finished answer: no "some steps failed" mark for it, but still for a real failure of a failed
+      // answer (a failure the AI got past is no alarm: steps-recovered.test.tsx)
+      expect(renderToStaticMarkup(<Steps steps={[paused]} streaming={false} failed />)).not.toContain('data-testid="steps-failed"')
+      expect(renderToStaticMarkup(<Steps steps={[paused, failed]} streaming={false} failed />)).toContain(`aria-label="${translate(locale, 'steps.someFailed')}"`)
     })
   }
 
-  test('a failed step without the mark stays a failure', () => {
+  test('a failed step without the mark is no paused step', () => {
     setLocale('en')
     const rows = renderToStaticMarkup(<Steps steps={[failed]} streaming />)
-    expect(rows).toContain('aria-label="Failed"')
+    // still running, the AI may get past it: the quiet mark, not red (steps-recovered.test.tsx)
+    expect(rows).toContain('data-testid="step-retried"')
     expect(rows).not.toContain('Paused here')
     expect(rows).not.toContain('data-testid="step-cut"')
   })
@@ -50,8 +52,8 @@ describe('a step the person\'s Stop cut off', () => {
       // the words are on screen once: the icon itself is not read out again
       expect(rows.split(translate(locale, 'steps.stopped')).length).toBe(2)
       expect(rows).not.toContain(`aria-label="${translate(locale, 'steps.failed')}"`)
-      expect(renderToStaticMarkup(<Steps steps={[stopped]} streaming={false} />)).not.toContain('data-testid="steps-failed"')
-      expect(renderToStaticMarkup(<Steps steps={[stopped, failed]} streaming={false} />)).toContain(`aria-label="${translate(locale, 'steps.someFailed')}"`)
+      expect(renderToStaticMarkup(<Steps steps={[stopped]} streaming={false} failed />)).not.toContain('data-testid="steps-failed"')
+      expect(renderToStaticMarkup(<Steps steps={[stopped, failed]} streaming={false} failed />)).toContain(`aria-label="${translate(locale, 'steps.someFailed')}"`)
     })
   }
 })

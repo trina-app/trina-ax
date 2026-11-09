@@ -2,10 +2,37 @@
 // attributes, a style object, value / checked properties React can track, events that capture and bubble, focus, and
 // a form's submit from its submit button or requestSubmit. Installed only around the tests that use it
 // (installDom / removeDom), so other tests keep seeing no `window`; mount() renders into it and clicks, types and waits
-// inside act(). What it does not do: layout, CSS, selection, real navigation. The browser itself is covered by the e2e
-// specs.
+// inside act(). What it does not do: layout, CSS, selection (a text field keeps only its selectionStart and End), real
+// navigation. The browser itself is covered by the e2e specs. Every test file starts from the same place whatever ran
+// before it (test/unit/preload.ts: React DOM loaded with a document, fresh stores, the usual globals, no document left).
 import { act, type ReactNode } from 'react'
+import * as ReactDOM from 'react-dom'
 const HTML_NS = 'http://www.w3.org/1999/xhtml'
+
+// A component can set its state after it is gone: a timer or a fetch it started and never stopped (a "copied" mark that
+// goes after 1.5 s, say). In a browser that does nothing. React DOM, though, first works out the update's priority, from
+// `window.event` unless a priority is set; once removeDom has taken the window away, that threw a ReferenceError in
+// whatever test file ran next ("Unhandled error between tests": a red run with nothing failed). So while no document
+// is installed, React DOM's update priority is the one a window without an event gives (DefaultEventPriority), and
+// such an update does nothing here either. Nothing is mounted then (removeDom unmounts every root first), and
+// installDom puts back "no priority", so tests with a document run exactly as before.
+const domInternals = (ReactDOM as unknown as Record<string, { p?: unknown } | undefined>).__DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE
+if (typeof domInternals?.p !== 'number') throw new Error('dom-host: React DOM no longer keeps its update priority where this file sets it (see "A component can set its state after it is gone")')
+/** React DOM's DefaultEventPriority; 0 is "no priority set" */
+const DEFAULT_EVENT_PRIORITY = 32
+/** removeDom set the priority, so installDom puts it back */
+let prioritySet = false
+function noDocumentPriority(on: boolean) {
+  const internals = domInternals as { p: number }
+  if (on) {
+    if (internals.p !== 0) return
+    internals.p = DEFAULT_EVENT_PRIORITY
+    prioritySet = true
+  } else if (prioritySet) {
+    if (internals.p === DEFAULT_EVENT_PRIORITY) internals.p = 0
+    prioritySet = false
+  }
+}
 
 type Listener = { fn: (e: FakeEvent) => void; capture: boolean; once: boolean }
 
@@ -133,6 +160,7 @@ export class FakeElement extends FakeNode {
     this.localName = name
     this.tagName = this.nodeName
   }
+  get children(): FakeElement[] { return this.childNodes.filter((c): c is FakeElement => c instanceof FakeElement) }
   getAttribute(n: string) { return this.attributes.get(n.toLowerCase()) ?? null }
   hasAttribute(n: string) { return this.attributes.has(n.toLowerCase()) }
   setAttribute(n: string, v: unknown) { this.attributes.set(n.toLowerCase(), String(v)) }
@@ -154,7 +182,8 @@ export class FakeElement extends FakeNode {
   focus() { if (this.ownerDocument) this.ownerDocument.activeElement = this }
   blur() { if (this.ownerDocument?.activeElement === this) this.ownerDocument.activeElement = this.ownerDocument.body }
   scrollIntoView() {}
-  setSelectionRange() {}
+  /** a text field's selection (no layout: only where it is) */
+  setSelectionRange(start: number, end: number) { Object.assign(this, { selectionStart: start, selectionEnd: end }) }
   getBoundingClientRect() { return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0 } }
   get scrollHeight() { return 0 }
   get clientHeight() { return 0 }
@@ -179,15 +208,27 @@ export class FakeElement extends FakeNode {
 }
 
 /** value and checked as properties on the prototype, so React's value tracker can wrap them */
+const values = new WeakMap<FakeElement, unknown>()
 for (const [prop, attr] of [['value', 'value'], ['checked', 'checked']] as const) {
-  const store = new WeakMap<FakeElement, unknown>()
+  const store = prop === 'value' ? values : new WeakMap<FakeElement, unknown>()
   Object.defineProperty(FakeElement.prototype, prop, {
     configurable: true,
     get(this: FakeElement) { return store.has(this) ? store.get(this) : prop === 'checked' ? this.hasAttribute(attr) : this.getAttribute(attr) ?? '' },
     set(this: FakeElement, v: unknown) { store.set(this, prop === 'checked' ? !!v : String(v)) },
   })
 }
-for (const prop of ['defaultValue', 'defaultChecked', 'multiple', 'selected', 'name', 'placeholder', 'tabIndex', 'htmlFor', 'autofocus', 'selectionStart', 'selectionEnd']) {
+/** a <textarea>'s default value is its text, and its value until a script or the person sets one (React mounts a
+ * textarea with text through defaultValue, so its value is there when the component's effects run, as in a browser) */
+const defaults = new WeakMap<FakeElement, unknown>()
+Object.defineProperty(FakeElement.prototype, 'defaultValue', {
+  configurable: true,
+  get(this: FakeElement) { return defaults.get(this) },
+  set(this: FakeElement, v: unknown) {
+    defaults.set(this, v)
+    if (this.localName === 'textarea' && !values.has(this)) values.set(this, String(v ?? ''))
+  },
+})
+for (const prop of ['defaultChecked', 'multiple', 'selected', 'name', 'placeholder', 'tabIndex', 'htmlFor', 'autofocus', 'selectionStart', 'selectionEnd']) {
   if (!(prop in FakeElement.prototype)) Object.defineProperty(FakeElement.prototype, prop, { configurable: true, writable: true, value: undefined })
 }
 
@@ -260,6 +301,7 @@ function memoryStorage() {
  * what was there. `opened`: the windows window.open made. */
 export function installDom(): FakeWindowHandle & { document: FakeDocument } {
   if (saved) throw new Error('installDom twice')
+  noDocumentPriority(false)
   const was = new Map<string, PropertyDescriptor | undefined>()
   saved = was
   const set = (k: string, v: unknown) => {
@@ -306,13 +348,25 @@ export function installDom(): FakeWindowHandle & { document: FakeDocument } {
   return Object.assign(handle, { document: doc })
 }
 
+/** Is a fake document installed now (test/unit/preload.ts takes away one a file left behind)? */
+export const domInstalled = () => saved !== null
+
+/** React roots mounted and not unmounted yet: removeDom unmounts them, so a component a test left behind (one that timed
+ * out, say) stops its effects and timers before the next test or file */
+const roots = new Set<{ unmount(): void }>()
+
 export function removeDom() {
   if (!saved) return
+  for (const r of [...roots]) {
+    roots.delete(r)
+    try { act(() => r.unmount()) } catch { /* its document is going anyway */ }
+  }
   for (const [k, d] of saved) {
     if (d) Object.defineProperty(globalThis, k, d)
     else delete (globalThis as Record<string, unknown>)[k]
   }
   saved = null
+  noDocumentPriority(true)
 }
 
 /** A component rendered into the fake document (installDom first), and what a person does with it. */
@@ -327,12 +381,17 @@ export interface Mounted {
   type(el: string | FakeElement, text: string): Promise<void>
   /** the rendered page, for a failure message */
   html(): string
-  /** wait (letting effects, timers and fetches run) until `fn` gives something truthy */
+  /** wait (letting effects, timers and fetches run) until `fn` gives something truthy; at most `ms`, 4 s by default:
+   * less than bun's 5 s for a test, so a wait that fails ends inside its test (which then cleans up) and not after it,
+   * running on into the next one */
   until<T>(fn: () => T | null | undefined | false, what: string, ms?: number): Promise<T>
   /** let pending work run for `ms` */
   settle(ms?: number): Promise<void>
   unmount(): Promise<void>
 }
+
+/** how long until() waits by default (see Mounted.until) */
+const UNTIL_MS = 4000
 
 export async function mount(ui: ReactNode): Promise<Mounted> {
   const doc = globalThis.document as unknown as FakeDocument
@@ -341,6 +400,7 @@ export async function mount(ui: ReactNode): Promise<Mounted> {
   const container = doc.createElement('div')
   doc.body.appendChild(container)
   const root = createRoot(container as unknown as Element)
+  roots.add(root)
   await act(async () => root.render(ui))
   // the whole body, not only the container: a dialog (ui.tsx Modal) is rendered into <body> through a portal
   const find = (id: string) => doc.body.querySelector(`[data-testid="${id}"]`)
@@ -368,7 +428,7 @@ export async function mount(ui: ReactNode): Promise<Mounted> {
     },
     html: () => doc.body.innerHTML,
     settle,
-    until: async (fn, what, ms = 5000) => {
+    until: async (fn, what, ms = UNTIL_MS) => {
       const end = Date.now() + ms
       for (;;) {
         const v = fn()
@@ -378,6 +438,7 @@ export async function mount(ui: ReactNode): Promise<Mounted> {
       }
     },
     unmount: async () => {
+      if (!roots.delete(root)) return
       await act(async () => root.unmount())
       container.parentNode?.removeChild(container)
     },

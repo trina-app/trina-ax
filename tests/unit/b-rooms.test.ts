@@ -1,14 +1,16 @@
 // Team chat rooms ("대화방" v1, docs/DECISIONS.md "대화방 v1"): the room model (team rooms follow their group, the
-// everyone room, one DM per pair), what a member sees (from their join on; private messages only to their person),
-// permissions (members only, admins included; the author is never taken from the request), KakaoTalk's unread count,
-// realtime fan-out to members only, notices, room files outside the team folder, and the replay check on reconnect.
+// everyone room, one DM per pair), what a member sees (a team room's history, a DM from its start; private messages only
+// to their person),
+// permissions (members only, admins included; the author is never taken from the request), my own read position and
+// badge (no read receipts: nobody is told who has read what), realtime fan-out to members only, notices, room files
+// outside the team folder, and the replay check on reconnect.
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { RealtimeConn } from '../../server/src/services'
 import { Hub } from '../../server/src/realtime/hub'
 import { notificationsOf } from '../../server/src/notifications/service'
-import { unreadOf } from '../../server/src/rooms/store'
+import { savePreferences } from '../../server/src/notifications/preferences'
 import { newId } from '../../server/src/db'
 import { addMember, harness, RecordingHub, withOwner, type Client, type Harness } from './a-lib'
 
@@ -59,7 +61,8 @@ test('team rooms follow their group, everyone has the everyone room, and the cha
   expect((await teamRoom(otto.client))?.id).toBe(team.id)
   expect(await teamRoom(nora.client)).toBeUndefined()
   expect((await nora.client.try('GET', `/api/rooms/${team.id}`)).status).toBe(404)
-  // a disabled account leaves the rooms at once; enabled again, it is back and sees messages from then on
+  // a disabled account leaves the rooms at once; enabled again, it is back and sees the team room's history (as a
+  // Slack channel: docs/DECISIONS.md "지난 대화"), nothing of it unread
   await owner.call('PATCH', `/api/admin/users/${otto.id}`, { status: 'disabled' })
   expect((await mia.client.call('GET', `/api/rooms/${team.id}`)).memberCount).toBe(1)
   expect(h.ctx.db.query('SELECT COUNT(*) n FROM room_members WHERE user_id = ?').get(otto.id)).toEqual({ n: 0 })
@@ -68,7 +71,8 @@ test('team rooms follow their group, everyone has the everyone room, and the cha
   expect(h.ctx.db.query('SELECT COUNT(*) n FROM room_members WHERE user_id = ? AND room_id = ?').get(otto.id, team.id)).toEqual({ n: 1 })
   const back = h.client()
   await back.login('otto', otto.password)
-  expect((await back.call('GET', `/api/rooms/${team.id}/messages`)).items).toEqual([])
+  expect((await back.call('GET', `/api/rooms/${team.id}/messages`)).items.map((m: any) => m.body)).toEqual(['while otto was away'])
+  expect((await back.call('GET', `/api/rooms/${team.id}`)).unreadCount).toBe(0)
   await owner.call('PATCH', `/api/admin/users/${otto.id}`, { status: 'disabled' })
   const actions = (h.ctx.db.query("SELECT action FROM audit_log WHERE action LIKE 'room.%'").all() as { action: string }[]).map((r) => r.action)
   expect(actions).toContain('room.create')
@@ -80,21 +84,20 @@ test('team rooms follow their group, everyone has the everyone room, and the cha
   expect((await mia.client.try('GET', `/api/rooms/${team.id}/messages`)).status).toBe(404)
 })
 
-test('a later member sees the room from their join on, quotes of earlier messages included', async () => {
+test('a later member sees a team room\'s history (quotes of earlier messages included), nothing of it unread', async () => {
   const { owner, mia, otto, group, teamRoom, send } = await setup()
   const team = await teamRoom(mia.client)
   const first = await send(mia.client, team.id, 'before otto joined')
   await owner.call('PATCH', `/api/admin/groups/${group.id}`, { memberIds: [mia.id, otto.id] })
   const forOtto = await teamRoom(otto.client)
-  expect(forOtto).toMatchObject({ unreadCount: 0, lastMessage: null })
-  expect((await otto.client.call('GET', `/api/rooms/${team.id}/messages`)).items).toEqual([])
+  expect(forOtto).toMatchObject({ unreadCount: 0, mentioned: false, lastMessage: { id: first.id } })
+  expect((await otto.client.call('GET', `/api/rooms/${team.id}/messages`)).items.map((m: any) => m.id)).toEqual([first.id])
   const second = await send(mia.client, team.id, 'after', { replyToId: first.id })
   const page = await otto.client.call('GET', `/api/rooms/${team.id}/messages`)
-  expect(page.items.map((m: any) => m.id)).toEqual([second.id])
-  expect(page.items[0].replyTo).toEqual({ id: first.id, author: null, excerpt: '', fileCount: 0, deleted: true })
-  expect(JSON.stringify(page)).not.toContain('before otto joined')
-  // otto cannot reply to what he cannot see
-  expect((await otto.client.try('POST', `/api/rooms/${team.id}/messages`, { body: 'x', replyToId: first.id, clientMessageId: cm() })).status).toBe(400)
+  expect(page.items.map((m: any) => m.id)).toEqual([first.id, second.id])
+  expect(page.items[1].replyTo).toMatchObject({ id: first.id, excerpt: 'before otto joined', deleted: false })
+  // and he may answer it (a group chat keeps "from the join on": b-rooms-group.test.ts)
+  expect((await otto.client.try('POST', `/api/rooms/${team.id}/messages`, { body: 'x', replyToId: first.id, clientMessageId: cm() })).status).toBe(201)
 })
 
 test('only members read or send; admins and the owner are no exception; the author comes from the session', async () => {
@@ -147,32 +150,30 @@ test('one DM per pair, from either side; never with oneself or a disabled accoun
   expect(rows.filter((r) => r.target === a.id || (r.detail ?? '').includes(a.id) || (r.detail ?? '').includes('"dm"'))).toEqual([])
 })
 
-test('unread: each message counts the members who have not read it; reads move forward only', async () => {
+test('reading: my own position and badge only, forward only; no message says who has not read it', async () => {
   const { owner, mia, nora, otto, group, teamRoom, send } = await setup()
   await owner.call('PATCH', `/api/admin/groups/${group.id}`, { memberIds: [mia.id, nora.id, otto.id] })
   const team = await teamRoom(mia.client)
   const m1 = await send(mia.client, team.id, 'one')
   const m2 = await send(mia.client, team.id, 'two @NORA', { mentions: [nora.id, 'nobody-here', mia.id] })
-  expect(m1.unread).toBe(2)
+  // no read receipts: a message carries no count of readers, before or after anyone read it
+  expect(m1).not.toHaveProperty('unread')
   expect(m2.mentions).toEqual([nora.id])
   expect(await teamRoom(nora.client)).toMatchObject({ unreadCount: 2, mentioned: true, lastReadSeq: 0, lastSeq: 2 })
   expect((await teamRoom(mia.client)).unreadCount).toBe(0)
-  expect(await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 1 })).toEqual({ lastReadSeq: 1, unreadCount: 1 })
-  let page = (await mia.client.call('GET', `/api/rooms/${team.id}/messages`)).items
-  expect(page.map((m: any) => m.unread)).toEqual([1, 2])
+  const before = JSON.stringify((await mia.client.call('GET', `/api/rooms/${team.id}/messages`)).items)
+  expect(await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 1 })).toEqual({ lastReadSeq: 1, unreadCount: 1, mentioned: true })
+  // what mia gets is the same whoever read what
+  expect(JSON.stringify((await mia.client.call('GET', `/api/rooms/${team.id}/messages`)).items)).toBe(before)
+  expect(before).not.toContain('"unread"')
   // never back, never past the end
-  expect(await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 0 })).toEqual({ lastReadSeq: 1, unreadCount: 1 })
-  expect(await otto.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 99 })).toEqual({ lastReadSeq: 2, unreadCount: 0 })
-  page = (await mia.client.call('GET', `/api/rooms/${team.id}/messages`)).items
-  expect(page.map((m: any) => m.unread)).toEqual([0, 1])
-  // nora answers: sending reads the room up to her message
-  const m3 = await send(nora.client, team.id, 'three')
-  expect(m3.unread).toBe(2)
-  page = (await mia.client.call('GET', `/api/rooms/${team.id}/messages`)).items
-  expect(page.map((m: any) => m.unread)).toEqual([0, 0, 2])
-  // the count rule itself
-  expect(unreadOf({ seq: 5, visibility: 'room', deleted_at: null }, [{ last_read_seq: 4, visible_from_seq: 0 }, { last_read_seq: 5, visible_from_seq: 0 }, { last_read_seq: 5, visible_from_seq: 5 }, { last_read_seq: 0, visible_from_seq: 6 }])).toBe(1)
-  expect(unreadOf({ seq: 5, visibility: 'private', deleted_at: null }, [{ last_read_seq: 0, visible_from_seq: 0 }])).toBe(0)
+  expect(await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 0 })).toEqual({ lastReadSeq: 1, unreadCount: 1, mentioned: true })
+  expect(await otto.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 99 })).toEqual({ lastReadSeq: 2, unreadCount: 0, mentioned: false })
+  expect(JSON.stringify((await mia.client.call('GET', `/api/rooms/${team.id}/messages`)).items)).toBe(before)
+  // nora answers: sending reads the room up to her message (her own badge), and tells mia nothing about it
+  await send(nora.client, team.id, 'three')
+  expect((await teamRoom(nora.client)).unreadCount).toBe(0)
+  expect(await teamRoom(otto.client)).toMatchObject({ unreadCount: 1, lastReadSeq: 2 })
 })
 
 test('a private message (reserved for the AI step) is seen by its one person only and counts for nobody else', async () => {
@@ -188,7 +189,7 @@ test('a private message (reserved for the AI step) is seen by its one person onl
   })()
   const forMia = (await mia.client.call('GET', `/api/rooms/${team.id}/messages`)).items
   expect(forMia.map((m: any) => m.body)).toEqual(['visible', 'PRIVATE PREVIEW'])
-  expect(forMia[1]).toMatchObject({ authorKind: 'ai', author: null, askedBy: { id: mia.id }, visibility: 'private', unread: 0 })
+  expect(forMia[1]).toMatchObject({ authorKind: 'ai', author: null, askedBy: { id: mia.id }, visibility: 'private' })
   const forNora = await nora.client.call('GET', `/api/rooms/${team.id}/messages`)
   expect(JSON.stringify(forNora)).not.toContain('PRIVATE PREVIEW')
   expect(await teamRoom(nora.client)).toMatchObject({ unreadCount: 1, mentioned: false })
@@ -196,7 +197,7 @@ test('a private message (reserved for the AI step) is seen by its one person onl
   expect(notificationsOf(h.ctx).list(nora.id, {}).items).toHaveLength(0)
 })
 
-test('realtime: room events reach the room\'s members only, and a read names nobody', async () => {
+test('realtime: room events reach the room\'s members only, and a read goes to the reader\'s own windows only', async () => {
   const { ada, mia, nora, otto, hub, send } = await setup()
   const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
   expect(hub.to('room.updated').map((e) => e.target).sort()).toEqual([mia.id, nora.id].sort())
@@ -204,33 +205,111 @@ test('realtime: room events reach the room\'s members only, and a read names nob
   const msg = await send(mia.client, dm.id, 'secret plan')
   const created = hub.to('room.message')
   expect(created.map((e) => e.target).sort()).toEqual([mia.id, nora.id].sort())
-  expect((created[0]!.data as any).data.message).toMatchObject({ id: msg.id, unread: 1 })
+  expect((created[0]!.data as any).data.message).toMatchObject({ id: msg.id })
+  expect((created[0]!.data as any).data.message).not.toHaveProperty('unread')
   for (const e of hub.events) expect([mia.id, nora.id]).toContain(e.target)
   expect(hub.events.some((e) => [ada.id, otto.id, 'olga'].includes(e.target) && JSON.stringify(e.data).includes('secret plan'))).toBe(false)
   hub.clear()
   await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: msg.seq })
+  // no read receipts: mia is not told that nora read it; nora's own windows get her position and badge
   const reads = hub.to('room.read')
-  expect(reads.map((e) => [e.target, (e.data as any).data.mine]).sort()).toEqual([[mia.id, false], [nora.id, true]].sort())
-  expect((reads[0]!.data as any).data).toEqual({ roomId: dm.id, fromSeq: 0, toSeq: 1, mine: expect.any(Boolean) })
+  expect(reads.map((e) => e.target)).toEqual([nora.id])
+  expect((reads[0]!.data as any).data).toEqual({ roomId: dm.id, lastReadSeq: 1, unreadCount: 0, mentioned: false })
+  expect(hub.events.filter((e) => e.target === mia.id)).toEqual([])
   hub.clear()
   await mia.client.call('PATCH', `/api/rooms/${dm.id}/messages/${msg.id}`, { body: 'new plan' })
   expect(hub.to('room.message.updated').map((e) => e.target).sort()).toEqual([mia.id, nora.id].sort())
 })
 
-test('notices: a DM or an @mention, one unread notice of each per room (pushed, never listed in the Inbox); muted rooms are quiet; reading clears them; no text', async () => {
+test('session markers: each room.message says the notice its recipient got, as the Inbox and push decided it (docs/DECISIONS.md "Session markers")', async () => {
+  const { mia, nora, otto, teamRoom, send, hub } = await setup()
+  const n = notificationsOf(h.ctx)
+  /** the notice on the room.message each person got for this message */
+  const marks = (messageId: string) => Object.fromEntries(hub.to('room.message').filter((e) => (e.data as any).data.message.id === messageId).map((e) => [e.target, (e.data as any).data.notice ?? null]))
+  const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
+  hub.clear()
+  // a DM message: nora gets room.dm, mia (its author) nothing
+  const m1 = await send(mia.client, dm.id, 'hello')
+  expect(marks(m1.id)).toEqual({ [mia.id]: null, [nora.id]: 'room.dm' })
+  // a second one while the first is unread: no new notice (one per unread run, like the push), so no mark
+  const m2 = await send(mia.client, dm.id, 'are you there')
+  expect(marks(m2.id)[nora.id]).toBeNull()
+  // read: the next one is a notice again
+  await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: 999 })
+  const m3 = await send(mia.client, dm.id, 'ping')
+  expect(marks(m3.id)[nora.id]).toBe('room.dm')
+  // the person's own setting off: the notice is kept quiet (suppressed), and the room.message carries none
+  await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: 999 })
+  n.setPreferences(nora.id, { roomMessages: false })
+  const m4 = await send(mia.client, dm.id, 'while notices are off')
+  expect(marks(m4.id)[nora.id]).toBeNull()
+  n.setPreferences(nora.id, { roomMessages: true })
+  // muted: none
+  await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: 999 })
+  await nora.client.call('PATCH', `/api/rooms/${dm.id}`, { muted: true })
+  const m5 = await send(mia.client, dm.id, 'muted')
+  expect(marks(m5.id)[nora.id]).toBeNull()
+  await nora.client.call('PATCH', `/api/rooms/${dm.id}`, { muted: false })
+  // a team room: a plain message notifies nobody; a mention, the one mentioned
+  const team = await teamRoom(mia.client)
+  const t1 = await send(mia.client, team.id, 'for everyone')
+  expect(marks(t1.id)[nora.id]).toBeNull()
+  const t2 = await send(mia.client, team.id, '@NORA look', { mentions: [nora.id] })
+  expect(marks(t2.id)[nora.id]).toBe('room.mention')
+  // a reply in a thread: its followers (the root's author) get room.dm, nobody else
+  await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 999 })
+  const root = await send(nora.client, team.id, 'a thread starts')
+  const r1 = await send(mia.client, team.id, 'a reply', { threadRootId: root.id })
+  expect(marks(r1.id)[nora.id]).toBe('room.dm')
+  expect(marks(r1.id)[otto.id]).toBeUndefined() // not in the room
+  // a team room at 모든 메시지 (the room's own level): every message is a notice, so a mark
+  await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 999 })
+  await nora.client.call('PATCH', `/api/rooms/${team.id}`, { notifyLevel: 'all' })
+  const t3 = await send(mia.client, team.id, 'every message now')
+  expect(marks(t3.id)[nora.id]).toBe('room.dm')
+  // quiet hours (all day but the minute 23:59–24:00, weekends whole): the notice is kept but never rings, so no mark
+  await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 999 })
+  n.setPreferences(nora.id, { quietHours: { on: true, start: '00:00', end: '23:59', weekends: true } })
+  const t4 = await send(mia.client, team.id, '@NORA at night', { mentions: [nora.id] })
+  expect(marks(t4.id)[nora.id]).toBeNull()
+})
+
+test('a failure while recording notices never holds a new message back from anyone (it goes out unmarked)', async () => {
+  const { mia, nora, hub, send } = await setup()
+  const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
+  hub.clear()
+  // the notices' settings cannot be read: notify() fails inside, before the room.message is sent
+  h.ctx.db.exec('ALTER TABLE notification_preferences RENAME TO notification_preferences_gone')
+  try {
+    const m = await send(mia.client, dm.id, 'still delivered')
+    const got = hub.to('room.message').filter((e) => (e.data as any).data.message.id === m.id)
+    expect(got.map((e) => e.target).sort()).toEqual([mia.id, nora.id].sort())
+    expect(got.every((e) => (e.data as any).data.notice === undefined)).toBe(true)
+  } finally {
+    h.ctx.db.exec('ALTER TABLE notification_preferences_gone RENAME TO notification_preferences')
+  }
+})
+
+test('notices: a DM or an @mention, one unread notice of each per room (pushed; the Inbox lists the mentions); muted rooms are quiet; reading clears them; no text in what a push opens', async () => {
   const { mia, nora, teamRoom, send } = await setup()
   const n = notificationsOf(h.ctx)
-  // the room notices a push opens by id (GET /api/notifications/:id); the Inbox's own list leaves them out (the 대화
-  // tab's badge is where unread room messages are)
+  // the room notices a push opens by id (GET /api/notifications/:id); the Inbox lists and counts the mentions (and
+  // replies in threads I follow), never a DM's message (docs/DECISIONS.md "알림함의 대화 알림")
   const notices = (uid: string) => {
     const rows = h.ctx.db.query('SELECT id FROM room_notices WHERE user_id = ? AND suppressed = 0 ORDER BY created_at DESC, id DESC').all(uid) as { id: string }[]
     const items = rows.map((r) => n.get(uid, r.id))
-    expect(n.list(uid, {}).items.some((x) => x.code === 'room.dm' || x.code === 'room.mention')).toBe(false)
+    const listed = n.list(uid, {})
+    expect(listed.items.filter((x) => x.code === 'room.dm' || x.code === 'room.mention').map((x) => x.id).sort()).toEqual(items.filter((x) => x.code === 'room.mention').map((x) => x.id).sort())
+    expect(listed.unreadCount).toBe(items.filter((x) => x.readAt === null && x.code === 'room.mention').length)
     return { items, unreadCount: items.filter((x) => x.readAt === null).length }
   }
   const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
   await send(mia.client, dm.id, 'TOP SECRET ONE')
   await send(mia.client, dm.id, 'TOP SECRET TWO')
+  // the message preview on (the default): the notice a push opens has the first line ("알림 미리보기")
+  expect(notices(nora.id).items[0]!.room?.preview).toBe('TOP SECRET ONE')
+  // off: no text
+  savePreferences(h.ctx.db, nora.id, { messagePreview: false })
   let inbox = notices(nora.id)
   expect(inbox.items).toHaveLength(1)
   expect(inbox.items[0]).toMatchObject({ code: 'room.dm', link: 'room', room: { id: dm.id, from: 'MIA' }, chatId: null })
@@ -321,6 +400,78 @@ test('files: kept outside the team folder, readable by the room\'s members only,
   await mia.client.call('DELETE', `/api/rooms/${dm.id}/messages/${msg.id}`)
   expect((await get(nora.client)).status).toBe(404)
   expect(fs.existsSync(stored)).toBe(false)
+})
+
+test('previews: a room file comes as bytes the app draws, never a page of this origin; members only; download-only stays a download', async () => {
+  const { mia, nora, otto, teamRoom } = await setup()
+  const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
+  const team = await teamRoom(mia.client)
+  const upload = async (roomId: string, name: string, bytes: Uint8Array | string) => {
+    const form = new FormData()
+    form.set('file', new File([(typeof bytes === 'string' ? new TextEncoder().encode(bytes) : bytes) as BlobPart], name))
+    const r = await h.fetch(`/api/rooms/${roomId}/files`, { method: 'POST', body: form, headers: { cookie: mia.client.cookie!, 'x-mycel-csrf': '1' } })
+    expect(r.status).toBe(201)
+    return r.json()
+  }
+  const page = '<!doctype html><h1>acme</h1><script>parent.document.cookie</script>'
+  const html = await upload(dm.id, 'deck.html', page)
+  const svg = await upload(dm.id, 'logo.svg', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
+  const md = await upload(dm.id, 'notes.md', '# acme\n')
+  // XML documents a browser shows as pages, where an XHTML script would run (RSS, XSLT, MathML, XUL, WML), and scripts
+  // under other names (ECMAScript): a page could load one as its own script
+  const xml = '<rss xmlns:h="http://www.w3.org/1999/xhtml"><h:script>alert(1)</h:script></rss>'
+  const feeds = await Promise.all(['feed.rss', 'style.xsl', 'formula.mml', 'app.xul', 'card.wml', 'module.es', 'app.js'].map((n) => upload(dm.id, n, xml)))
+  await mia.client.call('POST', `/api/rooms/${dm.id}/messages`, { body: '', fileIds: [html.id, svg.id, md.id, ...feeds.map((f) => f.id)], clientMessageId: cm() })
+  const get = (c: Client, roomId: string, id: string, q = '', headers: Record<string, string> = {}) => h.fetch(`/api/rooms/${roomId}/files/${id}${q}`, { headers: { cookie: c.cookie!, ...headers } })
+  // what the preview panel reads (fetch, inline): a page or a picture that can run is text, with the sandbox CSP and
+  // nosniff, so even opened as an address it is never a page of this origin; the bytes are the file's
+  for (const f of [html, svg, ...feeds]) {
+    const r = await get(nora.client, dm.id, f.id, '', { 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty' })
+    expect(r.status).toBe(200)
+    expect(r.headers.get('content-type')).toBe('text/plain; charset=utf-8')
+    expect(r.headers.get('content-security-policy')).toContain('sandbox')
+    expect(r.headers.get('content-security-policy')).toContain("default-src 'none'")
+    expect(r.headers.get('x-content-type-options')).toBe('nosniff')
+    expect(r.headers.get('content-disposition')).toStartWith('inline;')
+  }
+  expect(await (await get(nora.client, dm.id, html.id)).text()).toBe(page)
+  // the panel's download: an attachment with the same CSP
+  const down = await get(nora.client, dm.id, html.id, '?download=1')
+  expect(down.headers.get('content-disposition')).toStartWith('attachment;')
+  expect(down.headers.get('content-security-policy')).toContain('sandbox')
+  expect((await get(nora.client, dm.id, md.id)).headers.get('content-security-policy')).toContain('sandbox')
+  // members only: someone outside the room, an admin too, gets 404; a file asked for under another room (one the
+  // person is in) is 404 as well
+  expect((await get(otto.client, dm.id, html.id)).status).toBe(404)
+  expect((await get(otto.client, dm.id, html.id, '?download=1')).status).toBe(404)
+  expect((await get(mia.client, team.id, html.id)).status).toBe(404)
+  expect((await get(nora.client, team.id, html.id)).status).toBe(404)
+  // a file on the safety check's download-only list: only a download, never inline or a thumbnail (what the preview
+  // panel reads: it then says the file can only be downloaded). The phone app saves a download through fetch, so a
+  // download a page fetched still goes
+  const held = new TextEncoder().encode('held deck bytes')
+  h.ctx.files.quarantine.add(held, 'pptx')
+  const q = await upload(dm.id, 'held.pdf', held)
+  await mia.client.call('POST', `/api/rooms/${dm.id}/messages`, { body: '', fileIds: [q.id], clientMessageId: cm() })
+  for (const [query, headers] of [['', {}], ['', { 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty' }], ...['image', 'iframe', 'video', 'object', 'script'].map((d) => ['?download=1', { 'sec-fetch-mode': 'no-cors', 'sec-fetch-dest': d }])] as [string, Record<string, string>][]) {
+    const r = await get(nora.client, dm.id, q.id, query, headers)
+    expect({ query, headers, status: r.status }).toEqual({ query, headers, status: 503 })
+    expect((await r.json()).error.params.reason).toBe('quarantined')
+  }
+  // a held picture has no thumbnail made, and a small one is not sent as its own either
+  const pic = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new TextEncoder().encode('held picture')])
+  h.ctx.files.quarantine.add(pic, 'image')
+  const p = await upload(dm.id, 'held.png', pic)
+  expect(p).toMatchObject({ kind: 'image', thumb: false })
+  await mia.client.call('POST', `/api/rooms/${dm.id}/messages`, { body: '', fileIds: [p.id], clientMessageId: cm() })
+  expect((await get(nora.client, dm.id, p.id, '?thumb=1')).status).toBe(503)
+  for (const headers of [{}, { 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' }, { 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty' }] as Record<string, string>[]) {
+    const r = await get(nora.client, dm.id, q.id, '?download=1', headers)
+    expect(r.status).toBe(200)
+    expect(await r.text()).toBe('held deck bytes')
+  }
+  // (still members only first)
+  expect((await get(otto.client, dm.id, q.id, '?download=1')).status).toBe(404)
 })
 
 test('photos: the place they were taken and the camera are cut out; they stand upright at the size shown', async () => {

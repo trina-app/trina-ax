@@ -2,16 +2,19 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { z } from 'zod'
-import type { PushDeviceInput, PushDeviceRemoveInput, PushSubscriptionInput, PushEventType } from '@mycel/shared/api'
+import { plainLabel, PUSH_KEY_REASON, type PushDeviceInput, type PushDeviceLabel, type PushDeviceLabelInput, type PushDeviceRemoveInput, type PushSubscriptionInput, type PushEventType } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { HttpError } from '../http/errors'
 import { Vault } from '../credentials/vault'
 import { getUser } from '../auth/users'
 import { teamDefaultLocale } from '../admin/settings'
-import { pushMessages } from './text'
+import { pushMessages, TEXT } from './text'
 import { eventEnabled, getPreferences } from './preferences'
 import { onPushCancellation, cancelPushUser, pushPathOf } from './push-events'
+import { noticeWanted } from '../rooms/alerts'
+import { handoverPushWanted } from '../admin/handover-notices'
+import { roomNoticeOut } from '../rooms/inbox'
 import { readPushConfig, pushConfigKey, type PushConfig } from './push-config'
 import { bounded, createPushTransport, pushFailure, validatePushSubscription, type PushSubscription, type PushTransport } from './push-transport'
 import { createNativeTransport, nativeConfigKey, readNativePushConfig, validNativeDevice, type NativeDevice, type NativePushConfig, type NativeTransport } from './push-native'
@@ -21,11 +24,26 @@ export interface PushOptions {config:()=>PushConfig|null;transport:PushTransport
 type Subscription={id:string;user_id:string;session_id:string;secret_enc:string;key_version:number;config_key:string;created_at:string;endpoint_hash:string;kind:'web'|'native'}
 type Delivery={notification_id:string;subscription_id:string;attempts:number;expires_at:string;config_key:string}
 const TTL_MS=86400_000,MAX_ATTEMPTS=3,MAX_SUBSCRIPTIONS=10
+/** A phone's notification extension asks for at most this many room push titles a minute (the gateway sends a phone at
+ * most 20 a minute per team); more get the empty answer. Counted only for the right key, so nobody else can use it up. */
+export const LABEL_PER_MINUTE=30
+const ID=/^[A-Za-z0-9_-]{1,100}$/,KEY=/^[A-Za-z0-9_-]{43}$/
+// compared against when a device has no label key, so the answer takes the same steps (random: no key matches it)
+const NO_HASH=crypto.randomBytes(32)
+const sha256=(s:string)=>crypto.createHash('sha256').update(s).digest()
 const services=new WeakMap<AppContext,PushService>()
 /** Where push notices come from: an inbox table and its deliveries table. notification_inbox (migration 208) and room
  * notices (a DM message or an @mention, migration 241: notification_inbox has a fixed event_type list), checked and sent
- * the same way. */
-const SOURCES=[{inbox:'notification_inbox',deliveries:'push_deliveries'},{inbox:'room_notices',deliveries:'room_push_deliveries'}] as const
+ * the same way. `only`: what else a notice of that table needs to be pushed (a room notice made inside the person's
+ * quiet hours never is, migration 255); `wanted`: asked before and after each send (a room's level may have changed). */
+/** `unread`: which notices count as still to tell (a read one is not pushed), as a condition on the inbox row: the
+ * owner's locked password check is pushed even once read, since whoever holds the session could mark it read to stop it */
+const SOURCES=[
+  {inbox:'notification_inbox',deliveries:'push_deliveries',only:'',unread:'read_at IS NULL',wanted:null},
+  {inbox:'room_notices',deliveries:'room_push_deliveries',only:'AND quiet=0',unread:'read_at IS NULL',wanted:noticeWanted},
+  // 팀장 넘기기 (migration 270): the lead join (only while its card still holds) and the owner's locked password check
+  {inbox:'handover_notices',deliveries:'handover_push_deliveries',only:"AND event_type IN ('owner.lead_joined','owner.reauth_locked')",unread:"(read_at IS NULL OR event_type='owner.reauth_locked')",wanted:handoverPushWanted},
+] as const
 type Source=typeof SOURCES[number]
 export class PushService {
   private readonly o:PushOptions
@@ -36,6 +54,8 @@ export class PushService {
   private work:Promise<void>|null=null
   private timer:ReturnType<typeof setInterval>|null=null
   private unlisten:()=>void
+  /** label requests with the right key per device this minute (in memory: a restart forgets it) */
+  private labelUse=new Map<string,{since:number;n:number}>()
   constructor(readonly ctx:AppContext,options:Partial<PushOptions>={}){
     this.o={config:()=>readPushConfig(ctx),transport:createPushTransport(),native:()=>readNativePushConfig(ctx),nativeTransport:createNativeTransport({dataDir:ctx.config.dataDir}),now:Date.now,...options}
     this.secrets=path.join(ctx.config.dataDir,'secrets','push');this.vault=new Vault(this.secrets)
@@ -60,18 +80,20 @@ export class PushService {
     return{configured:!!c,enabled:this.enabled(userId),publicKey:c?.publicKey??null,subscriptionId:c&&sub?.config_key===pushConfigKey(c)?sub.id:null,messages:pushMessages(locale),
       native:{available:!!n,deviceId:n&&device?.config_key===nativeConfigKey(n)?device.id:null,gateway:n?new URL(n.url).host:null},optedOut}
   }
+  /** No usable Web Push key, or an unsafe folder for push secrets: an admin's matter, said apart from a passing outage. */
+  private keyMissing(){return new HttpError('unavailable',undefined,{params:{reason:PUSH_KEY_REASON}})}
   private safeSecrets(create=false){
     const realData=fs.realpathSync(this.ctx.config.dataDir),team=fs.realpathSync(this.ctx.config.teamRoot)
-    if(realData===team||realData.startsWith(team+path.sep))throw new HttpError('unavailable')
+    if(realData===team||realData.startsWith(team+path.sep))throw this.keyMissing()
     for(const dir of [this.ctx.config.dataDir,path.dirname(this.secrets),this.secrets]){
       if(create&&!fs.existsSync(dir))fs.mkdirSync(dir,{mode:0o700})
       const st=fs.lstatSync(dir)
-      if(st.isSymbolicLink()||!st.isDirectory()||(st.mode&0o077)||(process.getuid&&st.uid!==process.getuid()))throw new HttpError('unavailable')
+      if(st.isSymbolicLink()||!st.isDirectory()||(st.mode&0o077)||(process.getuid&&st.uid!==process.getuid()))throw this.keyMissing()
     }
   }
   subscribe(userId:string,sessionId:string,input:z.infer<typeof PushSubscriptionInput>){
     this.requireSession(userId,sessionId);if(input.consent!==true)throw new HttpError('validation')
-    const config=this.o.config();if(!config)throw new HttpError('unavailable')
+    const config=this.o.config();if(!config)throw this.keyMissing()
     validatePushSubscription(input);this.safeSecrets(true)
     const endpointHash=crypto.createHash('sha256').update(input.endpoint).digest('hex'),configKey=pushConfigKey(config)
     return this.ctx.db.transaction(()=>{
@@ -99,24 +121,66 @@ export class PushService {
     const device=validNativeDevice(input);this.safeSecrets(true)
     const tokenHash=crypto.createHash('sha256').update(`native|${device.platform}|${device.token}`).digest('hex'),configKey=nativeConfigKey(config)
     const removeKey=crypto.randomBytes(32).toString('base64url'),removeHash=crypto.createHash('sha256').update(removeKey).digest('hex')
+    // a second key, only for an iPhone app that shows who and where (push-label-v1): the app made it and keeps it for its
+    // notification extension, and sends only its hash. It reads a room push's title and nothing else (it cannot remove the
+    // device); the same key again changes nothing, so a lost answer never leaves the phone with a key the server forgot
+    const labelHash=device.platform==='ios'&&input.labelHash&&/^[0-9a-f]{64}$/.test(input.labelHash)?input.labelHash:null
     const result=this.ctx.db.transaction(()=>{
       const other=this.ctx.db.query('SELECT * FROM push_subscriptions WHERE endpoint_hash=?').get(tokenHash) as Subscription|null
       if(other&&other.kind==='native'&&other.user_id===userId&&other.session_id===sessionId&&other.config_key===configKey){
         const old=this.vault.decrypt(`${userId}|${sessionId}|${other.id}`,'native-push',other.secret_enc,other.key_version) as NativeDevice
         // the same device again: a fresh removal key (the app keeps only the latest)
-        if(old.environment===device.environment){this.ctx.db.query('UPDATE push_subscriptions SET remove_hash=? WHERE id=?').run(removeHash,other.id);return{id:other.id,moved:null}}
+        if(old.environment===device.environment){this.ctx.db.query('UPDATE push_subscriptions SET remove_hash=?,label_hash=? WHERE id=?').run(removeHash,labelHash,other.id);return{id:other.id,moved:null}}
       }
       if(other)this.ctx.db.query('DELETE FROM push_subscriptions WHERE id=?').run(other.id)
       const count=this.ctx.db.query('SELECT COUNT(*) n FROM push_subscriptions WHERE user_id=? AND session_id<>?').get(userId,sessionId) as {n:number}
       if(count.n>=MAX_SUBSCRIPTIONS)throw new HttpError('plan_limit')
       this.ctx.db.query('DELETE FROM push_subscriptions WHERE session_id=?').run(sessionId)
       const id=newId(),encrypted=this.vault.encrypt(`${userId}|${sessionId}|${id}`,'native-push',device)
-      this.ctx.db.query("INSERT INTO push_subscriptions(id,user_id,session_id,endpoint_hash,secret_enc,key_version,config_key,created_at,kind,remove_hash) VALUES(?,?,?,?,?,?,?,?,'native',?)").run(id,userId,sessionId,tokenHash,encrypted.enc,encrypted.keyVersion,configKey,this.iso(),removeHash)
+      this.ctx.db.query("INSERT INTO push_subscriptions(id,user_id,session_id,endpoint_hash,secret_enc,key_version,config_key,created_at,kind,remove_hash,label_hash) VALUES(?,?,?,?,?,?,?,?,'native',?,?)").run(id,userId,sessionId,tokenHash,encrypted.enc,encrypted.keyVersion,configKey,this.iso(),removeHash,labelHash)
       this.ctx.db.query('INSERT INTO push_preferences(user_id,enabled,enabled_at) VALUES(?,1,?) ON CONFLICT(user_id) DO UPDATE SET enabled=1,enabled_at=CASE WHEN enabled=0 THEN excluded.enabled_at ELSE enabled_at END').run(userId,this.iso())
       return{id,moved:other&&other.user_id!==userId?other.user_id:null}
     })()
     if(result.moved)cancelPushUser(this.ctx,result.moved)
     return{id:result.id,removeKey}
+  }
+  /** The iPhone app's notification extension asks what a room push it received says (docs/DECISIONS.md "아이폰 알림의
+   * 이름"): who and where, the same title as a browser push (rooms/inbox.ts roomNoticeOut), in the person's language, and
+   * the message's first line while the person's messagePreview is on (else the generic line). No session: the label key from registration is the proof. Only for a
+   * notice of this device's person that was queued for this device, still unread, still wanted by the room's level and
+   * still the person's to read (the room left or hidden, the message deleted or a private preview: nothing). Every
+   * failure gets the same empty answer, and nothing is logged. */
+  label(id:string,input:z.infer<typeof PushDeviceLabelInput>):z.infer<typeof PushDeviceLabel>{
+    // one way out for every failure, a thrown one too (a busy database, a row gone meanwhile): the same {}
+    try{return this.labelOf(id,input)}catch{return{}}
+  }
+  private labelOf(id:string,input:z.infer<typeof PushDeviceLabelInput>):z.infer<typeof PushDeviceLabel>{
+    const none={},db=this.ctx.db,now=this.o.now()
+    const row=ID.test(id)?db.query("SELECT id,user_id,session_id,config_key,created_at,label_hash FROM push_subscriptions WHERE id=? AND kind='native'").get(id) as {id:string;user_id:string;session_id:string;config_key:string;created_at:string;label_hash:string|null}|null:null
+    const stored=row?.label_hash&&/^[0-9a-f]{64}$/.test(row.label_hash)?Buffer.from(row.label_hash,'hex'):NO_HASH
+    const right=crypto.timingSafeEqual(stored,sha256(input.key))
+    if(!row?.label_hash||!right||!KEY.test(input.key)||!ID.test(input.notificationId)||!this.admitLabel(row.id,now))return none
+    const native=this.o.native()
+    if(!native||row.config_key!==nativeConfigKey(native)||!this.session(row.user_id,row.session_id)||!this.enabled(row.user_id))return none
+    // sent (tried at least once) to this device, so only a notice this phone may have got, and within a push's day
+    const notice=db.query(`SELECT n.id,n.user_id,n.event_type,n.source_id FROM room_notices n WHERE n.id=? AND n.user_id=? AND n.read_at IS NULL AND n.suppressed=0 AND n.quiet=0
+      AND n.created_at>=? AND n.created_at>? AND EXISTS(SELECT 1 FROM room_push_deliveries d WHERE d.notification_id=n.id AND d.subscription_id=? AND d.attempts>0)`)
+      .get(input.notificationId,row.user_id,row.created_at,this.iso(now-TTL_MS),row.id) as {id:string;user_id:string;event_type:'room.dm'|'room.mention';source_id:string}|null
+    if(!notice||!eventEnabled(getPreferences(db,row.user_id),notice.event_type)||!noticeWanted(db,notice.id,now))return none
+    const locale=getUser(db,row.user_id)?.locale??teamDefaultLocale(db)
+    // the Inbox's and a browser push's rule of what the person may still see of the notice's message
+    const room=roomNoticeOut(db,notice,locale,{preview:getPreferences(db,row.user_id).messagePreview}),title=room?.label?plainLabel(room.label,120):''
+    if(!room||!title||!ID.test(room.id))return none
+    // the message's first line while the person's messagePreview is on (never a private message's), else the generic line
+    return{title,body:room.preview||TEXT[notice.event_type][locale],roomId:room.id,...(room.thread&&ID.test(room.thread)?{threadId:room.thread}:{})}
+  }
+  /** At most LABEL_PER_MINUTE label answers a minute for one device. */
+  private admitLabel(id:string,now:number){
+    if(this.labelUse.size>500)for(const [k,v] of this.labelUse)if(now-v.since>=60_000)this.labelUse.delete(k)
+    let use=this.labelUse.get(id)
+    if(!use||now-use.since>=60_000)use={since:now,n:0}
+    if(use.n>=LABEL_PER_MINUTE)return false
+    use.n++;this.labelUse.set(id,use);return true
   }
   /** The phone app leaves this team (team switch): no session, the removal key from registration is the proof. Says
    * nothing about whether the device existed. */
@@ -145,9 +209,10 @@ export class PushService {
     if(!this.ctx.db.query(`SELECT 1 FROM ${src.deliveries} WHERE subscription_id=? AND notification_id=? AND state IN ('pending','sending')`).get(id,notificationId))return null
     const sub=this.ctx.db.query('SELECT * FROM push_subscriptions WHERE id=? AND config_key=?').get(id,configKey) as Subscription|null
     if(!sub||!this.session(sub.user_id,sub.session_id)||!this.enabled(sub.user_id))return null
-    const row=this.ctx.db.query(`SELECT event_type,created_at FROM ${src.inbox} WHERE id=? AND user_id=? AND suppressed=0 AND read_at IS NULL`).get(notificationId,sub.user_id) as {event_type:PushEventType;created_at:string}|null
+    const row=this.ctx.db.query(`SELECT event_type,created_at FROM ${src.inbox} WHERE id=? AND user_id=? AND suppressed=0 AND ${src.unread} ${src.only}`).get(notificationId,sub.user_id) as {event_type:PushEventType;created_at:string}|null
     const prefs=this.ctx.db.query('SELECT enabled_at FROM push_preferences WHERE user_id=?').get(sub.user_id) as {enabled_at:string}|null
     if(!row||row.created_at<sub.created_at||row.created_at<(prefs?.enabled_at??this.iso())||Date.parse(row.created_at)+TTL_MS<=this.o.now()||!eventEnabled(getPreferences(this.ctx.db,sub.user_id),row.event_type))return null
+    if(src.wanted&&!src.wanted(this.ctx.db,notificationId,this.o.now()))return null
     return{sub,event:row.event_type}
   }
   private enqueue(keys:string[]){
@@ -160,7 +225,7 @@ export class PushService {
     db.query(`INSERT INTO ${src.deliveries}(notification_id,subscription_id,next_at,expires_at)
       SELECT n.id,s.id,?,strftime('%Y-%m-%dT%H:%M:%fZ',n.created_at,'+1 day') FROM ${src.inbox} n JOIN push_subscriptions s ON s.user_id=n.user_id
       JOIN push_preferences p ON p.user_id=n.user_id AND p.enabled=1
-      WHERE n.suppressed=0 AND n.read_at IS NULL AND n.created_at>=s.created_at AND n.created_at>=p.enabled_at AND n.created_at>? AND s.config_key IN (?,?)
+      WHERE n.suppressed=0 AND ${src.unread.replace(/read_at|event_type/g,(c)=>`n.${c}`)} ${src.only.replace('quiet','n.quiet')} AND n.created_at>=s.created_at AND n.created_at>=p.enabled_at AND n.created_at>? AND s.config_key IN (?,?)
       AND NOT EXISTS(SELECT 1 FROM ${src.deliveries} d WHERE d.notification_id=n.id AND d.subscription_id=s.id)
       ORDER BY n.created_at,n.id LIMIT 500 ON CONFLICT(notification_id,subscription_id) DO NOTHING`).run(now,this.iso(this.o.now()-TTL_MS),keys[0]??'',keys[1]??'')
     }
@@ -217,13 +282,14 @@ export class PushService {
       if(failure?.outcome!=='push_cancelled'&&!(status>=200&&status<300))this.ctx.log.warn('push delivery failed',outcome)
       else this.ctx.log.debug(failure?'push delivery cancelled':'push delivered',outcome)
       if(this.stopped){this.ctx.db.query(`UPDATE ${src.deliveries} SET state='pending',next_at=?,lease_until=NULL WHERE notification_id=? AND subscription_id=? AND state='sending'`).run(this.iso(this.o.now()+30_000),row.notification_id,row.subscription_id);return}
-      // Web Push: the provider says the subscription is gone (404/410). The gateway answers 410 only for a dead token
-      // (its 404 means a wrong address, which must not delete phones).
+      // Web Push: the provider says the subscription is gone (404/410; WNS too: 404 an unknown channel, 410 an expired
+      // one). The gateway answers 410 only for a dead token (its 404 means a wrong address, which must not delete phones).
       if(status===410||(status===404&&allowed.sub.kind==='web')){this.ctx.db.query('DELETE FROM push_subscriptions WHERE id=?').run(row.subscription_id);continue}
       if(!this.eligible(src,row.subscription_id,row.notification_id,key)){
         this.ctx.db.query(`UPDATE ${src.deliveries} SET state='cancelled',lease_until=NULL WHERE notification_id=? AND subscription_id=? AND state='sending'`).run(row.notification_id,row.subscription_id);continue
       }
-      const attempts=row.attempts+1,success=status>=200&&status<300,retry=status===0||status===429||status>=500
+      // 406 is how WNS (Microsoft Edge) says "too many for now": tried again later like 429
+      const attempts=row.attempts+1,success=status>=200&&status<300,retry=status===0||status===429||(status===406&&allowed.sub.kind==='web')||status>=500
       const state=success?'sent':retry&&attempts<MAX_ATTEMPTS?'pending':'failed'
       this.ctx.db.query(`UPDATE ${src.deliveries} SET state=?,next_at=?,lease_until=NULL WHERE notification_id=? AND subscription_id=? AND state='sending'`).run(state,this.iso(this.o.now()+(attempts===1?30_000:120_000)),row.notification_id,row.subscription_id)
     }

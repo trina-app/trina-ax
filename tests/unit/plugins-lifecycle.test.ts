@@ -277,8 +277,16 @@ describe('robustness', () => {
     expect(m.minCompatibleReader).toBe(1)
     const dir = path.join(app.data, 'old-migrations')
     fs.mkdirSync(dir, { recursive: true })
-    for (const x of readMigrations()) if (x.version < 321) fs.writeFileSync(path.join(dir, x.name), x.sql)
-    const db = openDb(path.join(app.data, 'rollback.db'))
+    // migrations that need a reader above 4 came after that build, whatever their number (250_b_group_rooms: reader 5)
+    for (const x of readMigrations()) if (x.version < 321 && x.minCompatibleReader <= 4) fs.writeFileSync(path.join(dir, x.name), x.sql)
+    // the newer database with 321 applied, without those
+    const newer = path.join(app.data, 'newer-migrations')
+    fs.mkdirSync(newer, { recursive: true })
+    for (const x of readMigrations()) if (x.minCompatibleReader <= 4) fs.writeFileSync(path.join(newer, x.name), x.sql)
+    // a database of its own (one left by an earlier run would have every migration applied)
+    const file = path.join(app.data, 'rollback.db')
+    for (const f of [file, `${file}-wal`, `${file}-shm`]) fs.rmSync(f, { force: true })
+    const db = openDb(file, { migrationsDir: newer })
     // the older build's own migration set and reader level against the newer database
     expect(() => migrate(db, { migrationsDir: dir, readerLevel: 4 })).not.toThrow()
     db.close()

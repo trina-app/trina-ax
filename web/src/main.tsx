@@ -4,6 +4,7 @@ import App from './App'
 import { initPwa } from './lib/pwa'
 import { followVisualViewport } from './lib/viewport'
 import { applyTheme, storedTheme, watchSystemTheme } from './lib/theme'
+import { applyTextSize, storedTextSize } from './lib/textSize'
 import { useLocaleStore, t } from './i18n'
 import { initMobile, MobileFileTooLarge, setMobileSession } from './lib/mobile'
 import { useSession } from './store/session'
@@ -14,12 +15,13 @@ import './index.css'
 import './theme.edition.css'
 
 applyTheme(storedTheme())
+applyTextSize(storedTextSize())
 watchSystemTheme()
 document.documentElement.lang = useLocaleStore.getState().locale
 initMobile(error => toast({ level: 'error', text: t(error instanceof MobileFileTooLarge ? 'mobile.fileTooLarge' : 'mobile.saveFailed') }))
 useSession.subscribe(state => {
   const status = state.status
-  setMobileSession(status.kind === 'signed-in' ? `${status.me.user.id}:${status.me.session.id}` : null)
+  setMobileSession(status.kind === 'signed-in' ? `${status.me.user.id}:${status.me.session.id}` : null, status.kind === 'signed-out')
   setPushSession(status.kind === 'signed-in' ? `${status.me.user.id}:${status.me.session.id}` : null)
   setMobilePushSession(status.kind === 'signed-in' && !status.me.user.mustChangePassword ? `${status.me.user.id}:${status.me.session.id}` : null)
 })

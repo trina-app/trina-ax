@@ -1,7 +1,9 @@
-// AI connections (contract: shared/src/api/credentials.ts), registered by the admin route module (owner A). Admins
-// see the team's connections; only the owner changes them (adding and replacing a secret ask for the password again,
-// the RouteKit checks it; so does "Move it to the team", which is an add with moveFrom); members manage their own
-// connections while the team allows them. Request bodies are never
+// AI connections (contract: shared/src/api/credentials.ts), registered by the admin route module (owner A). The owner
+// and admins change the team's connections alike (no password again: every kind goes to its provider's fixed address,
+// so swapping in another official account only makes that account pay; "Move it to the team" is an add with moveFrom,
+// proven by the re-sealed secret; a kind with an address the caller chooses would be in CUSTOM_ADDRESS_KINDS and ask
+// for the password, none exists today); an admin's change is told to the owner (credentials/store.ts noticeOwners). Members
+// manage their own connections while the team allows them (/api/me/credentials). Request bodies are never
 // written to the audit log here (credentials/service.ts writes field names, kinds, labels, hints only).
 import { API, type Locale } from '@mycel/shared/api'
 import { anthropicGateway, gatewayLabel, isManaged } from '../app-config'
@@ -15,7 +17,7 @@ import { sharedSubscriptionsAllowed } from '../credentials/policy'
 import {
   checkCredential, createCredential, deleteCredential, listCredentials, myCredentials, replaceSecret, setCredentialSettings, unsealOrFail, updateCredential,
 } from '../credentials/service'
-import { credentialsOf } from '../credentials/store'
+import { admins, credentialsOf } from '../credentials/store'
 import { ct } from '../credentials/i18n'
 import { trialCredit } from '../credentials/hosted-chat'
 import { engineStatusCache } from '../admin/engines'
@@ -42,9 +44,15 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
   // the add dialog takes the gateway's key format and names the gateway (engine.anthropicGateway; never its address)
   const gateway = () => { const g = anthropicGateway(ctx.config); return g ? { label: gatewayLabel(g) } : null }
   kit.handle(API.listCredentials, ({ c }) => ({ items: listCredentials(cc(), loc(c)), memberOwn: memberOwnAllowed(ctx.db), sharedSubscriptions: sharedSubscriptionsAllowed(ctx.db), allowedKinds: [...cc().allowedKinds], pricesAsOf: PRICES_AS_OF, anthropicGateway: gateway() }))
+  // the provider check inside a create or a replace takes seconds: whoever asked must still be an active owner or admin
+  // when the write happens (demoted, disabled or deleted meanwhile: refused, nothing written)
+  const stillTeamAdmin = (userId: string) => () => {
+    const u = ctx.db.query('SELECT role, status, deleted_at FROM users WHERE id = ?').get(userId) as { role: string; status: string; deleted_at: string | null } | null
+    if (!u || u.deleted_at || u.status !== 'active' || (u.role !== 'owner' && u.role !== 'admin')) fail('forbidden')
+  }
   kit.handle(API.createCredential, async ({ c, body, auth }) => {
     const secret = await unsealOrFail(cc(), body.sealed, 'credential.create', loc(c))
-    const r = await createCredential(cc(), { kind: body.kind, label: body.label, secret, assignments: body.assignments, priority: body.priority, ownerUserId: null, actor: auth.user.id, acknowledgedPlanNotice: body.acknowledgedPlanNotice, moveFrom: body.moveFrom }, loc(c))
+    const r = await createCredential(cc(), { kind: body.kind, label: body.label, secret, assignments: body.assignments, priority: body.priority, ownerUserId: null, actor: auth.user.id, acknowledgedPlanNotice: body.acknowledgedPlanNotice, moveFrom: body.moveFrom, ensure: stillTeamAdmin(auth.user.id) }, loc(c))
     changed()
     return r
   })
@@ -55,11 +63,11 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
   })
   kit.handle(API.replaceCredentialSecret, async ({ c, params, body, auth }) => {
     const secret = await unsealOrFail(cc(), body.sealed, 'credential.replace', loc(c))
-    const r = await replaceSecret(cc(), params.id, secret, auth.user.id, loc(c))
+    const r = await replaceSecret(cc(), params.id, secret, auth.user.id, loc(c), stillTeamAdmin(auth.user.id))
     changed()
     return r
   })
-  kit.handle(API.deleteCredential, ({ params, auth }) => { deleteCredential(cc(), params.id, auth.user.id); changed() })
+  kit.handle(API.deleteCredential, ({ c, params, auth }) => { deleteCredential(cc(), params.id, auth.user.id, undefined, loc(c)); changed() })
   kit.handle(API.checkCredential, async ({ c, params, auth }) => {
     const r = await checkCredential(cc(), params.id, auth.user.id, loc(c))
     changed()
@@ -75,23 +83,23 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
   // Only turns that answer with AI connections (managed mode) ever use it.
   kit.handle(API.trialCredit, () => ({ credit: isManaged(ctx.config) ? trialCredit(ctx.db, new Date()) : null }))
 
-  // ChatGPT and Claude sign-ins (the team's: owner + password; one's own: while the team allows personal connections).
+  // ChatGPT and Claude sign-ins (the team's: owner or admin; one's own: while the team allows personal connections).
   // The Claude code: only from the person who started that sign-in (404 for anyone else, before it is opened), sealed
   // like a token (its own purpose)
-  const submitCode = async (id: string, userId: string, sealed: Parameters<typeof unsealOrFail>[1], locale: Locale) => {
-    logins().get(id, userId)
+  const submitCode = async (id: string, userId: string, sealed: Parameters<typeof unsealOrFail>[1], locale: Locale, personal: boolean) => {
+    logins().get(id, userId, personal)
     const code = await unsealOrFail(cc(), sealed, 'credential.login-code', locale)
-    return logins().submitCode(id, userId, code, locale)
+    return logins().submitCode(id, userId, code, locale, personal)
   }
-  kit.handle(API.startCredentialLogin, ({ c, body, auth }) => logins().start({ userId: auth.user.id, locale: loc(c), personal: false, kind: body.kind, label: body.label, assignments: body.assignments, priority: body.priority, reconnectId: body.reconnectId }))
-  kit.handle(API.getCredentialLogin, ({ params, auth }) => logins().get(params.id, auth.user.id))
-  kit.handle(API.cancelCredentialLogin, ({ c, params, auth }) => logins().cancel(params.id, auth.user.id, loc(c)))
-  kit.handle(API.submitCredentialLoginCode, ({ c, params, body, auth }) => submitCode(params.id, auth.user.id, body.sealed, loc(c)))
+  kit.handle(API.startCredentialLogin, ({ c, body, auth }) => logins().start({ userId: auth.user.id, locale: loc(c), personal: false, showBusy: true, kind: body.kind, label: body.label, assignments: body.assignments, priority: body.priority, reconnectId: body.reconnectId }))
+  kit.handle(API.getCredentialLogin, ({ params, auth }) => logins().get(params.id, auth.user.id, false))
+  kit.handle(API.cancelCredentialLogin, ({ c, params, auth }) => logins().cancel(params.id, auth.user.id, loc(c), false, true))
+  kit.handle(API.submitCredentialLoginCode, ({ c, params, body, auth }) => submitCode(params.id, auth.user.id, body.sealed, loc(c), false))
 
   // ---------------- one's own connections ----------------
   const ownAllowed = (locale: Locale) => { if (!memberOwnAllowed(ctx.db)) fail('forbidden', ct('memberOwnOff', locale)) }
   kit.handle(API.myCredentials, ({ c, auth }) => ({ allowed: memberOwnAllowed(ctx.db), allowedKinds: [...cc().allowedKinds], items: myCredentials(cc(), auth.user.id, loc(c)), anthropicGateway: gateway() }))
-  // onboarding: the person's way out of "no AI" (credentials/access.ts aiAccessFor) and the one request to the owner(s)
+  // onboarding: the person's way out of "no AI" (credentials/access.ts aiAccessFor) and the one request to the owner(s) and admins
   const accessOf = (auth: { user: { id: string; role: string } }) => {
     const person = { id: auth.user.id, role: auth.user.role }
     return { person, ...aiAccessFor(ctx, person, memberOwnAllowed(ctx.db)) }
@@ -102,11 +110,11 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
   })
   kit.handle(API.requestAiAccess, ({ c, auth }) => {
     const { person, usable } = accessOf(auth)
-    if (person.role === 'owner' || usable) fail('forbidden', ct('aiRequestNotNeeded', loc(c)))
+    if (person.role === 'owner' || person.role === 'admin' || usable) fail('forbidden', ct('aiRequestNotNeeded', loc(c)))
     const n = notificationsOf(ctx)
     if (n.aiRequested(person.id)) return { requested: true as const, already: true }
-    const owners = ctx.db.query("SELECT id FROM users WHERE role='owner' AND status='active' AND deleted_at IS NULL").all() as { id: string }[]
-    for (const o of owners) n.onboardingAiRequest(o.id, person.id)
+    // the owner(s) and the admins: all of them can connect the team's AI
+    for (const id of admins(ctx.db)) n.onboardingAiRequest(id, person.id)
     return { requested: true as const, already: false }
   })
   kit.handle(API.createMyCredential, async ({ c, body, auth }) => {
@@ -121,7 +129,7 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
     ownAllowed(loc(c))
     return logins().start({ userId: auth.user.id, locale: loc(c), personal: true, kind: body.kind, label: body.label, assignments: [], priority: 100, reconnectId: body.reconnectId })
   })
-  kit.handle(API.getMyCredentialLogin, ({ params, auth }) => logins().get(params.id, auth.user.id))
-  kit.handle(API.cancelMyCredentialLogin, ({ c, params, auth }) => logins().cancel(params.id, auth.user.id, loc(c)))
-  kit.handle(API.submitMyCredentialLoginCode, ({ c, params, body, auth }) => submitCode(params.id, auth.user.id, body.sealed, loc(c)))
+  kit.handle(API.getMyCredentialLogin, ({ params, auth }) => logins().get(params.id, auth.user.id, true))
+  kit.handle(API.cancelMyCredentialLogin, ({ c, params, auth }) => logins().cancel(params.id, auth.user.id, loc(c), true))
+  kit.handle(API.submitMyCredentialLoginCode, ({ c, params, body, auth }) => submitCode(params.id, auth.user.id, body.sealed, loc(c), true))
 }

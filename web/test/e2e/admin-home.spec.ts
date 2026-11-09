@@ -11,7 +11,7 @@ const t = DICTS.en
 const MENU: [MessageKey, MessageKey[]][] = [
   ['admin.group.people', ['admin.members', 'admin.groups', 'admin.folders']],
   // the owner (this test signs in as the owner) also has Slack, owner-only (AdminLayout MENU)
-  ['admin.group.connections', ['admin.providers', 'admin.integrations', 'connectors.title', 'aiApps.title', 'admin.plugins', 'slack.admin.title']],
+  ['admin.group.connections', ['admin.providers', 'admin.integrations', 'aiApps.title', 'admin.plugins', 'slack.admin.title']],
   ['admin.group.activity', ['admin.usage', 'admin.audit']],
   ['admin.group.team', ['admin.settings', 'admin.system']],
 ]
@@ -45,16 +45,16 @@ test('admin opens on Home: problems first, then one card per area, each opening 
     await expect(g.getByText(t[group], { exact: true })).toBeVisible()
   }
 
-  // what needs attention, in a few words each: the engine that is on but signed out, the service, the disk (82% in the mock)
+  // what needs attention, in a few words each: the service, the disk (82% in the mock). Codex is on but signed out; it
+  // is not a problem while Claude Code, the default, answers (its own test below)
   const attention = page.getByTestId('admin-attention')
-  await expect(attention.getByRole('link')).toHaveText([`Codex: ${t['engines.status.not_logged_in']}`, `Notion: ${t['integrations.status.needs_auth']}`, 'Storage 82% used'])
-  await expect(attention.getByRole('link', { name: /^Codex/ })).toHaveAttribute('href', '/admin/providers')
-  await expect(attention.getByRole('link', { name: /^Notion/ })).toHaveAttribute('href', '/admin/integrations')
+  await expect(attention.getByRole('link')).toHaveText([`Notion: ${t['integrations.status.needs_auth']}`, 'Storage 82% used'])
+  await expect(attention.getByRole('link', { name: /^Notion/ })).toHaveAttribute('href', '/admin/connectors')
 
   // the areas: each card says its state in a line and opens its page
   await expect(page.getByTestId('admin-home-members')).toContainText(/\d+ members/)
   await expect(page.getByTestId('admin-home-providers')).toContainText('Default: Claude Code')
-  await expect(page.getByTestId('admin-home-providers')).toContainText('1 to fix')
+  await expect(page.getByTestId('admin-home-providers')).not.toContainText('to fix')
   await expect(page.getByTestId('admin-home-integrations')).toContainText('1 connection')
   await expect(page.getByTestId('admin-home-plugins')).toContainText(/\d+ plugins? installed/)
   await expect(page.getByTestId('admin-home-usage')).toContainText(t['adminHome.last30'])
@@ -66,6 +66,100 @@ test('admin opens on Home: problems first, then one card per area, each opening 
   await expect(menu.getByRole('link', { name: t['admin.providers'], exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByTestId('engine-card').first()).toBeVisible()
   expect(realErrors(errors)).toEqual([])
+})
+
+test('an engine nobody set up is no problem while another answers; the default one, or none working, is', async ({ page }) => {
+  await start(page)
+  await dismissHwp(page)
+  // the mock: Claude Code (the default) ok, Codex on but signed out, the API engine on but not set up, one broken
+  let engines: (body: { engines: { id: string; status: string; enabled: boolean; installed: boolean }[]; defaultEngine: string }) => object = (b) => b
+  await page.route('**/api/admin/engines', async (r) => {
+    const res = await r.fetch()
+    await r.fulfill({ response: res, json: engines(await res.json()) })
+  })
+  const attention = page.getByTestId('admin-attention')
+  const signedOut = `Codex: ${t['engines.status.not_logged_in']}`
+  const apiNotSet = `API: ${t['engines.status.not_installed']}`
+  const claudeOut = `Claude Code: ${t['engines.status.not_logged_in']}`
+
+  // Claude Code answers: neither Codex nor the API engine is listed, and the engines card has nothing to fix
+  engines = (b) => ({ ...b, engines: b.engines.map((e) => (e.id === 'api' ? { ...e, enabled: true } : e)) })
+  await page.goto('/admin')
+  await expect(page.getByTestId('admin-home-providers')).toContainText('Default: Claude Code')
+  await expect(page.getByTestId('admin-home-providers')).not.toContainText('to fix')
+  await expect(attention.getByRole('link', { name: signedOut })).toHaveCount(0)
+  await expect(attention.getByRole('link', { name: apiNotSet })).toHaveCount(0)
+
+  // Codex is the team default: it is listed (the API engine still is not)
+  engines = (b) => ({ ...b, defaultEngine: 'codex', engines: b.engines.map((e) => (e.id === 'api' ? { ...e, enabled: true } : e)) })
+  await page.reload()
+  await expect(attention.getByRole('link', { name: signedOut })).toHaveAttribute('href', '/admin/providers')
+  await expect(attention.getByRole('link', { name: apiNotSet })).toHaveCount(0)
+  await expect(page.getByTestId('admin-home-providers')).toContainText('1 to fix')
+
+  // a broken engine is listed even when it is not the default
+  engines = (b) => ({ ...b, engines: b.engines.map((e) => (e.id === 'codex' ? { ...e, status: 'version_unsupported' } : e)) })
+  await page.reload()
+  await expect(attention.getByRole('link', { name: `Codex: ${t['engines.status.version_unsupported']}` })).toBeVisible()
+
+  // a set-up API engine whose key is refused is broken, not unused: listed
+  engines = (b) => ({ ...b, engines: b.engines.map((e) => (e.id === 'api' ? { ...e, enabled: true, installed: true, status: 'not_logged_in' } : e)) })
+  await page.reload()
+  await expect(attention.getByRole('link', { name: `API: ${t['engines.status.not_logged_in']}` })).toBeVisible()
+  await expect(attention.getByRole('link', { name: signedOut })).toHaveCount(0)
+
+  // no engine is set up at all: one line, not one per engine
+  engines = (b) => ({ ...b, engines: b.engines.map((e) => (e.id === 'claude-code' ? { ...e, status: 'not_logged_in' } : e.id === 'api' ? { ...e, enabled: true } : e)) })
+  await page.reload()
+  await expect(attention.getByTestId('attention-no-engine')).toHaveText(t['adminHome.noEngine'])
+  await expect(attention.getByTestId('attention-no-engine')).toHaveAttribute('href', '/admin/providers')
+  await expect(attention.getByRole('link', { name: claudeOut })).toHaveCount(0)
+  await expect(attention.getByRole('link', { name: signedOut })).toHaveCount(0)
+  await expect(attention.getByRole('link', { name: apiNotSet })).toHaveCount(0)
+  await expect(page.getByTestId('admin-home-providers')).toContainText('1 to fix')
+
+  // nothing is set up and one engine is broken: the broken one keeps its line, the rest are one line
+  engines = (b) => ({ ...b, engines: b.engines.map((e) => (e.id === 'claude-code' ? { ...e, status: 'not_logged_in' } : e.id === 'codex' ? { ...e, status: 'error' } : e.id === 'api' ? { ...e, enabled: true } : e)) })
+  await page.reload()
+  await expect(attention.getByRole('link', { name: `Codex: ${t['engines.status.error']}` })).toBeVisible()
+  await expect(attention.getByTestId('attention-no-engine')).toBeVisible()
+  await expect(page.getByTestId('admin-home-providers')).toContainText('2 to fix')
+})
+
+test('Claude only waits for a limit to end, Codex and the API engine were never set up: only the limit line', async ({ page }) => {
+  await start(page)
+  await dismissHwp(page)
+  let limitedUntil: string | null = '2030-11-07T13:59:00.000Z'
+  await page.route('**/api/admin/engines', async (r) => {
+    const res = await r.fetch()
+    const body = await res.json()
+    await r.fulfill({ response: res, json: { ...body, engines: body.engines.map((e: { id: string }) => (
+      e.id === 'claude-code' ? { ...e, status: 'limited', limitedUntil, detail: null } : e.id === 'api' ? { ...e, enabled: true } : e)) } })
+  })
+  const attention = page.getByTestId('admin-attention')
+  await page.goto('/admin')
+  // no people line here: the engine says it itself, once
+  await expect(attention.getByTestId('attention-engine-claude-code')).toContainText('Claude Code')
+  await expect(attention.getByTestId('attention-engine-claude-code')).not.toContainText(t['engines.status.not_logged_in'])
+  await expect(attention.getByRole('link', { name: new RegExp(`${t['engines.status.not_logged_in']}|${t['engines.status.not_installed']}`) })).toHaveCount(0)
+  await expect(attention.getByTestId('attention-engine-codex')).toHaveCount(0)
+  await expect(attention.getByTestId('attention-engine-api')).toHaveCount(0)
+  await expect(attention.getByTestId('attention-no-engine')).toHaveCount(0)
+  await expect(page.getByTestId('admin-home-providers')).toContainText('1 to fix')
+  // without an end time the line still says it
+  limitedUntil = null
+  await page.reload()
+  await expect(attention.getByTestId('attention-engine-claude-code')).toBeVisible()
+  // the people line already says it: no engine line, and the card counts that one line
+  await page.route('**/api/admin/users?noAi=1', async (r) => {
+    const res = await r.fetch()
+    const body = await res.json()
+    await r.fulfill({ response: res, json: { ...body, noAi: body.items.filter((u: { username: string }) => u.username === 'bob').map((u: { id: string }) => u.id) } })
+  })
+  await page.reload()
+  await expect(attention.getByTestId('attention-no-ai')).toBeVisible()
+  await expect(attention.getByTestId('attention-engine-claude-code')).toHaveCount(0)
+  await expect(page.getByTestId('admin-home-providers')).toContainText('1 to fix')
 })
 
 test('nothing to fix: Home says so in one line; an unknown admin page goes to Home', async ({ page }) => {

@@ -1,45 +1,42 @@
 // The welcome steps for the owner who just made the team (docs/DECISIONS.md "W — Welcome steps", "X — Lean
-// onboarding", "M — One meeting note, everyone's own tasks", "N — The first result is the company's card news", "W2 —
-// AI connection first", "V — The first result is the company's promo video", "D2 — The first result is the company's
-// intro deck"): AI 연결 (only while no AI answers the owner) → 회사 소개 → 첫 결과, then the team invite.
-// 회사 소개 and 첫 결과 need AI, so without it the AI step opens in front of them, never in front of the invite; "나중에
-// 하기" there leaves the steps (Home shows its connect card). 회사 소개 saves a website reading with a one-line intro by
-// itself (ProfileStep autoSave) and goes on; 첫 결과 opens with one line of what was saved, "이렇게 이해했어요: … · 고치기",
-// whose 고치기 opens the full review in a dialog. The first result is the company's own intro deck: the lead
-// drops a company intro or a team deck into the team's brand folder (groups/<team>/브랜드/), or goes on without one
-// ("자료 없이 만들게요": the server writes 회사 소개.md there from the website reading); POST
-// /api/onboarding/welcome/first-result makes the chat and says which team files to attach, and the general skill
-// "/intro-deck" makes the deck from them in that chat, which opens it beside the chat by itself. Under the answer
-// the chat offers to share that skill with the
-// team (components/onboarding/WelcomeInviteBar.tsx: the invite with it). Every step can be put off; the progress is
-// kept on the server (store/welcome.ts), so the steps resume where they stopped, on any device, from the entry on Home.
+// onboarding", "W2 — AI connection first", "K — 내 스킬 가져오기", "W5 — Onboarding v5", "W6 — Onboarding v6"): AI 연결
+// (only while no AI answers the owner) → 회사 소개 → 내 스킬 → 팀 파일 → 도구 연결 → 팀원 초대 → 준비 끝났어요. 회사
+// 소개 saves the profile only: its "저장하고 계속" puts the website's pictures and 회사 소개.md into the team's brand
+// folder (POST /api/onboarding/welcome/brand, no AI), and nothing starts by itself: no deck, no chat, no skill (one line
+// under the button says what goes where). 회사 소개 needs AI, so without it the AI step opens in its place, never in
+// front of the later steps; "나중에 하기" there leaves the steps (Home shows its connect card, the sidebar's setup row
+// says "AI 연결하기"). 도구 연결 (components/onboarding/ToolsStep.tsx) is on every team; a phone walks past it and records
+// it as put off. Every step can be put off; the progress is kept on the server (store/welcome.ts), so the steps resume
+// where they stopped, on any device, from the setup row in the sidebar (components/onboarding/SetupRow.tsx) or a
+// landing (W4). The end screen shows once, with one press to make a first result with a skill the team has.
 //
-// Leaving the first step sets up every team once (the general pack and a group named after the team with its folders,
-// POST /api/onboarding/welcome/team); the server keeps every guarantee: once, never restoring deleted skills, blocked.
-// Nothing is asked about the team for it: the marketing pack is one click on Team skills (components/AvailableSkills.tsx).
+// Leaving the first step sets up every team once (a group named after the team with its folders, POST
+// /api/onboarding/welcome/team; no pack is installed); the server keeps every guarantee.
 import clsx from 'clsx'
-import { ArrowLeft, Check, CircleAlert, Loader2, Upload } from 'lucide-react'
+import { ArrowLeft, Check, CircleAlert, ExternalLink, Loader2, Paperclip } from 'lucide-react'
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
-import { FIRST_RESULT_FILES_MAX, uuidv7, type CompanyProfile, type FirstResultStarted, type WelcomeProgress, type WelcomeStep, type WelcomeStepState } from '@mycel/shared/api'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { WELCOME_BRAND_FILES_MAX, skillLabel, uuidv7, type CompanyProfile, type WelcomeProgress, type WelcomeStep, type WelcomeStepState } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { markBusy } from '../lib/busy'
 import { joinPath } from '../lib/paths'
 import { setupSite } from '../lib/setupLink'
-import { rememberChat } from '../lib/teamAttach'
+import { skillRunLink } from '../lib/skillForm'
 import { uploadFile, type UploadProgress } from '../lib/upload'
-import { countedSteps, inviteSkill, markStepsSeen, nextStep, prevStep, resumeStep, skillNameOf, teamReach, wantsTeam } from '../lib/welcome'
+import { countedSteps, firstResultSkill, historyName, inviteSkill, markStepsSeen, needsAi, nextStep, phoneSkips, prevStep, resumeStep, skillNameOf, wantsTeam } from '../lib/welcome'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useAiAccess } from '../store/aiAccess'
-import { useChats } from '../store/chats'
-import { canChooseEngine, isOwner, useMeStrict } from '../store/session'
+import { isOwner, useMeStrict } from '../store/session'
 import { toast } from '../store/ui'
 import { useWelcome } from '../store/welcome'
-import { ConnectAiPanel } from '../components/onboarding/ConnectAi'
-import { InviteStep } from '../components/onboarding/InviteStep'
-import ProfileStep from '../components/onboarding/ProfileStep'
+import { ConnectAiButton, ConnectAiPanel } from '../components/onboarding/ConnectAi'
+import { InviteStep, sharedForInvite } from '../components/onboarding/InviteStep'
+import ProfileStep, { shortUrl } from '../components/onboarding/ProfileStep'
+import { SkillsStep } from '../components/onboarding/SkillsStep'
+import { TeamFilesStep } from '../components/onboarding/TeamFilesStep'
+import { ToolsStep } from '../components/onboarding/ToolsStep'
 import { UploadLabel } from '../components/UploadLabel'
-import { Button, ErrorNote, Modal, Skeleton } from '../components/ui'
+import { Button, ErrorNote, Modal, Skeleton, useMediaQuery } from '../components/ui'
 
 export default function Welcome() {
   const me = useMeStrict()
@@ -48,30 +45,41 @@ export default function Welcome() {
   return <WelcomeSteps />
 }
 
-const STEP_LABEL: Partial<Record<WelcomeStep, MessageKey>> = { ai: 'welcome.progress.ai', profile: 'welcome.progress.profile', result: 'welcome.progress.result' }
+/** What the page shows: a step, or the end screen ("준비 끝났어요", once). */
+type Screen = WelcomeStep | 'done'
 
-/** At most this many files in one go: a company intro or a deck is enough, and each goes up on its own (the server
- * takes as many: FIRST_RESULT_FILES_MAX). */
-export const WELCOME_FILES_MAX = FIRST_RESULT_FILES_MAX
+const STEP_LABEL: Partial<Record<WelcomeStep, MessageKey>> = { ai: 'welcome.progress.ai', profile: 'welcome.progress.profile', skills: 'welcome.progress.skills', files: 'welcome.progress.files', tools: 'welcome.progress.tools', invite: 'welcome.progress.invite' }
+
+/** A phone: skills live on a computer (내 스킬 가져오기 shows its phone version and can be put off for a computer), and
+ * 도구 연결 is walked past (recorded as put off: its sign-ins do not come back to the phone app yet). */
+export const PHONE_QUERY = '(max-width: 767.98px)'
+
+/** At most this many intro files on 회사 소개 ("소개 자료가 있으면 같이 넣기"): a company intro or a deck is enough, and each
+ * goes up on its own (the server takes as many: WELCOME_BRAND_FILES_MAX). */
+export const WELCOME_FILES_MAX = WELCOME_BRAND_FILES_MAX
 
 function WelcomeSteps() {
   const t = useT()
   const locale = useLocale()
   const navigate = useNavigate()
+  // the goal card's [팀원 초대] while the steps are unfinished (GoalCard.tsx INVITE_STEP_STATE): the invite step itself,
+  // not where the steps would resume (it needs no AI)
+  const askedInvite = (useLocation().state as { step?: unknown } | null)?.step === 'invite'
   const me = useMeStrict()
   // the steps were on screen in this tab: a landing on Home does not bring the owner back this session (lib/welcome.ts)
   useEffect(() => { markStepsSeen(me.user.id) }, [me.user.id])
   const progress = useWelcome((s) => s.progress)
-  // no AI that answers the owner: the AI step comes first (every later step needs AI)
+  // no AI that answers the owner: the AI step comes first (회사 소개 needs AI)
   const ai = useAiAccess()
   const aiReady = !ai.loaded || ai.usable
-  const [step, setStep] = useState<WelcomeStep | null>(null)
+  const [step, setStep] = useState<Screen | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<unknown>(null)
-  // the saved company profile as the first result's line shows it (undefined: not read yet)
-  const [profile, setProfile] = useState<CompanyProfile | null | undefined>(undefined)
+  // 회사 소개's brand materials did not go in (the profile is saved): one note on 내 스킬, once
+  const [brandNote, setBrandNote] = useState(false)
   const region = useRef<HTMLDivElement>(null)
+  const computer = !useMediaQuery(PHONE_QUERY)
 
   const open = async () => {
     setLoadError(null)
@@ -84,7 +92,12 @@ function WelcomeSteps() {
       await useAiAccess.getState().load(true)
       // the AI step was shown before and AI answers now (connected from Home, Admin or another tab): done
       if (useAiAccess.getState().usable && p.steps.ai === 'skipped') p = await w.update({ step: { id: 'ai', state: 'done' } })
-      const s = resumeStep(p, useAiAccess.getState().usable)
+      const here = !window.matchMedia?.(PHONE_QUERY).matches
+      // where the steps resume, decided before a phone's walk past 도구 연결 is recorded: that record can finish the setup,
+      // and the step the owner came back for (an invite put off, say) still opens then
+      const s = askedInvite && !p.finishedAt ? 'invite' : resumeStep(p, useAiAccess.getState().usable, here)
+      // a phone resuming past 도구 연결: put off there (docs/DECISIONS.md "W6"), so the setup can end on the phone
+      for (const id of phoneSkips(p, null, here)) p = await w.update({ step: { id, state: 'skipped' } })
       if (s) setStep(s)
       else navigate('/', { replace: true })
     } catch (e) {
@@ -106,51 +119,53 @@ function WelcomeSteps() {
     setError(null)
     try { await fn() } catch (e) { setError(errorText(e, locale, t('error.network'))) } finally { setBusy(false) }
   }
-  /** on to the next open step; none left after this one: Home (a step put off never comes straight back) */
-  const go = (p: WelcomeProgress, from: WelcomeStep) => {
-    const n = nextStep(p, from)
+  /** on to the next open step; none left after this one: the end screen the first time, else Home ("설정을 마쳤어요"
+   * when that finished the setup: 내 스킬 done on a computer after the phone's end screen). A phone walks past 도구
+   * 연결 and records it as put off (docs/DECISIONS.md "W6"). */
+  const go = async (p: WelcomeProgress, from: WelcomeStep) => {
+    for (const id of phoneSkips(p, from, computer)) p = await useWelcome.getState().update({ step: { id, state: 'skipped' } })
+    setBrandNote(false)
+    const n = nextStep(p, from, computer)
     if (n) return setStep(n)
+    if (!p.doneShownAt) return setStep('done')
     if (p.finishedAt) toast({ level: 'success', text: t('welcome.finished') })
     navigate('/')
   }
   const mark = (id: WelcomeStep, state: WelcomeStepState) => run(async () => go(await useWelcome.getState().update({ step: { id, state } }), id))
   /** AI answers now (connected in the dialog, in another tab, or a trial credit arrived): recorded once, so the progress
    * keeps the step, then where the steps resume with AI (an open step, else a counted step that was put off: the one
-   * the owner came back for), Home when nothing is left */
+   * the owner came back for), the end when nothing is left */
   const aiConnected = () => run(async () => {
     const p = await useWelcome.getState().update({ step: { id: 'ai', state: 'done' } })
-    const s = resumeStep(p, true)
+    const s = resumeStep(p, true, computer)
     if (s) setStep(s)
-    else go(p, 'ai')
+    else await go(p, 'ai')
   })
   useEffect(() => {
     if (!ai.loaded || !ai.usable || busy) return
     if (step === 'ai') void aiConnected()
-    // AI back while the AI screen stood in for 회사 소개 or 첫 결과: that step shows again, the bar's AI step is done
+    // AI back while the AI screen stood in for 회사 소개: that step shows again, the bar's AI step is done
     else if (progress?.steps.ai === 'skipped') void useWelcome.getState().update({ step: { id: 'ai', state: 'done' } }).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, ai.loaded, ai.usable])
-  // the AI step on screen: recorded once as needed, so the progress keeps it (1/3) after AI is connected anywhere
-  const needAi = !!progress && (progress.steps.ai ?? null) === null && ai.loaded && !ai.usable && step !== null && step !== 'invite'
+  // the AI step on screen: recorded once as needed, so the progress keeps it (1/5) after AI is connected anywhere
+  const needAi = !!progress && (progress.steps.ai ?? null) === null && ai.loaded && !ai.usable && step !== null && step !== 'done' && (step === 'ai' || needsAi(step))
   useEffect(() => {
     if (needAi) void useWelcome.getState().update({ step: { id: 'ai', state: 'skipped' } }).catch(() => {})
   }, [needAi])
-  /** Leaving the first step (saved or put off): every team's start (the general pack, the team's group and folders),
-   * once; then the next step. When the folder rules kept the pack out, nothing of it is recorded and the step says so;
-   * the first result tries the team's start again. */
-  const leaveProfile = (state: WelcomeStepState) => run(async () => {
+  /** Leaving 회사 소개 (saved, its brand materials placed or not: `brandFailed`; or put off): every team's start (the
+   * team's group and folders, no skill), once; then the next step. Brand materials that did not go in are said once on
+   * 내 스킬 (they are tried again at the next 고치기 save and the next install of a skill that reads them). */
+  const leaveProfile = (state: WelcomeStepState, brandFailed = false) => run(async () => {
     const w = useWelcome.getState()
-    let blocked = false
-    // a failure here does not hold the owner on this step: picking files asks again and shows why
-    if (wantsTeam(w.progress)) blocked = (await w.setupTeam().catch(() => null))?.outcome === 'blocked'
-    go(await w.update({ step: { id: 'profile', state } }), 'profile')
-    if (blocked) setError(t('welcome.packBlocked'))
+    // a failure here does not hold the owner on this step: the team's files ask again and show why
+    if (wantsTeam(w.progress)) await w.setupTeam().catch(() => null)
+    await go(await w.update({ step: { id: 'profile', state } }), 'profile')
+    setBrandNote(brandFailed)
   })
-  const ran = (chatId: string) => run(async () => {
-    // the chat opens either way; without the record it only lacks the bar under the answer
-    await useWelcome.getState().update({ step: { id: 'result', state: 'done' }, resultChatId: chatId }).catch(() => {})
-    navigate(`/c/${chatId}`)
-  })
+  /** 내 스킬 가져오기 shared something: the server recorded the step done (it does for a share applied anywhere); the copy
+   * here is read again */
+  const applied = () => { void useWelcome.getState().load(true).catch(() => {}) }
 
   if (loadError)
     return (
@@ -164,25 +179,37 @@ function WelcomeSteps() {
         <Skeleton lines={5} />
       </Page>
     )
-  // AI went away after the steps started (a key removed, the trial credit used): the AI step holds the steps back
-  const gate = step === 'ai' || (!aiReady && step !== 'invite')
-  const back = gate ? null : prevStep(step)
+  // AI went away after the steps started (a key removed, the trial credit used): the AI step holds back 회사 소개
+  const gate = step === 'ai' || (!aiReady && step !== 'done' && needsAi(step))
+  const back = gate || step === 'done' ? null : prevStep(step, computer)
+  const nextLabel = (from: WelcomeStep) => {
+    const n = nextStep(progress, from, computer)
+    return t(n === 'files' ? 'welcome.next.files' : n === 'tools' ? 'welcome.next.tools' : n === 'invite' ? 'welcome.next.invite' : 'welcome.next.step')
+  }
   return (
     <Page>
       <h1 className="text-xs font-medium tracking-wide text-accent-text">{t('welcome.eyebrow')}</h1>
-      <Progress progress={progress} step={gate ? 'ai' : step} aiReady={aiReady} />
+      {step !== 'done' && <Progress progress={progress} step={gate ? 'ai' : step} aiReady={aiReady} />}
       {back && (
         <div className="mt-5 -ml-2.5">
-          <Button size="sm" variant="ghost" onClick={() => { setError(null); setStep(back) }} disabled={busy} data-testid="welcome-back">
+          <Button size="sm" variant="ghost" onClick={() => { setError(null); setBrandNote(false); setStep(back) }} disabled={busy} data-testid="welcome-back">
             <ArrowLeft size={14} aria-hidden /> {t('welcome.back')}
           </Button>
         </div>
       )}
       <div ref={region} tabIndex={-1} className={back ? 'mt-2 outline-none' : 'mt-8 outline-none'} data-step={gate ? 'ai' : step}>
         {gate && <AiStep busy={busy} onLater={() => navigate('/')} />}
-        {!gate && step === 'profile' && <ProfileWizardStep progress={progress} onDone={(p) => { setProfile(p); void leaveProfile('done') }} onSkip={() => void leaveProfile('skipped')} />}
-        {!gate && step === 'result' && <ResultStep progress={progress} busy={busy} profile={profile} onProfile={setProfile} onRan={(id) => void ran(id)} onSkip={() => void mark('result', 'skipped')} />}
-        {!gate && step === 'invite' && <InviteWizardStep progress={progress} onDone={() => void mark('invite', 'done')} onSkip={() => void mark('invite', 'skipped')} />}
+        {!gate && step === 'profile' && <ProfileWizardStep progress={progress} busy={busy} onContinue={(brandFailed) => void leaveProfile('done', brandFailed)} onSkip={() => void leaveProfile('skipped')} />}
+        {!gate && step === 'skills' && (
+          <SkillsStep team={progress.teamGroup?.name ?? me.team.name} nextLabel={nextLabel('skills')} busy={busy} onApplied={applied}
+            onNext={() => void mark('skills', 'done')} onSkip={() => void mark('skills', 'skipped')}
+            // the brand materials did not go in: said once, under the step's heading (FLOW-v6 §1A)
+            note={brandNote ? <p className="text-label text-warn" role="status" data-testid="welcome-brand-failed">{t('welcome.brand.failed')}</p> : undefined} />
+        )}
+        {!gate && step === 'files' && <TeamFilesStep progress={progress} busy={busy} nextLabel={nextLabel('files')} onDone={(n) => void mark('files', n > 0 ? 'done' : 'skipped')} onSkip={() => void mark('files', 'skipped')} />}
+        {!gate && step === 'tools' && <ToolsStep busy={busy} done={progress.steps.tools === 'done'} nextLabel={nextLabel('tools')} onDone={() => void mark('tools', 'done')} onSkip={() => void mark('tools', 'skipped')} />}
+        {!gate && step === 'invite' && <InviteWizardStep progress={progress} onDone={() => void mark('invite', 'done')} onSkip={() => void mark('invite', 'skipped')} onStep={(s) => { setError(null); setStep(s) }} />}
+        {step === 'done' && <DoneStep progress={progress} aiReady={aiReady} />}
       </div>
       {error && <div className="mt-4"><ErrorNote>{error}</ErrorNote></div>}
     </Page>
@@ -198,31 +225,42 @@ function Page({ children }: { children: ReactNode }) {
   )
 }
 
-/** "1/3 AI 연결 · 2/3 회사 소개 · 3/3 첫 결과" (or "1/2 회사 소개 · 2/2 첫 결과" for an owner whose AI answered from the
- * start): filled up to the step on screen (all of them on the invite). */
+/** "1/5 회사 소개 · 2/5 내 스킬 · 3/5 팀 파일 · 4/5 도구 연결 · 5/5 팀원 초대" ("1/6 AI 연결 · …" for an owner who needed
+ * AI first): filled up to the step on screen. On a phone only the step on screen is named, under the bars (five names
+ * do not fit 390 px); the others stay for screen readers. */
 function Progress({ progress, step, aiReady }: { progress: WelcomeProgress; step: WelcomeStep; aiReady: boolean }) {
   const t = useT()
   const list = countedSteps(progress, aiReady)
-  // the AI step on screen is on the bar even before it is recorded (gone back from the invite to a step that needs AI)
+  // the AI step on screen is on the bar even before it is recorded (gone back to 회사 소개 when AI went away)
   const counted = step === 'ai' && !list.includes('ai') ? ['ai' as const, ...list] : list
-  const at = step === 'invite' ? counted.length : counted.indexOf(step)
+  const at = counted.indexOf(step)
   return (
-    <ol className={clsx('mt-3 grid gap-2', counted.length === 3 ? 'grid-cols-3' : 'grid-cols-2')} aria-label={t('welcome.progress.label')} data-testid="welcome-progress">
-      {counted.map((s, i) => {
-        const state = progress.steps[s]
-        return (
-          <li key={s} aria-current={i === at ? 'step' : undefined} data-progress-step={s}>
-            <span aria-hidden className={clsx('block h-1.5 rounded-full', i <= at ? 'bg-accent' : 'bg-hover')} />
-            <span className={clsx('mt-1.5 block text-xs', i === at ? 'font-medium text-ink' : 'text-faint')}>
-              {t('welcome.progress.item', { n: i + 1, total: counted.length, label: t(STEP_LABEL[s]!) })}
-              {state && <span className="sr-only"> · {t(state === 'done' ? 'common.done' : 'welcome.progress.skipped')}</span>}
-            </span>
-          </li>
-        )
-      })}
-    </ol>
+    <>
+      <ol className={clsx('mt-3 grid gap-2', COLS[counted.length] ?? 'grid-cols-5')} aria-label={t('welcome.progress.label')} data-testid="welcome-progress">
+        {counted.map((s, i) => {
+          // the AI step is recorded `skipped` once it was shown (docs/DECISIONS.md "W2"): nothing was put off, it is open
+          const state = s === 'ai' && progress.steps.ai === 'skipped' ? null : (progress.steps[s] ?? null)
+          return (
+            <li key={s} className="min-w-0" aria-current={i === at ? 'step' : undefined} data-progress-step={s}>
+              <span aria-hidden className={clsx('block h-1.5 rounded-full', i <= at ? 'bg-accent' : 'bg-hover')} />
+              <span className={clsx('mt-1.5 block truncate text-xs max-sm:sr-only', i === at ? 'font-medium text-ink' : 'text-faint')}>
+                {t('welcome.progress.item', { n: i + 1, total: counted.length, label: t(STEP_LABEL[s]!) })}
+                {state && <span className="sr-only"> · {t(state === 'done' ? 'common.done' : 'welcome.progress.skipped')}</span>}
+              </span>
+            </li>
+          )
+        })}
+      </ol>
+      {at >= 0 && (
+        <p aria-hidden className="mt-1.5 text-xs font-medium text-ink sm:hidden" data-testid="welcome-progress-phone">
+          {t('welcome.progress.item', { n: at + 1, total: counted.length, label: t(STEP_LABEL[counted[at]!]!) })}
+        </p>
+      )}
+    </>
   )
 }
+
+const COLS: Record<number, string> = { 2: 'grid-cols-2', 3: 'grid-cols-3', 4: 'grid-cols-4', 5: 'grid-cols-5', 6: 'grid-cols-6' }
 
 function StepHead({ title, desc }: { title: string; desc?: string }) {
   return (
@@ -244,9 +282,19 @@ function Later({ onClick, disabled }: { onClick: () => void; disabled?: boolean 
 
 const quietLink = 'font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink disabled:opacity-50'
 
-/** 1/2 the company profile (stream D's step), starting from the saved profile or the setup link's website. A website
- * reading with a one-line intro is saved without the review (autoSave): the first result shows it and offers 고치기. */
-function ProfileWizardStep({ progress, onDone, onSkip }: { progress: WelcomeProgress; onDone: (p: CompanyProfile) => void; onSkip: () => void }) {
+/**
+ * 회사 소개 (stream D's step, docs/DECISIONS.md "W6"). Without a saved profile: the website (the address typed is kept in
+ * the progress as its reading starts, so leaving mid-reading and coming back finds it), its reading (a reading with a
+ * one-line intro is saved as it came: autoSave), or the fallbacks; "나중에 하기" puts it off. A review there (pasted
+ * text, the questions, a draft without a one-line intro) asks once: its one button is "저장하고 계속" with the files link
+ * above it and the brand line under it. With a saved profile: what was understood ("이렇게 이해했어요: … · 고치기", the
+ * review in a dialog, which keeps its plain 저장), the website as a link (a new tab), one quiet "소개 자료가 있으면 같이
+ * 넣기" (files into the team's brand folder), the one primary "저장하고 계속" and one line under it, which says what the
+ * press puts where: "저장하면 웹사이트 사진과 회사 소개 파일을 팀 브랜드 폴더에 넣어요". The press saves and puts in the
+ * brand materials (POST …/welcome/brand, no AI); when they fail the profile is still saved and the steps go on, saying
+ * so once on 내 스킬. A 고치기 save puts in what is missing again.
+ */
+function ProfileWizardStep({ progress, busy: stepBusy, onContinue, onSkip }: { progress: WelcomeProgress; busy: boolean; onContinue: (brandFailed: boolean) => void; onSkip: () => void }) {
   const t = useT()
   const [saved, setSaved] = useState<CompanyProfile | null | undefined>(undefined)
   useEffect(() => {
@@ -254,52 +302,89 @@ function ProfileWizardStep({ progress, onDone, onSkip }: { progress: WelcomeProg
     api.call(API.getCompanyProfile).then((r) => live && setSaved(r.profile), () => live && setSaved(null))
     return () => { live = false }
   }, [])
+  const files = useIntroFiles(progress)
+  const [busy, setBusy] = useState(false)
+  const filesRef = useRef(files.paths)
+  filesRef.current = files.paths
+
+  /** The brand materials into the team's brand folder (no AI): true when they went in. Never throws: the profile is
+   * saved either way, and the server writes only what is missing when this runs again. */
+  const brand = async (): Promise<boolean> => {
+    try {
+      const r = await api.call(API.welcomeBrand, { body: { files: filesRef.current } })
+      useWelcome.setState({ loaded: true, progress: r.progress })
+      return true
+    } catch {
+      return false
+    }
+  }
+  /** the saved state's "저장하고 계속": the brand materials, then on */
+  const go = async () => {
+    setBusy(true)
+    try {
+      onContinue(!(await brand()))
+    } finally {
+      setBusy(false)
+    }
+  }
+  /** the address typed, kept in the progress as its reading starts (the step opens with it again) */
+  const keepSite = (site: string) => {
+    if (site !== useWelcome.getState().progress?.site) void useWelcome.getState().update({ site }).catch(() => {})
+  }
+  // the line right under "저장하고 계속" (the saved state's, and the review's in the steps): what the press writes, the
+  // website's photos only when there is a website
+  const brandLine = (website: string) => <p className="text-label leading-5 text-muted" data-testid="welcome-brand-line">{t(website.trim() ? 'welcome.brand.line' : 'welcome.brand.lineNoSite')}</p>
+
   if (saved === undefined) return <Skeleton lines={4} />
+  if (!saved)
+    return (
+      <div data-testid="welcome-profile">
+        <ProfileStep initial={null} initialWebsite={progress.site ?? setupSite()} onDone={setSaved} onSkip={onSkip} skipLabel={t('welcome.later')} autoSave onRead={keepSite}
+          continueWith={{ label: t('welcome.profile.save'), note: brandLine, extra: <IntroFiles files={files} disabled={stepBusy} />, disabled: stepBusy || files.uploading, onSaved: async () => onContinue(!(await brand())) }} />
+      </div>
+    )
   return (
-    <div data-testid="welcome-profile">
-      <ProfileStep initial={saved} initialWebsite={progress.site ?? setupSite()} onDone={onDone} onSkip={onSkip} skipLabel={t('welcome.later')} autoSave />
+    <div className="space-y-5" data-testid="welcome-profile" data-state="saved">
+      <StepHead title={t('onboarding.profile.title')} />
+      <div className="space-y-1.5">
+        {saved.website && (
+          <p className="text-sm">
+            <a href={saved.website} target="_blank" rel="noreferrer noopener" className="inline-flex max-w-full items-center gap-1 text-muted hover:text-ink" data-testid="welcome-profile-site">
+              <span className="min-w-0 truncate">{shortUrl(saved.website)}</span>
+              <ExternalLink size={13} className="shrink-0" aria-hidden />
+            </a>
+          </p>
+        )}
+        {/* a 고치기 save fills in what the brand folder misses again (an existing 회사 소개.md is kept) */}
+        <ProfileLine profile={saved} onSaved={(p) => { setSaved(p); void brand() }} />
+      </div>
+      <IntroFiles files={files} disabled={busy || stepBusy} />
+      {/* the line sits right under the button: on a computer 나중에 is beside the button and the line wraps below
+          both; on a phone the button, the line, then 나중에 (CSS order, one 나중에 in the page) */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <Button variant="primary" className="max-sm:w-full" busy={busy} disabled={stepBusy || files.uploading} onClick={() => void go()} data-testid="welcome-profile-continue">
+          {t('welcome.profile.save')}
+        </Button>
+        <span className="ml-auto max-sm:order-3 max-sm:ml-0 max-sm:w-full max-sm:text-center"><Later onClick={onSkip} disabled={busy || stepBusy} /></span>
+        <div className="w-full max-sm:order-2">{brandLine(saved.website)}</div>
+      </div>
     </div>
   )
 }
 
-/** The first result, for every team: the company's intro deck, from the files the lead drops into the team's brand
- * folder or, without any, from the website reading. AI is asked for again here (a run without it would only fail in
- * the chat): without it the AI step comes back (WelcomeSteps' gate). On top, the line of the saved profile. */
-function ResultStep({ progress, busy, profile, onProfile, onRan }: { progress: WelcomeProgress; busy: boolean; profile: CompanyProfile | null | undefined; onProfile: (p: CompanyProfile | null) => void; onRan: (chatId: string) => void; onSkip: () => void }) {
-  const ai = useAiAccess()
-  useEffect(() => { void ai.load(true) }, [ai.load])
-  // the profile saved before (another visit, another device): read once; none or a failed read: no line
-  useEffect(() => {
-    if (profile !== undefined) return
-    let live = true
-    api.call(API.getCompanyProfile).then((r) => live && onProfile(r.profile), () => live && onProfile(null))
-    return () => { live = false }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  if (!ai.loaded || profile === undefined) return <Skeleton lines={4} />
-  return (
-    <>
-      {profile && <ProfileLine profile={profile} onSaved={onProfile} />}
-      <FilesStep progress={progress} busy={busy} onRan={onRan} />
-    </>
-  )
-}
-
 /**
- * Above the first result, one quiet line of what the company profile says: "이렇게 이해했어요: {한 줄 소개} · 고치기".
- * Here because the website reading went straight on (saved without the review), and the intro deck without files is
- * made from that profile: the owner sees what was kept before anything is made from it. 고치기 opens the full review
- * (the same step as Admin › Team settings) in a dialog; saving there changes the line. No one-line intro: no line.
+ * "이렇게 이해했어요: {한 줄 소개} · 고치기": what the saved company profile says, in one quiet line (the one-line intro,
+ * else the first line of what the company sells; with neither: "회사 소개를 저장했어요"). 고치기 opens the full review
+ * (the same step as Admin › Team settings) in a dialog; saving there changes the line.
  */
 function ProfileLine({ profile, onSaved }: { profile: CompanyProfile; onSaved: (p: CompanyProfile) => void }) {
   const t = useT()
   const [open, setOpen] = useState(false)
-  const line = profile.oneLine.trim()
-  if (!line) return null
+  const line = profile.oneLine.trim() || (profile.products.split('\n').map((l) => l.trim()).find(Boolean) ?? '')
   return (
     <>
-      <p className="mb-5 text-sm break-words text-muted" data-testid="welcome-profile-line">
-        <span data-testid="welcome-profile-understood">{t('onboarding.profile.understood', { line })}</span>
+      <p className="text-sm break-words text-muted" data-testid="welcome-profile-line">
+        <span data-testid="welcome-profile-understood">{line ? t('onboarding.profile.understood', { line }) : t('welcome.profile.savedPlain')}</span>
         <span aria-hidden> · </span>
         <button type="button" className={quietLink} onClick={() => setOpen(true)} aria-haspopup="dialog" data-testid="welcome-profile-fix">
           {t('onboarding.profile.edit')}
@@ -331,58 +416,6 @@ function AiStep({ busy, onLater }: { busy: boolean; onLater: () => void }) {
   )
 }
 
-/** "여기 올린 파일은 {팀} n명만 봐요 · 채팅은 각자만 봐요", with the real count (the group's members and the owners and
- * admins), and, when members of the team are not in its group yet, one quiet "지금 있는 팀원 n명도 넣기" that adds them
- * (the owner's choice: nobody is added by itself). Until the count is known, or when it cannot be read, the line
- * without a number. The owner alone reads "지금은 나만 봐요 · 팀원을 초대하면 {팀} 모두가 봐요" ("{팀} 1명만 봐요" read
- * oddly: docs/DECISIONS.md "W3"). */
-function TeamReach({ team, groupId }: { team: string; groupId: string | null }) {
-  const t = useT()
-  const locale = useLocale()
-  const [reach, setReach] = useState<{ viewers: number; outside: string[]; memberIds: string[] } | null>(null)
-  const [adding, setAdding] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const load = async (id: string) => {
-    const [users, groups] = await Promise.all([api.call(API.listUsers), api.call(API.listGroups)])
-    const group = groups.items.find((g) => g.id === id)
-    if (!group) return setReach(null)
-    setReach({ ...teamReach(users.items, group.memberIds), memberIds: group.memberIds })
-  }
-  useEffect(() => {
-    if (!groupId) return
-    void load(groupId).catch(() => setReach(null))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupId])
-  const add = async () => {
-    if (!groupId || !reach) return
-    setAdding(true)
-    setError(null)
-    try {
-      await api.call(API.updateGroup, { params: { id: groupId }, body: { memberIds: [...new Set([...reach.memberIds, ...reach.outside])] } })
-      await load(groupId)
-    } catch (e) {
-      setError(errorText(e, locale, t('error.network')))
-    } finally {
-      setAdding(false)
-    }
-  }
-  return (
-    <div className="space-y-1">
-      <p className="text-label leading-5 text-muted" data-testid="welcome-files-who">
-        {!reach ? t('welcome.files.who', { team }) : reach.viewers <= 1 ? t('welcome.files.whoAlone', { team }) : t('welcome.files.whoCount', { team, n: reach.viewers })}
-      </p>
-      {reach && reach.outside.length > 0 && (
-        <p className="text-label">
-          <button type="button" className={quietLink} disabled={adding} onClick={() => void add()} data-testid="welcome-files-add-members">
-            {t('welcome.files.addMembers', { n: reach.outside.length })}
-          </button>
-        </p>
-      )}
-      {error && <ErrorNote>{error}</ErrorNote>}
-    </div>
-  )
-}
-
 interface Picked {
   id: string
   file: File
@@ -393,165 +426,202 @@ interface Picked {
   error?: string
 }
 
-/** The company's intro deck (docs/DECISIONS.md "D2"; the promo video of "V" and the card news of "N" before it): the
- * files the lead picks go into the team's brand folder (groups/<team>/브랜드/, only this team sees it), then the server
- * starts the first result (POST /api/onboarding/welcome/first-result: its chat, the team files to attach, the skill) and
- * "/intro-deck 우리 회사 소개서 만들어 줘" goes into that chat with the files attached by reference. "자료 없이
- * 만들게요" is the same without files: the server writes 회사 소개.md from the website reading and gives that to attach.
- * One primary action (pick files; a drop works too on a computer), one quiet line on who sees what, one text link
- * without files. */
-function FilesStep({ progress, busy: stepBusy, onRan }: { progress: WelcomeProgress; busy: boolean; onRan: (chatId: string) => void }) {
+/** 회사 소개's intro files (docs/DECISIONS.md "W5", "W6"): picked files go up at once into the team's brand folder
+ * (groups/<team>/브랜드/, only this team sees it; the team's start first when it is missing), each on its own, a name
+ * already there renamed; 회사 소개서, 카드뉴스 and 홍보 영상 read them, and no 회사 소개.md is written beside them. */
+function useIntroFiles(progress: WelcomeProgress) {
   const t = useT()
   const locale = useLocale()
-  const me = useMeStrict()
-  const input = useRef<HTMLInputElement>(null)
   const [items, setItemsState] = useState<Picked[]>([])
   const itemsRef = useRef(items)
   const setItems = (next: Picked[]) => { itemsRef.current = next; setItemsState(next) }
   const patch = (id: string, p: Partial<Picked>) => setItems(itemsRef.current.map((x) => (x.id === id ? { ...x, ...p } : x)))
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [cut, setCut] = useState(false)
-  const [over, setOver] = useState(false)
-  // the first result the server started for these files: a retry after a later failure sends into the same chat
-  const started = useRef<{ key: string; r: FirstResultStarted } | null>(null)
-  // what "다시 시도" repeats: with the picked files, or without any
-  const withFiles = useRef(true)
-  const team = progress.teamGroup?.name ?? me.team.name
-
-  /** Up (the ones not up yet), then the first result with them. A failure keeps the files on screen for "다시 시도". */
-  const run = async () => {
-    setBusy(true)
+  const [error, setError] = useState<string | null>(null)
+  const up = async (list: Picked[]) => {
     setError(null)
-    // a reload would lose the picked files: the page does not reload by itself meanwhile
     const release = markBusy('upload')
     try {
       const w = useWelcome.getState()
       let p = w.progress ?? progress
-      // an older row, or a start that failed when the first step was left: the team's folders and skills first
       if (wantsTeam(p)) p = (await w.setupTeam()).progress
       const brand = p.teamGroup?.brandFolder
-      if (!brand || !p.general) throw new Error(t('welcome.packBlocked'))
-      if (withFiles.current) {
-        const results = await Promise.allSettled(itemsRef.current.filter((x) => x.status !== 'done').map(async (x) => {
-          patch(x.id, { status: 'uploading', progress: null, error: undefined })
-          try {
-            const r = await uploadFile(x.file, { kind: 'path', path: joinPath(brand, x.file.name), onExists: 'rename' }, { client: api, onProgress: (progress) => patch(x.id, { progress }) })
-            if (r.kind !== 'path') throw new Error('unexpected upload result')
-            patch(x.id, { status: 'done', path: r.entry.path, progress: null })
-          } catch (e) {
-            patch(x.id, { status: 'failed', progress: null, error: errorText(e, locale, t('error.network')) })
-            throw e
-          }
-        }))
-        const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')
-        if (failed) throw failed.reason
-      }
-      const files = withFiles.current ? itemsRef.current.map((x) => x.path!) : []
-      const key = files.join('\n')
-      // the server makes the chat, the intro when there is no file, and says what
-      // to attach; it may refuse with its own words (no profile and no website yet, the skill kept out)
-      if (started.current?.key !== key) started.current = { key, r: await api.call(API.startFirstResult, { body: { files } }) }
-      const r = started.current.r
-      const chatId = r.chatId
-      useChats.getState().upsertChat(await api.call(API.getChat, { params: { id: chatId } }))
-      // like a skill form's run: the engine of the person's own choice when they may pick one, else the team's
-      const choose = canChooseEngine(me)
-      const engine = choose ? me.user.prefs.engine : undefined
-      const model = choose ? (me.user.prefs.model ?? null) : undefined
-      const attachments = await Promise.all(r.files.map((path) => api.call(API.attachTeamFile, { body: { chatId, path } })))
-      await useChats.getState().send({ chatId, content: `/${skillNameOf(r.skillPath)} ${t('welcome.deck.question')}`, attachments, author: { id: me.user.id, name: me.user.name }, projectId: null, engine, model })
-      rememberChat(me.user.id, chatId)
-      onRan(chatId)
+      if (!brand) throw new Error(t('welcome.teamFiles.noFolder'))
+      await Promise.allSettled(list.map(async (x) => {
+        patch(x.id, { status: 'uploading', progress: null, error: undefined })
+        try {
+          const r = await uploadFile(x.file, { kind: 'path', path: joinPath(brand, x.file.name), onExists: 'rename' }, { client: api, onProgress: (progress) => patch(x.id, { progress }) })
+          if (r.kind !== 'path') throw new Error('unexpected upload result')
+          patch(x.id, { status: 'done', path: r.entry.path, progress: null })
+        } catch (e) {
+          patch(x.id, { status: 'failed', progress: null, error: errorText(e, locale, t('error.network')) })
+        }
+      }))
     } catch (e) {
+      for (const x of list) patch(x.id, { status: 'failed', progress: null })
       setError(errorText(e, locale, t('error.network')))
     } finally {
       release()
-      setBusy(false)
     }
   }
   const pick = (list: File[]) => {
-    if (!list.length || busy) return
-    withFiles.current = true
-    setCut(list.length > WELCOME_FILES_MAX)
-    setItems(list.slice(0, WELCOME_FILES_MAX).map((file) => ({ id: uuidv7(), file, status: 'waiting', progress: null, path: null })))
-    void run()
+    if (!list.length) return
+    const room = WELCOME_FILES_MAX - itemsRef.current.length
+    setCut(list.length > room)
+    const next = list.slice(0, Math.max(0, room)).map((file): Picked => ({ id: uuidv7(), file, status: 'waiting', progress: null, path: null }))
+    if (!next.length) return
+    setItems([...itemsRef.current, ...next])
+    void up(next)
   }
-  /** "자료 없이 만들게요": files picked before (one that failed, say) are left aside */
-  const none = () => {
-    if (busy) return
-    withFiles.current = false
-    setCut(false)
-    setItems([])
-    void run()
+  const retry = () => void up(itemsRef.current.filter((x) => x.status === 'failed'))
+  return {
+    items, cut, error, pick, retry,
+    uploading: items.some((x) => x.status === 'waiting' || x.status === 'uploading'),
+    paths: items.filter((x) => x.status === 'done' && x.path).map((x) => x.path!),
   }
+}
+
+/** "소개 자료가 있으면 같이 넣기": one quiet link (the file window; a drop works on a computer too) and what went up. */
+function IntroFiles({ files, disabled }: { files: ReturnType<typeof useIntroFiles>; disabled: boolean }) {
+  const t = useT()
+  const input = useRef<HTMLInputElement>(null)
+  const [over, setOver] = useState(false)
   const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes('Files')
   const drop = (e: DragEvent) => {
     if (!hasFiles(e)) return
     e.preventDefault()
     setOver(false)
+    if (disabled) return
     // read now (the browser empties the lists when the event ends); a folder is a false file here: files only
     const entries = [...(e.dataTransfer.items ?? [])].map((i) => (i.kind === 'file' ? i.webkitGetAsEntry?.() : null))
-    pick([...e.dataTransfer.files].filter((_, i) => !entries[i]?.isDirectory))
+    files.pick([...e.dataTransfer.files].filter((_, i) => !entries[i]?.isDirectory))
   }
-
+  const failed = files.items.some((x) => x.status === 'failed')
   return (
     <div
-      className={clsx('space-y-5 rounded-xl', over && 'ring-2 ring-accent/30')}
-      onDragOver={(e) => { if (hasFiles(e) && !busy) { e.preventDefault(); setOver(true) } }}
+      className={clsx('space-y-2 rounded-lg', over && 'ring-2 ring-accent/30 ring-offset-4 ring-offset-bg')}
+      onDragOver={(e) => { if (hasFiles(e) && !disabled) { e.preventDefault(); setOver(true) } }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false) }}
       onDrop={drop}
-      data-testid="welcome-result"
+      data-testid="welcome-files"
     >
-      <StepHead title={t('welcome.cardnews.title')} desc={t('welcome.cardnews.desc')} />
-      <div className="space-y-3" data-testid="welcome-files">
-        {/* phones pick files, not folders (no webkitdirectory) */}
-        <input ref={input} type="file" multiple className="hidden" onChange={(e) => { const list = [...(e.target.files ?? [])]; e.target.value = ''; pick(list) }} data-testid="welcome-files-input" />
-        <div className="flex flex-wrap items-center gap-3">
-          <Button variant="primary" className="max-sm:w-full" busy={busy} disabled={stepBusy} onClick={() => input.current?.click()} data-testid="welcome-files-pick">
-            <Upload size={14} aria-hidden /> {t('welcome.files.pick')}
-          </Button>
-          <span className="text-sm text-faint max-sm:hidden">{t('welcome.files.dropHint')}</span>
-        </div>
-        <TeamReach team={team} groupId={progress.teamGroup?.id ?? null} />
-        {items.length > 0 && (
-          <ul className="space-y-1 text-sm" aria-label={t('welcome.cardnews.title')} data-testid="welcome-files-list">
-            {items.map((x) => (
-              <li key={x.id} className="flex min-w-0 items-center gap-2" data-testid="welcome-file" data-status={x.status}>
-                {x.status === 'done' ? <Check size={14} className="shrink-0 text-ok" aria-hidden /> : x.status === 'failed' ? <CircleAlert size={14} className="shrink-0 text-danger" aria-hidden /> : <Loader2 size={14} className="shrink-0 animate-spin text-faint" aria-hidden />}
-                <span className="min-w-0 truncate text-ink">{x.file.name}</span>
-                {x.status === 'uploading' && (
-                  <span className="shrink-0 text-xs text-faint tabular-nums">
-                    <UploadLabel progress={x.progress} busy={t('files.uploadingName', { name: x.file.name })} />
-                  </span>
-                )}
-                {x.status === 'done' && <span className="sr-only">{t('files.uploadedName', { name: x.file.name })}</span>}
-                {x.status === 'failed' && <span className="min-w-0 truncate text-xs text-danger">{x.error}</span>}
-              </li>
-            ))}
-          </ul>
-        )}
-        {cut && <p className="text-label text-muted" data-testid="welcome-files-cut">{t('welcome.files.max', { n: WELCOME_FILES_MAX })}</p>}
-        {error && <ErrorNote onRetry={busy ? undefined : () => void run()}>{error}</ErrorNote>}
-      </div>
+      {/* phones pick files, not folders (no webkitdirectory) */}
+      <input ref={input} type="file" multiple className="hidden" onChange={(e) => { const list = [...(e.target.files ?? [])]; e.target.value = ''; files.pick(list) }} data-testid="welcome-files-input" />
       <p className="text-sm">
-        <button type="button" className={quietLink} disabled={busy || stepBusy} onClick={none} data-testid="welcome-files-none">
-          {t('welcome.cardnews.none')}
+        <button type="button" className={clsx(quietLink, 'inline-flex items-center gap-1.5')} disabled={disabled} onClick={() => input.current?.click()} data-testid="welcome-files-pick">
+          <Paperclip size={14} className="shrink-0 text-faint" aria-hidden /> {t('welcome.profile.files')}
         </button>
       </p>
+      {files.items.length > 0 && (
+        <ul className="space-y-1 text-sm" aria-label={t('welcome.profile.files')} data-testid="welcome-files-list">
+          {files.items.map((x) => (
+            <li key={x.id} className="flex min-w-0 items-center gap-2" data-testid="welcome-file" data-status={x.status}>
+              {x.status === 'done' ? <Check size={14} className="shrink-0 text-ok" aria-hidden /> : x.status === 'failed' ? <CircleAlert size={14} className="shrink-0 text-danger" aria-hidden /> : <Loader2 size={14} className="shrink-0 animate-spin text-faint" aria-hidden />}
+              <span className="min-w-0 truncate text-ink">{x.file.name}</span>
+              {x.status === 'uploading' && (
+                <span className="shrink-0 text-xs text-faint tabular-nums">
+                  <UploadLabel progress={x.progress} busy={t('files.uploadingName', { name: x.file.name })} />
+                </span>
+              )}
+              {x.status === 'done' && <span className="sr-only">{t('files.uploadedName', { name: x.file.name })}</span>}
+              {x.status === 'failed' && <span className="min-w-0 truncate text-xs text-danger">{x.error}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {files.cut && <p className="text-label text-muted" data-testid="welcome-files-cut">{t('welcome.files.max', { n: WELCOME_FILES_MAX })}</p>}
+      {(files.error || failed) && <ErrorNote onRetry={files.retry}>{files.error ?? t('welcome.teamFiles.failed')}</ErrorNote>}
     </div>
   )
 }
 
-/** Then the invite (stream E's step) when the steps open on it (the bar under the first result was left for later):
- * people who join land on the first result's skill, the intro deck, as it is (lib/welcome.ts inviteSkill). The link
- * is made as the step opens, so the message and its one copy button are there at once (docs/DECISIONS.md "W2"); once
- * the result was made, an open link that leads elsewhere is changed to that skill (same address). */
-function InviteWizardStep({ progress, onDone, onSkip }: { progress: WelcomeProgress; onDone: () => void; onSkip: () => void }) {
+/** The invite (stream E's step): people who join land on the skill everything points at (lib/welcome.ts inviteSkill: the
+ * first shared skill; never the intro deck; none: Home), and the message names that one skill. The link is made as
+ * the step opens, so the message and its one copy button are there at once (docs/DECISIONS.md "W2"); an open link that
+ * leads elsewhere is changed to that skill (same address). A team with no skills and no documents gets one line with the
+ * ways back to 내 스킬 and 팀 파일 (docs/DECISIONS.md "W6.3"). */
+function InviteWizardStep({ progress, onDone, onSkip, onStep }: { progress: WelcomeProgress; onDone: () => void; onSkip: () => void; onStep: (s: 'skills' | 'files') => void }) {
   useEffect(() => {
     if (!progress.inviteShownAt) void useWelcome.getState().update({ inviteShown: true }).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const skillPath = inviteSkill(progress)
-  return <InviteStep skillPath={skillPath} retarget={progress.steps.result === 'done' && !!skillPath} prepare onDone={onDone} onSkip={onSkip} />
+  // "들어오면 '{skill}'부터 열려요" also for a landing skill outside the shared list: one option, so no 바꾸기
+  const shared = sharedForInvite(progress) ?? (skillPath ? { landing: skillPath, options: [{ path: skillPath, title: '' }], onLanding: () => {} } : null)
+  // an empty team's line (docs/DECISIONS.md "W6.3"): 스킬 넣기 / 팀 파일 넣기 open those steps; the next step after each is
+  // this one again (lib/welcome.ts nextStep: the next open step)
+  return <InviteStep skillPath={skillPath} retarget={!!skillPath} shared={shared} prepare onDone={onDone} onSkip={onSkip} steps={{ skills: () => onStep('skills'), files: () => onStep('files') }} />
+}
+
+/** The end screen's deck line, for a row whose deck started on an earlier version (docs/DECISIONS.md "W6": nothing starts
+ * one now): the server's fact that a deck really started (`deckStarted`: the deck's chat holds the "/intro-deck"
+ * message, or a deck build exists), never a recorded chat alone (a first result of a row from before is no deck). An
+ * older server without the fact: the recorded chat, as before. */
+const deckLine = (p: WelcomeProgress) => p.deckStarted ?? !!p.resultChatId
+
+/**
+ * 준비 끝났어요 (docs/DECISIONS.md "W6"), once (`doneShownAt`). One primary, chosen in this order:
+ * - no AI that answers the owner: "AI 연결하기";
+ * - a skill of the owner's own is what everything points at (inviteSkill): "'{skill}' 먼저 써 보기";
+ * - a kept skill is in the team (lib/welcome.ts firstResultSkill: 카드뉴스 → 회사 소개서 → 홍보 영상 → 자연스러운 글):
+ *   "'{skill}' 만들어 보기" ("'자연스러운 글' 써 보기");
+ * - nothing: "홈으로" alone.
+ * A press opens that skill's form on 팀 스킬 only (`/skills?run=`, the form members land on; its defaults read the
+ * company intro and the brand folder): nothing runs until its own 실행, and closing it stays on 팀 스킬. This screen never
+ * waits on a result. A row whose deck started earlier keeps its one line about where the deck is.
+ */
+function DoneStep({ progress, aiReady }: { progress: WelcomeProgress; aiReady: boolean }) {
+  const t = useT()
+  const navigate = useNavigate()
+  const phone = useMediaQuery(PHONE_QUERY)
+  const own = inviteSkill(progress)
+  // never a raw folder name ("quote-maker"): the title, else the name as words (skillLabel)
+  const named = (title?: string | null) => (own ? skillLabel({ name: skillNameOf(own), title }) : null)
+  const [title, setTitle] = useState<string | null>(() => { const x = progress.shared?.skills.find((s) => s.path === own)?.title; return x ? named(x) : null })
+  // the kept skill to make a first result with, from the team's skills (undefined: being read)
+  const [kept, setKept] = useState<{ path: string; title: string; write: boolean } | null | undefined>(own ? null : undefined)
+  useEffect(() => {
+    if (!progress.doneShownAt) void useWelcome.getState().update({ doneShown: true }).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  useEffect(() => {
+    if (own && title) return
+    let live = true
+    api.call(API.listSkills).then((r) => {
+      if (!live) return
+      if (own) { const s = r.items.find((x) => x.path === own); setTitle(s ? skillLabel(s) : named()); return }
+      const k = firstResultSkill(r.items.filter((x) => !x.personal && !x.group))
+      setKept(k ? { path: k.skill.path, title: skillLabel(k.skill), write: k.write } : null)
+    }, () => { if (!live) return; if (own) setTitle(named()); else setKept(null) })
+    return () => { live = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [own, title])
+  const home = () => navigate('/')
+  const tryOwn = aiReady && !!own
+  const make = aiReady && !own && !!kept
+  return (
+    <div className="space-y-6" data-testid="welcome-done">
+      <StepHead title={t('welcome.done.title')} desc={deckLine(progress) ? t(phone ? 'welcome.done.deckPhone' : 'welcome.done.deck', { name: historyName(t) }) : undefined} />
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+        {!aiReady ? (
+          <ConnectAiButton size="md" panel data-testid="welcome-done-ai" />
+        ) : tryOwn ? (
+          <Button variant="primary" className="max-sm:w-full" disabled={!title} onClick={() => navigate(skillRunLink(own))} data-testid="welcome-done-try">
+            {t('welcome.done.try', { skill: title ?? '' })}
+          </Button>
+        ) : make ? (
+          <Button variant="primary" className="max-sm:w-full" onClick={() => navigate(skillRunLink(kept.path))} data-testid="welcome-done-make" data-skill={kept.path}>
+            {t(kept.write ? 'welcome.done.write' : 'welcome.done.make', { skill: kept.title })}
+          </Button>
+        ) : kept === undefined ? (
+          <Skeleton lines={1} />
+        ) : (
+          <Button variant="primary" className="max-sm:w-full" onClick={home} data-testid="welcome-done-home">{t('welcome.done.home')}</Button>
+        )}
+        {(tryOwn || make || !aiReady) && (
+          <button type="button" className={clsx(quietLink, 'text-sm max-sm:w-full')} onClick={home} data-testid="welcome-done-home">{t('welcome.done.home')}</button>
+        )}
+      </div>
+    </div>
+  )
 }

@@ -9,6 +9,8 @@ import { AppState, Linking, Platform } from 'react-native'
 import { onceEvery, PushRefused } from './bridge'
 import { parseTeamAddress } from './address'
 import type { DeviceDeps, Slot } from './device'
+import * as Crypto from 'expo-crypto'
+import { LABEL_ITEM, LABEL_SERVICE, LabelStore } from './labels'
 import { tappedNotificationPath, type PushEnvironment, type PushPermission, type PushToken } from './protocol'
 import { permissionFrom } from './permission'
 
@@ -77,7 +79,8 @@ export function devicePushToken(channelName: string): Promise<PushToken> {
   return asking
 }
 
-/** In the foreground the web app already shows new things live: keep the notification in the list, no banner/sound. */
+/** In the foreground the web app already shows new things live: keep the notification in the list, no banner/sound.
+ * The web app plays its own room sound while it is on screen (web/src/lib/roomSound.ts), so the open app has one. */
 export function quietForeground() {
   // Never let notifications break the app (an Android build without FCM has no push at all).
   try { Notifications.setNotificationHandler({ handleNotification: async () => ({ shouldShowBanner: false, shouldShowList: true, shouldPlaySound: false, shouldSetBadge: false }) }) }
@@ -104,8 +107,23 @@ function listenForTaps(teamSince: () => number, device: () => string | null, ope
   return () => sub.remove()
 }
 
-/** Changing team: notifications of the previous team must not stay on screen. */
+/** Changing team or signing out: notifications of that team or account (they may name people) must not stay on screen. */
 export function forgetDelivered() { void Notifications.dismissAllNotificationsAsync().catch(() => {}) }
+
+/** The keychain item the notification extension reads (src/labels.ts): only on an iPhone build with the extension (the
+ * edition's shared keychain group in extra.pushLabels), readable after the phone's first unlock (the extension runs
+ * while it is locked), never in a backup or on another phone. null: no extension, so no names in notifications. */
+export const labels: LabelStore | null = (() => {
+  const setup = Constants.expoConfig?.extra?.pushLabels as { accessGroup?: unknown } | null | undefined
+  const accessGroup = typeof setup?.accessGroup === 'string' && /^[A-Z0-9]{10}\.[a-z0-9.]+\.notifications$/.test(setup.accessGroup) ? setup.accessGroup : null
+  if (Platform.OS !== 'ios' || !accessGroup || !pushBuilt()) return null
+  const options: SecureStore.SecureStoreOptions = { keychainService: LABEL_SERVICE, accessGroup, keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY }
+  const slot: Slot = {
+    get: () => SecureStore.getItemAsync(LABEL_ITEM, options),
+    set: value => value === null ? SecureStore.deleteItemAsync(LABEL_ITEM, options) : SecureStore.setItemAsync(LABEL_ITEM, value, options),
+  }
+  return new LabelStore({ slot, random: () => Crypto.getRandomBytesAsync(32), sha256Hex: text => Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, text, { encoding: Crypto.CryptoEncoding.HEX }) })
+})()
 
 const slot = (key: string): Slot => ({
   get: () => SecureStore.getItemAsync(key),

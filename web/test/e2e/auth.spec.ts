@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test'
 import { OWNER, reset, signIn, watchConsole } from './helpers'
+import { PRODUCT } from '@mycel/shared'
+import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
+import { DICTS } from '../../src/i18n'
+
+/** the sidebar's new AI chat ("Ask Trina" / "트리나에게 묻기"; the core edition says its product's name) */
+const askAi = (l: 'en' | 'ko') => DICTS[l]['sidebar.askAi'].replace('{name}', PRODUCT_NAMED_AFTER_AI ? DICTS[l]['rooms.aiName'] : PRODUCT.shortName)
 
 // first-run setup starts in the browser's language when none was picked (89e32d5, the office's own Mac): these two
 // run in an English browser
@@ -31,19 +37,33 @@ test.describe('first-run setup in an English browser', () => {
     await account.getByRole('button', { name: '비밀번호 보기' }).click()
     await expect(page.getByTestId('setup-password')).toHaveAttribute('type', 'text')
     await page.getByRole('button', { name: '팀 만들고 시작하기' }).click()
-    // the new team's owner goes to the welcome steps first (pages/Welcome.tsx); Home then offers to continue them
+    // the new team's owner goes to the welcome steps first (pages/Welcome.tsx); the sidebar's setup row then offers to
+    // continue them on every other page (docs/DECISIONS.md "W5")
     await expect(page).toHaveURL(/\/welcome$/)
-    // two steps, and nothing above the first (no team question: every team gets its start when it is left)
-    await expect(page.getByTestId('welcome-progress')).toContainText('1/2 회사 소개')
+    // five steps (도구 연결 and the invite counted), and nothing above the first (no team question: every team gets its
+    // start when it is left); no setup row on the steps themselves
+    await expect(page.getByTestId('welcome-progress')).toContainText('1/5 회사 소개')
+    await expect(page.getByTestId('welcome-progress')).toContainText('4/5 도구 연결')
+    await expect(page.getByTestId('welcome-progress')).toContainText('5/5 팀원 초대')
     await expect(page.getByTestId('welcome-pack-line')).toHaveCount(0)
+    await expect(page.getByTestId('setup-row')).toHaveCount(0)
     await page.goto('/')
     await expect(page.getByRole('heading', { name: /Kim Owner님/ })).toBeVisible()
-    await expect(page.getByTestId('welcome-resume')).toContainText('시작 설정 이어하기 (0/2)')
-    // one thing at the top of Home: the setup checklist is on Admin › Home, with what is still to do
+    // a computer: the sidebar's row stands for the steps (Home has no row of its own there)
+    await expect(page.getByTestId('setup-row-link')).toContainText('설정 이어서 하기')
+    await expect(page.getByTestId('setup-row-count')).toHaveText('· 0/5')
+    await expect(page.getByTestId('welcome-resume')).toHaveCount(0)
+    // the steps are the owner's checklist while unfinished: Admin › Home's own checklist hides
     await expect(page.getByTestId('owner-checklist')).toHaveCount(0)
     await page.goto('/admin')
-    // the starting folder rules come with every team: "set folder permissions" is still to do
-    await expect(page.getByTestId('owner-checklist').getByRole('link', { name: '할 일 폴더 권한 정하기' })).toBeVisible()
+    await expect(page.getByTestId('owner-checklist')).toHaveCount(0)
+    await expect(page.getByTestId('owner-setup')).toHaveCount(0)
+    // ✕ hides the row (undo in its toast); Admin › Home's "시작 설정 다시 보기" brings it back
+    await page.getByTestId('setup-row-hide').click()
+    await expect(page.getByTestId('setup-row')).toHaveCount(0)
+    await page.getByTestId('owner-setup-show').click()
+    await expect(page.getByTestId('setup-row-link')).toBeVisible()
+    await expect(page.getByTestId('owner-setup')).toHaveCount(0)
     // the owner has no language of their own: "team default (한국어)" is the chosen one
     await page.goto('/settings/profile')
     await expect(page.getByTestId('locale-team')).toHaveAttribute('aria-checked', 'true')
@@ -64,7 +84,7 @@ test.describe('first-run setup in an English browser', () => {
     await page.goto('/')
     await expect(page.getByRole('heading', { name: 'How can I help you, Kim Owner?' })).toBeVisible()
     // the sidebar under the Settings dialog speaks English too
-  await expect(page.getByTestId('new-chat')).toContainText('New chat')
+  await expect(page.getByTestId('new-chat')).toContainText(askAi('en'))
   })
 })
 
@@ -81,12 +101,13 @@ test('the owner who left the steps lands on them when signing in again (a phone 
   await page.getByTestId('setup-submit').click()
   await expect(page).toHaveURL(/\/welcome$/)
   // the first visit starts the progress on the server
-  await expect(page.getByTestId('welcome-progress')).toContainText('1/2 회사 소개')
-  // the same tab: Home stays Home (the steps were on screen here)
+  await expect(page.getByTestId('welcome-progress')).toContainText('1/5 회사 소개')
+  // the same tab: Home stays Home (the steps were on screen here), the sidebar's setup row leads back
   await page.goto('/')
-  await expect(page.getByTestId('welcome-resume')).toBeVisible()
+  await expect(page.getByTestId('setup-row-link')).toBeVisible()
   await page.reload()
-  await expect(page.getByTestId('welcome-resume')).toBeVisible()
+  await expect(page.getByTestId('setup-row-link')).toBeVisible()
+  await expect(page).not.toHaveURL(/\/welcome/)
   const signInAs = async (p: typeof page, path = '/') => {
     await p.goto(path)
     await p.getByTestId('login-username').fill('kim')
@@ -98,11 +119,15 @@ test('the owner who left the steps lands on them when signing in again (a phone 
   const p2 = await desk.newPage()
   await signInAs(p2)
   await expect(p2).toHaveURL(/\/welcome$/)
-  await expect(p2.getByTestId('welcome-progress')).toContainText('1/2 회사 소개')
-  // opening Home again in that tab: Home, with its row
+  await expect(p2.getByTestId('welcome-progress')).toContainText('1/5 회사 소개')
+  // opening Home again in that tab: Home, with the setup row
   await p2.goto('/')
-  await expect(p2.getByTestId('welcome-resume')).toBeVisible()
+  await expect(p2.getByTestId('setup-row-link')).toBeVisible()
   await expect(p2).not.toHaveURL(/\/welcome/)
+  // the row leads back to the step
+  await p2.getByTestId('setup-row-link').click()
+  await expect(p2).toHaveURL(/\/welcome$/)
+  await expect(p2.getByTestId('welcome-progress')).toContainText('1/5 회사 소개')
   await desk.close()
   // a phone's sign-in lands on the steps too (not the 대화 list)
   const phone = await browser.newContext({ locale: 'ko-KR', viewport: { width: 390, height: 844 } })
@@ -193,7 +218,7 @@ test('language switch to English and Indonesian', async ({ page }) => {
   await page.getByTestId('locale-en').click()
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
   // the sidebar under the Settings dialog speaks English too
-  await expect(page.getByTestId('new-chat')).toContainText('New chat')
+  await expect(page.getByTestId('new-chat')).toContainText(askAi('en'))
   await page.getByTestId('locale-id').click()
   await expect(page.getByRole('heading', { name: 'Pengaturan' })).toBeVisible()
   await expect(page.locator('html')).toHaveAttribute('lang', 'id')
@@ -219,7 +244,7 @@ test('the sign-in page shows the team default, a pick on it is kept in this brow
   await page.getByTestId('login-password').fill(OWNER.password)
   await page.getByTestId('login-submit').click()
   // the sidebar under the Settings dialog speaks English too
-  await expect(page.getByTestId('new-chat')).toContainText('New chat')
+  await expect(page.getByTestId('new-chat')).toContainText(askAi('en'))
 })
 
 test('personal setting: team default, an own language, back to the team default; an admin change reaches followers', async ({ page }) => {
@@ -286,7 +311,7 @@ test('an error on the sign-in page stays after a language switch; signing out sh
   await page.getByTestId('auth-locale').selectOption('en')
   await page.getByTestId('login-password').fill(OWNER.password)
   await page.getByTestId('login-submit').click()
-  await expect(page.getByRole('button', { name: '새 채팅' })).toBeVisible()
+  await expect(page.getByRole('button', { name: askAi('ko') })).toBeVisible()
   // signed out, the sign-in page is in this browser's pick (English), not olga's language
   await page.getByTestId('account-menu').click()
   await page.getByTestId('logout').click()

@@ -328,22 +328,35 @@ describe('images: the thumbnail and the HEIC preview come from the converter, ne
   test('attachment thumbnail: a thumb.jpg link to bob\'s photo is not copied (the JPEG comes on stdout)', async () => {
     const src = path.join(A.data, 'thumb-src.png')
     fs.writeFileSync(src, 'not really a png')
-    const dst = path.join(A.data, 'thumbs', `${crypto.randomUUID()}.jpg`)
+    const dst = path.join(A.data, 'thumbs', crypto.randomUUID())
     plant = (dir) => link(secret.jpeg, dir, 'thumb.jpg')
-    expect(await makeThumbnail(src, dst, 320, path.join(A.data, 'work'), TRUE)).toBe(false)
+    expect(await makeThumbnail(src, dst, 320, path.join(A.data, 'work'), TRUE)).toBeNull()
     expect(runs).toBe(1)
-    expect(fs.existsSync(dst)).toBe(false)
+    expect(fs.existsSync(`${dst}.jpg`)).toBe(false)
+    expect(fs.existsSync(`${dst}.png`)).toBe(false)
+  })
+  test('a picture that may have alpha: neither run (the alpha look, then the thumbnail) takes a planted thumb.png or thumb.jpg', async () => {
+    // a PNG's signature and an RGBA header, then nothing ffmpeg can read
+    const head = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 8, 0, 0, 0, 8, 8, 6, 0, 0, 0])
+    const src = path.join(A.data, 'thumb-src-alpha.png')
+    fs.writeFileSync(src, head)
+    const dst = path.join(A.data, 'thumbs', crypto.randomUUID())
+    // planted after the first run; both runs share the work folder, so the second finds them there too
+    plant = (dir, n) => { if (n === 1) { link(secret.png, dir, 'thumb.png'); link(secret.jpeg, dir, 'thumb.jpg') } }
+    expect(await makeThumbnail(src, dst, 320, path.join(A.data, 'work'), TRUE)).toBeNull()
+    expect(runs).toBe(2)
+    expect(fs.existsSync(`${dst}.jpg`) || fs.existsSync(`${dst}.png`)).toBe(false)
   })
   test('attachment thumbnail with the real ffmpeg still works', async () => {
     const ffmpeg = which('ffmpeg')
     if (!ffmpeg) { console.log('ffmpeg missing: real thumbnail not tested here'); return }
     const src = path.join(A.data, 'thumb-real.png')
     if (Bun.spawnSync([ffmpeg, '-nostdin', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=size=640x480', '-frames:v', '1', src]).exitCode !== 0) return
-    const dst = path.join(A.data, 'thumbs', 'real.jpg')
-    expect(await makeThumbnail(src, dst, 320, path.join(A.data, 'work'))).toBe(true)
-    const b = fs.readFileSync(dst)
+    const dst = path.join(A.data, 'thumbs', 'real')
+    expect(await makeThumbnail(src, dst, 320, path.join(A.data, 'work'))).toBe('jpg')
+    const b = fs.readFileSync(`${dst}.jpg`)
     expect([b[0], b[1], b[2]]).toEqual([0xff, 0xd8, 0xff])
-    expect(fs.statSync(dst).mode & 0o777).toBe(0o600)
+    expect(fs.statSync(`${dst}.jpg`).mode & 0o777).toBe(0o600)
   })
   test('HEIC preview: heif-dec leaving out.jpg as a link to bob\'s photo is refused', async () => {
     plant = (dir) => link(secret.jpeg, dir, 'out.jpg')

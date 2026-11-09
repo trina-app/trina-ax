@@ -72,6 +72,9 @@ export function classifyLink(href: string | undefined, origin: string): LinkKind
   let u: URL
   try { u = new URL(href, origin) } catch { return { kind: 'blocked' } }
   if (u.origin === origin) {
+    // "https://<this server>//evil.example/…" (or "/.//…"): the router reads a path that starts with "//" as another
+    // site and would open it in this tab
+    if (u.pathname.startsWith('//')) return { kind: 'blocked' }
     if (u.pathname === '/api/files/download') {
       const path = u.searchParams.get('path')
       return path ? { kind: 'team-file', path } : { kind: 'blocked' }
@@ -86,6 +89,19 @@ export function classifyLink(href: string | undefined, origin: string): LinkKind
     return { kind: 'app', href: u.pathname + u.search + u.hash }
   }
   return SAFE_SCHEMES.has(u.protocol) ? { kind: 'external', href: u.href } : { kind: 'blocked' }
+}
+
+/**
+ * Where a team-file link of a room message goes for this viewer (an AI answer, an answer someone shared): the team file
+ * itself when they may open it now (`openable`, as RoomMessage.openable names the paths; null: every link opens, as in a
+ * person's own chats), else the copy that went with the message (`copies`: RoomMessage.attachedLinks, the link → the
+ * copy), else nowhere (a lock). A message without copies (an older one, nothing attached) is the team file or the lock.
+ */
+export function teamLinkTarget<T>(path: string, openable: ReadonlySet<string> | null, copies: ReadonlyMap<string, T> | null): { kind: 'team' } | { kind: 'copy'; copy: T } | { kind: 'locked' } {
+  const clean = path.replace(/^\/+|\/+$/g, '')
+  if (!openable || openable.has(clean)) return { kind: 'team' }
+  const copy = copies?.get(clean)
+  return copy !== undefined ? { kind: 'copy', copy } : { kind: 'locked' }
 }
 
 export type ImageKind = { kind: 'team-file'; path: string } | { kind: 'attachment-thumb'; url: string } | { kind: 'inline-data'; src: string } | { kind: 'external'; href: string; host: string } | { kind: 'blocked' }

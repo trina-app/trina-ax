@@ -53,8 +53,6 @@ describe('scheduled task page', () => {
     expect(html).toContain(t('scheduled.lastRunTitle'))
     expect(html).toContain(t('scheduled.openResult'))
     expect(html).toContain('href="/c/chat-9"')
-    // the row no longer repeats the task name
-    expect(html).not.toContain(t('scheduled.run', { title: base.title }))
     // a success stays quiet: no outcome in the status line, no reason
     const ok = decode(render({ ...base, lastRunAt: '2026-10-28T19:18:15Z', lastOutcome: 'done' }))
     expect(ok).not.toContain('data-testid="schedule-status-outcome"')
@@ -121,7 +119,7 @@ describe('scheduled task page', () => {
 
   test('the texts exist in every language', () => {
     for (const locale of ['en', 'ko', 'id', 'ja', 'es'] as const)
-      for (const key of ['schedules.completedHint', 'schedules.expiredHint', 'scheduleTemplates.outcome.problems', 'notifications.event.schedule.problems', 'sidebar.scheduled', 'scheduled.history', 'scheduled.switch', 'scheduled.openResult', 'scheduled.emptyBody', 'scheduled.expiredRunHint', 'search.inInstruction', 'search.fileNamesFailed'] as const)
+      for (const key of ['schedules.completedHint', 'schedules.expiredHint', 'scheduleTemplates.outcome.problems', 'notifications.event.schedule.problems', 'sidebar.scheduled', 'scheduled.switch', 'scheduled.openResult', 'scheduled.emptyBody', 'scheduled.expiredRunHint', 'search.inInstruction', 'search.fileNamesFailed'] as const)
         expect(translate(locale, key)).not.toBe(key)
   })
 

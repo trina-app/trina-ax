@@ -43,7 +43,7 @@ sudo ./install-linux.sh check --from .
 sudo ./install-linux.sh install --from . --engine claude --engine codex
 sudo mycel-ctl status
 ```
-The installer creates the service accounts, installs into `/var/lib/mycel` and sets up the sandbox, firewall and systemd units. The app listens on `127.0.0.1:47820`.
+The installer creates the service accounts, installs into `/var/lib/mycel` and sets up the sandbox, firewall and systemd units. The app listens on `127.0.0.1:47820`. It installs the same system packages as a hosted server, from one list in the kit: CJK fonts, the dev environment's tools (not turned on) and a pinned headless browser for HTML to PDF. `--minimal` installs only what every server needs.
 
 #### Create the owner
 Open an SSH tunnel (`ssh -L 47820:127.0.0.1:47820 <server>`), read the setup code from `/var/lib/mycel/setup/code` on the server, and open the setup page.
@@ -96,6 +96,16 @@ bun run demo
 
 [Follow the quickstart](../get-started/quickstart.md).
 :::
+
+## Apps with your own server
+
+People join from the desktop and phone apps by pasting the invite link or the team link into the first screen. A bare name such as `acme` means `acme.trina.app`; a server of your own is entered as its full address, and the apps ask once before they connect to an address Trina does not run. For a server you run yourself:
+
+- **Desktop app**: the address needs a certificate the computer trusts. A self-signed certificate fails the first check. On the office network the app can still pin the office certificate after it first connected through the team address.
+- **Phone app**: https with a certificate from a public certificate authority (self-signed certificates and user-installed authorities are not trusted), and `GET /api/health` must answer directly, without a redirect.
+- **Phone notifications** work only when the server sets `MYCEL_PUSH_GATEWAY`.
+- **Where people find the address**: Settings › Apps shows the team address to everyone signed in, with a copy button.
+- **Tapped links**: on a `*.trina.app` team, a tapped invite or team link opens the phone app (universal links and app links; every team server serves `/.well-known/apple-app-site-association` and `/.well-known/assetlinks.json`). The apps declare only `*.trina.app`, so on a domain of your own a tapped link opens the browser; its join page has **Open in the app** (`trina-ax://open?url=…`), which opens the desktop or phone app instead. Either way the app first asks "Connect to {host}?" and loads nothing before the answer.
 
 ## After installing
 

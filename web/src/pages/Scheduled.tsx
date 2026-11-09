@@ -23,21 +23,24 @@ import { ScheduleEditDialog } from '../components/settings/ScheduleEditDialog'
 import { ScheduleTemplates } from '../components/settings/ScheduleTemplates'
 import { TitleMenu } from '../components/TitleMenu'
 import { Button, EmptyState, ErrorNote, IconButton, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, inputCls, pageColumn } from '../components/ui'
+import { Tooltip } from '../components/Tooltip'
 
 const DOT: Record<Tone | 'ok', string> = { ok: 'bg-ok', muted: 'bg-faint', warn: 'bg-warn', danger: 'bg-danger' }
 const TEXT: Record<Tone, string> = { muted: 'text-muted', warn: 'text-warn', danger: 'text-danger' }
 
-/** The last run's result as a small dot, with its words for screen readers and on hover. */
+/** The last run's result as a small dot, with its words for screen readers and in a tooltip. */
 function OutcomeDot({ s }: { s: Schedule }) {
   const t = useT()
   if (!s.lastOutcome) return null
   const tone = outcomeTone(s.lastOutcome)
   const label = outcomeLabel(s, t)
   return (
-    <span className="inline-flex shrink-0 items-center" title={label} data-testid="schedule-dot" data-outcome={s.lastOutcome}>
-      <span className={clsx('size-2 rounded-full', DOT[s.lastOutcome === 'done' ? 'ok' : tone])} aria-hidden />
-      <span className="sr-only">{label}</span>
-    </span>
+    <Tooltip label={label}>
+      <span className="inline-flex shrink-0 items-center" data-testid="schedule-dot" data-outcome={s.lastOutcome}>
+        <span className={clsx('size-2 rounded-full', DOT[s.lastOutcome === 'done' ? 'ok' : tone])} aria-hidden />
+        <span className="sr-only">{label}</span>
+      </span>
+    </Tooltip>
   )
 }
 
@@ -181,9 +184,11 @@ export function ScheduledList() {
                 <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
                 <input type="search" autoFocus value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); closeSearch() } }}
                   placeholder={t('scheduled.search')} aria-label={t('scheduled.search')} className={`${inputCls} pr-8 pl-9`} data-testid="scheduled-search" data-own-clear />
-                <button type="button" aria-label={t('scheduled.closeSearch')} onClick={closeSearch} className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-faint hover:text-ink">
-                  <X size={14} aria-hidden />
-                </button>
+                <Tooltip label={t('scheduled.closeSearch')}>
+                  <button type="button" aria-label={t('scheduled.closeSearch')} onClick={closeSearch} className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-faint hover:text-ink">
+                    <X size={14} aria-hidden />
+                  </button>
+                </Tooltip>
               </div>
             ) : (
               items && items.length > 0 && (
@@ -302,7 +307,7 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
     <div data-testid="schedule-view" data-review={waiting ? 'waiting' : undefined}>
       <div className="flex flex-wrap items-start gap-x-6 gap-y-4">
         <div className="min-w-0 flex-[1_1_18rem]">
-          <h1 className="text-[26px] font-semibold tracking-tight break-words sm:text-[30px]">{name}</h1>
+          <h1 className="text-[1.625rem] font-semibold tracking-tight break-words sm:text-[1.875rem]">{name}</h1>
           {(status || badOutcome) && (
             <p className={clsx('mt-1.5 text-sm', waiting ? 'text-warn' : 'text-muted')} data-testid="schedule-status">
               {status}
@@ -354,7 +359,7 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
                 )}
                 {/* it needed the owner's own key for an admin's template: connect it where it lives (not inside the run's link) */}
                 {s.lastOutcome === 'needs_key' && s.lastNeed && (
-                  <Link to={`/settings/integrations?template=${encodeURIComponent(s.lastNeed.templateId)}`} className="mt-1 inline-block text-xs text-accent-text hover:underline" data-testid="schedule-connect-template">
+                  <Link to={`/settings/connectors?template=${encodeURIComponent(s.lastNeed.templateId)}`} className="mt-1 inline-block text-xs text-accent-text hover:underline" data-testid="schedule-connect-template">
                     {t('integrations.template.connectNamed', { name: s.lastNeed.name })}
                   </Link>
                 )}
@@ -493,10 +498,11 @@ export function ScheduledTask() {
     <div className="flex h-full flex-col overflow-y-auto">
       <StickyHeader bar className="flex h-12 shrink-0 items-center border-b border-line px-4 sm:px-6" testId="scheduled-topline">
         <nav aria-label={t('files.breadcrumb')} className="flex min-w-0 items-center gap-1.5 text-sm">
-          <Link to="/scheduled" className="shrink-0 text-muted hover:text-ink">{t('settings.schedules')}</Link>
+          {/* phones: the top bar above says 예약 작업, with its ‹ (components/PhoneTopBar.tsx) */}
+          <Link to="/scheduled" className="shrink-0 text-muted hover:text-ink max-md:hidden">{t('settings.schedules')}</Link>
           {s && (
             <>
-              <span className="text-faint" aria-hidden>/</span>
+              <span className="text-faint max-md:hidden" aria-hidden>/</span>
               <TitleMenu
                 name={scheduleName(s, t)}
                 testId="schedule-menu"

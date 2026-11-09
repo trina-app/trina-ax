@@ -21,6 +21,8 @@
     "./plugins": "./src/plugins.ts",
     "./plural": "./src/plural.ts",
     "./honorific": "./src/honorific.ts",
-    "./product": "./src/product.ts"
+    "./product": "./src/product.ts",
+    "./team-link": "./src/team-link.ts",
+    "./app-links": "./src/app-links.ts"
   }
 }

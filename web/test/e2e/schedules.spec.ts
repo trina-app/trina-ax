@@ -34,11 +34,11 @@ test('run now: a new chat now, the schedule stays; a paused task says it does no
   await expect(item.getByTestId('schedule-paused-hint')).toHaveText('꺼진 동안에는 예약 시각이 와도 실행되지 않아요.')
   // run now while paused: it runs once, stays paused; the run is in the history, linked to its chat
   await item.getByTestId('schedule-run-now').click()
-  const toast = page.getByText('지금 실행했어요. 결과는 새 채팅에 남아요.')
+  const toast = page.getByText('지금 실행했어요. 결과는 새 기록에 남아요.')
   await expect(toast).toBeVisible()
   await expect(sw).not.toBeChecked()
   await expect(item.getByTestId('schedule-run-link')).toHaveAttribute('href', /\/c\/[0-9a-f-]+$/)
-  await page.getByRole('button', { name: '채팅 열기' }).click()
+  await page.getByRole('button', { name: '기록 열기' }).click()
   await expect(page).toHaveURL(/\/c\/[0-9a-f-]+$/)
   await expect(page.getByTestId('chat-title')).toContainText('주간 회의록 요약')
   await page.goBack()

@@ -23,14 +23,45 @@ with OAuth (`server/src/connectors/remote-mcp/`, routes in `server/src/routes/re
 has a public origin for it: `server.json` `appConnectors: true` with `tunnel.host` (the Linux installer:
 `--public-host HOST --app-connectors`), or the environment variable `MYCEL_REMOTE_MCP_ORIGIN`, which wins when it is
 set. Tools: `list`, `glob`, `grep`, `read`, `skills_list`; with the `mcp:write` scope also
-`write`, `edit`, `upload_file` and `create_upload_link`. All of them use the person's current folder permissions.
+`write`, `edit`, `upload_file`, `create_upload_link` and `share_skills`. All of them use the person's current folder
+permissions. No write reaches `skills/` (team skills and rules) or `users/<id>/skills/` (the person's own skills): the
+team app changes them only after its own confirmation, which an outside model cannot give (any letter case; the link's
+`PUT` too). With the `mcp:admin` scope an owner or admin also gets `people_list`, `groups_list`, `group_create`,
+`group_update` and `group_delete` (`remote-mcp/groups.ts`). With `mcp:rooms` the person's conversations: `rooms`,
+`room_read` and `room_file` (the reader of their own AI chat, `rooms/reader.ts`), and with `mcp:rooms.write` also
+`room_send`, a message as the person through `Rooms.send` (`remote-mcp/rooms.ts`; docs/DECISIONS.md "AI 앱에서 대화
+읽고 쓰기").
 
+- Consent: the person chooses, whatever the app asked (MCP clients ask for the 401 header's `mcp:read` only). Reading
+  is always granted, `offline_access` when asked; **파일 쓰기** (`mcp:write`) is a checkbox for everyone, ticked at the
+  start only when the app asked for it; **대화 읽기** (`mcp:rooms`) is ticked at the start, **대화 쓰기**
+  (`mcp:rooms.write`) unticked and only with reading (a page without these boxes grants neither); `mcp:admin` comes
+  with every new connection of an active owner or admin (no
+  box; one line on the page says so), never a member's. The token's `scope` names exactly what was granted, and a
+  refresh can only narrow it, so an earlier connection without `mcp:admin` connects again (Settings › AI apps says so).
 - `upload_file`: base64 bytes in the call, at most 20 MiB, in practice files up to about 50 KB.
 - `create_upload_link`: a one-time `PUT <origin>/connector-uploads/<token>` URL for a larger file (at most 50 MiB,
   10 minutes, one path). Claude Code runs `curl -T "<local file>" "<url>"`. The permissions are checked when the link
   is made and again when the file arrives.
+- `share_skills` (내 스킬 가져오기, docs/DECISIONS.md "SK"): Claude Code sends the person's own Claude skills (from
+  `~/.claude/skills`, the projects' `.claude/skills` it knows and `~/.claude/commands`), the names of those it left out
+  (plugin skills, a skill with a key: names only), CLAUDE.md as text and its remote MCP servers (https addresses only, no
+  key). It makes a share proposal of the person (`server/src/skills/share.ts`, the same as `POST /api/skill-shares`) and
+  answers `{ proposalId, url, status: "pending" }` with the link `<origin>/skills/share/<id>`; the person gets a notice
+  with that link. The server checks every skill again (secrets, scripts, plugin, size, personal paths), an AI turn without
+  tools judges them, and nothing reaches the team before the person presses [팀에 공유] in the app (the MCP servers
+  become connection templates, below, each member connecting their own key). Owners and admins only: a member is told
+  to use "스킬로 제안" in the app. At most 50 skills and 5 proposals a minute; a call may be larger than the usual 1 MiB
+  (like `upload_file`).
+- Group tools: an owner's or admin's connection only; a member never gets `mcp:admin`, and an app's request for it
+  is dropped. Every call checks the role again; a person made member or disabled loses the scope on all
+  their grants for good. The changes call the Admin › Groups server functions (same checks, same audit lines plus
+  `via: 'connector'`) and answer with who now opens or loses which folders and what else the group gives (team
+  connections, templates, team Drive shares, AI connections, budgets, engine choice, dev environment, team room). Names in answers are
+  JSON-quoted (a name can hold a line break); the tools and the `initialize` instructions say they are data.
 
-Details: docs/DECISIONS.md "App connectors: upload_file for binary files" and "App connectors: one-time upload links".
+Details: docs/DECISIONS.md "App connectors: upload_file for binary files", "App connectors: one-time upload links" and
+"App connectors: group management for owners and admins, scope mcp:admin".
 
 Code: `server/src/integrations/connections/` (`store.ts` rows and secrets, `net.ts` requests, `mcp.ts` the MCP client,
 `oauth.ts` sign-in, `service.ts` the operations, `tools.ts` the AI's tools, `hide.ts` hiding secrets a service sends
@@ -383,7 +414,9 @@ connections with their address and the first 1,000 characters of their notes.
   first; a write over 100,000 characters is refused, never shown cut); `allow` sends. `allow` is for team connections
   only (an admin's choice): a personal connection is refused it and asks. With nobody to ask (a scheduled run, no chat)
   a write is refused, except to an `allow` team connection that the schedule's own card allowed (docs/DECISIONS.md
-  "Outbound web channels").
+  "Outbound web channels"). That card offers only the `allow` team connections the task names: in its title or
+  instruction, or in `schedule_create`'s `connections`; an edit's card also offers again the ones the task may already
+  send to (docs/DECISIONS.md "The schedule card offers only the connections the task names").
 - Results are wrapped as external data (`<external_data source="<name>">`, the closing tag neutralised inside), and the
   instructions tell the AI that they are data, never instructions.
 - **Read scope**: an answer from a personal connection counts like the person's own folder (`{type:'user'}`); from a team

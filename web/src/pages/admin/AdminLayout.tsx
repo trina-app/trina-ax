@@ -9,7 +9,7 @@
 // (AdminPageHeader says so). Old addresses: /admin/engines and /admin/credentials (AI engines, AI connections) open
 // Providers; their "Team provider settings" tab (?tab=team, focus=limits) opens Team settings at #ai or #ai-limits.
 import clsx from 'clsx'
-import { Activity, Bot, Cable, Cpu, FolderLock, Gauge, House, MessagesSquare, Plug, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
+import { Activity, Bot, Cable, Cpu, FolderLock, Gauge, House, MessagesSquare, Puzzle, ScrollText, Settings2, Users, UsersRound } from 'lucide-react'
 import { lazy, Suspense, useEffect, useRef } from 'react'
 import { Navigate, NavLink, useLocation, useParams } from 'react-router-dom'
 import { useT, type MessageKey } from '../../i18n'
@@ -22,7 +22,6 @@ const Groups = lazy(() => import('./Groups'))
 const Folders = lazy(() => import('./Folders'))
 const Engines = lazy(() => import('./Engines'))
 const Integrations = lazy(() => import('./Integrations'))
-const AppConnectors = lazy(() => import('./AppConnectors'))
 const AiApps = lazy(() => import('./AiApps'))
 const Plugins = lazy(() => import('./Plugins'))
 const Slack = lazy(() => import('./Slack'))
@@ -48,8 +47,7 @@ const MENU: { label: MessageKey | null; items: Section[] }[] = [
     label: 'admin.group.connections',
     items: [
       { id: 'providers', label: 'admin.providers', icon: Cpu },
-      { id: 'integrations', label: 'admin.integrations', icon: Cable },
-      { id: 'app-connectors', label: 'connectors.title', icon: Plug },
+      { id: 'connectors', label: 'admin.integrations', icon: Cable },
       { id: 'ai-apps', label: 'aiApps.title', icon: Bot },
       { id: 'plugins', label: 'admin.plugins', icon: Puzzle },
       // the owner's: the Slack connector acts as each linked person (docs/SLACK.md)
@@ -91,15 +89,19 @@ export default function AdminLayout() {
   // AI engines and AI connections are one page now: their old addresses open it (AI connections: at Claude Code's accounts)
   if (section === 'engines') return <Navigate to={`/admin/providers${search}`} replace />
   if (section === 'credentials') return <Navigate to="/admin/providers?engine=claude-code" replace />
+  // MCP and App connectors are one page now, Connectors (App connectors' old address opens it at Google Drive)
+  if (section === 'integrations') return <Navigate to={`/admin/connectors${search}`} replace />
+  if (section === 'app-connectors') return <Navigate to="/admin/connectors?drive=1" replace />
   const menu = MENU.map((g) => ({ ...g, items: g.items.filter((s) => !s.ownerOnly || isOwner(me)) })).filter((g) => g.items.length)
   if (!menu.some((g) => g.items.some((s) => s.id === section))) return <Navigate to="/admin" replace />
   return (
     <div className="flex h-full min-h-0 flex-col lg:flex-row">
       <div className="shrink-0 border-b border-line lg:flex lg:w-60 lg:flex-col lg:border-r lg:border-b-0">
-        <h1 className="px-4 pt-4 pb-2 text-lg font-semibold tracking-tight sm:px-6 lg:px-5 lg:pt-6 lg:pb-4 lg:text-xl">{t('admin.title')}</h1>
+        {/* phones: the top bar says the name (components/PhoneTopBar.tsx) */}
+        <h1 className="px-4 pt-4 pb-2 text-lg font-semibold tracking-tight max-md:sr-only sm:px-6 lg:px-5 lg:pt-6 lg:pb-4 lg:text-xl">{t('admin.title')}</h1>
         {/* narrow screens: the strip runs to the screen edges, so a link cut off at the right reads as "scroll for more";
             relative: the group names hidden there (sr-only) stay inside the strip instead of widening the page */}
-        <nav ref={nav} aria-label={t('admin.title')} className="scroll-thin edge-fade relative flex items-center gap-1 overflow-x-auto px-4 pb-3 sm:px-6 lg:min-h-0 lg:flex-1 lg:flex-col lg:items-stretch lg:gap-5 lg:overflow-x-hidden lg:overflow-y-auto lg:px-3 lg:pb-6" data-testid="admin-menu">
+        <nav ref={nav} aria-label={t('admin.title')} className="scroll-thin edge-fade relative flex items-center gap-1 overflow-x-auto px-4 pb-3 max-md:pt-3 sm:px-6 lg:min-h-0 lg:flex-1 lg:flex-col lg:items-stretch lg:gap-5 lg:overflow-x-hidden lg:overflow-y-auto lg:px-3 lg:pb-6" data-testid="admin-menu">
           {menu.map((g) => {
             const links = g.items.map((s) => (
               <NavLink
@@ -133,8 +135,7 @@ export default function AdminLayout() {
             {section === 'groups' && <Groups />}
             {section === 'folders' && <Folders />}
             {section === 'providers' && <Engines />}
-            {section === 'integrations' && <Integrations />}
-            {section === 'app-connectors' && <AppConnectors />}
+            {section === 'connectors' && <Integrations />}
             {section === 'ai-apps' && <AiApps />}
             {section === 'plugins' && <Plugins />}
             {section === 'slack' && <Slack />}

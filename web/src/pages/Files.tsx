@@ -16,7 +16,7 @@ import clsx from 'clsx'
 import { ArchiveRestore, BookmarkPlus, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, MoreHorizontal, Paperclip, Pencil, Presentation, Search, Signpost, Sparkles, RefreshCw, Trash2, Upload, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { packFolderKind, type FileEntry, type FileHistoryEvent, type FileVersion, type HistoryResponse, type Project, type TrashItem, type TreeResponse } from '@mycel/shared/api'
+import { type FileEntry, type FileHistoryEvent, type FileVersion, type HistoryResponse, type Project, type TrashItem, type TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloadUrl } from '../lib/api'
 import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, moveMany, selectable, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
 import { formatDateTime, formatSize } from '../lib/format'
@@ -25,7 +25,7 @@ import { droppedEntries, planFromEntries, planFromInput, type FolderPlan } from 
 import { baseName, crumbs, isConflictCopy, isInside, joinPath, nameProblem, parentPath } from '../lib/paths'
 import { iconKind, previewKind, type FileIconKind } from '../lib/preview'
 import { folderProjectAction, projectsByFolder, type FolderProjectAction } from '../lib/projectFolders'
-import { openTeamFile, useSidePanel } from '../lib/sidePanel'
+import { openTeamFile, panelExpandedNow, useSidePanel } from '../lib/sidePanel'
 import { useTeamAttach } from '../lib/useTeamAttach'
 import { cancelUpload, uploadFile } from '../lib/upload'
 import { addFileUpload, dropFileUpload, patchFileUpload } from '../lib/fileUploads'
@@ -38,12 +38,14 @@ import { contentQueryReady, FileContentResults } from '../components/FileContent
 import FileUploads from '../components/FileUploads'
 import FolderPicker from '../components/FolderPicker'
 import FolderUploads, { startFolderUpload, useFolderUploadsSettled } from '../components/FolderUploads'
+import { TeamFilesEntry } from '../components/onboarding/TeamFilesStep'
 import { ProjectForm } from '../components/ProjectForm'
 import SuggestSkillDialog from '../components/SuggestSkillDialog'
 import { SkillIssues } from '../components/SkillIssues'
 import { isSkillsPath } from '../lib/skillIssues'
 import { useMeStrict } from '../store/session'
 import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, TabPanel, Tabs, confirmDialog, promptDialog, useMediaQuery } from '../components/ui'
+import { Tooltip } from '../components/Tooltip'
 
 const ICONS: Record<FileIconKind, typeof FileIcon> = { folder: Folder, image: FileImage, pdf: FileText, doc: FileText, sheet: FileSpreadsheet, slides: Presentation, audio: FileAudio, video: FileVideo, code: FileCode, archive: FileArchive, text: FileText, other: FileIcon }
 
@@ -62,6 +64,13 @@ interface DropOver {
   refusal: DropRefusal | 'busy' | null
 }
 type DropHandlers = Pick<React.DOMAttributes<HTMLElement>, 'onDragEnter' | 'onDragOver' | 'onDragLeave' | 'onDrop'>
+/** the screen's two tabs: the team folder, or 휴지통 (its address is lib/nav.ts FILES_TRASH) */
+type FilesView = 'files' | 'trash'
+const viewOf = (q: URLSearchParams): FilesView => (q.get('view') === 'trash' ? 'trash' : 'files')
+/** The tab the address shows now. Read from the address itself, as Admin › Folder permissions does: the router shows a
+ * change in a transition, and a callback made earlier (the listing's `load`, kept while the folder stays) holds the
+ * address of the render that made it. */
+const viewNow = () => viewOf(new URLSearchParams(window.location.search))
 
 /** The picture under the pointer while several rows are dragged ("4 items"), instead of the one row grabbed. */
 function dragBadge(dt: DataTransfer, text: string) {
@@ -98,7 +107,18 @@ export default function Files() {
       },
       { replace: true },
     )
-  const [view, setView] = useState<'files' | 'trash'>('files')
+  // the trash has its own address (`?view=trash`, like Admin › Folder permissions' `?view=people`): a deleted team
+  // skill's link opens it, and Back and a reload keep the tab. The folder and the search stay in the address, so the
+  // files tab comes back to them
+  const view = viewOf(params)
+  const setView = (v: FilesView) => {
+    // the tab already on screen: no second Back step to the same address
+    if (v === viewNow()) return
+    const n = new URLSearchParams(window.location.search)
+    if (v === 'trash') n.set('view', 'trash')
+    else n.delete('view')
+    setParams(n)
+  }
   const viewTabs = useId()
   const [tree, setTree] = useState<TreeResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -175,7 +195,8 @@ export default function Files() {
           }
         }
         toast({ level: 'warn', text: t(wasShown ? 'files.accessChanged' : 'files.folderNotFound') })
-        setParams(up ? { path: up } : {}, { replace: true })
+        // (the tab on screen stays: the trash one too)
+        setParams({ ...(up ? { path: up } : {}), ...(viewNow() === 'trash' ? { view: 'trash' } : {}) }, { replace: true })
         return
       }
       setError(errorText(e, locale, t('error.network')))
@@ -224,8 +245,6 @@ export default function Files() {
   }
 
   const canWrite = tree?.access === 'write'
-  // the marketing pack's team folders (shared/브랜드 …) say what goes in them while empty
-  const packKind = packFolderKind(path)
   const errText = (e: unknown) => errorText(e, locale, t('error.network'))
   const fail = (e: unknown) => toast({ level: 'error', text: errText(e) })
 
@@ -258,12 +277,13 @@ export default function Files() {
     setChecked(new Set())
     anchor.current = null
   }
-  // Esc clears the selection (before the side panel: the next Esc closes that); a dialog or a text field keeps its Esc
+  // Esc clears the selection (before the side panel: the next Esc closes that); a dialog or a text field keeps its Esc,
+  // and a big side panel goes back side by side first (the list is hidden behind it: components/Layout.tsx)
   const anyChecked = chosen.length > 0
   useEffect(() => {
     if (!anyChecked) return
     const h = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('[role="dialog"]')) return
+      if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('[role="dialog"]') || panelExpandedNow()) return
       if (e.target instanceof Element && e.target.closest('textarea, select, [contenteditable="true"], input:not([type="checkbox"])')) return
       e.stopPropagation()
       clearChecked()
@@ -674,23 +694,29 @@ export default function Files() {
                 data-own-clear
               />
               {q && (
-                <button type="button" className="text-faint hover:text-ink" onClick={() => setQuery('')} aria-label={t('files.search.clear')} title={t('files.search.clear')}>
-                  <X size={14} aria-hidden />
-                </button>
+                <Tooltip label={t('files.search.clear')}>
+                  <button type="button" className="text-faint hover:text-ink" onClick={() => setQuery('')} aria-label={t('files.search.clear')}>
+                    <X size={14} aria-hidden />
+                  </button>
+                </Tooltip>
               )}
             </label>
             {/* phones: no refresh (the list follows changes on its own), and no new folder / upload where they are off */}
             <IconButton label={t('common.refresh')} className="max-md:hidden" onClick={() => void load()}>
               <RefreshCw size={16} />
             </IconButton>
-            <Button size="sm" variant="ghost" className={clsx(tree && !canWrite && 'max-md:hidden')} onClick={mkdir} disabled={!canWrite} aria-label={t('files.newFolder')} title={t('files.newFolder')}>
-              <FolderPlus size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.newFolder')}</span>
-            </Button>
+            <Tooltip label={t('files.newFolder')}>
+              <Button size="sm" variant="ghost" className={clsx(tree && !canWrite && 'max-md:hidden')} onClick={mkdir} disabled={!canWrite} aria-label={t('files.newFolder')}>
+                <FolderPlus size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.newFolder')}</span>
+              </Button>
+            </Tooltip>
             {canPickFolder && (
               <>
-                <Button size="sm" variant="ghost" className="max-sm:hidden" onClick={() => folderInput.current?.click()} disabled={!canWrite} aria-label={t('files.uploadFolder')} title={t('files.uploadFolder')} data-testid="folder-upload-button">
-                  <FolderUp size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.uploadFolder')}</span>
-                </Button>
+                <Tooltip label={t('files.uploadFolder')}>
+                  <Button size="sm" variant="ghost" className="max-sm:hidden" onClick={() => folderInput.current?.click()} disabled={!canWrite} aria-label={t('files.uploadFolder')} data-testid="folder-upload-button">
+                    <FolderUp size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.uploadFolder')}</span>
+                  </Button>
+                </Tooltip>
                 <input
                   ref={folderInput}
                   type="file"
@@ -705,9 +731,11 @@ export default function Files() {
                 />
               </>
             )}
-            <Button size="sm" variant="primary" className={clsx(tree && !canWrite && 'max-md:hidden')} onClick={() => fileInput.current?.click()} disabled={!canWrite} aria-label={t('files.upload')} title={t('files.upload')} data-testid="upload-button">
-              <Upload size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.upload')}</span>
-            </Button>
+            <Tooltip label={t('files.upload')}>
+              <Button size="sm" variant="primary" className={clsx(tree && !canWrite && 'max-md:hidden')} onClick={() => fileInput.current?.click()} disabled={!canWrite} aria-label={t('files.upload')} data-testid="upload-button">
+                <Upload size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.upload')}</span>
+              </Button>
+            </Tooltip>
             <input
               ref={fileInput}
               type="file"
@@ -766,6 +794,7 @@ export default function Files() {
           {isSkillsPath(path) && <SkillIssues folder={path} className="mx-4 mb-2 sm:mx-6" />}
           <FileUploads here={path} />
           <FolderUploads here={path} />
+          <TeamFilesEntry here={path} />
           {/* computer files over the list go to this folder; over a folder row, into that folder (the row shows it) */}
           <div className={clsx('scroll-thin relative min-h-0 flex-1 overflow-y-auto px-2 pb-6 sm:px-4', drag && !over && 'bg-accent-soft/40 ring-2 ring-accent ring-inset')}>
             {searching ? (
@@ -780,8 +809,6 @@ export default function Files() {
                 {!tree && !error && <Skeleton lines={8} className="p-4" />}
                 {tree && !tree.entries.length && (
                   <EmptyState icon={<Upload size={28} />} title={canWrite ? t('files.emptyDrop') : t('files.emptyReadOnly')}>
-                    {/* a pack folder (shared/브랜드 …): one line on what goes here */}
-                    {packKind && <p data-testid="pack-folder-hint">{t(`files.packHint.${packKind}`)}</p>}
                     {canWrite && (
                       <Button size="sm" className="mt-2" onClick={() => fileInput.current?.click()}>
                         {t('files.upload')}
@@ -1079,7 +1106,11 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
           )}
           {!folder && isConflictCopy(e.name) && <Badge tone="warn">{t('files.conflictCopy')}</Badge>}
           {aiOff && <span className="shrink-0" data-testid="file-download-only"><Badge>{t('files.downloadOnly')}</Badge></span>}
-          {e.access === 'read' && <Lock size={12} className="shrink-0 text-faint" aria-label={t('files.readOnly')} />}
+          {e.access === 'read' && (
+            <Tooltip label={t('files.readOnlyTip')} description>
+              <Lock size={12} className="shrink-0 text-faint" aria-label={t('files.readOnly')} />
+            </Tooltip>
+          )}
           {/* only while something is dragged over it (the pointer's job; the toast says what happened) */}
           {(dropOk || dropNo) && (
             <span className="ml-auto shrink-0" aria-hidden data-testid="drop-hint">

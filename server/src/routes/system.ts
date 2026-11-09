@@ -2,6 +2,8 @@
 // Implements: SYSTEM (health, diagnostics, update, backups, restore, export, connection, storage, plan, notices).
 // Contract: shared/src/api/system.ts. Health is implemented by the foundation (the dev server, CI smoke test and
 // the menubar app need it from day one); G implements the rest. The work itself is in server/src/system/*.
+import { visibleSharedChat } from '../chat/shared'
+import { withheldFrom } from '../chat/shared-answers'
 import { API, type Health, type Locale } from '@mycel/shared/api'
 import { PRODUCT, sourceCodeOffer } from '@mycel/shared'
 import type { AppContext } from '../context'
@@ -206,7 +208,7 @@ export const systemRoutes: RouteModule = {
       const jobId = exclusive('export', locale, () => jobs().start({
         kind: 'export', userId: auth.user.id,
         run: async (h) => {
-          try { return await runExport(ctx.db, ctx.config.teamRoot, { ownerId: auth.user.id, locale, what: body.what, password: body.password, hide: redactorFor(ctx, auth.user.id).hide }, (p, m) => h.progress(p, stepText(locale, m))) } finally { release() }
+          try { return await runExport(ctx.db, ctx.config.teamRoot, { ownerId: auth.user.id, locale, what: body.what, password: body.password, hide: redactorFor(ctx, auth.user.id).hide, sharedVisible: (id) => !!visibleSharedChat(ctx.db, ctx.files, auth.user.id, id), sharedWithheld: (id) => withheldFrom(ctx.db, ctx.files.rules(), id, auth.user.id) }, (p, m) => h.progress(p, stepText(locale, m))) } finally { release() }
         },
       }))
       return { jobId }

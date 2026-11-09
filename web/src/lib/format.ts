@@ -30,6 +30,18 @@ export function formatDateTime(iso: string | null | undefined, locale: Locale, t
   return new Intl.DateTimeFormat(TAG[locale], { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(new Date(iso))
 }
 
+/** A short time within the next weeks, for a badge: "11월 8일 오전 12:59", "Nov 8 at 12:59 AM" (no year). */
+export function formatShortDateTime(iso: string | null | undefined, locale: Locale): string {
+  if (!iso) return ''
+  return new Intl.DateTimeFormat(TAG[locale], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(iso))
+}
+
+/** A day without its year: "11월 8일", "November 8". */
+export function formatMonthDay(iso: string | null | undefined, locale: Locale): string {
+  if (!iso) return ''
+  return new Intl.DateTimeFormat(TAG[locale], { month: 'long', day: 'numeric' }).format(new Date(iso))
+}
+
 export function formatDate(iso: string | null | undefined, locale: Locale): string {
   if (!iso) return ''
   return new Intl.DateTimeFormat(TAG[locale], { dateStyle: 'medium' }).format(new Date(iso))
@@ -80,4 +92,12 @@ export function localDayRange(from: string, to: string): { from: string; to: str
 /** Optional inclusive date inputs -> [from, to) API bounds. An empty input gives no bound on that side. */
 export function localDayBounds(from: string, to: string): { from?: string; to?: string } {
   return { from: from ? localDayRange(from, from).from : undefined, to: to ? localDayRange(to, to).to : undefined }
+}
+
+/** A list's time (the 대화 list, the Inbox's conversation rows): today the time, yesterday the word, before the date. */
+export function listTime(iso: string, locale: Locale, yesterday: string): string {
+  const b = dateBucket(iso)
+  if (b === 'today') return new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
+  if (b === 'yesterday') return yesterday
+  return formatDate(iso, locale)
 }

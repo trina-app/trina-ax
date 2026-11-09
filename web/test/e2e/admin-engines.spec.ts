@@ -4,7 +4,7 @@
 // #ai-limits).
 import { expect, test, type Page } from '@playwright/test'
 import { DICTS } from '../../src/i18n'
-import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { OWNER, realErrors, reset, signIn, watchConsole } from './helpers'
 
 const t = DICTS.en
 
@@ -66,6 +66,7 @@ test('the owner sets up the API engine from its row; ?engine=api opens it', asyn
   await expect(form).toBeVisible()
   await form.getByLabel(t['engines.api.preset']).selectOption('openrouter')
   await expect(form.getByLabel(t['engines.api.baseUrl'])).toHaveValue('https://openrouter.ai/api/v1')
+  await form.getByTestId('api-engine-password').fill(OWNER.password)
   const saved = page.waitForRequest((r) => r.method() === 'PUT' && /\/api\/admin\/engines\/api-config$/.test(r.url()))
   await form.getByRole('button', { name: t['engines.api.save'], exact: true }).click()
   expect((await saved).postDataJSON()).toMatchObject({ baseUrl: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4.1' })

@@ -5,7 +5,7 @@
 #
 #   scripts/image/build.sh --kit <TeamAX-server-<v>-linux-<arch>.tar.gz | kit dir> --enroll-bin <linux mycel-enroll>
 #       [--arch amd64|arm64] [--out dist/image] [--base-url URL] [--date yyyymmdd] [--sign-key ed25519.pem]
-#       [--allow-missing-kit] [--keep-work] [--smp 2] [--memsize 2048]
+#       [--allow-missing-kit] [--keep-work] [--smp 2] [--memsize 2048] [--apt-snapshot YYYYMMDDTHHMMSSZ]
 #
 # Runs on Linux with libguestfs (virt-customize, virt-resize, virt-sparsify, virt-cat) and qemu-img, on the SAME
 # architecture as --arch (the customize step executes the image's own binaries), ideally with /dev/kvm (TCG works,
@@ -34,6 +34,7 @@ ALLOW_MISSING_KIT=0
 KEEP_WORK=0
 SMP=2
 MEMSIZE=2048
+APT_SNAPSHOT=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --kit) KIT="$2"; shift 2 ;;
@@ -47,6 +48,7 @@ while [[ $# -gt 0 ]]; do
     --keep-work) KEEP_WORK=1; shift ;;
     --smp) SMP="$2"; shift 2 ;;
     --memsize) MEMSIZE="$2"; shift 2 ;;
+    --apt-snapshot) APT_SNAPSHOT="$2"; shift 2 ;;
     -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
     *) echo "build.sh: unknown argument $1" >&2; exit 2 ;;
   esac
@@ -129,6 +131,27 @@ elif [[ $ALLOW_MISSING_KIT != 1 ]]; then
   die "--enroll-bin is required (bash native/build.sh -> native/bin/linux-$ARCH/mycel-enroll)"
 fi
 cp -a "$HERE/customize.sh" "$HERE/files" "$STAGE/"
+# the one list of packages and its reader: the kit's app/<v>/root/packages.{json,sh} (what the installer in the image
+# reads), which must be this checkout's scripts/system/ (customize.sh and install-srt.sh read the staged copy). One list
+# per image: a kit and a checkout of different commits stop the build. A kitless dry run takes the checkout's.
+SYS_SRC="$(cd "$HERE/../system" && pwd)"
+if [[ $KIT_STATE == present ]]; then
+  for f in packages.json packages.sh; do
+    k="$STAGE/kit/app/$KIT_VERSION/root/$f"
+    [[ -f "$k" ]] || die "the kit has no app/$KIT_VERSION/root/$f (a kit from before the one list): build the kit from this checkout"
+    want="$SYS_SRC/$f"
+    # root/packages.json is the list's Linux copy (packages.ts linuxList): compare with this checkout's Linux copy
+    if [[ $f == packages.json ]]; then
+      command -v bun >/dev/null 2>&1 || die "bun is needed to compare the kit's root/packages.json with this checkout's list (bun scripts/system/packages.ts linux)"
+      want="$WORK/packages.linux.json"
+      bun "$SYS_SRC/packages.ts" linux "$SYS_SRC/packages.json" > "$want" || die "cannot make the Linux copy of scripts/system/packages.json"
+    fi
+    cmp -s "$k" "$want" || die "the kit's root/$f differs from scripts/system/$f in this checkout: build the kit and the image from one commit"
+  done
+  SYS_SRC="$STAGE/kit/app/$KIT_VERSION/root"
+fi
+mkdir -p "$STAGE/system"
+cp -p "$SYS_SRC/packages.sh" "$SYS_SRC/packages.json" "$STAGE/system/"
 
 # ---- 3. the Debian base image, checked against the published SHA512SUMS
 IMG="debian-13-genericcloud-$DEB_ARCH.qcow2"
@@ -153,6 +176,10 @@ virt-resize --quiet --expand /dev/sda1 "$OUT/cache/$IMG" "$DISK" > "$WORK/virt-r
 # ---- 5. customize inside the image (network on: apt, engine downloads by the kit)
 extra=()
 [[ $ALLOW_MISSING_KIT == 1 ]] && extra+=(--allow-missing-kit)
+if [[ -n "$APT_SNAPSHOT" ]]; then
+  [[ "$APT_SNAPSHOT" =~ ^[0-9]{8}T[0-9]{6}Z$ ]] || die "--apt-snapshot $APT_SNAPSHOT is not YYYYMMDDTHHMMSSZ"
+  extra+=(--apt-snapshot "$APT_SNAPSHOT")
+fi
 say "virt-customize (this takes a while)"
 if ! virt-customize -a "$DISK" --network --smp "$SMP" --memsize "$MEMSIZE" \
   --copy-in "$STAGE:/root" \

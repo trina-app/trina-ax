@@ -13,14 +13,15 @@ import { cleanProfile, PROFILE_PATH, profileEmpty } from './profile'
 const DAY_MS = 86_400_000
 /** a profile file larger than this is not read (as onboarding/profile.ts) */
 const PROFILE_MAX_BYTES = 64 * 1024
-/** where the packs put their skills (onboarding/skill-packs.ts: skills/<pack>/<name>/SKILL.md): the marketing pack, and
- * the general pack every team gets from the welcome steps (docs/DECISIONS.md "M — One meeting note") */
-const PACK_DIRS = ['skills/marketing', 'skills/general']
+/** where the packs put their skills (onboarding/skill-packs.ts: skills/<pack>/<name>/SKILL.md): the general pack every
+ * team gets from the welcome steps and the work pack, and the marketing and hr packs of older releases (no longer
+ * shipped, docs/DECISIONS.md "DS3"; a team that has only those still counts as having installed a pack) */
+const PACK_DIRS = ['skills/marketing', 'skills/general', 'skills/work', 'skills/hr']
 
 const regularFile = (p: string) => { try { return fs.lstatSync(p).isFile() } catch { return false } }
 
-/** skills/marketing/ or skills/general/ holds a skill (a plain SKILL.md one folder down): a pack, or part of one, is
- * installed. */
+/** skills/general/, skills/work/, skills/marketing/ or skills/hr/ holds a skill (a plain SKILL.md one folder down): a
+ * pack, or part of one, is installed. */
 export function packInstalled(teamRoot: string): boolean {
   return PACK_DIRS.some((d) => {
     const dir = path.join(teamRoot, d)

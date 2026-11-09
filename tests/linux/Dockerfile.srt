@@ -8,7 +8,7 @@ ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends bubblewrap socat ripgrep curl xz-utils ca-certificates \
     python3 git procps util-linux \
  && rm -rf /var/lib/apt/lists/*
-# node 22 (srt needs 22.12 or later; NODE_USE_ENV_PROXY needs 22.21), pinned as in scripts/dev-env/srt/install-srt.sh
+# node 22 (srt needs 22.12 or later; NODE_USE_ENV_PROXY needs 22.21), the node of scripts/system/packages.json (a test compares them)
 RUN case "$TARGETARCH" in \
       amd64) A=x64; S=1805bcd35e6815559bd2eb97db438d3fdb0eb3a5e6a977b7c1badca76337e9ce ;; \
       arm64) A=arm64; S=6287aa46b6c375d816e63ae66d024fbbfd70404825aabdfdf898a970871d2f4b ;; \

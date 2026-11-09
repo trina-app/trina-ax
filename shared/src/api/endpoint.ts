@@ -11,8 +11,9 @@ export type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
  * - admin: role admin or owner
  * - owner: role owner
  * - owner-reauth: owner, and the body carries `password` (re-entered) — update / restore (tab 4)
+ * - admin-reauth: owner or admin, and the body carries `password` (re-entered) — the team API engine (it sets where the team's conversations go)
  */
-export type AuthLevel = 'public' | 'user' | 'admin' | 'owner' | 'owner-reauth'
+export type AuthLevel = 'public' | 'user' | 'admin' | 'owner' | 'owner-reauth' | 'admin-reauth'
 
 /** Raw body (PUT chunk). The server reads at most maxBytes, streaming. */
 export interface BinaryBody { kind: 'binary'; maxBytes: number }

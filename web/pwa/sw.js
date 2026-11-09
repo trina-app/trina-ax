@@ -57,9 +57,28 @@ self.addEventListener('fetch', (event) => {
 // delivery, revoked permission, logged-out browser or offline server fails closed.
 let pushEpoch = 0
 const pushPending = new Set()
-// room.dm / room.mention: a DM message or an @mention in a team chat room (one preference for both)
-const PUSH_PREF = { 'schedule.success': 'scheduleSuccess', 'schedule.failure': 'scheduleFailure', 'connection.reconnect': 'connectionReconnect', 'room.dm': 'roomMessages', 'room.mention': 'roomMessages' }
+const PUSH_PREF = { 'schedule.success': 'scheduleSuccess', 'schedule.failure': 'scheduleFailure', 'connection.reconnect': 'connectionReconnect' }
+// room.dm / room.mention: a message or an @mention in a room. No switch of their own here: each room's level decides on
+// the server, which sends the push only while that level still asks for it (docs/DECISIONS.md "대화방 알림 설정"; a room
+// at its own level alerts even with the default 받지 않음, whose older switch roomMessages is then false)
+const ROOM_CODES = new Set(['room.dm', 'room.mention'])
+// owner.lead_joined: someone joined with the owner's lead link (팀장 넘기기). No switch: the server sends it only while
+// the card still holds; a click opens Home, where the card is
+const HOME_CODES = new Set(['owner.lead_joined'])
+// owner.reauth_locked: the owner's password check locked after too many wrong tries; a click opens the Inbox. Shown
+// even once read: whoever holds a stolen session could mark it read to keep it off the owner's other devices
+const ACCOUNT_CODES = new Set(['owner.reauth_locked'])
+const pushWanted = (preferences, code) => ROOM_CODES.has(code) || HOME_CODES.has(code) || ACCOUNT_CODES.has(code) || (Object.hasOwn(PUSH_PREF, code) && preferences[PUSH_PREF[code]] === true)
 const opaqueId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(value)
+// A room notice's title: who and where ("민준 · #마케팅 › 스레드", a DM "민준"; names only, never the message's text), from
+// the signed-in fetch of the notice (shared plainLabel's rule again: one plain line, no control or bidirectional
+// characters, at most 120 characters). '' when the server does not say (an older one): the product's name then.
+const roomTitle = value => {
+  if (typeof value !== 'string') return ''
+  const line = value.replace(/(?!\u200d)\p{Cf}/gu, '').replace(/[\p{Cc}\u2028\u2029]/gu, ' ').replace(/\s+/g, ' ').trim()
+  const chars = [...line]
+  return chars.length > 120 ? chars.slice(0, 119).join('').trimEnd() + '…' : line
+}
 
 // Store opaque deduplication receipts, never notification text, prompts, file names or tokens.
 // IndexedDB is separate from the static-only asset cache. Keep at most 512 receipts for 24h.
@@ -84,9 +103,49 @@ function pushReceipt(id, remember = false) {
   })
 }
 
+// A room notice while the app is open in a window here: that page makes the room sound itself (web/src/lib/roomSound.ts,
+// one sound a device), so the notice is shown silently when a page says it takes care of it (also when this device's
+// sound is off). No page, or no answer within PAGE_ASK_MS (a page from before this, a frozen tab): the system's sound.
+const PAGE_ASK_MS = 400
+async function pageSounds() {
+  if (typeof MessageChannel === 'undefined') return false
+  const windows = (await self.clients.matchAll({ type: 'window', includeUncontrolled: true }))
+    .filter(client => typeof client.postMessage === 'function' && new URL(client.url).origin === self.location.origin)
+  if (!windows.length) return false
+  const ports = []
+  const asked = new Promise(resolve => {
+    let left = windows.length
+    const timer = setTimeout(() => resolve(false), PAGE_ASK_MS)
+    const answer = yes => { if (yes || --left === 0) { clearTimeout(timer); resolve(yes) } }
+    for (const client of windows) {
+      try {
+        const channel = new MessageChannel()
+        ports.push(channel.port1)
+        channel.port1.onmessage = event => answer(event.data?.type === 'room-sound.answer' && event.data.handled === true)
+        client.postMessage({ type: 'room-sound.ask' }, [channel.port2])
+      } catch { answer(false) }
+    }
+  })
+  // answered or out of time: no port stays open
+  try { return await asked } finally { for (const port of ports) port.close() }
+}
+
+// An installed web app with no window open here: a dot on its icon (the Badging API, no number: the worker does not know
+// the count). The first window that opens sets the exact count, keeps the dot while rooms have unread messages the count
+// leaves out, or clears it (web/src/store/sessionMarkers.ts). With a window open the page keeps the count itself. Never fails a push: a browser without it, or one that refuses, is fine.
+async function badgeDot() {
+  try {
+    if (typeof self.navigator?.setAppBadge !== 'function') return
+    const windows = (await self.clients.matchAll({ type: 'window', includeUncontrolled: true })).filter(client => new URL(client.url).origin === self.location.origin)
+    if (!windows.length) await self.navigator.setAppBadge()
+  } catch { /* the badge is a nicety */ }
+}
+
 self.addEventListener('message', event => {
   if (event.data?.type !== 'push.invalidate' || !event.source?.url || new URL(event.source.url).origin !== self.location.origin) return
   pushEpoch++
+  // the account changed: its notices go, and so does a dot on the icon
+  try { void Promise.resolve(self.navigator?.clearAppBadge?.()).catch(() => {}) } catch { /* the badge is a nicety */ }
   event.waitUntil(self.registration.getNotifications().then(items => { for (const item of items) item.close() }))
 })
 
@@ -94,7 +153,7 @@ self.addEventListener('push', event => {
   event.waitUntil((async () => {
     let payload
     try { payload = event.data?.json() } catch { return }
-    if (!payload || !opaqueId(payload.notificationId) || !opaqueId(payload.subscriptionId) || !Object.hasOwn(PUSH_PREF, payload.code)) return
+    if (!payload || !opaqueId(payload.notificationId) || !opaqueId(payload.subscriptionId) || !(Object.hasOwn(PUSH_PREF, payload.code) || ROOM_CODES.has(payload.code) || HOME_CODES.has(payload.code) || ACCOUNT_CODES.has(payload.code))) return
     const tag = `notification:${payload.subscriptionId}:${payload.notificationId}`, generation = pushEpoch
     if (pushPending.has(tag)) return
     pushPending.add(tag)
@@ -107,30 +166,58 @@ self.addEventListener('push', event => {
         return response.json()
       }
       const [settings, preferences, item] = await Promise.all([get('/api/push'), get('/api/notification-preferences'), get(`/api/notifications/${payload.notificationId}`)])
-      if (generation !== pushEpoch || !settings.configured || !settings.enabled || settings.subscriptionId !== payload.subscriptionId || preferences[PUSH_PREF[payload.code]] !== true || item.id !== payload.notificationId || item.code !== payload.code || item.readAt !== null) return
+      if (generation !== pushEpoch || !settings.configured || !settings.enabled || settings.subscriptionId !== payload.subscriptionId || !pushWanted(preferences, payload.code) || item.id !== payload.notificationId || item.code !== payload.code || (item.readAt !== null && !ACCOUNT_CODES.has(payload.code))) return
       // The authenticated server selects generic table text in the recipient's current account/team language.
       const title = settings.messages?.title, body = settings.messages?.bodies?.[payload.code]
       if (typeof title !== 'string' || !title || typeof body !== 'string' || !body) return
       // a room notice opens its room: the id comes from the signed-in fetch of the notice, never from the payload
       const roomId = item.link === 'room' && opaqueId(item.room?.id) ? item.room.id : undefined
-      await self.registration.showNotification(title, { body, tag, renotify: false, data: roomId ? { notificationId: payload.notificationId, roomId } : { notificationId: payload.notificationId } })
+      // a reply in a thread opens that thread (its root's id, from the same signed-in fetch)
+      const threadId = roomId && opaqueId(item.room?.thread) ? item.room.thread : undefined
+      const silent = payload.code.startsWith('room.') && await pageSounds().catch(() => false)
+      if (generation !== pushEpoch) return
+      // a room notice says who and where in its title; the body is the message's first line when the server sends it
+      // (the person's "show message preview" is on, a message the whole room sees), else the generic line
+      const shownTitle = (roomId && roomTitle(item.room?.label)) || title
+      const preview = roomId && typeof item.room?.preview === 'string' ? item.room.preview.replace(/[\p{Cc}\u2028\u2029]/gu, ' ').trim().slice(0, 200) : ''
+      // "Mark as read" (Chrome, Edge, Android; Safari shows no buttons): the message's place in its room, from the same
+      // signed-in fetch; the label in the person's language from /api/push
+      const seq = roomId && Number.isSafeInteger(item.room?.seq) && item.room.seq >= 0 ? item.room.seq : undefined
+      const markRead = typeof settings.messages?.markRead === 'string' && settings.messages.markRead ? settings.messages.markRead.slice(0, 40) : ''
+      const actions = seq !== undefined && markRead ? [{ action: 'read', title: markRead }] : []
+      await self.registration.showNotification(shownTitle, { body: preview || body, tag, renotify: false, silent, ...(actions.length ? { actions } : {}), data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}), ...(seq !== undefined ? { seq } : {}) } : { notificationId: payload.notificationId, ...(HOME_CODES.has(payload.code) ? { home: true } : {}) } })
       if (generation !== pushEpoch) {
         for (const item of await self.registration.getNotifications({ tag })) item.close()
         return
       }
+      // shown, and no page made the sound (a silent notice means a window is open and counts for itself)
+      if (!silent) await badgeDot()
       await pushReceipt(tag, true)
     } catch { /* No content or transport errors are logged from a push delivery. */ }
     finally { clearTimeout(timer); pushPending.delete(tag) }
   })())
 })
 
+/** "Mark as read" on a room notification: my read position in the room (or the thread) moves to the message, as opening
+ * it would, and nothing opens. The ids and the place come from the signed-in notice stored at show time. A failure
+ * (signed out, the room left) changes nothing; the notice stays unread in the Inbox. */
+async function markRead(data) {
+  const roomId = data?.roomId, threadId = data?.threadId, seq = data?.seq
+  if (!opaqueId(roomId) || !Number.isSafeInteger(seq) || seq < 0) return
+  const path = opaqueId(threadId) ? `/api/rooms/${roomId}/messages/${threadId}/thread/read` : `/api/rooms/${roomId}/read`
+  try {
+    await fetch(path, { method: 'POST', credentials: 'include', cache: 'no-store', redirect: 'error', headers: { 'content-type': 'application/json', 'x-mycel-csrf': '1' }, body: JSON.stringify({ seq }) })
+  } catch {}
+}
+
 self.addEventListener('notificationclick', event => {
   event.notification.close()
+  if (event.action === 'read') { event.waitUntil(markRead(event.notification.data)); return }
   event.waitUntil((async () => {
     // The payload cannot choose a URL or open a chat whose access has since changed. A room notice opens its room (the
     // id stored at show time from the authenticated notice; the room page checks membership again).
-    const roomId = event.notification.data?.roomId
-    const target = new URL(opaqueId(roomId) ? `/rooms/${roomId}` : '/settings/notifications', self.location.origin).href
+    const roomId = event.notification.data?.roomId, threadId = event.notification.data?.threadId
+    const target = new URL(opaqueId(roomId) ? (opaqueId(threadId) ? `/rooms/${roomId}/t/${threadId}` : `/rooms/${roomId}`) : event.notification.data?.home === true ? '/' : '/settings/notifications', self.location.origin).href
     const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
     const existing = clients.find(client => new URL(client.url).origin === self.location.origin)
     if (existing) { await existing.navigate(target); await existing.focus() }

@@ -3,7 +3,7 @@
 // 정리" and the question), and the composer's skill chip. One list per page load (GET /api/skills, the person's own: the
 // same order "/name" runs in), asked again after a failure.
 import { useEffect, useState } from 'react'
-import { skillTitle, type SkillInfo } from '@mycel/shared/api'
+import { skillLabel, type SkillInfo } from '@mycel/shared/api'
 import { api, API } from './api'
 
 let list: Promise<SkillInfo[]> | null = null
@@ -40,9 +40,10 @@ export function useSkillList(enabled = true): SkillInfo[] | null {
   return items
 }
 
-/** A skill's title by its path; `fallback` (the recorded name) until the list says, or when the person cannot see it. */
+/** A skill's title by its path (else its folder name as words: skillLabel); `fallback` (the recorded name) until the
+ * list says, or when the person cannot see it. */
 export function useSkillTitle(path: string | null, fallback: string): string {
   const items = useSkillList(!!path)
   const s = path ? items?.find((x) => x.path === path) : null
-  return s ? skillTitle(s) : fallback
+  return s ? skillLabel(s) : fallback
 }

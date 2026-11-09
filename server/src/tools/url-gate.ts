@@ -34,7 +34,7 @@
 import type { Database } from 'bun:sqlite'
 import { domainToUnicode } from 'node:url'
 import { getDomain } from 'tldts'
-import type { ConfirmDetail, Locale } from '@mycel/shared/api'
+import { ROOM_REF_RE, type ConfirmDetail, type Locale } from '@mycel/shared/api'
 import { ToolError } from '../policy/errors'
 import { isConfidentialChat } from '../safe-ops/confidential'
 import { usable } from '../integrations/connections/store'
@@ -143,11 +143,17 @@ export interface WebPageLog { start(url: string): WebPageEntry; /** web_fetch ke
 /** Addresses written out in what the person typed in this chat (user messages the server did not send for them). A
  * scheduled turn's message counts as sent for them also without the mark: an older build run on this database (a
  * rollback) writes its runs unmarked. */
-function typedUrls(db: Database, chatId: string): Set<string> {
+function typedUrls(db: Database, chatId: string, userId?: string | null): Set<string> {
   const seen = new Set<string>()
+  // a shared project chat (chat/shared.ts): only what the person whose turn it is typed (another person's message is
+  // information for this turn, not an address this person gave)
+  const shared = sharedChat(db, chatId)
+  if (shared && !userId) return seen
   for (const r of db.query(`SELECT content FROM messages WHERE chat_id = ? AND role = 'user' AND auto_sent = 0
-    AND id NOT IN (SELECT user_message_id FROM turns WHERE chat_id = ? AND client_kind = 'schedule' AND user_message_id IS NOT NULL)`).all(chatId, chatId) as { content: string }[]) {
-    for (const u of extractUrls(r.content)) seen.add(u)
+    AND id NOT IN (SELECT user_message_id FROM turns WHERE chat_id = ? AND client_kind = 'schedule' AND user_message_id IS NOT NULL)
+    ${shared ? 'AND author_id = ?' : ''}`).all(...(shared ? [chatId, chatId, userId!] : [chatId, chatId])) as { content: string }[]) {
+    // a "#" room token's title is a room's name (any member of a group chat sets it), not the person's typing
+    for (const u of extractUrls(r.content.replace(ROOM_REF_RE, ' '))) seen.add(u)
   }
   return seen
 }
@@ -169,9 +175,20 @@ function searchUrls(db: Database, chatId: string): Set<string> {
   return seen
 }
 
-/** ① sources of a chat (all of them; the learned ones are within the link budget when opened). */
-export function chatUrls(db: Database, chatId: string): Set<string> {
-  const seen = typedUrls(db, chatId)
+/** Do the chat's messages come from several people: a shared project chat, or one that stopped being shared after
+ * others wrote in it (a deleted project's, now its creator's; the rollback guard: chat/shared.ts severalAuthors)? A
+ * room's AI session has its own rules. */
+function sharedChat(db: Database, chatId: string): boolean {
+  const r = db.query('SELECT shared_at, project_id, room_id, user_id FROM chats WHERE id = ?').get(chatId) as { shared_at: string | null; project_id: string | null; room_id: string | null; user_id: string } | null
+  if (!r) return false
+  if (r.shared_at && r.project_id) return true
+  return !r.room_id && !!db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1").get(chatId, r.user_id)
+}
+
+/** ① sources of a chat (all of them; the learned ones are within the link budget when opened). `userId`: a shared
+ * chat's typed addresses are that person's only. */
+export function chatUrls(db: Database, chatId: string, userId?: string | null): Set<string> {
+  const seen = typedUrls(db, chatId, userId)
   for (const u of searchUrls(db, chatId)) seen.add(u)
   for (const r of db.query('SELECT url FROM chat_seen_urls WHERE chat_id = ?').all(chatId) as { url: string }[]) seen.add(r.url)
   return seen
@@ -191,8 +208,10 @@ type Origin = { origin: 'typed' | 'allowed' | 'learned' | 'echo'; row: SeenRow |
  * what the AI had sent (a page's, a search's or a connection's echo); null = not in the conversation. */
 function originOf(db: Database, chatId: string | null, url: string, person: TurnPerson | null, o: { connection?: boolean; userId?: string | null } = {}): Origin | null {
   const row = chatId ? db.query('SELECT source, free_turn_id, echo FROM chat_seen_urls WHERE chat_id = ? AND url = ?').get(chatId, url) as SeenRow | null : null
-  if (chatId && typedUrls(db, chatId).has(url)) return { origin: 'typed', row }
-  if (row?.source === 'allowed') return { origin: 'allowed', row }
+  if (chatId && typedUrls(db, chatId, o.userId).has(url)) return { origin: 'typed', row }
+  // a shared chat: an address someone allowed on a card is learned for the others (within the link budget): the card
+  // was another person's
+  if (row?.source === 'allowed') return chatId && sharedChat(db, chatId) ? { origin: 'learned', row } : { origin: 'allowed', row }
   if (row) return { origin: row.echo ? 'echo' : 'learned', row }
   if (person) for (const u of person.turnUrls()) if (normUrl(u) === url) return { origin: 'learned', row }
   if (chatId && searchUrls(db, chatId).has(url)) return { origin: 'learned', row }

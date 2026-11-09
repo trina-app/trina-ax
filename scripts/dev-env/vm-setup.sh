@@ -9,9 +9,13 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 BOXD=${1:?path of the mycel-boxd binary}
 case "$HERE" in /root/*) echo "clone the repo under /opt (the server stand-in account must read it), not under /root" >&2; exit 2;; esac
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq podman crun passt uidmap nftables conntrack curl jq ca-certificates dbus-user-session \
-  systemd-container python3 xfsprogs util-linux iproute2 time jq bc >/dev/null
+# the packages: the groups boxes and test-vm of the one list (scripts/system/packages.json)
+# shellcheck source=../system/packages.sh
+. "$HERE/../system/packages.sh"
+pk_need_reader
+pk_load "$HERE/../system/packages.json"
+read -r -a VM_PACKAGES <<< "$(pk_packages "$(pk_distro)" "$(pk_arch)" boxes test-vm | tr '\n' ' ')"
+pk_apt_install -- "${VM_PACKAGES[@]}"
 id mycel >/dev/null 2>&1 || useradd -m -s /bin/bash mycel
 id mycel-devbox >/dev/null 2>&1 || useradd -m -s /bin/bash mycel-devbox
 loginctl enable-linger mycel-devbox

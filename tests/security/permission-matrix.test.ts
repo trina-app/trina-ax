@@ -18,6 +18,7 @@ import { P4_RAW_COVERED } from './lib/p4-cases'
 import { REMOTE_MCP_RAW_COVERED } from './lib/remote-mcp-cases'
 import { INTEGRATION_RAW_COVERED } from './lib/integrations-cases'
 import { SLACK_RAW_COVERED } from './lib/slack-cases'
+import { APP_LINKS_RAW_COVERED } from './lib/app-links-cases'
 import { enumerateRoutes, judge } from './lib/matrix'
 
 setDefaultTimeout(180_000)
@@ -29,7 +30,7 @@ describe('coverage', () => {
     const routes = enumerateRoutes(REPO)
     const covered = new Set(Object.keys(SPECS))
     // the two raw routes are exercised separately (ws subscriptions test, web app shell)
-    const rawCovered = new Set(['RAW GET WS_PATH', 'RAW GET \'*\'', ...P4_RAW_COVERED, ...REMOTE_MCP_RAW_COVERED, ...INTEGRATION_RAW_COVERED, ...SLACK_RAW_COVERED])
+    const rawCovered = new Set(['RAW GET WS_PATH', 'RAW GET \'*\'', ...P4_RAW_COVERED, ...REMOTE_MCP_RAW_COVERED, ...INTEGRATION_RAW_COVERED, ...SLACK_RAW_COVERED, ...APP_LINKS_RAW_COVERED])
     const missing = routes.filter((r) => (r.startsWith('RAW') ? !rawCovered.has(r) : !covered.has(r)))
     expect(missing, `routes with no matrix case: ${missing.join(', ')}`).toEqual([])
   })
@@ -78,19 +79,33 @@ describe('permission matrix: every route x every persona', () => {
   describe('phase 2: allowed writes + finding checks', () => { for (const k of phase2) run(k) })
 })
 
-// ---------------------------------------------------------------- findings: known gaps vs the design source of truth
-// Each test here asserts the DESIGNED behaviour and currently FAILS, documenting a finding (kept, not deleted, per
-// the review rule). Fixing the server should turn it green.
-describe('findings (asserts the 설계서; currently failing)', () => {
-  // TODO finding "admin-can-delete-account": the 설계서 (tab 4 "DELETE /api/admin/users/:id ... owner만", DECISIONS.md
-  // A "계정 삭제는 owner만") reserves account deletion to the OWNER, but API.deleteUser is auth:'admin' and
-  // server/src/admin/users.ts deleteUser()->guard() never enforces owner-only for a member target, so a non-owner
-  // admin can tombstone a member (ends their sessions, purges chats/memories, moves their personal folder).
-  test('an admin (not owner) cannot delete a member account [TODO admin-can-delete-account]', async () => {
-    // a fresh member so the matrix's own deleteUser cases don't race this one
-    const u = await W.as.owner.ok('POST', '/api/admin/users', { username: 'victim' + crypto.randomUUID().slice(0, 6), name: 'Victim', role: 'member' })
-    const r = await W.as.admin.del(`/api/admin/users/${u.user.id}`)
-    expect(r.status, `admin deleted a member (design: owner only): ${r.status}`).toBeGreaterThanOrEqual(400)
+// ---------------------------------------------------------------- account deletion by role
+// 설계서 4번 탭 / DECISIONS.md 역할 규칙: the owner deletes anyone but themselves; an admin deletes a plain member only,
+// with their own password in the body. Never the owner, another admin or themselves.
+describe('account deletion by role', () => {
+  // the matrix above sent wrong passwords for the admin-reauth case (the API engine) as the admin and the
+  // owner: their re-entry limit (5 wrong passwords per person) is used up, which these tests are not about
+  beforeAll(() => { inst.ctx.db.query("DELETE FROM login_attempts WHERE key LIKE 'reauth:%'").run() })
+  const fresh = async (role: 'member' | 'admin') => (await W.as.owner.ok('POST', '/api/admin/users', { username: 'victim' + crypto.randomUUID().slice(0, 6), name: 'Victim', role })).user.id as string
+  test('an admin cannot delete a member without the password, nor with a wrong one', async () => {
+    const id = await fresh('member')
+    for (const body of [undefined, { password: 'wrong-password-1' }]) {
+      const r = await W.as.admin.del(`/api/admin/users/${id}`, body)
+      expect(r.status, `admin deleted a member with no valid password: ${r.status}`).toBe(403)
+    }
+  })
+  test('an admin cannot delete another admin or the owner, even with the password', async () => {
+    const other = await fresh('admin')
+    expect((await W.as.admin.del(`/api/admin/users/${other}`, { password: PW.carol })).status).toBe(403)
+    expect((await W.as.admin.del('/api/admin/users/dana', { password: PW.carol })).status).toBe(403)
+  })
+  test('an admin deletes a member with the password', async () => {
+    const id = await fresh('member')
+    expect((await W.as.admin.del(`/api/admin/users/${id}`, { password: PW.carol })).status).toBe(204)
+  })
+  test('a member cannot delete anyone', async () => {
+    const id = await fresh('member')
+    expect((await W.as.memberIn.del(`/api/admin/users/${id}`, { password: PW.alice })).status).toBe(403)
   })
 })
 
@@ -147,4 +162,52 @@ describe('no self-escalation', () => {
     const read = await W.as.admin.get('/api/files/content?path=users%2Falice%2Ftodo.md')
     expect(read.status, 'admin still cannot read users/alice after trying to add a rule').toBeGreaterThanOrEqual(400)
   })
+})
+
+// ---------------------------------------------------------------- shared project chats (docs/DECISIONS.md "Shared project chats")
+// A shared chat of projects/falcon: its people (alice who made it, bob who reads the folder, the owner and an admin)
+// see it and continue it; erin (not in its audience), a person who still has to change their password and a signed-out
+// caller get nothing. Run last: it turns the project's setting on for one chat and off again.
+describe('shared project chat x every persona', () => {
+  let chat = ''
+  const CANARY = 'SEC-SHARED-MATRIX-6610'
+  beforeAll(async () => {
+    // the matrix's allowed writes reset bob's password (resetPassword): his own one again, so he can sign in below
+    const { hashPassword } = await import('../../server/src/auth/passwords')
+    inst.ctx.db.query('UPDATE users SET password_hash = ?, must_change_password = 0, temp_password_expires_at = NULL, temp_password_failures = 0 WHERE id = ?').run(await hashPassword(PW.bob), 'bob')
+    inst.ctx.db.query("DELETE FROM login_attempts WHERE key LIKE '%bob%'").run()
+    // ...and the writes may have changed the finance group: bob reads projects/falcon by a rule of his own here
+    const falcon = inst.ctx.db.query("SELECT id FROM folders WHERE path = 'projects/falcon'").get() as { id: string }
+    if (!inst.ctx.db.query("SELECT 1 FROM folder_rules WHERE folder_id = ? AND subject_type = 'user' AND subject_id = 'bob'").get(falcon.id))
+      inst.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'user', 'bob', 'read')").run(crypto.randomUUID(), falcon.id)
+    await W.as.memberIn.ok('PATCH', `/api/projects/${W.ids.projFalcon}`, { shareChats: true })
+    chat = (await W.as.memberIn.ok('POST', '/api/chats', { projectId: W.ids.projFalcon })).id
+    await W.as.memberIn.ok('PATCH', `/api/projects/${W.ids.projFalcon}`, { shareChats: false })
+    await W.as.memberIn.ok('POST', `/api/chats/${chat}/messages`, { clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [], content: `${CANARY}\n@fake ` + JSON.stringify({ say: 'shared ok' }) })
+    for (let i = 0; i < 100 && (await W.as.memberIn.get(`/api/chats/${chat}`)).json.runState !== 'idle'; i++) await Bun.sleep(100)
+  })
+  const sees = new Set(['memberIn', 'memberOut', 'owner', 'admin'])
+  for (const who of WHO) {
+    test(`${who}: view ${sees.has(who) ? 'allowed' : 'refused'}, continue and manage as the design says`, async () => {
+      // a fresh sign-in: the matrix's writes above may have ended a persona's shared session
+      const c = await freshClient(W, who)
+      const get = await c.get(`/api/chats/${chat}`)
+      const msgs = await c.get(`/api/chats/${chat}/messages`)
+      if (!sees.has(who)) {
+        expect([get.status >= 400, msgs.status >= 400], `${who} reached a shared chat outside its audience`).toEqual([true, true])
+        expect(get.text.includes(CANARY) || msgs.text.includes(CANARY), `${who} saw the shared chat's words`).toBe(false)
+        const send = await c.post(`/api/chats/${chat}/messages`, { clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [], content: 'x' })
+        expect(send.status, `${who} wrote in a shared chat outside its audience`).toBeGreaterThanOrEqual(400)
+        return
+      }
+      expect([get.status, msgs.status]).toEqual([200, 200])
+      expect(msgs.text.includes(CANARY)).toBe(true)
+      expect(get.json.shared.by.id).toBe('alice')
+      // the name and the engine are the creator's; deleting is the creator's or a project editor's
+      const rename = await c.patch(`/api/chats/${chat}`, { title: `by ${who}` })
+      expect(rename.status, `${who} rename`).toBe(who === 'memberIn' ? 200 : 403)
+      expect(get.json.shared.canDelete, `${who} canDelete`).toBe(who !== 'memberOut')
+      if (who === 'memberOut') expect((await c.del(`/api/chats/${chat}`)).status).toBe(403)
+    })
+  }
 })

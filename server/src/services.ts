@@ -102,6 +102,10 @@ export interface AttachmentStore {
    * (unavailable: true, no name / path / size) when it is gone or no longer readable for them. Uploads unchanged.
    * Read-only. Optional for test doubles; without it, callers blank every team reference (fail closed). */
   view?(userId: string, atts: Attachment[]): Attachment[]
+  /** A shared project chat's message as `viewer` may see it (chat/shared.ts): team-file references followed and checked
+   * against the viewer's access whoever attached them; any other attachment only for its sender (`author`), else blanked.
+   * Optional for test doubles; without it, every attachment of someone else is blanked. */
+  viewAs?(viewer: string, author: string | null, atts: Attachment[]): Attachment[]
   /** For a turn: like view(), but `changed` means a different content (compared by hash when size or time differ,
    * computed once per version); `moved`: another path than when attached. */
   check?(userId: string, atts: Attachment[]): Promise<Attachment[]>

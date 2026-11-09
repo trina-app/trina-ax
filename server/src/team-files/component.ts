@@ -23,7 +23,7 @@ import { HOSTED_SPEECH_MODEL, hostedSpeechLeft, hostedSpeechMeter } from '../cre
 import { Artifacts } from '../tools/artifact'
 import { findConverters, MakeFile } from '../tools/make-file'
 import { Attachments } from '../uploads/attachments'
-import { TeamFileRefs } from '../uploads/team-refs'
+import { TeamFileRefs, unavailableAttachment } from '../uploads/team-refs'
 import { UploadSessions } from '../uploads/sessions'
 import { publishChanges } from './changes'
 import { atLeast, loadPrincipal, RuleSet } from '../policy/access'
@@ -170,6 +170,8 @@ export function componentC(ctx: AppContext): ComponentC {
     get: (userId, chatId, ids) => attachments.byIds(userId, chatId, ids),
     lookup: (userId, chatId, ids) => attachments.lookup(userId, chatId, ids),
     view: (userId, atts) => atts.map((a) => (a.source === 'team' ? teamRefs.view(userId, a) : a)),
+    // a shared chat's message for one viewer: references by the viewer's access, a computer upload only for its sender
+    viewAs: (viewer, author, atts) => atts.map((a) => (a.source === 'team' ? teamRefs.viewAs(viewer, a) : author === viewer ? a : { ...unavailableAttachment(a.id), source: a.source })),
     check: (userId, atts) => Promise.all(atts.map((a) => (a.source === 'team' ? teamRefs.check(userId, a) : a))),
   }
   ctx.files.events.on('hwp-invalidate', () => c.hwp.invalidate())
@@ -200,6 +202,13 @@ export function startComponentC(ctx: AppContext): ComponentC {
       .catch((e) => ctx.log.warn('document text upgrade stopped', { err: String(e) }))
   }, firstRefreshMs(installId(ctx.db)))
   upgrade?.unref?.()
-  ctx.onClose(async () => { clearTimeout(first); clearInterval(timer); if (upgrade) clearTimeout(upgrade); stopUpgrade.abort(); await c.jobs.close() })
+  // once, a minute after start: the JPEG thumbnails of transparent images attached before become PNG ones
+  // (uploads/attachments.ts refreshThumbs)
+  const stopThumbs = new AbortController()
+  const thumbs = process.env.NODE_ENV === 'test' ? null : setTimeout(() => {
+    void c.attachments.refreshThumbs(stopThumbs.signal).catch((e) => ctx.log.warn('thumbnail refresh failed', { err: e }))
+  }, 60_000)
+  thumbs?.unref?.()
+  ctx.onClose(async () => { clearTimeout(first); clearInterval(timer); if (upgrade) clearTimeout(upgrade); stopUpgrade.abort(); if (thumbs) clearTimeout(thumbs); stopThumbs.abort(); await c.jobs.close() })
   return c
 }

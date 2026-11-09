@@ -95,7 +95,8 @@ describe('push gateway server: APNs over HTTP/2, SQLite state', () => {
     expect(seen[0]!.headers['apns-push-type']).toBe('alert')
     expect(String(seen[0]!.headers.authorization)).toMatch(/^bearer /)
     expect(JSON.parse(seen[0]!.body)).toEqual({
-      aps: { alert: { title: 'Trina AX', body: 'You have a new message' }, sound: 'default' },
+      // a room code: mutable for the app's notification extension, the generic alert as the fallback
+      aps: { alert: { title: 'Trina AX', body: 'You have a new message' }, sound: 'default', 'mutable-content': 1 },
       body: { notificationId: 'n1', code: 'room.message', device: 'dev-1' },
     })
     const dead = await fetch(signed(`${base}/v1/send`, body({ token: 'dead'.repeat(16) })))

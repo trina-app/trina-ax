@@ -1,9 +1,11 @@
 // APNs with token auth (developer.apple.com "Sending notification requests to APNs"). APNs speaks only HTTP/2: the
 // `fetch` given here must do HTTP/2 to api.push.apple.com (bun.ts: node:http2).
 //
-// Payload: { aps: { alert, sound }, body: { notificationId, code, path?, device? } } and nothing else (device = the
-// request's tag, see fcm.ts appData). expo-notifications
-// reads a remote notification's data on iOS from userInfo["body"].
+// Payload: { aps: { alert, sound, mutable-content? }, body: { notificationId, code, path?, device? } } and nothing else
+// (device = the request's tag, see fcm.ts appData). expo-notifications reads a remote notification's data on iOS from
+// userInfo["body"]. A room notice (code room.*) is mutable: the phone app's notification service extension may replace
+// the title with who and where, which it asks the team server for itself (docs/DECISIONS.md "아이폰 알림의 이름"). The
+// generic alert stays as it is: an app without the extension (1.0.0), or an extension that gets no answer, shows it.
 import type { PushGatewaySend } from '../../shared/src/cloud-protocol/push-gateway.ts'
 import { importEs256, sha256Hex, signJwt, type FetchLike } from './crypto.ts'
 import { appData, type SendOutcome } from './fcm.ts'
@@ -29,6 +31,9 @@ export interface ApnsDeps {
   sandbox?: string
 }
 
+/** Room notices (room.dm, room.mention, …): the app's extension may put who and where in the title. Nothing else. */
+export const mutableCode = (code: string) => code.startsWith('room.')
+
 /** APNs apns-collapse-id is at most 64 bytes; a longer notification id collapses by its hash. */
 async function collapseId(notificationId: string): Promise<string> {
   return notificationId.length <= 64 ? notificationId : await sha256Hex(notificationId)
@@ -52,7 +57,7 @@ export function createApns(cfg: ApnsConfig, deps: ApnsDeps) {
 
   async function post(msg: PushGatewaySend, alert: { title: string; body: string }, jwt: string): Promise<{ status: number; reason: string | null }> {
     const origin = msg.environment === 'sandbox' ? deps.sandbox ?? APNS_SANDBOX : deps.production ?? APNS_PRODUCTION
-    const body = { aps: { alert, sound: 'default' }, body: appData(msg) }
+    const body = { aps: { alert, sound: 'default', ...(mutableCode(msg.code) ? { 'mutable-content': 1 } : {}) }, body: appData(msg) }
     const nowS = Math.floor(deps.now() / 1000)
     const res = await deps.fetch(`${origin}/3/device/${msg.token}`, {
       method: 'POST',

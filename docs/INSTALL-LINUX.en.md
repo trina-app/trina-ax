@@ -27,6 +27,16 @@ HWP/HWPX text extraction is available. Visual previews are the optional HWP Prev
 
 Korean, Japanese and Chinese in PDFs: the PDFs the AI makes are drawn with the Noto Sans CJK fonts in the kit (`app/<version>/fonts/`, OFL-1.1, notice in `licenses/noto-sans-cjk/`). A Linux server has no font for these characters, so up to 0.2.15 they came out as empty boxes. Nothing to install on the server: an installed server gets the fonts with its normal update (no root step, no apt). PDFs made before that need to be made again. The fonts add about 32 MB to the kit (40 MB unpacked).
 
+## Joining from the phone and desktop apps
+
+People join by pasting the invite link (or the team link) into the app's first screen. Enter a server of your own as its full address; the apps ask once before they first connect to an address Trina does not run.
+
+- **Desktop app**: needs a certificate the computer trusts. A self-signed certificate fails the first check.
+- **Phone app**: needs https with a certificate from a public certificate authority (self-signed certificates and user-installed authorities are not trusted), and `GET /api/health` must answer directly, without a redirect.
+- **Phone notifications** work only when the server sets `MYCEL_PUSH_GATEWAY`.
+- **The team address** is in Settings › Apps for everyone signed in, with a copy button.
+- **Tapped links**: the apps open `*.trina.app` invite links directly (universal links, app links). On a domain of your own a tapped link opens the browser; the join page's **Open in the app** (`trina-ax://open?url=…`) opens the desktop or phone app. Either way the app first asks "Connect to {host}?" and loads nothing before the answer.
+
 ## Download, verify, check
 
 Use a new download directory. Resolve the latest release once and use the same version for all files:
@@ -85,6 +95,17 @@ sudo mycel-ctl status
 ```
 
 The installer creates `axserver` and `axagent`, installs into `/var/lib/mycel`, configures sandbox/firewall and systemd units (`mycel-server`, `mycel-launcher`, firewall and update timers). It downloads pinned engine binaries. Default app port: 47820, loopback. `--id`, `--port`, `--proxy-port` and `--no-auto-update` are advanced options; preserve the same install identity when maintaining it. `--id` cannot be `system`, `user`, `machine` or `capsule` (systemd's own slices).
+
+### System packages
+
+The installer takes its system packages from one list in the kit (`app/<version>/root/packages.json`, `scripts/system/packages.json` in the repository). The hosted servers' image installs from the same list, so a default install has the same packages as a hosted server.
+
+- **Always** (also with `--minimal`): what the server itself uses: bubblewrap, nftables, poppler-utils, ffmpeg, libheif-examples and a few tools. The install stops when they cannot be installed or are older than the list's minimum version.
+- **By default** (left out with `--minimal`): CJK fonts (fonts-noto-cjk), the dev environment's tools (python3, git, build-essential, ripgrep, Debian's chromium …; packages only: the dev environment stays off until `scripts/dev-env/srt/install-srt.sh` turns it on) and the headless browser for HTML to PDF. When they cannot be installed the installer warns and goes on; `repair` tries again.
+- **The browser**: Chrome for Testing's `chrome-headless-shell` at the version and SHA-256 the list pins, in `/opt/trina/chrome-headless-shell/<version>/` with a `current` link, root-owned and writable by nobody else. `MYCEL_HTML_PDF_BROWSER` in `/etc/default/<id>` names it. A new version is downloaded (bounded: 8 minutes at most), checked and started once (`--version`) before `current` moves to it; if it does not start, the old one stays. The version before stays until the next switch (a print may still use it). A newer browser that another install on the machine put there is kept, unless the list revokes that version (`"revoked"`: a bad pin rolled back); then the sync switches back to the pin.
+- **Updates**: the list is a root file of every release (`root/packages.json`, its Linux part only), so a release that changes it is a root update; a change of only the office Mac's download is not. After the root files and the app are in, `mycel-ctl update` starts the sync (`packages.sh sync`: missing packages, then the browser) as a systemd unit of its own, `<id>-packages-sync.service`, and returns at once: a slow download never counts in the update's time. The sync writes the result to `root/packages.synced`, with the system it ran on (`/etc/os-release` and the machine-id: a reimaged server syncs again); `sudo mycel-ctl status` and Admin › System › Diagnostics ("System packages") show it. The update timer also syncs, in the update window, whenever that record is not of the list in `root/` (for example when an older `mycel-ctl` installed the release). A pending sync never makes the timer take a release the app takes by itself: the timer syncs beside it, without a download. An *incomplete* sync (a download or apt failed, dpkg's lock held for 5 minutes) is tried again by the timer after 6 hours; a *blocked* one needs you (not enough disk space, or a server that may not run apt unattended): the timer leaves it, and your own `sudo mycel-ctl update` or `sudo ./install-linux.sh repair` tries again. Unattended syncs run apt only on servers installed with this installer without `--skip-apt`, and on hosted servers; on a self-hosted server installed before the list they only report what is missing (blocked), and `repair` installs it. During a sync apt runs as a transient systemd unit of its own (`systemd-run`, log in `/var/log/trina-packages-apt.log`), so stopping the update job never interrupts dpkg; it waits for dpkg's lock, checks free space first, and installs the browser's libraries in a transaction of their own. A sync never holds up the app update and never fails it. Until the sync writes `MYCEL_HTML_PDF_BROWSER`, the server finds the browser at `/opt/trina/chrome-headless-shell/current/` by itself.
+- **Versions**: the distribution release is pinned (Debian 12 or 13, Ubuntu 24.04), and each package may have a minimum version that is checked after the install. The newest version of that release is installed, security updates included; exact versions are not pinned, because mirrors drop superseded versions.
+- `--minimal` is kept for `repair` and `update`; `--no-minimal` adds the default groups back. `--skip-apt` installs no packages (they must be there); the browser is still downloaded unless `--minimal`.
 
 ## First run
 
@@ -178,7 +199,7 @@ See [BACKUP-RESTORE.md](BACKUP-RESTORE.md) for DB-only restore, team files, encr
 sudo ./install-linux.sh uninstall
 ```
 
-This removes services/app components while retaining data, and the `MYCEL_SAFE_OPS_1A` line of `/etc/default/<id>` (a reinstall starts with 1A off; the file's other lines stay). Only after verifying an off-host recovery copy, `uninstall --purge` also removes data/accounts. Confirm the installer identity and path before removal; never use demo cleanup on a production directory.
+This removes services/app components while retaining data, and the `MYCEL_SAFE_OPS_1A` and `MYCEL_HTML_PDF_BROWSER` lines of `/etc/default/<id>` (a reinstall starts with 1A off; the file's other lines stay). The apt packages and the browser in `/opt/trina` stay: other installs may use them. Only after verifying an off-host recovery copy, `uninstall --purge` also removes data/accounts. Confirm the installer identity and path before removal; never use demo cleanup on a production directory.
 
 ## Troubleshooting and FAQ
 

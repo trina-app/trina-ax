@@ -32,7 +32,7 @@ own accounts, usage limits) are in **Team settings**.
 Assign folders to groups and check access with two test accounts. [Read about permissions](files-and-permissions.md).
 
 #### Connect the AI
-In **Providers**, the owner chooses **Add account** in the Claude Code or Codex row and connects an authorized
+In **Providers**, the owner or an admin chooses **Add account** in the Claude Code or Codex row and connects an authorized
 Claude or OpenAI account. Each row shows whether that engine is ready.
 
 ![Admin › Providers: Claude Code, Codex and the API engine, each with its state, models, check again and an on/off switch](../images/admin/engines.webp "Providers")
@@ -63,7 +63,7 @@ People who operate the server, its OS or its storage can read stored files and c
 sign-in mode, models and last check, with **↻** to check again and an on/off switch. Under Claude Code and Codex are
 the accounts the team answers with, in the order they are tried, with **Add account** for the owner.
 
-Click an engine's name to open its details: what is missing and how to fix it, every model, and for the owner the API engine form.
+Click an engine's name to open its details: what is missing and how to fix it, every model, and for the owner and admins the API engine form.
 
 ![An engine row opened: the reason it is not ready, its sign-in mode, models and last check](../images/admin/engines-open.webp "An engine opened")
 

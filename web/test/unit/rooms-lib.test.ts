@@ -2,7 +2,8 @@
 // of a sent text.
 import { describe, expect, test } from 'bun:test'
 import { uuidv7 } from '@mycel/shared/api'
-import { aiMatches, aiMentionNames, groupRuns, insertMention, keptMentions, matchMembers, mentionAt, mentionParts, plainLine, roomBadge, roomTitle, runActive, totalUnread, withRun, withRunPosition, withRunStep, roomStepWords } from '../../src/lib/rooms'
+import { translate } from '../../src/i18n'
+import { aiMatches, aiMentionNames, eventText, groupRuns, insertMention, matchMembers, mentionAt, mentionParts, mentionsIn, mentionTokens, tokenMentions, plainLine, roomBadge, roomTitle, runActive, threadClosing, threadOpening, totalUnread, withRun, withRunPosition, withRunStep, roomStepWords } from '../../src/lib/rooms'
 import { at, BEN, CY, ME, message, room } from './rooms-fixtures'
 
 const R = uuidv7()
@@ -46,10 +47,45 @@ describe('@mentions', () => {
     expect(matchMembers(members, 'zz', ME.id)).toEqual([])
   })
 
-  test('picking writes "@name " and only names still in the text are sent', () => {
+  test('picking writes "@name "', () => {
     expect(insertMention('hi @c', 3, 5, 'Cy Park')).toEqual({ text: 'hi @Cy Park ', caret: 12 })
-    expect(keptMentions('hi @Cy Park and @Ben', [CY, BEN, BEN])).toEqual([CY.id, BEN.id])
-    expect(keptMentions('hi Ben', [BEN])).toEqual([])
+  })
+
+  test('the box\'s mentions: picked people whose "@name" is whole where it was put; what is sent is exactly them', () => {
+    const cy = { start: 3, end: 11, id: CY.id, name: CY.name }
+    const ben = { start: 16, end: 20, id: BEN.id, name: BEN.name }
+    const text = 'hi @Cy Park and @Ben'
+    expect(mentionTokens(text, [cy, ben], false)).toEqual([{ start: 3, end: 11, kind: 'person', id: CY.id }, { start: 16, end: 20, kind: 'person', id: BEN.id }])
+    expect(tokenMentions(mentionTokens(text, [cy, ben, { ...ben }], false))).toEqual([CY.id, BEN.id])
+    // the text there changed (the range no longer holds "@Ben"): not a mention
+    expect(mentionTokens('hi @Cy Park and @Bex', [cy, ben], false).map((x) => x.id)).toEqual([CY.id])
+    // a letter right before the "@" pauses it (the message would show it as text, as mentionParts does)
+    expect(mentionTokens('hi x@Cy Park', [{ ...cy, start: 4, end: 12 }], false)).toEqual([])
+    expect(mentionTokens('hi (@Cy Park)', [{ ...cy, start: 4, end: 12 }], false)).toHaveLength(1)
+    // text that only looks like a mention (pasted, typed) is none
+    expect(mentionTokens('hi @Cy Park', [], false)).toEqual([])
+  })
+
+  test('"@트리나" stands out where the server takes it as a call, unless a picked person has that name', () => {
+    expect(mentionTokens('@트리나 정리해 줘', [], true)).toEqual([{ start: 0, end: 4, kind: 'ai', id: '@ai' }])
+    expect(mentionTokens('@트리나 정리해 줘', [], false)).toEqual([])
+    expect(mentionTokens('@트리나야 안녕', [], true)).toEqual([])
+    expect(mentionTokens('메일 a@트리나', [], true)).toEqual([])
+    expect(mentionTokens('ask @trina, please', [], true)).toEqual([{ start: 4, end: 10, kind: 'ai', id: '@ai' }])
+    // a person called 트리나 was picked: the server asks no AI for any "@트리나" of this message
+    const person = { start: 0, end: 4, id: 'tri', name: '트리나' }
+    expect(mentionTokens('@트리나 @트리나', [person], true)).toEqual([{ start: 0, end: 4, kind: 'person', id: 'tri' }])
+    // a person whose name goes on from an AI name keeps it (the server asks no AI there either)
+    expect(mentionTokens('@Trina Kim hi', [{ start: 0, end: 10, id: 'tk', name: 'Trina Kim' }], true).map((x) => x.kind)).toEqual(['person'])
+    // a shorter name an AI name runs past: the call wins and the person is not sent
+    const tri = mentionTokens('@트리나 hi', [{ start: 0, end: 3, id: 'tri', name: '트리' }], true)
+    expect(tri).toEqual([{ start: 0, end: 4, kind: 'ai', id: '@ai' }])
+    expect(tokenMentions(tri)).toEqual([])
+  })
+
+  test('a text\'s mentions as picked ones again (an edit, a send that came back), as the message marks them', () => {
+    expect(mentionsIn('hi @Cy Park and @Ben', [CY, BEN])).toEqual([{ start: 3, end: 11, id: CY.id, name: CY.name }, { start: 16, end: 20, id: BEN.id, name: BEN.name }])
+    expect(mentionsIn('ben@Ben', [BEN])).toEqual([])
   })
 
   test('a sent text: the @names of the people it mentions, the rest as plain text', () => {
@@ -127,4 +163,89 @@ test('what my question is doing, in plain words: no search pattern or path, a do
   expect(s('web_fetch', 'Fetch page · https://example.com/a')).toEqual({ kind: 'web' })
   expect(s('', 'Web search: q', 'web_search')).toEqual({ kind: 'web' })
   expect(s('make_file', 'Make file · users/a/x.docx')).toEqual({ kind: 'work' })
+})
+
+// ---------------- group chats and room names (docs/DECISIONS.md "그룹 대화와 방 이름") ----------------
+describe('group chats and event lines', () => {
+  const words = (loc: 'ko' | 'en' | 'ja') => ({
+    all: translate(loc, 'rooms.all'), gone: translate(loc, 'rooms.goneUser'), alone: translate(loc, 'rooms.groupAlone'), sep: translate(loc, 'rooms.nameSep'),
+    names: (names: string, n: number) => (n > 0 ? translate(loc, 'rooms.groupNamesMore', { names, n }) : names),
+  })
+  const p = (name: string) => ({ id: name.toLowerCase().replace(/[^a-z]/g, '') || 'x', name })
+  test("an unnamed group chat is its other members' names, the first three and then how many more", () => {
+    expect(roomTitle(room({ kind: 'group', name: null, peers: [p('가나님'), p('Ben')], memberCount: 3 }), words('ko'))).toBe('가나님, Ben')
+    expect(roomTitle(room({ kind: 'group', name: null, peers: [p('A'), p('B'), p('C'), p('D')], memberCount: 9 }), words('ko'))).toBe('A, B, C 외 5명')
+    expect(roomTitle(room({ kind: 'group', name: null, peers: [p('A'), p('B'), p('C'), p('D')], memberCount: 9 }), words('en'))).toBe('A, B, C and 5 more')
+    expect(roomTitle(room({ kind: 'group', name: null, peers: [p('A'), p('B')], memberCount: 3 }), words('ja'))).toBe('A、B')
+    expect(roomTitle(room({ kind: 'group', name: null, peers: [], memberCount: 1 }), words('ko'))).toBe('대화 상대 없음')
+    // its own name wins; a team room's own name too; a DM is always the other person
+    expect(roomTitle(room({ kind: 'group', name: '주간 회의', peers: [p('A'), p('B')] }), words('ko'))).toBe('주간 회의')
+    expect(roomTitle(room({ kind: 'dm', name: null, peers: [BEN] }), words('ko'))).toBe('Ben')
+  })
+
+  test('event lines read as a sentence: one honorific per name, the particle fitting the last name, a quoted name', () => {
+    const w = (loc: 'ko' | 'en' | 'ja') => ({ t: (k: any, params?: any) => translate(loc, k, params), nameOf: (u: { name: string } | null) => u?.name ?? '?' })
+    const boss = { id: 'boss', name: '대표님' }
+    const kim = { id: 'kim', name: '김민지 씨' }
+    expect(eventText({ type: 'added', users: [BEN, CY] }, boss, w('ko'))).toBe('대표님이 Ben님, Cy Park님을 초대했어요')
+    expect(eventText({ type: 'added', users: [BEN, boss] }, ME, w('ko'))).toBe('Ada님이 Ben님, 대표님을 초대했어요')
+    expect(eventText({ type: 'added', users: [kim] }, ME, w('ko'))).toBe('Ada님이 김민지 씨를 초대했어요')
+    expect(eventText({ type: 'created', users: [p('A'), p('B'), p('C'), p('D'), p('E')] }, ME, w('ko'))).toBe('Ada님이 A님, B님, C님 외 2명을 초대했어요')
+    expect(eventText({ type: 'added', users: [BEN, CY] }, ME, w('en'))).toBe('Ada invited Ben, Cy Park')
+    expect(eventText({ type: 'added', users: [BEN] }, ME, w('ja'))).toBe('AdaさんがBenさんを招待しました')
+    expect(eventText({ type: 'renamed', name: '주간 회의' }, boss, w('ko'))).toBe("대표님이 방 이름을 '주간 회의'로 바꿨어요")
+    expect(eventText({ type: 'renamed', name: '디자인팀' }, ME, w('ko'))).toBe("Ada님이 방 이름을 '디자인팀'으로 바꿨어요")
+    expect(eventText({ type: 'renamed', name: 'Plan' }, ME, w('en'))).toBe('Ada renamed the chat to “Plan”')
+    expect(eventText({ type: 'renamed', name: null }, ME, w('ko'))).toBe('Ada님이 방 이름을 원래대로 바꿨어요')
+    expect(eventText({ type: 'left' }, boss, w('ko'))).toBe('대표님이 나갔어요')
+    expect(eventText({ type: 'removed', user: kim }, boss, w('ko'))).toBe('대표님이 김민지 씨를 내보냈어요')
+    expect(eventText({ type: 'removed', user: null }, ME, w('en'))).toBe('Ada removed ?')
+    // a line this build cannot read: neutral, nobody named
+    expect(eventText({ type: 'unknown' }, null, w('ko'))).toBe('대화방 정보가 바뀌었어요')
+  })
+
+  test('an event line is a run of its own and ends the run before it', () => {
+    const ms = [message({ roomId: R, seq: 1 }), message({ roomId: R, seq: 2, author: BEN, body: '', event: { type: 'left' } }), message({ roomId: R, seq: 3 })]
+    expect(groupRuns(ms, day).map((r) => r.messages.map((m) => m.seq))).toEqual([[1], [2], [3]])
+  })
+})
+
+describe('thread navigation (pages/Room.tsx)', () => {
+  // a browser history: entries with their state, and where we are
+  type Entry = { path: string; fromRoom: boolean }
+  const history = (first: Entry) => {
+    const h = { entries: [first], i: 0 }
+    const at = () => h.entries[h.i]!
+    const threadOf = (path: string) => path.split('/t/')[1] ?? null
+    return {
+      at,
+      open(rootId: string) {
+        const to = threadOpening('R', rootId, { threadId: threadOf(at().path), fromRoom: at().fromRoom })
+        const e = { path: to.path, fromRoom: to.state.fromRoom }
+        if (to.replace) h.entries[h.i] = e
+        else { h.entries = [...h.entries.slice(0, h.i + 1), e]; h.i++ }
+      },
+      close() {
+        const to = threadClosing('R', at().fromRoom)
+        if (to === -1) h.i--
+        else h.entries[h.i] = { path: to.path, fromRoom: false }
+      },
+    }
+  }
+  test('from the room: a thread is one step forward, another thread replaces it, closing steps back to the room', () => {
+    const h = history({ path: '/rooms/R', fromRoom: false })
+    h.open('A')
+    expect(h.at()).toEqual({ path: '/rooms/R/t/A', fromRoom: true })
+    h.open('B')
+    h.close()
+    expect(h.at().path).toBe('/rooms/R')
+  })
+  test('from a link or a notice: switching threads and closing stays in the room, never steps out of it', () => {
+    // a notice opened /rooms/R/t/A: an entry without the mark
+    const h = history({ path: '/rooms/R/t/A', fromRoom: false })
+    h.open('B')
+    expect(h.at()).toEqual({ path: '/rooms/R/t/B', fromRoom: false })
+    h.close()
+    expect(h.at().path).toBe('/rooms/R')
+  })
 })

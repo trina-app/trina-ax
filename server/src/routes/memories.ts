@@ -1,6 +1,7 @@
 // Route module "memories" — owner: component B (docs/WORKPLAN.md).
 // Implements: MEMORIES (own memories only: list, add, correct, forget; admins can't see other people's, tab 1). Contract: shared/src/api/memories.ts
-// Also SKILLS (the team skills the caller can read, for the composer's "/" list; skill suggestions). Contract:
+// Also SKILLS (the team skills the caller can read, for the composer's "/" list; what the team prepared for Home's
+// first screen; skill suggestions). Contract:
 // shared/src/api/skills.ts (the admin side of it, skill managers and changes, is in routes/admin.ts)
 // And SCHEDULES (the caller's own scheduled tasks, Settings: run now, edit, pause, delete). Contract: shared/src/api/schedules.ts
 import { API, type Locale } from '@mycel/shared/api'
@@ -12,9 +13,10 @@ import { tr } from '../chat/i18n'
 import { newId } from '../db'
 import { audit } from '../admin/audit'
 import { decodeCursor, encodeCursor } from '../chat/store'
-import { listSkills, skillInfo, skillIssues } from '../chat/skills'
+import { scanSkillsWithShadowed, skillInfo, skillIssues } from '../chat/skills'
 import { teamRuleFiles } from '../chat/prompt'
 import { popularSkills } from '../skills/popular'
+import { teamPrepared } from '../skills/examples'
 import { createFromTemplate, SCHEDULE_TEMPLATES } from '../chat/schedule-templates'
 import { installNotifications } from '../notifications/service'
 import { registerNotifications } from './notifications'
@@ -23,7 +25,8 @@ import { installPush } from '../notifications/push-service'
 import { needsReview, type ScheduleRow } from '../chat/schedules'
 import { awaitingReview, confirmReview, reviewCard } from '../chat/schedule-review'
 import { editCard, saveTask, saveTemplate } from '../chat/schedule-edit'
-import { approveSuggestion, createSuggestion, getSuggestion, listSuggestions, rejectSuggestion, skillsOverview } from '../skills/suggestions'
+import { approveSuggestion, contributeSkills, createSuggestion, getSuggestion, listSuggestions, rejectSuggestion, skillsOverview, CONTRIBUTE_BODY_MAX } from '../skills/suggestions'
+import { suggestersOf } from '../skills/author'
 
 type Row = { id: string; text: string; source_chat_id: string | null; created_at: string }
 
@@ -128,10 +131,20 @@ export const memoriesRoutes: RouteModule = {
     kit.handle(API.getScheduleReview, ({ c, params, auth }) => reviewCard(ctx, rt, auth.user.id, params.id, c.get('locale')))
     kit.handle(API.confirmScheduleReview, ({ c, params, body, auth }) => scheduleOut(confirmReview(ctx, rt, auth.user.id, params.id, body, c.get('locale'))))
     kit.handle(API.listSchedulesAwaitingReview, () => awaitingReview(ctx))
-    kit.handle(API.listSkills, ({ auth }) => {
+    kit.handle(API.listSkills, ({ auth, query }) => {
       let p
       try { p = ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }
-      return { items: listSkills(ctx.files, p).map(skillInfo) }
+      const { skills: items, shadowed, replaces } = scanSkillsWithShadowed(ctx.files, p)
+      const lost = query?.shadowed ? shadowed : []
+      // a skill a member suggested keeps their name ("민준 님이 제안", docs/DECISIONS.md "MC")
+      const by = suggestersOf(ctx.db, [...items, ...lost.map((l) => l.skill)].map((s) => s.path).filter((x) => !x.startsWith('users/')))
+      const one = (s: (typeof items)[number], extra: object = {}) => { const i = skillInfo(s); const who = by.get(s.path); const r = replaces.get(s.path); return { ...i, ...(who ? { suggestedBy: who } : {}), ...(r ? { replaces: r } : {}), ...extra } }
+      return { items: [...items.map((s) => one(s)), ...lost.map((l) => one(l.skill, { shadowedBy: l.by.tier === 'personal' ? { tier: 'personal' } : { tier: 'group', group: { id: l.by.group.id, name: l.by.group.name } } }))] }
+    })
+    // Home's "팀에 준비된 것" (docs/DECISIONS.md "W6.3"): what the team prepared, read as the caller (skills/examples.ts)
+    kit.handle(API.skillExamples, ({ c, auth }) => {
+      try { ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }
+      return teamPrepared(ctx, auth.user.id, c.get('locale'))
     })
     // R2-SKILL-03: the entries that do not load, so the skills and files screens can warn (readable entries only)
     kit.handle(API.listSkillIssues, ({ auth }) => {
@@ -144,6 +157,8 @@ export const memoriesRoutes: RouteModule = {
     kit.handle(API.listSkillSuggestions, ({ query, auth }) => listSuggestions(ctx, auth.user.id, query))
     kit.handle(API.getSkillSuggestion, ({ params, auth }) => getSuggestion(ctx, auth.user.id, params.id))
     kit.handle(API.createSkillSuggestion, ({ c, body, auth }) => createSuggestion(ctx, auth.user.id, body, c.get('locale')))
+    // members contribute: skill folders from their own computer as one batch (docs/DECISIONS.md "MC")
+    kit.handle(API.contributeSkills, ({ c, body, auth }) => contributeSkills(ctx, auth.user.id, body, c.get('locale')), { jsonLimit: CONTRIBUTE_BODY_MAX })
     kit.handle(API.approveSkillSuggestion, ({ c, params, body, auth }) => approveSuggestion(ctx, auth.user.id, params.id, body, c.get('locale')))
     kit.handle(API.rejectSkillSuggestion, ({ c, params, body, auth }) => rejectSuggestion(ctx, auth.user.id, params.id, body.note, c.get('locale')))
   },

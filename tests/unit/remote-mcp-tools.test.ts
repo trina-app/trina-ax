@@ -23,7 +23,8 @@ async function setup(name: string, scope = 'mcp:read mcp:write offline_access', 
   return { h, auth, oauth, tools, token, mine, other, member }
 }
 test('only read scope tools are advertised; arbitrary tool families and writes are unavailable', async () => {
-  const f = await setup('scopes', 'mcp:read')
+  // a member: an owner's or admin's connection also gets the group tools (remote-mcp-groups.test.ts)
+  const f = await setup('scopes', 'mcp:read', 'member')
   expect(f.tools.list(f.oauth.authenticate(f.token)).map(t => t.name)).toEqual(['list', 'glob', 'grep', 'read', 'skills_list'])
   expect((await f.tools.call(f.token, 'write', { file_path: 'shared/new.txt', content: 'x' })).isError).toBe(true)
   expect((await f.tools.call(f.token, 'web_fetch', { url: 'https://outside.invalid' })).isError).toBe(true)
@@ -138,7 +139,8 @@ test('upload_file name clash saves a copy; overwrite keeps the old file as a ver
   const f = await setup('upload-clash'), abs = path.join(f.h.ctx.config.teamRoot, 'shared/report.pdf')
   fs.writeFileSync(abs, 'original synthetic bytes')
   const copy = await f.tools.call(f.token, 'upload_file', { path: 'shared/report.pdf', content_base64: b64(bytes) })
-  expect(body(copy)).toEqual({ path: 'shared/report (2).pdf', size: bytes.length, conflictCopy: true, replaced: false })
+  // the copy is a new file loose at the top of shared/: the answer carries the placement note (remote-mcp-placement)
+  expect(body(copy)).toEqual({ path: 'shared/report (2).pdf', size: bytes.length, conflictCopy: true, replaced: false, notice: expect.stringContaining('Saved at the top of shared/.') })
   expect(fs.readFileSync(abs, 'utf8')).toBe('original synthetic bytes')
   expect(Buffer.compare(fs.readFileSync(path.join(f.h.ctx.config.teamRoot, 'shared/report (2).pdf')), bytes)).toBe(0)
   const over = await f.tools.call(f.token, 'upload_file', { path: 'shared/report.pdf', content_base64: b64(bytes), overwrite: true })

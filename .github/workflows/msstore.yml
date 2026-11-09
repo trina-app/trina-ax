@@ -1,0 +1,74 @@
+# Microsoft Store package (editions/trina/microsoft-store/README.md): builds the desktop app as an MSIX file on a Windows
+# runner and keeps it as a workflow artifact, to upload in Partner Center. The store signs the package, so no secret is
+# used. Manual run: pick the branch or tag under "Use workflow from" and the store version. A pull request that touches
+# the store files builds a test package (placeholder identity, MSSTORE_TEST=1) to show that the package still builds.
+name: Microsoft Store package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Store version x.y.z, higher than the last package sent to the store (e.g. 0.4.0)"
+        type: string
+        required: true
+      test:
+        description: "Placeholder identity: a test package the store refuses (before the name is reserved)"
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - editions/trina/microsoft-store/**
+      - .github/workflows/msstore.yml
+      - desktop/electron-builder.config.ts
+
+permissions:
+  contents: read
+
+# bash -eo pipefail everywhere (also on Windows: Git Bash)
+defaults:
+  run:
+    shell: bash
+
+env:
+  BUN_VERSION: 1.3.12
+
+jobs:
+  msix:
+    name: MSIX package
+    runs-on: windows-2025
+    timeout-minutes: 45
+    env:
+      MSSTORE_VERSION: ${{ inputs.version || '0.0.1' }}
+      MSSTORE_TEST: ${{ (github.event_name == 'pull_request' || inputs.test) && '1' || '0' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - name: MSIX package (unsigned; the store signs it)
+        working-directory: desktop
+        run: |
+          NODE_ENV=production bun build.ts
+          bunx electron-builder --config ../editions/trina/microsoft-store/electron-builder.msix.config.ts --win appx --x64 --publish never
+          ls -l release
+          bun ../scripts/plugins/release-check.ts dist
+      - name: Check the package manifest
+        run: |
+          f=$(ls desktop/release/*-store-x64*.msix)
+          7z x -so "$f" AppxManifest.xml > manifest.xml
+          cat manifest.xml
+          grep -q "Version=\"$MSSTORE_VERSION.0\"" manifest.xml
+          grep -q '<DisplayName>Trina AX</DisplayName>' manifest.xml
+          grep -q '<PublisherDisplayName>Trina Inc.</PublisherDisplayName>' manifest.xml
+          grep -q '<DeviceCapability Name="microphone"/>' manifest.xml
+          grep -q 'assets\\Wide310x150Logo.png' manifest.xml
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: msstore-msix
+          path: desktop/release/*-store-x64*.msix
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14

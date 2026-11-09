@@ -185,6 +185,46 @@ test('stop: a step still running then shows as stopped, not as a failed step (li
   await expect(lastAnswer(page).getByTestId('steps').getByTestId('steps-failed')).toHaveCount(0)
 })
 
+test('a failed step the AI got past: a quiet mark with its words, no red; a save nothing got past stays red', async ({ page }) => {
+  // docs/DECISIONS.md "A failed step the AI got past is not red"
+  await reset(page)
+  await signIn(page)
+  await ask(page, 'wrong-guess slow slow slow slow slow slow slow slow slow slow')
+  // while the answer runs, the failed guess is not red either
+  const guess = (scope: ReturnType<typeof lastAnswer>) => scope.getByTestId('steps').getByRole('listitem').filter({ hasText: 'acme-profile.md' })
+  await expect(guess(lastAnswer(page)).getByTestId('step-retried')).toBeVisible()
+  await expect(lastAnswer(page).getByTestId('step-failed')).toHaveCount(0)
+  await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done', { timeout: 20_000 })
+  const steps = lastAnswer(page).getByTestId('steps')
+  // folded: no red mark
+  await expect(steps.getByTestId('steps-failed')).toHaveCount(0)
+  await steps.getByRole('button', { name: /작업 \d+단계/ }).click()
+  const mark = guess(lastAnswer(page)).getByTestId('step-retried')
+  await expect(mark).toHaveAttribute('aria-label', '안 됐지만 트리나가 다른 방법으로 이어 갔어요')
+  await expect(steps.getByLabel('실패', { exact: true })).toHaveCount(0)
+  // the shared tooltip says what the mark means
+  await mark.hover()
+  await expect(page.getByRole('tooltip')).toHaveText('안 됐지만 트리나가 다른 방법으로 이어 갔어요')
+  // after a reload the stored answer shows the same
+  await page.reload()
+  await expect(lastAnswer(page).getByTestId('steps').getByTestId('steps-failed')).toHaveCount(0)
+
+  // the answer failed later for another reason: the guess it got past stays quiet, the error box says what failed
+  await ask(page, 'wrong-guess error')
+  await expect(lastAnswer(page)).toHaveAttribute('data-status', 'error')
+  await expect(lastAnswer(page).getByTestId('answer-error')).toBeVisible()
+  await expect(lastAnswer(page).getByTestId('steps').getByTestId('steps-failed')).toHaveCount(0)
+
+  // a save that failed with nothing after it: red on the folded list and on its row, though the answer finished
+  await ask(page, 'save-fails')
+  await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
+  const saved = lastAnswer(page).getByTestId('steps')
+  await expect(saved.getByTestId('steps-failed')).toBeVisible()
+  await saved.getByRole('button', { name: /작업 \d+단계/ }).click()
+  await expect(saved.getByRole('listitem').filter({ hasText: 'summary.md' }).getByTestId('step-failed')).toHaveAttribute('aria-label', '실패')
+  await expect(saved.getByTestId('step-retried')).toHaveCount(0)
+})
+
 test('ask_user card: pick an option, the answer continues', async ({ page }) => {
   await reset(page)
   await signIn(page)
@@ -205,7 +245,7 @@ test('a safety check the server raised has its own header, never the "AI asks" o
   await ask(page, 'ask me a safety question')
   const card = page.getByTestId('ask-card')
   await expect(card).toHaveAttribute('data-origin', 'server')
-  await expect(card).toContainText('팀 서버의 안전 확인')
+  await expect(card).toContainText('확인해 주세요')
   await expect(card).not.toContainText('AI가 확인하고 싶어 해요')
   await card.getByRole('button', { name: '열지 않기', exact: true }).click()
   await expect(card).toHaveCount(0)
@@ -253,7 +293,7 @@ test('search (⌘K) finds chats by content', async ({ page }) => {
   await expect(lastAnswer(page)).toHaveAttribute('data-status', 'done')
   await page.getByTestId('new-chat').click()
   await page.keyboard.press('ControlOrMeta+k')
-  await page.getByPlaceholder('채팅 제목·내용, 파일 이름, 프로젝트 등 검색').fill('banana')
+  await page.getByPlaceholder('기록·대화 메시지, 파일, 프로젝트 등 검색').fill('banana')
   await expect(page.getByRole('option', { name: /banana bread recipe/ })).toBeVisible()
   await page.keyboard.press('Enter')
   await expect(page.getByTestId('user-text')).toHaveText('banana bread recipe')
