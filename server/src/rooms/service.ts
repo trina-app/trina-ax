@@ -557,9 +557,11 @@ export class Rooms {
       const n = (this.db.query(`SELECT COUNT(*) n FROM room_files WHERE room_id = ? AND user_id = ? AND message_id IS NULL AND id IN (${fileIds.map(() => '?').join(',')})`).get(roomId, userId, ...fileIds) as { n: number }).n
       if (n !== fileIds.length) fail('validation', undefined, { fields: { 'body.fileIds': 'unknown file' } })
     }
-    // "@트리나 …" (a person picked from the list under the same name wins); anything that stops the question stops the send
+    // "@트리나 …" (a person picked from the list under the same name wins), only while the server allows it
+    // (AppConfig.roomAiMentions; off by default: the side chat asks the AI beside a room); anything that stops the
+    // question stops the send. Off: the text is an ordinary message.
     const people = mentions.length ? (this.db.query(`SELECT name FROM users WHERE id IN (${mentions.map(() => '?').join(',')})`).all(...mentions) as { name: string }[]).map((r) => r.name) : []
-    const ask = !answer && roomAiCalled(b.body, people) ? roomAiOf(this.ctx).precheck(userId, roomId, o) : null
+    const ask = !answer && this.ctx.config.roomAiMentions && roomAiCalled(b.body, people) ? roomAiOf(this.ctx).precheck(userId, roomId, o) : null
     const now = nowIso(), id = newId()
     // a reply that stays in its thread does not bring the room to the top of the list
     const inTimeline = !root || !!b.alsoInRoom

@@ -15643,9 +15643,10 @@ transferOwnership, `auth/accounts.ts` invites, `shared/src/api/handover.ts`, mig
   forms while it is set (admin.js exit 3 `owner_recovery_locked`, also `mycel-account reset-link`; members stay
   reachable), a link made by nobody is refused for an owner or admin target at redemption while it holds (one minted
   earlier, or for a member later made admin), and `admin.js owner-recovery-claimed` (for the control plane, after the
-  claim) clears it. `owner-recovery-claimed` is not yet a tenant command (`TENANT_COMMANDS`, mycel-ctl): until it is,
-  `handoverSafe` must stay off, or a lock could never be cleared. What the hosted side still has to build (the claim
-  link, the recovery contact, the tenant command) is listed in the PR.
+  claim) clears it. **2026-11-09:** `owner-recovery-claimed` is a tenant command now (`TENANT_COMMANDS`, mycel-ctl
+  `{ ok, cleared }`), and `mycel-ctl reset-link` exits 3 with `owner_recovery_locked` while the lock holds (before, it
+  exited 1 like any failure). `handoverSafe` still stays off until the control plane runs the command after the new
+  owner's claim; the hosted side still has to build the claim link and the recovery contact.
 - **Checked and written down (review S6).** Realtime goes per user id and owner fan-out is looked up when sent; CSRF is
   covered and the password is needed too; the old owner keeps `mcp:admin` grants, as any admin does; a self-hosted
   server's admin can still run `reset-link` (the dialog says so). Not here: Higgsfield and team MCP connections in the
@@ -16521,6 +16522,38 @@ of a web page could not be read. Pictures should open like Slack, across the app
   and down; screenshots), `room-files-open.spec.ts` (the photo
   opens the viewer over the panel; the right-click there reaches the original).
 - Version impact: **minor** (a visible UX change; no API or data change).
+
+## Trina side chat, PR 2: no "@트리나" in rooms (feat/remove-room-trina-mention, 2026-11-09, product owner)
+
+- **Decision (option A, after PR 1 added the side chat):** "@트리나 …" in a room's timeline, a thread or a DM no longer
+  asks the AI. The text is an ordinary message. People ask in the side chat (✦) and share an answer with "Share to
+  room".
+- **How:** server.json `roomAiMentions` (AppConfig, absent = off) gates the ask in Rooms.send; `Me.server.roomAiMentions`
+  tells the app, which then offers the AI in the "@" list and the old placeholder. Off: no AI row, and the empty room's
+  box says "✦ asks Trina beside the room". The room AI code (rooms/ai.ts) stays for the switch and for earlier answers:
+  their private previews, "Post to room…" and sources keep working.
+- **"Ask Trina about this"** on a message (✦ in its hover bar; the long-press menu on a phone; a thread's messages too,
+  which closes the thread): the side chat opens with the message quoted above the box (who, when, its lines) and three
+  quick questions (Translate into my language, Summarize with its thread, Explain). The quote goes in front of the
+  question as a Markdown quote (at most 4,000 characters; the AI reads the rest of the room with room_read). It is what
+  "@트리나 translate this" was used for.
+- **Tests:** the test harness turns the switch on (tests/unit/a-lib.ts testConfig), so the room AI tests keep covering
+  the old way while it exists; tests/unit/b-room-ai-mentions-off.test.ts covers the default.
+- **Later:** remove the room AI ask and its switch once no team needs it (a decision of its own).
+
+## Side chat starters and files (feat/side-chat-starters, 2026-11-09, product owner)
+
+- **From Slackbot** (screenshots of the owner's Slack, 2026-11-09): an empty side chat shows what it looks at ("Looking at
+  #design with you"), three starters (Catch up: what I have not read; Anything for me?: mentions, questions, tasks;
+  Summarize: the latest discussion), and one line that the AI can make mistakes. Not taken: a toggle to stop it reading
+  the room (the room is the side chat's point), a global Slackbot button outside rooms (later, a decision of its own).
+- **A file sent in a room:** its preview (components/FilePanel.tsx, the app's right panel) has "Ask Trina". The room
+  page opens its side chat with the file quoted by name and file_id (lib/sideChatAsk.ts carries it from the panel to
+  the page); the AI opens it with room_file, as the person. File questions: Summarize, Key points, Check it.
+- **Later:** a large file viewer with page thumbnails on the left and the side chat (or the message's thread) on the
+  right, as Slack's file view.
+
+||||||| a5a26059
 
 ## 크게 보기 — the side panel can take the whole page (feat/panel-expand, 2026-11-09)
 
