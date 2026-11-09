@@ -15643,9 +15643,10 @@ transferOwnership, `auth/accounts.ts` invites, `shared/src/api/handover.ts`, mig
   forms while it is set (admin.js exit 3 `owner_recovery_locked`, also `mycel-account reset-link`; members stay
   reachable), a link made by nobody is refused for an owner or admin target at redemption while it holds (one minted
   earlier, or for a member later made admin), and `admin.js owner-recovery-claimed` (for the control plane, after the
-  claim) clears it. `owner-recovery-claimed` is not yet a tenant command (`TENANT_COMMANDS`, mycel-ctl): until it is,
-  `handoverSafe` must stay off, or a lock could never be cleared. What the hosted side still has to build (the claim
-  link, the recovery contact, the tenant command) is listed in the PR.
+  claim) clears it. **2026-11-09:** `owner-recovery-claimed` is a tenant command now (`TENANT_COMMANDS`, mycel-ctl
+  `{ ok, cleared }`), and `mycel-ctl reset-link` exits 3 with `owner_recovery_locked` while the lock holds (before, it
+  exited 1 like any failure). `handoverSafe` still stays off until the control plane runs the command after the new
+  owner's claim; the hosted side still has to build the claim link and the recovery contact.
 - **Checked and written down (review S6).** Realtime goes per user id and owner fan-out is looked up when sent; CSRF is
   covered and the password is needed too; the old owner keeps `mcp:admin` grants, as any admin does; a self-hosted
   server's admin can still run `reset-link` (the dialog says so). Not here: Higgsfield and team MCP connections in the
