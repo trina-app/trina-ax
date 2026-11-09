@@ -26,7 +26,7 @@ const NO_PENDING: PendingSend[] = []
 const NO_REPLIES: RoomMessage[] = []
 
 /** `highlight`: a message a link points at (an Inbox row), the root or a reply, scrolled to and marked once. */
-export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose, focusBox = false, highlight = null }: { roomId: string; rootId: string; roomTitle: string; members: UserRef[]; meId: string | null; onClose: () => void; focusBox?: boolean; highlight?: string | null }) {
+export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose, onAskTrina, focusBox = false, highlight = null }: { roomId: string; rootId: string; roomTitle: string; members: UserRef[]; meId: string | null; onClose: () => void; onAskTrina?: (m: RoomMessage) => void; focusBox?: boolean; highlight?: string | null }) {
   const t = useT()
   const locale = useLocale()
   const view = useRooms((s) => (s.threadView?.roomId === roomId && s.threadView.rootId === rootId ? s.threadView : null))
@@ -146,7 +146,7 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
             <ImageGroup>
               {!root && view?.loading && <Skeleton lines={3} className="pt-2" />}
               {!!view?.error && !notFound && <ErrorNote onRetry={() => void useRooms.getState().loadThread(roomId, rootId)}>{errorText(view.error, locale, t('error.network'))}</ErrorNote>}
-              {root && <RoomMessages roomId={roomId} messages={[root]} pending={NO_PENDING} meId={meId} members={members} variant="root" highlight={highlight} />}
+              {root && <RoomMessages roomId={roomId} messages={[root]} pending={NO_PENDING} meId={meId} members={members} variant="root" onAskTrina={onAskTrina} highlight={highlight} />}
               {root && (
                 <div role="separator" className="flex items-center gap-3 pt-3 pb-1 text-xs text-faint" data-testid="thread-count">
                   {count > 0 ? t('rooms.threadReplies', { n: count }) : t('rooms.threadNone')}
@@ -154,7 +154,7 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
                 </div>
               )}
               {view?.loading && root && !replies.length && <Loader2 size={16} className="mx-auto my-2 animate-spin text-faint" aria-label={t('common.loading')} />}
-              <RoomMessages roomId={roomId} messages={replies} pending={pending} meId={meId} members={members} variant="reply" threadRootId={rootId} dayBefore={root?.createdAt ?? null} highlight={highlight} />
+              <RoomMessages roomId={roomId} messages={replies} pending={pending} meId={meId} members={members} variant="reply" onAskTrina={onAskTrina} threadRootId={rootId} dayBefore={root?.createdAt ?? null} highlight={highlight} />
               <RoomAiStatus roomId={roomId} threadRootId={rootId} />
             </ImageGroup>
           )}

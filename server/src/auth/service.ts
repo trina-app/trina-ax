@@ -266,6 +266,7 @@ export class AuthService implements SessionService {
       server: { version: this.ctx.version, dev: this.ctx.config.mode === 'dev' && !this.ctx.config.office,
         deployment: deploymentOf(this.ctx.config), features: featuresOf(this.ctx.config), timeZone: settings.timeZone,
         ...(safeOpsEnabled() ? { allChatsConfidential: true as const } : {}),
+        ...(this.ctx.config.roomAiMentions ? { roomAiMentions: true as const } : {}),
         ...(devEnvFlag() ? { devEnv: true as const } : {}),
         ...(htmlPdfUnavailable() === null ? { htmlPdf: true as const } : {}),
         ...(this.hwpPreviewOn() ? { hwpPreview: true as const } : {}),

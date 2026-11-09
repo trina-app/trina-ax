@@ -16523,6 +16523,24 @@ of a web page could not be read. Pictures should open like Slack, across the app
   opens the viewer over the panel; the right-click there reaches the original).
 - Version impact: **minor** (a visible UX change; no API or data change).
 
+## Trina side chat, PR 2: no "@트리나" in rooms (feat/remove-room-trina-mention, 2026-11-09, product owner)
+
+- **Decision (option A, after PR 1 added the side chat):** "@트리나 …" in a room's timeline, a thread or a DM no longer
+  asks the AI. The text is an ordinary message. People ask in the side chat (✦) and share an answer with "Share to
+  room".
+- **How:** server.json `roomAiMentions` (AppConfig, absent = off) gates the ask in Rooms.send; `Me.server.roomAiMentions`
+  tells the app, which then offers the AI in the "@" list and the old placeholder. Off: no AI row, and the empty room's
+  box says "✦ asks Trina beside the room". The room AI code (rooms/ai.ts) stays for the switch and for earlier answers:
+  their private previews, "Post to room…" and sources keep working.
+- **"Ask Trina about this"** on a message (✦ in its hover bar; the long-press menu on a phone; a thread's messages too,
+  which closes the thread): the side chat opens with the message quoted above the box (who, when, its lines) and three
+  quick questions (Translate into my language, Summarize with its thread, Explain). The quote goes in front of the
+  question as a Markdown quote (at most 4,000 characters; the AI reads the rest of the room with room_read). It is what
+  "@트리나 translate this" was used for.
+- **Tests:** the test harness turns the switch on (tests/unit/a-lib.ts testConfig), so the room AI tests keep covering
+  the old way while it exists; tests/unit/b-room-ai-mentions-off.test.ts covers the default.
+- **Later:** remove the room AI ask and its switch once no team needs it (a decision of its own).
+
 ## 크게 보기 — the side panel can take the whole page (feat/panel-expand, 2026-11-09)
 
 넣을 곳: trina-ax `web/src/lib/sidePanel.ts`, `web/src/components/Layout.tsx`, `SidePanelFrame.tsx` and the file and

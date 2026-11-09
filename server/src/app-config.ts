@@ -198,6 +198,10 @@ export const AppConfigFile = z.object({
    * mycel-ctl). Do not turn it on before the control plane runs that command after the new owner's claim: until then a
    * lock could not be cleared, and nobody could reset an owner or admin password of that team from outside. Ignored on a self-installed server, office mode and dev. */
   handoverSafe: z.boolean().optional(),
+  /** "@트리나 …" in a room asks the AI there (rooms/ai.ts). Off by default since the side chat (docs/DECISIONS.md
+   * "Trina side chat", option A): people ask the AI beside a room and share an answer on purpose. On: the old way, for
+   * an operator who still wants it while people move over. Earlier answers in rooms stay as they are either way. */
+  roomAiMentions: z.boolean().optional(),
   /** the knowledge graph (server/src/knowledge-graph/, docs/KNOWLEDGE-GRAPH.md): `codegraph` is the CodeGraph command
    * to use (a path; relative to this file's folder), '' never to use one. Absent: `codegraph` on the PATH, if any. */
   knowledgeGraph: z.object({ codegraph: z.string().max(1000).optional() }).strict().optional(),
@@ -248,6 +252,8 @@ export interface AppConfig {
   deployment?: 'self' | 'hosted'
   /** see AppConfigFile.handoverSafe; absent = off */
   handoverSafe?: boolean
+  /** see AppConfigFile.roomAiMentions; absent = off */
+  roomAiMentions?: boolean
   /** first-run setup token (POST /api/setup). Dev: printed at start; prod: written by the installer. */
   setupToken: string | null
   /** demo mode (MYCEL_DEMO, `bun run demo:company`): the fictional company's demo people. Only ever set on a development
@@ -350,6 +356,7 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
     setupToken: env[P + 'SETUP_TOKEN'] ?? null,
     ...(deployment ? { deployment } : {}),
     ...(f.handoverSafe ? { handoverSafe: true } : {}),
+    ...(f.roomAiMentions ? { roomAiMentions: true } : {}),
     ...(demo ? { demo } : {}),
     ...(f.knowledgeGraph?.codegraph !== undefined ? { knowledgeGraph: { codegraph: f.knowledgeGraph.codegraph === '' ? '' : abs(f.knowledgeGraph.codegraph) } } : {}),
   }

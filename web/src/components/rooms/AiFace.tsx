@@ -30,3 +30,9 @@ export function AiFace({ size, className, named = PRODUCT_NAMED_AFTER_AI }: { si
 export function AiFaceInline({ className, named = PRODUCT_NAMED_AFTER_AI }: { className?: string; named?: boolean }) {
   return named ? <TrinaStar size={14} className={className} /> : <Sparkles size={12} className={clsx('shrink-0 text-accent-text', className)} aria-hidden />
 }
+
+/** A toolbar button's mark (the room header's ✦ that opens the side chat): no circle, the size of the icons beside it
+ * (16 px lucide strokes; the star is thin, so its box is 20). */
+export function AiMark({ named = PRODUCT_NAMED_AFTER_AI }: { named?: boolean }) {
+  return named ? <TrinaStar size={20} className="shrink-0" /> : <Sparkles size={16} aria-hidden className="shrink-0" />
+}

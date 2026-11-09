@@ -68,7 +68,7 @@ async function focus(box: FakeElement) {
 const setValue = Object.getOwnPropertyDescriptor(FakeElement.prototype, 'value')!.set!
 
 async function open() {
-  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name } } as unknown as Me } })
+  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name }, server: { roomAiMentions: true } } as unknown as Me } })
   const r = room()
   sent = []
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -376,7 +376,7 @@ test('a draft keeps its mentions when the box comes back', async () => {
 }, DOM_TEST_MS)
 
 test('the edit form: the mentions a message has stand out as on the message, and stay mentions while whole', async () => {
-  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name } } as unknown as Me } })
+  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name }, server: { roomAiMentions: true } } as unknown as Me } })
   const r = room()
   const mine = message({ roomId: r.id, seq: 1, author: ME, body: '@Cy Park 확인 부탁해요 @Ben', mentions: [CY.id] })
   const patches: { body: string; mentions: string[] }[] = []
@@ -407,7 +407,7 @@ test('the edit form: the mentions a message has stand out as on the message, and
 }, DOM_TEST_MS)
 
 test('the edit form: a message with "\\r\\n" line breaks (another app) keeps its mentions through an edit', async () => {
-  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name } } as unknown as Me } })
+  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name }, server: { roomAiMentions: true } } as unknown as Me } })
   const r = room()
   const mine = message({ roomId: r.id, seq: 1, author: ME, body: '안녕\r\n@Cy Park 확인', mentions: [CY.id] })
   const patches: { body: string; mentions: string[] }[] = []
