@@ -24,6 +24,7 @@ import { directFromConnectInfo, fetchConnectInfo, lanFailureCode, lanFailureToRe
 import { BrowserPane, type PaneActivity, type PanePrompt } from './pane/pane'
 import { HostClassifier, sessionResolver } from './pane/classify'
 import { APP_WEB_PREFERENCES, guardAppView, guardUiView, hardenAppSession } from './security'
+import { attachContextMenu } from './context-menu'
 import type { FolderGrants } from '../common/folder-access'
 import type { TeamsStore } from './teams-store'
 import { debug } from './debug'
@@ -376,6 +377,8 @@ export class AppWindow {
     const app = new WebContentsView({ webPreferences: { ...APP_WEB_PREFERENCES, session: appSes, preload: join(this.o.distDir, 'preload-app.cjs') } })
     app.setBackgroundColor('#FFFFFF')
     this.app = app
+    // a right-click: copy a photo, a link or text (Electron shows no menu of its own)
+    attachContextMenu(app.webContents, { window: this.win, locale: this.o.locale, allowedOrigins: () => this.allowedOrigins() })
     const failedNavigation = (url: string) => {
       if (this.app !== app || !this.team) return
       // the office address stopped answering (left the office, Wi-Fi changed): straight to the team address
