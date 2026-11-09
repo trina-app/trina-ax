@@ -11,6 +11,7 @@
 // On computers the file's conversation is beside it (components/rooms/ViewerColumn.tsx, step c): its message's thread,
 // where a reply goes to the room's thread; ✦ switches to my Trina side chat with the file quoted, "스레드로 돌아가기"
 // back; the side chat stays across ← →; the bar's toggle hides the column. On a phone ✦ opens the room page's side chat.
+// The side chat there takes a pasted picture, and the room page's side chat shows the same one.
 // SHOTS_DIR=<folder>: the screenshots (a PDF with its thread at 1440 light, the Trina side chat at 1440 dark, the column
 // hidden at 1440 light, a PDF at 390 light, a Hangul file at 1440 dark) go there.
 import fs from 'node:fs'
@@ -533,6 +534,30 @@ test("the column starts on Trina when the room page's side chat was open: the sa
   await page.keyboard.press('Escape')
   await expect(viewer(page)).toHaveCount(0)
   await expect(pageSide.getByTestId('side-chat-input')).toHaveValue('acme 초안')
+})
+
+test('the side chat beside a file takes a pasted picture, and the room page\'s side chat has the same one', async ({ page, browserName }) => {
+  test.skip(browserName !== 'chromium', 'pastes through the page clipboard (Chromium)')
+  await openRoom(page)
+  await openChip(timeline(page), 'acme-handbook.pdf')
+  await page.getByTestId('image-viewer-ask-trina').click()
+  await expect(column(page).getByTestId('side-chat-input')).toBeFocused()
+  await page.evaluate(async (b64) => {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': new Blob([bytes], { type: 'image/png' }) })])
+  }, PNG.toString('base64'))
+  await page.keyboard.press('ControlOrMeta+V')
+  const chips = column(page).getByTestId('attachment-chip')
+  await expect(chips).toHaveCount(1)
+  await expect(chips.first()).toHaveAttribute('data-status', 'done')
+  await expect(chips.first().getByTestId('chip-thumb')).toBeVisible()
+  await expect(column(page).getByTestId('side-chat-attach')).toBeVisible()
+  // the viewer stays open (the paste was the box's), and the room page's side chat shows the same picture
+  await expect(viewer(page)).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(viewer(page)).toHaveCount(0)
+  await page.getByTestId('room-side-chat-button').click()
+  await expect(page.getByTestId('room-side-chat').getByTestId('attachment-chip')).toHaveCount(1)
 })
 
 test.describe('a phone (390 px)', () => {
