@@ -239,9 +239,19 @@ export function roomWantsMe(r: Pick<Room, 'kind' | 'unreadCount' | 'mentioned' |
   // a room I hid wants nothing of me: whatever is for me brings it back first (the server decides it)
   if (r.hidden) return false
   if (r.aiWaits) return true
-  const level = r.notify?.level ?? (r.muted ? 'off' : r.kind === 'team' || r.kind === 'all' ? 'mentions' : 'all')
+  const level = levelOf(r)
   if (level === 'off' || roomUnread(r) <= 0) return false
   return r.mentioned || (threadReplies && (r.threadsUnread ?? 0) > 0) || (level === 'all' && r.unreadCount > 0)
+}
+/** My level for the room (Room.notify.level); an older server without levels: muted is 끄기, DMs and group chats are 모든
+ * 메시지, team rooms and the everyone room mentions. */
+const levelOf = (r: Pick<Room, 'kind' | 'muted'> & Partial<Pick<Room, 'notify'>>) =>
+  r.notify?.level ?? (r.muted ? 'off' : r.kind === 'team' || r.kind === 'all' ? 'mentions' : 'all')
+
+/** The room has unread messages (or followed replies) and I neither hid it nor turned it off (끄기: its own level, or my
+ * default "nothing"): the Mac Dock's dot while nothing wants me (docs/DECISIONS.md "The Dock's dot for unread rooms"). */
+export function roomLightsDot(r: Pick<Room, 'kind' | 'unreadCount' | 'muted'> & Partial<Pick<Room, 'threadsUnread' | 'notify' | 'hidden'>>): boolean {
+  return !r.hidden && levelOf(r) !== 'off' && roomUnread(r) > 0
 }
 
 /** Who put a reaction there, for its tooltip: the names given ("가나, 다라"), then how many more ("외 3명"). */

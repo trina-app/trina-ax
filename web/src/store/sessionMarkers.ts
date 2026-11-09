@@ -15,9 +15,10 @@
 //    while the room still wants me. One per room (tag "room-<id>"), its click opens the room. The sound stays the rooms'
 //    own (store/roomSound.ts); only the room's "?" gets a toast.
 //  - the dock badge (desktop app, macOS) follows the one count n; so does an installed web app's icon (the Badging API:
-//    the Dock or taskbar of a computer, an iPhone's Home Screen): the exact n, cleared at 0 (the service worker's dot
-//    from a push while no window was open turns into it). A normal tab: the browser ignores it. The phone app has its
-//    own (native) badge.
+//    the Dock or taskbar of a computer, an iPhone's Home Screen): the exact n; at 0 a plain dot while some room I did
+//    not turn off or hide has unread messages n does not count (lib/sessionMarkers.ts iconBadge, as Slack and Discord), else
+//    cleared (the service worker's dot from a push while no window was open turns into it). A normal tab: the browser
+//    ignores it. The phone app has its own (native) badge.
 import { create } from 'zustand'
 import { useMemo } from 'react'
 import { API, plainLabel, type Chat, type Room, type RoomMessage, type ServerEvent } from '@mycel/shared/api'
@@ -27,7 +28,7 @@ import { mobileApp } from '../lib/mobile'
 import { slideUrl } from '../lib/deckProgress'
 import { navigateTo } from '../lib/nav'
 import { plainLine, roomTitle, roomWantsMe } from '../lib/rooms'
-import { attentionCount, markerOf, NOTIFY_DELAY_MS, stillWorthTelling, type MarkerReason } from '../lib/sessionMarkers'
+import { attentionCount, iconBadge, markerOf, NOTIFY_DELAY_MS, stillWorthTelling, type IconBadge, type MarkerReason } from '../lib/sessionMarkers'
 import { t, type MessageKey } from '../i18n'
 import { useChats, type OpenRequest } from './chats'
 import { openDeckChat, useDeckBuilds } from './deckBuilds'
@@ -242,11 +243,11 @@ const badgeApi = (): BadgeNavigator | null => {
   const nav = navigator as unknown as BadgeNavigator
   return typeof nav.setAppBadge === 'function' ? nav : null
 }
-/** n on an installed web app's icon (0 clears it). Never throws: a refusal (not installed, notifications off, a browser
- * that only half has it) changes nothing on the page. */
-function setWebBadge(nav: BadgeNavigator, n: number) {
+/** n on an installed web app's icon, the dot with no number, 0 clears it. Never throws: a refusal (not installed,
+ * notifications off, a browser that only half has it) changes nothing on the page. */
+function setWebBadge(nav: BadgeNavigator, b: IconBadge) {
   try {
-    const done = n > 0 ? nav.setAppBadge!(n) : typeof nav.clearAppBadge === 'function' ? nav.clearAppBadge() : nav.setAppBadge!(0)
+    const done = b === 'dot' ? nav.setAppBadge!() : b > 0 ? nav.setAppBadge!(b) : typeof nav.clearAppBadge === 'function' ? nav.clearAppBadge() : nav.setAppBadge!(0)
     void Promise.resolve(done).catch(() => {})
   } catch { /* the badge is a nicety */ }
 }
@@ -283,23 +284,24 @@ export function startSessionMarkers() {
   const onRead = app?.onRead?.((token) => markReadFrom(token))
   if (onRead) offs.push(onRead)
   if (app?.setBadgeCount) {
-    let shown = -1
+    let shown: IconBadge | undefined
     const badge = () => {
-      const { n } = currentCount()
-      if (n !== shown) { shown = n; app.setBadgeCount!(n) }
+      const b = iconBadge(currentCount())
+      // the dot: n 0 and a flag (an older desktop app ignores it and shows nothing, as before)
+      if (b !== shown) { shown = b; app.setBadgeCount!(b === 'dot' ? 0 : b, b === 'dot') }
     }
     offs.push(useChats.subscribe(badge), useRooms.subscribe(badge), useSessionMarkers.subscribe(badge))
     badge()
   }
-  // an installed web app: the same n on its icon, set once when it changes (a burst waits WEB_BADGE_MS), and at once now
-  // (the worker's dot from a push while no window was open becomes the exact count)
+  // an installed web app: the same n (or dot) on its icon, set once when it changes (a burst waits WEB_BADGE_MS), and at
+  // once now (the worker's dot from a push while no window was open becomes the exact count)
   const nav = (webBadge = badgeApi())
   if (nav) {
-    let shown = -1, timer: ReturnType<typeof setTimeout> | undefined
+    let shown: IconBadge | undefined, timer: ReturnType<typeof setTimeout> | undefined
     const apply = () => {
       timer = undefined
-      const { n } = currentCount()
-      if (n !== shown) { shown = n; setWebBadge(nav, n) }
+      const b = iconBadge(currentCount())
+      if (b !== shown) { shown = b; setWebBadge(nav, b) }
     }
     const later = () => { if (timer === undefined) timer = setTimeout(apply, WEB_BADGE_MS) }
     offs.push(useChats.subscribe(later), useRooms.subscribe(later), useSessionMarkers.subscribe(later), () => clearTimeout(timer))
@@ -329,7 +331,8 @@ export const currentCount = () => {
   return attentionCount(chats.chats, rooms.rooms, { here: s.visible ? s.onScreen : null, cards: cardChats(chats.requests), threadReplies: rooms.alerts?.threadReplies ?? true })
 }
 
-/** n, whether any is a "?", and the AI chats' part (tab title, phone ☰ dot); re-renders when the inputs change */
+/** n, whether any is a "?", the AI chats' part (tab title, phone ☰ dot) and other unread rooms; re-renders when the
+ * inputs change */
 export function useAttention(): ReturnType<typeof attentionCount> {
   const chats = useChats((s) => s.chats)
   const requests = useChats((s) => s.requests)

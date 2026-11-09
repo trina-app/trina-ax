@@ -1,7 +1,7 @@
 // Session markers (docs/DECISIONS.md "Session markers"): one marker per AI chat row, from the chat list's own fields
 // (phone-nav's Chat.waiting / Chat.unseen, Chat.lastOutcome, runState) and the cards open in this window, and the one
-// count n that bubbles up (the tab title, the dock badge). Pure: no React, no stores; unit-tested in
-// test/unit/session-markers.test.tsx.
+// count n that bubbles up (the tab title, the dock badge; at 0 the icon's dot for other unread rooms). Pure: no React,
+// no stores; unit-tested in test/unit/session-markers.test.tsx.
 //   "?"      your turn: an open card (it stays until the card closes, on screen too), or a failed / paused answer not
 //            seen yet
 //   spinner  running or queued
@@ -10,7 +10,7 @@
 // spinner. The chat on screen in a visible window shows no dot and no failed "?" (the window sends /seen, and the
 // server's word follows a moment later).
 import type { Chat } from '@mycel/shared/api'
-import { roomWantsMe } from './rooms'
+import { roomLightsDot, roomWantsMe } from './rooms'
 
 export type MarkerKind = 'ask' | 'running' | 'new'
 /** why: the first line of the hover peek and the row's label */
@@ -41,9 +41,11 @@ type CountedRoom = Parameters<typeof roomWantsMe>[0]
  * AI waiting on me, or unread messages for me by my level for the room: by default a DM or group chat message, an
  * @mention, a reply in a thread I follow), each once. Chats and rooms, not events: a chat that ended twice counts once.
  * `ask`: any of them is a "?"; `chats` and `chatAsk`: the AI chats' part of it (the phone's ☰ dot: the drawer holds
- * only them). `here`: the chat on screen in a visible window; `cards`: the chats with a card open in this window;
+ * only them). `unread`: some other room has unread messages n does not count, in a room I did not turn off or hide
+ * (lib/rooms.ts roomLightsDot: a plain message in a team room at its default), the app icon's dot while n is 0
+ * (iconBadge). `here`: the chat on screen in a visible window; `cards`: the chats with a card open in this window;
  * `threadReplies`: my "replies in threads I follow" switch (the rooms list's alerts). */
-export function attentionCount(chats: readonly CountedChat[], rooms: readonly CountedRoom[], o: { here?: string | null; cards?: ReadonlySet<string>; threadReplies?: boolean } = {}): { n: number; ask: boolean; chats: number; chatAsk: boolean } {
+export function attentionCount(chats: readonly CountedChat[], rooms: readonly CountedRoom[], o: { here?: string | null; cards?: ReadonlySet<string>; threadReplies?: boolean } = {}): { n: number; ask: boolean; chats: number; chatAsk: boolean; unread: boolean } {
   let chatsN = 0, chatAsk = false
   for (const c of chats) {
     const m = markerOf(c, { here: c.id === o.here, card: o.cards?.has(c.id) })
@@ -51,10 +53,18 @@ export function attentionCount(chats: readonly CountedChat[], rooms: readonly Co
     chatsN++
     if (m!.kind === 'ask') chatAsk = true
   }
-  let n = chatsN, ask = chatAsk
-  for (const r of rooms) if (roomWantsMe(r, o.threadReplies ?? true)) { n++; if (r.aiWaits) ask = true }
-  return { n, ask, chats: chatsN, chatAsk }
+  let n = chatsN, ask = chatAsk, unread = false
+  for (const r of rooms) {
+    if (roomWantsMe(r, o.threadReplies ?? true)) { n++; if (r.aiWaits) ask = true }
+    else if (roomLightsDot(r)) unread = true
+  }
+  return { n, ask, chats: chatsN, chatAsk, unread }
 }
+
+/** What the app icon shows (the desktop app's Dock, an installed web app's icon): n; at 0 a plain dot while some room
+ * has unread messages n does not count, as Slack and Discord do; else nothing (0 clears it). */
+export type IconBadge = number | 'dot'
+export const iconBadge = (a: { n: number; unread: boolean }): IconBadge => (a.n > 0 ? a.n : a.unread ? 'dot' : 0)
 
 /** The 트리나 기록 filter "답변 중이거나 내 답을 기다림": spinner and "?" rows (failed and paused included), not new ones. */
 export const waitingOrRunning = (c: MarkedChat, v: MarkerView = {}) => {

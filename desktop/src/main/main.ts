@@ -26,7 +26,7 @@ import { LINK_SCHEME, linkFromArgv } from '../common/address'
 import { partitionFor } from '../common/teams'
 import { NO_KIT, parseKit, type Kit } from '../common/kit'
 import { answersFileChoosers } from '../common/file-chooser'
-import { badgeCountOf } from '../common/notify'
+import { DOCK_DOT, dockBadgeOf } from '../common/notify'
 import { storeBuild } from '../common/update'
 import { AppWindow, type AllowAllOutcome } from './app-window'
 import { debug } from './debug'
@@ -266,10 +266,14 @@ function registerIpc() {
   // none), a few a minute apart from the others; the answer says whether the system took it ('off': notifications are
   // off for the app in the system's settings)
   ipcMain.handle('bridge:notify-test', (e) => (fromApp(e) ? win!.testNotify() : 'unsupported'))
-  // session markers (docs/DECISIONS.md): the dock shows how many chats and rooms want the person (macOS; Windows has
-  // no count)
-  ipcMain.on('bridge:badge', (e, n: unknown) => {
-    if (fromApp(e) && process.platform === 'darwin') app.setBadgeCount(badgeCountOf(n))
+  // session markers (docs/DECISIONS.md): the dock shows how many chats and rooms want the person, at 0 a dot while rooms
+  // have unread messages the number does not count (macOS; Windows has no count). setBadgeCount(0) clears the dot too:
+  // both set the Dock's one label.
+  ipcMain.on('bridge:badge', (e, n: unknown, dot: unknown) => {
+    if (!fromApp(e) || process.platform !== 'darwin') return
+    const badge = dockBadgeOf(n, dot)
+    if (badge === DOCK_DOT) app.dock?.setBadge(DOCK_DOT)
+    else app.setBadgeCount(badge)
   })
   ipcMain.handle('bridge:focus', (e) => (fromApp(e) ? !win!.win.isDestroyed() && win!.win.isFocused() : false))
   ipcMain.on('bridge:open-teams', (e) => fromApp(e) && win!.showWelcome())
