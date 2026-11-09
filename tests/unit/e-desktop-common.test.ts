@@ -1,7 +1,7 @@
 // Pure parts of the desktop app: team addresses, the team list, site permissions (with site access "all", the team's
 // policy over it and the repeated-question hint), result shaping, key input, bridge sender checks, the bridge's store
-// flag, the Settings > Browser channels, the team page's file chooser in the store build, quitting and the UI strings
-// (desktop/src/common/*).
+// flag, the Settings > Browser channels, the team page's file chooser in the store build, the right-click menu,
+// quitting and the UI strings (desktop/src/common/*).
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -23,6 +23,7 @@ import { PRODUCT } from '@mycel/shared'
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { PLURAL_PATTERN, pluralNames } from '@mycel/shared/plural'
 import { browserAction } from '../../desktop/src/common/browser-action'
+import { contextMenuItems, isTeamPage, saveableImage, type ContextFacts, type ContextItem } from '../../desktop/src/common/context-menu'
 
 describe('team addresses', () => {
   test('a bare team name becomes <name>.treesoop.com over https', () => {
@@ -692,6 +693,104 @@ describe("the team page's file chooser (Mac App Store build)", () => {
     expect(answer.indexOf('if (!sameDocument()) return')).toBeLessThan(answer.indexOf("'DOM.setFileInputFiles'"))
     // the in-app browser pane does not get it
     expect(readFileSync(join(import.meta.dir, '../../desktop/src/main/pane/pane.ts'), 'utf8')).not.toContain('setInterceptFileChooserDialog')
+  })
+})
+
+describe('the right-click menu (team page and own screens)', () => {
+  const TEAM = 'https://acme.example.com'
+  const none = { canCut: false, canCopy: false, canPaste: false, canSelectAll: false }
+  const at = (o: Partial<ContextFacts> = {}): ContextFacts => ({ mediaType: 'none', srcURL: '', hasImageContents: false, linkURL: '', selectionText: '', isEditable: false, editFlags: none, ...o })
+  /** on the team page itself, unless `where` says otherwise */
+  const items = (o: Partial<ContextFacts>, locale: UiLocale = 'ko', where: { teamPage: boolean; allowedOrigins: string[] } = { teamPage: true, allowedOrigins: [TEAM] }) => contextMenuItems(at(o), locale, where)
+  /** each item as one word: its action (with "-" when greyed out) or "|" for a line */
+  const shape = (list: ContextItem[]) => list.map((it) => ('id' in it ? `${it.id}${it.enabled ? '' : '-'}` : '|'))
+  const labels = (list: ContextItem[]) => list.map((it) => ('label' in it ? it.label : '|'))
+
+  test('a photo: 이미지 복사 and 이미지 저장…; a link: 링크 복사; selected text: 복사; a text field: the four edit items', () => {
+    const photo = items({ mediaType: 'image', hasImageContents: true, srcURL: `${TEAM}/api/rooms/r1/files/f1?thumb=1` })
+    expect(labels(photo)).toEqual(['이미지 복사', '이미지 저장…'])
+    expect(shape(items({ linkURL: 'https://example.org/a' }))).toEqual(['copyLink'])
+    expect(labels(items({ linkURL: 'https://example.org/a' }))).toEqual(['링크 복사'])
+    expect(shape(items({ selectionText: 'hello', editFlags: { ...none, canCopy: true } }))).toEqual(['copy'])
+    expect(labels(items({ selectionText: 'hello', editFlags: { ...none, canCopy: true } }))).toEqual(['복사'])
+    const field = items({ isEditable: true, editFlags: { canCut: true, canCopy: true, canPaste: true, canSelectAll: true } })
+    expect(shape(field)).toEqual(['cut', 'copy', 'paste', '|', 'selectAll'])
+    expect(labels(field)).toEqual(['잘라내기', '복사', '붙여넣기', '|', '모두 선택'])
+    // an empty field: nothing to cut or copy, greyed out rather than gone
+    expect(shape(items({ isEditable: true, editFlags: { ...none, canPaste: true } }))).toEqual(['cut-', 'copy-', 'paste', '|', 'selectAll-'])
+    // in the language of the app's own screens
+    expect(labels(items({ mediaType: 'image', hasImageContents: true, srcURL: `${TEAM}/a.png` }, 'en'))).toEqual(['Copy Image', 'Save Image As…'])
+    for (const { id: locale } of UI_LOCALES) for (const it of items({ mediaType: 'image', hasImageContents: true, srcURL: `${TEAM}/a.png`, linkURL: `${TEAM}/x` }, locale)) if ('label' in it) expect(it.label.length).toBeGreaterThan(0)
+  })
+
+  test('only what applies: a linked photo has both groups; a text field leaves out photo and link; empty space has no menu', () => {
+    expect(shape(items({ mediaType: 'image', hasImageContents: true, srcURL: `${TEAM}/a.png`, linkURL: `${TEAM}/files/view?path=a.png` }))).toEqual(['copyLink', '|', 'copyImage', 'saveImage'])
+    expect(shape(items({ mediaType: 'image', hasImageContents: true, srcURL: `${TEAM}/a.png`, selectionText: 'caption', editFlags: { ...none, canCopy: true } }))).toEqual(['copyImage', 'saveImage', '|', 'copy'])
+    expect(shape(items({ isEditable: true, linkURL: 'https://example.org', selectionText: 'x', editFlags: { ...none, canCopy: true } }))).toEqual(['cut-', 'copy', 'paste-', '|', 'selectAll-'])
+    expect(items({})).toEqual([])
+    // whitespace only, or a selection the page does not let be copied: no 복사
+    expect(items({ selectionText: '  \n', editFlags: { ...none, canCopy: true } })).toEqual([])
+    expect(items({ selectionText: 'secret' })).toEqual([])
+    // a photo still loading (no pixels yet) can be saved, not copied; a video or a canvas gets nothing
+    expect(shape(items({ mediaType: 'image', hasImageContents: false, srcURL: `${TEAM}/a.png` }))).toEqual(['saveImage'])
+    expect(items({ mediaType: 'video', srcURL: `${TEAM}/a.mp4` })).toEqual([])
+    expect(items({ mediaType: 'canvas', hasImageContents: true })).toEqual([])
+    // no Inspect, nothing that opens a link
+    const all = [...items({ mediaType: 'image', hasImageContents: true, srcURL: `${TEAM}/a.png`, linkURL: `${TEAM}/x`, selectionText: 'x', editFlags: { ...none, canCopy: true } }), ...items({ isEditable: true })]
+    for (const s of shape(all)) expect(['copyImage', 'saveImage', 'copyLink', 'cut', 'copy', 'paste', 'selectAll', '|']).toContain(s.replace(/-$/, ''))
+  })
+
+  test("이미지 저장… only for the team page's own images: its address, its office address, its blob: pictures", () => {
+    const LAN = 'https://192.168.0.10:8443'
+    expect(saveableImage(`${TEAM}/api/rooms/r1/files/f1?thumb=1`, [TEAM])).toBe(true)
+    expect(saveableImage(`${LAN}/api/rooms/r1/files/f1`, [TEAM, LAN])).toBe(true)
+    // the preview panel draws the original from the page's own bytes
+    expect(saveableImage(`blob:${TEAM}/1b0e5c1e-8f0a-4c43-9d55-2b8f3f1d2a10`, [TEAM])).toBe(true)
+    expect(saveableImage(`blob:${LAN}/1b0e5c1e-8f0a-4c43-9d55-2b8f3f1d2a10`, [TEAM])).toBe(false)
+    // another site, an artifact's picture, an opaque blob, junk
+    for (const src of ['https://example.org/a.png', 'http://acme.example.com/a.png', 'https://acme.example.com.evil.test/a.png', 'data:image/png;base64,iVBORw0KGgo=', 'blob:null/1b0e5c1e-8f0a-4c43-9d55-2b8f3f1d2a10', 'file:///etc/hosts', 'javascript:alert(1)', 'not a url', ''])
+      expect({ src, ok: saveableImage(src, [TEAM]) }).toEqual({ src, ok: false })
+    // no team open: nothing is saved
+    expect(saveableImage(`${TEAM}/a.png`, [])).toBe(false)
+    // an image from elsewhere on the team page is still copied
+    expect(shape(items({ mediaType: 'image', hasImageContents: true, srcURL: 'https://example.org/a.png' }))).toEqual(['copyImage'])
+  })
+
+  test('the photo items only on the team page itself: not in a frame inside it (an artifact), not on the own screens', () => {
+    const LAN = 'https://192.168.0.10:8443'
+    expect(isTeamPage({ url: `${TEAM}/rooms/r1`, top: true }, [TEAM])).toBe(true)
+    expect(isTeamPage({ url: `${LAN}/rooms/r1`, top: true }, [TEAM, LAN])).toBe(true)
+    // an artifact's or a preview's frame, even one at the team address (/sandbox/frame) or about:srcdoc
+    for (const url of [`${TEAM}/sandbox/frame?x=1`, 'about:srcdoc', 'about:blank', `${TEAM}/rooms/r1`]) expect(isTeamPage({ url, top: false }, [TEAM])).toBe(false)
+    // another address in the top frame (a page still loading, the app's own screens), a frame that is gone, no team
+    for (const url of ['https://example.org/', 'about:blank', 'mycel-ui://app/welcome.html', 'not a url']) expect(isTeamPage({ url, top: true }, [TEAM])).toBe(false)
+    expect(isTeamPage(null, [TEAM])).toBe(false)
+    expect(isTeamPage({ url: `${TEAM}/`, top: true }, [])).toBe(false)
+    // an artifact's picture pointing at a team address it could not load: no 이미지 저장… (it would fetch it with the
+    // team's session), no 이미지 복사; its link and text items stay
+    const frame = { teamPage: false, allowedOrigins: [TEAM] }
+    expect(items({ mediaType: 'image', hasImageContents: false, srcURL: `${TEAM}/api/files/download?path=users%2Folga%2Fpay.pdf` }, 'ko', frame)).toEqual([])
+    expect(items({ mediaType: 'image', hasImageContents: true, srcURL: `blob:${TEAM}/1b0e5c1e-8f0a-4c43-9d55-2b8f3f1d2a10` }, 'ko', frame)).toEqual([])
+    expect(shape(items({ mediaType: 'image', hasImageContents: true, srcURL: `${TEAM}/a.png`, linkURL: 'https://example.org/x', selectionText: 'caption', editFlags: { ...none, canCopy: true } }, 'ko', frame))).toEqual(['copyLink', '|', 'copy'])
+    // the app's own screens (no team address): their text fields and links
+    const own = { teamPage: false, allowedOrigins: [] }
+    expect(shape(items({ isEditable: true, editFlags: { ...none, canPaste: true } }, 'ko', own))).toEqual(['cut-', 'copy-', 'paste', '|', 'selectAll-'])
+    expect(shape(items({ linkURL: 'https://acme.example.com/join' }, 'ko', own))).toEqual(['copyLink'])
+  })
+
+  test('wired to the team page (its addresses) and the own screens (none), with no item that opens or navigates', () => {
+    const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
+    const open = win.slice(win.indexOf('async openTeam('), win.indexOf('async reload()'))
+    expect(open).toContain('attachContextMenu(app.webContents, { window: this.win, locale: this.o.locale, allowedOrigins: () => this.allowedOrigins() })')
+    expect(win).toContain('attachContextMenu(v.webContents, { window: this.win, locale: o.locale, allowedOrigins: () => [] })')
+    expect(win.match(/attachContextMenu\(/g)).toHaveLength(2)
+    const menu = readFileSync(join(import.meta.dir, '../../desktop/src/main/context-menu.ts'), 'utf8')
+    for (const word of [/openExternal/, /\.loadURL\(/, /inspectElement/, /DevTools/, /\bshell\b/, /\bnavigate/]) expect(menu).not.toMatch(word)
+    // the frame that was right-clicked decides, checked again at the click
+    expect(menu).toContain('const teamPage = () => isTeamPage(clickedFrame(p.frame), o.allowedOrigins())')
+    expect(menu).toContain('copyImage: () => teamPage() && wc.copyImageAt(p.x, p.y)')
+    expect(menu).toContain('saveImage: () => teamPage() && saveableImage(p.srcURL, o.allowedOrigins()) && wc.downloadURL(p.srcURL)')
+    expect(readFileSync(join(import.meta.dir, '../../desktop/src/main/pane/pane.ts'), 'utf8')).not.toContain('context-menu')
   })
 })
 

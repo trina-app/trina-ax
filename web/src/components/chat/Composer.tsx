@@ -37,7 +37,9 @@ import { useConfidentialChat } from '../../lib/confidential'
 import { openFilePreview, openTeamFile } from '../../lib/sidePanel'
 import { loadChips, patchStash, readStash, registerComposer, saveChips, subscribeStash, TEAM_FILE_DRAG_TYPE, writeStash, type AttachResult } from '../../lib/teamAttach'
 import { cancelUpload, uploadFile, type UploadProgress } from '../../lib/upload'
+import { pastedFiles } from '../../lib/paste'
 import { UploadLabel } from '../UploadLabel'
+import { ChipThumb, isLocalImage } from '../ChipThumb'
 import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { useLocale, useT } from '../../i18n'
 import { useMe } from '../../store/session'
@@ -613,8 +615,9 @@ export default function Composer({
               >
                 {f.source === 'team' ? (
                   <FolderOpen size={15} className="text-accent-text" aria-label={t('composer.teamFile', { path: f.attachment?.path ?? f.path ?? '' })} />
-                ) : f.file?.type.startsWith('image/') ? (
-                  <LocalThumb file={f.file} />
+                ) : f.file && isLocalImage(f.file) ? (
+                  // a picture shows at once, while it uploads (a pasted screenshot too)
+                  <ChipThumb file={f.file} fallback={<FileText size={15} className="text-muted" aria-hidden />} />
                 ) : (f.file?.type ?? f.attachment?.mime ?? '').startsWith('audio/') ? (
                   <FileAudio size={15} className="text-accent-text" aria-hidden />
                 ) : (
@@ -724,7 +727,7 @@ export default function Composer({
                   }}
                   onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
                   onPaste={(e) => {
-                    const pasted = Array.from(e.clipboardData.files)
+                    const pasted = pastedFiles(e.clipboardData)
                     if (pasted.length) {
                       e.preventDefault()
                       void addFiles(pasted)
@@ -873,14 +876,3 @@ function restoreChips(userId: string, draftId: string): Pending[] {
 
 /** "groups/marketing/brief.md" -> "groups/marketing" */
 const folderOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
-
-/** A picked image before sending: a small thumbnail in its chip. */
-function LocalThumb({ file }: { file: File }) {
-  const [url, setUrl] = useState<string | null>(null)
-  useEffect(() => {
-    const u = URL.createObjectURL(file)
-    setUrl(u)
-    return () => URL.revokeObjectURL(u)
-  }, [file])
-  return url ? <img src={url} alt="" className="h-8 w-8 rounded object-cover" /> : null
-}

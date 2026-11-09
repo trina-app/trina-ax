@@ -1,7 +1,8 @@
 // The message box of a room: text that grows with what is typed (Enter sends, Shift+Enter makes a new line, nothing
 // happens while a Korean or Japanese word is still being composed; on touch screens Enter makes a new line and the
 // button sends, like the AI chat's box), files (the clip, paste or drop; each is uploaded at once with POST
-// /api/rooms/:id/files and sent by id), and "@" for the room's members: a picked name (or "@트리나") stands out in the
+// /api/rooms/:id/files and sent by id; a picture shows as one in its chip at once, while it uploads), and "@" for the
+// room's members: a picked name (or "@트리나") stands out in the
 // box at once and is sent as a mention (useMentionMenu, components/TokenTextarea.tsx). "@전체" notifies everyone in the
 // room (not in a DM; in the everyone room only for owners and admins); in a room of MENTION_ALL_CONFIRM people or more the
 // send asks first, in one line inside the box ("N명에게 알림이 가요. 보낼까요?"). In a thread (threadRootId) it
@@ -15,8 +16,9 @@ import clsx from 'clsx'
 import { ArrowUp, FileText, Loader2, Paperclip, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ROOM_FILES_MAX, ROOM_MESSAGE_MAX, SMALL_UPLOAD_MAX, type RoomFile, type UserRef } from '@mycel/shared/api'
-import { api, API, errorText } from '../../lib/api'
+import { api, API, errorText, roomFileUrl } from '../../lib/api'
 import { formatSize } from '../../lib/format'
+import { pastedFiles } from '../../lib/paste'
 import { useVoiceInput } from '../../lib/useVoiceInput'
 import { micState, voiceBlockedInRoom } from '../../lib/voice'
 import { useLocale, useT } from '../../i18n'
@@ -26,6 +28,7 @@ import { toast } from '../../store/ui'
 import { TokenTextarea } from '../TokenTextarea'
 import { Button, IconButton } from '../ui'
 import { Tooltip } from '../Tooltip'
+import { ChipThumb, isLocalImage } from '../ChipThumb'
 import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { useEveryone, useMentionMenu } from './useMentionMenu'
 import { useTextSize } from '../../lib/textSize'
@@ -40,6 +43,9 @@ interface Upload {
 }
 
 let uploadKey = 0
+
+/** The chip shows a picture: one from this computer, or a photo of a send the server gave back (its room thumbnail). */
+const picture = (u: Upload) => isLocalImage(u.file) || (u.roomFile?.kind === 'image' && !!u.roomFile.thumb)
 
 /** From this many members (me included) a message with "@전체" asks before it goes. */
 export const MENTION_ALL_CONFIRM = 10
@@ -224,8 +230,18 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
           <ul className="flex flex-wrap gap-2 px-3 pt-2" aria-label={t('composer.attachments')}>
             {files.map((f) => (
               <li key={f.key} className={clsx('inline-flex max-w-full items-center gap-2 rounded-xl border py-1 pr-1 pl-2.5 text-xs', f.status === 'failed' ? 'border-danger/40 bg-danger-soft' : 'border-line bg-subtle')} data-testid="room-file-chip" data-status={f.status}>
-                {f.status === 'uploading' ? <Loader2 size={14} className="animate-spin text-faint" aria-hidden /> : <FileText size={14} className="text-muted" aria-hidden />}
+                {/* a picture as itself, at once (close to the chip's edge; the spinner then sits after its name); another
+                    file its icon */}
+                {picture(f) ? (
+                  // from this computer, or a photo of a send the server gave back (its room thumbnail)
+                  <ChipThumb file={isLocalImage(f.file) ? f.file : undefined} src={isLocalImage(f.file) ? undefined : roomFileUrl(roomId, f.roomFile!.id, { thumb: '1' })} fallback={<FileText size={14} className="text-muted" aria-hidden />} className="-ml-1.5" />
+                ) : f.status === 'uploading' ? (
+                  <Loader2 size={14} className="animate-spin text-faint" aria-hidden />
+                ) : (
+                  <FileText size={14} className="text-muted" aria-hidden />
+                )}
                 <span className="max-w-[180px] truncate font-medium">{f.file.name}</span>
+                {f.status === 'uploading' && picture(f) && <Loader2 size={14} className="shrink-0 animate-spin text-faint" aria-hidden />}
                 <span role="status" className={f.status === 'failed' ? 'max-w-[160px] truncate text-danger' : 'text-faint'} title={f.error}>
                   {f.status === 'uploading' ? <span className="sr-only">{t('rooms.uploading', { name: f.file.name })}</span> : f.status === 'failed' ? f.error : formatSize(f.file.size, locale)}
                 </span>
@@ -272,7 +288,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                 maxLength={ROOM_MESSAGE_MAX}
                 {...mention.inputProps}
                 onPaste={(e) => {
-                  const pasted = Array.from(e.clipboardData.files)
+                  const pasted = pastedFiles(e.clipboardData)
                   if (pasted.length) {
                     e.preventDefault()
                     addFiles(pasted)

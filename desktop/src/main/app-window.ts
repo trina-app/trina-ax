@@ -24,6 +24,7 @@ import { directFromConnectInfo, fetchConnectInfo, lanFailureCode, lanFailureToRe
 import { BrowserPane, type PaneActivity, type PanePrompt } from './pane/pane'
 import { HostClassifier, sessionResolver } from './pane/classify'
 import { APP_WEB_PREFERENCES, guardAppView, guardUiView, hardenAppSession } from './security'
+import { attachContextMenu } from './context-menu'
 import type { FolderGrants } from '../common/folder-access'
 import type { TeamsStore } from './teams-store'
 import { debug } from './debug'
@@ -167,7 +168,11 @@ export class AppWindow {
     this.shell = new WebContentsView({ webPreferences: uiPrefs })
     this.chrome = new WebContentsView({ webPreferences: uiPrefs })
     this.hostbar = new WebContentsView({ webPreferences: uiPrefs })
-    for (const v of [this.shell, this.chrome, this.hostbar]) guardUiView(v.webContents)
+    for (const v of [this.shell, this.chrome, this.hostbar]) {
+      guardUiView(v.webContents)
+      // a right-click in the app's own text fields (the invite link box, the browser's address): the edit items
+      attachContextMenu(v.webContents, { window: this.win, locale: o.locale, allowedOrigins: () => [] })
+    }
     this.chrome.setBackgroundColor('#ECEAE4')
     void this.shell.webContents.loadURL(`${UI_ORIGIN}/welcome.html`)
     void this.chrome.webContents.loadURL(`${UI_ORIGIN}/pane.html`)
@@ -376,6 +381,8 @@ export class AppWindow {
     const app = new WebContentsView({ webPreferences: { ...APP_WEB_PREFERENCES, session: appSes, preload: join(this.o.distDir, 'preload-app.cjs') } })
     app.setBackgroundColor('#FFFFFF')
     this.app = app
+    // a right-click: copy a photo, a link or text (Electron shows no menu of its own)
+    attachContextMenu(app.webContents, { window: this.win, locale: this.o.locale, allowedOrigins: () => this.allowedOrigins() })
     const failedNavigation = (url: string) => {
       if (this.app !== app || !this.team) return
       // the office address stopped answering (left the office, Wi-Fi changed): straight to the team address
