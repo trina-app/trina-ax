@@ -16210,6 +16210,24 @@ message rows ("알림함의 대화 알림") it was not clickable, its date sat o
   still covers a row with no link and its 읽음 표시.
 - Version impact: **patch** (additive API field; no data change).
 
+## CI unit tests in shards (ci/shard-unit-tests, 2026-11-09)
+
+- **Why:** of the ~35 minutes of the one CI job, ~30 were the unit tests (about 440 files, one after another). Every
+  PR waited for them.
+- **Decision:** the unit tests run as 5 jobs at once (`unit`, a matrix), beside `static` (typecheck, docs, native
+  build, go test, the pinned browser) and `other` (fast fuzz, web tests and build, relay). scripts/ci/unit-shard.ts
+  splits the files by their times in an earlier CI run (scripts/ci/unit-times.json): the longest first, each to the
+  shard with the least time so far, a new file counted as the median. Expected: about 6 minutes of tests per shard,
+  about 10 minutes per run.
+- **The required check stays:** the last job keeps the old name, "typecheck, native, unit, fast fuzz, web, relay",
+  which the default branch's ruleset requires and release.yml's test waits for; it passes only when every job passed.
+- **Cost:** public repository, standard runners: no charge. Each run now holds 8 jobs at a time (the organisation's
+  free plan allows about 20 at once); 5 shards, not more, for that.
+- **Caches** (actions/cache): pandoc's package by version, bun's package store by bun.lock, and the pinned rhwp CLI
+  by resources/hwp/manifest.json (prepare:hwp still checks its sha256). A cached run does not reach GitHub releases or
+  the npm registry for them (GitHub's anonymous downloads gave HTTP 504 on 2026-11-09); a miss downloads as before.
+- **Refresh the times** when the split drifts: `bun scripts/ci/unit-shard.ts --times <the unit step's log>`.
+
 ## Pinned chats — 상단에 고정 in 트리나 기록 (feat/pin-chats, 2026-11-09, product owner)
 
 넣을 곳: trina-ax core (`server/src/chat/pins.ts`, `server/src/routes/chats.ts`, migration 277, `shared/src/api/chats.ts`,
