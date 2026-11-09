@@ -628,7 +628,7 @@ export class ChatRuntime {
     if (!projectId) return null
     const p = this.store.projectRow(projectId)
     if (!p || p.trashed_with !== null || !canSeeProject(this.files, user, p)) return null
-    return { name: p.name, folderPath: p.folder_path, instructions: p.instructions, createdBy: p.created_by, instructionsAuthor: p.instructions_author, instructionsAuthored: p.instructions_authored }
+    return { id: p.id, name: p.name, folderPath: p.folder_path, instructions: p.instructions, createdBy: p.created_by, instructionsAuthor: p.instructions_author, instructionsAuthored: p.instructions_authored }
   }
   /**
    * Project instructions count as outside content (remember protection) unless this person wrote every saved version

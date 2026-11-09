@@ -27,7 +27,7 @@ export const Schedule = z.object({
   templateId: z.string().nullable().optional(), templateVersion: z.number().nullable().optional(),
   sourcePath: z.string().nullable().optional(), outputPath: z.string().nullable().optional(),
   pendingDueAt: z.string().nullable().optional(), retryAt: z.string().nullable().optional(), deferredCount: z.number().optional(),
-  lastOutcome: z.enum(['done', 'problems', 'error', 'stopped', 'interrupted', 'budget_exceeded', 'user_unavailable', 'needs_key']).nullable().optional(),
+  lastOutcome: z.enum(['done', 'problems', 'error', 'stopped', 'interrupted', 'budget_exceeded', 'user_unavailable', 'needs_key', 'project_gone']).nullable().optional(),
   /** lastOutcome 'needs_key': the connection template whose own key the run needed (its owner has not connected it, or
    * its key stopped working); older servers omit it */
   lastNeed: z.object({ templateId: z.string(), name: z.string() }).nullable().optional(),

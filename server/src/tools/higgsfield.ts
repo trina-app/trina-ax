@@ -114,7 +114,7 @@ export function registerHiggsfield(ctx: AppContext, reg: ToolRegistry): boolean 
       if (!key) throw new ToolError('Higgsfield is not set up on this server')
       if (!t.person) throw new ToolError('this tool only works inside a chat turn (the person confirms each video)')
       // skills/ is for team skills and rules (skills/guard.ts): refused before any credits are spent
-      if (a.save_as && inSkills(a.save_as.replace(/^\/+/, ''))) throw new ToolError('videos cannot be saved under skills/ or a group\'s skills folder (skills and rules people\'s AI follows); pick another folder')
+      if (a.save_as && inSkills(a.save_as.replace(/^\/+/, ''))) throw new ToolError('videos cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
       const used = (ctx.db.query("SELECT count(*) AS n FROM tool_events WHERE user_id = ? AND tool = 'generate_video' AND ok = 1 AND at >= ?")
         .get(t.user.id, new Date(Date.now() - 24 * 3600_000).toISOString()) as { n: number }).n
       if (used >= daily) throw new ToolError(`daily video limit reached (${daily} per person per 24 hours)`)

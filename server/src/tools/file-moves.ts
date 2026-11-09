@@ -6,8 +6,8 @@
 // Who can see the files: when the result lets more people read something, or fewer people keep reading it, the server
 // asks the person once for the whole call on its own card (never the AI's ask_user, so an instruction hidden in a
 // document cannot answer it). With nobody to ask (a scheduled run, no chat turn) such a call is refused.
-// skills/ (team skills and rules every teammate's AI follows) is out of reach here: it changes only through write /
-// edit with the person's approval on the card, or on the Files screen.
+// Skill folders (skills/, a group's, a project's: what people's AI follows) are out of reach here: a skill changes only
+// through write / edit with the person's approval on the card, and moves to another level with move_skill.
 import { CopyFilesInput, MoveFilesInput, RenameFileInput } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
 import { fillPlurals } from '@mycel/shared/plural'
@@ -15,7 +15,7 @@ import type { AppContext } from '../context'
 import type { ToolCtx } from '../files/service'
 import { Denied, ToolError } from '../policy/errors'
 import { badSegment } from '../policy/names'
-import { inSkills } from '../skills/guard'
+import { inSkills, SKILL_FILES_REFUSAL } from '../skills/guard'
 import { componentC } from '../team-files/component'
 import { FileError } from '../team-files/errors'
 import type { ToolRegistry } from './registry'
@@ -38,7 +38,7 @@ export const TEXT = {
 /** A count's form first ("{n, plural, one {# item} other {# items}}", shared/src/plural.ts), then the plain values. */
 const fill = (s: string, v: Record<string, string | number>, L: Locale) => fillPlurals(s, v, L).replace(/\{(\w+)\}/g, (_, k) => String(v[k]))
 
-const SKILLS = 'skills/ and a group\'s skills folder (skills and rules people\'s AI follows) cannot be changed with this tool: use write / edit, which ask the user, or the Files screen'
+const SKILLS = SKILL_FILES_REFUSAL
 // Match the policy resolver's dot/empty-segment normalization before checking protected skills paths.
 const clean = (p: string) => p.normalize('NFC').split('/').filter(s => s !== '' && s !== '.').join('/')
 const nameOf = (p: string) => p.split('/').pop() ?? ''

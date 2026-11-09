@@ -1,6 +1,7 @@
 // How the AI learns which skills it may use (docs/DECISIONS.md "Skills: the whole list, the skill tool"), like Claude
 // Code's skill listing: every skill the person can use is one line of the instructions ("- name [personal]:
-// description", "- name [group: 영업팀]: description", the description cut at 160 characters, no path) within a fixed
+// description", "- name [group: 영업팀]: description", "- name [project: 견적]: description" in that project's chats, the
+// description cut at 160 characters, no path) within a fixed
 // budget of 8,000 characters. Over the budget every name stays and descriptions go first to the person's own skills,
 // then by how much they used a skill, group and team skills alike (each use counts 0.5^(days/7), like Claude Code's
 // score; the team's uses count a quarter; on a tie a group's skill before the team's): a person in many groups gets
@@ -75,10 +76,12 @@ export function descriptionOrder(skills: readonly Skill[], scores: ReadonlyMap<s
   return [...personal, ...shared].map((s) => s.path)
 }
 
-/** The tag a list line gives a skill: " [personal]", " [group: <name>]" (the group's current name, one line, at most
- * 40 characters, through `tag`), or nothing for a team skill. */
-export function skillTag(s: Pick<Skill, 'path' | 'group'>, tag: (s: string) => string = (x) => x): string {
+/** The tag a list line gives a skill: " [personal]", " [group: <name>]", " [project: <name>]" (the group's or project's
+ * current name, chosen by its people: one line, at most 40 characters, no brackets, through `tag`), or nothing for a
+ * team skill. */
+export function skillTag(s: Pick<Skill, 'path' | 'group' | 'project'>, tag: (s: string) => string = (x) => x): string {
   if (isPersonalSkill(s.path)) return ' [personal]'
+  if (s.project) return ` [project: ${tag(shortDescription(s.project.name.replace(/[[\]]/g, ''), GROUP_TAG_MAX))}]`
   return s.group ? ` [group: ${tag(shortDescription(s.group.name, GROUP_TAG_MAX).replace(/[[\]]/g, ''))}]` : ''
 }
 const GROUP_TAG_MAX = 40
@@ -102,8 +105,8 @@ export interface SkillList {
   skills: Skill[]
 }
 
-/** Personal skills first, then each group's (groups in groupOrder), then team skills, each by name (the order lines
- * are written in). */
+/** Personal skills first, then each group's (groups in groupOrder), then team skills, then the project's, each by name
+ * (the order lines are written in). */
 export function listOrder(skills: readonly Skill[]): Skill[] {
   const byName = (a: Skill, b: Skill) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path)
   return [...skills].sort((a, b) => skillTier(a) - skillTier(b) || (a.group && b.group ? groupOrder(a.group, b.group) : 0) || byName(a, b))
@@ -206,14 +209,13 @@ export interface SkillMatch { skill: Skill; score: number; words: number }
  * Skills that match `query` by words, best first. Each word of the query found in the name or in the skill's own
  * folder or file name counts 3 (people name the folder in their language and the skill in another: "견적서/SKILL.md"
  * with "name: quote"), in the description 1, in the folders above it 1; the whole query inside the name or that folder
- * or file name 3 more. Then usage (as in the list) and a skill whose folders share a word with the chat's project
- * folder add a little. Only skills with a word match.
+ * or file name 3 more. Then usage (as in the list) adds a little. Only skills with a word match. (A project's own
+ * skills are in its chats' list; the bonus for folder words shared with the project folder is gone.)
  */
-export function matchSkills(skills: readonly Skill[], query: string, o: { scores?: ReadonlyMap<string, number>; projectFolder?: string | null; limit?: number } = {}): SkillMatch[] {
+export function matchSkills(skills: readonly Skill[], query: string, o: { scores?: ReadonlyMap<string, number>; limit?: number } = {}): SkillMatch[] {
   const q = [...new Set(skillTokens(query))].slice(0, 200)
   if (!q.length) return []
   const whole = fold(oneLine(query))
-  const project = new Set(o.projectFolder ? skillTokens(o.projectFolder.split('/').filter((s) => s !== 'groups' && s !== 'shared' && s !== 'users').join(' ')) : [])
   const out: SkillMatch[] = []
   for (const s of skills) {
     const at = pathWords(s.path)
@@ -226,10 +228,8 @@ export function matchSkills(skills: readonly Skill[], query: string, o: { scores
     }
     if (!words) continue
     if (whole.length >= 2 && (fold(s.name).includes(whole) || fold(at.own).includes(whole))) score += 3
-    const where = [...parents, ...skillTokens(at.own)]
     const used = o.scores?.get(s.path) ?? 0
     if (used > 0) score += Math.min(2, Math.log2(1 + used))
-    if (project.size && where.some((x) => project.has(x))) score += 1
     out.push({ skill: s, score, words })
   }
   return out.sort((a, b) => b.score - a.score || a.skill.name.localeCompare(b.skill.name) || a.skill.path.localeCompare(b.skill.path)).slice(0, o.limit ?? FIND_SKILLS_MAX)
@@ -245,21 +245,24 @@ export function frequentSkills(skills: readonly Skill[], scores: ReadonlyMap<str
 }
 
 /** The skills worth naming in front of this message when the list is cut: a few with a clear word match. */
-export function hintSkills(skills: readonly Skill[], message: string, o: { scores?: ReadonlyMap<string, number>; projectFolder?: string | null } = {}): Skill[] {
+export function hintSkills(skills: readonly Skill[], message: string, o: { scores?: ReadonlyMap<string, number> } = {}): Skill[] {
   return matchSkills(skills, message.slice(0, 2000), { ...o, limit: 20 })
     .filter((m) => m.score >= 3 && (m.words >= 2 || m.score >= 4))
     .slice(0, SKILL_HINTS_MAX).map((m) => m.skill)
 }
 
 /** Resolve the name the AI gave the skill tool: the exact name, else the exact path, else the file or folder name, else
- * the name as its list line writes it (with its path, " [personal]" or " [group: …]"). Only `skills` (the person's
- * own list) are candidates. `ambiguous`: several skills answer to it (their paths tell them apart). */
+ * the name as its list line writes it (with its path, " [personal]", " [group: …]" or " [project: …]"). Only `skills`
+ * (the person's own list) are candidates. `ambiguous`: several skills answer to it (their paths tell them apart). */
 export function resolveSkill(skills: readonly Skill[], input: string): { skill: Skill } | { ambiguous: Skill[] } | null {
   const exact = resolveName(skills, input)
   if (exact) return exact
   // the name as its list line writes it (buildSkillList): "Weekly (skills/a/weekly.md)", "draft-mail [personal]",
   // "quote [group: Sales]"
-  const t = oneLine(input).replace(/ \[personal\]$/i, '').replace(/ \[group: [^\]]*\]$/i, '')
+  const t = oneLine(input).replace(/ \[personal\]$/i, '').replace(/ \[(?:group|project): [^\]]*\]$/i, '')
+  // "name (path)" for any skill of the list, a project's path included
+  const asLine = skills.filter((s) => fold(t) === fold(`${oneLine(s.name)} (${s.path})`))
+  if (asLine.length === 1) return { skill: asLine[0]! }
   const line = /^(.*?) \(((?:skills|users|groups)\/[^()]+)\)$/.exec(t)
   if (line) {
     const hit = skills.filter((s) => fold(s.path) === fold(line[2]!) && fold(oneLine(s.name)) === fold(line[1]!))

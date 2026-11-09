@@ -168,6 +168,14 @@ export const SkillInput = z.strictObject({
 export const FindSkillsInput = z.strictObject({
   query: z.string().min(1).max(500).describe('A few words of what the user wants, in their language, e.g. "quote for a customer" or "weekly report".'),
 })
+/** Move one skill to another level (server/src/skills/move.ts): the user confirms on the server's card; the AI only
+ * moves a skill where fewer people get it. */
+export const MoveSkillInput = z.strictObject({
+  skill: z.string().min(1).max(300).describe('The skill\'s name as listed in your instructions, or its path from find_skills.'),
+  to: z.enum(['team', 'group', 'project', 'personal']).describe('The level to move it to: the whole team, one of the user\'s groups, a project (only that project\'s chats use it), or the user\'s own skills.'),
+  group: z.string().min(1).max(200).optional().describe('For "group": the group\'s name.'),
+  project: z.string().min(1).max(300).optional().describe('For "project": the project\'s name or folder; without it, this chat\'s project.'),
+})
 
 export const AskUserInput = z.strictObject({
   question: z.string().min(1).max(2000),

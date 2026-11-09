@@ -4,7 +4,7 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 // share_file, artifact, web_fetch). Served over the same MCP connection as the file tools (mcp__team__<name>).
 import path from 'node:path'
 import { z } from 'zod'
-import { AskUserInput, ConnectServiceInput, EDIT_FILES_DESCRIPTION, EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS, FindSkillsInput, ForgetInput, RememberInput, SetTitleInput, SkillInput, uuidv7 } from '@mycel/shared'
+import { AskUserInput, ConnectServiceInput, EDIT_FILES_DESCRIPTION, EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS, FindSkillsInput, ForgetInput, MoveSkillInput, RememberInput, SetTitleInput, SkillInput, uuidv7 } from '@mycel/shared'
 import type { BrowserToolName, Locale, Step, TurnRequest } from '@mycel/shared/api'
 import type { McpContent, TurnToolSet } from '../turns'
 import type { TurnTool, TurnToolContext } from '../services'
@@ -13,6 +13,11 @@ import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
 import { cleanMemoryText, MEMORY_ITEM_MAX, neutralizeTags, skillBlock } from './prompt'
 import { isPersonalSkill, listSkills, readSkill, skillFolder, type Skill } from './skills'
+import { levelLabel, levelRef, levelsOf, planMove, runMove, skillAt, type Level } from '../skills/move'
+import { st as skillText } from '../skills/text'
+import { audit as auditLog } from '../admin/audit'
+import { HttpError } from '../http/errors'
+import { foldKey } from '../policy/names'
 import { frequentSkills, matchSkills, resolveSkill, shortDescription, skillTag, usageScores } from './skill-list'
 import { addSources, sourceOf } from './read-scope'
 import { authorize } from '../policy/authorize'
@@ -65,6 +70,7 @@ export const B_TOOL_DESCRIPTIONS = {
   set_title: 'Name this new chat: a short title in the user\'s language that says what the person wants (2-60 characters). Call it once, early in your answer. Never put keys, tokens, passwords, personal data or quotes of the message in it.',
   skill: 'Load one of the user\'s skills (a saved team or personal workflow) by its name as listed under Team skills in your instructions, and get its full steps. Call it when a request matches a skill, before you follow it; then follow the steps and say which skill you used. A folder skill\'s other files are read with read, relative to the folder the result names.',
   find_skills: 'Search the skills the user can use by words (their names, descriptions and folders), best first, at most 10; with no word in common it lists the skills the user uses most. Use it when no skill in your instructions\' list clearly fits but the request looks like a saved workflow (the list may be cut). Then load the one that fits with skill.',
+  move_skill: 'Move one of the user\'s skills to another level: the whole team, one of the user\'s groups, a project (only that project\'s chats use it) or the user\'s own skills. The user confirms on a card that says who gains and who loses it and lists every file. You may only move a skill where fewer people get it (nobody new); when the user wants more people to get a skill, tell them to move it with 옮기기… on the Skills page. Skills never move with move_files; never make a skills folder, a README or a copy as a stand-in. A folder that is not a project yet must be made a project first.',
 } as const
 
 /** A turn's tool set, plus what per-person tools add: a section for the instructions and their own step labels. */
@@ -407,11 +413,12 @@ function skillTools(exec: TurnExec): Tool[] {
         if (!a.success) return text(zodText(a.error), true)
         const user = person()
         if (!user) return { ...text('Access denied: this account is disabled.', true), summary: 'skill -> denied: account disabled' }
-        const skills = listSkills(rt.files, user)
+        const skills = listSkills(rt.files, user, exec.skillScope(false))
         // in a room the names it offers back are only of skills everyone there may read (they may reach the room), and
         // the answer is as if the others did not exist; a skill named exactly that only the person may read still loads
-        // (its folder then joins the read scope), but never one of several of the same name
-        const shown = exec.roomReadable ? skills.filter((s) => exec.roomReadable!(s.path)) : skills
+        // (its folder then joins the read scope), but never one of several of the same name. A shared chat picks each
+        // name's winner among what everyone who sees it may use (docs/DECISIONS.md "Project skills")
+        const shown = exec.shared && exec.roomReadable ? listSkills(rt.files, user, exec.skillScope(true)) : exec.roomReadable ? skills.filter((s) => exec.roomReadable!(s.path)) : skills
         let hit = resolveSkill(shown, a.data.name)
         if (!hit && exec.roomReadable) { const any = resolveSkill(skills, a.data.name); if (any && !('ambiguous' in any)) hit = any }
         if (hit && 'ambiguous' in hit) {
@@ -423,7 +430,7 @@ function skillTools(exec: TurnExec): Tool[] {
           if (no) return { ...text(no, true), summary: 'skill -> not read: not shared by the user (shared chat)' }
         }
         // read again through the file checks (the same answer for a missing file and one the person cannot read)
-        const skill = hit ? readSkill(rt.files, user, hit.skill.path) : null
+        const skill = hit ? readSkill(rt.files, user, hit.skill.path, { project: exec.skillProject }) : null
         if (!skill) {
           const near = matchSkills(shown, a.data.name, { limit: 5 }).map((m) => `"${neutralizeTags(clipName(m.skill.name, 64))}"`)
           return {
@@ -448,9 +455,9 @@ function skillTools(exec: TurnExec): Tool[] {
         const user = person()
         if (!user) return { ...text('Access denied: this account is disabled.', true), summary: 'find_skills -> denied: account disabled' }
         // in a room only the skills everyone there may read (their names and descriptions may reach the room)
-        const skills = listSkills(rt.files, user).filter((s) => !exec.roomReadable || exec.roomReadable(s.path))
+        const skills = (exec.shared && exec.roomReadable ? listSkills(rt.files, user, exec.skillScope(true)) : listSkills(rt.files, user, exec.skillScope(false))).filter((s) => !exec.roomReadable || exec.roomReadable(s.path))
         const scores = usageScores(rt.db, spec.userId, skills.map((s) => s.path))
-        const hits = matchSkills(skills, a.data.query, { scores, projectFolder: exec.projectFolder })
+        const hits = matchSkills(skills, a.data.query, { scores })
         const q = neutralizeTags(clipName(a.data.query, 80))
         const line = (s: Skill) => `- ${neutralizeTags(clipName(s.name, 64))}${skillTag(s, neutralizeTags)}${s.description.trim() ? ': ' + neutralizeTags(shortDescription(s.description, 300)) : ''} (${s.path})`
         const searched = `${skills.length} skill${skills.length === 1 ? '' : 's'} searched`
@@ -468,7 +475,92 @@ function skillTools(exec: TurnExec): Tool[] {
         return { ...text([`${hits.length} skill${hits.length === 1 ? '' : 's'} matching "${q}", best first. Load the one that fits with skill (its name) before you follow it:`, ...lines].join('\n')), summary: `find_skills -> ${hits.length} found` }
       },
     },
+    moveSkillTool(exec),
   ]
+}
+
+// ---------------- move_skill ----------------
+// One skill to another level (skills/move.ts, docs/DECISIONS.md "Project skills"), after the person's yes on the
+// server's card, which says who gains and who loses it and lists every file. The AI only narrows: a move that gives the
+// skill to anyone new is refused here (the Skills page's 옮기기… shows the whole text for that), so a message planted
+// in a file cannot widen a skill's reach. The card's yes is bound to every file's hash, checked again as it moves.
+// Not offered in rooms or shared chats (rooms/ai-tools.ts); refused in a scheduled run (nobody to ask).
+function moveSkillTool(exec: TurnExec): Tool {
+  const { rt, spec } = exec
+  const ctx = rt.ctx
+  const bad = (t: string, summary: string) => ({ ...text(t, true), summary: `move_skill -> ${summary}` })
+  return {
+    name: 'move_skill', description: B_TOOL_DESCRIPTIONS.move_skill, inputSchema: schema(MoveSkillInput),
+    async call(args) {
+      const a = MoveSkillInput.safeParse(args)
+      if (!a.success) return text(zodText(a.error), true)
+      if (spec.clientKind === 'schedule') return bad('Not moved: a scheduled run has nobody to confirm the card. Tell the user to move the skill in a chat or with 옮기기… on the Skills page.', 'refused: scheduled run')
+      if (exec.room || exec.shared || exec.restricted || exec.templateRun) return bad('Not moved: skills are not moved from here.', 'refused: not here')
+      let user: Principal
+      try { user = exec.livePrincipal() } catch { return bad('Access denied: this account is disabled.', 'denied: account disabled') }
+      const L = spec.locale
+      // the skill: by its name in this chat's list, else by its path (a project's skill from another project too)
+      const list = listSkills(rt.files, user, exec.skillScope(false))
+      const hit = resolveSkill(list, a.data.skill)
+      if (hit && 'ambiguous' in hit) return bad(`Several skills this user can use are called "${neutralizeTags(clipName(a.data.skill))}": ${hit.ambiguous.map((s) => s.path).join(', ')}. Call move_skill again with the path of the one you mean.`, `ambiguous (${hit.ambiguous.length})`)
+      const have = hit ? skillAt(ctx, user, hit.skill.path) : skillAt(ctx, user, a.data.skill.trim().replace(/^\/+/, ''))
+      if (!have) return bad(`No skill called "${neutralizeTags(clipName(a.data.skill))}" that this user can use. Use a name from the skill list in your instructions, or find it with find_skills.`, 'not found')
+      // the target level
+      const levels = levelsOf(ctx, user)
+      let to: Level | undefined
+      const fold = (x: string) => foldKey(x.trim().replace(/^\/+|\/+$/g, ''))
+      if (a.data.to === 'team' || a.data.to === 'personal') to = levels.find((l) => l.level === a.data.to)
+      else if (a.data.to === 'group') {
+        if (!a.data.group) return bad('Name the group (group) to move the skill to.', 'no group named')
+        to = levels.find((l) => l.level === 'group' && fold(l.group.name) === fold(a.data.group!))
+        if (!to) return bad(`"${neutralizeTags(clipName(a.data.group, 60))}" is not one of the user's groups. A skill moves only into a group the user belongs to.`, 'group not found')
+      } else {
+        const want = a.data.project ?? exec.skillProject?.name
+        if (!want) return bad('This chat has no project: name the project (project) to move the skill to.', 'no project named')
+        to = levels.find((l) => l.level === 'project' && (fold(l.project.name) === fold(want) || fold(l.folder) === fold(want)))
+        if (!to) {
+          // a folder that is not a project (yet), a project without skills of its own, or nothing the person sees
+          const row = rt.db.query('SELECT id, folder_path FROM projects WHERE trashed_with IS NULL').all() as { id: string; folder_path: string }[]
+          const named = row.find((r) => fold(r.folder_path) === fold(want))
+          if (named) return bad(`${skillText('moveNoLevel', 'en')} Tell the user.`, 'project has no skills level')
+          let folder = false
+          try { folder = !!authorize(rt.files.fx, rt.files.rules(), user, want.trim(), 'list').st?.isDirectory() } catch { folder = false }
+          if (folder) return bad(`'${neutralizeTags(clipName(want, 120))}' is not a project yet, so it has no project skills. Tell the user: ${skillText('moveNotProject', L, { folder: neutralizeTags(clipName(want, 120)) })} (Projects › New project, on that folder). Then ask again. Do not make a skills folder, a README or a copy there instead.`, 'refused: not a project')
+          return bad(`No project called "${neutralizeTags(clipName(want, 80))}" that the user sees.`, 'project not found')
+        }
+      }
+      if (!to) return bad('That level cannot be used.', 'no level')
+      let plan
+      try { plan = planMove(ctx, user, have, to, L) } catch (e) { return bad(`Not moved: ${e instanceof HttpError && e.message ? e.message : 'the skill\'s files could not be read'}.`, 'refused: files') }
+      if (plan.blocked) return bad(`Not moved: ${skillText(plan.blocked.key, 'en', plan.blocked.vars)}`, `refused: ${plan.blocked.key}`)
+      const from = levelLabel(plan.from, L), dest = levelLabel(plan.to, L)
+      // the AI only narrows (a planted message must not widen a skill's reach)
+      if (plan.gained > 0) {
+        return bad(`Not moved: at ${levelLabel(plan.to, 'en')} ${plan.gained} more ${plan.gained === 1 ? 'person' : 'people'} would get this skill (${plan.fromPeople} → ${plan.toPeople}). You can only move a skill where fewer people get it. Tell the user they can move it themselves with 옮기기… on the Skills page, where they see its whole text first.`, `refused: widens (+${plan.gained})`)
+      }
+      const size = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
+      const question = [skillText('moveConfirm', L, { name: plan.skill.name, from, fromN: String(plan.fromPeople), to: dest, toN: String(plan.toPeople) }), plan.lost ? skillText('moveLost', L, { n: String(plan.lost) }) : ''].filter(Boolean).join('\n\n')
+      const base = plan.source.split('/').pop()!
+      const answer = await exec.waitForPerson({
+        kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, multiple: false, allowText: false,
+        options: [{ label: skillText('moveYes', L), value: 'move' }, { label: skillText('moveNo', L), value: 'skip' }],
+        details: [{ label: skillText('moveFiles', L), text: plan.files.map((f) => `${f.path} (${size(f.size)})`).join('\n') }],
+        ...(plan.from.level === 'team' && plan.to.level !== 'personal' ? { note: skillText('moveNarrowHint', L, { name: base }).slice(0, 300) } : {}),
+        expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
+      } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })
+      const yes = answer === 'move' || (Array.isArray(answer) && answer.length === 1 && answer[0] === 'move')
+      if (!yes) {
+        auditLog(rt.db, { actor: spec.userId, action: 'skills.move_refused', target: plan.skill.path.startsWith('users/') ? plan.entry : plan.skill.path, detail: { name: plan.skill.name, to: levelRef(plan.to), turnId: spec.turnId, answer: answer === null || answer === undefined ? 'none' : 'declined' } })
+        return bad(`The user did not allow moving the skill "${neutralizeTags(plan.skill.name)}", so nothing was moved. Do not move it another way (no copy, folder or README elsewhere) unless the user asks again.`, 'not allowed by the user')
+      }
+      try {
+        const done = runMove(ctx, user.id, plan.skill.path, levelRef(plan.to), plan.token, L, { turnId: spec.turnId, tool: 'move_skill' })
+        return { ...text(`Moved the skill "${neutralizeTags(done.skill.name)}" from ${levelLabel(done.from, 'en')} (${done.fromPeople} people) to ${levelLabel(done.to, 'en')} (${done.toPeople} people): ${done.entry}.${done.to.level === 'project' ? ' The AI now follows it only in that project\'s chats.' : ''}`), summary: `move_skill -> moved to ${done.to.level}` }
+      } catch (e) {
+        return bad(`Not moved: ${e instanceof HttpError && e.message ? e.message : 'the move failed'}.`, 'failed')
+      }
+    },
+  }
 }
 
 // ---------------- remember / forget / ask_user / connect_service / set_title ----------------

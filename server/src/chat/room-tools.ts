@@ -352,7 +352,7 @@ function saveTarget(exec: TurnExec, roomId: string, a: { file: string; save_as?:
   try { isFolder = !wanted.endsWith('/') && !!wanted && !!authorize(rt.files.fx, rt.files.rules(), exec.livePrincipal(), wanted, 'list').st?.isDirectory() } catch { /* not one this person sees */ }
   const folder = !wanted ? `users/${spec.userId}/downloads` : wanted.endsWith('/') || isFolder ? wanted.replace(/\/+$/, '') : null
   const target = folder === null ? wanted : `${folder}/${file.name}`
-  if (inSkills(target)) return { text: 'Files from a room cannot be saved under skills/ (team skills and rules); pick another folder.', summary: 'save_room_file -> refused: skills/' }
+  if (inSkills(target)) return { text: 'Files from a room cannot be saved in a skills folder (team, group or project skills and rules); pick another folder.', summary: 'save_room_file -> refused: skills/' }
   // a skill, team rule or instruction file changes from a room only with all of its content on the card, which a copied
   // file's is not (the same rule as save_url and copy_files there)
   if (instructionLike(target)) return { text: `Not saved: '${target}' is named like an instruction file the AI follows (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md), and a file from a room is not put there. Pick another name.`, summary: 'save_room_file -> refused: instruction file' }

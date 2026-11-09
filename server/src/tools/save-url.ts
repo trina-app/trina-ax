@@ -156,7 +156,7 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
   const wanted = a.save_as?.trim().replace(/^\/+/, '').normalize('NFC')
   const folderOnly = !wanted || wanted.endsWith('/')
   const explicitFolder = wanted ? (folderOnly ? wanted.replace(/\/+$/, '') : wanted.split('/').slice(0, -1).join('/')) : null
-  if (wanted && inSkills(wanted)) throw new ToolError('files cannot be saved under skills/ or a group\'s skills folder (skills and rules people\'s AI follows); pick another folder')
+  if (wanted && inSkills(wanted)) throw new ToolError('files cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
   const firstName = wanted && !folderOnly ? wanted.split('/').pop()! : (handle ? '' : nameFromUrl(source))
   const provisional = explicitFolder !== null ? [explicitFolder, firstName || 'download'].filter(Boolean).join('/') : null
   if (provisional !== null) {
@@ -288,7 +288,7 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
       const refusal = await t.confirmWidening?.(target, [])
       if (refusal) throw new ToolError(refusal)
     }
-    if (inSkills(target)) throw new ToolError('files cannot be saved under skills/ or a group\'s skills folder (skills and rules people\'s AI follows); pick another folder')
+    if (inSkills(target)) throw new ToolError('files cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
     const made = await placeProduced(ctx, files, t, target.split('/').filter(Boolean), tmp, 'save_url', undefined, { turnBytes: false, detail: { url: from.slice(0, 4000), type: k.mime } })
     if (made.conflictCopyOf) notes.push(`${made.conflictCopyOf} already existed and was not read in this turn, so this was saved as a copy next to it; the original is unchanged.`)
     const what = [k.label, dims ? `${dims.width}×${dims.height}` : '', humanBytes(size)].filter(Boolean).join(', ')

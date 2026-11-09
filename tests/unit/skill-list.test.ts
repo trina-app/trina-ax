@@ -166,13 +166,11 @@ describe('find_skills and the skill tool\'s name lookup', () => {
     expect(matchSkills(skills, 'the')).toEqual([])
     expect(matchSkills(skills, 'nothing like it')).toEqual([])
   })
-  test('usage and the project folder lift a skill among equal matches', () => {
+  test('usage lifts a skill among equal matches (the project folder no longer does: a project has its own skills)', () => {
     const plain = matchSkills(skills, 'weekly report').map((m) => m.skill.path)
     expect(plain.slice(0, 2).sort()).toEqual(['skills/weekly.md', 'users/alice/skills/weekly.md'])
     const used = matchSkills(skills, 'report', { scores: new Map([['skills/weekly.md', 4]]) })
     expect(used[0]!.skill.path).toBe('skills/weekly.md')
-    const inProject = matchSkills(skills, '확인', { projectFolder: 'groups/영업' })
-    expect(inProject[0]!.skill.path).toBe('skills/영업/계약.md')
   })
   test("the skill's own folder or file name counts like its name: a Korean folder over an English name and description", () => {
     const list = [

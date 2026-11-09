@@ -101,6 +101,9 @@ export const InboxNotification = z.object({
   /** 'schedule.failure' only: the run did not start because it needs the person's own key for a template (named) they
    * have not connected, or whose key stopped working; older servers omit it */
   needsKey: z.object({ templateId: z.string(), name: z.string() }).optional(),
+  /** 'schedule.failure' only: the run did not start because its owner no longer sees the task's project (its folder's
+   * access was taken away, or it is in the trash); older servers omit it */
+  projectGone: z.literal(true).optional(),
   /** 'room.dm' and 'room.mention' only, while the person is still in the room and may read the message: the room (link
    * 'room' opens /rooms/<id>), who wrote it, by name, and for a reply in a thread the thread's root (/rooms/<id>/t/<thread>);
    * older servers omit it. The rest says where and why (docs/DECISIONS.md "알림함의 대화 알림"; older servers omit each,

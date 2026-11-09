@@ -308,6 +308,14 @@ export class Notifications {
       ORDER BY s.created_at,s.id LIMIT 500`).all(...(userId ? [this.cutoff(), userId] : [this.cutoff()])) as { id: string; user_id: string; created_at: string }[]
     for (const row of needs) this.record(row.user_id, 'schedule.failure', row.id, row.created_at, true)
     db.query('DELETE FROM schedule_template_skips WHERE created_at < ?').run(this.cutoff())
+    // a run that did not start because its owner no longer sees its project (chat/schedules.ts): a failure notice that
+    // says so (out below), always shown (the task will not run until the project is back or the task is changed)
+    const gone = db.query(`SELECT s.id,s.user_id,s.created_at FROM schedule_project_skips s
+      WHERE s.created_at>=? AND EXISTS(SELECT 1 FROM users u WHERE u.id=s.user_id AND u.status='active' AND u.deleted_at IS NULL)
+      ${userId ? 'AND s.user_id=?' : ''} AND NOT EXISTS(SELECT 1 FROM notification_inbox n WHERE n.user_id=s.user_id AND n.source_id=s.id AND n.event_type='schedule.failure')
+      ORDER BY s.created_at,s.id LIMIT 500`).all(...(userId ? [this.cutoff(), userId] : [this.cutoff()])) as { id: string; user_id: string; created_at: string }[]
+    for (const row of gone) this.record(row.user_id, 'schedule.failure', row.id, row.created_at, true)
+    db.query('DELETE FROM schedule_project_skips WHERE created_at < ?').run(this.cutoff())
     if (!userId) { try { this.offerTemplates({ limit: OFFER_BATCH }) } catch { this.ctx.log.warn('template notices deferred') } }
     // scheduled tasks nobody confirmed, paused for their owner's review (chat/schedules.ts): one notice per person and
     // pause, shown in the app always (the task stopped running), pushed per the "scheduled task failed" setting
@@ -316,7 +324,7 @@ export class Notifications {
       AND EXISTS(SELECT 1 FROM users u WHERE u.id=s.user_id AND u.status='active' AND u.deleted_at IS NULL) ${userId ? 'AND s.user_id=?' : ''}
       GROUP BY s.user_id, s.review_since ORDER BY s.review_since LIMIT 500`).all(...(userId ? [this.cutoff(), userId] : [this.cutoff()])) as { user_id: string; review_since: string }[]
     for (const row of reviews) this.record(row.user_id, 'schedule.failure', reviewSource(row.user_id, row.review_since), row.review_since, true)
-    return Math.max(rows.length, skips.length, reviews.length, needs.length)
+    return Math.max(rows.length, skips.length, reviews.length, needs.length, gone.length)
   }
   preferences(userId: string) { return getPreferences(this.ctx.db, userId) }
   private locale(userId: string) { return getUser(this.ctx.db, userId)?.locale ?? teamDefaultLocale(this.ctx.db) }
@@ -475,6 +483,8 @@ export class Notifications {
     if (row.event_type === 'schedule.failure') {
       const skip = this.ctx.db.query('SELECT template_id, template_name FROM schedule_template_skips WHERE id=? AND user_id=?').get(row.source_id, row.user_id) as { template_id: string; template_name: string } | null
       if (skip) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: 'integrations', outcome: 'failed', needsKey: { templateId: skip.template_id, name: skip.template_name } }
+      // a run whose project its owner no longer sees: says so, no link (the project is not theirs to open now)
+      if (this.ctx.db.query('SELECT 1 FROM schedule_project_skips WHERE id=? AND user_id=?').get(row.source_id, row.user_id)) return { id: row.id, eventType: row.event_type, sourceId: row.source_id, code: row.event_type, createdAt: row.created_at, readAt: row.read_at, chatId: null, link: null, outcome: 'failed', projectGone: true }
     }
     if (row.event_type === 'schedule.failure' && row.source_id.startsWith(REVIEW_SOURCE)) {
       // paused tasks to check again: the schedules list, never a chat
