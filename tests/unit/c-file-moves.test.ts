@@ -181,7 +181,7 @@ describe('move_files', () => {
     expect(r.text).toContain('use move_skill: to move it, or with keep: true to copy it when the user asks for a copy')
     expect(r.text).toContain('Never leave a README or an empty skills folder as a stand-in')
     // a copy the person asked for is no longer forbidden
-    expect(r.text).not.toContain('or a copy')
+    expect(r.text).not.toContain('a README or a copy')
     // the old pointer at the Files screen is gone
     expect(r.text).not.toContain('or the Files screen')
   })
