@@ -586,6 +586,8 @@ export const es: Record<MessageKey, string> = {
   'artifact.needsScripts': "Este artefacto necesita ejecutar scripts para mostrarse y, en los chats confidenciales, solo se ejecutan en la aplicación de escritorio. La pestaña Código muestra su contenido.",
   'preview.panel': "Vista previa del archivo",
   'preview.resize': "Ajustar el ancho de la vista previa",
+  'preview.expand': "Ampliar",
+  'preview.sideBySide': "Ver lado a lado",
   'preview.notFound': "No se encuentra el archivo o no tiene acceso a él.",
   'preview.tooLarge': "Este archivo es demasiado grande para la vista previa ({size}). Descárguelo para abrirlo.",
   'preview.unsupported': "Este formato no admite vista previa. Descárguelo para abrirlo.",

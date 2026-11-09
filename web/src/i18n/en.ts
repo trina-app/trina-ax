@@ -604,6 +604,8 @@ export const en: Record<MessageKey, string> = {
 
   'preview.panel': 'File preview',
   'preview.resize': 'Resize the preview',
+  'preview.expand': 'Expand',
+  'preview.sideBySide': 'Side by side',
   'preview.notFound': "The file can't be found, or you don't have access to it.",
   'preview.tooLarge': 'This file is too large to preview ({size}). Download it to open it.',
   'hwp.disabled': "Hangul preview is not turned on for this team. You can still download the original and ask AI to read its text.",

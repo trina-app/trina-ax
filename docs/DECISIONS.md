@@ -16389,3 +16389,39 @@ of a web page could not be read. Pictures should open like Slack, across the app
   and down; screenshots), `room-files-open.spec.ts` (the photo
   opens the viewer over the panel; the right-click there reaches the original).
 - Version impact: **minor** (a visible UX change; no API or data change).
+
+## 크게 보기 — the side panel can take the whole page (feat/panel-expand, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/lib/sidePanel.ts`, `web/src/components/Layout.tsx`, `SidePanelFrame.tsx` and the file and
+artifact panels' headers, 이유: the side panel is core. Step (a) of the plan
+`docs/AGENTS/plan/20261109-0939-room-file-viewer.md` (branch `plan/room-file-viewer`), its question 7 answered by the
+owner: not remembered.
+
+- **One toggle, left of ✕**, in the file panel's and the artifact panel's headers (also while an intro deck is built),
+  not on the Browser pane: ⤢ **크게 보기** / ⤡ **나란히 보기** (`Maximize2` / `Minimize2`, an `IconButton`, so its name
+  is its tooltip). Computers only (`max-md:hidden`): below 768 px the panel is a full-screen sheet already.
+- **Big:** `<main>` is hidden (`md:hidden`, still mounted: the chat, its draft and its scroll stay; Chromium and WebKit
+  keep a scroll box's position across `display: none`), the panel is `flex-1` beside the sidebar and its divider is
+  not drawn. Beside a room's open thread it covers room and thread alike. Side by side again, the divider mounts and
+  fits the width it remembers (`mycel.sidePanel.widthFraction`), so the panel comes back at the width it had.
+- **How long:** `expanded` in `lib/sidePanel.ts`, beside the panel itself, never stored. Another file or an artifact
+  opened in the panel keeps it (a link in a Markdown file, the AI opening an artifact); closing the panel (✕, Esc, a
+  page that does not keep it) or the Browser pane taking it ends it, so the next panel opens side by side. A move to
+  another address ends it too (the sidebar's **Files**, a folder link): a page the person went to must show, and a
+  page that keeps the panel (the Files screen) would otherwise stay hidden behind it.
+- **Actions:** download, edit and save, PDF로 저장, copy and the artifact's versions work in place. **Add to chat**,
+  **Ask AI** (`useTeamAttach`) and **Show in Files** first go back side by side: their result is in the page behind the
+  panel (a chip in the composer, the folder with the file selected), which a big panel would keep hidden.
+- **Esc order** (`escapeAction`, Layout's window handler): a dialog keeps its Esc; the phone drawer closes; a big panel
+  goes back side by side; then the panel closes. The Files screen's own Esc, which clears a selection before the panel
+  closes, waits while the panel is big (the list it would clear is hidden), so there it is: side by side, the
+  selection, the panel. On a phone width a leftover big state counts as not big (`panelExpandedNow`), so Esc closes.
+- **Not done:** no keyboard shortcut and no double-click on the header; the PDF keeps fitting the panel's width (as a
+  panel dragged wide does), with no reading-width cap. The PDF toolbar's "fit width" also draws `Maximize2`; left as
+  is (it sits in the toolbar under the header, with its own tooltip).
+- Tests: `web/test/unit/side-panel-expand.test.ts` (nothing open, kept for another file or an artifact, ended on close
+  and by the Browser pane, the Esc order), e2e `side-panel-expand.spec.ts` (from the AI chat: the chat hidden, the
+  panel as wide as the page area, no divider, Esc and the button back at the divider's width, Esc twice closes,
+  reopened side by side; add to chat; from Files: a link in a big Markdown file opens the PDF still big, editing works
+  there, Esc before the selection, Show in Files; no button at 390 px).
+- Version impact: **minor** (a visible UX addition; no API or data change).
