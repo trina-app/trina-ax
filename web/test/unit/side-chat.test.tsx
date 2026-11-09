@@ -414,6 +414,11 @@ test('a file of the room: quoted by name and id (the AI opens it with room_file)
   try {
     await m.until(() => !!m.find('side-chat-quote-file'), 'the file quoted')
     expect(m.get('side-chat-quote-file').textContent).toContain('quote.pdf')
+    // the box asks about the file, not "this message"
+    const name = aiName((k) => en(k))
+    expect(m.get('side-chat-input').getAttribute('placeholder')).toBe(en('sideChat.placeholderQuotedFile', { name }))
+    expect(m.get('side-chat-input').getAttribute('aria-label')).toBe(en('sideChat.placeholderQuotedFile', { name }))
+    expect(en('sideChat.placeholderQuotedFile', { name })).not.toBe(en('sideChat.placeholderQuoted', { name }))
     for (const k of ['fileSummarize', 'fileKeyPoints', 'fileCheck', 'fileSave']) expect(m.find(`side-chat-quick-${k}`)).not.toBeNull()
     expect(m.find('side-chat-quick-translate')).toBeNull()
     // 팀 폴더에 저장: through the AI (save_room_file and its card), as a question with the file quoted

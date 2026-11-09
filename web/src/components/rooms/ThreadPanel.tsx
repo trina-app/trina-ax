@@ -7,7 +7,9 @@
 // reply box with "대화방에도 보내기". What I see is marked read in the thread (POST …/thread/read) while the window has
 // the focus and the end of the thread is in sight. A thread I cannot see (I joined after its root, it is gone) says so.
 // `alone`: a message that cannot have a thread (an AI answer only its asker sees), shown by itself from what this window
-// has, with no reply count and no box.
+// has, with no reply count and no box. `closeX`: the ✕ at every width, never the phone's ‹ (the file viewer's sheet on a
+// phone, which closes back to the file).
+import clsx from 'clsx'
 import { ChevronLeft, Loader2, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import type { RoomMessage, UserRef } from '@mycel/shared/api'
@@ -32,7 +34,7 @@ const ALONE_GONE = new ApiError(404, { code: 'not_found', message: '' })
 /** `highlight`: a message a link points at (an Inbox row), the root or a reply, scrolled to and marked once. `frame`
  * false: the column around it is the caller's (RoomSideColumn). `alone`: `rootId` is a message without a thread, shown
  * by itself. */
-export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose, onAskTrina, focusBox = false, highlight = null, frame = true, alone = false }: { roomId: string; rootId: string; roomTitle: string; members: UserRef[]; meId: string | null; onClose: () => void; onAskTrina?: (m: RoomMessage) => void; focusBox?: boolean; highlight?: string | null; frame?: boolean; alone?: boolean }) {
+export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose, onAskTrina, focusBox = false, highlight = null, frame = true, alone = false, closeX = false }: { roomId: string; rootId: string; roomTitle: string; members: UserRef[]; meId: string | null; onClose: () => void; onAskTrina?: (m: RoomMessage) => void; focusBox?: boolean; highlight?: string | null; frame?: boolean; alone?: boolean; closeX?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const key = placeKey(roomId, rootId)
@@ -126,15 +128,17 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
   const body = (
     <>
       {/* the ✕ keeps the same 16 px from the right edge as the replies and the reply box */}
-      <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-2 max-md:pl-0.5 md:px-4">
-        <IconButton tip label={t('rooms.closeThread')} onClick={onClose} className="touch-hit p-3 md:hidden" data-testid="thread-back">
-          <ChevronLeft size={20} aria-hidden />
-        </IconButton>
+      <div className={clsx('flex h-12 shrink-0 items-center gap-1 border-b border-line', closeX ? 'pr-2 pl-4 md:px-4' : 'px-2 max-md:pl-0.5 md:px-4')}>
+        {!closeX && (
+          <IconButton tip label={t('rooms.closeThread')} onClick={onClose} className="touch-hit p-3 md:hidden" data-testid="thread-back">
+            <ChevronLeft size={20} aria-hidden />
+          </IconButton>
+        )}
         <h2 className="flex min-w-0 flex-1 items-baseline gap-2">
           <span className="shrink-0 text-base font-medium text-ink">{t('rooms.thread')}</span>
           <span className="truncate text-xs text-faint" data-testid="thread-room">{roomTitle}</span>
         </h2>
-        <IconButton tip label={t('rooms.closeThread')} onClick={onClose} className="touch-hit max-md:hidden" data-testid="thread-close">
+        <IconButton tip label={t('rooms.closeThread')} onClick={onClose} className={clsx('touch-hit', !closeX && 'max-md:hidden')} data-testid="thread-close">
           <X size={16} aria-hidden />
         </IconButton>
       </div>
