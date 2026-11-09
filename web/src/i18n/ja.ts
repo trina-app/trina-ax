@@ -2722,6 +2722,7 @@ export const ja: Record<MessageKey, string> = {
   "integrations.app.useDesc": "Googleのようにアプリの自動登録を受け付けないサービスでは、そのサービスで作成したアプリのクライアントIDでログインします。",
   "integrations.app.redirect": "サービスのアプリ設定に登録するリダイレクトアドレス",
   "integrations.app.secretSaved": "クライアントシークレット保存済み",
+  "integrations.app.secretReplace": "シークレットを変更",
   "integrations.app.secretHintTemplate": "保存後は再表示できません。メンバーには表示されません。",
   "integrations.field.clientId": "クライアントID",
   "integrations.field.clientSecret": "クライアントシークレット",

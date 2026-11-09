@@ -216,3 +216,62 @@ test('a template carries the team\'s app: members sign in through it and never s
   expect(everything()).not.toContain(SECRET)
   expect(everything()).not.toContain(SECRET2)
 })
+
+test('security review: a stored client secret never goes to another address than before', async () => {
+  const ann = (await addMember(h, olga, { username: 'ann', role: 'admin' })).client
+  const access = { everyone: true, groups: [], users: [] }
+  const api = await olga.call('POST', '/api/admin/integrations', { ...ownApi(), access })
+  // another admin moves the token address without the secret: the secret does not follow it
+  const moved = await ann.call('PATCH', `/api/integrations/${api.id}`, { oauthClient: { clientId: APP, authorizationUrl: `${fake.base}/as/authorize`, tokenUrl: `${fake.base}/evil/token`, scope: 'tasks tasks.read' } })
+  expect(moved.oauthClient).toMatchObject({ tokenUrl: `${fake.base}/evil/token`, hasSecret: false })
+  expect(getRow(h.ctx.db, api.id)!.oauth_client_enc).toBeNull()
+  const f = await ann.call('POST', `/api/integrations/${api.id}/authorize`, {})
+  await ann.raw('GET', callback(fake.authorize(f.authorizationUrl)))
+  expect(fake.seen.filter((s) => s.path === '/evil/token').every((s) => !s.body.includes(SECRET))).toBe(true)
+  // an API's app has its addresses: a new connection address keeps the secret (it still goes to the same token address)
+  const api2 = await olga.call('POST', '/api/integrations', ownApi({ name: 'Works2' }))
+  expect((await olga.call('PATCH', `/api/integrations/${api2.id}`, { url: `${fake.base}/oauth-api/v1/team` })).oauthClient.hasSecret).toBe(true)
+  // an MCP server's app finds its addresses from the server: another server address drops the secret
+  const mcp = await olga.call('POST', '/api/integrations', ownMcp({ oauthClient: { clientId: APP, clientSecret: SECRET } }))
+  expect((await olga.call('PATCH', `/api/integrations/${mcp.id}`, { url: `${fake.base}/mcp-own?tenant=2` })).oauthClient).toMatchObject({ clientId: APP, hasSecret: false })
+  // the same on a template
+  const t = await olga.call('POST', '/api/admin/integration-templates', { ...ownMcp({ oauthClient: { clientId: APP, clientSecret: SECRET } }), access })
+  expect((await ann.call('PATCH', `/api/admin/integration-templates/${t.id}`, { url: `${fake.base}/mcp-own/v2` })).oauthClient).toMatchObject({ hasSecret: false })
+  const t2 = await olga.call('POST', '/api/admin/integration-templates', { ...ownApi({ name: 'Works3' }), access })
+  expect((await ann.call('PATCH', `/api/admin/integration-templates/${t2.id}`, { oauthClient: { clientId: APP, authorizationUrl: `${fake.base}/as/authorize`, tokenUrl: `${fake.base}/evil/token` } })).oauthClient).toMatchObject({ hasSecret: false })
+  expect(everything()).not.toContain(SECRET)
+})
+
+test('security review: the token address a sign-in found is remembered; a server that names another one is refused', async () => {
+  const c = await olga.call('POST', '/api/integrations', ownMcp({ oauthClient: { clientId: APP, clientSecret: SECRET } }))
+  const f = await olga.call('POST', `/api/integrations/${c.id}/authorize`, {})
+  expect((await olga.raw('GET', callback(fake.authorize(f.authorizationUrl, `${fake.base}/as-own`)))).status).toBe(200)
+  expect(JSON.parse(getRow(h.ctx.db, c.id)!.oauth_client!).foundTokenUrl).toBe(`${fake.base}/as/token`)
+  // never shown, and saving the same app keeps it (and the sign-in)
+  const same = await olga.call('PATCH', `/api/integrations/${c.id}`, { oauthClient: { clientId: APP } })
+  expect(JSON.stringify(same)).not.toContain('foundTokenUrl')
+  expect(same.hasSecret).toBe(true)
+  expect(JSON.parse(getRow(h.ctx.db, c.id)!.oauth_client!).foundTokenUrl).toBe(`${fake.base}/as/token`)
+  // the server now names another token address: no sign-in starts, and nothing is sent there
+  fake.ownTokenEndpoint = `${fake.base}/elsewhere/token`
+  try {
+    const no = await olga.try('POST', `/api/integrations/${c.id}/authorize`, {})
+    expect(no.status).toBe(400)
+    expect(no.body.error.message).toContain('Client Secret')
+    // the admin trusts it: the secret entered again forgets the old address
+    await olga.call('PATCH', `/api/integrations/${c.id}`, { oauthClient: { clientId: APP, clientSecret: SECRET2 } })
+    expect(JSON.parse(getRow(h.ctx.db, c.id)!.oauth_client!).foundTokenUrl).toBeUndefined()
+    expect((await olga.try('POST', `/api/integrations/${c.id}/authorize`, {})).status).toBe(200)
+    expect(JSON.parse(getRow(h.ctx.db, c.id)!.oauth_client!).foundTokenUrl).toBe(`${fake.base}/elsewhere/token`)
+  } finally { fake.ownTokenEndpoint = null }
+})
+
+test('a member of a template for a service that registers no apps is told to ask an admin', async () => {
+  const t = await olga.call('POST', '/api/admin/integration-templates', { ...ownMcp(), access: { everyone: false, groups: [], users: [bobId] } })
+  const shared = (await bob.call('GET', '/api/integration-templates')).items
+  const mine = (await bob.try('POST', `/api/integration-templates/${t.id}/connect`, { version: shared[0].version })).body
+  const no = await bob.try('POST', `/api/integrations/${mine.id}/authorize`, {})
+  expect(no.status).toBe(400)
+  expect(no.body.error.message).toContain('관리자')
+  expect(no.body.error.message).not.toContain('내 앱으로 로그인')
+})

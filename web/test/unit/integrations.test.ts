@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'bun:test'
 import { ApiError, INTEGRATION_TOOLS_MAX, IntegrationInput, IntegrationPatch, type Integration } from '@mycel/shared/api'
 import {
-  appPatch, authorizationUrl, authOf, canSignIn, covers, dropsSecret, emptyForm, formFrom, formFromTemplate, lastCheckNote, methodsFor, needsKey, normalAccess, sameAccess, serverFieldErrors, splitByScope, toInput, toPatch, toolsShortfall, urlProblem, usesApp, validate, withKind,
+  appPatch, authorizationUrl, authOf, canSignIn, covers, storedSecretStays, dropsSecret, emptyForm, formFrom, formFromTemplate, lastCheckNote, methodsFor, needsKey, normalAccess, sameAccess, serverFieldErrors, splitByScope, toInput, toPatch, toolsShortfall, urlProblem, usesApp, validate, withKind,
   type IntegrationForm,
 } from '../../src/lib/integrations'
 import { DICTS } from '../../src/i18n'
@@ -168,6 +168,21 @@ describe('your own app at the service (sign-in where apps do not register themse
     // a member's connection made from a template: the template's app, never theirs to change
     const member = connection({ kind: 'mcp', auth: 'oauth', templateId: 't1', oauthClient: null })
     expect(toPatch(formFrom(member), member)).toEqual({})
+  })
+  test('a stored secret stays only where it went before (the server\'s rule): another address asks for it again', () => {
+    const f = formFrom(google())
+    expect(storedSecretStays(f, app, google().url)).toBe(true)
+    // a found app: another server address; any app: another token address or client ID
+    expect(storedSecretStays({ ...f, url: 'https://other.example/mcp' }, app, google().url)).toBe(false)
+    expect(storedSecretStays({ ...f, clientId: 'other' }, app, google().url)).toBe(false)
+    const given = { ...app, authorizationUrl: 'https://as.example/a', tokenUrl: 'https://as.example/t' }
+    const g = { ...f, authUrl: 'https://as.example/a', tokenUrl: 'https://as.example/t' }
+    expect(storedSecretStays({ ...g, url: 'https://other.example/mcp' }, given, google().url)).toBe(true)
+    expect(storedSecretStays({ ...g, tokenUrl: 'https://evil.example/t' }, given, google().url)).toBe(false)
+    // there, a secret typed in the empty field goes with the change
+    expect(toPatch({ ...g, tokenUrl: 'https://evil.example/t', clientSecret: 's2' }, google({ oauthClient: given })).oauthClient).toMatchObject({ clientSecret: 's2' })
+    // MCP -> API -> MCP: the own app is not left chosen with nothing filled in
+    expect(withKind(withKind(emptyForm('mcp'), 'http'), 'mcp').ownApp).toBe(false)
   })
   test('a template\'s app fills the form for the admin', () => {
     const t = { id: 't1', kind: 'http' as const, name: 'Works', url: 'https://www.worksapis.com/v1.0', auth: 'oauth' as const, authHeader: null, notes: null, access: { everyone: true, groups: [], users: [] },

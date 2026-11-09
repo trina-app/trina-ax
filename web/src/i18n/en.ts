@@ -2762,6 +2762,7 @@ export const en: Record<MessageKey, string> = {
   "integrations.app.useDesc": "For services such as Google that do not let apps register themselves: sign in with the client ID of an app you made there.",
   "integrations.app.redirect": "Redirect address to register in your app at the service",
   "integrations.app.secretSaved": "Client secret saved",
+  "integrations.app.secretReplace": "Replace secret",
   "integrations.app.secretHintTemplate": "You cannot see it again after saving. Members never see it.",
   "integrations.field.clientId": "Client ID",
   "integrations.field.clientSecret": "Client secret",

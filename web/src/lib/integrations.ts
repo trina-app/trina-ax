@@ -111,22 +111,26 @@ export function formFromTemplate(t: IntegrationTemplate): IntegrationForm {
 /** another kind: an API starts with a key (most take one); sign-in there is a choice, always with your own app */
 export function withKind(f: IntegrationForm, kind: IntegrationKind): IntegrationForm {
   const method = kind === 'http' && f.method === 'oauth' ? 'key' : methodsFor(kind).includes(f.method) ? f.method : 'key'
-  return { ...f, kind, method, ownApp: kind === 'http' ? true : f.ownApp }
+  // back to an MCP server: its own app is chosen only when one was filled in
+  return { ...f, kind, method, ownApp: kind === 'http' ? true : f.kind === 'mcp' ? f.ownApp : !!f.clientId.trim() }
 }
 
 /** sign-in goes through your own app: an API always, an MCP server when chosen */
 export const usesApp = (f: Pick<IntegrationForm, 'method' | 'kind' | 'ownApp'>) => f.method === 'oauth' && (f.kind === 'http' || f.ownApp)
 
-/** a client secret has to be typed: an API's or MCP server's own app without a stored one (another client ID drops it) */
-function needsClientSecretTyped(f: IntegrationForm, stored?: OAuthClientView | null): boolean {
-  return !!stored?.hasSecret && stored.clientId === f.clientId.trim() ? f.clientSecretAction === 'replace' : true
+/** The stored client secret stays with this form (the server's rule, service.ts appAfter): the same client ID and
+ * addresses and, for an app whose addresses are found from the server, the same server address (`storedUrl`). Else it
+ * goes, and a secret has to be typed again. */
+export function storedSecretStays(f: IntegrationForm, stored: OAuthClientView | null | undefined, storedUrl?: string): boolean {
+  return !!stored?.hasSecret && stored.clientId === f.clientId.trim() && (stored.authorizationUrl ?? '') === f.authUrl.trim()
+    && (stored.tokenUrl ?? '') === f.tokenUrl.trim() && (!!f.tokenUrl.trim() || storedUrl === undefined || f.url.trim() === storedUrl)
 }
-const typedClientSecret = (f: IntegrationForm, stored?: OAuthClientView | null) =>
-  usesApp(f) && f.clientSecret.trim() && needsClientSecretTyped(f, stored) ? f.clientSecret.trim() : undefined
+const typedClientSecret = (f: IntegrationForm, stored?: OAuthClientView | null, storedUrl?: string) =>
+  usesApp(f) && f.clientSecret.trim() && (!storedSecretStays(f, stored, storedUrl) || f.clientSecretAction === 'replace') ? f.clientSecret.trim() : undefined
 
 /** the own app as the API takes it (the secret only when one was typed now) */
-export function appInput(f: IntegrationForm, stored?: OAuthClientView | null): OAuthClientInput {
-  const secret = typedClientSecret(f, stored)
+export function appInput(f: IntegrationForm, stored?: OAuthClientView | null, storedUrl?: string): OAuthClientInput {
+  const secret = typedClientSecret(f, stored, storedUrl)
   return {
     clientId: f.clientId.trim(),
     ...(secret ? { clientSecret: secret } : {}),
@@ -137,9 +141,9 @@ export function appInput(f: IntegrationForm, stored?: OAuthClientView | null): O
 
 /** The own-app part of a change: undefined when it stays, null when it goes (back to the service's own registration),
  * else the app. Another ID, secret, address or scope drops the sign-in (the server does it). */
-export function appPatch(f: IntegrationForm, stored: OAuthClientView | null | undefined): OAuthClientInput | null | undefined {
+export function appPatch(f: IntegrationForm, stored: OAuthClientView | null | undefined, storedUrl?: string): OAuthClientInput | null | undefined {
   if (!usesApp(f)) return stored && f.method === 'oauth' ? null : undefined
-  const next = appInput(f, stored)
+  const next = appInput(f, stored, storedUrl)
   const same = !!stored && stored.clientId === next.clientId && (stored.authorizationUrl ?? undefined) === next.authorizationUrl
     && (stored.tokenUrl ?? undefined) === next.tokenUrl && (stored.scope ?? undefined) === next.scope && !next.clientSecret
   return same ? undefined : next
@@ -169,7 +173,7 @@ export function urlProblem(value: string): MessageKey | null {
 export function dropsSecret(f: IntegrationForm, original?: Integration): boolean {
   return !!original && original.hasSecret && (f.url.trim() !== original.url || authOf(f) !== original.auth
     // another own app: the sign-in was made with the old one (a member's connection made from a template has none)
-    || (original.auth === 'oauth' && !original.templateId && appPatch(f, original.oauthClient) !== undefined))
+    || (original.auth === 'oauth' && !original.templateId && appPatch(f, original.oauthClient, original.url) !== undefined))
 }
 
 /** a key has to be typed before saving */
@@ -194,7 +198,8 @@ export function validate(f: IntegrationForm, original?: Integration): FormErrors
   if (usesApp(f) && !original?.templateId) {
     const id = f.clientId.trim()
     if (!id || /\s/.test(id) || id.length > CLIENT_ID_MAX) e.clientId = 'integrations.error.clientId'
-    if (f.clientSecret.length > CLIENT_SECRET_MAX || /[\r\n]/.test(f.clientSecret)) e.clientSecret = 'integrations.error.keyLong'
+    if (f.clientSecret.length > CLIENT_SECRET_MAX) e.clientSecret = 'integrations.error.keyLong'
+    else if (/[\r\n]/.test(f.clientSecret)) e.clientSecret = 'integrations.error.field'
     if (f.scope.length > SCOPE_MAX || /[\r\n]/.test(f.scope)) e.scope = 'integrations.error.scope'
     // an API has nothing to find its sign-in from; an MCP server's addresses are both given or both found
     if (f.kind === 'http' || f.authUrl.trim() || f.tokenUrl.trim()) {
@@ -247,7 +252,7 @@ export function toPatch(f: IntegrationForm, original: Integration): IntegrationP
   if (original.scope === 'team' && f.access && !sameAccess(f.access, original.access ?? NOBODY)) p.access = normalAccess(f.access)
   // a member's connection made from a template signs in through the template's app
   if (!original.templateId) {
-    const app = appPatch(f, original.oauthClient)
+    const app = appPatch(f, original.oauthClient, original.url)
     if (app !== undefined && (app !== null || original.oauthClient)) p.oauthClient = app
   }
   return p

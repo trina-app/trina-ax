@@ -14,8 +14,9 @@ export interface OAuthTokens { accessToken: string; refreshToken: string | null;
 /** what a connection keeps (encrypted) once signed in. resource: the MCP server's resource indicator (RFC 8707); null
  * for an HTTP API, which has none. */
 export interface OAuthSecret { type: 'oauth'; server: OAuthServer; client: OAuthClient; resource: string | null; scope: string | null; tokens: OAuthTokens }
-/** your own app at the service, as stored (docs/INTEGRATIONS.md "Your own app") */
-export interface OwnClient { clientId: string; clientSecret: string | null; authorizationUrl: string | null; tokenUrl: string | null; scope: string | null }
+/** your own app at the service, as stored (docs/INTEGRATIONS.md "Your own app"). foundTokenUrl: the token address the
+ * first sign-in found from the server, where its secret may go (service.ts pinFound) */
+export interface OwnClient { clientId: string; clientSecret: string | null; authorizationUrl: string | null; tokenUrl: string | null; scope: string | null; foundTokenUrl: string | null }
 
 export class GrantError extends Error { name = 'GrantError' }
 
@@ -110,9 +111,9 @@ function extraParams(authorizationEndpoint: string): Record<string, string> {
   return new URL(authorizationEndpoint).origin === 'https://accounts.google.com' ? { access_type: 'offline', prompt: 'consent' } : {}
 }
 
-/** Dynamic client registration for our callback address. */
+/** Dynamic client registration for our callback address. A server without it needs an own app (ownClient). */
 export async function register(server: OAuthServer, redirectUri: string, net: NetOptions): Promise<OAuthClient> {
-  if (!server.registrationEndpoint) throw new NetError('oauth_unsupported')
+  if (!server.registrationEndpoint) throw new NetError('oauth_no_registration')
   const body = { client_name: PRODUCT.displayName, redirect_uris: [redirectUri], grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: 'none' }
   const r = await jsonRequest(server.registrationEndpoint, { method: 'POST', headers: [['Content-Type', 'application/json'], ['Accept', 'application/json']], body: Buffer.from(JSON.stringify(body)) }, net)
   const j = r.json

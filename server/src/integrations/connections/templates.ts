@@ -24,8 +24,8 @@ import type { AppContext } from '../../context'
 import { newId } from '../../db'
 import { audit } from '../../admin/audit'
 import { fail } from '../../http/errors'
-import { appFrom, cleanNotes, fieldError, hiddenText, integrationsOf, normUrl, obviouslyPrivate, oneLine } from './service'
-import { activeUser, bareUrl, clientInfo, clientView, getRow, isAdmin, selectRows, templateClientAad, templateCovers, view, type Row, type Viewer } from './store'
+import { cleanNotes, fieldError, hiddenText, integrationsOf, normUrl, obviouslyPrivate, oneLine } from './service'
+import { activeUser, bareUrl, clientView, getRow, isAdmin, selectRows, templateClientAad, templateCovers, view, type Row, type Viewer } from './store'
 import { say } from './text'
 import { notifyTemplateOffers } from '../../notifications/service'
 
@@ -125,27 +125,9 @@ export class ConnectionTemplates {
     return v.auth === 'header' ? this.svc.headerName(v.authHeader ?? null, L) : null
   }
 
-  /** The template's app after a change: `input` undefined keeps it, null removes it, an app replaces it (its secret
-   * write-only: left out, the stored one stays while the client ID does). It goes with sign-in, and an API's sign-in
-   * needs one. `changed`: another ID, secret, address or scope (the members' sign-ins were made with the old one). */
-  private nextApp(t: Pick<TemplateRow, 'id' | 'oauth_client' | 'oauth_client_enc' | 'oauth_client_key_version'>, kind: TemplateRow['kind'], auth: TemplateRow['auth'], input: OAuthClientInput | null | undefined, L: Locale) {
-    const svc = this.svc
-    const was = clientInfo(t.oauth_client)
-    const kept = { json: t.oauth_client, enc: t.oauth_client_enc, keyVersion: t.oauth_client_key_version, changed: false }
-    if (input && auth !== 'oauth') fieldError(L, 'oauthClient', 'appNeedsOauth')
-    let out = kept
-    if (auth !== 'oauth' || input === null) out = { json: null, enc: null, keyVersion: 1, changed: !!was || !!t.oauth_client_enc }
-    else if (input) {
-      const app = appFrom(kind, input, L)
-      const aad = templateClientAad(t.id)
-      const old = t.oauth_client_enc ? svc.tryOpenClient(aad, t.oauth_client_enc, t.oauth_client_key_version) : null
-      const secret = input.clientSecret !== undefined ? input.clientSecret : was?.clientId === app.clientId ? old : null
-      const sealed = !secret ? null : secret === old && t.oauth_client_enc ? { enc: t.oauth_client_enc, keyVersion: t.oauth_client_key_version } : svc.sealClient(aad, secret, L)
-      const json = JSON.stringify(app)
-      out = { json, enc: sealed?.enc ?? null, keyVersion: sealed?.keyVersion ?? 1, changed: json !== JSON.stringify(was) || (sealed?.enc ?? null) !== t.oauth_client_enc }
-    }
-    if (auth === 'oauth' && kind === 'http' && !clientInfo(out.json)?.tokenUrl) fieldError(L, 'oauthClient', 'oauthHttpNeedsApp')
-    return out
+  /** The template's app after a change (service.ts appAfter): its secret stays only where it went before. */
+  private appAfter(t: Pick<TemplateRow, 'id' | 'oauth_client' | 'oauth_client_enc' | 'oauth_client_key_version'>, kind: TemplateRow['kind'], auth: TemplateRow['auth'], input: OAuthClientInput | null | undefined, moved: boolean, L: Locale) {
+    return this.svc.appAfter(templateClientAad(t.id), { json: t.oauth_client, enc: t.oauth_client_enc, keyVersion: t.oauth_client_key_version }, kind, auth, input, moved, L)
   }
 
   create(viewer: Viewer, input: IntegrationTemplateInput, L: Locale): IntegrationTemplate {
@@ -158,7 +140,7 @@ export class ConnectionTemplates {
       id: newId(), created_by: viewer.id, kind: input.kind, name: oneLine(input.name), url: normUrl(input.url), auth: input.auth, auth_header: authHeader,
       notes: cleanNotes(input.notes), version: 1, created_at: at, updated_at: at, oauth_client: null, oauth_client_enc: null, oauth_client_key_version: 1,
     }
-    const app = this.nextApp(t, t.kind, t.auth, input.oauthClient, L)
+    const app = this.appAfter(t, t.kind, t.auth, input.oauthClient, false, L)
     t.oauth_client = app.json; t.oauth_client_enc = app.enc; t.oauth_client_key_version = app.keyVersion
     this.db.transaction(() => {
       this.db.query(`INSERT INTO integration_templates (${COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
@@ -182,7 +164,7 @@ export class ConnectionTemplates {
     if (next.auth === 'header') next.auth_header = patch.authHeader !== undefined ? patch.authHeader : t.auth_header
     else next.auth_header = null
     next.auth_header = this.check(L, { name: next.name, url: next.url, auth: next.auth, kind: next.kind, authHeader: next.auth_header, notes: next.notes, access: patch.access })
-    const app = this.nextApp(t, next.kind, next.auth, patch.oauthClient, L)
+    const app = this.appAfter(t, next.kind, next.auth, patch.oauthClient, next.url !== t.url, L)
     next.oauth_client = app.json; next.oauth_client_enc = app.enc; next.oauth_client_key_version = app.keyVersion
     // a key is never sent to another address or in another way than the member connected it for; a sign-in made through
     // one app is never used with another

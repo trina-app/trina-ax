@@ -2761,6 +2761,7 @@ export const ko = {
   "integrations.app.useDesc": "Google처럼 앱을 스스로 등록하게 해 주지 않는 서비스는, 그 서비스에서 만든 앱의 Client ID로 로그인해요.",
   "integrations.app.redirect": "서비스의 앱 설정에 등록할 리디렉션 주소",
   "integrations.app.secretSaved": "Client Secret 저장됨",
+  "integrations.app.secretReplace": "Secret 바꾸기",
   "integrations.app.secretHintTemplate": "저장하면 다시 볼 수 없어요. 팀원에게는 보이지 않아요.",
   "integrations.field.clientId": "Client ID",
   "integrations.field.clientSecret": "Client Secret",

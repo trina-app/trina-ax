@@ -17281,11 +17281,23 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
   need no code of their own. A built-in NAVER WORKS bot for rooms (like the Slack connector) is separate and later.
 - **Templates carry the app:** the common case is the team's one app with each member signing in with their own
   account. The secret is sealed for the template and only ever used by the server at the token address; members never
-  see the app (no field in `MyIntegrationTemplate`, null on their connection, refused on their patch). Requests to one
+  see the secret, and the API shows them nothing of the app (no field in `MyIntegrationTemplate`, null on their
+  connection, refused on their patch; the client ID and scopes are in the sign-in address, as with any OAuth app). Requests to one
   member stay without an app (a third place for a secret, for a case a template covers).
 - **A sign-in belongs to its app:** another client ID, secret, address or scope drops the sign-in and revokes it, like
   a new address; on a template it deletes the members' connections (they are told to connect again). The same app sent
-  again (no secret, or the same secret retyped) changes nothing. The secret is write-only, kept while the client ID stays.
+  again (no secret, or the same secret retyped) changes nothing.
+- **A stored secret only goes where it went before** (review 1, must-fix): a change without the secret keeps it only
+  with the same client ID, the same sign-in and token addresses and, for an app whose addresses are found, the same
+  server address (`service.ts appAfter`, shared by connections and templates); else it goes. Before the fix, a second
+  admin could set another token address and have the first admin's secret sent there. The dialog applies the same rule
+  (`storedSecretStays`), so it asks for the secret again where the server would drop it.
+- **A found token address is remembered** (review 1): the first sign-in of an app with a secret and no given addresses
+  stores the token address it found; a later one that finds another is refused before anything is sent. Without it the
+  MCP server's metadata decided where the secret went at every sign-in. A new secret or another app forgets it.
+- **Members of a template see "ask your admin"** when the service registers no apps (`oauth_no_registration_member`);
+  people who can set an app see the own-app hint (`oauth_no_registration`); `oauth_unsupported` keeps its old words for
+  a server with no usable sign-in at all.
 - **Small service rules, in one place each:** Google gets `access_type=offline&prompt=consent` (`oauth.ts extraParams`;
   without it no refresh token, a new sign-in every hour). The secret goes in the body unless the metadata lists only
   basic (NAVER WORKS documents body parameters only). `expires_in` as text is read (NAVER WORKS sends `"86400"`). An HTTP
@@ -17294,10 +17306,13 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
 - **The redirect address** shown in the dialog is the page's own address plus `/api/integrations/oauth/callback`, which
   is what the server builds from the request's origin (`linkBase`). Office mode on the server Mac's localhost maps to the
   office address on the server and not in the dialog; documented as "register every address people sign in from".
-- **Triggers unchanged:** the new columns change only together with `version`, which the safe-operations policy
-  triggers already watch, so migration 338 only adds columns.
+- **Policy triggers:** the three new columns are policy columns of both tables, like `secret_enc` and `key_version`
+  (migration 338 redefines the two update triggers with them; `safe-ops-policy-epoch.test.ts` R2-2 checks that every
+  column is either policy or bookkeeping). Remembering a found token address moves the policy generation, as a sign-in
+  does.
 - **Not verified for real:** no Google or NAVER WORKS app existed; the fake services cover a server without
   registration, client-secret checks, a text `expires_in` and a REST API taking the tokens.
-- Tests: `tests/unit/c-integrations-own-app.test.ts`, `web/test/unit/integrations.test.ts`; every `c-integration*`,
-  `c-drive*`, `c-slack*` test file still passes.
+- Tests: `tests/unit/c-integrations-own-app.test.ts`, `web/test/unit/integrations.test.ts`, web e2e
+  `integrations.spec.ts` "your own app"; `safe-ops-policy-epoch.test.ts` and every `c-integration*`, `c-drive*`,
+  `c-slack*` test file pass.
 - Version impact: **minor** (optional API fields, one add-only migration).

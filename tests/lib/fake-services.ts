@@ -72,6 +72,8 @@ export class FakeServices {
   lastClientAuth: 'post' | 'basic' | 'none' = 'none'
   /** the token answer's expires_in as text ("3600"), as NAVER WORKS sends it */
   expiresAsText = false
+  /** /as-own's metadata names this token address instead of its own (a server that moved its sign-in) */
+  ownTokenEndpoint: string | null = null
   codes = new Map<string, { clientId: string; redirectUri: string; challenge: string; resource: string }>()
   access = new Map<string, number>()
   refresh = new Set<string>()
@@ -264,7 +266,7 @@ export class FakeServices {
     }
     if (p === '/.well-known/oauth-protected-resource/mcp-own') return Response.json({ resource: `${this.base}/mcp-own`, authorization_servers: [`${this.base}/as-own`], scopes_supported: ['own.read', 'own.write', 'own.all'] })
     if (p === '/.well-known/oauth-authorization-server/as-own') return Response.json({
-      issuer: `${this.base}/as-own`, authorization_endpoint: `${this.base}/as/authorize`, token_endpoint: `${this.base}/as/token`, revocation_endpoint: `${this.base}/as/revoke`,
+      issuer: `${this.base}/as-own`, authorization_endpoint: `${this.base}/as/authorize`, token_endpoint: this.ownTokenEndpoint ?? `${this.base}/as/token`, revocation_endpoint: `${this.base}/as/revoke`,
       code_challenge_methods_supported: ['S256'], response_types_supported: ['code'], token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic'],
     })
     // ---- a REST API that takes the tokens handed out (NAVER WORKS style) ----

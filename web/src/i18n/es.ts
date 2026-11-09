@@ -2722,6 +2722,7 @@ export const es: Record<MessageKey, string> = {
   "integrations.app.useDesc": "Para servicios como Google que no permiten que las aplicaciones se registren solas: inicie sesión con el ID de cliente de una aplicación que creó allí.",
   "integrations.app.redirect": "Dirección de redirección que debe registrar en su aplicación del servicio",
   "integrations.app.secretSaved": "Secreto de cliente guardado",
+  "integrations.app.secretReplace": "Cambiar secreto",
   "integrations.app.secretHintTemplate": "No podrá verlo de nuevo después de guardarlo. Los miembros nunca lo ven.",
   "integrations.field.clientId": "ID de cliente",
   "integrations.field.clientSecret": "Secreto de cliente",

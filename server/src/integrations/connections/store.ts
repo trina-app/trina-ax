@@ -36,8 +36,9 @@ export interface Row {
   oauth_client_key_version?: number
 }
 
-/** what is not secret about an own app (integrations.oauth_client, integration_templates.oauth_client) */
-export interface ClientInfo { clientId: string; authorizationUrl: string | null; tokenUrl: string | null; scope: string | null }
+/** what is not secret about an own app (integrations.oauth_client, integration_templates.oauth_client). foundTokenUrl:
+ * the token address its first sign-in found from the server (service.ts pinFound), never shown */
+export interface ClientInfo { clientId: string; authorizationUrl: string | null; tokenUrl: string | null; scope: string | null; foundTokenUrl?: string | null }
 /** The stored app, or null (none, or a value that is not one: the column is ours alone). */
 export function clientInfo(json: string | null | undefined): ClientInfo | null {
   if (!json) return null
@@ -45,13 +46,13 @@ export function clientInfo(json: string | null | undefined): ClientInfo | null {
     const v = JSON.parse(json)
     if (!v || typeof v.clientId !== 'string' || !v.clientId) return null
     const str = (x: unknown) => (typeof x === 'string' && x ? x : null)
-    return { clientId: v.clientId, authorizationUrl: str(v.authorizationUrl), tokenUrl: str(v.tokenUrl), scope: str(v.scope) }
+    return { clientId: v.clientId, authorizationUrl: str(v.authorizationUrl), tokenUrl: str(v.tokenUrl), scope: str(v.scope), ...(str(v.foundTokenUrl) ? { foundTokenUrl: str(v.foundTokenUrl) } : {}) }
   } catch { return null }
 }
 /** what whoever manages it sees of an own app: never the secret */
 export function clientView(json: string | null | undefined, enc: string | null | undefined): OAuthClientView | null {
   const c = clientInfo(json)
-  return c ? { ...c, hasSecret: !!enc } : null
+  return c ? { clientId: c.clientId, authorizationUrl: c.authorizationUrl, tokenUrl: c.tokenUrl, scope: c.scope, hasSecret: !!enc } : null
 }
 export interface FlowRow {
   id: string; integration_id: string; integration_version: number; user_id: string; session_id: string; state_hash: string

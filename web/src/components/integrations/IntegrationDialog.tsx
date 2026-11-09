@@ -8,7 +8,8 @@
 // template shows only what is theirs to change: their key or sign-in, and the write rule.
 // Sign-in at a service that does not register apps itself (Google's MCP servers; an API such as NAVER WORKS, always)
 // goes through your own app there (AppSection): its client ID and secret, an API's sign-in and token addresses, the
-// scopes, and the redirect address to register at the service. On a template it is the team's app; members never see it.
+// scopes, and the redirect address to register at the service. On a template it is the team's app; members never see
+// its secret. A stored secret stays only where it went before (storedSecretStays, the server's rule).
 import clsx from 'clsx'
 import { Check, ChevronRight, Copy, TriangleAlert, UserPlus } from 'lucide-react'
 import { useId, useRef, useState, type ReactNode } from 'react'
@@ -16,7 +17,7 @@ import type { Group, Integration, IntegrationAccess, IntegrationKind, Integratio
 import { api, API, errorText } from '../../lib/api'
 import type { Connector } from '../../lib/connectors'
 import {
-  appInput, appPatch, authOf, CLIENT_ID_MAX, CLIENT_SECRET_MAX, covers, dropsSecret, emptyForm, formFrom, formFromTemplate, isEmptyAccess, methodsFor, normalAccess, NOBODY, NOTES_MAX, sameAccess, SCOPE_MAX, serverFieldErrors, toInput, toPatch, URL_MAX, usesApp, validate, withKind,
+  appInput, appPatch, authOf, storedSecretStays, CLIENT_ID_MAX, CLIENT_SECRET_MAX, covers, dropsSecret, emptyForm, formFrom, formFromTemplate, isEmptyAccess, methodsFor, normalAccess, NOBODY, NOTES_MAX, sameAccess, SCOPE_MAX, serverFieldErrors, toInput, toPatch, URL_MAX, usesApp, validate, withKind,
   type FormErrors, type FormField, type IntegrationForm, type SignInMethod,
 } from '../../lib/integrations'
 import { mobileApp } from '../../lib/mobile'
@@ -85,7 +86,7 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
   const signInNext = !asTemplate && f.method === 'oauth' && !phone && (!existing || existing.auth !== 'oauth' || dropped)
   // editing a template: a new address, sign-in method, header or app drops every member's key (they connect again)
   const movesTemplate = !!template && (f.url.trim() !== template.url || authOf(f) !== template.auth || (authOf(f) === 'header' && f.headerName.trim() !== (template.authHeader ?? ''))
-    || (authOf(f) === 'oauth' && appPatch(f, template.oauthClient) !== undefined))
+    || (authOf(f) === 'oauth' && appPatch(f, template.oauthClient, template.url) !== undefined))
   const methods = methodsFor(f.kind).filter((m) => !asTemplate || m !== 'none')
   // what Advanced holds, in one line next to it
   const summary = [
@@ -163,7 +164,7 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
         if (authHeader !== (template.authHeader ?? null)) p.authHeader = authHeader
         if (notes !== (template.notes ?? null)) p.notes = notes
         if (!sameAccess(access, template.access)) p.access = access
-        const app = auth === 'oauth' ? appPatch(f, template.oauthClient) : undefined
+        const app = auth === 'oauth' ? appPatch(f, template.oauthClient, template.url) : undefined
         if (app !== undefined) p.oauthClient = app
         if (!Object.keys(p).length) return onClose()
         r = await api.call(API.updateIntegrationTemplate, { params: { id: template.id }, body: p })
@@ -238,7 +239,7 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
           )}
           {/* an API signs in only with its own app: its fields are required, so they sit with the address (like a key) */}
           {f.method === 'oauth' && f.kind === 'http' && !fromTeam && (
-            <AppSection f={f} stored={template ? template.oauthClient : existing?.oauthClient} change={change} errorOf={errorOf} blur={blur} template={asTemplate} />
+            <AppSection f={f} stored={template ? template.oauthClient : existing?.oauthClient} storedUrl={template?.url ?? existing?.url} change={change} errorOf={errorOf} blur={blur} template={asTemplate} />
           )}
           {!asTemplate && f.method === 'oauth' && (
             <div className="text-sm" data-testid="integration-oauth-note">
@@ -308,7 +309,7 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
               )}
               {/* most MCP servers register an app by themselves: their own app is the exception, one click away */}
               {f.method === 'oauth' && f.kind === 'mcp' && !connector && !fromTeam && (
-                <AppSection f={f} stored={template ? template.oauthClient : existing?.oauthClient} change={change} errorOf={errorOf} blur={blur} template={asTemplate} />
+                <AppSection f={f} stored={template ? template.oauthClient : existing?.oauthClient} storedUrl={template?.url ?? existing?.url} change={change} errorOf={errorOf} blur={blur} template={asTemplate} />
               )}
               {(f.kind === 'http' || asTemplate) && !fromTeam && (
                 <Field label={t(asTemplate ? 'integrations.template.note' : 'integrations.field.notes')} hint={asTemplate ? t('integrations.template.noteHint') : t('integrations.field.notesHint', { n: NOTES_MAX.toLocaleString(locale) })} error={errorOf('notes')}>
@@ -351,9 +352,11 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
 /** Your own app at the service (docs/INTEGRATIONS.md "Your own app"): an MCP server offers it behind a checkbox (most
  * register an app by themselves), an API always shows it. The client secret is write-only like a key. The redirect
  * address is where the service sends the browser back: the one this page is open at, as the server builds it. */
-function AppSection({ f, stored, change, errorOf, blur, template }: {
+function AppSection({ f, stored, storedUrl, change, errorOf, blur, template }: {
   f: IntegrationForm
   stored?: OAuthClientView | null
+  /** the saved address: a found app's secret does not follow a new one */
+  storedUrl?: string
   change: (patch: Partial<IntegrationForm>, ...fields: FormField[]) => void
   errorOf: (k: FormField) => string | null
   blur: (k: FormField) => () => void
@@ -365,7 +368,9 @@ function AppSection({ f, stored, change, errorOf, blur, template }: {
   const api = f.kind === 'http'
   // what the server builds from this page's address (routes/integrations.ts linkBase)
   const redirect = typeof window !== 'undefined' && window.location ? `${window.location.origin}/api/integrations/oauth/callback` : '/api/integrations/oauth/callback'
-  const secretStored = !!stored?.hasSecret && stored.clientId === f.clientId.trim()
+  const secretStored = storedSecretStays(f, stored, storedUrl)
+  // an MCP server finds its addresses; given ones (set before) stay visible so they can be fixed or cleared
+  const addresses = api || !!f.authUrl.trim() || !!f.tokenUrl.trim()
   const fields = (
     <div className={clsx('space-y-4', !api && 'pl-6')} data-testid="integration-app-fields">
       <div className="flex items-center gap-2 rounded-lg bg-hover px-3 py-2">
@@ -386,7 +391,7 @@ function AppSection({ f, stored, change, errorOf, blur, template }: {
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm" data-testid="integration-app-secret-saved">
           <span className="min-w-0 flex-1">{t('integrations.app.secretSaved')}</span>
           <Button size="sm" onClick={() => change({ clientSecretAction: 'replace', clientSecret: '' }, 'clientSecret')} data-testid="integration-app-secret-replace">
-            {t('integrations.key.replace')}
+            {t('integrations.app.secretReplace')}
           </Button>
         </div>
       ) : (
@@ -394,7 +399,7 @@ function AppSection({ f, stored, change, errorOf, blur, template }: {
           <input className={inputCls} type="password" value={f.clientSecret} maxLength={CLIENT_SECRET_MAX} autoComplete="off" spellCheck={false} onChange={(e) => change({ clientSecret: e.target.value }, 'clientSecret')} onBlur={blur('clientSecret')} data-testid="integration-app-client-secret" />
         </Field>
       )}
-      {api && (
+      {addresses && (
         <>
           <Field label={t('integrations.field.authUrl')} error={errorOf('authUrl')}>
             <input className={inputCls} type="url" inputMode="url" value={f.authUrl} maxLength={URL_MAX} autoComplete="off" spellCheck={false} placeholder="https://auth.example.com/oauth2/authorize" onChange={(e) => change({ authUrl: e.target.value }, 'authUrl')} onBlur={blur('authUrl')} data-testid="integration-app-auth-url" />

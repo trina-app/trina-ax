@@ -295,7 +295,8 @@ export const IntegrationTemplateInput = z.object({
   // who sees it to connect with their own key; left out = the whole team (a template carries no key)
   access: IntegrationAccess.optional(),
   /** the team's own app at the service: each member signs in through it with their own account (auth oauth only; an
-   * HTTP API needs it). Its secret stays on the server: members never see it. */
+   * HTTP API needs it). Its secret stays on the server: members never see it, and the API shows them nothing of the app
+   * (its client ID and scopes are in the sign-in address, as with any app). */
   oauthClient: OAuthClientInput.optional(),
   // strict: a key sent with a template is refused, not quietly dropped
 }).strict().refine(oauthFits, OAUTH_HTTP)

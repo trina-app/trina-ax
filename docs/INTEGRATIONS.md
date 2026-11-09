@@ -403,12 +403,16 @@ cannot start: Google's MCP servers (`https://gmailmcp.googleapis.com/mcp/v1`, `c
 "Sign in with my own app").
 
 - **Where:** a personal connection (the member's own app), a team connection (an admin's), or a template (the team's
-  app: each member it is for signs in through it with their own account). Members never see a template's app:
-  `MyIntegrationTemplate` has no field for it and their connection's `oauthClient` is null; they cannot set one on it.
+  app: each member it is for signs in through it with their own account). Members never see a template's secret, and
+  the API shows them nothing of the app (`MyIntegrationTemplate` has no field for it, their connection's `oauthClient` is
+  null, they cannot set one on it); the client ID and scopes are in the sign-in address they open, as with any app.
   A request to one member cannot carry an app (a template does that).
 - **MCP server:** the client ID and secret are enough. The addresses are found from the server's address as for any MCP
   sign-in; `scope` replaces the scopes the server lists (Google's servers list every scope they know, full mail access
   included, so name the ones you want). With both addresses given nothing is looked up; the resource indicator stays.
+  The first sign-in with a secret remembers the token address it found (`foundTokenUrl` in `oauth_client`, never shown;
+  `service.ts pinFound`); a later sign-in whose server names another one is refused before anything is sent ("enter the
+  client secret again"), so a server cannot move where the secret goes. A new secret or another app forgets it.
 - **HTTP API:** sign-in is a choice next to a key and needs the app with both addresses. No resource indicator is sent
   (an API has none). `api_request` and the check send `Authorization: Bearer <token>`; a 401 refreshes the token once
   and sends the request again (a refused request did nothing).
@@ -423,9 +427,12 @@ cannot start: Google's MCP servers (`https://gmailmcp.googleapis.com/mcp/v1`, `c
   are kept in clear (`oauth_client`) to show them to whoever manages it. The secret is never in a response (`hasSecret`
   only), a log line, an audit entry (`ownApp: true`, `changed: ["oauthClient"]`), a flow row or a tool result, and it is
   hidden in what services send back like the tokens.
-- **Changes:** the secret is write-only: a change without it keeps the stored one while the client ID stays, and another
-  client ID drops it. Another client ID, secret, address or scope drops the sign-in (and revokes it), like a new
-  address: tokens are bound to the app. On a template it deletes the members' connections; they are told to connect
+- **Changes:** the secret is write-only, and a stored one only goes where it went before (`service.ts appAfter`, for
+  connections and templates): a change without it keeps it only with the same client ID and the same sign-in and token
+  addresses and, for an app whose addresses are found, the same server address; otherwise it goes unless a new one
+  comes with the change (a second admin cannot point the token address elsewhere and have the first admin's secret sent
+  there). Another client ID, secret, address or scope drops the sign-in (and revokes it), like a new address: tokens are
+  bound to the app. On a template it deletes the members' connections; they are told to connect
   again. Leaving sign-in removes the app; `oauthClient: null` goes back to the service's own registration.
 - **Redirect address** to register in the app at the service: `https://<team address>/api/integrations/oauth/callback`,
   the address the app is open at (the server builds it from the page's own address; the dialog shows it with a copy

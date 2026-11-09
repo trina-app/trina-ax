@@ -2762,6 +2762,7 @@ export const id: Record<MessageKey, string> = {
   "integrations.app.useDesc": "Untuk layanan seperti Google yang tidak mengizinkan aplikasi mendaftar sendiri: login dengan client ID aplikasi yang Anda buat di sana.",
   "integrations.app.redirect": "Alamat pengalihan untuk didaftarkan di aplikasi Anda pada layanan",
   "integrations.app.secretSaved": "Client secret tersimpan",
+  "integrations.app.secretReplace": "Ganti secret",
   "integrations.app.secretHintTemplate": "Tidak bisa dilihat lagi setelah disimpan. Anggota tidak pernah melihatnya.",
   "integrations.field.clientId": "Client ID",
   "integrations.field.clientSecret": "Client secret",
