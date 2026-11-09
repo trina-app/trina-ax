@@ -67,4 +67,4 @@ Built as planned. `GET /api/rooms/:id/files/:fileId/hwp-preview` (`roomFileHwpPr
 `HwpPreviews.pageOf` is the one path for team and room files. `Me.server.hwpPreview` gates the room chip; `HwpView`
 takes a team path or a room file and shows the download-only notice. The routes' shared schemas moved to
 `shared/src/hwp.ts` (`HwpPreviewQuery`, `HwpPreviewPage`). An independent security review found no must-fix; the cases
-it asked to guard are tests. Rebased on dev after `feat/image-viewer` (#246).
+it asked to guard are tests. Rebased on dev after `feat/image-viewer` (#246) and `feat/pin-rooms` (#250). PR: #254.
