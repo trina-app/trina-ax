@@ -203,11 +203,15 @@ export function withRoom(d: RoomsData, room: Room): RoomsData {
 }
 
 /** My hidden mark on a room (docs/DECISIONS.md "대화 숨기기"), before the server answers: the room stays in the list,
- * only marked (the sidebar, the counts and the 대화 tab leave it out; the full list shows it under "숨긴 대화"). */
+ * only marked (the sidebar, the counts and the 대화 tab leave it out; the full list shows it under "숨긴 대화"). Hiding
+ * unpins it (docs/DECISIONS.md "Pinned conversations"). */
 export function withHidden(d: RoomsData, roomId: string, hidden: boolean): RoomsData {
   return { ...d, rooms: d.rooms.map((r) => {
     if (r.id !== roomId || !!r.hidden === hidden) return r
-    if (hidden) return { ...r, hidden: true as const }
+    if (hidden) {
+      const { pinnedAt: _unpinned, ...rest } = r
+      return { ...rest, hidden: true as const }
+    }
     const { hidden: _shown, ...rest } = r
     return rest
   }) }
@@ -306,6 +310,9 @@ interface RoomsState extends RoomsData {
   /** hide a DM, a team room or the everyone room from my lists, or show it again (docs/DECISIONS.md "대화 숨기기"):
    * shown at once, the server's answer wins; hiding the room on screen goes to the conversations list */
   setHidden: (roomId: string, hidden: boolean) => Promise<void>
+  /** pin a room to the top of my lists, or unpin it ("상단에 고정" / "고정 해제", docs/DECISIONS.md "Pinned
+   * conversations"): mine only; my other windows hear it (room.updated) */
+  setPinned: (roomId: string, pinned: boolean) => Promise<void>
   removeMember: (roomId: string, userId: string) => Promise<void>
   /** the AI's count and my own questions in a room (GET /api/rooms/:id/ai) */
   loadAi: (roomId: string) => Promise<void>
@@ -676,9 +683,19 @@ export const useRooms = create<RoomsState>((set, get) => {
         const room = await api.call(API.setRoomHidden, { params: { id: roomId }, body: { hidden } })
         set((s) => withRoom(s, room))
       } catch (e) {
-        set((s) => withHidden(s, roomId, !!was.hidden))
+        // as it was: shown or hidden, and its pin (hiding took it off)
+        set((s) => {
+          const d = withHidden(s, roomId, !!was.hidden)
+          return was.pinnedAt ? { ...d, rooms: d.rooms.map((r) => (r.id === roomId ? { ...r, pinnedAt: was.pinnedAt } : r)) } : d
+        })
         throw e
       }
+    },
+
+    async setPinned(roomId, pinned) {
+      const params = { id: roomId }
+      const room = pinned ? await api.call(API.pinRoom, { params }) : await api.call(API.unpinRoom, { params })
+      set((s) => withRoom(s, room))
     },
 
     async removeMember(roomId, userId) {

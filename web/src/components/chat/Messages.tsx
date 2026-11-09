@@ -7,7 +7,8 @@
 // answer and show on older ones when the pointer or focus is on them. A phone has no hover: there a message's actions
 // (copy, edit, retry) show once the message is tapped, the newest answer's always; until then they are hidden from
 // sight only (screen readers and a keyboard still reach them), and the branch switch ("‹ 1 / 2 ›") always shows.
-// A file sent with a message is a small card above the bubble: its name, its type and its size.
+// A file sent with a message is a small card above the bubble: its name, its type and its size; a picture is its
+// thumbnail, which opens the image viewer (components/ImageViewer.tsx), with the chat's other pictures by ← →.
 // A shared project chat (docs/DECISIONS.md "Shared project chats"): every question, mine too, has its sender's picture
 // and name above it, and edit, regenerate and "대화방에 보내기" are only on what I asked myself. An answer hidden from me
 // there (Message.withheld: it used something I cannot open, and I did not see the chat then) is one faint line in its
@@ -53,6 +54,8 @@ import { WithRoomRefs } from './RoomRefMenu'
 import { fromWire, toWire } from '../../lib/roomRefs'
 import { ENGINE_LABEL, EngineOptions, type EnginePick } from './EngineMenu'
 import { Tooltip } from '../Tooltip'
+import { useViewerItem } from '../ImageViewer'
+import { attachmentItem } from '../../lib/imageViewer'
 
 export { ENGINE_LABEL }
 
@@ -96,6 +99,9 @@ export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 's
   // the soft box holds the place while the thumbnail loads; then a picture with transparency sits on the page itself
   const [thumbLoaded, setThumbLoaded] = useState(false)
   const team = a.source === 'team'
+  // a picture opens the image viewer (the chat's other pictures by ← →), any other file the side panel
+  const picture = a.kind === 'image' && !thumbFailed && !(team && a.unavailable)
+  const viewer = useViewerItem(picture ? (meta) => attachmentItem(a, meta) : null)
   // a team file that was deleted or that the person can no longer open: the server sent nothing about it
   if (team && a.unavailable)
     return (
@@ -103,11 +109,11 @@ export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 's
         {t('attach.unavailable')}
       </span>
     )
-  if (a.kind === 'image' && !thumbFailed)
+  if (picture)
     return (
       // the same box as a file card, so a tiny or a large image keeps the row even; the image fills it (cropped)
       <Tooltip label={t('common.previewNamed', { name: a.name })}>
-        <button type="button" onClick={() => openTeamFile(a.path)} className={clsx('h-24 w-36 max-w-full shrink-0 overflow-hidden rounded-xl border border-line sm:w-44', align === 'end' && 'self-end')} aria-label={t('common.previewNamed', { name: a.name })}>
+        <button type="button" ref={viewer.ref} onClick={viewer.open} className={clsx('h-24 w-36 max-w-full shrink-0 overflow-hidden rounded-xl border border-line sm:w-44', align === 'end' && 'self-end')} aria-label={t('common.previewNamed', { name: a.name })} data-testid="attachment-image">
           <img src={thumbnailUrl(a.id)} alt={a.name} loading="lazy" onLoad={() => setThumbLoaded(true)} onError={() => setThumbFailed(true)} className={clsx('block h-full w-full object-cover', !thumbLoaded && 'bg-subtle')} />
         </button>
       </Tooltip>
@@ -496,6 +502,7 @@ export function AssistantMessage({
   onAskOwnFolder,
   onContinue,
   shareable = false,
+  shareRoomId,
   canRegenerate = true,
   canSuggest = true,
 }: {
@@ -514,6 +521,8 @@ export function AssistantMessage({
   /** its answers may go to a room ("대화방에 보내기"): a chat known not to be confidential (Safe operations 1A keeps
    * those to themselves; the server refuses them) */
   shareable?: boolean
+  /** a room's side chat: "Share to room" is a labelled button with this room picked (components/rooms/SideChatPanel.tsx) */
+  shareRoomId?: string
   /** false: someone else asked this in a shared chat, so no new answer from me ("retry", "regenerate") */
   canRegenerate?: boolean
   /** false: "스킬로 제안" is not offered (a shared chat, phase 1: the server refuses it) */
@@ -647,11 +656,16 @@ export function AssistantMessage({
             <span className={clsx('flex items-center gap-1 max-md:gap-3 md:contents', untilTap && UNTIL_TAP)} data-testid="answer-actions-tap">
               {m.content && <CopyButton text={m.content} html={() => answerHtml(m.content)} label={t('chat.copyAnswer')} className="touch-hit" />}
               {/* send to a room: a finished answer to a room I am in, as my message (ShareToRoom) */}
-              {shareable && m.content && m.status === 'done' && (
+              {shareable && m.content && m.status === 'done' && (shareRoomId ? (
+                <button type="button" onClick={() => setSharing(true)} className="touch-hit flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-hover hover:text-ink" data-testid="share-to-room">
+                  <MessageSquareShare size={13} aria-hidden />
+                  {t('sideChat.share')}
+                </button>
+              ) : (
                 <IconButton label={t('chat.shareToRoom')} onClick={() => setSharing(true)} className="touch-hit" data-testid="share-to-room">
                   <MessageSquareShare size={13} />
                 </IconButton>
-              )}
+              ))}
               {/* the newest failed answer has "Try again" in its error box: one control for one action */}
               {!(m.status === 'error' && isLast) && canRegenerate && (
                 <IconButton label={t('chat.regenerate')} disabled={busy} onClick={() => onRegenerate(m)} className="touch-hit" data-testid="regenerate">
@@ -671,7 +685,7 @@ export function AssistantMessage({
         {suggesting && (
           <SuggestSkillDialog source={{ kind: 'message', chatId, messageId: m.id }} initialContent={m.content} onClose={() => setSuggesting(false)} />
         )}
-        {sharing && <ShareToRoom chatId={chatId} messageId={m.id} answer={m.content} onClose={() => setSharing(false)} />}
+        {sharing && <ShareToRoom chatId={chatId} messageId={m.id} answer={m.content} roomId={shareRoomId} onClose={() => setSharing(false)} />}
       </div>
     </div>
   )

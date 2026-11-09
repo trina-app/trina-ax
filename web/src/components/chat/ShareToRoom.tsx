@@ -40,7 +40,8 @@ function startAttach(files: readonly AnswerShareFile[], before?: { files: readon
   return new Set(may.filter((p) => (known.has(p) ? before!.on.has(p) : true)).slice(0, ROOM_FILES_MAX))
 }
 
-export default function ShareToRoom({ chatId, messageId, answer, onClose }: { chatId: string; messageId: string; answer: string; onClose: () => void }) {
+/** `roomId`: the room picked at the start (a room's side chat shares to its room); the person may still pick another */
+export default function ShareToRoom({ chatId, messageId, answer, onClose, roomId }: { chatId: string; messageId: string; answer: string; onClose: () => void; roomId?: string }) {
   const t = useT()
   const locale = useLocale()
   const id = useId()
@@ -48,7 +49,7 @@ export default function ShareToRoom({ chatId, messageId, answer, onClose }: { ch
   const rooms = useRooms((s) => s.rooms)
   const loaded = useRooms((s) => s.loaded)
   const [query, setQuery] = useState('')
-  const [picked, setPicked] = useState<string | null>(null)
+  const [picked, setPicked] = useState<string | null>(roomId ?? null)
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [ask, setAsk] = useState<Ask | null>(null)
