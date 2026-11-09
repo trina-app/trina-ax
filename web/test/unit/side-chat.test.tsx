@@ -1,9 +1,10 @@
 // The room side chat (✦ Trina, components/rooms/SideChatPanel.tsx, docs/DECISIONS.md "트리나 사이드 채팅"): the panel
 // opens the room's newest side chat or none; the first question makes a side chat of the room (POST /api/chats with
-// sideRoomId) and sends the question there; an answer's "Share to room" is a labelled button and the dialog starts with
-// the room picked. Files go with a question as in the full chat's box (components/chat/ComposerFiles.tsx): 📎, paste and
-// drop, uploaded into the side chat (made by the first file when there is none), shown above the box with ✕, their ids
-// in the send body; a failed upload says why and is not sent.
+// sideRoomId) and sends the question there; an answer has one labelled button that sends it to the room or a thread
+// (side-chat-send.test.tsx), and the same chat opened in full has the dialog with the room picked. Files go with a
+// question as in the full chat's box (components/chat/ComposerFiles.tsx): 📎, paste and drop, uploaded into the side
+// chat (made by the first file when there is none), shown above the box with ✕, their ids in the send body; a failed
+// upload says why and is not sent.
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
 import { MESSAGE_ATTACHMENTS_MAX, uuidv7, type Attachment, type Me } from '@mycel/shared/api'
@@ -162,13 +163,22 @@ test('the room\'s newest side chat opens again, with "open as a full chat"', asy
   }
 })
 
-test('a side chat\'s answer: "Share to room" in words; the dialog starts with the room picked', async () => {
+test('a side chat\'s answer: one click in words (side-chat-send.test.tsx); as a full chat (↗) the dialog starts with its room picked', async () => {
   signIn()
-  const a = await mount(<MemoryRouter><AssistantMessage m={msg({ role: 'assistant', content: 'the plan', status: 'done' })} chatId={CHAT} isLast busy={false} switchedFrom={null} onRegenerate={() => {}} onSelectBranch={() => {}} onAskOwnFolder={() => {}} shareable shareRoomId={team.id} /></MemoryRouter>)
+  const a = await mount(<MemoryRouter><AssistantMessage m={msg({ role: 'assistant', content: 'the plan', status: 'done' })} chatId={CHAT} isLast busy={false} switchedFrom={null} onRegenerate={() => {}} onSelectBranch={() => {}} onAskOwnFolder={() => {}} shareable sendHere={{ roomId: team.id, target: null, onView: () => {} }} /></MemoryRouter>)
   try {
-    expect(a.get('share-to-room').textContent).toBe(en('sideChat.share'))
+    expect(a.get('send-here-room').textContent).toBe(en('sideChat.sendRoom'))
+    expect(a.find('share-to-room')).toBeNull()
   } finally {
     await a.unmount()
+  }
+  // the full chat: the dialog's button, its room picked when the dialog opens (pages/Chat.tsx: chat.sideRoomId)
+  const full = await mount(<MemoryRouter><AssistantMessage m={msg({ role: 'assistant', content: 'the plan', status: 'done' })} chatId={CHAT} isLast busy={false} switchedFrom={null} onRegenerate={() => {}} onSelectBranch={() => {}} onAskOwnFolder={() => {}} shareable shareRoomId={team.id} /></MemoryRouter>)
+  try {
+    expect(full.get('share-to-room').getAttribute('aria-label')).toBe(en('chat.shareToRoom'))
+    expect(full.find('send-here-room')).toBeNull()
+  } finally {
+    await full.unmount()
   }
   useRooms.setState({ rooms: [team, room({ name: 'Other', activityAt: at(4) })], loaded: true })
   const m = await mount(<ShareToRoom chatId={CHAT} messageId={uuidv7()} answer="short" roomId={team.id} onClose={() => {}} />)

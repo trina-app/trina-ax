@@ -11,7 +11,7 @@
 // when the person presses Stop ends stopped, Step.stopped), "wrong-guess" (a read of a file name that does not exist
 // fails, then the AI finds and reads the right file), "save-fails" (the AI's last step, a save, fails);
 // anything else gets a Markdown answer with a table, code, math, a Mermaid diagram and an external image; "long list"
-// gets a list of 400 lines, more than one room message holds (comes in big pieces).
+// gets a list of 400 lines, more than one room message holds (comes in big pieces); "한 줄로" a two-sentence answer.
 // "대화방에 보내기" (shareAnswerToRoom): to a room of POST /__test/rooms; like server/src/chat/answer-share.ts, short: a row
 // per linked file (one in a person's own folder or finance/ nobody else in the room opens; one I cannot open is only
 // counted) and, for an answer with recorded sources ("sources"), the provenance line (the room's other members, the
@@ -1543,6 +1543,8 @@ export class MockServer {
         ? '매출은 [report.pdf · p.4](/files/view?path=docs%2Fsources%2Freport.pdf&page=4)에 있어요. 채널별 금액은 [budget.xlsx · 시트 \'매출\' A40:C44](/files/view?path=docs%2Fsources%2Fbudget.xlsx&sheet=%EB%A7%A4%EC%B6%9C&range=A40:C44)을 보면 돼요.'
       : /^\/intro-deck\b/.test(prompt)
         ? (/deck-fail/i.test(prompt) ? '소개서를 끝까지 만들지 못했어요. 다시 해 볼까요?' : '회사 소개서를 만들었어요. 바꾸고 싶은 장이나 문구가 있으면 말씀해 주세요.')
+      : /한 줄로/.test(prompt)
+        ? '로고 시안은 수요일까지 2개 받기로 했어요. 피드백은 금요일 회의 전에 이 스레드에 모아요.'
       : prompt.includes('answered:')
         ? `You chose ${prompt.split('answered:')[1]}.`
         : /artifact|react/i.test(prompt)
