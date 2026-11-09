@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-09 18:52
 - Branch: `fix/oauth-own-client-secret-rules`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/integrations/connections/`, `web/src/lib/integrations.ts`, `web/src/i18n/`, docs).
   Why: fixes to the own-app sign-in of #267, which is core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. Stricter rules for a stored client secret and the sign-in; no API field, no migration.
@@ -62,4 +62,21 @@ Out: revocation addresses for given setups (still later, as in #267).
 
 ## Result
 
-Filled in at the end.
+Built as planned: `appAfter` binds a stored secret to the service address for templates, team and personal connections
+(and the dialog), the same secret entered again forgets the found token address, the token address is remembered in
+the callback after a sign-in worked, the template's coverage is checked at the start and in the callback, `iss` with
+given addresses must be on the sign-in address's origin (`oauth.ts issuerMatches`), `boundUrl` in `oauth_client`
+(`store.ts secretHere`), the scope hint in five languages, docs and CHANGELOG. No migration, no API field.
+
+Added after an independent review of the first fix commit:
+- The callback checks the app again in the write that stores the tokens: of two sign-ins whose exchanges overlapped,
+  the one that comes second keeps no tokens (not revoked: that would send the secret there once more).
+- A sign-in through a template's app finishes only on the template's version it started with (the same secret entered
+  again can bring the app's stored text back to what an earlier sign-in read).
+- Forgetting the found token address is audited (`changed: ["tokenAddress"]`).
+- "Check again" is refused for a member the template no longer covers (it may refresh a token with the team's app).
+
+Each fix has a test that fails without it (checked by undoing each one). Tests: typecheck, i18n, docs, `docs:api` (no
+change); every `c-integration*`, `remote-mcp-*`, `safe-ops*` test and `docs-site` (354 pass); the permission matrix (the
+same 3 failures as on `dev`: routes without a case, `driveShareFolders`); the whole `tests/unit` suite (the failing
+files fail the same way on `dev`); web unit tests in Docker (1,997 pass, 0 fail, on `dev` 7fb6f3c3).
