@@ -301,7 +301,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `PATCH` | `/api/integrations/:id` | Signed in | Change a connection: the owner of a personal one, an admin for a team one. A new address drops the stored key. |
 | `DELETE` | `/api/integrations/:id` | Signed in | Delete a connection (OAuth: revocation is tried, the local tokens go first). |
 | `POST` | `/api/integrations/:id/refresh` | Signed in | Check the connection now; MCP: save its current tool list. |
-| `POST` | `/api/integrations/:id/authorize` | Signed in | Start signing in at an MCP server (OAuth with PKCE) in a browser window. |
+| `POST` | `/api/integrations/:id/authorize` | Signed in | Start signing in at the service (OAuth with PKCE) in a browser window: an MCP server, or an API with your own app. |
 | `POST` | `/api/integrations/:id/tools` | Signed in | Turn one tool of an MCP connection on or off for the AI (whoever manages the connection). New tools are on. |
 | `GET` | `/api/integrations/flows/:id` | Signed in | Poll a sign-in started by this same session. |
 | `GET` | `/api/admin/integrations` | Admin | Every team connection, with who may use it. |
@@ -316,7 +316,7 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `POST` | `/api/integration-templates/:id/connect` | Signed in | Connect a template shared with me as my own connection, with my key, or made for signing in next (MCP OAuth). Again with a key: replaces my key. 404 when it is not shared with me; 409 when it changed since the version I send. |
 | `GET` | `/api/admin/integration-templates` | Admin | Every template, with who it is for and how many members connected it. Never a key. |
 | `POST` | `/api/admin/integration-templates` | Admin | Register a service once for the team; each member it is for connects it with their own key or sign-in. |
-| `PATCH` | `/api/admin/integration-templates/:id` | Admin | Change a template. A new address, sign-in method or header deletes every member's connection made from it (and its key); they connect again. The address may not have a query (a key there would reach every member). |
+| `PATCH` | `/api/admin/integration-templates/:id` | Admin | Change a template. A new address, sign-in method, header or app deletes every member's connection made from it (and its key); they connect again. The address may not have a query (a key there would reach every member). |
 | `GET` | `/api/admin/integration-templates/:id/members` | Admin | Who a template is for, each with whether they connected it and when, or whether their key stopped working. Names and states only: never a key, an address or service data. |
 | `DELETE` | `/api/admin/integration-templates/:id` | Admin | Delete a template and every member's connection made from it (OAuth: revocation is tried, the local tokens go first). |
 | `POST` | `/api/admin/integration-requests/:id/withdraw` | Admin | Withdraw a waiting request. |
