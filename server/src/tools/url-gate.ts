@@ -379,6 +379,8 @@ export function carriesAddress(input: unknown): boolean {
   let v: unknown, json: string
   try { v = expandJson(input, 0); json = JSON.stringify(v ?? null) } catch { return true }
   if (typeof json !== 'string') return true
+  // full-width letters and dots as URL parsers read them (ａｃｍｅ．ｃｏｍ is acme.com)
+  json = json.normalize('NFKC')
   const plain = json.includes('%') ? json.replace(/(?:%[0-9A-Fa-f]{2})+/g, (m) => { try { return decodeURIComponent(m) } catch { return m } }) : json
   return [json, plain].some((t) => extractUrls(t, 1).length > 0 || SCHEME.test(t) || bareAddress(t)) || opaqueParts(json, 1).length > 0 || addressArg(v, 0) || wholeHost(v, 0)
 }
@@ -397,8 +399,9 @@ function expandJson(v: unknown, depth: number): unknown {
   if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, expandJson(x, depth + 1)]))
   return v
 }
-/** a scheme and a slash or a backslash: URL parsers read "https:/x" and "https:\\x" as https://x */
-const SCHEME = /(?:^|[^a-z0-9+.-])[a-z][a-z0-9+.-]*:[\\/]/i
+/** a scheme and a slash or a backslash (URL parsers read "https:/x" and "https:\\x" as https://x), or a web scheme
+ * with neither ("https:x" is https://x too) */
+const SCHEME = /(?:^|[^a-z0-9+.-])(?:[a-z][a-z0-9+.-]*:[\\/]|(?:https?|wss?|ftp):)/i
 /** the dots a host name may be written with (URL parsers map the ideographic and full-width ones to ".") */
 const DOTS = /[\u3002\uFF0E\uFF61\u2024\uFE52]/g
 /** a run of letters, digits, dots and hyphens (one class: no backtracking on a long text): a host name when it has a
@@ -422,10 +425,10 @@ function bareAddress(text: string): boolean {
   return false
 }
 /** a value that is a host name and nothing else: one with a public suffix (not "notes.txt"), or an IPv4 address; not
- * under an argument named for a file ("path": "README.md") */
+ * the value of an argument named for a file ("path": "README.md") */
 function wholeHost(v: unknown, depth: number): boolean {
   if (typeof v === 'string') {
-    const m = /^(?:\/\/)?([\p{L}\p{N}.\u3002\uFF0E\uFF61\u2024\uFE52-]+?)(?::\d+)?$/u.exec(v.trim())
+    const m = /^(?:\/\/)?([\p{L}\p{N}.\u3002\uFF0E\uFF61\u2024\uFE52-]+?)(?::\d+)?$/u.exec(v.normalize('NFKC').trim())
     const host = m ? hostOf(m[1]!) : null
     if (!host) return false
     if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) return true
@@ -433,7 +436,7 @@ function wholeHost(v: unknown, depth: number): boolean {
     return !!p.publicSuffix && (p.isIcann === true || p.isPrivate === true)
   }
   if (!v || typeof v !== 'object' || depth > MAX_DEPTH) return false
-  return Object.entries(v).some(([k, x]) => (Array.isArray(v) || !nameWords(k).some((w) => FILE_ARG.test(w))) && wholeHost(x, depth + 1))
+  return Object.entries(v).some(([k, x]) => (typeof x !== 'string' || Array.isArray(v) || !nameWords(k).some((w) => FILE_ARG.test(w))) && wholeHost(x, depth + 1))
 }
 const FILE_ARG = /^(?:paths?|files?|filenames?|filepaths?|dirs?|folders?|names?|titles?)$/
 const nameWords = (k: string) => k.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)

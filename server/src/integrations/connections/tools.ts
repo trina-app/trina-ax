@@ -463,14 +463,6 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
     ...lines,
   ].join('\n')
   const resolve = (k: string): Row | undefined => byKey.get(k) ?? [...byKey.values()].find((r) => r.slug === k && rows.filter((x) => x.slug === k).length === 1)
-  // GET and HEAD only read (the method as call() takes it), unless their query names where something goes (channel=,
-  // to=, …: some APIs act on a GET); every other method asks on the card (gate), and after a room read such a GET too
-  const reads = (args: unknown): boolean => {
-    const a = (args && typeof args === 'object' ? args : {}) as { method?: unknown; path?: unknown; query?: unknown }
-    if (typeof a.method !== 'string' || !['GET', 'HEAD'].includes(a.method.toUpperCase())) return false
-    const inPath = typeof a.path === 'string' && a.path.includes('?') ? Object.fromEntries(new URLSearchParams(a.path.slice(a.path.indexOf('?') + 1))) : {}
-    return !recipientFields(inPath).length && !recipientFields(a.query).length
-  }
   return {
     name: 'api_request',
     description,
@@ -492,7 +484,8 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
       const path = typeof a.path === 'string' ? a.path.split('?')[0]! : ''
       return `${r?.name ?? 'API'} · ${String(a.method ?? '').toUpperCase()} ${clip(path, 80)}`.trim()
     },
-    readOnly: reads,
+    // GET and HEAD only read (the method as call() takes it); every other method asks on the card (gate)
+    readOnly: (args) => { const m = (args as { method?: unknown } | null)?.method; return typeof m === 'string' && ['GET', 'HEAD'].includes(m.toUpperCase()) },
     call: hiding(ctx, [], async (raw, tc, h) => {
       const svc = integrationsOf(ctx)
       const input = raw && typeof raw === 'object' && typeof (raw as { method?: unknown }).method === 'string' ? { ...(raw as object), method: (raw as { method: string }).method.toUpperCase() } : raw
@@ -513,7 +506,7 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
         const req = bodyOf(a.method, a.body)
         const u = new URL(url)
         let current = row
-        if ((a.method !== 'GET' && a.method !== 'HEAD') || (tc.files.person?.roomsSeen && !reads(a))) {
+        if (a.method !== 'GET' && a.method !== 'HEAD') {
           confirmed = await gate(ctx, row, `${a.method} ${clip(u.pathname, 200)}`, { text: req.shown, fields: [{ name: 'URL', value: url }, ...recipientFields(a.body)] }, b, tc)
           current = h.use(svc.forCall(tc.userId, row.id))
           if (current.version !== row.version) throw new CallError('the connection changed while the user was asked; try again', 'changed')

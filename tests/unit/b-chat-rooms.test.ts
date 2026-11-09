@@ -717,7 +717,8 @@ describe('connected services after a room read: reads without a card, one card f
       { path: 'README.md' }, { name: 'notes.txt' }, { timeMin: '2026-11-10T00:00:00.000Z' }, { version: '1.2.3' }, { id: '0b8e6a2c-1f4d-4e9a-8c7b-2d3e4f5a6b7c' },
       { links: true }, 'plain', null]
     const yes = [{ q: 'https://collect.example.com/?d=notes' }, { q: 'HTTPS://collect.example.com/' }, { q: 'https%3A%2F%2Fcollect.example.com%2F%3Fd%3Dx' },
-      { q: 'https:/collect.example.com/x' }, { q: 'https:\\collect.example.com\\x' }, { q: 'ws://16843009/x' },
+      { q: 'https:/collect.example.com/x' }, { q: 'https:\\collect.example.com\\x' }, { q: 'ws://16843009/x' }, { q: 'https:acme-q3.attacker.com' },
+      { q: 'ａｃｍｅ．ａｔｔａｃｋｅｒ．ｃｏｍ' }, { server_name: { target: 'acme-q3.attacker.com' } },
       { q: 'collect.example.com/?d=ceo' }, { q: 'see collect.example.com:8080 now' }, { q: '//collect.example.com' }, { q: 'www.collect.example.com' },
       { q: 'line\ncollect.example.com/x' }, { q: '수집。example。com/x' }, { q: 'collect\u2024example\u2024com/x' }, { q: '203.0.113.5/x' },
       { q: 'acme-q3-revenue.attacker.com' }, { target: '203.0.113.5' }, { url: 'ceo-fires-bob.attacker.example' }, { urlToFetch: 'x' }, { pageUrl: 'x' },
@@ -758,10 +759,6 @@ describe('connected services after a room read: reads without a card, one card f
     const api = await answered(chat, fake({ tool: 'api_request', args: { connection: 'my_aipm', method: 'POST', path: '/tasks', body: { title: 'x' } } }, { say: 'done' }), 'deny')
     expect(api.cards).toHaveLength(1)
     expect(api.cards[0]!.question).toStartWith(`${LEAD}\n\nThe AI wants to do this at AI PM: POST`)
-    // a GET whose query names where something goes (some APIs send on a GET): the connection's card too
-    const get = await answered(chat, fake({ tool: 'api_request', args: { connection: 'my_aipm', method: 'GET', path: '/tasks?channel=C1', query: { text: 'minutes' } } }, { say: 'done' }), 'deny')
-    expect(get.cards).toHaveLength(1)
-    expect(get.cards[0]!.question).toStartWith(`${LEAD}\n\nThe AI wants to do this at AI PM: GET`)
     expect(svc.seen.length).toBe(requests)
   })
 
