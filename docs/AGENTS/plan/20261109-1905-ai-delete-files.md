@@ -70,3 +70,4 @@ Built as planned (docs/DECISIONS.md "AI가 휴지통으로 옮기기"). Differen
 - `fix/ai-skill-move-like-page` landed meanwhile and was merged in (no overlap in behaviour); `fix/ai-refusals-clear`
   had not, so the refusals carry their own reason and next step.
 - No web component change (the card uses `details`): only the audit screen's label, in five languages.
+- PR: https://github.com/trina-app/trina-ax/pull/277
