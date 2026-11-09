@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import { API, ApiError, type Chat, type ServerFrame } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
+import { oldProject } from '../lib/legacy-project'
 import { updateGroupAs } from '../../server/src/admin/groups'
 import { CHAT_PINS_MAX } from '../../server/src/chat/pins'
 
@@ -21,7 +22,9 @@ let projectId: string
 beforeAll(async () => {
   h = await startHarness({ name: 'b-chat-pins', askUserTimeoutMs: 2500, turnTimeoutMs: 60_000 })
   for (const u of ['alice', 'bob', 'carol', 'dana', 'erin']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
-  const p = await h.api('alice').call(API.createProject, { body: { name: 'Falcon', folderPath: 'projects/falcon', scope: 'team', participants: [], instructions: '' } })
+  // on the fixtures' projects/falcon and its rules (finance reads it), as an older build made it: a new project gets a
+  // private folder of its own since "Projects live only in projects/" (tests/lib/legacy-project.ts)
+  const p = await oldProject(h, 'alice', { name: 'Falcon', folderPath: 'projects/falcon', instructions: '' })
   projectId = p.id
   await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
 })
