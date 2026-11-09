@@ -16177,3 +16177,35 @@ settings)"). Placement: Team AX core (`web/src/components/rooms/MenuButton.tsx`)
   sidebar row's and the room header's notification menus inside the window, the longest item on one line, under the
   row, its right end over the main column; 900 px with reduced motion; a short window opens a row's menu above it).
 - Version impact: **patch** (a fix; no API or data change).
+## 알림함의 앱 알림 — the app's own notices read like conversation rows (fix/inbox-notice-rows, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/components/settings/Notifications.tsx` (`NoticeRow`, `noticeText`, `noticeLink`),
+`server/src/notifications/service.ts` and `shared/src/api/notifications.ts`, 이유: the Inbox is core.
+
+The owner, on a screenshot of the Inbox: the scheduled task's row with its small "결과 열기" link looks bad. Beside the
+message rows ("알림함의 대화 알림") it was not clickable, its date sat on a line of its own, and it did not say which task.
+
+- **A row is a row.** The bell where a message row has the photo, the words, the time on the right in the 대화 list's
+  format (`listTime`). With a place to open (`link`, or the review notice's 예약 작업), the whole row is one link to it, with
+  the hover and focus ring of a message row, and opening it reads the notice; while unread a dot sits where a message row
+  has its count. The separate links under the words (결과 열기, 대화 열기, 대화방 열기, 확인하기, the page names) are gone; their
+  test ids are on the row. A notice with nowhere to go is not a link, has no hover and keeps **읽음 표시** (the only way to
+  read it). A job's log and the handover's lines and buttons stay under the link, not in it (no button inside a link; the
+  log is there to be selected). A dev job's project, which the old link named, is a quiet line under the words.
+- **Not kept: 읽음 표시 on a row that opens something.** It sat beside the time and would be a button inside the link;
+  the message rows have none either. Opening the row reads it.
+- **Which task.** `InboxNotification.schedule.title` for one task's run (a run, an admission skip, a run that needed my own
+  key), read from `schedules` when the notice is read, while the task is mine (`user_id`) and there; one plain line
+  (`plainLabel`). Not stored with the notice ("Inbox stores only generic event metadata", migration 207), so no
+  migration, and a deleted task, an older server and the review notice (several tasks) keep the generic line. Read now,
+  so a renamed task shows its new name on older notices too, and notices from before this change get it. A push's
+  text stays generic (`notifications/text.ts`: never a task name on a lock screen). Words: `"{title}" 예약 작업이
+  끝났어요` and the same for 마치지 못했어요, 일부 단계가 안 됐어요 and 내 키가 필요해요: the title comes first, so no 이(가)
+  after it; the title in `<bdi>` (`isolate`).
+- Tests: `web/test/unit/inbox-notice-rows.test.tsx` (the words with and without a title, where each row goes, the row as
+  one link with its time and dot that reads, no link with 읽음 표시, the log outside the link), `tests/unit/notifications.test.ts`
+  (the title for a run, a skip and a needed key; never another person's task; none once deleted), e2e
+  `inbox-rooms.spec.ts` (the run's row among message rows: its words, its time where theirs is, one link);
+  `web/test/unit/push-worker.test.ts` (a notice with a title still pushes the generic line). `schedule-notifications.spec.ts`
+  still covers a row with no link and its 읽음 표시.
+- Version impact: **patch** (additive API field; no data change).

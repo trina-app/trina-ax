@@ -437,10 +437,11 @@ describe('the Inbox line and the saved skill', () => {
       expect(text).toContain('민준님이 스킬 2개를 팀에 올리자고 했어요')
       expect(text).toContain(ko('notifications.event.skill.contributedGone', { n: 3 }))
       expect(text).toContain(ko('notifications.event.skill.suggested'))
+      // the whole row is the link (no separate "확인하기" under it)
       const links = [...m.container.ownerDocument!.body.querySelectorAll('[data-testid="notification-skills-link"]')]
-      expect(links.map((l) => [l.getAttribute('href'), l.textContent])).toEqual([
-        [`/skills?batch=${BATCH}`, ko('notifications.check')], ['/skills?batch=b2', ko('notifications.check')], ['/skills?review=one', ko('skills.title')],
-      ])
+      expect(links.map((l) => l.getAttribute('href'))).toEqual([`/skills?batch=${BATCH}`, '/skills?batch=b2', '/skills?review=one'])
+      expect(links[0]!.textContent).toContain(ko('notifications.event.skill.contributed', { name: '민준', n: 2 }))
+      expect(links[2]!.textContent).toContain(ko('notifications.event.skill.suggested'))
     } finally { await m.unmount() }
   })
 
