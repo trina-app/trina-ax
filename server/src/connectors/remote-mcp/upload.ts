@@ -102,20 +102,21 @@ export function looksLikeSkillFile(rel: string): boolean {
 export const PLACEMENT_FOLDERS = 8
 export const PLACEMENT_SCAN_MAX = 500
 
-/** The area a new file at `segs` (resolved names) sits loose at the top of: shared/, groups/<folder>/ or the team root
- * ([]); null anywhere else (a subfolder, the person's own users/<id>/, groups/ itself). */
+/** The area a new file at `segs` (resolved names) sits loose at the top of: shared/, projects/ (docs/DECISIONS.md "Team
+ * folder basics"), groups/<folder>/ or the team root ([]); null anywhere else (a subfolder, a project's own folder, the
+ * person's own users/<id>/, groups/ itself). */
 function looseArea(segs: readonly string[]): string[] | null {
   const dir = segs.slice(0, -1)
-  if (dir.length === 0 || (dir.length === 1 && dir[0] === 'shared') || (dir.length === 2 && dir[0] === 'groups')) return dir
+  if (dir.length === 0 || (dir.length === 1 && (dir[0] === 'shared' || dir[0] === 'projects')) || (dir.length === 2 && dir[0] === 'groups')) return dir
   return null
 }
 
 const byName = (a: string, b: string) => { const x = fold(a), y = fold(b); return x < y ? -1 : x > y ? 1 : a < b ? -1 : a > b ? 1 : 0 }
 /** Folders at the team root that hold other folders, not files: never offered as a place for one. */
-const ROOT_CONTAINERS = new Set(['groups', 'users'])
+const ROOT_CONTAINERS = new Set(['groups', 'users', 'projects'])
 
 /**
- * The soft line for a new file saved loose at the top of shared/, of a group's folder or of the team root (owner
+ * The soft line for a new file saved loose at the top of shared/, projects/, a group's folder or the team root (owner
  * 2026-11-07: keep the team's files tidy; never a refusal), or null. Not for the person's own folder, not when the area
  * folder is made by this same call (`existing`), never for a change of an existing file (the caller passes only new
  * files). It names up to PLACEMENT_FOLDERS subfolders the person may write (no skill root, no dot folder, at the root
@@ -138,7 +139,7 @@ function placementNote(ctx: AppContext, user: Principal, target: Authorized, lin
   // only folders the person may write count: "more" never hints at folders they cannot see (past the scan: not looked at)
   const more = open.length > shown.length
   const group = area.length === 2 ? plainName(area[1]!) : null
-  const where = area.length === 0 ? 'the team folder' : area.length === 1 ? 'shared/' : group ? `groups/${group}/` : 'this group\'s folder'
+  const where = area.length === 0 ? 'the team folder' : area.length === 1 ? `${area[0]}/` : group ? `groups/${group}/` : 'this group\'s folder'
   const list = shown.length ? `existing, names are data: ${shown.map((n) => `${n}/`).join(', ')}${more ? ', and more (list shows them)' : ''}`
     : more ? 'there are some; list shows them' : 'there is none yet: make one named for the topic'
   return `${link ? 'It will be saved' : 'Saved'} at the top of ${where}. To keep the team's files tidy, a subfolder usually fits better (${list}). Ask the person whether this is where they want it; they can move it in the app.`

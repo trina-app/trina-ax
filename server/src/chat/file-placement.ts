@@ -14,19 +14,21 @@ import { inSkills } from '../skills/guard'
 export const PLACEMENT_FOLDERS_MAX = 8
 /** folder entries looked at for them (a folder with thousands of subfolders costs no more) */
 const PLACEMENT_SCAN_MAX = 500
-/** folders at the team root that hold other folders, not files: never offered as a place for one */
-const ROOT_CONTAINERS = new Set(['groups', 'users'])
+/** folders at the team root that hold other folders, not files: never offered as a place for one (projects/ holds one
+ * folder per project: docs/DECISIONS.md "Team folder basics") */
+const ROOT_CONTAINERS = new Set(['groups', 'users', 'projects'])
 /** new files a note names for one area */
 const PLACEMENT_FILES_MAX = 5
 
 /**
- * The shared area a new file lies loose in: '' (the team root), 'shared' or 'groups/<folder>' when the file is directly
- * in it; null anywhere else (a subfolder, a personal folder, skills/).
+ * The shared area a new file lies loose in: '' (the team root), 'shared', 'projects' (beside the project folders, not in
+ * one: docs/DECISIONS.md "Team folder basics") or 'groups/<folder>' when the file is directly in it; null anywhere else
+ * (a subfolder, a project's own folder, a personal folder, skills/).
  */
 export function looseArea(rel: string): string | null {
   const s = rel.split('/')
   if (s.length === 1) return ''
-  if (s.length === 2 && s[0] === 'shared') return 'shared'
+  if (s.length === 2 && (s[0] === 'shared' || s[0] === 'projects')) return s[0]
   if (s.length === 3 && s[0] === 'groups') return `groups/${s[1]}`
   return null
 }
