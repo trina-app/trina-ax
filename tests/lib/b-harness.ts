@@ -193,7 +193,7 @@ export async function startHarness(o: HarnessOptions): Promise<Harness> {
     mode: 'dev', configFile: null, listen: { host: '127.0.0.1', port: 0 }, tls: null, publicOrigins: [],
     teamRoot: fx.team, dataDir, logDir: null, logLevel: 'error',
     engine: o.realCore?.engine ? { modelUpstreams: upstreams, ...o.realCore.engine } : { authMode: 'local-login', modelUpstreams: upstreams },
-    relay: { url: null, teamName: null }, update: { channel: 'stable', feedUrl: null }, validateResponses: true, setupToken: null,
+    relay: { url: null, teamName: null }, update: { channel: 'stable', feedUrl: null }, validateResponses: true, setupToken: null, roomAiMentions: true,
     ...(o.realCore?.office ? { office: true } : {}),
   }
   const db = openDb(path.join(dataDir, 'app.db'))
