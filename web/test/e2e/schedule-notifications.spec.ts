@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { TOP_FOLDER_LABELS } from '@mycel/shared'
 import { CSRF_HEADER, ERROR_MESSAGES, type Schedule } from '@mycel/shared/api'
 import { ko } from '../../src/i18n/ko'
 import { en } from '../../src/i18n/en'
@@ -218,7 +219,8 @@ for (const [locale, dict] of [['ko', ko], ['en', en], ['id', id]] as const) {
     await page.getByTestId('new-task-template').click()
     const form = page.getByTestId('schedule-templates')
     await form.getByTestId('template-source').click()
-    await page.getByRole('dialog').getByRole('button', { name: '전사 공유' }).click()
+    // shared/ by its word in the UI language (docs/DECISIONS.md "Team folder basics")
+    await page.getByRole('dialog').getByRole('button', { name: TOP_FOLDER_LABELS.shared[locale] }).click()
     await page.getByTestId('folder-pick').click()
     for (let i = 0; i < 2; i++) {
       await form.getByTestId('template-create').click()
