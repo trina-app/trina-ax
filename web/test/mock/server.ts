@@ -11,7 +11,7 @@
 // when the person presses Stop ends stopped, Step.stopped), "wrong-guess" (a read of a file name that does not exist
 // fails, then the AI finds and reads the right file), "save-fails" (the AI's last step, a save, fails);
 // anything else gets a Markdown answer with a table, code, math, a Mermaid diagram and an external image; "long list"
-// gets a list of 400 lines, more than one room message holds (comes in big pieces).
+// gets a list of 400 lines, more than one room message holds (comes in big pieces); "한 줄로" a two-sentence answer.
 // "대화방에 보내기" (shareAnswerToRoom): to a room of POST /__test/rooms; like server/src/chat/answer-share.ts, short: a row
 // per linked file (one in a person's own folder or finance/ nobody else in the room opens; one I cannot open is only
 // counted) and, for an answer with recorded sources ("sources"), the provenance line (the room's other members, the
@@ -67,7 +67,7 @@ import type { EndedConnection, HandoverConnection, HandoverRecovery, HandoverSta
 // Keep the server renderer outside the browser TypeScript program; this module runs only in Bun.
 const hwpEngine = import('../../../server/src/files/' + 'hwp-engine.ts').then(m => new m.NativeHwpEngine())
 import {
-  AiAllowance, ApiErrorResponse, CSRF_HEADER, Room, RoomMessage, answerFilePaths, answerShareBody, ROOM_FILES_MAX, SMALL_UPLOAD_MAX, TeamGoal, type AnswerShareFile, type AnswerSharePlace, type RoomFile, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, PresenceFrame, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
+  AiAllowance, ApiErrorResponse, CSRF_HEADER, sideQuoteOf, Room, RoomMessage, answerFilePaths, answerShareBody, ROOM_FILES_MAX, SMALL_UPLOAD_MAX, TeamGoal, type AnswerShareFile, type AnswerSharePlace, type RoomFile, type SkillChange, type SkillManagerGrant, type SkillSuggestion, DEV_SESSION_COOKIE, CHAT_ERROR_MESSAGES, type ChatErrorReason, ERROR_MESSAGES, LOCALE_HEADER, Locale, PresenceFrame, ServerEvent, UPLOAD_CHUNK_SIZE, WS_PATH, WsClose, isSchema, listEndpoints, uuidv7,
   type ApiName, type Artifact, type Attachment, type SkillInput, type DevEnvRun, type Chat, type Endpoint, type ErrorCode, type FileEntry, type FileVersion, type Folder, type Group, type Invite, type Job, type Me, type Message,
   MemberEngineChoice, CARD_NEWS_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, PROMO_STYLES, DECK_ARTIFACT_KEY, NOTES_FOLDER, BRAND_FOLDER, BRAND_IMAGES_FOLDER, type WelcomeProgress, type Project, type ConnectionStatus, type ServerEventInput, type Step, type TrashItem, type TurnRequest, type UploadSession, type User, type Memory, type Budget, type TeamSettings, type AuditEntry, type Schedule, type DeckBuild,
 } from '@mycel/shared/api'
@@ -92,6 +92,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { MockPlugins } from './plugins'
 import { packExample } from '../../../server/src/onboarding/skill-examples'
+import { placeholderTitle } from '../../../server/src/chat/title'
 
 type Json = Record<string, unknown>
 const sha256Hex = (d: Uint8Array) => new Bun.CryptoHasher('sha256').update(d).digest('hex')
@@ -185,6 +186,10 @@ const dec = new TextDecoder()
 const OWNER_PASSWORD = 'correct horse battery'
 /** the general pack's card news as the server installs it (resources/skill-packs/general/ko/card-news), its form included:
  * a member who joins with the first result's invite lands on it */
+/** A new chat's title: its first prompt's first 30 characters; in a room's side chat a question about a message or a file
+ * as the team server names it (server/src/chat/title.ts: the question, or "<quick word>: <the quote's first words>") */
+const mockTitle = (prompt: string, chat: Pick<Chat, 'sideRoomId'>) => (chat.sideRoomId && sideQuoteOf(prompt) ? placeholderTitle(prompt, [], undefined, true) : prompt.slice(0, 30))
+
 const CARDNEWS_TEXT = '---\nname: card-news\ndescription: 카드뉴스 — 회사 소개서나 자료를 읽고 정사각형 카드뉴스 5장을 만들어요.\nmetadata:\n  title: 카드뉴스\n  inputs: |\n    [{"name": "topic", "label": "주제", "placeholder": "비워 두면 회사 소개 전체"}, {"name": "channel", "label": "어디에 올릴까요", "type": "choice", "default": "instagram", "options": [{"value": "instagram", "label": "인스타그램"}, {"value": "linkedin", "label": "링크드인"}, {"value": "blog", "label": "블로그"}]}, {"name": "files", "label": "자료 파일", "placeholder": "비워 두면 팀 브랜드 폴더의 회사 소개", "advanced": true}]\n---\n# 카드뉴스\n'
 /** the general pack's promo video (resources/skill-packs/general/ko/promo-video), its form included: the welcome steps'
  * first result of docs/DECISIONS.md "V", still installed */
@@ -1392,7 +1397,8 @@ export class MockServer {
         details: [
           ...(fields.length ? [{ label: '누가 바뀌나요', text: '', fields }] : []),
           { label: 'SKILL.md 전체 내용', text: o.text, ...(t.gained ? {} : { collapsedAt: 600 }) },
-          { label: '옮길 파일', text: o.files.map((f) => `${f.path} (${kb(f.size)})`).join('\n') },
+          // where each file lands
+          { label: '옮길 파일', text: o.files.map((f) => { const folder = skill.path.endsWith('/SKILL.md') ? skill.path.slice(0, -'/SKILL.md'.length) : skill.path; return `${this.levelRoot(user, t.to)}/${folder.split('/').pop()}${f.path.slice(folder.length)} (${kb(f.size)})` }).join('\n') },
         ],
       })
       if (answer !== 'move') { finish('옮기지 않았어요.'); return }
@@ -1556,6 +1562,8 @@ export class MockServer {
         ? '매출은 [report.pdf · p.4](/files/view?path=docs%2Fsources%2Freport.pdf&page=4)에 있어요. 채널별 금액은 [budget.xlsx · 시트 \'매출\' A40:C44](/files/view?path=docs%2Fsources%2Fbudget.xlsx&sheet=%EB%A7%A4%EC%B6%9C&range=A40:C44)을 보면 돼요.'
       : /^\/intro-deck\b/.test(prompt)
         ? (/deck-fail/i.test(prompt) ? '소개서를 끝까지 만들지 못했어요. 다시 해 볼까요?' : '회사 소개서를 만들었어요. 바꾸고 싶은 장이나 문구가 있으면 말씀해 주세요.')
+      : /한 줄로/.test(prompt)
+        ? '로고 시안은 수요일까지 2개 받기로 했어요. 피드백은 금요일 회의 전에 이 스레드에 모아요.'
       : prompt.includes('answered:')
         ? `You chose ${prompt.split('answered:')[1]}.`
         : /artifact|react/i.test(prompt)
@@ -1630,7 +1638,7 @@ export class MockServer {
     if (assistant.status === 'error') chat.lastOutcome = 'error'
     else if (assistant.status === 'done' && assistant.stopReason) chat.lastOutcome = 'paused'
     else delete chat.lastOutcome
-    if (!chat.title) chat.title = prompt.slice(0, 30)
+    if (!chat.title) chat.title = mockTitle(prompt, chat)
     this.queueRevision++
     pub({ type: 'message.done', data: { chatId, messageId: assistant.id, status: assistant.status, message: this.view(assistant) } })
     // "long answer": like an answer that ran over a minute (server/src/chat/runtime.ts LONG_ANSWER_MS): worth telling
@@ -4723,7 +4731,7 @@ export class MockServer {
     s.runner = user.id
     chat.runState = 'running'
     chat.updatedAt = now()
-    if (!chat.title) chat.title = prompt.slice(0, 30)
+    if (!chat.title) chat.title = mockTitle(prompt, chat)
     this.queueRevision++
     this.publish({ type: 'chat.updated', data: { chatId: chat.id, change: 'updated', chat } })
     const gen = this.generation

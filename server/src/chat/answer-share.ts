@@ -1,6 +1,12 @@
 // "대화방에 보내기" (shared/src/api/chats.ts shareAnswerToRoom): a finished answer of a person's own AI chat goes to a
 // room they are in, as their own message: their one-line note, then the answer as the AI wrote it (Markdown), which the
 // app shows as a quote headed "the AI's answer" (room_messages.answer_at, migration 261; RoomMessage.sharedAnswer).
+// With `threadRootId` it is a reply in that message's thread (a room's side chat sends an answer about a message there:
+// docs/DECISIONS.md "Trina side chat: send here"); the root is checked first, before the sending budget and anything
+// else, by the room's own rule for a thread (Rooms.threadRootOf): a message of this room I see, one that can have a
+// thread, not deleted; otherwise 409 `thread_root`, one answer for every case. Its followers are notified as for any
+// reply. The checks below are the same for both: the audience is every member of the room (a reply is seen by everyone
+// who sees its root, never more).
 // It is posted through Rooms.send, so the sending budget (429), notices, events and "the same clientMessageId again is
 // the first message" are a message's. It mentions nobody and never calls the room's AI, whatever the answer's text
 // says ("@트리나", "@Name" in it are the AI's words). The author is the person; editing it is refused, deleting works.
@@ -465,7 +471,7 @@ function confirmKeyOf(ctx: AppContext, userId: string, roomId: string, messageId
   return createHmac('sha256', secretOf(ctx)).update(state).digest('base64url')
 }
 
-export interface ShareAnswerInput { roomId: string; note?: string; confirm?: number; confirmKey?: string; attach?: string[]; clientMessageId: string }
+export interface ShareAnswerInput { roomId: string; note?: string; confirm?: number; confirmKey?: string; attach?: string[]; threadRootId?: string; clientMessageId: string }
 
 /** POST /api/chats/:id/messages/:messageId/share-to-room. `chat` is the caller's own (routes/chats.ts ownChat: not a
  * room's AI session, not deleted) and `message` one of its messages. */
@@ -484,6 +490,8 @@ export async function shareAnswerToRoom(ctx: AppContext, userId: string, chat: C
     const m = messagesOut(db, [again], me)[0]!
     return { status: 'sent', message: m, cut: !!m.sharedAnswer?.cut }
   }
+  // a reply in a thread: its first message before anything else (it may be gone since the question was asked)
+  if (b.threadRootId !== undefined && !rooms.threadRootOf(room.id, b.threadRootId, me)) fail('conflict', tr('answerShareThreadRoot', locale), { params: { reason: 'thread_root' } })
   // from the sending budget first (429): asking who could not read what is no free probe; the message takes no more
   rooms.takeSendToken(userId)
   const { body, at, cut } = answerShareBody(b.note, content, answerCutLine(locale))
@@ -540,7 +548,7 @@ export async function shareAnswerToRoom(ctx: AppContext, userId: string, chat: C
     }
     // audited with the message (Rooms.send: room.answer_share); the copies and the links they stand for are kept with it
     const kept: AnswerScopeKept = { ...(await c.provenance(new Set(attach))).kept, ...(copies.length ? { attached: copies } : {}) }
-    const m = rooms.send(userId, room.id, { body, mentions: [], fileIds, clientMessageId: b.clientMessageId }, {}, { at, cut, people, confirmed, scope: JSON.stringify(kept) })
+    const m = rooms.send(userId, room.id, { body, mentions: [], fileIds, clientMessageId: b.clientMessageId, threadRootId: b.threadRootId ?? null }, {}, { at, cut, people, confirmed, scope: JSON.stringify(kept) })
     return { status: 'sent', message: m, cut }
   } finally {
     // copies that did not go (a failure, or the same request sent twice at once): not left behind

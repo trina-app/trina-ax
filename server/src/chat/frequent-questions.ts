@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite'
+import { hideThreadRef } from '@mycel/shared/api'
 import { notInternalChat } from './internal-chats'
 
 const DAYS = 30, CHAT_LIMIT = 200, MESSAGE_LIMIT = 10_000, QUESTION_LIMIT = 2000
@@ -28,7 +29,8 @@ export function frequentQuestions(db: Database, userId: string, now = new Date()
       if (!m) break
       id = m.parent_id
       if (m.role !== 'user' || m.author_id !== userId || m.scheduled || m.created_at < from || m.created_at >= to) continue
-      const question = m.content.normalize('NFC').trim().replace(/\s+/g, ' ')
+      // (a side chat's quote names its message's thread for the app: shared rooms.ts threadRefOf; not part of the question)
+      const question = hideThreadRef(m.content).normalize('NFC').trim().replace(/\s+/g, ' ')
       if (!question || question.length > QUESTION_LIMIT) continue
       const previous = counts.get(question)
       if (previous) {
