@@ -1,5 +1,6 @@
 // The message box: auto-growing text, Enter sends (Shift+Enter new line, IME-safe), attachments (button, drag and
-// drop, paste, camera on phones) uploaded right away (chunked when large), voice input → transcription job → text,
+// drop, paste, camera on phones) uploaded right away (chunked when large; components/chat/ComposerFiles.tsx, which the
+// Trina side chat's box uses too), voice input → transcription job → text,
 // engine / model choice, stop while an answer runs. The draft text is kept per chat across reloads.
 // While an answer runs the box stays usable: Enter (or the clock button next to Stop) hands the message to the chat,
 // which keeps it waiting and sends it when the answer is done (store/sendQueue.ts). While the AI waits for an answer
@@ -26,30 +27,22 @@
 // "/humanizer …" and broke the command). A request that needs the person's own text after it (`waitsFor`) is not sent
 // alone: send waits and a quiet line under the box says what to add.
 import clsx from 'clsx'
-import { ArrowUp, Camera, Clock, CornerDownLeft, FileAudio, FileText, FolderOpen, Hourglass, Loader2, MessageCircleQuestion, Monitor, Plus, Smartphone, Square, X, ChevronDown } from 'lucide-react'
+import { ArrowUp, Camera, Clock, CornerDownLeft, FolderOpen, Hourglass, Loader2, MessageCircleQuestion, Monitor, Plus, Smartphone, Square, ChevronDown } from 'lucide-react'
 import { useEffect, useId, useImperativeHandle, useRef, useState, type Ref } from 'react'
-import { isUuid7, MESSAGE_ATTACHMENTS_MAX, uuidv7, type Attachment, type EngineId, type FileEntry } from '@mycel/shared/api'
-import { api, API, errorText } from '../../lib/api'
+import { isUuid7, MESSAGE_ATTACHMENTS_MAX, type Attachment, type EngineId, type FileEntry } from '@mycel/shared/api'
+import { errorText } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
-import { readDraft, SIGNED_OUT, writeDraft } from '../../lib/localData'
+import { readDraft, writeDraft } from '../../lib/localData'
 import { mergeDraft } from '../../lib/composerDraft'
-import { formatSize } from '../../lib/format'
-import { previewKind, serverPreview } from '../../lib/preview'
 import { useVoiceInput } from '../../lib/useVoiceInput'
 import { micState, voiceBlockedHere } from '../../lib/voice'
 import { useConfidentialChat } from '../../lib/confidential'
-import { openFilePreview, openTeamFile, usePanelExpanded } from '../../lib/sidePanel'
-import { loadChips, patchStash, readStash, registerComposer, saveChips, subscribeStash, TEAM_FILE_DRAG_TYPE, writeStash, type AttachResult } from '../../lib/teamAttach'
-import { cancelUpload, uploadFile, uploadPercent, type UploadProgress } from '../../lib/upload'
-import { pastedFiles } from '../../lib/paste'
-import { UploadLabel } from '../UploadLabel'
-import { isLocalImage, PictureTile } from '../ChipThumb'
-import { ImageGroup } from '../ImageViewer'
-import { attachmentItem, localItem } from '../../lib/imageViewer'
+import { usePanelExpanded } from '../../lib/sidePanel'
+import { registerComposer } from '../../lib/teamAttach'
 import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { useLocale, useT } from '../../i18n'
-import { useFolderWords } from '../../lib/folderLabels'
 import { useMe } from '../../store/session'
+import { ComposerFileList, useComposerFiles, useFileDrop } from './ComposerFiles'
 import { ENGINE_LABEL, EngineOptions } from './EngineMenu'
 import { IconButton, useMediaQuery } from '../ui'
 import { useSkillMenu } from './SkillMenu'
@@ -60,23 +53,6 @@ import { TokenLayer, useRoomRefMenu } from './RoomRefMenu'
 import { fromWire } from '../../lib/roomRefs'
 import { useTextSize } from '../../lib/textSize'
 import { Tooltip } from '../Tooltip'
-
-interface Pending {
-  id: string
-  /** upload: a file from this computer; team: a team-folder file attached by reference */
-  source: 'upload' | 'team'
-  name: string
-  file?: File
-  /** team files: the path picked */
-  path?: string
-  size: number | null
-  status: 'uploading' | 'done' | 'failed'
-  /** an upload on its way; null until it reports */
-  progress: UploadProgress | null
-  attachment?: Attachment
-  error?: string
-  abort: AbortController
-}
 
 export interface EngineChoice { engine: EngineId | undefined; model: string | null | undefined }
 export interface ComposerHandle { prepareDraft: (request: string) => void; focus: () => void }
@@ -152,7 +128,6 @@ export default function Composer({
   waitsFor?: { text: string; hint: string }
 }) {
   const t = useT()
-  const words = useFolderWords()
   const locale = useLocale()
   const me = useMe()
   const userId = me?.user.id ?? '-'
@@ -175,31 +150,11 @@ export default function Composer({
   const wired = roomMenu.wire(text)
   const tokens = roomMenu.ranges.length > 0
   const [scrollTop, setScrollTop] = useState(0)
-  // the chips live outside the component too (lib/teamAttach stash): leaving the page and coming back, or adding
-  // files one at a time from the file screen, keeps what was attached for this draft until it is sent or removed
-  const [files, setFilesState] = useState<Pending[]>(() => restoreChips(userId, draftId))
-  const filesRef = useRef(files)
-  const setFiles = (fn: (cur: Pending[]) => Pending[]) => {
-    const next = fn(filesRef.current)
-    filesRef.current = next
-    writeStash(userId, draftId, next)
-    setFilesState(next)
-  }
-  // finished chips also survive a reload of this tab. Written when they change, not at each progress report of a running
-  // upload, which also makes a new `files`.
-  const finished = files.filter((f) => f.status === 'done' && f.attachment)
-  const finishedIds = finished.map((f) => f.id).join()
-  useEffect(() => saveChips(userId, draftId, finished.map((f) => ({ id: f.id, source: f.source, name: f.name, size: f.size, path: f.path, attachment: f.attachment! }))), [userId, draftId, finishedIds])
-  useEffect(() => {
-    const cur = restoreChips(userId, draftId)
-    filesRef.current = cur
-    setFilesState(cur)
-    return subscribeStash<Pending>(userId, draftId, (items) => {
-      filesRef.current = items
-      setFilesState(items)
-    })
-  }, [userId, draftId])
   const [error, setError] = useState<string | null>(null)
+  // the chips live outside the component too (components/chat/ComposerFiles.tsx, lib/teamAttach stash): leaving the
+  // page and coming back, or adding files one at a time from the file screen, keeps what was attached for this draft
+  // until it is sent or removed
+  const { files, live, uploading, ready, attachments, addFiles, addTeamFiles, removeFile, clearSent, onPaste, onPicked } = useComposerFiles({ userId, draftId, ensureChat, onError: setError, teamFilesOnly })
   // a shared chat: when someone else's turn starts or ends, the line above the text says so; a refusal shown before
   // ("○○님의 질문에 답하는 중이에요") would only repeat it or go stale
   useEffect(() => { setError(null) }, [hold])
@@ -207,7 +162,7 @@ export default function Composer({
   /** the text looks like a key: sending waits for "Send anyway" or "Edit" (a changed text asks again) */
   const secret = useSecretHold(text)
   const [stopping, setStopping] = useState(false)
-  const [drag, setDrag] = useState(false)
+  const { drag, dropProps } = useFileDrop((all) => void addFiles(all), (path) => void addTeamFiles([{ path }]))
   const [engineMenu, setEngineMenu] = useState(false)
   const [attachMenu, setAttachMenu] = useState(false)
   const [picker, setPicker] = useState(false)
@@ -249,9 +204,8 @@ export default function Composer({
   }), [running, sending, voice.busy])
 
   useEffect(() => writeDraft(userId, draftId, wired), [userId, wired, draftId])
-  // a non-empty draft or an upload means "don't reload the page by yourself" after an update
+  // a non-empty draft (or an upload: useComposerFiles) means "don't reload the page by yourself" after an update
   useEffect(() => (text.trim() ? markBusy('draft') : undefined), [text])
-  useEffect(() => (files.some((f) => f.status === 'uploading') ? markBusy('upload') : undefined), [files])
 
   const hint = transcribing ? voice.transcribingText : answering ? t('composer.answerPlaceholder') : running && queueing ? t(choiceWaiting ? 'outbox.placeholderChoice' : 'outbox.placeholder') : (placeholder ?? t('composer.placeholder'))
   // the box grows with its text, and also with a long placeholder (an empty box measures its placeholder), so a hint
@@ -274,84 +228,6 @@ export default function Composer({
     if (autoFocus && window.matchMedia?.('(pointer: fine)').matches && !document.querySelector('[role="dialog"]')) focusAtEnd(taRef.current)
   }, [autoFocus])
 
-  // an upload / attach finishing goes to whichever composer shows this draft by then (or stays in the stash)
-  const update = (id: string, patch: Partial<Pending>) => patchStash<Pending>(userId, draftId, id, patch)
-  // how many more attachments this message can take (uploads and team files together; the server's limit; failed
-  // chips are not sent and do not count)
-  const live = (list: Pending[]) => list.filter((f) => f.status !== 'failed')
-  const room = () => MESSAGE_ATTACHMENTS_MAX - live(filesRef.current).length
-
-  const addFiles = async (all: File[]) => {
-    if (!all.length) return
-    // a shared chat takes no file from this computer (the server would refuse it: 409 shared_chat_upload)
-    if (teamFilesOnly) return setError(teamFilesOnly)
-    setError(null)
-    const list = all.slice(0, Math.max(0, room()))
-    if (list.length < all.length) setError(t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }))
-    if (!list.length) return
-    const items: Pending[] = list.map((file) => ({ id: uuidv7(), source: 'upload', name: file.name, file, size: file.size, status: 'uploading', progress: null, abort: new AbortController() }))
-    setFiles((p) => [...p, ...items])
-    let chatId: string
-    try {
-      chatId = await ensureChat()
-    } catch (e) {
-      const msg = errorText(e, locale, t('error.network'))
-      for (const it of items) update(it.id, { status: 'failed', error: msg })
-      return
-    }
-    await Promise.all(
-      items.map(async (it) => {
-        const target = { kind: 'attachment', chatId, name: it.file!.name } as const
-        try {
-          const r = await uploadFile(it.file!, target, { client: api, signal: it.abort.signal, onProgress: (progress) => update(it.id, { progress }) })
-          if (r.kind !== 'attachment') throw new Error('unexpected upload result')
-          update(it.id, { status: 'done', attachment: r.attachment })
-        } catch (e) {
-          // removed while uploading: drop the server's half-received session as well
-          if (it.abort.signal.aborted) return it.abort.signal.reason === SIGNED_OUT ? undefined : void cancelUpload(it.file!, target, api)
-          update(it.id, { status: 'failed', error: errorText(e, locale, t('error.network')) })
-        }
-      }),
-    )
-  }
-
-  /** Team-folder files (picked, or handed over from the file screen): attached by reference, re-checked by the server. */
-  const addTeamFiles = async (picked: { path: string; name?: string; size?: number | null }[]): Promise<AttachResult> => {
-    setError(null)
-    const have = new Set(live(filesRef.current).filter((f) => f.source === 'team').map((f) => f.attachment?.path ?? f.path))
-    const fresh = picked.filter((p, i) => !have.has(p.path) && picked.findIndex((x) => x.path === p.path) === i)
-    const list = fresh.slice(0, Math.max(0, room()))
-    const already = picked.length - fresh.length
-    if (list.length < fresh.length) setError(t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }))
-    if (!list.length) return { added: already, failed: fresh.length, ...(fresh.length ? { error: t('composer.tooMany', { n: MESSAGE_ATTACHMENTS_MAX }) } : {}) }
-    const items: Pending[] = list.map((p) => ({ id: uuidv7(), source: 'team', path: p.path, name: p.name ?? p.path.slice(p.path.lastIndexOf('/') + 1), size: p.size ?? null, status: 'uploading', progress: null, abort: new AbortController() }))
-    setFiles((p) => [...p, ...items])
-    let chatId: string
-    try {
-      chatId = await ensureChat()
-    } catch (e) {
-      const msg = errorText(e, locale, t('error.network'))
-      for (const it of items) update(it.id, { status: 'failed', error: msg })
-      return { added: 0, failed: picked.length, error: msg }
-    }
-    const results = await Promise.all(
-      items.map(async (it): Promise<string | null> => {
-        try {
-          const a = await api.call(API.attachTeamFile, { body: { chatId, path: it.path! }, signal: it.abort.signal })
-          if (it.abort.signal.aborted) return null
-          update(it.id, { status: 'done', attachment: a, size: a.size, name: a.name })
-          return null
-        } catch (e) {
-          if (it.abort.signal.aborted) return null
-          const msg = errorText(e, locale, t('error.network'))
-          update(it.id, { status: 'failed', error: msg })
-          return msg
-        }
-      }),
-    )
-    const errors = results.filter((r): r is string => r !== null)
-    return { added: already + items.length - errors.length, failed: errors.length + (fresh.length - list.length), ...(errors[0] ? { error: errors[0] } : {}) }
-  }
   const addTeamRef = useRef(addTeamFiles)
   addTeamRef.current = addTeamFiles
   useEffect(() => registerComposer(draftId, (paths) => addTeamRef.current(paths.map((path) => ({ path })))), [draftId])
@@ -386,13 +262,6 @@ export default function Composer({
   // below 768px (the phone top bar and tabs): attach and voice go inside the box, as in a room's box
   const phone = useMediaQuery('(max-width: 767.98px)')
 
-  const removeFile = (f: Pending) => {
-    f.abort?.abort()
-    setFiles((p) => p.filter((x) => x.id !== f.id))
-  }
-
-  const uploading = files.some((f) => f.status === 'uploading')
-  const ready = files.filter((f) => f.status === 'done')
   // the request alone, nothing of the person's own after it yet (a file attached is their text: it can go, but not one
   // whose upload failed, which is not sent)
   const waiting = !!waitsFor && !answering && !ready.length && text.trim() === waitsFor.text.trim()
@@ -426,14 +295,14 @@ export default function Composer({
     // the chip is the command: "/<name> question" (the space after the name keeps it a command, as the "/" menu writes it)
     // a "#" room goes as its token (its id), so the AI reads exactly that room
     const body = chosen ? `/${chosen.name} ${wired}`.trimEnd() : wired
-    const atts = ready.map((f) => f.attachment!)
+    const atts = attachments()
     try {
       await onSend(body, atts)
       setText('')
       roomMenu.reset()
       setChosen(null)
       writeDraft(userId, draftId, '')
-      setFiles((p) => p.filter((f) => f.status !== 'done'))
+      clearSent()
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
     } finally {
@@ -566,10 +435,7 @@ export default function Composer({
         multiple
         hidden
         data-testid="file-input"
-        onChange={(e) => {
-          void addFiles(Array.from(e.target.files ?? []))
-          e.target.value = ''
-        }}
+        onChange={onPicked}
       />
       <input
         ref={camRef}
@@ -577,10 +443,7 @@ export default function Composer({
         accept="image/*"
         capture="environment"
         hidden
-        onChange={(e) => {
-          void addFiles(Array.from(e.target.files ?? []))
-          e.target.value = ''
-        }}
+        onChange={onPicked}
       />
     </>
   )
@@ -601,131 +464,10 @@ export default function Composer({
           fields. At rest --c-field-border (3:1); focused a darker 1px edge (--c-faint, >= 5.5:1) and the caret. */}
       <div
         className={clsx('rounded-2xl border bg-surface shadow-[var(--c-shadow)] transition', drag ? 'border-accent ring-2 ring-accent/30' : 'border-field-border focus-within:border-faint')}
-        onDragOver={(e) => {
-          const types = [...e.dataTransfer.types]
-          if (!types.includes('Files') && !types.includes(TEAM_FILE_DRAG_TYPE)) return
-          e.preventDefault()
-          // attached as a copy: a file-list row's drag also allows "move" (for the list's folder rows)
-          e.dataTransfer.dropEffect = 'copy'
-          setDrag(true)
-        }}
-        onDragLeave={() => setDrag(false)}
-        onDrop={(e) => {
-          const teamPath = e.dataTransfer.getData(TEAM_FILE_DRAG_TYPE)
-          if (teamPath) {
-            e.preventDefault()
-            setDrag(false)
-            void addTeamFiles([{ path: teamPath }])
-            return
-          }
-          if (!e.dataTransfer.files.length) return
-          e.preventDefault()
-          setDrag(false)
-          void addFiles(Array.from(e.dataTransfer.files))
-        }}
+        {...dropProps}
         data-testid="composer"
       >
-        {files.length > 0 && (
-          // centred on the row: a file's compact chip beside a picture's 64 px square keeps its own height
-          // the box's pictures: ← → in the image viewer walks through these
-          <ImageGroup>
-          <ul className="flex flex-wrap items-center gap-2 px-4 pt-3" aria-label={t('composer.attachments')}>
-            {files.map((f) => {
-              const canOpen = !!previewKind(f.name) && (f.source === 'upload' || f.status === 'done')
-              const open = () => (f.source === 'team' || !f.file || (serverPreview(f.name) && f.attachment?.path) ? openTeamFile(f.attachment?.path ?? f.path!) : openFilePreview({ source: 'local', name: f.name, blob: f.file }))
-              // a picture from this computer shows as itself at once, while it uploads (a pasted screenshot too); its
-              // words for screen readers, a failure's reason beside it. Both regions stay through the whole upload.
-              if (f.source === 'upload' && f.file && isLocalImage(f.file))
-                return (
-                  <li key={f.id} className="flex max-w-full items-center gap-2 pt-1.5 pr-1.5 text-xs" data-testid="attachment-chip" data-source={f.source} data-status={f.status}>
-                    <PictureTile
-                      name={f.name}
-                      file={f.file}
-                      busy={f.status === 'uploading'}
-                      percent={f.status === 'uploading' ? uploadPercent(f.progress) : null}
-                      failed={f.status === 'failed'}
-                      removeLabel={t('composer.removeAttachment', { name: f.name })}
-                      onRemove={() => removeFile(f)}
-                      // its own bytes in the image viewer; a HEIC photo, once uploaded, as the server's JPEG
-                      item={!canOpen ? null : serverPreview(f.name) && f.attachment ? attachmentItem(f.attachment) : localItem(f.id, f.file, f.name)}
-                    />
-                    <span className="sr-only" role="status">
-                      {f.status === 'uploading' && t('composer.attaching', { name: f.name })}
-                      {f.status === 'done' && `${t('composer.attached', { name: f.name })} ${f.size !== null ? formatSize(f.size, locale) : ''}`}
-                    </span>
-                    <span className={f.status === 'failed' ? 'max-w-[160px] truncate text-danger' : 'sr-only'} role="alert" title={f.error}>
-                      {f.status === 'failed' && (
-                        <>
-                          <span className="sr-only">{f.name}: </span>
-                          {f.error}
-                        </>
-                      )}
-                    </span>
-                  </li>
-                )
-              return (
-                <li
-                  key={f.id}
-                  className={clsx('inline-flex max-w-full items-center gap-2 rounded-xl border py-1.5 pr-2 pl-2.5 text-xs', f.status === 'failed' ? 'border-danger/40 bg-danger-soft' : f.source === 'team' ? 'border-accent/30 bg-accent-soft' : 'border-line bg-subtle')}
-                  title={f.source === 'team' ? t('composer.teamFile', { path: f.attachment?.path ?? f.path ?? '' }) : undefined}
-                  data-testid="attachment-chip"
-                  data-source={f.source}
-                  data-status={f.status}
-                >
-                  {f.source === 'team' ? (
-                    <FolderOpen size={15} className="text-accent-text" aria-label={t('composer.teamFile', { path: f.attachment?.path ?? f.path ?? '' })} />
-                  ) : (f.file?.type ?? f.attachment?.mime ?? '').startsWith('audio/') ? (
-                    <FileAudio size={15} className="text-accent-text" aria-hidden />
-                  ) : (
-                    <FileText size={15} className="text-muted" aria-hidden />
-                  )}
-                  <span className="flex min-w-0 flex-col">
-                    {canOpen ? (
-                      <button type="button" className="max-w-[180px] truncate text-left font-medium hover:underline" onClick={open}>
-                        {f.name}
-                      </button>
-                    ) : (
-                      <span className="max-w-[180px] truncate font-medium">{f.name}</span>
-                    )}
-                    {/* the team folder it is in, visible without hovering (phones) */}
-                    {f.source === 'team' && <span className="max-w-[180px] truncate text-micro leading-tight text-faint" data-testid="chip-folder">{words.path(folderOf(f.attachment?.path ?? f.path ?? '')) || t('files.root')}</span>}
-                  </span>
-                  {/* both stay through the whole upload, so a screen reader hears each change */}
-                  <span className="flex items-center">
-                    <span className="flex items-center gap-1 text-faint" role="status">
-                      {f.status === 'uploading' && (
-                        <>
-                          <Loader2 size={12} className="animate-spin" aria-hidden />
-                          {f.source === 'upload' ? <UploadLabel progress={f.progress} busy={t('composer.attaching', { name: f.name })} /> : <span className="sr-only">{t('composer.attaching', { name: f.name })}</span>}
-                        </>
-                      )}
-                      {f.status === 'done' && (
-                        <>
-                          <span className="sr-only">{t('composer.attached', { name: f.name })} </span>
-                          {f.size !== null && formatSize(f.size, locale)}
-                        </>
-                      )}
-                    </span>
-                    <span className="max-w-[160px] truncate text-danger" role="alert" title={f.error}>
-                      {f.status === 'failed' && (
-                        <>
-                          <span className="sr-only">{f.name}: </span>
-                          {f.error}
-                        </>
-                      )}
-                    </span>
-                  </span>
-                  <Tooltip label={t('composer.removeAttachment', { name: f.name })}>
-                    <button type="button" aria-label={t('composer.removeAttachment', { name: f.name })} title="" onClick={() => removeFile(f)} className="-my-1 -mr-1 rounded-md p-1 text-faint hover:bg-hover hover:text-ink max-sm:p-1.5">
-                      <X size={14} />
-                    </button>
-                  </Tooltip>
-                </li>
-              )
-            })}
-          </ul>
-          </ImageGroup>
-        )}
+        <ComposerFileList files={files} onRemove={removeFile} className="px-4 pt-3" />
 
         {voice.recording ? (
           // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where "+" (phones) and send were
@@ -780,13 +522,7 @@ export default function Composer({
                     roomMenu.track()
                   }}
                   onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
-                  onPaste={(e) => {
-                    const pasted = pastedFiles(e.clipboardData)
-                    if (pasted.length) {
-                      e.preventDefault()
-                      void addFiles(pasted)
-                    }
-                  }}
+                  onPaste={onPaste}
                   onKeyDown={(e) => {
                     if (skillMenu.onKeyDown(e)) return
                     if (roomMenu.onKeyDown(e)) return
@@ -911,9 +647,9 @@ export default function Composer({
       <TeamFilePicker
         open={picker}
         onClose={() => setPicker(false)}
-        room={Math.max(0, MESSAGE_ATTACHMENTS_MAX - live(files).length)}
+        room={Math.max(0, MESSAGE_ATTACHMENTS_MAX - live.length)}
         max={MESSAGE_ATTACHMENTS_MAX}
-        attached={new Set(live(files).filter((f) => f.source === 'team').map((f) => f.attachment?.path ?? f.path!))}
+        attached={new Set(live.filter((f) => f.source === 'team').map((f) => f.attachment?.path ?? f.path!))}
         onPick={(picked: FileEntry[]) => {
           setPicker(false)
           void addTeamFiles(picked.map((f) => ({ path: f.path, name: f.name, size: f.size })))
@@ -925,15 +661,6 @@ export default function Composer({
   )
 }
 
-/** The chips of a draft: those kept in memory, else the finished ones kept for this tab (after a reload). */
-function restoreChips(userId: string, draftId: string): Pending[] {
-  const mem = readStash<Pending>(userId, draftId)
-  if (mem.length) return mem
-  const saved: Pending[] = loadChips(userId, draftId).map((c) => ({ ...c, status: 'done', progress: null, abort: new AbortController() }))
-  if (saved.length) writeStash(userId, draftId, saved)
-  return saved
-}
-
 /** Focus the box with the caret after its text (and the end in view): text put there for the person is added to, never
  * typed or pasted in front of. */
 export function focusAtEnd(ta: HTMLTextAreaElement | null) {
@@ -943,6 +670,3 @@ export function focusAtEnd(ta: HTMLTextAreaElement | null) {
   ta.setSelectionRange(end, end)
   ta.scrollTop = ta.scrollHeight
 }
-
-/** "groups/marketing/brief.md" -> "groups/marketing" */
-const folderOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
