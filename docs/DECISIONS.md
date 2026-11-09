@@ -16209,3 +16209,63 @@ message rows ("알림함의 대화 알림") it was not clickable, its date sat o
   `web/test/unit/push-worker.test.ts` (a notice with a title still pushes the generic line). `schedule-notifications.spec.ts`
   still covers a row with no link and its 읽음 표시.
 - Version impact: **patch** (additive API field; no data change).
+
+## Projects live only in projects/ — 프로젝트는 projects 폴더 안에만 (feat/projects-in-projects, 2026-11-09, product owner)
+
+The owner decided on 2026-11-09: a team project lives only in `projects/<name>/`, a personal one only in
+`users/<me>/projects/<name>/`. Any member can make a team project, like a chat channel, and chooses who sees it; an admin
+switch can keep that to admins (default: members). The creator and admins see and change who sees it from the project's
+edit screen. A review before building asked for eight changes, all built:
+
+- **No other place.** `POST /api/projects` with a folder anywhere else (an existing team folder, `shared/`, `groups/`,
+  the root, a deeper path, `users/<me>/` outside `projects/`) is 400 `project_location`; the "기존 폴더" kind is gone.
+  A `folderPath` of `projects/<name>` only names the new folder. Sharing a personal project
+  (`POST /api/projects/:id/share`) makes a new `projects/<name>` with the participants chosen and copies the files into it
+  (`TeamFiles.copyFolderInto`, the same walk and limits as `copyFolderTree`); `toParent` is accepted only as `projects` from
+  older clients. Pointing a project at another folder stays for admins only, only for a project whose folder is in the
+  trash or gone from disk, only to an existing `projects/<name>` no other project uses (nothing is made for it).
+- **Private by rule.** A new project folder gets each participant and the creator `write` and `everyone: none`
+  (`chat/project-access.ts newProjectRules`), so an admin's root `everyone: read` does not open it. Deleting a person or a
+  group never leaves a `projects/<name>` folder that a project uses with no rules: `keepProjectFloors` (admin/folders.ts)
+  writes `everyone: none` there, also for folders older builds made without the floor.
+- **Made as the system.** Members have no write on `projects/`. The server checks the switch, then makes the folder with
+  `resolveFolderPath` (the system principal, the same name checks), never as the caller. The name steps around folders on
+  disk, folders rows and the paths projects name ("-2"). **This tells a member that a folder of that name exists in
+  `projects/` even when they cannot see it.** Accepted: the name says nothing of its contents, and refusing instead would
+  tell the same.
+- **One writer.** The edit screen's participants are the folder's rules (`write` for groups and people). It saves exactly
+  like Admin › Folder permissions: the rules hash it read (`ProjectAccess.rulesHash`, the same hash as `Folder.rulesHash`)
+  is checked inside the transaction (409 `rules_changed` either way round), `replaceRules`, then `afterAccessChange`
+  (fresh sessions, notices, the project's shared chats dropped from whoever lost it), audit `folder.rules` with
+  `via: 'project'` and the project id. Rules the screen does not change (read-only people or groups, roles, an everyone
+  rule other than the floor, rules on folders inside it) are kept as they are and listed read-only, with a link to Admin
+  for admins; naming such a person or group as a participant is 400 `participant_fixed`. The creator's rule is always
+  kept. Participants are changed only for a project in `projects/<name>` whose folder is in place.
+- **The widening confirm is the server's.** `POST /api/projects/access-preview` (the creator or an admin for a project;
+  whoever may make team projects for a new one): how many people would see it, who gains and loses it, and for the people
+  who gain it the files they could read there (skills/ left out), those someone other than the caller put there (the
+  last write recorded for the file, else for the nearest folder above it inside the project; nothing recorded counts as
+  someone else's), its shared chats (each with its whole history) and its project skills (`skills/<name>/SKILL.md`,
+  counted by path, no dependency on the project-skills code). The web asks once when someone gains it; narrowing saves
+  at once. The people who saw the project before get a notice (`project_access_widened`) when it widens. The folder walk
+  stops at 20,000 entries.
+- **Who may be chosen.** Members choose from the people directory (`/api/people`) and their own groups (`Me.groups`);
+  admins any group. `GET /api/admin/groups` and `/api/admin/users` stay admin-only. The server enforces the same: a member
+  names only their own groups (a group already on the folder may stay) and active people.
+- **Delete.** `DELETE /api/projects/:id?trashFolder=1` also puts a `projects/<name>` folder in the files trash, by the
+  creator or an admin (a member's project folder carries rules, so only admins could trash it otherwise). The trash item
+  is a project folder there: admins restore it. A folder inside it the caller cannot write still stops it (and the
+  project stays). Off unless ticked in the confirm.
+- **Files.** "프로젝트로 만들기" is gone; "프로젝트 열기" stays. Projects older builds made on other folders keep working
+  unchanged, with no migration and no label for members; admins read one line in the edit dialog that it is outside
+  `projects/` and is changed in Admin › Folder permissions.
+- **The switch.** `TeamSettings.projectCreators` (`members` | `admins`, a settings key), enforced in create and share
+  (403 `projects_admins_only`) and in the new-project dry run; `Me.team.projectCreators` tells the web.
+- **The creator gone.** Disabled: their rule stays (they see it again when enabled) and admins manage it. Deleted: their
+  rule goes with the account; with nobody else on it the floor leaves it to the owner and admins.
+- **Groups are called 부서** in the Korean copy of these screens ("영업 부서"), as the rest of the UI is moving to.
+- Tests: `tests/security/r1-project-create.test.ts` (members, the switch, the refused places, the floor),
+  `tests/security/project-participants.test.ts` (who may see and change it, the dry run's counts, narrowing and shared
+  chats, the rules-hash race with Admin, the deleted creator, share and delete), the permission matrix's new rows,
+  `web/test/unit/project-form.test.tsx`, `web/test/e2e/project-participants.spec.ts`. Suites about what a project does
+  make older projects the way older builds did (`tests/lib/legacy-project.ts`).
