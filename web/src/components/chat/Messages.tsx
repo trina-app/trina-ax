@@ -496,6 +496,7 @@ export function AssistantMessage({
   onAskOwnFolder,
   onContinue,
   shareable = false,
+  shareRoomId,
   canRegenerate = true,
   canSuggest = true,
 }: {
@@ -514,6 +515,8 @@ export function AssistantMessage({
   /** its answers may go to a room ("대화방에 보내기"): a chat known not to be confidential (Safe operations 1A keeps
    * those to themselves; the server refuses them) */
   shareable?: boolean
+  /** a room's side chat: "Share to room" is a labelled button with this room picked (components/rooms/SideChatPanel.tsx) */
+  shareRoomId?: string
   /** false: someone else asked this in a shared chat, so no new answer from me ("retry", "regenerate") */
   canRegenerate?: boolean
   /** false: "스킬로 제안" is not offered (a shared chat, phase 1: the server refuses it) */
@@ -647,11 +650,16 @@ export function AssistantMessage({
             <span className={clsx('flex items-center gap-1 max-md:gap-3 md:contents', untilTap && UNTIL_TAP)} data-testid="answer-actions-tap">
               {m.content && <CopyButton text={m.content} html={() => answerHtml(m.content)} label={t('chat.copyAnswer')} className="touch-hit" />}
               {/* send to a room: a finished answer to a room I am in, as my message (ShareToRoom) */}
-              {shareable && m.content && m.status === 'done' && (
+              {shareable && m.content && m.status === 'done' && (shareRoomId ? (
+                <button type="button" onClick={() => setSharing(true)} className="touch-hit flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-hover hover:text-ink" data-testid="share-to-room">
+                  <MessageSquareShare size={13} aria-hidden />
+                  {t('sideChat.share')}
+                </button>
+              ) : (
                 <IconButton label={t('chat.shareToRoom')} onClick={() => setSharing(true)} className="touch-hit" data-testid="share-to-room">
                   <MessageSquareShare size={13} />
                 </IconButton>
-              )}
+              ))}
               {/* the newest failed answer has "Try again" in its error box: one control for one action */}
               {!(m.status === 'error' && isLast) && canRegenerate && (
                 <IconButton label={t('chat.regenerate')} disabled={busy} onClick={() => onRegenerate(m)} className="touch-hit" data-testid="regenerate">
@@ -671,7 +679,7 @@ export function AssistantMessage({
         {suggesting && (
           <SuggestSkillDialog source={{ kind: 'message', chatId, messageId: m.id }} initialContent={m.content} onClose={() => setSuggesting(false)} />
         )}
-        {sharing && <ShareToRoom chatId={chatId} messageId={m.id} answer={m.content} onClose={() => setSharing(false)} />}
+        {sharing && <ShareToRoom chatId={chatId} messageId={m.id} answer={m.content} roomId={shareRoomId} onClose={() => setSharing(false)} />}
       </div>
     </div>
   )

@@ -1614,6 +1614,7 @@ export class MockServer {
       const trash = c.query.trash === '1' || c.query.trash === 'true'
       let list = this.chats.filter((x) => !!x.deletedAt === trash)
       if (c.query.projectId) list = list.filter((x) => x.projectId === c.query.projectId)
+      if (c.query.sideRoomId) list = list.filter((x) => x.sideRoomId === c.query.sideRoomId)
       if (q) list = list.filter((x) => x.title.toLowerCase().includes(q) || this.messages.some((m) => m.chatId === x.id && m.content.toLowerCase().includes(q)))
       const newest = [...list].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
       // pinned chats first (server/src/routes/chats.ts listChats), not in a search or the trash
@@ -1631,7 +1632,7 @@ export class MockServer {
     },
     createChat: (c) => {
       this.guardEngine('createChat', c.user, c.body, { engine: this.settings.defaultEngine, model: this.settings.defaultModel })
-      const chat: Chat = { id: uuidv7(), projectId: c.body.projectId ?? null, title: c.body.title ?? '', engine: c.body.engine ?? 'claude-code', model: c.body.model ?? null, createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'idle' }
+      const chat: Chat = { id: uuidv7(), projectId: c.body.projectId ?? null, title: c.body.title ?? '', engine: c.body.engine ?? 'claude-code', model: c.body.model ?? null, createdAt: now(), updatedAt: now(), deletedAt: null, runState: 'idle', ...(c.body.sideRoomId ? { sideRoomId: c.body.sideRoomId } : {}) }
       this.chats.push(chat)
       return { status: 201, body: chat }
     },

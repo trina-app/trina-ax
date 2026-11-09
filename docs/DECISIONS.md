@@ -15987,6 +15987,36 @@ boxes); no contract, setting or data change.
 - **Not yet:** Windows (toast XML), the iPhone app (a notification category in the extension) and Android (no FCM
   yet). A failure (signed out, room left) changes nothing; the notice stays unread in the Inbox.
 
+## Trina side chat (트리나 사이드 채팅) — a private side chat beside a room (feat/trina-side-chat, 2026-11-09, product owner)
+
+- **Decision (option A of the "Trina side chat: decision" doc, 2026-11-09):** people ask @트리나 about a room in a
+  private side chat beside it, and share an answer to the room on purpose. PR 1 (this one) adds the side chat; @트리나
+  in the room's timeline stays as it is. PR 2 removes @트리나 from rooms and DMs (the composer and the "@" list) and
+  decides what happens to old private previews.
+- **Model: the side chat is an ordinary chat of the person** (`chats.side_room_id`, migration 276), not a room
+  message. Rooms gain no private messages, so the timeline, threads, unread counts, badges, notices, the Inbox, room
+  search and other members' AI context are untouched. The AI already reads rooms from a person's own chat with its
+  room tools (chat/room-tools.ts: the person's own view, read scope, the change cards after reading a room), and the
+  answer goes to the room only through "대화방에 보내기" (chat/answer-share.ts), which already checks linked files and
+  material some members cannot see.
+- **The AI is told the room** (chat/prompt.ts sideRoomSection, chat/side-room.ts) while the person is still in the
+  room and it is not archived: its kind, name and id, that "this discussion" means it, that it reads it with room_read,
+  and that nothing it writes goes to the room. Never in a room session's or a shared project chat's instructions (the
+  allowlists say false). After the person leaves the room the chat stays theirs, as an ordinary chat.
+- **API:** `CreateChatBody.sideRoomId` (the person must be in the room: else the same 404 as a room that is not there;
+  never with a project), `ListChatsQuery.sideRoomId` (the person's own side chats of that room, newest first),
+  `Chat.sideRoomId`. No new endpoint.
+- **Web:** the ✦ button in the room header (components/rooms/SideChatPanel.tsx) opens the panel where a thread opens,
+  one of the two at a time. It opens the room's newest side chat; "New chat" starts another with the next question;
+  "Open as a full chat" goes to /c/<id>; 🕘 lists the room's side chats (newest 30) and opens one. Cards the AI
+  raises show under its answer as in the full chat, and while it waits for the answer to its question the panel's box
+  answers it (lib/askAnswer.ts), never a new message. Under a finished answer "Share to room" is a labelled button and
+  the dialog starts with this room picked. In the chat history a side chat shows its room ("# design") after its
+  title, while I am in that room.
+- **Defaults for the doc's open questions (to confirm):** old private previews stay inline (PR 2); the room context is
+  what the person can see, read by the AI with room_read; sharing uses the existing dialog; on a phone the panel takes
+  the whole screen like a thread. Side chats are also listed in the person's chat history.
+
 ## 내 AI 채팅에서 대화방 파일 저장 — the AI chat saves a room's file into the team folder (feat/room-file-to-team, 2026-11-09, product owner)
 
 Amends "내 AI 채팅에서 대화방 읽기" and "Files sent in the room" ("대화방의 트리나"). The owner, in the AI chat: "leads 채널에 올린

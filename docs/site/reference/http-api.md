@@ -59,8 +59,8 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 | `PATCH` | `/api/chats/:id` | Signed in | Rename, move to a project, change engine/model. A shared chat: its creator only, and it never changes project (409 shared_chat_move). |
 | `DELETE` | `/api/chats/:id` | Signed in | Move to chat trash (purged after the team's chat retention). Stops a running turn. A shared chat: its creator or an editor of its project (audited when someone else); it is in its creator's trash and in the deleter's. |
 | `POST` | `/api/chats/:id/restore` | Signed in | Bring a chat back from the trash. |
-| `POST` | `/api/chats/:id/pin` | Signed in | Pin a chat I can see to the top of my chat list ("상단에 고정"), for me only (a shared project chat too). Pinned already: unchanged. At most 50 pins (409 chat_pins_full). My other windows hear it (chat.updated). |
-| `DELETE` | `/api/chats/:id/pin` | Signed in | Unpin a chat ("고정 해제"); not pinned: unchanged. My other windows hear it (chat.updated). |
+| `POST` | `/api/chats/:id/pin` | Signed in | Pin a chat I can see to the top of my chat list ("Pin to top"), for me only (a shared project chat too). Pinned already: unchanged. At most 50 pins (409 chat_pins_full). My other windows hear it (chat.updated). |
+| `DELETE` | `/api/chats/:id/pin` | Signed in | Unpin a chat ("Unpin"); not pinned: unchanged. My other windows hear it (chat.updated). |
 | `POST` | `/api/chats/:id/seen` | Signed in | I have this own chat on screen: its finished answers are seen (Chat.unseen goes away in every window and device). |
 | `GET` | `/api/chats/:id/messages` | Signed in | Active branch of the conversation, paged backwards. |
 | `POST` | `/api/chats/:id/messages` | Signed in | Save the message, create the empty answer, queue the turn. Send the X-Mycel-Window header so browser tools reach this window. |
