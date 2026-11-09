@@ -59,6 +59,9 @@ export const SKILL_BODY_MAX = 16_000
 export const SKILL_FILE_MAX_BYTES = 128 * 1024
 const HEADER_MAX = 8 * 1024
 export const SKILL_NAME_MAX = 64
+/** What a SKILL.md folder's name (and its header's `name`) may be: lowercase letters and digits in words joined by
+ * single hyphens (checkSkill; a renamed copy uses it too, skills/move.ts). */
+export const SKILL_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const LEGACY_NAME_MAX = 60
 const LEGACY_DESCRIPTION_MAX = 300
 const DESCRIPTION_MAX = 1024
@@ -317,7 +320,7 @@ export function checkSkill(text: string, rel?: string): SkillCheck {
     if (!header) return no('header')
     const { fields } = header
     const name = fields.get('name'), description = fields.get('description')
-    if (!name || name.length > SKILL_NAME_MAX || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) return no('name')
+    if (!name || name.length > SKILL_NAME_MAX || !SKILL_NAME_RE.test(name)) return no('name')
     if (name !== parts.at(-2)) return no('name_folder')
     if (!description?.trim() || [...description].length > DESCRIPTION_MAX) return no('description')
     const compatibility = fields.get('compatibility')
