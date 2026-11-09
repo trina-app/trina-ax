@@ -426,8 +426,9 @@ interface Picked {
   error?: string
 }
 
-/** 회사 소개's intro files (docs/DECISIONS.md "W5", "W6"): picked files go up at once into the team's brand folder
- * (groups/<team>/브랜드/, only this team sees it; the team's start first when it is missing), each on its own, a name
+/** 회사 소개's intro files (docs/DECISIONS.md "W5", "W6", "Team folder basics"): picked files go up at once into the
+ * team's brand folder (shared/브랜드/, everyone in the team sees it; groups/<team>/브랜드/ on a team that started before;
+ * the team's start first when it is missing), each on its own, a name
  * already there renamed; 회사 소개서, 카드뉴스 and 홍보 영상 read them, and no 회사 소개.md is written beside them. */
 function useIntroFiles(progress: WelcomeProgress) {
   const t = useT()

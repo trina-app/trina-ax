@@ -39,6 +39,7 @@ import { AccessSummary, ParticipantPicker, participantKey, summaryNames, useAcce
 import { ProjectTrashNote } from '../components/ProjectTrashNote'
 import { Button, EmptyState, ErrorNote, Field, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, menuOpener, pageColumn, promptDialog, useCopy } from '../components/ui'
 import { useFocusAfterRemove } from './admin/common'
+import { useFolderWords } from '../lib/folderLabels'
 
 /** A project's chats as its page lists them: my pinned ones first (the most recently pinned first, as the server's first
  * page has them), then the newest. */
@@ -57,6 +58,7 @@ function useDeleteProject() {
   const t = useT()
   const locale = useLocale()
   const days = chatTrashDays(useMe())
+  const words = useFolderWords()
   const deleted = (id: string) => {
     useProjects.getState().drop(id)
     // the server took the project off its private chats (its shared chats go to the trash with their own event): the
@@ -93,7 +95,7 @@ function useDeleteProject() {
         <p>{text}</p>
         <label className="flex items-start gap-2 text-ink">
           <input type="checkbox" className="mt-1" onChange={(e) => { trashFolder = e.target.checked }} data-testid="project-delete-trash-folder" />
-          <span className="break-keep">{t('projects.deleteTrashFolder', { folder: now.folderPath })}</span>
+          <span className="break-keep">{t('projects.deleteTrashFolder', { folder: words.path(now.folderPath) })}</span>
         </label>
       </div>
     ) : text

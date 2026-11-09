@@ -5,6 +5,7 @@ import { ChevronRight, Folder, FolderPlus, Home, Lock } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { FileEntry, TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
+import { topFoldersFirst, useFolderWords } from '../lib/folderLabels'
 import { crumbs, joinPath, nameProblem } from '../lib/paths'
 import { useLocale, useT } from '../i18n'
 import { Button, ErrorNote, Modal, Skeleton, promptDialog } from './ui'
@@ -33,6 +34,7 @@ export default function FolderPicker({
 }) {
   const t = useT()
   const locale = useLocale()
+  const words = useFolderWords()
   const [path, setPath] = useState(initial)
   const [tree, setTree] = useState<TreeResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -57,7 +59,8 @@ export default function FolderPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, path, rev])
 
-  const folders = tree?.entries.filter((e: FileEntry) => e.type === 'folder') ?? []
+  // at the team root 전사 공유, 부서, 프로젝트, 팀 스킬, 개인 first, as on the file screen
+  const folders = topFoldersFirst(tree?.entries.filter((e: FileEntry) => e.type === 'folder') ?? [], path)
   const inRoot = !selectableRoot || path === selectableRoot || path.startsWith(selectableRoot + '/')
   const canPick = !!tree && tree.access !== 'none' && (!needWrite || tree.access === 'write') && inRoot
 
@@ -108,7 +111,7 @@ export default function FolderPicker({
           <span key={c.path} className="inline-flex items-center gap-1">
             <ChevronRight size={13} className="text-faint" aria-hidden />
             <button type="button" className="rounded px-1.5 py-0.5 hover:bg-hover" onClick={() => setPath(c.path)}>
-              {c.name}
+              {words.name(c.path, c.name)}
             </button>
           </span>
         ))}
@@ -126,7 +129,7 @@ export default function FolderPicker({
                 onClick={() => setPath(f.path)}
               >
                 <Folder size={15} className="text-accent-text" aria-hidden />
-                <span className="min-w-0 flex-1 truncate">{f.name}</span>
+                <span className="min-w-0 flex-1 truncate" title={f.name}>{words.name(f.path, f.name)}</span>
                 {f.access !== 'write' && (
                   <span className="inline-flex items-center gap-1 text-xs text-faint">
                     <Lock size={12} aria-hidden /> {t(f.access === 'read' ? 'files.readOnly' : 'files.noAccess')}

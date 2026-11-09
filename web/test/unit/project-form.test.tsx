@@ -194,7 +194,8 @@ describe('the creator changes who sees it', () => {
     }
     signedIn('admin')
     const a = await mount(<MemoryRouter><ProjectForm project={project('shared/acme')} onClose={() => {}} onSaved={() => {}} /></MemoryRouter>)
-    expect(a.get('project-form-legacy').textContent).toBe(en('projects.legacyNote', { folder: 'shared/acme' }))
+    // the folder as the screen names it (shared/ is Company-wide)
+    expect(a.get('project-form-legacy').textContent).toBe(en('projects.legacyNote', { folder: 'Company-wide/acme' }))
     await a.until(() => a.find('project-access-summary'), 'who sees it', 2000)
     expect(a.find('project-participants')).toBeNull()
     await a.unmount()

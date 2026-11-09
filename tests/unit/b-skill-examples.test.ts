@@ -61,13 +61,17 @@ describe('before the team has a group', () => {
 
 describe('the team as each person sees it', () => {
   beforeAll(async () => {
-    // the owner's start: the team group with its folder, the meeting notes and brand folders; bob joined with the team
-    // link (its group), alice another way (no group)
+    // the owner's start: the team group with its folder; bob joined with the team link (its group), alice another way
+    // (no group). A team that started before docs/DECISIONS.md "Team folder basics": its row has no `home`, and the
+    // meeting notes and brand folders are in the group's folder (a new team's, in shared/, is in
+    // team-folder-basics.test.ts)
     await h.api('dana').call(API.updateWelcome, { body: {} })
     await h.api('dana').call(API.setupWelcomeTeam)
     const g = readWelcome(h.ctx)!.teamGroup!
     folder = g.folder
-    brand = g.brandFolder!
+    brand = `${folder}/브랜드`
+    for (const d of [`${folder}/회의록`, brand]) fs.mkdirSync(path.join(h.team, d), { recursive: true })
+    setSetting(h.ctx.db, WELCOME_SETTING, { ...getSetting<Record<string, unknown>>(h.ctx.db, WELCOME_SETTING), teamGroup: { id: g.id, name: g.name, folder, notesFolder: `${folder}/회의록`, brandFolder: brand } })
     h.ctx.db.query('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)').run(g.id, 'bob')
   })
 

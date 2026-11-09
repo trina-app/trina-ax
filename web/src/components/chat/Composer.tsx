@@ -48,6 +48,7 @@ import { ImageGroup } from '../ImageViewer'
 import { attachmentItem, localItem } from '../../lib/imageViewer'
 import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { useLocale, useT } from '../../i18n'
+import { useFolderWords } from '../../lib/folderLabels'
 import { useMe } from '../../store/session'
 import { ENGINE_LABEL, EngineOptions } from './EngineMenu'
 import { IconButton, useMediaQuery } from '../ui'
@@ -148,6 +149,7 @@ export default function Composer({
   waitsFor?: { text: string; hint: string }
 }) {
   const t = useT()
+  const words = useFolderWords()
   const locale = useLocale()
   const me = useMe()
   const userId = me?.user.id ?? '-'
@@ -683,7 +685,7 @@ export default function Composer({
                       <span className="max-w-[180px] truncate font-medium">{f.name}</span>
                     )}
                     {/* the team folder it is in, visible without hovering (phones) */}
-                    {f.source === 'team' && <span className="max-w-[180px] truncate text-micro leading-tight text-faint" data-testid="chip-folder">{folderOf(f.attachment?.path ?? f.path ?? '') || t('files.root')}</span>}
+                    {f.source === 'team' && <span className="max-w-[180px] truncate text-micro leading-tight text-faint" data-testid="chip-folder">{words.path(folderOf(f.attachment?.path ?? f.path ?? '')) || t('files.root')}</span>}
                   </span>
                   {/* both stay through the whole upload, so a screen reader hears each change */}
                   <span className="flex items-center">

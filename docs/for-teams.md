@@ -6,6 +6,15 @@ Trina fits teams that have company files, repeatable tasks and different access 
 
 ## Start with one task
 
+The team folder has five folders at the top, and the Files screen names them in your language. **Company-wide**
+(`shared/`, 전사 공유 in Korean) is the company's material that everyone on the team sees: the setup's company intro,
+brand and meeting notes and the first company files go there, and forms and templates such as quotes and reports go in
+`shared/Templates/` (`shared/양식/` on a Korean team; the AI starts there when it makes that kind of document).
+**Groups** (`groups/`, 부서 in Korean) have one folder per department, seen by its people; **Projects** (`projects/`)
+one folder per project; **Team skills** (`skills/`) the skills and rules everyone's AI follows; **Personal** (`users/`)
+each person's own folder (**My folder**). Ask the AI to tidy up and finished work moves into an `Archive` folder (`보관`)
+of its area. Only the names on screen change; the paths stay as they are.
+
 Use the [example catalog](../examples/README.md): weekly report for leadership, follow-up for sales, brand brief for marketing, expense review for finance, onboarding guide for HR. Each gives fictional input paths, required access, a prompt and review criteria. Operations and support teams can adapt the meeting-summary skill to handovers.
 
 A skill is a reusable procedure. A skill manager creates `skills/<name>/SKILL.md` in Files, or reviews a member's suggestion for that folder. Select it from the chat skill menu. Registering it does not train the model. The folder rules decide who sees a team skill (for example, `skills/finance/` only for the finance group). You can also keep personal skills in `users/<you>/skills/`: only you see them, and you can suggest one to the team.

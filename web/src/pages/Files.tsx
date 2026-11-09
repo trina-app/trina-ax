@@ -21,6 +21,7 @@ import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloa
 import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, moveMany, selectable, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
 import { formatDateTime, formatSize } from '../lib/format'
 import { folderGeneration } from '../lib/folderRuns'
+import { topFoldersFirst, useFolderWords } from '../lib/folderLabels'
 import { droppedEntries, planFromEntries, planFromInput, type FolderPlan } from '../lib/folderUpload'
 import { baseName, crumbs, isConflictCopy, isInside, joinPath, nameProblem, parentPath } from '../lib/paths'
 import { iconKind, previewKind, type FileIconKind } from '../lib/preview'
@@ -85,6 +86,8 @@ function dragBadge(dt: DataTransfer, text: string) {
 export default function Files() {
   const t = useT()
   const locale = useLocale()
+  // the top folders and the person's own folder in words (전사 공유, 부서, 내 폴더 …): what is shown, never the paths used
+  const words = useFolderWords()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const path = params.get('path') ?? ''
@@ -252,8 +255,10 @@ export default function Files() {
     setChecked((c) => (c.size ? new Set() : c))
     anchor.current = null
   }, [path, view])
+  /** the rows as listed: at the team root 전사 공유, 부서, 프로젝트, 팀 스킬, 개인 first (display only) */
+  const rows = useMemo(() => (tree ? topFoldersFirst(tree.entries, path) : []), [tree, path])
   /** the rows that can be selected, as listed */
-  const order = useMemo(() => tree?.entries.filter(selectable).map((e) => e.path) ?? [], [tree])
+  const order = useMemo(() => rows.filter(selectable).map((e) => e.path), [rows])
   // the listing changed (moved away, deleted by someone else): only rows still listed stay selected
   useEffect(() => {
     const here = new Set(order)
@@ -328,7 +333,7 @@ export default function Files() {
       reportBatch(
         r,
         {
-          done: (n) => t('files.bulk.moved', { n, path: folder || t('files.root') }),
+          done: (n) => t('files.bulk.moved', { n, path: words.path(folder) || t('files.root') }),
           failed: (n, list) => t('files.bulk.moveFailed', { n, list }),
           skipped: skipped ? t('files.bulk.skipReadOnly', { n: skipped }) : null,
         },
@@ -358,7 +363,7 @@ export default function Files() {
         confirmShare: (count, n) => confirmDialog({ title: t('files.bulk.shareConfirm', { n: count }), body: t('files.bulk.shareBody', { count, n }), confirm: t('files.shareCopy') }),
       })
       reportBatch(r, {
-        done: (n) => t('files.bulk.shared', { n, path: folder || t('files.root') }),
+        done: (n) => t('files.bulk.shared', { n, path: words.path(folder) || t('files.root') }),
         failed: (n, list) => t('files.bulk.shareFailed', { n, list }),
         skipped: skipped ? t('files.bulk.skipFolders', { n: skipped }) : null,
       })
@@ -492,7 +497,7 @@ export default function Files() {
     if (!e) return
     try {
       if (!(await moveConfirmed({ from: e.path, to: joinPath(folder, e.name), onExists: 'rename' }))) return
-      toast({ level: 'success', text: t('files.moved', { path: folder || t('files.root') }) })
+      toast({ level: 'success', text: t('files.moved', { path: words.path(folder) || t('files.root') }) })
       void load()
     } catch (err) {
       fail(err)
@@ -510,7 +515,7 @@ export default function Files() {
       const n = 'viewersAdded' in dry ? dry.viewersAdded : 0
       if (n > 0 && !(await confirmDialog({ title: t('files.shareTitle', { name: e.name }), body: t('files.shareBody', { n }), confirm: t('files.shareCopy') }))) return
       const r = await api.call(API.copy, { body })
-      if ('path' in r) toast({ level: 'success', text: t('files.shared', { path: r.path }) })
+      if ('path' in r) toast({ level: 'success', text: t('files.shared', { path: words.path(r.path) }) })
       void load()
     } catch (err) {
       fail(err)
@@ -778,7 +783,7 @@ export default function Files() {
                 <span key={c.path} className="inline-flex items-center gap-1">
                   <ChevronRight size={13} className="text-faint" aria-hidden />
                   <button type="button" className={clsx('rounded px-1.5 py-0.5 hover:bg-hover', crumbDrop(c.path) === 'ok' && 'bg-accent-soft ring-2 ring-accent')} onClick={() => go(c.path)} aria-current={c.path === path ? 'page' : undefined} {...crumbTarget(c.path)} data-drop={crumbDrop(c.path)} data-testid="crumb">
-                    {c.name}
+                    {words.name(c.path, c.name)}
                   </button>
                 </span>
               ))}
@@ -796,7 +801,7 @@ export default function Files() {
           {/* computer files over the list go to this folder; over a folder row, into that folder (the row shows it) */}
           <div className={clsx('scroll-thin relative min-h-0 flex-1 overflow-y-auto px-2 pb-6 sm:px-4', drag && !over && 'bg-accent-soft/40 ring-2 ring-accent ring-inset')}>
             {searching ? (
-              <FileContentResults q={q} path={path} folderLabel={path || t('files.root')} />
+              <FileContentResults q={q} path={path} folderLabel={words.path(path) || t('files.root')} />
             ) : (
               <>
                 {error && (
@@ -843,7 +848,7 @@ export default function Files() {
                       </tr>
                     </thead>
                     <tbody>
-                      {tree.entries.map((e) => (
+                      {rows.map((e) => (
                         <FileRow
                           key={e.path}
                           e={e}
@@ -981,6 +986,7 @@ function CheckBox({ checked, disabled, label, title, onCheck, inputRef, testId }
 function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, draggable, onDragStart, onDragEnd, dragged, dropTarget, drop, onOpen, onChat, onAddToChat, chatTitle, onRename, onMove, onShare, onDelete, onHistory, project, onProject, onSuggest }: { e: FileEntry; selected: boolean; open: boolean; checked: boolean; onCheck: (shift: boolean) => void; pressSelect: boolean; selecting: boolean; draggable: boolean; onDragStart: (ev: React.DragEvent) => void; onDragEnd: () => void; dragged: boolean; dropTarget: DropHandlers | null; drop: DropOver | null; onOpen: () => void; onChat: () => void; onAddToChat: (() => void) | null; chatTitle: string; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void; project: FolderProjectAction; onProject: (a: NonNullable<FolderProjectAction>) => void; onSuggest: (() => void) | null }) {
   const t = useT()
   const locale = useLocale()
+  const words = useFolderWords()
   const [menu, setMenu] = useState(false)
   const ref = useRef<HTMLTableRowElement>(null)
   const menuTrigger = useRef<HTMLButtonElement>(null)
@@ -1078,7 +1084,7 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
           <Icon size={17} className={clsx('shrink-0', folder ? 'text-accent-text' : 'text-muted', dim && 'opacity-60')} aria-hidden />
           {project?.kind === 'open' && <span className="sr-only">({t('files.isProject', { name: project.project.name })})</span>}
           <span className="min-w-0 truncate" title={e.name}>
-            {e.name}
+            {words.name(e.path, e.name)}
           </span>
           {/* a folder the person can only pass through: a visible badge (a hover title alone does not reach phones);
               screen readers get the full sentence in place of the short badge text. Phones show the row greyed out

@@ -8,20 +8,14 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { FileEntry, TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { formatSize } from '../../lib/format'
+import { topFoldersFirst, useFolderWords } from '../../lib/folderLabels'
 import { crumbs } from '../../lib/paths'
 import { useLocale, useT } from '../../i18n'
-import { useMe } from '../../store/session'
 import { Button, ErrorNote, Modal, Skeleton, inputCls } from '../ui'
 import { Tooltip } from '../Tooltip'
 
 const ext = (name: string) => (name.includes('.') ? name.slice(name.lastIndexOf('.') + 1).toLowerCase() : '')
 /** A team path as the person reads it: their own users/<id> is "My folder". */
-export function friendlyPath(p: string, myId: string | undefined, mine: string): string {
-  if (!myId) return p
-  const own = `users/${myId}`
-  return p === own ? mine : p.startsWith(own + '/') ? mine + p.slice(own.length) : p
-}
-
 export function FileKindIcon({ name, size = 16, className }: { name: string; size?: number; className?: string }) {
   const e = ext(name)
   const cls = clsx('shrink-0', className ?? 'text-muted')
@@ -47,7 +41,6 @@ export default function TeamFilePicker({ open, onClose, onPick, room, max, attac
 }) {
   const t = useT()
   const locale = useLocale()
-  const myId = useMe()?.user.id
   const [path, setPath] = useState('')
   const [tree, setTree] = useState<TreeResponse | null>(null)
   const [recent, setRecent] = useState<FileEntry[] | null>(null)
@@ -60,8 +53,9 @@ export default function TeamFilePicker({ open, onClose, onPick, room, max, attac
   const searchRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const fine = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: fine)').matches
-  const mine = t('home.myFolder')
-  const shown = (p: string) => friendlyPath(p, myId, mine)
+  // the top folders and the person's own folder in words (전사 공유, 부서, 내 폴더 …), the paths as they are
+  const words = useFolderWords()
+  const shown = (p: string) => words.path(p)
 
   useEffect(() => {
     if (!open) return
@@ -118,7 +112,8 @@ export default function TeamFilePicker({ open, onClose, onPick, room, max, attac
     })
   const full = picked.size >= room
 
-  const folders = useMemo(() => tree?.entries.filter((e) => e.type === 'folder') ?? [], [tree])
+  // at the team root 전사 공유, 부서, 프로젝트, 팀 스킬, 개인 first, as on the file screen
+  const folders = useMemo(() => topFoldersFirst(tree?.entries.filter((e) => e.type === 'folder') ?? [], tree?.path ?? path), [tree, path])
   const files = useMemo(() => tree?.entries.filter((e) => e.type === 'file') ?? [], [tree])
 
   // arrow keys move through the rows (checkboxes and folders) of the list
@@ -172,7 +167,7 @@ export default function TeamFilePicker({ open, onClose, onPick, room, max, attac
     )
   }
 
-  const folderName = (p: string) => (p === '' ? t('files.root') : shown(p) === p ? p.slice(p.lastIndexOf('/') + 1) : shown(p).split('/').pop()!)
+  const folderName = (p: string) => (p === '' ? t('files.root') : words.name(p, p.slice(p.lastIndexOf('/') + 1)))
 
   return (
     <Modal

@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import type { Access, Folder, FolderRule, FolderRuleInput, Locale, PreviewResponse, Role } from '@mycel/shared/api'
-import { PRODUCT } from '@mycel/shared'
+import { PRODUCT, TEMPLATES_FOLDER } from '@mycel/shared'
 import type { AppContext } from '../context'
 import { newId } from '../db'
 import { fail } from '../http/errors'
@@ -17,6 +17,7 @@ import { parseInput, walk } from '../policy/resolve'
 import { msg } from '../auth/messages'
 import { userRef } from '../auth/users'
 import { audit } from './audit'
+import { teamDefaultLocale } from './settings'
 import { folderKeep, isParkedRow, type FolderKeep } from './folder-keep'
 import { shownSegs } from './access-rows'
 import { rulesHash } from './access-edit'
@@ -433,12 +434,31 @@ export function previewRules(ctx: AppContext, changes: readonly { path: string; 
   return { folders, losing }
 }
 
-/** Default folders of a new team (tab 2 "폴더 만들기와 기본 규칙"). */
+/** Default folders of a new team (tab 2 "폴더 만들기와 기본 규칙"), and shared/양식/ for forms and templates
+ * (docs/DECISIONS.md "Team folder basics"). Safe to run again: nothing that is there is changed. */
 export function createDefaultFolders(ctx: AppContext): void {
   const root = ctx.files.fx.root
   for (const d of ['shared', 'skills', 'groups', 'projects', 'users']) fs.mkdirSync(path.join(root, d), { recursive: true, mode: 0o700 })
+  ensureTemplatesFolder(root, teamDefaultLocale(ctx.db))
   const shared = ensureFolderRow(ctx.db, 'shared')
   if (!rulesOf(ctx.db, shared.id).length) replaceRules(ctx.db, shared.id, [{ subjectType: 'everyone', subjectId: null, access: 'write' }], null)
   const skills = ensureFolderRow(ctx.db, 'skills')
   if (!rulesOf(ctx.db, skills.id).length) replaceRules(ctx.db, skills.id, [{ subjectType: 'everyone', subjectId: null, access: 'read' }, { subjectType: 'role', subjectId: 'admin', access: 'write' }], null)
+}
+
+/**
+ * shared/양식/ (TEMPLATES_FOLDER, named in the team's language): the place the AI's instructions point to for forms and
+ * templates (chat/prompt.ts templatesFolder). Made only when shared/ holds no templates folder under any language's name
+ * (NFC, any letter case: "templates" counts), so a team that has one never gets a second. It inherits shared/'s rule (no folder row). Returns the folder made, or null.
+ */
+export function ensureTemplatesFolder(root: string, locale: Locale): string | null {
+  const shared = path.join(root, 'shared')
+  let names: string[]
+  try { names = fs.readdirSync(shared) } catch { return null }
+  const fold = (n: string) => n.normalize('NFC').toLowerCase()
+  const known = new Set(Object.values(TEMPLATES_FOLDER).map(fold))
+  if (names.some((n) => known.has(fold(n)))) return null
+  const name = TEMPLATES_FOLDER[locale] ?? TEMPLATES_FOLDER.en
+  fs.mkdirSync(path.join(shared, name), { mode: 0o700 })
+  return `shared/${name}`
 }

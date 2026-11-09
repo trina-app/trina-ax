@@ -77,7 +77,7 @@ test('by person: every team folder with its access and why, folded hidden folder
   const lines = (p: string) => row(page, p).getByTestId('access-reason-line')
   await expect(row(page, 'shared')).toHaveAttribute('data-level', 'write')
   await expect(reason('shared')).toHaveText('이 폴더의 규칙 · 모두: 읽기·쓰기')
-  await expect(reason('groups/영업팀')).toHaveText('이 폴더의 규칙 · 영업팀 그룹: 읽기·쓰기')
+  await expect(reason('groups/영업팀')).toHaveText('이 폴더의 규칙 · 영업팀 부서: 읽기·쓰기')
   await expect(reason('marketing')).toHaveText('이 폴더의 규칙 · 팀원 전체: 읽기')
   await expect(reason('projects/apollo')).toHaveText('이 폴더의 규칙 · Bob 님: 읽기·쓰기')
   await expect(row(page, 'projects/apollo')).toContainText(translate('ko', 'accessView.projectOf', { name: 'Apollo' }))
@@ -91,7 +91,7 @@ test('by person: every team folder with its access and why, folded hidden folder
   await expect(page.getByTestId('access-risk')).toHaveCount(1)
   await expect(reason('users/bob')).toHaveText(t['accessView.why.ownPersonal'])
   // grouped by kind, in order
-  await expect(page.getByTestId('access-section')).toHaveText([/^팀 폴더/, /^그룹 폴더/, /^프로젝트/, /^연결 폴더/, /^스킬/, /^본인 개인 폴더/])
+  await expect(page.getByTestId('access-section')).toHaveText([/^팀 폴더/, /^부서 폴더/, /^프로젝트/, /^연결 폴더/, /^스킬/, /^본인 개인 폴더/])
 
   // folders he cannot see are folded
   await expect(row(page, 'finance')).toBeHidden()

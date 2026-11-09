@@ -19,6 +19,7 @@ import { isAdmin, useMe } from '../store/session'
 import FolderPicker from './FolderPicker'
 import { refusalKey } from '../lib/sharedChat'
 import { Button, Field, Modal, Switch, confirmDialog, inputCls } from './ui'
+import { useFolderWords } from '../lib/folderLabels'
 import { AccessSummary, ParticipantPicker, participantKey, sameParticipants, summaryNames, useAccessCount, useParticipantOptions, widenLines, type ParticipantOption } from './ProjectParticipants'
 
 /** projects/<name>: a team project whose participants its edit screen changes */
@@ -32,6 +33,7 @@ export function ProjectForm({ project, onClose, onSaved }: {
   const t = useT()
   const locale = useLocale()
   const me = useMe()
+  const words = useFolderWords()
   const admin = isAdmin(me)
   // members make team projects unless the team lets only admins (an older server: admins only)
   const mayTeam = admin || me?.team.projectCreators === 'members'
@@ -224,7 +226,7 @@ export function ProjectForm({ project, onClose, onSaved }: {
         )}
         {/* a project made before on another folder: no label for members; one line for admins */}
         {teamProject && admin && !inProjects(project!.folderPath) && !project!.inTrash && (
-          <p className="text-xs leading-5 break-keep text-faint" data-testid="project-form-legacy">{t('projects.legacyNote', { folder: project!.folderPath || t('files.root') })}</p>
+          <p className="text-xs leading-5 break-keep text-faint" data-testid="project-form-legacy">{t('projects.legacyNote', { folder: words.path(project!.folderPath) || t('files.root') })}</p>
         )}
         {repointable && (
           <Field label={t('projects.folder')} hint={t('projects.repointHint')}>
