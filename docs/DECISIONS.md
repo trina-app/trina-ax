@@ -17206,6 +17206,11 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
   opened search under the viewer and ← → stopped. Also taken: an older ask quoted again over the viewer's file, the two
   boxes of one thread drifting apart, the toggle's words, no ✦ for a file the read did not find, a phone's second tap,
   tests for a confirm over the viewer, a phone's ✦ from a thread and no ✦ for a download-only file.
+- **With step d's page thumbnails (#262, rebased on):** the rail, the document and the column share the stage left of
+  the column (the space on the document's right gives way first); `pdf-lazy-pages.spec.ts` hides the column where it
+  measures the document's own layout and checks the three together once. The rail still shows from a 1,024 px window,
+  so between 1,024 and about 1,430 px with the column open the document is narrower than 960 px: a later tweak could
+  key the rail to the stage's width.
 - **Left out:** a divider for the viewer's column (the stage is not a column the divider can share the width with: the
   column is a fixed 400 px); the plan's "보는 중: {name}" line (the quote names the file); 링크 복사 and ⋯ (step b).
 - Tests: `web/test/unit/rooms-store.test.ts` (every thread on screen gets replies, edits, deletes, reactions and

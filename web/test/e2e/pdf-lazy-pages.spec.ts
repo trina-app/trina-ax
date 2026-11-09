@@ -5,7 +5,9 @@
 // marked and following the scroll, a click (or ↑ ↓) goes to that page, and the toolbar says "3 / 60". A one-page PDF
 // has no rail, a phone has none, and the side panel has none. Zoom keeps the page being read at the top, and the text of
 // a drawn page can be selected and copied; a link inside the file goes to its page even when that page is not drawn.
-// The room is answered through page.route (rooms-mock.ts).
+// The room is answered through page.route (rooms-mock.ts). These tests measure the document's own layout, so on a
+// computer they hide the viewer's right column (the file's thread, room-file-viewer.spec.ts) first; one test keeps it
+// and checks the rail, the document and the column share the stage.
 // SHOTS_DIR=<folder>: the viewer mid-document at 1440 light and dark, and at 390 light.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
@@ -56,7 +58,14 @@ async function openRoom(page: Page) {
 
 const viewer = (page: Page) => page.getByTestId('image-viewer')
 const body = (page: Page) => viewer(page).getByTestId('file-viewer-body')
-const openChip = (page: Page, name: string) => page.getByTestId('room-scroller').getByTestId('room-file').filter({ hasText: name }).getByTestId('room-file-open').click()
+/** Opens the file in the viewer; on a computer the column beside it is hidden unless `column` (the stage is the
+ * document's then, as these tests measure it). */
+async function openChip(page: Page, name: string, o: { column?: boolean } = {}) {
+  await page.getByTestId('room-scroller').getByTestId('room-file').filter({ hasText: name }).getByTestId('room-file-open').click()
+  if (o.column || (page.viewportSize()?.width ?? 0) < 768) return
+  await page.getByTestId('image-viewer-column').click()
+  await expect(viewer(page).getByTestId('viewer-column')).toHaveCount(0)
+}
 /** the document's pages that hold a canvas (the thumbnails' are not pages) */
 const drawn = (where: Locator) => where.locator('.react-pdf__Page canvas')
 const rail = (page: Page) => viewer(page).getByTestId('pdf-thumbnails')
@@ -202,6 +211,24 @@ test('a one-page PDF has no rail and no page count; the document stays centred',
   const b = (await body(page).boundingBox())!
   expect(b.width).toBe(960)
   expect(b.x).toBe(240)
+})
+
+test("beside the file's thread: the rail, the document and the column share the stage, nothing over another", async ({ page }) => {
+  await openRoom(page)
+  await openChip(page, 'acme-60.pdf', { column: true })
+  await expect(drawn(body(page)).first()).toBeVisible({ timeout: 15_000 })
+  await expect(rail(page)).toBeVisible()
+  const [r, b, c] = await Promise.all([rail(page).boundingBox(), body(page).boundingBox(), viewer(page).getByTestId('viewer-column').boundingBox()])
+  expect(c).toMatchObject({ x: 1040, width: 400 })
+  // the space on the document's right gives way first: the rail and the document fill the stage left of the column
+  expect(r!.x).toBeGreaterThanOrEqual(0)
+  expect(r!.x + r!.width).toBeLessThanOrEqual(b!.x + 1)
+  expect(b!.x + b!.width).toBeLessThanOrEqual(c!.x + 1)
+  expect(b!.width).toBeGreaterThan(800)
+  // the pages fit the document's width
+  const w = await body(page).locator('[data-page="1"]').evaluate((e) => Math.round(e.getBoundingClientRect().width))
+  expect(w).toBeLessThanOrEqual(Math.round(b!.width))
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1440)
 })
 
 test('the side panel (패널에서 열기): a few canvases for the 60 pages, no thumbnails, zoom keeps the page', async ({ page }) => {
