@@ -36,7 +36,7 @@ import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
 import { RoomMenu } from '../components/rooms/RoomMenu'
 import { RoomNotifyMenu } from '../components/rooms/RoomNotifyMenu'
 import { ThreadPanel } from '../components/rooms/ThreadPanel'
-import { SideChatPanel } from '../components/rooms/SideChatPanel'
+import { SideChatPanel, type SideSeed } from '../components/rooms/SideChatPanel'
 import { AiFace } from '../components/rooms/AiFace'
 import { aiName } from '../lib/tabs'
 import { EmptyState, ErrorNote, IconButton, Skeleton } from '../components/ui'
@@ -104,6 +104,13 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // the two at a time (a thread that opens closes it)
   const [sideOpen, setSideOpen] = useState(false)
   useEffect(() => { if (threadId) setSideOpen(false) }, [threadId])
+  // "Ask Trina about this" on a message (the timeline's or a thread's): the side chat opens with it quoted
+  const [sideSeed, setSideSeed] = useState<SideSeed | null>(null)
+  const askTrina = useCallback((m: RoomMessage) => {
+    const author = m.authorKind === 'ai' ? aiName(t) : m.author?.name ?? ''
+    setSideSeed({ key: `${m.id}:${Date.now()}`, author, at: m.createdAt, text: m.body })
+    setSideOpen(true)
+  }, [t])
   // "reply in thread" puts the cursor in the thread's box; a thread opened from its summary line or a link does not
   const [focusThread, setFocusThread] = useState(false)
   const location = useLocation()
@@ -327,7 +334,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
           {timeline && !timeline.loading && !timeline.error && !messages.length && !pending.length && <p className="py-12 text-center text-sm text-muted">{t('rooms.empty')}</p>}
           {/* the timeline's pictures: ← → in the image viewer walks through these (the thread panel has its own) */}
           <ImageGroup>
-            <RoomMessages roomId={roomId} messages={messages} pending={pending} meId={meId} members={members} onThread={openThread} highlight={threadId ? null : target} />
+            <RoomMessages roomId={roomId} messages={messages} pending={pending} meId={meId} members={members} onThread={openThread} onAskTrina={askTrina} highlight={threadId ? null : target} />
             <RoomAiStatus roomId={roomId} />
           </ImageGroup>
           {detached && timeline?.loading && <Loader2 size={16} className="mx-auto my-2 animate-spin text-faint" aria-label={t('common.loading')} />}
@@ -363,8 +370,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
       />
       <PeoplePicker open={!!picker} onClose={() => setPicker(null)} mode={picker ?? undefined} />
     </div>
-    {sideOpen && !threadId && <SideChatPanel key={roomId} roomId={roomId} roomTitle={room ? title(room) : ''} onClose={() => setSideOpen(false)} />}
-    {threadId && <ThreadPanel key={threadId} roomId={roomId} rootId={threadId} roomTitle={room ? title(room) : ''} members={members} meId={meId} onClose={closeThread} focusBox={focusThread} highlight={target} />}
+    {sideOpen && !threadId && <SideChatPanel key={roomId} roomId={roomId} roomTitle={room ? title(room) : ''} seed={sideSeed} onClose={() => setSideOpen(false)} />}
+    {threadId && <ThreadPanel key={threadId} roomId={roomId} rootId={threadId} roomTitle={room ? title(room) : ''} members={members} meId={meId} onClose={closeThread} onAskTrina={(m) => { closeThread(); askTrina(m) }} focusBox={focusThread} highlight={target} />}
     </div>
   )
 }

@@ -16399,6 +16399,11 @@ of a web page could not be read. Pictures should open like Slack, across the app
   tells the app, which then offers the AI in the "@" list and the old placeholder. Off: no AI row, and the empty room's
   box says "✦ asks Trina beside the room". The room AI code (rooms/ai.ts) stays for the switch and for earlier answers:
   their private previews, "Post to room…" and sources keep working.
+- **"Ask Trina about this"** on a message (✦ in its hover bar; the long-press menu on a phone; a thread's messages too,
+  which closes the thread): the side chat opens with the message quoted above the box (who, when, its lines) and three
+  quick questions (Translate into my language, Summarize with its thread, Explain). The quote goes in front of the
+  question as a Markdown quote (at most 4,000 characters; the AI reads the rest of the room with room_read). It is what
+  "@트리나 translate this" was used for.
 - **Tests:** the test harness turns the switch on (tests/unit/a-lib.ts testConfig), so the room AI tests keep covering
   the old way while it exists; tests/unit/b-room-ai-mentions-off.test.ts covers the default.
 - **Later:** remove the room AI ask and its switch once no team needs it (a decision of its own).

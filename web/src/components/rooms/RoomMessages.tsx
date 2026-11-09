@@ -119,7 +119,8 @@ export const HIGHLIGHT_MS = 2400
  * `dayBefore`: the time of what is shown above the list (a thread's root): no second date line for that same day.
  * `highlight`: a message a link points at (an Inbox row: pages/Room.tsx ?m=): once it is on the list it is scrolled to
  * the middle and marked for a moment, once. */
-export function RoomMessages({ roomId, messages, pending, meId, members, onThread, variant = 'timeline', threadRootId = null, dayBefore = null, highlight = null }: { roomId: string; messages: RoomMessage[]; pending: PendingSend[]; meId: string | null; members: UserRef[]; onThread?: (rootId: string, focus?: boolean) => void; variant?: ListVariant; threadRootId?: string | null; dayBefore?: string | null; highlight?: string | null }) {
+/** `onAskTrina`: "Ask Trina about this" on a message (the room's side chat opens with it quoted) */
+export function RoomMessages({ roomId, messages, pending, meId, members, onThread, onAskTrina, variant = 'timeline', threadRootId = null, dayBefore = null, highlight = null }: { roomId: string; messages: RoomMessage[]; pending: PendingSend[]; meId: string | null; members: UserRef[]; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; variant?: ListVariant; threadRootId?: string | null; dayBefore?: string | null; highlight?: string | null }) {
   const t = useT()
   const locale = useLocale()
   const runs = useMemo(() => groupRuns(messages), [messages])
@@ -207,6 +208,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
                       onEdit={() => setEditing(m.id)}
                       onEditDone={() => setEditing(null)}
                       onThread={onThread}
+                      onAskTrina={onAskTrina}
                       variant={variant}
                       // the list's first message (the top of the room, a thread's root): its bar goes under it, where the
                       // header above cannot cut it
@@ -281,7 +283,7 @@ function ReplierFace({ user }: { user: UserRef }) {
   return u ? <Avatar user={u} size={18} /> : <span className="size-[18px] rounded-full bg-hover" />
 }
 
-function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, highlighted = false, onEdit, onEditDone, onThread, variant, onJump, barBelow = false }: { roomId: string; m: RoomMessage; mine: boolean; names: Map<string, string>; members: UserRef[]; meId: string | null; editing: boolean; flash: boolean; highlighted?: boolean; onEdit: () => void; onEditDone: () => void; onThread?: (rootId: string, focus?: boolean) => void; variant: ListVariant; onJump?: () => void; barBelow?: boolean }) {
+function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, highlighted = false, onEdit, onEditDone, onThread, onAskTrina, variant, onJump, barBelow = false }: { roomId: string; m: RoomMessage; mine: boolean; names: Map<string, string>; members: UserRef[]; meId: string | null; editing: boolean; flash: boolean; highlighted?: boolean; onEdit: () => void; onEditDone: () => void; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; variant: ListVariant; onJump?: () => void; barBelow?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const deleted = !!m.deletedAt
@@ -307,6 +309,8 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
   // a thread under it: only a message of the timeline for everyone, and only from the timeline (no thread in a thread)
   const threadOn = variant === 'timeline' && !!onThread && !m.threadRootId && m.visibility === 'room' && !deleted
   const reactOn = reactable(m) && !editing
+  // "Ask Trina about this": a message with text that the whole room sees (or my own private one), not an event line
+  const askOn = !!onAskTrina && !deleted && !editing && !m.event && !!m.body.trim()
   // a touch screen: no hover row on every message; a long press opens its menu (with the reactions on top)
   const longPress = useLongPress(() => {
     pressedAt.current = Date.now()
@@ -395,7 +399,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
           as a sheet, with the eight emoji on top (its own button never shows) */}
       {menuOn && (
         <>
-          <MessageHoverBar roomId={roomId} m={m} below={barBelow} reactOn={reactOn} onThread={threadOn ? () => onThread!(m.id, true) : undefined} more={moreItems} />
+          <MessageHoverBar roomId={roomId} m={m} below={barBelow} reactOn={reactOn} onThread={threadOn ? () => onThread!(m.id, true) : undefined} onAsk={askOn ? () => onAskTrina!(m) : undefined} more={moreItems} />
           <MenuButton
             label={t('rooms.messageMenu')}
             className="absolute top-0 right-0"
@@ -414,7 +418,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
                 }}
               />
             ) : undefined}
-            items={[...(threadOn ? [{ label: t('rooms.replyInThread'), icon: <MessageSquareText size={14} aria-hidden />, onSelect: () => onThread!(m.id, true), testId: 'message-reply-thread' }] : []), ...moreItems]}
+            items={[...(threadOn ? [{ label: t('rooms.replyInThread'), icon: <MessageSquareText size={14} aria-hidden />, onSelect: () => onThread!(m.id, true), testId: 'message-reply-thread' }] : []), ...(askOn ? [{ label: t('sideChat.askAbout'), icon: <AiFace size={22} className="size-3.5!" />, onSelect: () => onAskTrina!(m), testId: 'message-ask-trina-menu' }] : []), ...moreItems]}
           />
         </>
       )}
