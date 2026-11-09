@@ -37,7 +37,7 @@ import { RoomMenu } from '../components/rooms/RoomMenu'
 import { RoomNotifyMenu } from '../components/rooms/RoomNotifyMenu'
 import { ThreadPanel } from '../components/rooms/ThreadPanel'
 import { SideChatPanel, type SideSeed } from '../components/rooms/SideChatPanel'
-import { AiFace } from '../components/rooms/AiFace'
+import { AiMark } from '../components/rooms/AiFace'
 import { aiName } from '../lib/tabs'
 import { EmptyState, ErrorNote, IconButton, Skeleton } from '../components/ui'
 import { Tooltip } from '../components/Tooltip'
@@ -313,7 +313,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
         {room && (
           <IconButton tip label={t('sideChat.open', { name: aiName(t) })} className={clsx('touch-hit shrink-0', sideOpen && 'bg-hover')} aria-pressed={sideOpen}
             onClick={() => { if (sideOpen) setSideOpen(false); else { if (threadId) closeThread(); setSideOpen(true) } }} data-testid="room-side-chat-button">
-            <AiFace size={22} />
+            <AiMark />
           </IconButton>
         )}
         {/* the room's one setting, right here: the bell shows how it is now and opens its four levels; then the room's
