@@ -338,10 +338,10 @@ test('a recent chat shows its ⋯ menu on hover or focus, and a quick view after
   await expect(page.getByTestId('chat-peek')).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('chat-peek')).toHaveCount(0)
-  // the ⋯ menu has the chat's actions (a chat of my own outside a project: the move too)
+  // the ⋯ menu has the chat's actions (a pin first; a chat of my own outside a project: the move too)
   await row.hover()
   await more.click()
-  await expect(row.getByRole('menuitem')).toHaveText([t['chat.rename'], t['chat.project.add'], t['common.delete']])
+  await expect(row.getByRole('menuitem')).toHaveText([t['chat.pin'], t['chat.rename'], t['chat.project.add'], t['common.delete']])
 })
 
 test('no quick view on a touch screen; the filter is in the phone drawer', async ({ browser }) => {
