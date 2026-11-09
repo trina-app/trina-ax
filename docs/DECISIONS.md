@@ -16223,7 +16223,8 @@ The owner: "trina history more 버튼에서 상단 고정 pin 기능 만들자."
   not a column on chats. A shared project chat someone else made can be pinned too, for the one who pinned it only:
   `Chat.pinnedAt` is worked out per viewer (`ChatStore.toChat`'s `viewer`, from `chatView` and `publishChat`), so a
   shared chat's `chat.updated` carries each person's own pin, and nobody else hears of a pin or an unpin.
-- **Who may pin.** Anyone who may view the chat (`chatFor` 'view', not in the trash; 404 otherwise, as every chat route).
+- **Who may pin.** Anyone who may view the chat (`chatFor` 'view', not in the trash; 404 otherwise, as every chat route;
+  also 404 for the server's own draft chats, which are in no list).
   Pinning changes nothing about who sees it. Pinned again: kept as it was (its place does not move); unpinned when not
   pinned: no change. At most 50 pins (409 `chat_pins_full`, "상단에 고정은 50개까지 할 수 있어요…"), so the first page
   that carries them all stays bounded; pins of chats the person no longer sees do not count.
@@ -16237,7 +16238,8 @@ The owner: "trina history more 버튼에서 상단 고정 pin 기능 만들자."
   first page starts with my pinned chats of that list, the most recently pinned first, and every page leaves them out of
   the rest, so paging still gives each chat once. A pinned shared chat shows in my list only when it would anyway (I
   made it or wrote in it). A search and the trash keep their order and mark the pins. Older clients see the pinned
-  chats on the first page and sort them by date as before.
+  chats on the first page and sort them by date as before. ⌘K's 최근 reads the same first page: it now sorts by date
+  before it takes the newest eight, so old pins do not push the recent chats out.
 - **The sidebar (lean).** No header of their own: a 12 px pin before the title (named 고정됨 for screen readers, as the
   shared chat's people icon is named) on pinned rows. On a computer the short list has at most ten pins, the most
   recently pinned first, then the five latest of the others and the chat on screen; "모두 보기" and the phone's drawer
@@ -16252,6 +16254,7 @@ The owner: "trina history more 버튼에서 상단 고정 pin 기능 만들자."
   page, a search, the trash; a shared chat's pin per viewer, also on a later turn's events; lost access hides and drops
   it; delete, restore, purge, a deleted project, a deleted person; the cap), the security permission matrix (only the
   chat's person), `web/test/unit/sidebar.test.tsx` (the menu items, the order and the cap, the drawer, pin and unpin from
-  the menu), e2e `chat-pins.spec.ts` (pin from the "···" moves the row to the top with the pin, after a reload too; unpin;
-  a right-click; the phone's sheet).
+  the menu), `web/test/unit/search-room-messages.test.tsx` (⌘K's 최근 by date with nine pins), e2e `chat-pins.spec.ts`
+  (pin from the "···" moves the row to the top with the pin, after a reload too; unpin; a right-click; the phone's sheet;
+  a project's page), and the row-menu lists in `account-settings.spec.ts` and `project-list-menu.spec.ts`.
 - Version impact: **minor** (new endpoints, an additive field and an additive migration).

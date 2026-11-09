@@ -202,6 +202,7 @@ export const chatsRoutes: RouteModule = {
       const pinsFirst = !q && !query.trash
       const pinWhere = [...where], pinArgs = [...args]
       if (pinsFirst) { where.push('id NOT IN (SELECT chat_id FROM chat_pins WHERE user_id = ?)'); args.push(me) }
+      if (pinsFirst && !cur && !query.projectId) dropUnseenPins(rt, me)
       // a shared chat only while I see its project now (its creator too): pages are read until one is full. A search
       // finds a shared chat by its title or a message I see: never by an answer hidden from me (chat/shared-answers.ts).
       // In the trash only what I may restore (chatFor 'manage'): its creator, or an editor of its project now
@@ -248,7 +249,6 @@ export const chatsRoutes: RouteModule = {
       const lastItem = items[items.length - 1]
       let pinned: ChatRow[] = []
       if (pinsFirst && !cur) {
-        if (!query.projectId) dropUnseenPins(rt, me)
         const pins = pinsOf(ctx.db, me)
         if (pins.size) {
           const rows = ctx.db.query(`SELECT ${CHAT_COLS} FROM chats WHERE ${pinWhere.join(' AND ')} AND id IN (SELECT value FROM json_each(?))`).all(...pinArgs, JSON.stringify([...pins.keys()])) as ChatRow[]
