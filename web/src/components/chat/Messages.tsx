@@ -2,7 +2,9 @@
 // "sending" / "not sent [send again]". Answers: steps, queue position, Markdown, artifact cards, ask_user cards,
 // file summary, end state (error / stopped / paused at the per-answer limit with "continue"), the note that a long
 // conversation reached the AI only in part, the files the AI looked at ("참고한 파일"), copy, "대화방에 보내기" (a finished
-// answer to a room: ShareToRoom.tsx), regenerate, branch switch.
+// answer to a room: ShareToRoom.tsx; in a room's side chat one click to the room or the asked message's thread:
+// rooms/SendHere.tsx), regenerate, branch switch. A side chat's question shows without the thread its quote names
+// (shared rooms.ts hideThreadRef), in copy and edit too (an edit keeps it while the quote's header stays).
 // Like Claude: an answer is plain text in the column, with no picture beside it; its actions stay under the newest
 // answer and show on older ones when the pointer or focus is on them. A phone has no hover: there a message's actions
 // (copy, edit, retry) show once the message is tapped, the newest answer's always; until then they are hidden from
@@ -14,10 +16,10 @@
 // there (Message.withheld: it used something I cannot open, and I did not see the chat then) is one faint line in its
 // place, the rooms' words ("볼 수 없는 자료를 참고한 답이라 가려졌어요"), with only its branch switch.
 import clsx from 'clsx'
-import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, History, Loader2, MessageSquareShare, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
+import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, History, Loader2, MessageSquareShare, Paperclip, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, isDefaultErrorMessage, skillLabel, type Attachment, type EngineId, type Step, type UserRef } from '@mycel/shared/api'
+import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, hideThreadRef, isDefaultErrorMessage, sideQuoteOf, skillLabel, type Attachment, type EngineId, type SideQuote, type Step, type UserRef } from '@mycel/shared/api'
 import { thumbnailUrl } from '../../lib/api'
 import { answerHtml } from '../../lib/richCopy'
 import { formAnswers } from '../../lib/skillForm'
@@ -45,6 +47,8 @@ import ConnectCard from './ConnectCard'
 import { SecretWarning, useSecretHold } from './SecretWarning'
 import SuggestSkillDialog from '../SuggestSkillDialog'
 import ShareToRoom from './ShareToRoom'
+import { SendHere, SendHereNote, type SentHere } from '../rooms/SendHere'
+import { keepThreadRef, type SendTarget } from '../../lib/sideChatSend'
 import FileSummary from './FileSummary'
 import SourcesList from './SourcesList'
 import Steps from './Steps'
@@ -153,18 +157,54 @@ export function AttachmentView({ a, align = 'end' }: { a: Attachment; align?: 's
 
 /** A question as the person reads it: one that runs a skill shows the skill by its title as a chip ("할 일 정리") and
  * then the rest of the question, in place of "/meeting-tasks …" (the command is what was sent and what runs; copy and
- * edit keep it). A command no skill of the person's has stays as it was typed. */
-export function UserText({ content, clamp }: { content: string; clamp: boolean }) {
+ * edit keep it). A command no skill of the person's has stays as it was typed. In a room's side chat (`quotes`; also
+ * opened as a full chat) a question about a message or a file (shared rooms.ts sideQuoteOf) shows that as a quote on top,
+ * as the side chat's box showed it before it went (who, when, its lines; a file by its name), never its Markdown or the
+ * thread it names; the question below it. Folded (`clamp`, a long question) the quote shows its first 3 lines and 전체
+ * 보기 opens it too. Other chats show a quote typed by hand as it was typed. */
+export function UserText({ content: sent, clamp, quotes = false }: { content: string; clamp: boolean; quotes?: boolean }) {
+  const quote = quotes ? sideQuoteOf(sent) : null
+  const content = quote ? quote.question : hideThreadRef(sent)
   const cmd = splitCommand(content)
   const items = useSkillList(!!cmd)
   const skill = cmd && items ? skillByName(items, cmd.name) : null
   // "#" rooms the person picked (#[마케팅](room:<id>)) show as chips by their titles
-  if (!cmd || !skill) return <div className={clsx('whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')}><WithRoomRefs text={content} /></div>
-  return (
+  const text = !cmd || !skill ? (
+    content && <div className={clsx('whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')}><WithRoomRefs text={content} /></div>
+  ) : (
     <div data-testid="user-text-skill">
       <SkillChip title={skillLabel(skill)} name={skill.name} />
       {cmd.rest.trim() && <div className={clsx('mt-1 whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')}><WithRoomRefs text={cmd.rest} /></div>}
     </div>
+  )
+  if (!quote) return text
+  return (
+    <>
+      <SideQuoteBlock quote={quote} clamp={clamp} />
+      {text}
+    </>
+  )
+}
+
+/** The room's message or file a side chat question is about, as a quote at the top of the bubble; `clamp`: its first 3
+ * lines (the message is folded: 전체 보기 shows the rest) */
+function SideQuoteBlock({ quote, clamp }: { quote: SideQuote; clamp: boolean }) {
+  return (
+    <blockquote className="mb-1.5 border-l-2 border-line-strong pl-2 text-xs leading-5" data-testid="user-quote">
+      {quote.kind === 'file' ? (
+        <p className="flex min-w-0 items-center gap-1 text-muted" data-testid="user-quote-file">
+          <Paperclip size={12} aria-hidden className="shrink-0" />
+          <span className="truncate">{quote.name}</span>
+        </p>
+      ) : (
+        <>
+          <p className="font-medium text-ink" data-testid="user-quote-head">
+            {quote.author} <span className="font-normal text-faint">{quote.at}</span>
+          </p>
+          <p className={clsx('break-words whitespace-pre-wrap text-muted', clamp && 'line-clamp-3')} data-testid="user-quote-text">{quote.text}</p>
+        </>
+      )}
+    </blockquote>
   )
 }
 
@@ -249,18 +289,20 @@ export function MessageAuthor({ author }: { author: UserRef | null }) {
 }
 
 /** `showAuthor`: a shared chat, every question shows who asked (MessageAuthor); `canEdit` false: not mine to edit (a
- * shared chat) */
-export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAuthor = false, canEdit = true }: { m: ViewMessage; chatId: string; busy: boolean; onEdit: (m: ViewMessage, text: string) => void; onSelectBranch: (id: string) => void; showAuthor?: boolean; canEdit?: boolean }) {
+ * shared chat); `sideChat`: a room's side chat, whose questions may quote a room message or file (UserText) */
+export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAuthor = false, canEdit = true, sideChat = false }: { m: ViewMessage; chatId: string; busy: boolean; onEdit: (m: ViewMessage, text: string) => void; onSelectBranch: (id: string) => void; showAuthor?: boolean; canEdit?: boolean; sideChat?: boolean }) {
   const t = useT()
   const [editing, setEditing] = useState(false)
-  // the box shows a "#" room token as "#<title>"; what is sent again keeps its room (lib/roomRefs.ts)
-  const [draft, setDraft] = useState(() => fromWire(m.content).text)
+  // the box shows a "#" room token as "#<title>"; what is sent again keeps its room (lib/roomRefs.ts); a side chat's
+  // quote shows without its thread, which goes back on while the quote's header line stays (lib/sideChatSend.ts)
+  const shown = hideThreadRef(m.content)
+  const [draft, setDraft] = useState(() => fromWire(shown).text)
   /** the edited text looks like a key: it waits for "Send anyway" (SecretWarning) */
   const secret = useSecretHold(draft)
   const editRef = useRef<HTMLTextAreaElement>(null)
   const sendEdit = () => {
     setEditing(false)
-    onEdit(m, toWire(draft, fromWire(m.content).picked))
+    onEdit(m, keepThreadRef(toWire(draft, fromWire(shown).picked), m.content))
   }
   const resend = useChats((s) => s.resend)
   const discard = useChats((s) => s.discardLocal)
@@ -325,7 +367,7 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAutho
       ) : (
         m.content && (
           <div className={clsx('max-w-[85%] min-w-0 rounded-3xl bg-subtle px-4 py-2.5 text-reading leading-7 max-md:leading-reading sm:max-w-[80%]', m.local && 'opacity-70')} data-testid="user-text">
-            <UserText content={m.content} clamp={!open} />
+            <UserText content={m.content} clamp={!open} quotes={sideChat} />
             {long && (
               <button type="button" onClick={() => setOpen((v) => !v)} className="mt-1 text-xs font-medium text-muted hover:text-ink">
                 {open ? t('chat.showLess') : t('chat.showAll')}
@@ -356,12 +398,12 @@ export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAutho
         <div className={clsx('flex items-center gap-1', ON_HOVER, !tapped && !branched && UNTIL_TAP)} data-testid="message-actions">
           <BranchNav m={m} onSelect={onSelectBranch} disabled={busy} />
           <span className={clsx('flex items-center gap-1 md:contents', !tapped && UNTIL_TAP)} data-testid="message-actions-tap">
-            <CopyButton text={m.content} />
+            <CopyButton text={shown} />
             {canEdit && (
               <IconButton
                 label={t('chat.edit')}
                 onClick={() => {
-                  setDraft(fromWire(m.content).text)
+                  setDraft(fromWire(shown).text)
                   setEditing(true)
                 }}
                 data-testid="edit-message"
@@ -503,6 +545,7 @@ export function AssistantMessage({
   onContinue,
   shareable = false,
   shareRoomId,
+  sendHere,
   canRegenerate = true,
   canSuggest = true,
 }: {
@@ -521,8 +564,12 @@ export function AssistantMessage({
   /** its answers may go to a room ("대화방에 보내기"): a chat known not to be confidential (Safe operations 1A keeps
    * those to themselves; the server refuses them) */
   shareable?: boolean
-  /** a room's side chat: "Share to room" is a labelled button with this room picked (components/rooms/SideChatPanel.tsx) */
+  /** the room "대화방에 보내기" starts with picked (a side chat opened as a full chat: its room) */
   shareRoomId?: string
+  /** a room's side chat (components/rooms/SideChatPanel.tsx): one click to the room or the asked message's thread
+   * (rooms/SendHere.tsx) in place of the dialog; `target`: that thread (lib/sideChatSend.ts), null for the room;
+   * `onView`: its 보기 */
+  sendHere?: { roomId: string; target: SendTarget | null; onView: (sent: SentHere) => void }
   /** false: someone else asked this in a shared chat, so no new answer from me ("retry", "regenerate") */
   canRegenerate?: boolean
   /** false: "스킬로 제안" is not offered (a shared chat, phase 1: the server refuses it) */
@@ -655,12 +702,10 @@ export function AssistantMessage({
           <div className={clsx('mt-1.5 -ml-1.5 flex flex-wrap items-center gap-1 max-md:gap-3', !isLast && ON_HOVER, untilTap && !branched && UNTIL_TAP)} data-testid="answer-actions">
             <span className={clsx('flex items-center gap-1 max-md:gap-3 md:contents', untilTap && UNTIL_TAP)} data-testid="answer-actions-tap">
               {m.content && <CopyButton text={m.content} html={() => answerHtml(m.content)} label={t('chat.copyAnswer')} className="touch-hit" />}
-              {/* send to a room: a finished answer to a room I am in, as my message (ShareToRoom) */}
-              {shareable && m.content && m.status === 'done' && (shareRoomId ? (
-                <button type="button" onClick={() => setSharing(true)} className="touch-hit flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-hover hover:text-ink" data-testid="share-to-room">
-                  <MessageSquareShare size={13} aria-hidden />
-                  {t('sideChat.share')}
-                </button>
+              {/* send to a room: a finished answer to a room I am in, as my message (ShareToRoom); a room's side chat sends it
+                  to its room or the asked message's thread with one click (SendHere) */}
+              {shareable && m.content && m.status === 'done' && (sendHere ? (
+                <SendHere chatId={chatId} answerId={m.id} roomId={sendHere.roomId} target={sendHere.target} onView={sendHere.onView} />
               ) : (
                 <IconButton label={t('chat.shareToRoom')} onClick={() => setSharing(true)} className="touch-hit" data-testid="share-to-room">
                   <MessageSquareShare size={13} />
@@ -682,6 +727,7 @@ export function AssistantMessage({
             {m.model && <span className={clsx('ml-1 text-micro text-faint', untilTap && UNTIL_TAP)}>{m.model}</span>}
           </div>
         )}
+        {sendHere && shareable && !streaming && <SendHereNote answerId={m.id} />}
         {suggesting && (
           <SuggestSkillDialog source={{ kind: 'message', chatId, messageId: m.id }} initialContent={m.content} onClose={() => setSuggesting(false)} />
         )}

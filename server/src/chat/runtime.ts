@@ -538,7 +538,7 @@ export class ChatRuntime {
         VALUES (?,?,?,?,?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`).run(turnId, chat.id, o.userId, o.engine, o.model, now, now, assistantId, userMessageId, o.windowId, o.clientKind, queueSeq, o.scheduled?.id ?? null, o.scheduled?.dueAt ?? null)
       // a chat without a title gets a placeholder from this message (title.ts); the AI may name it later (set_title)
       // never a stored connection secret of this person in it (QA INT-13, B-W5-1)
-      const title = chat.title || (o.user ? placeholderTitle(o.user.content, o.user.attachments, redactorFor(this.ctx, o.userId).hide) : '')
+      const title = chat.title || (o.user ? placeholderTitle(o.user.content, o.user.attachments, redactorFor(this.ctx, o.userId).hide, !!chat.side_room_id) : '')
       // a shared chat keeps its creator's engine: another person's turn runs on theirs without changing the chat's
       if (isSharedRow(chat) && chat.user_id !== o.userId) this.db.query('UPDATE chats SET active_leaf_id = ?, title = ?, updated_at = ? WHERE id = ?').run(assistantId, title, now, chat.id)
       else this.db.query('UPDATE chats SET active_leaf_id = ?, title = ?, engine = ?, model = ?, updated_at = ? WHERE id = ?')

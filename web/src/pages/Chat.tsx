@@ -375,14 +375,14 @@ function ChatView({ chatId }: { chatId: string }) {
               if (m.role === 'user')
                 return (
                   <ViewerMeta key={m.id} sender={{ kind: 'user', user: m.author ?? (shared ? null : me.user) }} at={m.createdAt}>
-                    <UserMessage m={m} chatId={chatId} busy={busy || readOnly} onEdit={onEdit} onSelectBranch={onSelectBranch} showAuthor={!!shared} canEdit={!readOnly && mine(m.author?.id)} />
+                    <UserMessage m={m} chatId={chatId} busy={busy || readOnly} onEdit={onEdit} onSelectBranch={onSelectBranch} showAuthor={!!shared} canEdit={!readOnly && mine(m.author?.id)} sideChat={!!chat?.sideRoomId} />
                   </ViewerMeta>
                 )
               const prevAssistant = messages.slice(0, i).reverse().find((x) => x.role === 'assistant')
               const switchedFrom = prevAssistant?.engine && m.engine && prevAssistant.engine !== m.engine ? (prevAssistant.engine as EngineId) : null
               return (
                 <ViewerMeta key={m.id} sender={{ kind: 'ai' }} at={m.createdAt}>
-                  <AssistantMessage m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy || readOnly} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt || readOnly || !mine(askedBy(m)) ? undefined : onContinue} shareable={shareable && mine(askedBy(m))} canRegenerate={!readOnly && mine(askedBy(m))} canSuggest={!shared} />
+                  <AssistantMessage m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy || readOnly} switchedFrom={switchedFrom} onRegenerate={onRegenerate} retryWith={choose ? { engines, models } : undefined} onSelectBranch={onSelectBranch} onAskOwnFolder={askOwnFolder} onContinue={chat?.deletedAt || readOnly || !mine(askedBy(m)) ? undefined : onContinue} shareable={shareable && mine(askedBy(m))} shareRoomId={chat?.sideRoomId ?? undefined} canRegenerate={!readOnly && mine(askedBy(m))} canSuggest={!shared} />
                 </ViewerMeta>
               )
             })}
