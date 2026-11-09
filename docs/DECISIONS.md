@@ -16112,3 +16112,39 @@ is unread in the sidebar but not in n, so the Dock stayed empty.
   taskbar icon too. What an iPhone Home Screen web app shows for it is not checked (the worker's push already made the
   same call). Windows has no Dock: the desktop app is unchanged there.
 - **Unchanged:** the tab title "(n)", the phone ☰ dot and the 대화 tab's count. No new setting.
+## The schedule card offers only the connections the task names (fix/schedule-card-connections, 2026-11-09, product owner)
+
+- **Why.** Every schedule card (the AI's `schedule_create`, "수정" in Settings, "다시 확인") named every "allow" team
+  connection the person could use ("이 연결 서비스는 AI가 묻지 않고 보내도록 설정돼 있어요: …") with three answers, and
+  the answer with sends allowed them all. A one-time news briefing asked about an image service the team had once added
+  as an example.
+- **The rule** (`tools/schedules.ts taskConnections`). The card names, and offers sending to, only the "allow" team
+  connections the task names: the connection's whole name in the title or the instruction (the rule for a template
+  named in an instruction, `schedule-needs.ts namesTemplate`: any case, not part of a longer Latin word, a Korean
+  particle after it is fine, too short or everyday a name never matches), or listed in `schedule_create`'s new optional
+  `connections` (by name, slug or `team_<slug>` key, ignoring case). With none, the card has no connections line, the
+  plain answers (만들기 / 만들지 않기, 바꾸기 / 바꾸지 않기, 다시 켜기 / 계속 멈춰 두기), and runs send to no connection.
+  Only what the card offered is stored (`write_connections`), so a task sends to the same or fewer connections than
+  before; the run-side gate is unchanged.
+- **`connections`.** A listed name that is not an "allow" team connection the person can use (a connection that asks,
+  a personal one, a misspelling) is refused before the card and nothing is created: the AI is told the names a run can
+  send to and, when the task needs none of them, to tell the user that runs cannot send there. The tool description
+  says to list a connection only when runs must call its tools that change something there. A "send" is any tool not
+  marked read-only (the run-side gate), so a task that only searches a service whose search tool is not marked so must
+  list it too.
+- **Edit and "다시 확인".** An edit offers the connections the edited title or instruction names plus the ones the task
+  may already send to (a task the AI listed a connection for has it on offer again when only its time changes; plain
+  "바꾸기" drops the sends, as before). A task nobody confirmed
+  never had any allowed: its card offers only the names in its title or instruction. Both cards' `requestId` binds the
+  offered connections (id and version) instead of every "allow" one, so a change to an unrelated connection no longer
+  invalidates the card.
+- **Accepted.** A task that needs a service it does not name cannot send there in a run; the run's refusal now tells
+  the AI that the card offers only named connections and that the user can edit the task (or create it again) naming
+  it. A connection the task names only as a topic ("GitHub 소식 요약") is still offered; the person chooses on the card.
+  Tasks made before this keep their record (no migration): one that was allowed every "allow" connection on the old
+  card keeps those sends, and its edit card offers them again until the person saves with plain "바꾸기". Pruning them
+  would change what existing runs do, so it is left to the person.
+- **Not changed.** The card's wording, the address checks, `allowed_urls`, the unattended rules. No API, migration or
+  web change.
+- Tests: `tests/unit/schedule-connections.test.ts`.
+- Version impact: **patch** (fewer connections on a card; one optional tool input).
