@@ -20,6 +20,7 @@ import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { CONFIRMED } from '../lib/schedule-card'
 import { levelsOf, moveOptions, planMove, runMove, skillAt } from '../../server/src/skills/move'
+import { checkSkill } from '../../server/src/chat/skills'
 import { ROOM_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 
@@ -134,6 +135,44 @@ describe('the plan: where it may go, who gains and who loses it', () => {
     } finally { e.db.query("DELETE FROM folder_rules WHERE id = 'r_launch_private'").run(); e.db.query("DELETE FROM folders WHERE id = 'f_launch_private'").run() }
   })
 
+  test('a hard link in the skill folder refuses a move and a copy (a copy would make it an ordinary file more people read)', () => {
+    fs.writeFileSync(path.join(e.fx.team, 'shared/elsewhere.md'), 'linked from a skill\n')
+    const link = path.join(e.fx.team, 'skills/ops/references/linked.md')
+    fs.linkSync(path.join(e.fx.team, 'shared/elsewhere.md'), link)
+    try {
+      for (const copy of [false, true]) {
+        let err: unknown = null
+        try { planMove(ctx, who('carol'), skillAt(ctx, who('carol'), 'skills/ops/SKILL.md')!, to('carol', 'project'), 'en', { copy }) } catch (x) { err = x }
+        expect((err as { extra?: { params?: { reason?: string } } }).extra?.params?.reason).toBe('skill_hard_link')
+        expect((err as Error).message).toContain('skills/ops/references/linked.md in the skill folder is linked to a file elsewhere (a hard link)')
+      }
+      expect(() => moveOptions(ctx, 'carol', 'skills/ops/SKILL.md', 'en')).toThrow(/hard link/)
+    } finally { fs.rmSync(link); fs.rmSync(path.join(e.fx.team, 'shared/elsewhere.md')) }
+  })
+
+  test('a renamed copy lands loadable: the parser\'s name rule, a name written as a block, a name taken in other letter case', () => {
+    const copy = (rel: string, level: string, name: string, id?: string) => planMove(ctx, who('alice'), skillAt(ctx, who('alice'), rel)!, to('alice', level, id), 'en', { copy: true, name })
+    // the skill parser takes no double hyphen
+    expect(copy('groups/marketing/skills/brief/SKILL.md', 'project', 'brief--falcon').blocked?.key).toBe('folderName')
+    expect(copy('groups/marketing/skills/brief/SKILL.md', 'project', '-brief').blocked?.key).toBe('folderName')
+    // a valid header whose name is written as a folded block: the copy gets one name line, and it loads as that name
+    const folded = '---\nname: >-\n  pitch\ndescription: a pitch\n---\nPITCH-BODY\n'
+    fs.mkdirSync(path.join(e.fx.team, 'groups/marketing/skills/pitch'), { recursive: true })
+    fs.writeFileSync(path.join(e.fx.team, 'groups/marketing/skills/pitch/SKILL.md'), folded)
+    try {
+      expect(checkSkill(folded, 'groups/marketing/skills/pitch/SKILL.md')).toMatchObject({ ok: true, name: 'pitch' })
+      const p = copy('groups/marketing/skills/pitch/SKILL.md', 'project', 'pitch-falcon')
+      expect(p.blocked).toBeNull()
+      expect(p.text).toBe('---\nname: pitch-falcon\ndescription: a pitch\n---\nPITCH-BODY\n')
+      expect(checkSkill(p.text, p.entry)).toMatchObject({ ok: true, name: 'pitch-falcon' })
+    } finally { fs.rmSync(path.join(e.fx.team, 'groups/marketing/skills/pitch'), { recursive: true }) }
+    // a folder of that name in other letter case at the target: taken (it cannot be made there)
+    fs.mkdirSync(path.join(e.fx.team, 'projects/hawk/skills/Brief-Hawk'), { recursive: true })
+    try {
+      expect(copy('groups/marketing/skills/brief/SKILL.md', 'project', 'brief-hawk', HAWK).blocked).toEqual({ key: 'moveTaken', vars: { to: 'Hawk project chats', name: 'brief-hawk' } })
+    } finally { fs.rmSync(path.join(e.fx.team, 'projects/hawk/skills'), { recursive: true }) }
+  })
+
   test('GET /api/skills/move: every other level, the whole text, a token only where it may go', () => {
     const o = moveOptions(ctx, 'carol', 'skills/ops/SKILL.md', 'en')
     expect(o.from).toEqual({ label: 'whole team', people: 5, level: 'team' })
@@ -212,7 +251,8 @@ describe('in the app: the Skills page and the AI', () => {
     expect(skillMd(r.card)!.label).toBe('SKILL.md 전체 내용')
     expect(skillMd(r.card)!.text).toContain('ESTIMATE-BODY-CANARY')
     expect(skillMd(r.card)!.collapsedAt).toBeUndefined()
-    expect(r.card!.details!.find((d) => d.label === '옮길 파일')!.text).toContain('groups/leads/skills/estimate-docs/templates/form.md')
+    // where each file lands
+    expect(r.card!.details!.find((d) => d.label === '옮길 파일')!.text).toContain('projects/quotation/skills/estimate-docs/templates/form.md')
     // moved, and the AI can say who
     expect(r.content).toContain('Moved the skill "estimate-docs" from Leads group (3 people) to 견적서 제작 project chats (3 people)')
     expect(r.content).toContain('2 people newly get it and 2 people lose it (3 → 3 people).')
@@ -252,6 +292,8 @@ describe('in the app: the Skills page and the AI', () => {
     const shown = skillMd(r.card)!.text
     expect(shown).toContain('name: sales-docs-quotation')
     expect(shown).toContain('SALES-BODY-CANARY')
+    // the files where they land, under the new name
+    expect(r.card!.details!.find((d) => d.label === '복사할 파일')!.text).toContain('projects/quotation/skills/sales-docs-quotation/assets/logo.png')
     expect(r.content).toContain('Copied the skill "sales-docs" as "sales-docs-quotation" from Leads group to 견적서 제작 project chats (3 people): projects/quotation/skills/sales-docs-quotation/SKILL.md. The original stays.')
     const dir = path.join(h.team, 'projects/quotation/skills/sales-docs-quotation')
     expect(fs.readFileSync(path.join(dir, 'SKILL.md'), 'utf8')).toBe(md('sales-docs-quotation', 'leads sales documents', 'SALES-BODY-CANARY'))
@@ -267,6 +309,16 @@ describe('in the app: the Skills page and the AI', () => {
     expect(change).toMatchObject({ change: 'create', from: 'groups/leads/skills/sales-docs', byAi: true })
     // in the project's chats now, under its own name
     expect((await h.api('bob').call(API.listSkills, { query: { projectId: QUOTE } })).items.some((s) => s.name === 'sales-docs-quotation')).toBe(true)
+  })
+
+  test('a copy is bound to every file: one added after the card is shown, nothing is copied, and the AI is told which', async () => {
+    const extra = path.join(h.team, 'groups/leads/skills/sales-docs/extra.md')
+    try {
+      const r = await turn('dana', moveCall({ skill: 'sales-docs', to: 'project', keep: true, name: 'sales-docs-late' }), { project: QUOTE, answer: 'copy', meanwhile: () => fs.writeFileSync(extra, 'PLANTED\n') })
+      expect(r.content).toContain('Not copied: since the card was shown, a file changed: groups/leads/skills/sales-docs/extra.md')
+      expect(r.content).toContain('call move_skill again')
+      expect(fs.existsSync(path.join(h.team, 'projects/quotation/skills/sales-docs-late'))).toBe(false)
+    } finally { fs.rmSync(extra, { force: true }) }
   })
 
   test('a copy under the same name into a project is refused with the reason: the person keeps the wider one', async () => {

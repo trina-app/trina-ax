@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, type Step } from '@mycel/shared/api'
+import { API, SIDE_CHAT_QUICK, sideQuickOf, sideQuoteOf, threadRefToken, type Step } from '@mycel/shared/api'
 import { MIGRATIONS_DIR, migrate, openDb, readMigrations } from '../../server/src/db'
 import { AI_TITLE_MAX, PLACEHOLDER_MAX, TITLE_SCAN_KEY, cleanAiTitle, graphemes, hideTitle, maskStoredTitles, placeholderTitle } from '../../server/src/chat/title'
 import { HIDDEN } from '../../server/src/integrations/connections/hide'
@@ -77,6 +77,36 @@ describe('placeholder from the first message', () => {
     expect(placeholderTitle(' \n\n---\n👍')).toBe('')
     expect(placeholderTitle('', [{ name: 'report-2026.pdf', source: 'upload' }])).toBe('report-2026.pdf')
     expect(placeholderTitle('', [{ name: 'salaries-2026.xlsx', source: 'team' }])).toBe('')
+  })
+
+  test("a side chat's question about a message: the question, never the quote's header or the thread it names", () => {
+    const q = `> Ben · 11/10, 3:00 PM${threadRefToken('019a5f00-0000-7000-8000-000000000001')}\n> logo drafts by Friday?\n\nOne line, please`
+    expect(placeholderTitle(q, [], undefined, true)).toBe('One line, please')
+    // the owner's case on dev: "Sam · Nov 9, 2026, 7:0… # Sales" in the history
+    expect(placeholderTitle('> Sam · Nov 9, 2026, 7:04 PM\n> Venue sent the exhibitor rules.\n\nWhat do we need to change?', [], undefined, true)).toBe('What do we need to change?')
+  })
+
+  test('a quick question is "<its word>: <the quoted message\'s first words, or the file\'s name>", in the language it was asked in', () => {
+    const msg = (text: string, question: string) => `> 벤 · 2026. 11. 5. 오후 4:01\n${text.split('\n').map((l) => `> ${l}`).join('\n')}\n\n${question}`
+    expect(placeholderTitle(msg('로고 시안 언제까지 받을 수 있을까요? 금요일 회의 전에 보고 싶어요.', SIDE_CHAT_QUICK.summarize.ask.ko), [], undefined, true)).toBe('요약: 로고 시안 언제까지 받을 수 있을까요?')
+    expect(placeholderTitle(msg('Venue sent the exhibitor rules.', SIDE_CHAT_QUICK.translate.ask.en), [], undefined, true)).toBe('Translate: Venue sent the exhibitor…')
+    expect(placeholderTitle(msg('一行目\n二行目', SIDE_CHAT_QUICK.explain.ask.ja), [], undefined, true)).toBe('説明: 一行目')
+    const file = (q: string) => `> 📎 acme-handbook.pdf (file_id 019a5f00-0000-7000-8000-000000000502 in this room)\n\n${q}`
+    expect(placeholderTitle(file(SIDE_CHAT_QUICK.fileSummarize.ask.es), [], undefined, true)).toBe('Resumir: acme-handbook.pdf')
+    expect(placeholderTitle(file(SIDE_CHAT_QUICK.fileSave.ask.ko), [], undefined, true)).toBe('팀 폴더에 저장: acme-handbook.pdf')
+    // every quick question in every language is known
+    for (const [key, q] of Object.entries(SIDE_CHAT_QUICK)) for (const [locale, ask] of Object.entries(q.ask)) expect(sideQuickOf(` ${ask} `) as unknown).toEqual({ key, locale })
+    // a question of one's own that merely starts like one is the question
+    expect(placeholderTitle(msg('x', `${SIDE_CHAT_QUICK.summarize.ask.en} In Korean.`), [], undefined, true)).toBe('Summarize this message')
+  })
+
+  test('files alone with a quote: the quote; a quote typed by hand (not a side chat\'s) is as before', () => {
+    expect(placeholderTitle('> 벤 · 2026. 11. 5. 오후 4:01\n> 견적서 초안이에요\n\n', [], undefined, true)).toBe('견적서 초안이에요')
+    expect(placeholderTitle('> 📎 acme.pdf (file_id 019a5f00-0000-7000-8000-000000000502 in this room)\n\n', [{ name: 'shot.png', source: 'upload' }], undefined, true)).toBe('acme.pdf')
+    expect(placeholderTitle('> to be or not to be\nthat is the question', [], undefined, true)).toBe('to be or not to be')
+    // a chat that is not a room's side chat: a quote of that shape typed by hand is a line like any other
+    expect(placeholderTitle('> Sam · Nov 9, 2026, 7:04 PM\n> Venue sent the exhibitor rules.\n\nWhat do we need to change?')).toBe('Sam · Nov 9, 2026, 7:04 PM')
+    expect(sideQuoteOf('> to be or not to be\nthat is the question')).toBeNull()
   })
 })
 
