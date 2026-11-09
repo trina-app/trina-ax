@@ -84,9 +84,11 @@ export function thumbBox(f: { width?: number | null; height?: number | null }): 
 
 /** A photo's thumbnail: in the box its stored size gives until it loads, then in its own shape when that differs. The
  * thumbnail is always upright; a photo sent before the server stored the upright size (a portrait phone photo stored
- * landscape with EXIF orientation 6) has a landscape size, which would crop it to its middle band. */
+ * landscape with EXIF orientation 6) has a landscape size, which would crop it to its middle band. The soft box only
+ * holds the place while it loads: a picture with transparency (a seal stamp, a logo) then sits on the page itself. */
 function RoomThumb({ f, src }: { f: RoomFile; src: string }) {
   const [own, setOwn] = useState<{ width: number; height: number } | null>(null)
+  const [loaded, setLoaded] = useState(false)
   return (
     <img
       src={src}
@@ -94,10 +96,11 @@ function RoomThumb({ f, src }: { f: RoomFile; src: string }) {
       loading="lazy"
       style={thumbBox(own ?? f)}
       onLoad={(e) => {
+        setLoaded(true)
         const { naturalWidth: width, naturalHeight: height } = e.currentTarget
         if (width && height && (!f.width || !f.height || Math.abs(width / height - f.width / f.height) > 0.05)) setOwn({ width, height })
       }}
-      className="block max-h-60 max-w-full object-cover"
+      className={clsx('block max-h-60 max-w-full object-cover', !loaded && 'bg-subtle')}
     />
   )
 }
@@ -633,7 +636,7 @@ function Files({ roomId, files }: { roomId: string; files: RoomFile[] }) {
       {files.map((f) =>
         f.kind === 'image' && f.thumb ? (
           <Tooltip key={f.id} label={t('rooms.openImage', { name: f.name })}>
-            <button type="button" onClick={() => openFilePreview(roomPreview(roomId, f))} aria-label={t('rooms.openImage', { name: f.name })} className="overflow-hidden rounded-lg border border-line bg-subtle" data-testid="room-image">
+            <button type="button" onClick={() => openFilePreview(roomPreview(roomId, f))} aria-label={t('rooms.openImage', { name: f.name })} className="overflow-hidden rounded-lg border border-line" data-testid="room-image">
               <RoomThumb f={f} src={roomFileUrl(roomId, f.id, { thumb: '1' })} />
             </button>
           </Tooltip>

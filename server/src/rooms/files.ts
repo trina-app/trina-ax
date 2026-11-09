@@ -17,6 +17,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { PRODUCT } from '@mycel/shared'
+import { which } from '../config'
 import { SMALL_UPLOAD_MAX, type RoomFile } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { newId, nowIso } from '../db'
@@ -29,7 +30,7 @@ import { assertStorageRoom } from '../system/storage'
 import { checkRegular, openChecked } from '../team-files/place'
 import { mimeOf } from '../team-files/service'
 import { attachmentKind } from '../uploads/attachments'
-import { displaySize, makeThumbnail } from '../uploads/image'
+import { displaySize, makeThumbnail, type ThumbExt } from '../uploads/image'
 import { cleanImage, imageFormat, PHOTO } from '../uploads/metadata'
 import { personLocale } from '../files/media-text'
 import { tr } from '../chat/i18n'
@@ -46,7 +47,11 @@ function plainPicture(b: Uint8Array, name: string): boolean {
 export const UNSENT_FILE_MS = 24 * 3600_000
 /** Room files without a database row are kept this long in .system/rooms-orphans/ (reconcile). */
 export const ORPHAN_KEEP_MS = 30 * 86400_000
-const THUMB = '.thumb.jpg'
+/** a picture's thumbnail beside it: <file id>.thumb.jpg, or .thumb.png for one with transparency (uploads/image.ts) */
+const THUMB = /\.thumb\.(jpg|png)$/
+const THUMB_EXTS = ['png', 'jpg'] as const
+/** settings: set once every thumbnail from before transparent ones were PNG was looked at (refreshThumbs) */
+export const THUMBS_REFRESHED_SETTING = 'rooms.thumbsTransparent'
 const MOVING = '.moving'
 const stamp = (ms: number) => new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')
 /** the time in an orphan batch's name (<stamp>-<pid>-<n>; a bare <stamp> from before is read too) */
@@ -61,7 +66,8 @@ export class RoomFiles {
   root() { return path.join(this.ctx.files.fx.root, PRODUCT.systemDir, 'rooms') }
   private dir(roomId: string) { return path.join(this.root(), roomId) }
   private abs(f: Pick<FileRow, 'room_id' | 'id'>) { return path.join(this.dir(f.room_id), f.id) }
-  private thumbAbs(f: Pick<FileRow, 'room_id' | 'id'>) { return path.join(this.dir(f.room_id), `${f.id}.thumb.jpg`) }
+  private thumbBase(f: Pick<FileRow, 'room_id' | 'id'>) { return path.join(this.dir(f.room_id), `${f.id}.thumb`) }
+  private removeThumbs(f: Pick<FileRow, 'room_id' | 'id'>) { for (const e of THUMB_EXTS) fs.rmSync(`${this.thumbBase(f)}.${e}`, { force: true }) }
 
   private member(userId: string, roomId: string) {
     const room = roomRow(this.ctx.db, roomId)
@@ -109,7 +115,7 @@ export class RoomFiles {
     fs.chmodSync(dst, 0o600)
     let thumb = false
     if (kind === 'image' && !quarantined) {
-      try { thumb = await makeThumbnail(dst, this.thumbAbs({ room_id: roomId, id }), 640, path.join(this.ctx.config.dataDir, 'work')) } catch (e) { this.ctx.log.debug('room thumbnail failed', { err: e }) }
+      try { thumb = !!(await makeThumbnail(dst, this.thumbBase({ room_id: roomId, id }), 640, path.join(this.ctx.config.dataDir, 'work'))) } catch (e) { this.ctx.log.debug('room thumbnail failed', { err: e }) }
     }
     this.ctx.db.query(`INSERT INTO room_files (id, room_id, user_id, name, size, mime, kind, width, height, sha256, thumb, created_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, roomId, userId, clean, size, mimeOf(clean) ?? 'application/octet-stream', kind, dims?.width ?? null, dims?.height ?? null, stored, thumb ? 1 : 0, nowIso())
@@ -172,7 +178,7 @@ export class RoomFiles {
     if (!fileIds.length) return
     const rows = this.ctx.db.query(`DELETE FROM room_files WHERE room_id = ? AND user_id = ? AND message_id IS NULL AND id IN (${fileIds.map(() => '?').join(',')}) RETURNING id, room_id`)
       .all(roomId, userId, ...fileIds) as Pick<FileRow, 'id' | 'room_id'>[]
-    for (const f of rows) { fs.rmSync(this.abs(f), { force: true }); fs.rmSync(this.thumbAbs(f), { force: true }) }
+    for (const f of rows) { fs.rmSync(this.abs(f), { force: true }); this.removeThumbs(f) }
   }
 
   /**
@@ -191,7 +197,13 @@ export class RoomFiles {
     const abs = this.abs(f)
     const quarantined = this.ctx.files.quarantine.hasHash(f.sha256)
     if (thumb) {
-      if (f.thumb) { try { checkRegular(this.thumbAbs(f)); return { abs: this.thumbAbs(f), name: `${f.name}.jpg`, quarantined } } catch { /* the original below */ } }
+      // a PNG one (a picture with transparency), else the JPEG one (every other picture, and those from before)
+      if (f.thumb) {
+        for (const e of THUMB_EXTS) {
+          const t = `${this.thumbBase(f)}.${e}`
+          try { checkRegular(t); return { abs: t, name: `${f.name}.${e}`, quarantined } } catch { /* the next, then the original below */ }
+        }
+      }
       if (f.kind !== 'image' || !/^(png|jpe?g|gif|webp)$/.test(ext(f.name)) || f.size > 2 * 1024 * 1024) fail('not_found')
     }
     try { checkRegular(abs) } catch { fail('not_found') }
@@ -201,7 +213,7 @@ export class RoomFiles {
   /** A message was deleted: its files go from disk and from the table. */
   removeForMessage(messageId: string) {
     const rows = this.ctx.db.query('DELETE FROM room_files WHERE message_id = ? RETURNING id, room_id').all(messageId) as Pick<FileRow, 'id' | 'room_id'>[]
-    for (const f of rows) { fs.rmSync(this.abs(f), { force: true }); fs.rmSync(this.thumbAbs(f), { force: true }) }
+    for (const f of rows) { fs.rmSync(this.abs(f), { force: true }); this.removeThumbs(f) }
   }
 
   /**
@@ -241,7 +253,7 @@ export class RoomFiles {
       try { names = fs.readdirSync(dir) } catch { continue }
       for (const n of names) {
         if (n.endsWith(MOVING)) { fs.rmSync(path.join(dir, n), { force: true }); continue } // an interrupted copy
-        const id = n.endsWith(THUMB) ? n.slice(0, -THUMB.length) : n
+        const id = n.replace(THUMB, '')
         if (known.has(`${room}/${id}`)) continue
         fs.mkdirSync(path.join(batch, room), { recursive: true, mode: 0o700 })
         fs.renameSync(path.join(dir, n), path.join(batch, room, n))
@@ -323,11 +335,49 @@ export class RoomFiles {
     return n
   }
 
+  /**
+   * Once (THUMBS_REFRESHED_SETTING), a while after start: a picture sent before transparent ones got a PNG thumbnail
+   * has a JPEG one, black where the picture is see-through (a seal stamp on a black square). Each picture that can have
+   * transparency (a PNG, WebP or GIF: makeThumbnail transparentOnly) is looked at again, one at a time below
+   * interactive work; one with see-through pixels gets its PNG thumbnail and the JPEG one goes. A picture ffmpeg cannot
+   * read, or one on the download-only list, keeps what it has; reads go on meanwhile (open() takes either). Stopped by
+   * `signal` (the server closing) before it is done: the next start looks again.
+   */
+  async refreshThumbs(signal?: AbortSignal): Promise<{ refreshed: number } | null> {
+    // no ffmpeg now (a server without it, or one being installed): not done, the next start looks again
+    if (this.ctx.db.query('SELECT 1 FROM settings WHERE key = ?').get(THUMBS_REFRESHED_SETTING) || !which('ffmpeg')) return null
+    const rows = this.ctx.db.query("SELECT id, room_id, sha256 FROM room_files WHERE kind = 'image' AND thumb = 1").all() as Pick<FileRow, 'id' | 'room_id' | 'sha256'>[]
+    // the room files folder not there (a team folder on a share not mounted yet): not now, so none is passed over
+    if (rows.length && !fs.existsSync(this.root())) return null
+    const work = path.join(this.ctx.config.dataDir, 'work')
+    let refreshed = 0
+    for (const f of rows) {
+      await new Promise((r) => setImmediate(r)) // a row without alpha ends without waiting: requests get their turn between rows
+      if (signal?.aborted) return { refreshed }
+      const base = this.thumbBase(f)
+      if (fs.existsSync(`${base}.png`) || !fs.existsSync(`${base}.jpg`) || this.ctx.files.quarantine.hasHash(f.sha256)) continue
+      let made: ThumbExt | null = null
+      try {
+        checkRegular(this.abs(f))
+        made = await makeThumbnail(this.abs(f), base, 640, work, undefined, { transparentOnly: true, background: true, signal })
+      } catch (e) { this.ctx.log.debug('room thumbnail refresh failed', { err: e }) }
+      if (made !== 'png') continue
+      // the message may have been deleted meanwhile: its new thumbnail goes too
+      if (!this.ctx.db.query('SELECT 1 FROM room_files WHERE id = ?').get(f.id)) { this.removeThumbs(f); continue }
+      fs.rmSync(`${base}.jpg`, { force: true })
+      refreshed++
+    }
+    if (signal?.aborted) return { refreshed }
+    this.ctx.db.query('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(THUMBS_REFRESHED_SETTING, nowIso())
+    if (refreshed) this.ctx.log.info('room thumbnails of transparent pictures made again', { refreshed })
+    return { refreshed }
+  }
+
   /** Uploads never sent, and files of rooms that are gone. */
   sweep(now = Date.now()) {
     const cutoff = new Date(now - UNSENT_FILE_MS).toISOString()
     const rows = this.ctx.db.query('DELETE FROM room_files WHERE message_id IS NULL AND created_at < ? RETURNING id, room_id').all(cutoff) as Pick<FileRow, 'id' | 'room_id'>[]
-    for (const f of rows) { fs.rmSync(this.abs(f), { force: true }); fs.rmSync(this.thumbAbs(f), { force: true }) }
+    for (const f of rows) { fs.rmSync(this.abs(f), { force: true }); this.removeThumbs(f) }
     return rows.length
   }
 }
