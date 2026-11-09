@@ -4230,7 +4230,7 @@ export const ko = {
   "handover.flagHint": "들어오면 팀장을 넘길지 물어볼게요",
   "handover.leadFor": "누구에게 보내나요?",
   "handover.leadForPlaceholder": "김팀장 대표님",
-  "handover.leadNote": "팀원으로 팀 부서에 들어가요 · {days}일 동안 열려 있어요 · 관리자와 팀장 권한은 [넘기기]를 눌러야 생겨요",
+  "handover.leadNote": "팀원으로 들어가요 · {days}일 동안 열려 있어요 · 관리자와 팀장 권한은 [넘기기]를 눌러야 생겨요",
   "handover.makeLink": "팀장 링크 만들기",
   "handover.message": "{name}님이 {product}에 팀을 만들어 두었어요. 들어오면 {name}님이 팀장을 넘겨 드려요: {url} · 한 사람만 쓸 수 있는 링크예요",
   "handover.facts": "받는 사람: {leadFor} · {date}까지 열려 있어요",

@@ -734,12 +734,14 @@ function TeamReach({ team, groupId }: { team: string; groupId: string | null }) 
   const [reach, setReach] = useState<{ viewers: number; outside: string[]; memberIds: string[] } | null>(null)
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // an answer that comes after the line is gone changes nothing
+  // an answer that comes after the line is gone, or after another place was chosen, changes nothing
   const live = useRef(true)
+  const asked = useRef(0)
   useEffect(() => () => { live.current = false }, [])
   const load = async (id: string | null) => {
+    const n = ++asked.current
     const [users, groups] = await Promise.all([api.call(API.listUsers), id ? api.call(API.listGroups) : null])
-    if (!live.current) return
+    if (!live.current || n !== asked.current) return
     if (!id) return setReach({ viewers: users.items.filter((u) => u.status === 'active').length, outside: [], memberIds: [] })
     const group = groups?.items.find((g) => g.id === id)
     if (!group) return setReach(null)

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-09 08:39
 - Branch: `feat/team-folder-basics`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`shared/src/folder-labels.ts`, `web/src` Files and pickers, `web/src/i18n`, `server/src/chat/prompt.ts`
   and `chat/file-placement.ts`, `server/src/admin/folders.ts`, `server/src/onboarding/`). Why: files, the AI's
   instructions and onboarding are core (see docs/REPOSITORY-RULES.md)
@@ -69,4 +69,14 @@ the onboarding and welcome suites, file placement; the web unit suite in Docker;
 
 ## Result
 
-Filled in at the end.
+Built as planned (DECISIONS "Team folder basics"). Differences and choices:
+- The labels table lives in `shared/` (not only the web's i18n) because the AI's instructions name the same words; the
+  other languages use their own word for groups (Groups, Grup, グループ, Grupos), the one their admin pages use.
+- 양식 and 보관 are named in the team's language (양식, Templates, …), like 회의록 and 브랜드; the instructions' templates
+  line is English like the rest of the instructions, with the folder as it is on disk, and only when it is there.
+- A team keeps the layout its welcome row records: `home: 'shared'` for teams that start from now on, the group's
+  folder for every team that started before (their 팀 파일 uploads keep going there). With shared/ as the home, the 팀
+  파일 step does not offer the team group's own folder.
+- The pack skills 회사 소개서, 카드뉴스 and 홍보 영상 name shared/브랜드/ first (they named only groups/<team>/브랜드/).
+- The connector's folder guide got only the projects/ loose-file words (its length budget, 1,700 characters).
+- PR: see the branch's pull request to dev.

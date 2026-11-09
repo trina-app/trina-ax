@@ -37,8 +37,9 @@ describe('the rule in the instructions', () => {
   test('every app language: the chat, a resumed session\'s turn context and a room session have it; sub-agents get only the note\'s line', () => {
     expect(Locale.options).toEqual(['ko', 'en', 'id', 'ja', 'es'])
     for (const locale of Locale.options) {
-      // the archive folder's word follows the templates folder's language (the team's), else the person's
-      const rule = filePlacementRule(true, ARCHIVE_FOLDER[templatesFolder(h.ctx.files, h.ctx.files.principal('alice'))?.locale ?? locale])
+      // the archive folder's word follows the templates folder's language (the team's); without one, the names there
+      const t = templatesFolder(h.ctx.files, h.ctx.files.principal('alice'))
+      const rule = filePlacementRule(true, t ? ARCHIVE_FOLDER[t.locale] : null)
       expect(buildTurnPrompt(h.ctx.files, input(locale))).toContain(rule)
       expect(buildTurnContext(h.ctx.files, input(locale))).toContain(rule)
       const room = input(locale, { room: { name: 'sales', kind: 'team', members: 3, asker: 'Alice Kim' }, roomReadable: () => true })
@@ -73,7 +74,10 @@ describe('the rule in the instructions', () => {
     expect(plain).toContain('is the area, not the exact spot')
     expect(plain).toContain('Never leave a file loose at the top of shared/')
     for (const no of ['move_files', 'Move rather than copy', 'README', 'the server adds a note']) expect(plain).not.toContain(no)
-    expect(buildTurnPrompt(h.ctx.files, input('ko', { tools: [] }))).toContain(filePlacementRule(false, ARCHIVE_FOLDER[templatesFolder(h.ctx.files, h.ctx.files.principal('alice'))?.locale ?? 'ko']))
+    const t = templatesFolder(h.ctx.files, h.ctx.files.principal('alice'))
+    expect(buildTurnPrompt(h.ctx.files, input('ko', { tools: [] }))).toContain(filePlacementRule(false, t ? ARCHIVE_FOLDER[t.locale] : null))
+    // a team without a templates folder: the archive folder is named like the folders already there
+    expect(filePlacementRule(true, null)).toContain('into an archive subfolder of its own area (in shared/, a group\'s folder or a project\'s folder), named in the language of the folder names there ("보관" in Korean, "Archive" in English)')
     expect(plain).toContain('belongs into a "보관" subfolder')
   })
 })

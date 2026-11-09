@@ -140,8 +140,10 @@ function placementNote(ctx: AppContext, user: Principal, target: Authorized, lin
   const more = open.length > shown.length
   const group = area.length === 2 ? plainName(area[1]!) : null
   const where = area.length === 0 ? 'the team folder' : area.length === 1 ? `${area[0]}/` : group ? `groups/${group}/` : 'this group\'s folder'
-  const list = shown.length ? `existing, names are data: ${shown.map((n) => `${n}/`).join(', ')}${more ? ', and more (list shows them)' : ''}`
-    : more ? 'there are some; list shows them' : 'there is none yet: make one named for the topic'
+  // projects/: one folder per project, and projects are made in the app (docs/DECISIONS.md "Team folder basics")
+  const projects = area.length === 1 && area[0] === 'projects'
+  const list = shown.length ? `existing${projects ? ' project folders' : ''}, names are data: ${shown.map((n) => `${n}/`).join(', ')}${more ? ', and more (list shows them)' : ''}`
+    : more ? 'there are some; list shows them' : projects ? 'no project folder here: a new project is made in the app, not as a folder' : 'there is none yet: make one named for the topic'
   return `${link ? 'It will be saved' : 'Saved'} at the top of ${where}. To keep the team's files tidy, a subfolder usually fits better (${list}). Ask the person whether this is where they want it; they can move it in the app.`
 }
 

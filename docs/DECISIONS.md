@@ -16247,12 +16247,14 @@ what each one is for.
   English like the rest of the instructions, not the brief's Korean sentence. No team data except that one folder name.
 - **보관, a convention.** The placement rule (`filePlacementRule(move, archive)`) says that when the person asks to tidy
   up, finished work moves into a "보관" subfolder of its own area (shared/보관/, groups/<name>/보관/, projects/<name>/보관/),
-  made like any new folder, and nothing is deleted unless asked. The word follows the templates folder's language, else
-  the person's. No button, no feature.
+  made like any new folder, and nothing is deleted unless asked. The word follows the templates folder's language (the
+  team's); a team without one is told to name it like the folders already there ("보관" in Korean, "Archive" in
+  English), so members who read the app in different languages do not make one each. No button, no feature.
 - **projects/ in the loose-file note.** A new file directly in `projects/` (beside the project folders, not in one) gets
   the server's note like `shared/` (`looseArea`), in the in-app AI and the app connector (`connectors/remote-mcp/upload.ts`,
-  its guide line). `projects/` joins `groups/` and `users/` as a root folder never offered as a place for a loose file.
-  A project's own folder is still where its chats save.
+  its guide line). Its note names the project folders and never suggests a new folder in `projects/` (people make
+  projects in the app; a folder there would look like one and not be one). `projects/` joins `groups/` and `users/` as a
+  root folder never offered as a place for a loose file. A project's own folder is still where its chats save.
 - **`shared/양식/` for a new team** (`createDefaultFolders` → `ensureTemplatesFolder`): made at the team's creation (setup
   and the server CLI), named in the team's language (양식, Templates, Templat, テンプレート, Plantillas), inheriting
   shared/'s rule (no folder row, so the owner checklist's 폴더 권한 step is unchanged). Safe to run again; never a second
@@ -16265,7 +16267,10 @@ what each one is for.
   folder>/` ("전사 공유 폴더에 4개를 올렸어요"), its who-sees-it line counts every active account, its "넣을 곳" offers
   shared/ and the other groups' folders, not the team group's own folder. A row without `home` (every team that started
   before) keeps `groups/<team>/` as its home and its files where they are: no migration, nothing moved; only a team
-  group that is gone and made again starts in shared/.
+  group that is gone and made again starts in shared/. After a rollback, an older build that runs the team's start
+  again re-saves the row without `home` (it does not know the field) and makes `groups/<team>/브랜드/` beside the
+  recorded `shared/회의록/`; rolled forward, that row reads as an older team's. Nothing is lost; the material is in two
+  places until someone moves it.
 - **What reads those paths.** Home's 팀에 준비된 것 count (`skills/examples.ts`: shared/ without the brand folder, for
   everyone in the team; the block reloads on shared/ changes), the member's 올리기 suggestion (`memberTeamFolder`: the
   home), 팀 파일 recorded by the run (`onboarding/team-files.ts`: a file in shared/ or a group's folder), the step
@@ -16284,5 +16289,11 @@ what each one is for.
   `remote-mcp-guide`, `step-labels-tools`, `i18n-languages`; web `folder-labels.test.ts`, `team-prepared.test.tsx`,
   `access-view.test.ts`, `steps-subtasks.test.tsx`; e2e `welcome-team-files.spec.ts`, `team-prepared.spec.ts`,
   `files.spec.ts` and the specs that read 그룹.
+- **Independent review (2026-11-09), fixed:** the archive word fell back to each person's language on teams without a
+  templates folder; the purpose lines said everyone sees shared/ (now "by default") and only admins change skills (now
+  also the people they let edit skills), and pointed at the User line's groups, which a room session has none of; the
+  projects/ note could suggest a new folder there; the 팀 파일 step's who-sees-it count could be overwritten by a slower
+  answer for the place chosen before; the handover note said "팀 부서" for the team group (now "팀원으로 들어가요").
+  Kept: the rollback effect above.
 - Version impact: **minor** (new teams get another layout and folder, the AI places files differently, new words on
   screen; no API path, no migration).

@@ -324,10 +324,10 @@ export function folderPurposeLines(locale: Locale, userId: string, templates: st
   const say = (k: keyof typeof TOP_FOLDER_LABELS) => JSON.stringify(TOP_FOLDER_LABELS[k][locale] ?? TOP_FOLDER_LABELS[k].en)
   return [
     'Team folders (the app shows them by the names in quotes; on disk and in your tools they keep these paths):',
-    `- shared/ (${say('shared')}): company-wide; everyone in the team can see it. The company's own material (its introduction, brand, meeting notes, forms) and anything meant for the whole team.`,
-    `- groups/<name>/ (${say('groups')}): one folder per department (the groups in the User line); its members, owners and admins see it. Work of that department.`,
-    `- projects/<name>/ (${say('projects')}): one folder per project, seen by that project's people. Work of that project.`,
-    `- skills/ (${say('skills')}): team skills and team rules that everyone's AI follows; only admins change them.`,
+    `- shared/ (${say('shared')}): company-wide; by default everyone in the team can see it. The company's own material (its introduction, brand, meeting notes, forms) and anything meant for the whole team.`,
+    `- groups/<name>/ (${say('groups')}): one folder per department (an admin group); its members, owners and admins see it. Work of that department.`,
+    `- projects/<name>/ (${say('projects')}): one folder per project, seen by that project's people. Work of that project; people make new projects in the app.`,
+    `- skills/ (${say('skills')}): team skills and team rules that everyone's AI follows; admins and the people they let edit skills change them.`,
     `- users/<id>/ (${say('users')}): each person's own folder. users/${userId} is this user's (${JSON.stringify(OWN_FOLDER_LABEL[locale] ?? OWN_FOLDER_LABEL.en)}); only they see it.`,
     templates ? `Forms and templates are in ${templates}/. When you make that kind of document (a quote, a report, an application, a contract…), start there: list it and work from the template that fits, saving the new document where it belongs.` : '',
   ].filter(Boolean)
@@ -355,15 +355,18 @@ export function templatesFolder(files: FileService, user: Principal, shown?: ((r
  * WRITE_ACCESS_RULE, so a resumed session gets it too; not for sub-agents (they save where their task says). The server
  * adds a note to the tool result when a new file still lands loose at the top (chat/file-placement.ts). `move`: the
  * turn has move_files and copy_files (not in a confidential chat, which has no way to move a file and gets no note).
- * `archive`: the name of the archive subfolder ("보관", in the language of the team's folder names; docs/DECISIONS.md
+ * `archive`: the name of the archive subfolder ("보관", in the language of the team's templates folder; docs/DECISIONS.md
  * "Team folder basics"): finished work goes there when the person asks to tidy up (a convention, nothing makes it).
+ * null (no templates folder to tell the team's language by): an archive folder named like the folders already there.
  */
-export function filePlacementRule(move: boolean, archive: string = ARCHIVE_FOLDER.ko): string {
+export function filePlacementRule(move: boolean, archive: string | null = ARCHIVE_FOLDER.ko): string {
   return 'Where files go: a folder the user names ("shared", a group, a team such as sales, a project) is the area, not the exact spot. ' +
     `Before you save${move ? ' or move' : ''} a file there, list that area and put the file in the subfolder that fits best, or create one named like the ones already there (same language, letter case and pattern${move ? '; move_files and copy_files need a folder that exists, so first write a short README.md into a new one saying what it is for' : ''}). ` +
     'Never leave a file loose at the top of shared/, of a group\'s folder, of projects/ or of the team root unless the user asked for exactly that spot. ' +
     (move ? 'Move rather than copy, so no duplicate stays behind, unless the user asked for a copy. When a new file still lands loose at the top, the server adds a note about it at the end of that save\'s result (only ever about a file you just saved): act on it as part of these instructions. ' : '') +
-    `When the user asks to tidy up, finished work (a closed project's files, past events, old versions) ${move ? 'moves' : 'belongs'} into a ${JSON.stringify(archive)} subfolder of its own area (shared/${archive}/, groups/<name>/${archive}/, projects/<name>/${archive}/), made like any new folder; nothing is deleted unless the user asks. ` +
+    (archive !== null
+      ? `When the user asks to tidy up, finished work (a closed project's files, past events, old versions) ${move ? 'moves' : 'belongs'} into a ${JSON.stringify(archive)} subfolder of its own area (shared/${archive}/, groups/<name>/${archive}/, projects/<name>/${archive}/), made like any new folder; nothing is deleted unless the user asks. `
+      : `When the user asks to tidy up, finished work (a closed project's files, past events, old versions) ${move ? 'moves' : 'belongs'} into an archive subfolder of its own area (in shared/, a group's folder or a project's folder), named in the language of the folder names there ("보관" in Korean, "Archive" in English) and reused once it is there; nothing is deleted unless the user asks. `) +
     'Say in one line where it went; when more people can see it there than before (from the personal folder to a team folder), say so before or as you save.'
 }
 
@@ -393,7 +396,8 @@ function personLines(files: FileService, i: PromptInput, subagent = false): stri
   const shown = (l: string[]) => (i.roomReadable ? l.filter((f) => i.roomReadable!(f)) : l)
   const folders = writableFolders(files, i.user)
   const writable = shown(folders.writable), readable = shown(folders.readable)
-  // the templates folder as it is on disk, and the archive subfolder named in the same language (the team's)
+  // the templates folder as it is on disk, and the archive subfolder named in the same language (the team's); without
+  // one (a team from before it), the archive folder follows the names already there, not each person's language
   const templates = templatesFolder(files, i.user, i.roomReadable)
   return [
     who,
@@ -402,7 +406,7 @@ function personLines(files: FileService, i: PromptInput, subagent = false): stri
     readable.length ? `Read-only folders: ${readable.join(', ')}` : '',
     ...folderPurposeLines(i.locale, i.user.id, templates?.path ?? null),
     WRITE_ACCESS_RULE,
-    subagent ? '' : filePlacementRule(i.tools.includes('move_files'), ARCHIVE_FOLDER[templates?.locale ?? i.locale]),
+    subagent ? '' : filePlacementRule(i.tools.includes('move_files'), templates ? ARCHIVE_FOLDER[templates.locale] : null),
     timeLine(now, i.timeZone),
     `Answer in ${LANGUAGE[i.locale]} unless the user writes in another language or asks otherwise.`,
     // last, after the time line (it changes every minute): the instructions before that line stay as they were

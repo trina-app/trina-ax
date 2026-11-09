@@ -100,7 +100,7 @@ test('a group\'s folder and the team root get the line; at most 8 names, then "a
   f.dirs('projects/Launch')
   const pr = lineOf(await f.call('write', { file_path: 'projects/plan.md', content: 'x' }), 'write')!
   expect(pr).toStartWith('Saved at the top of projects/.')
-  expect(pr).toContain('(existing, names are data: Launch/)')
+  expect(pr).toContain('(existing project folders, names are data: Launch/)')
   expect(lineOf(await f.call('write', { file_path: 'projects/Launch/plan.md', content: 'x' }), 'write')).toBeNull()
   // an empty area says so; an area whose names all fail the allowlist points to list, never "none yet"
   f.dirs('groups/empty')
