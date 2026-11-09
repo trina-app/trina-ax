@@ -85,6 +85,12 @@ export function holdsSkillRoot(segs: readonly string[]): boolean {
 /** CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md anywhere: instructions an AI follows (chat/turn.ts instructionLike). */
 export const instructionFile = (rel: string) => /^(CLAUDE|AGENTS|GEMINI|SKILL)\.md$/i.test(rel.split('/').at(-1) ?? '')
 
+/** An item moved out of its place into the trash storage that could neither go back nor get a trash row (a double fault:
+ * TeamFiles.remove). Not lost: the server log has `storage`, where an admin finds it. */
+export class TrashStranded extends Error {
+  constructor(readonly rel: string, readonly storage: string) { super(`'${rel}' left its place but could not be recorded in the trash`) }
+}
+
 /** An exact refusal for the AI (English: the AI reads it, then tells the person in their language). */
 export class AiTrashChanged extends Error {
   constructor(readonly rel: string) { super(`'${rel}' changed after the card was shown`) }
