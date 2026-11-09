@@ -98,7 +98,8 @@ describe('where the room tools are', () => {
       expect(ROOM_TOOLS.has(t)).toBe(t === 'room_file')
       expect(PARENT_ONLY_TOOLS.has(t)).toBe(true)
     }
-    expect(own.done.content.split(',')).not.toContain('save_room_file')
+    // and a copy of a room file into the team folder (b-chat-rooms-save.test.ts), as a room's session has for its own
+    expect(own.done.content.split(',')).toContain('save_room_file')
     // a confidential chat (safe operations' 1A material) keeps to its local tools
     const secret = await newChat('alice')
     h.ctx.db.query('INSERT INTO safe_ops_chats (chat_id, material) VALUES (?, 1)').run(secret)
