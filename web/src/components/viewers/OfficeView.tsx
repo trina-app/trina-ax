@@ -163,9 +163,13 @@ export function SheetView({ blob, startSheet, range }: { blob: Blob; startSheet?
           {t('preview.sheetRowsCut', { rows: SHEET_PREVIEW_ROWS.toLocaleString(locale) })}
         </p>
       )}
+      {/* its own scroll box, in the Tab order (named by the sheet) so a keyboard can scroll a long or wide sheet */}
       <div
         ref={tableRef}
-        className="min-h-0 flex-1 overflow-auto bg-surface p-3 text-xs [&_table]:border-collapse [&_td]:border [&_td]:border-line [&_td]:px-2 [&_td]:py-1 [&_td]:whitespace-nowrap [&_tr:first-child_td]:bg-subtle [&_tr:first-child_td]:font-semibold [&_td[data-t=n]]:text-right [&_td[data-t=n]]:tabular-nums [&_td[data-source-cell]]:bg-accent-soft"
+        tabIndex={0}
+        role="region"
+        aria-label={current?.name}
+        className="min-h-0 flex-1 overflow-auto bg-surface p-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset [&_table]:border-collapse [&_td]:border [&_td]:border-line [&_td]:px-2 [&_td]:py-1 [&_td]:whitespace-nowrap [&_tr:first-child_td]:bg-subtle [&_tr:first-child_td]:font-semibold [&_td[data-t=n]]:text-right [&_td[data-t=n]]:tabular-nums [&_td[data-source-cell]]:bg-accent-soft"
         data-sheet={current?.name}
         dangerouslySetInnerHTML={{ __html: current?.html ?? '' }}
       />

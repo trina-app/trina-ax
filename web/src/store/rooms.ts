@@ -366,6 +366,14 @@ function findMessage(s: RoomsData, roomId: string, id: string): RoomMessage | un
   return undefined
 }
 
+/** A room file whose message this window has and which was deleted since (or the file is no longer on it): the file
+ * viewer's "no longer available". A message this window no longer holds (an older page the timeline left when it went
+ * back to the newest) is not known to be gone. */
+export function roomFileGone(s: RoomsData, roomId: string, messageId: string, fileId: string): boolean {
+  const m = findMessage(s, roomId, messageId)
+  return !!m && (!!m.deletedAt || !m.files.some((f) => f.id === fileId))
+}
+
 export const useRooms = create<RoomsState>((set, get) => {
   const setPending = (roomId: string, f: (list: PendingSend[]) => PendingSend[]) =>
     set((s) => {

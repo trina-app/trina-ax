@@ -1,9 +1,11 @@
 // The image viewer's list and state (web/src/lib/imageViewer.ts): a pane's pictures in page order, only those on the
-// page; each kind of picture with the app's own addresses (no new ones); Back closes the viewer through one history
-// entry, and closing it otherwise goes back off that entry.
+// page; each kind of picture with the app's own addresses (no new ones); a room's file chips in the same list as its
+// pictures (a document read through the room, or its card at once), stepped through together in message order, a file
+// whose message went keeping its place; a swipe on a document; Back closes the viewer through one history entry, and
+// closing it otherwise goes back off that entry.
 import { afterEach, describe, expect, test } from 'bun:test'
-import { uuidv7, type Attachment, type RoomFile } from '@mycel/shared/api'
-import { attachmentItem, closeImageViewer, getImageViewer, localItem, notePage, openImageViewer, orderEntries, roomItem, showEntry, skipLeftEntry, teamImageItem, ViewerGroup, type ViewerEntry } from '../../src/lib/imageViewer'
+import { uuidv7, type Attachment, type Me, type RoomFile } from '@mycel/shared/api'
+import { attachmentItem, closeImageViewer, documentSwipe, getImageViewer, localItem, notePage, openImageViewer, orderEntries, roomFileItem, roomItem, showEntry, skipLeftEntry, stepTargets, teamImageItem, ViewerGroup, type ViewerEntry } from '../../src/lib/imageViewer'
 import { FakeEvent, installDom, removeDom } from './dom-host'
 
 /** an element at a place on the page (document order is `pos`) */
@@ -73,6 +75,87 @@ describe('the pictures and their addresses', () => {
     expect(local.blob).toBeDefined()
     expect(local.download).toBeUndefined()
     expect(local.href).toBeUndefined()
+  })
+})
+
+describe('a room\'s files beside its pictures', () => {
+  const roomId = uuidv7()
+  const on = { server: { version: '0', dev: false, hwpPreview: true } } as unknown as Me
+  const off = { server: { version: '0', dev: false } } as unknown as Me
+  const MB = 1024 * 1024
+  const f = (name: string, o: Partial<RoomFile> = {}): RoomFile => ({ id: uuidv7(), name, size: 300_000, mime: 'application/octet-stream', kind: 'other', thumb: false, ...o })
+
+  test('a document: read through the room as the side panel reads it, the room\'s download, who and where', () => {
+    const pdf = f('acme-q4.pdf', { mime: 'application/pdf', kind: 'pdf' })
+    const it = roomFileItem(roomId, pdf, off, { sender: { kind: 'ai' }, at: '2026-11-09T05:10:00.000Z', where: '#acme에서' })
+    expect(it).toMatchObject({ kind: 'file', key: `room:${roomId}:${pdf.id}`, name: 'acme-q4.pdf', original: null, size: 300_000, room: { roomId, fileId: pdf.id }, sender: { kind: 'ai' }, where: '#acme에서' })
+    expect(it.file).toEqual({ source: 'room', roomId, fileId: pdf.id, name: 'acme-q4.pdf' })
+    expect(it.card).toBeUndefined()
+    // nothing to open in a new tab, no thumbnail: the stage is FileBody's
+    expect(it.href).toBeUndefined()
+    expect(it.thumb).toBeUndefined()
+    expect(it.download).toBeFunction()
+  })
+  test('a picture without a thumbnail that the browser draws is a picture all the same; one it cannot draw is a file', () => {
+    const png = f('acme-chart.png', { kind: 'image', mime: 'image/png', width: 800, height: 600 })
+    const it = roomFileItem(roomId, png, off)
+    expect(it.kind).toBeUndefined()
+    expect(it.original).toBe(`/api/rooms/${roomId}/files/${png.id}`)
+    expect(it.thumb).toBeNull()
+    expect(it.room).toEqual({ roomId, fileId: png.id })
+    // a HEIC photo (the server converts team files only) and a picture past the 20 MB preview limit: their cards
+    expect(roomFileItem(roomId, f('acme.heic', { kind: 'image' }), off)).toMatchObject({ kind: 'file', card: 'unsupported' })
+    expect(roomFileItem(roomId, { ...png, size: 30 * MB }, off)).toMatchObject({ kind: 'file', card: 'large' })
+  })
+  test('the card at once, nothing read: no viewer for it, a Hangul file while the HWP preview is off, past its limit', () => {
+    expect(roomFileItem(roomId, f('acme-assets.zip'), on).card).toBe('unsupported')
+    expect(roomFileItem(roomId, f('acme-form.hwp'), off).card).toBe('unsupported')
+    expect(roomFileItem(roomId, f('acme-form.hwp'), null).card).toBe('unsupported')
+    expect(roomFileItem(roomId, f('acme-form.hwp'), on).card).toBeUndefined()
+    expect(roomFileItem(roomId, f('acme-scan.hwpx', { size: 20 * MB + 1 }), on).card).toBe('large')
+    expect(roomFileItem(roomId, f('acme-report.pdf', { size: 60 * MB }), on).card).toBe('large')
+    // text shows its beginning, so any size has a preview
+    expect(roomFileItem(roomId, f('acme.log', { size: 60 * MB }), on).card).toBeUndefined()
+    for (const name of ['a.docx', 'a.pptx', 'a.xlsx', 'a.csv', 'a.md', 'a.txt', 'a.html', 'a.svg', 'a.mp4', 'a.mp3']) expect(roomFileItem(roomId, f(name), off)).toMatchObject({ kind: 'file' })
+    expect(roomFileItem(roomId, f('a.docx'), off).card).toBeUndefined()
+  })
+
+  // a message with a photo and a PDF, then one with a ZIP and a photo: drawn in message order, registered in any order
+  const shot = { item: { key: 'shot', name: 'shot.png', original: 'x' }, el: el(1) }
+  const pdf = { item: { key: 'pdf', name: 'q4.pdf', original: null, kind: 'file' as const }, el: el(2) }
+  const zip = { item: { key: 'zip', name: 'assets.zip', original: null, kind: 'file' as const, card: 'unsupported' as const }, el: el(3) }
+  const logo = { item: { key: 'logo', name: 'logo.png', original: 'y' }, el: el(4) }
+  test('pictures and files are one list in message order; ← → walk it, nothing before the first or after the last', () => {
+    const list = orderEntries([zip, logo, pdf, shot])
+    expect(list.map((e) => e.item.key)).toEqual(['shot', 'pdf', 'zip', 'logo'])
+    const at = (e: ViewerEntry) => { const r = stepTargets(list, e); return [r.index, r.prev?.item.key ?? null, r.next?.item.key ?? null] }
+    expect(at(shot)).toEqual([0, null, 'pdf'])
+    expect(at(pdf)).toEqual([1, 'shot', 'zip'])
+    expect(at(zip)).toEqual([2, 'pdf', 'logo'])
+    expect(at(logo)).toEqual([3, 'zip', null])
+  })
+  test('a file whose message was deleted while open keeps its place: ← → reach the nearest ones still there', () => {
+    const before = orderEntries([shot, pdf, zip, logo])
+    // the ZIP was open; its message (with the PDF) went, so both are off the page
+    const now = orderEntries([shot, { ...pdf, el: el(2, false) }, { ...zip, el: el(3, false) }, logo])
+    expect(now.map((e) => e.item.key)).toEqual(['shot', 'logo'])
+    expect(stepTargets(now, zip, before)).toMatchObject({ index: -1, prev: shot, next: logo })
+    // a neighbour drawn anew (its message re-rendered) is found by its key
+    const logoAgain = { ...logo, el: el(4) }
+    expect(stepTargets([shot, logoAgain], zip, before)).toMatchObject({ prev: shot, next: logoAgain })
+    // the last one went: nothing after it; the only one went: nothing either way
+    expect(stepTargets([shot, pdf, zip], logo, before)).toMatchObject({ index: -1, prev: zip, next: null })
+    expect(stepTargets([], pdf, [pdf])).toMatchObject({ index: -1, prev: null, next: null })
+    // never on the list (nothing seen yet): no steps
+    expect(stepTargets([shot, logo], zip)).toMatchObject({ index: -1, prev: null, next: null })
+  })
+  test('a swipe on a document steps only when it is clearly sideways and quick; anything else is its own scroll', () => {
+    expect(documentSwipe(-120, 10, 250)).toBe('next')
+    expect(documentSwipe(120, -20, 250)).toBe('prev')
+    // too short, too slow, or mostly up or down
+    expect(documentSwipe(-40, 0, 200)).toBeNull()
+    expect(documentSwipe(-200, 0, 900)).toBeNull()
+    expect(documentSwipe(-100, 80, 200)).toBeNull()
   })
 })
 

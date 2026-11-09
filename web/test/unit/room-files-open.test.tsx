@@ -1,9 +1,10 @@
-// Room files open on click (components/rooms/RoomMessages.tsx FileChip, lib/sidePanel.ts roomPreview): a file the panel
-// can show opens there from its chip, with a small download icon of its own; one it cannot show (no viewer, a server
-// conversion, past its size limit) stays one download button. A shared answer's link to a team file
-// (lib/markdown.ts teamLinkTarget, components/Markdown.tsx): the team file when the viewer may open it now, else the copy
-// that went with the message (RoomMessage.attachedLinks), else the lock; an older message without copies keeps the lock.
-// A Hangul file opens only while the server's HWP preview is on (Me.server.hwpPreview) and within its 20 MB.
+// Room files open on click (components/rooms/RoomMessages.tsx FileChip, lib/imageViewer.ts roomFileItem): a chip's name
+// opens the file viewer (the image viewer's document mode), and the chip has a small download icon of its own; a file
+// with a preview is read through the room there, one without (no viewer, a server conversion, past its size limit)
+// shows its card at once. A shared answer's link to a team file (lib/markdown.ts teamLinkTarget,
+// components/Markdown.tsx): the team file when the viewer may open it now, else the copy that went with the message
+// (RoomMessage.attachedLinks, in the side panel), else the lock; an older message without copies keeps the lock.
+// A Hangul file has a preview only while the server's HWP preview is on (Me.server.hwpPreview) and within its 20 MB.
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
@@ -12,16 +13,18 @@ import { attachedCopies, RoomMessages } from '../../src/components/rooms/RoomMes
 import { translate, useLocaleStore } from '../../src/i18n'
 import { teamLinkTarget } from '../../src/lib/markdown'
 import type { Me } from '@mycel/shared/api'
-import { opensWithoutServer, roomFileOpens, roomHwpPreview } from '../../src/lib/preview'
+import { opensWithoutServer, roomFileOpens, roomHwpPreview, roomNoPreview } from '../../src/lib/preview'
 import { useSession } from '../../src/store/session'
 import { closeSidePanel, getSidePanel } from '../../src/lib/sidePanel'
+import { closeImageViewer, getImageViewer } from '../../src/lib/imageViewer'
+import { roomFileGone, type RoomsData } from '../../src/store/rooms'
 import { installDom, mount, removeDom } from './dom-host'
 import { BEN, CY, ME, message, room } from './rooms-fixtures'
 
 const en = (k: Parameters<typeof translate>[1], p?: Record<string, string | number>) => translate('en', k, p)
 const locale = useLocaleStore.getState().locale
 beforeAll(() => { installDom(); useLocaleStore.setState({ locale: 'en' }) })
-afterEach(() => closeSidePanel())
+afterEach(() => { closeSidePanel(); closeImageViewer(false) })
 afterAll(() => { removeDom(); useLocaleStore.setState({ locale }) })
 
 const team = room({ name: 'Marketing' })
@@ -90,30 +93,39 @@ test('in the room: no access but a copy is a link to the copy (no lock); the oth
   }
 })
 
-test('a chip opens the file in the panel and has its own download icon; a file the panel cannot show stays a download', async () => {
+test('a chip\'s name opens the file viewer, its icon downloads; a file with no preview here opens its card', async () => {
   const pdf = file('acme-q4.pdf', { mime: 'application/pdf' })
   const zip = file('acme-assets.zip')
   const hwp = file('acme-form.hwp')
   const huge = file('acme-scan.png', { kind: 'image', mime: 'image/png', size: 30 * 1024 * 1024 })
   const m = message({ roomId: team.id, seq: 1, author: BEN, body: '', files: [pdf, zip, hwp, huge] })
   expect([pdf, zip, hwp, huge].map(opensWithoutServer)).toEqual([true, false, false, false])
+  expect([pdf, zip, hwp, huge].map((f) => roomNoPreview(f, null))).toEqual([null, 'unsupported', 'unsupported', 'large'])
   // (text is shown cut, so any size opens)
   expect(opensWithoutServer({ name: 'log.txt', size: 40 * 1024 * 1024 })).toBe(true)
   const page = await mount(list([m]))
   try {
     const chips = page.container.querySelectorAll('[data-testid="room-file"]')
+    // `data-opens`: a preview; every chip has its name to open and its own download icon
     expect(chips.map((c) => c.hasAttribute('data-opens'))).toEqual([true, false, false, false])
+    expect(chips.map((c) => !!c.querySelector('[data-testid="room-file-open"]') && !!c.querySelector('[data-testid="room-file-download"]'))).toEqual([true, true, true, true])
     // the PDF: its name and size open it (named by those words, then "Preview"); the icon downloads, named with the file
     const open = page.get('room-file-open')
     expect(open.textContent).toContain('acme-q4.pdf')
     expect(open.textContent).toContain(en('common.preview'))
     expect(page.get('room-file-download').getAttribute('aria-label')).toBe(en('rooms.downloadFile', { name: 'acme-q4.pdf' }))
     await page.click(open)
-    expect(getSidePanel()).toMatchObject({ kind: 'file', file: { source: 'room', roomId: team.id, fileId: pdf.id, name: 'acme-q4.pdf' } })
-    // the others: one button that downloads, as before (no panel)
-    closeSidePanel()
-    expect(chips[1]!.tagName.toLowerCase()).toBe('button')
-    expect(chips[1]!.textContent).toContain(en('common.download'))
+    // the viewer, not the side panel: the document read through the room, with who sent it, where and its message
+    expect(getSidePanel()).toBeNull()
+    expect(getImageViewer()?.entry.item).toMatchObject({ kind: 'file', name: 'acme-q4.pdf', file: { source: 'room', roomId: team.id, fileId: pdf.id }, sender: { kind: 'user', user: { id: BEN.id } }, room: { roomId: team.id, fileId: pdf.id, messageId: m.id } })
+    // (no room in the store here: no place line)
+    expect(getImageViewer()?.entry.item).not.toHaveProperty('messageId')
+    expect(getImageViewer()?.entry.item.card).toBeUndefined()
+    // the ZIP: its card at once (nothing to read), with the download
+    await page.click(chips[1]!.querySelector('[data-testid="room-file-open"]')!)
+    expect(getImageViewer()?.entry.item).toMatchObject({ kind: 'file', name: 'acme-assets.zip', card: 'unsupported' })
+    expect(getImageViewer()?.entry.item.download).toBeFunction()
+    expect(getSidePanel()).toBeNull()
   } finally {
     await page.unmount()
   }
@@ -133,7 +145,7 @@ test("a room file's Markdown preview never loads the viewer's team pictures: eac
   expect(fromRoom).toContain('our logo</button>')
 })
 
-test('a Hangul file opens in the panel only while the HWP preview is on, within what it reads; otherwise it downloads', async () => {
+test('a Hangul file has a preview only while the HWP preview is on, within what it reads; otherwise its card', async () => {
   const on = { server: { version: '0', dev: false, hwpPreview: true } } as unknown as Me
   const off = { server: { version: '0', dev: false } } as unknown as Me
   const hwp = file('acme-form.hwp', { size: 300 * 1024 })
@@ -145,6 +157,7 @@ test('a Hangul file opens in the panel only while the HWP preview is on, within 
   expect([hwp, hwpx].map((f) => roomFileOpens(f, null))).toEqual([false, false])
   // the panel's own question (a copy from a shared answer opens there by its link): Hangul and the flag only
   expect([roomHwpPreview('acme-form.hwp', on), roomHwpPreview('acme-form.hwp', off), roomHwpPreview('acme.docx', on)]).toEqual([true, false, false])
+  expect([hwp, hwpx, big, zip].map((f) => roomNoPreview(f, on))).toEqual([null, null, 'large', 'unsupported'])
   const status = useSession.getState().status
   const m = message({ roomId: team.id, seq: 1, author: BEN, body: '', files: [hwp, big] })
   for (const [me, opens] of [[on, [true, false]], [off, [false, false]]] as const) {
@@ -153,14 +166,38 @@ test('a Hangul file opens in the panel only while the HWP preview is on, within 
     try {
       const chips = page.container.querySelectorAll('[data-testid="room-file"]')
       expect(chips.map((c) => c.hasAttribute('data-opens'))).toEqual([...opens])
-      if (opens[0]) {
-        await page.click(page.get('room-file-open'))
-        expect(getSidePanel()).toMatchObject({ kind: 'file', file: { source: 'room', roomId: team.id, fileId: hwp.id, name: 'acme-form.hwp' } })
-      } else expect(chips[0]!.textContent).toContain(en('common.download'))
+      // the name opens the viewer either way: the pages while the preview is on, else the card
+      await page.click(page.get('room-file-open'))
+      expect(getImageViewer()?.entry.item).toMatchObject({ kind: 'file', file: { source: 'room', roomId: team.id, fileId: hwp.id, name: 'acme-form.hwp' } })
+      expect(getImageViewer()?.entry.item.card).toBe(opens[0] ? undefined : 'unsupported')
+      expect(getSidePanel()).toBeNull()
     } finally {
       await page.unmount()
-      closeSidePanel()
+      closeImageViewer(false)
       useSession.setState({ status })
     }
   }
+})
+
+test('a room file is gone once its message, as this window has it, is deleted or no longer has it; one not held is not known to be gone', () => {
+  const pdf = file('acme-q4.pdf')
+  const m = message({ roomId: team.id, seq: 1, author: BEN, body: 'see', files: [pdf] })
+  const reply = message({ roomId: team.id, seq: 2, author: BEN, body: 'and', files: [file('acme.md')], threadRootId: m.id })
+  const data = (messages: RoomMessage[], replies: RoomMessage[] = []): RoomsData => ({
+    rooms: [team], openRoomId: team.id,
+    timeline: { roomId: team.id, messages, nextCursor: null } as RoomsData['timeline'],
+    threadView: { roomId: team.id, rootId: m.id, root: m, replies } as unknown as RoomsData['threadView'],
+  })
+  expect(roomFileGone(data([m]), team.id, m.id, pdf.id)).toBe(false)
+  // deleted: the server empties its files and marks it
+  const deleted = { ...m, body: '', files: [], deletedAt: '2026-11-09T05:00:00.000Z' }
+  expect(roomFileGone({ ...data([deleted]), threadView: null }, team.id, m.id, pdf.id)).toBe(true)
+  // the file taken off it
+  expect(roomFileGone({ ...data([{ ...m, files: [] }]), threadView: null }, team.id, m.id, pdf.id)).toBe(true)
+  // a reply only the open thread holds
+  expect(roomFileGone(data([m], [reply]), team.id, reply.id, reply.files[0]!.id)).toBe(false)
+  expect(roomFileGone(data([m], [{ ...reply, files: [], deletedAt: '2026-11-09T05:00:00.000Z' }]), team.id, reply.id, reply.files[0]!.id)).toBe(true)
+  // an older page the timeline left behind (it went back to the newest), another room: not known, so not gone
+  expect(roomFileGone({ ...data([]), threadView: null }, team.id, m.id, pdf.id)).toBe(false)
+  expect(roomFileGone(data([m]), uuidv7(), m.id, pdf.id)).toBe(false)
 })

@@ -4391,4 +4391,12 @@ export const en: Record<MessageKey, string> = {
   "viewer.copyTooBig": "The picture is too large to copy. Download it instead.",
   "viewer.copyNotLoaded": "The picture did not load.",
   "viewer.copyError": "Try again. If it still fails, download it instead.",
+  "viewer.fileLabel": "File: {name}",
+  "viewer.prevFile": "Previous file",
+  "viewer.nextFile": "Next file",
+  "viewer.openInPanel": "Open in side panel",
+  "viewer.inRoom": "in #{room}",
+  "viewer.inGroup": "in {room}",
+  "viewer.inDm": "in your direct messages with {name}",
+  "viewer.gone": "This file is no longer available: its message was deleted.",
 }
