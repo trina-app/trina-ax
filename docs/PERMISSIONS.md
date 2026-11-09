@@ -64,7 +64,7 @@ As the code works today (`server/src/skills/suggestions.ts`, `server/src/skills/
 | Proposal | Who sends it | Who reviews it |
 |---|---|---|
 | "스킬로 제안" into the team's `skills/` | anyone: a file of their own personal folder, or an AI answer in their own chat | the managers of the target skills folder (the proposer too, when they are one) |
-| A member's skill folders ("내 스킬 올리기", MC) | members only | the owner and admins only |
+| A member's skill folders ("내 스킬 가져오기", MC) | members only | the owner and admins only |
 | "내 스킬 가져오기" to the team (share proposal) | the owner and admins only | the proposer only, while still owner or admin |
 | A share proposal to a group | the owner or an admin who is in the group and may write its skills folder | the group's members who may write its skills folder (the proposer included); the owner and admins outside the group do not see it |
 | "스킬로 제안" into a group's skills (`groups/<g>/skills/`) | a member of that group | the group's members who may write that folder; the owner and admins outside the group do not see it |

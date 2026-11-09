@@ -28,6 +28,7 @@ import { teamAddressOf } from '../system/connection'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { devEnvFlag } from '../devenv/setting'
 import { htmlPdfUnavailable } from '../files/html-pdf'
+import { pluginsOf } from '../plugins/manager'
 import { cancelPushSession } from '../notifications/push-events'
 
 export const SESSION_TTL_MS = 30 * 24 * 3600_000
@@ -232,6 +233,11 @@ export class AuthService implements SessionService {
     c.header('Set-Cookie', sessionCookie(c.req.url, '', 0), { append: true })
   }
 
+  /** The HWP Preview plugin is on and usable here (plugins/manager.ts); a plugin store that cannot be read is off. */
+  private hwpPreviewOn(): boolean {
+    try { return pluginsOf(this.ctx).hwpPreviewOn() } catch { return false }
+  }
+
   me(userId: string, sessionId: string): Me {
     const u = getUser(this.db, userId)
     if (!u) return fail('unauthorized')
@@ -262,6 +268,7 @@ export class AuthService implements SessionService {
         ...(safeOpsEnabled() ? { allChatsConfidential: true as const } : {}),
         ...(devEnvFlag() ? { devEnv: true as const } : {}),
         ...(htmlPdfUnavailable() === null ? { htmlPdf: true as const } : {}),
+        ...(this.hwpPreviewOn() ? { hwpPreview: true as const } : {}),
         ...(windowsApp ? { windowsApp } : {}) },
       passwordReset: u.password_reset_at ? { by: userRef(this.db, u.password_reset_by), at: u.password_reset_at } : null,
     }

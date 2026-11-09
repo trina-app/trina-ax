@@ -14,6 +14,12 @@ export const HwpPage = z.object({
   warnings: z.array(HwpWarning),
 })
 export type HwpPage = z.infer<typeof HwpPage>
+/** What a preview request asks for (a team file's adds its path): a 1-based page, and the id of the page shown before
+ * (a cache hit only; never a capability) */
+export const HwpPreviewQuery = z.object({ page: z.coerce.number().int().min(1).max(200), cacheId: z.string().uuid().optional() })
+/** One rendered page: the server's PNG (base64) with its facts; the id names it in the server's cache */
+export const HwpPreviewPage = HwpPage.extend({ id: z.string().uuid(), png: z.string().max(45 * 1024 * 1024) })
+export type HwpPreviewPage = z.infer<typeof HwpPreviewPage>
 export const HWP_LIMITS = {
   inputBytes: 20 * 1024 ** 2, expandedBytes: 64 * 1024 ** 2, entries: 1000,
   pages: 200, cells: 10000, rows: 256, cols: 256, edge: 2048,

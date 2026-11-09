@@ -5,7 +5,9 @@
 // sent in a team chat room comes the same way from /api/rooms/:id/files/:fileId (its members only; a page or script
 // type as text with the sandbox CSP) and is drawn by the same viewers; it is not in a team folder, so a page pulls in
 // no team images (HTML and SVG resolve none, Markdown shows a team picture as a link to open), and it has only the
-// download.
+// download. A Hangul file (HWP, HWPX) is drawn from the server's page pictures (viewers/HwpView: the HWP Preview
+// plugin), a team file's by its path and, while the preview is on here (Me.server.hwpPreview), a room file's through
+// the room (/api/rooms/:id/files/:fileId/hwp-preview).
 // Text files the person may write can be fixed in place (tab 5 "텍스트 파일 고치기"): the editor keeps the sha256 it
 // loaded and saves with it as baseSha256 (PUT /api/files/content); when someone changed the file in between, the
 // server keeps their version and saves this one as a conflict copy, which the panel then opens.
@@ -23,7 +25,7 @@ import { useFrameScripts } from '../lib/confidential'
 import { formatSize } from '../lib/format'
 import { splitFrontMatter } from '../lib/markdown'
 import { parentPath } from '../lib/paths'
-import { decodePreviewText, languageOf, numberColumns, previewKind, previewLimit, PREVIEW_TEXT_MAX, serverPreview, type PreviewKind } from '../lib/preview'
+import { decodePreviewText, languageOf, numberColumns, previewKind, previewLimit, PREVIEW_TEXT_MAX, roomHwpPreview, serverPreview, type PreviewKind } from '../lib/preview'
 import { openTeamFile, setPanelExpanded, type PreviewFile } from '../lib/sidePanel'
 import type { SourceLoc } from '@mycel/shared/api'
 import { TEAM_FILE_DRAG_TYPE } from '../lib/teamAttach'
@@ -70,16 +72,16 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   const [downloadOnly, setDownloadOnly] = useState(false)
   const body = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(600)
-  // a HEIC photo needs the server's JPEG (and a Hangul file its pages), made from team files only, so a local one (not
-  // uploaded yet) and a room file have no preview
+  const me = useMe()
+  // a HEIC photo needs the server's JPEG (and a Hangul file its pages), made from team files, so a local one (not
+  // uploaded yet) and a room file have no preview; but a room's Hangul file gets its pages while the HWP preview is on
   const viaServer = serverPreview(file.name)
-  const kind = file.source !== 'team' && viaServer ? null : previewKind(file.name)
+  const kind = file.source !== 'team' && viaServer && !(file.source === 'room' && roomHwpPreview(file.name, me)) ? null : previewKind(file.name)
   const [rev, setRev] = useState(0)
   const [editing, setEditing] = useState<{ base: string; text: string; draft: string } | null>(null)
   const [saving, setSaving] = useState(false)
   const [loadingEdit, setLoadingEdit] = useState(false)
   const canEdit = file.source === 'team' && !!kind && EDITABLE.includes(kind)
-  const me = useMe()
   const [pdfBusy, setPdfBusy] = useState(false)
 
   useEffect(() => setEditing(null), [file])
@@ -349,7 +351,9 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
             {error.text}
           </p>
         ) : kind === 'hwp' && file.source === 'team' ? (
-          <Suspense fallback={<p className="p-6 text-sm text-faint">{t('common.loading')}</p>}><HwpView key={file.path} path={file.path} download={download} startPage={file.at?.kind === 'page' ? file.at.page : undefined} /></Suspense>
+          <Suspense fallback={<p className="p-6 text-sm text-faint">{t('common.loading')}</p>}><HwpView key={file.path} source={{ kind: 'team', path: file.path }} download={download} startPage={file.at?.kind === 'page' ? file.at.page : undefined} /></Suspense>
+        ) : kind === 'hwp' && file.source === 'room' ? (
+          <Suspense fallback={<p className="p-6 text-sm text-faint">{t('common.loading')}</p>}><HwpView key={file.fileId} source={{ kind: 'room', roomId: file.roomId, fileId: file.fileId }} download={download} /></Suspense>
         ) : !blob ? (
           <p className="flex items-center gap-2 p-6 text-sm text-faint">
             <Loader2 size={14} className="animate-spin" aria-hidden /> {t('common.loading')}

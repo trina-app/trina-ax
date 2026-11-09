@@ -11,6 +11,9 @@ import { assertStorageRoom } from '../system/storage'
 import { streamFile } from '../team-files/download'
 import { SAFE_OPS_TEXT } from '../safe-ops/strings'
 import { hashFile, writeTemp } from '../team-files/place'
+import { HwpError } from '../files/hwp-engine'
+import { componentC } from '../team-files/component'
+import { httpError } from '../team-files/errors'
 import { roomsOf } from '../rooms/service'
 import { roomFilesOf } from '../rooms/files'
 import { roomAiOf } from '../rooms/ai'
@@ -110,6 +113,21 @@ export const roomsRoutes: RouteModule = {
       const dest = c.req.raw.headers.get('sec-fetch-dest')
       if (f.quarantined && (query.thumb || !query.download || (dest && dest !== 'document' && dest !== 'empty'))) fail('unavailable', SAFE_OPS_TEXT.quarantined[c.get('locale')], { params: { reason: 'quarantined' } })
       return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.download ? 'attachment' : 'inline' })
+    })
+    // a Hangul file's pages from the HWP Preview plugin (files/hwp-preview.ts: the team file preview's renderer, limits,
+    // isolation and cache). The inline read's checks run on every request, before the cache and the render and again
+    // after it (rooms/files.ts hwpSource); the plugin off or not usable here answers as for a team file (disabled)
+    kit.handle(API.roomFileHwpPreview, async ({ c, auth, params, query }) => {
+      c.header('Cache-Control', 'private, no-store')
+      c.header('X-Content-Type-Options', 'nosniff')
+      const locale = c.get('locale')
+      try {
+        const r = await componentC(ctx).hwp.pageOf(auth.user.id, (admission) => files.hwpSource(auth.user.id, params.id, params.fileId, admission, locale), query.page, c.req.raw.signal, query.cacheId)
+        return { ...r.meta, id: r.id, png: r.bytes.toString('base64') }
+      } catch (e) {
+        if (e instanceof HwpError) throw httpError('unavailable', 'noPreview', locale, undefined, { reason: e.reason })
+        throw e
+      }
     })
   },
 }

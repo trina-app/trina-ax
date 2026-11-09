@@ -797,7 +797,16 @@ describe('/welcome', () => {
       expect(review.querySelectorAll('button').map((b: any) => b.textContent)).not.toContain('저장')
       expect(m.get('profile-step-save').textContent).toBe('저장하고 계속')
       expect(primaries(m)).toBe(1)
-      expect(review.querySelector('[data-testid="welcome-brand-line"]')!.textContent).toBe(translate('ko', 'welcome.brand.line'))
+      // no website: the line names only the company intro file, never the website's photos
+      const brandLine = () => review.querySelector('[data-testid="welcome-brand-line"]')!.textContent
+      expect(brandLine()).toBe(translate('ko', 'welcome.brand.lineNoSite'))
+      expect(brandLine()).toBe('저장하면 회사 소개 파일을 팀 브랜드 폴더에 넣어요')
+      // a website typed into the review: the photos too
+      const site = review.querySelectorAll('input').find((i: any) => i.getAttribute('placeholder') === translate('ko', 'onboarding.profile.sitePlaceholder'))!
+      await m.type(site, 'acme.example')
+      expect(brandLine()).toBe(translate('ko', 'welcome.brand.line'))
+      await m.type(site, '')
+      expect(brandLine()).toBe(translate('ko', 'welcome.brand.lineNoSite'))
       const html = m.html()
       expect(html.indexOf('data-testid="welcome-files-pick"')).toBeLessThan(html.indexOf('data-testid="profile-step-save"'))
       expect(html.indexOf('data-testid="profile-step-save"')).toBeLessThan(html.indexOf('data-testid="welcome-brand-line"'))

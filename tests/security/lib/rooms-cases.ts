@@ -164,4 +164,15 @@ export const ROOM_SPECS: Record<string, Spec> = {
     build: (c, w) => c.get(`/api/rooms/${w.ids.dmRoom}/files/${w.ids.dmFile}?download=1`), scope: 'room-dm',
     check: (r) => { if (r.status === 200 && !r.headers.get('content-disposition')?.includes(C.dmFileName)) throw new Error('the member did not get the room file') },
   },
+  // a Hangul file's pages (the HWP Preview plugin): the room file's checks first, so the DM's two people pass them and
+  // are told the picture is no Hangul file (503 unsupported, never the plugin's state); everyone else, the owner and
+  // the admin included, gets 404 as for the file itself
+  roomFileHwpPreview: {
+    build: (c, w) => c.get(`/api/rooms/${w.ids.dmRoom}/files/${w.ids.dmFile}/hwp-preview?page=1`), scope: 'room-dm',
+    check: (r, _w, who) => {
+      const status = who === 'anon' ? 401 : who === 'pwchange' ? 403 : who === 'memberIn' || who === 'other' ? 503 : 404
+      if (r.status !== status) throw new Error(`${who} roomFileHwpPreview status: ${r.status}`)
+      if (status === 503 && r.json?.error?.params?.reason !== 'unsupported') throw new Error(`${who}: expected unsupported, got ${r.text.slice(0, 200)}`)
+    },
+  },
 }
