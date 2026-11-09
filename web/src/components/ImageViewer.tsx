@@ -5,7 +5,8 @@
 // - Zoom: a click on the picture toggles fit and 100 % (2× for a small one) about the click; ⌘/Ctrl + wheel and a
 //   trackpad pinch zoom about the pointer; a drag pans when zoomed; + − 0; −, % and + in the bar. Phones: pinch,
 //   double tap, one finger pans when zoomed; when not zoomed a swipe down closes and a swipe sideways steps.
-// - ← → and the edge arrows step through the pictures of the pane it was opened from (lib/imageViewer.ts ImageGroup).
+// - ← → and the edge arrows step through the pictures of the pane it was opened from (ImageGroup below; its list is
+//   lib/imageViewer.ts ViewerGroup).
 // - The bar: the file's name, who sent it and when, "3 / 7", the zoom, download, the original in a new tab (a plain
 //   browser only: the desktop and phone apps would open the system browser, which is not signed in) and ✕. Always shown
 //   on a computer; a tap shows or hides it on a phone.
@@ -17,7 +18,7 @@ import { ChevronLeft, ChevronRight, Download, ExternalLink, Loader2, Minus, Plus
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation } from 'react-router-dom'
-import { closeImageViewer, openImageViewer, showEntry, useImageViewer, ViewerGroup, type ViewerEntry, type ViewerItem, type ViewerMetaValue, type ViewerOpen, type ViewerSender } from '../lib/imageViewer'
+import { closeImageViewer, notePage, openImageViewer, showEntry, skipLeftEntry, useImageViewer, ViewerGroup, type ViewerEntry, type ViewerItem, type ViewerMetaValue, type ViewerOpen, type ViewerSender } from '../lib/imageViewer'
 import { clampView, fitView, isZoomed, layoutSize, onPicture, pinchView, stepScale, swipeResult, toggleAt, wheelScale, zoomAt, type Point, type Size, type View } from '../lib/zoom'
 import { clientKind } from '../lib/desktop'
 import { formatDateTime } from '../lib/format'
@@ -80,7 +81,7 @@ export function useViewerItem(make: ((meta: ViewerMetaValue) => ViewerItem) | nu
 /** Mounted once (App.tsx): the viewer while one is open. A move to another page closes it. */
 export function ImageViewerHost() {
   const open = useImageViewer()
-  const { pathname } = useLocation()
+  const { pathname, key } = useLocation()
   const was = useRef(pathname)
   useEffect(() => {
     if (was.current === pathname) return
@@ -88,6 +89,12 @@ export function ImageViewerHost() {
     // a page change (a notice opened meanwhile) left the viewer's history entry already: no going back
     closeImageViewer(false)
   }, [pathname])
+  // Back past a viewer's entry left behind by such a page change (lib/imageViewer.ts skipLeftEntry)
+  useEffect(() => notePage(), [key])
+  useEffect(() => {
+    window.addEventListener('popstate', skipLeftEntry)
+    return () => window.removeEventListener('popstate', skipLeftEntry)
+  }, [])
   if (!open || typeof document === 'undefined') return null
   return createPortal(<Viewer open={open} />, document.body)
 }
@@ -95,6 +102,8 @@ export function ImageViewerHost() {
 // ---------------- the viewer ----------------
 
 interface Pic {
+  /** a new one for each showing: its <img>s are drawn anew, so a picture at the same address as the last loads again */
+  id: number
   entry: ViewerEntry
   thumb: Size | null
   orig: Size | null
@@ -104,7 +113,8 @@ interface Pic {
   /** the next change of view eases (a click, a key, a snap back); a drag, a wheel and a pinch follow the hand */
   ease: boolean
 }
-const freshPic = (entry: ViewerEntry): Pic => ({ entry, thumb: null, orig: null, state: 'loading', view: null, ease: false })
+let picSeq = 0
+const freshPic = (entry: ViewerEntry): Pic => ({ id: ++picSeq, entry, thumb: null, orig: null, state: 'loading', view: null, ease: false })
 
 /** An object URL for bytes we have, gone with them. */
 function useObjectUrl(blob: Blob | undefined): string | null {
@@ -119,7 +129,7 @@ function useObjectUrl(blob: Blob | undefined): string | null {
 }
 
 type Gesture =
-  | { kind: 'press'; touch: boolean; start: Point; t0: number; view: View; zoomed: boolean; last: Point; lastT: number; vx: number; vy: number }
+  | { kind: 'press'; touch: boolean; start: Point; view: View | null; zoomed: boolean; last: Point; lastT: number; vx: number; vy: number }
   | { kind: 'pan'; start: Point; view: View }
   | { kind: 'swipe'; start: Point; last: Point; lastT: number; vx: number; vy: number }
   | { kind: 'pinch'; view: View; d0: number; m0: Point }
@@ -223,21 +233,27 @@ function Viewer({ open }: { open: ViewerOpen }) {
   }
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    // a right-click is the browser's (or the desktop app's) own menu: copy, save
-    if (e.pointerType === 'mouse' && e.button !== 0) return
+    // a right-click (and a Mac's control-click) is the browser's or the desktop app's own menu: copy, save
+    if (e.pointerType === 'mouse' && (e.button !== 0 || e.ctrlKey)) return
     const L = live.current
-    if (!L.v || !L.natural) return
     e.currentTarget.setPointerCapture?.(e.pointerId)
     const at = pointOf(e)
     pointers.current.set(e.pointerId, at)
     if (pointers.current.size === 2) {
       const [a, b] = [...pointers.current.values()] as [Point, Point]
-      gesture.current = { kind: 'pinch', view: L.v, d0: dist(a, b), m0: mid(a, b) }
+      gesture.current = L.v ? { kind: 'pinch', view: L.v, d0: dist(a, b), m0: mid(a, b) } : { kind: 'idle' }
       setSwipe(null)
       return
     }
     if (pointers.current.size > 2) return
-    gesture.current = { kind: 'press', touch: e.pointerType === 'touch', start: at, t0: e.timeStamp, view: L.v, zoomed: L.zoomed, last: at, lastT: e.timeStamp, vx: 0, vy: 0 }
+    // nothing drawn yet (or nothing to draw): a click still closes and a swipe still steps or closes
+    gesture.current = { kind: 'press', touch: e.pointerType === 'touch', start: at, view: L.v, zoomed: L.zoomed, last: at, lastT: e.timeStamp, vx: 0, vy: 0 }
+  }
+  /** a menu opened (a long press, a right-click that came as a press): whatever the hand was doing ends */
+  const onContextMenu = () => {
+    pointers.current.clear()
+    gesture.current = { kind: 'idle' }
+    setSwipe(null)
   }
 
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -250,8 +266,7 @@ function Viewer({ open }: { open: ViewerOpen }) {
     }
     pointers.current.set(e.pointerId, at)
     const g = gesture.current
-    if (!L.natural) return
-    if (g.kind === 'pinch' && pointers.current.size >= 2) {
+    if (g.kind === 'pinch' && pointers.current.size >= 2 && L.natural) {
       const [a, b] = [...pointers.current.values()] as [Point, Point]
       L.setView(() => pinchView(g.view, g.d0, dist(a, b), g.m0, mid(a, b), L.natural!, L.stage), false)
       return
@@ -263,12 +278,12 @@ function Viewer({ open }: { open: ViewerOpen }) {
       g.last = at
       g.lastT = e.timeStamp
       if (dist(at, g.start) < (g.touch ? 10 : 4)) return
-      if (g.zoomed) gesture.current = { kind: 'pan', start: g.start, view: g.view }
+      if (g.zoomed && g.view) gesture.current = { kind: 'pan', start: g.start, view: g.view }
       else if (g.touch) gesture.current = { kind: 'swipe', start: g.start, last: at, lastT: e.timeStamp, vx: g.vx, vy: g.vy }
       else gesture.current = { kind: 'idle' } // a mouse drag on a fitted picture does nothing
     }
     const h = gesture.current
-    if (h.kind === 'pan') {
+    if (h.kind === 'pan' && L.natural) {
       if (stageRef.current) stageRef.current.style.cursor = 'grabbing'
       L.setView(() => clampView({ scale: h.view.scale, x: h.view.x + at.x - h.start.x, y: h.view.y + at.y - h.start.y }, L.natural!, L.stage), false)
     } else if (h.kind === 'swipe') {
@@ -319,7 +334,7 @@ function Viewer({ open }: { open: ViewerOpen }) {
     if (cancelled) return setSwipe(null)
     if (g.kind === 'press') {
       if (g.touch) return onTap(at)
-      // a click: on the picture it zooms in or back out; on the backdrop it closes
+      // a click: on the picture it zooms in or back out; on the backdrop (or with nothing drawn) it closes
       if (L.v && L.natural && onPicture(L.v, L.natural, at)) L.setView((from, n) => toggleAt(from, at, n, L.stage), true)
       else L.close()
       return
@@ -380,6 +395,18 @@ function Viewer({ open }: { open: ViewerOpen }) {
   }, [])
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    // the page's own shortcuts (⌘K search, ⌘⇧O new chat) wait until it is closed; Esc goes on to the focus trap
+    if (e.key !== 'Escape') e.stopPropagation()
+    // Tab from the picture's area (where the focus starts, outside the Tab order) goes to the bar's first or last button
+    if (e.key === 'Tab' && e.target === stageRef.current) {
+      const items = [...root.current!.querySelectorAll<HTMLElement>('button:not([disabled]), a[href]')].filter((x) => x.offsetParent !== null)
+      const to = e.shiftKey ? items.at(-1) : items[0]
+      if (to) {
+        e.preventDefault()
+        to.focus()
+      }
+      return
+    }
     if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return
     const k = e.key
     if (k === 'ArrowLeft' || k === 'ArrowRight') go(k === 'ArrowLeft' ? prev : next)
@@ -438,6 +465,7 @@ function Viewer({ open }: { open: ViewerOpen }) {
         onPointerMove={onPointerMove}
         onPointerUp={(e) => onPointerUp(e)}
         onPointerCancel={(e) => onPointerUp(e, true)}
+        onContextMenu={onContextMenu}
         data-testid="image-viewer-stage"
       >
         <div
@@ -447,7 +475,7 @@ function Viewer({ open }: { open: ViewerOpen }) {
         >
           {showThumb && (
             <img
-              key={`t:${thumb}`}
+              key={`t:${p.id}`}
               src={thumb!}
               alt=""
               aria-hidden
@@ -459,7 +487,7 @@ function Viewer({ open }: { open: ViewerOpen }) {
           )}
           {original && p.state !== 'failed' && (
             <img
-              key={`o:${original}`}
+              key={`o:${p.id}:${original}`}
               src={original}
               alt={item.name}
               draggable={false}
@@ -510,7 +538,7 @@ function Viewer({ open }: { open: ViewerOpen }) {
             <Download size={18} />
           </BarButton>
         )}
-        {item.href && browser && (
+        {item.href && browser && p.state !== 'failed' && (
           <Tooltip label={t('viewer.openOriginal')}>
             <a href={item.href} target="_blank" rel="noopener noreferrer" aria-label={t('viewer.openOriginal')} className={BAR_BUTTON} data-testid="image-viewer-open">
               <ExternalLink size={18} aria-hidden />

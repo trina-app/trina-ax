@@ -60,11 +60,12 @@ export function toggleAt(view: View, at: Point, natural: Size, stage: Size): Vie
   return zoomAt(view, clickScale(fitScale(natural, stage)), at, natural, stage)
 }
 
-/** One step in (+1) or out (−1), stopping at 100 % on the way across it and at the fitted size. */
+/** One step in (+1) or out (−1), stopping at 100 % on the way across it (or landing within 5 % of it) and at the fitted
+ * size. */
 export function stepScale(scale: number, dir: 1 | -1, fit: number): number {
   const next = dir > 0 ? scale * ZOOM_STEP : scale / ZOOM_STEP
-  if (dir > 0 && scale < 0.999 && next > 1) return 1
-  if (dir < 0 && scale > 1.001 && next < 1) return Math.max(1, fit)
+  if (dir > 0 && scale < 0.999 && next > 0.95) return 1
+  if (dir < 0 && scale > 1.001 && next < 1.05) return Math.max(1, fit)
   return Math.min(MAX_SCALE, Math.max(fit, next))
 }
 

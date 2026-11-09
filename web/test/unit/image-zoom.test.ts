@@ -86,6 +86,9 @@ describe('steps, wheel and pinch', () => {
     const fit = fitScale(shot, stage)
     expect(stepScale(fit, 1, fit)).toBeCloseTo(fit * 1.5)
     expect(stepScale(0.8, 1, fit)).toBe(1)
+    // no 1 % step at the end: 66 % goes straight to 100 %
+    expect(stepScale(0.66, 1, fit)).toBe(1)
+    expect(stepScale(1.5, -1, fit)).toBe(1)
     expect(stepScale(1.2, -1, fit)).toBe(1)
     expect(stepScale(fit * 1.2, -1, fit)).toBeCloseTo(fit)
     expect(stepScale(3.5, 1, fit)).toBe(MAX_SCALE)

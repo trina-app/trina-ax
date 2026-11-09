@@ -3,7 +3,7 @@
 // entry, and closing it otherwise goes back off that entry.
 import { afterEach, describe, expect, test } from 'bun:test'
 import { uuidv7, type Attachment, type RoomFile } from '@mycel/shared/api'
-import { attachmentItem, closeImageViewer, getImageViewer, localItem, openImageViewer, orderEntries, roomItem, teamImageItem, ViewerGroup, type ViewerEntry } from '../../src/lib/imageViewer'
+import { attachmentItem, closeImageViewer, getImageViewer, localItem, notePage, openImageViewer, orderEntries, roomItem, showEntry, skipLeftEntry, teamImageItem, ViewerGroup, type ViewerEntry } from '../../src/lib/imageViewer'
 import { FakeEvent, installDom, removeDom } from './dom-host'
 
 /** an element at a place on the page (document order is `pos`) */
@@ -81,10 +81,21 @@ describe('Back closes the viewer', () => {
   let stack: State[] = []
   let at = 0
   let backs = 0
+  let forwards = 0
+  /** a browser's back lands a moment later (a task); `late` holds it until the test lets it land */
+  let late: (() => void) | null = null
+  let holdBack = false
+  const pop = () => globalThis.dispatchEvent(new FakeEvent('popstate') as unknown as Event)
   const fakeHistory = () => ({
     get state() { return stack[at] ?? null },
     pushState(s: State) { stack = [...stack.slice(0, at + 1), s]; at = stack.length - 1 },
-    back() { backs++; at = Math.max(0, at - 1); globalThis.dispatchEvent(new FakeEvent('popstate') as unknown as Event) },
+    back() {
+      backs++
+      const land = () => { at = Math.max(0, at - 1); pop() }
+      if (holdBack) late = land
+      else land()
+    },
+    forward() { forwards++; if (at < stack.length - 1) { at++; pop() } },
   })
   afterEach(() => {
     closeImageViewer(false)
@@ -95,6 +106,9 @@ describe('Back closes the viewer', () => {
     stack = [{ idx: 3, key: 'k1', usr: null }]
     at = 0
     backs = 0
+    forwards = 0
+    late = null
+    holdBack = false
     Object.defineProperty(globalThis, 'history', { configurable: true, writable: true, value: fakeHistory() })
   }
   const open = () => {
@@ -133,7 +147,46 @@ describe('Back closes the viewer', () => {
   test('stepping to another picture adds no entry', () => {
     start()
     open()
-    openImageViewer({ group: null, entry: entry('b', el(2)), opener: null, openerKey: 'a' })
+    showEntry(entry('b', el(2)))
+    expect(getImageViewer()?.entry.item.key).toBe('b')
     expect(stack).toHaveLength(2)
+  })
+  test('closed and opened again before the back has landed: its entry is added once the back lands, and it stays open', () => {
+    start()
+    holdBack = true
+    open()
+    closeImageViewer()
+    open()
+    // nothing pushed while the back is on its way
+    expect(stack).toHaveLength(2)
+    late!()
+    expect(getImageViewer()).not.toBeNull()
+    expect(at).toBe(1)
+    expect(stack[1]).toMatchObject({ idx: 3, key: 'k1' })
+    // and ✕ goes back off the new entry
+    holdBack = false
+    closeImageViewer()
+    expect(at).toBe(0)
+  })
+  test('Back past a viewer\'s entry that a page change left behind: on to the page before it', () => {
+    start()
+    notePage()
+    open()
+    // a notice opened another page on top while the viewer was open
+    stack.push({ idx: 4, key: 'k2' })
+    at = 2
+    closeImageViewer(false)
+    notePage()
+    // Back: lands on the left-behind entry (the same page again), which goes on back
+    at = 1
+    skipLeftEntry()
+    expect(backs).toBe(1)
+    expect(at).toBe(0)
+    // Forward from the page below onto it goes on forward
+    notePage()
+    at = 1
+    skipLeftEntry()
+    expect(forwards).toBe(1)
+    expect(at).toBe(2)
   })
 })

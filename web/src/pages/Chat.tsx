@@ -374,7 +374,7 @@ function ChatView({ chatId }: { chatId: string }) {
             {messages.map((m, i) => {
               if (m.role === 'user')
                 return (
-                  <ViewerMeta key={m.id} sender={{ kind: 'user', user: m.author ?? me.user }} at={m.createdAt}>
+                  <ViewerMeta key={m.id} sender={{ kind: 'user', user: m.author ?? (shared ? null : me.user) }} at={m.createdAt}>
                     <UserMessage m={m} chatId={chatId} busy={busy || readOnly} onEdit={onEdit} onSelectBranch={onSelectBranch} showAuthor={!!shared} canEdit={!readOnly && mine(m.author?.id)} />
                   </ViewerMeta>
                 )

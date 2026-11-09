@@ -18,7 +18,6 @@ test.use({ serviceWorkers: 'block', viewport: { width: 1440, height: 900 } })
 const BEN = { id: 'ben', name: '벤' }
 const id = (n: number) => `019a5f00-0000-7000-8000-${String(n).padStart(12, '0')}`
 const SHOT_ID = id(801)
-const ICON_ID = id(802)
 
 /** A screenshot of a web page, as a PNG made here: a dark top bar, a title, lines of text and a blue button. */
 function pagePng(w: number, h: number): Buffer {
@@ -54,20 +53,19 @@ const SHOT = pagePng(2880, 1800)
 const SHOT_THUMB = pagePng(640, 400)
 const ICON = fs.readFileSync(path.resolve(import.meta.dirname, '../../public/icons/icon-192.png'))
 
-async function openRoom(page: Page) {
+const shotFile = { id: SHOT_ID, name: 'acme-page.png', size: SHOT.length, mime: 'image/png', kind: 'image', width: 2880, height: 1800, thumb: true }
+const iconFile = (n: number, name: string) => ({ id: id(n), name, size: ICON.length, mime: 'image/png', kind: 'image', width: 192, height: 192, thumb: true })
+type Msg = NonNullable<Parameters<typeof routeRoom>[1]['messages']>[number]
+
+/** The room: Ben's screenshot and his icon, or `messages`; its photos as the team server sends them (any other id is
+ * the icon). */
+async function openRoom(page: Page, o: { messages?: Msg[]; at?: string } = {}) {
   await reset(page)
-  const files = [
-    { id: SHOT_ID, name: 'acme-page.png', size: SHOT.length, mime: 'image/png', kind: 'image', width: 2880, height: 1800, thumb: true },
+  const messages = o.messages ?? [
+    { id: id(1), author: BEN, body: '이 페이지 좀 봐 주세요', extra: { files: [shotFile] } },
+    { id: id(2), author: BEN, body: '아이콘도요', extra: { files: [iconFile(802, 'acme-icon.png')] } },
   ]
-  const icon = { id: ICON_ID, name: 'acme-icon.png', size: ICON.length, mime: 'image/png', kind: 'image', width: 192, height: 192, thumb: true }
-  await routeRoom(page, {
-    members: [BEN],
-    kind: 'team',
-    messages: [
-      { id: id(1), author: BEN, body: '이 페이지 좀 봐 주세요', extra: { files } },
-      { id: id(2), author: BEN, body: '아이콘도요', extra: { files: [icon] } },
-    ],
-  })
+  await routeRoom(page, { members: [BEN], kind: 'team', messages })
   const served: string[] = []
   await page.route(/\/api\/rooms\/[^/]+\/files\/[^/?]+/, async (route) => {
     const u = new URL(route.request().url())
@@ -84,8 +82,9 @@ async function openRoom(page: Page) {
     })
   })
   await signIn(page)
-  await page.goto(`/rooms/${ROOM_ID}`)
-  await expect(page.getByTestId('room-message')).toHaveCount(2)
+  await page.goto(o.at ?? `/rooms/${ROOM_ID}`)
+  await expect(page.getByTestId('room-message').first()).toBeVisible()
+  if (!o.messages) await expect(page.getByTestId('room-message')).toHaveCount(2)
   return { served }
 }
 
@@ -282,6 +281,79 @@ test('an AI chat attachment opens in the viewer, then its file panel picture doe
   await expect(page.getByTestId('image-viewer-count')).toHaveCount(0)
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('file-panel')).toBeVisible()
+})
+
+test('the room box\'s picture opens in the viewer from its own bytes, like the AI chat box\'s', async ({ page }) => {
+  await openRoom(page)
+  // the upload is held: the picture is still only on this computer
+  await page.route(new RegExp(`/api/rooms/${ROOM_ID}/files$`), () => {})
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByTestId('room-attach').click()])
+  await chooser.setFiles({ name: 'acme-draft.png', mimeType: 'image/png', buffer: ICON })
+  await page.getByTestId('room-file-chip').getByTestId('picture-tile-open').click()
+  await shown(page)
+  await expect(original(page)).toHaveAttribute('src', /^blob:/)
+  await expect(page.getByTestId('image-viewer-name')).toHaveText('acme-draft.png')
+  await expect(page.getByTestId('image-viewer-download')).toHaveCount(0)
+  await expect(page.getByTestId('image-viewer-open')).toHaveCount(0)
+  // the box's pictures are their own pane: not the room's
+  await expect(page.getByTestId('image-viewer-count')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('room-file-chip').getByTestId('picture-tile-open')).toBeFocused()
+})
+
+test('a thread\'s pictures are its root\'s and its replies\', not the timeline\'s', async ({ page }) => {
+  const root = { id: id(1), author: BEN, body: '이 페이지 좀 봐 주세요', extra: { files: [shotFile], thread: { replyCount: 1, repliers: [BEN], lastReplyAt: '2026-11-09T05:00:00.000Z', newReplies: false } } }
+  await openRoom(page, {
+    messages: [
+      root,
+      { id: id(2), author: BEN, body: '아이콘 두 개', extra: { files: [iconFile(803, 'acme-a.png'), iconFile(804, 'acme-b.png')] } },
+      { id: id(3), author: BEN, body: '답글 아이콘', threadRootId: id(1), extra: { files: [iconFile(805, 'acme-reply.png')] } },
+    ],
+    at: `/rooms/${ROOM_ID}/t/${id(1)}`,
+  })
+  const thread = page.getByTestId('thread-scroller')
+  await expect(thread.getByTestId('room-image')).toHaveCount(2)
+  await thread.getByTestId('room-image').nth(1).click()
+  await shown(page)
+  await expect(page.getByTestId('image-viewer-name')).toHaveText('acme-reply.png')
+  await expect(page.getByTestId('image-viewer-count')).toHaveText('2 / 2')
+  await page.keyboard.press('ArrowLeft')
+  await expect(page.getByTestId('image-viewer-name')).toHaveText('acme-page.png')
+  await page.keyboard.press('Escape')
+  // the timeline's own: the root and the two icons
+  await page.getByTestId('room-scroller').getByTestId('room-image').nth(1).click()
+  await expect(page.getByTestId('image-viewer-count')).toHaveText('2 / 3')
+})
+
+test('an AI answer\'s picture is one of the room\'s; the same picture twice loads each time', async ({ page }) => {
+  const CHART = 'shared/acme/chart.png'
+  const md = `![차트](/api/files/download?path=${encodeURIComponent(CHART)})`
+  // the team picture, as the team server sends it to a member who may read it
+  await page.route((u) => u.pathname === '/api/files/download' && u.searchParams.get('path') === CHART, (route) =>
+    route.fulfill({ status: 200, body: ICON, headers: { 'content-type': 'image/png', 'content-disposition': 'inline; filename="chart.png"' } }))
+  await openRoom(page, {
+    messages: [
+      { id: id(1), author: BEN, body: '이 페이지 좀 봐 주세요', extra: { files: [shotFile] } },
+      // @트리나's answer to Ben (an AI message has no author)
+      { id: id(2), author: BEN, body: `차트예요.\n\n${md}\n\n같은 차트를 한 번 더:\n\n${md}`, extra: { authorKind: 'ai', author: null, askedBy: BEN, openable: [CHART] } },
+    ],
+  })
+  const pics = page.getByTestId('md-image')
+  await expect(pics).toHaveCount(2)
+  await pics.first().click()
+  await shown(page)
+  await expect(page.getByTestId('image-viewer-name')).toHaveText('차트')
+  await expect(page.getByTestId('image-viewer-count')).toHaveText('2 / 3')
+  await expect(page.getByTestId('image-viewer-sent')).toContainText('트리나')
+  const src = new URL((await original(page).getAttribute('src'))!, 'http://x')
+  expect(src.searchParams.get('path')).toBe(CHART)
+  // the next one is the same picture at the same address: drawn again, not left loading
+  await page.keyboard.press('ArrowRight')
+  await expect(page.getByTestId('image-viewer-count')).toHaveText('3 / 3')
+  await shown(page)
+  expect((await original(page).boundingBox())!.width).toBeCloseTo(192, 0)
+  await page.keyboard.press('ArrowLeft')
+  await shown(page)
 })
 
 test.describe('a phone (390 px)', () => {

@@ -16335,8 +16335,10 @@ of a web page could not be read. Pictures should open like Slack, across the app
 - **Zoom, hand-written** (`lib/zoom.ts`, pure and unit-tested; Pointer Events and one CSS transform): fitted = the whole
   picture in the stage at most 100 %, centred; a click toggles fitted and 100 % (2× the fitted size for a picture already
   shown at 80 % or more) about the click; ⌘/Ctrl + wheel and Chromium's trackpad pinch (wheel + ctrlKey, a non-passive
-  listener so the page never zooms) and Safari's `gesture*` events zoom about the pointer; a drag of 4 px or more pans and
-  is no click; + − 0 and the bar's − / % / + step by 1.5×, stopping at 100 % on the way; 400 % at most. Not chosen: a
+  listener so the page never zooms) and Safari's `gesture*` events zoom about the pointer; a drag (4 px with a mouse, 10
+  px with a finger) pans and is no click; + − 0 and the bar's − / % / + step by 1.5×, stopping at 100 % on the way (or
+  landing on it when a step would end within 5 % of it); 400 % at most; a right-click or a Mac's control-click is left
+  to the menu. Not chosen: a
   library (react-zoom-pan-pinch, yet-another-react-lightbox, PhotoSwipe: MIT, roughly 10–25 kB gzipped each), which
   brings its own DOM, styles and item model to bend to the app's bar, words, focus trap and the one-picture rule below.
 - **Next / previous: the pane that was clicked** (`ImageGroup`): the room's timeline (replies also sent to the room
@@ -16356,23 +16358,31 @@ of a web page could not be read. Pictures should open like Slack, across the app
   Router's `idx`, `key`, `usr`), so the router, `lib/back.ts` and deep links see the page they saw; a `popstate` that
   leaves the entry closes the viewer (the browser's Back, Android's back through the phone app's WebView, iOS's edge
   swipe). ✕, Esc, the backdrop and a swipe call `history.back()` while that entry is the current one, so none is left
-  behind; stepping to another picture adds none. A page change while it is open (a notice) closes it without going back.
-  The router re-renders on that `popstate` with the same location key, so effects keyed on the pathname or the key do
-  not run again. Left over: after a page change or a reload with the viewer open, one Back lands on the same page again.
+  behind; stepping to another picture adds none. Closed and opened again before that back has landed, the new entry is
+  added once it lands (else its `popstate` would close the new viewer). A page change while it is open (a notice) closes
+  it without going back; Back from that page then lands on the viewer's entry, which goes on back (Forward onto it goes on
+  forward: React Router's `idx` against the page last shown says which way). The router re-renders on that `popstate`
+  with the same location key, so effects keyed on the pathname or the key do not run again. Left over: after a reload
+  with the viewer open, one Back lands on the same page again.
 - **The desktop app's 이미지 복사** (fix/image-copy-paste-preview) copies the picture under the pointer
   (`copyImageAt`): the viewer is a portal on the team page's `<body>`, never a frame, the thumbnail takes no pointer and
   is gone once the original is there, so the original is what is copied and what 이미지 저장… saves. A right-click is
-  left to the browser or the app (no zoom, no close).
+  left to the browser or the app (no zoom, no close). Each showing draws its pictures anew, so the same picture twice in
+  a pane (two answers showing one chart) loads each time. Nothing drawn (a HEIC in a box in Chrome): a click or a swipe
+  down still closes.
 - **Focus and screen readers**: `role="dialog"`, `aria-modal`, named "이미지 보기: {name}"; the app's `useFocusTrap`
-  (Tab stays inside, Esc closes); focus starts on the stage (the keys work at once, no button ring) and goes back to the
-  picture that opened it, found again by its key when its message was drawn anew. The name and "3 / 7" are announced
+  (Tab stays inside, Esc closes); focus starts on the stage (the keys work at once, no button ring; Tab and Shift+Tab go
+  from there to the bar's first and last buttons) and goes back to the picture that opened it, found again by its key
+  when its message was drawn anew. While it is open the page's own shortcuts (⌘K search, ⌘⇧O new chat) wait. The name and "3 / 7" are announced
   on a step. Reduced motion: the eases are CSS transitions, which index.css already turns off.
 - Tests: `web/test/unit/image-zoom.test.ts` (fit never upscales, the click target, zoom about a point, the pan's limits,
   steps, wheel, pinch, swipes, the layout size before the original), `web/test/unit/image-viewer.test.ts` (page order,
   pictures off the page, a group's notices, each kind's addresses, Back: one entry with the router's state, ✕ goes back,
-  Back closes, a page change does not go back, a step adds none), e2e `image-viewer.spec.ts` (a room photo fitted with
+  Back closes, a page change does not go back, a step adds none, a reopen before the back lands, the left-behind entry
+  skipped both ways), e2e `image-viewer.spec.ts` (a room photo fitted with
   its bar and download, no upscale, click zoom about its point, drag, ⌘/Ctrl + wheel, keys, ← → with focus back after
-  Esc, backdrop, ✕ and Back, the right-click on the original on the page itself, an AI chat attachment, a box's picture
-  and the file panel's picture, a phone's swipe sideways and down; screenshots), `room-files-open.spec.ts` (the photo
+  Esc, backdrop, ✕ and Back, the right-click on the original on the page itself, an AI chat attachment, both boxes'
+  pictures and the file panel's picture, a thread's own pane, a room AI answer's picture twice, a phone's swipe sideways
+  and down; screenshots), `room-files-open.spec.ts` (the photo
   opens the viewer over the panel; the right-click there reaches the original).
 - Version impact: **minor** (a visible UX change; no API or data change).

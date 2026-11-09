@@ -182,16 +182,42 @@ export function showEntry(entry: ViewerEntry) {
 // swipe) closes the viewer; closing it any other way goes back off that entry, so none is left behind.
 const MARK = '__imageViewer'
 let token = 0
+/** a history.back() of ours is on its way: a viewer opened meanwhile adds its entry once it has landed */
+let backPending = false
+let pushOwed = false
 
-const onOurEntry = () => (window.history.state as Record<string, unknown> | null)?.[MARK] === token
+type HistoryState = Record<string, unknown> | null
+const stateNow = () => window.history.state as HistoryState
+const onOurEntry = () => stateNow()?.[MARK] === token
+const idxOf = (s: HistoryState) => (typeof s?.idx === 'number' ? s.idx : null)
 
 function onPop() {
   if (current && !onOurEntry()) shut()
 }
 
+function pushEntry() {
+  token += 1
+  try {
+    window.history.pushState({ ...(stateNow() ?? {}), [MARK]: token }, '')
+  } catch {
+    // a history the page may not change (a sandbox): the viewer still opens, Back just leaves the page as before
+  }
+  window.addEventListener('popstate', onPop)
+}
+
+function onBackDone() {
+  window.removeEventListener('popstate', onBackDone)
+  backPending = false
+  if (pushOwed && current) {
+    pushOwed = false
+    pushEntry()
+  }
+}
+
 /** closed: no picture, no listener */
 function shut() {
   current = null
+  pushOwed = false
   if (typeof window !== 'undefined') window.removeEventListener('popstate', onPop)
   emit()
 }
@@ -200,13 +226,8 @@ export function openImageViewer(open: ViewerOpen) {
   const was = current
   current = open
   if (!was && typeof window !== 'undefined') {
-    token += 1
-    try {
-      window.history.pushState({ ...(window.history.state ?? {}), [MARK]: token }, '')
-    } catch {
-      // a history the page may not change (a sandbox): the viewer still opens, Back just leaves the page as before
-    }
-    window.addEventListener('popstate', onPop)
+    if (backPending) pushOwed = true
+    else pushEntry()
   }
   emit()
 }
@@ -215,5 +236,28 @@ export function openImageViewer(open: ViewerOpen) {
 export function closeImageViewer(back = true) {
   if (!current) return
   shut()
-  if (back && typeof window !== 'undefined' && onOurEntry()) window.history.back()
+  if (back && typeof window !== 'undefined' && onOurEntry()) {
+    backPending = true
+    window.addEventListener('popstate', onBackDone)
+    window.history.back()
+  }
+}
+
+// A viewer's entry is left behind when the page changed while it was open (a notice opened another page on top of it).
+// Back from that page would land on it: the same page again, a Back that does nothing. So a popstate that lands on such
+// an entry with no viewer open goes on, the way it came (ImageViewerHost listens; React Router's idx tells the way).
+/** the router's entry number of the page last shown (ImageViewerHost notes it on every page change) */
+let shownIdx: number | null = null
+export function notePage() {
+  shownIdx = typeof window === 'undefined' ? null : idxOf(stateNow())
+}
+
+/** For ImageViewerHost's popstate listener (added before any viewer's own, so it runs first). */
+export function skipLeftEntry() {
+  const s = stateNow()
+  if (current || backPending || !s?.[MARK]) return
+  const idx = idxOf(s)
+  if (idx === null || shownIdx === null) return
+  if (idx < shownIdx) window.history.back()
+  else window.history.forward()
 }
