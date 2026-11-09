@@ -124,8 +124,8 @@ test('a picture pasted into the side chat: its square at once while it uploads i
   const img = msg.getByTestId('attachment-image').locator('img')
   await expect(img).toBeVisible()
   await expect.poll(() => img.evaluate((i: HTMLImageElement) => (i.complete ? i.naturalWidth : 0))).toBe(192)
-  // the answer done ("Share to room" under it)
-  await expect(side.getByTestId('share-to-room')).toBeVisible()
+  // the answer done ("대화방에 보내기" under it: nothing was asked about, so the room)
+  await expect(side.getByTestId('send-here-room')).toBeVisible()
   await page.emulateMedia({ colorScheme: 'dark' })
   // the question with its picture in view (the mock's long answer is below it), after the box's colour transition
   await msg.evaluate((el) => el.scrollIntoView({ block: 'center' }))

@@ -829,6 +829,158 @@ describe('what the room gets', () => {
   })
 })
 
+describe("a reply in a message's thread (a side chat's answer: threadRootId)", () => {
+  const post = (user: string, roomId: string, body: string, extra: Record<string, unknown> = {}) =>
+    h.api(user).call(API.sendRoomMessage, { params: { id: roomId }, body: { body, clientMessageId: cm(), mentions: [], fileIds: [], ...extra } }) as Promise<RoomMessage>
+  const threadOf = async (user: string, roomId: string, rootId: string) => (await h.api(user).call(API.listRoomThread, { params: { id: roomId, messageId: rootId }, query: {} })).items as RoomMessage[]
+  const noticesFor = (user: string, messageId: string) => (h.ctx.db.query('SELECT event_type FROM room_notices WHERE user_id = ? AND source_id = ?').all(user, messageId) as { event_type: string }[]).map((r) => r.event_type)
+  const follows = (rootId: string) => (h.ctx.db.query('SELECT user_id FROM room_thread_follows WHERE root_id = ? ORDER BY user_id').all(rootId) as { user_id: string }[]).map((r) => r.user_id)
+
+  test('it goes into the thread, not the timeline: the same message, mark and audit; its author and the root\'s follow it', async () => {
+    const root = await post('erin', rooms.marketing, '로고 시안 언제 나와요?')
+    const a = answer('alice', '수요일까지 두 개 나와요.', { read: ['shared/glossary.md'] })
+    const r = await share('alice', a, { roomId: rooms.marketing, threadRootId: root.id })
+    expect(r.status).toBe(200)
+    expect(r.json.status).toBe('sent')
+    const m = r.json.message as RoomMessage
+    expect(m).toMatchObject({ threadRootId: root.id, authorKind: 'user', author: { id: 'alice' }, mentions: [], visibility: 'room', body: '수요일까지 두 개 나와요.', sharedAnswer: { at: 0, cut: false } })
+    expect(m.alsoInRoom).toBeFalsy()
+    // in the thread, not in the timeline; the root's summary counts it
+    expect((await messagesAs('erin', rooms.marketing)).some((x) => x.id === m.id)).toBe(false)
+    expect((await threadOf('erin', rooms.marketing, root.id)).map((x) => x.id)).toContain(m.id)
+    expect((await messagesAs('erin', rooms.marketing)).find((x) => x.id === root.id)!.thread).toMatchObject({ replyCount: 1, repliers: [{ id: 'alice' }] })
+    // erin hears it as a message of the thread
+    const ev = await erinWs.next('room.message', (f) => f.data.message.id === m.id)
+    expect(ev.data.message).toMatchObject({ threadRootId: root.id, sharedAnswer: { at: 0, cut: false } })
+    expect(follows(root.id)).toEqual(['alice', 'erin'])
+    expect(audit(m.id)).toEqual({ roomId: rooms.marketing, people: 0, confirmed: false, cut: false, files: 0 })
+    // no AI turn, as in the room
+    expect(h.ctx.db.query('SELECT COUNT(*) n FROM room_ai_turns WHERE question_id = ?').get(m.id)).toEqual({ n: 0 })
+  })
+
+  test("the thread's followers are notified as for any reply (the root's author too); the others are not", async () => {
+    // the everyone room: dana starts it, carol replies (both follow it now), dana reads that reply (its notice is read, so
+    // the next reply is a notice of its own), then alice shares into it
+    const root = await post('dana', rooms.all, '이번 주 배포 일정 정리해 주실 분?')
+    const first = await post('carol', rooms.all, '저도 궁금해요', { threadRootId: root.id })
+    expect(noticesFor('dana', first.id)).toEqual(['room.dm'])
+    await h.api('dana').call(API.markRoomThreadRead, { params: { id: rooms.all, messageId: root.id }, body: { seq: first.seq } })
+    const r = await share('alice', answer('alice', '목요일 오후에 배포해요.'), { roomId: rooms.all, threadRootId: root.id })
+    expect(r.json.status).toBe('sent')
+    const id = r.json.message.id as string
+    expect(noticesFor('dana', id)).toEqual(['room.dm'])
+    expect(noticesFor('carol', id)).toEqual(['room.dm'])
+    expect(noticesFor('bob', id)).toEqual([])
+    expect(noticesFor('erin', id)).toEqual([])
+    expect(noticesFor('alice', id)).toEqual([])
+    expect(follows(root.id)).toEqual(['alice', 'carol', 'dana'])
+  })
+
+  test('refused before anything else: another room\'s message, a reply, a deleted one, an event line, a private preview, none at all', async () => {
+    const db = h.ctx.db
+    const elsewhere = await post('alice', rooms.all, '다른 방 메시지')
+    const root = await post('erin', rooms.marketing, '스레드 시작')
+    const reply = await post('erin', rooms.marketing, '답글', { threadRootId: root.id })
+    const gone = await post('erin', rooms.marketing, '지울 메시지')
+    expect((await h.req('erin', `/api/rooms/${rooms.marketing}/messages/${gone.id}`, { method: 'DELETE' })).status).toBeLessThan(300)
+    // an event line of the group chat (a rename), and a private AI preview only alice sees
+    await h.api('alice').call(API.updateRoom, { params: { id: rooms.group }, body: { name: '스레드 테스트' } })
+    const line = (await messagesAs('alice', rooms.group)).find((x) => x.event)!
+    expect(line).toBeTruthy()
+    const preview = uuidv7()
+    const seq = (db.query('UPDATE rooms SET last_seq = last_seq + 1 WHERE id = ? RETURNING last_seq').get(rooms.marketing) as { last_seq: number }).last_seq
+    db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, asked_by, visibility, visible_to, body, mentions, created_at) VALUES (?, ?, ?, 'ai', NULL, 'alice', 'private', 'alice', '미리보기', '[]', ?)`).run(preview, rooms.marketing, seq, new Date().toISOString())
+    const a = answer('alice', '보내지 않을 답')
+    const before = (await threadOf('alice', rooms.marketing, root.id)).length
+    // the budget stands still: a refusal takes nothing from it
+    const rs = roomsOf(h.ctx)
+    const t = clock + 3_600_000
+    rs.clock = () => t
+    try {
+      const refused = []
+      for (let i = 0; i < SEND_BURST; i++) {
+        for (const [roomId, threadRootId] of [[rooms.marketing, elsewhere.id], [rooms.marketing, reply.id], [rooms.marketing, gone.id], [rooms.group, line.id], [rooms.marketing, preview], [rooms.marketing, uuidv7()]] as const)
+          refused.push(await share('alice', a, { roomId, threadRootId }))
+      }
+      for (const r of refused) {
+        expect(r.status).toBe(409)
+        expect(r.json.error.params.reason).toBe('thread_root')
+      }
+      // one answer whatever was wrong
+      expect(new Set(refused.map((r) => r.json.error.message)).size).toBe(1)
+      // nothing was sent or audited, and the budget is whole: a real share still goes
+      expect((await threadOf('alice', rooms.marketing, root.id)).length).toBe(before)
+      expect(db.query("SELECT COUNT(*) n FROM audit_log WHERE action = 'room.answer_share' AND json_extract(detail, '$.roomId') = ? AND target IN (SELECT id FROM room_messages WHERE body = '보내지 않을 답')").get(rooms.marketing)).toEqual({ n: 0 })
+      expect((await share('alice', a, { roomId: rooms.marketing, threadRootId: root.id })).json.status).toBe('sent')
+    } finally { rs.clock = () => (clock = t + 3_600_000) }
+    // not an id at all: the body's own check
+    expect((await share('alice', a, { roomId: rooms.marketing, threadRootId: 'not-an-id' })).status).toBe(400)
+    // a room I am not in: 404 as without a thread, whatever the root
+    const fin = await post('bob', rooms.finance, '재무 메시지')
+    expect((await share('alice', a, { roomId: rooms.finance, threadRootId: fin.id })).status).toBe(404)
+    // a member who joined after the root does not see it: refused the same way (a group chat sees from its join on)
+    const g = (await h.api('alice').call(API.createRoom, { body: { kind: 'group', userIds: ['erin', 'dana'] } })).id
+    const late = await post('alice', g, '캐럴이 오기 전 메시지')
+    await h.api('alice').call(API.inviteRoomMembers, { params: { id: g }, body: { userIds: ['carol'] } })
+    const lateRefused = await share('carol', answer('carol', '늦게 온 사람의 답'), { roomId: g, threadRootId: late.id })
+    expect(lateRefused.status).toBe(409)
+    expect(lateRefused.json.error.params.reason).toBe('thread_root')
+  })
+
+  test('a confidential conversation is never shared, to a thread either', async () => {
+    const root = await post('erin', rooms.marketing, '기밀 스레드')
+    const a = answer('alice', '기밀 답')
+    h.ctx.db.query('INSERT INTO safe_ops_chats (chat_id, material) VALUES (?, 1)').run(a.chatId)
+    const r = await share('alice', a, { roomId: rooms.marketing, threadRootId: root.id })
+    expect(r.status).toBe(409)
+    expect(r.json.error.params.reason).toBe('confidential')
+    expect(await threadOf('erin', rooms.marketing, root.id)).toEqual([])
+  })
+
+  test('"confirm" first as for the room; the yes goes into the thread; a root deleted meanwhile is refused at the yes', async () => {
+    const root = await post('dana', rooms.all, '브리프 요약 부탁해요')
+    const a = answer('alice', '브리프 요약', { read: [BRIEF] })
+    const body = { roomId: rooms.all, threadRootId: root.id, clientMessageId: cm() }
+    const ask = await share('alice', a, body)
+    // bob (finance) cannot read groups/marketing: the same question as for the room
+    expect(ask.json).toMatchObject({ status: 'confirm', people: 1, provenance: { people: 1, places: [{ kind: 'folder', path: 'groups/marketing' }] } })
+    expect(await threadOf('dana', rooms.all, root.id)).toEqual([])
+    const yes = await share('alice', a, { ...body, confirmKey: ask.json.confirmKey })
+    expect(yes.json.status).toBe('sent')
+    expect(yes.json.message.threadRootId).toBe(root.id)
+    expect(audit(yes.json.message.id)).toEqual({ roomId: rooms.all, people: 1, confirmed: true, cut: false, files: 0 })
+    // asked, then the root goes before the yes: refused, nothing sent
+    const root2 = await post('dana', rooms.all, '곧 지울 질문')
+    const body2 = { roomId: rooms.all, threadRootId: root2.id, clientMessageId: cm() }
+    const ask2 = await share('alice', a, body2)
+    expect(ask2.json.status).toBe('confirm')
+    expect((await h.req('dana', `/api/rooms/${rooms.all}/messages/${root2.id}`, { method: 'DELETE' })).status).toBeLessThan(300)
+    const late = await share('alice', a, { ...body2, confirmKey: ask2.json.confirmKey })
+    expect(late.status).toBe(409)
+    expect(late.json.error.params.reason).toBe('thread_root')
+    expect(h.ctx.db.query('SELECT COUNT(*) n FROM room_messages WHERE client_id = ?').get(body2.clientMessageId)).toEqual({ n: 0 })
+  })
+
+  test('one id per click: the same id again is the first message (deleted since, too); a new id is a new message', async () => {
+    const root = await post('erin', rooms.marketing, '한 번만 보내 주세요')
+    const a = answer('alice', '한 번만 가는 답')
+    const click = { roomId: rooms.marketing, threadRootId: root.id, clientMessageId: cm() }
+    const one = await share('alice', a, click)
+    const again = await share('alice', a, click)
+    expect(again.json.message.id).toBe(one.json.message.id)
+    expect((await threadOf('erin', rooms.marketing, root.id)).length).toBe(1)
+    // the same id after the message was deleted: still that message, deleted (the app never reuses an id across clicks)
+    expect((await h.req('alice', `/api/rooms/${rooms.marketing}/messages/${one.json.message.id}`, { method: 'DELETE' })).status).toBeLessThan(300)
+    const stale = await share('alice', a, click)
+    expect(stale.json.status).toBe('sent')
+    expect(stale.json.message).toMatchObject({ id: one.json.message.id, deletedAt: expect.any(String), body: '' })
+    // a new click is a new id: a new message
+    const two = await share('alice', a, { ...click, clientMessageId: cm() })
+    expect(two.json.message.id).not.toBe(one.json.message.id)
+    expect(two.json.message.threadRootId).toBe(root.id)
+  })
+})
+
 describe('the sending budget', () => {
   test('the check takes from it too: no free probe of who may read what', async () => {
     const rs = roomsOf(h.ctx)

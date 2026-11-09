@@ -34,7 +34,7 @@ import { z } from 'zod'
 import { HwpPreviewPage, HwpPreviewQuery } from '../hwp'
 import { UserId, Uuid7 } from '../ids'
 import { PRODUCT } from '../product'
-import { ApiErrorBody, IsoTime, PageQuery, QueryBool, SMALL_UPLOAD_MAX, page } from './common'
+import { ApiErrorBody, IsoTime, PageQuery, QueryBool, SMALL_UPLOAD_MAX, page, type Locale } from './common'
 import { empty, endpoint, multipart, stream } from './endpoint'
 import { Attachment, MessageSources, Step, UserRef } from './entities'
 import { RoomAlertSettings, RoomNotifyLevel } from './room-alerts'
@@ -167,6 +167,97 @@ export function roomRefsForModel(text: string): string {
 export const roomRefsByIdOnly = (text: string) => text.replace(ROOM_REF_RE, (_all, _title: string, id: string) => `[#room room_id=${id}]`)
 /** The message as people read it: each token as "#<title>" (lists, titles, a text box to edit it in). */
 export const plainRoomRefs = (text: string) => text.replace(ROOM_REF_RE, (_all, title: string) => `#${title}`)
+
+/**
+ * The thread a side chat question is about (docs/DECISIONS.md "Trina side chat: send here"): a question about a room
+ * message (web SideChatPanel withQuote) starts with the message quoted, and the quote's header line ("> <who> · <when>")
+ * ends with ` (thread_id <id> in this room)`, the message's thread root (its own id, or its thread's first message), only
+ * when that message can have a thread. Like the file quote's `file_id`, the AI reads it as is (room_read's `thread`). The
+ * app hides it wherever it shows the question, and an answer of the side chat goes to that thread with one click. Only
+ * the first line of a message counts: the quote is always at the top.
+ */
+const THREAD_REF_RE = /^(> [^\n]*?) \(thread_id ([0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}) in this room\)(?=\n|$)/
+/** The token at the end of a quote's header line. */
+export const threadRefToken = (rootId: string) => ` (thread_id ${rootId} in this room)`
+/** The thread root a question's quote names, or null. */
+export const threadRefOf = (text: string): string | null => THREAD_REF_RE.exec(text)?.[2] ?? null
+/** The question as people read it: the quote's header without the token. */
+export const hideThreadRef = (text: string): string => text.replace(THREAD_REF_RE, '$1')
+
+/** The quote a side chat question starts with (web SideChatPanel withQuote), as people read it: a message (who, when, its
+ * lines) or a file sent in the room (its name), then the question asked about it ('' when files went alone). null: the
+ * question does not start with one. The bubble shows it as a quote (web components/chat/Messages.tsx UserText) and a new
+ * chat's title is the question, not the quote (server chat/title.ts). */
+export type SideQuote =
+  | { kind: 'message'; author: string; at: string; text: string; question: string }
+  | { kind: 'file'; name: string; question: string }
+export function sideQuoteOf(content: string): SideQuote | null {
+  const shown = hideThreadRef(content)
+  if (!shown.startsWith('> ')) return null
+  const cut = shown.indexOf('\n\n')
+  const block = (cut < 0 ? shown : shown.slice(0, cut)).split('\n')
+  const question = cut < 0 ? '' : shown.slice(cut + 2)
+  if (block.some((l) => !l.startsWith('>'))) return null
+  const file = /^> 📎 (.+) \(file_id \S+ in this room\)$/.exec(block[0]!)
+  if (file) return block.length === 1 ? { kind: 'file', name: file[1]!, question } : null
+  const head = block[0]!.slice(2), at = head.lastIndexOf(' · ')
+  if (at < 0 || block.length < 2) return null
+  return { kind: 'message', author: head.slice(0, at), at: head.slice(at + 3), text: block.slice(1).map((l) => l.replace(/^> ?/, '')).join('\n'), question }
+}
+
+/** The quick questions of a side chat under a quoted message or file (web SideChatPanel): the button's word and the
+ * question it sends, in each language. One source for the app and for a new chat's title ("요약: <the quote's first
+ * words>", server chat/title.ts), which recognizes them in any language. */
+export const SIDE_CHAT_QUICK = {
+  translate: {
+    label: { ko: '번역', en: 'Translate', id: 'Terjemahkan', ja: '翻訳', es: 'Traducir' },
+    ask: { ko: '이 메시지를 한국어로 번역해 줘.', en: 'Translate this message into English.', id: 'Terjemahkan pesan ini ke bahasa Indonesia.', ja: 'このメッセージを日本語に翻訳してください。', es: 'Traduce este mensaje al español.' },
+  },
+  summarize: {
+    label: { ko: '요약', en: 'Summarize', id: 'Ringkas', ja: '要約', es: 'Resumir' },
+    ask: { ko: '이 메시지를 요약해 줘. 스레드가 있으면 스레드도 요약해 줘.', en: 'Summarize this message. If it has a thread, summarize the thread too.', id: 'Ringkas pesan ini. Kalau ada thread, ringkas thread-nya juga.', ja: 'このメッセージを要約してください。スレッドがあればスレッドも要約してください。', es: 'Resume este mensaje. Si tiene un hilo, resume también el hilo.' },
+  },
+  explain: {
+    label: { ko: '설명', en: 'Explain', id: 'Jelaskan', ja: '説明', es: 'Explicar' },
+    ask: { ko: '이 메시지를 쉬운 말로 설명해 줘.', en: 'Explain this message in plain words.', id: 'Jelaskan pesan ini dengan kata-kata sederhana.', ja: 'このメッセージをわかりやすく説明してください。', es: 'Explica este mensaje con palabras sencillas.' },
+  },
+  fileSummarize: {
+    label: { ko: '요약', en: 'Summarize', id: 'Ringkas', ja: '要約', es: 'Resumir' },
+    ask: { ko: '이 파일을 요약해 줘.', en: 'Summarize this file.', id: 'Ringkas file ini.', ja: 'このファイルを要約してください。', es: 'Resume este archivo.' },
+  },
+  fileKeyPoints: {
+    label: { ko: '핵심 정리', en: 'Key points', id: 'Poin penting', ja: '要点', es: 'Puntos clave' },
+    ask: { ko: '이 파일의 핵심(결정, 숫자, 날짜, 해야 할 일)을 정리해 줘.', en: 'List the key points of this file: decisions, numbers, dates and what someone must do.', id: 'Tulis poin penting file ini: keputusan, angka, tanggal, dan yang harus dikerjakan.', ja: 'このファイルの要点（決定事項、数字、日付、やること）をまとめてください。', es: 'Enumera los puntos clave de este archivo: decisiones, cifras, fechas y tareas.' },
+  },
+  fileCheck: {
+    label: { ko: '검토', en: 'Check it', id: 'Periksa', ja: 'チェック', es: 'Revisar' },
+    ask: { ko: '이 파일에서 틀린 곳, 빠진 곳, 이상한 곳을 검토해 줘.', en: 'Check this file for mistakes, gaps and anything that looks wrong.', id: 'Periksa file ini: kesalahan, bagian yang kurang, dan yang terlihat janggal.', ja: 'このファイルの誤り、抜け、おかしな点を確認してください。', es: 'Revisa este archivo en busca de errores, huecos y cosas que parezcan incorrectas.' },
+  },
+  fileSave: {
+    label: { ko: '팀 폴더에 저장', en: 'Save to a team folder', id: 'Simpan ke folder tim', ja: 'チームフォルダに保存', es: 'Guardar en una carpeta del equipo' },
+    ask: { ko: '이 파일을 팀 폴더에 저장해 줘.', en: 'Save this file to a team folder.', id: 'Simpan file ini ke folder tim.', ja: 'このファイルをチームフォルダに保存してください。', es: 'Guarda este archivo en una carpeta del equipo.' },
+  },
+} as const satisfies Record<string, { label: Record<Locale, string>; ask: Record<Locale, string> }>
+export type SideChatQuick = keyof typeof SIDE_CHAT_QUICK
+/** The one button under a side chat's answer (web components/rooms/SendHere.tsx), in each language: to the asked
+ * message's thread, or to the room. One source for the app and for the AI's side panel instructions (server
+ * chat/prompt.ts sideRoomSection), which name it as the person sees it. */
+export const SIDE_CHAT_SEND = {
+  thread: { ko: '스레드에 보내기', en: 'Send to thread', id: 'Kirim ke utas', ja: 'スレッドに送る', es: 'Enviar al hilo' },
+  room: { ko: '대화방에 보내기', en: 'Send to room', id: 'Kirim ke ruang', ja: 'ルームに送る', es: 'Enviar a la sala' },
+} as const satisfies Record<string, Record<Locale, string>>
+/** the quick questions under a quoted message, and under a quoted file (팀 폴더에 저장: the AI saves it with
+ * save_room_file, whose card says where and who will see it) */
+export const SIDE_QUICK_MESSAGE = ['translate', 'summarize', 'explain'] as const satisfies readonly SideChatQuick[]
+export const SIDE_QUICK_FILE = ['fileSummarize', 'fileKeyPoints', 'fileCheck', 'fileSave'] as const satisfies readonly SideChatQuick[]
+/** Which quick question this text is, exactly, and in which language; null: a question of the person's own. */
+export function sideQuickOf(question: string): { key: SideChatQuick; locale: Locale } | null {
+  const q = question.trim()
+  for (const key of Object.keys(SIDE_CHAT_QUICK) as SideChatQuick[]) {
+    for (const [locale, ask] of Object.entries(SIDE_CHAT_QUICK[key].ask) as [Locale, string][]) if (ask === q) return { key, locale }
+  }
+  return null
+}
 
 /** A file or image sent in a room. Stored outside the team folder (owners and admins can read the team folder outside
  * users/<id>/); read at GET /api/rooms/:id/files/:fileId by the room's current members only, checked on every read
