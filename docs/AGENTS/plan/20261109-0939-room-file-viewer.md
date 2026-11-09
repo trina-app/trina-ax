@@ -7,7 +7,7 @@
   `server/src/chat/`). Why: rooms, chat and file previews are core (see docs/REPOSITORY-RULES.md)
 - Version impact: minor. A visible UX change; no migration, no new endpoint.
 - Builds on: `feat/image-viewer` (plan `20261109-0817-image-viewer.md`, not on dev yet) and PR #236 (Trina side chat,
-  open). Neither is duplicated.
+  merged into dev on 2026-11-09; its PR 2 is to come). Neither is duplicated.
 
 ## Goal
 
@@ -114,12 +114,12 @@ What this plan adds, nothing else:
    message's file moves the thread tab with it; the Trina tab stays.
 4. **Trina's context** is the file on screen, said in one line above its box ("보는 중: {name}"). How the AI learns it:
    question 2.
-5. **Small props on #236's and today's panels, no copies**: `frame={false}` on both (the column draws the frame);
+5. **Small props on the two panels, no copies**: `frame={false}` on both (the column draws the frame);
    `SideChatPanel` gets `autoFocus` (it focuses its box on mount, which would take focus from the stage) and `viewing`;
    its draft and chat id move to a per-room module map (like `roomDrafts`), so the page's and the viewer's show the
    same chat and draft.
 
-Conflicts with #236, settled in PR c0 once it has merged:
+Conflicts with #236 (now on dev), settled in PR c0:
 
 - `Room.tsx`: `sideOpen`, `setSideOpen` and the effect that closes it when a thread opens move to the store; the two
   siblings become one `<RoomSideColumn>`.
@@ -190,7 +190,7 @@ a review. b and c also run the full web e2e (shared room components).
   new tab), quarantined / unknown / deleted. No column yet. Unit: mixed list order, card per case. e2e
   `room-file-viewer.spec.ts`: a PDF chip opens it, ← → to a picture and back ("1 / 2"), Esc returns focus, Back closes,
   quarantined card, deleted while open. `room-files-open.spec.ts` updated.
-- c0. **Right-column refactor** (after #236): store `side`, keyed `threadViews`, `RoomSideColumn`, the `frame` and
+- c0. **Right-column refactor** (#236 is on dev): store `side`, keyed `threadViews`, `RoomSideColumn`, the `frame` and
   `autoFocus` props. No visible change. Unit: `rooms-store`, `room-thread`, `side-chat`; the thread and side-chat e2e.
 - c. **Column in the viewer**: default, switch, toggle, the file's thread and box, the Trina tab with "보는 중",
   트리나에게 묻기, 팀 폴더에 저장. With question 2: `SendMessageBody.viewing`, its server check and prompt line,
@@ -206,7 +206,8 @@ a review. b and c also run the full web e2e (shared room components).
 - The image viewer's list gains chips: order and focus return with both kinds in one message; covered in b.
 - Selecting and copying text in a PDF inside a focus-trapped overlay, and the desktop app's context menu there: e2e.
 - c0's store change: new replies, edits, deletes and reactions must reach every open thread view (rooms-store tests).
-- #236 is still open: c0 rebases on it after it merges; a, b0, b and d do not touch its files.
+- The side chat's PR 2 (removing @트리나) touches `Room.tsx`, `RoomComposer` and `RoomMessages` too: c0 and c go after it
+  or rebase on it; a, b0 and d do not touch those files.
 
 ## Open questions for the owner
 
