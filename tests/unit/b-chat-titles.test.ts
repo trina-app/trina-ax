@@ -95,7 +95,7 @@ describe('placeholder from the first message', () => {
     expect(placeholderTitle(file(SIDE_CHAT_QUICK.fileSummarize.ask.es))).toBe('Resumir: acme-handbook.pdf')
     expect(placeholderTitle(file(SIDE_CHAT_QUICK.fileSave.ask.ko))).toBe('팀 폴더에 저장: acme-handbook.pdf')
     // every quick question in every language is known
-    for (const [key, q] of Object.entries(SIDE_CHAT_QUICK)) for (const [locale, ask] of Object.entries(q.ask)) expect(sideQuickOf(` ${ask} `)).toEqual({ key, locale })
+    for (const [key, q] of Object.entries(SIDE_CHAT_QUICK)) for (const [locale, ask] of Object.entries(q.ask)) expect(sideQuickOf(` ${ask} `) as unknown).toEqual({ key, locale })
     // a question of one's own that merely starts like one is the question
     expect(placeholderTitle(msg('x', `${SIDE_CHAT_QUICK.summarize.ask.en} In Korean.`))).toBe('Summarize this message')
   })
