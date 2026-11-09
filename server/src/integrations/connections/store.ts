@@ -37,8 +37,9 @@ export interface Row {
 }
 
 /** what is not secret about an own app (integrations.oauth_client, integration_templates.oauth_client). foundTokenUrl:
- * the token address its first sign-in found from the server (service.ts pinFound), never shown */
-export interface ClientInfo { clientId: string; authorizationUrl: string | null; tokenUrl: string | null; scope: string | null; foundTokenUrl?: string | null }
+ * the token address its first sign-in found from the server (service.ts pinFound), never shown. boundUrl: the
+ * connection's or template's address its client secret was entered for (service.ts appAfter; secretHere) */
+export interface ClientInfo { clientId: string; authorizationUrl: string | null; tokenUrl: string | null; scope: string | null; foundTokenUrl?: string | null; boundUrl?: string | null }
 /** The stored app, or null (none, or a value that is not one: the column is ours alone). */
 export function clientInfo(json: string | null | undefined): ClientInfo | null {
   if (!json) return null
@@ -46,13 +47,22 @@ export function clientInfo(json: string | null | undefined): ClientInfo | null {
     const v = JSON.parse(json)
     if (!v || typeof v.clientId !== 'string' || !v.clientId) return null
     const str = (x: unknown) => (typeof x === 'string' && x ? x : null)
-    return { clientId: v.clientId, authorizationUrl: str(v.authorizationUrl), tokenUrl: str(v.tokenUrl), scope: str(v.scope), ...(str(v.foundTokenUrl) ? { foundTokenUrl: str(v.foundTokenUrl) } : {}) }
+    return {
+      clientId: v.clientId, authorizationUrl: str(v.authorizationUrl), tokenUrl: str(v.tokenUrl), scope: str(v.scope),
+      ...(str(v.foundTokenUrl) ? { foundTokenUrl: str(v.foundTokenUrl) } : {}), ...(str(v.boundUrl) ? { boundUrl: str(v.boundUrl) } : {}),
+    }
   } catch { return null }
 }
-/** what whoever manages it sees of an own app: never the secret */
-export function clientView(json: string | null | undefined, enc: string | null | undefined): OAuthClientView | null {
+/** Whether an own app's stored client secret may be used with the connection or template at `url`: only at the address
+ * it was entered for. An older build (migration 338 is reader level 1) changes the address without dropping the
+ * secret; such a secret counts as not stored (never sent). An app saved before boundUrl existed has none. */
+export function secretHere(info: ClientInfo | null, enc: string | null | undefined, url: string): boolean {
+  return !!enc && !!info && (!info.boundUrl || info.boundUrl === url)
+}
+/** what whoever manages it sees of an own app (at the connection's or template's address `url`): never the secret */
+export function clientView(json: string | null | undefined, enc: string | null | undefined, url: string): OAuthClientView | null {
   const c = clientInfo(json)
-  return c ? { clientId: c.clientId, authorizationUrl: c.authorizationUrl, tokenUrl: c.tokenUrl, scope: c.scope, hasSecret: !!enc } : null
+  return c ? { clientId: c.clientId, authorizationUrl: c.authorizationUrl, tokenUrl: c.tokenUrl, scope: c.scope, hasSecret: secretHere(c, enc, url) } : null
 }
 export interface FlowRow {
   id: string; integration_id: string; integration_version: number; user_id: string; session_id: string; state_hash: string
@@ -250,7 +260,7 @@ export function view(db: Database, row: Row, viewer: Viewer, locale: Locale): In
     createdBy: creator, createdAt: row.created_at, updatedAt: row.updated_at, lastUsedAt: row.last_used_at, canManage: manage,
     templateId: row.template_id ?? null,
     // the app's ID and addresses are for whoever manages the connection (a template's app is the admin's)
-    oauthClient: manage && !row.template_id ? clientView(row.oauth_client, row.oauth_client_enc) : null,
+    oauthClient: manage && !row.template_id ? clientView(row.oauth_client, row.oauth_client_enc, row.url) : null,
   }
 }
 

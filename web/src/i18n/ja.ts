@@ -2734,6 +2734,7 @@ export const ja: Record<MessageKey, string> = {
   "integrations.field.scope": "スコープ",
   "integrations.field.scopeHint.mcp": "複数ある場合はスペースで区切ります。空欄の場合、サービスが示すスコープをすべて要求します。",
   "integrations.field.scopeHint.http": "サービスのAPIドキュメントにある名前をスペースで区切って入力します。",
+  "integrations.field.scopeHint.given": "複数ある場合はスペースで区切ります。両方のアドレスを指定しているため、空欄の場合はスコープを要求しません。",
   "integrations.error.clientId": "クライアントIDを入力してください（スペースなし）。",
   "integrations.error.clientSecretAgain": "保存したクライアントシークレットは新しいアドレスには引き継がれません。もう一度入力してください。",
   "integrations.error.scope": "スコープは1行、2,000文字までです。",

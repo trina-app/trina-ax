@@ -17314,9 +17314,10 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
   see the secret, and the API shows them nothing of the app (no field in `MyIntegrationTemplate`, null on their
   connection, refused on their patch; the client ID and scopes are in the sign-in address, as with any OAuth app). Requests to one
   member stay without an app (a third place for a secret, for a case a template covers).
-- **A sign-in belongs to its app:** another client ID, secret, address or scope drops the sign-in and revokes it, like
-  a new address; on a template it deletes the members' connections (they are told to connect again). The same app sent
-  again (no secret, or the same secret retyped) changes nothing.
+- **A sign-in belongs to its app:** another client ID, secret, address or scope drops the sign-in, like a new address,
+  and revokes it where the sign-in has a revocation address (found addresses may name one; given addresses have none,
+  so there the tokens are only dropped here); on a template it deletes the members' connections (they are told to
+  connect again). The same app sent again (no secret, or the same secret retyped) keeps the sign-in.
 - **A stored secret only goes where it went before** (review 1, must-fix): a change without the secret keeps it only
   with the same client ID, the same sign-in and token addresses and, for an app whose addresses are found, the same
   server address (`service.ts appAfter`, shared by connections and templates); else it goes. Before the fix, a second
@@ -17331,6 +17332,26 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
   revocation address only on the token address's own server. The found address is written only onto the app as it was
   read for that sign-in (compare-and-set on `oauth_client` and `oauth_client_enc`). A template's member whose server
   moved its token address is told to ask the admin.
+- **Review 3** (after the merge, fixed forward in `fix/oauth-own-client-secret-rules`):
+  - A stored secret also stays only with the **same service address**, for given addresses too (should-fix): before, a
+    second admin who never saw the secret could point a template whose app has given addresses at another host; the
+    members signed in at the real consent screen for the team's app and their tokens then went to that host. One rule
+    for templates, team connections (the same two-admin case) and personal ones (one rule, and the dialog's
+    `storedSecretStays` follows it): moving a member's own connection asks for its secret again.
+  - **The same secret entered again forgets the found token address** (should-fix), as the refusal `appTokenMoved`
+    tells the admin to do; before, it kept the address and the next sign-in was refused again. The sign-in made with
+    that app stays (the app did not change).
+  - **The token address is remembered once a sign-in worked**, in the callback after the code was exchanged, not when
+    a sign-in starts: one never finished decided where the secret could go. The callback refuses a sign-in whose app
+    remembers another address meanwhile (two sign-ins started before either finished), before the code is exchanged.
+  - **A template's member signs in only while it is for them**, checked at the start and in the callback: until the
+    next list swept the connection, someone moved out of the template's group could still sign in through the app.
+  - **`iss` with given addresses** must be on the sign-in address's server (origin; an issuer may have a path).
+  - **The secret is bound to its service address** (`boundUrl` in `oauth_client`): migration 338 keeps reader level 1,
+    so an older build can change a connection's or template's address without dropping the secret; a secret entered
+    for another address is then not used and the next save drops it (`store.ts secretHere`). A column or a higher
+    reader level would cost a migration or block rolling back for this one case.
+  - The scope hint for an MCP server with both addresses given says an empty scope asks for none.
 - **Members of a template see "ask your admin"** when the service registers no apps (`oauth_no_registration_member`);
   people who can set an app see the own-app hint (`oauth_no_registration`); `oauth_unsupported` keeps its old words for
   a server with no usable sign-in at all.

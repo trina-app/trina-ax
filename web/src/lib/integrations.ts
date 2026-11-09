@@ -118,12 +118,12 @@ export function withKind(f: IntegrationForm, kind: IntegrationKind): Integration
 /** sign-in goes through your own app: an API always, an MCP server when chosen */
 export const usesApp = (f: Pick<IntegrationForm, 'method' | 'kind' | 'ownApp'>) => f.method === 'oauth' && (f.kind === 'http' || f.ownApp)
 
-/** The stored client secret stays with this form (the server's rule, service.ts appAfter): the same client ID and
- * addresses and, for an app whose addresses are found from the server, the same server address (`storedUrl`). Else it
- * goes, and a secret has to be typed again. */
+/** The stored client secret stays with this form (the server's rule, service.ts appAfter): the same client ID, the
+ * same sign-in and token addresses and the same service address (`storedUrl`), also when the app's addresses are given.
+ * Else it goes, and a secret has to be typed again. */
 export function storedSecretStays(f: IntegrationForm, stored: OAuthClientView | null | undefined, storedUrl?: string): boolean {
   return !!stored?.hasSecret && stored.clientId === f.clientId.trim() && (stored.authorizationUrl ?? '') === f.authUrl.trim()
-    && (stored.tokenUrl ?? '') === f.tokenUrl.trim() && (!!f.tokenUrl.trim() || storedUrl === undefined || f.url.trim() === storedUrl)
+    && (stored.tokenUrl ?? '') === f.tokenUrl.trim() && (storedUrl === undefined || f.url.trim() === storedUrl)
 }
 const typedClientSecret = (f: IntegrationForm, stored?: OAuthClientView | null, storedUrl?: string) =>
   usesApp(f) && f.clientSecret.trim() && (!storedSecretStays(f, stored, storedUrl) || f.clientSecretAction === 'replace') ? f.clientSecret.trim() : undefined

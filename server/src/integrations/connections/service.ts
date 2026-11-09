@@ -18,9 +18,9 @@ import { checkHostName, isLocalAddress, isPublicAddress } from '../../tools/web-
 import { secretHider } from './hide'
 import { MCP_LIST_TIMEOUT_MS, McpClient, McpError } from './mcp'
 import { NetError, serviceRequest, TIMEOUT_MS, type NetOptions, type NetResponse } from './net'
-import { authorizationUrl, canonicalResource, discover, GrantError, manualServer, ownClient, register, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens, type OwnClient } from './oauth'
+import { authorizationUrl, canonicalResource, discover, GrantError, issuerMatches, manualServer, ownClient, register, revoke, tokenRequest, type OAuthClient, type OAuthSecret, type OAuthServer, type OAuthTokens, type OwnClient } from './oauth'
 import {
-  accessOf, activeUser, clientAad, clientInfo, connectionAad, disabledTools, flowAad, getRow, isAdmin, MAX_DISABLED_TOOLS, mayUse, requestSignedIn, savedTools, SecretBox, selectRows, setAccess, StoreError, templateClientAad, toolListsOf, usable, view,
+  accessOf, activeUser, clientAad, clientInfo, connectionAad, disabledTools, flowAad, getRow, isAdmin, MAX_DISABLED_TOOLS, mayUse, requestSignedIn, savedTools, SecretBox, secretHere, selectRows, setAccess, StoreError, templateClientAad, templateCovers, toolListsOf, usable, view,
   type ClientInfo, type FlowRow, type Row, type Viewer,
 } from './store'
 import { say, type Reason, type TextKey } from './text'
@@ -41,7 +41,9 @@ const RESERVED_HEADERS = new Set(['host', 'content-length', 'content-type', 'tra
 
 type KeySecret = { type: 'key'; key: string }
 type Secret = KeySecret | OAuthSecret
-interface FlowSecret { verifier: string; server: OAuthServer; client: OAuthClient; resource: string | null; scope: string | null }
+/** pinOnto: the own app as read when the sign-in started, when it has a client secret, finds its addresses and has no
+ * token address remembered yet: the one this sign-in uses is remembered onto it once the sign-in worked (pinFound) */
+interface FlowSecret { verifier: string; server: OAuthServer; client: OAuthClient; resource: string | null; scope: string | null; pinOnto?: { json: string; enc: string | null } | null }
 /** an own app's client secret as sealed (clientAad, templateClientAad) */
 export interface SealedClientSecret { clientSecret: string }
 
@@ -193,8 +195,7 @@ export class Integrations {
     const owner = scope === 'personal' ? viewer.id : null
     const slug = this.freeSlug(scope, owner, input.slug ?? null, input.name, input.kind, L)
     if (input.access) this.checkAccess(input.access, L)
-    const owner0 = scope === 'personal' ? viewer.id : null
-    const app = input.oauthClient ? this.appAfter(clientAad({ id, scope, owner_user_id: owner0 }), { json: null, enc: null, keyVersion: 1 }, input.kind, input.auth, input.oauthClient, false, L) : null
+    const app = input.oauthClient ? this.appAfter(clientAad({ id, scope, owner_user_id: owner }), { json: null, enc: null, keyVersion: 1 }, input.kind, input.auth, input.oauthClient, { before: url, after: url }, L) : null
     const now = iso(this.now())
     const row: Row = {
       id, scope, owner_user_id: owner, created_by: viewer.id, kind: input.kind, name: oneLine(input.name), slug, url, auth: input.auth, auth_header: authHeader,
@@ -245,7 +246,7 @@ export class Integrations {
     if (patch.auth !== undefined && patch.auth !== row.auth) { next.auth = patch.auth; changed.push('auth') }
     // the own app: a new one (another ID, secret, address or scope) is a new way in, like a new address
     if (!row.template_id) {
-      const app = this.appAfter(clientAad(row), { json: row.oauth_client ?? null, enc: row.oauth_client_enc ?? null, keyVersion: row.oauth_client_key_version ?? 1 }, next.kind, next.auth, patch.oauthClient, next.url !== row.url, L)
+      const app = this.appAfter(clientAad(row), { json: row.oauth_client ?? null, enc: row.oauth_client_enc ?? null, keyVersion: row.oauth_client_key_version ?? 1 }, next.kind, next.auth, patch.oauthClient, { before: row.url, after: next.url }, L)
       if (app.changed) changed.push('oauthClient')
       next.oauth_client = app.json; next.oauth_client_enc = app.enc; next.oauth_client_key_version = app.keyVersion
     }
@@ -404,51 +405,66 @@ export class Integrations {
   /** The own app after a change (a connection's, or a template's: templates.ts). `input` undefined keeps it, null
    * removes it, an app replaces it. It goes with sign-in (another way in has no app), and an HTTP API's sign-in needs one.
    * The secret is write-only, and a stored one only ever goes where it went before (docs/INTEGRATIONS.md "Secrets": a key
-   * is never sent anywhere else): it stays only with the same client ID and the same addresses and, for an app whose
-   * addresses are found from the server, the same server address (`moved`); otherwise it goes unless a new one comes.
+   * is never sent anywhere else): it stays only with the same client ID, the same sign-in and token addresses and the
+   * same service address (`url` before and after the change), also when the app's addresses are given: the people who
+   * sign in through the app send their tokens to the service address, and whoever typed the secret chose that one
+   * (review 3: a second admin moved a template elsewhere and kept the first admin's app). Otherwise it goes unless a new
+   * one comes. A secret kept or entered is bound to the service address (boundUrl, store.ts secretHere).
    * `changed`: another ID, secret, address or scope (a sign-in made with the old app is dropped). A change that leaves
    * the secret where it was never opens it (a key folder that cannot be read must not cost the secret, or a template's
    * members their connections, on a rename); it is opened only to compare a secret typed again. The token address a
-   * sign-in found (pinFound) stays while the place and the secret do, also when only the scope changes. */
-  appAfter(aad: string, prev: { json: string | null; enc: string | null; keyVersion: number }, kind: IntegrationKind, auth: Row['auth'], input: OAuthClientInput | null | undefined, moved: boolean, L: Locale) {
+   * sign-in found (pinFound) stays while the place and the secret do, also when only the scope changes; a secret entered
+   * with the app, the same one too, forgets it (what appTokenMoved asks the admin to do when the server moved it). */
+  appAfter(aad: string, prev: { json: string | null; enc: string | null; keyVersion: number }, kind: IntegrationKind, auth: Row['auth'], input: OAuthClientInput | null | undefined, url: { before: string; after: string }, L: Locale) {
     const was = clientInfo(prev.json)
     if (input && auth !== 'oauth') fieldError(L, 'oauthClient', 'appNeedsOauth')
     const app = auth !== 'oauth' || input === null ? null : input ? appFrom(kind, input, L) : was
     let out = { json: null as string | null, enc: null as string | null, keyVersion: 1, changed: !!was || !!prev.enc }
     if (app) {
-      const samePlace = !!was && was.clientId === app.clientId && was.authorizationUrl === app.authorizationUrl && was.tokenUrl === app.tokenUrl && (!!app.tokenUrl || !moved)
+      // the stored secret, unless it was entered for another address (an older build moved the connection without it)
+      const kept = secretHere(was, prev.enc, url.before) ? prev.enc : null
+      const samePlace = !!was && was.clientId === app.clientId && was.authorizationUrl === app.authorizationUrl && was.tokenUrl === app.tokenUrl && url.after === url.before
+      const typed = input?.clientSecret
       let sealed: { enc: string; keyVersion: number } | null = null
-      if (input?.clientSecret !== undefined) {
+      if (typed !== undefined) {
         // the same secret typed again keeps its sealed value (when it can be read to compare); another one is sealed anew
-        const old = samePlace && prev.enc ? this.tryOpenClient(aad, prev.enc, prev.keyVersion) : null
-        sealed = old !== null && old === input.clientSecret && prev.enc ? { enc: prev.enc, keyVersion: prev.keyVersion } : this.sealClient(aad, input.clientSecret, L)
-      } else if (samePlace && prev.enc) sealed = { enc: prev.enc, keyVersion: prev.keyVersion }
+        const old = samePlace && kept ? this.tryOpenClient(aad, kept, prev.keyVersion) : null
+        sealed = old !== null && old === typed && kept ? { enc: kept, keyVersion: prev.keyVersion } : this.sealClient(aad, typed, L)
+      } else if (samePlace && kept) sealed = { enc: kept, keyVersion: prev.keyVersion }
       const secretSame = (sealed?.enc ?? null) === prev.enc
       const same = samePlace && was!.scope === app.scope && secretSame
-      const { foundTokenUrl: _found, ...plain } = app
-      const pin = samePlace && secretSame && was!.foundTokenUrl ? { foundTokenUrl: was!.foundTokenUrl } : {}
-      out = { json: same ? prev.json : JSON.stringify({ ...plain, ...pin }), enc: sealed?.enc ?? null, keyVersion: sealed?.keyVersion ?? 1, changed: !same }
+      const { foundTokenUrl: _found, boundUrl: _bound, ...plain } = app
+      const pin = samePlace && secretSame && typed === undefined && was!.foundTokenUrl ? { foundTokenUrl: was!.foundTokenUrl } : {}
+      const json = JSON.stringify({ ...plain, ...pin, ...(sealed ? { boundUrl: url.after } : {}) })
+      // the stored text stays when nothing in it changes (it is a policy column)
+      out = { json: JSON.stringify(clientInfo(json)) === JSON.stringify(was) ? prev.json : json, enc: sealed?.enc ?? null, keyVersion: sealed?.keyVersion ?? 1, changed: !same }
     }
     if (auth === 'oauth' && kind === 'http' && !clientInfo(out.json)?.tokenUrl) fieldError(L, 'oauthClient', 'oauthHttpNeedsApp')
     return out
   }
-  /** The first sign-in through an own app whose addresses are found from the server remembers the token address it
-   * found (with the app: the connection's, or the template's), and a later sign-in that finds another one is refused:
-   * the client secret goes there, so a server that changes where its sign-in is cannot take it elsewhere. A new secret
-   * or another app forgets it (appAfter). */
-  private pinFound(row: Row, app: OwnClient, tokenUrl: string, L: Locale): void {
-    if (!app.clientSecret || app.tokenUrl) return
-    if (app.foundTokenUrl) {
-      // a template's member cannot enter the secret again: their admin can
-      if (app.foundTokenUrl !== tokenUrl) fail('validation', say(row.template_id ? 'appTokenMovedMember' : 'appTokenMoved', L, { host: new URL(tokenUrl).host }))
-      return
-    }
-    // only onto the app as it was read for this sign-in: an admin's change meanwhile (another address or secret) wins
+  /** An own app whose addresses are found from the server sends its client secret only to the token address that the
+   * first sign-in that worked found (pinFound); a sign-in whose server names another one now is refused before anything
+   * is sent there, so a server that changes where its sign-in is cannot take the secret elsewhere. Entering the secret
+   * again forgets the address (appAfter). */
+  private checkPin(row: Row, app: OwnClient, tokenUrl: string, L: Locale): void {
+    // a template's member cannot enter the secret again: their admin can
+    if (app.clientSecret && !app.tokenUrl && app.foundTokenUrl && app.foundTokenUrl !== tokenUrl) fail('validation', say(row.template_id ? 'appTokenMovedMember' : 'appTokenMoved', L, { host: new URL(tokenUrl).host }))
+  }
+  /** Whether the connection's own app (or its template's) remembers another token address than `tokenUrl` now: a sign-in
+   * that worked since this one started found another one (callback). */
+  private pinnedElsewhere(row: Row, tokenUrl: string): boolean {
+    const info = clientInfo(this.appSource(row)?.oauth_client)
+    return !!info && !info.tokenUrl && !!info.foundTokenUrl && info.foundTokenUrl !== tokenUrl
+  }
+  /** After a sign-in that worked, the token address it used is remembered onto the app as it was read when that sign-in
+   * started (`onto`, compare-and-set: an admin's change meanwhile wins, and so does another sign-in that remembered one
+   * first). Never when a sign-in only starts: one that is never finished must not decide where the secret may go. */
+  private pinFound(row: Pick<Row, 'id' | 'template_id'>, onto: { json: string; enc: string | null }, tokenUrl: string): void {
+    const info = clientInfo(onto.json)
+    if (!info || info.foundTokenUrl) return
     const table = row.template_id ? 'integration_templates' : 'integrations', id = row.template_id ?? row.id
-    const info = clientInfo(app.stored.json)
-    if (!info) return
     this.db.query(`UPDATE ${table} SET oauth_client = ? WHERE id = ? AND oauth_client = ? AND oauth_client_enc IS ?`)
-      .run(JSON.stringify({ ...info, foundTokenUrl: tokenUrl }), id, app.stored.json, app.stored.enc)
+      .run(JSON.stringify({ ...info, foundTokenUrl: tokenUrl }), id, onto.json, onto.enc)
   }
   /** an own app's client secret sealed (also a template's, templates.ts) */
   sealClient(aad: string, secret: string, L: Locale) {
@@ -457,17 +473,24 @@ export class Integrations {
   tryOpenClient(aad: string, enc: string, keyVersion: number): string | null {
     try { return this.box.open<SealedClientSecret>(aad, enc, keyVersion).clientSecret ?? null } catch { return null }
   }
-  /** The own app a sign-in uses: the connection's, or for a member's connection made from a template the template's
-   * (the member never sees it). null: none (the service registers the app itself). Throws StoreError when its secret
-   * cannot be read. */
-  appOf(row: Row): OwnClient | null {
-    const src = row.template_id
-      ? this.db.query('SELECT oauth_client, oauth_client_enc, oauth_client_key_version FROM integration_templates WHERE id = ?').get(row.template_id) as Pick<Row, 'oauth_client' | 'oauth_client_enc' | 'oauth_client_key_version'> | null
+  /** where a connection's own app is stored: the connection, or for one made from a template the template (with its
+   * address) */
+  private appSource(row: Row): Pick<Row, 'url' | 'oauth_client' | 'oauth_client_enc' | 'oauth_client_key_version'> | null {
+    return row.template_id
+      ? this.db.query('SELECT url, oauth_client, oauth_client_enc, oauth_client_key_version FROM integration_templates WHERE id = ?').get(row.template_id) as Pick<Row, 'url' | 'oauth_client' | 'oauth_client_enc' | 'oauth_client_key_version'> | null
       : row
+  }
+  /** The own app a sign-in uses: the connection's, or for a member's connection made from a template the template's
+   * (the member never sees it). null: none (the service registers the app itself). Its secret only at the address it was
+   * entered for (store.ts secretHere; a member's connection at the template's address): else none is sent. Throws
+   * StoreError when its secret cannot be read. */
+  appOf(row: Row): OwnClient | null {
+    const src = this.appSource(row)
     const info = clientInfo(src?.oauth_client)
     if (!src || !info) return null
     const aad = row.template_id ? templateClientAad(row.template_id) : clientAad(row)
-    const clientSecret = src.oauth_client_enc ? this.box.open<SealedClientSecret>(aad, src.oauth_client_enc, src.oauth_client_key_version ?? 1).clientSecret : null
+    const here = secretHere(info, src.oauth_client_enc, src.url) && row.url === src.url
+    const clientSecret = here ? this.box.open<SealedClientSecret>(aad, src.oauth_client_enc!, src.oauth_client_key_version ?? 1).clientSecret : null
     return { ...info, foundTokenUrl: info.foundTokenUrl ?? null, clientSecret, stored: { json: src.oauth_client!, enc: src.oauth_client_enc ?? null } }
   }
 
@@ -744,6 +767,9 @@ export class Integrations {
     const L = locale
     const row = this.manageable(viewer, id)
     if (row.auth !== 'oauth') fail('validation', say('notOauth', L))
+    // made from a template: only while the template is for this member (the next sweep removes the connection; until
+    // then the team's app is not theirs to sign in through either)
+    if (row.template_id && !templateCovers(this.db, row.template_id, viewer.id)) fail('not_found', say('templateNotForYou', L))
     this.liveSession(viewer.id, session)
     this.sweep()
     const n = (this.db.query('SELECT count(*) AS n FROM integration_oauth_flows WHERE user_id=? AND created_at>?').get(viewer.id, iso(this.now() - 3600_000)) as { n: number }).n
@@ -770,8 +796,8 @@ export class Integrations {
         // an own app asks for its scopes when it names them (Google's servers list every scope they know)
         setup = app?.scope ? { ...found, scope: app.scope } : found
       }
-      // the client secret goes to this token address: the one found the first time, or the sign-in is refused
-      if (app && !app.tokenUrl) this.pinFound(row, app, setup.server.tokenEndpoint, L)
+      // the client secret goes to this token address: the one a sign-in that worked found before, or none
+      if (app) this.checkPin(row, app, setup.server.tokenEndpoint, L)
       // a registered app is used again for the same server; an own app is always the one set now
       const old = row.secret_enc ? this.tryOpen(row) : null
       client = app ? ownClient(app, redirectUri, setup.authMethods)
@@ -788,7 +814,9 @@ export class Integrations {
       return fail('validation', say(reason as Reason, L, { status: e instanceof NetError ? e.status ?? '?' : '?' }))
     }
     const flowId = newId(), state = crypto.randomBytes(32).toString('base64url'), verifier = crypto.randomBytes(48).toString('base64url')
-    const secret: FlowSecret = { verifier, server: setup.server, client, resource: setup.resource, scope: setup.scope }
+    // no token address remembered yet: this one is, once this sign-in worked (callback)
+    const pinOnto = app?.clientSecret && !app.tokenUrl && !app.foundTokenUrl ? app.stored : null
+    const secret: FlowSecret = { verifier, server: setup.server, client, resource: setup.resource, scope: setup.scope, pinOnto }
     let sealed
     try { sealed = this.box.seal(flowAad({ id: flowId, user_id: viewer.id }), secret) } catch { return fail('unavailable', say('key_unsafe', L)) }
     const expiresAt = iso(this.now() + FLOW_TTL)
@@ -824,17 +852,23 @@ export class Integrations {
       if (q.error) return failed('denied')
       if (!q.code || q.code.length > 4096) return failed('invalid')
       const s = this.box.open<FlowSecret>(flowAad(f), f.secret_enc, f.key_version)
-      // RFC 9207: an "iss" in the answer must be the server we started at (known when its addresses were found)
-      if (q.iss && s.server.issuer && q.iss.replace(/\/+$/, '') !== s.server.issuer) return failed('invalid')
+      // RFC 9207: an "iss" in the answer must name the server we started at: the one found, or the given sign-in
+      // address's (oauth.ts issuerMatches)
+      if (q.iss && !issuerMatches(q.iss, s.server)) return failed('invalid')
       const row = getRow(this.db, f.integration_id)
       const viewer = activeUser(this.db, f.user_id)
       if (!row || !viewer || row.version !== f.integration_version || row.auth !== 'oauth') return failed('changed')
       if (row.scope === 'personal' ? row.owner_user_id !== viewer.id : !isAdmin(viewer.role)) return failed('changed')
+      // made from a template: still for this member (authorize checked when the sign-in started)
+      const covered = (r: Row) => !r.template_id || templateCovers(this.db, r.template_id, viewer.id)
+      if (!covered(row)) return failed('changed')
+      // a sign-in that worked meanwhile remembered another token address for the app: the client secret does not go here
+      if (s.client.clientSecret && this.pinnedElsewhere(row, s.server.tokenEndpoint)) return failed('changed')
       let tokens: OAuthTokens
       try { tokens = await tokenRequest(s, { grant_type: 'authorization_code', code: q.code, redirect_uri: s.client.redirectUri, code_verifier: s.verifier, ...(s.resource ? { resource: s.resource } : {}) }, this.net, this.now()) }
       catch { return failed('exchange') }
       const cur = getRow(this.db, row.id)
-      if (!cur || cur.version !== row.version) return failed('changed')
+      if (!cur || cur.version !== row.version || !covered(cur)) return failed('changed')
       const sealed = this.box.seal(connectionAad(cur), { type: 'oauth', server: s.server, client: s.client, resource: s.resource, scope: s.scope, tokens } satisfies OAuthSecret)
       const old = cur.secret_enc ? this.tryOpen(cur) : null
       this.db.transaction(() => {
@@ -844,6 +878,8 @@ export class Integrations {
         // whose sign-in a team connection serves on (팀장 넘기기 reads it; a personal one is its owner's anyway), only when
         // these tokens are the ones stored now
         if (stored && cur.scope === 'team') this.db.query("INSERT INTO team_sign_ins (kind, target_id, user_id, at) VALUES ('team_connection', ?, ?, ?) ON CONFLICT(kind, target_id) DO UPDATE SET user_id = excluded.user_id, at = excluded.at").run(cur.id, viewer.id, iso(this.now()))
+        // the sign-in worked: its token address is where the app's secret may go from now on
+        if (stored && s.pinOnto) this.pinFound(cur, s.pinOnto, s.server.tokenEndpoint)
       })()
       this.dropClient(cur.id)
       audit(this.db, { actor: viewer.id, action: 'integration.update', target: cur.id, detail: { ...auditDetail(cur), changed: ['signIn'], secret: 'replaced' } })

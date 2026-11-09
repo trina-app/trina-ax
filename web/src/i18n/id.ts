@@ -2774,6 +2774,7 @@ export const id: Record<MessageKey, string> = {
   "integrations.field.scope": "Cakupan (scope)",
   "integrations.field.scopeHint.mcp": "Pisahkan beberapa dengan spasi. Bila kosong, semua cakupan yang dicantumkan layanan akan diminta.",
   "integrations.field.scopeHint.http": "Nama dari dokumentasi API layanan, dipisahkan spasi.",
+  "integrations.field.scopeHint.given": "Pisahkan beberapa dengan spasi. Kedua alamat diisi, jadi tidak ada yang dicari: bila kosong, tidak ada cakupan yang diminta.",
   "integrations.error.clientId": "Masukkan client ID (tanpa spasi).",
   "integrations.error.clientSecretAgain": "Client secret yang tersimpan tidak ikut ke alamat baru. Masukkan lagi.",
   "integrations.error.scope": "Cakupan berupa satu baris, paling banyak 2.000 karakter.",
