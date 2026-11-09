@@ -10,6 +10,7 @@
 //     ?batch= opens 검토;
 //   - the Inbox line of a batch ("Bob Lee 님이 스킬 2개를 팀에 올리자고 했어요 · 확인") and the saved skill's "님이 제안".
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
+import { act } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { ContributedSkills, InboxNotification, ResultSuggestion as Suggestion, SkillSuggestion } from '@mycel/shared/api'
@@ -419,6 +420,27 @@ describe('Skills › 검토', () => {
         targetFolder: 'skills', name: 'quote-maker-2', description: review[0]!.description, content: review[0]!.content,
       })
     } finally { await m.unmount() }
+  })
+
+  test('suggestions waiting: /skills lands on 검토, but 스킬 넣기\'s /skills?catalog=open stays on the skills', async () => {
+    signIn('owner')
+    review = [folderSuggestion('weekly-report')]
+    const selected = async (url: string) => {
+      const m = await mount(
+        <MemoryRouter initialEntries={[url]}>
+          <Routes><Route path="/skills" element={<Skills />} /></Routes>
+        </MemoryRouter>,
+      )
+      try {
+        const body = m.container.ownerDocument!.body
+        await m.until(() => body.querySelector('[role="tab"]'), 'the tabs')
+        // the overview's landing runs once the overview is in; give it its turn
+        await act(async () => { await new Promise((r) => setTimeout(r, 20)) })
+        return body.querySelector('[role="tab"][aria-selected="true"]')!.id
+      } finally { await m.unmount() }
+    }
+    expect(await selected('/skills')).toEndWith('-tab-review')
+    expect(await selected('/skills?catalog=open')).toEndWith('-tab-skills')
   })
 })
 

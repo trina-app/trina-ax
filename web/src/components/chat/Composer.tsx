@@ -388,8 +388,9 @@ export default function Composer({
 
   const uploading = files.some((f) => f.status === 'uploading')
   const ready = files.filter((f) => f.status === 'done')
-  // the request alone, nothing of the person's own after it yet (a file attached is their text: it can go)
-  const waiting = !!waitsFor && !answering && !files.length && text.trim() === waitsFor.text.trim()
+  // the request alone, nothing of the person's own after it yet (a file attached is their text: it can go, but not one
+  // whose upload failed, which is not sent)
+  const waiting = !!waitsFor && !answering && !ready.length && text.trim() === waitsFor.text.trim()
   // also while an answer runs: the chat keeps the message waiting and sends it when the answer is done. An answer to
   // the AI's question is the text alone (an upload in progress does not hold it up).
   const canSend = answering

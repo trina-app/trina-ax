@@ -16360,6 +16360,11 @@ A walk through a real build of onboarding v6 ("W6", "W6.3") before the beta foun
   (typing and pasting after the fill, send off until then, the folder by its name, the ready question, the phone's 써
   보기, the open catalog, the empty team's goal card), `states.spec.ts`, `onb6-skills.spec.ts`, `team-skills.spec.ts` (the
   member's empty 팀 스킬 without "skills/").
+- **Independent review (2026-11-09) fixes.** `/skills?catalog=open` landed on 검토 when suggestions were waiting (the
+  managers' landing ran anyway); a link that opens the catalog now keeps the skills tab, like `?mine=`
+  (`member-contribute.test.tsx`). A failed attachment no longer lifts the wait for the person's own text: only a file
+  that uploaded counts, as only those are sent. Left for later: the write-access retry in a chat still names the
+  member's folder by its path (`files.summary.askOwnFolderPrompt`), which the AI needs to save in the right place.
 - Version impact: **patch** (fixes and copy; no API or data change).
 
 ## One image viewer — a picture opens over the whole window, like Slack (feat/image-viewer, 2026-11-09)

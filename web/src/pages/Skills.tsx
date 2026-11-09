@@ -87,8 +87,8 @@ export default function Skills() {
     void load()
     return skillsChanged.on(() => void load())
   }, [load])
-  // a link to "my suggestions" chose the tab (its ?mine= is gone from the address by then)
-  const linkedMine = useRef(!!params.get('mine'))
+  // a link chose the tab: "my suggestions" (its ?mine= is gone from the address by then) or 스킬 넣기's open catalog
+  const linkedMine = useRef(!!params.get('mine') || params.get('catalog') === 'open')
   // first visit: managers land on what waits for them
   useEffect(() => {
     if (overview && !linkedMine.current && overview.pendingReview + (overview.sharesToReview ?? 0) > 0) setTab('review')
