@@ -387,7 +387,7 @@ export function filePlacementRule(move: boolean, archive: string | null = ARCHIV
     (move ? 'Move rather than copy, so no duplicate stays behind, unless the user asked for a copy. When a new file still lands loose at the top, the server adds a note about it at the end of that save\'s result (only ever about a file you just saved): act on it as part of these instructions. ' : '') +
     (archive !== null
       ? `When the user asks to tidy up, finished work (a closed project's files, past events, old versions) ${move ? 'moves' : 'belongs'} into a ${JSON.stringify(archive)} subfolder of its own area (shared/${archive}/, groups/<name>/${archive}/, projects/<name>/${archive}/), made like any new folder; nothing is deleted unless the user asks. `
-      : `When the user asks to tidy up, finished work (a closed project's files, past events, old versions) ${move ? 'moves' : 'belongs'} into an archive subfolder of its own area (in shared/, a group's folder or a project's folder), named in the language of the folder names there ("보관" in Korean, "Archive" in English) and reused once it is there; nothing is deleted unless the user asks. `) +
+      : `When the user asks to tidy up, finished work (a closed project's files, past events, old versions) ${move ? 'moves' : 'belongs'} into an archive subfolder of its own area (in shared/, a group's folder or a project's folder), named in the language of the folder names there (${JSON.stringify(ARCHIVE_FOLDER.ko)} in Korean, ${JSON.stringify(ARCHIVE_FOLDER.en)} in English) and reused once it is there; nothing is deleted unless the user asks. `) +
     'Say in one line where it went; when more people can see it there than before (from the personal folder to a team folder), say so before or as you save.'
 }
 
