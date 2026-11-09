@@ -528,6 +528,8 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
   const threads = threadsUnread(db, room.id, viewer)
   const last = lastMessage(db, room.id, viewer)
   const since = viewer.joined_at > room.created_at ? viewer.joined_at : room.created_at
+  // the viewer's own pin: each member's copy of the room carries theirs only
+  const pinned = pinnedAt(db, room.id, viewer.user_id)
   return {
     id: room.id, kind: room.kind, name, canRename: mayRename(db, room, viewer.user_id), managerId: managerOf(db, room), groupId: room.kind === 'team' ? room.group_id : null, memberCount,
     peers,
@@ -537,7 +539,13 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
     activityAt: last && last.createdAt > since ? last.createdAt : since,
     ...(aiWaiting.get(db)?.(room.id, viewer.user_id) ? { aiWaits: true as const } : {}),
     ...(viewer.hidden_at ? { hidden: true as const } : {}),
+    ...(pinned ? { pinnedAt: pinned } : {}),
   }
+}
+
+/** When `userId` pinned the room to the top of their 대화 list (docs/DECISIONS.md "Pinned conversations"), or null. */
+export function pinnedAt(db: Database, roomId: string, userId: string): string | null {
+  return (db.query('SELECT pinned_at FROM room_pins WHERE user_id = ? AND room_id = ?').get(userId, roomId) as { pinned_at: string } | null)?.pinned_at ?? null
 }
 
 /** Can a member hide this kind of room (docs/DECISIONS.md "대화 숨기기"): a DM, a team room, the everyone room. A group

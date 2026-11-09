@@ -7,6 +7,8 @@
 // Each row has the room's "⋯" (components/rooms/RoomMenu.tsx) on hover or keyboard focus and with a right-click; on a
 // phone a long press opens it as a sheet. Rooms I hid (docs/DECISIONS.md "대화 숨기기") are not in the list: a quiet
 // "숨긴 대화 N" at its end opens them, each with 다시 보이기 (opening one shows it again too).
+// Rooms I pinned (docs/DECISIONS.md "Pinned conversations") come right after the AI's row, all of them, the most
+// recently pinned first, with the sidebar's pin after the name; then the others by latest activity.
 import clsx from 'clsx'
 import { BellOff, ChevronDown, Plus } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
@@ -15,7 +17,7 @@ import { PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI, type Room } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { listTime } from '../lib/format'
-import { plainLine, roomUnread } from '../lib/rooms'
+import { pinnedFirst, plainLine, roomUnread } from '../lib/rooms'
 import { useLocale, useT } from '../i18n'
 import { useRooms } from '../store/rooms'
 import { toast } from '../store/ui'
@@ -23,7 +25,7 @@ import { useMe } from '../store/session'
 import { AiFace } from '../components/rooms/AiFace'
 import { PeoplePicker } from '../components/rooms/PeoplePicker'
 import { RoomIcon, useRoomTitle } from '../components/rooms/RoomIcon'
-import { ROW_MENU_BUTTON, ROW_MENU_SHOWN, UnreadBadge } from '../components/rooms/SidebarRooms'
+import { ROW_MENU_BUTTON, ROW_MENU_SHOWN, RoomPinIcon, UnreadBadge } from '../components/rooms/SidebarRooms'
 import { RoomMenu, useRowMenu } from '../components/rooms/RoomMenu'
 import { Button, ErrorNote, PageHeader, Skeleton } from '../components/ui'
 import { useNameOf } from '../store/people'
@@ -46,7 +48,7 @@ export default function Rooms() {
   const setPicking = (on: boolean) => setParams(on ? { new: '1' } : {}, { replace: true })
   const row = 'flex items-center gap-3 px-4 py-3 hover:bg-hover sm:px-6'
   if (resuming) return <div className="h-full" />
-  const rooms = everyRoom.filter((r) => !r.hidden)
+  const rooms = pinnedFirst(everyRoom.filter((r) => !r.hidden))
   const hidden = everyRoom.filter((r) => r.hidden)
   return (
     <div className="flex h-full flex-col overflow-y-auto" data-testid="rooms-page">
@@ -169,6 +171,7 @@ function RoomListRow({ room, className }: { room: Room; className: string }) {
               <span className="sr-only">{t('rooms.muted')}</span>
             </>
           )}
+          <RoomPinIcon room={room} />
           {m && <span className={clsx('ml-auto shrink-0 pl-2 text-xs text-faint', ROW_MENU_SHOWN)}>{listTime(m.createdAt, locale, t('sidebar.yesterday'))}</span>}
         </span>
         <span className="flex min-w-0 items-center gap-2">

@@ -225,6 +225,13 @@ export function totalUnread(rooms: (Pick<Room, 'unreadCount' | 'muted'> & Partia
 export const shownInLists = <R extends Pick<Room, 'id'> & Partial<Pick<Room, 'hidden'>>>(rooms: R[], openId: string | null = null): R[] =>
   rooms.filter((r) => !r.hidden || r.id === openId)
 
+type Pinnable = Pick<Room, 'id'> & Partial<Pick<Room, 'pinnedAt'>>
+/** My pinned rooms (docs/DECISIONS.md "Pinned conversations"), the most recently pinned first. */
+export const pinnedRooms = <R extends Pinnable>(rooms: R[]): R[] => rooms.filter((r) => r.pinnedAt).sort((a, b) => b.pinnedAt!.localeCompare(a.pinnedAt!) || b.id.localeCompare(a.id))
+/** A list as the 대화 lists show it: my pinned rooms first (the most recently pinned first), then the others in the
+ * order they came (by latest activity). */
+export const pinnedFirst = <R extends Pinnable>(rooms: R[]): R[] => [...pinnedRooms(rooms), ...rooms.filter((r) => !r.pinnedAt)]
+
 /** A room's one badge: "?" while its AI waits on me (docs/DECISIONS.md "Session markers"), else "@" when one of the
  * unread messages (or followed replies) mentions me (the count would read as a count of mentions), else the count. */
 export const roomBadge = (r: Pick<Room, 'unreadCount' | 'mentioned'> & Partial<Pick<Room, 'threadsUnread' | 'aiWaits'>>) => (r.aiWaits ? '?' : r.mentioned ? '@' : badgeText(roomUnread(r)))

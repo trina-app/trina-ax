@@ -16441,3 +16441,64 @@ owner: not remembered.
   there, Esc before the selection, Show in Files; an answer that ends behind a big panel leaves the message box whole;
   the image viewer over a big panel and Esc's order; no button at 390 px).
 - Version impact: **minor** (a visible UX addition; no API or data change).
+
+## Pinned conversations — 상단에 고정 in 대화 (feat/pin-rooms, 2026-11-09, product owner)
+
+넣을 곳: trina-ax core (`server/src/rooms/service.ts`, `server/src/rooms/store.ts`, migration 278,
+`shared/src/api/rooms.ts`, `web/src/components/rooms/RoomMenu.tsx`, `SidebarRooms.tsx`, `web/src/pages/Rooms.tsx`), 이유:
+rooms and their lists are core. Plan: `docs/AGENTS/plan/20261109-0931-pin-rooms.md`.
+
+The owner, after "Pinned chats" above: the same for the team chat list. A room, DM or group chat in the sidebar's
+**대화** and on /rooms gets **상단에 고정** / **고정 해제**, and pinned conversations stay at the top. It follows the chat
+pins wherever a room allows it.
+
+- **A pin is the person's own.** One row per person and room, `room_pins(user_id, room_id, pinned_at)` (migration 278),
+  not a column on `room_members`, as `chat_pins` is its own table. `Room.pinnedAt` is worked out per member in
+  `roomOut`, so every `room.updated` a room's members get (a rename, a member change) carries each one's own pin, and
+  nobody else hears of a pin or an unpin. Not audited, as hiding is not.
+- **Who may pin.** A member of the room (`Rooms.mine`; 404 otherwise, the owner and admins included, as every room
+  route). Pinning changes nothing about who sees it. Pinned again: kept as it was (its place does not move); unpinned
+  when not pinned: no change and nothing sent. At most 50 pins, the same as chats (409 `room_pins_full`, "상단에 고정은
+  50개까지 할 수 있어요. 고정한 대화 하나를 해제한 뒤 다시 해 주세요."); only pins of rooms the person is still in count.
+- **Hidden rooms: hiding unpins.** Of the two choices (pinning shows a hidden room again, or hiding unpins it), hiding
+  unpins: a person who hides a conversation wants it out of the way, and it should not come back at the top when a
+  new message brings it back. So a room is never pinned and hidden at once: `setHidden` drops the pin in the same
+  transaction, a hidden room's "⋯" has no 상단에 고정 (다시 보이기 is there), and the server refuses to pin one (409
+  `room_hidden`, "숨긴 대화는 고정할 수 없어요. 다시 보이게 한 뒤 고정해 주세요."; only an older window or a script can
+  ask). The hide's toast 실행 취소 shows it again and pins it again when it was pinned (as the newest pin). A group chat
+  is never hidden (it is left).
+- **What takes a pin away.** Leaving or being taken out of a group chat, leaving a team room's group, a disabled or
+  deleted account leaving its rooms: all of them run `Rooms.forgetMember`, which now drops `room_pins` with the other
+  rows of the member. A room that goes: an archived room has no members left (the last one out, a deleted group's team
+  room), and the room's row going cascades. A deleted person: their DMs keep their member row (a DM keeps its two), so
+  `deleteUser` drops their pins in its transaction, as it drops their chat pins. In a room, seeing it is being a member,
+  so "can no longer see it" is one of the above; a pin that outlives its member row (a database an older build left)
+  never shows (the list reads members' rooms only) and does not count.
+- **The order (the app's, not the server's).** `GET /api/rooms` stays by latest activity (it is not paged, so the pins
+  need no first page of their own, and older apps see the same list); `pinnedAt` rides along. The app's lists put my
+  pins first, the most recently pinned first, then the rest by activity (`lib/rooms.ts` `pinnedFirst`). The sidebar's
+  대화 (lean, as the chat pins): at most ten pins, then the five latest of the others, and the room on screen wherever it
+  is (`sidebarRows`); "더 보기 (N)" holds the rest and counts what is unread there as before. /rooms (모든 대화) and the
+  phone's 대화 tab (the same page): the 트리나 row stays the very first row (computers), then every pin, then the
+  others. Hidden rooms stay under "숨긴 대화" (never pinned). Other room lists (⌘K, the room picker, the AI's room
+  list) keep their order.
+- **The look.** No header: the chat pins' 12 px pin, named 고정됨 for screen readers, after the name (room rows start with
+  the room's picture, so a pin before the name would push the pinned names out of line with the others), beside the
+  muted bell; in the sidebar it gives way to the "⋯" on hover like the bell. Unread pills, the "?" and presence dots
+  are unchanged.
+- **The menu.** 상단에 고정 / 고정 해제 is the first item of the room's "⋯" (`RoomMenu`), as on the AI chats' rows, with the
+  pin and pin-off icons and the chat pins' words (`chat.pin`, `chat.unpin`, `chat.pinned`). It is the one menu of every
+  row (hover, keyboard, right-click, long press and the phone's sheet) and of the room's header, so the header has it
+  too (no change to `Room.tsx`).
+- **Live.** A pin or unpin answers the room and sends `room.updated` ('updated') to the person's own windows only; hiding
+  sends the one it sent before, now without the pin.
+- Tests: `tests/unit/b-rooms-pins.test.ts` (pin and unpin of every kind, idempotent, my windows only, each member's
+  copy with their own pin; the order of pins; members only; leaving, removal, a group change and a disabled account
+  take it; a deleted group's room, the last one out and the row's cascade; a deleted person; hiding unpins, a hidden
+  room is refused and a new message brings it back unpinned; the cap and pins that do not count), the security
+  permission matrix (`pinRoom` / `unpinRoom`: the DM's two people only), `web/test/unit/room-pins.test.tsx` (the order
+  and the caps, the rows and their pin on the sidebar and the conversations page, the menu's pin and unpin, the hide's
+  undo, another window's event), `web/test/unit/room-hide.test.tsx` (the menu by kind), e2e `room-pins.spec.ts` (the
+  sidebar's "⋯", a right-click, after a reload, unpin, hide and undo; the conversations page's order; the phone's long
+  press) and the menu lists in `room-leave-hide.spec.ts`.
+- Version impact: **minor** (new endpoints, an additive field and an additive migration).

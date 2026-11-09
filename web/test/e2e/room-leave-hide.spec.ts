@@ -58,7 +58,7 @@ test('sidebar: a hidden room is in no row or count; a row\'s "⋯" on hover, foc
   await page.mouse.move(0, 0)
   await row.getByTestId('sidebar-room').click({ button: 'right' })
   const items = page.getByRole('menu').getByRole('menuitem')
-  await expect(items).toHaveText(['알림 설정', '링크 복사', '대화 숨기기'])
+  await expect(items).toHaveText(['상단에 고정', '알림 설정', '링크 복사', '대화 숨기기'])
   await page.getByTestId('room-menu-hide').click()
   await expect.poll(() => state.hidden).toEqual([{ roomId: DM, hidden: true }])
   await expect(page.getByTestId('sidebar-room')).toHaveCount(3)
@@ -87,7 +87,7 @@ test('the room header\'s "⋯" by kind; 알림 설정 opens the bell\'s levels; 
   await page.goto(`/rooms/${GROUP}`)
   await expect(page.getByTestId('room-title')).toHaveText('디자인 리뷰')
   await page.getByTestId('room-menu').click()
-  await expect(items).toHaveText(['알림 설정', '이름 바꾸기', '링크 복사', '대화방 나가기'])
+  await expect(items).toHaveText(['상단에 고정', '알림 설정', '이름 바꾸기', '링크 복사', '대화방 나가기'])
   // 이름 바꾸기: the info's name field in a prompt, the members' names where it is empty; the room's info has no 나가기
   await page.getByTestId('room-menu-rename').click()
   const prompt = page.getByRole('dialog', { name: '이름 바꾸기' })
@@ -108,7 +108,7 @@ test('the room header\'s "⋯" by kind; 알림 설정 opens the bell\'s levels; 
   await expect(page.getByTestId('room-leave')).toHaveCount(0)
   await page.keyboard.press('Escape')
   await page.getByTestId('room-menu').click()
-  await expect(items).toHaveText(['알림 설정', '이름 바꾸기', '링크 복사', '대화방 나가기'])
+  await expect(items).toHaveText(['상단에 고정', '알림 설정', '이름 바꾸기', '링크 복사', '대화방 나가기'])
   // 알림 설정: the bell's own four levels, the keyboard in them
   await page.getByTestId('room-menu-notify').click()
   await expect(page.getByRole('menuitemradio')).toHaveCount(4)
@@ -130,7 +130,7 @@ test('the room header\'s "⋯" by kind; 알림 설정 opens the bell\'s levels; 
   // a DM: hide; hiding the room on screen goes to the list
   await page.goto(`/rooms/${DM}`)
   await page.getByTestId('room-menu').click()
-  await expect(items).toHaveText(['알림 설정', '링크 복사', '대화 숨기기'])
+  await expect(items).toHaveText(['상단에 고정', '알림 설정', '링크 복사', '대화 숨기기'])
   await page.getByTestId('room-menu-hide').click()
   await expect(page).toHaveURL(/\/rooms$/)
   await expect.poll(() => state.hidden).toEqual([{ roomId: DM, hidden: true }])
@@ -143,7 +143,7 @@ test('the room header\'s "⋯" by kind; 알림 설정 opens the bell\'s levels; 
   for (const id of [TEAM, ALL]) {
     await page.goto(`/rooms/${id}`)
     await page.getByTestId('room-menu').click()
-    await expect(items).toHaveText(['알림 설정', '링크 복사', '숨기기'])
+    await expect(items).toHaveText(['상단에 고정', '알림 설정', '링크 복사', '숨기기'])
     await page.keyboard.press('Escape')
   }
 })
@@ -314,7 +314,7 @@ test.describe('phone', () => {
     await page.waitForTimeout(650)
     await row.dispatchEvent('pointerup', { button: 0, pointerType: 'touch', isPrimary: true, clientX: 100, clientY: 100 })
     const sheet = page.getByRole('menu')
-    await expect(sheet.getByRole('menuitem')).toHaveText(['알림 설정', '링크 복사', '숨기기'])
+    await expect(sheet.getByRole('menuitem')).toHaveText(['상단에 고정', '알림 설정', '링크 복사', '숨기기'])
     // the room it is about, on top of the sheet (the row is under the scrim)
     await expect(sheet.getByTestId('menu-sheet-title')).toHaveText('개발팀')
     // a sheet from the bottom, 48px rows, the room still on screen under it (no room opened by the finger lifting)
@@ -331,7 +331,7 @@ test.describe('phone', () => {
     await page.goto(`/rooms/${DM}`)
     await expect(page.getByTestId('room-menu')).toBeVisible()
     await page.getByTestId('room-menu').click()
-    await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText(['알림 설정', '링크 복사', '대화 숨기기'])
+    await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText(['상단에 고정', '알림 설정', '링크 복사', '대화 숨기기'])
   })
 })
 
