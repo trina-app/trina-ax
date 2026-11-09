@@ -38,7 +38,7 @@ import { componentC } from '../team-files/component'
 import { FileError } from '../team-files/errors'
 import { activePeople } from '../team-files/service'
 import { allowSkillAction, dropSkillAction, projectLevelPossible, skillRootOf, type SkillActionGrant } from './guard'
-import { COPY_NAME, withName, type Level } from './move'
+import { copyNameOk, withName, type Level } from './move'
 import { skillEntriesIn } from './switch-on'
 
 export type FolderAction = 'move' | 'copy' | 'rename'
@@ -462,7 +462,7 @@ function renameFolder(ctx: AppContext, user: Principal, rules: RuleSet, a: Folde
 /** R: a skill's own folder renamed in its skills folder, its SKILL.md's name line with it (else it stops loading). */
 function renameSkill(ctx: AppContext, user: Principal, rules: RuleSet, a: FolderActionInput, from: string, to: string): FolderPlan {
   const name = nameOf(to)
-  if (!COPY_NAME.test(name)) refuse('a skill\'s folder name uses lowercase letters a-z, digits and hyphens only (at most 64), and its name: line takes the same', 'suggest a name like "estimate-docs" and call skill_files again')
+  if (!copyNameOk(name)) refuse('a skill\'s folder name uses lowercase letters a-z, digits and hyphens only (at most 64), and its name: line takes the same', 'suggest a name like "estimate-docs" and call skill_files again')
   const files = walk(ctx, user, rules, from)
   const manifest = `${from}/SKILL.md`
   const own = files.find((f) => f.path === manifest)
