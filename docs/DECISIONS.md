@@ -16377,3 +16377,205 @@ The owner: "trina history more 버튼에서 상단 고정 pin 기능 만들자."
   (pin from the "···" moves the row to the top with the pin, after a reload too; unpin; a right-click; the phone's sheet;
   a project's page), and the row-menu lists in `account-settings.spec.ts` and `project-list-menu.spec.ts`.
 - Version impact: **minor** (new endpoints, an additive field and an additive migration).
+
+## One image viewer — a picture opens over the whole window, like Slack (feat/image-viewer, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/components/ImageViewer.tsx`, `web/src/lib/imageViewer.ts`, `web/src/lib/zoom.ts` and the places
+that open a picture, 이유: rooms, chat and file previews are core. Plan: `docs/AGENTS/plan/20261109-0817-image-viewer.md`.
+
+The owner, on a screenshot: a picture clicked in a room opened in the right-hand panel, small, with no zoom; a screenshot
+of a web page could not be read. Pictures should open like Slack, across the app.
+
+- **The rule, app-wide: a picture opens the viewer; a name, chip or link opens the panel.** Pictures: a room or thread
+  photo's thumbnail, an AI chat attachment's, a team picture in an answer (AI chat, a room's AI answer, a shared answer,
+  and Markdown elsewhere: a `.md` file in the panel, an artifact, project instructions, skills), a picture in either
+  message box (the room's box now opens its pictures too, like the AI chat's), and the picture the file panel shows
+  (Files, FileView, links and sources keep opening the panel, with its actions; its picture opens the viewer alone). Not
+  pictures: file chips (an image without a thumbnail too), links, the deck stepper, the skill example's own dialog,
+  artifacts' frames (a frame cannot and should not open the page's viewer), external pictures (never loaded).
+- **No new address.** A room photo: its thumbnail, then `GET /api/rooms/:id/files/:fileId` inline (the member and
+  message check on every read), download `?download=1`. An attachment: its thumbnail, then the team file by its path
+  (`/api/files/download?disposition=inline`), a HEIC photo as `/api/files/preview`. An answer's team picture is the
+  original already. A box's picture and the panel's picture are drawn from the bytes the page has. A picture the panel
+  could not show either (a HEIC sent in a room, anything over the 20 MB image preview limit) keeps its thumbnail, with a
+  line saying so and the download.
+- **Loading and transparency.** The thumbnail is drawn at once at the original's stored size (when its shape matches,
+  else its own), under the original, which is decoded before it shows; then the thumbnail is removed. Nothing else is
+  painted behind the picture (fix/transparent-thumbnails): a transparent one sits on the dark backdrop, no checkerboard.
+  The backdrop is opaque; the page shows through only while a swipe down is closing it.
+- **Zoom, hand-written** (`lib/zoom.ts`, pure and unit-tested; Pointer Events and one CSS transform): fitted = the whole
+  picture in the stage at most 100 %, centred; a click toggles fitted and 100 % (2× the fitted size for a picture already
+  shown at 80 % or more) about the click; ⌘/Ctrl + wheel and Chromium's trackpad pinch (wheel + ctrlKey, a non-passive
+  listener so the page never zooms) and Safari's `gesture*` events zoom about the pointer; a drag (4 px with a mouse, 10
+  px with a finger) pans and is no click; + − 0 and the bar's − / % / + step by 1.5×, stopping at 100 % on the way (or
+  landing on it when a step would end within 5 % of it); 400 % at most; a right-click or a Mac's control-click is left
+  to the menu. Not chosen: a
+  library (react-zoom-pan-pinch, yet-another-react-lightbox, PhotoSwipe: MIT, roughly 10–25 kB gzipped each), which
+  brings its own DOM, styles and item model to bend to the app's bar, words, focus trap and the one-picture rule below.
+- **Next / previous: the pane that was clicked** (`ImageGroup`): the room's timeline (replies also sent to the room
+  included), the thread panel (its root and replies), the AI chat (this branch: attachments and answers' pictures), a
+  room's side chat with the AI (its own pane, like the AI chat), a message box's row. Each picture registers itself and the list is the pane's pictures in page order, which is message
+  order; only pictures drawn on the page are in it, so a file someone may not open (a lock), a withheld answer or an
+  unavailable attachment never is. It never crosses into another thread or loads older messages. A picture outside any
+  pane opens alone. The list follows the pane while open ("3 / 8" when a photo arrives).
+- **The bar**: the sender's picture (the AI's mark for an answer), the file's name, who and when (where known: not for a
+  picture not sent yet), "3 / 7", − % + (computers), download, the original in a new tab, ✕. Always shown on a computer;
+  on a phone it overlays the picture and a tap shows or hides it with the arrows. The new tab is for a plain browser only:
+  the desktop app and the phone app would open the system browser, which is not signed in. The download is the one the
+  panel uses (`startDownload`): in the phone app (iOS and Android) the page fetches the file with its own session and
+  hands the bytes to the app over the bridge, which opens the system share sheet (`downloadToApp`, up to 50 MB; a
+  larger one says so); a WebView swallows a plain link download, so that path is never used there.
+- **Phones**: pinch about the fingers, double tap to toggle, one finger pans when zoomed; when not zoomed a swipe down
+  (past a fifth of the height, or a flick) closes and a swipe sideways steps (added to the brief: the arrows hide with
+  the bar). `touch-action: none` on the stage.
+- **Back closes it.** Opening pushes one history entry at the same address with the router's state copied (React
+  Router's `idx`, `key`, `usr`), so the router, `lib/back.ts` and deep links see the page they saw; a `popstate` that
+  leaves the entry closes the viewer (the browser's Back, Android's back through the phone app's WebView, iOS's edge
+  swipe). ✕, Esc, the backdrop and a swipe call `history.back()` while that entry is the current one, so none is left
+  behind; stepping to another picture adds none. Closed and opened again before that back has landed, the new entry is
+  added once it lands (else its `popstate` would close the new viewer). A page change while it is open (a notice) closes
+  it without going back; Back from that page then lands on the viewer's entry, which goes on back (Forward onto it goes on
+  forward: React Router's `idx` against the page last shown says which way). The router re-renders on that `popstate`
+  with the same location key, so effects keyed on the pathname or the key do not run again. Left over: after a reload
+  with the viewer open, one Back lands on the same page again.
+- **The desktop app's 이미지 복사** (fix/image-copy-paste-preview) copies the picture under the pointer
+  (`copyImageAt`): the viewer is a portal on the team page's `<body>`, never a frame, the thumbnail takes no pointer and
+  is gone once the original is there, so the original is what is copied and what 이미지 저장… saves. A right-click is
+  left to the browser or the app (no zoom, no close). Each showing draws its pictures anew, so the same picture twice in
+  a pane (two answers showing one chart) loads each time. Nothing drawn (a HEIC in a box in Chrome): a click or a swipe
+  down still closes.
+- **Focus and screen readers**: `role="dialog"`, `aria-modal`, named "이미지 보기: {name}"; the app's `useFocusTrap`
+  (Tab stays inside, Esc closes); focus starts on the stage (the keys work at once, no button ring; Tab and Shift+Tab go
+  from there to the bar's first and last buttons) and goes back to the picture that opened it, found again by its key
+  when its message was drawn anew. While it is open the page's own shortcuts (⌘K search, ⌘⇧O new chat) wait. The name and "3 / 7" are announced
+  on a step. Reduced motion: the eases are CSS transitions, which index.css already turns off.
+- Tests: `web/test/unit/image-zoom.test.ts` (fit never upscales, the click target, zoom about a point, the pan's limits,
+  steps, wheel, pinch, swipes, the layout size before the original), `web/test/unit/image-viewer.test.ts` (page order,
+  pictures off the page, a group's notices, each kind's addresses, Back: one entry with the router's state, ✕ goes back,
+  Back closes, a page change does not go back, a step adds none, a reopen before the back lands, the left-behind entry
+  skipped both ways), e2e `image-viewer.spec.ts` (a room photo fitted with
+  its bar and download, no upscale, click zoom about its point, drag, ⌘/Ctrl + wheel, keys, ← → with focus back after
+  Esc, backdrop, ✕ and Back, the right-click on the original on the page itself, an AI chat attachment, both boxes'
+  pictures and the file panel's picture, a thread's own pane, a room AI answer's picture twice, a phone's swipe sideways
+  and down; screenshots), `room-files-open.spec.ts` (the photo
+  opens the viewer over the panel; the right-click there reaches the original).
+- Version impact: **minor** (a visible UX change; no API or data change).
+
+## 크게 보기 — the side panel can take the whole page (feat/panel-expand, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/lib/sidePanel.ts`, `web/src/components/Layout.tsx`, `SidePanelFrame.tsx` and the file and
+artifact panels' headers, 이유: the side panel is core. Step (a) of the plan
+`docs/AGENTS/plan/20261109-0939-room-file-viewer.md` (branch `plan/room-file-viewer`), its question 7 answered by the
+owner: not remembered.
+
+- **One toggle, left of ✕**, in the file panel's and the artifact panel's headers (also while an intro deck is built),
+  not on the Browser pane: ⤢ **크게 보기** / ⤡ **나란히 보기** (`Maximize2` / `Minimize2`, an `IconButton`, so its name
+  is its tooltip). Computers only (`max-md:hidden`): below 768 px the panel is a full-screen sheet already.
+- **Big:** `<main>` is hidden (`md:hidden`, still mounted: the chat, its draft and its scroll stay; Chromium and WebKit
+  keep a scroll box's position across `display: none`), the panel is `flex-1` beside the sidebar, without its own left
+  line (the sidebar's edge is the line) and without its divider. Beside a room's open thread it covers room and thread
+  alike. The skip link goes to the panel then. Side by side again, the divider mounts and fits the width it remembers
+  (`mycel.sidePanel.widthFraction`), so the panel comes back at the width it had.
+- **What runs behind it:** the two message boxes (`Composer`, `RoomComposer`) measure their height when their text or
+  hint changes; not drawn, they measured 0 and came back as a sliver (an answer that ended behind the panel changes the
+  hint). Now a box that measures 0 keeps its height and is measured again when the page shows. The thread's and side
+  chat's dividers fit a 0-wide row while hidden and fit again when it shows (they never store that).
+- **The place being read:** the file panel's viewers fit its width, so a PDF's pages grow when it goes big. The panel
+  keeps the scroll position as a share of the scroll height and brings it back for 0.8 s after a width change, while the
+  pages settle, until the person scrolls (also for the divider and a window resize). Before, a PDF read at page 4 showed
+  the end of page 3 once big.
+- **The header at its narrowest:** the new button takes 28 px; in a panel under 448 px (`@container`, the divider at its
+  least) "AI에게 묻기" shows as its icon (the name stays its accessible name and tooltip), so the file's name keeps room.
+- **How long:** `expanded` in `lib/sidePanel.ts`, beside the panel itself, never stored. Another file or an artifact
+  opened in the panel keeps it (a link in a Markdown file, the AI opening an artifact); closing the panel (✕, Esc, a
+  page that does not keep it) or the Browser pane taking it ends it, so the next panel opens side by side. Any move
+  (`location.key`: the sidebar's **Files**, a folder link, a link to the page already open) ends it too: a page the
+  person went to must show, and a page that keeps the panel (the Files screen) would otherwise stay hidden behind it.
+  The image viewer's history entry is not a move (it copies React Router's state).
+- **Actions:** download, edit and save, PDF로 저장, copy and the artifact's versions work in place. **Add to chat**,
+  **Ask AI** (`useTeamAttach`) and **Show in Files** first go back side by side: their result is in the page behind the
+  panel (a chip in the composer, the folder with the file selected), which a big panel would keep hidden.
+- **Esc order** (`escapeAction`, Layout's window handler): a dialog keeps its Esc; the phone drawer closes; a big panel
+  goes back side by side; then the panel closes. The Files screen's own Esc, which clears a selection before the panel
+  closes, waits while the panel is big (the list it would clear is hidden), so there it is: side by side, the
+  selection, the panel. On a phone width a leftover big state counts as not big (`panelExpandedNow`), so Esc closes.
+  The image viewer (#246) over a big panel is a dialog whose focus trap takes its Esc: the first Esc closes the viewer
+  (focus back on the panel's picture), the next one brings the panel side by side, the third closes it. The viewer's
+  history entry is at the same address, so opening or closing it does not end the big state.
+- **Not done:** no keyboard shortcut and no double-click on the header; the PDF keeps fitting the panel's width (as a
+  panel dragged wide does), with no reading-width cap. The PDF toolbar's "fit width" also draws `Maximize2`; left as
+  is (it sits in the toolbar under the header, with its own tooltip).
+- Tests: `web/test/unit/side-panel-expand.test.ts` (nothing open, kept for another file or an artifact, ended on close
+  and by the Browser pane, the Esc order), e2e `side-panel-expand.spec.ts` (from the AI chat: the chat hidden, the
+  panel as wide as the page area, no divider, Esc and the button back at the divider's width, Esc twice closes,
+  reopened side by side; add to chat; from Files: a link in a big Markdown file opens the PDF still big, editing works
+  there, Esc before the selection, Show in Files; an answer that ends behind a big panel leaves the message box whole;
+  the image viewer over a big panel and Esc's order; no button at 390 px).
+- Version impact: **minor** (a visible UX addition; no API or data change).
+
+## Pinned conversations — 상단에 고정 in 대화 (feat/pin-rooms, 2026-11-09, product owner)
+
+넣을 곳: trina-ax core (`server/src/rooms/service.ts`, `server/src/rooms/store.ts`, migration 278,
+`shared/src/api/rooms.ts`, `web/src/components/rooms/RoomMenu.tsx`, `SidebarRooms.tsx`, `web/src/pages/Rooms.tsx`), 이유:
+rooms and their lists are core. Plan: `docs/AGENTS/plan/20261109-0931-pin-rooms.md`.
+
+The owner, after "Pinned chats" above: the same for the team chat list. A room, DM or group chat in the sidebar's
+**대화** and on /rooms gets **상단에 고정** / **고정 해제**, and pinned conversations stay at the top. It follows the chat
+pins wherever a room allows it.
+
+- **A pin is the person's own.** One row per person and room, `room_pins(user_id, room_id, pinned_at)` (migration 278),
+  not a column on `room_members`, as `chat_pins` is its own table. `Room.pinnedAt` is worked out per member in
+  `roomOut`, so every `room.updated` a room's members get (a rename, a member change) carries each one's own pin, and
+  nobody else hears of a pin or an unpin. Not audited, as hiding is not.
+- **Who may pin.** A member of the room (`Rooms.mine`; 404 otherwise, the owner and admins included, as every room
+  route). Pinning changes nothing about who sees it. Pinned again: kept as it was (its place does not move); unpinned
+  when not pinned: no change and nothing sent. At most 50 pins, the same as chats (409 `room_pins_full`, "상단에 고정은
+  50개까지 할 수 있어요. 고정한 대화 하나를 해제한 뒤 다시 해 주세요."); only pins of rooms the person is still in count.
+- **Hidden rooms: hiding unpins.** Of the two choices (pinning shows a hidden room again, or hiding unpins it), hiding
+  unpins: a person who hides a conversation wants it out of the way, and it should not come back at the top when a
+  new message brings it back. So a room is never pinned and hidden at once: `setHidden` drops the pin in the same
+  transaction, a hidden room's "⋯" has no 상단에 고정 (다시 보이기 is there), and the server refuses to pin one (409
+  `room_hidden`, "숨긴 대화는 고정할 수 없어요. 다시 보이게 한 뒤 고정해 주세요."; only an older window or a script can
+  ask). The hide's toast 실행 취소 shows it again and pins it again when it was pinned (as the newest pin). A group chat
+  is never hidden (it is left).
+- **What takes a pin away.** Leaving or being taken out of a group chat, leaving a team room's group, a disabled or
+  deleted account leaving its rooms: all of them run `Rooms.forgetMember`, which now drops `room_pins` with the other
+  rows of the member. A room that goes: an archived room has no members left (the last one out, a deleted group's team
+  room), and the room's row going cascades. A deleted person: their DMs keep their member row (a DM keeps its two), so
+  `deleteUser` drops their pins in its transaction, as it drops their chat pins. In a room, seeing it is being a member,
+  so "can no longer see it" is one of the above. An older build (reader 1) keeps pins when someone hides or leaves a
+  room, so only a pin of the membership now shows or counts (`pinOf`): never one of a hidden room, nor one older than
+  the member's `joined_at`; hiding a room that is hidden already drops such a row, and pinning again replaces it.
+- **The order (the app's, not the server's).** `GET /api/rooms` stays by latest activity (it is not paged, so the pins
+  need no first page of their own, and older apps see the same list); `pinnedAt` rides along. The app's lists put my
+  pins first, the most recently pinned first, then the rest by activity (`lib/rooms.ts` `pinnedFirst`). The sidebar's
+  대화 (lean, as the chat pins): at most ten pins, then the five latest of the others, and the room on screen wherever it
+  is (`sidebarRows`); "더 보기 (N)" holds the rest and counts what is unread there as before. /rooms (모든 대화) and the
+  phone's 대화 tab (the same page): the 트리나 row stays the very first row (computers), then every pin, then the
+  others. Hidden rooms stay under "숨긴 대화" (never pinned). Other room lists (⌘K, the room picker, the AI's room
+  list) keep their order.
+- **The look.** No header: the chat pins' 12 px pin, named 고정됨 for screen readers, after the name (room rows start with
+  the room's picture, so a pin before the name would push the pinned names out of line with the others), beside the
+  muted bell; in the sidebar it gives way to the "⋯" on hover like the bell. Unread pills, the "?" and presence dots
+  are unchanged.
+- **The menu.** 상단에 고정 / 고정 해제 is the first item of the room's "⋯" (`RoomMenu`), as on the AI chats' rows, with the
+  pin and pin-off icons and the chat pins' words (`chat.pin`, `chat.unpin`, `chat.pinned`). It is the one menu of every
+  row (hover, keyboard, right-click, long press and the phone's sheet) and of the room's header, so the header has it
+  too (no change to `Room.tsx`).
+- **Live.** A pin or unpin answers the room and sends `room.updated` ('updated') to the person's own windows only; hiding
+  sends the one it sent before, now without the pin.
+- Tests: `tests/unit/b-rooms-pins.test.ts` (pin and unpin of every kind, idempotent, my windows only, each member's
+  copy with their own pin; the order of pins; members only; leaving, removal, a group change and a disabled account
+  take it; a deleted group's room, the last one out and the row's cascade; a deleted person; hiding unpins, a hidden
+  room is refused and a new message brings it back unpinned; the cap and pins that do not count; pins an older build
+  left), the security
+  permission matrix (`pinRoom` / `unpinRoom`: the DM's two people only), `web/test/unit/room-pins.test.tsx` (the order
+  and the caps, the rows and their pin on the sidebar and the conversations page, the menu's pin and unpin, the hide's
+  undo, a refused hide, another window's event), `web/test/unit/room-hide.test.tsx` (the menu by kind), e2e `room-pins.spec.ts` (the
+  sidebar's "⋯", a right-click, after a reload, unpin, hide and undo; the conversations page's order; the phone's long
+  press) and the menu lists in `room-leave-hide.spec.ts`.
+- **Independent review (2026-11-09) fixes.** The endpoints' summaries named the menu in Korean (the language test; dev
+  had fixed the chat pins' the same way); a refused hide left a pinned room unpinned on screen (the store puts the pin
+  back); pins an older build leaves behind never show or count (above); the same-instant order test now sets the last
+  pin ahead of the clock.
+- Version impact: **minor** (new endpoints, an additive field and an additive migration).

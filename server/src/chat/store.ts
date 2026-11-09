@@ -40,7 +40,7 @@ export interface ProjectRow {
   trashed_with: string | null
   /** migration 265: new chats in this project are shared with its people (chat/shared.ts) */
   share_chats: number
-  /** migration 278: the server made its projects/<name> folder for it (chat/project-access.ts): only then is it its
+  /** migration 280: the server made its projects/<name> folder for it (chat/project-access.ts): only then is it its
    * creator's to change who sees it or to trash its folder with it */
   folder_made?: number
 }

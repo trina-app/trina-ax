@@ -27,6 +27,9 @@
 // full list, and opening it brings it back. It comes back by itself when something for them arrives (the server decides
 // it when the message is stored: a DM's new message, a mention, a reply in a thread they follow, an answer to their own
 // question, a card of their question to the AI); a room still hidden notifies them of nothing.
+//
+// Pinning (docs/DECISIONS.md "Pinned conversations"): a member pins a room to the top of their own lists (pinRoom,
+// Room.pinnedAt). Nobody else is told. Hiding a room unpins it, and a hidden room cannot be pinned.
 import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
 import { PRODUCT } from '../product'
@@ -436,6 +439,9 @@ export const Room = z.object({
   /** I hid it (docs/DECISIONS.md "대화 숨기기"): it is out of my sidebar's rows, my counts and badges, and listed under
    * "숨긴 대화" at the end of the full list. Absent = shown (older servers never hide). */
   hidden: z.literal(true).optional(),
+  /** when I pinned it to the top of my 대화 list ("상단에 고정", POST /api/rooms/:id/pin; docs/DECISIONS.md "Pinned
+   * conversations"). Mine only: nobody else in the room sees my pin. Never with hidden. Absent = not pinned. */
+  pinnedAt: IsoTime.optional(),
 })
 export type Room = z.infer<typeof Room>
 
@@ -549,7 +555,7 @@ export const RoomFileUploadFields = z.object({ name: z.string().min(1).max(255).
 export const RoomFileQuery = z.object({ thumb: QueryBool.optional(), download: QueryBool.optional() })
 
 export const ROOMS = {
-  listRooms: endpoint({ method: 'GET', path: '/api/rooms', auth: 'user', owner: 'B', response: z.object({ items: z.array(Room), alerts: RoomAlertSettings.optional() }), summary: 'The rooms I am in (my team rooms, everyone, DMs, group chats), most recent activity first, with my unread count, the last message and my notification level; alerts: what else decides whether a message rings (thread replies, quiet hours, the team time zone).' }),
+  listRooms: endpoint({ method: 'GET', path: '/api/rooms', auth: 'user', owner: 'B', response: z.object({ items: z.array(Room), alerts: RoomAlertSettings.optional() }), summary: 'The rooms I am in (my team rooms, everyone, DMs, group chats), most recent activity first, with my unread count, the last message, my notification level and my pin (pinnedAt; the app lists my pinned rooms first); alerts: what else decides whether a message rings (thread replies, quiet hours, the team time zone).' }),
   createRoom: endpoint({ method: 'POST', path: '/api/rooms', auth: 'user', owner: 'B', status: 201, body: CreateRoomBody, response: Room, summary: 'Open the DM with a person (the existing one when there is one), or make a group chat with two or more people. Not audited: admins do not learn who talks to whom.' }),
   getRoom: endpoint({ method: 'GET', path: '/api/rooms/:id', auth: 'user', owner: 'B', response: Room, summary: 'One room I am in (404 for anyone else, admins included).' }),
   updateRoom: endpoint({ method: 'PATCH', path: '/api/rooms/:id', auth: 'user', owner: 'B', body: UpdateRoomBody, response: Room, summary: 'Set my notification level for a room (all, mentions, off, or my default), or rename it (group chats: any member; team and everyone rooms: owner or admin members; never a DM).' }),
@@ -565,7 +571,9 @@ export const ROOMS = {
   listRoomMembers: endpoint({ method: 'GET', path: '/api/rooms/:id/members', auth: 'user', owner: 'B', response: z.object({ items: z.array(RoomMember) }), summary: 'Who is in a room I am in (names only; nobody\'s read position).' }),
   inviteRoomMembers: endpoint({ method: 'POST', path: '/api/rooms/:id/members', auth: 'user', owner: 'B', body: InviteRoomBody, response: Room, summary: 'Add people to a group chat I am in (any member; active people only). They see it from now on. Not audited.' }),
   removeRoomMember: endpoint({ method: 'DELETE', path: '/api/rooms/:id/members/:userId', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Take someone out of a group chat I am in: its manager, or an owner or admin in it (never myself: leave instead). Not audited.' }),
-  setRoomHidden: endpoint({ method: 'PUT', path: '/api/rooms/:id/hidden', auth: 'user', owner: 'B', body: SetRoomHiddenBody, response: Room, summary: 'Hide a DM, a team room or the everyone room from my own lists, or show it again (nobody else is told; a group chat is left instead). It comes back by itself when something for me arrives.' }),
+  setRoomHidden: endpoint({ method: 'PUT', path: '/api/rooms/:id/hidden', auth: 'user', owner: 'B', body: SetRoomHiddenBody, response: Room, summary: 'Hide a DM, a team room or the everyone room from my own lists, or show it again (nobody else is told; a group chat is left instead). Hiding unpins it. It comes back by itself when something for me arrives.' }),
+  pinRoom: endpoint({ method: 'POST', path: '/api/rooms/:id/pin', auth: 'user', owner: 'B', response: Room, summary: 'Pin a room I am in to the top of my own conversation list ("Pin to top"; nobody else is told). Pinned already: unchanged. A hidden room: 409 room_hidden (hiding unpins it). At most 50 pins (409 room_pins_full). My other windows hear it (room.updated).' }),
+  unpinRoom: endpoint({ method: 'DELETE', path: '/api/rooms/:id/pin', auth: 'user', owner: 'B', response: Room, summary: 'Unpin a room ("Unpin"); not pinned: unchanged. My other windows hear it (room.updated).' }),
   leaveRoom: endpoint({ method: 'POST', path: '/api/rooms/:id/leave', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Leave a group chat; the last one to leave closes it. Not audited.' }),
   uploadRoomFile: endpoint({ method: 'POST', path: '/api/rooms/:id/files', auth: 'user', owner: 'B', status: 201, body: multipart(RoomFileUploadFields, SMALL_UPLOAD_MAX), response: RoomFile, summary: 'Upload a file (≤ 50 MB) to send in a room I am in; stored outside the team folder, readable by the room\'s members once sent.' }),
   roomFile: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId', auth: 'user', owner: 'B', query: RoomFileQuery, response: stream(true), summary: 'A file sent in a room I am in (membership checked on every read); thumb=1 for an image preview, download=1 as an attachment. Inline, a page or script type is sent as text/plain with a sandbox CSP: never a page of the app. A file on the safety check\'s download-only list is sent only with download=1 (503 quarantined otherwise).' }),

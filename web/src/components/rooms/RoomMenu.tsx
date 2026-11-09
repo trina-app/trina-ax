@@ -6,8 +6,10 @@
 // with its hint and the name an empty field goes back to), 링크 복사 (/rooms/<id>, for people in the room), then a group
 // chat's 대화방 나가기 (with its confirm; the room's info has no second one), a DM's 대화 숨기기 and a team room's or
 // the everyone room's 숨기기 (they follow the groups, so they cannot be left); a hidden room has 다시 보이기 there.
-// Hiding says where it went and how it comes back, with an undo.
-import { Bell, Eye, EyeOff, Link2, LogOut, Pencil } from 'lucide-react'
+// Hiding says where it went and how it comes back, with an undo (which pins it again when it was pinned).
+// First of all, 상단에 고정 / 고정 해제 (docs/DECISIONS.md "Pinned conversations"), as on the AI chats' rows: mine only. A
+// hidden room has none (hiding unpins it; showing it again comes first).
+import { Bell, Eye, EyeOff, Link2, LogOut, Pencil, Pin, PinOff } from 'lucide-react'
 import { useRef, useState, type MouseEvent } from 'react'
 import { ROOM_NAME_MAX, type Room } from '@mycel/shared/api'
 import { errorText } from '../../lib/api'
@@ -21,10 +23,12 @@ import { RoomNotifyMenu } from './RoomNotifyMenu'
 
 /** What a room's "⋯" holds for me, in order (a pure list of what each kind offers; the words and actions are the
  * component's). */
-export type RoomMenuAction = 'notify' | 'rename' | 'copyLink' | 'leave' | 'hide' | 'show'
-export function roomMenuActions(room: Pick<Room, 'kind'> & Partial<Pick<Room, 'hidden' | 'canRename'>>): RoomMenuAction[] {
-  const last: RoomMenuAction = room.kind === 'group' ? 'leave' : room.hidden ? 'show' : 'hide'
-  return ['notify', ...(room.canRename ? (['rename'] as const) : []), 'copyLink', last]
+export type RoomMenuAction = 'pin' | 'unpin' | 'notify' | 'rename' | 'copyLink' | 'leave' | 'hide' | 'show'
+export function roomMenuActions(room: Pick<Room, 'kind'> & Partial<Pick<Room, 'hidden' | 'canRename' | 'pinnedAt'>>): RoomMenuAction[] {
+  const hidden = room.kind !== 'group' && !!room.hidden
+  const last: RoomMenuAction = room.kind === 'group' ? 'leave' : hidden ? 'show' : 'hide'
+  const pin: RoomMenuAction[] = hidden ? [] : [room.pinnedAt ? 'unpin' : 'pin']
+  return [...pin, 'notify', ...(room.canRename ? (['rename'] as const) : []), 'copyLink', last]
 }
 
 /** The address of a room as people in it open it (the app's own route; anyone else gets "not found"). */
@@ -37,13 +41,24 @@ export function useRoomMenuItems(room: Room, onNotify: () => void): MenuItem[] {
   const { copy } = useCopy()
   const fail = (e: unknown) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
   const show = () => void useRooms.getState().setHidden(room.id, false).catch(fail)
+  const setPinned = (pinned: boolean) => void useRooms.getState().setPinned(room.id, pinned).catch(fail)
   const hide = async () => {
+    // hiding unpins it: the undo pins it again
+    const wasPinned = !!room.pinnedAt
     try {
       await useRooms.getState().setHidden(room.id, true)
     } catch (e) {
       return fail(e)
     }
-    toast({ level: 'info', text: t(room.kind === 'dm' ? 'rooms.menu.hiddenDm' : 'rooms.menu.hiddenRoom'), action: { label: t('common.undo'), run: show } })
+    const undo = async () => {
+      try {
+        await useRooms.getState().setHidden(room.id, false)
+        if (wasPinned) await useRooms.getState().setPinned(room.id, true)
+      } catch (e) {
+        fail(e)
+      }
+    }
+    toast({ level: 'info', text: t(room.kind === 'dm' ? 'rooms.menu.hiddenDm' : 'rooms.menu.hiddenRoom'), action: { label: t('common.undo'), run: () => void undo() } })
   }
   const leave = async () => {
     const ok = await confirmDialog({ title: t('rooms.info.leaveTitle'), body: t('rooms.info.leaveBody'), confirm: t('rooms.info.leave'), danger: true })
@@ -70,6 +85,8 @@ export function useRoomMenuItems(room: Room, onNotify: () => void): MenuItem[] {
   }
   return roomMenuActions(room).map((a): MenuItem => {
     switch (a) {
+      case 'pin': return { label: t('chat.pin'), icon: <Pin size={14} aria-hidden />, onSelect: () => setPinned(true), testId: 'room-menu-pin' }
+      case 'unpin': return { label: t('chat.unpin'), icon: <PinOff size={14} aria-hidden />, onSelect: () => setPinned(false), testId: 'room-menu-unpin' }
       case 'notify': return { label: t('rooms.menu.notify'), icon: <Bell size={14} aria-hidden />, onSelect: onNotify, testId: 'room-menu-notify' }
       case 'rename': return { label: t('rooms.info.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: () => void rename(), testId: 'room-menu-rename' }
       case 'copyLink': return { label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: () => void copyLink(), testId: 'room-menu-link' }

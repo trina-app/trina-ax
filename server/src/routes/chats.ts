@@ -565,7 +565,7 @@ export const chatsRoutes: RouteModule = {
       // with instructions"). The creator wrote this first version of the instructions: the turns of anyone else count
       // them as outside content (chat/runtime.ts projectTaints).
       const seen = (f: string) => canRead(ctx.files, p, f)
-      // folder_made: the server made this team project's folder (its creator's to change who sees it; migration 278)
+      // folder_made: the server made this team project's folder (its creator's to change who sees it; migration 280)
       const insert = (folder: string, made = false) => {
         assertFolderFree(db, ctx.files.fx.caseInsensitive, folder, locale, { mayName: seen })
         db.query('INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, folder_made) VALUES (?,?,?,?,?,?,?,?,?)')

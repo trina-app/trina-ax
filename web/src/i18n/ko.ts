@@ -603,6 +603,8 @@ export const ko = {
 
   'preview.panel': '파일 미리보기',
   'preview.resize': '미리보기 너비 조절',
+  'preview.expand': '크게 보기',
+  'preview.sideBySide': '나란히 보기',
   'preview.notFound': '파일을 찾을 수 없거나 볼 권한이 없어요.',
   'preview.tooLarge': '파일이 커서({size}) 미리 볼 수 없어요. 내려받아서 열어 주세요.',
   'hwp.disabled': "이 팀에서는 한글 미리보기가 켜져 있지 않아요. 원본 다운로드와 AI의 글자 읽기는 계속 쓸 수 있어요.",
@@ -4308,6 +4310,17 @@ export const ko = {
   "audit.act.owner.transfer.disconnect": "팀장 넘기며 연결 끊음",
   "audit.act.lead_hint.dismiss": "팀장 넘기기 카드 닫음",
   "audit.act.owner.recovery_claimed": "호스팅 복구 담당 확인됨",
+  "viewer.label": "이미지 보기: {name}",
+  "viewer.count": "{n} / {total}",
+  "viewer.zoomIn": "확대",
+  "viewer.zoomOut": "축소",
+  "viewer.zoomLevel": "{n}%",
+  "viewer.openOriginal": "원본을 새 탭에서 열기",
+  "viewer.prev": "이전 이미지",
+  "viewer.next": "다음 이미지",
+  "viewer.thumbOnly": "작은 사진으로 보여요. 원본은 내려받아서 보세요.",
+  "viewer.failed": "원본을 불러오지 못했어요. 작은 사진으로 보여요.",
+  "viewer.noPicture": "이 사진은 여기서 보여 줄 수 없어요.",
 } as const
 
 export type MessageKey = keyof typeof ko

@@ -5,6 +5,7 @@ import { useT } from '../i18n'
 import { useChats } from '../store/chats'
 import { useMe } from '../store/session'
 import { toast } from '../store/ui'
+import { setPanelExpanded } from './sidePanel'
 import { addToCurrentChat, askAiAbout, currentChatTarget, type AttachResult } from './teamAttach'
 
 export function useTeamAttach() {
@@ -23,7 +24,14 @@ export function useTeamAttach() {
   return {
     /** the chat "Add to current chat" goes to, by name (null: none open in this tab) */
     target: target ? { id: target, title: title! } : null,
-    addToChat: (paths: string[]) => void addToCurrentChat(userId, paths, navigate)?.then(report),
-    askAi: (paths: string[]) => void askAiAbout(paths, navigate).then((r) => !r.added && report(r)),
+    // the chat the files go to must show: a big side panel (lib/sidePanel.ts) goes back side by side first
+    addToChat: (paths: string[]) => {
+      setPanelExpanded(false)
+      void addToCurrentChat(userId, paths, navigate)?.then(report)
+    },
+    askAi: (paths: string[]) => {
+      setPanelExpanded(false)
+      void askAiAbout(paths, navigate).then((r) => !r.added && report(r))
+    },
   }
 }

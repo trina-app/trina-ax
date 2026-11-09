@@ -3,11 +3,14 @@
 // A picked or pasted one is drawn from the file itself, so it shows at once while the upload runs; a photo of a room send
 // the server gave back shows its room thumbnail (`src`). A picture that cannot be drawn (a HEIC photo in Chrome, a
 // thumbnail that did not load) shows a square with a picture icon. Its name is its tip and its alt text; what the chip
-// says (uploading, attached, its size) is for screen readers, beside it in each box.
+// says (uploading, attached, its size) is for screen readers, beside it in each box. A click on it opens the image viewer
+// (components/ImageViewer.tsx), in both boxes.
 import clsx from 'clsx'
 import { FileImage, Loader2, X } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Tooltip } from './Tooltip'
+import { useViewerItem } from './ImageViewer'
+import type { ViewerItem } from '../lib/imageViewer'
 
 /** A file this computer gave as a picture (its type, as the browser reports it; a chip given back by the server has
  * none). */
@@ -36,8 +39,9 @@ export function ChipThumb({ file, src, alt = '', fallback = null, className }: {
  * ✕ on the top corner, a dark dot that takes a 36 px tap (44 px on phones), reaching further out to the right than over
  * the picture (a tap meant for the picture stays the picture's), and not above the box's edge. The dot stands 6 px out of the square: its row item keeps
  * that room (`pt-1.5 pr-1.5`), so it touches neither the box's edge nor the next picture, which, painted after it, keeps
- * its own clicks. `onOpen`: a click on the picture opens it (the AI chat's preview). */
-export function PictureTile({ name, file, src, busy, percent = null, failed, removeLabel, onRemove, onOpen }: {
+ * its own clicks. `item`: a click on the picture opens it in the image viewer, with the box's other pictures by ← →
+ * (both boxes alike). */
+export function PictureTile({ name, file, src, busy, percent = null, failed, removeLabel, onRemove, item }: {
   name: string
   file?: File
   src?: string
@@ -46,8 +50,9 @@ export function PictureTile({ name, file, src, busy, percent = null, failed, rem
   failed: boolean
   removeLabel: string
   onRemove: () => void
-  onOpen?: () => void
+  item?: ViewerItem | null
 }) {
+  const viewer = useViewerItem(item ? () => item : null)
   const picture = (
     <ChipThumb
       file={file}
@@ -62,9 +67,9 @@ export function PictureTile({ name, file, src, busy, percent = null, failed, rem
   )
   return (
     <span className={clsx('relative block', SQUARE, failed ? 'ring-2 ring-danger' : 'ring-1 ring-line')}>
-      {onOpen ? (
+      {item ? (
         <Tooltip label={name}>
-          <button type="button" aria-label={name} onClick={onOpen} className={clsx('block', SQUARE)}>
+          <button type="button" ref={viewer.ref} aria-label={name} onClick={viewer.open} className={clsx('block', SQUARE)} data-testid="picture-tile-open">
             {picture}
           </button>
         </Tooltip>
