@@ -16,7 +16,8 @@
 // Which chat it shows, its draft, its quote and its files are kept per room on this page (store/sideChats.ts; the files in
 // the composer's stash, `side:<room id>`): every panel of the room is the same chat. The files were uploaded into the chat
 // shown, so another chat (New chat, 🕘) drops them. The column around it is components/rooms/RoomSideColumn.tsx: drawn
-// here (`frame`), or by the room page around this (frame={false}).
+// here (`frame`), or by the room page around this (frame={false}). `closeX`: the ✕ at every width, never the phone's ‹
+// (the file viewer's sheet on a phone, which closes back to the file).
 import { ArrowUp, ChevronLeft, ExternalLink, Eye, History, Loader2, Paperclip, SquarePen, X } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -119,8 +120,8 @@ export const QUICK_FILE = ['fileSummarize', 'fileKeyPoints', 'fileCheck', 'fileS
 export const SIDE_HISTORY_MAX = 30
 
 /** `frame` false: the column around it is the caller's (RoomSideColumn). `autoFocus` false: the box does not take the
- * focus as the panel opens (a new `seed` still does: it was asked for). */
-export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame = true, autoFocus = true }: { roomId: string; roomTitle: string; onClose: () => void; seed?: SideSeed | null; frame?: boolean; autoFocus?: boolean }) {
+ * focus as the panel opens (a new `seed` still does: it was asked for). `closeX`: ✕ instead of a phone's ‹. */
+export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame = true, autoFocus = true, closeX = false }: { roomId: string; roomTitle: string; onClose: () => void; seed?: SideSeed | null; frame?: boolean; autoFocus?: boolean; closeX?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()
@@ -316,10 +317,12 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) dropProps.onDragLeave() }}
       data-testid="side-chat-panel"
     >
-      <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-2 max-md:pl-0.5 md:px-4">
-        <IconButton tip label={t('sideChat.close')} onClick={onClose} className="touch-hit p-3 md:hidden" data-testid="side-chat-back">
-          <ChevronLeft size={20} aria-hidden />
-        </IconButton>
+      <div className={clsx('flex h-12 shrink-0 items-center gap-1 border-b border-line', closeX ? 'pr-2 pl-4 md:px-4' : 'px-2 max-md:pl-0.5 md:px-4')}>
+        {!closeX && (
+          <IconButton tip label={t('sideChat.close')} onClick={onClose} className="touch-hit p-3 md:hidden" data-testid="side-chat-back">
+            <ChevronLeft size={20} aria-hidden />
+          </IconButton>
+        )}
         <h2 className="flex min-w-0 flex-1 items-baseline gap-2">
           <span className="shrink-0 text-base font-medium text-ink">{t('sideChat.title', { name })}</span>
           <span className="truncate text-xs text-faint" data-testid="side-chat-room">{roomTitle}</span>
@@ -336,7 +339,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
         <IconButton tip label={t('sideChat.new')} onClick={newChat} disabled={busy || !chatId || !messages.length} className="touch-hit" data-testid="side-chat-new">
           <SquarePen size={15} aria-hidden />
         </IconButton>
-        <IconButton tip label={t('sideChat.close')} onClick={onClose} className="touch-hit max-md:hidden" data-testid="side-chat-close">
+        <IconButton tip label={t('sideChat.close')} onClick={onClose} className={clsx('touch-hit', !closeX && 'max-md:hidden')} data-testid="side-chat-close">
           <X size={16} aria-hidden />
         </IconButton>
       </div>

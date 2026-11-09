@@ -24,16 +24,19 @@
 //   it was sent, and has 패널에서 열기 (the side panel, beside the conversation) instead of the zoom, 복사 and the new tab.
 // - A room's picture or file has its conversation beside it on computers (components/rooms/ViewerColumn.tsx, Slack's
 //   right column): its message's thread, or my Trina side chat of the room. The bar's ✦ (트리나에게 묻기) switches the
-//   column to the side chat with the file quoted (on a phone it closes the viewer and opens the room page's side chat
-//   with it); the toggle before ✕ hides and shows the column, and the stage narrows from the right while it shows.
-//   Keys typed in the column are its own (← → stay in its box).
+//   column to the side chat with the file quoted; the toggle before ✕ hides and shows the column, and the stage narrows
+//   from the right while it shows. Keys typed in the column are its own (← → stay in its box).
+// - On a phone that column is a sheet over the viewer (ViewerColumn.tsx ViewerSheet): the bar's 💬 (with the reply
+//   count) opens the file's thread in it, ✦ the side chat with the file quoted. Back, Esc, its ✕, a drag down or a tap
+//   on the file beside it close the sheet first, back to the file; the next Back closes the viewer. The bar there leaves
+//   out the sender's picture (the line under the name says who), so the name keeps some room beside ‹ › and the buttons.
 import clsx from 'clsx'
-import { ChevronLeft, ChevronRight, Copy, Download, ExternalLink, Loader2, Minus, PanelRight, PanelRightClose, PanelRightOpen, Plus, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Copy, Download, ExternalLink, Loader2, MessageSquare, Minimize2, Minus, PanelRightClose, PanelRightOpen, Plus, X } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation } from 'react-router-dom'
-import { closeImageViewer, getImageViewer, notePage, openImageViewer, showEntry, skipLeftEntry, stepTargets, useImageViewer, ViewerGroup, type RoomPlace, type ViewerEntry, type ViewerItem, type ViewerMetaValue, type ViewerOpen, type ViewerSender } from '../lib/imageViewer'
-import { askTrinaInRoom, fileSeed } from '../lib/sideChatAsk'
+import { closeImageViewer, closeViewerSheet, getViewerSheet, notePage, openImageViewer, openViewerSheet, showEntry, skipLeftEntry, stepTargets, useImageViewer, useViewerSheet, ViewerGroup, type RoomPlace, type ViewerEntry, type ViewerItem, type ViewerMetaValue, type ViewerOpen, type ViewerSender } from '../lib/imageViewer'
+import { fileSeed } from '../lib/sideChatAsk'
 import { openFilePreview } from '../lib/sidePanel'
 import { clampView, fitView, isZoomed, layoutSize, onPicture, pinchView, stepScale, swipeResult, toggleAt, wheelScale, zoomAt, type Point, type Size, type View } from '../lib/zoom'
 import { canCopyImage, copyImage, isCopyKey, type CopyFailure, type PickPicture } from '../lib/copyImage'
@@ -42,11 +45,11 @@ import { formatDateTime } from '../lib/format'
 import { aiName } from '../lib/tabs'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useAvatarOf, useNameOf } from '../store/people'
-import { roomFileGone, useRooms } from '../store/rooms'
+import { findMessage, roomFileGone, useRooms } from '../store/rooms'
 import { toast } from '../store/ui'
 import { Avatar } from './Avatar'
 import { AiFace, AiMark } from './rooms/AiFace'
-import { useViewerColumn, VIEWER_COLUMN_PX, ViewerColumn } from './rooms/ViewerColumn'
+import { useViewerColumn, VIEWER_COLUMN_PX, ViewerColumn, ViewerSheet } from './rooms/ViewerColumn'
 import { Tooltip } from './Tooltip'
 import { useFocusTrap, useMediaQuery } from './ui'
 import { scrollsSideways, ViewerDocument } from './ViewerDocument'
@@ -238,28 +241,50 @@ function Viewer({ open }: { open: ViewerOpen }) {
   const place = room?.messageId ? (room as RoomPlace & { messageId: string }) : null
   const column = useViewerColumn(entry.item.room?.roomId ?? null)
   const columnOn = wide && !!place && column.state.open
-  // 트리나에게 묻기 about this one: the column's side chat with it quoted; a phone's room page's side chat
+  // a phone's sheet over the file (the same column), with its own Back
+  const sheetOpen = useViewerSheet()
+  const sheetOn = sheetOpen && !wide && !!place
+  // the window grew past a phone's width with the sheet open: the column beside the file takes over
+  useEffect(() => {
+    if (wide && getViewerSheet()) closeViewerSheet()
+  }, [wide])
+  /** the bar's button that opened the sheet: the focus goes back to it when the sheet closes */
+  const sheetFrom = useRef<HTMLElement | null>(null)
+  const openSheet = (from: HTMLElement) => {
+    sheetFrom.current = from
+    openViewerSheet()
+  }
+  // 트리나에게 묻기 about this one: the column's side chat with it quoted (a phone: in the sheet)
   const askable = !!place && !gone && held !== item.key && missing !== item.key
-  const askTrina = () => {
+  const askTrina = (from: HTMLElement) => {
     if (!place) return
-    const seed = fileSeed(place.fileId, item.name)
-    if (wide) column.ask(seed)
-    // the room page under the viewer opens it, once the viewer's history entry is gone (its thread may close too); a
-    // second tap meanwhile asks nothing again
-    else if (getImageViewer()) closeImageViewer(true, () => askTrinaInRoom(place.roomId, seed))
+    column.ask(fileSeed(place.fileId, item.name))
+    if (!wide) openSheet(from)
+  }
+  // 💬 on a phone: the file's thread in the sheet, with its reply count
+  const replies = useRooms((s) => (place ? findMessage(s, place.roomId, place.rootId ?? place.messageId)?.thread?.replyCount ?? 0 : 0))
+  const openThread = (from: HTMLElement) => {
+    column.toThread()
+    openSheet(from)
   }
   // a document (or a card in place of the picture): no zoom, no gestures of the picture stage; the page scrolls
   const docMode = item.kind === 'file' || gone
 
   const close = useCallback(() => closeImageViewer(), [])
+  // Esc: a phone's sheet first, then the viewer
+  const escape = useCallback(() => (getViewerSheet() ? closeViewerSheet() : closeImageViewer()), [])
   const back = opener?.isConnected ? opener : (list.find((e) => e.item.key === openerKey)?.el ?? null)
-  useFocusTrap(root, true, close, back)
+  useFocusTrap(root, true, escape, back)
   // a step drew other controls (the last one's arrow, a document's body), or the column changed or went (its link back,
-  // its ✕): focus left on nothing goes back to the stage, so the keys keep working and the page's shortcuts stay away
+  // its ✕), or the sheet closed: focus left on nothing goes back to the button that opened the sheet, else the stage, so
+  // the keys keep working and the page's shortcuts stay away
   useLayoutEffect(() => {
     const a = document.activeElement
-    if (root.current && (!a || a === document.body || !root.current.contains(a))) stageRef.current?.focus({ preventScroll: true })
-  }, [cur, docMode, gone, column.state.show, column.state.open, columnOn])
+    if (!root.current || (a && a !== document.body && root.current.contains(a))) return
+    const from = sheetFrom.current
+    if (!sheetOn && from?.isConnected && root.current.contains(from)) from.focus({ preventScroll: true })
+    else stageRef.current?.focus({ preventScroll: true })
+  }, [cur, docMode, gone, column.state.show, column.state.open, columnOn, sheetOn])
 
   const [pic, setPic] = useState<Pic>(() => freshPic(cur))
   let p = pic
@@ -587,8 +612,9 @@ function Viewer({ open }: { open: ViewerOpen }) {
   const count = list.length > 1 && index >= 0 ? t('viewer.count', { n: index + 1, total: list.length }) : null
   const note = !original && !item.blob ? (thumb ? t('viewer.thumbOnly') : t('viewer.noPicture')) : p.state === 'failed' ? (thumb ? t('viewer.failed') : t('viewer.noPicture')) : null
 
-  // 패널에서 열기: the side panel beside the conversation, with its own actions (computers: on a phone both are the
-  // whole screen)
+  // 패널에서 열기 (⤡, as the side panel's own "back beside the chat" after 크게 보기): the side panel beside the
+  // conversation, with its own actions (computers: on a phone both are the whole screen). Not a panel icon: the column
+  // toggle beside it is one
   const toPanel = item.file && !gone ? () => {
     closeImageViewer()
     openFilePreview(item.file!)
@@ -617,7 +643,8 @@ function Viewer({ open }: { open: ViewerOpen }) {
         tabIndex={-1}
         data-autofocus
         className={clsx(
-          'absolute inset-x-0 bottom-0 outline-none md:right-[var(--viewer-col,0px)]',
+          // isolate: what a document lifts inside it (a PDF's sticky toolbar) stays under the bar and a phone's sheet
+          'absolute inset-x-0 bottom-0 isolate outline-none md:right-[var(--viewer-col,0px)]',
           // a document sits under the bar on a phone too (the bar does not hide there), and scrolls as a page does
           docMode ? 'top-[calc(var(--safe-top)+3.75rem)] md:top-14' : 'top-0 touch-none overflow-hidden md:top-14',
         )}
@@ -630,9 +657,11 @@ function Viewer({ open }: { open: ViewerOpen }) {
         })}
         data-testid="image-viewer-stage"
         data-viewer-stage=""
+        // under a phone's sheet: out of reach until it closes
+        inert={sheetOn || undefined}
       >
         {docMode ? (
-          <ViewerDocument item={item} gone={gone} onSwipe={(dir) => go(dir === 'next' ? next : prev)} onMissing={() => setMissing(item.key)} onHeld={() => setHeld(item.key)} />
+          <ViewerDocument item={item} gone={gone} stageWidth={stage.width} onSwipe={(dir) => go(dir === 'next' ? next : prev)} onMissing={() => setMissing(item.key)} onHeld={() => setHeld(item.key)} />
         ) : (
           <>
             <div
@@ -690,9 +719,11 @@ function Viewer({ open }: { open: ViewerOpen }) {
           !barsOn && 'max-md:invisible max-md:opacity-0',
         )}
         data-testid="image-viewer-bar"
+        inert={sheetOn || undefined}
       >
-        <Who sender={item.sender} />
-        <div className="ml-1.5 min-w-0 flex-1">
+        {/* a phone: the line under the name says who; the room's buttons (✦, 💬) need the width */}
+        <Who sender={item.sender} className={place ? 'max-md:hidden' : undefined} />
+        <div className={clsx('min-w-0 flex-1', place ? 'md:ml-1.5' : 'ml-1.5')}>
           <p className="truncate text-sm font-medium" data-testid="image-viewer-name">{item.name}</p>
           <SentLine sender={item.sender} at={item.at} where={item.where} />
         </div>
@@ -731,7 +762,7 @@ function Viewer({ open }: { open: ViewerOpen }) {
         )}
         {toPanel && (
           <BarButton label={t('viewer.openInPanel')} onClick={toPanel} testId="image-viewer-panel" className="max-md:hidden">
-            <PanelRight size={18} />
+            <Minimize2 size={18} />
           </BarButton>
         )}
         {!docMode && item.href && browser && p.state !== 'failed' && (
@@ -742,8 +773,14 @@ function Viewer({ open }: { open: ViewerOpen }) {
           </Tooltip>
         )}
         {askable && (
-          <BarButton label={t('sideChat.askAboutFile')} onClick={askTrina} testId="image-viewer-ask-trina">
+          <BarButton label={t('sideChat.askAboutFile')} onClick={(e) => askTrina(e.currentTarget)} testId="image-viewer-ask-trina">
             <AiMark />
+          </BarButton>
+        )}
+        {!wide && place && (
+          <BarButton label={replies ? t('viewer.threadWith', { n: replies }) : t('viewer.thread')} onClick={(e) => openThread(e.currentTarget)} testId="image-viewer-thread" className="min-w-10 gap-1 px-2 max-md:w-auto">
+            <MessageSquare size={19} />
+            {replies > 0 && <span className="text-xs font-medium tabular-nums" data-testid="image-viewer-thread-count">{replies}</span>}
           </BarButton>
         )}
         {wide && place && (
@@ -756,26 +793,32 @@ function Viewer({ open }: { open: ViewerOpen }) {
         </BarButton>
       </div>
 
-      {prev && (
+      {prev && !sheetOn && (
         <EdgeButton side="left" label={stepLabel(prev, 'prev')} onClick={() => go(prev)} hidden={!barsOn} phone={!docMode}>
           <ChevronLeft size={24} />
         </EdgeButton>
       )}
-      {next && (
+      {next && !sheetOn && (
         <EdgeButton side="right" label={stepLabel(next, 'next')} onClick={() => go(next)} hidden={!barsOn} phone={!docMode}>
           <ChevronRight size={24} />
         </EdgeButton>
       )}
       {columnOn && place && <ViewerColumn place={place} state={column.state} onAsk={column.ask} onThread={column.toThread} onHide={column.hide} />}
+      {sheetOn && place && (
+        <ViewerSheet onClose={closeViewerSheet}>
+          <ViewerColumn sheet place={place} state={column.state} onAsk={column.ask} onThread={column.toThread} onHide={closeViewerSheet} />
+        </ViewerSheet>
+      )}
       <p className="sr-only" aria-live="polite">{count ? `${item.name}, ${count}` : item.name}</p>
       <p className="sr-only" role="status" data-testid="image-viewer-said">{said}</p>
     </div>
   )
 }
 
-const BAR_BUTTON = 'touch-hit inline-flex size-10 shrink-0 items-center justify-center rounded-md text-white/80 transition hover:bg-white/10 hover:text-white disabled:opacity-35 disabled:hover:bg-transparent max-md:size-11'
+// a phone: 44 px high, 40 wide (touch-hit keeps a 44 px target), so the name keeps some room beside ‹ › and the buttons
+const BAR_BUTTON = 'touch-hit inline-flex size-10 shrink-0 items-center justify-center rounded-md text-white/80 transition hover:bg-white/10 hover:text-white disabled:opacity-35 disabled:hover:bg-transparent max-md:h-11'
 
-function BarButton({ label, onClick, disabled, testId, className, children }: { label: string; onClick: () => void; disabled?: boolean; testId: string; className?: string; children: ReactNode }) {
+function BarButton({ label, onClick, disabled, testId, className, children }: { label: string; onClick: (e: React.MouseEvent<HTMLButtonElement>) => void; disabled?: boolean; testId: string; className?: string; children: ReactNode }) {
   return (
     <Tooltip label={label}>
       <button type="button" aria-label={label} onClick={onClick} disabled={disabled} className={clsx(BAR_BUTTON, className)} data-testid={testId}>
@@ -810,11 +853,14 @@ function EdgeButton({ side, label, onClick, hidden, phone = true, children }: { 
 }
 
 /** the sender's picture: a person's, or the AI's mark; nothing for a picture not sent yet */
-function Who({ sender }: { sender?: ViewerSender }) {
+function Who({ sender, className }: { sender?: ViewerSender; className?: string }) {
   const user = useAvatarOf(sender?.kind === 'user' ? sender.user : null)
-  if (sender?.kind === 'ai') return <AiFace size={32} />
-  if (sender?.kind !== 'user') return null
-  return user ? <Avatar user={user} size={32} /> : <span aria-hidden className="size-8 shrink-0 rounded-full bg-white/15" />
+  if (sender?.kind !== 'ai' && sender?.kind !== 'user') return null
+  return (
+    <span className={clsx('flex shrink-0', className)}>
+      {sender.kind === 'ai' ? <AiFace size={32} /> : user ? <Avatar user={user} size={32} /> : <span aria-hidden className="size-8 rounded-full bg-white/15" />}
+    </span>
+  )
 }
 
 /** "가나 · 2026. 11. 9. 오후 2:10 · #마케팅에서": who sent it, when and where, where known */
