@@ -46,7 +46,7 @@ test('the owner\'s Home without AI: one card; "Claude 구독 연결" opens the s
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByTestId('claude-login-how')).toBeVisible()
   await expect(dialog.getByTestId('credential-label')).toHaveCount(0)
-  await expect(dialog.getByText('그룹·사람 고르기')).toHaveCount(0)
+  await expect(dialog.getByText('부서·사람 고르기')).toHaveCount(0)
   await expect(dialog.getByTestId('plan-notice')).toHaveText('이 계정·요금제를 이렇게 써도 되는지 제공사 약관을 확인했어요. Trina AX에서 그 허가를 줄 수는 없어요.')
   await expect(dialog.getByTestId('credential-password')).toHaveCount(0)
   await expect(dialog.getByTestId('credential-submit')).toBeDisabled()

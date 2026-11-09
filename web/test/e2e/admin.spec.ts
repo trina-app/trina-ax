@@ -86,7 +86,7 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   await expect(page.getByTestId('invite-list')).toContainText('팀원')
 
   // groups
-  await page.getByRole('link', { name: '그룹' }).click()
+  await page.getByRole('link', { name: '부서' }).click()
   await page.getByTestId('group-new').click()
   await page.getByTestId('group-name').fill('영업팀')
   await page.getByRole('dialog').getByLabel('Bob').check()

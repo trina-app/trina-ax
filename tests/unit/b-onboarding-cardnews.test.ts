@@ -305,7 +305,8 @@ describe('the website reading and the brand materials (the real web_fetch and a 
     // names in the team's language (the harness team is English): Brand/Images, logo, website-n, Company intro.md
     expect(r.images.map((p) => path.basename(p))).toEqual(['logo.png', 'website-1.png', 'website-2.jpg'])
     for (const p of r.images) expect(fs.existsSync(path.join(h.team, p))).toBe(true)
-    expect(r.imagesFolder).toMatch(/^groups\/[^/]+\/Brand\/Images$/)
+    // in shared/, the team's home (docs/DECISIONS.md "Team folder basics")
+    expect(r.imagesFolder).toBe('shared/Brand/Images')
     expect(r.brandFolder).toBe(r.imagesFolder.replace(/\/Images$/, ''))
     expect(r.intro).toBe(`${r.brandFolder}/Company intro.md`)
     const md = fs.readFileSync(path.join(h.team, r.intro!), 'utf8')

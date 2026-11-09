@@ -5,6 +5,8 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+- The team folder's top folders have names people use. Files, the folder pickers and the message box's file chips show `shared` as **전사 공유** (Company-wide), `groups` as **부서**, `projects` as **프로젝트**, `skills` as **팀 스킬**, `users` as **개인** and your own folder as **내 폴더**, at the top in that order (전사 공유, 부서, 프로젝트, 팀 스킬, 개인); the folders on disk, the API paths and what the AI sees keep their names. The Korean screens call admin groups **부서** everywhere (Admin › 부서, rules, pickers, hints); 그룹 대화 stays. The AI now knows what each top folder is for and the names you see, starts forms and quotes from `shared/양식/`, moves finished work into a 보관 folder of its area when you ask to tidy up, and gets the loose-file note for a file left directly in `projects/` too. A new team gets `shared/양식/` (in the team's language), and its setup puts 회사 소개, 브랜드, 회의록 and the first team files in `shared/` (everyone sees them) instead of the team group's folder; teams that started before keep their files where they are.
+
 ## 0.5.0-beta.1 — 2026-11-09
 
 Beta channel only; stable stays on 0.4.0.

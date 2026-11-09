@@ -133,6 +133,9 @@ describe('the rules (no screen)', () => {
     // a count that stopped before it found a document (a folder of many folders): not "nothing prepared" either
     expect(preparedView(full({ skills: [], teamFolder: tf(0, true) }), admin)).toMatchObject({ add: false, shown: false })
     expect(folderLabel('groups/Acme/회사 자료')).toBe('Acme › 회사 자료')
+    // a team that started since docs/DECISIONS.md "Team folder basics": shared/ by its word on screen
+    expect(folderLabel('shared', 'ko')).toBe('전사 공유')
+    expect(folderLabel('shared/회사 자료', 'en')).toBe('Company-wide › 회사 자료')
     // 물어보기's question: the folder as people read it, the left-out folders in words; never a path or "skills"
     const q = filesQuestion(ko, tf(3))
     expect(q).toBe('Acme 폴더에서 브랜드 폴더와 스킬 폴더는 빼고, 파일 이름과 종류만 보고 내가 먼저 보면 좋을 것 3개를 골라 줘')
@@ -141,6 +144,9 @@ describe('the rules (no screen)', () => {
       expect({ l, path: text.includes('groups/'), brand: text.includes('브랜드'), folder: text.includes('Acme') }).toEqual({ l, path: false, brand: true, folder: true })
     }
     expect(q).not.toContain('skills')
+    // shared/ (a team that started since "Team folder basics") by its word in the screen's language
+    expect(filesQuestion(ko, { path: 'shared', without: ['브랜드'] }, 'ko')).toBe('전사 공유 폴더에서 브랜드 폴더와 스킬 폴더는 빼고, 파일 이름과 종류만 보고 내가 먼저 보면 좋을 것 3개를 골라 줘')
+    expect(filesQuestion((k, p) => translate('en', k, p), { path: 'shared', without: ['Brand'] }, 'en')).toContain('in the Company-wide folder')
   })
 })
 

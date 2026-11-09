@@ -20,7 +20,7 @@ async function readSite(page: Page) {
   await expect(page.getByTestId('welcome-profile-line')).toHaveText('이렇게 이해했어요: Acme는 조용한 책상 선풍기를 만들어요 · 고치기', { timeout: 15_000 })
 }
 const brandFiles = async (page: Page) => {
-  const listed = await page.request.get(`/api/files/tree?path=${encodeURIComponent('groups/Acme/브랜드')}`)
+  const listed = await page.request.get(`/api/files/tree?path=${encodeURIComponent('shared/브랜드')}`)
   return (await listed.json()).entries.filter((e: { type: string }) => e.type === 'file').map((e: { name: string }) => e.name)
 }
 
