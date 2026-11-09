@@ -1,34 +1,32 @@
 // The rooms store (store/rooms.ts): the pure state changes for the room.* events, and handleEvent against a fake REST
-// server where an event needs one (my own read elsewhere recounts the room; leaving a room closes it).
+// server where an event needs one (leaving a room closes it). Threads: a reply goes to its open thread, and to the
+// timeline only when sent to the room too; summaries and reactions change in place; nobody's reading but mine.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { uuidv7, type Me } from '@mycel/shared/api'
 import { setNavigator } from '../../src/lib/nav'
-import { decrementUnread, mergeMessages, withAiRun, withMessage, withRead, withUpdatedMessage, useRooms, type RoomsData } from '../../src/store/rooms'
+import { mergeMessages, placeKey, toggledReactions, withAiRun, withMessage, withReactions, withReadState, withThreadSummary, withUpdatedMessage, useRooms, type RoomsData } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
-import { at, BEN, ME, message, room } from './rooms-fixtures'
+import { roomBadge, roomUnread, totalUnread } from '../../src/lib/rooms'
+import { at, BEN, CY, ME, message, room } from './rooms-fixtures'
 
-const data = (o: Partial<RoomsData> = {}): RoomsData => ({ rooms: [], openRoomId: null, thread: null, ...o })
+const data = (o: Partial<RoomsData> = {}): RoomsData => ({ rooms: [], openRoomId: null, timeline: null, threadView: null, ...o })
+const tl = (roomId: string, messages: ReturnType<typeof message>[] = []) => ({ roomId, messages, nextCursor: null, loading: false, error: null })
 
 describe('a new message', () => {
   test('is added to the open room once, by id, in room order', () => {
     const r = room()
     const m1 = message({ roomId: r.id, seq: 1 })
     const m2 = message({ roomId: r.id, seq: 2 })
-    let d = data({ rooms: [r], openRoomId: r.id, thread: { roomId: r.id, messages: [m1], nextCursor: null, loading: false, error: null } })
+    let d = data({ rooms: [r], openRoomId: r.id, timeline: tl(r.id, [m1]) })
     d = withMessage(d, r.id, m2, ME.id)
     d = withMessage(d, r.id, m2, ME.id) // the same event again (a replay, or my send's own answer)
-    expect(d.thread!.messages.map((m) => m.seq)).toEqual([1, 2])
+    expect(d.timeline!.messages.map((m) => m.seq)).toEqual([1, 2])
     expect(mergeMessages([m2], [m1]).map((m) => m.seq)).toEqual([1, 2])
   })
 
-  test('keeps the lower unread count: the answer to my send can come after a read of it', () => {
-    const r = room()
-    const sent = message({ roomId: r.id, seq: 3, unread: 1 })
-    let d = data({ rooms: [r], openRoomId: r.id, thread: { roomId: r.id, messages: [], nextCursor: null, loading: false, error: null } })
-    d = withMessage(d, r.id, sent, ME.id) // the room.message event
-    d = withRead(d, r.id, 2, 3) // the other member read it
-    d = withMessage(d, r.id, sent, ME.id) // then the POST answer, made before that read
-    expect(d.thread!.messages[0]!.unread).toBe(0)
+  test('a message carries no read count: nobody is told who has read what', () => {
+    const m = message({ roomId: room().id, seq: 1 })
+    expect(m).not.toHaveProperty('unread')
   })
 
   test('moves its room to the top with the message as the last line', () => {
@@ -62,12 +60,27 @@ describe('a new message', () => {
     expect(open.rooms[0]!.unreadCount).toBe(0)
   })
 
-  test('mentioning me marks the room "mentioned"; a deleted or private message counts nothing', () => {
+  test('mentioning me marks the room "mentioned"; a deleted message counts nothing', () => {
     const r = room()
     const d = withMessage(data({ rooms: [r] }), r.id, message({ roomId: r.id, seq: 1, mentions: [ME.id] }), ME.id)
     expect(d.rooms[0]).toMatchObject({ unreadCount: 1, mentioned: true })
-    const priv = withMessage(data({ rooms: [r] }), r.id, message({ roomId: r.id, seq: 1, visibility: 'private' }), ME.id)
-    expect(priv.rooms[0]!.unreadCount).toBe(0)
+    const gone = withMessage(data({ rooms: [r] }), r.id, message({ roomId: r.id, seq: 1, deletedAt: at(2) }), ME.id)
+    expect(gone.rooms[0]!.unreadCount).toBe(0)
+  })
+
+  test("@트리나's private answer to my question counts for me, as the server counts it (it is sent to me only)", () => {
+    // I asked in this room and went to another one: the sidebar and the dock badge said 0, a reload 1
+    const r = room({ lastSeq: 1, lastReadSeq: 1 })
+    const answer = message({ roomId: r.id, seq: 2, authorKind: 'ai', author: null, askedBy: ME, visibility: 'private' })
+    const d = withMessage(data({ rooms: [r] }), r.id, answer, ME.id)
+    expect(d.rooms[0]).toMatchObject({ unreadCount: 1, mentioned: false, lastSeq: 2, lastMessage: { id: answer.id } })
+    // the room on screen: nothing (the screen reads it)
+    expect(withMessage(data({ rooms: [r], openRoomId: r.id }), r.id, answer, ME.id).rooms[0]!.unreadCount).toBe(0)
+    // shared to the room from my phone: the server read the room up to it first (room.read before the message)
+    const shared = { ...answer, seq: 3, visibility: 'room' as const }
+    let other = withReadState(data({ rooms: [r] }), r.id, { lastReadSeq: 3, unreadCount: 0, mentioned: false })
+    other = withMessage(other, r.id, shared, ME.id)
+    expect(other.rooms[0]).toMatchObject({ unreadCount: 0, lastReadSeq: 3, lastSeq: 3, lastMessage: { id: answer.id } })
   })
 
   test('the badge stops at 999 like the server', () => {
@@ -77,20 +90,79 @@ describe('a new message', () => {
   })
 })
 
-describe('room.read', () => {
-  test('each message in fromSeq < seq <= toSeq has one unread fewer, never below 0', () => {
-    const r = room()
-    const ms = [1, 2, 3, 4].map((seq) => message({ roomId: r.id, seq, unread: seq === 3 ? 0 : 2 }))
-    const d = withRead(data({ rooms: [r], openRoomId: r.id, thread: { roomId: r.id, messages: ms, nextCursor: null, loading: false, error: null } }), r.id, 1, 3)
-    expect(d.thread!.messages.map((m) => m.unread)).toEqual([2, 1, 0, 2])
+describe('threads', () => {
+  test('a reply goes to its open thread, not to the timeline; the room keeps its badge, its last line and its place', () => {
+    const r = room({ lastSeq: 1, activityAt: at(-30) })
+    const other = room({ activityAt: at(-10) })
+    const root = message({ roomId: r.id, seq: 1 })
+    const reply = message({ roomId: r.id, seq: 2, threadRootId: root.id })
+    let d = data({ rooms: [other, r], openRoomId: r.id, timeline: tl(r.id, [root]), threadView: { roomId: r.id, rootId: root.id, root, replies: [], nextCursor: null, loading: false, error: null } })
+    d = withMessage(d, r.id, reply, ME.id)
+    expect(d.timeline!.messages.map((m) => m.id)).toEqual([root.id])
+    expect(d.threadView!.replies.map((m) => m.id)).toEqual([reply.id])
+    expect(d.rooms.map((x) => x.id)).toEqual([other.id, r.id])
+    expect(d.rooms[1]).toMatchObject({ unreadCount: 0, lastSeq: 1, lastMessage: null })
+    // a room not on screen: a reply counts nothing there either (a followed thread's count comes from the server)
+    const closed = withMessage(data({ rooms: [r] }), r.id, reply, ME.id)
+    expect(closed.rooms[0]).toMatchObject({ unreadCount: 0, lastSeq: 1 })
+    // sent to the room too: in the timeline as well, counting like a message there
+    const loud = message({ roomId: r.id, seq: 3, threadRootId: root.id, alsoInRoom: true })
+    const both = withMessage(d, r.id, loud, ME.id)
+    expect(both.timeline!.messages.map((m) => m.id)).toEqual([root.id, loud.id])
+    expect(both.threadView!.replies.map((m) => m.id)).toEqual([reply.id, loud.id])
+    expect(withMessage(data({ rooms: [r] }), r.id, loud, ME.id).rooms[0]).toMatchObject({ unreadCount: 1, lastMessage: { id: loud.id } })
+    // my own reply sent to the room: it does not read the room for me (it was written in the thread)
+    const unread = room({ unreadCount: 2, lastSeq: 1, lastReadSeq: 0 })
+    const mineLoud = message({ roomId: unread.id, seq: 5, author: ME, threadRootId: root.id, alsoInRoom: true })
+    expect(withMessage(data({ rooms: [unread] }), unread.id, mineLoud, ME.id).rooms[0]).toMatchObject({ unreadCount: 2, lastReadSeq: 0, lastSeq: 5 })
+    // a reply in another thread: neither here nor there
+    const elsewhere = withMessage(d, r.id, message({ roomId: r.id, seq: 4, threadRootId: uuidv7() }), ME.id)
+    expect(elsewhere.threadView!.replies).toHaveLength(1)
+    expect(elsewhere.timeline!.messages).toHaveLength(1)
   })
 
-  test('another room, or nothing in range: the state stays the same object', () => {
+  test('a summary and reactions change in place wherever the message shows; null or none takes them away', () => {
     const r = room()
-    const ms = [message({ roomId: r.id, seq: 1, unread: 1 })]
-    expect(decrementUnread(ms, 5, 9)).toBe(ms)
-    const d = data({ rooms: [r], openRoomId: r.id, thread: { roomId: r.id, messages: ms, nextCursor: null, loading: false, error: null } })
-    expect(withRead(d, room().id, 0, 9)).toBe(d)
+    const root = message({ roomId: r.id, seq: 1 })
+    const reply = message({ roomId: r.id, seq: 2, threadRootId: root.id })
+    const start = data({ rooms: [r], openRoomId: r.id, timeline: tl(r.id, [root]), threadView: { roomId: r.id, rootId: root.id, root, replies: [reply], nextCursor: null, loading: false, error: null } })
+    const summary = { replyCount: 1, lastReplyAt: reply.createdAt, repliers: [BEN], newReplies: true }
+    let d = withThreadSummary(start, r.id, root.id, summary)
+    expect(d.timeline!.messages[0]!.thread).toEqual(summary)
+    expect(d.threadView!.root!.thread).toEqual(summary)
+    d = withThreadSummary(d, r.id, root.id, null)
+    expect(d.timeline!.messages[0]).not.toHaveProperty('thread')
+    const chips = [{ emoji: '👍' as const, count: 2, mine: true, users: [ME, BEN] }]
+    d = withReactions(d, r.id, reply.id, chips)
+    expect(d.threadView!.replies[0]!.reactions).toEqual(chips)
+    d = withReactions(d, r.id, reply.id, [])
+    expect(d.threadView!.replies[0]).not.toHaveProperty('reactions')
+    // another room: nothing changes
+    expect(withReactions(start, room().id, root.id, chips).timeline!.messages[0]).not.toHaveProperty('reactions')
+  })
+
+  test('my reaction at once: on adds me (or a new chip), off takes me out (and the chip with the last one)', () => {
+    const list = [{ emoji: '👍' as const, count: 1, mine: false, users: [BEN] }]
+    expect(toggledReactions(list, '👍', true, ME)).toEqual([{ emoji: '👍', count: 2, mine: true, users: [BEN, ME] }])
+    expect(toggledReactions(list, '🎉', true, ME)).toEqual([...list, { emoji: '🎉', count: 1, mine: true, users: [ME] }])
+    expect(toggledReactions([{ emoji: '🎉', count: 1, mine: true, users: [ME] }], '🎉', false, ME)).toEqual([])
+    expect(toggledReactions([{ emoji: '👍', count: 2, mine: true, users: [BEN, ME] }], '👍', false, ME)).toEqual([{ emoji: '👍', count: 1, mine: false, users: [BEN] }])
+    // nothing to change: the same list
+    expect(toggledReactions(list, '👍', false, ME)).toEqual(list)
+  })
+
+  test("reading the room keeps the '@' of a followed thread's mention: the server says so, an older one leaves it while a thread has news", () => {
+    const r = room({ unreadCount: 1, threadsUnread: 1, mentioned: true })
+    expect(withReadState(data({ rooms: [r] }), r.id, { lastReadSeq: 5, unreadCount: 0, mentioned: true }).rooms[0]!.mentioned).toBe(true)
+    expect(withReadState(data({ rooms: [r] }), r.id, { lastReadSeq: 5, unreadCount: 0, mentioned: false }).rooms[0]!.mentioned).toBe(false)
+    expect(withReadState(data({ rooms: [r] }), r.id, { lastReadSeq: 5, unreadCount: 0 }).rooms[0]!.mentioned).toBe(true)
+    expect(withReadState(data({ rooms: [{ ...r, threadsUnread: 0 }] }), r.id, { lastReadSeq: 5, unreadCount: 0 }).rooms[0]!.mentioned).toBe(false)
+  })
+
+  test("each thread's box is its own place (drafts, a refused send coming back)", () => {
+    expect(placeKey('r1')).toBe('r1')
+    expect(placeKey('r1', null)).toBe('r1')
+    expect(placeKey('r1', 't1')).toBe('r1/t1')
   })
 })
 
@@ -98,10 +170,11 @@ test('an edit or delete replaces the message, the quotes of it and the last line
   const r = room()
   const m1 = message({ roomId: r.id, seq: 1, body: 'first' })
   const reply = message({ roomId: r.id, seq: 2, author: ME, replyTo: { id: m1.id, author: BEN, excerpt: 'first', fileCount: 0, deleted: false } })
-  const start = data({ rooms: [{ ...r, lastMessage: { id: m1.id, seq: 1, author: BEN, excerpt: 'first', fileCount: 0, deleted: false, createdAt: m1.createdAt } }], openRoomId: r.id, thread: { roomId: r.id, messages: [m1, reply], nextCursor: null, loading: false, error: null } })
+  const start = data({ rooms: [{ ...r, lastMessage: { id: m1.id, seq: 1, author: BEN, excerpt: 'first', fileCount: 0, deleted: false, createdAt: m1.createdAt } }], openRoomId: r.id, timeline: tl(r.id, [m1, reply]), threadView: { roomId: r.id, rootId: m1.id, root: m1, replies: [], nextCursor: null, loading: false, error: null } })
   const d = withUpdatedMessage(start, r.id, { ...m1, body: '', deletedAt: at(5) })
-  expect(d.thread!.messages[0]!.deletedAt).toBe(at(5))
-  expect(d.thread!.messages[1]!.replyTo).toMatchObject({ id: m1.id, deleted: true, excerpt: '' })
+  expect(d.timeline!.messages[0]!.deletedAt).toBe(at(5))
+  expect(d.threadView!.root!.deletedAt).toBe(at(5))
+  expect(d.timeline!.messages[1]!.replyTo).toMatchObject({ id: m1.id, deleted: true, excerpt: '' })
   expect(d.rooms[0]!.lastMessage).toMatchObject({ deleted: true, excerpt: '' })
 })
 
@@ -132,42 +205,75 @@ describe('handleEvent', () => {
   test("a message from another member raises the badge of a room that is not open; the open room's does not move", () => {
     const a = room({ name: 'acme-a' })
     const b = room({ name: 'acme-b' })
-    useRooms.setState({ rooms: [a, b], loaded: true, openRoomId: b.id, thread: { roomId: b.id, messages: [], nextCursor: null, loading: false, error: null } })
+    useRooms.setState({ rooms: [a, b], loaded: true, openRoomId: b.id, timeline: tl(b.id) })
     useRooms.getState().handleEvent({ type: 'room.message', seq: 1, at: Date.now(), data: { roomId: a.id, message: message({ roomId: a.id, seq: 1 }) } })
     useRooms.getState().handleEvent({ type: 'room.message', seq: 2, at: Date.now(), data: { roomId: b.id, message: message({ roomId: b.id, seq: 1 }) } })
     const s = useRooms.getState()
     expect(s.rooms.find((r) => r.id === a.id)!.unreadCount).toBe(1)
     expect(s.rooms.find((r) => r.id === b.id)!.unreadCount).toBe(0)
-    expect(s.thread!.messages).toHaveLength(1)
+    expect(s.timeline!.messages).toHaveLength(1)
   })
 
-  test('my own read in another window recounts the room from the server', async () => {
+  test('my own read in another window: my position and badge as the event says, nothing asked', async () => {
     const r = room({ unreadCount: 3, lastSeq: 3 })
     useRooms.setState({ rooms: [r], loaded: true })
-    routes[`/api/rooms/${r.id}`] = { ...r, unreadCount: 0, lastReadSeq: 3 }
-    useRooms.getState().handleEvent({ type: 'room.read', seq: 1, at: Date.now(), data: { roomId: r.id, fromSeq: 0, toSeq: 3, mine: true } })
+    useRooms.getState().handleEvent({ type: 'room.read', seq: 1, at: Date.now(), data: { roomId: r.id, lastReadSeq: 3, unreadCount: 0 } })
     await tick()
-    expect(calls).toEqual([`GET /api/rooms/${r.id}`])
+    expect(calls).toEqual([])
     expect(useRooms.getState().rooms[0]).toMatchObject({ unreadCount: 0, lastReadSeq: 3 })
   })
 
-  test("another member's read asks nothing", async () => {
-    const r = room()
-    useRooms.setState({ rooms: [r], loaded: true })
-    useRooms.getState().handleEvent({ type: 'room.read', seq: 1, at: Date.now(), data: { roomId: r.id, fromSeq: 0, toSeq: 3, mine: false } })
+  test('a thread: opening reads its root and replies; a summary event and reading it update the root and the room', async () => {
+    const r = room({ threadsUnread: 1 })
+    const root = message({ roomId: r.id, seq: 1, thread: { replyCount: 1, lastReplyAt: at(2), repliers: [BEN], newReplies: true } })
+    const reply = message({ roomId: r.id, seq: 2, threadRootId: root.id })
+    useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id, [root]) })
+    routes[`/api/rooms/${r.id}/messages/${root.id}/thread`] = { root, items: [reply], nextCursor: null }
+    routes[`/api/rooms/${r.id}/messages/${root.id}/thread/read`] = { lastReadSeq: 2, room: { ...r, threadsUnread: 0 } }
+    useRooms.getState().openThread(r.id, root.id)
+    expect(useRooms.getState().threadView).toMatchObject({ rootId: root.id, root: { id: root.id }, loading: true })
     await tick()
-    expect(calls).toEqual([])
+    expect(useRooms.getState().threadView!.replies.map((m) => m.id)).toEqual([reply.id])
+    await useRooms.getState().markThreadRead(r.id, root.id, 2)
+    // asked once per position
+    await useRooms.getState().markThreadRead(r.id, root.id, 2)
+    expect(calls.filter((c) => c.endsWith('/thread/read'))).toHaveLength(1)
+    expect(useRooms.getState().rooms[0]!.threadsUnread).toBe(0)
+    expect(useRooms.getState().timeline!.messages[0]!.thread!.newReplies).toBe(false)
+    expect(useRooms.getState().threadView!.root!.thread!.newReplies).toBe(false)
+    useRooms.getState().handleEvent({ type: 'room.thread', seq: 3, at: Date.now(), data: { roomId: r.id, rootId: root.id, thread: { replyCount: 2, lastReplyAt: at(3), repliers: [CY, BEN], newReplies: true } } })
+    expect(useRooms.getState().timeline!.messages[0]!.thread).toMatchObject({ replyCount: 2, newReplies: true })
+    useRooms.getState().closeThread(r.id, root.id)
+    expect(useRooms.getState().threadView).toBeNull()
+  })
+
+  test('a reaction shows at once and the server answer wins; refused, it goes back as it was', async () => {
+    const r = room()
+    const m = message({ roomId: r.id, seq: 1 })
+    useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id, [m]) })
+    routes[`/api/rooms/${r.id}/messages/${m.id}/reactions`] = { reactions: [{ emoji: '👍', count: 2, mine: true, users: [BEN, ME] }] }
+    const p = useRooms.getState().react(r.id, m.id, '👍', true)
+    expect(useRooms.getState().timeline!.messages[0]!.reactions).toEqual([{ emoji: '👍', count: 1, mine: true, users: [ME] }])
+    await p
+    expect(useRooms.getState().timeline!.messages[0]!.reactions![0]).toMatchObject({ count: 2, mine: true })
+    delete routes[`/api/rooms/${r.id}/messages/${m.id}/reactions`]
+    await useRooms.getState().react(r.id, m.id, '🎉', true)
+    expect(useRooms.getState().timeline!.messages[0]!.reactions!.map((x) => x.emoji)).toEqual(['👍'])
+    // room.reactions from someone else
+    useRooms.getState().handleEvent({ type: 'room.reactions', seq: 2, at: Date.now(), data: { roomId: r.id, messageId: m.id, reactions: [] } })
+    expect(useRooms.getState().timeline!.messages[0]).not.toHaveProperty('reactions')
   })
 
   test('removed: the room leaves the list and the open room closes', () => {
     const went: string[] = []
     setNavigator((to) => went.push(to))
     const r = room()
-    useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, thread: { roomId: r.id, messages: [], nextCursor: null, loading: false, error: null } })
+    useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id), threadView: { roomId: r.id, rootId: uuidv7(), root: null, replies: [], nextCursor: null, loading: false, error: null } })
     useRooms.getState().handleEvent({ type: 'room.updated', seq: 1, at: Date.now(), data: { roomId: r.id, change: 'removed', room: null } })
     const s = useRooms.getState()
     expect(s.rooms).toEqual([])
-    expect(s.thread).toBeNull()
+    expect(s.timeline).toBeNull()
+    expect(s.threadView).toBeNull()
     expect(s.openRoomId).toBeNull()
     expect(went).toEqual(['/rooms'])
     setNavigator(null)
@@ -185,17 +291,23 @@ describe('handleEvent', () => {
     const r = room()
     useRooms.setState({ rooms: [r], loaded: true })
     globalThis.fetch = (async () => new Response(JSON.stringify({ error: { code: 'conflict', message: 'still answering', params: { reason: 'room_ai_busy' } } }), { status: 409, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch
-    useRooms.getState().send(r.id, { body: '@Trina again', mentions: [BEN.id], replyTo: null, files: [] })
+    useRooms.getState().send(r.id, { body: '@Trina again', mentions: [BEN.id], files: [] })
     await new Promise((res) => setTimeout(res, 20))
     expect(useRooms.getState().pending[r.id]).toBeUndefined()
     expect(useRooms.getState().returned[r.id]).toMatchObject({ body: '@Trina again', mentions: [BEN.id] })
     useRooms.getState().takeReturned(r.id)
     expect(useRooms.getState().returned[r.id]).toBeUndefined()
     globalThis.fetch = (async () => { throw new TypeError('Failed to fetch') }) as unknown as typeof fetch
-    useRooms.getState().send(r.id, { body: 'offline', mentions: [], replyTo: null, files: [] })
+    useRooms.getState().send(r.id, { body: 'offline', mentions: [], files: [] })
     await new Promise((res) => setTimeout(res, 20))
     expect(useRooms.getState().pending[r.id]).toMatchObject([{ body: 'offline', state: 'failed' }])
     expect(useRooms.getState().returned[r.id]).toBeUndefined()
+    // a thread's refused reply goes back to that thread's box
+    globalThis.fetch = (async () => new Response(JSON.stringify({ error: { code: 'conflict', message: 'still answering' } }), { status: 409, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch
+    const root = uuidv7()
+    useRooms.getState().send(r.id, { body: 'in the thread', mentions: [], files: [], threadRootId: root, alsoInRoom: true })
+    await new Promise((res) => setTimeout(res, 20))
+    expect(useRooms.getState().returned[placeKey(r.id, root)]).toMatchObject({ body: 'in the thread', threadRootId: root, alsoInRoom: true })
   })
 
   test('a message for a room this window does not know yet reads that room', async () => {
@@ -206,6 +318,51 @@ describe('handleEvent', () => {
     await tick()
     expect(calls).toEqual([`GET /api/rooms/${r.id}`])
     expect(useRooms.getState().rooms[0]).toMatchObject({ id: r.id, unreadCount: 1 })
+  })
+
+  test('what I read on my phone or in another window reaches this one: the count, the "@", a followed thread, the 대화 tab total', () => {
+    const root = uuidv7()
+    const a = room({ name: 'acme-a', unreadCount: 2, mentioned: true, lastSeq: 4, lastReadSeq: 2, threadsUnread: 1, nextThreadId: root })
+    const b = room({ name: 'acme-b', unreadCount: 1, lastSeq: 1 })
+    useRooms.setState({ rooms: [a, b], loaded: true })
+    const get = () => useRooms.getState().rooms.find((r) => r.id === a.id)!
+    expect(totalUnread(useRooms.getState().rooms)).toBe(4)
+    // the room read there: its messages; the "@" stays while the followed thread that mentions me has news (the server says so)
+    useRooms.getState().handleEvent({ type: 'room.read', seq: 1, at: Date.now(), data: { roomId: a.id, lastReadSeq: 4, unreadCount: 0, mentioned: true } })
+    expect(get()).toMatchObject({ unreadCount: 0, lastReadSeq: 4, mentioned: true, threadsUnread: 1 })
+    expect(roomBadge(get())).toBe('@')
+    expect(totalUnread(useRooms.getState().rooms)).toBe(2)
+    // then the thread read there: my room as the server sees it now, and the thread's summary
+    useRooms.getState().handleEvent({ type: 'room.updated', seq: 2, at: Date.now(), data: { roomId: a.id, change: 'updated', room: { ...get(), threadsUnread: 0, nextThreadId: null, mentioned: false } } })
+    useRooms.getState().handleEvent({ type: 'room.thread', seq: 3, at: Date.now(), data: { roomId: a.id, rootId: root, thread: { replyCount: 1, lastReplyAt: at(3), repliers: [BEN], newReplies: false } } })
+    expect(get()).toMatchObject({ unreadCount: 0, threadsUnread: 0, mentioned: false })
+    expect(roomUnread(get())).toBe(0)
+    expect(totalUnread(useRooms.getState().rooms)).toBe(1)
+    // the other room is untouched
+    expect(useRooms.getState().rooms.find((r) => r.id === b.id)!.unreadCount).toBe(1)
+  })
+
+  test('my place is the newest message I can see (others\' private previews are not mine): read to it elsewhere, nothing is left; an older read never moves it back', async () => {
+    const r = room({ unreadCount: 1, lastSeq: 5, lastReadSeq: 3 })
+    useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: tl(r.id) })
+    // (the server holds a read to the newest message the person can see: 5, though the room's own counter is past it)
+    useRooms.getState().handleEvent({ type: 'room.read', seq: 1, at: Date.now(), data: { roomId: r.id, lastReadSeq: 5, unreadCount: 0, mentioned: false } })
+    useRooms.getState().handleEvent({ type: 'room.read', seq: 2, at: Date.now(), data: { roomId: r.id, lastReadSeq: 4, unreadCount: 0, mentioned: false } })
+    expect(useRooms.getState().rooms[0]).toMatchObject({ lastReadSeq: 5, unreadCount: 0 })
+    // leaving the room: nothing unread here, so the server is not asked again
+    useRooms.getState().close(r.id)
+    await tick()
+    expect(calls).toEqual([])
+  })
+
+  test('back after a lost connection: the rooms come from the server again, and a badge read elsewhere meanwhile goes', async () => {
+    const a = room({ name: 'acme-a', unreadCount: 3, mentioned: true, lastSeq: 9, lastReadSeq: 6, threadsUnread: 1 })
+    useRooms.setState({ rooms: [a], loaded: true })
+    routes['/api/rooms'] = { items: [{ ...a, unreadCount: 0, mentioned: false, lastReadSeq: 9, threadsUnread: 0 }] }
+    await useRooms.getState().resync()
+    expect(calls).toEqual(['GET /api/rooms'])
+    expect(useRooms.getState().rooms[0]).toMatchObject({ unreadCount: 0, mentioned: false, lastReadSeq: 9, threadsUnread: 0 })
+    expect(totalUnread(useRooms.getState().rooms)).toBe(0)
   })
 })
 
@@ -233,19 +390,32 @@ describe('the AI in a room', () => {
   test("someone else's answer that stayed private: the question says so, and stops saying so once it is posted", () => {
     const r = room()
     const q = message({ roomId: r.id, seq: 1, author: BEN, body: '@Trina budget?' })
-    useRooms.setState({ rooms: [r], thread: { roomId: r.id, messages: [q], nextCursor: null, loading: false, error: null } })
+    useRooms.setState({ rooms: [r], timeline: tl(r.id, [q]) })
     const store = useRooms.getState()
     store.handleEvent({ seq: 1, at: 1, type: 'room.ai', data: { roomId: r.id, answering: 1 } })
     // the answer stayed Ben's: the server sends the question again, marked (a reload lists it marked too)
     store.handleEvent({ seq: 2, at: 1, type: 'room.message.updated', data: { roomId: r.id, message: { ...q, answeredPrivately: true } } })
     store.handleEvent({ seq: 3, at: 1, type: 'room.ai', data: { roomId: r.id, answering: 0 } })
-    expect(useRooms.getState().thread!.messages[0]).toMatchObject({ id: q.id, answeredPrivately: true })
+    expect(useRooms.getState().timeline!.messages[0]).toMatchObject({ id: q.id, answeredPrivately: true })
     expect(useRooms.getState().ai[r.id]).toEqual({ answering: 0, runs: [] })
     // Ben posts it: the answer comes to the room and the question loses the mark
     const posted = message({ roomId: r.id, seq: 3, authorKind: 'ai', author: null, askedBy: BEN, body: 'it is 30', replyTo: { id: q.id, author: BEN, excerpt: q.body, fileCount: 0, deleted: false } })
     store.handleEvent({ seq: 4, at: 1, type: 'room.message', data: { roomId: r.id, message: posted } })
     store.handleEvent({ seq: 5, at: 1, type: 'room.message.updated', data: { roomId: r.id, message: q } })
-    expect(useRooms.getState().thread!.messages.map((m) => [m.id, !!m.answeredPrivately])).toEqual([[q.id, false], [posted.id, false]])
+    expect(useRooms.getState().timeline!.messages.map((m) => [m.id, !!m.answeredPrivately])).toEqual([[q.id, false], [posted.id, false]])
     store.reset()
+  })
+})
+
+describe('an event line (a rename, people invited, someone left)', () => {
+  test('takes its place in the open room but counts nowhere: no unread, no last line, no move to the top', () => {
+    const r = room({ lastSeq: 4, activityAt: at(-30), lastMessage: null })
+    const other = room({ activityAt: at(-10) })
+    const line = message({ roomId: r.id, seq: 5, body: '', author: BEN, event: { type: 'renamed', name: 'Plan' } })
+    let d = withMessage(data({ rooms: [other, r] }), r.id, line, ME.id)
+    expect(d.rooms.map((x) => x.id)).toEqual([other.id, r.id])
+    expect(d.rooms[1]).toMatchObject({ unreadCount: 0, lastMessage: null, lastSeq: 5, activityAt: at(-30) })
+    d = withMessage(data({ rooms: [r], openRoomId: r.id, timeline: tl(r.id) }), r.id, line, ME.id)
+    expect(d.timeline!.messages.map((m) => m.id)).toEqual([line.id])
   })
 })

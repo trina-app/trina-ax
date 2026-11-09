@@ -8,14 +8,14 @@ import { CCITT_SCAN, makePagesPdf } from '../lib/pdf'
 import { googleDriveOf } from '../../server/src/integrations/google-drive/oauth'
 import { registerDriveTools } from '../../server/src/tools/drive'
 import { toolRegistry } from '../../server/src/tools/registry'
-import { FakeGoogleDrive, DRIVE_CONFIG } from '../lib/fake-google-drive'
+import { FakeGoogleDrive, DRIVE_CONFIG, membersMayConnect } from '../lib/fake-google-drive'
 
 let a: CApp, fake: FakeGoogleDrive, i = 0
 const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9])
 beforeEach(async () => {
   a = await makeCApp('vision-drive-' + ++i); fake = new FakeGoogleDrive()
   a.ctx.db.query("UPDATE users SET locale = 'en'").run()
-  const svc = googleDriveOf(a.ctx, { config: DRIVE_CONFIG, fetch: fake.fetch })
+  const svc = googleDriveOf(a.ctx, { config: DRIVE_CONFIG, fetch: fake.fetch }); membersMayConnect(a.ctx.db)
   a.ctx.db.query("INSERT INTO sessions(id,user_id,token_hash,client,created_at,last_seen_at,expires_at) VALUES('drive-session','alice','drive-session-hash','web',?,?,?)").run(new Date().toISOString(), new Date().toISOString(), new Date(Date.now() + 3600_000).toISOString())
   const f = svc.authorize('alice', 'drive-session'); await svc.callback(fake.authorize(f.authorizationUrl), { userId: 'alice', sessionId: 'drive-session' }); svc.complete('alice', 'drive-session', f.flowId)
   registerDriveTools(a.ctx, toolRegistry(a.ctx.files))

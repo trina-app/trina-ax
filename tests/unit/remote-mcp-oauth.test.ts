@@ -58,6 +58,36 @@ test('refresh rotation invalidates the old access token; replay revokes the whol
   expect(() => new RemoteOAuth(f.h.ctx.db, { origin }).authenticate(next.access_token)).toThrow('invalid_token')
 })
 
+test('write is the person\'s choice and group management the owner\'s role, whatever the app asked; the token says what was granted; refresh only narrows', async () => {
+  const f = await fixture('choose')
+  // `admin` stands for what an older page or a forged body sent: decide() does not read it
+  const decided = (id: string, o: { write?: boolean; admin?: boolean }) => f.exchange(new URL(f.svc.decide(id, f.auth, true, o as { write?: boolean }).redirectUrl).searchParams.get('code')!)
+  // an app that follows the 401 header asks for mcp:read only; the owner gets the write box, and group management
+  const id = f.request('mcp:read offline_access')
+  expect(f.svc.consent(id, f.auth)).toMatchObject({ scopes: ['mcp:read', 'offline_access'], optional: ['mcp:write', 'mcp:rooms', 'mcp:rooms.write'], admin: true })
+  const first = decided(id, { write: true })
+  expect(first.scope).toBe('mcp:read mcp:write mcp:admin offline_access')
+  expect(JSON.parse(f.svc.authenticate(first.access_token).scopes)).toEqual(['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'])
+  // a refresh keeps what was granted, narrowing sticks, and nothing widens again
+  const refresh = { client_id: f.client.client_id, grant_type: 'refresh_token', resource: origin + '/mcp' }
+  const same = f.svc.token({ ...refresh, refresh_token: first.refresh_token })
+  expect(same.scope).toBe(first.scope)
+  const narrow = f.svc.token({ ...refresh, refresh_token: same.refresh_token, scope: 'mcp:read offline_access' })
+  expect(narrow.scope).toBe('mcp:read offline_access')
+  for (const scope of ['mcp:read mcp:write offline_access', 'mcp:read mcp:admin offline_access']) expect(() => f.svc.token({ ...refresh, refresh_token: narrow.refresh_token, scope })).toThrow('invalid_scope')
+  expect(f.svc.token({ ...refresh, refresh_token: narrow.refresh_token }).scope).toBe('mcp:read offline_access')
+  // write unticked: no write, even when the app asked for it; admin: false changes nothing for an owner
+  expect(decided(f.request('mcp:read mcp:write mcp:admin offline_access'), { write: false, admin: false }).scope).toBe('mcp:read mcp:admin offline_access')
+  // offline_access only when asked: neither the box nor the role adds it, and then there is no refresh token
+  const bare = decided(f.request('mcp:read'), { write: true })
+  expect(bare.scope).toBe('mcp:read mcp:write mcp:admin'); expect(bare.refresh_token).toBeUndefined()
+  // a body without the box (the page before this change): write follows the app's ask
+  expect(decided(f.request('mcp:read mcp:write mcp:admin'), {}).scope).toBe('mcp:read mcp:write mcp:admin')
+  expect(decided(f.request('mcp:read'), {}).scope).toBe('mcp:read mcp:admin')
+  const connected = f.h.ctx.db.query("SELECT detail FROM audit_log WHERE action='remote_mcp.connected' ORDER BY id").all() as { detail: string }[]
+  expect(JSON.parse(connected[0]!.detail)).toEqual({ scopes: ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'], asked: ['mcp:read', 'offline_access'] })
+})
+
 test('authorization code replay revokes its issued family; user disconnect and logout stop access', async () => {
   const f = await fixture('revoke'), code = f.code(), first = f.exchange(code)
   expect(() => f.exchange(code)).toThrow('invalid_grant')

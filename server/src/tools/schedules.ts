@@ -6,8 +6,9 @@
 // person" (web_fetch without a card, on every run). The card shows the title, the schedule, the whole instruction and
 // the addresses in it (long random-looking parts highlighted; an address with a query over 200 characters listed
 // apart, its query highlighted, as one runs never open: it always needs a person), and the "allow" team connections
-// the run could send to without asking; the person creates it, creates it without those sends, or declines. Only what
-// the card showed is carried into runs (schedules.allowed_urls, write_connections).
+// the task names that a run could send to without asking (taskConnections: never every one the person can use); the
+// person creates it, creates it without those sends, or declines. Only what the card showed is carried into runs
+// (schedules.allowed_urls, write_connections).
 import { z } from 'zod'
 import type { Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
@@ -15,7 +16,8 @@ import type { ToolCtx } from '../files/service'
 import { ToolError } from '../policy/errors'
 import { getChatRuntime } from '../chat/runtime'
 import { describeSchedule, needsReview, ScheduleInput, zonedParts, type ScheduleInput as ScheduleInputT, type ScheduleRow } from '../chat/schedules'
-import { usable } from '../integrations/connections/store'
+import { namesTemplate } from '../integrations/connections/schedule-needs'
+import { usable, type Row } from '../integrations/connections/store'
 import { egressOf, egressSettled } from './egress'
 import type { ToolRegistry } from './registry'
 import { extractUrls, MAX_UNCONFIRMED_QUERY, opaqueParts, type ConfirmExtra } from './url-gate'
@@ -30,6 +32,7 @@ const CreateInput = z.object({
   weekday: z.number().int().min(0).max(6).optional().describe('weekly: 0 = Sunday … 6 = Saturday'),
   day: z.number().int().min(1).max(28).optional().describe('monthly: 1–28'),
   date: z.string().optional().describe('once: YYYY-MM-DD'),
+  connections: z.array(z.string().max(200)).max(20).optional().describe('Only when a run must call tools of a connected service that change something there (post a message, upload, add a record: any tool whose description says it changes something at the service): those connections, by their names under "Connected services". Leave it out otherwise.'),
 })
 
 function turnInfo(ctx: AppContext, t: ToolCtx): { projectId: string | null; scheduled: boolean } {
@@ -211,6 +214,32 @@ export function writableConnections(ctx: AppContext, userId: string) {
   return usable(ctx.db, userId).filter((r) => r.scope === 'team' && r.write_policy === 'allow')
 }
 
+/** The "allow" team connections a task names: the only ones its card offers and its runs may send to. Named = its
+ * title or instruction has the connection's whole name (the rule for a template named in an instruction,
+ * integrations/connections/schedule-needs.ts namesTemplate: too short or everyday a name never matches), or it is in
+ * `also` (ids: the ones schedule_create's `connections` listed; for an edit, the ones the task may already send to).
+ * A connection the person can use but the task never names is not on the card: a news briefing is not asked about
+ * sending to an image service. */
+export function taskConnections(writable: Row[], task: { title: string; prompt: string }, also: ReadonlySet<string> = new Set()): Row[] {
+  const text = `${task.title}\n${task.prompt}`
+  return writable.filter((r) => also.has(r.id) || namesTemplate(text, r.name))
+}
+
+/** schedule_create's `connections`: each one an "allow" team connection by its name, slug or tool key (team_<slug>),
+ * ignoring case; `unknown` = the names that are none of them (refused before the card). */
+export function listedConnections(writable: Row[], names: readonly string[]): { ids: Set<string>; unknown: string[] } {
+  const ids = new Set<string>()
+  const unknown: string[] = []
+  for (const raw of names) {
+    const n = raw.trim().toLowerCase()
+    if (!n) continue
+    const hits = writable.filter((r) => r.name.trim().toLowerCase() === n || r.slug.toLowerCase() === n || `team_${r.slug}`.toLowerCase() === n)
+    if (hits.length) for (const r of hits) ids.add(r.id)
+    else unknown.push(raw.trim())
+  }
+  return { ids, unknown }
+}
+
 export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
   const rt = getChatRuntime(ctx)
   const local = (iso: string | null) => {
@@ -224,7 +253,8 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
     name: 'schedule_create',
     description: 'Create a scheduled task for the user: the server sends `prompt` for them on the schedule, each run in a new chat with their access (they see it in their chat list). ' +
       'Use it when the user asks for something recurring or later ("every Monday at 9…", "tomorrow at 8…"). The user confirms it first on a card that shows the title, the schedule and the whole prompt; then confirm the schedule back in plain words. ' +
-      'Runs are unattended (no questions, nothing that needs a confirmation), so write the prompt to work on its own. Only web addresses written in the prompt (shown on the card) open in a run without asking.',
+      'Runs are unattended (no questions, nothing that needs a confirmation), so write the prompt to work on its own. Only web addresses written in the prompt (shown on the card) open in a run without asking. ' +
+      'A run sends or changes something at a connected service only when the task names that connection (in `connections`, or its name in the title or prompt) and the user allows it on the card; name one only when runs need to send there.',
     input: CreateInput,
     describe: (a) => `schedule_create ${a.repeat} ${a.time}`,
     async run(a, t) {
@@ -234,23 +264,34 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
       if (!parsed.success) throw new ToolError(parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '))
       // what would be refused anyway is refused before the person is asked
       rt.schedules.check(t.user.id, parsed.data)
+      const writable = writableConnections(ctx, t.user.id)
+      // a connection a run could never send to is refused before the person is asked, so the AI can say so
+      const listed = listedConnections(writable, a.connections ?? [])
+      if (listed.unknown.length) {
+        const them = listed.unknown.map((n) => `"${n.replace(/\s+/g, ' ').slice(0, 80)}"`).join(', ')
+        const can = writable.length ? `: ${writable.slice(0, 20).map((r) => r.name).join(', ')}${writable.length > 20 ? ` and ${writable.length - 20} more` : ''}` : ', and this user has none'
+        throw new ToolError(`a scheduled run sends only to the user's team connections set to send without asking${can}. ${them} ${listed.unknown.length === 1 ? 'is' : 'are'} not one of them, so nothing was created. If the task needs one of those, use its exact name; otherwise leave it out and tell the user that runs cannot send there (they can do that in a chat).`)
+      }
       const person = t.person
       if (!person) throw new ToolError('a scheduled task runs with nobody watching, so the user confirms it on a card first; nobody can confirm it here, so it was not created. Ask the user to create it in a chat.')
       const L = person.locale
-      const writable = writableConnections(ctx, t.user.id)
+      // only the connections the task names are offered (never every "allow" one the person can use)
+      const offered = taskConnections(writable, parsed.data, listed.ids)
       // the card says what a run can open on this server (right after a start, once the exit address check has had a moment)
       await egressSettled(ctx)
       const urlsOpen = egressOf(ctx).known
-      const card = scheduleCard(parsed.data, writable.map((r) => r.name), L, 'create', { urlsOpen })
-      const options = scheduleOptions(L, writable.length > 0)
+      const card = scheduleCard(parsed.data, offered.map((r) => r.name), L, 'create', { urlsOpen })
+      const options = scheduleOptions(L, offered.length > 0)
       const answer = person.choose
         ? await person.choose(card.question, options, card.extra)
         : (await person.confirm(card.question, TEXT.create[L], TEXT.deny[L], card.extra)) ? 'create' : null
       if (answer !== 'create' && answer !== 'create_write') throw new ToolError('the user did not allow this scheduled task, so it was not created. Do not try again unless the user asks; tell the user it was not created.')
-      const s = rt.schedules.create(t.user.id, parsed.data, new Date(), { allowedUrls: card.urls, writeConnections: answer === 'create_write' ? writable.map((r) => r.id) : [] })
+      const sends = answer === 'create_write' ? offered : []
+      const s = rt.schedules.create(t.user.id, parsed.data, new Date(), { allowedUrls: card.urls, writeConnections: sends.map((r) => r.id) })
       const blocked = !urlsOpen && card.urls.length > card.longQuery.length ? ' This server does not know its own public internet address yet, so its runs cannot open the web addresses in the prompt until it does (the card said so); tell the user.' : ''
       const longQuery = card.longQuery.length ? ` Its runs never open ${card.longQuery.length === 1 ? 'the address' : `the ${card.longQuery.length} addresses`} with a query over ${MAX_UNCONFIRMED_QUERY} characters: such an address always needs a person to confirm it (the card said so); tell the user.` : ''
-      return { text: `Scheduled "${s.title}": ${describeSchedule(s)}. First run: ${local(s.next_run_at)}. Id ${s.id}. The user can turn it off in Scheduled tasks in the sidebar.${blocked}${longQuery}`, summary: `schedule_create ${s.id} ${s.repeat} ${s.time} (confirmed by the user${answer === 'create_write' ? `, may send to ${writable.length} connections` : ''})`, structured: { id: s.id, nextRunAt: s.next_run_at } }
+      const sendNote = sends.length ? ` Its runs may send to ${sends.map((r) => r.name).join(', ')} without asking.` : offered.length ? ' The user chose that its runs never send to connected services; tell the user if the task needs that.' : ''
+      return { text: `Scheduled "${s.title}": ${describeSchedule(s)}. First run: ${local(s.next_run_at)}. Id ${s.id}. The user can turn it off in Scheduled tasks in the sidebar.${blocked}${longQuery}${sendNote}`, summary: `schedule_create ${s.id} ${s.repeat} ${s.time} (confirmed by the user${sends.length ? `, may send to ${sends.length} connections` : ''})`, structured: { id: s.id, nextRunAt: s.next_run_at } }
     },
   })
   reg.register({

@@ -3,19 +3,22 @@
 // members may add their own external-service connections (Settings > External services), whether AI reads send images
 // and PDF pages to the AI (server/src/files/vision.ts), how many tool rounds one answer may take (Claude Code
 // --max-turns, docs/DECISIONS.md "Tool rounds per answer"), voice input (off, OpenRouter
-// with the team's key, or whisper.cpp on this server; docs/DECISIONS.md "Voice input through OpenRouter") and whether
+// with the team's key, or whisper.cpp on this server; docs/DECISIONS.md "Voice input through OpenRouter"; a saved team key
+// turns it on while no provider is chosen, "Voice input on a team's own server: the key turns it on") and whether
 // the AI's video and audio reads turn sound into text ("AI reads video and audio"), and the team
-// logo (the tab icon and the home-screen app icon; shared/src/team-icon.ts), the company profile every chat's AI is told
-// (components/onboarding/CompanyProfileCard.tsx), the dev environment (DevEnvTeam.tsx, hidden when the server has it
-// off), and for the owner the ownership transfer
-// (TransferOwner.tsx). After the form, the team's AI settings (AI defaults, who picks the engine, members' own AI
-// accounts, usage limits; TeamAiSettings.tsx, #ai and #ai-limits), which save on their own. The OpenRouter key is sealed in the
+// logo (the computer's sidebar header; the tab and app icons stay the product's; shared/src/team-icon.ts), the
+// company profile every chat's AI is told (components/onboarding/CompanyProfileCard.tsx), the dev environment
+// (DevEnvTeam.tsx, hidden when the server has it off), and whether a room's change card may offer "이 방에서는 항상 허용"
+// (roomAlwaysAllow, docs/DECISIONS.md "대화방에서 새 파일은 미리 허용"). The owner hands the role over from Admin › Members'
+// "…" (팀장 넘기기, components/handover/HandoverDialog.tsx). After the form, the team's AI settings (AI defaults, who picks the engine, members' own AI
+// accounts, usage limits; TeamAiSettings.tsx, #ai and #ai-limits) and the knowledge graph (KnowledgeGraph.tsx,
+// #knowledge-graph), which save on their own. The OpenRouter key is sealed in the
 // browser (lib/seal.ts), asks for the password again, and is never shown again (only its last 4 characters).
 import clsx from 'clsx'
 import { useEffect, useRef, useState } from 'react'
 import { ExternalLink, RotateCcw, Upload } from 'lucide-react'
 import { teamIconUrl, TEAM_ICON_TYPES } from '@mycel/shared'
-import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_SPEECH_MODEL, mediaTranscriptsDefault, mediaTranscriptsOffSmall, TeamSettings, type Locale, type SpeechHost, type SpeechProvider } from '@mycel/shared/api'
+import { ANSWER_STEP_LIMIT_MAX, ANSWER_STEP_LIMIT_MIN, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_SPEECH_MODEL, mediaTranscriptsDefault, mediaTranscriptsOffSmall, TeamSettings, type Locale, type SpeechHost, type SpeechProvider, DEFAULT_DECK_TIER } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { LOCALES, useLocale, useT } from '../../i18n'
@@ -26,10 +29,10 @@ import { AdminPageHeader, FlatCardsProvider, Loadable, SettingRow, SettingsSecti
 import { legacyWindow } from '../../lib/officeUpdate'
 import { timeZoneOptions } from '../../lib/time-zones'
 import { checkIconFile } from '../../lib/team-icon'
-import TransferOwnerCard from './TransferOwner'
 import CompanyProfileCard from '../../components/onboarding/CompanyProfileCard'
 import { DevEnvTeamCard } from './DevEnvTeam'
 import TeamAiSettings from './TeamAiSettings'
+import KnowledgeGraphSettings from './KnowledgeGraph'
 
 export default function TeamSettingsPage() {
   const t = useT()
@@ -123,10 +126,12 @@ export default function TeamSettingsPage() {
                   <PersonalIntegrationsSwitch value={f.personalIntegrations} onChange={(v) => setF({ ...f, personalIntegrations: v })} />
                   <AiVisionSwitch value={f.aiVision} onChange={(v) => setF({ ...f, aiVision: v })} />
                   <AiSubagentsSwitch value={f.aiSubagents} onChange={(v) => setF({ ...f, aiSubagents: v })} />
+                  <SwitchRow id="ts-room-always" testId="team-room-always" value={f.roomAlwaysAllow} onChange={(v) => setF({ ...f, roomAlwaysAllow: v })} title={t('teamSettings.roomAlways')} desc={t('teamSettings.row.roomAlwaysDesc')} />
                   <AnswerStepLimitField value={f.answerStepLimit} onChange={(v) => setF((x) => (x ? { ...x, answerStepLimit: v } : x))} />
+                  <DeckTierField value={f.introDeckTier} onChange={(v) => setF((x) => (x ? { ...x, introDeckTier: v } : x))} />
                 </SettingsSection>
                 <SpeechSection provider={f.speechProvider} model={f.speechModel} transcripts={f.aiMediaTranscripts} saved={state.data!} onChange={(p) => setF({ ...f, ...p })}
-                  onSaved={(r) => state.setData(r)} />
+                  onSaved={(r) => { state.setData(r); setF((x) => (x && x.speechProvider !== r.speechProvider ? { ...x, speechProvider: r.speechProvider, aiMediaTranscripts: r.aiMediaTranscripts } : x)) }} />
                 {/* one Save for the whole form, switches too, in a bar that shows only while something is not saved (or a
                     field needs a fix, with a button that goes to it). It stays at the bottom of the screen. The logo and
                     the voice input key save at once, on their own buttons. */}
@@ -159,10 +164,11 @@ export default function TeamSettingsPage() {
         {/* the team's AI: defaults, who picks the engine, members' own accounts, usage limits (were Providers' second tab).
             After the form has loaded, so a link to #ai or #ai-limits lands where the page will stay */}
         {state.data && <TeamAiSettings />}
+        {/* the code map the AI uses (knowledge_explore; server/src/knowledge-graph/): saves on its own, like the AI groups */}
+        {state.data && <KnowledgeGraphSettings />}
         {/* what every team chat's AI is told about the company (docs/DECISIONS.md "D — Company profile") */}
         <CompanyProfileCard />
         <DevEnvTeamCard />
-        {owner && <TransferOwnerCard ownerId={me.user.id} />}
       </div>
     </FlatCardsProvider>
   )
@@ -183,10 +189,11 @@ function DaysRow({ id, title, desc, value, min, max, onChange }: { id: string; t
 }
 
 /**
- * The team logo: the tab icon of everyone's browser, the sign-in page's icon and the home-screen app icon. Uploaded
- * at once when chosen (PNG, JPEG or WebP; checked here first, the server checks again), removed back to the default
- * mark. A row with the logo now and its buttons; the previews at the sizes browsers and phones show it, on a light and
- * a dark background, behind "Show previews".
+ * The team logo: shown only inside the page, at the top left of the computer's sidebar next to the team name (the
+ * phone's menu keeps the product's mark). The browser tab, bookmarks, the home-screen and installed app's icons stay
+ * the product's (docs/DECISIONS.md "Team logo as the tab icon", changed 2026-11-07). Uploaded at once when chosen (PNG,
+ * JPEG or WebP; checked here first, the server checks again), removed back to the default mark. A row with the logo
+ * now and its buttons; behind "Show previews", the sidebar header with it in the light and the dark look.
  */
 export function TeamIconRow() {
   const t = useT()
@@ -229,9 +236,8 @@ export function TeamIconRow() {
     }
   }
 
-  // what each place shows: the logo at every size, or the default mark (the SVG in tabs, the home-screen PNG)
-  const tabSrc = version ? teamIconUrl(version) : '/favicon.svg'
-  const homeSrc = version ? teamIconUrl(version) : '/icons/apple-touch-icon.png'
+  // what the sidebar header shows (components/Sidebar.tsx): the logo, else the product's mark
+  const logoSrc = version ? teamIconUrl(version) : '/favicon.svg'
   return (
     <div data-testid="team-icon" data-version={version ?? ''}>
       <SettingRow heading title={t('teamIcon.title')}
@@ -239,7 +245,7 @@ export function TeamIconRow() {
         more={t('teamIcon.hint')}
         control={
           <span className="inline-flex flex-wrap items-center gap-2">
-            <img src={homeSrc} alt="" width={36} height={36} className="h-9 w-9 rounded-lg border border-line object-cover" />
+            <img src={logoSrc} alt="" width={36} height={36} className="h-9 w-9 rounded-lg border border-line object-cover" />
             <Button size="sm" busy={busy === 'upload'} disabled={busy !== null} onClick={() => input.current?.click()} data-testid="team-icon-upload">
               <Upload size={14} aria-hidden /> {version ? t('teamIcon.replace') : t('teamIcon.upload')}
             </Button>
@@ -272,20 +278,14 @@ export function TeamIconRow() {
             <button type="button" aria-expanded={previews} className="mt-2 text-sm font-medium text-muted underline-offset-2 hover:text-ink hover:underline" onClick={() => setPreviews(!previews)} data-testid="team-icon-previews">
               {previews ? t('teamIcon.hidePreviews') : t('teamIcon.showPreviews')}
             </button>
-            <div hidden={!previews} className="mt-3 flex flex-wrap gap-3">
+            <div hidden={!previews} className="mt-3 grid max-w-md grid-cols-2 gap-3">
+              {/* the sidebar header as it is drawn (the 20 px logo, cropped square, beside the team name) on the sidebar's
+                  background and text colour of each look (theme.edition.css --c-subtle, --c-ink, --c-line) */}
               {(['light', 'dark'] as const).map((scheme) => (
-                <figure key={scheme} className="m-0" data-testid={`team-icon-preview-${scheme}`}>
-                  <div className={`flex flex-wrap items-end gap-4 rounded-xl border p-3 ${scheme === 'light' ? 'border-[#d9d6cf] bg-[#ffffff]' : 'border-[#3a3835] bg-[#1f1e1c]'}`}>
-                    {[16, 32].map((n) => (
-                      <div key={n} className="flex flex-col items-center gap-1.5">
-                        <img src={tabSrc} alt="" width={n} height={n} style={{ width: n, height: n }} className="object-contain" data-testid={`team-icon-img-${n}`} />
-                        <span className={`text-[11px] ${scheme === 'light' ? 'text-[#4a4743]' : 'text-[#c9c5bd]'}`}>{t('teamIcon.sizeTab', { n })}</span>
-                      </div>
-                    ))}
-                    <div className="flex flex-col items-center gap-1.5">
-                      <img src={homeSrc} alt="" width={180} height={180} style={{ width: 180, height: 180, borderRadius: 40 }} className="object-cover" data-testid="team-icon-img-180" />
-                      <span className={`text-[11px] ${scheme === 'light' ? 'text-[#4a4743]' : 'text-[#c9c5bd]'}`}>{t('teamIcon.sizeHome', { n: 180 })}</span>
-                    </div>
+                <figure key={scheme} className="m-0 min-w-0" data-testid={`team-icon-preview-${scheme}`}>
+                  <div className={clsx('flex items-center gap-2 rounded-xl border px-3.5 py-3 text-[0.9375rem] font-semibold tracking-tight', scheme === 'light' ? 'border-[#e9e3d8] bg-[#f6f2ea] text-[#14110f]' : 'border-[#2c2723] bg-[#1d1916] text-[#f6f2ea]')}>
+                    <img src={logoSrc} alt="" width={20} height={20} className="size-5 shrink-0 rounded-md object-cover" data-testid="team-icon-preview-logo" />
+                    <span className="truncate">{me.team.name}</span>
                   </div>
                   <figcaption className="mt-1 text-xs text-muted">{t(scheme === 'light' ? 'teamIcon.light' : 'teamIcon.dark')}</figcaption>
                 </figure>
@@ -315,7 +315,7 @@ export function UpdateWindowField({ value, ok, legacy, onChange }: { value: stri
 }
 
 /** One team switch as a settings row: the name labels it, the short line describes it, the long text is "Learn more". */
-function SwitchRow({ id, value, onChange, title, desc, more, testId }: { id: string; value: boolean; onChange: (v: boolean) => void; title: string; desc: string; more: string; testId: string }) {
+function SwitchRow({ id, value, onChange, title, desc, more, testId }: { id: string; value: boolean; onChange: (v: boolean) => void; title: string; desc: string; more?: string; testId: string }) {
   return (
     <SettingRow id={id} title={title} desc={desc} more={more} testId={testId} attrs={{ 'data-on': value ? 'true' : 'false' }}
       control={<Switch id={id} external describedBy={`${id}-desc`} checked={value} onChange={onChange} label={title} />} />
@@ -377,6 +377,21 @@ export function AnswerStepLimitField({ value, onChange }: { value: number; onCha
   )
 }
 
+/** How long the company intro deck may take (server/src/intro-deck/tiers.ts): 3, 5 (the default, DEFAULT_DECK_TIER) or 10 minutes. */
+export function DeckTierField({ value, onChange }: { value: TeamSettings['introDeckTier'] | undefined; onChange: (v: TeamSettings['introDeckTier']) => void }) {
+  const t = useT()
+  return (
+    <SettingRow id="ts-deck-tier" testId="team-deck-tier" title={t('teamSettings.deckTier')} desc={t('teamSettings.row.deckTierDesc')} more={t('teamSettings.deckTierHint')}
+      control={
+        <select id="ts-deck-tier" aria-describedby="ts-deck-tier-desc" className={clsx(inputCls, 'sm:w-64')} value={value ?? DEFAULT_DECK_TIER} onChange={(e) => onChange(e.target.value as TeamSettings['introDeckTier'])}>
+          <option value="quick">{t('teamSettings.deckTierQuick')}</option>
+          <option value="standard">{t('teamSettings.deckTierStandard')}</option>
+          <option value="deep">{t('teamSettings.deckTierDeep')}</option>
+        </select>
+      } />
+  )
+}
+
 const PROVIDERS: SpeechProvider[] = ['off', 'openrouter', 'local']
 
 /** hours of sound with one decimal ("1.5"); any use shows at least 0.1 */
@@ -420,16 +435,20 @@ export function MediaTranscriptsSwitch({ provider, value, host, hostedKey = fals
 export function SpeechSection({ provider, model, transcripts, saved, onChange, onSaved }: {
   provider: SpeechProvider; model: string; transcripts: boolean | null; saved: TeamSettings
   onChange: (p: { speechProvider?: SpeechProvider; speechModel?: string; aiMediaTranscripts?: boolean | null }) => void
-  /** the provider / model were saved together with the key */
+  /** the settings after the key was saved or removed. The provider may follow the key: then the form takes it, with the
+   * saved "Turn video sound into text" (picking OpenRouter to reach "Remove key" must not drop the admin's choice) */
   onSaved: (s: TeamSettings) => void
 }) {
   const t = useT()
+  const locale = useLocale()
   const act = useAction()
   const signedIn = useSession((s) => s.signedIn)
   const key = useLoad(() => api.call(API.speechKey))
   const host = useLoad(() => api.call(API.speechHost))
   // a hosted server's key from the hosting service, used while the team has none of its own (its free hours)
   const hostedKey = provider === 'openrouter' && !!key.data?.hosted && !key.data.set
+  // "this server" without the tools the mic's recordings need: voice input is off (Me.team.voiceInput), say which
+  const missing = provider === 'local' ? host.data?.localMissing ?? [] : []
   const [secret, setSecret] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -439,11 +458,12 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
     const r = await act(async () => {
       const sealed = value === null ? null : await sealSecret(await api.call(API.sealingKey), value, 'speech.key')
       const out = await api.call(API.setSpeechKey, { body: { sealed, password } })
-      // "OpenRouter" picked but not saved yet: saving the key turns it on too (else the mic stays off)
+      // with no provider chosen, the server reads OpenRouter while the team's key is there (nothing stored: removing the
+      // key turns voice input off again). Write a choice only over another saved one, or for another model
+      const now = await api.call(API.settings)
       const m = model || DEFAULT_SPEECH_MODEL
-      if (value !== null && (saved.speechProvider !== 'openrouter' || saved.speechModel !== m)) {
-        onSaved(await api.call(API.updateSettings, { body: { speechProvider: 'openrouter', speechModel: m } }))
-      }
+      const patch = value === null ? {} : { ...(now.speechProvider !== 'openrouter' ? { speechProvider: 'openrouter' as const } : {}), ...(now.speechModel !== m ? { speechModel: m } : {}) }
+      onSaved(Object.keys(patch).length ? await api.call(API.updateSettings, { body: patch }) : now)
       return out
     }, value === null ? t('speech.keyRemoved') : t('speech.keySaved'))
     setBusy(false)
@@ -460,9 +480,10 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
     <SettingsSection id="speech" testId="team-speech" title={t('speech.title')} desc={t('speech.desc')}>
       <SettingRow id="ts-speech-provider" title={t('speech.provider')}
         desc={provider === 'local' ? t('speech.localHint') : undefined}
-        below={provider === 'openrouter' ? <p className={`mt-1 text-sm ${hostedKey ? 'text-muted' : 'text-warn'}`} data-testid="team-speech-privacy">{t(hostedKey ? 'speech.privacyHosted' : 'speech.privacy')}</p> : null}
+        below={provider === 'openrouter' ? <p className={`mt-1 text-sm ${hostedKey ? 'text-muted' : 'text-warn'}`} data-testid="team-speech-privacy">{t(hostedKey ? 'speech.privacyHosted' : 'speech.privacy')}</p>
+          : missing.length > 0 ? <p id="ts-speech-local-missing" className="mt-1 text-sm text-warn" data-testid="team-speech-local-missing">{t('speech.localMissing', { tools: new Intl.ListFormat(locale, { type: 'conjunction' }).format(missing) })}</p> : null}
         control={
-          <select id="ts-speech-provider" aria-describedby={provider === 'local' ? 'ts-speech-provider-desc' : undefined} className={clsx(inputCls, 'sm:w-64')} value={provider}
+          <select id="ts-speech-provider" aria-describedby={provider === 'local' ? `ts-speech-provider-desc${missing.length > 0 ? ' ts-speech-local-missing' : ''}` : undefined} className={clsx(inputCls, 'sm:w-64')} value={provider}
             onChange={(e) => { const next = e.target.value as SpeechProvider; onChange({ speechProvider: next, aiMediaTranscripts: transcriptsAfterProvider(next, saved) }) }} data-testid="team-speech-provider">
             {PROVIDERS.map((p) => <option key={p} value={p}>{t(`speech.${p}`)}</option>)}
           </select>
@@ -489,9 +510,13 @@ export function SpeechSection({ provider, model, transcripts, saved, onChange, o
                       {k.set ? t('speech.hostedOwnKey') : t('speech.hostedUsage', { used: speechHours(k.hosted.usedSec), free: speechHours(k.hosted.freeSec) })}
                     </p>
                   )}
-                  <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-xs text-accent-text hover:underline">
-                    {t('speech.getKey')} <ExternalLink size={12} aria-hidden />
-                  </a>
+                  <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                    <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-accent-text hover:underline">
+                      {t('speech.getKey')} <ExternalLink size={12} aria-hidden />
+                    </a>
+                    {/* what the team's own key costs (the owner's figure); a hosted team's free hours are above */}
+                    {!k.hosted && <span className="text-muted" data-testid="team-speech-price">{t('speech.price')}</span>}
+                  </p>
                   {!secure ? <p className="text-sm text-warn">{t('credentials.httpsOnly')}</p> : (
                     <div className="grid max-w-xl gap-3 sm:grid-cols-2">
                       <Field label={t('speech.key')}>

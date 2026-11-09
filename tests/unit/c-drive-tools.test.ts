@@ -4,13 +4,13 @@ import { googleDriveOf } from '../../server/src/integrations/google-drive/oauth'
 import { registerDriveTools } from '../../server/src/tools/drive'
 import { toolRegistry } from '../../server/src/tools/registry'
 import { readScope, widening } from '../../server/src/chat/read-scope'
-import { FakeGoogleDrive, DRIVE_CONFIG } from '../lib/fake-google-drive'
+import { FakeGoogleDrive, DRIVE_CONFIG, membersMayConnect } from '../lib/fake-google-drive'
 import * as XLSX from 'xlsx'
 
 let a: CApp, fake: FakeGoogleDrive, i = 0
 beforeEach(async () => {
   a = await makeCApp('drive-tools-' + ++i); fake = new FakeGoogleDrive()
-  const svc = googleDriveOf(a.ctx, { config: DRIVE_CONFIG, fetch: fake.fetch })
+  const svc = googleDriveOf(a.ctx, { config: DRIVE_CONFIG, fetch: fake.fetch }); membersMayConnect(a.ctx.db)
   a.ctx.db.query("INSERT INTO sessions(id,user_id,token_hash,client,created_at,last_seen_at,expires_at) VALUES('drive-session','alice','drive-session-hash','web',?,?,?)").run(new Date().toISOString(), new Date().toISOString(), new Date(Date.now() + 3600_000).toISOString())
   const f = svc.authorize('alice', 'drive-session'); await svc.callback(fake.authorize(f.authorizationUrl), { userId: 'alice', sessionId: 'drive-session' }); svc.complete('alice', 'drive-session', f.flowId)
   registerDriveTools(a.ctx, toolRegistry(a.ctx.files))
@@ -23,7 +23,7 @@ function call(name: string, input: unknown, user: 'alice' | 'bob' = 'alice') {
 test('Drive read uses only own token and marks private read scope/taint', async () => {
   const c = call('drive_read', { fileId: 'alice-file' }), r = await c.result
   expect(r.isError).not.toBe(true); expect(r.text).toContain('Alice private content')
-  expect(readScope(a.ctx.db, c.chat)).toEqual([{ type: 'user', id: 'alice' }])
+  expect(readScope(a.ctx.db, c.chat)).toEqual([{ type: 'user', id: 'alice', via: 'connection' }])
   expect(widening(a.ctx.db, c.chat, ['shared'])?.narrower).toHaveLength(1)
   expect((a.ctx.db.query('SELECT session_tainted FROM chats WHERE id=?').get(c.chat) as any).session_tainted).toBe(1)
   const denied = await call('drive_read', { fileId: 'bob-file' }).result

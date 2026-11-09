@@ -1,20 +1,20 @@
 // The accounts the team's AI answers with (docs/DECISIONS.md "AI 연결" 3.13) — Claude subscription tokens, API keys,
 // ChatGPT sign-ins — shown inside each provider's row in Admin › AI providers (pages/admin/Engines.tsx; it was a page of
 // its own, Admin > AI connections, and /admin/credentials leads there): their state, who uses them, this month's use and
-// the order they are tried in. Admins see and re-check; only the owner adds, replaces, orders, assigns, limits,
-// switches off and removes (adding and replacing ask for the password again). Tokens and keys are sealed in the browser
+// the order they are tried in. The owner and admins alike add, replace, order, assign, limit,
+// switch off, remove and re-check them (adding and replacing need no password: every kind has a fixed provider address). Tokens and keys are sealed in the browser
 // before they are sent (lib/seal.ts) and never shown again. Settings › AI providers (MyCredentials) is a member's own
 // accounts by provider, when the team allows it. A Claude subscription and a ChatGPT plan connect with a sign-in in
 // the browser (one button; docs/DECISIONS.md "Claude 구독 연결: 브라우저에서"); the old terminal paste for Claude stays
 // folded under a small disclosure.
 import { ArrowDown, ArrowUp, ExternalLink, KeyRound, MoreHorizontal, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { DuplicateCredentialParams, type Credential, type EngineId, type CredentialAssignment, type CredentialKind, type CredentialLogin, type CredentialLoginKind, type CredentialsResponse, type Group, type User } from '@mycel/shared/api'
+import { DuplicateCredentialParams, LoginBusyParams, type Credential, type EngineId, type CredentialAssignment, type CredentialKind, type CredentialLogin, type CredentialLoginKind, type CredentialsResponse, type Group, type User } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { formatDateTime, formatNumber, formatUsd } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
-import { isOwner, useMeStrict } from '../../store/session'
+import { isAdmin, isOwner, useMeStrict } from '../../store/session'
 import { credentialLogin } from '../../store/live'
 import { toast } from '../../store/ui'
 import { Badge, Button, CopyButton, Field, IconButton, Modal, confirmDialog, inputCls } from '../../components/ui'
@@ -55,7 +55,8 @@ export type Family = 'claude' | 'codex'
 export function useTeamCredentials() {
   const t = useT()
   const me = useMeStrict()
-  const owner = isOwner(me)
+  // the owner and admins change the team's AI connections alike (docs/DECISIONS.md "Admins connect the team's AI too")
+  const owner = isAdmin(me)
   const act = useAction()
   const actOk = useActionOk()
   const state = useLoad(() => api.call(API.listCredentials))
@@ -112,7 +113,7 @@ export function useTeamCredentials() {
       {editing && <EditCredential c={editing} groups={groups.data ?? []} users={users.data ?? []} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void state.reload() }} />}
     </>
   )
-  return { me, owner, state, trial, act, check, patch, remove, move, target, checking, setAdding, setEditing, setReplacing, dialogs }
+  return { me, owner, users, state, trial, act, check, patch, remove, move, target, checking, setAdding, setEditing, setReplacing, dialogs }
 }
 export type TeamCredentials = ReturnType<typeof useTeamCredentials>
 
@@ -153,7 +154,8 @@ export function PersonalCredentialList({ tc }: { tc: TeamCredentials }) {
   return (
     <ul className="divide-y divide-line rounded-xl border border-line" data-testid="credentials-personal">
       {d.items.filter((x) => x.scope === 'personal').map((c) => (
-        <CredentialRow key={c.id} c={c} target={tc.target(c)} owner={tc.owner} checking={tc.checking === c.id} personal
+        // the owner may switch off or remove any; an admin only a member's (not the owner's or another admin's)
+        <CredentialRow key={c.id} c={c} target={tc.target(c)} owner={isOwner(tc.me) || tc.users.data?.find((u) => u.id === c.owner?.id)?.role === 'member'} checking={tc.checking === c.id} personal
           onCheck={() => tc.check(c)} onEdit={() => {}} onReplace={() => {}} onRemove={() => tc.remove(c)} onToggle={() => tc.patch(c, { disabled: !c.disabled })} />
       ))}
     </ul>
@@ -214,10 +216,11 @@ export function CredentialRow({ c, target, owner, checking, personal, ownDelete,
   )
 }
 
-/** Groups / people a connection is assigned to (empty = the whole team). */
-function TargetPicker({ value, onChange, groups, users }: { value: CredentialAssignment[]; onChange: (v: CredentialAssignment[]) => void; groups: Group[]; users: User[] }) {
+/** Groups / people a connection is assigned to (empty = the whole team). `pick` is the dialog's: "chosen groups and
+ * people" with none ticked would be saved as the whole team (the API has no other way to say it), so the dialog does
+ * not save until one is ticked, and the line under the list says so. */
+function TargetPicker({ value, onChange, pick, setPick, groups, users }: { value: CredentialAssignment[]; onChange: (v: CredentialAssignment[]) => void; pick: boolean; setPick: (v: boolean) => void; groups: Group[]; users: User[] }) {
   const t = useT()
-  const [pick, setPick] = useState(value.length > 0)
   const has = (a: CredentialAssignment) => value.some((x) => x.subjectType === a.subjectType && x.subjectId === a.subjectId)
   const toggle = (a: CredentialAssignment) => onChange(has(a) ? value.filter((x) => !(x.subjectType === a.subjectType && x.subjectId === a.subjectId)) : [...value, a])
   return (
@@ -237,6 +240,7 @@ function TargetPicker({ value, onChange, groups, users }: { value: CredentialAss
           </div>
         </div>
       )}
+      {pick && !value.length && <p className="pl-6 text-xs text-warn" role="status" data-testid="target-pick-none">{t('credentials.target.pickNone')}</p>}
     </fieldset>
   )
 }
@@ -246,8 +250,8 @@ function TargetPicker({ value, onChange, groups, users }: { value: CredentialAss
  * ChatGPT plan or the Claude subscription in again (replace of a subscription connection). Subscriptions connect with
  * a sign-in in the browser; a Claude token made in a terminal can still be pasted (the folded "in a terminal" part).
  * `simple` is the form "AI 연결" opens outside Admin (components/onboarding/ConnectAi.tsx): for the whole team (no
- * target), named after the kind (no name field), the provider's terms in one line; the password again stays for a
- * team connection (the server checks it on every add, owner-reauth), and one's own needs none, as before.
+ * target), named after the kind (no name field), the provider's terms in one line. No password field anywhere
+ * here: every kind goes to its provider's fixed address (docs/DECISIONS.md "No password for the team's official AI accounts").
  */
 export function AddCredential({ allowedKinds, family, gateway, groups, users, replace, personal, sharedSubscriptions = false, initialKind, onlyKinds, simple, onClose, onDone }: {
   allowedKinds: CredentialKind[]; /** this provider's kinds only (Add account in its row) */ family?: Family; gateway?: Gateway; groups: Group[]; users: User[]; replace?: Credential; personal?: boolean; sharedSubscriptions?: boolean
@@ -264,10 +268,13 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
   const [label, setLabel] = useState(replace?.label ?? '')
   const [secret, setSecret] = useState('')
   const [assignments, setAssignments] = useState<CredentialAssignment[]>([])
+  /** the target picker's "chosen groups and people" (TargetPicker) */
+  const [pick, setPick] = useState(false)
   const [ack, setAck] = useState(false)
-  const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** a sign-in is already running (one at a time): whose, so the owner or an admin can stop it from here */
+  const [busyLogin, setBusyLogin] = useState<LoginBusyParams | null>(null)
   const [login, setLogin] = useState<CredentialLogin | null>(null)
   /** Claude: the terminal fallback is open (paste a setup-token token instead of the sign-in) */
   const [manual, setManual] = useState(false)
@@ -283,11 +290,12 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
   const secure = canSeal()
   const subscription = kind !== null && SUBSCRIPTION.has(kind)
   const sharingBlocked = subscription && !personal && !sharedSubscriptions
-  const needsPassword = !personal
   /** a subscription signed in from the browser (ChatGPT always, Claude unless the terminal paste is open) */
   const signIn = kind === 'chatgpt' || (kind === 'anthropic-oauth' && !manual)
   const name = simple && kind && !replace ? simpleLabel(kind, gateway) : label.trim()
-  const ready = kind !== null && !sharingBlocked && (replace || name.length > 0) && (signIn || formatOk(kind, secret.trim(), gateway)) && (!subscription || replace || ack) && (!needsPassword || password.length > 0)
+  /** the target picker shows, set to chosen groups and people with none ticked: not ready (it would be the whole team) */
+  const pickNone = kind !== null && !replace && !personal && !simple && pick && !assignments.length
+  const ready = kind !== null && !sharingBlocked && (replace || name.length > 0) && (signIn || formatOk(kind, secret.trim(), gateway)) && (!subscription || replace || ack) && !pickNone
 
   // sign-in progress: the WebSocket event, and a poll in case the socket is down
   useEffect(() => {
@@ -301,38 +309,44 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
 
   const submit = async () => {
     if (!kind || !ready) return
-    setBusy(true); setError(null)
+    setBusy(true); setError(null); setBusyLogin(null)
     try {
       if (signIn) {
         const loginKind = kind as CredentialLoginKind
         const common = { kind: loginKind, label: name || replace?.label || (loginKind === 'chatgpt' ? 'ChatGPT' : 'Claude'), acknowledgedPlanNotice: true as const, ...(replace ? { reconnectId: replace.id } : {}) }
         setLoginCode('')
-        setLogin(personal ? await api.call(API.startMyCredentialLogin, { body: common }) : await api.call(API.startCredentialLogin, { body: { ...common, assignments, password } }))
+        setLogin(personal ? await api.call(API.startMyCredentialLogin, { body: common }) : await api.call(API.startCredentialLogin, { body: { ...common, assignments } }))
         return
       }
       const key = await api.call(API.sealingKey)
       if (replace) {
         const sealed = await sealSecret(key, secret.trim(), 'credential.replace')
-        await api.call(API.replaceCredentialSecret, { params: { id: replace.id }, body: { sealed, password } })
+        await api.call(API.replaceCredentialSecret, { params: { id: replace.id }, body: { sealed } })
         toast({ level: 'success', text: t('credentials.connected') })
       } else {
         const sealed = await sealSecret(key, secret.trim(), 'credential.create')
         const body = { kind: kind as Exclude<CredentialKind, 'chatgpt'>, label: name, sealed, ...(subscription ? { acknowledgedPlanNotice: ack } : {}) }
         const c = personal ? await api.call(API.createMyCredential, { body })
-          : await api.call(API.createCredential, { body: { ...body, assignments, password, ...(move?.credentialId ? { moveFrom: move.credentialId } : {}) } })
+          : await api.call(API.createCredential, { body: { ...body, assignments, ...(move?.credentialId ? { moveFrom: move.credentialId } : {}) } })
         toast({ level: 'success', text: move ? t('credentials.moved') : c.state === 'unverified' ? t('credentials.unverifiedSaved') : t('credentials.connected') })
       }
       setSecret('')
       onDone()
     } catch (e) {
       setError(errorText(e, locale, t('error.network')))
-      // already a personal connection: offer "Move it to the team", with the password typed again for it (another
-      // answer to a move, such as a wrong password, keeps the offer)
+      if (isApiError(e, 'busy')) { const b = LoginBusyParams.safeParse(e.body.params); setBusyLogin(b.success ? b.data : null) }
+      // already a personal connection: offer "Move it to the team" (the sealed secret typed again is the proof)
       if (isApiError(e, 'conflict')) {
         const dup = !personal && !replace ? DuplicateCredentialParams.safeParse(e.body.params) : null
-        if (dup?.success && dup.data.movable && dup.data.credentialId) { setMove(dup.data); setPassword('') } else setMove(null)
+        if (dup?.success && dup.data.movable && dup.data.credentialId) { setMove(dup.data) } else setMove(null)
       }
     } finally { setBusy(false) }
+  }
+  /** stop the sign-in that is in the way (any, for the owner or an admin), then the start can be pressed again */
+  const stopBusy = async () => {
+    if (!busyLogin) return
+    try { await api.call(API.cancelCredentialLogin, { params: { id: busyLogin.loginId } }) } catch (e) { if (!isApiError(e, 'not_found')) { setError(errorText(e, locale, t('error.network'))); return } }
+    setBusyLogin(null); setError(null)
   }
   /** Claude: the pasted code, sealed like a token, to the sign-in that waits for it */
   const sendCode = async () => {
@@ -434,7 +448,7 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
                 <input className={inputCls} type="password" autoComplete="off" spellCheck={false} value={secret} onChange={(e) => { setSecret(e.target.value); if (move) { setMove(null); setError(null) } }} data-testid="credential-secret" />
               </Field>
             )}
-            {kind && !replace && !personal && !simple && <TargetPicker value={assignments} onChange={setAssignments} groups={groups} users={users} />}
+            {kind && !replace && !personal && !simple && <TargetPicker value={assignments} onChange={setAssignments} pick={pick} setPick={setPick} groups={groups} users={users} />}
             {subscription && !replace && simple && (
               // the provider's terms in one line: the server still needs this yes (acknowledgedPlanNotice, D23)
               <label className="flex items-start gap-2 text-sm" data-testid="plan-notice">
@@ -449,17 +463,18 @@ export function AddCredential({ allowedKinds, family, gateway, groups, users, re
               </div>
             )}
             {error && <p className="text-sm text-danger" role="alert" data-testid="dialog-error">{error}</p>}
+            {busyLogin && !personal && (
+              <p className="flex flex-wrap items-center gap-2 text-sm text-muted" data-testid="login-busy">
+                {t('credentials.loginBusy', { name: busyLogin.starter, kind: t(busyLogin.personal ? 'credentials.loginBusyPersonal' : 'credentials.loginBusyTeam') })}
+                <Button size="sm" variant="secondary" onClick={() => void stopBusy()} data-testid="login-busy-stop">{t('credentials.loginStop')}</Button>
+              </p>
+            )}
             {move && (
               <div className="rounded-lg bg-subtle p-3 text-sm" data-testid="credential-move">
                 <p className="font-medium">{t('credentials.moveToTeam')}</p>
                 <p className="mt-1 text-muted">{move.where === 'own' ? t('credentials.moveOwnHint', { label: move.label ?? '' }) : t('credentials.moveHint', { name: move.ownerName ?? '', label: move.label ?? '' })}</p>
                 {leftOut && <p className="mt-1 text-warn" data-testid="credential-move-left-out">{t('credentials.moveLeftOut', { name: move.ownerName ?? '' })}</p>}
               </div>
-            )}
-            {kind && needsPassword && (
-              <Field label={move ? t('credentials.moveReauth') : t('credentials.reauth')} hint={simple && !move ? t('aiConnect.password') : undefined}>
-                <input className={inputCls} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} data-testid="credential-password" />
-              </Field>
             )}
             {kind === 'anthropic-oauth' && (
               // the fallback: a token made with `claude setup-token` on any computer, pasted (folded: the sign-in is the way)
@@ -501,7 +516,8 @@ function CommandLine({ text }: { text: string }) {
   )
 }
 
-/** Claude: open the authorize page (a new tab), paste the code it shows; then the check, then the result */
+/** Claude: open the authorize page (a new tab, or copy its link to another browser), paste the code it shows; then
+ * the check, then the result */
 function ClaudeProgress({ l, code, onCode, onSubmit, error }: { l: CredentialLogin; code: string; onCode: (v: string) => void; onSubmit: () => void; error: string | null }) {
   const t = useT()
   if (l.state === 'starting') return <p className="text-sm text-muted" data-testid="claude-starting">{t('credentials.claude.starting')}</p>
@@ -509,9 +525,13 @@ function ClaudeProgress({ l, code, onCode, onSubmit, error }: { l: CredentialLog
     const bad = code.trim() !== '' && !CLAUDE_CODE_RE.test(code.trim())
     return (
       <div className="space-y-4" data-testid="claude-code">
-        <a className="inline-flex items-center gap-1.5 text-sm font-medium text-accent-text underline" href={l.url} target="_blank" rel="noreferrer noopener" data-testid="claude-open">
-          {t('credentials.claude.open')} <ExternalLink size={13} aria-hidden />
-        </a>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <a className="inline-flex items-center gap-1.5 text-sm font-medium text-accent-text underline" href={l.url} target="_blank" rel="noreferrer noopener" data-testid="claude-open">
+            {t('credentials.claude.open')} <ExternalLink size={13} aria-hidden />
+          </a>
+          {/* the same link for another browser (the one signed in to Claude) or another device */}
+          <CopyButton text={l.url} label={t('credentials.claude.copyLink')} showLabel />
+        </div>
         <Field label={t('credentials.claude.code')} error={bad ? t('credentials.claude.codeInvalid') : null}>
           <input className={inputCls} autoComplete="off" spellCheck={false} value={code} disabled={l.state !== 'code'} data-testid="claude-code-input"
             onChange={(e) => onCode(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') onSubmit() }} />
@@ -559,13 +579,15 @@ function EditCredential({ c, groups, users, onClose, onSaved }: { c: Credential;
   const act = useAction()
   const [label, setLabel] = useState(c.label)
   const [assignments, setAssignments] = useState<CredentialAssignment[]>(c.assignments.map(({ subjectType, subjectId }) => ({ subjectType, subjectId })))
+  const [pick, setPick] = useState(c.assignments.length > 0)
   const [usd, setUsd] = useState(c.spendLimit.usd === null ? '' : String(c.spendLimit.usd))
   const [tokens, setTokens] = useState(c.spendLimit.tokens === null ? '' : String(c.spendLimit.tokens))
   const [action, setAction] = useState(c.spendLimit.action)
   const [busy, setBusy] = useState(false)
   const apiKey = c.kind === 'anthropic-api-key' || c.kind === 'openai-api-key'
   const num = (s: string) => (s.trim() === '' ? null : Math.max(0, Number(s)))
-  const valid = label.trim().length > 0 && (usd.trim() === '' || Number.isFinite(Number(usd))) && (tokens.trim() === '' || Number.isInteger(Number(tokens)))
+  // "chosen groups and people" with none ticked would save as the whole team: not until one is ticked
+  const valid = label.trim().length > 0 && (usd.trim() === '' || Number.isFinite(Number(usd))) && (tokens.trim() === '' || Number.isInteger(Number(tokens))) && !(pick && !assignments.length)
   return (
     <Modal open onClose={onClose} title={c.label} width={520}
       footer={<>
@@ -579,7 +601,7 @@ function EditCredential({ c, groups, users, onClose, onSaved }: { c: Credential;
       </>}>
       <div className="space-y-4">
         <Field label={t('credentials.label')}><input className={inputCls} value={label} maxLength={60} onChange={(e) => setLabel(e.target.value)} /></Field>
-        <TargetPicker value={assignments} onChange={setAssignments} groups={groups} users={users} />
+        <TargetPicker value={assignments} onChange={setAssignments} pick={pick} setPick={setPick} groups={groups} users={users} />
         <fieldset className="space-y-2">
           <legend className="text-xs font-medium text-muted">{t('credentials.spendLimit')}</legend>
           <p className="text-xs text-faint">{t('credentials.spendLimitHint')}</p>

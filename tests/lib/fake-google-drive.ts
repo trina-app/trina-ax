@@ -1,6 +1,12 @@
 import crypto from 'node:crypto'
 import { DRIVE_SCOPE, type DriveConfig } from '../../server/src/integrations/google-drive/config'
 import { DRIVE_API, GOOGLE_TOKEN, GOOGLE_REVOKE, type DriveFetch } from '../../server/src/integrations/google-drive/client'
+import type { Database } from 'bun:sqlite'
+import { setSetting } from '../../server/src/admin/settings'
+import { DRIVE_MEMBERS } from '../../server/src/integrations/google-drive/shares'
+
+/** Admin › Connectors › Google Drive "Members can connect their own Google Drive" (off for a new team). */
+export const membersMayConnect = (db: Database, on = true) => setSetting(db, DRIVE_MEMBERS, on)
 
 export const DRIVE_CONFIG: DriveConfig = { clientId: 'synthetic-client', clientSecret: 'CANARY-client-secret', redirectUri: 'https://team.example.test/api/integrations/google-drive/callback' }
 /** In-process HTTP provider. It can only answer the fixed Google URLs; it never opens a network connection. */

@@ -26,7 +26,7 @@ Read [permissions and data flows](security-and-permissions.md). Give [IT](for-ad
 
 ## Cost and help
 
-Self-hosted software is free; hardware, operations and provider costs are separate. AWS Seoul hosting, checked 2026-10-30: $39/month for up to 5 people, $69 for 15, $129 for 40, USD before tax and AI costs. Ask about teams above 40. [Current pricing and enquiries](https://ax.trina.app/#pricing) · [Support](../SUPPORT.md).
+Self-hosted software is free; hardware, operations and provider costs are separate. Free 14-day trial on Trina hosting (AWS Seoul), then a monthly plan; AI usage is billed separately by the account you connect. [Current prices and enquiries](https://ax.trina.app/#pricing) · [Support](../SUPPORT.md).
 
 ## Real demo screens
 

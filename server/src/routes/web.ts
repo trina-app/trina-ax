@@ -6,9 +6,9 @@
 //                   hashed chunks are immutable, the entry files (react.js, …) revalidate
 //   /sandbox/frame  the fixed receiver document of artifact / HTML preview frames, with the sandbox CSP header
 //   /sw.js          service worker: never cached, scope /
-//   /team-icon      the team's logo (Admin > Team settings, admin/team-icon.ts) or the default icon, public (the sign-in
-//                   page shows it too); /favicon.ico, /apple-touch-icon.png and /manifest.webmanifest follow it, and
-//                   index.html's icon links point at it
+//   /team-icon      the team's logo (Admin > Team settings, admin/team-icon.ts) or the default icon, public (the image
+//                   only, nothing else about the team), shown in the computer's sidebar header; /favicon.ico,
+//                   /apple-touch-icon.png, /manifest.webmanifest and index.html's icon links stay the product's
 //   /downloads/*    desktop app installers in <data>/downloads (index.json lists them: the owner's, the office updater's,
 //                   a Linux server's Windows app from the feed), for signed-in people only, with Range for resumed
 //                   downloads (./downloads.ts)

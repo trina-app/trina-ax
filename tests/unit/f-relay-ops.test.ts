@@ -51,7 +51,7 @@ describe('operator API: where and who', () => {
     expect([r1.status, (r1.json as { error: { code: string } }).error.code]).toEqual([401, 'unauthorized'])
     expect((await opsCall(ops, 'nobody', K.keys.cp!, 'GET', '/ops/v1/stats')).status).toBe(401)
     expect((await opsCall(ops, 'cp', generateTeamKey(), 'GET', '/ops/v1/stats')).status).toBe(401)
-    expect((await cp('POST', '/ops/v1/holds', { name: 'acme', ttlSec: 60 }, { sign: '{"name":"other","ttlSec":60}' })).status).toBe(401)
+    expect((await cp('POST', '/ops/v1/holds', { name: 'acme-co', ttlSec: 60 }, { sign: '{"name":"other","ttlSec":60}' })).status).toBe(401)
     expect((await cp('GET', '/ops/v1/stats', undefined, { ts: Date.now() - 61_000 })).status).toBe(401)
     expect((await cp('GET', '/ops/v1/stats', undefined, { ts: Date.now() + 61_000 })).status).toBe(401)
     // the query string is signed too
@@ -69,7 +69,7 @@ describe('operator API: where and who', () => {
   })
   test('scopes: a key does only what its scopes allow; unknown endpoints are 404', async () => {
     expect((await opsCall(ops, 'reader', K.keys.reader!, 'GET', '/ops/v1/stats')).status).toBe(200)
-    const w = await opsCall(ops, 'reader', K.keys.reader!, 'POST', '/ops/v1/holds', { name: 'acme', ttlSec: 60 })
+    const w = await opsCall(ops, 'reader', K.keys.reader!, 'POST', '/ops/v1/holds', { name: 'acme-co', ttlSec: 60 })
     expect([w.status, (w.json as { error: { code: string } }).error.code]).toEqual([403, 'forbidden'])
     expect((await opsCall(ops, 'claimer', K.keys.claimer!, 'GET', '/ops/v1/stats')).status).toBe(403)
     expect((await opsCall(ops, 'claimer', K.keys.claimer!, 'POST', '/ops/v1/teams/x/suspend', { reason: 'billing' })).status).toBe(403)
@@ -77,9 +77,9 @@ describe('operator API: where and who', () => {
     expect((await cp('POST', '/ops/v1/stats')).status).toBe(404)
   })
   test('bodies are checked: unknown fields and bad values are 400', async () => {
-    expect((await cp('POST', '/ops/v1/holds', { name: 'acme', ttlSec: 99_999 })).status).toBe(400)
-    expect((await cp('POST', '/ops/v1/holds', { name: 'acme', ttlSec: 60, extra: true })).status).toBe(400)
-    expect((await cp('POST', '/ops/v1/claims', { name: 'acme', ttlSec: 3600 })).status).toBe(400)
+    expect((await cp('POST', '/ops/v1/holds', { name: 'acme-co', ttlSec: 99_999 })).status).toBe(400)
+    expect((await cp('POST', '/ops/v1/holds', { name: 'acme-co', ttlSec: 60, extra: true })).status).toBe(400)
+    expect((await cp('POST', '/ops/v1/claims', { name: 'acme-co', ttlSec: 3600 })).status).toBe(400)
     expect((await cp('GET', '/ops/v1/names/%E0%A4%A')).status).toBe(400)
   })
 })
@@ -91,17 +91,17 @@ describe('operator API: a cloud team from start to end', () => {
   afterAll(() => tc?.stop())
 
   test('create with the tenant key (no proof of work); again = the same team (idempotent)', async () => {
-    const body = opsCreateBody('acme', kp, 'cp-team-1')
+    const body = opsCreateBody('acme-co', kp, 'cp-team-1')
     const r = await cp('POST', '/ops/v1/teams', body)
     expect(r.status).toBe(201)
     const info = OperatorTeamInfoSchema.parse(r.json)
-    expect(info).toMatchObject({ name: 'acme', origin: 'cloud', externalRef: 'cp-team-1', region: 'kr-seoul-1', online: false, conns: 0, status: 'active' })
+    expect(info).toMatchObject({ name: 'acme-co', origin: 'cloud', externalRef: 'cp-team-1', region: 'kr-seoul-1', online: false, conns: 0, status: 'active' })
     teamId = info.teamId
-    const again = await cp('POST', '/ops/v1/teams', opsCreateBody('acme', kp, 'cp-team-1'))
+    const again = await cp('POST', '/ops/v1/teams', opsCreateBody('acme-co', kp, 'cp-team-1'))
     expect([again.status, (again.json as { teamId: string }).teamId]).toEqual([200, teamId])
-    const other = await cp('POST', '/ops/v1/teams', opsCreateBody('acme', generateTeamKey(), 'cp-team-1'))
+    const other = await cp('POST', '/ops/v1/teams', opsCreateBody('acme-co', generateTeamKey(), 'cp-team-1'))
     expect(other.status).toBe(409)
-    expect((await cp('GET', '/ops/v1/names/acme')).json).toEqual({ name: 'acme', available: false, problem: 'taken' })
+    expect((await cp('GET', '/ops/v1/names/acme-co')).json).toEqual({ name: 'acme-co', available: false, problem: 'taken' })
     expect((await cp('GET', '/ops/v1/names/fresh-name')).json).toEqual({ name: 'fresh-name', available: true, problem: null })
     const list = await cp('GET', '/ops/v1/teams?origin=cloud')
     expect((list.json as { teams: { teamId: string }[] }).teams.map((t) => t.teamId)).toContain(teamId)
@@ -109,7 +109,7 @@ describe('operator API: a cloud team from start to end', () => {
   })
 
   test('offline cloud team: the cloud offline page (no "server Mac" advice); online once connected', async () => {
-    const page = await fetch(teamUrl(PORT, 'acme', '/'), { headers: html })
+    const page = await fetch(teamUrl(PORT, 'acme-co', '/'), { headers: html })
     expect(page.status).toBe(503)
     expect(page.headers.get('x-relay-error')).toBe('team_offline_cloud')
     expect(await page.text()).toContain(SERVICE_HOSTS.statusHost)
@@ -118,7 +118,7 @@ describe('operator API: a cloud team from start to end', () => {
     const info = OperatorTeamInfoSchema.parse((await cp('GET', `/ops/v1/teams/${teamId}`)).json)
     expect([info.online, info.conns]).toEqual([true, 2])
     expect(OpsStatsSchema.parse((await cp('GET', '/ops/v1/stats')).json).online).toBeGreaterThanOrEqual(1)
-    expect((await fetch(teamUrl(PORT, 'acme', '/hello'))).status).toBe(200)
+    expect((await fetch(teamUrl(PORT, 'acme-co', '/hello'))).status).toBe(200)
   })
 
   test('notice reaches the connected team server', async () => {
@@ -131,18 +131,18 @@ describe('operator API: a cloud team from start to end', () => {
     const r = await cp('POST', `/ops/v1/teams/${teamId}/suspend`, { reason: 'billing' })
     expect(r.status).toBe(200)
     expect(r.json).toMatchObject({ status: 'suspended', suspendReason: 'billing' })
-    const page = await fetch(teamUrl(PORT, 'acme', '/'), { headers: html })
+    const page = await fetch(teamUrl(PORT, 'acme-co', '/'), { headers: html })
     expect(page.status).toBe(403)
     expect(page.headers.get('x-relay-error')).toBe('team_suspended_billing')
     expect(await page.text()).toContain(SERVICE_HOSTS.accountHost)
-    const api = await fetch(teamUrl(PORT, 'acme', '/api/x'), { headers: { cookie: 'mycel_locale=ko' } })
+    const api = await fetch(teamUrl(PORT, 'acme-co', '/api/x'), { headers: { cookie: 'mycel_locale=ko' } })
     expect(((await api.json()) as { error: { code: string; reason: string } }).error).toMatchObject({ code: 'forbidden', reason: 'team_suspended_billing' })
     await until(() => tc!.state.detail === 'suspended', 3000, 'team server told it is suspended')
     expect((await cp('POST', `/ops/v1/teams/${teamId}/suspend`, { reason: 'billing' })).status).toBe(200)
     expect(R.relay.registry.auditLog().filter((a) => a.action === 'teams.suspend' && a.team_id === teamId).length).toBe(1)
     // other reasons keep the plain suspended page
     await cp('POST', `/ops/v1/teams/${teamId}/suspend`, { reason: 'abuse' })
-    expect((await fetch(teamUrl(PORT, 'acme', '/'), { headers: html })).headers.get('x-relay-error')).toBe('team_suspended')
+    expect((await fetch(teamUrl(PORT, 'acme-co', '/'), { headers: html })).headers.get('x-relay-error')).toBe('team_suspended')
     const un = await cp('POST', `/ops/v1/teams/${teamId}/unsuspend`)
     expect(un.json).toMatchObject({ status: 'active', suspendReason: null })
     expect((await cp('POST', `/ops/v1/teams/${teamId}/unsuspend`)).status).toBe(200)
@@ -153,12 +153,12 @@ describe('operator API: a cloud team from start to end', () => {
     await until(async () => !(OperatorTeamInfoSchema.parse((await cp('GET', `/ops/v1/teams/${teamId}`)).json).online), 3000, 'offline')
     await Bun.sleep(250) // past the reconnect hold
     expect((await cp('POST', `/ops/v1/teams/${teamId}/maintenance`, { untilMs: Date.now() + 60_000 })).status).toBe(204)
-    const page = await fetch(teamUrl(PORT, 'acme', '/'), { headers: html })
+    const page = await fetch(teamUrl(PORT, 'acme-co', '/'), { headers: html })
     expect([page.status, page.headers.get('x-relay-error'), page.headers.get('retry-after')]).toEqual([503, 'team_maintenance', '30'])
     expect(OperatorTeamInfoSchema.parse((await cp('GET', `/ops/v1/teams/${teamId}`)).json).maintenanceUntil).not.toBeNull()
     expect((await cp('POST', `/ops/v1/teams/${teamId}/maintenance`, { untilMs: Date.now() + 25 * 3600_000 })).status).toBe(400)
     expect((await cp('POST', `/ops/v1/teams/${teamId}/maintenance`, { untilMs: null })).status).toBe(204)
-    expect((await fetch(teamUrl(PORT, 'acme', '/'), { headers: html })).headers.get('x-relay-error')).toBe('team_offline_cloud')
+    expect((await fetch(teamUrl(PORT, 'acme-co', '/'), { headers: html })).headers.get('x-relay-error')).toBe('team_offline_cloud')
     expect((await cp('POST', `/ops/v1/teams/${teamId}/notice`, { level: 'info', code: 'x', message: 'y' })).status).toBe(409)
   })
 
@@ -174,10 +174,10 @@ describe('operator API: a cloud team from start to end', () => {
   test('rename: the old address answers 308 to the new one (path kept), WebSockets get 404', async () => {
     const r = await cp('PATCH', `/ops/v1/teams/${teamId}`, { name: 'acme-corp' })
     expect(r.json).toMatchObject({ name: 'acme-corp' })
-    const old = await fetch(teamUrl(PORT, 'acme', '/files/a?b=1'), { redirect: 'manual' })
+    const old = await fetch(teamUrl(PORT, 'acme-co', '/files/a?b=1'), { redirect: 'manual' })
     expect(old.status).toBe(308)
     expect(old.headers.get('location')).toBe(`http://acme-corp.localhost:${PORT}/files/a?b=1`)
-    const ws = new WebSocket(`ws://acme.localhost:${PORT}/api/ws`)
+    const ws = new WebSocket(`ws://acme-co.localhost:${PORT}/api/ws`)
     const outcome = await new Promise<string>((resolve) => { ws.onopen = () => resolve('open'); ws.onerror = () => resolve('error'); ws.onclose = () => resolve('closed') })
     expect(outcome).not.toBe('open')
     expect((await fetch(teamUrl(PORT, 'never-was', '/'), { headers: html })).headers.get('x-relay-error')).toBe('team_unknown')
@@ -190,7 +190,7 @@ describe('operator API: a cloud team from start to end', () => {
     expect((await cp('GET', '/ops/v1/names/acme-corp')).json).toMatchObject({ available: false, problem: 'taken' })
     expect((await cp('POST', `/ops/v1/teams/${teamId}/suspend`, { reason: 'billing' })).status).toBe(404)
     // the old name of a deleted team is not followed any more
-    expect((await fetch(teamUrl(PORT, 'acme', '/'), { redirect: 'manual' })).status).toBe(404)
+    expect((await fetch(teamUrl(PORT, 'acme-co', '/'), { redirect: 'manual' })).status).toBe(404)
   })
 })
 

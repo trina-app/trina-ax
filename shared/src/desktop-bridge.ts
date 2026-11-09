@@ -75,6 +75,12 @@ export interface DesktopBrowserSettings {
   teamAllowsAll: boolean
 }
 
+/** How a test notification went: 'shown' (the system took it: Windows, Linux), 'off' (the system refused it:
+ * notifications are off for the app, or the app may not post them), 'unsupported' (this system has no notifications),
+ * 'limited' (too many this minute), 'unknown' (handed over, but the system said nothing within a few seconds; on macOS
+ * also when it took it: macOS takes a notification it will not show, so taking it says nothing there). */
+export type DesktopNotifyTest = 'shown' | 'off' | 'unsupported' | 'limited' | 'unknown'
+
 /** How setAccess ended. 'changed' for "all" only after the person confirmed the desktop app's own dialog. */
 export type DesktopAccessOutcome = 'changed' | 'unchanged' | 'cancelled' | 'not-allowed' | 'busy' | 'unavailable'
 
@@ -83,9 +89,11 @@ export interface DesktopBridge {
   /** desktop app (shell) version, e.g. "0.1.0" */
   appVersion: string
   platform: 'darwin' | 'win32' | 'linux'
-  /** true in a Mac App Store build (Electron's process.mas): the store updates it, so Settings > Apps offers no desktop
-   * installer at all (App Review Guideline 2.4.5: no installs or updates from outside the store). Optional: desktop
-   * apps before this addition do not have it, and none of them came from the store. */
+  /** true in a Mac App Store or Microsoft Store build (Electron's process.mas / process.windowsStore): the store updates
+   * it, so Settings > Apps offers no desktop installer at all (App Review Guideline 2.4.5, Microsoft Store Policy 10.2.4:
+   * no installs or updates from outside the store). Optional: desktop apps before this addition do not have it, and
+   * none of them came from a store. Only the Mac App Store build answers the page's file inputs itself (platform
+   * 'darwin' with store: web/src/lib/desktop.ts answersFileInputs). */
   store?: boolean
   browser: {
     /** Run one browser.call. Same callId twice returns the first result (never runs twice). */
@@ -104,8 +112,35 @@ export interface DesktopBridge {
     get(): Promise<DesktopConnection>
     onChange(cb: (c: DesktopConnection) => void): () => void
   }
-  /** Native notification (admin alerts, finished jobs). Shown only while the window is not focused. */
-  notify(n: { title: string; body: string; tag?: string }): void
+  /** Native notification (a chat or a room that wants the person, admin alerts). Shown only while the window is not
+   * focused, at most 10 a minute. `tag`: one notification per tag (a newer one replaces it; "chat-<id>": one per chat).
+   * `open`: an address of the team page ("/c/<chatId>", "/rooms/<id>") the page goes to when the person clicks it
+   * (onOpen); desktop apps before this addition only focus the window. A team switch closes them. `read`: a room
+   * notification's "Mark as read" button (macOS), "<room id>@<seq>" or "<room id>/<thread root id>@<seq>", given back
+   * through onRead when pressed; older desktop apps show no button. */
+  notify(n: { title: string; body: string; tag?: string; open?: string; read?: string }): void
+  /** Settings › Notifications' "Test notification": one notification now, even while the window is focused (the person
+   * asked for it), in the desktop app's own words (the page gives none) and a small limit a minute of its own; a newer
+   * test replaces the older one. Says how it went (DesktopNotifyTest). Optional: desktop apps before this addition do
+   * not have it (the page shows no button). */
+  testNotify?(): Promise<DesktopNotifyTest>
+  /** A notification's click asks the page to go to its address (an app path, checked by the desktop app). Optional:
+   * desktop apps before session markers do not have it. */
+  onOpen?(cb: (path: string) => void): () => void
+  /** A notification's "Mark as read" was pressed: the page marks that room (or thread) read up to seq (the token from
+   * notify's `read`). Optional: older desktop apps do not have it. */
+  onRead?(cb: (token: string) => void): () => void
+  /** The dock badge (macOS only; Windows shows no count): how many chats and rooms want the person (docs/DECISIONS.md
+   * "Session markers"); 0 clears it. `dot` with n 0: a plain dot instead, some room has unread messages n does not
+   * count ("The Dock's dot for unread rooms"); desktop apps before it ignore the flag (nothing at 0). Optional: older
+   * desktop apps do not have it. */
+  setBadgeCount?(n: number, dot?: boolean): void
+  /** Whether this window is focused, as the desktop app sees it. The page's own document.hasFocus() is false while the
+   * in-app browser pane holds the keyboard, which is still the person looking at the window. Optional (older apps). */
+  focus?: {
+    get(): Promise<boolean>
+    onChange(cb: (focused: boolean) => void): () => void
+  }
   /** Open the desktop app's team list (switch team / add a team). */
   openTeams(): void
   /** The language the team page shows now (the person's choice, else the team default): the desktop app's own

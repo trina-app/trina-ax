@@ -11,9 +11,9 @@
 //   - it works only while its maker could still make it (an active owner or admin), like an invite;
 //   - only one link is open: making a new one, or revoking, ends the old token for good (a new link = a new token);
 //   - the token is in the address's #fragment and reaches the server only in a POST body.
-// A link may carry a starter (docs/DECISIONS.md "M — One meeting note, everyone's own tasks"): team files and a
-// question for the link's skill. At the join each file is checked with the new account; one they cannot read is left
-// out silently, and the member lands on a new chat with the rest attached and the question in the box.
+// A link may name a team skill: someone who joins lands on it (its form) when they can open it, else on Home. The
+// starter a link could carry before (team files and "내 할 일 정리해 줘" for 할 일 정리, docs/DECISIONS.md "M") is gone
+// with that skill (docs/DECISIONS.md "DS3"); its column stays in old databases and is no longer read or written.
 // The token is kept sealed at rest (token_enc, credentials/vault.ts AES-256-GCM with a key file in
 // <secrets>/team-links/) beside its sha256 (token_hash, the lookup), so the admin can copy the same link again later:
 // a link already posted in a chat must keep working when the leader comes back for it.
@@ -21,8 +21,8 @@ import path from 'node:path'
 import type { Context } from 'hono'
 import type { Database } from 'bun:sqlite'
 import {
-  TEAM_LINK_DEFAULT_USES, TEAM_LINK_FRAGMENT_KEY, TeamLinkStarter, skillTitle,
-  type CreateTeamLinkBody, type JoinStarter, type JoinTeamLinkBody, type JoinTeamLinkResponse, type Locale, type TeamLink, type TeamLinkInfo,
+  GENERAL_DECK_SKILL, TEAM_LINK_DEFAULT_USES, TEAM_LINK_FRAGMENT_KEY, skillTitle,
+  type CreateTeamLinkBody, type JoinTeamLinkBody, type JoinTeamLinkResponse, type Locale, type TeamLink, type TeamLinkInfo,
   type TeamLinkProblem, type TeamLinkResponse, type TeamLinkState, type UpdateTeamLinkBody,
 } from '@mycel/shared/api'
 import type { z } from 'zod'
@@ -31,11 +31,14 @@ import { newId } from '../db'
 import type { AppEnv } from '../http/env'
 import { fail } from '../http/errors'
 import { audit } from '../admin/audit'
-import { getTeamSettings } from '../admin/settings'
+import { getSetting, getTeamSettings, setSetting } from '../admin/settings'
+import { landingSkill, readWelcome } from '../onboarding/welcome'
 import { readSkill } from '../chat/skills'
 import { skillMakerName } from '../skills/author'
 import { Vault } from '../credentials/vault'
 import { notifyTeamJoined, notifyTemplateOffers } from '../notifications/service'
+import { newMemberAi } from '../credentials/access'
+import { getChatRuntime } from '../chat/runtime'
 import type { Principal } from '../policy/access'
 import { authorize, visiblePath } from '../policy/authorize'
 import { assertSeatFree, seatLimit, seatsUsed } from '../system/limits'
@@ -58,17 +61,10 @@ const problemText = (p: TeamLinkProblem, locale: Locale) => say(p === 'stopped' 
 interface Row {
   id: string; token_hash: string; token_enc: string | null; key_version: number; group_ids: string; skill_path: string | null
   max_uses: number; uses: number; created_by: string | null; created_at: string; expires_at: string; revoked_at: string | null
-  starter: string | null
 }
-const COLS = 'id, token_hash, token_enc, key_version, group_ids, skill_path, max_uses, uses, created_by, created_at, expires_at, revoked_at, starter'
+const COLS = 'id, token_hash, token_enc, key_version, group_ids, skill_path, max_uses, uses, created_by, created_at, expires_at, revoked_at'
 
 function parseIds(s: string): string[] { try { const v = JSON.parse(s); return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [] } catch { return [] } }
-
-/** The stored starter, or null (none, or a value that does not read). */
-function parseStarter(s: string | null): TeamLinkStarter | null {
-  if (!s) return null
-  try { const r = TeamLinkStarter.safeParse(JSON.parse(s)); return r.success ? r.data : null } catch { return null }
-}
 
 /** A team file this person can open now (the file screen's own test), as its team path; null otherwise. */
 export function readableFile(ctx: AppContext, who: Principal, p: string): string | null {
@@ -78,18 +74,6 @@ export function readableFile(ctx: AppContext, who: Principal, p: string): string
     if (!a.exists || !a.st?.isFile() || !visiblePath(ctx.files.fx, rules, who, a.rel)) return null
     return a.rel
   } catch { return null }
-}
-
-/** The files of a starter this person can open now, each once, in order. */
-const readableFiles = (ctx: AppContext, who: Principal, files: readonly string[]): string[] =>
-  [...new Set(files.map((f) => readableFile(ctx, who, f)).filter((f): f is string => !!f))]
-
-/** A starter as stored: its files that someone joining with these groups could open now; null with none left or
- * without a skill (a starter is a question for the link's skill). */
-function starterFor(ctx: AppContext, groups: string[], skillPath: string | null, st: TeamLinkStarter | null | undefined): string | null {
-  if (!st || !skillPath) return null
-  const files = readableFiles(ctx, newMember(groups), st.files)
-  return files.length ? JSON.stringify({ kind: st.kind, files }) : null
 }
 
 const vaults = new WeakMap<AppContext, Vault>()
@@ -165,13 +149,18 @@ function toTeamLink(c: Context<AppEnv>, ctx: AppContext, r: Row, viewer: Princip
     maxUses: r.max_uses, uses: r.uses, createdBy: userRef(ctx.db, r.created_by), createdAt: r.created_at, expiresAt: r.expires_at,
     state: stateOf(ctx.db, r, authOf(ctx).now()),
     limitedUntil: limitedUntil(ctx, r.id),
-    starter: (() => {
-      const st = parseStarter(r.starter)
-      if (!st) return null
-      const paths = readableFiles(ctx, newMember(existingGroups(ctx.db, parseIds(r.group_ids))), st.files)
-      return { kind: st.kind, files: paths.length, paths }
-    })(),
+    memberAi: memberAiOf(ctx, parseIds(r.group_ids)),
   }
+}
+
+/** What AI someone joining with these groups has (the invite message's "본인 AI 계정이 필요해요"); a read that fails
+ * reads as ready, so no warning is added on a guess. */
+function memberAiOf(ctx: AppContext, groupIds: string[]): NonNullable<TeamLink['memberAi']> {
+  try {
+    let problems = {}
+    try { problems = getChatRuntime(ctx).engines.get().problems } catch { /* no chat runtime (a test of another part) */ }
+    return newMemberAi(ctx, existingGroups(ctx.db, groupIds), { problems })
+  } catch { return 'ready' }
 }
 
 /** While the per-link limit refuses every join (someone holding the link kept failing), until when; else null. The
@@ -210,9 +199,6 @@ export function createTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.output<
     if (!s) fail('validation', say('skillNotForNew', locale), { fields: { 'body.skillPath': 'not readable for a new member' } })
     skillPath = s!.path
   }
-  if (b.starter && !skillPath) fail('validation', undefined, { fields: { 'body.starter': 'needs skillPath' } })
-  // the starter's files someone joining with these groups can open; with none left there is no starter
-  const starter = starterFor(ctx, groups, skillPath, b.starter)
   const now = authOf(ctx).now()
   const id = newId()
   const token = newToken()
@@ -226,19 +212,18 @@ export function createTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.output<
   ctx.db.transaction(() => {
     // one open link at a time: the one before stops working (its sealed token is wiped, its hash stays for "revoked")
     const replaced = ctx.db.query('UPDATE team_links SET revoked_at = ?, revoked_by = ?, token_enc = NULL WHERE revoked_at IS NULL').run(at, auth.user.id).changes
-    ctx.db.query('INSERT INTO team_links (id, token_hash, token_enc, key_version, group_ids, skill_path, max_uses, uses, created_by, created_at, expires_at, starter) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)')
-      .run(id, hashToken(token), sealed.enc, sealed.keyVersion, JSON.stringify(groups), skillPath, maxUses, auth.user.id, at, expiresAt, starter)
-    audit(ctx.db, { actor: auth.user.id, action: 'team_link.create', target: id, detail: { role: 'member', groupIds: groups, maxUses, expiresAt, ...(skillPath ? { skillPath } : {}), ...(starter ? { starter: JSON.parse(starter) } : {}), ...(replaced ? { replaced } : {}) } })
+    ctx.db.query('INSERT INTO team_links (id, token_hash, token_enc, key_version, group_ids, skill_path, max_uses, uses, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)')
+      .run(id, hashToken(token), sealed.enc, sealed.keyVersion, JSON.stringify(groups), skillPath, maxUses, auth.user.id, at, expiresAt)
+    audit(ctx.db, { actor: auth.user.id, action: 'team_link.create', target: id, detail: { role: 'member', groupIds: groups, maxUses, expiresAt, ...(skillPath ? { skillPath } : {}), ...(replaced ? { replaced } : {}) } })
   }).immediate()
   return getTeamLink(c, ctx)
 }
 
 /**
  * PATCH /api/admin/team-link: what the open link leads to, keeping its address (a link already posted keeps working):
- * its skill and starter, and groups added to it (never removed: people who joined keep theirs, and a narrower link
- * would only be a new link). The skill is checked against someone joining with the link's groups after the change, the
- * starter's files likewise (left out when they could not open them). The welcome steps' invite uses it when a link is
- * already out, so people who join land on this week's notes.
+ * its skill, and groups added to it (never removed: people who joined keep theirs, and a narrower link would only be a
+ * new link). The skill is checked against someone joining with the link's groups after the change. The welcome steps'
+ * invite uses it when a link is already out, so people who join land on the skill the steps point at.
  */
 export function updateTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.output<typeof UpdateTeamLinkBody>): TeamLinkResponse {
   const auth = c.get('auth')!
@@ -259,15 +244,53 @@ export function updateTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.output<
         skillPath = s!.path
       }
     }
-    if (b.starter && !skillPath) fail('validation', undefined, { fields: { 'body.starter': 'needs skillPath' } })
-    // no skill, no starter; a starter left as it was is checked again against the groups and skill after the change
-    const starter = b.starter !== undefined ? starterFor(ctx, groups, skillPath, b.starter) : starterFor(ctx, groups, skillPath, parseStarter(r.starter))
-    ctx.db.query('UPDATE team_links SET group_ids = ?, skill_path = ?, starter = ? WHERE id = ? AND revoked_at IS NULL').run(JSON.stringify(groups), skillPath, starter, r.id)
-    audit(ctx.db, { actor: auth.user.id, action: 'team_link.update', target: r.id, detail: { groupIds: groups, ...(added.length ? { added } : {}), skillPath, starter: starter ? JSON.parse(starter) : null } })
+    ctx.db.query('UPDATE team_links SET group_ids = ?, skill_path = ? WHERE id = ? AND revoked_at IS NULL').run(JSON.stringify(groups), skillPath, r.id)
+    audit(ctx.db, { actor: auth.user.id, action: 'team_link.update', target: r.id, detail: { groupIds: groups, ...(added.length ? { added } : {}), skillPath } })
     return true
   }).immediate()
   if (!done) fail('not_found')
   return getTeamLink(c, ctx)
+}
+
+/** Set once the open links to the intro deck were looked at (repointDeckLinks). */
+/** The first run's mark (docs/DECISIONS.md "W5"), set by earlier releases, v0.4.0-beta.10 among them, also when a server
+ * started with no deck link yet: it never stops the run below, which has a mark of its own (DECK_LINKS_CLEARED_KEY).
+ * Kept so the name stays reserved; nothing reads it. */
+export const DECK_LINKS_KEY = 'onboarding.deckLinksRepointedAt'
+/** Set once the open links to the intro deck were pointed at the landing skill or cleared (repointDeckLinks,
+ * docs/DECISIONS.md "DS3"). A new name, so a server whose earlier release recorded DECK_LINKS_KEY before its welcome
+ * steps made a deck link still has that link cleared once after the update (an owner's own deck link included). */
+export const DECK_LINKS_CLEARED_KEY = 'onboarding.deckLinksClearedAt'
+
+/**
+ * Old open invite links that lead to the intro deck (the first result of docs/DECISIONS.md "D2" was what the invite
+ * opened before "W5", and the welcome steps of some later versions made such links too): each is pointed once at the
+ * skill everything points at now (onboarding/welcome.ts landingSkill), keeping its address, when someone joining with
+ * its groups can open that skill; otherwise (no landing skill: nothing shared from 내 스킬 가져오기, or that skill
+ * deleted or out of their reach) it names no skill any more, so people who join land on Home (docs/DECISIONS.md "DS3":
+ * no pack skill stands in, and a link never stays on the owner's deck). Once per server (DECK_LINKS_CLEARED_KEY), recorded
+ * whatever it found: a link the owner points at the deck again later stays. Audited. Returns how many changed.
+ */
+export function repointDeckLinks(ctx: AppContext): number {
+  if (getSetting(ctx.db, DECK_LINKS_CLEARED_KEY)) return 0
+  const general = readWelcome(ctx)?.general
+  const deck = [...new Set([GENERAL_DECK_SKILL, general?.introDeckPath].filter((x): x is string => !!x))]
+  const landing = landingSkill(ctx)
+  let n = 0
+  ctx.db.transaction(() => {
+    if (getSetting(ctx.db, DECK_LINKS_CLEARED_KEY)) return
+    const rows = ctx.db.query(`SELECT ${COLS} FROM team_links WHERE revoked_at IS NULL AND skill_path IN (${deck.map(() => '?').join(',')})`).all(...deck) as Row[]
+    for (const r of rows) {
+      const groups = existingGroups(ctx.db, parseIds(r.group_ids))
+      const s = landing ? teamSkill(ctx, newMember(groups), landing) : null
+      const to = s?.path ?? null
+      ctx.db.query('UPDATE team_links SET skill_path = ? WHERE id = ? AND revoked_at IS NULL').run(to, r.id)
+      audit(ctx.db, { actor: null, action: 'team_link.update', target: r.id, detail: { skillPath: to, from: r.skill_path, reason: 'intro_deck_link' } })
+      n++
+    }
+    setSetting(ctx.db, DECK_LINKS_CLEARED_KEY, new Date().toISOString())
+  }).immediate()
+  return n
 }
 
 /** DELETE /api/admin/team-link: the open link, whatever its state, stops working for good; its sealed token is wiped
@@ -375,25 +398,12 @@ export async function joinTeamLink(c: Context<AppEnv>, ctx: AppContext, b: z.out
   const me = viewerOf(ctx, id)
   const found = r.skill_path && me ? teamSkill(ctx, me, r.skill_path) : null
   const skill = found ? { path: found.path, name: found.name, title: found.title } : null
-  // who made the skill (its file's first version; none for a starter pack's own text): the line above its form, or the
-  // arrival's line for a skill without a form (docs/DECISIONS.md "S — The lead's way becomes a team skill")
-  const maker = skill ? skillMakerName(ctx.db, skill.path) : null
-  const skillBy = maker?.name ?? null
-  // the link's files (M), else a skill made by someone without a form: a new chat with its title and one question
-  const starter = skill && me ? (joinStarter(ctx, me, r, skill) ?? (maker && !found!.form ? { kind: 'skill' as const, skill, files: [], by: skillBy } : null)) : null
+  // who made the skill (its file's first version; none for a starter pack's own text): the line above its form
+  // (docs/DECISIONS.md "S — The lead's way becomes a team skill")
+  const skillBy = skill ? skillMakerName(ctx.db, skill.path)?.name ?? null : null
+  // every skill lands on its form, a skill without fields too, whose box starts with the skill's own example (shared
+  // skillExample; docs/DECISIONS.md "W5"), never a chat with "이 방식대로 해 줘"
   const signed = a.signIn(c, id, b.client, b.tokenMode)
-  return { ...signed, next: skill ? `/skills?run=${encodeURIComponent(skill.path)}` : null, starter, skillBy }
+  return { ...signed, next: skill ? `/skills?run=${encodeURIComponent(skill.path)}` : null, skillBy }
 }
 
-/** The link's starter for the member who just joined: the files they can open now (one they cannot is left out
- * silently), with the link's skill they can open; null when nothing of it is theirs to use. */
-function joinStarter(ctx: AppContext, me: Principal, r: Row, skill: { path: string; name: string; title: string }): JoinStarter | null {
-  // the row as it is now: the starter may have changed while the password was hashed
-  const now = ctx.db.query('SELECT starter FROM team_links WHERE id = ?').get(r.id) as { starter: string | null } | null
-  const st = parseStarter(now?.starter ?? null)
-  if (!st) return null
-  const files = readableFiles(ctx, me, st.files).map((p) => ({ path: p, name: p.slice(p.lastIndexOf('/') + 1) }))
-  if (!files.length) return null
-  const by = r.created_by ? getUser(ctx.db, r.created_by) : null
-  return { kind: st.kind, skill, files, by: by && !by.deleted_at ? by.name : null }
-}

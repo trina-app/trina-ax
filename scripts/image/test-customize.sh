@@ -30,12 +30,17 @@ WORK="$REPO/.tmp/image-test"
 NAME="ax-image-test-$$"
 rm -rf "$WORK"; mkdir -p "$WORK/src/kit/root" "$WORK/src/bin"
 cp -a "$REPO/scripts/image/customize.sh" "$REPO/scripts/image/files" "$WORK/src/"
+# the one list of packages and its reader (what build.sh and build-ami.sh stage as system/)
+mkdir -p "$WORK/src/system"
+cp -p "$REPO/scripts/system/packages.sh" "$REPO/scripts/system/packages.json" "$WORK/src/system/"
 # the dev environment on srt, image part (the same files build-ami.sh stages). --no-srt skips it (faster)
 if [[ $SRT == 1 ]]; then
   mkdir -p "$WORK/src/dev-env-srt"
   for f in install-srt.sh uninstall-srt.sh package.json package-lock.json run-wrap srt-full.mjs devenv.rules.in devenv.slice.in README.md; do
     cp -p "$REPO/scripts/dev-env/srt/$f" "$WORK/src/dev-env-srt/"
   done
+  mkdir -p "$WORK/src/dev-env-srt/system"
+  cp -p "$REPO/scripts/system/packages.sh" "$REPO/scripts/system/packages.json" "$WORK/src/dev-env-srt/system/"
 fi
 cp "$REPO/tests/linux/vm-smoke.sh" "$WORK/vm-smoke.sh"
 
@@ -96,17 +101,22 @@ echo "$run1" | tail -n 25
 run2="$(docker exec "$NAME" bash /w/src/customize.sh --src /w/src --template-version 0.3.0-fake-d13-test 2>&1)" || { echo "$run2"; echo "test-customize: SECOND RUN FAILED"; exit 1; }
 echo "--- second run:"; echo "$run2" | tail -n 5
 echo "$run2" | grep -q 'changed=0$' || { echo "test-customize: FAIL: second run changed something (not idempotent)"; exit 1; }
+# the disk (PR #164 review, question 2): in a container df shows the host's file system, so the sizes of what the
+# template adds are the numbers to record; ami-chroot.sh prints the real image's df in the AMI build log
+echo "--- disk:"
+docker exec "$NAME" bash -c 'df -h /; du -sxh /usr /opt/trina /var/lib/mycel /usr/lib/mycel 2>/dev/null || true'
 
 echo "--- seed / mount point:"
 docker exec "$NAME" bash -c 'ls -ln /usr/lib/mycel/seed-base /usr/lib/mycel/seed-base/root; echo "BASE entries: $(ls -A /var/lib/mycel | wc -l)"; cat /etc/ax-template.json'
 if [[ $SRT == 1 ]]; then
   echo "--- dev environment on srt (image part): installed, and NOT turned on:"
   docker exec "$NAME" bash -c 'set -e
-    v=$(sed -n "s/^SRT_VERSION=//p" /usr/lib/mycel/dev-env/srt/install-srt.sh)
+    L=/usr/lib/mycel/dev-env/srt/system; . $L/packages.sh; pk_load $L/packages.json
+    v=$(pk_art srt any version)
     [ "$(/opt/trina/node/bin/node /opt/trina/srt/$v/cli.js --version)" = "$v" ] || { echo "srt $v does not answer"; exit 1; }
     /opt/trina/node/bin/node /opt/trina/srt/$v/full.mjs --self-test >/dev/null || { echo "srt $v full.mjs missing or allows an address"; exit 1; }
     [ "$(stat -c "%U %a" /opt/trina/devenv/run-wrap)" = "root 755" ] || { echo "run-wrap owner/mode"; exit 1; }
-    for p in bubblewrap socat ripgrep polkitd jq python3 ffmpeg chromium build-essential; do dpkg-query -W -f "\${db:Status-Status}" $p | grep -qx installed || { echo "package $p missing"; exit 1; }; done
+    for p in $(pk_packages "$(pk_distro)" "$(pk_arch)" core media fonts devenv); do dpkg-query -W -f "\${db:Status-Status}" $p | grep -qx installed || { echo "package $p missing"; exit 1; }; done
     [ -z "$(find /opt/trina -perm /022 ! -type l)" ] || { echo "a file in /opt/trina is group/world writable"; exit 1; }
     for f in /etc/polkit-1/rules.d/60-mycel-devenv.rules /etc/systemd/system/mycel-devenv.slice /etc/systemd/system/mycel-server.service.d/dev-env.conf; do
       [ ! -e "$f" ] || { echo "image mode wrote $f (the dev environment must stay off)"; exit 1; }; done

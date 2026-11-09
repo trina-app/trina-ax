@@ -13,6 +13,8 @@ import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { componentC } from '../team-files/component'
 import { deckSummary, PPTX_FORMAT_HINT } from './pptx-check'
+import { HTML_PDF_HINT, HTML_PDF_OFF_HINT, htmlPdfResultText } from './make-file'
+import { htmlPdfUnavailable } from '../files/html-pdf'
 import { toolRegistry } from './registry'
 import { egressOf, egressSettled } from './egress'
 import { registerHiggsfield } from './higgsfield'
@@ -20,6 +22,7 @@ import { registerPromoVideo } from '../promo-video/tool'
 import { registerIntroDeck } from '../intro-deck/tool'
 import { registerScheduleTools, SCHEDULE_TOOL_NAMES } from './schedules'
 import { registerSearch } from './search'
+import { KNOWLEDGE_EXPLORE, registerKnowledgeExplore } from '../knowledge-graph/tool'
 import { registerDriveTools, DRIVE_TOOL_NAMES } from './drive'
 import { registerFileMoveTools, FILE_MOVE_TOOL_NAMES } from './file-moves'
 import { extractUrls, gateUrl, rememberUrls, TEXT as GATE_TEXT, type WebPageFailure } from './url-gate'
@@ -64,9 +67,11 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
     })
   }
 
-  // make_file's description; the Hangul parts only while Hangul writing is on (tools/hwp-writing.ts)
-  const makeFileDescription = (hangul: boolean) =>
-    `Create a Word (.docx), PowerPoint (.pptx), Excel (.xlsx)${hangul ? ', PDF or Hangul (.hwpx)' : ' or PDF'} file in the team folder from Markdown or CSV. ` +
+  // make_file's description; the Hangul parts only while Hangul writing is on (tools/hwp-writing.ts), the HTML print
+  // as this server offers it (files/html-pdf.ts: only where a headless browser is installed)
+  const makeFileDescription = (hangul: boolean, html: boolean = htmlPdfUnavailable() === null) =>
+    `Create a Word (.docx), PowerPoint (.pptx), Excel (.xlsx)${hangul ? ', PDF or Hangul (.hwpx)' : ' or PDF'} file in the team folder from Markdown or CSV${html ? ', or a PDF from an HTML page' : ''}. ` +
+      (html ? HTML_PDF_HINT : HTML_PDF_OFF_HINT) +
       'Give exactly one of `source` (a .md/.csv file in the team folder) or `content` (Markdown; for xlsx also CSV). For xlsx every Markdown ' +
       'pipe table becomes a sheet. xlsx formulas: a data cell that starts with "=" is written as a formula, e.g. "=SUM(B2:E2)"; start it ' +
       'with "\'=" for literal text. Row 1 is the header, data starts at row 2, columns are A, B, ... in table order; a sheet is named ' +
@@ -82,12 +87,12 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
       'the result states the real slide and notes counts: report those, never other numbers. ' +
       'When safe operations are enabled, PPTX uses only the bundled reference: uploaded templates are deferred. ' +
       'Limits: 30 slides, 20 PNG/JPEG/WebP/HEIC images, 100,000 text characters. expected_layouts checks the bundled layout for each slide.'
-  const withoutHangul = { description: makeFileDescription(false), input: MakeFileInputWithoutHwpx }
   reg.register({
     name: 'make_file',
-    description: makeFileDescription(true),
+    description: makeFileDescription(true, true),
     input: MakeFileInput,
-    listing: () => (hwpWritingOn(ctx) ? null : withoutHangul),
+    // read at each turn's start: Hangul writing and the HTML print can each come and go
+    listing: () => (hwpWritingOn(ctx) ? { description: makeFileDescription(true), input: MakeFileInput } : { description: makeFileDescription(false), input: MakeFileInputWithoutHwpx }),
     describe: (a) => `make_file ${a.format} -> ${a.output}`,
     async run(a, t) {
       // a Hangul document while the HWP plugin is off (an engine that kept an older list): refused before any work
@@ -98,9 +103,11 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
         : `Saved ${r.path} (${human(r.size)}). Link for the user: [${r.path.split('/').pop()}](${fileShareUrl(r.path, 'preview')})`
       const text = r.deck ? `${saved}\nThe file has ${deckSummary(r.deck)}.`
         : r.formulas ? `${saved}\nThe file has ${r.formulas} formula cells; the spreadsheet app calculates them when the file opens.`
+        : r.html ? `${saved}\n${htmlPdfResultText(r.html)}`
         : a.format === 'hwpx' ? `${saved}\nThe file was read back: its paragraphs and headings are the document's. Layout in Hangul is not checked.` : saved
       const deck = r.deck ? ` ${r.deck.slides.length} slides ${r.deck.notes} notes` : ''
-      return { text, summary: `make_file ${a.format} -> ${r.path} ${r.size}B${deck}${r.conflictCopyOf ? ' (conflict copy)' : ''}`, structured: { path: r.path, size: r.size, sha256: r.sha256, ...(r.deck ? { slides: r.deck.slides.length, notes: r.deck.notes } : {}) } }
+      const html = r.html ? ` from ${a.source} ${r.html.pages} pages${r.html.blockedCount ? ` ${r.html.blockedCount} blocked` : ''}` : ''
+      return { text, summary: `make_file ${a.format} -> ${r.path} ${r.size}B${deck}${html}${r.conflictCopyOf ? ' (conflict copy)' : ''}`, structured: { path: r.path, size: r.size, sha256: r.sha256, ...(r.deck ? { slides: r.deck.slides.length, notes: r.deck.notes } : {}), ...(r.html ? { pages: r.html.pages } : {}) } }
     },
   })
 
@@ -233,6 +240,9 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
   for (const name of FILE_MOVE_TOOL_NAMES) exposeToTurns(name)
   // search by meaning (tools/search.ts): only when it is on
   if (registerSearch(ctx, reg)) exposeToTurns('search')
+  // the code map of the team's folders (knowledge-graph/tool.ts): offered while the knowledge graph is on
+  registerKnowledgeExplore(ctx, reg)
+  exposeToTurns(KNOWLEDGE_EXPLORE)
   // scheduled tasks (tools/schedules.ts)
   registerScheduleTools(ctx, reg)
   for (const name of SCHEDULE_TOOL_NAMES) exposeToTurns(name)
@@ -241,7 +251,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
   registerPromoVideo(ctx, reg)
   exposeToTurns('promo_video')
   // the company's intro deck (intro-deck/tool.ts, docs/DECISIONS.md "D2"): slots in, our layout out
-  registerIntroDeck(ctx, reg)
+  registerIntroDeck(ctx, reg, { fetch: o.fetch })
   exposeToTurns('intro_deck')
   // Higgsfield video (tools/higgsfield.ts): only when an admin put the team's key in <data>/secrets/higgsfield.key
   if (registerHiggsfield(ctx, reg)) exposeToTurns('generate_video')

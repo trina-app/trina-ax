@@ -21,6 +21,8 @@ export function teamContentTools(): ReadonlySet<string> {
   ...Object.keys(FILE_TOOLS), EDIT_FILES_TOOL, ...C_TOOL_NAMES.filter((n) => !C_OUTSIDE.has(n)), ...FILE_MOVE_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES,
   // the chat's own tools (chat/tools.ts) and the team search (tools/search.ts)
   'skill', 'find_skills', 'remember', 'forget', 'ask_user', 'connect_service', 'set_title', 'search',
+  // the knowledge graph (knowledge-graph/tool.ts): team files only, filtered by the person's access
+  'knowledge_explore',
   // the promo video (promo-video/tool.ts): it reads team files and makes the chat's artifact, nothing from outside
   PROMO_TOOL,
   // the intro deck (intro-deck/tool.ts): the same, team files in, the chat's artifact out

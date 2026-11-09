@@ -13,14 +13,16 @@
 // Keep-alive: the server sends a WebSocket protocol ping every 20 s (browsers answer automatically); app-level
 // ping/pong is optional for clients that want to notice a dead link sooner.
 import { z } from 'zod'
-import { Uuid7 } from '../ids'
+import { UserId, Uuid7 } from '../ids'
 import { ApiErrorBody, ErrorCode, RelPath } from './common'
 import { BrowserCall, BrowserResult } from './browser'
 import { ArtifactSummary, ArtifactType, Chat, Job, JobKind, Memory, Message, MessageStatus, Step, UserRef } from './entities'
 import { CredentialLogin } from './credentials'
 import { IntegrationAuth, IntegrationKind, IntegrationScope } from './integrations'
 import { SkillProblem } from './skills'
-import { Room, RoomAiRun, RoomMessage } from './rooms'
+import { Room, RoomAiRun, RoomMessage, RoomReaction, RoomThreadSummary } from './rooms'
+import { DeckBuild } from './intro-deck'
+import { PresenceState, WindowActivity } from './people'
 
 export const WS_PATH = '/api/ws'
 export const WS_PING_INTERVAL_MS = 20_000
@@ -67,7 +69,19 @@ export const ResyncFrame = z.object({ type: z.literal('resync'), epoch: z.string
 export const ResetFrame = z.object({ type: z.literal('reset'), epoch: z.string(), seq: z.number().int().nonnegative(), reason: z.enum(['server_restarted', 'epoch_mismatch']) })
 export const PongFrame = z.object({ type: z.literal('pong'), t: z.number() })
 export const ErrorFrame = z.object({ type: z.literal('error'), code: ErrorCode, message: z.string() })
-export const ControlFrame = z.discriminatedUnion('type', [HelloFrame, ResyncFrame, ResetFrame, PongFrame, ErrorFrame])
+/**
+ * Who on the team is online or away (docs/DECISIONS.md "접속 상태"). A state, not an event: no seq, never replayed.
+ * `full`: the whole list, sent right after `hello` (and any replay) on every connection; anyone not in it is offline.
+ * Else only people whose state changed (offline included). Each entry is a person's id and state, nothing else (no
+ * device, window count or time). Everyone signed in to the team gets it, and only active accounts are in it.
+ */
+export const PresenceFrame = z.object({
+  type: z.literal('presence'),
+  full: z.boolean(),
+  people: z.array(z.object({ id: UserId, state: PresenceState })),
+})
+export type PresenceFrame = z.infer<typeof PresenceFrame>
+export const ControlFrame = z.discriminatedUnion('type', [HelloFrame, ResyncFrame, ResetFrame, PongFrame, ErrorFrame, PresenceFrame])
 export type ControlFrame = z.infer<typeof ControlFrame>
 
 // ---------------- server -> client: events (seq, replayable) ----------------
@@ -122,6 +136,11 @@ export const AskUserRequest = z.object({
   preview: SkillWritePreview.optional(),
   /** a server check: exactly what is about to go out, each block in full (ConfirmDetail) */
   details: z.array(ConfirmDetail).max(8).optional(),
+  /** a server check whose three choices are buttons in this order, the first the main one and the last the "no" (a
+   * room's change card: 이번만 허용, 이 방에서는 항상 허용, 허용 안 함); absent: two choices are buttons, more are radios */
+  buttons: z.literal(true).optional(),
+  /** a server check: one line under its buttons, what a choice covers */
+  note: z.string().max(300).optional(),
 })
 /** browser wants to open an office-network (private) address: ask once / always / deny */
 export const BrowserSiteRequest = z.object({ kind: z.literal('browser_site'), requestId: z.string(), url: z.string(), host: z.string(), reason: z.string().optional() })
@@ -192,7 +211,11 @@ export const ServerEvent = z.discriminatedUnion('type', [
     chatId: Uuid7, messageId: Uuid7.nullable(), key: z.string(), type: ArtifactType, title: z.string().nullable(),
     status: z.enum(['writing', 'done']), content: z.string().optional(), artifact: ArtifactSummary.nullable(),
   })),
-  ev('chat.updated', z.object({ chatId: Uuid7, change: z.enum(['created', 'updated', 'deleted', 'restored', 'purged']), chat: Chat.nullable() })),
+  /** `notify`: a live change worth telling the person about (docs/DECISIONS.md "Session markers"): 'card', a card of the
+   * AI opened (to the windows that show it); 'answer', an answer that ran about a minute or longer ended. Never for an
+   * answer the person stopped, a server stop, a scheduled run or a turn asked from Slack. Absent: show it, tell nothing.
+   * 'deleted' with no chat: a shared project chat this person no longer sees (they lost its project): drop it. */
+  ev('chat.updated', z.object({ chatId: Uuid7, change: z.enum(['created', 'updated', 'deleted', 'restored', 'purged']), chat: Chat.nullable(), notify: z.enum(['card', 'answer']).optional() })),
   /** only paths this person can read (file screen refresh) */
   ev('files.changed', z.object({ changes: z.array(FileChange) })),
   /** someone's save met a newer version: theirs became `copyPath` next to `path` (sent to the saver and to whoever
@@ -208,6 +231,9 @@ export const ServerEvent = z.discriminatedUnion('type', [
   /** the turn stopped; abandon this call */
   ev('browser.cancel', z.object({ windowId: z.string(), callId: z.string() })),
   ev('memory.changed', z.object({ change: z.enum(['created', 'updated', 'deleted', 'cleared']), memory: Memory.nullable() })),
+  /** an intro deck being built in a chat turn (docs/DECISIONS.md "D2", round 2): the outline, each finished slide, the
+   * review and the end (only to the chat's owner) */
+  ev('deck.progress', z.object({ chatId: Uuid7, build: DeckBuild })),
   /** budget warnings, scheduled update, engine trouble (shown as a banner/toast) */
   ev('notice', z.object({ level: z.enum(['info', 'warn', 'error']), code: z.string(), message: z.string(), error: ApiErrorBody.optional(),
     /** an app address to open from the banner (e.g. the version history of a changed team skill) */
@@ -217,12 +243,22 @@ export const ServerEvent = z.discriminatedUnion('type', [
   ev('credential.login', CredentialLogin),
   /** room events go to the room's members only (shared/src/api/rooms.ts). A new message (also to the sender's other
    * windows; dedupe by message id) */
-  ev('room.message', z.object({ roomId: Uuid7, message: RoomMessage })),
+  ev('room.message', z.object({ roomId: Uuid7, message: RoomMessage,
+    /** this recipient got a notice of it (rooms/service.ts notify: an @mention, a DM or group chat message, a reply in a
+     * thread they follow; not muted, their "room messages" notification setting on, the first of an unread run): what
+     * the Inbox and push show, so the desktop app may tell it too. Absent: no notice for them (docs/DECISIONS.md
+     * "Session markers"). */
+    notice: z.enum(['room.mention', 'room.dm']).optional() })),
   /** a message was edited or deleted (deleted: body '' and deletedAt set, files gone) */
   ev('room.message.updated', z.object({ roomId: Uuid7, message: RoomMessage })),
-  /** a member read the messages fromSeq < seq <= toSeq: each of those messages has one unread fewer. Nobody is named;
-   * mine: it was me (another window or device): my unread badge for the room is recounted */
-  ev('room.read', z.object({ roomId: Uuid7, fromSeq: z.number().int().nonnegative(), toSeq: z.number().int().nonnegative(), mine: z.boolean() })),
+  /** I read the room in another window or on another device: my position and my badge for it. Only to me (nobody is
+   * told who has read what) */
+  ev('room.read', z.object({ roomId: Uuid7, lastReadSeq: z.number().int().nonnegative(), unreadCount: z.number().int().nonnegative(), mentioned: z.boolean().optional() })),
+  /** a thread's summary under its root changed (a reply came or went, I read it), as each member who sees the root sees
+   * it (thread null: no replies left I can see) */
+  ev('room.thread', z.object({ roomId: Uuid7, rootId: Uuid7, thread: RoomThreadSummary.nullable() })),
+  /** the reactions on a message changed, as each member who sees the message sees them */
+  ev('room.reactions', z.object({ roomId: Uuid7, messageId: Uuid7, reactions: z.array(RoomReaction) })),
   /** added: I am in a new room; members: someone joined or left (reload the members and messages' counts); updated: my
    * setting or the name changed; removed: I am no longer in it (room null: close it) */
   ev('room.updated', z.object({ roomId: Uuid7, change: z.enum(['added', 'updated', 'members', 'removed']), room: Room.nullable() })),
@@ -253,6 +289,9 @@ export const ClientFrame = z.discriminatedUnion('type', [
   /** the window received browser.call and started it (stops the server from re-sending after a reconnect) */
   z.object({ type: z.literal('browser.ack'), callId: z.string().min(1).max(100) }),
   z.object({ type: z.literal('browser.result'), result: BrowserResult }),
+  /** this window is in use or idle (docs/DECISIONS.md "접속 상태"): sent when it changes and after each `hello` (the
+   * server takes a newly connected window as active until it says otherwise); never queued while disconnected */
+  z.object({ type: z.literal('presence'), state: WindowActivity }),
 ])
 export type ClientFrame = z.infer<typeof ClientFrame>
 

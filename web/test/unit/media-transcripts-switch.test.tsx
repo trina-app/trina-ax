@@ -49,6 +49,10 @@ describe('"Turn video sound into text"', () => {
     expect(html).toContain('DeepInfra in the US')
     expect(view({ provider: 'openrouter', hostedKey: true, value: false })).toContain('data-on="false"')
     expect(translate('ko', 'speech.hostedUsage', { used: speechHours(5400), free: speechHours(36_000) })).toBe('이번 달 무료 받아쓰기 10시간 중 1.5시간 사용')
+    // the plan's hours come from the server (freeSec): Starter 50, Team 100, Business 200
+    expect(translate('ko', 'speech.hostedUsage', { used: speechHours(5400), free: speechHours(50 * 3600) })).toBe('이번 달 무료 받아쓰기 50시간 중 1.5시간 사용')
+    expect(translate('en', 'speech.hostedUsage', { used: speechHours(5400), free: speechHours(100 * 3600) })).toBe('This month: 1.5 of 100 free transcription hours used')
+    expect(translate('ja', 'speech.hostedUsage', { used: speechHours(5400), free: speechHours(200 * 3600) })).toBe('今月の無料文字起こし 200 時間のうち 1.5 時間を使用')
     expect(speechHours(0)).toBe('0')
     expect(speechHours(30)).toBe('0.1')
     expect(speechHours(36_300)).toBe('10.1')

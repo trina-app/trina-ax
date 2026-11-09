@@ -13,6 +13,7 @@ import { newId } from '../db'
 import { Schedules } from './schedules'
 import { Hub, type HubOptions } from '../realtime/hub'
 import { BrowserRelay, type BrowserRelayOptions } from '../realtime/browser-relay'
+import { startPresence, type Presence } from '../realtime/presence'
 import { ChatStore, type ChatRow, type MessageRow } from './store'
 import { LocalEngines, safeModel, type EngineProvider } from './engines'
 import { TURN_TIMEOUT_MS, TurnExec, composeMessage, type TurnSpec } from './turn'
@@ -29,6 +30,8 @@ import { maskStoredTitles, placeholderTitle } from './title'
 import { redactorFor } from '../integrations/connections/redact'
 import type { RoomPrompt } from './prompt'
 import { isInternalChat } from './internal-chats'
+import { Audiences, chatView, isSharedRow, labelledTranscript, messageFor, recordOlderAnswers, severalAuthors, unshareUncheckedChats } from './shared'
+import { newAnswerRecord } from './shared-answers'
 
 export const DEFAULT_CONCURRENCY = 3
 export const DEFAULT_ASK_USER_TIMEOUT_MS = 10 * 60_000
@@ -42,6 +45,11 @@ export const QUEUE_PER_USER = 3
 export const QUEUE_RETRY_AFTER_S = 30
 /** how often answers held back for memory look again (system/limits.ts memoryAdmission) */
 export const MEMORY_RECHECK_MS = 2000
+/** an answer that ran at least this long is worth telling the person about when it ends (chat.updated notify 'answer';
+ * docs/DECISIONS.md "Session markers"): a shorter one gets its row's marker only */
+export const LONG_ANSWER_MS = 60_000
+/** what a chat.updated asks the apps to tell the person (ServerEvent chat.updated notify) */
+export type ChatNotify = 'card' | 'answer'
 const QUEUE_FULL: Record<Locale, Record<'queue_full' | 'queue_full_user', string>> = {
   ko: { queue_full: '지금 요청이 많아 잠시 뒤 다시 보내 주세요.', queue_full_user: '이미 기다리는 질문이 3개 있어요. 앞의 답이 끝난 뒤 다시 보내 주세요.' },
   en: { queue_full: 'There are many requests right now. Please send it again in a moment.', queue_full_user: 'You already have 3 questions waiting. Send it again when an earlier answer is done.' },
@@ -61,6 +69,8 @@ export interface ChatRuntimeOptions {
   /** tests: a fixed --max-turns instead of the team setting */
   maxEngineTurns?: number
   purgeIntervalMs?: number
+  /** tests: how long an answer must run before its end is worth telling (default LONG_ANSWER_MS) */
+  longAnswerMs?: number
 }
 
 /**
@@ -76,6 +86,10 @@ export interface RoomTurns {
   step(o: { roomId: string; turnId: string; userId: string }, step: Step): void
   /** The turn ended in any way (answered, stopped, failed, or stopped while it still waited in the queue). */
   ended(turnId: string): void
+  /** A card of the turn opened or closed: the room's "?" for the person who asked there (Room.aiWaits) may have
+   * changed (docs/DECISIONS.md "Session markers"); `opened`: a card opened (a room the person hid comes back:
+   * docs/DECISIONS.md "대화 숨기기"), not one closing. */
+  waiting?(o: { roomId: string; userId: string; opened?: boolean }): void
 }
 export interface RoomTurnContext {
   /** the <room_context> block */
@@ -87,6 +101,8 @@ export interface RoomTurnContext {
   prompt: RoomPrompt
   /** may every member of the room (at the start of the turn) read this team path? (which skills the AI is shown) */
   readable(rel: string): boolean
+  /** the asking message's own files, listed after it like a chat's attachments ('' for none) */
+  attachments?: string
 }
 
 const pendingOptions = new WeakMap<AppContext, ChatRuntimeOptions>()
@@ -115,7 +131,11 @@ export function getChatRuntime(ctx: AppContext): ChatRuntime {
 export function resetEngineSessions(ctx: AppContext, userId: string): number {
   // turns of this person running right now keep their session until they end; they must not store it then
   runtimes.get(ctx)?.revokeRunningSessions(userId)
-  const rows = ctx.db.query('SELECT id FROM chats WHERE user_id = ? AND engine_session_id IS NOT NULL').all(userId) as { id: string }[]
+  // their own chats, and the shared chats of others whose session their turn wrote (chat/shared.ts: a session is
+  // resumed only by the person whose turn wrote it, so it holds what they read)
+  const rows = ctx.db.query(`SELECT id FROM chats WHERE user_id = ? AND engine_session_id IS NOT NULL
+    UNION SELECT c.id FROM chats c JOIN messages m ON m.id = c.engine_session_leaf_id JOIN turns t ON t.id = m.turn_id
+    WHERE t.user_id = ? AND c.engine_session_id IS NOT NULL`).all(userId, userId) as { id: string }[]
   for (const r of rows) {
     ctx.db.query('UPDATE chats SET engine_session_id = NULL, engine_session_leaf_id = NULL WHERE id = ?').run(r.id)
     fs.rmSync(path.join(ctx.config.dataDir, 'sessions', r.id), { recursive: true, force: true })
@@ -146,9 +166,12 @@ export class ChatRuntime {
   readonly schedules: Schedules
   readonly hub: Hub
   readonly relay: BrowserRelay
+  readonly presence: Presence
   readonly engines: EngineProvider
   readonly turnTimeoutMs: number
   readonly wallTimeoutMs: number
+  /** an answer that ran this long tells the person when it ends (LONG_ANSWER_MS; a test may change it) */
+  longAnswerMs: number
   readonly queueStore: QueueStore
   readonly queueEpoch = newId()
   private queueRevision = 0
@@ -183,11 +206,21 @@ export class ChatRuntime {
       if (!view) throw new Error('no attachment view') // the store blanks team references
       return view(userId, atts)
     }
+    // a shared chat's message for one viewer: team references by the viewer's access, whoever attached them; a computer
+    // upload only for its sender (chat/shared.ts)
+    this.store.viewAttachmentsAs = (viewer, author, atts) => {
+      const view = ctx.services.attachments?.viewAs
+      if (!view) throw new Error('no attachment view')
+      return view(viewer, author, atts)
+    }
     this.hub = new Hub(ctx, o.hub)
     this.relay = new BrowserRelay(this.hub, ctx.log.child({ c: 'browser' }), o.relay)
+    // online status from the same windows (docs/DECISIONS.md "접속 상태")
+    this.presence = startPresence(this.hub, ctx)
     this.engines = o.engines ?? new LocalEngines(ctx)
     this.turnTimeoutMs = o.turnTimeoutMs ?? TURN_TIMEOUT_MS
     this.wallTimeoutMs = o.wallTimeoutMs ?? 45 * 60_000
+    this.longAnswerMs = o.longAnswerMs ?? LONG_ANSWER_MS
     this.queueStore = new QueueStore(ctx.db)
     this.lastConcurrency = this.concurrency()
     // Plan updates can arrive outside the settings route. Lower C never kills existing turns.
@@ -266,7 +299,24 @@ export class ChatRuntime {
     for (const e of this.running.values()) if (e.spec.chatId === chatId) return e.id
     return this.queued.find((s) => s.chatId === chatId)?.turnId ?? null
   }
+  /** Whose turn runs or waits in this chat now (a shared chat: the person it answers), or null. */
+  activeTurnUser(chatId: string): string | null {
+    for (const e of this.running.values()) if (e.spec.chatId === chatId) return e.spec.userId
+    return this.queued.find((s) => s.chatId === chatId)?.userId ?? null
+  }
   execFor(turnId: string): TurnExec | undefined { return this.running.get(turnId) }
+  /** The AI of this chat waits for the person: an open card every window shows (a card for one desktop window only
+   * is that window's, not the chat list's). */
+  waitsForPerson(chatId: string): boolean {
+    const turnId = this.activeTurn(chatId)
+    return !!turnId && !!this.execFor(turnId)?.openRequests().some((r) => !r.window)
+  }
+  /** A question this person asked the AI in this room waits on them: its running turn shows a card the room shows (the
+   * AI's question, a confirmation; a connect card is not shown in a room). Memory only, no read (Room.aiWaits). */
+  roomCardOpen(roomId: string, userId: string): boolean {
+    for (const e of this.running.values()) if (e.room?.roomId === roomId && e.spec.userId === userId && e.openRequests().some((r) => r.request.kind !== 'connect_service')) return true
+    return false
+  }
   execForMessage(messageId: string): TurnExec | undefined {
     for (const e of this.running.values()) if (e.spec.assistantId === messageId) return e
     return undefined
@@ -415,8 +465,9 @@ export class ChatRuntime {
     this.positions.delete(spec.turnId)
     this.queueRevision++
     const row = this.store.messageRow(spec.assistantId)
+    const chatRow = this.store.chatRow(chatId)
     if (this.isRoomChat(chatId)) this.roomEnded(spec.turnId)
-    else if (row) this.hub.publish(spec.userId, { type: 'message.done', data: { chatId, messageId: spec.assistantId, status: 'stopped', message: this.store.toMessage(row) } })
+    else if (row && chatRow) this.hub.publish(spec.userId, { type: 'message.done', data: { chatId, messageId: spec.assistantId, status: 'stopped', message: messageFor(this, chatRow, row, spec.userId, spec.locale) } })
     this.publishChat(spec.userId, chatId, 'updated')
     this.schedule()
     this.publishPositions()
@@ -479,19 +530,27 @@ export class ChatRuntime {
       }
       assistantId = this.store.insertMessage({ chatId: chat.id, parentId: userMessageId, role: 'assistant', authorId: null, content: '', status: 'streaming',
         turnId, engine: o.engine, model: o.model })
-      this.db.query(`INSERT INTO turns (id, chat_id, user_id, engine, model, status, started_at, queued_at, message_id, user_message_id, window_id, client_kind, queue_seq, schedule_id, scheduled_for)
-        VALUES (?,?,?,?,?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(turnId, chat.id, o.userId, o.engine, o.model, now, now, assistantId, userMessageId, o.windowId, o.clientKind, queueSeq, o.scheduled?.id ?? null, o.scheduled?.dueAt ?? null)
+      // a shared chat's answer is recorded from the moment it exists: what it reads, who saw the chat then (an answer
+      // without a record is hidden from everyone but its runner: chat/shared-answers.ts)
+      if (isSharedRow(chat)) newAnswerRecord(this.db, chat.id, assistantId)
+      // shared_checked: this build runs the turn, with the read gate of shared chats (chat/shared.ts rollback guard)
+      this.db.query(`INSERT INTO turns (id, chat_id, user_id, engine, model, status, started_at, queued_at, message_id, user_message_id, window_id, client_kind, queue_seq, schedule_id, scheduled_for, shared_checked)
+        VALUES (?,?,?,?,?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`).run(turnId, chat.id, o.userId, o.engine, o.model, now, now, assistantId, userMessageId, o.windowId, o.clientKind, queueSeq, o.scheduled?.id ?? null, o.scheduled?.dueAt ?? null)
       // a chat without a title gets a placeholder from this message (title.ts); the AI may name it later (set_title)
       // never a stored connection secret of this person in it (QA INT-13, B-W5-1)
       const title = chat.title || (o.user ? placeholderTitle(o.user.content, o.user.attachments, redactorFor(this.ctx, o.userId).hide) : '')
-      this.db.query('UPDATE chats SET active_leaf_id = ?, title = ?, engine = ?, model = ?, updated_at = ? WHERE id = ?')
+      // a shared chat keeps its creator's engine: another person's turn runs on theirs without changing the chat's
+      if (isSharedRow(chat) && chat.user_id !== o.userId) this.db.query('UPDATE chats SET active_leaf_id = ?, title = ?, updated_at = ? WHERE id = ?').run(assistantId, title, now, chat.id)
+      else this.db.query('UPDATE chats SET active_leaf_id = ?, title = ?, engine = ?, model = ?, updated_at = ? WHERE id = ?')
         .run(assistantId, title, o.engine, o.model, now, chat.id)
       o.scheduled?.commit(chat.id)
     })()
     const spec: TurnSpec & QueueTiming = { turnId, chatId: chat.id, userId: o.userId, assistantId, userMessageId, windowId: o.windowId, clientKind: o.clientKind, engine: o.engine, model: o.model, locale: o.locale,
       queueSeq, ...(o.substitutedFrom ? { substitutedFrom: o.substitutedFrom } : {}) }
-    const userMessage = o.user ? this.store.toMessage(this.store.messageRow(userMessageId)!) : null
-    const assistantMessage = this.store.toMessage(this.store.messageRow(assistantId)!)
+    // as the person who sent it sees them (a shared chat: chat/shared.ts messageFor)
+    const asSender = (id: string) => messageFor(this, chat, this.store.messageRow(id)!, o.userId, o.locale)
+    const userMessage = o.user ? asSender(userMessageId) : null
+    const assistantMessage = asSender(assistantId)
     // Admission is already durable. Notification failure must not leave it outside the live queue.
     this.enqueue(spec)
     try {
@@ -503,7 +562,7 @@ export class ChatRuntime {
     }
     } finally { this.schedule() }
     this.publishChat(o.userId, chat.id, 'updated')
-    return { userMessage, assistantMessage: this.store.toMessage(this.store.messageRow(assistantId)!), turnId,
+    return { userMessage, assistantMessage: asSender(assistantId), turnId,
       queuePosition: this.queuePosition(turnId) ?? 0, queueEpoch: this.queueEpoch, queueRevision: this.queueRevision }
   }
 
@@ -530,14 +589,19 @@ export class ChatRuntime {
   }
 
   /** The turn that answers a client message id (idempotent resend). */
-  existingTurn(chatId: string, clientMessageId: string): TurnStarted | null {
-    const u = this.db.query('SELECT id FROM messages WHERE chat_id = ? AND client_message_id = ?').get(chatId, clientMessageId) as { id: string } | null
+  /** `userId`: the caller; in a shared chat only a message they sent themselves is theirs to send again. */
+  existingTurn(chatId: string, clientMessageId: string, userId?: string): TurnStarted | null {
+    const u = this.db.query('SELECT id, author_id FROM messages WHERE chat_id = ? AND client_message_id = ?').get(chatId, clientMessageId) as { id: string; author_id: string | null } | null
     if (!u) return null
+    const chat = this.store.chatRow(chatId)
+    if (!chat || (userId !== undefined && isSharedRow(chat) && u.author_id !== userId)) return null
     const t = this.db.query('SELECT id, message_id FROM turns WHERE user_message_id = ? ORDER BY id LIMIT 1').get(u.id) as { id: string; message_id: string } | null
     const user = this.store.messageRow(u.id)
     const answer = t ? this.store.messageRow(t.message_id) : null
     if (!t || !user || !answer) return null
-    return { userMessage: this.store.toMessage(user), assistantMessage: this.liveMessage(answer), turnId: t.id, queuePosition: this.queuePosition(t.id) ?? 0, queueEpoch: this.queueEpoch, queueRevision: this.queueRevision }
+    const viewer = userId ?? chat.user_id
+    const L = this.userLocale(viewer)
+    return { userMessage: messageFor(this, chat, user, viewer, L), assistantMessage: messageFor(this, chat, answer, viewer, L), turnId: t.id, queuePosition: this.queuePosition(t.id) ?? 0, queueEpoch: this.queueEpoch, queueRevision: this.queueRevision }
   }
 
   /** A message as the API returns it: a streaming answer carries the live text, not the last 0.3 s save. */
@@ -577,20 +641,25 @@ export class ChatRuntime {
     return !(project.instructionsAuthor === userId && project.instructionsAuthored === project.instructions)
   }
   /** Messages of a branch up to `leafId` (inclusive), for a fresh engine session. */
-  history(leafId: string | null, room = false): { role: 'user' | 'assistant'; content: string }[] {
+  history(leafId: string | null, room = false, shared: { runner: string; withheld: ReadonlySet<string> } | null = null): { role: 'user' | 'assistant'; content: string }[] {
     const rows = this.store.pathTo(leafId)
+    // a shared project chat (chat/shared.ts): who wrote each message, the attachments as the person whose turn it is
+    // may see them now, and nothing of an answer hidden from them (chat/shared-answers.ts)
+    if (shared) return labelledTranscript(this.store, leafId, shared.runner, shared.withheld)
     if (!room) return rows.filter((m) => m.content.trim() || m.role === 'user').map((m) => ({ role: m.role, content: m.role === 'user' ? composeMessage(m, this.store.attachmentsOf(m)) : m.content }))
     // a room's AI session (rooms/ai.ts) remembers only what went to the room, as the room holds it now: a question and
     // its answer while that answer is a room message (posted, not deleted); a private preview, a stopped or failed
     // answer is left out. Both are the room's copies, never the chat's: the answer as the room got it
     // (room_messages.body: cut at ROOM_AI_ANSWER_MAX with a line saying so), the question as it reads in the room now
     // (edited: the new text; deleted: left out). Every question decides on what it used itself, so text the room
-    // never saw, or no longer shows, must not come back
+    // never saw, or no longer shows, must not come back (nor an old answer of theirs hidden from them since they joined
+    // the room again: docs/DECISIONS.md "지난 대화")
     const chatId = rows[0]?.chat_id
     const posted = new Map<string, { answer: string; question: string | null }>()
     const found = chatId ? this.db.query(`SELECT a.turn_id, m.body, q.body AS q_body, q.mentions AS q_mentions, q.deleted_at AS q_deleted FROM room_ai_turns a
       JOIN room_messages m ON m.id = a.answer_id LEFT JOIN room_messages q ON q.id = a.question_id
-      WHERE a.chat_id = ? AND m.visibility = 'room' AND m.deleted_at IS NULL`).all(chatId) as { turn_id: string; body: string; q_body: string | null; q_mentions: string | null; q_deleted: string | null }[] : []
+      WHERE a.chat_id = ? AND m.visibility = 'room' AND m.deleted_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = a.user_id AND h.message_id IN (m.id, m.thread_root_id))`).all(chatId) as { turn_id: string; body: string; q_body: string | null; q_mentions: string | null; q_deleted: string | null }[] : []
     for (const r of found) {
       // the people the question mentions: a person named like the AI is not a call of it (roomAiQuestion)
       let ids: string[] = []
@@ -631,16 +700,47 @@ export class ChatRuntime {
     })
   }
 
-  publishChat(userId: string, chatId: string, change: 'created' | 'updated' | 'deleted' | 'restored' | 'purged') {
+  /**
+   * chat.updated to the person's windows: the chat as the list shows it (its run state, Chat.waiting, unseen and
+   * lastOutcome). `notify`: a live change worth telling the person about (docs/DECISIONS.md "Session markers": a card
+   * opened, a long answer ended). `window`: to that window only (a card only it shows opened there; the chat itself is
+   * the same as everyone's).
+   */
+  publishChat(userId: string, chatId: string, change: 'created' | 'updated' | 'deleted' | 'restored' | 'purged', o: { notify?: ChatNotify; window?: string } = {}) {
     // a draft the server runs for its own work (internal-chats.ts) is not in the person's chat list: no event for it
     if (isInternalChat(this.db, chatId)) return
     const r = change === 'purged' ? null : this.store.chatRow(chatId)
     // a room's AI session is not one of the person's chats (no sidebar entry)
     if (r?.room_id) return
-    const chat = r ? this.store.toChat(r, this.runState(chatId)) : null
+    // a shared project chat: everyone who sees it now gets it as they see it (chat/shared.ts); what is worth telling
+    // (a card, a long answer) and a window's own change are only for the person whose turn it is (`userId`)
+    if (r && isSharedRow(r)) {
+      const project = this.store.projectRow(r.project_id!)
+      const aud = new Audiences(this.db, this.files)
+      const hide = redactorFor(this.ctx, r.user_id).hide
+      for (const uid of project ? aud.of(project) : []) {
+        if (o.window && uid !== userId) continue
+        const ev = { type: 'chat.updated' as const, data: { chatId, change, chat: chatView(this, uid, r, { aud, hide }), ...(o.notify && uid === userId ? { notify: o.notify } : {}) } }
+        if (o.window) this.hub.publishTo(uid, o.window, ev)
+        else this.hub.publish(uid, ev)
+      }
+      return
+    }
+    // a chat of one person: only its person hears about it. Someone else's turn may outlive the chat's sharing (a deleted
+    // project's shared chat went to its creator's trash, the rollback guard): its end tells nobody else, and its creator
+    // as for their own chat (never to a window of the other person)
+    if (r && r.user_id !== userId) {
+      if (o.window) return
+      userId = r.user_id
+      o = {}
+    }
+    // a chat that stopped being shared after others wrote in it: its marker and last outcome are its creator's answers'
+    const chat = r ? this.store.toChat(r, this.runState(chatId), this.waitsForPerson(chatId), { ...(severalAuthors(this.db, chatId) ? { answersOf: r.user_id } : {}), viewer: r.user_id }) : null
     // never a stored connection secret of the person in the title (QA B-W5-1)
     if (chat) chat.title = redactorFor(this.ctx, r!.user_id).hide(chat.title)
-    this.hub.publish(userId, { type: 'chat.updated', data: { chatId, change, chat } })
+    const ev = { type: 'chat.updated' as const, data: { chatId, change, chat, ...(o.notify ? { notify: o.notify } : {}) } }
+    if (o.window) this.hub.publishTo(userId, o.window, ev)
+    else this.hub.publish(userId, ev)
   }
 
   // ---------------- start / stop ----------------
@@ -658,6 +758,14 @@ export class ChatRuntime {
     if (this.running.size) throw new Error('cannot recover over live turn executions')
     this.recovering = true
     this.queued = []
+    // shared chats an older build ran turns in (without the read gate) stop being shared before anything runs
+    // (chat/shared.ts unshareUncheckedChats)
+    // (fails closed: a check that cannot run stops the recovery, nothing runs)
+    const unshared = unshareUncheckedChats(this.db)
+    if (unshared.length) this.log.warn('shared chats with turns of an older build are no longer shared', { n: unshared.length })
+    // answers of shared chats from before migration 273 (or an older build's): seen by who sees the chat now, nobody
+    // else (chat/shared-answers.ts). A failure leaves them hidden from everyone but their runners (fails closed)
+    try { recordOlderAnswers(this.db, this.files) } catch (e) { this.log.warn('older shared answers not recorded', { err: e }) }
     const now = new Date().toISOString()
     this.db.query("UPDATE schedules SET enabled=0,pending_due_at=NULL,retry_at=NULL WHERE user_id NOT IN (SELECT id FROM users WHERE status='active' AND deleted_at IS NULL)").run()
     const running = this.db.query("SELECT id, message_id, user_id FROM turns WHERE status = 'running'").all() as { id: string; message_id: string | null; user_id: string }[]

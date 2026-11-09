@@ -18,6 +18,9 @@ import { ROOM_SPECS } from './rooms-cases'
 import { SLACK_SPECS } from './slack-cases'
 import { PROMO_VIDEO_SPECS } from './promo-video-cases'
 import { INTRO_DECK_SPECS } from './intro-deck-cases'
+import { SKILL_SHARE_SPECS } from './skill-share-cases'
+import { KNOWLEDGE_GRAPH_SPECS } from './knowledge-graph-cases'
+import { ONBOARDING_FILES_SPECS } from './onboarding-files-cases'
 
 type Build = (c: Client, w: World) => Promise<Resp>
 /** scope decides the allow/deny beyond the auth level for a signed-in, password-ok caller */
@@ -32,8 +35,10 @@ type Scope =
   | 'shared'          // shared/: every signed-in person
   | 'suggestion-alice' // a skill alice suggested into skills/: alice + the managers of skills/ (owner, admin)
   | 'skills-manager'  // acting on a suggestion for skills/: only its managers (owner, admin), not even alice
+  | 'members'         // members only: owners and admins have their own way (members contribute, docs/DECISIONS.md "MC")
   | 'byLevel'         // nothing beyond the auth level (admin/owner endpoints, self-ish lists)
   | 'room-dm'         // the DM of alice and erin: only those two (not the owner, not an admin)
+  | 'room-group'      // the group chat of alice, erin and frank: alice and erin (frank still has to change his password)
   | 'nobody'          // a resource of nobody (an unknown sign-in id): 4xx for everyone, after the auth level
 
 export interface Spec { build: Build; scope: Scope; check?: (r: Resp, w: World, who: Who) => void | Promise<void>; todo?: Partial<Record<Who, string>>;
@@ -41,6 +46,26 @@ export interface Spec { build: Build; scope: Scope; check?: (r: Resp, w: World, 
    *  expected for the legit caller, so it is covered by the deny matrix + world build, not the positive-allow pass. */
   skipPositive?: boolean }
 
+/** An admin-reauth case is sent with a wrong password: the owner and an admin pass the role gate and are refused for the
+ * password (403 with a body.password field), a member is refused for the role (403 without it, before the password is
+ * looked at), nobody is let through. So a refusal for the wrong reason does not pass as the right one. */
+const reauthCheck = (what: string) => (r: { status: number; json: any }, _w: unknown, who: string) => {
+  if (r.status < 300) throw new Error(`${who}: ${what} went through with a wrong password`)
+  const atPassword = !!r.json?.error?.fields?.['body.password']
+  // 429: the same person's earlier wrong passwords in this run used up the limit (still a refusal at the password step)
+  if ((who === 'owner' || who === 'admin') && r.status !== 429 && !(r.status === 403 && atPassword)) throw new Error(`${who}: ${what} was not refused at the password check (status ${r.status})`)
+  if (who === 'member' && !(r.status === 403 && !atPassword)) throw new Error(`member: ${what} was not refused for the role (status ${r.status})`)
+}
+/** The team's AI steps with an official provider (add, replace a key, start a sign-in) ask for no password: the owner and an
+ * admin pass the role gate and are stopped later by the body (a fake sealed value / the unticked plan notice), never at
+ * a password check; a member is refused for the role. Nobody is let through, and nothing is started. */
+const noPasswordCheck = (what: string) => (r: { status: number; json: any }, _w: unknown, who: string) => {
+  if (r.status < 300) throw new Error(`${who}: ${what} went through with a body that cannot be valid`)
+  const atPassword = !!r.json?.error?.fields?.['body.password']
+  if (atPassword) throw new Error(`${who}: ${what} asked for a password`)
+  if ((who === 'owner' || who === 'admin') && r.status !== 400) throw new Error(`${who}: ${what} was not refused by the body (status ${r.status})`)
+  if (who === 'member' && r.status !== 403) throw new Error(`member: ${what} was not refused for the role (status ${r.status})`)
+}
 const J = (body: unknown) => ({ headers: { 'content-type': 'application/json', [CSRF_HEADER]: '1' } as Record<string, string>, raw: JSON.stringify(body) })
 /** a sealed value of the right shape that opens with no key (the server refuses it after the permission check) */
 const FAKE_SEALED = { kid: '0123456789abcdef', epk: 'A'.repeat(87), iv: 'B'.repeat(16), ct: 'C'.repeat(40) }
@@ -55,7 +80,8 @@ function scopeAllows(scope: Scope, who: Who): boolean {
     case 'falcon-read': return who === 'memberIn' || who === 'memberOut' || who === 'owner' || who === 'admin'
     case 'suggestion-alice': return who === 'memberIn' || who === 'owner' || who === 'admin'
     case 'skills-manager': return who === 'owner' || who === 'admin'
-    case 'room-dm': return who === 'memberIn' || who === 'other'
+    case 'members': return who === 'memberIn' || who === 'memberOut' || who === 'other'
+    case 'room-dm': case 'room-group': return who === 'memberIn' || who === 'other'
     case 'nobody': return false
   }
 }
@@ -65,8 +91,11 @@ const usersAliceAllows = (who: Who) => who === 'memberIn'
 export function expectation(route: string, scope: Scope, who: Who): Exp {
   const lvl = levelExp(route, who)
   if (lvl !== 'allow') return lvl
-  // The preview probe uses Alice's text file: she passes access checks but gets 503 no_preview.
-  if ((route === 'preview' || route === 'hwpPreview') && scope === 'users-alice' && usersAliceAllows(who)) return 'pass-auth'
+  // The preview probe uses Alice's text file: she passes access checks but gets 503 no_preview (and 400 "not an HTML
+  // file" from the HTML print, whether this machine has a browser or not).
+  if (['preview', 'hwpPreview', 'saveHtmlPdf', 'downloadHtmlPdf'].includes(route) && scope === 'users-alice' && usersAliceAllows(who)) return 'pass-auth'
+  // the room HWP preview probe uses the DM's picture: its two people pass the room checks and get 503 unsupported
+  if (route === 'roomFileHwpPreview' && scope === 'room-dm' && scopeAllows(scope, who)) return 'pass-auth'
   if (scope === 'users-alice') return usersAliceAllows(who) ? 'allow' : 'deny'
   return scopeAllows(scope, who) ? 'allow' : 'deny'
 }
@@ -83,6 +112,9 @@ export const SPECS: Record<string, Spec> = {
   ...SLACK_SPECS,
   ...PROMO_VIDEO_SPECS,
   ...INTRO_DECK_SPECS,
+  ...SKILL_SHARE_SPECS,
+  ...KNOWLEDGE_GRAPH_SPECS,
+  ...ONBOARDING_FILES_SPECS,
   // ---- auth / me (self or public) ----
   setupStatus: { build: (c) => c.get('/api/setup'), scope: 'byLevel' },
   setup: { skipPositive: true, build: (c) => c.post('/api/setup', { setupToken: 'x', teamName: 't', owner: { username: 'z', name: 'z', password: 'Zebra-copper-1-kite' } }), scope: 'byLevel',
@@ -141,11 +173,31 @@ export const SPECS: Record<string, Spec> = {
   deleteChat: { build: (c, w) => c.del(`/api/chats/${w.ids.chatA}`), scope: 'own-alice-chat',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} deleted alice's chat`) } },
   restoreChat: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/restore`), scope: 'own-alice-chat' },
+  markChatSeen: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/seen`), scope: 'own-alice-chat' },
+  pinChat: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/pin`), scope: 'own-alice-chat' },
+  unpinChat: { build: (c, w) => c.del(`/api/chats/${w.ids.chatA}/pin`), scope: 'own-alice-chat' },
   listMessages: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/messages`), scope: 'own-alice-chat' },
   sendMessage: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages`, { clientMessageId: cm(), attachmentIds: [], content: 'hi from intruder' }), scope: 'own-alice-chat',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} posted into alice's chat`) } },
   stop: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/stop`), scope: 'own-alice-chat' },
   messageSources: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/sources`), scope: 'own-alice-chat' },
+  // "대화방에 보내기": alice's answer to the DM she shares with erin. Only alice; her chat used her own project folder, so
+  // she is asked first ("confirm": how many, never who) and nothing is sent without confirm: true
+  shareAnswerToRoom: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/share-to-room`, { roomId: w.ids.dmRoom, clientMessageId: cm() }), scope: 'own-alice-chat',
+    check: (r, _w, who) => {
+      if (who !== 'memberIn' && r.status < 400) throw new Error(`${who} shared alice's answer`)
+      if (r.status < 300 && r.json?.status === 'confirm' && /erin|Erin/.test(r.text)) throw new Error(`the confirm answer names a member: ${r.text}`)
+    } },
+  // "프로젝트 사람들과 공유" (chat/share-chat.ts): only alice reaches her private chat (everyone else the 404 of a missing
+  // chat); it is in no project that shares chats, so even she is refused (409) and nothing is shared. A confirm, if one
+  // came, names nobody
+  shareChat: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/share`, {}), scope: 'own-alice-chat',
+    check: (r, _w, who) => {
+      if (who !== 'memberIn' && r.status < 400) throw new Error(`${who} shared alice's chat`)
+      if (who !== 'memberIn' && who !== 'anon' && who !== 'pwchange' && r.status !== 404) throw new Error(`${who} learned more than "not found" about alice's chat: ${r.status}`)
+      if (r.status < 300 && r.json?.status === 'shared') throw new Error('alice\'s chat was shared without a project that shares chats')
+      if (r.status < 300 && r.json?.status === 'confirm' && /bob|carol|dana|erin|Bob|Carol|Dana|Erin/.test(r.text)) throw new Error(`the confirm answer names a person: ${r.text}`)
+    } },
   regenerate: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/regenerate`, { clientMessageId: cm() }), scope: 'own-alice-chat' },
   editMessage: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages/${w.ids.userMsg}/edit`, { clientMessageId: cm(), content: 'x' }), scope: 'own-alice-chat' },
   selectBranch: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/branch`, { messageId: w.ids.userMsg }), scope: 'own-alice-chat' },
@@ -205,6 +257,10 @@ export const SPECS: Record<string, Spec> = {
       if (who === 'memberIn' && !r.text.includes(C.aliceSkill)) throw new Error('alice does not see her personal skill')
     } },
   listSkillIssues: { build: (c) => c.get('/api/skills/issues'), scope: 'self' },
+  // Home's "팀에 준비된 것" (docs/DECISIONS.md "W6.3"): the caller's own skills and a document count of the team folder as
+  // the caller; the canary check covers the finance skill and alice's personal skill (never in anyone else's answer)
+  skillExamples: { build: (c) => c.get('/api/skills/examples'), scope: 'self',
+    check: (r, w, who) => { if (r.status === 200 && r.text.includes(C.aliceSkill)) throw new Error(`${who} sees alice's personal skill as prepared by the team`) } },
   // team skills: suggestions are seen by their suggester and the managers of the target folder only (skills/suggestions.ts)
   skillsOverview: { build: (c) => c.get('/api/skills/overview'), scope: 'self' },
   listSkillSuggestions: { build: (c) => c.get('/api/skills/suggestions?scope=review'), scope: 'self',
@@ -212,14 +268,16 @@ export const SPECS: Record<string, Spec> = {
   getSkillSuggestion: { build: (c, w) => c.get(`/api/skills/suggestions/${w.ids.suggestion}`), scope: 'suggestion-alice' },
   // from alice's own file: nobody else may turn it into a suggestion (it would copy her file to the managers)
   createSkillSuggestion: { build: (c) => c.post('/api/skills/suggestions', { source: { kind: 'file', path: 'users/alice/todo.md' }, targetFolder: 'skills', name: 'from alice file', content: 'x' }), scope: 'users-alice' },
+  // members contribute their own skill folders (docs/DECISIONS.md "MC"); owners and admins bring theirs with 내 스킬 가져오기
+  contributeSkills: { build: (c) => c.post('/api/skills/suggestions/batch', { skills: [{ name: 'matrix-skill', files: [{ path: 'SKILL.md', text: '---\nname: matrix-skill\ndescription: matrix\n---\n# Steps\n1. Read.\n' }] }] }), scope: 'members' },
   approveSkillSuggestion: { build: (c, w) => c.post(`/api/skills/suggestions/${w.ids.suggestion}/approve`, { targetFolder: 'skills', name: 'approved by matrix', description: '', content: 'steps' }), scope: 'skills-manager',
     check: (r, w, who) => { if (!['owner', 'admin'].includes(who) && r.status < 300) throw new Error(`${who} registered a skill suggestion`) } },
   rejectSkillSuggestion: { build: (c, w) => c.post(`/api/skills/suggestions/${w.ids.suggestion}/reject`, { note: 'no' }), scope: 'skills-manager',
     check: (r, w, who) => { if (!['owner', 'admin'].includes(who) && r.status < 300) throw new Error(`${who} turned down a skill suggestion`) } },
-  // the team API engine (feat/api-engine): owner only; the key is never returned
+  // the team API engine (feat/api-engine): the owner and admins, with their own password again; the key is never returned
   getApiEngine: { build: (c) => c.get('/api/admin/engines/api-config'), scope: 'byLevel' },
-  putApiEngine: { build: (c) => c.put('/api/admin/engines/api-config', { baseUrl: 'https://api.example.com/v1', model: 'matrix-model', label: 'matrix' }), scope: 'byLevel',
-    check: (r, w, who) => { if (who !== 'owner' && r.status < 300) throw new Error(`${who} changed the team API engine`) } },
+  putApiEngine: { skipPositive: true, build: (c) => c.put('/api/admin/engines/api-config', { password: 'wrong-pass', baseUrl: 'https://api.example.com/v1', model: 'matrix-model', label: 'matrix' }), scope: 'byLevel',
+    check: reauthCheck('changing the team API engine') },
   listSkillChanges: { build: (c) => c.get('/api/admin/skill-changes'), scope: 'byLevel' },
   listSkillManagers: { build: (c) => c.get('/api/admin/skill-managers'), scope: 'byLevel' },
   // turning it OFF for someone who does not have it: allowed for admins, changes nothing (keeps the world pristine)
@@ -245,6 +303,18 @@ export const SPECS: Record<string, Spec> = {
       const code = who === 'anon' ? 'unauthorized' : who === 'pwchange' ? 'password_change_required' : who === 'memberIn' ? 'unavailable' : 'not_found'
       if (r.status !== status || r.json?.error?.code !== code) throw new Error(`${who} preview response must be ${status} ${code}`)
       if (who === 'memberIn' && r.json?.error?.params?.reason !== 'no_preview') throw new Error('text-file preview must report no_preview')
+    } },
+  // "PDF로 저장" (team-files/html-pdf-save.ts): nobody but alice learns or prints anything of users/alice; alice's text
+  // file is no HTML page (400), so nothing is printed or saved
+  saveHtmlPdf: { build: (c) => c.post('/api/files/html-pdf', { path: 'users/alice/todo.md' }), scope: 'users-alice',
+    check: (r, _w, who) => {
+      const status = who === 'anon' ? 401 : who === 'pwchange' ? 403 : who === 'memberIn' ? 400 : 404
+      if (r.status !== status) throw new Error(`${who} saveHtmlPdf status: ${r.status}`)
+    } },
+  downloadHtmlPdf: { build: (c) => c.get('/api/files/html-pdf?path=users%2Falice%2Ftodo.md'), scope: 'users-alice',
+    check: (r, _w, who) => {
+      const status = who === 'anon' ? 401 : who === 'pwchange' ? 403 : who === 'memberIn' ? 400 : 404
+      if (r.status !== status) throw new Error(`${who} downloadHtmlPdf status: ${r.status}`)
     } },
   upload: { build: (c) => c.req('POST', '/api/files/upload', undefined, { form: uform('users/alice', 'x.bin') }), scope: 'users-alice' },
   mkdir: { build: (c) => c.post('/api/files/mkdir', { path: 'users/alice/intruder-dir' }), scope: 'users-alice' },
@@ -300,10 +370,16 @@ export const SPECS: Record<string, Spec> = {
   listUsers: { build: (c) => c.get('/api/admin/users'), scope: 'byLevel' },
   createUser: { build: (c) => c.post('/api/admin/users', { username: 'cu' + Math.random().toString(36).slice(2, 7), name: 'C U', role: 'member' }), scope: 'byLevel' },
   updateUser: { build: (c) => c.patch('/api/admin/users/bob', { name: 'Bob Renamed' }), scope: 'byLevel' },
-  deleteUser: { build: (c) => c.del('/api/admin/users/erin'), scope: 'byLevel' },
+  // an admin is refused here without the password in the body (the owner is not asked); an admin deleting a member with
+  // the password is in permission-matrix.test.ts and tests/unit/sec-account-delete-by-role.test.ts
+  deleteUser: { skipPositive: true, build: (c) => c.del('/api/admin/users/erin'), scope: 'byLevel' },
   resetPassword: { build: (c) => c.post('/api/admin/users/bob/reset-password'), scope: 'byLevel' },
   createResetLink: { build: (c) => c.post('/api/admin/users/bob/reset-link'), scope: 'byLevel' },
   transferOwnership: { skipPositive: true, build: (c) => c.post('/api/admin/transfer-ownership', { userId: 'carol', password: 'wrong-pass' }), scope: 'byLevel' },
+  // 팀장 넘기기 (admin/handover.ts): the owner's state and the card's ✕ are the owner's only (an unknown invite: 404)
+  handoverState: { build: (c) => c.get('/api/admin/handover'), scope: 'byLevel' },
+  dismissLeadCard: { build: (c) => c.post('/api/admin/handover/dismiss', { inviteId: '01900000-0000-7000-8000-000000000000' }), scope: 'byLevel' },
+  endPendingConnections: { build: (c) => c.post('/api/admin/handover/end-pending', { transferId: '01900000-0000-7000-8000-000000000000' }), scope: 'byLevel' },
   listInvites: { build: (c) => c.get('/api/admin/invites'), scope: 'byLevel' },
   createInvite: { build: (c) => c.post('/api/admin/invites', { role: 'member', groupIds: [] }), scope: 'byLevel' },
   revokeInvite: { build: (c, w) => c.del(`/api/admin/invites/${w.ids.invite}`), scope: 'byLevel' },
@@ -438,17 +514,17 @@ export const SPECS: Record<string, Spec> = {
   // the request a member would make to let themselves pick the engine (and to send conversations to OpenAI)
   updateEngines: { build: (c) => c.patch('/api/admin/engines', { concurrency: 3, memberChoice: { mode: 'off', groupIds: [], userIds: [] }, limitFallback: false }), scope: 'byLevel' },
   checkEngine: { build: (c) => c.post('/api/admin/engines/claude-code/check'), scope: 'byLevel' },
-  // AI connections (docs/PERMISSIONS.md): admins see and re-check; only the owner changes them (adding / replacing
-  // with the password again); members only their own. Secrets never appear in any response (matrix.ts ALL).
+  // AI connections (docs/PERMISSIONS.md): the owner and admins change the team's (adding / replacing / signing in
+  // asks for no password, official providers only); members only their own. Secrets never appear in any response (matrix.ts ALL).
   listCredentials: { build: (c) => c.get('/api/admin/credentials'), scope: 'byLevel',
     check: (r, w, who) => { if ((who === 'owner' || who === 'admin') && !r.text.includes('Team Max')) throw new Error('the team connection is missing from the list') } },
-  createCredential: { skipPositive: true, build: (c) => c.post('/api/admin/credentials', { kind: 'anthropic-api-key', label: 'x', sealed: FAKE_SEALED, password: 'wrong-pass' }), scope: 'byLevel',
-    check: (r, w, who) => { if (who !== 'owner' && r.status < 300) throw new Error(`${who} added an AI connection`) } },
+  createCredential: { skipPositive: true, build: (c) => c.post('/api/admin/credentials', { kind: 'anthropic-api-key', label: 'x', sealed: FAKE_SEALED }), scope: 'byLevel',
+    check: noPasswordCheck('adding an AI connection') },
   updateCredential: { build: (c, w) => c.patch(`/api/admin/credentials/${w.ids.teamCredential}`, { label: 'Team Max' }), scope: 'byLevel' },
-  replaceCredentialSecret: { skipPositive: true, build: (c, w) => c.post(`/api/admin/credentials/${w.ids.teamCredential}/secret`, { sealed: FAKE_SEALED, password: 'wrong-pass' }), scope: 'byLevel' },
+  replaceCredentialSecret: { skipPositive: true, build: (c, w) => c.post(`/api/admin/credentials/${w.ids.teamCredential}/secret`, { sealed: FAKE_SEALED }), scope: 'byLevel', check: noPasswordCheck('replacing an AI connection\'s key') },
   deleteCredential: { build: (c) => c.del('/api/admin/credentials/00000000-0000-7000-8000-000000000000'), scope: 'byLevel' },
   checkCredential: { build: (c, w) => c.post(`/api/admin/credentials/${w.ids.teamCredential}/check`), scope: 'byLevel' },
-  startCredentialLogin: { skipPositive: true, build: (c) => c.post('/api/admin/credential-logins', { label: 'x', acknowledgedPlanNotice: true, password: 'wrong-pass' }), scope: 'byLevel' },
+  startCredentialLogin: { skipPositive: true, build: (c) => c.post('/api/admin/credential-logins', { label: 'x', acknowledgedPlanNotice: false }), scope: 'byLevel', check: noPasswordCheck('starting an AI sign-in') },
   getCredentialLogin: { build: (c) => c.get('/api/admin/credential-logins/nonexistent-login-id-0000'), scope: 'nobody' },
   cancelCredentialLogin: { build: (c) => c.del('/api/admin/credential-logins/nonexistent-login-id-0000'), scope: 'nobody' },
   // the Claude code of a sign-in: only its starter's (an unknown sign-in: 404 before the sealed value is opened)

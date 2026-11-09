@@ -10,6 +10,8 @@ import { makeEnv, WORK } from '../lib/env'
 import { recordSkillRead, recordSkillUse } from '../../server/src/admin/skill-usage'
 import { goalProgress, GOAL_SHOWN_KEY, noteGoalRun, REACHED_GRACE_MS, skillRunners } from '../../server/src/onboarding/goal'
 import { skillTitle } from '../../server/src/onboarding/goal-names'
+import { WELCOME_SETTING } from '../../server/src/onboarding/welcome'
+import { setSetting } from '../../server/src/admin/settings'
 import { migrate, MIGRATIONS_DIR, openDb } from '../../server/src/db'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 import { startHarness, type Harness as ChatHarness } from '../lib/b-harness'
@@ -208,6 +210,44 @@ describe('the card and the owners\' notice', () => {
     expect(await goal()).toMatchObject({ state: 'reached', skill: { runners: 3 } })
   })
 
+  test('a skill without a title is named by its folder name as words ("quote-maker" → "quote maker"), never the raw name; gone, the recorded name as words', async () => {
+    const QUOTE = { path: 'skills/general/quote-maker/SKILL.md', name: 'quote-maker' }
+    const abs = path.join(h.ctx.config.teamRoot, QUOTE.path)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    // shared from 내 스킬 without the AI check: no metadata title
+    fs.writeFileSync(abs, '---\nname: quote-maker\ndescription: Quotes for desks and chairs, like "책상 10개, 의자 10개 견적 내 줘".\n---\nWrite.\n')
+    try {
+      turn(ids.member, { skill: QUOTE })
+      expect((await goal()).skill).toMatchObject({ path: QUOTE.path, name: 'quote maker', runners: 1 })
+      fs.rmSync(abs)
+      expect((await goal()).skill).toMatchObject({ path: QUOTE.path, name: 'quote maker' })
+    } finally { fs.rmSync(abs, { force: true }) }
+  })
+
+  test('the skill the invite opens (shared from 내 스킬, docs/DECISIONS.md "SK") is counted while it has as many runners as the top one, even with none', async () => {
+    const abs = path.join(h.ctx.config.teamRoot, SEO.path)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, '---\nname: seo-brief\ndescription: 검색 광고 정리\nmetadata:\n  title: 검색 광고 정리\n---\nWrite.\n')
+    setSetting(h.ctx.db, WELCOME_SETTING, { startedAt: START, updatedAt: START, teamType: null, steps: { profile: 'done', result: 'done', skills: 'done', files: null, invite: null }, resultChatId: null, inviteShownAt: null, site: null, dismissedAt: null, finishedAt: null, shared: { at: START, skills: [{ path: SEO.path, title: '검색 광고 정리' }], landing: SEO.path } })
+    try {
+      // nobody ran a team skill yet: the shared skill the link opens, with nobody yet
+      expect((await goal()).skill).toMatchObject({ path: SEO.path, name: '검색 광고 정리', runners: 0, people: [] })
+      // another skill with more people: that one
+      turn(ids.member, { skill: AD })
+      expect((await goal()).skill).toMatchObject({ path: AD.path, runners: 1 })
+      // as many: the shared one
+      turn(ids.erin, { skill: SEO })
+      expect((await goal()).skill).toMatchObject({ path: SEO.path, runners: 1, people: ['ERIN'] })
+      // a shared skill deleted since: the top one as before
+      fs.rmSync(abs)
+      h.ctx.db.query("DELETE FROM turns WHERE id LIKE 'card-%'").run()
+      expect((await goal()).skill).toBeNull()
+    } finally {
+      h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(WELCOME_SETTING)
+      fs.rmSync(abs, { force: true })
+    }
+  })
+
   test('a deleted person counts but is not named', async () => {
     turn(ids.member, { skill: AD }); turn(ids.finn, { skill: AD })
     h.ctx.db.query("UPDATE users SET status = 'disabled', deleted_at = ? WHERE id = ?").run(new Date().toISOString(), ids.finn)
@@ -305,6 +345,14 @@ describe('the card and the owners\' notice', () => {
     expect(await notices(admin)).toHaveLength(0)
     noteGoalRun(h.ctx, turn(ids.owner, { skill: AD }))
     expect(await notices()).toHaveLength(3)
+    // the intro deck is never a goal run (docs/DECISIONS.md "DS3"): a member's first run of it tells nobody, and it
+    // counts toward neither the best skill nor the people who ran one
+    const before = goalProgress(h.ctx.db)!
+    noteGoalRun(h.ctx, turn(ids.finn, { skill: { path: 'skills/general/intro-deck/SKILL.md', name: 'intro-deck' } }))
+    expect(await notices()).toHaveLength(3)
+    const after = goalProgress(h.ctx.db)!
+    expect(after.runnerIds.has(ids.finn)).toBe(false)
+    expect(after.peopleWithRun).toBe(before.peopleWithRun)
   })
 
   test('no notice for a failed answer, a later run after an earlier success, or outside the window; a deleted member stays unnamed', async () => {

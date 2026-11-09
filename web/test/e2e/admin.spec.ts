@@ -121,7 +121,7 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
 
   await page.getByRole('link', { name: '사용량' }).click()
   await expect(page.getByTestId('usage-table')).toContainText('Olga')
-  await page.getByRole('link', { name: '기록' }).click()
+  await page.getByRole('link', { name: '활동 로그' }).click()
   // actions in words; the id stays in the tooltip
   await expect(page.getByTestId('audit-list')).toContainText('초대 링크 만듦')
   await expect(page.getByTestId('audit-list').locator('[title="invite.create"]').first()).toBeVisible()
@@ -134,6 +134,22 @@ test('admin screens: members, groups, folder rules with "who sees what", engines
   // the refusals asked for above (a common temporary password, a taken username) are the only failed requests
   expect(realErrors(errors).filter((e) => !/status of (400|409)/.test(e))).toEqual([])
   expect(realErrors(errors).filter((e) => /status of (400|409)/.test(e)).length).toBe(2)
+})
+
+test('groups: in a group\'s member list you come first, marked as you; the others keep the team order', async ({ page }) => {
+  await reset(page, { withAdmin: true })
+  await signIn(page, { username: 'dana', password: 'dana password 1' })
+  await page.goto('/admin/groups')
+  await page.getByTestId('group-new').click()
+  const rows = page.getByRole('dialog').getByTestId('group-member')
+  // Dana joined after Olga and Bob, yet is listed first
+  await expect(rows).toHaveText([/^Dana\s*dana\s*· 나$/, /^Olga\s*olga$/, /^Bob\s*bob$/, /^Eve\s*eve$/])
+  // the same in an existing group, ticked or not
+  await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
+  await page.getByTestId('group-list').getByRole('listitem').filter({ hasText: '재무팀' }).getByTestId('member-more').click()
+  await page.getByTestId('group-edit').click()
+  await expect(rows.first()).toContainText('Dana')
+  await expect(rows.nth(1).getByRole('checkbox')).toBeChecked()
 })
 
 test('members: a one-time password reset link to copy (no email); the owner has none', async ({ page }) => {
@@ -435,32 +451,83 @@ test('settings: on a small server "Turn video sound into text" starts off, with 
   expect(realErrors(errors)).toEqual([])
 })
 
-// QA R2-PERM-10: the owner gives the role to another person in Team settings, with the password again; the old owner
-// is an admin at once, so the transfer card and the team name input go away
-test('settings: the owner transfers ownership with the password again and becomes an admin', async ({ page }) => {
+// docs/DECISIONS.md "Voice input on a team's own server: the key turns it on": "this server" without its tools says which
+// one is missing (the mic is off), and the OpenRouter key says what it costs
+test('settings: Voice input names a missing tool for "this server" and the price of an OpenRouter key', async ({ page }) => {
   await reset(page)
   const errors = watchConsole(page)
+  // an office Mac with Homebrew's whisper-cpp but no ffmpeg
+  expect((await page.request.post('/__test/speech-host', { data: { localMissing: ['ffmpeg'] } })).ok()).toBeTruthy()
   await signIn(page)
   await page.goto('/admin/settings')
-  await expect(page.getByRole('heading', { name: '팀장 넘김' })).toBeVisible()
-  const start = page.getByTestId('transfer-start')
-  await expect(start).toBeDisabled()
-  await page.getByTestId('transfer-target').selectOption('bob')
-  await start.click()
-  const dialog = page.getByRole('dialog')
-  await expect(dialog).toContainText('Bob님을 팀장으로 정할까요?')
-  await dialog.getByLabel(translate('ko', 'system.passwordAgain')).fill('wrong password')
-  await dialog.getByRole('button', { name: '넘기기', exact: true }).click()
-  await expect(page.getByText('비밀번호가 맞지 않아요. 다시 입력해 주세요.')).toBeVisible()
-  await expect(dialog).toBeVisible()
-  await dialog.getByLabel(translate('ko', 'system.passwordAgain')).fill(OWNER.password)
-  await dialog.getByRole('button', { name: '넘기기', exact: true }).click()
-  await expect(page.getByText('이제 Bob님이 팀장이에요.')).toBeVisible()
-  await expect(dialog).toBeHidden()
-  await expect(page.getByRole('heading', { name: '팀장 넘김' })).toBeHidden()
-  await expect(page.getByLabel('팀 이름')).toBeDisabled()
-  expect(realErrors(errors).filter((e) => !/status of 403/.test(e))).toEqual([])
+  const provider = page.getByTestId('team-speech-provider')
+  await expect(provider).toHaveValue('local')
+  await expect(page.getByTestId('team-speech-local-missing')).toHaveText('이 서버에 ffmpeg 프로그램이 없어서 음성 입력이 꺼져 있어요.')
+  await provider.selectOption('openrouter')
+  await expect(page.getByTestId('team-speech-local-missing')).toHaveCount(0)
+  await expect(page.getByTestId('team-speech-price')).toHaveText('OpenRouter 요금은 녹음 1시간에 약 $0.1예요.')
+  await provider.selectOption('off')
+  await expect(page.getByTestId('team-speech-price')).toHaveCount(0)
+  expect(realErrors(errors)).toEqual([])
 })
+
+// docs/DECISIONS.md "Voice input on a team's own server: the key turns it on": with no provider chosen, saving the key
+// turns voice input on without storing a provider, and removing it turns it off again
+test('settings: the OpenRouter key alone turns voice input on, and removing it turns it off', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  expect((await page.request.post('/__test/speech', { data: { provider: 'off', chosen: false } })).ok()).toBeTruthy()
+  await signIn(page)
+  await page.goto('/admin/settings')
+  const provider = page.getByTestId('team-speech-provider')
+  await expect(provider).toHaveValue('off')
+  const patches: unknown[] = []
+  page.on('request', (r) => { if (r.url().endsWith('/api/admin/settings') && r.method() === 'PATCH') patches.push(r.postDataJSON()) })
+  await provider.selectOption('openrouter')
+  await page.getByTestId('team-speech-key').fill('sk-or-v1-' + 'a'.repeat(48))
+  await page.getByTestId('team-speech-password').fill(OWNER.password)
+  await page.getByTestId('team-speech-save-key').click()
+  await expect(page.getByText('키를 저장했어요')).toBeVisible()
+  await expect(provider).toHaveValue('openrouter')
+  await expect(page.getByTestId('team-settings-savebar')).toHaveCount(0)
+  await page.getByTestId('team-speech-password').fill(OWNER.password)
+  await page.getByTestId('team-speech-remove-key').click()
+  await page.getByRole('dialog').getByRole('button', { name: '키 지우기' }).click()
+  await expect(page.getByText('키를 지웠어요')).toBeVisible()
+  // the server reads off again: the form follows, with nothing left to save
+  await expect(provider).toHaveValue('off')
+  await expect(page.getByTestId('team-settings-savebar')).toHaveCount(0)
+  expect(patches).toEqual([])
+  expect(realErrors(errors)).toEqual([])
+})
+
+// review of the same branch: picking OpenRouter only to reach "Remove key" must not drop the admin's saved "Turn video
+// sound into text" off for "this server"
+test('settings: removing the key on a "this server" team keeps its "Turn video sound into text" choice', async ({ page }) => {
+  await reset(page)
+  const errors = watchConsole(page)
+  expect((await page.request.post('/__test/speech', { data: { provider: 'local', key: true } })).ok()).toBeTruthy()
+  await signIn(page)
+  await page.goto('/admin/settings')
+  const provider = page.getByTestId('team-speech-provider')
+  const sw = page.getByTestId('team-media-transcripts')
+  await sw.getByText('영상 소리를 글로 바꾸기').click()
+  await expect(sw).toHaveAttribute('data-on', 'false')
+  await page.getByRole('button', { name: '저장', exact: true }).click()
+  await expect(page.getByText('저장했어요.')).toBeVisible()
+  await provider.selectOption('openrouter')
+  await page.getByTestId('team-speech-password').fill(OWNER.password)
+  await page.getByTestId('team-speech-remove-key').click()
+  await page.getByRole('dialog').getByRole('button', { name: '키 지우기' }).click()
+  await expect(page.getByText('키를 지웠어요')).toBeVisible()
+  await expect(provider).toHaveValue('local')
+  await expect(sw).toHaveAttribute('data-on', 'false')
+  await expect(page.getByTestId('team-settings-savebar')).toHaveCount(0)
+  expect(realErrors(errors)).toEqual([])
+})
+
+// QA R2-PERM-10 (the owner hands the role over with the password again; the old owner is an admin at once) moved to
+// handover.spec.ts with the Team settings card: it is Admin › Members' "…" › 팀장 넘기기 now (docs/DECISIONS.md "W6")
 
 for (const locale of ['ko', 'en', 'id'] as const) {
   for (const role of ['owner', 'admin'] as const) {
@@ -610,8 +677,8 @@ for (const locale of ['ko', 'en', 'id'] as const) {
     await item.hover()
     await item.getByRole('button', { name: t['chat.menu'], exact: true }).click()
     await item.getByRole('menuitem', { name: t['common.delete'] }).click()
-    await expect(page.getByRole('dialog')).toContainText(translate(locale, 'chat.deleteBody', { days: 5 }))
-    await expect(page.getByRole('dialog')).not.toContainText(translate(locale, 'chat.deleteBody', { days: 7 }))
+    await expect(page.getByRole('dialog')).toContainText(translate(locale, 'chat.deleteBody', { days: 5, trash: translate(locale, 'sidebar.trash') }))
+    await expect(page.getByRole('dialog')).not.toContainText(translate(locale, 'chat.deleteBody', { days: 7, trash: translate(locale, 'sidebar.trash') }))
     await page.getByRole('dialog').getByRole('button', { name: t['common.cancel'], exact: true }).click()
     expect(loads).toBe(0)
   })
@@ -656,6 +723,44 @@ for (const locale of ['ko', 'en', 'id'] as const) {
   })
 }
 
+
+test('members: an admin gets Delete on member rows only, and types the password again to delete', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true, withAdmin: true })
+  await signIn(page, { username: 'dana', password: 'dana password 1' })
+  await page.goto('/admin/members')
+  const table = page.getByTestId('members-table')
+  // a member row: Delete is in the "…" menu
+  const bob = table.getByRole('row').filter({ hasText: 'Bob' })
+  await bob.getByTestId('member-more').click()
+  await expect(page.getByTestId('delete-member-bob')).toBeVisible()
+  await page.keyboard.press('Escape')
+  // another admin and the owner: whatever their menu holds, there is no Delete (and no Disable: an admin acts on members)
+  for (const [name, user] of [['Eve', 'eve'], ['Olga', 'olga']] as const) {
+    const more = table.getByRole('row').filter({ hasText: name }).getByTestId('member-more')
+    if (await more.count()) { await more.click(); await page.keyboard.press('Escape') }
+    await expect(page.getByTestId(`delete-member-${user}`)).toHaveCount(0)
+    await expect(page.getByTestId(`disable-member-${user}`)).toHaveCount(0)
+  }
+
+  // the same warning as the owner sees, and the password again; a wrong one keeps the person
+  await bob.getByTestId('member-more').click()
+  await page.getByTestId('delete-member-bob').click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText('Bob')
+  await expect(dialog).toContainText(translate('en', 'members.removeBody', { days: 7 }))
+  const confirm = dialog.getByRole('button', { name: DICTS.en['common.delete'], exact: true })
+  await expect(confirm).toBeDisabled()
+  await dialog.locator('input[type="password"]').fill('not the password')
+  await confirm.click()
+  await expect(page.getByRole('alert').filter({ hasText: /password/i })).toBeVisible()
+  await expect(bob).toBeVisible()
+  await dialog.locator('input[type="password"]').fill('dana password 1')
+  const deleted = page.waitForResponse((r) => r.request().method() === 'DELETE' && new URL(r.url()).pathname === '/api/admin/users/bob')
+  await confirm.click()
+  expect((await deleted).status()).toBe(204)
+  await expect(dialog).toHaveCount(0)
+  await expect(table.getByRole('row').filter({ hasText: 'Bob' })).toHaveCount(0)
+})
 
 test('members: cancelled and rejected deletions retain the row; a successful retry refreshes it', async ({ page }) => {
   await reset(page, { teamLocale: 'en', usersFollowTeam: true })

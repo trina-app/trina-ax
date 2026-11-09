@@ -21,7 +21,10 @@ import { folderKeep, isParkedRow, type FolderKeep } from './folder-keep'
 import { shownSegs } from './access-rows'
 import { rulesHash } from './access-edit'
 import { resetEngineSessions as resetChatSessions } from '../chat/runtime'
+import { sharedChatsHidden } from '../chat/shared'
 import { syncRoomsNow } from '../rooms/service'
+import { recheckHistories } from '../rooms/history'
+import { checkDriveShareOwners } from '../integrations/google-drive/shares'
 
 export interface FolderRow { id: string; path: string; created_at: string }
 interface RuleRow { id: string; folder_id: string; subject_type: FolderRule['subjectType']; subject_id: string | null; access: Access; updated_by: string | null; updated_at: string }
@@ -260,6 +263,34 @@ export function readLosses(before: AccessState, after: AccessState, extraPaths: 
   return out
 }
 
+export interface AccessChange { path: string; before: Access; after: Access }
+/** The states afterAccessChange compared, filled in for a caller that asks (`by.seen`). */
+export interface SeenStates { before?: AccessState; after?: AccessState }
+
+/**
+ * readLosses() in both directions: for every person present in both states, each deciding folder where their access
+ * is not what it was (gained, lost, read <-> write), top-most only (a folder below one with the same change is left
+ * out). The same deciding folders and the same permission function as readLosses(); nothing is saved. The connector's
+ * group tools say this in words after a change.
+ */
+export function accessChanges(before: AccessState, after: AccessState): Map<string, AccessChange[]> {
+  const paths = decidingPaths(before, after)
+  const afterBy = new Map(after.principals.map((p) => [p.id, p]))
+  const out = new Map<string, AccessChange[]>()
+  for (const pb of before.principals) {
+    const pa = afterBy.get(pb.id)
+    if (!pa) continue
+    const changed: AccessChange[] = []
+    for (const p of paths) {
+      const s = segsOf(p), b = before.rules.access(pb, s), a = after.rules.access(pa, s)
+      if (a !== b) changed.push({ path: p, before: b, after: a })
+    }
+    const top = changed.filter((c) => !changed.some((d) => d !== c && d.before === c.before && d.after === c.after && (d.path === '' || c.path.startsWith(d.path + '/'))))
+    if (top.length) out.set(pb.id, top)
+  }
+  return out
+}
+
 /**
  * H7: the person's chats start a fresh engine session at the next turn (the stashed session may hold file contents
  * they can no longer read; the conversation continues from the DB history). Returns how many chats were reset.
@@ -270,16 +301,22 @@ export function resetEngineSessions(ctx: AppContext, userId: string): number {
 }
 
 export function chatsWithEngineSession(db: Database, userId: string): number {
-  return (db.query('SELECT COUNT(*) AS n FROM chats WHERE user_id = ? AND engine_session_id IS NOT NULL').get(userId) as { n: number }).n
+  // as chat/runtime.ts resetEngineSessions resets them: their own chats and the shared chats whose session they wrote
+  return (db.query(`SELECT COUNT(*) AS n FROM (SELECT id FROM chats WHERE user_id = ? AND engine_session_id IS NOT NULL
+    UNION SELECT c.id FROM chats c JOIN messages m ON m.id = c.engine_session_leaf_id JOIN turns t ON t.id = m.turn_id
+    WHERE t.user_id = ? AND c.engine_session_id IS NOT NULL)`).get(userId, userId) as { n: number }).n
 }
 
 /**
  * After any change that can narrow access (rules, group membership, role): reset the engine sessions of people who
  * lost read access somewhere, tell their open windows, and return who lost what (for the audit record).
  * `created`: folders made on disk by this same request (a new rule folder): nobody knew them before the change.
+ * `via`: where the change came from when not the web screens (the audit line says so). `seen`: the caller wants the
+ * two states (the connector's group tools say what changed from them instead of taking them again).
  */
-export function afterAccessChange(ctx: AppContext, before: AccessState, by: { actor: string | null; target: string | null; created?: readonly string[] }): { userId: string; paths: string[]; chatsReset: number }[] {
+export function afterAccessChange(ctx: AppContext, before: AccessState, by: { actor: string | null; target: string | null; created?: readonly string[]; via?: string; seen?: SeenStates }): { userId: string; paths: string[]; chatsReset: number }[] {
   const after = captureState(ctx.db)
+  if (by.seen) { by.seen.before = before; by.seen.after = after }
   const losses = readLosses(before, after)
   const out: { userId: string; paths: string[]; chatsReset: number }[] = []
   for (const [userId, paths] of losses) {
@@ -296,18 +333,32 @@ export function afterAccessChange(ctx: AppContext, before: AccessState, by: { ac
   // in a folder they were just removed from (security round 2, realtime #1).
   const beforeIds = new Set(before.principals.map((p) => p.id))
   for (const pa of after.principals) if (!beforeIds.has(pa.id)) ctx.services.realtime.forgetReplay(pa.id)
+  // whose access changed: the old answers hidden from them in team rooms and the everyone room are checked again on
+  // the rooms' next pass (rooms/history.ts: only fewer, never more)
+  const accessChanged: string[] = []
   for (const pb of before.principals) {
     const pa = after.principals.find((p) => p.id === pb.id)
     if (!pa) { ctx.services.realtime.forgetReplay(pb.id); continue }
     const changed = paths.filter((p) => before.rules.access(pb, segsOf(p)) !== after.rules.access(pa, segsOf(p)))
-    if (changed.length) ctx.services.realtime.forgetReplay(pb.id)
+    if (changed.length) { ctx.services.realtime.forgetReplay(pb.id); accessChanged.push(pb.id) }
     const named = changed.filter((p) => noticeMayName(p, pb, pa, before, after, created, onDisk))
     if (named.length) ctx.services.realtime.publish(pb.id, { type: 'notice', data: { level: 'info', code: 'access_changed', message: named.map((p) => p || '/').join(', ') } })
   }
+  // shared project chats follow their project's audience (chat/shared.ts): whoever no longer sees one has it dropped from
+  // their lists and project pages, by its id alone (the chat's details never go to someone who cannot see it). After
+  // the replay buffers above were emptied, so a window resuming gets these too. Never throws: the change is saved
+  try {
+    const afterIds = new Set(after.principals.map((p) => p.id))
+    const who = new Set([...accessChanged, ...before.principals.filter((p) => !afterIds.has(p.id)).map((p) => p.id)])
+    for (const [userId, chats] of sharedChatsHidden(ctx.db, before, after, who)) for (const chatId of chats) ctx.services.realtime.publish(userId, { type: 'chat.updated', data: { chatId, change: 'deleted', chat: null } })
+  } catch (e) { ctx.log.warn('shared chat removals failed', { err: e }) }
   // every narrowing is audited, whatever caused it (rules, group membership, role, group deletion); admins only read it
-  if (out.length) audit(ctx.db, { actor: by.actor, action: 'folder.access_lost', target: by.target, detail: { losing: out } })
+  if (out.length) audit(ctx.db, { actor: by.actor, action: 'folder.access_lost', target: by.target, detail: { losing: out, ...(by.via ? { via: by.via } : {}) } })
   // team rooms and the everyone room follow groups and accounts (rooms/service.ts sync; it never throws)
+  recheckHistories(ctx, accessChanged)
   syncRoomsNow(ctx)
+  // a Drive shared with the team stops when its admin is disabled, deleted or no longer an admin
+  checkDriveShareOwners(ctx)
   return out
 }
 

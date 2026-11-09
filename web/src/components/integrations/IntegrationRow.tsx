@@ -20,6 +20,7 @@ import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
 import { ConnectorLogo } from './ConnectorsView'
 import { Badge, Button, IconButton, Switch, confirmDialog } from '../ui'
+import { Tooltip } from '../Tooltip'
 
 /** A blank window opened during the click (a window opened later, after the server answers, is blocked as a popup).
  * The phone app has no sign-in return yet: no window there. */
@@ -258,10 +259,12 @@ export function IntegrationRow({ i, actions, onEdit, teamBadge, alert, extra }: 
             </span>
           </span>
           {i.status === 'connected' ? (
-            <span className="flex shrink-0 items-center text-ok" title={t('integrations.status.connected')}>
-              <Check size={16} aria-hidden />
-              <span className="sr-only">{t('integrations.status.connected')}</span>
-            </span>
+            <Tooltip label={t('integrations.status.connected')}>
+              <span className="flex shrink-0 items-center text-ok">
+                <Check size={16} aria-hidden />
+                <span className="sr-only">{t('integrations.status.connected')}</span>
+              </span>
+            </Tooltip>
           ) : (
             // beside a sign-in button a phone's width goes to the name: the button says the same
             <Badge tone={STATUS_TONE[i.status]} className={clsx('shrink-0', signInButton && 'max-sm:hidden')}>{t(`integrations.status.${i.status}`)}</Badge>

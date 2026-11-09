@@ -7,6 +7,7 @@
 import type { Database } from 'bun:sqlite'
 import { CONTENT_KINDS, fileTimeline } from '../files/timeline'
 import { packSkillNames } from '../onboarding/skill-packs'
+import { LEGACY_PACK_SKILL_NAMES } from '../onboarding/retired-skills'
 
 interface Ev { id: number; user_id: string; action: string; path: string; detail: string | null; at: string }
 const parse = (d: string | null): Record<string, unknown> => { try { const v = d ? JSON.parse(d) : null; return v && typeof v === 'object' ? v : {} } catch { return {} } }
@@ -38,11 +39,12 @@ function firstEvent(db: Database, rel: string): Ev | null {
   return null
 }
 
-/** A pack's install from before the mark: a skill of a pack's name in that pack's folder, made by the person of an
- * `onboarding.pack_install` audit row within a minute of it. */
+/** A pack's install from before the mark: a skill of a pack's name (one that ships, or one an older release shipped:
+ * docs/DECISIONS.md "DS3") in that pack's folder, made by the person of an `onboarding.pack_install` audit row within a
+ * minute of it. */
 function packInstallByAudit(db: Database, e: Ev): boolean {
   const m = /^skills\/([^/]+)\/([^/]+)\/SKILL\.md$/.exec(e.path)
-  if (!m || !packSkillNames().includes(m[2]!)) return false
+  if (!m || !(packSkillNames().includes(m[2]!) || LEGACY_PACK_SKILL_NAMES.includes(m[2]!))) return false
   return !!db.query(`SELECT 1 FROM audit_log WHERE action = 'onboarding.pack_install' AND actor_id = ? AND target = ?
     AND ABS(julianday(at) - julianday(?)) * 86400 <= 60 LIMIT 1`).get(e.user_id, `skills/${m[1]}`, e.at)
 }
@@ -50,6 +52,11 @@ function packInstallByAudit(db: Database, e: Ev): boolean {
 /** The account that made the first version of `rel`, or null: unknown (older than the history, changed outside the
  * app), or a starter pack's install. */
 export function skillMakerId(db: Database, rel: string): string | null {
+  return makerEvent(db, rel)?.user_id ?? null
+}
+
+/** The event that made the first version of `rel` (who and when), or null as skillMakerId. */
+function makerEvent(db: Database, rel: string): Ev | null {
   let e: Ev | null
   try { e = firstEvent(db, rel) } catch { e = null }
   if (!e) {
@@ -61,13 +68,59 @@ export function skillMakerId(db: Database, rel: string): string | null {
     if (!e) return null
   }
   if (parse(e.detail).tool === 'pack_install' || packInstallByAudit(db, e)) return null
-  return e.user_id
+  return e
 }
 
-/** The maker's name as people know them (an account that was deleted has none). */
+/**
+ * The member whose suggestion became the skill at `rel` (docs/DECISIONS.md "MC": "민준 님이 제안" stays on it): an
+ * approved suggestion that resulted in `rel`, sent by someone else than its approver, whose approver's save made the
+ * file's first version (`makerId`), so a skill deleted and made again there by someone else is not theirs. Their name
+ * while the account is there.
+ */
+export function skillSuggester(db: Database, rel: string, made: Pick<Ev, 'user_id' | 'at'> | null = makerEvent(db, rel)): { id: string; name: string } | null {
+  if (!made) return null
+  let r: { id: string; name: string } | null = null
+  try {
+    // the approval saved it: the same person, within a few minutes of that save (a skill the same admin deleted and
+    // wrote again later at that path is theirs)
+    r = db.query(`SELECT s.suggester_id AS id, u.name FROM skill_suggestions s JOIN users u ON u.id = s.suggester_id
+      WHERE s.result_path = ? AND s.status = 'approved' AND s.reviewer_id = ? AND s.suggester_id != s.reviewer_id AND u.deleted_at IS NULL
+        AND ABS(julianday(s.reviewed_at) - julianday(?)) * 86400 <= 300
+      ORDER BY s.reviewed_at DESC LIMIT 1`).get(rel, made.user_id, made.at) as { id: string; name: string } | null
+  } catch { return null }
+  return r && r.name.trim() ? { id: r.id, name: r.name.trim() } : null
+}
+
+/** skillSuggester for many paths at once (the skills list): only paths that some approved suggestion resulted in are
+ * looked at closer. */
+export function suggestersOf(db: Database, rels: readonly string[]): Map<string, string> {
+  const out = new Map<string, string>()
+  if (!rels.length) return out
+  let made: Set<string>
+  try { made = new Set((db.query("SELECT DISTINCT result_path AS p FROM skill_suggestions WHERE status = 'approved' AND result_path IS NOT NULL").all() as { p: string }[]).map((x) => x.p)) } catch { return out }
+  // kept a minute per path, and for as long as no suggestion was approved meanwhile (the skills list asks often)
+  const generation = made.size
+  const now = Date.now()
+  if (suggesterCache.size > 1000) suggesterCache.clear()
+  for (const rel of rels) {
+    if (!made.has(rel)) continue
+    const had = suggesterCache.get(rel)
+    const name = had && had.generation === generation && now - had.at < 60_000 ? had.name : (skillSuggester(db, rel)?.name ?? null)
+    suggesterCache.set(rel, { at: now, generation, name })
+    if (name) out.set(rel, name)
+  }
+  return out
+}
+const suggesterCache = new Map<string, { at: number; generation: number; name: string | null }>()
+
+/** The maker's name as people know them (an account that was deleted has none); a skill a member suggested is theirs
+ * (skillSuggester), not its approver's. */
 export function skillMakerName(db: Database, rel: string): { id: string; name: string } | null {
-  const id = skillMakerId(db, rel)
-  if (!id) return null
+  const made = makerEvent(db, rel)
+  if (!made) return null
+  const id = made.user_id
+  const suggested = skillSuggester(db, rel, made)
+  if (suggested) return suggested
   const u = db.query('SELECT name, deleted_at FROM users WHERE id = ?').get(id) as { name: string; deleted_at: string | null } | null
   return u && !u.deleted_at && u.name.trim() ? { id, name: u.name.trim() } : null
 }

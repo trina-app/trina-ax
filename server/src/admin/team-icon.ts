@@ -1,4 +1,5 @@
-// The team's logo as the tab icon (Admin › Team settings; docs/DECISIONS.md "팀 로고"). One file, <data>/team-icon,
+// The team's logo (Admin › Team settings; docs/DECISIONS.md "Team logo as the tab icon", changed 2026-11-07): shown
+// only inside the page, in the computer's sidebar header; the tab and app icons stay the product's. One file, <data>/team-icon,
 // written atomically; its type and pixel size are read back from its header and its version is the start of its
 // SHA-256, so nothing about it lives anywhere else (a database restored from a backup cannot disagree with it).
 // Validation and the links are shared/src/team-icon.ts; the public /team-icon route is routes/web-static.ts.
@@ -28,8 +29,8 @@ const refuse = (problem: TeamIconProblem, locale: Locale): never =>
   })
 
 /**
- * Realtime notice: the team logo changed. Open windows ask GET /api/me again and point their icon links at the new
- * version (or back at the default). The message carries nothing.
+ * Realtime notice: the team logo changed. Open windows ask GET /api/me again and their sidebar header shows the new
+ * version (or the product's mark again). The message carries nothing.
  */
 export const TEAM_ICON_CHANGED = { type: 'notice', data: { level: 'info', code: 'team_icon_changed', message: '' } } as const
 
@@ -38,7 +39,7 @@ export const teamIconFile = (dataDir: string) => path.join(dataDir, 'team-icon')
 
 const versionOf = (b: Uint8Array) => crypto.createHash('sha256').update(b).digest('hex').slice(0, 16)
 
-// read on every page load, favicon and manifest request: kept in memory while the file's stat stays the same
+// read on every GET /api/me and /team-icon request: kept in memory while the file's stat stays the same
 const cache = new Map<string, { key: string; icon: TeamIconFile | null }>()
 
 /** The stored logo, or null (none, or a file that is no longer a logo we accept). */
@@ -61,7 +62,10 @@ export function readTeamIcon(dataDir: string): TeamIconFile | null {
   return icon
 }
 
-export const teamIconVersion = (dataDir: string): string | null => readTeamIcon(dataDir)?.version ?? null
+/** What GET /api/me says about the logo: its version (null: none). */
+export function teamIconOfMe(dataDir: string): { iconVersion: string | null } {
+  return { iconVersion: readTeamIcon(dataDir)?.version ?? null }
+}
 
 export const teamIconInfo = (i: TeamIconFile): TeamIconInfo => ({ version: i.version, type: i.type, width: i.width, height: i.height, size: i.bytes.byteLength })
 

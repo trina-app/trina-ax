@@ -45,27 +45,96 @@ export function displaySize(b: Uint8Array): { width: number; height: number } | 
   return exifOrientation(b) >= 5 ? { width: s.height, height: s.width } : s
 }
 
-/** a thumbnail JPEG at most (320 px at -q:v 5 is a few tens of KB) */
-const THUMB_MAX_BYTES = 4 * 1024 * 1024
+/** Can this picture have see-through pixels, by its first bytes? A PNG with an alpha channel (colour type 4 or 6) or
+ * a tRNS chunk (a palette's or one colour's transparency), a WebP with the alpha flag (VP8X) or a lossless one with
+ * alpha (VP8L), any GIF (its transparent colour). A PNG whose chunks before the picture run past `b`: yes (ffmpeg's
+ * look at the pixels decides). JPEG, HEIC, BMP, TIFF and anything else: no. */
+export function mayHaveAlpha(b: Uint8Array): boolean {
+  const n = b.byteLength
+  if (n >= 26 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) {
+    if (b[25] === 4 || b[25] === 6) return true
+    for (let i = 8; ;) {
+      if (i + 8 > n) return true
+      const name = String.fromCharCode(b[i + 4]!, b[i + 5]!, b[i + 6]!, b[i + 7]!)
+      if (name === 'tRNS') return true
+      if (name === 'IDAT' || name === 'IEND') return false
+      i += 12 + new DataView(b.buffer, b.byteOffset + i, 4).getUint32(0)
+    }
+  }
+  if (n >= 6 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return true // GIF8
+  if (n >= 25 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) {
+    const fourcc = String.fromCharCode(b[12]!, b[13]!, b[14]!, b[15]!)
+    if (fourcc === 'VP8X') return (b[20]! & 0x10) !== 0
+    if (fourcc === 'VP8L') return (b[24]! & 0x10) !== 0 // alpha_is_used, bit 28 of the 32 bits after the signature
+  }
+  return false
+}
 
-/** Make a JPEG thumbnail (longest side `max`) of `src` into `dst`. Returns false when no converter is available. */
-export async function makeThumbnail(src: string, dst: string, max = 320, workBase?: string, ffmpeg = which('ffmpeg')): Promise<boolean> {
-  if (!ffmpeg) return false
+/** The first `n` bytes of a file (fewer when it is shorter). */
+export function firstBytes(p: string, n = 64 * 1024): Buffer {
+  const b = Buffer.alloc(n)
+  const fd = fs.openSync(p, 'r')
+  try { return b.subarray(0, fs.readSync(fd, b, 0, n, 0)) } finally { fs.closeSync(fd) }
+}
+
+/** a thumbnail at most (320 px JPEG at -q:v 5 is a few tens of KB; a 640 px RGBA PNG is 1.6 MB before compression) */
+const THUMB_MAX_BYTES = 4 * 1024 * 1024
+const PNG_SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+
+export type ThumbExt = 'jpg' | 'png'
+export interface ThumbOptions {
+  /** make only a PNG one: a picture without see-through pixels gets none (null), an older JPEG one stays */
+  transparentOnly?: boolean
+  /** below interactive work (tools/isolate.ts background); stopped with `signal` */
+  background?: boolean
+  signal?: AbortSignal
+}
+
+/** Make a thumbnail (longest side `max`) of `src`: `<dstBase>.jpg`, or `<dstBase>.png` when the picture has pixels you
+ * can see through (a JPEG has no transparency: a transparent PNG's background turned black in one, a red seal stamp
+ * on a black square). Returns which one was written, or null when no converter is available or it failed. A picture
+ * that can have transparency (mayHaveAlpha) is looked at first: its alpha at the thumbnail's size, one byte a pixel,
+ * from a first ffmpeg run; any byte under 255 makes it a PNG. When that look fails the JPEG one is made, as before.
+ * The file is written under a temporary name and renamed, so a reader never gets half of it. */
+export async function makeThumbnail(src: string, dstBase: string, max = 320, workBase?: string, ffmpeg = which('ffmpeg'), o: ThumbOptions = {}): Promise<ThumbExt | null> {
+  if (!ffmpeg) return null
+  const alphaPossible = mayHaveAlpha(firstBytes(src))
+  if (o.transparentOnly && !alphaPossible) return null
   const work = makeWorkDir(workBase)
   try {
     const input = path.join(work, 'in' + path.extname(src).toLowerCase().replace(/[^.a-z0-9]/g, ''))
     fs.copyFileSync(src, input)
-    // the JPEG comes on stdout, never as a file in the work folder: a converter taken over by the image could leave a
-    // link to another file there, and the server would copy that file as the thumbnail (tools/isolate.ts readOutput)
-    const r = await runIsolated({
-      cmd: ffmpeg, workDir: work, timeoutMs: 20_000, maxStdout: THUMB_MAX_BYTES,
-      args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-i', path.basename(input), '-frames:v', '1', '-vf', `scale='min(${max},iw)':'min(${max},ih)':force_original_aspect_ratio=decrease`, '-q:v', '5', '-f', 'image2pipe', '-c:v', 'mjpeg', 'pipe:1'],
+    const scale = `scale='min(${max},iw)':'min(${max},ih)':force_original_aspect_ratio=decrease`
+    // every picture comes on stdout, never as a file in the work folder: a converter taken over by the image could
+    // leave a link to another file there, and the server would copy that file as the thumbnail (tools/isolate.ts
+    // readOutput)
+    const run = (vf: string, out: string[], maxStdout: number) => runIsolated({
+      cmd: ffmpeg, workDir: work, timeoutMs: 20_000, maxStdout, background: o.background, signal: o.signal,
+      args: ['-nostdin', '-hide_banner', '-loglevel', 'error', '-i', path.basename(input), '-frames:v', '1', '-vf', vf, ...out, 'pipe:1'],
     })
-    const jpeg = r.stdout
-    if (r.code !== 0 || jpeg.length < 4 || jpeg[0] !== 0xff || jpeg[1] !== 0xd8 || jpeg[2] !== 0xff) return false
+    let png = false
+    if (alphaPossible) {
+      const a = await run(`${scale},format=rgba,alphaextract`, ['-f', 'rawvideo', '-pix_fmt', 'gray'], max * max + 1)
+      png = a.code === 0 && a.stdout.length > 0 && a.stdout.some((x) => x < 255)
+    }
+    if (o.transparentOnly && !png) return null
+    // scaled premultiplied: straight alpha would blend the colour of see-through pixels (black) into the edges, a
+    // dark outline round a red stamp
+    const r = png
+      ? await run(`format=rgba,premultiply=inplace=1,${scale},unpremultiply=inplace=1,format=rgba`, ['-f', 'image2pipe', '-c:v', 'png'], THUMB_MAX_BYTES)
+      : await run(scale, ['-q:v', '5', '-f', 'image2pipe', '-c:v', 'mjpeg'], THUMB_MAX_BYTES)
+    const b = r.stdout
+    const ok = png ? b.length > 8 && PNG_SIG.every((x, i) => b[i] === x) : b.length >= 4 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff
+    if (r.code !== 0 || !ok) return null
+    const ext: ThumbExt = png ? 'png' : 'jpg'
+    const dst = `${dstBase}.${ext}`
+    const tmp = `${dst}.${process.pid}-${Math.random().toString(36).slice(2)}.tmp`
     fs.mkdirSync(path.dirname(dst), { recursive: true, mode: 0o700 })
-    fs.writeFileSync(dst, jpeg, { mode: 0o600 })
-    fs.chmodSync(dst, 0o600)
-    return true
+    try {
+      fs.writeFileSync(tmp, b, { mode: 0o600 })
+      fs.chmodSync(tmp, 0o600)
+      fs.renameSync(tmp, dst)
+    } finally { fs.rmSync(tmp, { force: true }) }
+    return ext
   } finally { fs.rmSync(work, { recursive: true, force: true }) }
 }

@@ -1,8 +1,11 @@
 // "Who may manage team skills" (docs/DECISIONS.md "팀 스킬 관리"): a skill manager is anyone with WRITE on skills/ or
-// one of its folders. The owner and admins always are (they write everywhere); Admin > 멤버 / 그룹 "팀 스킬 관리" adds or
-// removes a person's or a group's own write rule on skills/ (or skills/재무/ …) through the folder-rule machinery
-// (admin/folders.ts: same rows Admin > 폴더 권한 shows, same audit, same "access changed" handling). There is no
-// separate permission table: what the folder rules say is what the server enforces, for people and their AI alike.
+// one of its folders. The owner and admins always are (they write everywhere); the Team skills page's "who can edit"
+// dialog (web/src/pages/admin/SkillManagers.tsx) adds a person's or a group's own write rule on skills/ and removes one
+// on skills/ (or skills/재무/ …) through the folder-rule machinery (admin/folders.ts: same rows Admin > 폴더 권한
+// shows, same audit, same "access changed" handling). There is no separate permission table: what the folder rules say
+// is what the server enforces, for people and their AI alike. A group's skills (groups/<folder>/skills/,
+// docs/DECISIONS.md "Group skills") are managed by the members of that group who may write the folder (every member by
+// default: the group writes its own folder); the dialog stays team-only.
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Locale, SkillManagersResponse } from '@mycel/shared/api'
@@ -16,12 +19,48 @@ import { isTeamDefaultFolder } from '../admin/folder-keep'
 import {
   afterAccessChange, captureState, dropFolderRow, ensureFolderRow, getFolderByPath, replaceRules, resolveFolderPath, rulesOf,
 } from '../admin/folders'
+import { groupOfFolder, groupSkillRoots, type GroupSkillRoot } from '../chat/skills'
 import { SKILLS_DIR } from './guard'
 import { st } from './text'
 
 const MAX_DEPTH = 3 // skills/a/b
+const GROUP_DEPTH = 5 // groups/<folder>/skills/a/b
 const segsOf = (p: string) => (p === '' ? [] : p.split('/'))
+/** skills/ or one of its folders (two levels below): the team's skills folders (the "who can edit" dialog's rules). */
 export const isSkillFolder = (p: string) => { const s = segsOf(p); return s[0] === SKILLS_DIR && s.length <= MAX_DEPTH }
+/** groups/<folder>/skills or one of its folders (two levels below): a group's skills folders (docs/DECISIONS.md
+ * "Group skills"). */
+export const isGroupSkillFolder = (p: string) => { const s = segsOf(p); return s[0] === 'groups' && !!s[1] && s[2] === SKILLS_DIR && s.length >= 3 && s.length <= GROUP_DEPTH }
+/** The group skills root (groups/<folder>/skills) of a group skills folder. */
+const groupRootOfFolder = (p: string) => segsOf(p).slice(0, 3).join('/')
+
+/** The skills roots of `p`'s groups (whether or not the folder is there yet), with the group: `p` manages one when
+ * they may write it (every member by default). Only members: the owner and admins write every group folder, but a
+ * group's skills are its members' (managesSkillFolder). */
+export function groupSkillFolders(ctx: AppContext, p: Principal): GroupSkillRoot[] {
+  return groupSkillRoots(ctx.db, p)
+}
+/** The group skills folders of `p`'s groups on disk (the root always, then two levels below it). */
+function groupSkillFoldersOnDisk(ctx: AppContext, p: Principal): string[] {
+  const out: string[] = []
+  for (const g of groupSkillFolders(ctx, p)) {
+    out.push(g.root)
+    const walk = (segs: string[]) => {
+      let names: string[] = []
+      try { names = fs.readdirSync(path.join(ctx.files.fx.root, ...segs)).sort() } catch { return }
+      for (const n of names) {
+        if (n.startsWith('.') || badSegment(n) !== null) continue
+        let st: fs.Stats
+        try { st = fs.lstatSync(path.join(ctx.files.fx.root, ...segs, n)) } catch { continue }
+        if (!st.isDirectory()) continue
+        out.push([...segs, n].join('/'))
+        if (segs.length + 1 < GROUP_DEPTH) walk([...segs, n])
+      }
+    }
+    walk(g.root.split('/'))
+  }
+  return out
+}
 
 /** skills/ and its folders on disk (two levels below). */
 export function skillFolders(ctx: AppContext): string[] {
@@ -41,15 +80,32 @@ export function skillFolders(ctx: AppContext): string[] {
   return [...out].sort()
 }
 
-/** The skills folders `p` may change, top-most only (write on skills/ covers its folders). */
+/** The skills folders `p` may change, top-most only (write on skills/ covers its folders): the team's, then their
+ * groups' (a group's skills root even before it is on disk). */
 export function managedSkillFolders(ctx: AppContext, p: Principal, rules = RuleSet.load(ctx.db)): string[] {
-  const can = skillFolders(ctx).filter((f) => atLeast(rules.access(p, segsOf(f)), 'write'))
+  const can = [...skillFolders(ctx), ...groupSkillFoldersOnDisk(ctx, p)].filter((f) => atLeast(rules.access(p, segsOf(f)), 'write'))
   return can.filter((f) => !can.some((g) => g !== f && f.startsWith(g + '/')))
 }
 
-/** Does `p` manage (may write) the skills folder `folder`? */
+/** The skills folders `p` can see, to suggest into: the team's they may read and their groups' (docs/DECISIONS.md
+ * "Group skills"). */
+export function visibleSkillFolders(ctx: AppContext, p: Principal, rules = RuleSet.load(ctx.db)): string[] {
+  return [...skillFolders(ctx), ...groupSkillFoldersOnDisk(ctx, p)].filter((f) => atLeast(rules.access(p, segsOf(f)), 'read'))
+}
+
+/** Does `p` manage (may write) the skills folder `folder`? A group's skills folder only for a member of that group
+ * (the owner and admins outside it write the folder, but do not manage the group's skills). */
 export function managesSkillFolder(ctx: AppContext, p: Principal, folder: string, rules = RuleSet.load(ctx.db)): boolean {
+  if (isGroupSkillFolder(folder)) {
+    const root = groupRootOfFolder(folder).normalize('NFC')
+    return groupSkillFolders(ctx, p).some((g) => g.root === root) && atLeast(rules.access(p, segsOf(folder)), 'write')
+  }
   return isSkillFolder(folder) && atLeast(rules.access(p, segsOf(folder)), 'write')
+}
+
+/** The group whose skills root holds `folder`, or null (a team folder, or a folder no group has). */
+export function groupOfSkillFolder(ctx: AppContext, folder: string): { id: string; name: string } | null {
+  return isGroupSkillFolder(folder) ? groupOfFolder(ctx.db, segsOf(folder).slice(0, 2).join('/')) : null
 }
 
 export function listSkillManagers(ctx: AppContext): SkillManagersResponse {
@@ -60,9 +116,11 @@ export function listSkillManagers(ctx: AppContext): SkillManagersResponse {
 }
 
 /**
- * Turn "팀 스킬 관리" on or off for one person or group on one skills folder: their own write rule there is added or
- * removed (other rules of the folder stay). A new folder is created on disk. A folder row left without any rule by
- * this (a subfolder made only for this) is removed again, so it falls back to the rules of skills/.
+ * Turn "팀 스킬 관리" on or off for one person or group on one skills folder (the Team skills page's dialog turns it on
+ * for skills/ only and off anywhere; a subfolder is handed over with Folder permissions' own rule editor, PUT
+ * /api/admin/folders/:id/rules, not here): their own write rule there is added or removed (other rules of the folder
+ * stay). A new folder is created on disk. A folder row left without any rule by this (a subfolder made only for this) is
+ * removed again, so it falls back to the rules of skills/.
  */
 export function setSkillManager(ctx: AppContext, actor: string, b: { subjectType: 'user' | 'group'; subjectId: string; path: string; enabled: boolean }, locale: Locale): SkillManagersResponse {
   const db = ctx.db

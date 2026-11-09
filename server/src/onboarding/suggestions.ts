@@ -9,16 +9,23 @@
 //   - an owner's or admin's answer that used team files and ran no team skill, which S's rules let become a team skill
 //     (skill-draft.ts teamSkillOffer): "이 방식대로 팀 스킬로 만들까요?" [팀 스킬로 만들기] (the web app opens the skill
 //     card; docs/DECISIONS.md "W3"); before the PPT: it is the landing's promise, and rarer;
-//   - a long report-like answer (the weekly report, or PPT_SUGGEST_CHARS of prose or more): [PPT로 만들기].
+//   - a member's first successful run of the team's landing skill (onboarding/welcome.ts landingSkill: what the invite
+//     link opens; docs/DECISIONS.md "MC"): "내가 쓰던 스킬이나 파일도 팀에 올릴래요?" [올리기], with the team folder they can
+//     write (groups/<team>/, the welcome steps' group; else null: no files part). Owners and admins have 내 스킬
+//     가져오기 instead. A phone (`phone`) without such a folder gets the next suggestion: there it would be only that link;
+//   - a long report-like answer (PPT_SUGGEST_CHARS of prose or more): [PPT로 만들기].
 // The promo video made from the intro deck (`deck-video`, docs/DECISIONS.md "D2") is in the contract but never offered
 // while DECK_VIDEO_SUGGESTION is off: the background run that makes the video is not built yet.
 // A suggestion the person closed never comes back for them (suggestion_dismissals, migration 229, per person).
-import { DECK_ARTIFACT_KEY, DECK_VIDEO_SUGGESTION, PPT_SUGGEST_CHARS, REPORT_SKILLS, type ResultSuggestion } from '@mycel/shared/api'
+import fs from 'node:fs'
+import path from 'node:path'
+import { DECK_ARTIFACT_KEY, DECK_VIDEO_SUGGESTION, PPT_SUGGEST_CHARS, type ResultSuggestion } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { fail } from '../http/errors'
+import { atLeast, loadPrincipal, RuleSet } from '../policy/access'
+import { landingSkill, readWelcome } from './welcome'
 import { isRecurring, readSkill, type Skill } from '../chat/skills'
 import type { ChatRuntime } from '../chat/runtime'
-import { RECURRING_PACK_SKILLS } from './skill-packs'
 import { teamSkillOffer } from './skill-draft'
 
 type Db = Pick<AppContext, 'db'>
@@ -45,24 +52,48 @@ function scheduled(ctx: Db, userId: string, path: string, name: string): boolean
     WHERE r.skill_path = ? AND t.user_id = ? AND t.schedule_id IS NOT NULL LIMIT 1`).get(path, userId)
 }
 
-/** The skill's work comes back every week: its metadata says `recurring: weekly`. A file without the key (a starter pack
- * skill installed before the line existed, or one this person cannot read now) is read as the pack says. */
+/** The skill's work comes back every week: its metadata says `recurring: weekly`. A file without the key, or one this
+ * person cannot read now, does not (no pack skill that ships is weekly: docs/DECISIONS.md "DS3"). */
 function recurring(ctx: Pick<AppContext, 'db' | 'files'>, userId: string, path: string): boolean {
   let s: Skill | null = null
   try { s = readSkill(ctx.files, ctx.files.principal(userId), path) } catch { s = null }
-  if (s && s.recurring !== undefined) return isRecurring(s)
-  return RECURRING_PACK_SKILLS.has(path)
+  return !!s && s.recurring !== undefined && isRecurring(s)
 }
 
-/** A report: the weekly report skill, or a long answer (prose only: code blocks do not make a slide deck). */
-export function reportLike(content: string, skillName: string | null): boolean {
-  if (skillName && (REPORT_SKILLS as readonly string[]).includes(skillName.toLowerCase())) return true
+/** A report: a long answer (prose only: code blocks do not make a slide deck). */
+export function reportLike(content: string): boolean {
   return content.replace(/```[\s\S]*?(?:```|$)/g, '').trim().length >= PPT_SUGGEST_CHARS
 }
 
 /** The suggestion under one answer of the caller's own chat, or null. 404 for a chat that is not theirs. Without the
  * chat runtime (`rt`), no team skill is offered. */
-export function resultSuggestion(ctx: AppContext, userId: string, chatId: string, messageId: string, rt?: ChatRuntime): ResultSuggestion | null {
+/** The member ran the landing skill in a successful answer of their own for the first time in this turn (scheduled runs
+ * do not count): the earliest such turn is this one. */
+function firstLandingRun(ctx: Db, userId: string, turnId: string, path: string): boolean {
+  const first = ctx.db.query(`SELECT t.id FROM turn_skill_runs r JOIN turns t ON t.id = r.turn_id
+    WHERE r.skill_path = ? AND t.user_id = ? AND t.status = 'done' AND t.schedule_id IS NULL ORDER BY t.started_at, t.rowid LIMIT 1`).get(path, userId) as { id: string } | null
+  return first?.id === turnId
+}
+
+/** The team folder a member can put files in (docs/DECISIONS.md "MC", "M"): the welcome steps' team group's folder
+ * (groups/<team>/: the team link puts joiners in that group) when they can write it, else the folder of another group
+ * of theirs they can write; null when there is none (no files part). */
+export function memberTeamFolder(ctx: AppContext, userId: string): string | null {
+  const p = loadPrincipal(ctx.db, userId)
+  if (!p) return null
+  const rules = RuleSet.load(ctx.db)
+  const writes = (folder: string) => {
+    try { return atLeast(rules.access(p, folder.split('/')), 'write') && fs.statSync(path.join(ctx.files.fx.root, ...folder.split('/'))).isDirectory() } catch { return false }
+  }
+  let team: string | null = null
+  try { team = readWelcome(ctx)?.teamGroup?.folder?.replace(/\/+$/, '') ?? null } catch { team = null }
+  if (team && writes(team)) return team
+  const own = ctx.db.query(`SELECT f.path FROM group_members m JOIN groups g ON g.id = m.group_id JOIN folders f ON f.id = g.folder_id
+    WHERE m.user_id = ? ORDER BY g.name`).all(userId) as { path: string }[]
+  return own.map((x) => x.path).find(writes) ?? null
+}
+
+export function resultSuggestion(ctx: AppContext, userId: string, chatId: string, messageId: string, rt?: ChatRuntime, o: { phone?: boolean } = {}): ResultSuggestion | null {
   if (!ctx.db.query('SELECT 1 FROM chats WHERE id = ? AND user_id = ? AND deleted_at IS NULL').get(chatId, userId)) fail('not_found')
   const turn = ctx.db.query('SELECT id, status, schedule_id FROM turns WHERE chat_id = ? AND message_id = ? AND user_id = ?').get(chatId, messageId, userId) as
     { id: string; status: string; schedule_id: string | null } | null
@@ -83,12 +114,23 @@ export function resultSuggestion(ctx: AppContext, userId: string, chatId: string
       return { kind: 'schedule', key, skill: { path: run.path, name: run.name } }
   }
   if (!run && rt && !no.has('team-skill') && teamSkillOffer(ctx, rt, userId, chatId, messageId)) return { kind: 'team-skill', key: 'team-skill' }
+  // a member's first good run of the landing skill: their own skills and files (before the PPT: it comes once)
+  if (run && !no.has('contribute') && isMember(ctx, userId)) {
+    let landing: string | null = null
+    try { landing = landingSkill(ctx) } catch { landing = null }
+    if (landing && run.path === landing && firstLandingRun(ctx, userId, turn.id, landing)) {
+      const folder = memberTeamFolder(ctx, userId)
+      if (folder || !o.phone) return { kind: 'contribute', key: 'contribute', folder }
+    }
+  }
   if (!no.has('ppt')) {
     const m = ctx.db.query("SELECT content FROM messages WHERE id = ? AND chat_id = ? AND role = 'assistant'").get(messageId, chatId) as { content: string } | null
-    if (m && reportLike(m.content, run?.name ?? null)) return { kind: 'ppt', key: 'ppt' }
+    if (m && reportLike(m.content)) return { kind: 'ppt', key: 'ppt' }
   }
   return null
 }
+
+const isMember = (ctx: Db, userId: string) => !!ctx.db.query("SELECT 1 FROM users WHERE id = ? AND role = 'member' AND status = 'active' AND deleted_at IS NULL").get(userId)
 
 /** This answer made an intro deck (the chat's artifact under DECK_ARTIFACT_KEY, saved with this message). */
 function madeDeck(ctx: Db, chatId: string, messageId: string): boolean {

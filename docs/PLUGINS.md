@@ -25,7 +25,7 @@
 - **업데이트**: 더 높은 버전 꾸러미를 같은 방법으로 설치합니다. 새 권한을 요청하면 창에 "새 권한"으로 표시됩니다. 같은 버전이나 낮은 버전은 업데이트로 설치할 수 없습니다.
 - **되돌리기**: 이 서버에 설치·검증된 바로 이전 버전으로만 돌아갑니다. 저장된 파일이 바뀌었으면 거부합니다.
 - **제거**: 꾸러미 파일을 지웁니다. 원본 문서와 사람들이 만든 스킬 사본, 기록은 남습니다.
-- 모든 동작은 **관리 > 기록**에 `plugin.install`, `plugin.update`, `plugin.enable`, `plugin.disable`, `plugin.rollback`, `plugin.uninstall`로 남습니다.
+- 모든 동작은 **관리자 > 활동 로그**에 `plugin.install`, `plugin.update`, `plugin.enable`, `plugin.disable`, `plugin.rollback`, `plugin.uninstall`로 남습니다.
 - 끄기·업데이트·되돌리기·제거를 하면 진행 중인 미리보기를 취소하고, 만들어 둔 미리보기를 버리고, 렌더러를 새로 준비합니다.
 
 ## 스킬 꾸러미

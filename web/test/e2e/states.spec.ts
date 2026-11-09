@@ -17,16 +17,18 @@ test('a server in DEV mode says so on every screen, and the banner cannot be clo
   }
 })
 
-test("a member's first screen shows their own folder, not the users/ folder that only leads to it", async ({ page }) => {
+test("a member's first screen on a team with nothing: one ready question that needs no file, never a path", async ({ page }) => {
   await reset(page)
   await signIn(page, BOB)
-  const card = page.getByTestId('first-time-folders')
-  await expect(card).toContainText('내 폴더')
-  await expect(card.getByRole('listitem').filter({ hasText: /^users/ })).toHaveCount(0)
-  await expect(card.getByRole('listitem').filter({ hasText: '내 폴더' })).toHaveAttribute('title', 'users/bob')
-  await expect(card.getByRole('listitem').filter({ hasText: '내 폴더' })).toContainText('쓰기 가능')
-  // no example asks about "users"
-  for (const text of await page.getByTestId('example').allInnerTexts()) expect(text).not.toMatch(/(^|\s)users 폴더/)
+  const block = page.getByTestId('team-prepared')
+  await expect(block).toHaveAttribute('data-state', 'ready')
+  await expect(block.getByRole('heading')).toHaveText('이렇게 시작해 보세요')
+  await expect(block.getByTestId('team-prepared-ready')).toHaveText('우리 팀 일을 어떻게 도와줄 수 있는지 3가지만 알려 줘')
+  expect(await block.innerText()).not.toContain('users/')
+  // the folder card and its examples are gone (docs/DECISIONS.md "W6.3")
+  await expect(page.getByTestId('first-time-folders')).toHaveCount(0)
+  await expect(page.getByTestId('example')).toHaveCount(0)
+  expect(await block.innerText()).not.toMatch(/(^|\s)users 폴더/)
 })
 
 test('a link to a folder that does not exist (or is hidden) says so once and opens the nearest visible folder', async ({ page }) => {
@@ -57,24 +59,28 @@ async function hide(page: Page, hidden: boolean) {
   }, hidden)
 }
 
-test('a chat whose AI waits for an answer is marked in the sidebar, and a hidden tab counts it in its title', async ({ page }) => {
+test('a chat whose AI waits for an answer shows "?" at the end of its row, and a hidden tab counts it in its title', async ({ page }) => {
   await reset(page)
   await signIn(page)
   await page.getByTestId('composer-input').fill('please ask me something')
   await page.getByTestId('send').click()
   await expect(page.getByTestId('ask-card')).toBeVisible()
-  const row = page.getByRole('navigation').getByRole('listitem').filter({ has: page.getByTestId('needs-answer') })
+  // session markers (docs/DECISIONS.md): one marker per row, the reason as its name; the card's "?" stays on screen
+  const row = page.getByRole('navigation').getByRole('listitem').filter({ has: page.getByTestId('marker-ask') })
   await expect(row).toHaveCount(1)
-  await expect(row).toContainText('답변 필요')
+  await expect(row.getByRole('img', { name: '어느 분기를 볼까요?' })).toBeVisible()
+  await expect(row.getByTestId('chat-marker')).toHaveCount(1)
   await hide(page, true)
   await expect(page).toHaveTitle(/^\(1\) /)
   await hide(page, false)
   await expect(page).toHaveTitle(/^[^(]/)
-  // answered: the mark goes away
+  // answered: the "?" goes, and the answer that ends on screen is never "new"
   const card = page.getByTestId('ask-card')
   await card.getByLabel('4분기').check()
   await card.getByRole('button', { name: '답하기' }).click()
-  await expect(page.getByTestId('needs-answer')).toHaveCount(0)
+  await expect(page.getByTestId('marker-ask')).toHaveCount(0)
+  await expect(page.getByTestId('assistant-message').last()).toHaveAttribute('data-status', 'done', { timeout: 20_000 })
+  await expect(page.getByTestId('chat-marker')).toHaveCount(0)
 })
 
 test('an answer that finishes while the tab is hidden shows "(1)" in the title until the tab is seen', async ({ page }) => {

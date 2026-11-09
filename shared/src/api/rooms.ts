@@ -2,8 +2,9 @@
 // chats (chats.ts), which stay as they are. Owner: B (server/src/routes/rooms.ts, server/src/rooms/*).
 //
 // Kinds: 'team' mirrors one group's members (kept in step when the group changes), 'all' is everyone on the team (one
-// per team), 'dm' is exactly two people (one per pair). Only members read or send; an admin or the owner is no
-// exception. A member who joins later (added to the group, a new account) sees the messages from their join on. The
+// per team), 'dm' is exactly two people (one per pair), 'group' is a group chat of hand-picked people (docs/DECISIONS.md
+// "그룹 대화와 방 이름": made from the new-chat picker, any member invites or leaves, its manager removes). Only members
+// read or send; an admin or the owner is no exception. A member who joins later (added to the group, a new account) sees the messages from their join on. The
 // author of a message is always the signed-in person: a body that names an author is refused (the schemas are strict).
 //
 // Realtime: room.* events in ws.ts go to the room's members only. After a reconnect the server replays them only while
@@ -14,16 +15,35 @@
 // stop it (room.ai.run / room.ai.step, GET /api/rooms/:id/ai); the others see that the AI is answering (room.ai). The
 // answer is an 'ai' message asked by them: for the whole room when every member may read every file the session read
 // and it used nothing else, else a private preview for them only, which they may post (shareRoomMessage).
+//
+// Threads, reactions, no read receipts (docs/DECISIONS.md "스레드와 반응"): any normal message of the room (not an event
+// line, not deleted, for the whole room) can get replies in a thread (SendRoomMessageBody.threadRootId). Replies live in
+// the thread, not in the room's timeline, unless sent to the room too (alsoInRoom); the root carries the thread's
+// summary (RoomMessage.thread). A thread follows its root: who cannot see the root (a later member) sees none of it.
+// Reactions are 8 fixed emoji (ROOM_REACTIONS); they never notify or count. Nobody is told who has read what.
+//
+// Hiding (docs/DECISIONS.md "대화 숨기기"): a member hides a DM, a team room or the everyone room from their own lists
+// (setRoomHidden; a group chat is left instead). Nobody else is told. It stays a room they are in: reachable from the
+// full list, and opening it brings it back. It comes back by itself when something for them arrives (the server decides
+// it when the message is stored: a DM's new message, a mention, a reply in a thread they follow, an answer to their own
+// question, a card of their question to the AI); a room still hidden notifies them of nothing.
+//
+// Pinning (docs/DECISIONS.md "Pinned conversations"): a member pins a room to the top of their own lists (pinRoom,
+// Room.pinnedAt). Nobody else is told. Hiding a room unpins it, and a hidden room cannot be pinned.
 import { z } from 'zod'
+import { HwpPreviewPage, HwpPreviewQuery } from '../hwp'
 import { UserId, Uuid7 } from '../ids'
 import { PRODUCT } from '../product'
 import { ApiErrorBody, IsoTime, PageQuery, QueryBool, SMALL_UPLOAD_MAX, page } from './common'
 import { empty, endpoint, multipart, stream } from './endpoint'
 import { Attachment, MessageSources, Step, UserRef } from './entities'
+import { RoomAlertSettings, RoomNotifyLevel } from './room-alerts'
 
 export const ROOM_MESSAGE_MAX = 10_000
 export const ROOM_FILES_MAX = 10
 export const ROOM_MENTIONS_MAX = 50
+/** a quote's excerpt (RoomQuote.excerpt) is the message cut to this many characters, the last one "…" */
+export const ROOM_QUOTE_EXCERPT_MAX = 200
 /** an AI answer in a room is cut here (the rest is said to be cut) */
 export const ROOM_AI_ANSWER_MAX = 60_000
 
@@ -38,7 +58,8 @@ const AI_NAMES_LONGEST = [...ROOM_AI_NAMES].sort((a, b) => b.length - a.length)
 const isWordChar = (c: string | undefined) => !!c && /[\p{L}\p{N}_]/u.test(c)
 
 /** Where "@<AI name>" stands in a text: after the start, a space or an opening mark, and not followed by a letter or a
- * digit ("@트리나야" is not it). `taken`: names of people mentioned in the message (a person called 트리나 wins). */
+ * digit ("@트리나야" is not it). `taken`: names of people mentioned in the message (a person called 트리나 wins, and a
+ * mentioned person's "@name" that goes on from an AI name is theirs: "@Trina Kim"). */
 export function roomAiMentions(body: string, taken: readonly string[] = []): { start: number; end: number }[] {
   const out: { start: number; end: number }[] = []
   const lower = body.toLocaleLowerCase()
@@ -47,9 +68,33 @@ export function roomAiMentions(body: string, taken: readonly string[] = []): { s
     if (i > 0 && !/[\s([{"'“‘]/.test(body[i - 1]!)) continue
     const name = AI_NAMES_LONGEST.find((n) => lower.startsWith(n.toLocaleLowerCase(), i + 1) && !isWordChar(body[i + 1 + n.length]))
     if (!name || people.has(name.toLocaleLowerCase())) continue
+    if ([...people].some((p) => p.length > name.length && lower.startsWith(p, i + 1))) continue
     out.push({ start: i, end: i + 1 + name.length })
   }
   return out
+}
+/** "@전체" (docs/DECISIONS.md "@전체"): the word it is written with in each language (the everyone room's own name there).
+ * The web app's "@" list writes the person's language's word (its rooms.mentionAll, one of these); the server takes a
+ * message's mentionsAll only when one of them stands in its text where a mention may start, so what notifies is what
+ * the text shows. */
+/** the everyone room's own word in each language, which "@<word>" means everyone in the room */
+const ROOM_MENTION_ALL_WORD = {
+  ko: '전체',
+  en: 'everyone',
+  ja: '全員',
+  es: 'todos',
+  id: 'semua',
+} as const
+export const ROOM_MENTION_ALL_WORDS: readonly string[] = Object.values(ROOM_MENTION_ALL_WORD)
+/** Does "@<one of ROOM_MENTION_ALL_WORDS>" stand in the text where a mention may start (the start, a space or an opening
+ * mark before it)? Without regard to case. */
+export function roomMentionAllIn(body: string): boolean {
+  const lower = body.toLocaleLowerCase()
+  for (let i = body.indexOf('@'); i >= 0; i = body.indexOf('@', i + 1)) {
+    if (i > 0 && !/[\s([{"'“‘]/.test(body[i - 1]!)) continue
+    if (ROOM_MENTION_ALL_WORDS.some((w) => lower.startsWith(w.toLocaleLowerCase(), i + 1))) return true
+  }
+  return false
 }
 /** Does this message call the AI? */
 export const roomAiCalled = (body: string, taken: readonly string[] = []) => roomAiMentions(body, taken).length > 0
@@ -60,8 +105,68 @@ export function roomAiQuestion(body: string, taken: readonly string[] = []): str
   return body.slice(first.end).trim() || body.trim()
 }
 
-export const RoomKind = z.enum(['team', 'all', 'dm'])
+export const RoomKind = z.enum(['team', 'all', 'dm', 'group'])
 export type RoomKind = z.infer<typeof RoomKind>
+
+/** A group chat holds at most this many people, its maker included. */
+export const ROOM_GROUP_MAX = 100
+/** A room's own name: at most this many characters (after trimming). */
+export const ROOM_NAME_MAX = 80
+/** What a room's name may not hold: control characters, every format character (bidirectional marks, overrides and
+ * isolates, zero-width spaces and non-joiners, the byte order mark, soft hyphens, invisible operators, tag characters,
+ * …) but the zero-width joiner that emoji sequences need, line and paragraph separators, and the blank letters that
+ * draw nothing (the Hangul fillers U+115F, U+1160, U+3164 and U+FFA0, the blank Braille pattern U+2800). */
+const NAME_FORBIDDEN = /(?!\u200d)\p{Cf}|[\p{Cc}\u2028\u2029\u115f\u1160\u3164\uffa0\u2800]/u
+/** ...and it must show something: at least one letter, number, symbol or punctuation mark (not only spaces, combining
+ * marks or joiners). */
+const NAME_VISIBLE = /[\p{L}\p{N}\p{S}\p{P}]/u
+/** A room's own name as typed: trimmed, at most ROOM_NAME_MAX characters, no control characters. '' (or null) takes it
+ * back to the server's name (the group's name, the app's word for everyone, a group chat's members). Always shown as
+ * plain text. */
+export const RoomName = z.string().trim().max(ROOM_NAME_MAX).refine((s) => s === '' || (!NAME_FORBIDDEN.test(s) && NAME_VISIBLE.test(s)), { message: 'invisible or control characters' })
+
+/**
+ * A room picked with "#" in the person's own AI chat (docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기"): in the message as
+ * `#[<title>](room:<room id>)`, so the AI reads exactly that room by its id (room_read) and never guesses from a name.
+ * The title is what the person saw when they picked it (no brackets, one line, at most ROOM_NAME_MAX characters); the
+ * server checks membership when the room is read, so a token of a room the person has left reads nothing. The app shows
+ * a token as a chip "#<title>". Only in the AI chat's message box, never in a room's (a room's name would reach people
+ * who are not in it).
+ */
+export const ROOM_REF_RE = /#\[([^\[\]\n]{1,80})\]\(room:([0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\)/g
+/** The title as a token can hold it: no brackets or lines, and never an address (any member of a group chat names it,
+ * and an address in the person's message would count as one they typed: tools/url-gate.ts) */
+export const roomRefTitle = (title: string) => title.replace(/[\[\]\r\n\u2028\u2029]+/g, ' ').replace(/:\/\//g, ': //').replace(/\s+/g, ' ').trim().slice(0, ROOM_NAME_MAX) || '?'
+/** The token for a picked room. */
+export const roomRefToken = (id: string, title: string) => `#[${roomRefTitle(title)}](room:${id})`
+/** The rooms a message names with tokens, in order, each once. */
+export function roomRefsOf(text: string): { id: string; title: string }[] {
+  const out: { id: string; title: string }[] = []
+  for (const m of text.matchAll(ROOM_REF_RE)) if (!out.some((r) => r.id === m[2])) out.push({ id: m[2]!, title: m[1]! })
+  return out
+}
+/** A message split at its tokens: text, and the rooms as {room} (the app draws a chip for each). */
+export function roomRefParts(text: string): ({ text: string } | { room: { id: string; title: string } })[] {
+  const out: ({ text: string } | { room: { id: string; title: string } })[] = []
+  let at = 0
+  for (const m of text.matchAll(ROOM_REF_RE)) {
+    if (m.index! > at) out.push({ text: text.slice(at, m.index) })
+    out.push({ room: { id: m[2]!, title: m[1]! } })
+    at = m.index! + m[0].length
+  }
+  if (at < text.length) out.push({ text: text.slice(at) })
+  return out
+}
+/** The message as the AI is given it: each token as "[#room N]" (N in the order of roomRefsOf), its title and id only
+ * in the server's data block (chat/turn.ts roomRefsBlock), never as the person's own words. */
+export function roomRefsForModel(text: string): string {
+  const order = roomRefsOf(text).map((r) => r.id)
+  return text.replace(ROOM_REF_RE, (_all, _title: string, id: string) => `[#room ${order.indexOf(id) + 1}]`)
+}
+/** An earlier message of the conversation as the AI is given it: each token as the room's id alone. */
+export const roomRefsByIdOnly = (text: string) => text.replace(ROOM_REF_RE, (_all, _title: string, id: string) => `[#room room_id=${id}]`)
+/** The message as people read it: each token as "#<title>" (lists, titles, a text box to edit it in). */
+export const plainRoomRefs = (text: string) => text.replace(ROOM_REF_RE, (_all, title: string) => `#${title}`)
 
 /** A file or image sent in a room. Stored outside the team folder (owners and admins can read the team folder outside
  * users/<id>/); read at GET /api/rooms/:id/files/:fileId by the room's current members only, checked on every read
@@ -78,20 +183,66 @@ export const RoomFile = z.object({
 })
 export type RoomFile = z.infer<typeof RoomFile>
 
-/** The quoted message under a reply: an excerpt (at most 200 characters), or nothing once it was deleted. */
+/** The reactions a message can get (a fixed set; the request is checked against it). */
+export const ROOM_REACTIONS = ['👍', '✅', '👀', '🙏', '😂', '🎉', '❤️', '🔥'] as const
+export const RoomReactionEmoji = z.enum(ROOM_REACTIONS)
+export type RoomReactionEmoji = z.infer<typeof RoomReactionEmoji>
+/** Who reacted with one emoji: at most this many names come with it (the count is all of them). */
+export const ROOM_REACTION_NAMES = 10
+
+/** One emoji on a message: how many members put it there, whether I did, and who (the first ROOM_REACTION_NAMES, in
+ * the order they reacted; only people in the room now). In the order the emoji were first used. */
+export const RoomReaction = z.object({
+  emoji: RoomReactionEmoji,
+  count: z.number().int().positive(),
+  mine: z.boolean(),
+  users: z.array(UserRef),
+})
+export type RoomReaction = z.infer<typeof RoomReaction>
+
+/** A thread under its root, as I see it: the replies I can see (not deleted), the time of the last one, up to 3 people
+ * who replied (the latest first; the AI is not one of them), and whether a thread I follow (I wrote the root, replied,
+ * or was mentioned in it) has a reply after my position in it. */
+export const RoomThreadSummary = z.object({
+  replyCount: z.number().int().nonnegative(),
+  lastReplyAt: IsoTime.nullable(),
+  repliers: z.array(UserRef),
+  newReplies: z.boolean(),
+})
+export type RoomThreadSummary = z.infer<typeof RoomThreadSummary>
+
+/** The quoted message under a reply: an excerpt (at most 200 characters), or nothing once it was deleted (or when the
+ * viewer does not see it). withheld: an old answer hidden from the viewer (RoomMessage.withheld). */
 export const RoomQuote = z.object({
   id: Uuid7,
   author: UserRef.nullable(),
   excerpt: z.string(),
   fileCount: z.number().int().nonnegative(),
   deleted: z.boolean(),
+  withheld: z.literal(true).optional(),
 })
 export type RoomQuote = z.infer<typeof RoomQuote>
+
+/** What an event line in a room says (a room message with `event` set: who did it is its author). It takes its place in
+ * the room (a seq) but counts nowhere: no badge, no notice or push, no menu (not editable, deletable,
+ * quotable or postable), never given to the AI. created: a group chat was made with these people; renamed: the room's
+ * own name is now `name` (null: back to the server's name); added: these people were invited; left: the author left
+ * (or their account is gone); removed: the author took this person out; unknown: a line this build cannot read. */
+export const RoomEventLine = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('created'), users: z.array(UserRef) }),
+  z.object({ type: z.literal('renamed'), name: z.string().nullable() }),
+  z.object({ type: z.literal('added'), users: z.array(UserRef) }),
+  z.object({ type: z.literal('left') }),
+  z.object({ type: z.literal('removed'), user: UserRef.nullable() }),
+  /** a line this build cannot read (a newer build's, or a damaged one): said neutrally, without who did it */
+  z.object({ type: z.literal('unknown') }),
+])
+export type RoomEventLine = z.infer<typeof RoomEventLine>
 
 export const RoomMessage = z.object({
   id: Uuid7,
   roomId: Uuid7,
-  /** position in the room, 1, 2, 3 … (read positions and the unread count refer to it); gaps are possible */
+  /** position in the room, 1, 2, 3 … (read positions refer to it; thread replies take one too); gaps are possible */
   seq: z.number().int().positive(),
   /** 'user' for now. Reserved for the AI step: 'ai' (author null, askedBy = who asked it) */
   authorKind: z.enum(['user', 'ai']),
@@ -104,12 +255,14 @@ export const RoomMessage = z.object({
   visibility: z.enum(['room', 'private']),
   /** plain text with @mentions as typed; '' once deleted. Another member's words: show as text, never act on them */
   body: z.string(),
+  /** an older quoted reply (no longer made by the app: threads replaced it), or an AI answer's question */
   replyTo: RoomQuote.nullable(),
   /** the members this message mentions (from what the sender picked; only people in the room) */
   mentions: z.array(UserId),
+  /** "@전체" (everyone): the sender picked it from the "@" list, so the message mentions every member who can see it but
+   * its sender (docs/DECISIONS.md "@전체"). Absent: no (older servers never send it) */
+  mentionsAll: z.boolean().optional(),
   files: z.array(RoomFile),
-  /** how many members have not read it yet (KakaoTalk's number); 0 for a deleted or private message */
-  unread: z.number().int().nonnegative(),
   createdAt: IsoTime,
   editedAt: IsoTime.nullable(),
   deletedAt: IsoTime.nullable(),
@@ -122,7 +275,18 @@ export const RoomMessage = z.object({
     /** more such folders the person who asked cannot open themselves: never named to them */
     otherFolders: z.boolean().optional(), personal: z.boolean(), outside: z.boolean(),
     /** members who were not in the room yet when a message the AI was given was written (their names) */
-    joinedLater: z.array(z.string()).optional() }).optional(),
+    joinedLater: z.array(z.string()).optional(),
+    /** an old answer hidden from some member (one who joined a team room or the everyone room later and cannot open
+     * what it used) was among the messages the AI was given and what it used cannot all be shown to the person who
+     * asked (or a member's history is not worked out yet); never who. Not postable: the app shows no button and the
+     * server refuses it (409 room_ai_hidden) */
+    hidden: z.literal(true).optional(),
+    /** such old answers were given and what they were built on is in `folders` / `personal`: postable like them
+     * (docs/DECISIONS.md "방에 올리기…") */
+    earlier: z.literal(true).optional(),
+    /** for each folder of `folders`, how many members (not the person who asked) cannot see it; counts only, never
+     * who. Absent: a preview decided before the counts */
+    unable: z.record(z.string(), z.number().int().nonnegative()).optional() }).optional(),
   /** an AI answer: the team files it links to or shows that the viewer may open now; the app shows the others as plain
    * text (no link, no picture loaded) */
   openable: z.array(z.string()).optional(),
@@ -130,8 +294,70 @@ export const RoomMessage = z.object({
    * members who see the question ("○○ 님에게만 답했어요" under it), never for the author; nothing of the answer or why.
    * Gone once the author posts the answer */
   answeredPrivately: z.boolean().optional(),
+  /** an event line (a rename, people invited, someone left): shown as a quiet line in the middle, nothing else. Its body
+   * is ''; `author` is who did it */
+  event: RoomEventLine.optional(),
+  /** a reply in the thread of this message (the root). Not in the room's timeline unless alsoInRoom */
+  threadRootId: Uuid7.optional(),
+  /** a thread reply that was sent to the room too: it is in the timeline as well, marked as a thread reply */
+  alsoInRoom: z.literal(true).optional(),
+  /** a thread reply in a thread I follow (I wrote the root, replied or was mentioned there): it is for me like a DM
+   * message (the app's sound); only ever about me */
+  following: z.literal(true).optional(),
+  /** a root with replies I can see: the thread's summary under it */
+  thread: RoomThreadSummary.optional(),
+  /** the reactions on it (none: left out); never on an event line or a deleted message */
+  reactions: z.array(RoomReaction).optional(),
+  /** my message that carries an answer of my own AI chat ("대화방에 보내기", chats.ts shareAnswerToRoom): body[0, at) is
+   * my note (plain text, maybe ''), body[at, …) the AI's answer as it wrote it (Markdown, shown as a quote headed "the
+   * AI's answer"; its team-file links are checked in `openable` like an AI message's). The author is still me. cut: the
+   * answer was longer than fits and ends with a line that says so. Never on a deleted message */
+  sharedAnswer: z.object({ at: z.number().int().nonnegative(), cut: z.boolean() }).optional(),
+  /** a shared answer that went with copies of the files it links to ("첨부해서 보내기"): its links (as `answerFilePaths`
+   * names them, text its body has) whose file is one of `files`, with that file's id. The app opens the team file when
+   * the link is in `openable`, else this copy, and shows a lock only when there is neither. Only files of this message;
+   * never the path a copy was made from. Absent: nothing attached, or an older message */
+  attachedLinks: z.array(z.object({ path: z.string(), fileId: Uuid7 })).optional(),
+  /** an old answer hidden from me (docs/DECISIONS.md "지난 대화"): I joined this team room or the everyone room after
+   * it, and it used something I cannot open (or what it used is not known). Shown as one line in its place: body is ''
+   * and nothing of it comes (no files, sources, links, reactions or thread); who asked it (askedBy) or shared it
+   * (author) and when stay. Nothing can be done on it (react, reply in its thread, quote: refused like a message I do
+   * not see) */
+  withheld: z.literal(true).optional(),
 })
 export type RoomMessage = z.infer<typeof RoomMessage>
+
+/** "대화방에 보내기": the one-line note before a shared answer, at most this long */
+export const ANSWER_NOTE_MAX = 300
+/** room left for the line that ends a cut answer (and a code fence it closes) */
+const ANSWER_CUT_RESERVE = 200
+
+/** The note as it goes into the room: one line, trimmed. */
+export const answerNote = (note: string | undefined) => (note ?? '').replace(/\s+/g, ' ').trim().slice(0, ANSWER_NOTE_MAX)
+
+/** Will this answer be cut to fit one room message (ROOM_MESSAGE_MAX) after this note? (the picker says so first) */
+export function answerShareCut(note: string | undefined, answer: string): boolean {
+  const n = answerNote(note)
+  return (n ? n.length + 2 : 0) + answer.trim().length > ROOM_MESSAGE_MAX
+}
+
+/** The room message a shared answer becomes: my note, a blank line, then the answer; too long, the answer is cut at a
+ * line's end where it can be (a code fence left open is closed) and `cutLine` ends it. `at`: where the answer starts. */
+export function answerShareBody(note: string | undefined, answer: string, cutLine: string): { body: string; at: number; cut: boolean } {
+  const n = answerNote(note)
+  const head = n ? `${n}\n\n` : ''
+  const text = answer.trim()
+  if (!answerShareCut(note, answer)) return { body: head + text, at: head.length, cut: false }
+  const room = ROOM_MESSAGE_MAX - head.length - ANSWER_CUT_RESERVE
+  let kept = text.slice(0, Math.max(0, room))
+  const nl = kept.lastIndexOf('\n')
+  if (nl > room * 0.8) kept = kept.slice(0, nl)
+  // a lone half of a surrogate pair at the end
+  if (/[\uD800-\uDBFF]$/.test(kept)) kept = kept.slice(0, -1)
+  kept = kept.trimEnd()
+  if ((kept.match(/^\s*(```|~~~)/gm) ?? []).length % 2 === 1) kept += '\n```'
+  return { body: `${head}${kept}\n\n${cutLine.slice(0, ANSWER_CUT_RESERVE - 10)}`, at: head.length, cut: true }
+}
 
 /** One question to the AI in a room, as the person who asked sees it (nobody else gets one). */
 export const RoomAiRun = z.object({
@@ -139,6 +365,8 @@ export const RoomAiRun = z.object({
   roomId: Uuid7,
   /** the room message that asked */
   questionId: Uuid7,
+  /** the question was a reply in this thread (the root's id): its answer goes there */
+  threadRootId: Uuid7.optional(),
   state: z.enum(['queued', 'running', 'done', 'stopped', 'error']),
   /** queued: answers ahead in the team's queue (1 = next); 0 otherwise */
   position: z.number().int().nonnegative(),
@@ -169,45 +397,135 @@ export type RoomLastMessage = z.infer<typeof RoomLastMessage>
 export const Room = z.object({
   id: Uuid7,
   kind: RoomKind,
-  /** team: the group's name; dm and all: null (the app shows the other person's name, or its word for everyone) */
+  /** the room's own name when a member gave it one (plain text); else team: the group's name; dm, all and an unnamed
+   * group chat: null (the app shows the other person's name, its word for everyone, the other members' names) */
   name: z.string().nullable(),
+  /** may I change the name: a group chat's members; a team room's and the everyone room's members who are owner or
+   * admin; nobody in a DM */
+  canRename: z.boolean(),
+  /** a group chat's manager (방장): its maker while they are in it, else the member who joined first. They, and owners
+   * and admins in it, may take someone out. null for the other kinds */
+  managerId: UserId.nullable(),
   groupId: Uuid7.nullable(),
   memberCount: z.number().int().nonnegative(),
   /** up to 4 other members, for the avatars; a DM: the other person */
   peers: z.array(UserRef),
-  /** messages after my read position that I can see and are not mine (capped at 999): the one badge per room */
+  /** the newest position of the timeline I can see (replies that stay in a thread and other people's private previews
+   * do not move it) */
+  lastSeq: z.number().int().nonnegative(),
+  /** messages of the timeline after my read position that I can see and are not mine (capped at 999); thread replies
+   * never count here */
   unreadCount: z.number().int().nonnegative(),
-  /** one of those mentions me */
+  /** threads I follow with replies I have not read (capped at 999): they count in my badge for the room */
+  threadsUnread: z.number().int().nonnegative(),
+  /** the followed thread with the newest reply I have not read (its root), or null */
+  nextThreadId: Uuid7.nullable(),
+  /** one of those messages or replies mentions me */
   mentioned: z.boolean(),
   lastReadSeq: z.number().int().nonnegative(),
-  lastSeq: z.number().int().nonnegative(),
   lastMessage: RoomLastMessage.nullable(),
-  /** no notices for DM messages from this room (an @mention still notifies) */
+  /** my level for this room is 끄기 (notify.own 'off'): no notices, pushes or sound from it, mentions included; its badge
+   * is grey and stays out of the 대화 tab's count */
   muted: z.boolean(),
+  /** my notifications for this room (docs/DECISIONS.md "대화방 알림 설정", room-alerts.ts): `own` my level for it (null:
+   * my default), `byDefault` what my default gives this kind of room, `level` the one that applies now (own, else
+   * byDefault). Older servers omit it. */
+  notify: z.object({ own: RoomNotifyLevel.nullable(), byDefault: RoomNotifyLevel, level: RoomNotifyLevel }).optional(),
   createdAt: IsoTime,
   /** the last message's time, or when the room was made */
   activityAt: IsoTime,
+  /** the room's AI waits on me: a question I asked @트리나 there shows a card for my answer (docs/DECISIONS.md "Session
+   * markers": the room's "?"). Absent = no. */
+  aiWaits: z.literal(true).optional(),
+  /** I hid it (docs/DECISIONS.md "대화 숨기기"): it is out of my sidebar's rows, my counts and badges, and listed under
+   * "숨긴 대화" at the end of the full list. Absent = shown (older servers never hide). */
+  hidden: z.literal(true).optional(),
+  /** when I pinned it to the top of my 대화 list ("상단에 고정", POST /api/rooms/:id/pin; docs/DECISIONS.md "Pinned
+   * conversations"). Mine only: nobody else in the room sees my pin. Never with hidden. Absent = not pinned. */
+  pinnedAt: IsoTime.optional(),
 })
 export type Room = z.infer<typeof Room>
 
 export const RoomMember = z.object({ user: UserRef, joinedAt: IsoTime })
 export type RoomMember = z.infer<typeof RoomMember>
 
-/** The DM with this person (the existing one when there is one). Team rooms and the everyone room are made by the
- * server, never through the API. */
-export const CreateRoomBody = z.object({ kind: z.literal('dm'), userId: UserId }).strict()
+/** dm: the DM with this person (the existing one when there is one). group: a new group chat of me and these people
+ * (at least two others; several group chats of the same people are fine), optionally named. Only active people of this
+ * team. Team rooms and the everyone room are made by the server, never through the API. */
+export const CreateRoomBody = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('dm'), userId: UserId }).strict(),
+  z.object({ kind: z.literal('group'), userIds: z.array(UserId).min(2).max(ROOM_GROUP_MAX - 1), name: RoomName.nullable().optional() }).strict(),
+])
 export type CreateRoomBody = z.infer<typeof CreateRoomBody>
-/** my own setting */
-export const UpdateRoomBody = z.object({ muted: z.boolean() }).strict()
+/** notifyLevel: my level for this room (null: back to my default). muted: the older apps' switch (true is 'off', false
+ * brings 'off' back to my default); not with notifyLevel. name: the room's own name (Room.canRename; '' or null: back to
+ * the server's name) */
+export const UpdateRoomBody = z.object({ muted: z.boolean().optional(), notifyLevel: RoomNotifyLevel.nullable().optional(), name: RoomName.nullable().optional() }).strict()
+  .refine((b) => b.muted !== undefined || b.notifyLevel !== undefined || b.name !== undefined, { message: 'nothing to change' })
+  .refine((b) => b.muted === undefined || b.notifyLevel === undefined, { message: 'muted or notifyLevel, not both', path: ['muted'] })
+/** hide the room from my lists (true) or show it again (false). A DM, a team room or the everyone room; a group chat is
+ * left instead (hiding one: 403). The same again changes nothing. */
+export const SetRoomHiddenBody = z.object({ hidden: z.boolean() }).strict()
+/** people to add to a group chat (active people of this team; those already in it are skipped). They see the room from
+ * now on, never what was said before. */
+export const InviteRoomBody = z.object({ userIds: z.array(UserId).min(1).max(ROOM_GROUP_MAX - 1) }).strict()
 
-/** Without a cursor: the newest `limit` messages, oldest first; nextCursor fetches older ones (prepend). */
-export const ListRoomMessagesQuery = PageQuery
-export const RoomMessagesPage = page(RoomMessage)
+/** Without a cursor: the newest `limit` messages, oldest first; nextCursor fetches older ones (prepend).
+ * around: the page around this message of the timeline (a thread reply: its thread's first message), for a link or a
+ * search result older than the newest page; newerCursor then fetches newer ones (append) until it is null (the page
+ * reaches the newest). A message I cannot see is not looked for: the newest page, as without it. A cursor from
+ * newerCursor gives the next newer page (and nextCursor null). */
+export const ListRoomMessagesQuery = PageQuery.extend({ around: Uuid7.optional() })
+/** newerCursor: present only for a page that does not reach the newest message (around, or a newer page) */
+export const RoomMessagesPage = page(RoomMessage).extend({ newerCursor: z.string().nullable().optional() })
+export type RoomMessagesPage = z.infer<typeof RoomMessagesPage>
+
+/** ⌘K search of the room messages I can see (docs/DECISIONS.md "⌘K에서 대화방 메시지 찾기"): the text as one part, in
+ * any case, newest first. */
+export const ROOM_SEARCH_PAGE_MAX = 30
+export const ROOM_SEARCH_SNIPPET_MAX = 200
+export const RoomSearchQuery = z.object({
+  /** (no NUL: it would end the index's query) */
+  q: z.string().trim().min(1).max(200).refine((s) => !s.includes('\u0000'), { message: 'invalid character' }),
+  cursor: z.string().max(500).optional(),
+  limit: z.coerce.number().int().min(1).max(ROOM_SEARCH_PAGE_MAX).optional(),
+})
+/** A message found: who wrote it and when, and the text around the first match (at most ROOM_SEARCH_SNIPPET_MAX
+ * characters, … where it is cut, a room link as #name). threadRootId: a reply in that message's thread (it opens the
+ * thread). The text is the message's own, as the room shows it to me: never a quote, a file or an answer hidden from me. */
+export const RoomSearchHit = z.object({
+  id: Uuid7,
+  roomId: Uuid7,
+  threadRootId: Uuid7.nullable(),
+  authorKind: z.enum(['user', 'ai']),
+  /** the person who wrote it (null: the AI's answer, or someone no longer here) */
+  author: UserRef.nullable(),
+  /** an AI answer: who asked it */
+  askedBy: UserRef.nullable(),
+  /** the text is Markdown (an AI answer, or an answer someone sent from their own AI chat) */
+  markdown: z.boolean(),
+  snippet: z.string(),
+  createdAt: IsoTime,
+})
+export type RoomSearchHit = z.infer<typeof RoomSearchHit>
+/** The rooms of the hits on a page, as much as their titles need (the app names them as in its lists) */
+export const RoomSearchRoom = z.object({ id: Uuid7, kind: RoomKind, name: z.string().nullable(), peers: z.array(UserRef), memberCount: z.number().int().nonnegative() })
+export type RoomSearchRoom = z.infer<typeof RoomSearchRoom>
+export const RoomSearchPage = z.object({ items: z.array(RoomSearchHit), rooms: z.array(RoomSearchRoom), nextCursor: z.string().nullable() })
+export type RoomSearchPage = z.infer<typeof RoomSearchPage>
 
 export const SendRoomMessageBody = z.object({
   body: z.string().max(ROOM_MESSAGE_MAX),
+  /** an older client's quoted reply (the app answers in threads now); not with threadRootId */
   replyToId: Uuid7.nullable().optional(),
+  /** a reply in the thread of this message of the room's timeline (not an event line, not deleted, for the whole room) */
+  threadRootId: Uuid7.nullable().optional(),
+  /** a thread reply that also goes to the room's timeline ("대화방에도 보내기"); only with threadRootId */
+  alsoInRoom: z.boolean().optional(),
   mentions: z.array(UserId).max(ROOM_MENTIONS_MAX).default([]),
+  /** "@전체" picked from the "@" list: notify every member who can see the message as a mention (never the text alone;
+   * the text must show it: roomMentionAllIn, 400 otherwise). In the everyone room only an owner or admin may (403) */
+  mentionsAll: z.boolean().optional(),
   /** uploaded first with POST /api/rooms/:id/files */
   fileIds: z.array(Uuid7).max(ROOM_FILES_MAX).default([]),
   /** client-made id: sending the same one again (after a reconnect) returns the first message */
@@ -216,26 +534,51 @@ export const SendRoomMessageBody = z.object({
 export const EditRoomMessageBody = z.object({
   body: z.string().min(1).max(ROOM_MESSAGE_MAX),
   mentions: z.array(UserId).max(ROOM_MENTIONS_MAX).default([]),
+  /** the message keeps its "@전체" (only a send adds it: an edit notifies nobody, so it cannot add it, 400) */
+  mentionsAll: z.boolean().optional(),
 }).strict()
 export const MarkRoomReadBody = z.object({ seq: z.number().int().nonnegative() }).strict()
-export const RoomReadState = z.object({ lastReadSeq: z.number().int().nonnegative(), unreadCount: z.number().int().nonnegative() })
+/** my position and badge after a read; mentioned: an unread message or followed reply still mentions me (older servers
+ * omit it) */
+export const RoomReadState = z.object({ lastReadSeq: z.number().int().nonnegative(), unreadCount: z.number().int().nonnegative(), mentioned: z.boolean().optional() })
 export type RoomReadState = z.infer<typeof RoomReadState>
+/** A thread: its root and a page of the replies I can see (without a cursor the newest `limit`, oldest first;
+ * nextCursor fetches older ones). */
+export const RoomThreadPage = z.object({ root: RoomMessage, items: z.array(RoomMessage), nextCursor: z.string().nullable() })
+export type RoomThreadPage = z.infer<typeof RoomThreadPage>
+/** my position in a thread I follow, and the room as I see it after (its badge) */
+export const RoomThreadReadState = z.object({ lastReadSeq: z.number().int().nonnegative(), room: Room })
+export type RoomThreadReadState = z.infer<typeof RoomThreadReadState>
+/** put my reaction on (on: true) or take it off; the same again changes nothing */
+export const ReactRoomMessageBody = z.object({ emoji: RoomReactionEmoji, on: z.boolean() }).strict()
+export const RoomReactions = z.object({ reactions: z.array(RoomReaction) })
 export const RoomFileUploadFields = z.object({ name: z.string().min(1).max(255).optional(), size: z.string().regex(/^\d+$/).transform(Number).optional() })
 export const RoomFileQuery = z.object({ thumb: QueryBool.optional(), download: QueryBool.optional() })
 
 export const ROOMS = {
-  listRooms: endpoint({ method: 'GET', path: '/api/rooms', auth: 'user', owner: 'B', response: z.object({ items: z.array(Room) }), summary: 'The rooms I am in (my team rooms, everyone, DMs), most recent activity first, with my unread count and the last message.' }),
-  createRoom: endpoint({ method: 'POST', path: '/api/rooms', auth: 'user', owner: 'B', status: 201, body: CreateRoomBody, response: Room, summary: 'Open the DM with a person (the existing one when there is one). Not audited: admins do not learn who talks to whom.' }),
+  listRooms: endpoint({ method: 'GET', path: '/api/rooms', auth: 'user', owner: 'B', response: z.object({ items: z.array(Room), alerts: RoomAlertSettings.optional() }), summary: 'The rooms I am in (my team rooms, everyone, DMs, group chats), most recent activity first, with my unread count, the last message, my notification level and my pin (pinnedAt; the app lists my pinned rooms first); alerts: what else decides whether a message rings (thread replies, quiet hours, the team time zone).' }),
+  createRoom: endpoint({ method: 'POST', path: '/api/rooms', auth: 'user', owner: 'B', status: 201, body: CreateRoomBody, response: Room, summary: 'Open the DM with a person (the existing one when there is one), or make a group chat with two or more people. Not audited: admins do not learn who talks to whom.' }),
   getRoom: endpoint({ method: 'GET', path: '/api/rooms/:id', auth: 'user', owner: 'B', response: Room, summary: 'One room I am in (404 for anyone else, admins included).' }),
-  updateRoom: endpoint({ method: 'PATCH', path: '/api/rooms/:id', auth: 'user', owner: 'B', body: UpdateRoomBody, response: Room, summary: 'Mute or unmute a room for me.' }),
-  listRoomMessages: endpoint({ method: 'GET', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomMessagesPage, summary: 'Messages of a room I am in from my join on, newest page first, oldest first within it; each with its unread count.' }),
-  sendRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', status: 201, body: SendRoomMessageBody, response: RoomMessage, summary: 'Send a message as myself (never another author), optionally a reply, with @mentions and files; DMs and mentions notify.' }),
+  updateRoom: endpoint({ method: 'PATCH', path: '/api/rooms/:id', auth: 'user', owner: 'B', body: UpdateRoomBody, response: Room, summary: 'Set my notification level for a room (all, mentions, off, or my default), or rename it (group chats: any member; team and everyone rooms: owner or admin members; never a DM).' }),
+  listRoomMessages: endpoint({ method: 'GET', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomMessagesPage, summary: 'The timeline of a room I am in from my join on (thread replies only when sent to the room too), newest page first, oldest first within it. With around: the page around that message, and newerCursor for the newer ones.' }),
+  searchRoomMessages: endpoint({ method: 'GET', path: '/api/room-messages', auth: 'user', owner: 'B', query: RoomSearchQuery, response: RoomSearchPage, summary: 'Search the messages I can see in the rooms, 1:1 and group chats I am in now (q: the text as one part, any case; Korean by part of a word), newest first, with the text around the match and the rooms of the hits.' }),
+  sendRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', status: 201, body: SendRoomMessageBody, response: RoomMessage, summary: 'Send a message as myself (never another author), or a reply in a thread, with @mentions (or @everyone, written as the everyone room word of each language: mentionsAll; in the everyone room owners and admins only) and files; DMs, group chats, mentions and followed threads notify.' }),
+  listRoomThread: endpoint({ method: 'GET', path: '/api/rooms/:id/messages/:messageId/thread', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomThreadPage, summary: 'A thread in a room I am in: its root and the replies I can see (none of it when I cannot see the root).' }),
+  markRoomThreadRead: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/thread/read', auth: 'user', owner: 'B', body: MarkRoomReadBody, response: RoomThreadReadState, summary: 'Move my read position in a thread I follow forward to seq; its notices count as read.' }),
+  reactRoomMessage: endpoint({ method: 'PUT', path: '/api/rooms/:id/messages/:messageId/reactions', auth: 'user', owner: 'B', body: ReactRoomMessageBody, response: RoomReactions, summary: 'Put one of the fixed reactions on a message I can see, or take mine off. Never notifies.' }),
   editRoomMessage: endpoint({ method: 'PATCH', path: '/api/rooms/:id/messages/:messageId', auth: 'user', owner: 'B', body: EditRoomMessageBody, response: RoomMessage, summary: 'Edit my own message.' }),
   deleteRoomMessage: endpoint({ method: 'DELETE', path: '/api/rooms/:id/messages/:messageId', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Delete my own message (its text and files are removed; "deleted" stays in its place).' }),
-  markRoomRead: endpoint({ method: 'POST', path: '/api/rooms/:id/read', auth: 'user', owner: 'B', body: MarkRoomReadBody, response: RoomReadState, summary: 'Move my read position forward to seq (never back); the unread counts of the others update.' }),
+  markRoomRead: endpoint({ method: 'POST', path: '/api/rooms/:id/read', auth: 'user', owner: 'B', body: MarkRoomReadBody, response: RoomReadState, summary: 'Move my read position forward to seq (never back); nobody else is told.' }),
   listRoomMembers: endpoint({ method: 'GET', path: '/api/rooms/:id/members', auth: 'user', owner: 'B', response: z.object({ items: z.array(RoomMember) }), summary: 'Who is in a room I am in (names only; nobody\'s read position).' }),
+  inviteRoomMembers: endpoint({ method: 'POST', path: '/api/rooms/:id/members', auth: 'user', owner: 'B', body: InviteRoomBody, response: Room, summary: 'Add people to a group chat I am in (any member; active people only). They see it from now on. Not audited.' }),
+  removeRoomMember: endpoint({ method: 'DELETE', path: '/api/rooms/:id/members/:userId', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Take someone out of a group chat I am in: its manager, or an owner or admin in it (never myself: leave instead). Not audited.' }),
+  setRoomHidden: endpoint({ method: 'PUT', path: '/api/rooms/:id/hidden', auth: 'user', owner: 'B', body: SetRoomHiddenBody, response: Room, summary: 'Hide a DM, a team room or the everyone room from my own lists, or show it again (nobody else is told; a group chat is left instead). Hiding unpins it. It comes back by itself when something for me arrives.' }),
+  pinRoom: endpoint({ method: 'POST', path: '/api/rooms/:id/pin', auth: 'user', owner: 'B', response: Room, summary: 'Pin a room I am in to the top of my own conversation list ("Pin to top"; nobody else is told). Pinned already: unchanged. A hidden room: 409 room_hidden (hiding unpins it). At most 50 pins (409 room_pins_full). My other windows hear it (room.updated).' }),
+  unpinRoom: endpoint({ method: 'DELETE', path: '/api/rooms/:id/pin', auth: 'user', owner: 'B', response: Room, summary: 'Unpin a room ("Unpin"); not pinned: unchanged. My other windows hear it (room.updated).' }),
+  leaveRoom: endpoint({ method: 'POST', path: '/api/rooms/:id/leave', auth: 'user', owner: 'B', status: 204, response: empty, summary: 'Leave a group chat; the last one to leave closes it. Not audited.' }),
   uploadRoomFile: endpoint({ method: 'POST', path: '/api/rooms/:id/files', auth: 'user', owner: 'B', status: 201, body: multipart(RoomFileUploadFields, SMALL_UPLOAD_MAX), response: RoomFile, summary: 'Upload a file (≤ 50 MB) to send in a room I am in; stored outside the team folder, readable by the room\'s members once sent.' }),
-  roomFile: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId', auth: 'user', owner: 'B', query: RoomFileQuery, response: stream(true), summary: 'A file sent in a room I am in (membership checked on every read); thumb=1 for an image preview.' }),
+  roomFile: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId', auth: 'user', owner: 'B', query: RoomFileQuery, response: stream(true), summary: 'A file sent in a room I am in (membership checked on every read); thumb=1 for an image preview, download=1 as an attachment. Inline, a page or script type is sent as text/plain with a sandbox CSP: never a page of the app. A file on the safety check\'s download-only list is sent only with download=1 (503 quarantined otherwise).' }),
+  roomFileHwpPreview: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId/hwp-preview', auth: 'user', owner: 'B', query: HwpPreviewQuery, response: HwpPreviewPage, summary: 'One page of a Hangul file (HWP, HWPX) sent in a room I am in, as a PNG from the HWP Preview plugin: the team file preview\'s renderer, limits and cache. Checked on every request as reading the file inline is: a member, the message visible to me and not deleted (404 otherwise), not on the download-only list (503 quarantined). The plugin off or not usable here: 503 unavailable with params.reason disabled, as for a team file. Pages are 1-based.' }),
   getRoomAi: endpoint({ method: 'GET', path: '/api/rooms/:id/ai', auth: 'user', owner: 'B', response: RoomAiState, summary: 'How many questions the AI is answering in a room I am in, and my own of them with their steps.' }),
   stopRoomAi: endpoint({ method: 'POST', path: '/api/rooms/:id/ai/:turnId/stop', auth: 'user', owner: 'B', response: z.object({ stopped: z.boolean() }), summary: 'Stop the AI answering my question (only the person who asked; anyone else gets 404).' }),
   shareRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages/:messageId/share', auth: 'user', owner: 'B', response: RoomMessage, summary: 'Post my private preview of an AI answer to the room: sources some member cannot read are left out; it notifies like a new message and is audited.' }),

@@ -13,12 +13,12 @@ import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
 import { cleanMemoryText, MEMORY_ITEM_MAX, neutralizeTags, skillBlock } from './prompt'
 import { isPersonalSkill, listSkills, readSkill, skillFolder, type Skill } from './skills'
-import { frequentSkills, matchSkills, resolveSkill, shortDescription, usageScores } from './skill-list'
+import { frequentSkills, matchSkills, resolveSkill, shortDescription, skillTag, usageScores } from './skill-list'
 import { addSources, sourceOf } from './read-scope'
 import { authorize } from '../policy/authorize'
 import type { Principal } from '../policy/access'
 import { tr } from './i18n'
-import type { TurnExec } from './turn'
+import type { TurnExec, WidenOf } from './turn'
 import type { TurnFiles } from '../files/service'
 import { extractUrls, gateUrl, type ConfirmExtra, type TurnPerson } from '../tools/url-gate'
 import { ToolError } from '../policy/errors'
@@ -32,13 +32,26 @@ import { recordSent } from '../tools/connection-urls'
 import { BOX_SHELL_TOOL, boxShellTool } from '../devenv/tool'
 import { connectService } from './connect-service'
 import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
-import { ROOM_TOOLS } from '../rooms/ai-tools'
+import { ROOM_TOOLS, SEARCH_TOOLS, SHARED_TOOLS } from '../rooms/ai-tools'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
+import { roomReadTools, roomSessionTools } from './room-tools'
+import { projectChatTools } from './room-project-chats'
+import { hideUrls } from '../tools/audit-url'
+import { SHARE_JUDGE_REFUSAL } from '../skills/share-judge'
+import { FILE_RANK_REFUSAL } from '../onboarding/file-rank'
+import { mergeTargets, SHARE_MERGE_REFUSAL } from '../skills/share-merge'
 
-interface Tool {
+export interface Tool {
   name: string
   description: string
   inputSchema: Record<string, unknown>
+  /** the step label (and the room card's words) of a call, when the shared words do not say enough */
+  label?(args: unknown, locale: Locale): string
+  /** a call the tool will refuse whatever the person says, refused before any card is raised (null: go on) */
+  refuse?(args: unknown): { text: string; summary: string } | null
+  /** where a call saves and where its bytes come from, so a room change and the wider-audience card are one card
+   * (chat/turn.ts confirmRoomChange); for a tool that saves itself after asking confirmWidening (save_room_file) */
+  widen?(args: unknown): WidenOf | undefined
   /** `files`: the calling agent's turn state (the main AI's, or a sub-agent's: TurnFiles.forAgent) */
   call(args: unknown, files: TurnFiles): Promise<{ content: McpContent[]; isError?: boolean; summary?: string }>
 }
@@ -92,22 +105,37 @@ function boxShellQueueStep(exec: TurnExec): (run: NonNullable<Step['devEnvRun']>
 export function buildToolSet(exec: TurnExec): ChatToolSet {
   const confidential=confidentialChat(exec.rt.db,exec.spec.chatId)
   const tools = new Map<string, Tool>()
+  const labels = new Map<string, (args: unknown, locale: Locale) => string>()
   const templateWrites = new Set<string>()
   const add = (t: Tool): boolean => {
     // a company profile draft (onboarding/draft.ts): web_fetch is its only tool besides the refused file tools, and a
     // draft from pasted text has none
     if (exec.profileDraft && (t.name !== 'web_fetch' || exec.profileDraft.scope.source !== 'website')) return false
-    // a team skill draft (onboarding/skill-draft.ts): no tool at all besides the refused file tools
-    if (exec.skillDraft) return false
+    // a team skill draft (onboarding/skill-draft.ts), a skill share's judgement (skills/share-judge.ts) or its merge
+    // (skills/share-merge.ts), 팀 파일's picks (onboarding/file-rank.ts): no tool at all besides the file tools (refused,
+    // or for a merge only on its team skills)
+    if (exec.skillDraft || exec.shareJudge || exec.shareMerge || exec.fileRank) return false
     if(confidential && !localTool(t.name)) return false
     // a team chat room's AI session (rooms/ai.ts): only the tools rooms/ai-tools.ts allows there
     if (exec.room && !ROOM_TOOLS.has(t.name)) return false
+    // a shared project chat (chat/shared.ts): the same allowlist without the room's own tools
+    if (exec.shared && !SHARED_TOOLS.has(t.name)) return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
     tools.set(t.name, t)
+    if (t.label) labels.set(t.name, t.label.bind(t))
     return true
   }
   for (const t of bTools(exec)) add(t)
   for (const t of skillTools(exec)) add(t)
+  // the person's own team chat rooms (chat/room-tools.ts): not in a room's session (ROOM_TOOLS does not list them), nor
+  // in a confidential or draft chat (add() above keeps those to their own tools)
+  // nor in an approved scheduled template's run (its scope is fixed; it would refuse them anyway). A room's own session
+  // gets its room's files instead (the asking message's and earlier ones: room_file, save_room_file) and its threads
+  // (room_thread: one thread of that room)
+  if (!exec.templateRun && !exec.shared) for (const t of exec.room ? roomSessionTools(exec) : roomReadTools(exec)) add(t)
+  // a room's own session also finds and reads the shared project chats the asker may view (chat/room-project-chats.ts;
+  // ROOM_TOOLS lists them, SHARED_TOOLS does not, and a person's own chat never gets them)
+  if (!exec.templateRun && !exec.shared && exec.room) for (const t of projectChatTools(exec)) add(t)
   // edit_files is listed here so the engines and the model proxy allow it, but the MCP handler runs it
   // (mcp/protocol.ts editFiles): each file as its own edit call with the checks above. Never offered in confidential
   // chats (add() keeps to the local tools there). Reaching this call() means the handler did not: nothing is changed.
@@ -139,9 +167,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // per-person tools (external-service connections), built from saved data at the start of the turn
   const prompt: string[] = []
   const context: string[] = []
-  const labels = new Map<string, (args: unknown, locale: Locale) => string>()
   // no connection's tools in a room (rooms/ai-tools.ts ROOM_TOOLS), and so no "Connected services" section either
-  for (const p of confidential || exec.restricted || exec.room ? [] : exec.rt.ctx.services.turnToolProviders ?? []) {
+  for (const p of confidential || exec.restricted || exec.room || exec.shared ? [] : exec.rt.ctx.services.turnToolProviders ?? []) {
     let built: ReturnType<typeof p.build>
     try { built = p.build({ userId: exec.spec.userId, chatId: exec.spec.chatId, turnId: exec.spec.turnId, browser: exec.browser, scheduled: exec.spec.clientKind === 'schedule' }) }
     catch (e) { exec.rt.log.warn('turn tool provider failed', { provider: p.name, err: e }); continue }
@@ -160,6 +187,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       const files = caller?.files ?? exec.files
       // a profile draft: the same site and at most 4 pages per answer, counted before the call starts
       if (exec.skillDraft) return { ...text(SKILL_DRAFT_FILE_REFUSAL, true), summary: `${name} -> refused: team skill draft (no tools)` }
+      if (exec.shareJudge) return { ...text(SHARE_JUDGE_REFUSAL, true), summary: `${name} -> refused: skill share judgement (no tools)` }
+      if (exec.fileRank) return { ...text(FILE_RANK_REFUSAL, true), summary: `${name} -> refused: team file picks (no tools)` }
+      if (exec.shareMerge) return { ...text(SHARE_MERGE_REFUSAL, true), summary: `${name} -> refused: skill share merge (no tools)` }
       const draftNo = exec.profileDraft ? draftToolRefusal(exec.profileDraft, name, args) : null
       if (draftNo) return { ...text(draftNo, true), summary: `${name} -> refused: company profile draft (${draftNo.slice(0, 80)})` }
       const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
@@ -170,11 +200,25 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         return { ...text(hwpWritingOffText(exec.spec.locale), true), summary: `${name} -> refused: Hangul writing is off (HWP plugin)` }
       }
       const t = tools.get(name)!
+      // a call the tool refuses anyway asks nobody first and counts as nothing read (save_room_file without a file id,
+      // into skills/, …)
+      const early = t.refuse?.(args)
+      if (early) return { ...text(early.text, true), summary: early.summary }
+      // a shared project chat: a search without a path looks in the project folder; then what the call would read that
+      // some of the chat's people cannot read waits for the person's yes (chat/turn.ts confirmSharedRead)
+      if (exec.shared) {
+        args = exec.sharedArgs(name, args)
+        // the neutral step line only for the main AI's own call (a sub-agent's step is matched by its id, not here)
+        const sharedNo = await exec.confirmSharedRead(name, args, { step: files === exec.files })
+        if (sharedNo) return { ...text(sharedNo, true), summary: `${name} -> not read: not shared by the user (shared chat)` }
+      }
       exec.noteTaint(name, args)
       exec.noteRoomTool(name, args)
-      // a room's AI session: anything that may change something waits for the person's yes (rooms/ai-tools.ts)
-      const roomNo = await exec.confirmRoomChange(name, args)
-      if (roomNo) return { ...text(roomNo, true), summary: `${name} -> not allowed by the user (room)` }
+      // a room's AI session: anything that may change something waits for the person's yes (rooms/ai-tools.ts); a call
+      // that also needs the wider-audience card below gets that one card (widenOf, or the tool's own widen: where it
+      // saves, what it copies, where its bytes come from)
+      const roomNo = await exec.confirmRoomChange(name, args, { widen: t.widen ? t.widen(args) : widenOf(name, args), main: files === exec.files })
+      if (roomNo) return { ...text(roomNo, true), summary: `${name} -> not allowed by the user (${exec.room ? 'room' : 'after a room read'})` }
       // what the AI sends leaves marks, so an address that a connection repeats back is not taken as the service's own
       // (tools/connection-urls.ts; before the call: its own answer is checked against them)
       recordSent(exec.rt.db, exec.spec.chatId, args)
@@ -199,6 +243,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         const refusal = typeof target === 'string' ? await exec.confirmWidening(target, typeof a.output === 'string' && typeof a.file_path === 'string' ? [a.file_path] : []) : null
         if (refusal) return { content: [{ type: 'text', text: refusal }], isError: true, summary: 'edit_hwp -> not allowed by the user (wider audience)' }
       }
+      // a call a room grant or [이번만] let through: checked again now that any card above has waited (chat/turn.ts)
+      const again = await exec.recheckRoomCover(name, args, { main: files === exec.files })
+      if (again) return { ...text(again, true), summary: `${name} -> not allowed by the user (room)` }
       const out = await t.call(args, files)
       // a room session: a link share_file made says the path exists; the path as the server resolved it (actual case and
       // Unicode form) counts like a name read (turn.ts noteReads), besides the path as given (noteRoomTool)
@@ -207,37 +254,87 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         try { if (typeof p === 'string') files.namePaths.add(authorize(exec.rt.files.fx, exec.rt.files.rules(), exec.livePrincipal(), p, 'read').rel) } catch { /* the call already failed for it */ }
       }
       exec.afterTool()
-      // the audit line (tool_events) never repeats a stored connection secret (integrations/connections/redact.ts)
-      return { content: out.content, isError: out.isError, summary: exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`) }
+      // a new file left loose at the top of shared/, a group's folder or the team root: the server's note (chat/file-placement.ts)
+      const note = exec.placementNote(tools.has('move_files'))
+      // the audit line (tool_events) never repeats a stored connection secret (integrations/connections/redact.ts), and
+      // in a chat that read team chat rooms keeps of an address only its site (tools/audit-url.ts): admins read it
+      const summary = exec.redact(out.summary ?? `${name} -> ${out.isError ? 'error' : 'ok'}`)
+      return { content: note ? [...out.content, { type: 'text', text: note }] : out.content, isError: out.isError, summary: !exec.room && exec.roomsSeen ? hideUrls(summary) : summary }
     },
     afterFileTool: (name, isError, args) => {
       exec.noteTaint(name, args); exec.noteRoomTool(name, args); exec.noteReads(); exec.afterTool()
       const filePath = (args as { file_path?: unknown } | null)?.file_path
       if (!isError && name === 'read' && typeof filePath === 'string')
         recordSkillRead(exec.rt.db, exec.rt.files, exec.livePrincipal(), exec.id, filePath)
+      return exec.placementNote(tools.has('move_files'))
     },
     // edit_files (mcp/protocol.ts): in a room one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {
       const no = await exec.confirmRoomChange(name, args)
-      return no ? { refusal: no, summary: `${name} -> not allowed by the user (room)` } : null
+      return no ? { refusal: no, summary: `${name} -> not allowed by the user (${exec.room ? 'room' : 'after a room read'})` } : null
     },
     beforeFileTool: async (name, args, caller) => {
       if (exec.profileDraft) return { refusal: DRAFT_FILE_REFUSAL, summary: `${name} -> refused: company profile draft (no team files)` }
       if (exec.skillDraft) return { refusal: SKILL_DRAFT_FILE_REFUSAL, summary: `${name} -> refused: team skill draft (no team files)` }
+      if (exec.shareJudge) return { refusal: SHARE_JUDGE_REFUSAL, summary: `${name} -> refused: skill share judgement (no team files)` }
+      if (exec.fileRank) return { refusal: FILE_RANK_REFUSAL, summary: `${name} -> refused: team file picks (no team files)` }
+      // a skill share's merge: read, write and edit of exactly the team skills it merges into; write and edit go on to the
+      // skill-write card below like anywhere else
+      if (exec.shareMerge && !mergeAllows(exec, name, args)) return { refusal: SHARE_MERGE_REFUSAL, summary: `${name} -> refused: skill share merge (only its team skills)` }
       const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
       if (refusal) return { refusal, summary: 'scheduled template scope refused' }
+      // a shared project chat: grep and glob without a path look in the project folder (the call's own arguments are
+      // changed: the file tool reads these); what the call would read that some of the chat's people cannot read waits
+      // for the person's yes (chat/turn.ts confirmSharedRead)
+      if (exec.shared) {
+        if (SEARCH_TOOLS.has(name) && args && typeof args === 'object') Object.assign(args, exec.sharedArgs(name, args))
+        const sharedNo = await exec.confirmSharedRead(name, args, { step: !caller || caller.files === exec.files })
+        if (sharedNo) return { refusal: sharedNo, summary: `${name} -> not read: not shared by the user (shared chat)` }
+      }
       recordSent(exec.rt.db, exec.spec.chatId, args)
-      // a room's AI session: a write or edit waits for the person's yes on a card first (rooms/ai-tools.ts)
-      const roomNo = await exec.confirmRoomChange(name, args)
-      if (roomNo) return { refusal: roomNo, summary: `${name} -> not allowed by the user (room)` }
+      // a room's AI session: a write or edit waits for the person's yes on a card first (rooms/ai-tools.ts); one that
+      // also needs the wider-audience card below gets that one card
+      const roomNo = await exec.confirmRoomChange(name, args, { widen: widenOf(name, args), main: !caller || caller.files === exec.files })
+      if (roomNo) return { refusal: roomNo, summary: `${name} -> not allowed by the user (${exec.room ? 'room' : 'after a room read'})` }
       if (name !== 'write' && name !== 'edit') return null
       // skills/ first (team skills and rules: the person confirms what changes), then the wider-audience check
       const no = await exec.confirmSkillWrite(name, args, caller?.files)
       if (no) return no
       const p = (args as { file_path?: unknown } | null)?.file_path
-      return typeof p === 'string' ? exec.confirmWidening(p) : null
+      const widen = typeof p === 'string' ? await exec.confirmWidening(p) : null
+      if (widen) return widen
+      // a call a room grant or [이번만] let through: checked again now that any card above has waited (chat/turn.ts)
+      const again = await exec.recheckRoomCover(name, args, { main: !caller || caller.files === exec.files })
+      return again ? { refusal: again, summary: `${name} -> not allowed by the user (room)` } : null
     },
   }
+}
+
+/** Where a call's wider-audience check (below the room card) saves, and the files it copies bytes from: the same
+ * arguments as the checks in call() and beforeFileTool (write and edit: the file; make_file: its output and source;
+ * edit_hwp: the new file and the document, or the document itself). undefined for any other tool. */
+export function widenOf(name: string, args: unknown): WidenOf | undefined {
+  const a = args && typeof args === 'object' && !Array.isArray(args) ? args as Record<string, unknown> : null
+  if (!a) return undefined
+  if (name === 'write' || name === 'edit') return typeof a.file_path === 'string' ? { target: a.file_path, extra: [] } : undefined
+  if (name === 'make_file') return typeof a.output === 'string' ? { target: a.output, extra: typeof a.source === 'string' ? [a.source] : [] } : undefined
+  if (name === 'edit_hwp') {
+    const target = typeof a.output === 'string' ? hwpOutputPath(a.output, typeof a.file_path === 'string' ? a.file_path : '') : a.file_path
+    return typeof target === 'string' ? { target, extra: typeof a.output === 'string' && typeof a.file_path === 'string' ? [a.file_path] : [] } : undefined
+  }
+  return undefined
+}
+
+/** A merge chat's file call: read, write or edit, on one of the team skill files it merges into (the path as the file
+ * layer resolves it for this person: its letter case and Unicode form). Anything else is refused. */
+function mergeAllows(exec: TurnExec, name: string, args: unknown): boolean {
+  if (name !== 'read' && name !== 'write' && name !== 'edit') return false
+  const p = (args as { file_path?: unknown } | null)?.file_path
+  if (typeof p !== 'string' || !p.trim()) return false
+  const targets = mergeTargets(exec.shareMerge!)
+  let rel: string
+  try { rel = authorize(exec.rt.files.fx, exec.rt.files.rules(), exec.livePrincipal(), p, name === 'read' ? 'read' : 'write', { mustExist: name !== 'write' }).rel } catch { return false }
+  return targets.has(rel.normalize('NFC'))
 }
 
 /** The person of this turn for tools that need a server-raised confirmation (web_fetch URLs, design tab 7). */
@@ -266,7 +363,9 @@ export function turnPerson(exec: TurnExec): TurnPerson {
   }
 }
 
-function toolContext(exec: TurnExec, files: TurnFiles): TurnToolContext {
+/** `call`: the tool call this context is for: a room call a grant or [이번만] let through is checked again after the
+ * tool's own wider-audience card (it may have waited: make_file's pictures and template) */
+function toolContext(exec: TurnExec, files: TurnFiles, call?: { tool: string; args: unknown }): TurnToolContext {
   return {
     turnId: exec.spec.turnId, chatId: exec.spec.chatId, userId: exec.spec.userId, messageId: exec.spec.assistantId, locale: exec.spec.locale,
     signal: exec.abort.signal,
@@ -274,7 +373,11 @@ function toolContext(exec: TurnExec, files: TurnFiles): TurnToolContext {
       signal: exec.abort.signal,
       user: exec.livePrincipal(), turnId: exec.spec.turnId, files, person: turnPerson(exec),
       // files a tool copies bytes from (make_file's embedded images and template), checked before the new file is placed
-      confirmWidening: (target, sources, binding) => exec.confirmWidening(target, sources, binding),
+      confirmWidening: async (target, sources, binding) => {
+        const no = await exec.confirmWidening(target, sources, binding)
+        if (no || !call) return no
+        return exec.recheckRoomCover(call.tool, call.args, { main: files === exec.files })
+      },
     },
   }
 }
@@ -283,7 +386,7 @@ function wrapRegistered(exec: TurnExec, t: TurnTool): Tool {
   return {
     name: t.name, description: t.description, inputSchema: t.inputSchema,
     async call(args, files) {
-      const r = await t.call(args, toolContext(exec, files))
+      const r = await t.call(args, toolContext(exec, files, { tool: t.name, args }))
       return { content: r.content, isError: r.isError, ...(r.summary ? { summary: r.summary } : {}) }
     },
   }
@@ -318,6 +421,11 @@ function skillTools(exec: TurnExec): Tool[] {
         if (hit && 'ambiguous' in hit) {
           return { ...text(`Several skills this user can use are called "${neutralizeTags(clipName(a.data.name))}": ${hit.ambiguous.map((s) => s.path).join(', ')}. Call skill again with the path of the one you mean.`, true), summary: `skill -> ambiguous (${hit.ambiguous.length})` }
         }
+        // a shared project chat: a skill some of its people cannot read is loaded only after the person's yes
+        if (hit && exec.shared) {
+          const no = await exec.confirmSharedRead('skill', { path: skillFolder(hit.skill.path) })
+          if (no) return { ...text(no, true), summary: 'skill -> not read: not shared by the user (shared chat)' }
+        }
         // read again through the file checks (the same answer for a missing file and one the person cannot read)
         const skill = hit ? readSkill(rt.files, user, hit.skill.path) : null
         if (!skill) {
@@ -330,7 +438,7 @@ function skillTools(exec: TurnExec): Tool[] {
         exec.noteTaint('read', { file_path: skill.path })
         // like a "/name" skill: its folder joins the chat's read scope (what is saved from it asks before going wider)
         addSources(rt.db, spec.chatId, [sourceOf(rt.db, rt.files.rules(), skillFolder(skill.path))])
-        // reporting is auxiliary (admin/skill-usage.ts: team skills only, never a personal one); a loaded skill is a
+        // reporting is auxiliary (admin/skill-usage.ts: team and group skills, never a personal one); a loaded skill is a
         // run (the onboarding goal counts it), unlike a plain read of the file
         try { recordSkillUse(rt.db, { turnId: spec.turnId, userId: spec.userId, skill, source: 'tool' }) } catch { rt.log.warn('skill usage recording failed', { turn: spec.turnId }) }
         return { ...text(skillBlock(skill, '', 'loaded')), summary: `skill -> ${isPersonalSkill(skill.path) ? 'a personal skill' : skill.path}` }
@@ -348,7 +456,7 @@ function skillTools(exec: TurnExec): Tool[] {
         const scores = usageScores(rt.db, spec.userId, skills.map((s) => s.path))
         const hits = matchSkills(skills, a.data.query, { scores, projectFolder: exec.projectFolder })
         const q = neutralizeTags(clipName(a.data.query, 80))
-        const line = (s: Skill) => `- ${neutralizeTags(clipName(s.name, 64))}${isPersonalSkill(s.path) ? ' [personal]' : ''}${s.description.trim() ? ': ' + neutralizeTags(shortDescription(s.description, 300)) : ''} (${s.path})`
+        const line = (s: Skill) => `- ${neutralizeTags(clipName(s.name, 64))}${skillTag(s, neutralizeTags)}${s.description.trim() ? ': ' + neutralizeTags(shortDescription(s.description, 300)) : ''} (${s.path})`
         const searched = `${skills.length} skill${skills.length === 1 ? '' : 's'} searched`
         if (!hits.length) {
           if (!skills.length) return { ...text(`No skill this user can use matches "${q}" (${searched}).`), summary: 'find_skills -> 0 found' }
@@ -381,8 +489,9 @@ function bTools(exec: TurnExec): Tool[] {
         if (!clean.ok) return clean.problem === 'empty' ? text('Invalid input: text is empty', true) : text(`Too long (${clean.length} characters). Keep a memory under ${MEMORY_ITEM_MAX} characters.`, true)
         const value = clean.text
         let source: 'ai' | 'user' = 'ai'
-        if (exec.tainted) {
-          // this conversation has seen outside content: the person confirms before anything is kept (tab 3)
+        // this conversation has seen outside content, or once had a team chat room's messages in it (chats.rooms_seen,
+        // kept for the rest of the chat): the person confirms before anything is kept (tab 3)
+        if (exec.tainted || exec.roomsSeen) {
           const answer = await exec.waitForPerson({
             kind: 'ask_user', origin: 'server', requestId: uuidv7(), question: tr('rememberConfirm', L, { text: value }),
             options: [{ label: tr('yes', L), value: 'yes' }, { label: tr('no', L), value: 'no' }], multiple: false, allowText: false,

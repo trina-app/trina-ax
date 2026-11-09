@@ -15,17 +15,23 @@ function endsInVowel(word: string): boolean | null {
   return null
 }
 
-/** Korean object particle for a word: 을 after a final consonant, 를 after a vowel; "을(를)" when it cannot be told. */
+/** Korean object particle for a word: 을 after a final consonant, 를 after a vowel. None when it cannot be told (a
+ * name ending in Latin letters or a sign: "'quote maker' 처음 써 봤어요"): a quoted name without its particle reads
+ * as spoken Korean, "을(를)" reads as a form. */
 export function objectParticle(word: string): string {
   const v = endsInVowel(word)
-  return v === null ? '을(를)' : v ? '를' : '을'
+  return v === null ? '' : v ? '를' : '을'
 }
 
-/** Korean topic particle for a word: 은 after a final consonant, 는 after a vowel; "은(는)" when it cannot be told. */
+/** Korean topic particle for a word: 은 after a final consonant, 는 after a vowel; none when it cannot be told (as
+ * objectParticle). */
 export function topicParticle(word: string): string {
   const v = endsInVowel(word)
-  return v === null ? '은(는)' : v ? '는' : '은'
+  return v === null ? '' : v ? '는' : '은'
 }
+
+/** A skill's name quoted in this language, without a particle: '광고 문구' · 「広告コピー」 · 'Ad copy'. */
+export const skillQuote = (locale: string, name: string): string => locale === 'ja' ? `「${name}」` : `'${name}'`
 
 /** A skill's name quoted as the object of a sentence in this language: '광고 문구'를 · 「広告コピー」 · 'Ad copy'. */
 export function quotedSkill(locale: string, name: string): string {
@@ -42,14 +48,19 @@ export function skillTopic(locale: string, name: string | null, any: string): st
   return locale === 'ja' ? `「${name}」` : `'${name}'`
 }
 
+/** "아직 아무도 안 들어왔어요" waits this many days from the goal's start (docs/DECISIONS.md "W5"): on day 0 the owner
+ * has not invited anyone yet, and the line would only scold them; until then the card says how many more. */
+export const NOBODY_AFTER_DAYS = 3
+const DAY_MS = 86_400_000
+
 /** The goal card's one line while the goal is open, in order: someone joined and has not run the skill yet (one name
- * and a count) · one more person · nobody joined yet · how many more. */
+ * and a count) · one more person · nobody joined yet (from NOBODY_AFTER_DAYS after the start) · how many more. */
 export type GoalNext = { kind: 'waiting'; first: string; more: number } | { kind: 'oneMore' } | { kind: 'nobody' } | { kind: 'more'; n: number }
-export function goalNext(g: TeamGoal): GoalNext {
+export function goalNext(g: TeamGoal, now = Date.now()): GoalNext {
   if (g.waiting) return { kind: 'waiting', first: g.waiting.first, more: g.waiting.more }
   const left = Math.max(1, g.target - (g.skill?.runners ?? 0))
   if (left === 1) return { kind: 'oneMore' }
-  if (g.joined === 0) return { kind: 'nobody' }
+  if (g.joined === 0 && now - Date.parse(g.startedAt) >= NOBODY_AFTER_DAYS * DAY_MS) return { kind: 'nobody' }
   return { kind: 'more', n: left }
 }
 

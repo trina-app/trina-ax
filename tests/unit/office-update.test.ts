@@ -18,7 +18,7 @@ import { Database } from 'bun:sqlite'
 import { settingsFrom } from '../../server/src/office/settings'
 import { officeUpdateHooks } from '../../server/src/routes/office-update'
 import builderConfig from '../../desktop/electron-builder.config'
-import { compareVersions as desktopCompare, feedUrlFor, genericFeed, macNotice, updateMode } from '../../desktop/src/common/update'
+import { compareVersions as desktopCompare, feedUrlFor, genericFeed, macNotice, storeBuild, updateMode } from '../../desktop/src/common/update'
 import { harness, withOwner, addMember, OWNER_PW, type Harness } from './a-lib'
 import { WORK } from '../lib/env'
 import { PRODUCT } from '@mycel/shared'
@@ -789,7 +789,7 @@ describe('teamax update status', () => {
 })
 
 describe('desktop updater configuration', () => {
-  test('Windows packaged = electron-updater; Mac = notice; Mac App Store and unpacked = off (tests can force a mode)', () => {
+  test('Windows packaged = electron-updater; Mac = notice; store builds and unpacked = off (tests can force a mode)', () => {
     expect(updateMode('win32', true)).toBe('auto-install')
     expect(updateMode('darwin', true)).toBe('notice')
     expect(updateMode('linux', true)).toBe('off')
@@ -797,6 +797,10 @@ describe('desktop updater configuration', () => {
     expect(updateMode('darwin', false, 'auto-install')).toBe('auto-install')
     expect(updateMode('darwin', true, undefined, true)).toBe('off') // the store updates it
     expect(updateMode('darwin', true, 'notice', true)).toBe('off')
+    expect(updateMode('win32', true, undefined, true)).toBe('off') // a Microsoft Store (MSIX) build
+    expect(storeBuild({ mas: true })).toBe(true)
+    expect(storeBuild({ windowsStore: true })).toBe(true)
+    expect(storeBuild({})).toBe(false) // the NSIS installer's app, the dmg app
   })
   test('the feed is the team address + /downloads/, with the session as a Bearer token; never plain http on the internet', () => {
     const tok = 'a'.repeat(43)

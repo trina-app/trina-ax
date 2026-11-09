@@ -72,6 +72,25 @@ export function publicAddress(cfg: Pick<AppContext['config'], 'tunnel' | 'public
   return null
 }
 
+/**
+ * The team's address for its own members (GET /api/me team.address: Settings › 앱 "팀 주소", the install pictures): the
+ * relay address when this server has one (https://acme.trina.app; dev http://demo.localhost:19161), else the public
+ * address it knows (publicAddress, as https), else null (the office network only). Never the address a request came in
+ * at: over the office network that is the office's own address (192.168.x.x), which a new device elsewhere cannot use.
+ */
+export function teamAddressOf(ctx: Pick<AppContext, 'config' | 'services'>): string | null {
+  let relayAddress: string | null = null
+  try { relayAddress = ctx.services.relay?.status().address ?? null } catch { relayAddress = null }
+  if (relayAddress) {
+    try {
+      const u = new URL(relayAddress)
+      if ((u.protocol === 'https:' || u.protocol === 'http:') && !u.username && !u.password) return u.origin
+    } catch { /* not an address: fall through to the public address */ }
+  }
+  const pub = publicAddress(ctx.config, relayAddress)
+  return pub ? `https://${pub}` : null
+}
+
 export function connectionStatus(ctx: AppContext): ConnectionStatus {
   const cfg = ctx.config
   // office mode: the fingerprint the desks compare is the office CA's (tls/ca.crt next to the server certificate)

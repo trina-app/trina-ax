@@ -115,6 +115,8 @@ func runEnv(e *env, args []string) int {
 		code, err = cmdApplyPlan(e, rest)
 	case "update":
 		code, err = cmdUpdate(e, rest)
+	case "packages-sync": // internal: the system packages' sync in a unit of its own, started by update (sync.go)
+		code, err = cmdPackagesSync(e, rest)
 	case "render-units":
 		code, err = cmdRenderUnits(e, rest)
 	case "safe-ops":

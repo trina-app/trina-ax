@@ -1,8 +1,9 @@
-// Who is signed in (GET /api/me), first-run setup state, and the person's language / theme.
+// Who is signed in (GET /api/me), first-run setup state, and the person's language / theme / text size.
 import { create } from 'zustand'
-import type { Locale, Me, Theme, UserPrefs } from '@mycel/shared/api'
+import type { Locale, Me, TextSize, Theme, UserPrefs } from '@mycel/shared/api'
 import { api, API, isApiError } from '../lib/api'
 import { applyTheme, storedTheme, storeTheme } from '../lib/theme'
+import { applyTextSize, pickTextSize, storedTextSize, storeTextSize, textSizeSettled, unsavedTextSize } from '../lib/textSize'
 import { pickLocale, recentLocale, storedLocale, storeLocale, storeRecentLocale, useLocaleStore } from '../i18n'
 import { recoveryLocale } from '../i18n/recovery-locale'
 import { forgetFileUploads } from '../lib/fileUploads'
@@ -10,7 +11,6 @@ import { forgetFolderUploads } from '../lib/folderRuns'
 import { forgetTeamAttach } from '../lib/teamAttach'
 import { forgetStarters } from '../lib/starter'
 import { forgetSkillList } from '../lib/skillTitles'
-import { applyTeamIcon } from '../lib/team-icon'
 
 export type AuthStatus =
   | { kind: 'loading' }
@@ -30,10 +30,14 @@ interface SessionState {
   /** the language switcher of the sign-in style screens (also shown signed in: forced password change, reset) */
   pickLocale: (l: Locale) => void
   /** engine / model null = back to the team default */
-  updatePrefs: (prefs: Omit<Partial<UserPrefs>, 'engine' | 'model'> & { engine?: UserPrefs['engine'] | null; model?: string | null }) => Promise<void>
+  updatePrefs: (prefs: Omit<Partial<UserPrefs>, 'engine' | 'model' | 'away'> & { engine?: UserPrefs['engine'] | null; model?: string | null }) => Promise<void>
   /** the person's language: one of their own, or null = follow the team default */
   setLocale: (l: Locale | null) => Promise<void>
   setTheme: (t: Theme) => Promise<void>
+  /** set myself away, or back to automatic (the account menu; docs/DECISIONS.md "접속 상태") */
+  setAway: (away: boolean) => Promise<void>
+  /** shown at once on this device; the account keeps it for the others */
+  setTextSize: (s: TextSize) => Promise<void>
 }
 
 function applyMe(me: Me) {
@@ -44,8 +48,11 @@ function applyMe(me: Me) {
   const theme = me.user.prefs.theme ?? storedTheme()
   storeTheme(theme)
   applyTheme(theme)
-  // the team's logo as the tab icon (or the default mark again after an admin removed it)
-  applyTeamIcon(me.team.iconVersion)
+  // the same way: the account's text size, else this device's (an account that never picked one keeps it); one the
+  // person just picked and is still saving wins over an answer that left the server before it
+  const textSize = unsavedTextSize() ?? me.user.prefs.textSize ?? storedTextSize()
+  storeTextSize(textSize)
+  applyTextSize(textSize)
 }
 
 /**
@@ -150,7 +157,9 @@ export const useSession = create<SessionState>((set, get) => ({
   async updatePrefs(prefs) {
     const st = get().status
     if (st.kind !== 'signed-in') return
-    const me = await api.call(API.updateMe, { body: { prefs: { ...st.me.user.prefs, ...prefs } } })
+    // only what changed: the server merges it into the rest (routes/auth.ts), so two saves close together (the text
+    // size and then the theme) never put back each other's old value
+    const me = await api.call(API.updateMe, { body: { prefs } })
     set({ status: { kind: 'signed-in', me } })
   },
 
@@ -177,6 +186,33 @@ export const useSession = create<SessionState>((set, get) => ({
     storeTheme(theme)
     applyTheme(theme)
     await get().updatePrefs({ theme })
+  },
+
+  async setAway(away) {
+    const st = get().status
+    if (st.kind !== 'signed-in') return
+    const put = (v: boolean) => {
+      const cur = get().status
+      if (cur.kind === 'signed-in') set({ status: { kind: 'signed-in', me: { ...cur.me, user: { ...cur.me.user, prefs: { ...cur.me.user.prefs, away: v || undefined } } } } })
+    }
+    // the menu's word follows at once; the server keeps it and tells the team
+    const before = !!st.me.user.prefs.away
+    put(away)
+    try {
+      await api.call(API.setMyAway, { body: { away } })
+    } catch (e) {
+      put(before)
+      throw e
+    }
+  },
+
+  async setTextSize(textSize) {
+    pickTextSize(textSize)
+    try {
+      await get().updatePrefs({ textSize })
+    } finally {
+      textSizeSettled(textSize)
+    }
   },
 }))
 

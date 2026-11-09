@@ -2,7 +2,7 @@
 // team files with the person's own permissions through this server's MCP connector (server/src/connectors/remote-mcp):
 // one row per app whose Connect opens numbered steps with the real address (components/integrations/AiAppConnect.tsx),
 // then each connected app with when it connected and Disconnect. Off on this server: members get one line, owners and
-// admins the setup to turn it on. It was part of Settings › App connectors (pages/ConnectorConnections.tsx).
+// admins the setup to turn it on. It was part of Settings › App connectors, a page that is gone.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, Copy } from 'lucide-react'
 import { REMOTE_MCP, type RemoteConnectionInfo } from '@mycel/shared/api'
@@ -44,7 +44,8 @@ export default function AiApps() {
     catch (e) { if (generation === life.current) setError(errorText(e, locale, t('error.network'))) }
     finally { writing.current = false; if (generation === life.current) setBusy(null) }
   }
-  const label = (scope: string) => scope === 'mcp:write' ? t('connectors.write') : scope === 'offline_access' ? t('connectors.offline') : t('connectors.read')
+  const label = (scope: string) => scope === 'mcp:write' ? t('connectors.write') : scope === 'offline_access' ? t('connectors.offline') : scope === 'mcp:admin' ? t('connectors.admin')
+    : scope === 'mcp:rooms' ? t('connectors.roomsOptIn') : scope === 'mcp:rooms.write' ? t('connectors.roomsWriteOptIn') : t('connectors.read')
   const on = configured && !!resource
   const isAdmin = me.user.role === 'owner' || me.user.role === 'admin'
   const [openApp, setOpenApp] = useState<AiApp | null>(null)
@@ -65,6 +66,12 @@ export default function AiApps() {
               <p className="break-words text-sm font-medium">{item.clientName}</p>
               <p className="mt-0.5 text-xs text-muted">{t('aiApps.connectedOn', { date: formatDateTime(item.createdAt, locale) })} · {item.scopes.map(label).join(' · ')}</p>
               <p className="mt-0.5 text-xs text-faint">{t('connectors.expires', { date: formatDateTime(item.expiresAt, locale) })}{item.currentSession ? ` · ${t('connectors.currentSession')}` : ''}</p>
+              {/* an owner's or admin's connection made before group management came, or while they were a member: it
+                  never gains it (a refresh only narrows), so a new connection gets it */}
+              {/* a connection made before conversations came to AI apps (or with the box unticked) never gains them;
+                  one line, also when it lacks group management too */}
+              {!item.scopes.includes('mcp:rooms') && <p className="mt-0.5 text-xs text-muted" data-testid="connector-reconnect-rooms">{t(isAdmin && !item.scopes.includes('mcp:admin') ? 'aiApps.reconnectForRoomsAndGroups' : 'aiApps.reconnectForRooms')}</p>}
+              {isAdmin && !item.scopes.includes('mcp:admin') && item.scopes.includes('mcp:rooms') && <p className="mt-0.5 text-xs text-muted" data-testid="connector-reconnect-groups">{t('aiApps.reconnectForGroups')}</p>}
             </div>
             <Button variant="danger" size="sm" disabled={busy !== null} busy={busy === item.id} onClick={() => void disconnect(item.id)}>{t('connectors.disconnect')}</Button>
           </li>)}</ul>

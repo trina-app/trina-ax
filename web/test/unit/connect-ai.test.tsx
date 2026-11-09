@@ -1,7 +1,7 @@
 // "AI 연결" wherever no AI answers (components/onboarding/ConnectAi.tsx; docs/DECISIONS.md "W2 — AI connection first"):
 // - "AI 연결하기" (the chat error, the line above the composer) opens Admin › AI connections' own dialog in place, in
 //   its simple form: Claude chosen, the whole team (no target), named "Claude" (no name field), the provider's terms in
-//   one line, the password again (the server checks it on every team add); "다른 방법" shows every way;
+//   one line, no password; "다른 방법" shows every way;
 // - "내 AI 연결하기" opens one's own dialog (no password, as in Settings);
 // - Admin › AI connections keeps the full dialog (name, target, the whole notice);
 // - a failed answer without AI: the owner's words and "AI 연결하기", an admin told to tell the owner;
@@ -68,7 +68,7 @@ const tick = (id: string) => {
 }
 
 describe('the simple dialog', () => {
-  test('AI 연결하기: Claude chosen, no name, no target, the terms in one line, the password again; the sign-in goes to the whole team as "Claude"', async () => {
+  test('AI 연결하기: Claude chosen, no name, no target, the terms in one line, no password; the sign-in goes to the whole team as "Claude"', async () => {
     const m = await mount(<MemoryRouter><ConnectAiButton data-testid="go" /></MemoryRouter>)
     try {
       expect(m.get('go').textContent).toBe(ko('aiAccess.connectTeam'))
@@ -80,16 +80,14 @@ describe('the simple dialog', () => {
       // the terms: one line with the yes the server needs, Trina's "it cannot grant that permission" kept
       expect(q('plan-notice')!.textContent).toBe(ko('aiConnect.terms', { product: 'Trina AX' }))
       expect(m.html()).not.toContain(ko('credentials.planNotice'))
-      expect(m.html()).toContain(ko('aiConnect.password'))
+      expect(q('credential-password')).toBeNull()
       expect(submit().disabled).toBe(true)
       await m.click(tick('plan-notice-ack'))
-      expect(submit().disabled).toBe(true)
-      await m.type('credential-password', 'pw-1')
       expect(submit().disabled).toBe(false)
       await m.click(submit())
       await m.until(() => q('claude-starting'), 'the sign-in started')
       const start = calls.find((c) => c.key === 'POST /api/admin/credential-logins')!
-      expect(start.body).toEqual({ kind: 'anthropic-oauth', label: 'Claude', acknowledgedPlanNotice: true, assignments: [], password: 'pw-1' })
+      expect(start.body).toEqual({ kind: 'anthropic-oauth', label: 'Claude', acknowledgedPlanNotice: true, assignments: [] })
     } finally { await m.unmount() }
   })
 
@@ -105,7 +103,7 @@ describe('the simple dialog', () => {
       await m.click(tick('kind-openai-api-key'))
       expect(q('credential-label')).toBeNull()
       expect(m.html()).not.toContain(ko('credentials.target.pick'))
-      expect(q('credential-password')).not.toBeNull()
+      expect(q('credential-password')).toBeNull()
     } finally { await m.unmount() }
   })
 
@@ -147,7 +145,7 @@ describe('the simple dialog', () => {
       expect(q('credential-label')).not.toBeNull()
       expect(m.html()).toContain(ko('credentials.target.pick'))
       expect(q('plan-notice')!.textContent).toContain(ko('credentials.planNotice'))
-      expect(m.html()).not.toContain(ko('aiConnect.password'))
+      expect(q('credential-password')).toBeNull()
       expect(q('credential-other-ways')).toBeNull()
     } finally { await m.unmount() }
   })
@@ -186,13 +184,15 @@ describe('a failed answer without AI', () => {
       await m.until(() => q('claude-login-how'), 'the dialog')
     } finally { await m.unmount() }
   })
-  test('an admin is told to tell the owner; a member keeps the server\'s words; the trial texts fit the owner too', async () => {
+  test('an admin hears what they can do like the owner, and "AI 연결하기" opens the dialog; a member keeps the server\'s words; the trial texts fit them too', async () => {
     signIn('admin')
-    access = { usable: false, action: 'ask_owner', requested: false }
+    access = { usable: false, action: 'connect_team', requested: false }
     let m = await failed('credential_unusable')
     try {
-      expect(m.get('answer-error').textContent).toContain(ko('aiConnect.error.admin.credential_unusable'))
-      expect(m.get('ai-access-button').textContent).toBe(ko('aiAccess.askOwner'))
+      expect(m.get('answer-error').textContent).toContain(ko('aiConnect.error.credential_unusable'))
+      expect(m.get('ai-access-button').textContent).toBe(ko('aiAccess.connectTeam'))
+      await m.click('ai-access-button')
+      await m.until(() => q('claude-login-how'), 'the dialog')
     } finally { await m.unmount() }
     signIn('member')
     m = await failed('no_credential')
@@ -250,13 +250,13 @@ describe('Home\'s one card without AI', () => {
     const m = await card({ action: 'connect_team' })
     try {
       await m.until(() => m.find('welcome-ai-chatgpt'), 'the ways')
-      // ChatGPT: the device sign-in chosen, no list of ways, the terms in one line, the password again
+      // ChatGPT: the device sign-in chosen, no list of ways, the terms in one line, no password
       await m.click('welcome-ai-chatgpt')
       await m.until(() => q('credential-submit'), 'the ChatGPT dialog')
       expect(submit().textContent).toBe(ko('credentials.chatgpt.start'))
       expect(q('kind-anthropic-oauth')).toBeNull()
       expect(q('plan-notice')).not.toBeNull()
-      expect(q('credential-password')).not.toBeNull()
+      expect(q('credential-password')).toBeNull()
       await act(async () => { body().querySelectorAll('button').find((b) => b.textContent === ko('common.cancel'))?.click() })
       await m.until(() => !q('credential-submit'), 'closed')
       // API 키로 연결: only the Claude and OpenAI keys to pick from, no subscription note
@@ -265,10 +265,10 @@ describe('Home\'s one card without AI', () => {
       expect(q('kind-openai-api-key')).not.toBeNull()
       expect(q('kind-anthropic-oauth')).toBeNull()
       expect(q('kind-chatgpt')).toBeNull()
-      // picking one: the key field and the password, as in Admin › AI connections' simple form
+      // picking one: the key field and no password, as in Admin › AI connections' simple form
       await m.click(tick('kind-openai-api-key'))
       await m.until(() => q('credential-secret'), 'the key field')
-      expect(q('credential-password')).not.toBeNull()
+      expect(q('credential-password')).toBeNull()
     } finally { await m.unmount() }
   })
   test('a team that does not share subscriptions: only the key way, as the main button, with no warning about subscriptions in its dialog', async () => {

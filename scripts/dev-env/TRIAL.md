@@ -55,8 +55,11 @@ it. It reads the team root from `config/server.json`, and
 it stops if that path has a character other than letters, digits and `. _ / -`: the server account can change this file,
 and root runs the unit with this value. It does not change `mycel-update.timer` on a signed release.
 
-Then, in the app: a project page, Dev environment, accept the warning, turn it on. There is no preview domain, so the
-Preview button stays off.
+Then turn it on for one project. The project page has no Dev environment line since 2026-11-08 (docs/DECISIONS.md
+"Dev environment: no line on the project page"), and Team settings has only the extra sites on this box runner. So an
+admin turns it on with the API, from a signed-in admin session with the `x-mycel-csrf` header:
+`PUT /api/projects/:id/dev-env` with `{"enabled":true,"scope":{"mode":"writers","groupIds":[],"userIds":[]},"acceptWarning":1}`
+(1 is the box warning, docs/DECISIONS.md "Dev environment (experiment)": read it first).
 
 Logs: `journalctl -u mycel-boxd -n 50`.
 
@@ -221,7 +224,8 @@ sudo /opt/trina-ax/scripts/dev-env/build-image.sh
 ```
 
 A running box does not stop, and a running render goes on. With a `mycel-boxd` from a kit that ships it, the box takes
-the new image and seccomp profile at its next start. To start it now, use stop or restart on the project page. The
+the new image and seccomp profile at its next start. To start it now, restart it with the API
+(`POST /api/projects/:id/dev-env/box` with `{"action":"restart"}`; the project page has no button for it). The
 box volume (`node_modules`, caches) and the project folder stay. The build needs a few minutes of CPU and the internet,
 so do it when nobody renders.
 

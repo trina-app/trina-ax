@@ -34,6 +34,7 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   ONBOARDING: 'Onboarding (company profile)',
   TEAM_LINKS: 'Team invite link',
   WELCOME: 'Onboarding: welcome steps',
+  ONBOARDING_FILES: 'Onboarding: team files picked from a folder',
   ONBOARDING_GOAL: 'Onboarding: the 7-day team goal',
   DEMO: 'Demo mode (development demo server only)',
   PEOPLE: 'People directory and profiles',
@@ -42,6 +43,10 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   SLACK: 'Slack connector',
   PROMO_VIDEO: 'Promo video and its MP4',
   INTRO_DECK: 'Company intro deck (the welcome steps\' first result): PowerPoint and PDF',
+  SKILL_SHARES: 'Bring my skills to the team (share proposals)',
+  KNOWLEDGE_GRAPH: 'Knowledge graph: the code map of the team folders (CodeGraph), its folders, rebuild',
+  AI_ALLOWANCES: 'What I allowed the AI in advance',
+  HANDOVER: 'Owner handover (the lead link\'s card and the owner\'s own connections)',
 }
 
 const WHO: Record<Endpoint['auth'], string> = {
@@ -50,6 +55,7 @@ const WHO: Record<Endpoint['auth'], string> = {
   admin: 'Admin',
   owner: 'Owner',
   'owner-reauth': 'Owner + password',
+  'admin-reauth': 'Admin + password',
 }
 
 const cell = (s: string) => s.replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim()
@@ -85,6 +91,7 @@ export function apiReferenceMarkdown(): string {
     '| Admin | An admin or the owner |',
     '| Owner | The owner only |',
     '| Owner + password | The owner, who enters their password again (updates, restores) |',
+    '| Admin + password | An admin or the owner, who enters their own password again (the team\'s AI connections) |',
     '',
   ]
   for (const [key, eps] of groups) {

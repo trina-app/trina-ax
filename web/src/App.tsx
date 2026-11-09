@@ -6,10 +6,12 @@ import { PRODUCT } from '@mycel/shared'
 import { ApiError, errorText } from './lib/api'
 import { useLocale, useT } from './i18n'
 import { useChats } from './store/chats'
+import { useDeckBuilds } from './store/deckBuilds'
 import { useSendQueue } from './store/sendQueue'
 import { useProjects } from './store/projects'
 import { useAiAccess } from './store/aiAccess'
 import { useWelcome } from './store/welcome'
+import { useHandover } from './store/handover'
 import { useRooms } from './store/rooms'
 import { usePeople } from './store/people'
 import { startLive, stopLive } from './store/live'
@@ -20,6 +22,7 @@ import { AnnounceProvider, Button, DialogHost, Spinner, Toaster } from './compon
 import { AcceptInvite, ForcedPassword, Login, ResetPassword, Setup, signedInHome, TeamJoin } from './pages/Auth'
 import Home from './pages/Home'
 import SettingsDialog from './components/settings/SettingsDialog'
+import { ImageViewerHost } from './components/ImageViewer'
 import { RealPath } from './lib/realPath'
 import { afterJoinTarget, clearAfterJoin } from './lib/team-link'
 import { afterSetupTarget, clearAfterSetup, LANDING_STATE } from './lib/welcome'
@@ -32,6 +35,7 @@ const ProjectHome = lazy(() => import('./pages/Projects').then((m) => ({ default
 const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'))
 const Trash = lazy(() => import('./pages/Trash'))
 const Skills = lazy(() => import('./pages/Skills'))
+const SkillSharePage = lazy(() => import('./pages/SkillSharePage'))
 const ScheduledList = lazy(() => import('./pages/Scheduled').then((m) => ({ default: m.ScheduledList })))
 const ScheduledTask = lazy(() => import('./pages/Scheduled').then((m) => ({ default: m.ScheduledTask })))
 const ConnectorConsent = lazy(() => import('./pages/ConnectorConsent'))
@@ -93,10 +97,12 @@ export function useSessionLifecycle(): boolean {
       stopLive()
       if (status.kind !== 'loading') {
         useChats.getState().reset()
+        useDeckBuilds.getState().reset()
         useSendQueue.getState().reset()
         useProjects.getState().reset()
         useAiAccess.getState().reset()
         useWelcome.getState().reset()
+        useHandover.getState().reset()
         useRooms.getState().reset()
         usePeople.getState().reset()
       }
@@ -184,6 +190,8 @@ function Gate() {
           {/* the team chat rooms: the list (the 대화 tab on phones) and one room (the mobile app links here) */}
           <Route path="rooms" element={<Rooms />} />
           <Route path="rooms/:roomId" element={<RoomPage />} />
+          {/* a thread of a room (beside it on computers, over it on phones; a room notice of a reply links here) */}
+          <Route path="rooms/:roomId/t/:messageId" element={<RoomPage />} />
           <Route path="files" element={<Files />} />
           <Route path="files/view" element={<FileView />} />
           <Route path="projects" element={<ProjectList />} />
@@ -192,6 +200,8 @@ function Gate() {
           <Route path="admin/:section" element={<AdminLayout />} />
           <Route path="trash" element={<Trash />} />
           <Route path="skills" element={<Skills />} />
+          {/* a share proposal of the owner's or admin's own (내 스킬 가져오기): the Claude Code notice leads here */}
+          <Route path="skills/share/:id" element={<SkillSharePage />} />
           <Route path="scheduled" element={<ScheduledList />} />
           <Route path="scheduled/:id" element={<ScheduledTask />} />
           {/* the welcome steps after /setup (owner only; pages/Welcome.tsx) */}
@@ -238,6 +248,7 @@ export default function App() {
       <AnnounceProvider>
         <Gate />
         <DialogHost />
+        <ImageViewerHost />
         <Toaster />
       </AnnounceProvider>
     </BrowserRouter>

@@ -20,17 +20,18 @@ export function sweep(ctx: AppContext): SweepResult {
   // deleted accounts: chats (messages / artifacts cascade), memories and engine session stashes go after the chat
   // retention period; the users row stays as a tombstone so usage and audit keep their names
   const cutoff = new Date(now - s.chatTrashRetentionDays * 86_400_000).toISOString()
-  const gone = db.query("SELECT id FROM users WHERE deleted_at IS NOT NULL AND deleted_at < ? AND (EXISTS (SELECT 1 FROM chats c WHERE c.user_id = users.id) OR EXISTS (SELECT 1 FROM memories m WHERE m.user_id = users.id))").all(cutoff) as { id: string }[]
+  // a shared project chat they made stays for the project's people, under the tombstone name (chat/shared.ts)
+  const gone = db.query("SELECT id FROM users WHERE deleted_at IS NOT NULL AND deleted_at < ? AND (EXISTS (SELECT 1 FROM chats c WHERE c.user_id = users.id AND c.shared_at IS NULL) OR EXISTS (SELECT 1 FROM memories m WHERE m.user_id = users.id))").all(cutoff) as { id: string }[]
   const forgetting: Promise<void>[] = []
   for (const u of gone) {
-    const chats = db.query('SELECT id FROM chats WHERE user_id = ?').all(u.id) as { id: string }[]
+    const chats = db.query('SELECT id FROM chats WHERE user_id = ? AND shared_at IS NULL').all(u.id) as { id: string }[]
     db.transaction(() => {
       db.query('DELETE FROM memories WHERE user_id = ?').run(u.id)
       db.query('UPDATE projects SET created_by = NULL WHERE created_by = ?').run(u.id)
       // the person who wrote every version of a project's instructions is gone too: nobody wrote them alone now, so
       // they stay outside content for everyone's turns (chat/runtime.ts projectTaints treats NULL that way)
       db.query('UPDATE projects SET instructions_author = NULL, instructions_authored = NULL WHERE instructions_author = ?').run(u.id)
-      db.query('DELETE FROM chats WHERE user_id = ?').run(u.id)
+      db.query('DELETE FROM chats WHERE user_id = ? AND shared_at IS NULL').run(u.id)
     })()
     // what the chat left outside the DB: the engine session stash and the engine's working folder of the chat
     // (the same as purging one chat from the trash; in production the launcher removes the folder, chat/forget.ts)

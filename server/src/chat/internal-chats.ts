@@ -1,14 +1,16 @@
 // Chats the server makes for a piece of its own work, not a conversation of the person: the company profile drafted from
-// the website (onboarding/draft.ts, "회사 소개 초안 · <site>") and a team skill drafted from an answer
-// (onboarding/skill-draft.ts, "팀 스킬 초안 · …"). Each is already marked by its own table (migrations 227, 232), so no
-// column is added: those marks are read here. Such a chat stays out of the chat list and its search (GET /api/chats),
+// the website (onboarding/draft.ts, "회사 소개 초안 · <site>"), a team skill drafted from an answer
+// (onboarding/skill-draft.ts, "팀 스킬 초안 · …"), the AI's judgement of a skill share (skills/share-judge.ts, deleted
+// once read) and the AI's picks among a folder's files for 팀 파일 (onboarding/file-rank.ts, deleted once read). Each is
+// already marked by its own table (migrations 227, 232, 249, 272), so no column is added: those marks
+// are read here. Such a chat stays out of the chat list and its search (GET /api/chats),
 // Home's frequent questions and the chat list's realtime events (chat.updated); its flow reads it by id as before
 // (GET /api/onboarding/profile/draft/:chatId, …/skill-draft/:chatId), its answers still send their message events (the
 // profile step watches its steps), and the chat itself still opens by its address.
 import type { Database } from 'bun:sqlite'
 
 /** The tables that mark a chat as the server's own work, each keyed by `chat_id`. */
-const MARKS = ['onboarding_profile_drafts', 'onboarding_skill_drafts'] as const
+const MARKS = ['onboarding_profile_drafts', 'onboarding_skill_drafts', 'skill_share_judges', 'onboarding_file_ranks'] as const
 
 /** marks known to exist per database (a table is never dropped; one missing is looked for again next time) */
 const present = new WeakMap<Database, Set<string>>()

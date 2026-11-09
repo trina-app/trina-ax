@@ -15,6 +15,7 @@ import { HttpError } from '../http/errors'
 import { atLeast, RuleSet, type Principal } from '../policy/access'
 import { authorize, siblingVisible, type Authorized } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
+import { inSkills } from '../skills/guard'
 import { badSegment, hiddenEntry, volumeKey } from '../policy/names'
 import { currentPlan } from '../system/limits'
 import { assertStorageRoom, assertStorageRoomForAI } from '../system/storage'
@@ -328,6 +329,20 @@ export class TeamFiles {
     if (isDir && (target.join('/') === fr.rel || isUnder(fr.rel, target.join('/')))) fileError('validation', 'intoItself', { to })
     this.assertMovable(target)
     if (isDir) this.assertSubtreeWritable(user, rules, fr.segs)
+    // the AI never moves anything into or out of a skill root (skills/, a group's groups/<g>/skills/; skills/guard.ts):
+    // not a folder holding a skills/ folder into groups/<g>/ (it would make that group's skills folder), nor groups/ or
+    // a groups/<g>/ that holds one anywhere (the group's skills would leave with it). What everyone's AI follows
+    // changes only through write / edit and their card (docs/DECISIONS.md "Group skills"); people on the Files screen
+    // (no turn) move as before
+    if (o.turnId != null) {
+      const fold = (n: string) => n.normalize('NFC').toLowerCase()
+      const hasSkills = (abs: string) => { try { return fs.readdirSync(abs).some((n) => fold(n) === 'skills') } catch { return true } }
+      const children = (abs: string) => { try { return fs.readdirSync(abs, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => path.join(abs, d.name)) } catch { return null } }
+      const intoGroup = isDir && target.length === 2 && fold(target[0]!) === 'groups' && hasSkills(fr.abs)
+      const groupOut = isDir && fold(fr.segs[0] ?? '') === 'groups' && (
+        fr.segs.length === 2 ? hasSkills(fr.abs) : fr.segs.length === 1 ? (children(fr.abs)?.some(hasSkills) ?? true) : false)
+      if (inSkills(fr.rel) || inSkills(target.join('/')) || intoGroup || groupOut) throw new Denied('skills/ and a group\'s skills folder (skills and rules people\'s AI follows) cannot be changed by moving or renaming: use write / edit, which ask the user, or the Files screen')
+    }
     // under users/ folder rules are not read: the folder would become private to one person and the rest of the team,
     // admins included, could not see it to move it back. Nobody may do that, owner included (design tab 2 rule 3).
     if (managed && target[0] === 'users') fileError('validation', 'ruleFolderToUsers', { to: 'invalid_path: a group, project or rule folder cannot move under users/' })
@@ -338,8 +353,47 @@ export class TeamFiles {
       if (narrowed > 0 && !o.confirm) fileError('conflict', 'audienceNarrowed', undefined, { reason: 'audience_narrowed', lostViewers: narrowed })
     }
     const toRel = target.join('/')
-    const db = this.ctx.db
     const readers = this.readersOf(rules, fr.segs)
+    this.relocate(userId, fr, target, isDir, { ...o, narrowed })
+    const after = this.rules()
+    this.dropSessionsOf(readers.filter((p) => !atLeast(after.access(p, target), 'read')), { path: fr.rel, to: toRel })
+    // the folder's rules moved with it: who could see where it was is judged by the rules loaded before the move
+    this.publish([{ path: toRel, from: fr.rel, action: 'move', by: this.by(userId), turnId: o.turnId ?? null }], rules)
+    return { entry: this.entry(user, rules, target) }
+  }
+
+  /**
+   * A deleted member's personal folder `fromRel` (users/<id>) goes to `toRel` in the owner's personal folder (the
+   * "transfer" of admin/users.ts deleteUser), with the same bookkeeping as a move on the Files screen: version history,
+   * folders rows, projects and the text cache follow it, and the file events say where it went. Its chat attachments
+   * (.attachments/, uploads/attachments.ts ATTACHMENTS_DIR) are removed first: they go with the chats. There is no
+   * access check: nobody can open the folder of a deleted account, and deleting it was the decision. What the member
+   * had deleted stays where it was (trash items do not cross the edge of a personal folder, as in move).
+   * `actorId`: who deleted the member. The archive folder that holds `toRel` must exist.
+   */
+  archiveFolder(actorId: string, fromRel: string, toRel: string): void {
+    const segs = segsOf(fromRel), target = segsOf(toRel)
+    if (segs.length !== 2 || segs[0] !== 'users' || target.length < 3 || target[0] !== 'users' || target[1] === segs[1]) throw new Error(`not a personal folder to archive: ${fromRel} -> ${toRel}`)
+    const abs = path.join(this.root, ...segs)
+    const st = fs.lstatSync(abs)
+    if (!st.isDirectory() || st.isSymbolicLink()) throw new Error(`not a folder: ${fromRel}`)
+    if (fs.existsSync(path.join(this.root, ...target))) throw new Error(`already there: ${toRel}`)
+    fs.rmSync(path.join(abs, '.attachments'), { recursive: true, force: true })
+    this.dropTextCache(`${fromRel}/.attachments`, true)
+    const before = this.rules()
+    this.relocate(actorId, { rel: fromRel, segs, abs }, target, true, { tool: 'member-delete' })
+    this.publish([{ path: toRel, from: fromRel, action: 'move', by: this.by(actorId), turnId: null }], before)
+  }
+
+  /**
+   * The database and disk part of a move, after its checks: the history, folders rows, projects, attachments and
+   * trash items of the moved path follow it, two file events record it, then the rename and the text cache. move()
+   * checks the caller's access first; archiveFolder() is the server's own move of a deleted member's folder.
+   */
+  private relocate(userId: string, fr: { rel: string; segs: string[]; abs: string }, target: string[], isDir: boolean, o: By & { narrowed?: number }) {
+    const toRel = target.join('/')
+    const narrowed = o.narrowed ?? 0
+    const db = this.ctx.db
     if (isDir && toRel.toLowerCase() !== fr.rel.toLowerCase()) {
       const clash = db.query('SELECT path FROM folders WHERE path = ? OR substr(path, 1, length(?) + 1) = ? || \'/\'').get(toRel, toRel, toRel) as { path: string } | null
       if (clash) fileError('conflict', 'exists', { to: toRel })
@@ -400,11 +454,6 @@ export class TeamFiles {
       fs.renameSync(fr.abs, path.join(this.root, ...target))
     })()
     this.moveTextCache(fr.rel, toRel, isDir)
-    const after = this.rules()
-    this.dropSessionsOf(readers.filter((p) => !atLeast(after.access(p, target), 'read')), { path: fr.rel, to: toRel })
-    // the folder's rules moved with it: who could see where it was is judged by the rules loaded before the move
-    this.publish([{ path: toRel, from: fr.rel, action: 'move', by: this.by(userId), turnId: o.turnId ?? null }], rules)
-    return { entry: this.entry(user, rules, target) }
   }
 
   /**
@@ -465,6 +514,9 @@ export class TeamFiles {
     const pr = authorize(this.fx, rules, user, typed.slice(0, -1).join('/'), 'write', { mustExist: true })
     if (!pr.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
     let r = authorize(this.fx, rules, user, [...pr.segs, name].join('/'), 'write', { mustExist: false })
+    // the AI never copies into a skill root (skills/, a group's skills; as move above): only write / edit and their card
+    // put a file there. People on the Files screen (no turn) copy as before
+    if (o.turnId != null && inSkills(r.rel)) throw new Denied('skills/ and a group\'s skills folder (skills and rules people\'s AI follows) cannot be changed by copying: use write / edit, which ask the user, or the Files screen')
     const added = this.viewersAdded(rules, user.id, fr.segs, r.segs)
     if (o.dryRun) return { viewersAdded: added }
     // with a plan, the team disk near full or over the plan's limit (system/storage.ts): a tool gets a tool error, the
@@ -1045,9 +1097,10 @@ export class TeamFiles {
   // ---------------- uploads (small and chunked end here) ----------------
   /**
    * Put an uploaded file (already on disk at `src`, server-owned) into `folder/name`. onExists: fail -> conflict,
-   * replace -> the current file becomes a version, rename -> "name (2).ext".
+   * replace -> the current file becomes a version, rename -> "name (2).ext". `event`: how the file event is recorded
+   * when the server made the file for the person (the preview's "PDF로 저장": action create, where it came from).
    */
-  async placeUpload(userId: string, folder: string, name: string, src: string, onExists: 'fail' | 'replace' | 'rename', sha: string): Promise<FileEntry> {
+  async placeUpload(userId: string, folder: string, name: string, src: string, onExists: 'fail' | 'replace' | 'rename', sha: string, event?: { action: 'create'; detail: Record<string, unknown> }): Promise<FileEntry> {
     const user = this.principal(userId)
     const rules = this.rules()
     const bad = name.includes('/') ? 'names cannot contain "/"' : badSegment(name.normalize('NFC'))
@@ -1066,7 +1119,7 @@ export class TeamFiles {
     }
     const size = fs.statSync(src).size
     installFile(this.root, r.segs, src)
-    fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: 'upload', size, sha256: sha, detail: { replaced: action === 'update' } })
+    fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: event?.action ?? 'upload', size, sha256: sha, detail: { replaced: action === 'update', ...event?.detail } })
     this.extractText(r.rel)
     this.publish([{ path: r.rel, action, by: this.by(userId), turnId: null }])
     return this.entry(user, rules, r.segs)

@@ -1,6 +1,6 @@
 // Settings → Apps: the desktop installers the team server offers (/downloads/index.json, signed-in people only;
 // the owner adds them with `teamax desktop add`, server/src/office/desktop.ts) and what to click while installing.
-// Inside a Mac App Store build none at all (offeredDownloads).
+// Inside a Mac App Store or Microsoft Store build none at all (offeredDownloads).
 import type { MessageKey } from '../i18n'
 import type { Platform } from './pwa'
 
@@ -13,11 +13,18 @@ export function parseDownloads(raw: unknown): DownloadItem[] {
   return items.filter((i): i is DownloadItem => !!i && typeof i === 'object' && (i.platform === 'mac' || i.platform === 'windows') && typeof i.file === 'string' && i.file !== '' && typeof i.version === 'string')
 }
 
-/** Inside a Mac App Store build (lib/desktop.ts storeApp) no installer is offered, for the Mac or Windows: the store
- * updates the app, and a store app may not offer installs or updates from outside the store (App Review Guideline
- * 2.4.5), so Settings > Apps shows only the App Store line there. */
+/** Inside a Mac App Store or Microsoft Store build (lib/desktop.ts storeApp) no installer is offered, for the Mac or
+ * Windows: the store updates the app, and a store app may not offer installs or updates from outside the store (App
+ * Review Guideline 2.4.5, Microsoft Store Policy 10.2.4), so Settings > Apps shows only the store's line there. */
 export function offeredDownloads(items: DownloadItem[], store: boolean): DownloadItem[] {
   return store ? [] : items
+}
+
+/** On a Mac or a Windows PC: the installers for this computer, and the ones for the other kind of computer (shown
+ * folded; a Mac person rarely wants the Windows app). Elsewhere (a phone, Linux) nothing is "this computer's". */
+export function splitDownloads(items: DownloadItem[], here: Platform): { computer: boolean; mine: DownloadItem[]; others: DownloadItem[] } {
+  if (here !== 'mac' && here !== 'windows') return { computer: false, mine: [], others: items }
+  return { computer: true, mine: items.filter((d) => d.platform === here), others: items.filter((d) => d.platform !== here) }
 }
 
 /** this computer's platform first, the server's order otherwise */

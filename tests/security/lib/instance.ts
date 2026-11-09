@@ -61,7 +61,7 @@ export class Client {
   post = (p: string, body?: unknown) => this.req('POST', p, body ?? {})
   put = (p: string, body?: unknown) => this.req('PUT', p, body ?? {})
   patch = (p: string, body?: unknown) => this.req('PATCH', p, body ?? {})
-  del = (p: string) => this.req('DELETE', p)
+  del = (p: string, body?: unknown) => this.req('DELETE', p, body)
 
   /** must succeed (2xx), returns the JSON body */
   async ok(method: string, p: string, body?: unknown, o: { form?: FormData; raw?: BodyInit } = {}): Promise<any> {

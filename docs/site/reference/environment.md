@@ -19,6 +19,7 @@ Environment variables win over `server.json`. The full schema is in [`server/src
 | `MYCEL_EXIT_ADDRESS_CHECK` | `off` stops the public-address check against the release feed |
 | `MYCEL_REMOTE_MCP_ORIGIN` | Public origin for the [MCP connector](../agents/mcp-connector.md). Wins over `server.json`. |
 | `MYCEL_RELAY_URL` | Relay address for development (`bun run dev:server:relay`) |
+| `MYCEL_HTML_PDF_BROWSER` | The Chromium that prints HTML files to PDF (a `chrome-headless-shell` or Debian's `/usr/lib/chromium/chromium`). `none` turns HTML to PDF off. Unset: the server looks for one itself. |
 | `TEAM_AX_DEV_DIR`, `TEAM_AX_DEV_PORT` | Development supervisor folder and port. Not for production. |
 
 Other `MYCEL_*` variables in the code are for tests, packaging or internal helpers. Do not set them in production.

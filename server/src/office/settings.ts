@@ -74,6 +74,9 @@ export interface OfficePaths {
   /** the owner's setup-token (subscription mode; CLAUDE_OAUTH_TOKEN_FILE in config/, which is the secrets folder of an
    * office installation: system/layout.ts) */
   claudeToken: string
+  /** the pinned headless browser for HTML to PDF that office-install.sh puts in browser/ (scripts/system/packages.json,
+   * chrome-headless-shell; outside app/, owned by this account): the supervisor names it in MYCEL_HTML_PDF_BROWSER */
+  browser: string
 }
 
 export function officePaths(home: string, env: Record<string, string | undefined> = process.env): OfficePaths {
@@ -87,6 +90,7 @@ export function officePaths(home: string, env: Record<string, string | undefined
     agentsDir, plist: (label) => path.join(agentsDir, `${label}.plist`),
     tunnelToken: path.join(h, 'config', 'tunnel-token'), tunnelLog: path.join(h, 'logs', 'tunnel.log'),
     claudeToken: path.join(h, 'config', 'claude-oauth-token'),
+    browser: path.join(h, 'browser', 'chrome-headless-shell', 'current', 'chrome-headless-shell'),
   }
 }
 

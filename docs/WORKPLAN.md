@@ -59,7 +59,7 @@ CI(`.github/workflows/ci.yml`): typecheck(웹·데스크톱 포함), native 빌�
 
 규칙:
 - 엔드포인트 하나 = `endpoint({ method, path, auth, owner, query?, body?, response, status?, summary })` 객체 하나. 키 이름으로 부른다(`API.sendMessage`).
-- 인증 수준: `public` / `user` / `admin`(admin·owner) / `owner` / `owner-reauth`(owner + 본문 `password` 재확인: 업데이트·복원·연결 변경).
+- 인증 수준: `public` / `user` / `admin`(admin·owner) / `owner` / `owner-reauth`(owner + 본문 `password` 재확인: 업데이트·복원·연결 변경) / `admin-reauth`(admin·owner + 본문 `password`: 팀 API 엔진 주소 설정만; 공식 AI 계정 연결은 비밀번호 없이 `admin`).
   `must_change_password`인 사람은 `allowWhilePasswordChange: true`인 엔드포인트만 쓸 수 있다.
 - 오류는 항상 `{ error: { code, message, fields?, retryAfter?, requestId? } }`, `message`는 사용자 언어. "권한 없음"과 "없음"은 같은 `not_found`.
 - 상태를 바꾸는 요청(쿠키 세션, 로그인·초대·설정 포함)은 `x-mycel-csrf: 1` 헤더 필수 + 다른 사이트 Origin 거부. Bearer 요청은 예외.
@@ -73,9 +73,10 @@ CI(`.github/workflows/ci.yml`): typecheck(웹·데스크톱 포함), native 빌�
 
 - 연결: `/api/ws?windowId=<창 id>[&epoch=<E>&after=<N>]`, 쿠키 세션(모바일 껍데기는 subprotocol `mycel.bearer.<token>`, 기본 `mycel.v1`). 서버는 Origin을 확인한다.
 - 서버 → `hello {epoch, seq, resumed}`; epoch가 다르면 `reset`, 버퍼에서 밀려났으면 `resync` → 클라이언트는 REST로 다시 받는다.
+- 서버 → `presence {full, people: [{id, state}]}`(접속 상태, seq 없음·다시 보내지 않음): hello 뒤 전체 목록, 그다음 바뀐 사람만(docs/DECISIONS.md "접속 상태").
 - 이벤트 `{type, seq, at, data}`: `message.created/delta/step/done`, `queue.position`, `artifact.updated`, `chat.updated`, `files.changed`, `turn.request`, `turn.request.closed`, `job.progress/done`, `browser.call/cancel`, `memory.changed`, `notice`, `session.ended`.
 - `message.delta.offset`은 답변 본문의 글자 위치. REST로 받은 본문 길이보다 앞이면 버린다(0.3초마다 DB 저장).
-- 클라이언트 → `ping`, `browser.ack`, `browser.result`. 닫기 코드 `WsClose`(4401 로그인 필요 → 재연결 금지, 4409 다른 곳에서 같은 창 연결, 1012 서버 재시작 → 재연결).
+- 클라이언트 → `ping`, `browser.ack`, `browser.result`, `presence {state: active|idle}`(이 창을 쓰는 중인지, 바뀔 때와 hello 뒤에만). 닫기 코드 `WsClose`(4401 로그인 필요 → 재연결 금지, 4409 다른 곳에서 같은 창 연결, 1012 서버 재시작 → 재연결).
 - 재연결: 0–1초 무작위 후 1·2·4…초, 최대 약 10초.
 
 ## 3. 서버 골격 (server/src)
@@ -132,12 +133,14 @@ export const chatsRoutes: RouteModule = {
 |---|---|
 | 001–099 | 기반(001 init, 002 foundation) |
 | 100–199 | A |
-| 200–299 | B |
+| 200–299, 400–499 | B |
 | 300–399 | C |
 | 600–699 | F |
 | 700–799 | G |
 
   D·E는 서버 DB를 쓰지 않는다. 범위 안에서 다음 번호를 쓴다(예: `101_a_login_attempts.sql`, `201_b_queue.sql`).
+  B는 200–299가 다 차면 400–499를 쓴다.
+- dev에 올라간 번호는 바꾸지 않는다. 번호가 겹치면 나중 브랜치가 병합 전에 자기 번호를 바꾼다(이미 그 번호를 실행한 DB는 새 파일을 건너뛴다).
 - 자기 범위와 001–099의 테이블에만 기대고, **추가만** 한다: 새 테이블, 기본값 있거나 NULL 가능한 새 열, 인덱스. 이름 바꾸기·테이블 다시 만들기·열 삭제 금지. SQL은 항상 열 이름을 적는다(`SELECT *`·위치 INSERT 금지). 새 테이블의 FK는 `ON DELETE CASCADE`.
 - 이전 버전이 읽을 수 없는 변경을 꼭 해야 하면 파일 첫 줄들에 `-- min_compatible_reader: N`을 쓰고 `db.ts`의 `SCHEMA_READER_LEVEL`을 N으로 올린다(기반과 상의). 서버는 더 새 reader가 필요한 DB를 열지 않는다(복원 안내).
 - 데이터가 있는 DB에 새 마이그레이션을 적용하기 전에 `<data>/backups/pre-migrate-*.db`(VACUUM INTO)가 생긴다.

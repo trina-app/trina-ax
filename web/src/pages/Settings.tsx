@@ -1,5 +1,5 @@
-// The sections of the personal Settings dialog (components/settings/SettingsDialog.tsx): profile, language and theme, password, signed-in devices, the in-app browser's site setting (desktop
-// app only: BrowserSettings.tsx), what the AI remembers, apps (the guide to add the app to the home
+// The sections of the personal Settings dialog (components/settings/SettingsDialog.tsx): profile, language, theme and text size, password, signed-in devices, the in-app browser's site setting (desktop
+// app only: BrowserSettings.tsx), what the AI remembers, what I allowed the AI in advance (AiAllowances.tsx), apps (the guide to add the app to the home
 // screen, components/settings/InstallGuide.tsx, in a web browser only / desktop app download, none inside a Mac App
 // Store build: only the App Store line),
 // about (version, license, source code), the member's own AI connections when the team allows them (the team's
@@ -10,13 +10,13 @@ import clsx from 'clsx'
 import { Brain, ChevronDown, Download, Laptop, LogOut, Monitor, Pencil, Plus, ShieldAlert, Smartphone, Trash2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { EngineId, Me, Memory, Session, Theme } from '@mycel/shared/api'
+import type { EngineId, Me, Memory, Session, TextSize, Theme } from '@mycel/shared/api'
 import { PROFILE_TITLE_MAX, RELEASE_CHANNEL } from '@mycel/shared'
 import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
 import { deviceLabel } from '../lib/userAgent'
-import { archNote, installSteps, offeredDownloads, orderDownloads, parseDownloads, showSteps, type DownloadItem } from '../lib/downloads'
-import { installGuideShown, platform, type Platform } from '../lib/pwa'
+import { archNote, installSteps, offeredDownloads, orderDownloads, parseDownloads, showSteps, splitDownloads, type DownloadItem } from '../lib/downloads'
+import { browser, canInstallIn, installGuideShown, isStandalone, platform, type Platform } from '../lib/pwa'
 import { LOCALES, useLocale, useT, type MessageKey } from '../i18n'
 import { memoryChanged } from '../store/live'
 import { canChooseEngine, useMeStrict, useSession } from '../store/session'
@@ -27,16 +27,18 @@ import { ChangePasswordForm } from './Auth'
 import { MyCredentials } from './admin/Credentials'
 import { BrowserSettings } from './BrowserSettings'
 import { browserSettingsBridge, storeApp } from '../lib/desktop'
-import { Badge, Button, EmptyState, ErrorNote, Field, IconButton, Skeleton, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../components/ui'
+import { pickTextSize, TEXT_SIZE_PERCENT, TEXT_SIZES, useTextSize } from '../lib/textSize'
+import { teamAddressHost } from '../lib/team-address'
+import { Badge, Button, CopyButton, EmptyState, ErrorNote, Field, IconButton, Skeleton, confirmDialog, inputCls, noKeyRepeat, useMediaQuery } from '../components/ui'
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
 import { Avatar } from '../components/Avatar'
 import { squarePhoto, type Photo } from '../lib/avatar'
 import { Notifications } from '../components/settings/Notifications'
 import { DevEnvSites } from '../components/settings/DevEnvSites'
+import { AiAllowances } from '../components/settings/AiAllowances'
 import { AccountDeletion } from '../components/settings/AccountDeletion'
 import { InstallGuide } from '../components/settings/InstallGuide'
 import { MemoryForm } from '../components/settings/MemoryForm'
-import ConnectorConnections from './ConnectorConnections'
 import AiApps from './AiApps'
 import MyUsage from '../components/settings/MyUsage'
 import Integrations from './Integrations'
@@ -53,8 +55,8 @@ export default function SettingsPane({ tab }: { tab: string }) {
       {tab === 'usage' && <MyUsage key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'browser' && browser && <BrowserSettings bridge={browser} />}
       {tab === 'memory' && <Memories />}
-      {tab === 'integrations' && <Integrations key={`${me.user.id}:${me.session.id}`} />}
-      {tab === 'connectors' && <ConnectorConnections key={`${me.user.id}:${me.session.id}`} />}
+      {tab === 'allowances' && <AiAllowances key={`${me.user.id}:${me.session.id}`} />}
+      {tab === 'connectors' && <Integrations key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'ai-apps' && <AiApps key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'dev-env-sites' && <DevEnvSites key={`${me.user.id}:${me.session.id}`} />}
       {tab === 'notifications' && <Notifications key={`${me.user.id}:${me.session.id}`} />}
@@ -216,7 +218,7 @@ function Profile() {
               </span>
             )}
           </Row>
-          {/* the team owner deletes accounts: this asks them (App Store review 5.1.1(v)) */}
+          {/* the team owner and the admins delete accounts: this asks them (App Store review 5.1.1(v)) */}
           <Row label={t('accountDeletion.row')} hint={t('accountDeletion.rowHint')}>
             <Link to="/settings/account/delete" className="block text-sm text-accent-text underline-offset-2 hover:underline sm:text-right" data-testid="account-deletion-link">
               {t('accountDeletion.title')}
@@ -256,7 +258,84 @@ function Profile() {
           ))}
         </div>
       </Section>
+      <TextSizeSetting />
     </>
+  )
+}
+
+/** 글자 크기, like a phone's Text Size: a slider from a small to a large letter, five steps (lib/textSize.ts). The line
+ * under it reads at the chosen size. The whole app takes the size when the slider is let go, or at once with the keyboard
+ * or a tap (its change event): taking it during a drag would move the slider under the pointer. 기본 is the way back (no
+ * reset button). Saved to the account a moment after the last change, so a few quick steps are one save. */
+function TextSizeSetting() {
+  const t = useT()
+  const locale = useLocale()
+  const setTextSize = useSession((s) => s.setTextSize)
+  // what the app uses (also when the account's size arrives while this is open), and what the slider points at
+  const applied = useTextSize()
+  const [size, setSize] = useState<TextSize>(applied)
+  useEffect(() => setSize(applied), [applied])
+  const input = useRef<HTMLInputElement>(null)
+  const pending = useRef<{ size: TextSize; timer: ReturnType<typeof setTimeout> } | null>(null)
+  const save = (s: TextSize) => void setTextSize(s).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))
+  const commit = (s: TextSize) => {
+    setSize(s)
+    pickTextSize(s)
+    if (pending.current) clearTimeout(pending.current.timer)
+    pending.current = { size: s, timer: setTimeout(() => { pending.current = null; save(s) }, 400) }
+  }
+  const latest = useRef(commit)
+  latest.current = commit
+  useEffect(() => {
+    const el = input.current
+    const onChange = () => latest.current(TEXT_SIZES[Number(el?.value)] ?? 'default')
+    el?.addEventListener('change', onChange)
+    return () => {
+      el?.removeEventListener('change', onChange)
+      // closing Settings right after a change still saves it
+      const p = pending.current
+      if (p) { clearTimeout(p.timer); save(p.size) }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const ticks = useId()
+  const glyph = t('settings.textSize.glyph')
+  // during a drag the line under the slider shows the size it points at
+  const ratio = TEXT_SIZE_PERCENT[size] / TEXT_SIZE_PERCENT[applied]
+  return (
+    <Section title={t('settings.textSize')}>
+      <div className="flex max-w-md items-center gap-3">
+        <span aria-hidden className="w-6 shrink-0 text-center text-xs text-muted">{glyph}</span>
+        <input
+          ref={input}
+          type="range"
+          min={0}
+          max={TEXT_SIZES.length - 1}
+          step={1}
+          value={TEXT_SIZES.indexOf(size)}
+          onChange={(e) => setSize(TEXT_SIZES[Number(e.target.value)] ?? 'default')}
+          // a touch that turned into a scroll ends with no change event: the slider goes back to the size in use
+          onPointerCancel={() => setSize(applied)}
+          list={ticks}
+          aria-label={t('settings.textSize')}
+          aria-valuetext={t(`settings.textSize.${size}`)}
+          className="h-8 min-w-0 flex-1 cursor-pointer accent-accent"
+          data-testid="text-size"
+        />
+        <datalist id={ticks}>
+          {TEXT_SIZES.map((x, i) => <option key={x} value={i} />)}
+        </datalist>
+        <span aria-hidden className="w-6 shrink-0 text-center text-xl text-muted">{glyph}</span>
+      </div>
+      <p
+        className="mt-2 text-reading leading-reading"
+        style={ratio === 1 ? undefined : { fontSize: `calc(var(--text-reading) * ${ratio})`, lineHeight: `calc(var(--leading-reading) * ${ratio})` }}
+        data-testid="text-size-sample"
+      >
+        <span className="font-medium">{t(`settings.textSize.${size}`)}</span>
+        <span className="text-muted"> · {t('settings.textSize.sample')}</span>
+      </p>
+    </Section>
   )
 }
 
@@ -572,7 +651,8 @@ function Apps() {
   const t = useT()
   const p = platform()
   const me = useMeStrict()
-  // a Mac App Store build: the store updates it, so no installer here at all (lib/downloads.ts offeredDownloads)
+  // a Mac App Store or Microsoft Store build: the store updates it, so no installer here at all (lib/downloads.ts
+  // offeredDownloads)
   const store = storeApp()
   const [downloads, setDownloads] = useState<DownloadItem[] | null | 'none'>(null)
   useEffect(() => {
@@ -587,6 +667,7 @@ function Apps() {
   }, [])
   return (
     <>
+      <TeamAddressRow address={me.team.address} />
       {/* the desktop app and the phone app are already apps: no install guide there */}
       {installGuideShown() && (
         <Section title={t('apps.installTitle')} desc={t('apps.installDesc')}>
@@ -595,9 +676,31 @@ function Apps() {
       )}
       <Section title={t('apps.desktopTitle')} desc={t('apps.desktopDesc')}>
         <DesktopDownloads downloads={downloads} store={store} owner={me.user.role === 'owner'} here={p}
-          server={downloadsSourceOf(me.server)} />
+          server={downloadsSourceOf(me.server)} installHere={installGuideShown() && !isStandalone() && canInstallIn(browser())} />
       </Section>
     </>
+  )
+}
+
+/**
+ * The team's address, for a new device (docs/AGENTS/plan/20261108-0930-first-run-one-box.md): the desktop and phone
+ * apps take it in their one box. It comes from the server (GET /api/me team.address: the relay's or the public
+ * address), never from the address this page is at, and shows as the URL API gives it (punycode). No address known
+ * (the office network only): no row.
+ */
+export function TeamAddressRow({ address }: { address: string | undefined }) {
+  const t = useT()
+  const host = teamAddressHost(address)
+  if (!address || !host) return null
+  return (
+    <div className="mb-6" data-testid="apps-team-address">
+      <Row label={t('apps.teamAddress')} hint={t('apps.teamAddressHint')}>
+        <div className="flex items-center gap-2">
+          <span className="min-w-0 flex-1 break-all font-mono text-sm text-ink" data-testid="apps-team-address-host">{host}</span>
+          <CopyButton text={new URL(address).origin} showLabel className="shrink-0" />
+        </div>
+      </Row>
+    </div>
   )
 }
 
@@ -611,13 +714,34 @@ export const downloadsSourceOf = (server: Pick<Me['server'], 'deployment' | 'win
 const OWNER_HINT: Record<DownloadsSource, MessageKey | null> = { office: 'apps.noDownloadsOwner', feed: 'apps.noDownloadsOwnerFeed', folder: 'apps.noDownloadsOwnerLinux', hosted: null, 'hosted-feed': 'apps.noDownloadsOwnerHosted' }
 const FEED_HOST = (() => { try { return new URL(RELEASE_CHANNEL.feed).host } catch { return RELEASE_CHANNEL.feed } })()
 
-/** The installers under Settings > Apps > Desktop app (exported for tests). Inside a Mac App Store build only the App
- * Store line: no installer, no install steps, and not the empty state either (it asks for an installer and tells the
- * owner how to add the .dmg). */
-export function DesktopDownloads({ downloads, store, owner, here, server = 'office' }: { downloads: DownloadItem[] | null | 'none'; store: boolean; owner: boolean; here: Platform; server?: DownloadsSource }) {
+/** The installers under Settings > Apps > Desktop app (exported for tests). Inside a store build only the store's
+ * line (App Store on a Mac, Microsoft Store on Windows): no installer, no install steps, and not the empty state either (it asks for an installer and tells the
+ * owner how to add the .dmg). On a Mac or a Windows PC only this computer's installer is in sight: without one, a line
+ * says so (and, in a browser that can install the page, points at "Install as an app" above), and the other computer's
+ * installers are folded under one line. A phone or Linux lists them all, as before. */
+export function DesktopDownloads({ downloads, store, owner, here, server = 'office', installHere = false }: { downloads: DownloadItem[] | null | 'none'; store: boolean; owner: boolean; here: Platform; server?: DownloadsSource; /** a browser tab that can install the page as an app (the guide above is shown) */ installHere?: boolean }) {
   const t = useT()
   const locale = useLocale()
-  if (store) return <p className="text-sm text-muted">{t('apps.macStore')}</p>
+  const [othersOpen, setOthersOpen] = useState(false)
+  if (store) return <p className="text-sm text-muted">{t(here === 'windows' ? 'apps.windowsStore' : 'apps.macStore')}</p>
+  const item = (d: DownloadItem, list: DownloadItem[]) => (
+    <li key={d.file}>
+      <a href={`/downloads/${encodeURIComponent(d.file)}`} download className="inline-flex items-center gap-2 rounded-lg border border-field-border px-3 py-2 text-sm hover:bg-hover">
+        <Download size={15} aria-hidden /> {t(d.platform === 'mac' ? 'apps.mac' : 'apps.windows')} · v{d.version}
+        {d.size ? ` · ${formatSize(d.size, locale)}` : ''}
+      </a>
+      {d.platform === here && <Badge tone="accent" className="ml-2">{t('apps.thisComputer')}</Badge>}
+      {archNote(d) && <Badge tone="warn" className="ml-2">{t(archNote(d)!)}</Badge>}
+      {showSteps(list, d) && (
+        <ol className="mt-2 list-decimal space-y-1 break-keep pl-5 text-xs text-muted">
+          {installSteps(d).map((k) => (
+            <li key={k} className={k === 'apps.winSmartScreen' || k === 'apps.macGatekeeper' ? 'text-warn' : undefined}>{t(k)}</li>
+          ))}
+        </ol>
+      )}
+    </li>
+  )
+  const split = Array.isArray(downloads) ? splitDownloads(downloads, here) : null
   return (
     <>
       {downloads === null && <Skeleton lines={2} />}
@@ -627,26 +751,25 @@ export function DesktopDownloads({ downloads, store, owner, here, server = 'offi
           {owner && OWNER_HINT[server] && <p className="mt-2 text-xs text-muted">{t(OWNER_HINT[server]!, { feed: FEED_HOST })}</p>}
         </>
       )}
-      {Array.isArray(downloads) && (
-        <ul className="space-y-4">
-          {downloads.map((d) => (
-            <li key={d.file}>
-              <a href={`/downloads/${encodeURIComponent(d.file)}`} download className="inline-flex items-center gap-2 rounded-lg border border-field-border px-3 py-2 text-sm hover:bg-hover">
-                <Download size={15} aria-hidden /> {t(d.platform === 'mac' ? 'apps.mac' : 'apps.windows')} · v{d.version}
-                {d.size ? ` · ${formatSize(d.size, locale)}` : ''}
-              </a>
-              {d.platform === here && <Badge tone="accent" className="ml-2">{t('apps.thisComputer')}</Badge>}
-              {archNote(d) && <Badge tone="warn" className="ml-2">{t(archNote(d)!)}</Badge>}
-              {showSteps(downloads, d) && (
-                <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs text-muted">
-                  {installSteps(d).map((k) => (
-                    <li key={k} className={k === 'apps.winSmartScreen' || k === 'apps.macGatekeeper' ? 'text-warn' : undefined}>{t(k)}</li>
-                  ))}
-                </ol>
-              )}
-            </li>
-          ))}
-        </ul>
+      {split && !split.computer && <ul className="space-y-4">{split.others.map((d) => item(d, split.others))}</ul>}
+      {split?.computer && (
+        <div className="space-y-3">
+          {split.mine.length ? <ul className="space-y-4">{split.mine.map((d) => item(d, split.mine))}</ul> : (
+            <p className="break-keep text-sm text-muted" data-testid="desktop-none-here">
+              {t(here === 'mac' ? 'apps.noMacApp' : 'apps.noWindowsApp')}
+              {installHere && <> {t('apps.installInstead')}</>}
+            </p>
+          )}
+          {split.others.length > 0 && (
+            // the other kind of computer's installers: reachable, not in the way
+            <details className="group" open={othersOpen} onToggle={(e) => setOthersOpen(e.currentTarget.open)} data-testid="desktop-others">
+              <summary className="-mx-2 flex h-9 w-fit cursor-pointer list-none items-center gap-1.5 rounded-lg px-2 text-sm text-muted hover:bg-hover [&::-webkit-details-marker]:hidden">
+                <ChevronDown size={15} className="shrink-0 transition group-open:rotate-180" aria-hidden /> {t('apps.otherComputers')}
+              </summary>
+              {othersOpen && <ul className="mt-2 space-y-4">{split.others.map((d) => item(d, split.others))}</ul>}
+            </details>
+          )}
+        </div>
       )}
     </>
   )

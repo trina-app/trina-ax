@@ -6,11 +6,12 @@
 //   └───────────────────────────────────────┴─────┘
 //   shell view (welcome.html) covers everything when no team is open, the team list is shown, or the team
 //   server cannot be reached.
-import { BaseWindow, dialog, Notification, session, WebContentsView, type Session } from 'electron'
+import { app as electronApp, BaseWindow, dialog, net, Notification, session, WebContentsView, type Session } from 'electron'
 import { join } from 'node:path'
 import { PRODUCT, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
 import { Health, Me } from '@mycel/shared/api'
-import { isGatewayDown, originOf, parseTeamAddress, teamLabel, type AddressError } from '../common/address'
+import { asksOutside, firstRunLinks, healthVerdict, hostLineNow, hostOf, originOf, parseTeamAddress, readDesktopLink, teamLabel, type AddressError, type HealthAnswer } from '../common/address'
+import { LinkGate } from '@mycel/shared/team-link'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { teamHostnames } from '../common/browser-block'
 import { SitePermissions, type SiteSettings } from '../common/site-permissions'
@@ -18,10 +19,13 @@ import { browserOwnerChange, type MeResult } from '../common/browser-owner'
 import { addTeam, findTeam, partitionFor, removeTeam, sortedTeams, touchTeam, updateTeam, type DirectInfo, type TeamEntry, type TeamsFile } from '../common/teams'
 import { isTrustedAppSender, UI_ORIGIN } from '../common/trust'
 import { openDialogChoice } from '../common/file-chooser'
+import { makeNotifier, platformNotifyDeps, type NotifyInput } from '../common/notify'
 import { directFromConnectInfo, fetchConnectInfo, lanFailureCode, lanFailureToReport, mirrorSessionCookie, pinCertificates, probeDirect, reportLanFailure, type ProbeResult } from './direct'
 import { BrowserPane, type PaneActivity, type PanePrompt } from './pane/pane'
 import { HostClassifier, sessionResolver } from './pane/classify'
 import { APP_WEB_PREFERENCES, guardAppView, guardUiView, hardenAppSession } from './security'
+import { attachContextMenu } from './context-menu'
+import type { FolderGrants } from '../common/folder-access'
 import type { TeamsStore } from './teams-store'
 import { debug } from './debug'
 
@@ -35,7 +39,20 @@ export interface WelcomeState {
   offline: { address: string } | null
   /** a kit build's team address, filled in on the first-run screen while no team is remembered (common/kit.ts) */
   suggested: string | null
+  /** the "no team yet" screen offers [팀 만들기] (not in the Mac App Store build: App Review 3.1.1) */
+  signup: boolean
+  /** screen ④: a link from outside waits for the person's yes (the host it would connect to; hosted: run by the hosted
+   * service). Nothing is fetched before the yes. */
+  link: { id: number; host: string; hosted: boolean } | null
+  /** a link from outside that cannot open a team: said once on ① */
+  linkError: string | null
 }
+
+/** What adding a team from the first-run screen came to. `confirmOutside`: the address answered but is not run by the
+ * hosted service and not remembered yet: the screen asks once, then calls again with `confirmed`. */
+export type AddTeamResult =
+  | { ok: true; teamId: string }
+  | { ok: false; error: AddressError | 'unreachable' | 'notTeamServer' | 'teamUnknown' | 'suspended' | 'confirmOutside' | 'renamed'; message: string; host?: string; next?: string }
 
 /**
  * How a request from the team page's Settings > Browser to turn on "Allow all websites" ended (bridge
@@ -55,11 +72,17 @@ export interface AppWindowOptions {
   suggestedTeam?: string | null
   /** the app answers the team page's file input with its own dialog (common/file-chooser.ts answersFileChoosers) */
   answerFileChoosers?: boolean
+  /** the Mac App Store build: no signup link on the first-run screen (common/address.ts firstRunLinks) */
+  macAppStore?: boolean
   /** the team list changed (the menu is rebuilt) */
   onTeamsChanged(): void
 }
 
 const MIN_PANE = 360
+/** the host strip above the team's sign-in pages (hostbar.html) */
+const HOSTBAR_HEIGHT = 36
+/** how long the strip waits for /api/me after a team page loaded before it takes space anyway */
+const HOSTBAR_WAIT_MS = 300
 const MIN_APP = 420
 const RECHECK_MS = 60_000
 /** a settings read from the team page re-reads the team's policy at most this often */
@@ -71,6 +94,8 @@ export class AppWindow {
   readonly win: BaseWindow
   readonly shell: WebContentsView
   readonly chrome: WebContentsView
+  /** the team address above the team's sign-in pages, drawn by the app (hostbar.html): a page cannot fake it */
+  readonly hostbar: WebContentsView
   app?: WebContentsView
   pane?: BrowserPane
   team?: TeamEntry
@@ -84,7 +109,27 @@ export class AppWindow {
   private recheckTimer?: NodeJS.Timeout
   private lastCheck = 0
   private configuredSessions = new WeakSet<Session>()
-  private notifyTimes: number[] = []
+  /** each team page session's folder window picks (common/folder-access.ts), forgotten when the person changes */
+  private folderGrants = new WeakMap<Session, FolderGrants>()
+  /** system notifications for the team page (common/notify.ts): unfocused only, one per tag, a click opens its
+   * address; a team switch closes them all */
+  private notifier = makeNotifier({
+    create: (n) => new Notification(n),
+    supported: () => Notification.isSupported(),
+    focused: () => this.win.isDestroyed() || this.win.isFocused(),
+    reveal: () => {
+      if (this.win.isDestroyed()) return
+      this.win.show()
+      this.win.focus()
+    },
+    open: (path) => this.send(this.app, 'bridge:open', path),
+    // "Mark as read" on a room notification: macOS only (Electron's buttons); the page calls the read API
+    markReadLabel: () => process.platform === 'darwin' ? t(this.o.locale(), 'notify.markRead') : null,
+    read: (token) => this.send(this.app, 'bridge:read', token),
+    // macOS asks about notifications once, when Electron first touches them: touching them is the question, while the
+    // window is in front (common/notify.ts ask); and it takes a notification it will not show (off, or not answered yet)
+    ...platformNotifyDeps(process.platform, () => Notification.isSupported()),
+  })
   /** team id + code -> last LAN failure report (at most one an hour; the server counts once per session per hour) */
   private lanReported = new Map<string, number>()
   /** GET /api/me in flight (team name and browser policy), and when the last one started */
@@ -95,6 +140,19 @@ export class AppWindow {
   private allowAllUntil = 0
   /** the open dialog for the team page's file input is showing (one at a time) */
   private choosingFiles = false
+  /** the path of the team page on screen ('' before it loads): its sign-in pages get the host strip */
+  private pagePath = ''
+  /** the team answered GET /api/me for a signed-in person (fetchTeamInfo); until then the host strip is on, on every
+   * page (a page can look like a sign-in page at any address) */
+  private signedIn = false
+  /** /api/me answered for this team page (either way), and the short wait after the page loaded is over: until one of
+   * them, a page that is not a sign-in page gets no strip yet, so a signed-in open does not jump (shared hostLineNow) */
+  private meAnswered = false
+  private stripWaited = false
+  private stripTimer?: NodeJS.Timeout
+  /** screen ④: the link from outside that waits for a yes (shared/src/team-link.ts LinkGate) */
+  private linkGate = new LinkGate()
+  private linkError: string | null = null
 
   constructor(private o: AppWindowOptions) {
     this.teams = o.store.load()
@@ -112,18 +170,31 @@ export class AppWindow {
     const uiPrefs = { preload: join(o.distDir, 'preload-ui.cjs'), ...APP_WEB_PREFERENCES, partition: 'mycel-ui' }
     this.shell = new WebContentsView({ webPreferences: uiPrefs })
     this.chrome = new WebContentsView({ webPreferences: uiPrefs })
-    for (const v of [this.shell, this.chrome]) guardUiView(v.webContents)
+    this.hostbar = new WebContentsView({ webPreferences: uiPrefs })
+    for (const v of [this.shell, this.chrome, this.hostbar]) {
+      guardUiView(v.webContents)
+      // a right-click in the app's own text fields (the invite link box, the browser's address): the edit items
+      attachContextMenu(v.webContents, { window: this.win, locale: o.locale, allowedOrigins: () => [] })
+    }
     this.chrome.setBackgroundColor('#ECEAE4')
     void this.shell.webContents.loadURL(`${UI_ORIGIN}/welcome.html`)
     void this.chrome.webContents.loadURL(`${UI_ORIGIN}/pane.html`)
+    void this.hostbar.webContents.loadURL(`${UI_ORIGIN}/hostbar.html`)
     this.win.on('resize', () => this.layout())
-    this.win.on('focus', () => void this.recheck(false))
+    this.win.on('focus', () => {
+      void this.recheck(false)
+      // "visible" for the team page's session markers is this window's focus (the in-app browser may hold the keys)
+      this.send(this.app, 'bridge:focus', true)
+      // a team opened while the window was in the back: the system's question now, while the person looks
+      if (this.app) this.notifier.ask()
+    })
+    this.win.on('blur', () => this.send(this.app, 'bridge:focus', false))
     this.win.on('close', () => {
       const [width, height] = this.win.getSize()
       o.store.saveWindow({ width, height, paneFraction: this.paneFraction })
       // close the views while the window still exists (WebContentsView contents are not closed with it)
       this.disposeTeam()
-      for (const v of [this.shell, this.chrome]) if (!v.webContents.isDestroyed()) v.webContents.close()
+      for (const v of [this.shell, this.chrome, this.hostbar]) if (!v.webContents.isDestroyed()) v.webContents.close()
       debug('window closed, team disposed')
     })
     this.layout()
@@ -150,36 +221,94 @@ export class AppWindow {
       canGoBack: Boolean(this.team && this.app),
       offline: this.mode === 'offline' && this.team ? { address: this.team.origin } : null,
       suggested: this.teamList().length ? null : (this.o.suggestedTeam ?? null),
+      signup: firstRunLinks({ macAppStore: this.o.macAppStore === true, korean: false }).signup !== null,
+      link: (() => { const l = this.linkGate.pending(); return l ? { id: l.id, host: l.host, hosted: l.hosted } : null })(),
+      linkError: this.linkError,
     }
+  }
+
+  /**
+   * A link from outside (`trina-ax://open?url=…`, main.ts: open-url, a second instance's or this one's command line):
+   * screen ④ asks "{host}에 연결할까요?" first. Nothing is fetched or loaded until the person's yes (answerLink); a
+   * link that cannot open a team says so on ①.
+   */
+  offerLink(raw: string) {
+    const p = readDesktopLink(raw)
+    if (p?.ok) {
+      this.linkGate.put(p)
+      this.linkError = null
+    } else if (!this.linkGate.pending()) this.linkError = t(this.o.locale(), 'link.bad') // a bad link never covers ④
+    this.showWelcome()
+  }
+
+  /** ④ is on screen for this offer: the yes counts only some time after this (shared LinkGate) */
+  linkShown(id: number) {
+    this.linkGate.shown(id, Date.now())
+  }
+
+  /** The person's answer on ④ for the host it showed: yes connects (the phase-1 path, the outside question answered by
+   * ④ itself); no goes back to the open team, if any. null: nothing to do (no link waiting, too soon, another host). */
+  async answerLink(yes: boolean, host: string): Promise<AddTeamResult | null> {
+    this.linkError = null
+    const offer = this.linkGate.answer(yes, host, Date.now())
+    if (!yes) {
+      this.sendWelcome()
+      if (this.team && this.app) this.back()
+      return null
+    }
+    if (!offer) return null
+    this.sendWelcome()
+    return this.addTeam(offer.origin + offer.entryPath, true)
+  }
+
+  /** The "no team yet" screen's buttons: the address is chosen here, never taken from the screen. */
+  firstRunLink(kind: 'signup' | 'docs'): string | null {
+    const links = firstRunLinks({ macAppStore: this.o.macAppStore === true, korean: this.o.locale() === 'ko' })
+    return kind === 'signup' ? links.signup : links.docs
+  }
+
+  /** The host strip's state: the team address the app connected to (punycode), never the office-network address. */
+  hostbarState(): { host: string } | null {
+    return this.team ? { host: hostOf(this.team.origin) } : null
   }
 
   private sendWelcome() {
     if (!this.shell.webContents.isDestroyed()) this.shell.webContents.send('ui:welcome-state', this.welcomeState())
   }
 
-  /** Check an address, remember it, open it. */
-  async addTeam(address: string): Promise<{ ok: true; teamId: string } | { ok: false; error: AddressError | 'unreachable' | 'notTeamServer'; message: string }> {
+  /**
+   * Check what was put in the first-run box, remember the team, open it on the link's page (an invite or team link opens
+   * its join page in the app). The address answers GET /api/health first; the relay's own answers (an unknown name, a
+   * suspended team, a rename) are told apart. The first connect to an address the hosted service does not run asks once
+   * (`confirmed` is the person's yes).
+   */
+  async addTeam(address: string, confirmed = false): Promise<AddTeamResult> {
+    this.linkError = null
     const p = parseTeamAddress(address)
     const L = this.o.locale()
     if (!p.ok) return { ok: false, error: p.error, message: t(L, `err.${p.error}` as UiKey) }
-    let health: Response
+    const fail = (error: 'unreachable' | 'notTeamServer' | 'teamUnknown' | 'suspended'): AddTeamResult => ({ ok: false, error, message: t(L, `err.${error}` as UiKey, { name: p.name ?? p.host }) })
+    let origin = p.origin
+    let v
     try {
-      health = await session.fromPartition('mycel-ui').fetch(`${p.origin}/api/health`, { signal: AbortSignal.timeout(8000), headers: { accept: 'application/json' } })
+      v = healthVerdict(origin, await fetchHealth(origin))
+      // a team renamed at its relay: one hop to its new <name>.<team domain>, and no further
+      if (!v.ok && 'rename' in v) {
+        origin = v.rename
+        v = healthVerdict(origin, await fetchHealth(origin))
+        if (!v.ok && 'rename' in v) return fail('notTeamServer')
+      }
     } catch {
-      return { ok: false, error: 'unreachable', message: t(L, 'err.unreachable') }
+      return fail('unreachable')
     }
-    // a tunnel / relay error page (e.g. Cloudflare 530 while the office's Mac is off) is "cannot reach", not "not a team server"
-    if (isGatewayDown(health.status)) return { ok: false, error: 'unreachable', message: t(L, 'err.unreachable') }
-    let body: unknown = null
-    try {
-      body = await health.json()
-    } catch {
-      body = null
-    }
-    if (!health.ok || !Health.safeParse(body).success) return { ok: false, error: 'notTeamServer', message: t(L, 'err.notTeamServer') }
-    const r = addTeam(this.teams, p.origin, teamLabel(p.origin), this.o.store.newTeamId(), new Date().toISOString())
+    if (!v.ok) return 'error' in v ? fail(v.error) : fail('notTeamServer')
+    const known = this.teams.teams.find((x) => x.origin === origin)
+    // the person sees the new address before it is remembered
+    if (origin !== p.origin && !known) return { ok: false, error: 'renamed', message: t(L, 'err.renamed', { host: hostOf(origin) }), host: hostOf(origin), next: origin + p.entryPath }
+    if (asksOutside({ hosted: p.hosted, dev: p.dev, known: Boolean(known), confirmed })) return { ok: false, error: 'confirmOutside', message: t(L, 'outside.body'), host: hostOf(origin) }
+    const r = addTeam(this.teams, origin, teamLabel(origin), this.o.store.newTeamId(), new Date().toISOString())
     if (!r.existed) this.saveTeams(r.file)
-    await this.openTeam(r.team.id)
+    await this.openTeam(r.team.id, p.entryPath)
     return { ok: true, teamId: r.team.id }
   }
 
@@ -210,6 +339,7 @@ export class AppWindow {
   }
 
   back() {
+    this.linkGate.clear()
     if (this.team && this.app) {
       this.mode = 'team'
       this.layout()
@@ -222,10 +352,18 @@ export class AppWindow {
     else this.showWelcome()
   }
 
-  async openTeam(id: string) {
+  /** Open a remembered team; `entryPath` is the page a pasted link leads to ('/invite/<t>', '/join#t=<t>'), else '/'. */
+  async openTeam(id: string, entryPath = '/') {
     const team = findTeam(this.teams, id)
     if (!team) return
-    if (this.team?.id === id && this.app && this.mode !== 'offline') return this.back()
+    // a team view takes over: a link that waited on ④ waits no more (it would come back confirmable later)
+    this.linkGate.clear()
+    this.linkError = null
+    if (this.team?.id === id && this.app && this.mode !== 'offline') {
+      // the team is open already: a link opens its page there (the address it shows now, office network or not)
+      if (entryPath !== '/' && this.currentOrigin) await this.app.webContents.loadURL(this.currentOrigin + entryPath).catch(() => {})
+      return this.back()
+    }
     debug('open team', id)
     this.disposeTeam()
     this.team = team
@@ -233,12 +371,21 @@ export class AppWindow {
     this.team = findTeam(this.teams, id)!
     this.fingerprintMismatch = false
     this.directOrigin = null
+    this.pagePath = ''
+    this.signedIn = false
+    this.meAnswered = false
+    this.stripWaited = false
+    clearTimeout(this.stripTimer)
+    this.stripTimer = undefined
+    this.sendHostbar()
 
     const appSes = session.fromPartition(partitionFor(id, 'app'))
     this.configureAppSession(appSes)
     const app = new WebContentsView({ webPreferences: { ...APP_WEB_PREFERENCES, session: appSes, preload: join(this.o.distDir, 'preload-app.cjs') } })
     app.setBackgroundColor('#FFFFFF')
     this.app = app
+    // a right-click: copy a photo, a link or text (Electron shows no menu of its own)
+    attachContextMenu(app.webContents, { window: this.win, locale: this.o.locale, allowedOrigins: () => this.allowedOrigins() })
     const failedNavigation = (url: string) => {
       if (this.app !== app || !this.team) return
       // the office address stopped answering (left the office, Wi-Fi changed): straight to the team address
@@ -291,6 +438,15 @@ export class AppWindow {
       // A request started before navigation may still carry the signed-out/previous session.
       void this.ensureBrowserOwner()
       void this.measureClock()
+      // the strip waits a moment for /api/me before it takes space (a signed-in open then never shows it)
+      if (originOf(url) && !this.meAnswered && !this.stripWaited && !this.stripTimer) {
+        this.stripTimer = setTimeout(() => {
+          this.stripTimer = undefined
+          if (this.app !== app) return
+          this.stripWaited = true
+          this.layout()
+        }, HOSTBAR_WAIT_MS)
+      }
     })
     app.webContents.on('render-process-gone', (_e, d) => {
       debug('team page renderer gone', d.reason)
@@ -298,8 +454,14 @@ export class AppWindow {
     })
     app.webContents.on('page-title-updated', () => this.updateTitle())
     // the team page is one app: signing in or out changes the route without a new page load
-    app.webContents.on('did-navigate-in-page', (_e, _url, isMainFrame) => {
-      if (isMainFrame && this.app === app) void this.ensureBrowserOwner()
+    app.webContents.on('did-navigate-in-page', (_e, url, isMainFrame) => {
+      if (isMainFrame && this.app === app) {
+        void this.ensureBrowserOwner()
+        this.pageAt(url)
+      }
+    })
+    app.webContents.on('did-navigate', (_e, url) => {
+      if (this.app === app) this.pageAt(url)
     })
 
     const browserSes = session.fromPartition(partitionFor(id, 'browser'))
@@ -341,7 +503,10 @@ export class AppWindow {
     // office network first when it answers with the pinned certificate within 1 s
     const origin = await this.pickOrigin()
     if (this.app !== app) return
-    await this.loadOrigin(origin, '/')
+    await this.loadOrigin(origin, entryPath)
+    // the team page is on screen: macOS's one question about notifications comes now, not with the first notification
+    // (that one only comes while the window is in the back, when nobody sees the question)
+    if (this.app === app) this.notifier.ask()
     this.scheduleRecheck()
     void this.learnDirect()
   }
@@ -394,7 +559,8 @@ export class AppWindow {
       const top = frameTree.frame as { id: string; url: string }
       if (top.id !== frameId || !isTrustedAppSender({ url: top.url, isTop: true, isAppView: this.app === app }, this.allowedOrigins())) return
       const { node } = await dbg.sendCommand('DOM.describeNode', { backendNodeId })
-      const r = await dialog.showOpenDialog(this.win, openDialogChoice({ multiple, attributes: node?.attributes }))
+      const L = this.o.locale()
+      const r = await dialog.showOpenDialog(this.win, openDialogChoice({ multiple, attributes: node?.attributes, home: electronApp.getPath('home'), claude: { message: t(L, 'files.claudeMessage'), button: t(L, 'files.claudeButton') } }))
       // cancelled: the input keeps what it had
       if (r.canceled || !r.filePaths.length || this.app !== app) return
       // the page loaded again meanwhile (a recheck moved it to the office address, a reload): backendNodeId now points
@@ -410,6 +576,10 @@ export class AppWindow {
 
   private disposeTeam() {
     clearInterval(this.recheckTimer)
+    // the team's notifications name its chats and open its addresses: none outlives the team page (session markers),
+    // and the dock's count was this team's (the next team page sets its own)
+    this.notifier.closeAll()
+    if (process.platform === 'darwin') electronApp.setBadgeCount(0)
     this.pane?.dispose()
     this.pane = undefined
     if (this.app) {
@@ -424,7 +594,7 @@ export class AppWindow {
   private configureAppSession(ses: Session) {
     if (this.configuredSessions.has(ses)) return
     this.configuredSessions.add(ses)
-    hardenAppSession(ses, () => this.allowedOrigins())
+    this.folderGrants.set(ses, hardenAppSession(ses, () => this.allowedOrigins()))
     pinCertificates(
       ses,
       () => (this.team ? this.team.direct : null),
@@ -484,12 +654,21 @@ export class AppWindow {
     try {
       const res = await this.app.webContents.session.fetch(`${this.currentOrigin}/api/me`, { signal: AbortSignal.timeout(5000) })
       if (res.status === 401) {
-        if (this.team?.id === team.id) await this.checkBrowserOwner(team.id, pane, { signedIn: false })
+        if (this.team?.id === team.id) {
+          this.setSignedIn(false)
+          this.folderPerson({ signedIn: false })
+          await this.checkBrowserOwner(team.id, pane, { signedIn: false })
+        }
         return false
       }
-      if (!res.ok) return false
+      if (!res.ok) {
+        if (this.team?.id === team.id) this.setSignedIn(false)
+        return false
+      }
       const me = Me.safeParse(await res.json())
+      if (this.team?.id === team.id) this.setSignedIn(me.success)
       if (!me.success || this.team?.id !== team.id || this.pane !== pane) return false
+      this.folderPerson({ signedIn: true, userId: me.data.user.id })
       await this.checkBrowserOwner(team.id, pane, { signedIn: true, userId: me.data.user.id })
       const allowAll = me.data.team.browserAllowAll
       if (typeof allowAll === 'boolean' && pane && this.pane === pane) pane.setTeamPolicy(allowAll)
@@ -503,6 +682,12 @@ export class AppWindow {
       // Keep the label offline, but a browser call must not use an unverified identity.
       return false
     }
+  }
+
+  /** The folders picked in the team page's folder window belong to the person who picked them (docs/DECISIONS.md
+   * "W6"): a sign-out or another person signing in on this team forgets them. */
+  private folderPerson(me: MeResult) {
+    if (this.app && !this.app.webContents.isDestroyed()) this.folderGrants.get(this.app.webContents.session)?.person(me)
   }
 
   /**
@@ -737,6 +922,7 @@ export class AppWindow {
     }
     if (this.mode !== 'team' || !this.app) {
       hide(this.app)
+      hide(this.hostbar)
       this.pane?.setBounds(null)
       show(this.shell, { x: 0, y: 0, width: w, height: h })
       return
@@ -745,7 +931,12 @@ export class AppWindow {
     const paneOpen = Boolean(this.pane?.open)
     let pw = 0
     if (paneOpen) pw = w < MIN_PANE + MIN_APP ? w : clamp(Math.round(w * this.paneFraction), MIN_PANE, w - MIN_APP)
-    show(this.app, { x: 0, y: 0, width: Math.max(0, w - pw), height: h })
+    // the team address above the page (drawn by the app): on the sign-in pages, and on every page until the team said
+    // who is signed in
+    const top = hostLineNow({ path: this.pagePath, signedIn: this.signedIn, answered: this.meAnswered, waited: this.stripWaited }) ? HOSTBAR_HEIGHT : 0
+    if (top) show(this.hostbar, { x: 0, y: 0, width: Math.max(0, w - pw), height: top })
+    else hide(this.hostbar)
+    show(this.app, { x: 0, y: top, width: Math.max(0, w - pw), height: Math.max(0, h - top) })
     this.pane?.setBounds(paneOpen ? { x: w - pw, y: 0, width: pw, height: h } : null)
   }
 
@@ -762,7 +953,34 @@ export class AppWindow {
   localeChanged(payload: { locale: UiLocale; strings: Record<UiKey, string> }) {
     this.send(this.shell, 'ui:locale', payload)
     this.send(this.chrome, 'ui:locale', payload)
+    this.send(this.hostbar, 'ui:locale', payload)
     this.updateTitle()
+  }
+
+  /** The team page moved: the host strip shows on its sign-in pages, and on every page until /api/me answered. */
+  private pageAt(url: string) {
+    let path = ''
+    try {
+      path = new URL(url).pathname
+    } catch {
+      path = ''
+    }
+    const page = originOf(url) ? path : ''
+    if (page === this.pagePath) return
+    this.pagePath = page
+    this.sendHostbar()
+    this.layout()
+  }
+
+  private setSignedIn(signedIn: boolean) {
+    if (signedIn === this.signedIn && this.meAnswered) return
+    this.signedIn = signedIn
+    this.meAnswered = true
+    this.layout()
+  }
+
+  private sendHostbar() {
+    this.send(this.hostbar, 'ui:hostbar', this.hostbarState())
   }
 
   // ----------------------------------------------------------- messaging
@@ -777,19 +995,66 @@ export class AppWindow {
     this.layout()
   }
 
-  notify(n: { title: string; body: string }) {
-    if (this.win.isDestroyed() || this.win.isFocused() || !Notification.isSupported()) return
-    const now = Date.now()
-    this.notifyTimes = this.notifyTimes.filter((x) => x > now - 60_000)
-    if (this.notifyTimes.length >= 10) return
-    this.notifyTimes.push(now)
-    const note = new Notification({ title: n.title.slice(0, 200), body: n.body.slice(0, 1000) })
-    note.on('click', () => {
-      this.win.show()
-      this.win.focus()
-    })
-    note.show()
+  /** The team page's notification: only while the window is not focused; a click shows the window and opens the
+   * address it named (a chat, a room), one per tag (common/notify.ts). */
+  notify(n: NotifyInput) {
+    this.notifier.notify(n)
   }
+
+  /** Settings › Notifications' test notification: shown even while the window is focused (the person asked for it), in
+   * the app's own words (never the page's); says whether the system took it (common/notify.ts test). */
+  testNotify() {
+    const L = this.o.locale()
+    return this.notifier.test({ title: t(L, 'notify.test.title'), body: t(L, 'notify.test.body') })
+  }
+}
+
+/**
+ * GET <origin>/api/health without following a redirect (net.fetch has no usable 'manual': it throws), through the
+ * app's own session, with an 8 s limit and at most 64 KB read. A 3xx comes back with its Location for healthVerdict.
+ */
+function fetchHealth(origin: string): Promise<HealthAnswer> {
+  return new Promise((resolve, reject) => {
+    const req = net.request({ url: `${origin}/api/health`, method: 'GET', session: session.fromPartition('mycel-ui'), redirect: 'manual', useSessionCookies: false })
+    req.setHeader('accept', 'application/json')
+    const timer = setTimeout(() => {
+      req.abort()
+      reject(new Error('timeout'))
+    }, 8000)
+    req.on('redirect', (status, _method, location) => {
+      clearTimeout(timer)
+      req.abort()
+      resolve({ status, location, relayError: null, bodyOk: false })
+    })
+    req.on('response', (res) => {
+      const chunks: Buffer[] = []
+      let size = 0
+      res.on('data', (c: Buffer) => {
+        size += c.length
+        if (size <= 65_536) chunks.push(c)
+      })
+      res.on('end', () => {
+        clearTimeout(timer)
+        const header = res.headers['x-relay-error']
+        let bodyOk = false
+        try {
+          bodyOk = size <= 65_536 && Health.safeParse(JSON.parse(Buffer.concat(chunks).toString('utf8'))).success
+        } catch {
+          bodyOk = false
+        }
+        resolve({ status: res.statusCode, location: null, relayError: (Array.isArray(header) ? header[0] : header) ?? null, bodyOk })
+      })
+      res.on('error', (e: Error) => {
+        clearTimeout(timer)
+        reject(e)
+      })
+    })
+    req.on('error', (e) => {
+      clearTimeout(timer)
+      reject(e)
+    })
+    req.end()
+  })
 }
 
 function clamp(v: number, lo: number, hi: number) {

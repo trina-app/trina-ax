@@ -11,6 +11,11 @@ import { UserRef } from './entities'
 export const CredentialKind = z.enum(['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'])
 export type CredentialKind = z.infer<typeof CredentialKind>
 export const CREDENTIAL_KINDS = CredentialKind.options
+/** Kinds whose caller sets the address that receives the team's conversations. None today: every kind goes to its
+ * provider's fixed address (the Anthropic gateway is the operator's server.json, not the caller's). A kind that takes
+ * a caller-supplied base URL must be listed here, and the routes then ask for the password for it
+ * (docs/DECISIONS.md "No password for the team's official AI accounts"). */
+export const CUSTOM_ADDRESS_KINDS: readonly CredentialKind[] = []
 /** subscription kinds: no price per request (cost 0), the owner confirms the plan notice when adding one */
 export const SUBSCRIPTION_KINDS: readonly CredentialKind[] = ['anthropic-oauth', 'chatgpt']
 /** which engine a kind serves */
@@ -54,7 +59,7 @@ export const Credential = z.object({
   planType: z.string().nullable(),
   expiresAt: IsoTime.nullable(), limitedUntil: IsoTime.nullable(), checkedAt: IsoTime.nullable(), lastUsedAt: IsoTime.nullable(),
   spendLimit: SpendLimit,
-  /** this month (server time zone), counted per request by the model proxy; cost only for API keys (estimate) */
+  /** this month (team time zone), counted per request by the model proxy; cost only for API keys (estimate) */
   month: z.object({ usd: z.number(), tokens: z.number().int(), requests: z.number().int() }),
   createdAt: IsoTime,
 })
@@ -69,7 +74,6 @@ export const CredentialsResponse = z.object({
 })
 export type CredentialsResponse = z.infer<typeof CredentialsResponse>
 const Label = z.string().trim().min(1).max(60)
-const Reauth = { password: z.string().min(1).max(256) }
 export const CreateCredentialBody = z.object({
   kind: CredentialKind.exclude(['chatgpt']), label: Label, sealed: SealedSecret,
   assignments: z.array(CredentialAssignment).max(200).default([]), priority: z.number().int().min(0).max(1000).default(100),
@@ -78,13 +82,13 @@ export const CreateCredentialBody = z.object({
   /** "Move it to the team": the id of a member's personal connection that holds this same token / key (the 409's
    * `params.credentialId` with `movable`). That personal connection is removed and this team connection made in one
    * step, and its owner is told. The sealed secret proves the owner holds the token; anything else is still a 409. */
-  moveFrom: Uuid7.optional(), ...Reauth,
+  moveFrom: Uuid7.optional(),
 })
 export const UpdateCredentialBody = z.object({
   label: Label.optional(), priority: z.number().int().min(0).max(1000).optional(), disabled: z.boolean().optional(),
   assignments: z.array(CredentialAssignment).max(200).optional(), spendLimit: SpendLimit.optional(),
 })
-export const ReplaceSecretBody = z.object({ sealed: SealedSecret, ...Reauth })
+export const ReplaceSecretBody = z.object({ sealed: SealedSecret })
 export const LoginId = z.string().regex(/^[A-Za-z0-9_-]{16,64}$/)
 /** what a sign-in in the browser connects: a ChatGPT plan (device code, `codex login --device-auth`) or a Claude
  * subscription (`claude setup-token`: an address to approve, then the code Claude shows is pasted back) */
@@ -96,7 +100,7 @@ export const StartCredentialLoginBody = z.object({
   label: Label, assignments: z.array(CredentialAssignment).max(200).default([]), priority: z.number().int().min(0).max(1000).default(100),
   reconnectId: Uuid7.optional(),
   /** both are subscription kinds: true required */
-  acknowledgedPlanNotice: z.literal(true), ...Reauth,
+  acknowledgedPlanNotice: z.literal(true),
 })
 /** starting → code (ChatGPT: url + code to enter there; Claude: url to approve, then a code to paste back) → checking
  * (Claude: the pasted code is being exchanged and the token checked) → done | failed | expired | cancelled */
@@ -118,18 +122,23 @@ export const DuplicateCredentialParams = z.object({
   where: z.enum(['team', 'personal', 'own', 'elsewhere']),
   credentialId: Uuid7.optional(), label: z.string().optional(), ownerId: z.string().optional(), ownerName: z.string().optional(),
   /** adding a team connection: the copy is a personal connection the owner can move to the team (send again with
-   * `moveFrom: credentialId`, password re-entered) */
+   * `moveFrom: credentialId`; the sealed secret is the proof, no password) */
   movable: z.boolean().optional(),
 })
 export type DuplicateCredentialParams = z.infer<typeof DuplicateCredentialParams>
+/** The 409/busy `params` of a sign-in start for an owner or an admin: a sign-in is already running (one at a time on a
+ * server). Whose it is and whether it is the team's or a member's own, so it can be stopped from the dialog
+ * (DELETE /api/admin/credential-logins/:id works for any of them). A member starting their own gets none of this. */
+export const LoginBusyParams = z.object({ reason: z.literal('login_busy'), loginId: z.string(), personal: z.boolean(), starter: z.string() })
+export type LoginBusyParams = z.infer<typeof LoginBusyParams>
 export const CredentialSettings = z.object({ memberOwn: z.boolean(), sharedSubscriptions: z.boolean() })
 export const UpdateCredentialSettingsBody = CredentialSettings.partial().extend({
   /** Required when enabling shared subscriptions; not a grant of hosting/resale rights. */
   acknowledgedSharedSubscriptionRisk: z.boolean().optional(),
 })
 export const MyCredentialsResponse = z.object({ allowed: z.boolean(), allowedKinds: z.array(CredentialKind), items: z.array(Credential), anthropicGateway: z.object({ label: z.string() }).nullable().optional() })
-export const CreateMyCredentialBody = CreateCredentialBody.omit({ assignments: true, priority: true, moveFrom: true, password: true })
-export const StartMyLoginBody = StartCredentialLoginBody.omit({ assignments: true, priority: true, password: true })
+export const CreateMyCredentialBody = CreateCredentialBody.omit({ assignments: true, priority: true, moveFrom: true })
+export const StartMyLoginBody = StartCredentialLoginBody.omit({ assignments: true, priority: true })
 
 /** Stream A (onboarding): can I use AI now, and what can I do if not. `requested`: I already asked the owner. `trial`:
  * nothing answers me because the hosting service's trial AI credit (stream B) is used up or over; the line above the
@@ -158,18 +167,18 @@ export type TrialCreditResponse = z.infer<typeof TrialCreditResponse>
 
 export const CREDENTIALS = {
   getAiAccess: endpoint({ method: 'GET', path: '/api/me/ai-access', auth: 'user', owner: 'A', response: AiAccessResponse, summary: 'Can I use AI now, which button fits me (connect for the team / connect my own / ask the owner), and did I already ask.' }),
-  requestAiAccess: endpoint({ method: 'POST', path: '/api/me/ai-access/request', auth: 'user', owner: 'A', response: AiAccessRequestResponse, summary: 'Tell the owner(s) I have no AI connection: one inbox notice per owner, a second ask changes nothing. Not for the owner, nor for someone who can use AI.' }),
+  requestAiAccess: endpoint({ method: 'POST', path: '/api/me/ai-access/request', auth: 'user', owner: 'A', response: AiAccessRequestResponse, summary: 'Tell the owner(s) and admins I have no AI connection: one inbox notice per owner or admin, a second ask changes nothing. Not for the owner or an admin, nor for someone who can use AI.' }),
   listCredentials: endpoint({ method: 'GET', path: '/api/admin/credentials', auth: 'admin', owner: 'A', response: CredentialsResponse, summary: 'AI connections of the team (and that members have their own), with state and this month\'s use. Never a secret.' }),
-  createCredential: endpoint({ method: 'POST', path: '/api/admin/credentials', auth: 'owner-reauth', owner: 'A', status: 201, body: CreateCredentialBody, response: Credential, summary: 'Add a Claude subscription token or an API key (sealed in the browser); checked without spending tokens. Already connected: 409 saying where (DuplicateCredentialParams); with moveFrom, a member\'s personal copy moves to the team.' }),
-  updateCredential: endpoint({ method: 'PATCH', path: '/api/admin/credentials/:id', auth: 'owner', owner: 'A', body: UpdateCredentialBody, response: Credential, summary: 'Rename, order, switch off, assign to groups / people, monthly limit.' }),
-  replaceCredentialSecret: endpoint({ method: 'POST', path: '/api/admin/credentials/:id/secret', auth: 'owner-reauth', owner: 'A', body: ReplaceSecretBody, response: Credential, summary: 'Put a new token / key on an existing connection (same kind).' }),
-  deleteCredential: endpoint({ method: 'DELETE', path: '/api/admin/credentials/:id', auth: 'owner', owner: 'A', response: empty, status: 204, summary: 'Remove a connection (usage history stays).' }),
+  createCredential: endpoint({ method: 'POST', path: '/api/admin/credentials', auth: 'admin', owner: 'A', status: 201, body: CreateCredentialBody, response: Credential, summary: 'Add a Claude subscription token or an API key (sealed in the browser); checked without spending tokens. Already connected: 409 saying where (DuplicateCredentialParams); with moveFrom, a member\'s personal copy moves to the team.' }),
+  updateCredential: endpoint({ method: 'PATCH', path: '/api/admin/credentials/:id', auth: 'admin', owner: 'A', body: UpdateCredentialBody, response: Credential, summary: 'Rename, order, switch off, assign to groups / people, monthly limit.' }),
+  replaceCredentialSecret: endpoint({ method: 'POST', path: '/api/admin/credentials/:id/secret', auth: 'admin', owner: 'A', body: ReplaceSecretBody, response: Credential, summary: 'Put a new token / key on an existing connection (same kind).' }),
+  deleteCredential: endpoint({ method: 'DELETE', path: '/api/admin/credentials/:id', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Remove a connection (usage history stays).' }),
   checkCredential: endpoint({ method: 'POST', path: '/api/admin/credentials/:id/check', auth: 'admin', owner: 'A', response: Credential, summary: 'Check a connection again now, without spending tokens.' }),
-  startCredentialLogin: endpoint({ method: 'POST', path: '/api/admin/credential-logins', auth: 'owner-reauth', owner: 'A', status: 202, body: StartCredentialLoginBody, response: CredentialLogin, summary: 'Start a ChatGPT (device code) or Claude (setup-token) sign-in for the team; progress on WebSocket credential.login.' }),
-  getCredentialLogin: endpoint({ method: 'GET', path: '/api/admin/credential-logins/:id', auth: 'owner', owner: 'A', response: CredentialLogin, summary: 'State of a sign-in this owner started.' }),
-  cancelCredentialLogin: endpoint({ method: 'DELETE', path: '/api/admin/credential-logins/:id', auth: 'owner', owner: 'A', response: empty, status: 204, summary: 'Stop a sign-in.' }),
-  submitCredentialLoginCode: endpoint({ method: 'POST', path: '/api/admin/credential-logins/:id/code', auth: 'owner', owner: 'A', body: SubmitLoginCodeBody, response: CredentialLogin, summary: 'The code Claude showed after approval (sealed), for a Claude sign-in this owner started.' }),
-  updateCredentialSettings: endpoint({ method: 'PATCH', path: '/api/admin/credential-settings', auth: 'owner', owner: 'A', body: UpdateCredentialSettingsBody, response: CredentialSettings, summary: 'Personal connections and explicit shared-subscription consent.' }),
+  startCredentialLogin: endpoint({ method: 'POST', path: '/api/admin/credential-logins', auth: 'admin', owner: 'A', status: 202, body: StartCredentialLoginBody, response: CredentialLogin, summary: 'Start a ChatGPT (device code) or Claude (setup-token) sign-in for the team; progress on WebSocket credential.login.' }),
+  getCredentialLogin: endpoint({ method: 'GET', path: '/api/admin/credential-logins/:id', auth: 'admin', owner: 'A', response: CredentialLogin, summary: 'State of a sign-in this person started (the owner or an admin; no one else can read it).' }),
+  cancelCredentialLogin: endpoint({ method: 'DELETE', path: '/api/admin/credential-logins/:id', auth: 'admin', owner: 'A', response: empty, status: 204, summary: 'Stop a sign-in: the person who started it, or the owner or an admin for any (also a member\'s own, who is told). Only one runs at a time; a start while one runs answers 409 with LoginBusyParams.' }),
+  submitCredentialLoginCode: endpoint({ method: 'POST', path: '/api/admin/credential-logins/:id/code', auth: 'admin', owner: 'A', body: SubmitLoginCodeBody, response: CredentialLogin, summary: 'The code Claude showed after approval (sealed), for a Claude sign-in this person started.' }),
+  updateCredentialSettings: endpoint({ method: 'PATCH', path: '/api/admin/credential-settings', auth: 'admin', owner: 'A', body: UpdateCredentialSettingsBody, response: CredentialSettings, summary: 'Personal connections and explicit shared-subscription consent.' }),
   sealingKey: endpoint({ method: 'GET', path: '/api/credentials/sealing-key', auth: 'user', owner: 'A', response: SealingKey, summary: 'Public key the browser seals a token / key with before sending it.' }),
   myCredentials: endpoint({ method: 'GET', path: '/api/me/credentials', auth: 'user', owner: 'A', response: MyCredentialsResponse, summary: 'My own AI connections (when the team allows them).' }),
   createMyCredential: endpoint({ method: 'POST', path: '/api/me/credentials', auth: 'user', owner: 'A', status: 201, body: CreateMyCredentialBody, response: Credential, summary: 'Add my own Claude token or API key; used for my turns first.' }),

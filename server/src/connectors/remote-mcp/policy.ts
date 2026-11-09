@@ -1,6 +1,20 @@
 import crypto from 'node:crypto'
 export const MCP_PATH = '/mcp'
-export const SCOPES = ['mcp:read', 'mcp:write', 'offline_access'] as const
+export const SCOPES = ['mcp:read', 'mcp:write', 'mcp:rooms', 'mcp:rooms.write', 'mcp:admin', 'offline_access'] as const
+/** The team-admin tools (groups). A new connection of an active owner or admin gets it at consent, whatever the app
+ * asked for (the owner's decision, 2026-11-06); a member never does, and every call checks the role again (oauth.ts
+ * isTeamAdmin, tools.ts). An existing grant never gains it: a refresh only narrows. */
+export const ADMIN_SCOPE = 'mcp:admin'
+/** The person's team chat rooms (docs/DECISIONS.md "AI 앱에서 대화 읽고 쓰기"): reading them (rooms, room_read,
+ * room_file), a box ticked at first; sending a message as the person (room_send), its own box, unticked at first and
+ * only with reading. A grant made before them never gains them: a refresh only narrows, so a person reconnects. */
+export const ROOMS_SCOPE = 'mcp:rooms', ROOMS_WRITE_SCOPE = 'mcp:rooms.write'
+/**
+ * What the person chooses on the consent page, whatever the app asked for: MCP clients ask for what the 401 header
+ * names (mcp:read), so an asked-for list would never offer more. mcp:read is always granted; offline_access only when
+ * asked; mcp:admin by role, not by a box.
+ */
+export const OPTIONAL_SCOPES = ['mcp:write', ROOMS_SCOPE, ROOMS_WRITE_SCOPE] as const
 export const ACCESS_MS = 60 * 60_000, GRANT_MS = 30 * 86400_000, REQUEST_MS = 10 * 60_000, CODE_MS = 5 * 60_000
 export const hash = (value: string) => crypto.createHash('sha256').update(value).digest('hex')
 export const secret = (prefix = '') => prefix + crypto.randomBytes(32).toString('base64url')
@@ -12,11 +26,15 @@ export function validOrigin(value: unknown): string | null {
   if (typeof value !== 'string' || value.length > 1024) return null
   try { const u = new URL(value); return u.protocol === 'https:' && !u.username && !u.password && u.pathname === '/' && !u.search && !u.hash ? u.origin : null } catch { return null }
 }
-const HOSTED = 'https://claude.ai/api/mcp/auth_callback'
+/** The hosted apps' own callbacks: Claude (web, desktop and phone), and ChatGPT's connectors (its stable callback,
+ * used because metadata says every authorization response carries `iss`, RFC 9207). */
+const HOSTED = ['https://claude.ai/api/mcp/auth_callback', 'https://chatgpt.com/connector_platform_oauth_redirect']
+/** Where those apps call the connector from, when they send an Origin at all */
+export const HOSTED_ORIGINS: readonly string[] = ['https://claude.ai', 'https://chatgpt.com']
 function loopback(value: string): URL | null {
   try { const u = new URL(value); return u.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(u.hostname) && u.pathname === '/callback' && !u.username && !u.password && !u.search && !u.hash ? u : null } catch { return null }
 }
-export function redirectAllowed(value: string): boolean { return value === HOSTED || !!loopback(value) }
+export function redirectAllowed(value: string): boolean { return HOSTED.includes(value) || !!loopback(value) }
 export function redirectMatches(registered: string[], value: string): boolean {
   if (!redirectAllowed(value)) return false
   if (registered.includes(value)) return true

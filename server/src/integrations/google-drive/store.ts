@@ -12,13 +12,18 @@ export interface Account { subject: string; name: string | null; email: string |
 export interface Tokens { accessToken: string; refreshToken: string; expiresAt: number }
 export interface FlowSecret { verifier: string; tokens?: Tokens; account?: Account; scopes?: string[] }
 export interface ConnectionRow { id: string; user_id: string; config_key: string; account: string; scopes: string; secret_enc: string; key_version: number; status: 'connected' | 'needs_reconnect'; version: number; expires_at: string; updated_at: string }
-export interface FlowRow { id: string; user_id: string; session_id: string; state_hash: string; config_key: string; state: DriveFlow['state']; secret_enc: string | null; key_version: number; account: string | null; reason: string | null; expires_at: string }
+export interface FlowRow { id: string; user_id: string; session_id: string; state_hash: string; config_key: string; state: DriveFlow['state']; secret_enc: string | null; key_version: number; account: string | null; reason: string | null; expires_at: string; purpose: 'personal' | 'share'; share_id: string | null }
 
 export class DriveStore {
   vault: Vault
   constructor(readonly db: Database, readonly secretsDir: string, readonly now = Date.now) { this.vault = new Vault(secretsDir) }
   active(user: string) {
     if (!this.db.query("SELECT 1 FROM users WHERE id=? AND status='active' AND deleted_at IS NULL AND must_change_password=0").get(user)) throw new DriveError('access_denied', 403)
+  }
+  /** An active admin (or owner): only they create, change or stop a team share (shares.ts). */
+  admin(user: string) {
+    this.active(user)
+    if (!this.db.query("SELECT 1 FROM users WHERE id=? AND role IN ('owner','admin')").get(user)) throw new DriveError('access_denied', 403)
   }
   session(user: string, session: string) {
     this.active(user)

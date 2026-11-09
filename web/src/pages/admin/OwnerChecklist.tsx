@@ -2,12 +2,44 @@
 // time"; it was on Home before): AI connection · folder permissions · invite members · a team skill · a first backup.
 // Only what is still to do shows, and the section goes once everything is done or the owner hid it (per browser).
 // People who cannot use AI are Admin › Home's own "needs attention" line, not repeated here.
-import { ChevronRight, Circle, X } from 'lucide-react'
+// While the welcome steps are unfinished the steps are the owner's checklist (docs/DECISIONS.md "W5"): this one hides,
+// and when the owner hid the setup row (✕), one quiet "시작 설정 다시 보기" brings it back (OwnerSetup).
+import { ChevronRight, Circle, RotateCcw, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, API } from '../../lib/api'
 import { useT, type MessageKey } from '../../i18n'
+import { toast } from '../../store/ui'
+import { useWelcome } from '../../store/welcome'
 import { IconButton } from '../../components/ui'
+
+/** Admin › Home's setup part for the owner: while the welcome steps are unfinished nothing but, when the setup row was
+ * hidden, "시작 설정 다시 보기"; else the checklist below. Nothing until the steps' progress is read. */
+export function OwnerSetup() {
+  const t = useT()
+  const loaded = useWelcome((s) => s.loaded)
+  const progress = useWelcome((s) => s.progress)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { void useWelcome.getState().load().catch(() => {}) }, [])
+  if (!loaded) return null
+  if (!progress || progress.finishedAt) return <OwnerChecklist />
+  if (!progress.dismissedAt) return null
+  const back = () => {
+    setBusy(true)
+    void useWelcome.getState().update({ dismissed: false }).then(
+      () => toast({ level: 'success', text: t('setupRow.back') }),
+      () => toast({ level: 'error', text: t('error.network') }),
+    ).finally(() => setBusy(false))
+  }
+  return (
+    <section data-testid="owner-setup">
+      <button type="button" disabled={busy} onClick={back} className="flex w-full items-center gap-3 rounded-xl border border-line bg-surface px-4 py-2.5 text-left text-sm hover:bg-hover disabled:opacity-60" data-testid="owner-setup-show">
+        <RotateCcw size={15} className="shrink-0 text-faint" aria-hidden />
+        <span className="min-w-0 flex-1 truncate">{t('setupRow.show')}</span>
+      </button>
+    </section>
+  )
+}
 
 const CHECK_KEY = 'mycel.ownerChecklistHidden'
 
@@ -33,7 +65,7 @@ export function OwnerChecklist() {
     Promise.allSettled([api.call(API.engines), api.call(API.listUsers), api.call(API.listInvites), api.call(API.listFolders), api.call(API.listBackups), api.call(API.listSkills), api.call(API.getTeamLink)]).then(([e, u, i, f, b, sk, tl]) => {
       if (!live) return
       setSteps({
-        engine: e.status === 'fulfilled' && e.value.engines.some((x) => x.enabled && x.status === 'ok'),
+        engine: e.status === 'fulfilled' && e.value.engines.some((x) => x.enabled && (x.status === 'ok' || x.status === 'limited')),
         // the starting rules (shared/ and skills/, updatedBy null) come with every new team: done once someone set one
         folders: f.status === 'fulfilled' && f.value.items.some((x) => x.rules.some((r) => r.updatedBy !== null)),
         // invited: someone joined, an invite waits, or the team invite link works now (made in the welcome steps or

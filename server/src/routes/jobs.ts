@@ -33,7 +33,7 @@ export const jobsRoutes: RouteModule = {
     })
     kit.handle(API.transcribe, ({ c, body, auth }) => mapErrors(c.get('locale'), async () => {
       const chatId = body.fields.chatId
-      if (chatId) C.attachments.assertOwnChat(auth.user.id, chatId)
+      if (chatId) C.attachments.assertVoiceChat(auth.user.id, chatId)
       // a confidential chat's recording never goes to OpenRouter: refused before it is written anywhere
       C.checkTranscribe(auth.user.id, chatId)
       const name = body.file.name || 'audio.webm'

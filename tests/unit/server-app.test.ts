@@ -53,6 +53,7 @@ const T = {
   adminOnly: endpoint({ method: 'GET', path: '/api/test/admin', auth: 'admin', owner: 'A', response: z.object({ ok: z.boolean() }), summary: 'admin test' }),
   ownerOnly: endpoint({ method: 'GET', path: '/api/test/owner', auth: 'owner', owner: 'A', response: z.object({ ok: z.boolean() }), summary: 'owner test' }),
   reauth: endpoint({ method: 'POST', path: '/api/test/reauth', auth: 'owner-reauth', owner: 'G', body: z.object({ password: z.string() }), response: empty, status: 204, summary: 'reauth test' }),
+  adminReauth: endpoint({ method: 'POST', path: '/api/test/admin-reauth', auth: 'admin-reauth', owner: 'G', body: z.object({ password: z.string() }), response: empty, status: 204, summary: 'admin reauth test' }),
   badResponse: endpoint({ method: 'GET', path: '/api/test/bad', auth: 'public', owner: 'G', response: z.object({ n: z.number() }), summary: 'returns off-contract data' }),
   boom: endpoint({ method: 'GET', path: '/api/test/boom', auth: 'public', owner: 'G', response: z.object({}), summary: 'throws' }),
   conflict: endpoint({ method: 'GET', path: '/api/test/conflict', auth: 'public', owner: 'G', response: z.object({}), summary: 'HttpError' }),
@@ -67,6 +68,7 @@ const testModule: RouteModule = {
     kit.handle(T.adminOnly, () => ({ ok: true }))
     kit.handle(T.ownerOnly, () => ({ ok: true }))
     kit.handle(T.reauth, () => {})
+    kit.handle(T.adminReauth, () => {})
     kit.handle(T.badResponse, () => ({ n: 'not a number' }) as unknown as { n: number })
     kit.handle(T.boom, () => { throw new Error('kaboom') })
     kit.handle(T.conflict, () => fail('conflict', 'Someone else saved first.'))
@@ -118,6 +120,18 @@ describe('auth levels', () => {
     expect((await req('/api/test/reauth', { ...json({ password: 'nope' }), as: 'owner' })).status).toBe(403)
     expect((await req('/api/test/reauth', { ...json({ password: 'correct horse' }), as: 'owner' })).status).toBe(204)
     expect((await req('/api/test/reauth', { ...json({ password: 'correct horse' }), as: 'admin' })).status).toBe(403)
+  })
+})
+
+describe('admin-reauth', () => {
+  test('the owner and admins, with their own password again; members never', async () => {
+    for (const as of ['owner', 'admin'] as const) {
+      expect((await req('/api/test/admin-reauth', { ...json({ password: 'nope' }), as })).status).toBe(403)
+      expect((await req('/api/test/admin-reauth', { ...json({}), as })).status).toBe(400)
+      expect((await req('/api/test/admin-reauth', { ...json({ password: 'correct horse' }), as })).status).toBe(204)
+    }
+    expect((await req('/api/test/admin-reauth', { ...json({ password: 'correct horse' }), as: 'member' })).status).toBe(403)
+    expect((await req('/api/test/admin-reauth', { ...json({ password: 'correct horse' }) })).status).toBe(401)
   })
 })
 
@@ -221,6 +235,8 @@ describe('route registry', () => {
       'GET /.well-known/oauth-authorization-server', 'GET /oauth/authorize',
       'POST /oauth/register', 'POST /oauth/token', 'POST /oauth/revoke',
       'GET /mcp', 'POST /mcp', 'DELETE /mcp', 'PUT /connector-uploads/:token',
+      // the platforms' own formats for the phone app's links (tests/unit/app-links.test.ts)
+      'GET /.well-known/apple-app-site-association', 'GET /.well-known/assetlinks.json',
     ])
     for (const [k, mod] of ctx.implemented) if (mod !== 'test') expect(contract.has(k) || offContract.has(k), `${k} (${mod})`).toBe(true)
   })

@@ -78,8 +78,8 @@ export async function bindWindow(p: Page, origin: string): Promise<Page> {
 
 export async function addTeam(app: ElectronApplication, address: string, origin: string): Promise<Page> {
   const w = await welcome(app)
-  await w.getByRole('textbox', { name: '팀 주소' }).fill(address)
-  await w.getByRole('button', { name: '연결' }).click()
+  await w.getByRole('textbox', { name: '초대 링크 또는 팀 주소' }).fill(address)
+  await w.getByRole('button', { name: '들어가기' }).click()
   return bindWindow(await teamPage(app, origin), origin)
 }
 

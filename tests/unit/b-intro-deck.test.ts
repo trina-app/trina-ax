@@ -22,6 +22,7 @@ import { contrast } from '../../server/src/promo-video/colors'
 import { fitText, labelCase, ROLES, SLACK, width } from '../../server/src/intro-deck/text'
 import { colourClass, fittingThemes, lookFor, themeFor } from '../../server/src/intro-deck/theme'
 import { cropFor, layoutDeck, PIC_RULES, type DeckDoc, type DeckLogo, type DeckOut, type Focus, type PicInfo, type SlideOut } from '../../server/src/intro-deck/layout'
+import { layoutDeck2 } from '../../server/src/intro-deck/layout2'
 import { deckHtml, esc } from '../../server/src/intro-deck/html'
 import { buildPptx } from '../../server/src/intro-deck/pptx'
 import { decodePng, encodePng, isCutout } from '../../server/src/intro-deck/png'
@@ -184,7 +185,9 @@ function digest(s: SlideOut): string[] {
       + it.lines.map((l) => l.map((r) => `[${r.color}${r.size ? ` ${r.size}/${r.weight}` : ''}]${r.text}`).join('')).join(' ⏎ ')
     if (it.t === 'image') return `image ${it.src.split('/').pop()} ${num(it.x)},${num(it.y)} ${num(it.w)}×${num(it.h)} crop ${it.crop.x},${it.crop.y},${it.crop.w},${it.crop.h} r${it.radius}${it.logo ? ' logo' : ''}${it.recolor ? ` in ${it.recolor}` : ''}`
     if (it.t === 'rect') return `rect ${num(it.x)},${num(it.y)} ${num(it.w)}×${num(it.h)} r${it.radius}${it.ellipse ? ' ellipse' : ''} ${JSON.stringify(it.fill)}`
-    return `line ${num(it.x1)},${num(it.y1)} → ${num(it.x2)},${num(it.y2)} ${it.color} ${it.width}`
+    if (it.t === 'line') return `line ${num(it.x1)},${num(it.y1)} → ${num(it.x2)},${num(it.y2)} ${it.color} ${it.width}${it.dash ? ` dash ${it.dash.join(',')}` : ''}${it.cap ? ` ${it.cap}` : ''}`
+    if (it.t === 'svg') return `svg ${it.role} ${num(it.x)},${num(it.y)} ${num(it.w)}×${num(it.h)}`
+    return `${it.t} ${JSON.stringify(it)}`
   }), ...s.notes.map((n) => `note ${n}`)]
 }
 
@@ -464,14 +467,17 @@ describe('the display list', () => {
 // ── the preview ──────────────────────────────────────────────────────────────────────────────────────────────────
 /** A fake DOM just big enough for the preview's pager script: the elements it finds, their classes and attributes,
  * the listeners it adds; events are fired by hand. */
-function pagerPage(html: string, o: { width?: number; reduced?: boolean } = {}) {
+function pagerPage(html: string, o: { width?: number; height?: number; barBottom?: number; reduced?: boolean } = {}) {
   type L = (e: Record<string, unknown>) => void
-  const el = (cls: string[]) => {
+  type El = ReturnType<typeof el>
+  const el = (cls: string[], over: Record<string, unknown> = {}) => {
     const classes = new Set(cls)
     const ls: Record<string, L[]> = {}
     const attrs: Record<string, string> = {}
+    const kids: unknown[] = []
     return {
-      classes, attrs, textContent: '', disabled: false, offsetWidth: 1,
+      classes, attrs, kids, textContent: '', disabled: false, offsetWidth: 1,
+      appendChild: (k: unknown) => { kids.push(k) },
       classList: {
         contains: (n: string) => classes.has(n),
         add: (...n: string[]) => { for (const x of n) classes.add(x) },
@@ -482,11 +488,23 @@ function pagerPage(html: string, o: { width?: number; reduced?: boolean } = {}) 
       addEventListener: (t: string, f: L) => { (ls[t] ??= []).push(f) },
       getBoundingClientRect: () => ({ left: 0, top: 0, width: 900, height: 506 }),
       fire: (t: string, e: Record<string, unknown> = {}) => { for (const f of ls[t] ?? []) f(e) },
+      ...over,
     }
   }
   const n = (html.match(/<section class="s/g) ?? []).length
   const root = el([]), st = el(['st']), counter = el(['n']), pv = el(['pv']), nx = el(['nx'])
-  const slides = Array.from({ length: n }, (_, i) => el(i === 0 ? ['s', 'on'] : ['s']))
+  const bar = el(['bar'], { getBoundingClientRect: () => ({ left: 0, top: (o.barBottom ?? 560) - 52, width: 900, bottom: o.barBottom ?? 560 }) })
+  /** a slide's content as the strip copies it: an SVG layer whose pattern has a clip, a mask and a fill by id */
+  const content = (i: number) => ({
+    cloneNode: () => {
+      const a: Record<string, string> = {}
+      const svgEl = (id: string, at: Record<string, string>) => ({ id, attrs: { ...at }, getAttribute(k: string) { return this.attrs[k] ?? null }, setAttribute(k: string, v: string) { this.attrs[k] = v } })
+      const inner = [svgEl(`s${i + 1}v0p0c`, {}), svgEl('', { 'clip-path': `url(#s${i + 1}v0p0c)`, mask: `url(#s${i + 1}v0p0m)` }), svgEl('', { fill: `url(#s${i + 1}v0p0p)` }), svgEl('', { fill: '#112233' })]
+      return { slide: i, attrs: a, inner, setAttribute: (k: string, v: string) => { a[k] = v }, querySelectorAll: () => inner }
+    },
+  })
+  const slides = Array.from({ length: n }, (_, i) => el(i === 0 ? ['s', 'on'] : ['s'], { querySelector: (q: string) => (q === '.c' ? content(i) : null) }))
+  const thumbs: El[] = Array.from({ length: (html.match(/<button type="button" class="th"/g) ?? []).length }, () => el(['th']))
   // what the markup says before the script runs
   counter.textContent = /<span class="n"[^>]*>([^<]*)</.exec(html)![1]!
   pv.disabled = /<button[^>]*class="pv"[^>]*\sdisabled[\s>]/.test(html)
@@ -494,18 +512,18 @@ function pagerPage(html: string, o: { width?: number; reduced?: boolean } = {}) 
   const docLs: Record<string, L[]> = {}, winLs: Record<string, L[]> = {}
   const document = {
     documentElement: root,
-    querySelector: (q: string) => ({ '.st': st, '.n': counter, '.pv': pv, '.nx': nx } as Record<string, unknown>)[q] ?? null,
-    querySelectorAll: (q: string) => (q === '.s' ? slides : []),
+    querySelector: (q: string) => ({ '.st': st, '.n': counter, '.pv': pv, '.nx': nx, '.bar': bar } as Record<string, unknown>)[q] ?? null,
+    querySelectorAll: (q: string) => (q === '.s' ? slides : q === '.th' ? thumbs : []),
     addEventListener: (t: string, f: L) => { (docLs[t] ??= []).push(f) },
     fonts: { ready: Promise.resolve() },
   }
-  const window = { innerWidth: o.width ?? 1200, matchMedia: (q: string) => ({ matches: !!o.reduced && /prefers-reduced-motion: reduce/.test(q) }), addEventListener: (t: string, f: L) => { (winLs[t] ??= []).push(f) } }
+  const window = { innerWidth: o.width ?? 1200, innerHeight: o.height ?? 640, matchMedia: (q: string) => ({ matches: !!o.reduced && /prefers-reduced-motion: reduce/.test(q) }), addEventListener: (t: string, f: L) => { (winLs[t] ??= []).push(f) } }
   const script = /<script>([\s\S]*?)<\/script>/.exec(html)![1]!
   new Function('window', 'document', 'setTimeout', script)(window, document, () => 0)
   const key = (k: string, mods: Record<string, boolean> = {}) => { const e = { key: k, altKey: false, ctrlKey: false, metaKey: false, ...mods, prevented: false, preventDefault() { e.prevented = true } }; for (const f of docLs.keydown ?? []) f(e); return e.prevented }
   const pointer = (x0: number, x1: number, dy = 0) => { st.fire('pointerdown', { clientX: x0, clientY: 200 }); st.fire('pointerup', { clientX: x1, clientY: 200 + dy }) }
-  const resize = (w: number) => { window.innerWidth = w; for (const f of winLs.resize ?? []) f({}) }
-  return { root, st, counter, pv, nx, slides, key, pointer, resize, at: () => slides.findIndex((s) => s.classes.has('on')) }
+  const resize = (w: number, h = window.innerHeight) => { window.innerWidth = w; window.innerHeight = h; for (const f of winLs.resize ?? []) f({}) }
+  return { root, st, counter, pv, nx, slides, thumbs, key, pointer, resize, at: () => slides.findIndex((s) => s.classes.has('on')) }
 }
 
 describe('the preview (HTML)', () => {
@@ -587,21 +605,21 @@ describe('the preview (HTML)', () => {
     expect(p.slides.map((s) => s.attrs['aria-hidden']).filter((x) => x === 'false')).toHaveLength(1)
   })
 
-  test('a narrow panel (under 560 px) stacks the slides and the pager stands down; reduced motion moves nothing', () => {
-    expect(html).toContain('.narrow .s{position:relative;')
-    expect(html).toContain('.narrow .bar{display:none}')
+  test('a phone (under 560 px) pages the slides at the full width with the same keys, swipes and thirds; reduced motion moves nothing', () => {
+    // no stacked column any more: the stage loses its side room and corners, the bar stays
+    expect(html).not.toContain('narrow')
+    expect(html).toContain('@media (max-width:559px){.dk{padding:0 0 8px}.st{border-radius:0;box-shadow:none}')
     expect(html).toContain('@media (prefers-reduced-motion:reduce){.s,.st{transition:none!important}}')
-    const narrow = pagerPage(html, { width: 500 })
-    expect(narrow.root.classes.has('narrow')).toBe(true)
-    narrow.key('ArrowRight')
-    narrow.pointer(600, 500)
-    expect(narrow.at()).toBe(0)
-    narrow.resize(1000)
-    expect(narrow.root.classes.has('narrow')).toBe(false)
-    narrow.key('ArrowRight')
-    expect(narrow.at()).toBe(1)
-    narrow.resize(559)
-    expect(narrow.root.classes.has('narrow')).toBe(true)
+    const phone = pagerPage(html, { width: 390, height: 700, barBottom: 280 })
+    expect(phone.root.classes.has('narrow')).toBe(false)
+    phone.key('ArrowRight')
+    expect(phone.at()).toBe(1)
+    phone.pointer(600, 500)
+    expect([phone.at(), phone.counter.textContent]).toEqual([2, `3 / ${out.slides.length}`])
+    phone.pointer(100, 100)
+    expect(phone.at()).toBe(1)
+    phone.nx.fire('click')
+    expect(phone.at()).toBe(2)
     // with motion the slide left behind slides away; with reduced motion no slide moves
     const moving = pagerPage(html)
     moving.key('ArrowRight')
@@ -611,6 +629,39 @@ describe('the preview (HTML)', () => {
     still.key('ArrowLeft')
     expect(still.at()).toBe(0)
     expect(still.slides.some((s) => s.classes.has('l') || s.classes.has('rt'))).toBe(false)
+  })
+
+  test('the strip of small slides: only with 120 px of room under the bar; each a copy of its slide (ids renamed, hidden from screen readers); a click shows it, the current one marked', () => {
+    const N = out.slides.length
+    expect(html.match(/<button type="button" class="th"/g)).toHaveLength(N)
+    expect(html).toContain('<button type="button" class="th" aria-label="' + esc(`${out.slides[0]!.label} (1 / ${N})`) + '" aria-current="true"></button>')
+    expect(html).toContain('.thumbs .tb{display:grid}')
+    expect(html).toMatch(/\.tb\{display:none;grid-template-columns:repeat\(5,/)
+    expect(html).toContain('.th[aria-current="true"]{box-shadow:0 0 0 2px #fff,0 0 0 3.5px #1c1917}')
+    // 119 px under the bar: no strip, nothing copied
+    const short = pagerPage(html, { height: 679, barBottom: 560 })
+    expect(short.root.classes.has('thumbs')).toBe(false)
+    expect(short.thumbs.every((t) => t.kids.length === 0)).toBe(true)
+    // the panel grows: the strip comes, every slide copied once
+    short.resize(1200, 680)
+    expect(short.root.classes.has('thumbs')).toBe(true)
+    expect(short.thumbs.map((t) => t.kids.length)).toEqual(short.thumbs.map(() => 1))
+    short.resize(1200, 900)
+    expect(short.thumbs.map((t) => t.kids.length)).toEqual(short.thumbs.map(() => 1))
+    const copy = short.thumbs[2]!.kids[0] as { slide: number; attrs: Record<string, string>; inner: { id: string; attrs: Record<string, string> }[] }
+    expect(copy.slide).toBe(2)
+    expect(copy.attrs['aria-hidden']).toBe('true')
+    expect(copy.inner.map((e) => e.id)).toEqual(['s3v0p0ct', '', '', ''])
+    expect(copy.inner.map((e) => e.attrs)).toEqual([{}, { 'clip-path': 'url(#s3v0p0ct)', mask: 'url(#s3v0p0mt)' }, { fill: 'url(#s3v0p0pt)' }, { fill: '#112233' }])
+    // a click on a small slide shows it; the current one is marked, also after the keys
+    short.thumbs[3]!.fire('click')
+    expect([short.at(), short.counter.textContent]).toEqual([3, `4 / ${N}`])
+    expect(short.thumbs.map((t) => t.attrs['aria-current'])).toEqual(short.thumbs.map((_, i) => String(i === 3)))
+    short.key('ArrowRight')
+    expect(short.thumbs.map((t) => t.attrs['aria-current'])).toEqual(short.thumbs.map((_, i) => String(i === 4)))
+    // a short panel again: the strip goes
+    short.resize(1200, 600)
+    expect(short.root.classes.has('thumbs')).toBe(false)
   })
 })
 
@@ -917,6 +968,8 @@ describe('the intro deck with real team files (a real app, the fake engine)', ()
     h = await startHarness({ name: 'b-intro-deck' })
     // a Korean team: the deck's language, the PowerPoint runs' (ko-KR, Hangul charset) and the theme names in the answer
     h.ctx.db.query("INSERT OR REPLACE INTO settings (key, value) VALUES ('defaultLocale', ?)").run(JSON.stringify('ko'))
+    // the 3-minute budget (no read step, no searches): the default is 5 minutes (DEFAULT_DECK_TIER)
+    h.ctx.db.query("INSERT OR REPLACE INTO settings (key, value) VALUES ('introDeckTier', ?)").run(JSON.stringify('quick'))
     put(SRC, MATERIAL)
     put(IMG + 'factory.png', realPng(1920, 1080))
     put(IMG + 'line.png', realPng(1600, 1000, [200, 200, 190, 255]))
@@ -1055,58 +1108,82 @@ describe('the intro deck with real team files (a real app, the fake engine)', ()
     })
   })
 
-  describe('the tool, the files, the routes', () => {
+  describe('the tool, the files, the routes (round 2: outline, one slide per call, finish)', () => {
+    // the round-2 deck the stand-in AI writes from the same material: no relationship figures (the material states
+    // no order or loop), so no basis is needed; typst off, so the last slide finishes the deck (no review round)
+    const stubs = (over: { picture?: string } = {}) => [
+      { kind: 'cover', section: '표지', headline: '정밀 부품을 제때', picture: over.picture ?? IMG + 'factory.png' },
+      { kind: 'about', section: '회사 소개', headline: '정밀 가공 부품' },
+      { kind: 'numbers', section: '숫자', headline: '고객이 다시 찾는 이유', figure: 'figures' },
+      { kind: 'products', section: '제품', headline: '주요 부품', figure: 'cards' },
+      { kind: 'proof', section: '고객사', headline: '함께 일하는 고객사' },
+      { kind: 'contact', section: '마무리', headline: '연락 주세요' },
+    ]
+    const outline2 = (over: Record<string, unknown> = {}, picture?: string) => ({
+      step: 'outline', title: '아크메정밀 회사 소개서', company: '아크메정밀', website: 'acme-precision.example', brand_color: '#1e4620', logo: IMG + 'logo.png', sources: [SRC], pattern: 'dots',
+      pictures: [{ path: picture ?? IMG + 'factory.png', subject: '공장', lettering: false, calm: 'left', tone: 'dark' }, ...[1, 2, 3].map((n) => ({ path: IMG + `part${n}.png`, subject: '부품', lettering: false, calm: 'none', tone: 'mixed' }))],
+      slides: stubs({ picture }), ...over,
+    })
+    const slides2 = (picture?: string): import('@mycel/shared/api').DeckSlide2[] => [
+      { kind: 'cover', headline: '정밀 부품을\n*제때* 만드는 회사', sub: '반도체 장비와 의료기기 부품', picture: picture ?? IMG + 'factory.png' },
+      { kind: 'about', statement: '반도체 장비와 의료기기에 들어가는 *정밀 가공 부품*을 만듭니다', facts: [{ label: '설립', value: '2009년' }, { label: '위치', value: '경기도 안산' }, { label: '직원', value: '48명' }] },
+      { kind: 'numbers', title: '고객이 다시 찾는 이유', note: '2025년 12월 기준', figure: { kind: 'figures', items: [{ number: '340곳', label: '고객사' }, { number: '0.02%', label: '불량률' }, { number: '99.1%', label: '납기 준수율' }] } },
+      { kind: 'products', title: '주요 부품', figure: { kind: 'cards', items: [{ name: '정밀 샤프트', body: '장비 구동부에 들어가는 축', picture: IMG + 'part1.png' }, { name: '진공 블록', body: '공정 챔버용 블록', picture: IMG + 'part2.png' }, { name: '의료용 핀', body: '수술 기구에 쓰는 핀', picture: IMG + 'part3.png' }] } },
+      { kind: 'proof', title: '함께 일하는 고객사', names: ['아크메전자', '아크메메디칼', '아크메테크', '아크메로보틱스'] },
+      { kind: 'contact', line: '부품 견적이 필요하면\n연락 주세요', person: '영업팀 박서준 이사', email: 'sales@acme-precision.example', phone: '031-555-0142', address: '경기도 안산시 단원구 예시로 12' },
+    ]
+    const script = (o: Record<string, unknown> = outline2(), list = slides2()) => fake({ tool: 'intro_deck', args: o, sayResult: true }, ...list.map((s, i) => ({ tool: 'intro_deck', args: { step: 'slide', index: i, slide: s }, sayResult: true })))
+    const typstOff = async <T,>(fn: () => Promise<T>): Promise<T> => {
+      const prev = process.env.MYCEL_TYPST_BIN
+      process.env.MYCEL_TYPST_BIN = ''
+      try { return await fn() } finally { if (prev === undefined) delete process.env.MYCEL_TYPST_BIN; else process.env.MYCEL_TYPST_BIN = prev }
+    }
     /** a deck made through a chat turn: its chat and artifact ids */
-    const make = async (a: IntroDeckInput = input(), user = 'dana') => {
-      const chat = await h.api(user).call(API.createChat, { body: {} })
-      const answer = await send(user, chat.id, fake({ tool: 'intro_deck', args: a, sayResult: true }))
-      const row = h.ctx.db.query('SELECT artifact_id FROM intro_decks WHERE chat_id = ? ORDER BY created_at DESC LIMIT 1').get(chat.id) as { artifact_id: string } | null
-      return { chat: chat.id, id: row?.artifact_id ?? '', answer }
+    const make = async (content = script(), user = 'dana', chatId?: string) => {
+      const chat = chatId ?? (await h.api(user).call(API.createChat, { body: {} })).id
+      const answer = await typstOff(() => send(user, chat, content))
+      const row = h.ctx.db.query('SELECT artifact_id FROM intro_decks WHERE chat_id = ? ORDER BY created_at DESC LIMIT 1').get(chat) as { artifact_id: string } | null
+      return { chat, id: row?.artifact_id ?? '', answer }
     }
 
-    test('every problem in one answer, one more try, then stop; a third call in the same answer is refused', async () => {
+    test('every problem of an outline in one answer; three outlines at most, then stop', async () => {
       const chat = await h.api('dana').call(API.createChat, { body: {} })
-      const bad = withSlide(3, (s) => ({ ...s, stats: [{ number: '350곳', label: '고객사' }, { number: '0.02%', label: '불량률' }] }) as DeckSlide)
+      const bad = outline2({ slides: [stubs()[1], stubs()[0], ...stubs().slice(2)] })
       const once = await send('dana', chat.id, fake({ tool: 'intro_deck', args: bad, sayResult: true }))
-      expect(once).toContain('Nothing was made yet. Fix every problem below and call intro_deck once more with all the slides')
-      expect(once).toContain('stats[0].number "350곳" is not written in the sources exactly like that')
-      const three = await send('dana', chat.id, fake({ tool: 'intro_deck', args: bad, sayResult: true }, { tool: 'intro_deck', args: bad, sayResult: true }, { tool: 'intro_deck', args: input(), sayResult: true }))
-      expect(three).toContain('Nothing was made yet')
-      expect(three).toContain('The deck could not be made:')
-      expect(three).toContain('Do not call intro_deck again in this answer. Tell the person in one plain sentence that the deck could not be made this time and why (the problems you were given).')
+      expect(once).toContain('The outline was not accepted. Fix every problem below and call intro_deck step "outline" once more')
+      expect(once).toContain('slides[0] must be the cover')
+      const four = await send('dana', chat.id, fake(...[1, 2, 3, 4].map(() => ({ tool: 'intro_deck', args: bad, sayResult: true }))))
+      expect(four.match(/The outline was not accepted/g)).toHaveLength(3)
+      expect(four).toContain('Do not call intro_deck again in this answer. Tell the person in one plain sentence that the deck could not be made this time and why (the problems you were given).')
       expect(h.ctx.db.query('SELECT count(*) AS n FROM artifacts WHERE chat_id = ?').get(chat.id)).toEqual({ n: 0 })
       expect(h.ctx.db.query('SELECT count(*) AS n FROM intro_decks WHERE chat_id = ?').get(chat.id)).toEqual({ n: 0 })
     })
 
-    test('checked slots: the artifact "intro-deck" (HTML, a new version per call) and a row in intro_decks; the answer in plain words', async () => {
+    test('checked slides: the artifact "intro-deck" (HTML, a new version per deck) and a row in intro_decks; the answer in plain words', async () => {
       const { chat, id, answer } = await make()
-      expect(answer).toContain('Made the intro deck "아크메정밀 회사 소개서" (8 slides, the "브랜드색" look; slides made with type only although they could take a picture: none)')
-      expect(answer).not.toContain('since the material was thin')
+      expect(answer).toContain('The intro deck "아크메정밀 회사 소개서" is finished (6 slides, the "어두운" look; slides that could have had a picture but were made without one: none)')
       const art = h.ctx.db.query('SELECT id, key, type, title, content, version FROM artifacts WHERE chat_id = ?').get(chat) as { id: string; key: string; type: string; title: string; content: string; version: number }
       expect(art).toMatchObject({ id, key: DECK_ARTIFACT_KEY, type: 'html', title: '아크메정밀 회사 소개서', version: 1 })
-      expect(art.content.match(/<section class="s/g)).toHaveLength(8)
+      expect(art.content.match(/<section class="s/g)).toHaveLength(6)
       expect(art.content).toContain('<link rel="stylesheet" href="/vendor/fonts/pretendard.css">')
       const row = h.ctx.db.query('SELECT chat_id, user_id, spec, pptx_sha256, pdf_sha256 FROM intro_decks WHERE artifact_id = ?').get(id) as { chat_id: string; user_id: string; spec: string; pptx_sha256: string | null; pdf_sha256: string | null }
       expect(row).toMatchObject({ chat_id: chat, user_id: 'dana', pptx_sha256: null, pdf_sha256: null })
       const spec = JSON.parse(row.spec)
       expect(spec.title).toBe('아크메정밀 회사 소개서')
       expect(spec.sources).toEqual([SRC])
-      expect(spec.doc.theme).toBe('brand')
+      expect(spec.doc).toMatchObject({ v: 2, theme: 'ink' })
       expect(spec.doc.pics[IMG + 'factory.png']).toEqual({ width: 1920, height: 1080 })
-      // a theme that does not fit the colour is replaced (and said); a second call is the next version
-      const light = await send('dana', chat, fake({ tool: 'intro_deck', args: input({ brand_color: '#cad3fb', theme: 'brand' }), sayResult: true }))
-      expect(light).toContain('(the "브랜드색" look does not fit this brand colour, so the server used "밝은 종이")')
+      // a theme that does not fit the colour is replaced (and said); the next deck in the chat is the next version
+      const light = await make(script(outline2({ brand_color: '#cad3fb', theme: 'brand' })), 'dana', chat)
+      expect(light.answer).toContain('(the "브랜드색" look does not fit this brand colour, so the server used "밝은 종이")')
       expect(h.ctx.db.query('SELECT max(version) AS v FROM artifacts WHERE chat_id = ? AND key = ?').get(chat, DECK_ARTIFACT_KEY)).toEqual({ v: 2 })
       expect(h.ctx.db.query('SELECT count(*) AS n FROM intro_decks WHERE chat_id = ?').get(chat)).toEqual({ n: 2 })
-      // six slides: the answer asks for a fuller intro file next time
-      const thin = await make(input({}, slidesOf().filter((s) => !['products', 'history'].includes(s.kind))))
-      expect(thin.answer).toContain('since the material was thin')
     })
 
     test('the info and the downloads only for the chat\'s owner; the PDF hidden where typst is missing', async () => {
       const { chat, id } = await make()
       const info = await h.api('dana').call(API.getIntroDeck, { params: { id } })
-      expect(info).toEqual({ artifactId: id, chatId: chat, title: '아크메정밀 회사 소개서', theme: 'brand', slides: 8, pptx: true, pdf: pdfAvailable() })
+      expect(info).toEqual({ artifactId: id, chatId: chat, title: '아크메정밀 회사 소개서', theme: 'ink', slides: 6, pptx: true, pdf: pdfAvailable() })
       for (const p of ['', '/pptx', '/pdf']) expect((await h.req('alice', `/api/intro-decks/${id}${p}`)).status, p).toBe(404)
       expect((await h.req('dana', '/api/intro-decks/nope')).status).toBe(404)
       const prev = process.env.MYCEL_TYPST_BIN
@@ -1128,10 +1205,14 @@ describe('the intro deck with real team files (a real app, the fake engine)', ()
       expect(res.headers.get('content-disposition')).toContain(encodeURIComponent('아크메정밀 회사 소개서.pptx'))
       const bytes = new Uint8Array(await res.arrayBuffer())
       const spec = JSON.parse((h.ctx.db.query('SELECT spec FROM intro_decks WHERE artifact_id = ?').get(id) as { spec: string }).spec)
-      const out = layoutDeck(spec.doc)
+      const out = layoutDeck2(spec.doc)
       checkPptx(bytes, out, { lang: 'ko', title: '아크메정밀 회사 소개서', fonts: !!pretendardDir() })
-      // the notes are the sources
-      expect(out.slides[3]!.notes.join('\n')).toContain('출처: 회사 소개.md — "')
+      // the notes are the sources; the figures are native shapes
+      expect(out.slides[2]!.notes.join('\n')).toContain('출처: 회사 소개.md — "')
+      const zip = readZip(bytes)
+      // the closing's drawn pattern is a picture; the cards slide's icons and shapes are native
+      expect(Buffer.from(zip.find((e) => e.name === 'ppt/slides/slide6.xml')!.data).toString('utf8')).toContain('name="Pattern ')
+      expect(Buffer.from(zip.find((e) => e.name === 'ppt/slides/slide1.xml')!.data).toString('utf8')).toContain('name="Shade ')
       const file = path.join(h.dataDir, 'intro-decks', `${id}.pptx`)
       expect(sha(fs.readFileSync(file))).toBe(sha(bytes))
       const row = h.ctx.db.query('SELECT pptx_sha256 FROM intro_decks WHERE artifact_id = ?').get(id) as { pptx_sha256: string }
@@ -1141,12 +1222,14 @@ describe('the intro deck with real team files (a real app, the fake engine)', ()
       expect(sha(new Uint8Array(await (await h.req('dana', `/api/intro-decks/${id}/pptx`)).arrayBuffer()))).toBe(sha(bytes))
       // downloaded and put back into the brand folder: never a source of the next deck
       put('shared/브랜드/아크메정밀 회사 소개서.pptx', Buffer.from(bytes))
-      const p = await problems(input({ sources: [SRC, 'shared/브랜드/아크메정밀 회사 소개서.pptx'] }), 'dana', (s) => isOwnOutput(h.ctx, s))
-      expect(p).toContain('source "shared/브랜드/아크메정밀 회사 소개서.pptx" is an intro deck this tool made; name the material it was made from instead')
-      // our own extractor reads the slots back
+      const again = await make(script(outline2({ sources: [SRC, 'shared/브랜드/아크메정밀 회사 소개서.pptx'] })))
+      expect(again.answer).toContain('source "shared/브랜드/아크메정밀 회사 소개서.pptx" is an intro deck this tool made; name the material it was made from instead')
+      expect(again.id).toBe('')
+      // our own extractor reads the words back
       if (which('pandoc')) {
         const back = await readBack(bytes, out.slides.length)
-        slidesOf().forEach((sl, i) => { for (const t of slotsShown(sl)) expect(tight(back.slides[i]!), `slide ${i + 1}: ${t}`).toContain(tight(t)) })
+        expect(tight(back.slides[0]!)).toContain(tight('정밀 부품을 제때 만드는 회사'))
+        expect(tight(back.slides[4]!)).toContain(tight('아크메로보틱스'))
         expect(back.notes).toContain('출처: 회사 소개.md — "')
       }
     })
@@ -1159,50 +1242,54 @@ describe('the intro deck with real team files (a real app, the fake engine)', ()
       const pdf = new Uint8Array(await res.arrayBuffer())
       expect(Buffer.from(pdf.subarray(0, 5)).toString('latin1')).toBe('%PDF-')
       const file = path.join(h.dataDir, 'intro-decks', `${id}.pdf`)
-      expect(pageCount(pdf, file)).toBe(8)
+      expect(pageCount(pdf, file)).toBe(6)
       expect((h.ctx.db.query('SELECT pdf_sha256 FROM intro_decks WHERE artifact_id = ?').get(id) as { pdf_sha256: string }).pdf_sha256).toBe(sha(pdf))
       expect(fs.readdirSync(path.join(h.dataDir, 'intro-decks')).filter((f) => f.endsWith('.part'))).toEqual([])
     })
 
-    test('a WebP picture is left out of the PowerPoint file (its slide type-only); the preview keeps it', async () => {
+    /** slide 1 of a PowerPoint file: its pictures other than the logo, and whether it is the drawn cover */
+    const coverOf = (bytes: Uint8Array, logoSrc: string) => {
+      const zip = readZip(bytes)
+      const slide1 = parseXml(Buffer.from(zip.find((e) => e.name === 'ppt/slides/slide1.xml')!.data).toString('utf8'), 'slide1')
+      const pics = all(slide1, 'p:pic').filter((p) => all(p, 'p:cNvPr')[0]!.attrs.name!.startsWith('Picture '))
+      void logoSrc
+      return { zip, slide1, pics, pattern: all(slide1, 'p:pic').some((p) => all(p, 'p:cNvPr')[0]!.attrs.name!.startsWith('Pattern ')) }
+    }
+
+    test('a WebP picture is left out of the PowerPoint file (its slide drawn instead); the preview keeps it', async () => {
       // RIFF … WEBP with a VP8X header: 2000 × 1100 (the server reads the size, never the pixels)
       const webp = Buffer.alloc(30)
       webp.write('RIFF', 0, 'ascii'); webp.writeUInt32LE(22, 4); webp.write('WEBPVP8X', 8, 'ascii'); webp.writeUInt32LE(10, 16)
       webp.writeUIntLE(2000 - 1, 24, 3); webp.writeUIntLE(1100 - 1, 27, 3)
       put(IMG + 'cover.webp', webp)
-      const s = slidesOf()
-      s[0] = { ...s[0]!, picture: IMG + 'cover.webp' } as DeckSlide
-      const { chat, id } = await make(input({}, s))
+      const { id } = await make(script(outline2({}, IMG + 'cover.webp'), slides2(IMG + 'cover.webp')))
+      expect(id).not.toBe('')
       const html = (h.ctx.db.query('SELECT content FROM artifacts WHERE id = ?').get(id) as { content: string }).content
       expect(html).toContain('cover.webp')
       const res = await h.req('dana', `/api/intro-decks/${id}/pptx`)
       expect(res.status).toBe(200)
-      const zip = readZip(new Uint8Array(await res.arrayBuffer()))
-      expect(zip.filter((e) => e.name.startsWith('ppt/media/') && e.name.endsWith('.webp'))).toEqual([])
-      const slide1 = parseXml(Buffer.from(zip.find((e) => e.name === 'ppt/slides/slide1.xml')!.data).toString('utf8'), 'slide1')
-      // the type-only cover's brand bar (96 × 12 px)
-      expect(all(slide1, 'a:ext').some((e) => e.attrs.cx === String(96 * 6350) && e.attrs.cy === String(12 * 6350))).toBe(true)
-      expect(chat).toBeTruthy()
+      const c = coverOf(new Uint8Array(await res.arrayBuffer()), IMG + 'logo.png')
+      expect(c.zip.filter((e) => e.name.startsWith('ppt/media/') && e.name.endsWith('.webp'))).toEqual([])
+      // the drawn cover: its pattern, and no picture but the logo (shown whole)
+      expect(c.pattern).toBe(true)
+      for (const p of c.pics) expect(all(p, 'a:srcRect')[0]!.attrs).toEqual({ l: '0', t: '0', r: '0', b: '0' })
     })
 
-    test('a picture no longer readable at build time turns its slide into the type-only version (never a broken file)', async () => {
+    test('a picture no longer readable at build time turns its slide into the drawn version (never a broken file)', async () => {
       put(IMG + 'cover-once.png', realPng(2000, 1100))
-      const s = slidesOf()
-      s[0] = { ...s[0]!, picture: IMG + 'cover-once.png' } as DeckSlide
-      const { id } = await make(input({}, s))
+      const { id } = await make(script(outline2({}, IMG + 'cover-once.png'), slides2(IMG + 'cover-once.png')))
+      expect(id).not.toBe('')
       fs.rmSync(path.join(h.team, IMG + 'cover-once.png'))
       const res = await h.req('dana', `/api/intro-decks/${id}/pptx`)
       expect(res.status).toBe(200)
       const bytes = new Uint8Array(await res.arrayBuffer())
-      const zip = readZip(bytes)
-      const slide1 = parseXml(Buffer.from(zip.find((e) => e.name === 'ppt/slides/slide1.xml')!.data).toString('utf8'), 'slide1')
-      // the type-only cover: its brand bar (96 × 12 px) and no picture but the logo (shown whole)
-      expect(all(slide1, 'a:ext').some((e) => e.attrs.cx === String(96 * 6350) && e.attrs.cy === String(12 * 6350))).toBe(true)
-      for (const p of all(slide1, 'p:pic')) if (all(p, 'p:cNvPr')[0]!.attrs.name!.startsWith('Picture ')) expect(all(p, 'a:srcRect')[0]!.attrs).toEqual({ l: '0', t: '0', r: '0', b: '0' })
+      const c = coverOf(bytes, IMG + 'logo.png')
+      expect(c.pattern).toBe(true)
+      for (const p of c.pics) expect(all(p, 'a:srcRect')[0]!.attrs).toEqual({ l: '0', t: '0', r: '0', b: '0' })
       // every part still parses and every relationship holds
       const spec = JSON.parse((h.ctx.db.query('SELECT spec FROM intro_decks WHERE artifact_id = ?').get(id) as { spec: string }).spec)
       const { [IMG + 'cover-once.png']: _, ...pics } = spec.doc.pics
-      const out = layoutDeck({ ...spec.doc, pics })
+      const out = layoutDeck2({ ...spec.doc, pics })
       expect(out.slides[0]!.variant).toBe('C')
       expect(out.typeOnly).toEqual([0])
       checkPptx(bytes, out, { lang: 'ko', title: '아크메정밀 회사 소개서', fonts: !!pretendardDir() })

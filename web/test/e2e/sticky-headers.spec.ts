@@ -39,10 +39,10 @@ for (const [name, size] of [['wide', WIDE], ['phone', PHONE]] as const) {
   test(`MCP keeps its title row at the top in Admin and in Settings (${name})`, async ({ page }) => {
     await page.setViewportSize(size)
     await start(page)
-    for (const path of ['/admin/integrations', '/settings/integrations']) {
+    for (const path of ['/admin/connectors', '/settings/connectors']) {
       await page.goto(path)
       const header = page.getByTestId('connectors-header')
-      await expect(header.getByRole('heading', { name: 'MCP' })).toBeVisible()
+      await expect(header.getByRole('heading', { name: /^(커넥터|Connectors)$/ })).toBeVisible()
       await header.getByRole('tab', { name: t['integrations.tabDiscover'] }).click()
       await expect(page.getByTestId('connector-card').first()).toBeVisible()
       await staysPut(header)
@@ -56,9 +56,10 @@ for (const [name, size] of [['wide', WIDE], ['phone', PHONE]] as const) {
       await expect(first).toBeFocused()
       await expect.poll(async () => (await first.boundingBox())!.y - ((await header.boundingBox())!.y + (await header.boundingBox())!.height)).toBeGreaterThanOrEqual(0)
     }
-    // Settings is a dialog: its title stays where it is; only the section beside the list scrolls
+    // Settings is a dialog: its top bar stays where it is; only the section beside the list scrolls. On a phone the bar
+    // names the section and the dialog's title is for screen readers only (SettingsDialog)
     const dialog = page.getByRole('dialog', { name: t['settings.title'] })
-    await expect(dialog.getByRole('heading', { name: t['settings.title'] })).toBeInViewport()
+    await expect(name === 'phone' ? dialog.getByTestId('settings-section-title') : dialog.getByRole('heading', { name: t['settings.title'] })).toBeInViewport()
   })
 }
 
@@ -102,10 +103,10 @@ test('the page itself never scrolls: a long page scrolls inside, the sidebar and
   await start(page)
   for (const size of [{ width: 1468, height: 700 }, { width: 390, height: 700 }]) {
     await page.setViewportSize(size)
-    for (const path of ['/admin/settings', '/admin/integrations']) {
+    for (const path of ['/admin/settings', '/admin/connectors']) {
       await page.goto(path)
       await expect(page.getByTestId('admin-content')).toBeVisible()
-      if (path === '/admin/integrations') await page.getByTestId('connectors-header').getByRole('tab').nth(1).click()
+      if (path === '/admin/connectors') { await page.getByTestId('connectors-header').getByRole('tab').nth(1).click(); await page.getByTestId('connector-show-all').click() }
       const content = page.getByTestId('admin-content')
       const box = (await content.boundingBox())!
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
@@ -119,7 +120,8 @@ test('the page itself never scrolls: a long page scrolls inside, the sidebar and
         const first = (await page.getByTestId('new-chat').boundingBox())!
         expect(first.y).toBeGreaterThanOrEqual(0)
       } else {
-        expect((await page.getByRole('button', { name: t['sidebar.open'] }).boundingBox())!.y).toBeGreaterThanOrEqual(0)
+        // Admin is a page under the 나 tab: its top bar has ‹ (no ☰ there)
+        expect((await page.getByTestId('topbar-back').boundingBox())!.y).toBeGreaterThanOrEqual(0)
       }
       expect((await page.getByTestId('admin-menu').boundingBox())!.y).toBeGreaterThanOrEqual(0)
     }

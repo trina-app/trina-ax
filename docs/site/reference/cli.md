@@ -32,7 +32,7 @@ Run from an unpacked kit with `sudo`.
 | `update --from .` | Update by hand from a verified kit |
 | `repair --public-host HOST` | Register the HTTPS host name. Add `--app-connectors` to turn on the [MCP connector](../agents/mcp-connector.md). |
 
-Advanced options: `--id`, `--port`, `--proxy-port`, `--no-auto-update` / `--auto-update`, `--require-signed`. Never use `--allow-unsigned` for published releases.
+Advanced options: `--id`, `--port`, `--proxy-port`, `--no-auto-update` / `--auto-update`, `--require-signed`, `--minimal` / `--no-minimal` (only the system packages every install needs, without the fonts, the dev environment's tools and the headless browser). Never use `--allow-unsigned` for published releases.
 
 ## teamax (office Mac)
 

@@ -12,7 +12,7 @@
 // tokens never pass the browser or the relay and nothing stays on the engine account (the folder goes in every case).
 // One sign-in at a time per team (either kind); 16 minutes; a server restart forgets running sign-ins.
 import crypto from 'node:crypto'
-import type { CredentialAssignment, CredentialLogin, CredentialLoginKind, Locale } from '@mycel/shared/api'
+import type { CredentialAssignment, CredentialLogin, CredentialLoginKind, Locale, LoginBusyParams } from '@mycel/shared/api'
 import { audit } from '../admin/audit'
 import type { AppContext } from '../context'
 import { turnProxyUrl } from '../engine/claude'
@@ -26,7 +26,8 @@ import { ct } from './i18n'
 import { memberOwnAllowed, sharedSubscriptionsAllowed } from './policy'
 import { accessExpiry, accountRef, idClaims, maskEmail } from './openai-oauth'
 import { createCredential, duplicateOf, insertRow, replaceSecret } from './service'
-import { fingerprintOf, getRow, metaOf, toCredential, writeSecret, type CredCtx, type Secrets } from './store'
+import { fingerprintOf, getRow, metaOf, noticeMember, noticeOwners, toCredential, writeSecret, type CredCtx, type Secrets } from './store'
+import { recordSignIn } from '../auth/team-sign-ins'
 
 export const LOGIN_TIMEOUT_MS = 16 * 60_000
 /** forget finished sign-ins after this (GET of an old one = 404) */
@@ -97,6 +98,25 @@ class Logins {
     return { loginId: l.loginId, kind: l.kind, state: l.state, url: l.url, code: l.code, expiresAt: l.expiresAt, credential: row ? toCredential(this.cc, row, l.locale) : null, reason: l.reason }
   }
   private send(l: Login) { this.cc.publish(l.userId, { type: 'credential.login', data: this.api(l) }) }
+  /** a team sign-in stores a connection only if its starter is still an active owner or admin (demoted or disabled while
+   * it ran); a personal one only if the account is still active (not disabled, not deleted) */
+  private mayConnectForTeam(userId: string): boolean {
+    const u = this.cc.db.query('SELECT role, status, deleted_at FROM users WHERE id = ?').get(userId) as { role: string; status: string; deleted_at: string | null } | null
+    return !!u && !u.deleted_at && u.status === 'active' && (u.role === 'owner' || u.role === 'admin')
+  }
+  private accountActive(userId: string): boolean {
+    const u = this.cc.db.query('SELECT status, deleted_at FROM users WHERE id = ?').get(userId) as { status: string; deleted_at: string | null } | null
+    return !!u && !u.deleted_at && u.status === 'active'
+  }
+  private starterOk(l: Pick<Login, 'personal' | 'userId'>): boolean { return l.personal ? this.accountActive(l.userId) : this.mayConnectForTeam(l.userId) }
+  /** Ends the running sign-ins of a person who lost the right to run them (demoted: their team ones; disabled: all).
+   * One that is storing its token right now finishes by itself (the store step re-checks the role). */
+  cancelFor(userId: string, o: { teamOnly: boolean }) {
+    for (const l of this.all.values()) {
+      if (l.userId !== userId || l.endedAt !== null || l.storing || (o.teamOnly && l.personal)) continue
+      l.cancel(); this.end(l, 'cancelled', 'starter_lost_rights')
+    }
+  }
   private prune() {
     for (const [id, l] of this.all) if (l.endedAt !== null && this.cc.now() - l.endedAt > KEEP_FINISHED_MS) this.all.delete(id)
   }
@@ -107,7 +127,8 @@ class Logins {
     this.send(l)
   }
 
-  async start(i: { userId: string; locale: Locale; personal: boolean; label: string; assignments: CredentialAssignment[]; priority: number; reconnectId?: string; kind?: CredentialLoginKind }): Promise<CredentialLogin> {
+  /** `showBusy`: the caller is the owner or an admin (the admin door): a busy answer says whose sign-in it is and how to stop it */
+  async start(i: { userId: string; locale: Locale; personal: boolean; showBusy?: boolean; label: string; assignments: CredentialAssignment[]; priority: number; reconnectId?: string; kind?: CredentialLoginKind }): Promise<CredentialLogin> {
     const { cc } = this
     const kind = i.kind ?? 'chatgpt'
     this.prune()
@@ -117,7 +138,11 @@ class Logins {
       const r = getRow(cc.db, i.reconnectId)
       if (!r || r.kind !== kind || (i.personal && r.owner_user_id !== i.userId) || (!i.personal && r.owner_user_id !== null)) fail('not_found')
     }
-    if ([...this.all.values()].some((l) => l.endedAt === null)) fail('busy', ct('loginBusy', i.locale))
+    const running = [...this.all.values()].find((l) => l.endedAt === null)
+    if (running) {
+      const starter = (cc.db.query('SELECT name FROM users WHERE id = ?').get(running.userId) as { name: string } | null)?.name ?? ''
+      fail('busy', ct('loginBusy', i.locale), i.showBusy ? { params: { reason: 'login_busy', loginId: running.loginId, personal: running.personal, starter } satisfies LoginBusyParams } : undefined)
+    }
     const where = await this.deps.launcher(kind)
     if (!where) return fail('engine_unavailable', ct(kind === 'chatgpt' ? 'loginUnavailable' : 'claudeLoginUnavailable', i.locale))
     const loginId = crypto.randomBytes(18).toString('base64url')
@@ -235,6 +260,7 @@ class Logins {
   /** check the login file and store (or reconnect) the connection */
   private storeChatgpt(l: Login, json: string): { ok: true; id: string } | { ok: false; reason: string } {
     const { cc } = this
+    if (!this.starterOk(l)) return { ok: false, reason: 'policy_changed' }
     if (!cc.allowedKinds.has('chatgpt') || (l.personal ? !memberOwnAllowed(cc.db) : !sharedSubscriptionsAllowed(cc.db))) return { ok: false, reason: 'policy_changed' }
     let a: { tokens?: { id_token?: unknown; access_token?: unknown; refresh_token?: unknown; account_id?: unknown }; last_refresh?: unknown }
     try { a = JSON.parse(json) } catch { return { ok: false, reason: 'unreadable' } }
@@ -251,13 +277,16 @@ class Logins {
       const r = getRow(cc.db, l.reconnectId)
       if (!r) return { ok: false, reason: 'gone' }
       if (metaOf(r).accountRef !== meta.accountRef) return { ok: false, reason: 'other_account' }
-      cc.db.transaction(() => writeSecret(cc, r.id, 'chatgpt', secret, { meta: JSON.stringify({ ...metaOf(r), ...meta }), status: 'ok', status_code: null, limited_until: null, checked_at: now, fingerprint: fp }))()
+      // a new sign-in into the team's connection: whose it is now (팀장 넘기기, auth/team-sign-ins.ts)
+      cc.db.transaction(() => { if (!r.owner_user_id) recordSignIn(cc.db, 'team_ai', r.id, l.userId, now); writeSecret(cc, r.id, 'chatgpt', secret, { meta: JSON.stringify({ ...metaOf(r), ...meta }), status: 'ok', status_code: null, limited_until: null, checked_at: now, fingerprint: fp }) })()
       audit(cc.db, { actor: l.userId, action: 'credential.secret_replaced', target: r.id, detail: { kind: 'chatgpt', planType: meta.planType, verified: true } })
+      if (!r.owner_user_id) noticeOwners(cc, l.userId, 'replaced', r.label)
       return { ok: true, id: r.id }
     }
     if (duplicateOf(cc, 'chatgpt', fp)) return { ok: false, reason: 'same_account' }
     const id = insertRow(cc, { kind: 'chatgpt', label: l.label, secret, ownerUserId: l.personal ? l.userId : null, priority: l.priority, assignments: l.assignments, createdBy: l.userId, meta, checkedAt: now })
     audit(cc.db, { actor: l.userId, action: 'credential.create', target: id, detail: { kind: 'chatgpt', label: l.label, scope: l.personal ? 'personal' : 'team', assignments: l.assignments, priority: l.priority, planType: meta.planType, verified: true } })
+    if (!l.personal) noticeOwners(cc, l.userId, 'added', l.label)
     return { ok: true, id }
   }
 
@@ -266,13 +295,16 @@ class Logins {
    * secret of the connection being reconnected. Its errors become the sign-in's reason, never a message with the token. */
   private async storeClaude(l: Login, token: string): Promise<{ ok: true; id: string } | { ok: false; reason: string }> {
     const { cc } = this
+    if (!this.starterOk(l)) return { ok: false, reason: 'policy_changed' }
     // the policies again, now (as storeChatgpt): a reconnect goes through replaceSecret, which does not check them
     if (!cc.allowedKinds.has('anthropic-oauth') || (l.personal ? !memberOwnAllowed(cc.db) : !sharedSubscriptionsAllowed(cc.db))) return { ok: false, reason: 'policy_changed' }
     try {
-      if (l.reconnectId) return { ok: true, id: (await replaceSecret(cc, l.reconnectId, token, l.userId, l.locale)).id }
+      // looked at again inside the write itself: the provider check below takes seconds, and the starter may have lost the right meanwhile
+      const ensure = () => { if (!this.starterOk(l)) fail('forbidden') }
+      if (l.reconnectId) return { ok: true, id: (await replaceSecret(cc, l.reconnectId, token, l.userId, l.locale, ensure)).id }
       const c = await createCredential(cc, {
         kind: 'anthropic-oauth', label: l.label, secret: token, assignments: l.assignments, priority: l.priority,
-        ownerUserId: l.personal ? l.userId : null, actor: l.userId, acknowledgedPlanNotice: true,
+        ownerUserId: l.personal ? l.userId : null, actor: l.userId, acknowledgedPlanNotice: true, ensure,
       }, l.locale)
       return { ok: true, id: c.id }
     } catch (e) {
@@ -287,9 +319,11 @@ class Logins {
   }
 
   /** The code Claude showed after approval (already unsealed): typed into the program once, while it waits for it. */
-  submitCode(loginId: string, userId: string, code: string, locale: Locale): CredentialLogin {
+  /** `personal`: which door the caller came through (/api/me or /api/admin); a sign-in is only reachable through its own */
+  submitCode(loginId: string, userId: string, code: string, locale: Locale, personal?: boolean): CredentialLogin {
     const l = this.all.get(loginId)
-    if (!l || l.userId !== userId) return fail('not_found')
+    if (!l || l.userId !== userId || (personal !== undefined && l.personal !== personal)) return fail('not_found')
+    if (!l.personal && !this.mayConnectForTeam(userId)) return fail('forbidden')
     if (l.kind !== 'anthropic-oauth' || l.endedAt !== null || l.state !== 'code') return fail('conflict', ct('loginNotWaiting', locale))
     const c = code.trim()
     if (!claudeLoginCodeOk(c)) return fail('validation', ct('badLoginCode', locale), { fields: { 'body.sealed': 'not the code Claude shows' } })
@@ -299,21 +333,46 @@ class Logins {
     return this.api(l)
   }
 
-  get(loginId: string, userId: string): CredentialLogin {
+  get(loginId: string, userId: string, personal?: boolean): CredentialLogin {
     this.prune()
     const l = this.all.get(loginId)
-    if (!l || l.userId !== userId) return fail('not_found')
+    if (!l || l.userId !== userId || (personal !== undefined && l.personal !== personal)) return fail('not_found')
     return this.api(l)
   }
 
-  cancel(loginId: string, userId: string, locale: Locale): void {
+  /** `personal`: the door (see submitCode). `anyLogin`: the owner or an admin (the caller checked) stops any sign-in,
+   * not only their own: only one runs at a time, and a forgotten one would keep everybody waiting for up to 16 minutes.
+   * A member's own that is stopped this way is told to them. */
+  cancel(loginId: string, userId: string, locale: Locale, personal?: boolean, anyLogin = false): void {
     const l = this.all.get(loginId)
-    if (!l || l.userId !== userId) return fail('not_found')
+    const others = anyLogin && !!l && personal === false
+    if (!l || (l.userId !== userId && !others) || (!others && personal !== undefined && l.personal !== personal)) return fail('not_found')
+    // someone else's: a team sign-in by the owner or any admin; a member's own by the owner or an admin; an admin's own only
+    // by the owner; the owner's own by nobody else (docs/PERMISSIONS.md)
+    const other = l.userId !== userId
+    if (other && l.personal) {
+      const role = (id: string) => (this.cc.db.query('SELECT role FROM users WHERE id = ?').get(id) as { role: string } | null)?.role
+      const mine = role(userId), theirs = role(l.userId)
+      if (!(mine === 'owner' || (mine === 'admin' && theirs === 'member'))) return fail('forbidden', ct('loginNotYours', locale))
+    }
     // a token that is being checked and stored right now finishes: 409, the result comes in a moment (the screen keeps
-    // the dialog and says so, instead of closing it and the connection appearing later)
+    // the dialog and says so, instead of closing it and the connection appearing later); nothing is said or recorded for
+    // a stop that did not happen
     if (l.storing) return fail('conflict', ct('loginStoring', locale))
-    if (l.endedAt === null) { l.cancel(); this.end(l, 'cancelled', null) }
+    if (l.endedAt === null) {
+      if (other) {
+        audit(this.cc.db, { actor: userId, action: 'credential.login_cancel', target: loginId, detail: { by: 'other_admin', kind: l.kind, starter: l.userId, personal: l.personal } })
+        if (l.personal) noticeMember(this.cc, l.userId, userId, 'personal_login_stopped', l.label)
+      }
+      l.cancel(); this.end(l, 'cancelled', null)
+    }
   }
+}
+
+/** The running sign-ins of a person who lost the right to run them (admin/users.ts): none when this server never had one. */
+export function cancelLoginsOf(cc: CredCtx, userId: string, o: { teamOnly: boolean }) {
+  const m = cc.extra.logins as Logins | undefined
+  if (m) m.cancelFor(userId, o)
 }
 
 /** the sign-ins of one server */

@@ -3,6 +3,8 @@ import crypto from 'node:crypto'
 import { harness, withOwner, type Harness } from './a-lib'
 import { PushService, type PushOptions } from '../../server/src/notifications/push-service'
 import { notificationsOf } from '../../server/src/notifications/service'
+import { HttpError } from '../../server/src/http/errors'
+import { PUSH_KEY_REASON } from '@mycel/shared/api'
 const generateVAPIDKeys=()=>{const e=crypto.createECDH('prime256v1');e.generateKeys();return {publicKey:e.getPublicKey().toString('base64url'),privateKey:e.getPrivateKey().toString('base64url')}}
 let h: Harness, p: PushService
 const nowBase=Date.now(); let now=nowBase
@@ -131,4 +133,36 @@ test('an unexpired final-attempt lease stays sending while another tick checks t
     .run(item.id,sub.id,new Date(now).toISOString(),new Date(now+30000).toISOString(),new Date(now+60000).toISOString())
   await p.tick();expect(calls).toBe(0)
   expect(h.ctx.db.query('SELECT state,attempts FROM push_deliveries').get()).toEqual({state:'sending',attempts:3})
+})
+
+test('no usable Web Push key: unavailable with reason push_key, so the page tells an admin, not "try again"',async()=>{
+  const sid=await setup({config:()=>null})
+  let error: unknown
+  try{p.subscribe('olga',sid,input())}catch(e){error=e}
+  expect(error).toBeInstanceOf(HttpError)
+  expect((error as HttpError).code).toBe('unavailable')
+  expect((error as HttpError).body('ko').params).toEqual({reason:PUSH_KEY_REASON})
+  expect(PUSH_KEY_REASON).toBe('push_key')
+})
+
+// Microsoft Edge subscribes through WNS (feat/edge-push): the address keeps its token query, and WNS's answers map like
+// the others': 406 is its "too many for now" (tried again later, like 429), 404 and 410 a channel that is gone.
+const wnsInput=()=>({...input(),endpoint:'https://wns2-par02p.notify.windows.com/w/?token=BQYAAABkR1f%2bgYm7ZDQoX9Kq4e6Jd8a%2fcJx0R2Jm3nYw%3d%3d'})
+test('an Edge (WNS) subscription is taken, and the transport gets its address with the token query',async()=>{
+  const seen:string[]=[];const sid=await setup({transport:async i=>{seen.push(i.subscription.endpoint);return{statusCode:201}}})
+  const b=wnsInput();p.subscribe('olga',sid,b);now+=10;event('edge');await p.tick()
+  expect(seen).toEqual([b.endpoint])
+  expect(JSON.stringify(h.ctx.db.query('SELECT * FROM push_subscriptions').all())).not.toContain('token=')
+})
+test('WNS 406 (throttled) is tried again later, like 429; 404 and 410 remove the Edge subscription',async()=>{
+  let calls=0;const sid=await setup({transport:async()=>{calls++;return{statusCode:406}}})
+  p.subscribe('olga',sid,wnsInput());now+=10;event('throttled');await p.tick()
+  expect(h.ctx.db.query('SELECT state FROM push_deliveries').get()).toEqual({state:'pending'})
+  now+=31_000;await p.tick();now+=121_000;await p.tick();now+=999_000;await p.tick()
+  expect(calls).toBe(3);expect(h.ctx.db.query('SELECT state FROM push_deliveries').get()).toEqual({state:'failed'})
+  for(const statusCode of [404,410]){
+    await p.stop();await h.close()
+    const sid2=await setup({transport:async()=>({statusCode})});p.subscribe('olga',sid2,wnsInput());now+=10;event(`gone-${statusCode}`);await p.tick()
+    expect(h.ctx.db.query('SELECT COUNT(*) n FROM push_subscriptions').get()).toEqual({n:0})
+  }
 })

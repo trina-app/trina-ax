@@ -136,7 +136,9 @@ test.describe('phone width', () => {
     await signIn(page)
     await expect(page.getByTestId('new-chat')).not.toBeVisible()
     await page.getByRole('button', { name: '메뉴 열기' }).click()
-    await expect(page.getByRole('dialog', { name: '사이드바' }).getByTestId('new-chat')).toBeVisible()
+    // the drawer is the AI's history: a new chat is the 트리나 tab itself (Home, where this opened)
+    await expect(page.getByRole('dialog', { name: '사이드바' }).getByRole('button', { name: '검색' })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: '사이드바' }).getByTestId('new-chat')).toBeHidden()
     // 파일 is the tab on a phone, not a row of the drawer
     await expect(page.getByRole('dialog', { name: '사이드바' }).getByRole('link', { name: '파일' })).toHaveCount(0)
     await page.keyboard.press('Escape')

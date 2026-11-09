@@ -18,6 +18,7 @@ Use the installer and Admin settings first. `server.json` is operator-owned depl
 | `engine.credentialKinds` | Operator can narrow permitted connection kinds; team settings cannot grant forbidden kinds |
 | `engine.anthropicGateway` | Self-hosted, managed mode: Claude Code on another company's models through an Anthropic-compatible address (OpenRouter, DeepSeek, Kimi, GLM). See [below](#anthropic-compatible-gateway) |
 | `relay`, `tunnel`, `update` | Address and feed configuration; preserve the installer's settings and trust checks |
+| `knowledgeGraph.codegraph` | The CodeGraph command for the knowledge graph (a path, relative to this file's folder); `""` never uses one. Absent: `codegraph` on the PATH. See [KNOWLEDGE-GRAPH.md](KNOWLEDGE-GRAPH.md) |
 
 `engine.modelUpstreams`, fake upstream URLs, native-path overrides and response-validation controls are test/advanced development tools, not recommended onboarding settings. Never point a live credential proxy at an untrusted endpoint. To run Claude Code on other models, use `engine.anthropicGateway` (below), not `modelUpstreams`.
 

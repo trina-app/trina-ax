@@ -1,22 +1,30 @@
 // Wires the WebSocket to the stores: one RealtimeClient per signed-in window.
-import type { CredentialLogin, FileChange, Memory, ServerEvent } from '@mycel/shared/api'
+import { PRODUCT } from '@mycel/shared'
+import type { CredentialLogin, FileChange, Memory, ServerEvent, ServerEventData } from '@mycel/shared/api'
 import { renewWindowId, windowId } from '../lib/api'
 import { BrowserRelay } from '../lib/browserRelay'
-import { browserSettingsBridge } from '../lib/desktop'
+import { browserSettingsBridge, desktop } from '../lib/desktop'
 import { openTeamFile } from '../lib/sidePanel'
-import { navigateTo } from '../lib/nav'
+import { FILES_TRASH, navigateTo } from '../lib/nav'
 import { keepUnsentAsDrafts } from '../lib/reload-guard'
 import { Emitter } from '../lib/emitter'
 import { defaultWsBase, RealtimeClient, type ConnState } from '../lib/realtime'
+import { startActivity } from '../lib/presence'
 import { t } from '../i18n'
 import { useChats } from './chats'
+import { useDeckBuilds } from './deckBuilds'
 import { useAiAccess } from './aiAccess'
 import { useEngines } from './engines'
+import { transferredHere, useHandover } from './handover'
 import { useJobs } from './jobs'
 import { usePeople } from './people'
+import { usePresence } from './presence'
 import { useRooms } from './rooms'
+import { roomMessageSound, startRoomSound, stopRoomSound } from './roomSound'
 import { useSession } from './session'
+import { chatUpdated, roomMessage, roomUpdated, startSessionMarkers, stopSessionMarkers } from './sessionMarkers'
 import { toast, useUi } from './ui'
+import { useWelcome } from './welcome'
 
 /** files.changed (only paths this person can read): the file screen refreshes the folder it shows. */
 export const filesChanged = new Emitter<FileChange[]>()
@@ -33,18 +41,21 @@ export const schedulesChanged = new Emitter<void>()
 export const credentialLogin = new Emitter<CredentialLogin>()
 /** the server could not resume us: screens that hold REST data reload it */
 export const reloadAsked = new Emitter<'reset' | 'resync'>()
+/** every chat.updated, also for a chat the chat list does not keep (someone else's shared chat I have not written in):
+ * a project's page applies those of its project (pages/Projects.tsx) */
+export const chatChanged = new Emitter<ServerEventData<'chat.updated'>>()
 /** an answer of this chat took a step or ended (message.step / message.done), also for a chat no screen has open: the
  * company profile step asks for its draft's pages right away instead of at its next poll */
 export const chatActivity = new Emitter<string>()
 
 let client: RealtimeClient | null = null
 let relay: BrowserRelay | null = null
+/** this window's own activity for the team's online status (lib/presence.ts) */
+let activity: ReturnType<typeof startActivity> | null = null
 let firstServerVersion: string | null = null
 
-export function dispatch(ev: ServerEvent) {
-  if (ev.type === 'message.done' && typeof document !== 'undefined' && document.hidden) {
-    useUi.getState().setUnseenDone(useUi.getState().unseenDone + 1)
-  }
+/** replay: the server sent it again after a reconnect (lib/realtime.ts); it is applied, but nothing rings for it */
+export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: false }) {
   if (ev.type === 'message.step' || ev.type === 'message.done') chatActivity.emit(ev.data.chatId)
   switch (ev.type) {
     case 'queue.position':
@@ -52,23 +63,46 @@ export function dispatch(ev: ServerEvent) {
       useRooms.getState().handleEvent(ev)
       useChats.getState().handleEvent(ev)
       return
+    case 'chat.updated':
+      // session markers (store/sessionMarkers.ts): a live change worth it is told, after a wait
+      chatUpdated(ev, meta)
+      useChats.getState().handleEvent(ev)
+      chatChanged.emit(ev.data)
+      return
     case 'message.created':
     case 'message.delta':
     case 'message.step':
     case 'message.done':
-    case 'chat.updated':
     case 'turn.request':
     case 'turn.request.closed':
     case 'artifact.updated':
       useChats.getState().handleEvent(ev)
       return
+    case 'deck.progress':
+      // an intro deck being built (docs/DECISIONS.md "D2", round 2): the chat's block and the panel (its end is told
+      // like any answer's: session markers)
+      useDeckBuilds.getState().handleEvent(ev.data.chatId, ev.data.build)
+      return
     case 'files.changed':
       filesChanged.emit(ev.data.changes)
       return
     case 'room.message':
+      // a message the server gave me a notice of: told in the desktop app like the Inbox and push (store/sessionMarkers.ts)
+      roomMessage(ev, meta)
+      useRooms.getState().handleEvent(ev)
+      // a new message meant for me rings once on this device (store/roomSound.ts); an edit or a delete never does
+      roomMessageSound(ev.data.roomId, ev.data.message, meta.replay)
+      return
+    case 'room.updated':
+      // the room's AI waits on me now (Room.aiWaits): told like a card
+      roomUpdated(ev, meta)
+      useRooms.getState().handleEvent(ev)
+      return
     case 'room.message.updated':
     case 'room.read':
-    case 'room.updated':
+    case 'room.thread':
+    // a reaction never rings (nor counts anywhere)
+    case 'room.reactions':
     case 'room.ai':
     case 'room.ai.run':
     case 'room.ai.step':
@@ -98,6 +132,12 @@ export function dispatch(ev: ServerEvent) {
         notificationsChanged.emit()
         return
       }
+      if (ev.data.code === 'room_alerts_changed') {
+        // my notification settings changed (here or on another device): every room's level and my quiet hours come with
+        // the rooms list (the bell, the sound, the muted marks follow)
+        void useRooms.getState().loadRooms()
+        return
+      }
       if (ev.data.code === 'engine_choice_changed') {
         // the admin changed who may pick the engine or which engines are on: show / hide the picker without a reload
         void useSession.getState().refreshMe()
@@ -114,7 +154,8 @@ export function dispatch(ev: ServerEvent) {
         return
       }
       if (ev.data.code === 'team_icon_changed') {
-        // an admin set or removed the team logo: the tab icon follows (GET /api/me carries its version)
+        // an admin set or removed the team logo: the sidebar header follows (GET /api/me carries its version); the tab
+        // icon stays the product's
         void useSession.getState().refreshMe()
         return
       }
@@ -135,16 +176,38 @@ export function dispatch(ev: ServerEvent) {
         void useSession.getState().refreshMe()
         return
       }
+      if (ev.data.code === 'owner_changed') {
+        // 팀장 넘기기 (docs/DECISIONS.md "W6"): to the old and the new owner, every tab. The role is read again, then what
+        // follows from it (the handover card and flag, the welcome steps); the window that pressed [넘기기] said it already
+        void useSession.getState().refreshMe().then(() => {
+          void useHandover.getState().load(true).catch(() => {})
+          if (useWelcome.getState().loaded) void useWelcome.getState().load(true).catch(() => {})
+        })
+        if (!meta.replay && !transferredHere()) toast({ level: 'info', text: ev.data.message })
+        return
+      }
+      if (ev.data.code === 'owner_lead_joined') {
+        // someone joined with my lead link: Home's card and the Inbox follow; the desktop app tells it (the owner may be
+        // away for days, so the phone gets a push too, from the server)
+        void useHandover.getState().load(true).catch(() => {})
+        if (!meta.replay) desktop()?.notify({ title: PRODUCT.displayName, body: ev.data.message, tag: 'handover-lead', open: '/' })
+        return
+      }
       if (ev.data.code === 'access_changed') {
         // the server sends the folders whose access changed as data ("groups/finance, shared"), not a sentence
         toast({ level: 'info', text: t('notice.accessChanged', { paths: ev.data.message }) })
         accessChanged.emit()
+        // shared project chats follow their project's people: the list is read again (one I can see again comes back;
+        // the server already told me which ones I lost)
+        void useChats.getState().loadChats(true).catch(() => {})
         return
       }
       if (ev.data.link) {
-        // team skills: a change (owner and admins: open its version history), a suggestion to review, a review result
+        // team skills: a change (owner and admins: open its version history; a deleted file: open 파일 › 휴지통, or
+        // the chats' /trash in a notice from before), a suggestion to review, a review result
         const link = ev.data.link
-        const label = ev.data.code === 'skill_changed' ? (link.startsWith('/trash') ? t('notice.open') : t('notice.openHistory')) : ev.data.code.startsWith('skill_') ? t('notice.openSkills') : t('notice.open')
+        const toTrash = link === FILES_TRASH || link.startsWith('/trash')
+        const label = ev.data.code === 'skill_changed' ? (toTrash ? t('notice.open') : t('notice.openHistory')) : ev.data.code.startsWith('skill_') ? t('notice.openSkills') : t('notice.open')
         if (ev.data.code.startsWith('skill_')) skillsChanged.emit()
         // not sticky: it would sit over the composer; the same changes and suggestions stay on the 팀 스킬 screen
         toast({ level: ev.data.level, text: ev.data.message, action: { label, run: () => navigateTo(link) } })
@@ -175,15 +238,22 @@ export function startLive() {
     onEvent: dispatch,
     onReload: (reason) => {
       void useChats.getState().reloadAll()
+      void useDeckBuilds.getState().reloadAll()
       void useSession.getState().refreshMe() // a language change may have happened while we were away
       reloadAsked.emit(reason)
     },
+    // who is online or away (docs/DECISIONS.md "접속 상태"): the whole list after each hello, then changes
+    onPresence: (f) => usePresence.getState().apply(f),
     onState: (s: ConnState) => {
       useUi.getState().setConn(s)
+      // the server out of reach for a while: the dots would be guesses (the list comes again after the next hello)
+      if (s === 'offline' || s === 'signed-out') usePresence.getState().clear()
       // session.ended (handled above) comes before the close and already says why
       if (s === 'signed-out' && useSession.getState().status.kind === 'signed-in') useSession.getState().signedOut('expired')
     },
     onHello: ({ serverVersion }) => {
+      // the server takes a window that has just connected as in use: say how this one is
+      activity?.connected()
       if (firstServerVersion === null) firstServerVersion = serverVersion
       else if (serverVersion !== firstServerVersion) {
         useUi.getState().setUpdateReady(true)
@@ -192,7 +262,11 @@ export function startLive() {
     },
   })
   relay = new BrowserRelay((f) => client?.send(f))
+  activity = startActivity((state) => client?.send({ type: 'presence', state }))
   client.start()
+  // neither the session markers nor the room sound ever stop the live updates
+  try { startSessionMarkers() } catch { /* no markers' extras in this window */ }
+  try { startRoomSound() } catch { /* no sound in this window */ }
   window.addEventListener('online', nudge)
   document.addEventListener('visibilitychange', onVisible)
 }
@@ -201,9 +275,14 @@ const nudge = () => client?.nudge()
 const onVisible = () => document.visibilityState === 'visible' && client?.nudge()
 
 export function stopLive() {
+  stopRoomSound()
+  stopSessionMarkers()
+  activity?.detach()
+  activity = null
   client?.stop()
   client = null
   relay = null
+  usePresence.getState().clear()
   window.removeEventListener('online', nudge)
   document.removeEventListener('visibilitychange', onVisible)
 }

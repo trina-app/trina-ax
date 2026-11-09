@@ -17,6 +17,9 @@ import { joinPath } from '../lib/paths'
 import { useArtifactContent, useChatArtifacts } from '../lib/useArtifacts'
 import { useLocale, useT } from '../i18n'
 import { useChats } from '../store/chats'
+import { useNewestBuild } from '../store/deckBuilds'
+import { deckRunState, showsBuild } from '../lib/deckProgress'
+import { DeckBuildBadge, DeckBuildView } from './chat/DeckProgress'
 import { useMeStrict } from '../store/session'
 import { toast } from '../store/ui'
 import { TYPE_LABEL } from './artifactLabels'
@@ -27,6 +30,7 @@ import ExternalImagesNote from './ExternalImagesNote'
 import { useFrameFiles } from '../lib/useFrameFiles'
 import type { FrameFiles } from '../lib/frame-files'
 import { Button, CopyButton, IconButton, Spinner } from './ui'
+import { PanelExpandButton } from './SidePanelFrame'
 
 let compiler: Promise<CompileFn> | null = null
 
@@ -53,10 +57,17 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
     setTab('preview')
   }, [chatId, artifactKey, versionId])
 
+  // an intro deck being built (docs/DECISIONS.md "D2", round 2): the panel shows it slide by slide until the saved deck
+  // is here (a build newer than the deck's newest version, or done but not yet in the list); never an error or an
+  // empty panel meanwhile
+  const build = useNewestBuild(chatId)
+  const buildMessage = useChats((s) => (build?.messageId ? s.threads[chatId]?.messages.find((m) => m.id === build.messageId)?.status : undefined))
+  const buildRun = build ? deckRunState(build, buildMessage === undefined || buildMessage === 'streaming') : null
+  const building = artifactKey === DECK_ARTIFACT_KEY && !!build && !!buildRun && !versionId && showsBuild(build, buildRun, versions)
   const summary = versions.find((v) => v.id === picked) ?? versions.at(-1)
   const index = summary ? versions.indexOf(summary) : -1
   const writing = live?.status === 'writing' && (!summary || picked === null)
-  const { artifact, error } = useArtifactContent(writing ? null : summary?.id)
+  const { artifact, error } = useArtifactContent(writing || building ? null : summary?.id)
   const content = writing ? live!.content : artifact?.content ?? null
   const type: ArtifactType | undefined = writing ? live!.type : artifact?.type ?? summary?.type ?? live?.type
   const title = (writing ? live!.title : summary?.title ?? live?.title) || artifactKey
@@ -126,6 +137,29 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
   const deck = artifactKey === DECK_ARTIFACT_KEY && type === 'html'
   const ours = promo || deck
   const showCode = writing || (!ours && tab === 'code') || type === 'code'
+  if (building)
+    return (
+      <aside aria-label={t('artifact.panel')} className="flex h-full min-w-0 flex-col bg-surface" data-testid="artifact-panel" data-building>
+        <header className="flex items-center gap-2 border-b border-line px-3 py-2">
+          <Shapes size={16} className="shrink-0 text-accent-text" aria-hidden />
+          <h2 className="min-w-0 truncate text-sm font-semibold" title={build!.title}>
+            {build!.title}
+          </h2>
+          <DeckBuildBadge build={build!} run={buildRun!} />
+          <div className="ml-auto flex shrink-0 items-center gap-0.5">
+            {/* the files come when the deck is done */}
+            <Button size="sm" variant="secondary" className="mr-1" disabled aria-label={t('deck.menu')} data-testid="deck-get">
+              <Download size={14} aria-hidden /> {t('deck.get')} <ChevronDown size={14} className="text-faint" aria-hidden />
+            </Button>
+            <PanelExpandButton />
+            <IconButton label={t('common.close')} onClick={onClose}>
+              <X size={16} />
+            </IconButton>
+          </div>
+        </header>
+        <DeckBuildView key={build!.id} build={build!} run={buildRun!} />
+      </aside>
+    )
   return (
     <aside aria-label={t('artifact.panel')} className="flex h-full min-w-0 flex-col bg-surface" data-testid="artifact-panel">
       <header className="flex items-center gap-2 border-b border-line px-3 py-2">
@@ -168,6 +202,7 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
               </IconButton>
             </>
           )}
+          <PanelExpandButton />
           <IconButton label={t('common.close')} onClick={onClose}>
             <X size={16} />
           </IconButton>

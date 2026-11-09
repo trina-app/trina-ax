@@ -4,39 +4,37 @@
 
 # Trina AX
 
-**Claude Code 一次配好，全公司都能用。**
+**各用各的 AI，现在全队一起用。**
 
-Claude Code 和 Codex 跑在公司的一台服务器上，公司文件、团队技能和每个人的文件夹权限也都在上面。其他人打开浏览器就能用。
+Claude Code 和 Codex 跑在公司的服务器上，用的是公司文件和团队技能。团队成员在浏览器里使用：可以在自己的聊天里提问，从 0.4 版起也可以在团队对话里 @Trina。
 
-[官网](https://ax.trina.app) · [10 分钟上手](#10-分钟上手) · [自托管](docs/for-admins.md) · [文档](docs/README.md)
+[官网](https://ax.trina.app) · [10 分钟上手](#10-分钟上手) · [自托管](docs/for-admins.md) · [文档](docs/README.md) · [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax)
 
 [English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · 简体中文
 
-https://github.com/user-attachments/assets/61f3469b-358d-4b3a-9233-c6b23b5db835
+<img src="docs/images/readme/room-quote.png" width="100%" alt="在带 # 图标的 Sales 对话里，Mina 写下“@Trina /quote Northwind Foods: 200 insulated boxes, delivery Nov 20”。Trina 把报价摘要和文件链接“Northwind Foods quote.xlsx”发到对话里，Alex 回复“Matches our price sheet. Send it.”">
 
-<sub><b>97 秒，请打开声音（英文）。</b>团队负责人只需把 Claude 设置一次，新同事入职第一天写的提案也像负责人做的一样。<br>动画演示，1:15 处是真实应用界面。公司是虚构的。</sub>
+<sub>真实应用 0.4 版的 Sales 对话（英文界面）。公司是虚构的。</sub>
 
 </div>
 
-## 同一个请求，两种回答
+- **一次设好，大家都照这个做法干活。** 公司文件放进 `shared/`；负责人写报价单的方法写进 `skills/quote/SKILL.md`。新同事入职第一天就能照着用。
+- **在对话里 @Trina，结果直接发到对话里。** 在团队对话中提问：团队技能用你能打开的文件来处理，回答连同文件会发到这个对话里。
+- **同事做到一半的事，谁都能接着做**（下一个 0.4 测试版推出）。同一个项目的任何成员都能接着一个共享项目聊天继续做，每条消息都以发送者本人的身份运行。
 
-<table>
-<tr>
-<td width="50%" valign="top"><b>空文件夹里的 Claude Code</b><br><sub>它没法了解你们公司，只能先问六个问题。</sub></td>
-<td width="50%" valign="top"><b>Trina AX，同样一句话</b><br><sub>直接基于团队文件和 CEO 的提案技能开始写。</sub></td>
-</tr>
-<tr>
-<td><img src="docs/images/readme/before-empty-claude.png" alt="在空文件夹里运行的 Claude Code 收到“Write a proposal for Trina Logistics”后，反问了六个关于公司、客户和格式的问题。"></td>
-<td><img src="docs/images/readme/after-trina-deck.png" alt="Trina AX 对同样的请求直接给出一份 7 页的提案幻灯片，封面写着“Lead time from 2.1 to 1.4 days, within your budget”。"></td>
-</tr>
-</table>
+放进真实的公司文件也没关系，每个人只能看到自己有权看的内容。[原理](#底层原理)
 
-<sub>2026-10-31 和 11-01 用虚构公司 Dawnroute 实际跑出的结果，幻灯片里的照片由 Higgsfield 生成。Claude Code 先提问并没有错：空文件夹里没有任何东西能告诉它你是谁。Trina 做的，就是把这个文件夹交给它。</sub>
+```sh
+git clone https://github.com/trina-app/trina-ax.git && cd trina-ax
+bun install --frozen-lockfile && bun run demo   # http://127.0.0.1:19760 · alice / teamax-demo-1
+```
+
+<sub>本地演示：虚构团队，AI 关闭，不用于生产。需要 Bun 1.3.12 和 Go 1.27+。想试团队对话和 @Trina，请用 [Docker 安装](docs/INSTALL-DOCKER.md)，设置 `TRINA_AX_VERSION=0.4.0-beta.10`，再接入一个 AI 账号。</sub>
 
 ## 工作原理
 
 1. **一次放好。** 公司文件放进 `shared/`；提案该怎么写，就写进 `skills/proposal/SKILL.md`。
-2. **人人都能问。** 直接在浏览器里的聊天应用中提问，电脑、手机都行。不用开终端，笔记本上也不用装任何东西。
+2. **人人都能问，在自己的聊天里，或在团队对话里。** 电脑或手机浏览器，或者 iPhone 应用都行。不用开终端，笔记本上也不用装任何东西。在对话里，@Trina 以叫它的那个人的身份工作。
 3. **权限跟着人走。** AI 每打开一个文件，服务器都会以提问者本人的身份检查权限。你看不到的文件夹，对你的 AI 来说也不存在。
 
 <img src="docs/images/readme/permission-answer.png" width="100%" alt="销售团队的一名成员问“What was our revenue last quarter?”，AI 回答说，在她有权访问的团队文件里没有找到任何营收数据。">
@@ -53,6 +51,29 @@ bun run demo        # → http://127.0.0.1:19760 · 用 alice / teamax-demo-1 �
 
 演示里是一个虚构团队，自带六个入门技能。AI 是关闭的，所以不需要任何 AI 账号。再开一个无痕窗口用 `bob` 登录，你会发现两人看到的组文件夹不一样。环境要求：Git、Bun 1.3.12 和 Go 1.27+。这**不是生产环境的安装方式**。[详细步骤](docs/QUICKSTART.md)
 
+想试团队对话和 @Trina，请用 [Docker 安装](docs/INSTALL-DOCKER.md)，设置 `TRINA_AX_VERSION=0.4.0-beta.10`（或之后的 0.4 版本），再接入一个 AI 账号。本地演示关闭了 AI，所以 @Trina 在那里不会回答。
+
+## 同一个请求，两种回答
+
+<table>
+<tr>
+<td width="50%" valign="top"><b>空文件夹里的 Claude Code</b><br><sub>它没法了解你们公司，只能先问六个问题。</sub></td>
+<td width="50%" valign="top"><b>Trina AX，同样一句话</b><br><sub>直接基于团队文件和 CEO 的提案技能开始写。</sub></td>
+</tr>
+<tr>
+<td><img src="docs/images/readme/before-empty-claude.png" alt="在空文件夹里运行的 Claude Code 收到“Write a proposal for Trina Logistics”后，反问了六个关于公司、客户和格式的问题。"></td>
+<td><img src="docs/images/readme/after-trina-deck.png" alt="Trina AX 对同样的请求直接给出一份 7 页的提案幻灯片，封面写着“Lead time from 2.1 to 1.4 days, within your budget”。"></td>
+</tr>
+</table>
+
+<sub>2026-10-31 和 11-01 用虚构公司 Dawnroute 实际跑出的结果，幻灯片里的照片由 Higgsfield 生成。Claude Code 先提问并没有错：空文件夹里没有任何东西能告诉它你是谁。Trina 做的，就是把这个文件夹交给它。</sub>
+
+**同一个对话，两块屏幕。** 只有用对话里每个人都能看到的资料做出的回答，才会直接发到对话里。否则，先只给提问的人看。
+
+<img src="docs/images/readme/share-check.png" width="100%" alt="同一时刻 Everyone 对话的两块屏幕。Alex 看到 Trina 的回答上方写着“Only you can see this · Post”，以及原因“It read folders that some people in this room cannot open (Team folder, Finance).”；Mina 只看到“Answered to Alex only”。">
+
+<sub>Alex 的回答用到了 Mina 打不开的 Finance 文件夹。Alex 仍然可以自己决定发出去；在那之前，Mina 只能看到他收到了回答。真实应用，0.4 版。公司是虚构的。</sub>
+
 ## 功能一览
 
 | | 具体来说 |
@@ -60,18 +81,23 @@ bun run demo        # → http://127.0.0.1:19760 · 用 alice / teamax-demo-1 �
 | **真正的 Claude Code 和 Codex 智能体** | 跑在你们自己的服务器上：每次回答默认最多 150 轮工具调用，同时最多运行 4 个子代理，还支持联网搜索和定时任务。 |
 | **公司文件夹就是知识库** | `shared/`、`groups/`、`projects/` 和个人文件夹，都带版本历史。能提取 PDF、Office 和 HWP/HWPX 文件里的文字。 |
 | **团队技能，像文件一样管理** | 一个技能就是一个 `SKILL.md` 文件。谁能用由文件夹规则决定，AI 要改动技能前会先找人确认。 |
+| **团队对话（0.4）** | 群组对话、全员对话和私信，支持引用回复、@提及、文件和照片。@Trina 时，它以你的身份、用你能用的文件和技能来回答。对话只有成员能看到；管理员打不开自己不在的对话。 |
 | **每次文件调用都查权限** | 你无权访问的文件，在文件页面、AI 回答、搜索、预览、版本历史和回收站里都不会出现。 |
 | **用你们自己的 AI 连接** | 把公司的 Claude 或 OpenAI 账号接入一次，也可以让每个人接入自己的账号。按人统计用量，还能设置上限。自托管时，还可以通过 [Anthropic 兼容网关](docs/CONFIGURATION.md#anthropic-compatible-gateway)让 Claude Code 使用 DeepSeek、Kimi、GLM 等其他模型。 |
-| **自托管或托管** | 可以部署在 Linux 服务器或办公室的 Mac 上，也可以用 Trina 在 AWS 首尔区域的托管服务。电脑和手机用浏览器访问，另有 Windows 安装包。 |
+| **Slack 连接器（0.4，默认关闭）** | 所有者配置好团队自己的 Slack 应用后，每个人关联自己的 Slack 账号，在频道或私信里向应用提问。每个问题都以提问者本人的身份运行；在频道里，回答先只给本人看，点 *Post to channel* 才会发到频道。[Slack 指南（英文）](docs/SLACK.md) |
+| **iPhone 应用** | [App Store 上的 Trina AX](https://apps.apple.com/app/id6829192435)。它打开的是你们团队的服务器，所以功能取决于服务器的版本：团队对话需要 0.4。 |
+| **自托管或托管** | 可以部署在 Linux 服务器（也可以用 [Docker](docs/INSTALL-DOCKER.md)）或办公室的 Mac 上，也可以用 Trina 在 AWS 首尔区域的托管服务。电脑和手机用浏览器访问，另有 iPhone 应用和 Windows 安装包。 |
 
 > [!NOTE]
 > **如果你所在的地区无法直接使用 Claude 或 OpenAI**：自托管时，可以在服务器的 `server.json` 里配置 [Anthropic 兼容网关](docs/CONFIGURATION.md#anthropic-compatible-gateway)（`engine.anthropicGateway`），让真正的 Claude Code 通过 OpenRouter，或 DeepSeek、Kimi、GLM 等提供的 Anthropic 兼容接口，使用这些模型。开启后，Claude 订阅和 Anthropic 的密钥都不会发往网关，也只转发你在配置里写明的模型；每个人的文件夹权限照样逐一检查。目前已用 OpenRouter 上的 `deepseek/deepseek-v4-pro` 实测过。另外还有一个实验性的、兼容 OpenAI 接口的 API 引擎（管理 › AI 引擎 › API 引擎）。
 
 ## 底层原理
 
+我们的第一个提交（2026-10-21）里就已经有权限函数（`server/src/policy/authorize.ts`）了。如今每一次文件调用仍然都要经过它。
+
 ```mermaid
 flowchart LR
-  P["你的团队<br/>浏览器 · 手机 · Windows 应用"] --> S["Trina 服务器"]
+  P["你的团队<br/>浏览器 · iPhone 应用 · Windows 应用"] --> S["Trina 服务器"]
   E["Claude Code / Codex<br/>自带的 shell 和文件工具已关闭"] -->|"唯一通道：Trina 文件工具"| C{"权限检查<br/>以提问者本人的身份"}
   S --> C
   C --> D[("公司文件夹<br/>shared · groups · projects · users")]
@@ -81,7 +107,7 @@ flowchart LR
 - **用的是真正的智能体。** 子代理也以同一个人的身份工作，经过同样的检查，留下同样的活动记录。
 - **入口收得很窄。** 引擎自带的 shell 和文件工具都已关闭，并由针对每个引擎的回归测试把关。它访问你们文件夹的通道是 Trina 的文件工具，每次调用都会检查。
 - **真实密钥不经引擎之手。** Token 先在浏览器里加密封装，然后才发出去。引擎每一轮拿到的只是临时的替代 Token，真正的 Token 由模型代理（proxy）补上。
-- **管理员看不到你的聊天内容。** 他们能看到 AI 读了哪些文件，但看不到对话本身。不过服务器运维人员仍然可以读取存储的数据，这一点我们在[下文](#数据与限制)写明了。
+- **你和 Trina 的聊天只有你自己能看到。** 对话只有成员能看到；管理员打不开自己不在的对话。管理员能看到 AI 读了哪些文件，但看不到对话本身。不过服务器运维人员仍然可以读取存储的数据，这一点我们在[下文](#数据与限制)写明了。
 
 <sub>操作系统级隔离（专用的引擎账户）适用于 Linux 安装和以角色账户方式安装的 Mac。办公室 Mac 以当前登录的用户身份运行，本地演示则没有操作系统级隔离。→ <a href="docs/security-and-permissions.md">安全与权限（英文）</a> · <a href="docs/PERMISSIONS.md">权限模型（韩文）</a></sub>
 
@@ -107,10 +133,10 @@ flowchart LR
 | 适合 | 没有 IT 人员的团队 | 有 IT 负责人的团队 | 有一台专用 Mac 的小办公室 | 先体验一下 |
 | 谁来运维 | Trina（AWS 首尔） | 你们的 IT 团队 | 办公室里负责维护的同事 | 你自己 |
 | AI | 你们获得授权的 Claude 或 OpenAI 连接 | 同上 | Claude（不含 Codex） | 关闭 |
-| 费用 | 3 人以内免费，之后 $39/月起 + AI 用量费 | 软件免费 + 自备服务器 | 软件免费 | 免费 |
-| 开始 | [查看套餐](https://ax.trina.app/#pricing) | [Linux 指南](docs/INSTALL-LINUX.en.md) | [办公室 Mac 指南](docs/OFFICE.en.md) | [快速开始](docs/QUICKSTART.md) |
+| 费用 | 14 天免费试用，之后按月订阅 + AI 用量费 | 软件免费 + 自备服务器 | 软件免费 | 免费 |
+| 开始 | [查看套餐](https://ax.trina.app/#pricing) | [Linux 指南](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) | [办公室 Mac 指南](docs/OFFICE.en.md) | [快速开始](docs/QUICKSTART.md) |
 
-Trina 提供的是工作空间，不是 AI 本身：请只使用你们获得授权的 Claude 和 OpenAI 账号与套餐。托管套餐价格（2026-11-02 核对，美元，不含税）：**免费（最多 3 人，名额有限）、Starter $39/月（最多 5 人）、Team $69（15 人）、Business $129（40 人）**，超过 40 人另行报价。AI 用量另计。[最新价格](https://ax.trina.app/#pricing)
+Trina 提供的是工作空间，不是 AI 本身：请只使用你们获得授权的 Claude 和 OpenAI 账号与套餐。Trina 托管提供 14 天免费试用，之后按月订阅；AI 用量费由你接入的账号另行计费。[最新价格](https://ax.trina.app/#pricing)
 
 Linux 自托管需要 Debian 12/13 或 Ubuntu 24.04、启用 cgroup v2 的 systemd、amd64 或 arm64 架构，建议 4 GB 内存，磁盘至少 20 GB。安装、升级和从备份恢复都由你们的 IT 团队负责。
 
@@ -145,14 +171,14 @@ Linux 自托管需要 Debian 12/13 或 Ubuntu 24.04、启用 cgroup v2 的 syste
 <details>
 <summary><b>试用需要 AI 账号吗？</b></summary>
 
-<br>不需要。[本地演示](docs/QUICKSTART.md)关闭了 AI，用的是虚构数据，你可以先看看文件、技能和权限是怎么运作的。
+<br>不需要。[本地演示](docs/QUICKSTART.md)关闭了 AI，用的是虚构数据，你可以先看看文件、技能和权限是怎么运作的。想看 @Trina 在团队对话里回答，需要一台接入了 AI 的服务器（[10 分钟上手](#10-分钟上手)）。
 
 </details>
 
 <details>
-<summary><b>管理员能看我们的聊天记录吗？</b></summary>
+<summary><b>管理员能看我们的聊天和对话吗？</b></summary>
 
-<br>不能。聊天记录只有本人可见。活动记录只显示 AI 读了哪些文件，不包含对话内容。不过，负责运维服务器或其存储的人可以读取已保存的数据。
+<br>不能。你和 Trina 的聊天只有你自己能看到。对话只有成员能看到；管理员打不开自己不在的对话。活动记录只显示 AI 读了哪些文件，不包含对话内容。不过，负责运维服务器或其存储的人可以读取已保存的数据。
 
 </details>
 
@@ -163,7 +189,21 @@ Linux 自托管需要 Debian 12/13 或 Ubuntu 24.04、启用 cgroup v2 的 syste
 
 </details>
 
+## 97 秒的故事
+
+https://github.com/user-attachments/assets/61f3469b-358d-4b3a-9233-c6b23b5db835
+
+<sub><b>请打开声音（英文）。</b>团队负责人只需把 Claude 设置一次，新同事入职第一天写的提案也像负责人做的一样。<br>动画演示，1:15 处是真实应用界面。公司是虚构的。</sub>
+
+## 接下来
+
+- **接着同事的 AI 聊天做。** 共享项目聊天将在下一个 0.4 测试版推出：项目里的任何人都能接着一个共享项目聊天继续，每条消息都以发送者本人的身份运行。对话里的 @Trina 也能读取提问者能看到的共享项目聊天。
+- **Android 应用。** 正在 Google Play 审核中。
+- **Trina 托管上的 0.4。** 托管跟随稳定版通道，0.4 成为稳定版后就会有团队对话。自托管服务器现在就可以运行 0.4 版本。
+
 ## 社区与贡献
+
+提问和交流请来 [Discord](https://discord.gg/zUVfSR8MVk)（“Trina AX”服务器），最新动态请关注 [X](https://x.com/trina_ax)。
 
 [最新版本与校验和](https://github.com/trina-app/trina-ax/releases/latest) · [更新日志](CHANGELOG.md) · [获取支持](SUPPORT.md) · [参与贡献](CONTRIBUTING.md) · [报告安全问题](SECURITY.md) · [开发](docs/DEVELOPMENT.md) · [配置](docs/CONFIGURATION.md) · [机器可读索引](llms.txt)
 

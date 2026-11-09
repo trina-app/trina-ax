@@ -30,6 +30,9 @@ import AccessEdit from './AccessEdit'
 import { useFolderPeople } from './SkillManagers'
 import { useFocusAfterRemove, useLoad } from './common'
 import { InFolderHeader } from './folder-slots'
+import { Tooltip } from '../../components/Tooltip'
+import { Avatar } from '../../components/Avatar'
+import { useFaceOf } from '../../store/people'
 
 /** One level as loaded so far: its children's paths in the server's order. */
 interface Level { children: string[]; total: number; nextCursor: string | null }
@@ -1174,10 +1177,12 @@ function TreeRow({ n, level, pos, size, members, toggle, busy, selected, onToggl
           </span>
           {kind && <span className="min-w-0 shrink-[100] truncate text-xs text-faint" data-testid="tree-kind">{personal ? t('accessTree.personal.count', { n: n.people ?? 0 }) : kind}</span>}
           {restricted && (
-            <span className="inline-flex shrink-0 self-center text-muted" title={t('accessTree.restricted')}>
-              <Lock size={12} aria-hidden />
-              <span className="sr-only">{t('accessTree.restricted')}</span>
-            </span>
+            <Tooltip label={t('accessTree.restricted')}>
+              <span className="inline-flex shrink-0 self-center text-muted">
+                <Lock size={12} aria-hidden />
+                <span className="sr-only">{t('accessTree.restricted')}</span>
+              </span>
+            </Tooltip>
           )}
         </div>
         {personal ? (
@@ -1334,9 +1339,11 @@ function FolderDetail({ node: n, members, row, rowsReady, names, subject, reload
               </Button>
             )}
             {keep && (
-              <span className="inline-flex p-1.5 text-faint max-sm:p-2" title={keep} aria-hidden>
-                <Lock size={15} />
-              </span>
+              <Tooltip label={keep}>
+                <span className="inline-flex p-1.5 text-faint max-sm:p-2" aria-hidden>
+                  <Lock size={15} />
+                </span>
+              </Tooltip>
             )}
           </div>
           {emptyMarker && (
@@ -1406,6 +1413,7 @@ function RuleBadges({ rules, path, subject }: { rules: Folder['rules']; path: st
 
 function People({ answer, path, names }: { answer: ReturnType<typeof useFolderAnswer>; path: string; names: Names }) {
   const t = useT()
+  const faceOf = useFaceOf()
   const { data, error } = answer
   if (error && !data) return <div className="mt-3"><ErrorNote onRetry={answer.retry}>{error}</ErrorNote></div>
   if (!data) return <Skeleton lines={4} className="mt-3" />
@@ -1431,15 +1439,19 @@ function People({ answer, path, names }: { answer: ReturnType<typeof useFolderAn
           const level = levelOf(p)
           return (
             <li key={p.user.id} className="flex items-start gap-3 py-2" data-testid="folder-person" data-person={p.user.id} data-level={level}>
-              <div className="min-w-0 flex-1">
-                <div className="flex min-w-0 items-baseline gap-1.5">
-                  <span className="min-w-0 truncate text-sm text-ink">{p.user.name}</span>
-                  <span className="shrink-0 text-xs text-faint">· {t(`role.${p.role}`)}</span>
+              {/* the face on the name's line; the reason under the name */}
+              <div className="flex min-w-0 flex-1 items-start gap-2">
+                <Avatar user={faceOf(p.user)} size={20} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-baseline gap-1.5">
+                    <span className="min-w-0 truncate text-sm text-ink">{p.user.name}</span>
+                    <span className="shrink-0 text-xs text-faint">· {t(`role.${p.role}`)}</span>
+                  </div>
+                  {/* the reason in one dim line; all of it in the tooltip and for screen readers */}
+                  <p className="truncate text-xs text-faint" title={reasonText(t, asRow(p), p.role, names).join(' · ')}>
+                    {reasonText(t, asRow(p), p.role, names).join(' · ')}
+                  </p>
                 </div>
-                {/* the reason in one dim line; all of it in the tooltip and for screen readers */}
-                <p className="truncate text-xs text-faint" title={reasonText(t, asRow(p), p.role, names).join(' · ')}>
-                  {reasonText(t, asRow(p), p.role, names).join(' · ')}
-                </p>
               </div>
               <LevelLabel level={level} className="mt-0.5 flex shrink-0 text-xs" />
             </li>
@@ -1460,9 +1472,13 @@ function People({ answer, path, names }: { answer: ReturnType<typeof useFolderAn
           <h5 className="text-xs font-semibold text-muted">{t('accessTree.inactive')}</h5>
           <ul className="mt-1 divide-y divide-line">
             {data.inactive.map((p) => (
-              <li key={p.user.id} className="py-2" data-testid="folder-inactive">
-                <span className="block truncate text-sm text-ink">{p.user.name}</span>
-                <LevelLabel level={levelOf({ access: p.access, listable: p.access !== 'none' })} className="mt-0.5 flex text-xs" />
+              <li key={p.user.id} className="flex items-start gap-2 py-2" data-testid="folder-inactive">
+                {/* not in the people directory: their letter */}
+                <Avatar user={faceOf(p.user)} size={20} />
+                <div className="min-w-0 flex-1">
+                  <span className="block truncate text-sm text-ink">{p.user.name}</span>
+                  <LevelLabel level={levelOf({ access: p.access, listable: p.access !== 'none' })} className="mt-0.5 flex text-xs" />
+                </div>
               </li>
             ))}
           </ul>
@@ -1535,9 +1551,11 @@ function OutsideRules({ rows, folders, subject, groups, editable, onEdit, remova
                   </Button>
                 )}
                 {keep ? (
-                  <span className="inline-flex p-1.5 text-faint max-sm:p-2" title={keep} aria-hidden>
-                    <Lock size={15} />
-                  </span>
+                  <Tooltip label={keep}>
+                    <span className="inline-flex p-1.5 text-faint max-sm:p-2" aria-hidden>
+                      <Lock size={15} />
+                    </span>
+                  </Tooltip>
                 ) : (
                   <RemoveRulesButton
                     f={f}
