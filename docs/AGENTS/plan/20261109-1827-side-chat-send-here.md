@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-09 18:27
 - Branch: `feat/side-chat-send-here`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`web/src/components/rooms/`, `web/src/components/chat/`, `server/src/chat/answer-share.ts`,
   `server/src/rooms/service.ts`, `shared/src/api/`). Why: chat, rooms and permissions are core (see
   docs/REPOSITORY-RULES.md)
@@ -92,4 +92,12 @@ specs. `bun run typecheck`, `bun run check:i18n`, `bun run check:docs`, `bun run
 
 ## Result
 
-(to fill in)
+Built as planned. Server: `Rooms.threadRootOf` is the one root check (send and the share's first check); the share's
+refusal is 409 `thread_root`, before the budget (a test exhausts the budget with refusals and still sends). Web:
+`components/rooms/SendHere.tsx` (the control, the sent line, the line under the answer, the confirm step),
+`lib/sideChatSend.ts` (the target of each answer, the edit's token), `ShareConfirm` / `useConfirmStep` out of
+`ShareToRoom.tsx`; the sent state lives in `store/sideChats.ts` so ✦ after 보기 still shows it. One refinement of the
+approved rule, recorded in DECISIONS: a later question that quotes a file or a message without a thread sends to the
+room (else a file ask would land in an earlier message's thread). The server's lookup of a known `clientMessageId`
+stays as it is (a unique index stands behind it; the app never reuses an id across clicks). Merged dev with #268 (the
+side chat's round ↑, no "나만 볼 수 있어요"): no conflict.

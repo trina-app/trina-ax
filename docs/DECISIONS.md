@@ -16012,7 +16012,8 @@ boxes); no contract, setting or data change.
   "Open as a full chat" goes to /c/<id>; 🕘 lists the room's side chats (newest 30) and opens one. Cards the AI
   raises show under its answer as in the full chat, and while it waits for the answer to its question the panel's box
   answers it (lib/askAnswer.ts), never a new message. Under a finished answer "Share to room" is a labelled button and
-  the dialog starts with this room picked. In the chat history a side chat shows its room ("# design") after its
+  the dialog starts with this room picked (since replaced by one click: "Trina side chat: send here" below). In the chat
+  history a side chat shows its room ("# design") after its
   title, while I am in that room.
 - **Defaults for the doc's open questions (to confirm):** old private previews stay inline (PR 2); the room context is
   what the person can see, read by the AI with room_read; sharing uses the existing dialog; on a phone the panel takes
@@ -17267,3 +17268,55 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
   and 🕘 drop them, two panels), `web/test/unit/team-attach.test.ts` (two boxes of one draft),
   `web/test/e2e/side-chat-attachments.spec.ts` and `room-file-viewer.spec.ts` (beside a file in the viewer).
 - Version impact: **minor** (a new ability in the side chat; no API or data change).
+
+## Trina side chat: send here — one click to this room or the asked message's thread (feat/side-chat-send-here, 2026-11-09, product owner)
+
+The owner found it odd that "Share to room" under a side chat's answer opened the general "대화방에 보내기" dialog (a
+room list, a search, a note) when the side chat belongs to one room. Approved design (a draft plus an independent UX
+review). Amends "대화방에 보내기" and "Trina side chat".
+
+- **Decision: a side chat's answer goes to the asked message's thread by default, or to the room via ▾.** Under each
+  finished answer one quiet text button (no accent), between copy and regenerate: an answer to a question about a room
+  message has **스레드에 보내기 ▾** (▾: one item, **대화방에 보내기**); any other answer has **대화방에 보내기**. Not "스레드에
+  답글" or "답장": the hover bar's "스레드에서 답장" only opens a reply box. Until now a shared answer was never a reply nor
+  in a thread (Rooms.send refused it); it may now be a reply in a thread, never "also to the room" and never a quote
+  (replyToId).
+- **One click, no dialog.** It goes at once: no picker, search or note, no toast. Then the button is a line for this
+  page's session (store/sideChats.ts `sends`, by the answer's id, so the panel opened again still says it):
+  "✓ 스레드에 보냈어요 · 보기" / "✓ 대화방에 보냈어요 · 보기", "앞부분만" when the server cut the answer (there is no warning
+  before sending any more). The focus goes to 보기 and a status region says it. 보기 opens the thread at the reply (in the
+  room's right column in place of the side chat, the whole screen on a phone; ✦ brings the same side chat back) or the
+  room at the message (a phone: the side chat closes so the room shows); from the file viewer's column the viewer closes
+  first.
+- **The safety step stays, alone.** When the server answers "confirm" (linked files with 첨부 switches, material some
+  members cannot see) only the confirm step of the dialog opens (`ShareConfirm`, factored out of
+  components/chat/ShareToRoom.tsx with its state, `useConfirmStep`), with the target on top: the room, and for a thread
+  the asked message as the question quoted it. 취소, ✕ and Esc close it and give the focus back to the button: there is
+  no room list to go back to. The full chat's dialog is unchanged.
+- **The target travels in the question, not in a column.** "Ask Trina about this" quotes the message with
+  ` (thread_id <root> in this room)` at the end of the quote's header line (shared/src/api/rooms.ts threadRefToken,
+  modelled on the file quote's `file_id`): the message's thread root (`threadRootId ?? id`), only when it can have one
+  (seen by the whole room, not an event line, not a private AI preview). The app hides it wherever it shows the question
+  (its bubble, copy, the edit box; an edit puts it back while the quote's header line stays), and a new chat's
+  placeholder title leaves it out; the AI reads it as is (room_read's `thread`). Which answer goes where
+  (web/src/lib/sideChatSend.ts): the nearest earlier question on its branch that quotes something decides, its token's
+  thread or else the room; a follow-up without a quote ("더 짧게") keeps the thread. One refinement of the approved rule
+  ("the nearest question with the token"): a later question that quotes a file or a message without a thread sends to the
+  room, so a file ask (room only in this version) never lands in an earlier message's thread. Read from the messages, so
+  it holds after a reload, from 🕘, as a full chat (↗) and after regenerate. Older side chats (no token) send to the room
+  only: nothing is guessed from a quote's text.
+- **Server (minimal).** `ShareAnswerToRoomBody.threadRootId` (optional) goes to `Rooms.send`, whose own checks of a root
+  apply (`Rooms.threadRootOf`: this room's message, one I see, one that can have a thread, not deleted). The share checks
+  it first, before the sending budget and the file checks: anything wrong is 409 `reason: 'thread_root'`, one answer for
+  every case; the app says "이 메시지의 스레드에 보낼 수 없어요" under the answer and offers the room from then on. Followers
+  of the thread (the root's author too) are notified as for any reply; the audit row is the same. The check's audience
+  stays the whole room (a reply is seen by those who see its root, never more). A later member gets a shared answer in a
+  thread judged with its thread's first message, as any reply (rooms/history.ts `COALESCE(thread_root_seq, seq)`).
+  Never in a confidential chat (the refusal and the hidden button stay).
+- **Double sends.** A guard while one is on its way, and one `clientMessageId` per click, reused only for that click's
+  confirm and for trying the same target again after a failure that may have sent it (no answer, 5xx). Never across
+  clicks: the server's lookup of a known id returns the first message even when it was deleted since; it stays so (a
+  unique index on room, author and client id stands behind it, and a retry must find what it sent).
+- **↗.** The side chat opened as a full chat keeps the dialog, with the side chat's room picked (`chat.sideRoomId`).
+- **Not in this version:** "대화방에도 보내기" on a thread send; a file's thread (a file ask goes to the room); the note; a
+  toast; a server column for the asked message.
