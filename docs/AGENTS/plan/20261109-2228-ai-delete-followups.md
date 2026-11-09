@@ -53,3 +53,4 @@ migration, no API change.
 Built as planned (docs/DECISIONS.md "delete_files follow-ups"). The rescue applies to the Files screen's delete too,
 since it shares `remove()`. Each fix has a test that fails without it. `fix/ai-refusals-clear` (#273) had not landed, so
 no refusal text moved to its helper.
+- PR: https://github.com/trina-app/trina-ax/pull/278
