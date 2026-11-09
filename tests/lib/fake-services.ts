@@ -1,7 +1,9 @@
 // In-process stand-ins for external services (docs/INTEGRATIONS.md tests): an MCP server over Streamable HTTP (JSON or
 // event-stream replies, sessions, tools with and without readOnlyHint), an OAuth authorization server for it (metadata,
 // dynamic client registration, PKCE, refresh, revocation), a plain REST API with a key, and a service that repeats
-// the key it got (/echo/*, MCP tools echo_*: tests that the AI never sees it). One https server on 127.0.0.1 with a test
+// the key it got (/echo/*, MCP tools echo_*: tests that the AI never sees it). Services that register no apps (signed
+// in at with an own app, its client secret checked at the token address): the MCP server /mcp-own, whose authorization
+// server /as-own has no registration address, and the REST API /oauth-api/v1 that takes the issued tokens. One https server on 127.0.0.1 with a test
 // certificate; the tests' lookup sends the name svc.test there (web_fetch's test allowance).
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -64,6 +66,12 @@ export class FakeServices {
   calls: { name: string; args: any; auth: string }[] = []
   // OAuth
   clients = new Map<string, { redirectUris: string[] }>()
+  /** client secrets of own apps (made in the service's console): the token address refuses their client without it */
+  secrets = new Map<string, string>()
+  /** how the last token request carried its client: 'post' (client_id in the body), 'basic' or 'none' */
+  lastClientAuth: 'post' | 'basic' | 'none' = 'none'
+  /** the token answer's expires_in as text ("3600"), as NAVER WORKS sends it */
+  expiresAsText = false
   codes = new Map<string, { clientId: string; redirectUri: string; challenge: string; resource: string }>()
   access = new Map<string, number>()
   refresh = new Set<string>()
@@ -112,15 +120,16 @@ export class FakeServices {
     }
   }
 
-  /** The person's browser at the authorization endpoint: consent, then the redirect's query (code, state, iss). */
-  authorize(authorizationUrl: string): { code: string; state: string; iss: string } {
+  /** The person's browser at the authorization endpoint: consent, then the redirect's query (code, state, iss). `iss`:
+   * the authorization server's own name (another for /as-own). */
+  authorize(authorizationUrl: string, iss = `${this.base}/as`): { code: string; state: string; iss: string } {
     const u = new URL(authorizationUrl)
     const p = Object.fromEntries(u.searchParams)
     const client = this.clients.get(p.client_id!)
     if (!client || !client.redirectUris.includes(p.redirect_uri!) || p.response_type !== 'code' || p.code_challenge_method !== 'S256' || !p.code_challenge || !p.state) throw new Error('bad authorization request')
     const code = 'code-' + crypto.randomBytes(8).toString('hex')
     this.codes.set(code, { clientId: p.client_id!, redirectUri: p.redirect_uri!, challenge: p.code_challenge, resource: p.resource ?? '' })
-    return { code, state: p.state, iss: `${this.base}/as` }
+    return { code, state: p.state, iss }
   }
 
   private mcpReply(body: unknown, headers: Record<string, string> = {}, split = ''): Response {
@@ -246,6 +255,26 @@ export class FakeServices {
       return this.mcp(again(), auth)
     }
     if (p === '/.well-known/oauth-protected-resource/mcp-oauth') return Response.json({ resource: `${this.base}/mcp-oauth`, authorization_servers: [`${this.base}/as`] })
+    // ---- a service that registers no apps (Google's MCP servers): its own app's ID and secret are needed ----
+    if (p === '/mcp-own') {
+      const token = /^Bearer (.+)$/.exec(auth)?.[1]
+      const exp = token ? this.access.get(token) : undefined
+      if (!exp || exp <= this.now) return new Response('sign in', { status: 401, headers: { 'www-authenticate': `Bearer resource_metadata="${this.base}/.well-known/oauth-protected-resource/mcp-own"` } })
+      return this.mcp(again(), auth)
+    }
+    if (p === '/.well-known/oauth-protected-resource/mcp-own') return Response.json({ resource: `${this.base}/mcp-own`, authorization_servers: [`${this.base}/as-own`], scopes_supported: ['own.read', 'own.write', 'own.all'] })
+    if (p === '/.well-known/oauth-authorization-server/as-own') return Response.json({
+      issuer: `${this.base}/as-own`, authorization_endpoint: `${this.base}/as/authorize`, token_endpoint: `${this.base}/as/token`, revocation_endpoint: `${this.base}/as/revoke`,
+      code_challenge_methods_supported: ['S256'], response_types_supported: ['code'], token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic'],
+    })
+    // ---- a REST API that takes the tokens handed out (NAVER WORKS style) ----
+    if (p.startsWith('/oauth-api/v1')) {
+      const token = /^Bearer (.+)$/.exec(auth)?.[1]
+      const exp = token ? this.access.get(token) : undefined
+      if (!exp || exp <= this.now) return Response.json({ code: 'UNAUTHORIZED' }, { status: 401 })
+      if (p === '/oauth-api/v1/tasks') return Response.json({ tasks: [{ id: 1, title: 'Write the plan' }] })
+      return Response.json({ code: 'NOT_FOUND' }, { status: 404 })
+    }
     if (p === '/.well-known/oauth-authorization-server/as') return Response.json({
       issuer: `${this.base}/as`, authorization_endpoint: `${this.base}/as/authorize`, token_endpoint: `${this.base}/as/token`,
       registration_endpoint: `${this.base}/as/register`, revocation_endpoint: `${this.base}/as/revoke`, code_challenge_methods_supported: ['S256'], response_types_supported: ['code'],
@@ -259,21 +288,28 @@ export class FakeServices {
     }
     if (p === '/as/token' && req.method === 'POST') {
       const f = Object.fromEntries(new URLSearchParams(body))
+      // the client: in the body (client_id, client_secret) or HTTP basic; an own app's secret must match
+      const basic = /^Basic (.+)$/.exec(auth)?.[1]
+      const [basicId, basicSecret] = basic ? Buffer.from(basic, 'base64').toString().split(':').map(decodeURIComponent) : []
+      const clientId = f.client_id ?? basicId ?? ''
+      this.lastClientAuth = basic ? 'basic' : f.client_secret ? 'post' : 'none'
+      if (this.secrets.has(clientId) && this.secrets.get(clientId) !== (f.client_secret ?? basicSecret)) return Response.json({ error: 'invalid_client' }, { status: 401 })
+      const life = this.expiresAsText ? String(this.tokenLife) : this.tokenLife
       if (f.grant_type === 'authorization_code') {
         const c = this.codes.get(f.code ?? '')
         this.codes.delete(f.code ?? '')
         const pkce = crypto.createHash('sha256').update(f.code_verifier ?? '').digest('base64url')
-        if (!c || c.clientId !== f.client_id || c.redirectUri !== f.redirect_uri || c.challenge !== pkce || c.resource !== f.resource) return Response.json({ error: 'invalid_grant' }, { status: 400 })
+        if (!c || c.clientId !== clientId || c.redirectUri !== f.redirect_uri || c.challenge !== pkce || c.resource !== (f.resource ?? '')) return Response.json({ error: 'invalid_grant' }, { status: 400 })
         const t = this.tokenAnswer()
-        return Response.json({ access_token: t.access, refresh_token: t.refresh, token_type: 'Bearer', expires_in: this.tokenLife })
+        return Response.json({ access_token: t.access, refresh_token: t.refresh, token_type: 'Bearer', expires_in: life })
       }
       if (f.grant_type === 'refresh_token') {
         if (this.delayRefresh) await this.delayRefresh()
-        if (!this.refresh.has(f.refresh_token ?? '') || !this.clients.has(f.client_id ?? '')) return Response.json({ error: 'invalid_grant' }, { status: 400 })
+        if (!this.refresh.has(f.refresh_token ?? '') || !this.clients.has(clientId)) return Response.json({ error: 'invalid_grant' }, { status: 400 })
         this.refreshCount++
         const t = this.tokenAnswer()
         if (this.rotateRefresh) this.refresh.delete(f.refresh_token!)
-        return Response.json({ access_token: t.access, ...(this.rotateRefresh ? { refresh_token: t.refresh } : {}), token_type: 'Bearer', expires_in: this.tokenLife })
+        return Response.json({ access_token: t.access, ...(this.rotateRefresh ? { refresh_token: t.refresh } : {}), token_type: 'Bearer', expires_in: life })
       }
       return Response.json({ error: 'unsupported_grant_type' }, { status: 400 })
     }

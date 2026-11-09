@@ -17267,3 +17267,37 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
   and 🕘 drop them, two panels), `web/test/unit/team-attach.test.ts` (two boxes of one draft),
   `web/test/e2e/side-chat-attachments.spec.ts` and `room-file-viewer.spec.ts` (beside a file in the viewer).
 - Version impact: **minor** (a new ability in the side chat; no API or data change).
+
+## Your own app — sign in where a service does not register apps itself (feat/oauth-own-client, 2026-11-09, product owner)
+
+- **Why:** the owner asked whether NAVER WORKS and Google can be connected. Google's MCP servers
+  (`*mcp.googleapis.com/mcp/v1`, checked 2026-11-09: their protected-resource metadata names `accounts.google.com`,
+  which has no registration address) and NAVER WORKS (an OAuth REST API, no MCP server of its own) both need an app
+  made in their console. Sign-in here needed dynamic client registration (`oauth.ts register`), so neither could sign
+  in; INTEGRATIONS.md listed "Gmail / Calendar style OAuth apps" as not in phase 1.
+- **One generic change, not one integration per service:** a connection or template may carry `oauthClient` (client ID,
+  secret, optional addresses, scope). The MCP sign-in uses it instead of registering; an HTTP API gets sign-in as a
+  choice next to a key when it has one. Google's Gmail, Calendar, Docs, Sheets and Chat servers and the NAVER WORKS API
+  need no code of their own. A built-in NAVER WORKS bot for rooms (like the Slack connector) is separate and later.
+- **Templates carry the app:** the common case is the team's one app with each member signing in with their own
+  account. The secret is sealed for the template and only ever used by the server at the token address; members never
+  see the app (no field in `MyIntegrationTemplate`, null on their connection, refused on their patch). Requests to one
+  member stay without an app (a third place for a secret, for a case a template covers).
+- **A sign-in belongs to its app:** another client ID, secret, address or scope drops the sign-in and revokes it, like
+  a new address; on a template it deletes the members' connections (they are told to connect again). The same app sent
+  again (no secret, or the same secret retyped) changes nothing. The secret is write-only, kept while the client ID stays.
+- **Small service rules, in one place each:** Google gets `access_type=offline&prompt=consent` (`oauth.ts extraParams`;
+  without it no refresh token, a new sign-in every hour). The secret goes in the body unless the metadata lists only
+  basic (NAVER WORKS documents body parameters only). `expires_in` as text is read (NAVER WORKS sends `"86400"`). An HTTP
+  API sends no resource indicator. An `iss` is checked only against addresses that were found. `api_request` refreshes
+  once after a 401 (an MCP call already did, `withMcp`).
+- **The redirect address** shown in the dialog is the page's own address plus `/api/integrations/oauth/callback`, which
+  is what the server builds from the request's origin (`linkBase`). Office mode on the server Mac's localhost maps to the
+  office address on the server and not in the dialog; documented as "register every address people sign in from".
+- **Triggers unchanged:** the new columns change only together with `version`, which the safe-operations policy
+  triggers already watch, so migration 338 only adds columns.
+- **Not verified for real:** no Google or NAVER WORKS app existed; the fake services cover a server without
+  registration, client-secret checks, a text `expires_in` and a REST API taking the tokens.
+- Tests: `tests/unit/c-integrations-own-app.test.ts`, `web/test/unit/integrations.test.ts`; every `c-integration*`,
+  `c-drive*`, `c-slack*` test file still passes.
+- Version impact: **minor** (optional API fields, one add-only migration).

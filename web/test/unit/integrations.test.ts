@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'bun:test'
 import { ApiError, INTEGRATION_TOOLS_MAX, IntegrationInput, IntegrationPatch, type Integration } from '@mycel/shared/api'
 import {
-  authorizationUrl, authOf, covers, dropsSecret, emptyForm, formFrom, lastCheckNote, needsKey, normalAccess, sameAccess, serverFieldErrors, splitByScope, toInput, toPatch, toolsShortfall, urlProblem, validate, withKind,
+  appPatch, authorizationUrl, authOf, canSignIn, covers, dropsSecret, emptyForm, formFrom, formFromTemplate, lastCheckNote, methodsFor, needsKey, normalAccess, sameAccess, serverFieldErrors, splitByScope, toInput, toPatch, toolsShortfall, urlProblem, usesApp, validate, withKind,
   type IntegrationForm,
 } from '../../src/lib/integrations'
 import { DICTS } from '../../src/i18n'
@@ -39,14 +39,17 @@ describe('the address', () => {
 })
 
 describe('the form', () => {
-  test('a new MCP server signs in by default; an API asks for a key; sign-in is for MCP servers only', () => {
+  test('a new MCP server signs in by default; an API asks for a key; an API signs in only with its own app', () => {
     expect(emptyForm('mcp').method).toBe('oauth')
     expect(emptyForm('http').method).toBe('key')
     expect(withKind(emptyForm('mcp'), 'http').method).toBe('key')
+    expect(methodsFor('http')).toContain('oauth')
     expect(withKind({ ...emptyForm('mcp'), method: 'none' }, 'http').method).toBe('none')
     expect(authOf({ method: 'key', header: 'bearer' })).toBe('bearer')
     expect(authOf({ method: 'key', header: 'custom' })).toBe('header')
-    expect(validate({ ...filled(), method: 'oauth' })).toHaveProperty('method')
+    // sign-in at an API needs its own app: the client ID and both addresses
+    expect(validate({ ...filled(), method: 'oauth' })).toMatchObject({ clientId: 'integrations.error.clientId', authUrl: 'integrations.error.url', tokenUrl: 'integrations.error.url' })
+    expect(validate({ ...emptyForm('mcp'), name: 'Mail', url: 'https://mail.example.com/mcp', method: 'none' })).toEqual({})
   })
   test('checks: name, address, header name, key, notes', () => {
     expect(validate(filled())).toEqual({})
@@ -121,6 +124,57 @@ describe('editing', () => {
     expect(dropsSecret({ ...formFrom(c), name: 'Notion (work)' }, c)).toBe(false)
     expect(dropsSecret({ ...formFrom(c), url: 'https://mcp.example.com/v2' }, c)).toBe(true)
     expect(toPatch({ ...formFrom(c), name: 'Notion (work)' }, c)).toEqual({ name: 'Notion (work)' })
+  })
+})
+
+describe('your own app at the service (sign-in where apps do not register themselves)', () => {
+  const app = { clientId: 'app-1.apps.example', authorizationUrl: null, tokenUrl: null, scope: 'mail.read', hasSecret: true }
+  const google = (o: Partial<Integration> = {}) => connection({ kind: 'mcp', name: 'Gmail', url: 'https://gmailmcp.googleapis.com/mcp/v1', auth: 'oauth', notes: null, oauthClient: app, ...o })
+  test('an MCP server offers it behind a choice; an API always signs in with one, with its addresses', () => {
+    const mcp = { ...emptyForm('mcp'), name: 'Gmail', url: 'https://gmailmcp.googleapis.com/mcp/v1' }
+    expect(usesApp(mcp)).toBe(false)
+    expect(toInput(mcp)).not.toHaveProperty('oauthClient')
+    const own = { ...mcp, ownApp: true, clientId: ' app-1 ', clientSecret: ' s3cret ', scope: ' a b ' }
+    expect(validate(own)).toEqual({})
+    expect(toInput(own).oauthClient).toEqual({ clientId: 'app-1', clientSecret: 's3cret', scope: 'a b' })
+    expect(validate({ ...own, clientId: 'app 1' }).clientId).toBe('integrations.error.clientId')
+    expect(validate({ ...own, authUrl: 'https://as.example/authorize' }).tokenUrl).toBe('integrations.error.url')
+    const api = { ...filled(), method: 'oauth' as const, secret: '', clientId: 'works-app', clientSecret: 'x', authUrl: 'https://auth.example.com/oauth2/v2.0/authorize', tokenUrl: 'https://auth.example.com/oauth2/v2.0/token', scope: 'calendar' }
+    expect(usesApp(api)).toBe(true)
+    expect(validate(api)).toEqual({})
+    const body = toInput(api)
+    expect(body).toMatchObject({ auth: 'oauth', oauthClient: { clientId: 'works-app', authorizationUrl: api.authUrl, tokenUrl: api.tokenUrl, scope: 'calendar' } })
+    expect(body).not.toHaveProperty('secret')
+    expect(IntegrationInput.safeParse(body).success).toBe(true)
+    expect(IntegrationInput.safeParse({ ...body, oauthClient: undefined }).success).toBe(false)
+    expect(canSignIn(connection({ auth: 'oauth' }))).toBe(true)
+  })
+  test('editing: the stored secret is never in the form; the same app sends nothing; another one drops the sign-in', () => {
+    const f = formFrom(google())
+    expect(f).toMatchObject({ ownApp: true, clientId: app.clientId, clientSecret: '', scope: 'mail.read' })
+    expect(toPatch(f, google())).toEqual({})
+    expect(dropsSecret(f, google())).toBe(false)
+    const scoped = { ...f, scope: 'mail.read mail.send' }
+    expect(toPatch(scoped, google())).toEqual({ oauthClient: { clientId: app.clientId, scope: 'mail.read mail.send' } })
+    expect(dropsSecret(scoped, google())).toBe(true)
+    // a new secret only when typed after "replace"; another client ID needs its own
+    expect(toPatch({ ...f, clientSecret: 'ignored' }, google())).toEqual({})
+    expect(toPatch({ ...f, clientSecretAction: 'replace', clientSecret: 'new' }, google()).oauthClient).toMatchObject({ clientSecret: 'new' })
+    expect(toPatch({ ...f, clientId: 'other', clientSecret: 'other-secret' }, google()).oauthClient).toMatchObject({ clientId: 'other', clientSecret: 'other-secret' })
+    // back to the service's own registration
+    expect(toPatch({ ...f, ownApp: false }, google())).toEqual({ oauthClient: null })
+    expect(appPatch({ ...f, method: 'key' }, app)).toBeUndefined()
+    expect(IntegrationPatch.safeParse(toPatch(scoped, google())).success).toBe(true)
+    // a member's connection made from a template: the template's app, never theirs to change
+    const member = connection({ kind: 'mcp', auth: 'oauth', templateId: 't1', oauthClient: null })
+    expect(toPatch(formFrom(member), member)).toEqual({})
+  })
+  test('a template\'s app fills the form for the admin', () => {
+    const t = { id: 't1', kind: 'http' as const, name: 'Works', url: 'https://www.worksapis.com/v1.0', auth: 'oauth' as const, authHeader: null, notes: null, access: { everyone: true, groups: [], users: [] },
+      oauthClient: { clientId: 'works-app', authorizationUrl: 'https://auth.example.com/a', tokenUrl: 'https://auth.example.com/t', scope: 'calendar', hasSecret: true }, connected: 2, createdBy: null, createdAt: at, updatedAt: at }
+    const f = formFromTemplate(t)
+    expect(f).toMatchObject({ method: 'oauth', ownApp: true, clientId: 'works-app', authUrl: 'https://auth.example.com/a', tokenUrl: 'https://auth.example.com/t', scope: 'calendar', clientSecret: '' })
+    expect(appPatch(f, t.oauthClient)).toBeUndefined()
   })
 })
 

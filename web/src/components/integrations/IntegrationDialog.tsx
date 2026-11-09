@@ -6,21 +6,26 @@
 // In Admin a new connection is either for the team with one key, or a template: each member it is for connects it with
 // their own key or sign-in (no key here, no write rule: those are each member's). A member's connection made from a
 // template shows only what is theirs to change: their key or sign-in, and the write rule.
+// Sign-in at a service that does not register apps itself (Google's MCP servers; an API such as NAVER WORKS, always)
+// goes through your own app there (AppSection): its client ID and secret, an API's sign-in and token addresses, the
+// scopes, and the redirect address to register at the service. On a template it is the team's app; members never see it.
 import clsx from 'clsx'
-import { ChevronRight, TriangleAlert, UserPlus } from 'lucide-react'
+import { Check, ChevronRight, Copy, TriangleAlert, UserPlus } from 'lucide-react'
 import { useId, useRef, useState, type ReactNode } from 'react'
 import type { Group, Integration, IntegrationAccess, IntegrationKind, IntegrationTemplate, IntegrationTemplatePatch, User, WritePolicy } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import type { Connector } from '../../lib/connectors'
 import {
-  authOf, covers, dropsSecret, emptyForm, formFrom, formFromTemplate, isEmptyAccess, methodsFor, normalAccess, NOBODY, NOTES_MAX, sameAccess, serverFieldErrors, toInput, toPatch, validate, withKind,
+  appInput, appPatch, authOf, CLIENT_ID_MAX, CLIENT_SECRET_MAX, covers, dropsSecret, emptyForm, formFrom, formFromTemplate, isEmptyAccess, methodsFor, normalAccess, NOBODY, NOTES_MAX, sameAccess, SCOPE_MAX, serverFieldErrors, toInput, toPatch, URL_MAX, usesApp, validate, withKind,
   type FormErrors, type FormField, type IntegrationForm, type SignInMethod,
 } from '../../lib/integrations'
 import { mobileApp } from '../../lib/mobile'
 import { useLocale, useT } from '../../i18n'
 import { useMeStrict } from '../../store/session'
 import { useLoad } from '../../pages/admin/common'
-import { Button, Field, Modal, inputCls } from '../ui'
+import { Button, Field, Modal, inputCls, useCopy } from '../ui'
+import { Tooltip } from '../Tooltip'
+import type { OAuthClientView } from '@mycel/shared/api'
 import { reserveSignInWindow } from './IntegrationRow'
 
 const POLICIES: WritePolicy[] = ['ask', 'allow', 'deny']
@@ -74,9 +79,10 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
   const errors: FormErrors = asTemplate ? (({ secret: _secret, ...rest }: FormErrors) => rest)(validate(f, existing)) : validate(f, existing)
   const phone = !!mobileApp()
   const dropped = dropsSecret(f, existing)
-  const signInNext = !asTemplate && f.kind === 'mcp' && f.method === 'oauth' && !phone && (!existing || existing.auth !== 'oauth' || dropped)
-  // editing a template: a new address, sign-in method or header drops every member's key (they connect again)
-  const movesTemplate = !!template && (f.url.trim() !== template.url || authOf(f) !== template.auth || (authOf(f) === 'header' && f.headerName.trim() !== (template.authHeader ?? '')))
+  const signInNext = !asTemplate && f.method === 'oauth' && !phone && (!existing || existing.auth !== 'oauth' || dropped)
+  // editing a template: a new address, sign-in method, header or app drops every member's key (they connect again)
+  const movesTemplate = !!template && (f.url.trim() !== template.url || authOf(f) !== template.auth || (authOf(f) === 'header' && f.headerName.trim() !== (template.authHeader ?? ''))
+    || (authOf(f) === 'oauth' && appPatch(f, template.oauthClient) !== undefined))
   const methods = methodsFor(f.kind).filter((m) => !asTemplate || m !== 'none')
   // what Advanced holds, in one line next to it
   const summary = [
@@ -153,10 +159,12 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
         if (authHeader !== (template.authHeader ?? null)) p.authHeader = authHeader
         if (notes !== (template.notes ?? null)) p.notes = notes
         if (!sameAccess(access, template.access)) p.access = access
+        const app = auth === 'oauth' ? appPatch(f, template.oauthClient) : undefined
+        if (app !== undefined) p.oauthClient = app
         if (!Object.keys(p).length) return onClose()
         r = await api.call(API.updateIntegrationTemplate, { params: { id: template.id }, body: p })
       } else {
-        r = await api.call(API.createIntegrationTemplate, { body: { kind: f.kind, name: f.name.trim(), url: f.url.trim(), auth, authHeader, notes, access } })
+        r = await api.call(API.createIntegrationTemplate, { body: { kind: f.kind, name: f.name.trim(), url: f.url.trim(), auth, authHeader, notes, access, ...(usesApp(f) ? { oauthClient: appInput(f) } : {}) } })
       }
       onSavedTemplate?.(r)
     } catch (e) {
@@ -223,6 +231,9 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
           )}
           {asTemplate && f.method === 'oauth' && (
             <p className="text-sm text-muted" data-testid="integration-template-oauth-note">{t('integrations.template.oauthNote')}</p>
+          )}
+          {f.method === 'oauth' && !fromTeam && (
+            <AppSection f={f} stored={template ? template.oauthClient : existing?.oauthClient} change={change} errorOf={errorOf} blur={blur} template={asTemplate} />
           )}
           {!asTemplate && f.method === 'oauth' && (
             <div className="text-sm" data-testid="integration-oauth-note">
@@ -325,6 +336,81 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
         <button type="submit" hidden tabIndex={-1} aria-hidden />
       </form>
     </Modal>
+  )
+}
+
+/** Your own app at the service (docs/INTEGRATIONS.md "Your own app"): an MCP server offers it behind a checkbox (most
+ * register an app by themselves), an API always shows it. The client secret is write-only like a key. The redirect
+ * address is where the service sends the browser back: the one this page is open at, as the server builds it. */
+function AppSection({ f, stored, change, errorOf, blur, template }: {
+  f: IntegrationForm
+  stored?: OAuthClientView | null
+  change: (patch: Partial<IntegrationForm>, ...fields: FormField[]) => void
+  errorOf: (k: FormField) => string | null
+  blur: (k: FormField) => () => void
+  /** the team's app on a template: members sign in through it without seeing it */
+  template?: boolean
+}) {
+  const t = useT()
+  const { copied, copy } = useCopy()
+  const api = f.kind === 'http'
+  const redirect = `${window.location.origin}/api/integrations/oauth/callback`
+  const secretStored = !!stored?.hasSecret && stored.clientId === f.clientId.trim()
+  const fields = (
+    <div className={clsx('space-y-4', !api && 'pl-6')} data-testid="integration-app-fields">
+      <div className="flex items-center gap-2 rounded-lg bg-hover px-3 py-2">
+        <span className="min-w-0 flex-1">
+          <span className="block text-xs text-muted">{t('integrations.app.redirect')}</span>
+          <code className="block text-xs break-all" data-testid="integration-app-redirect">{redirect}</code>
+        </span>
+        <Tooltip label={t('common.copy')}>
+          <Button size="sm" variant="ghost" onClick={() => void copy(redirect)} aria-label={t('common.copy')} data-testid="integration-app-copy">
+            {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}
+          </Button>
+        </Tooltip>
+      </div>
+      <Field label={t('integrations.field.clientId')} error={errorOf('clientId')}>
+        <input className={inputCls} value={f.clientId} maxLength={CLIENT_ID_MAX} autoComplete="off" spellCheck={false} onChange={(e) => change({ clientId: e.target.value }, 'clientId')} onBlur={blur('clientId')} data-testid="integration-app-client-id" />
+      </Field>
+      {secretStored && f.clientSecretAction === 'keep' ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm" data-testid="integration-app-secret-saved">
+          <span className="min-w-0 flex-1">{t('integrations.app.secretSaved')}</span>
+          <Button size="sm" onClick={() => change({ clientSecretAction: 'replace', clientSecret: '' }, 'clientSecret')} data-testid="integration-app-secret-replace">
+            {t('integrations.key.replace')}
+          </Button>
+        </div>
+      ) : (
+        <Field label={t('integrations.field.clientSecret')} hint={t(template ? 'integrations.app.secretHintTemplate' : 'integrations.field.keyHint')} error={errorOf('clientSecret')}>
+          <input className={inputCls} type="password" value={f.clientSecret} maxLength={CLIENT_SECRET_MAX} autoComplete="off" spellCheck={false} onChange={(e) => change({ clientSecret: e.target.value }, 'clientSecret')} onBlur={blur('clientSecret')} data-testid="integration-app-client-secret" />
+        </Field>
+      )}
+      {api && (
+        <>
+          <Field label={t('integrations.field.authUrl')} error={errorOf('authUrl')}>
+            <input className={inputCls} type="url" inputMode="url" value={f.authUrl} maxLength={URL_MAX} autoComplete="off" spellCheck={false} placeholder="https://auth.example.com/oauth2/authorize" onChange={(e) => change({ authUrl: e.target.value }, 'authUrl')} onBlur={blur('authUrl')} data-testid="integration-app-auth-url" />
+          </Field>
+          <Field label={t('integrations.field.tokenUrl')} error={errorOf('tokenUrl')}>
+            <input className={inputCls} type="url" inputMode="url" value={f.tokenUrl} maxLength={URL_MAX} autoComplete="off" spellCheck={false} placeholder="https://auth.example.com/oauth2/token" onChange={(e) => change({ tokenUrl: e.target.value }, 'tokenUrl')} onBlur={blur('tokenUrl')} data-testid="integration-app-token-url" />
+          </Field>
+        </>
+      )}
+      <Field label={t('integrations.field.scope')} hint={t(api ? 'integrations.field.scopeHint.http' : 'integrations.field.scopeHint.mcp')} error={errorOf('scope')}>
+        <input className={inputCls} value={f.scope} maxLength={SCOPE_MAX} autoComplete="off" spellCheck={false} onChange={(e) => change({ scope: e.target.value }, 'scope')} onBlur={blur('scope')} data-testid="integration-app-scope" />
+      </Field>
+    </div>
+  )
+  if (api) return fields
+  return (
+    <div className="space-y-3" data-testid="integration-app">
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" className="mt-1" checked={f.ownApp} onChange={(e) => change({ ownApp: e.target.checked }, 'clientId', 'clientSecret', 'scope')} data-testid="integration-app-use" />
+        <span className="min-w-0">
+          <span className="font-medium">{t('integrations.app.use')}</span>
+          <span className="block text-xs text-muted">{t('integrations.app.useDesc')}</span>
+        </span>
+      </label>
+      {f.ownApp && fields}
+    </div>
   )
 }
 

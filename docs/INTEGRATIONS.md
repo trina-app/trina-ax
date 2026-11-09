@@ -5,7 +5,8 @@ The AI can use services outside the team server with a person's or the team's ow
 - **MCP servers** (Notion, Linear, GitHub, Atlassian …): the address is enough; the server lists its tools. Sign-in
   (OAuth) or a key.
 - **HTTP APIs with a key** (an internal tool such as AI PM): address, key and a note on how to use it. The AI gets one
-  tool, `api_request`, that can only call addresses under that connection's address.
+  tool, `api_request`, that can only call addresses under that connection's address. An API that signs in with OAuth
+  (NAVER WORKS …) signs in with your own app instead of a key ("Your own app" below).
 
 Google Drive keeps its own integration ([GOOGLE-DRIVE.md](GOOGLE-DRIVE.md)), shown in Settings › App connectors as a
 card whose Connect goes straight to Google (`web/src/components/integrations/DriveConnector.tsx`; the old
@@ -392,6 +393,68 @@ idle minutes; a 404 for it starts a new one.
   text in the person's language ("you can close this window") with `no-store`, `no-referrer` and a CSP that allows only
   its own hashed `window.close()`; the code and state are never put anywhere else.
 
+## Your own app (client ID)
+
+Some services do not let apps register themselves (no dynamic client registration, RFC 7591), so the MCP sign-in above
+cannot start: Google's MCP servers (`https://gmailmcp.googleapis.com/mcp/v1`, `calendarmcp`, `drivemcp`, `docsmcp`,
+`sheetsmcp`, `chatmcp` … all `/mcp/v1`) and HTTP APIs that sign in with OAuth, such as NAVER WORKS
+(`https://www.worksapis.com/v1.0`). For them a connection or a template carries an app made in the service's console:
+`oauthClient { clientId, clientSecret?, authorizationUrl?, tokenUrl?, scope? }` (contract `OAuthClientInput`; the dialog's
+"Sign in with my own app").
+
+- **Where:** a personal connection (the member's own app), a team connection (an admin's), or a template (the team's
+  app: each member it is for signs in through it with their own account). Members never see a template's app:
+  `MyIntegrationTemplate` has no field for it and their connection's `oauthClient` is null; they cannot set one on it.
+  A request to one member cannot carry an app (a template does that).
+- **MCP server:** the client ID and secret are enough. The addresses are found from the server's address as for any MCP
+  sign-in; `scope` replaces the scopes the server lists (Google's servers list every scope they know, full mail access
+  included, so name the ones you want). With both addresses given nothing is looked up; the resource indicator stays.
+- **HTTP API:** sign-in is a choice next to a key and needs the app with both addresses. No resource indicator is sent
+  (an API has none). `api_request` and the check send `Authorization: Bearer <token>`; a 401 refreshes the token once
+  and sends the request again (a refused request did nothing).
+- **The sign-in** is the authorization code with PKCE S256 and `state`, as above. The client secret goes only to the
+  token address, in the form body (`client_secret_post`: what Google and NAVER WORKS take) unless the server's metadata
+  lists only `client_secret_basic`. An answer's `iss` is checked when the addresses were found (there is nothing to
+  check it against otherwise). Google (`https://accounts.google.com`) also gets `access_type=offline` and
+  `prompt=consent`: without them it hands out no refresh token and the person would sign in again every hour.
+  `expires_in` written as text (NAVER WORKS sends `"86400"`) is read as a number.
+- **Secrets:** the client secret is sealed in the connections key directory with its own AAD (`<connection AAD>:client`,
+  `template:<id>:client`; migration `338_c_integration_oauth_client.sql`, add-only); the client ID, addresses and scope
+  are kept in clear (`oauth_client`) to show them to whoever manages it. The secret is never in a response (`hasSecret`
+  only), a log line, an audit entry (`ownApp: true`, `changed: ["oauthClient"]`), a flow row or a tool result, and it is
+  hidden in what services send back like the tokens.
+- **Changes:** the secret is write-only: a change without it keeps the stored one while the client ID stays, and another
+  client ID drops it. Another client ID, secret, address or scope drops the sign-in (and revokes it), like a new
+  address: tokens are bound to the app. On a template it deletes the members' connections; they are told to connect
+  again. Leaving sign-in removes the app; `oauthClient: null` goes back to the service's own registration.
+- **Redirect address** to register in the app at the service: `https://<team address>/api/integrations/oauth/callback`,
+  the address the app is open at (the server builds it from the page's own address; the dialog shows it with a copy
+  button). Register every address people sign in from.
+
+Setting up Google (Gmail, Calendar … MCP servers; in Google's Workspace Developer Preview Program in 2026-11):
+
+1. In a Google Cloud project, enable the product's API and its MCP service (e.g. Gmail API and Gmail MCP).
+2. OAuth consent screen: **Internal** for the company's own Google Workspace (no Google verification); otherwise
+   External with test users. Restricted scopes (`gmail.readonly`, `drive.readonly`) need Google's verification before an
+   External app may go public.
+3. Credentials › OAuth client ID › Web application, with the redirect address above.
+4. Admin › External services › add, as a template (each member signs in with their own Google account): MCP server,
+   `https://gmailmcp.googleapis.com/mcp/v1`, sign-in, "Sign in with my own app", the client ID and secret, and the scopes,
+   e.g. `https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose`.
+
+Setting up NAVER WORKS (API 2.0):
+
+1. Developer Console › the app: its Client ID and Client Secret, the Redirect URL above, the OAuth scopes the AI needs
+   (`calendar`, `mail`, `file`, `user.read` …), and the access token's lifetime.
+2. Admin › External services › add, as a template: API, `https://www.worksapis.com/v1.0`, sign-in, the client ID and
+   secret, sign-in address `https://auth.worksmobile.com/oauth2/v2.0/authorize`, token address
+   `https://auth.worksmobile.com/oauth2/v2.0/token`, the same scopes, and notes with the endpoints the AI should call.
+
+Neither has been signed in at for real yet (no app existed when this was written); the tests use the fake services.
+Code: `oauth.ts` (`ownClient`, `manualServer`), `service.ts` (`appFrom`, `appOf`, `nextApp`, `send`), `templates.ts`
+(`nextApp`), `web/src/components/integrations/IntegrationDialog.tsx` (`AppSection`). Tests:
+`tests/unit/c-integrations-own-app.test.ts`, `web/test/unit/integrations.test.ts`.
+
 ## HTTP APIs: `api_request`
 
 `{ connection, method: GET|POST|PUT|PATCH|DELETE|HEAD, path, query?, body? }`, offered when the person may use at least
@@ -476,14 +539,16 @@ that service.
 
 ## Not in phase 1
 
-Gmail / Calendar / Slack style OAuth apps (each needs its own app registration), office-network APIs, file upload or
+An own app on a request to one member (a template carries one), a revocation address for an app's given addresses,
+Discover entries for Google's MCP servers (they need an app and Google's preview program), office-network APIs, file upload or
 download (binary), an admin allow-list of hosts, mobile OAuth return, multi-replica locking of refreshes
 (one active app server per team, like Drive), a rekey command for this key directory, reconnect notifications.
 
 ## Tests
 
-`tests/unit/c-integrations-{api,tools,oauth,echo}.test.ts` with `tests/lib/fake-services.ts` (an in-process https MCP
+`tests/unit/c-integrations-{api,tools,oauth,echo,own-app}.test.ts` with `tests/lib/fake-services.ts` (an in-process https MCP
 server with sessions and event streams, an OAuth authorization server with registration, PKCE, refresh and revocation,
+one without registration for own apps (`/mcp-own`, client secrets checked) and a REST API signed in at with OAuth,
 a REST API, and endpoints and MCP tools that repeat the key they got; reached through web_fetch's test-only address
 allowance), and the real-turn test at the end of
 `tests/unit/i-wiring.test.ts`. No real service is contacted.
