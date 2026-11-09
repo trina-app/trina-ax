@@ -239,6 +239,9 @@ function walk(ctx: AppContext, user: Principal, rules: RuleSet, rel: string): Fi
   const r = authorize(ctx.files.fx, rules, user, rel, 'read', { mustExist: true })
   const out: FileHash[] = []
   let total = 0
+  // its own name too (a planted direction character would show `from` otherwise than it is)
+  const top = nameOf(r.rel)
+  if (badSegment(top.normalize('NFC')) || hiddenChars(top)) refuse(`the name '${r.rel}' cannot be shown as it is on the card`)
   const visit = (relp: string) => {
     const abs = path.join(root, ...relp.split('/'))
     const st = fs.lstatSync(abs)

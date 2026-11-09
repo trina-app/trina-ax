@@ -17441,9 +17441,12 @@ all of it on the Files screen. The plan ("B1") was narrowed by the security revi
   roots records each skill in it too. Before, only a project's switch-on was recorded, without a notice.
 - **Independent review (2026-11-10)** before the PR: hidden characters on the card (fixed), a text named like a picture,
   a placement that could fail open, a rename that could stop halfway, counts that told names, per-skill records for a
-  skills folder moved out, Slack chats (all fixed). Left: a picture's own content is not shown on the card (only its
-  name and size; it is a real picture of a known format), and an empty skills folder made as a dev-environment mount
-  point counts as a folder holding skills while a run lives.
+  skills folder moved out, Slack chats, a cleanup or an undo that could fail open after the move (all fixed). Accepted
+  for now: a picture's own content is not shown on the card, only its name and size (it must be a real picture of a
+  known format, but words drawn into it reach the AI when it reads the picture, by vision or OCR; the AI reads a
+  skill's picture only when its SKILL.md, shown in full, says so). A thumbnail or the picture's text on the card is a
+  follow-up. Also: an empty skills folder made as a dev-environment mount point counts as a folder holding skills while
+  a run lives, and a person's move into a skill folder on the Files screen is recorded per folder, not per skill.
 - **Approvals for skill saves are one-shot** (review M1): the save's check uses its approval up, the chat turn drops
   it when the call ends either way, and the "already confirmed" shortcut is gone. `make_file`'s card and approval are
   for the path it saves (`skills/x.md` as docx is `skills/x.md.docx`); before, the approval stayed at `skills/x.md`
