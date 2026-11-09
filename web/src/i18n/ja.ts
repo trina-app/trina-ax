@@ -4319,4 +4319,12 @@ export const ja: Record<MessageKey, string> = {
   "viewer.copyTooBig": "画像が大きすぎてコピーできません。ダウンロードしてお使いください。",
   "viewer.copyNotLoaded": "画像を読み込めませんでした。",
   "viewer.copyError": "もう一度お試しください。うまくいかない場合はダウンロードしてお使いください。",
+  "viewer.fileLabel": "ファイル: {name}",
+  "viewer.prevFile": "前のファイル",
+  "viewer.nextFile": "次のファイル",
+  "viewer.openInPanel": "サイドパネルで開く",
+  "viewer.inRoom": "#{room}で",
+  "viewer.inGroup": "{room}で",
+  "viewer.inDm": "{name}さんとの1:1トークで",
+  "viewer.gone": "メッセージが削除されたため、このファイルはもう表示できません。",
 }

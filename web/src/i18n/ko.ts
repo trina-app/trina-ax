@@ -4359,6 +4359,14 @@ export const ko = {
   "viewer.copyTooBig": "사진이 너무 커서 복사할 수 없어요. 내려받아서 쓰세요.",
   "viewer.copyNotLoaded": "사진을 불러오지 못했어요.",
   "viewer.copyError": "다시 해 보세요. 안 되면 내려받아서 쓰세요.",
+  "viewer.fileLabel": "파일 보기: {name}",
+  "viewer.prevFile": "이전 파일",
+  "viewer.nextFile": "다음 파일",
+  "viewer.openInPanel": "패널에서 열기",
+  "viewer.inRoom": "#{room}에서",
+  "viewer.inGroup": "{room}에서",
+  "viewer.inDm": "{name} 님과의 1:1 대화에서",
+  "viewer.gone": "메시지가 삭제되어 이 파일은 더 이상 볼 수 없어요.",
 } as const
 
 export type MessageKey = keyof typeof ko

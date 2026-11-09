@@ -16910,3 +16910,81 @@ draw the same bodies, and file previews are core. Step (b0) of the plan
   by kind, no request for a file with no preview here, a room's Hangul file with the HWP preview on and off, the
   download-only card, retry, a picture's click with and without `openPicture`); the panel's e2e specs unchanged.
 - Version impact: **patch** (an icon; no API or data change).
+
+## The room file viewer — a file from a team conversation opens over the whole window, like Slack (feat/room-file-viewer, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/components/ImageViewer.tsx`, `web/src/components/ViewerDocument.tsx`,
+`web/src/lib/imageViewer.ts` and the room's file chips (`web/src/components/rooms/RoomMessages.tsx`), 이유: rooms and file
+previews are core. Step (b) of the plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "One image viewer"
+(#246) and "FileBody" (#259).
+
+- **One viewer, two stages.** The image viewer's item gains `kind: 'file'`, its source (`file`: the side panel's
+  `PreviewFile`), its size and, for a file with no preview here, `card`. A room file chip registers through
+  `useViewerItem` as a room photo does (`roomFileItem`), so a pane's list (the timeline, a thread; in rooms, DMs and
+  group chats alike) holds pictures and files together in page order, which is message order, and ← → walk both
+  ("3 / 7"; plan decision 6). A picture keeps the picture stage (zoom, pan, gestures, 복사); a file gets the document
+  stage. The host, portal, focus trap, history entry (Back closes it), the close on a page change and the focus return
+  are the image viewer's. A picture without a thumbnail that the browser draws is a picture; a HEIC one or one past
+  20 MB is a file with its card.
+- **Where:** a chip's name in a room, DM, group chat or thread (plan decision 4); every chip has its own download icon
+  now (a ZIP's or a Hangul file's chip was one download button). Unchanged, as decided: the AI chat's attachments and the
+  Files page keep the side panel (it sits beside the AI, with its actions); team-file links in answers and a shared
+  answer's link to its attached copy (links, not chips) still open the panel; the room box's unsent pictures.
+- **The document stage** (`ViewerDocument.tsx`): `<FileBody>` (the side panel's renderers, limits and reads through the
+  room, `useFileBlob`) in a reading column up to 960 px wide, in the side panel's shape (a surface, and in it the scroll
+  box the body fills, so a sheet keeps its tabs in view below its rows), in the app's own light or dark on the dark
+  backdrop; the viewers fit the column's width. A PDF keeps its toolbar (zoom, fit to width) and a Hangul file its page
+  buttons: no second zoom in the bar. The column takes the focus and is in the Tab order (a region named by the file),
+  so ↑ ↓ PageUp PageDown Space scroll it; the wheel over the dark sides scrolls it too. A picture inside a document is
+  shown where it is (no viewer over the viewer); a link in it that opens the side panel (a team file named in a
+  Markdown file) closes the viewer, which would cover the panel. One file at a time: the file is read once while it is
+  open (the chip builds its item anew on each render; the body keeps the source it was given) and a step drops the last
+  one's bytes.
+- **The card** (type icon, name, type and size, why, download): at once, with nothing read, for a file with no preview
+  here (`roomNoPreview`: no viewer for its kind, a Hangul file while the HWP preview is off, past its limit;
+  `roomFileOpens` says the same from it); after the read for a download-only file (503 `quarantined`, the server's own
+  words) and for one not found (then no download). A Hangul file while the preview is on shows its pages (#254's route).
+- **The bar:** the sender's picture, the file's name, "who · when · where" ("#디자인 리뷰에서"; "{room}에서" for a group
+  chat; "{name} 님과의 1:1 대화에서" for a DM; room photos get it too), "3 / 7", download, **패널에서 열기** (the side
+  panel beside the conversation; computers only, as on a phone both are the whole screen), ✕. Pictures keep − % +, 복사
+  and the new tab. **No 링크 복사:** the app has room and message links (`/rooms/<id>?m=`) but none that opens a file.
+- **Keys:** ← → step from a document too, except from a text field, a video or a sound in it, or a part of it that
+  scrolls sideways (a wide sheet, a zoomed PDF: ← → scroll it there, the edge arrows step); a frame keeps its own keys,
+  as frames do; + − 0 are the page's in a document. Esc closes, and focus goes back to the chip; a step that removes the
+  focused control puts the focus back on the stage, so the keys keep working.
+- **Deleted while open:** told by the message as this window has it (`store/rooms.ts` `roomFileGone`: deleted, or the
+  file no longer on it), not by the chip leaving the page: the timeline goes back to its newest page on a resync or a
+  member change, and a file from an older page must not read as deleted then. The viewer says "메시지가 삭제되어 이
+  파일은 더 이상 볼 수 없어요." with no download or panel and nothing of it drawn (a room photo too). A file off the page
+  for either reason keeps its place: ← → reach the nearest ones still there (`stepTargets`, from the list as last
+  seen). Hidden answers and other people's private previews draw no chip, so they are never in the list. A file the
+  read did not find has no download in the bar either.
+- **Phones (< 768 px):** the whole screen; the bar always shows above the document (no tap to hide), with ‹ › around
+  "3 / 7" (the edge arrows would sit on the text); a swipe sideways on a document or a card steps only where nothing
+  under the finger scrolls sideways (a zoomed PDF, a wide sheet, a long code line keep their scroll; a frame never
+  passes touches up, so the bar's ‹ › step there). The picture stage keeps its gestures.
+- **The right side is free for step c:** the stage spans the window under the bar and the column is centred, so the
+  thread / Trina column will narrow the stage from the right, with its toggle in the bar before ✕.
+- **Access:** no new address or endpoint: the inline read, `?download=1` and the room's HWP preview, each with the
+  room's checks on every read. Nothing kept beyond the open file's bytes.
+- **Words:** `viewer.fileLabel`, `prevFile`, `nextFile`, `openInPanel`, `inRoom`, `inGroup`, `inDm`, `gone`, in 5
+  languages.
+- **Independent review** (must-fix, all fixed): the viewer opened with no pane re-rendered without end (the one-item
+  list was a new array on each render); the open document was read again whenever the room drew again; "deleted" was
+  guessed from the chip leaving the page; a sheet lost its pinned tabs; a team-file link in a document opened the panel
+  under the viewer. Also taken: no bar download for a file not found, the media and sideways-scroll keys, the swipe on
+  the cards, the column in the Tab order, "미리보기" said only for a chip with a preview. The sheet's own scroll box
+  (`SheetView`, in the panel too) is now in the Tab order, named by the sheet, so a keyboard can scroll a long or wide
+  sheet (axe's `scrollable-region-focusable` flagged it once a sheet of 80 rows was audited).
+- Tests: `web/test/unit/image-viewer.test.ts` (a document's source and download, a picture without a thumbnail, each
+  card case, pictures and files in message order and their steps, a deleted file's steps, the swipe),
+  `web/test/unit/room-files-open.test.tsx` (the chip's name opens the viewer with its message, every chip has its
+  download icon, the card for a ZIP and for a Hangul file with the preview off, `roomNoPreview`, `roomFileGone`),
+  `web/test/unit/room-file-viewer.test.tsx` (the viewer mounted: it settles when opened with no pane; a document is read
+  once while the room draws again), e2e `room-file-viewer.spec.ts` (a PDF's pages with who, when and where, ← → to a
+  photo and back, Esc and Back with the focus back on the chip, ✕, 패널에서 열기, the chip's download icon, a ZIP's card
+  with nothing read, a download-only PDF's card with no preview, a thread's own list, a sheet's tabs in view, a team
+  link in a document opening the panel, deleted while open, a room HWP with the plugin on and off, 390 px with the
+  swipe; screenshots), and `room-files-open.spec.ts` updated (the chips open the viewer; the panel through 패널에서 열기
+  and a copy's link).
+- Version impact: **minor** (a visible UX change; no API or data change).
