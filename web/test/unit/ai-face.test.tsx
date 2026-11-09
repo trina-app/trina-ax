@@ -1,13 +1,14 @@
 // @트리나's face in rooms (components/rooms/AiFace.tsx) and Trina's star (components/TrinaStar.tsx): where the product
 // is named after its AI, the star of trina.app on the neutral circle, one gradient per drawing; elsewhere the sparkle on
 // the accent circle. Beside the AI's answers and in the head of an answer shared into a room, on the AI chat's row of
-// the rooms list (not the app icon), never beside people. Always decorative.
+// the rooms list (not the app icon), never beside people. A button that asks it (the room header, a message's hover bar
+// and menu, the image viewer) has the mark without a circle, drawn larger than the icons beside it. Always decorative.
 import { expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import { PRODUCT_NAMED_AFTER_AI, uuidv7 } from '@mycel/shared/api'
 import { TRINA_STAR, TrinaStar } from '../../src/components/TrinaStar'
-import { AiFace, AiFaceInline } from '../../src/components/rooms/AiFace'
+import { AiFace, AiFaceInline, AiMark } from '../../src/components/rooms/AiFace'
 import { RoomMessages } from '../../src/components/rooms/RoomMessages'
 import RoomsPage from '../../src/pages/Rooms'
 import { useRooms } from '../../src/store/rooms'
@@ -65,6 +66,26 @@ test('@트리나 in a room: the star on the neutral circle where the product is 
   const inlinePlain = renderToStaticMarkup(<AiFaceInline named={false} />)
   expect(inlinePlain).toMatch(/<svg[^>]* width="12" height="12"[^>]*lucide-sparkles\b[^"]* shrink-0 text-accent-text"[^>]*aria-hidden="true"/)
   expect(renderToStaticMarkup(<AiFaceInline />)).toBe(PRODUCT_NAMED_AFTER_AI ? inline : inlinePlain)
+})
+
+test('a button that asks the AI: the mark without a circle, drawn larger than the icons beside it, in the slot it had', () => {
+  // [place, star, its margin, sparkle, its margin]: the slot is the drawn size less twice the margin (20 in the header
+  // as before, 14 in a menu as its other icons; the hover bar's 28 px button is fixed)
+  for (const [place, star, starFit, sparkle, sparkleFit] of [['toolbar', 24, '-m-0.5', 18, '-m-px'], ['bar', 22, null, 18, null], ['menu', 18, '-m-0.5', 16, '-m-px']] as const) {
+    const named = renderToStaticMarkup(<AiMark place={place} named />)
+    expect(named).toStartWith(`<svg width="${star}" height="${star}"`)
+    expect(named).toContain('data-trina-star')
+    expect(named).toContain('aria-hidden="true"')
+    expect(named).toMatch(starFit ? new RegExp(`class="shrink-0 ${starFit}"`) : /class="shrink-0"/)
+    for (const circle of ['rounded-full', 'bg-hover', 'data-testid="ai-face"']) expect(named).not.toContain(circle)
+    const plain = renderToStaticMarkup(<AiMark place={place} named={false} />)
+    expect(plain).toMatch(new RegExp(`^<svg[^>]* width="${sparkle}" height="${sparkle}"[^>]*lucide-sparkles\\b[^"]* shrink-0${sparkleFit ? ` ${sparkleFit}` : ''}"[^>]*aria-hidden="true"`))
+    for (const circle of ['rounded-full', 'bg-accent-soft', 'data-testid="ai-face"']) expect(plain).not.toContain(circle)
+    expect(renderToStaticMarkup(<AiMark place={place} />)).toBe(PRODUCT_NAMED_AFTER_AI ? named : plain)
+  }
+  // the header's is the default
+  const sameIds = (h: string) => h.replace(/trina-star[\w-]*/g, 'trina-star')
+  expect(sameIds(renderToStaticMarkup(<AiMark />))).toBe(sameIds(renderToStaticMarkup(<AiMark place="toolbar" />)))
 })
 
 test('a room shows the face beside an answer of the AI and in the head of a shared answer, not beside people', () => {

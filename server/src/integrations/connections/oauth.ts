@@ -2,14 +2,25 @@
 // well-known address), authorization-server metadata (RFC 8414, OpenID Connect discovery as fallback), dynamic client
 // registration (RFC 7591), authorization code with PKCE S256 and the resource indicator (RFC 8707), refresh and
 // revocation (RFC 7009). Every request goes through net.ts (public https only, no redirects, size and time limits).
+// A service that does not register apps (Google's MCP servers, an HTTP API such as NAVER WORKS) is signed in at with
+// the person's or team's own app instead (ownClient), at the addresses found here or given with the app (manualServer).
 import { PRODUCT } from '@mycel/shared'
 import { jsonRequest, NetError, type NetOptions } from './net'
 
-export interface OAuthServer { issuer: string; authorizationEndpoint: string; tokenEndpoint: string; registrationEndpoint: string | null; revocationEndpoint: string | null }
+/** issuer: null when the addresses were given with an own app instead of found (nothing to check an answer's "iss" against) */
+export interface OAuthServer { issuer: string | null; authorizationEndpoint: string; tokenEndpoint: string; registrationEndpoint: string | null; revocationEndpoint: string | null }
 export interface OAuthClient { clientId: string; clientSecret: string | null; authMethod: 'none' | 'client_secret_post' | 'client_secret_basic'; redirectUri: string }
 export interface OAuthTokens { accessToken: string; refreshToken: string | null; expiresAt: number | null }
-/** what a connection keeps (encrypted) once signed in */
-export interface OAuthSecret { type: 'oauth'; server: OAuthServer; client: OAuthClient; resource: string; scope: string | null; tokens: OAuthTokens }
+/** what a connection keeps (encrypted) once signed in. resource: the MCP server's resource indicator (RFC 8707); null
+ * for an HTTP API, which has none. */
+export interface OAuthSecret { type: 'oauth'; server: OAuthServer; client: OAuthClient; resource: string | null; scope: string | null; tokens: OAuthTokens }
+/** your own app at the service, as stored (docs/INTEGRATIONS.md "Your own app"). foundTokenUrl: the token address the
+ * first sign-in found from the server, where its secret may go (service.ts pinFound) */
+export interface OwnClient {
+  clientId: string; clientSecret: string | null; authorizationUrl: string | null; tokenUrl: string | null; scope: string | null; foundTokenUrl: string | null
+  /** the stored values it was read from (pinFound writes only onto these) */
+  stored: { json: string; enc: string | null }
+}
 
 export class GrantError extends Error { name = 'GrantError' }
 
@@ -39,8 +50,9 @@ const get = async (url: string, net: NetOptions) => {
   } catch (e) { if (e instanceof NetError && (e.reason === 'timeout' || e.reason === 'tls')) throw e; return null }
 }
 
-/** Where to sign in for the MCP server at `mcpUrl`. Throws NetError('oauth_unsupported') when it offers no usable sign-in. */
-export async function discover(mcpUrl: string, net: NetOptions, header = ''): Promise<{ server: OAuthServer; resource: string; scope: string | null }> {
+/** Where to sign in for the MCP server at `mcpUrl`. Throws NetError('oauth_unsupported') when it offers no usable sign-in.
+ * `authMethods`: how the token endpoint takes a client secret (token_endpoint_auth_methods_supported), when it says. */
+export async function discover(mcpUrl: string, net: NetOptions, header = ''): Promise<{ server: OAuthServer; resource: string; scope: string | null; authMethods: string[] | null }> {
   const u = new URL(mcpUrl)
   const h = wwwAuthenticate(header)
   const candidates = [httpsUrl(h.resource_metadata), `${u.origin}/.well-known/oauth-protected-resource${u.pathname === '/' ? '' : u.pathname}`, `${u.origin}/.well-known/oauth-protected-resource`]
@@ -68,6 +80,7 @@ export async function discover(mcpUrl: string, net: NetOptions, header = ''): Pr
   for (const m of metaUrls) if ((meta = await get(m, net))) break
   if (!meta) throw new NetError('oauth_unsupported')
   if (typeof meta.issuer === 'string' && trimSlash(meta.issuer) !== trimSlash(issuer)) throw new NetError('oauth_unsupported')
+  const authMethods = Array.isArray(meta.token_endpoint_auth_methods_supported) ? meta.token_endpoint_auth_methods_supported.filter((m: unknown): m is string => typeof m === 'string') : null
   const methods = meta.code_challenge_methods_supported
   if (Array.isArray(methods) && !methods.includes('S256')) throw new NetError('oauth_unsupported')
   if (Array.isArray(meta.response_types_supported) && !meta.response_types_supported.includes('code')) throw new NetError('oauth_unsupported')
@@ -76,13 +89,35 @@ export async function discover(mcpUrl: string, net: NetOptions, header = ''): Pr
   const scopes = h.scope || (Array.isArray(prm?.scopes_supported) ? prm!.scopes_supported.filter((s: unknown) => typeof s === 'string').join(' ') : '')
   return {
     server: { issuer: trimSlash(issuer), authorizationEndpoint, tokenEndpoint, registrationEndpoint: httpsUrl(meta.registration_endpoint), revocationEndpoint: httpsUrl(meta.revocation_endpoint) },
-    resource, scope: scopes && scopes.length <= 2000 ? scopes : null,
+    resource, scope: scopes && scopes.length <= 2000 ? scopes : null, authMethods,
   }
 }
 
-/** Dynamic client registration for our callback address. */
+/** The sign-in and token addresses given with an own app (an HTTP API, or an MCP server whose addresses are not found). */
+export function manualServer(c: Pick<OwnClient, 'authorizationUrl' | 'tokenUrl'>): OAuthServer {
+  const authorizationEndpoint = httpsUrl(c.authorizationUrl), tokenEndpoint = httpsUrl(c.tokenUrl)
+  if (!authorizationEndpoint || !tokenEndpoint) throw new NetError('oauth_unsupported')
+  return { issuer: null, authorizationEndpoint, tokenEndpoint, registrationEndpoint: null, revocationEndpoint: null }
+}
+
+/** Your own app as the client of a sign-in. A secret goes in the token request's body (client_secret_post: what Google,
+ * NAVER WORKS and most services take) unless the service says it takes only HTTP basic. */
+export function ownClient(c: Pick<OwnClient, 'clientId' | 'clientSecret'>, redirectUri: string, authMethods: string[] | null = null): OAuthClient {
+  if (!c.clientSecret) return { clientId: c.clientId, clientSecret: null, authMethod: 'none', redirectUri }
+  const basicOnly = !!authMethods?.length && !authMethods.includes('client_secret_post') && authMethods.includes('client_secret_basic')
+  return { clientId: c.clientId, clientSecret: c.clientSecret, authMethod: basicOnly ? 'client_secret_basic' : 'client_secret_post', redirectUri }
+}
+
+/** Sign-in parameters some services need besides the standard ones. Google hands out a refresh token only with
+ * access_type=offline, and again for an account that consented before only with prompt=consent; without one the person
+ * would sign in again every hour. */
+function extraParams(authorizationEndpoint: string): Record<string, string> {
+  return new URL(authorizationEndpoint).origin === 'https://accounts.google.com' ? { access_type: 'offline', prompt: 'consent' } : {}
+}
+
+/** Dynamic client registration for our callback address. A server without it needs an own app (ownClient). */
 export async function register(server: OAuthServer, redirectUri: string, net: NetOptions): Promise<OAuthClient> {
-  if (!server.registrationEndpoint) throw new NetError('oauth_unsupported')
+  if (!server.registrationEndpoint) throw new NetError('oauth_no_registration')
   const body = { client_name: PRODUCT.displayName, redirect_uris: [redirectUri], grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: 'none' }
   const r = await jsonRequest(server.registrationEndpoint, { method: 'POST', headers: [['Content-Type', 'application/json'], ['Accept', 'application/json']], body: Buffer.from(JSON.stringify(body)) }, net)
   const j = r.json
@@ -92,9 +127,10 @@ export async function register(server: OAuthServer, redirectUri: string, net: Ne
   return { clientId: j.client_id, clientSecret: secret, authMethod: method, redirectUri }
 }
 
-export function authorizationUrl(s: { server: OAuthServer; client: OAuthClient; resource: string; scope: string | null }, state: string, challenge: string): string {
+export function authorizationUrl(s: { server: OAuthServer; client: OAuthClient; resource: string | null; scope: string | null }, state: string, challenge: string): string {
   const u = new URL(s.server.authorizationEndpoint)
-  const p: Record<string, string> = { response_type: 'code', client_id: s.client.clientId, redirect_uri: s.client.redirectUri, state, code_challenge: challenge, code_challenge_method: 'S256', resource: s.resource }
+  const p: Record<string, string> = { ...extraParams(s.server.authorizationEndpoint), response_type: 'code', client_id: s.client.clientId, redirect_uri: s.client.redirectUri, state, code_challenge: challenge, code_challenge_method: 'S256' }
+  if (s.resource) p.resource = s.resource
   if (s.scope) p.scope = s.scope
   for (const [k, v] of Object.entries(p)) u.searchParams.set(k, v)
   return u.href
@@ -123,13 +159,17 @@ export async function tokenRequest(s: { server: OAuthServer; client: OAuthClient
   const access = j.access_token, refresh = typeof j.refresh_token === 'string' ? j.refresh_token : previous?.refreshToken ?? null
   if (typeof access !== 'string' || !access || access.length > 16_384 || (refresh && refresh.length > 16_384)) throw new NetError('oauth_failed')
   if (typeof j.token_type === 'string' && j.token_type.toLowerCase() !== 'bearer') throw new NetError('oauth_failed')
-  const exp = typeof j.expires_in === 'number' && Number.isFinite(j.expires_in) && j.expires_in > 0 ? Math.min(j.expires_in, 31_536_000) : null
+  // a number, or a number written as text (NAVER WORKS sends "86400")
+  const life = typeof j.expires_in === 'string' && /^\d{1,9}$/.test(j.expires_in) ? Number(j.expires_in) : j.expires_in
+  const exp = typeof life === 'number' && Number.isFinite(life) && life > 0 ? Math.min(life, 31_536_000) : null
   return { accessToken: access, refreshToken: refresh, expiresAt: exp ? now + exp * 1000 : null }
 }
 
-/** RFC 7009, best effort: true when the server said 200. */
+/** RFC 7009, best effort: true when the server said 200. A client secret goes only to the token address's own server:
+ * a revocation address elsewhere (metadata can name any) is not told, so the secret never goes where sign-in did not. */
 export async function revoke(s: { server: OAuthServer; client: OAuthClient }, token: string, hint: 'refresh_token' | 'access_token', net: NetOptions): Promise<boolean> {
   if (!s.server.revocationEndpoint) return false
+  if (s.client.clientSecret && new URL(s.server.revocationEndpoint).origin !== new URL(s.server.tokenEndpoint).origin) return false
   try {
     const r = await jsonRequest(s.server.revocationEndpoint, { method: 'POST', ...withClient(s.client, { token, token_type_hint: hint }) }, net)
     return r.status === 200
