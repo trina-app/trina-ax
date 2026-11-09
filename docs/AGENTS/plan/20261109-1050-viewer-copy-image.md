@@ -70,3 +70,4 @@ a canvas keeps within a 16384 px side as well.
 
 Not done: a Safari (WebKit) e2e, since Playwright's WebKit may write the computer's own clipboard; ⌘C through the real
 viewer in the desktop app (its e2e team page is a fake one). Details: docs/DECISIONS.md "The image viewer's 복사".
+PR: https://github.com/trina-app/trina-ax/pull/258
