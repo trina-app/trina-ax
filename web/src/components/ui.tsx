@@ -262,8 +262,10 @@ export function Modal({ open, onClose, title, children, width = 480, footer, ret
   return (
     // in <body>, so a dialog opened from inside another dialog (Settings) is not inside it: the one below goes inert
     inBody(
-    // phones: a bottom sheet; tall content scrolls inside so the header and close button stay reachable
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4" onMouseDown={onClose}>
+    // phones: a bottom sheet; tall content scrolls inside so the header and close button stay reachable. The image
+    // viewer's level (ImageViewer.tsx): of the two, the one opened last is on top (each goes to the end of <body>), so a
+    // confirm or Share to room from the viewer's column is over the viewer, and a picture opened from a dialog over it
+    <div className="fixed inset-0 z-[55] flex items-end justify-center bg-black/40 sm:items-center sm:p-4" onMouseDown={onClose}>
       <div
         ref={ref}
         role="dialog"

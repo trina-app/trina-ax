@@ -8,7 +8,11 @@
 // icon still downloads. A thread's files are its own list. A sheet keeps its tabs in view; a team file named in a
 // document opens the side panel and the viewer gives way. On a phone it is the whole screen. The room is answered
 // through page.route as the team server sends it (rooms-mock.ts), its files as streamFile does. Every view passes axe.
-// SHOTS_DIR=<folder>: the screenshots (a PDF at 1440 light and 390 light, a Hangul file at 1440 dark) go there.
+// On computers the file's conversation is beside it (components/rooms/ViewerColumn.tsx, step c): its message's thread,
+// where a reply goes to the room's thread; ✦ switches to my Trina side chat with the file quoted, "스레드로 돌아가기"
+// back; the side chat stays across ← →; the bar's toggle hides the column. On a phone ✦ opens the room page's side chat.
+// SHOTS_DIR=<folder>: the screenshots (a PDF with its thread at 1440 light, the Trina side chat at 1440 dark, the column
+// hidden at 1440 light, a PDF at 390 light, a Hangul file at 1440 dark) go there.
 import fs from 'node:fs'
 import path from 'node:path'
 import AxeBuilder from '@axe-core/playwright'
@@ -58,7 +62,7 @@ async function openRoom(page: Page, o: { at?: string; hwp?: boolean; sheet?: boo
     [id(601), { name: 'acme-신청서.hwp', mime: 'application/x-hwp', body: HWP }],
     [id(701), { name: 'acme-budget.xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', body: xlsx }],
   ])
-  await routeRoom(page, {
+  const room = await routeRoom(page, {
     members: [BEN],
     kind: 'team',
     messages: [
@@ -108,7 +112,7 @@ async function openRoom(page: Page, o: { at?: string; hwp?: boolean; sheet?: boo
   })
   await page.goto(o.at ?? `/rooms/${ROOM_ID}`)
   await expect(page.getByTestId('room-scroller').getByTestId('room-message')).toHaveCount(3 + (o.hwp ? 1 : 0) + (o.sheet ? 1 : 0))
-  return { served, pages }
+  return { served, pages, room }
 }
 
 async function audit(page: Page, where: string) {
@@ -140,11 +144,12 @@ test('a PDF from a room message opens in the viewer: its pages, who, when and wh
   await expect(page.getByTestId('file-panel')).toHaveCount(0)
   await expect(pdfPages(page).first()).toBeVisible({ timeout: 15_000 })
   await expect(viewer(page).getByTestId('pdf-toolbar')).toBeVisible()
-  // in the reading column, under the bar: as wide as 960 px at most, centred
+  // in the reading column, under the bar: as wide as 960 px at most, centred in the stage left of the 400 px column
   const body = (await viewer(page).getByTestId('file-viewer-body').boundingBox())!
   expect(body.width).toBe(960)
-  expect(body.x).toBe(240)
+  expect(body.x).toBe(40)
   expect(body.y).toBe(56)
+  expect(await viewer(page).getByTestId('viewer-column').boundingBox()).toEqual({ x: 1040, y: 56, width: 400, height: 844 })
   // the bar: the name, who sent it, when and where, where it is in the room's list (pictures and files together)
   await expect(page.getByTestId('image-viewer-name')).toHaveText('acme-handbook.pdf')
   await expect(page.getByTestId('image-viewer-sent')).toContainText('벤')
@@ -364,6 +369,137 @@ test('a Hangul file shows its pages while the HWP preview is on; off, its card, 
   expect(pages).toHaveLength(2)
 })
 
+// ---- the column beside the file (step c) ----
+
+const column = (page: Page) => viewer(page).getByTestId('viewer-column')
+const stageBox = async (page: Page) => (await viewer(page).getByTestId('image-viewer-stage').boundingBox())!
+/** the POST of a question to a side chat (the mock team server's /api/chats/:id/messages) */
+const sideQuestion = (page: Page) => page.waitForRequest((r) => r.method() === 'POST' && /^\/api\/chats\/[^/]+\/messages$/.test(new URL(r.url()).pathname))
+
+test("the file's thread is beside it; a reply from the viewer is in the room's thread, which the viewer leaves whole", async ({ page }) => {
+  const { room } = await openRoom(page, { at: `/rooms/${ROOM_ID}/t/${id(1)}` })
+  const pageThread = page.getByTestId('room-thread')
+  await expect(pageThread.getByTestId('room-message')).toHaveCount(2)
+  // the PDF from the timeline: its message is the thread's root, the thread the page shows too
+  await openChip(timeline(page), 'acme-handbook.pdf')
+  await expect(column(page)).toHaveAttribute('data-show', 'thread')
+  await expect(column(page)).toHaveAccessibleName('스레드')
+  await expect(column(page).getByTestId('room-message')).toHaveCount(2)
+  await expect(column(page).getByTestId('thread-count')).toHaveText('답글 1개')
+  await expect(column(page).getByTestId('thread-room')).toHaveText('디자인 리뷰')
+  // the focus stays on the file (the column's box does not take it)
+  await expect(column(page).getByTestId('room-input')).not.toBeFocused()
+  await audit(page, 'viewer with its thread')
+  // ← → typed in the column's box are the box's: no step
+  const box = column(page).getByTestId('room-input')
+  await box.click()
+  await page.keyboard.type('acme 확인했어요')
+  await page.keyboard.press('ArrowLeft')
+  await expect(page.getByTestId('image-viewer-count')).toHaveText('1 / 5')
+  await page.keyboard.press('Enter')
+  await expect.poll(() => room.sent.length).toBe(1)
+  expect(room.sent[0]).toMatchObject({ body: 'acme 확인했어요', threadRootId: id(1) })
+  await expect(column(page).getByTestId('room-message')).toHaveCount(3)
+  await expect(column(page).getByTestId('room-message').last()).toContainText('acme 확인했어요')
+  // closed: the page's thread has the reply too, and is still there
+  await page.getByTestId('image-viewer-close').click()
+  await expect(viewer(page)).toHaveCount(0)
+  await expect(pageThread.getByTestId('room-message')).toHaveCount(3)
+  await expect(pageThread.getByTestId('room-message').last()).toContainText('acme 확인했어요')
+  await expect(pageThread.getByTestId('thread-count')).toBeVisible()
+})
+
+test('a step to another message moves the thread with it: a reply marked in its thread, a message without replies alone with the box', async ({ page }) => {
+  await openRoom(page, { at: `/rooms/${ROOM_ID}/t/${id(1)}` })
+  // the reply's notes, from the page's thread: its root's thread, the reply marked
+  await openChip(page.getByTestId('thread-scroller'), 'acme-reply.md')
+  await expect(column(page).getByTestId('room-message')).toHaveCount(2)
+  await expect(column(page).locator('[data-highlight]')).toContainText('메모 하나 더')
+  await page.keyboard.press('Escape')
+  // the timeline's ZIP: its message has no replies, shown alone with the reply box
+  await openChip(timeline(page), 'acme-assets.zip')
+  await expect(column(page).getByTestId('room-message')).toHaveCount(1)
+  await expect(column(page).getByTestId('room-message')).toContainText('압축 파일이랑 메모예요')
+  await expect(column(page).getByTestId('thread-count')).toHaveText('아직 답글이 없어요')
+  await expect(column(page).getByTestId('room-input')).toBeVisible()
+  // ← to the photo: the first message's thread again
+  await viewer(page).getByTestId('image-viewer-prev').click()
+  await expect(page.getByRole('dialog', { name: '이미지 보기: acme-logo.png' })).toBeVisible()
+  await expect(column(page).getByTestId('room-message')).toHaveCount(2)
+  await expect(column(page).getByTestId('room-message').first()).toContainText('자료 올려요')
+})
+
+test('✦ switches the column to Trina with the file quoted; "팀 폴더에 저장" asks for it; "스레드로 돌아가기" brings the thread back', async ({ page }) => {
+  await openRoom(page)
+  await openChip(timeline(page), 'acme-handbook.pdf')
+  await expect(column(page)).toHaveAttribute('data-show', 'thread')
+  const ask = page.getByTestId('image-viewer-ask-trina')
+  await expect(ask).toHaveAccessibleName('트리나에게 이 파일 묻기')
+  await ask.click()
+  await expect(column(page)).toHaveAttribute('data-show', 'trina')
+  await expect(column(page).getByTestId('side-chat-quote-file')).toHaveText('acme-handbook.pdf')
+  await expect(column(page).getByTestId('side-chat-input')).toBeFocused()
+  // the file's quick questions, with 팀 폴더에 저장 (the AI saves it with save_room_file and shows its card)
+  await expect(column(page).getByTestId('side-chat-quick-fileSave')).toHaveText('팀 폴더에 저장')
+  await audit(page, 'viewer with the Trina side chat')
+  const [q] = await Promise.all([sideQuestion(page), column(page).getByTestId('side-chat-quick-fileSave').click()])
+  const content = (q.postDataJSON() as { content: string }).content
+  expect(content).toBe(`> 📎 acme-handbook.pdf (file_id ${id(502)} in this room)\n\n이 파일을 팀 폴더에 저장해 줘.`)
+  await expect(column(page).getByTestId('side-chat-quote')).toHaveCount(0)
+  await expect(column(page).getByTestId('user-message')).toHaveCount(1)
+  // back to the file's thread, from the link at the side chat's top
+  await column(page).getByTestId('viewer-column-back').click()
+  await expect(column(page)).toHaveAttribute('data-show', 'thread')
+  await expect(column(page).getByTestId('thread-count')).toHaveText('답글 1개')
+})
+
+test('the Trina side chat stays across ← →, quoting nothing new; the toggle hides the column and the stage takes the room', async ({ page }) => {
+  await openRoom(page)
+  await openChip(timeline(page), 'acme-handbook.pdf')
+  await page.getByTestId('image-viewer-ask-trina').click()
+  await expect(column(page).getByTestId('side-chat-quote-file')).toHaveText('acme-handbook.pdf')
+  await column(page).getByTestId('side-chat-input').fill('acme 일정 알려 줘')
+  // → the photo, → the ZIP (by the edge arrow: the focus is in the side chat's box)
+  await viewer(page).getByTestId('image-viewer-next').click()
+  await expect(page.getByRole('dialog', { name: '이미지 보기: acme-logo.png' })).toBeVisible()
+  await viewer(page).getByTestId('image-viewer-next').click()
+  await expect(fileDialog(page, 'acme-assets.zip')).toBeVisible()
+  await expect(column(page)).toHaveAttribute('data-show', 'trina')
+  await expect(column(page).getByTestId('side-chat-quote-file')).toHaveText('acme-handbook.pdf')
+  await expect(column(page).getByTestId('side-chat-input')).toHaveValue('acme 일정 알려 줘')
+  // the right arrow keeps clear of the column
+  const next = (await viewer(page).getByTestId('image-viewer-next').boundingBox())!
+  expect(next.x + next.width).toBeLessThanOrEqual(1040 - 12 + 1)
+  // hidden: the stage is the whole width; shown again: the side chat as it was
+  const toggle = page.getByTestId('image-viewer-column')
+  await expect(toggle).toHaveAccessibleName('대화 숨기기')
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  await toggle.click()
+  await expect(column(page)).toHaveCount(0)
+  await expect(toggle).toHaveAccessibleName('대화 보기')
+  await expect.poll(async () => (await stageBox(page)).width).toBe(1440)
+  await toggle.click()
+  await expect(column(page)).toHaveAttribute('data-show', 'trina')
+  await expect(column(page).getByTestId('side-chat-input')).toHaveValue('acme 일정 알려 줘')
+  expect((await stageBox(page)).width).toBe(1040)
+})
+
+test("the column starts on Trina when the room page's side chat was open: the same chat and draft", async ({ page }) => {
+  await openRoom(page)
+  await page.getByTestId('room-side-chat-button').click()
+  const pageSide = page.getByTestId('room-side-chat')
+  await expect(pageSide.getByTestId('side-chat-empty')).toBeVisible()
+  await pageSide.getByTestId('side-chat-input').fill('acme 초안')
+  await openChip(timeline(page), 'acme-handbook.pdf')
+  await expect(column(page)).toHaveAttribute('data-show', 'trina')
+  await expect(column(page).getByTestId('side-chat-input')).toHaveValue('acme 초안')
+  // opened on it: the focus stays on the file
+  await expect(column(page).getByTestId('side-chat-input')).not.toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(viewer(page)).toHaveCount(0)
+  await expect(pageSide.getByTestId('side-chat-input')).toHaveValue('acme 초안')
+})
+
 test.describe('a phone (390 px)', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
 
@@ -412,22 +548,60 @@ test.describe('a phone (390 px)', () => {
   })
 })
 
+test.describe('a phone (390 px), the conversation', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+
+  test("no column; ✦ closes the viewer and opens the room page's side chat with the file quoted", async ({ page }) => {
+    await openRoom(page)
+    await openChip(timeline(page), 'acme-handbook.pdf')
+    await expect(fileDialog(page, 'acme-handbook.pdf')).toBeVisible()
+    await expect(column(page)).toHaveCount(0)
+    await expect(page.getByTestId('image-viewer-column')).toHaveCount(0)
+    expect((await stageBox(page)).width).toBe(390)
+    await page.getByTestId('image-viewer-ask-trina').click()
+    await expect(viewer(page)).toHaveCount(0)
+    const side = page.getByTestId('room-side-chat')
+    await expect(side).toBeVisible()
+    await expect(side.getByTestId('side-chat-quote-file')).toHaveText('acme-handbook.pdf')
+    expect(new URL(page.url()).pathname).toBe(`/rooms/${ROOM_ID}`)
+  })
+})
+
 test('screenshots of the room file viewer (SHOTS_DIR)', async ({ page }) => {
   const dir = process.env.SHOTS_DIR
   test.skip(!dir, 'only with SHOTS_DIR')
-  // a PDF at 1440 light
+  // a PDF with its thread at 1440 light
   await page.emulateMedia({ colorScheme: 'light' })
   await openRoom(page, { hwp: true })
   await openChip(timeline(page), 'acme-handbook.pdf')
   await expect(pdfPages(page).first()).toBeVisible({ timeout: 15_000 })
-  await page.mouse.move(720, 500)
+  await expect(column(page).getByTestId('thread-count')).toBeVisible()
+  await page.mouse.move(520, 500)
   await page.waitForTimeout(500)
-  await page.screenshot({ path: `${dir}/room-file-viewer-pdf-1440-light.png` })
+  await page.screenshot({ path: `${dir}/room-file-viewer-pdf-thread-1440-light.png` })
   // the ZIP's card at 1440 light
   await page.keyboard.press('ArrowRight')
   await page.keyboard.press('ArrowRight')
   await expect(card(page)).toBeVisible()
   await page.screenshot({ path: `${dir}/room-file-viewer-card-1440-light.png` })
+  // the column hidden at 1440 light, on the PDF
+  await page.keyboard.press('ArrowLeft')
+  await page.keyboard.press('ArrowLeft')
+  await expect(pdfPages(page).first()).toBeVisible({ timeout: 15_000 })
+  await page.getByTestId('image-viewer-column').click()
+  await expect(column(page)).toHaveCount(0)
+  await page.mouse.move(720, 500)
+  await page.waitForTimeout(500)
+  await page.screenshot({ path: `${dir}/room-file-viewer-column-hidden-1440-light.png` })
+  await page.getByTestId('image-viewer-column').click()
+  // the Trina side chat with the file quoted at 1440 dark
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await page.getByTestId('image-viewer-ask-trina').click()
+  await expect(column(page).getByTestId('side-chat-quote-file')).toBeVisible()
+  await column(page).getByTestId('side-chat-input').fill('이 파일에서 일정만 뽑아 줘')
+  await page.mouse.move(520, 500)
+  await page.waitForTimeout(500)
+  await page.screenshot({ path: `${dir}/room-file-viewer-trina-1440-dark.png` })
   await page.keyboard.press('Escape')
   // a Hangul file at 1440 dark
   await page.emulateMedia({ colorScheme: 'dark' })

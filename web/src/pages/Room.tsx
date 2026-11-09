@@ -43,7 +43,7 @@ import { SideChatPanel, type SideSeed } from '../components/rooms/SideChatPanel'
 import { RoomSideColumn } from '../components/rooms/RoomSideColumn'
 import { AiMark } from '../components/rooms/AiFace'
 import { aiName } from '../lib/tabs'
-import { onAskTrinaInRoom } from '../lib/sideChatAsk'
+import { messageSeed, onAskTrinaInRoom } from '../lib/sideChatAsk'
 import { EmptyState, ErrorNote, IconButton, Skeleton } from '../components/ui'
 import { Tooltip } from '../components/Tooltip'
 import { PresenceDot, PresenceText } from '../components/Presence'
@@ -113,8 +113,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // "Ask Trina about this" on a message (the timeline's or a thread's): the side chat opens with it quoted
   const [sideSeed, setSideSeed] = useState<SideSeed | null>(null)
   const askTrina = useCallback((m: RoomMessage) => {
-    const author = m.authorKind === 'ai' ? aiName(t) : m.author?.name ?? ''
-    setSideSeed({ key: `${m.id}:${Date.now()}`, author, at: m.createdAt, text: m.body })
+    setSideSeed(messageSeed(m, aiName(t)))
     setSideOpen(true)
   }, [t, setSideOpen])
   // "reply in thread" puts the cursor in the thread's box; a thread opened from its summary line or a link does not

@@ -49,16 +49,28 @@ export interface ViewerItem {
   /** a document with no preview here (lib/preview.ts roomNoPreview): its card at once, nothing read */
   card?: 'unsupported' | 'large'
   /** a file sent in a room and its message: once the message is deleted while it is open (store/rooms.ts
-   * roomFileGone), the viewer says it is no longer available */
-  room?: { roomId: string; fileId: string; messageId?: string }
+   * roomFileGone), the viewer says it is no longer available. The column beside it (components/rooms/ViewerColumn.tsx)
+   * shows the message's thread: `rootId`, its root (a reply's thread root, else the message itself); `threadable`
+   * false: a message that cannot have a thread (an AI answer only its asker sees), shown alone */
+  room?: RoomPlace
 }
 
-/** The bar's who, when and where, from the message around a picture or file (ViewerMeta in ImageViewer.tsx), and the
- * message it is in. */
-export interface ViewerMetaValue { sender?: ViewerSender; at?: string | null; where?: string | null; messageId?: string }
+/** Where a room's picture or file was sent: the room, the file, and the message with its thread (absent: one not sent
+ * yet, in a message box). */
+export interface RoomPlace { roomId: string; fileId: string; messageId?: string; rootId?: string; threadable?: boolean }
 
-/** The meta's parts that go on an item as they are (the message goes into `room`). */
-const shown = ({ messageId: _m, ...rest }: ViewerMetaValue) => rest
+/** The bar's who, when and where, from the message around a picture or file (ViewerMeta in ImageViewer.tsx), and the
+ * message it is in with its thread. */
+export interface ViewerMetaValue { sender?: ViewerSender; at?: string | null; where?: string | null; messageId?: string; rootId?: string; threadable?: boolean }
+
+/** The meta's parts that go on an item as they are (the message and its thread go into `room`). */
+const shown = ({ messageId: _m, rootId: _r, threadable: _t, ...rest }: ViewerMetaValue) => rest
+/** The room's place of a picture or file in a message. */
+const placeOf = (roomId: string, fileId: string, meta: ViewerMetaValue): RoomPlace => ({
+  roomId,
+  fileId,
+  ...(meta.messageId ? { messageId: meta.messageId, rootId: meta.rootId ?? meta.messageId, threadable: meta.threadable ?? true } : {}),
+})
 
 export interface ViewerEntry {
   item: ViewerItem
@@ -153,7 +165,7 @@ export function roomItem(roomId: string, f: RoomFile, meta: ViewerMetaValue = {}
     height: f.height,
     download: () => startDownload(roomFileUrl(roomId, f.id, { download: '1' }), f.name),
     href: drawable ? inline : null,
-    room: { roomId, fileId: f.id, ...(meta.messageId ? { messageId: meta.messageId } : {}) },
+    room: placeOf(roomId, f.id, meta),
     ...shown(meta),
   }
 }
@@ -174,7 +186,7 @@ export function roomFileItem(roomId: string, f: RoomFile, me: Pick<Me, 'server'>
     size: f.size,
     ...(card ? { card } : {}),
     download: () => startDownload(roomFileUrl(roomId, f.id, { download: '1' }), f.name),
-    room: { roomId, fileId: f.id, ...(meta.messageId ? { messageId: meta.messageId } : {}) },
+    room: placeOf(roomId, f.id, meta),
     ...shown(meta),
   }
 }
@@ -272,6 +284,9 @@ function pushEntry() {
   window.addEventListener('popstate', onPop)
 }
 
+/** what waits for our history.back() to land (closeImageViewer's `then`) */
+let afterBack: (() => void)[] = []
+
 function onBackDone() {
   window.removeEventListener('popstate', onBackDone)
   backPending = false
@@ -279,6 +294,9 @@ function onBackDone() {
     pushOwed = false
     pushEntry()
   }
+  const then = afterBack
+  afterBack = []
+  for (const f of then) f()
 }
 
 /** closed: no picture, no listener */
@@ -299,15 +317,18 @@ export function openImageViewer(open: ViewerOpen) {
   emit()
 }
 
-/** Close it (✕, Esc, the backdrop, a swipe; `back` false for a route change, which left our entry already). */
-export function closeImageViewer(back = true) {
-  if (!current) return
+/** Close it (✕, Esc, the backdrop, a swipe; `back` false for a route change, which left our entry already). `then`
+ * runs once the page is back where it was (after our history entry is gone): a change of address it makes (the room
+ * page closing its thread) is not undone by that Back. */
+export function closeImageViewer(back = true, then?: () => void) {
+  if (!current) return then?.()
   shut()
   if (back && typeof window !== 'undefined' && onOurEntry()) {
     backPending = true
+    if (then) afterBack.push(then)
     window.addEventListener('popstate', onBackDone)
     window.history.back()
-  }
+  } else then?.()
 }
 
 // A viewer's entry is left behind when the page changed while it was open (a notice opened another page on top of it).

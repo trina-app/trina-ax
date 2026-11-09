@@ -373,8 +373,9 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
         <p className="mb-0.5 text-xs text-faint" data-testid="room-also-sent">{t('rooms.alsoSent')}</p>
       ) : null)}
       {ai ? <AskedBy roomId={roomId} m={m} onJump={onJump} /> : m.replyTo && <Quote q={m.replyTo} onJump={onJump} />}
-      {/* the pictures in it say who sent them and when in the image viewer's bar */}
-      <ViewerMeta sender={ai ? { kind: 'ai' } : { kind: 'user', user: m.author }} at={m.createdAt} messageId={m.id}>
+      {/* the pictures in it say who sent them and when in the image viewer's bar, and its column shows their thread (a
+          reply's thread, or the message's own; one that cannot have a thread, alone) */}
+      <ViewerMeta sender={ai ? { kind: 'ai' } : { kind: 'user', user: m.author }} at={m.createdAt} messageId={m.id} rootId={m.threadRootId ?? m.id} threadable={!!m.threadRootId || (m.visibility === 'room' && !m.event)}>
       {ai && !deleted ? (
         <>
           <Markdown text={m.body} className="min-w-0" openable={openable} />

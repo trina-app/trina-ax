@@ -4,8 +4,9 @@
 // and Back close it, and focus goes back to the picture. The desktop app's 이미지 복사 copies what is under the pointer:
 // that is the original, drawn on the page itself. A phone: the bar hides on a tap, a swipe sideways steps, a swipe down
 // closes. 복사 and ⌘C put the picture on the clipboard as a PNG (the browser's own clipboard in this run: Chromium's,
-// granted by playwright.config.ts, never the computer's). The room is answered through page.route as the team server
-// sends it (rooms-mock.ts).
+// granted by playwright.config.ts, never the computer's). A room's photo has its thread beside it on computers (the
+// viewer's column, room-file-viewer.spec.ts), so it is fitted to the stage left of it. The room is answered through
+// page.route as the team server sends it (rooms-mock.ts).
 // SHOTS_DIR=<folder>: the screenshots (1440 light fitted, 1440 dark zoomed, 390 light; 복사 at 1440 light and its toast at
 // 390 light) go there.
 import fs from 'node:fs'
@@ -119,14 +120,17 @@ test('a room photo opens full-window: thumbnail, then the original, fitted; the 
   // the original, read through the room inline: no new address
   expect(new URL((await original(page).getAttribute('src'))!, 'http://x').pathname).toBe(`/api/rooms/${ROOM_ID}/files/${SHOT_ID}`)
   expect(served).toEqual(expect.arrayContaining(['page?thumb=1', 'page']))
-  // fitted to the stage under the bar, centred
+  // fitted to the stage under the bar, left of the photo's thread (the 400 px column), centred
   const stage = (await page.getByTestId('image-viewer-stage').boundingBox())!
   const pic = (await original(page).boundingBox())!
-  expect(stage.y).toBe(56)
-  expect(pic.height).toBeCloseTo(stage.height, 0)
-  expect(pic.width).toBeCloseTo((2880 * stage.height) / 1800, 0)
-  expect(pic.x + pic.width / 2).toBeCloseTo(720, 0)
-  await expect(page.getByTestId('image-viewer-zoom')).toHaveText(`${Math.round((stage.height / 1800) * 100)}%`)
+  expect(stage).toMatchObject({ x: 0, y: 56, width: 1040 })
+  await expect(v.getByTestId('viewer-column')).toHaveAttribute('data-show', 'thread')
+  const scale = Math.min(stage.width / 2880, stage.height / 1800)
+  expect(pic.width).toBeCloseTo(2880 * scale, 0)
+  expect(pic.height).toBeCloseTo(1800 * scale, 0)
+  expect(pic.x + pic.width / 2).toBeCloseTo(520, 0)
+  expect(pic.y + pic.height / 2).toBeCloseTo(stage.y + stage.height / 2, 0)
+  await expect(page.getByTestId('image-viewer-zoom')).toHaveText(`${Math.round(scale * 100)}%`)
   // the bar: the name, who sent it and when, where it is in the room
   await expect(page.getByTestId('image-viewer-name')).toHaveText('acme-page.png')
   await expect(page.getByTestId('image-viewer-sent')).toContainText('벤')

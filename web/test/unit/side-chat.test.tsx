@@ -8,7 +8,7 @@ import { uuidv7, type Me } from '@mycel/shared/api'
 import { AssistantMessage } from '../../src/components/chat/Messages'
 import ShareToRoom from '../../src/components/chat/ShareToRoom'
 import { SideChatPanel, withQuote } from '../../src/components/rooms/SideChatPanel'
-import { askTrinaInRoom, onAskTrinaInRoom } from '../../src/lib/sideChatAsk'
+import { askTrinaInRoom, fileSeed, messageSeed, onAskTrinaInRoom } from '../../src/lib/sideChatAsk'
 import { RoomMessages } from '../../src/components/rooms/RoomMessages'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { aiName } from '../../src/lib/tabs'
@@ -303,11 +303,26 @@ test('a file of the room: quoted by name and id (the AI opens it with room_file)
   try {
     await m.until(() => !!m.find('side-chat-quote-file'), 'the file quoted')
     expect(m.get('side-chat-quote-file').textContent).toContain('quote.pdf')
-    for (const k of ['fileSummarize', 'fileKeyPoints', 'fileCheck']) expect(m.find(`side-chat-quick-${k}`)).not.toBeNull()
+    for (const k of ['fileSummarize', 'fileKeyPoints', 'fileCheck', 'fileSave']) expect(m.find(`side-chat-quick-${k}`)).not.toBeNull()
     expect(m.find('side-chat-quick-translate')).toBeNull()
+    // 팀 폴더에 저장: through the AI (save_room_file and its card), as a question with the file quoted
+    expect(m.get('side-chat-quick-fileSave').textContent).toBe(en('sideChat.quick.fileSave'))
+    await m.click('side-chat-quick-fileSave')
+    await m.until(() => calls.some((c) => c.method === 'POST' && /^\/api\/chats\/[^/]+\/messages$/.test(c.path)), 'the question sent')
+    expect((calls.find((c) => c.method === 'POST' && /^\/api\/chats\/[^/]+\/messages$/.test(c.path))!.body as { content: string }).content).toBe(`> 📎 quote.pdf (file_id f-1 in this room)\n\n${en('sideChat.ask.fileSave')}`)
   } finally {
     await m.unmount()
   }
+})
+
+test('the asks: a message by who wrote it (the AI by its name), a file by its id and name', () => {
+  const m = message({ roomId: team.id, seq: 1, author: BEN, body: 'the plan' })
+  expect(messageSeed(m, 'Trina')).toMatchObject({ author: BEN.name, at: m.createdAt, text: 'the plan' })
+  expect(messageSeed({ ...m, authorKind: 'ai', author: null }, 'Trina').author).toBe('Trina')
+  const a = fileSeed('f-1', 'acme.pdf')
+  expect(a).toMatchObject({ author: '', text: '', file: { id: 'f-1', name: 'acme.pdf' } })
+  // each ask its own key: the same file asked about again is quoted again
+  expect(a.key.startsWith('f-1:')).toBe(true)
 })
 
 test('"Ask Trina about this file" reaches the room page that listens, only for its room', () => {

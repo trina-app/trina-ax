@@ -10,7 +10,7 @@ let seq = 100
 
 export interface MockRoom {
   /** the bodies of POST /api/rooms/:id/messages, in order */
-  sent: { body: string; mentions: string[]; mentionsAll?: boolean; threadRootId?: string | null }[]
+  sent: { body: string; mentions: string[]; mentionsAll?: boolean; threadRootId?: string | null; alsoInRoom?: boolean }[]
   /** the reactions put on or taken off (PUT …/reactions), in order */
   reacted: { messageId: string; emoji: string; on: boolean }[]
 }
@@ -74,7 +74,10 @@ export async function routeRoom(page: Page, o: { members: { id: string; name: st
       state.sent.push(b)
       const n = ++seq
       const id = `019a5f00-0000-7000-8000-${String(n).padStart(12, '0')}`
-      return route.fulfill(json(message({ id, author: { id: 'olga', name: 'Olga' }, body: b.body, mentions: b.mentions, mentionsAll: b.mentionsAll }, n), 201))
+      // a reply comes back as one, and is in its thread when the thread is read again
+      const sent = message({ id, author: { id: 'olga', name: 'Olga' }, body: b.body, mentions: b.mentions, mentionsAll: b.mentionsAll, ...(b.threadRootId ? { threadRootId: b.threadRootId, extra: b.alsoInRoom ? { alsoInRoom: true } : {} } : {}) }, n)
+      if (b.threadRootId) all.push(sent)
+      return route.fulfill(json(sent, 201))
     }
     return route.fulfill(json({ error: { code: 'not_found', message: 'not in this mock' } }, 404))
   })

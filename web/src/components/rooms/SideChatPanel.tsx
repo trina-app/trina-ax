@@ -72,9 +72,10 @@ export function withQuote(seed: SideSeed | null, question: string, time: (iso: s
 
 /** the questions an empty side chat offers (like Slackbot's): what I missed, what is for me, the latest discussion */
 export const STARTERS = ['catchUp', 'forMe', 'summarize'] as const
-/** the quick questions under a quoted message, and under a quoted file */
+/** the quick questions under a quoted message, and under a quoted file (팀 폴더에 저장: the AI saves it with
+ * save_room_file, whose card says where and who will see it) */
 export const QUICK_MESSAGE = ['translate', 'summarize', 'explain'] as const
-export const QUICK_FILE = ['fileSummarize', 'fileKeyPoints', 'fileCheck'] as const
+export const QUICK_FILE = ['fileSummarize', 'fileKeyPoints', 'fileCheck', 'fileSave'] as const
 
 /** how many of the room's side chats 🕘 lists */
 export const SIDE_HISTORY_MAX = 30

@@ -161,6 +161,27 @@ test("the same thread in two panels (the room page's and the file viewer's): one
   expect(useRooms.getState().threadViews).toEqual({})
 })
 
+test('a message that cannot have a thread (alone): itself from what the window has, no reply count, no box, nothing asked', async () => {
+  useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name } } as unknown as Me } })
+  const r = room()
+  const preview = message({ roomId: r.id, seq: 1, author: BEN, body: 'ONLY MINE', visibility: 'private' })
+  routes = {}
+  serve()
+  useRooms.setState({ rooms: [r], loaded: true, openRoomId: r.id, timeline: { roomId: r.id, messages: [preview], nextCursor: null, loading: false, error: null } })
+  const m = await mount(<ThreadPanel roomId={r.id} rootId={preview.id} alone roomTitle="acme" members={[ME, BEN]} meId={ME.id} onClose={() => {}} frame={false} />)
+  try {
+    await m.until(() => m.find('room-message'), 'the message')
+    expect(m.html()).toContain('ONLY MINE')
+    expect(m.find('thread-count')).toBeNull()
+    expect(m.find('room-input')).toBeNull()
+    await m.settle(30)
+    expect(calls).toEqual([])
+    expect(useRooms.getState().threadViews).toEqual({})
+  } finally {
+    await m.unmount()
+  }
+})
+
 test('a thread I cannot see (joined after its root, or gone) says so, with no box', async () => {
   const r = room()
   const rootId = uuidv7()

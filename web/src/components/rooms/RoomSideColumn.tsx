@@ -1,9 +1,11 @@
 // The column on a room's right (docs/DECISIONS.md "The room's right column"): the frame around what shows there, one
 // thing at a time: a thread (components/rooms/ThreadPanel.tsx) or my Trina side chat (components/rooms/
-// SideChatPanel.tsx), each drawn with frame={false} inside it. On the room page (pages/Room.tsx) it is beside the room on
-// computers, 400 px (440 from 1280 px) unless resized, never so wide the room keeps under 420 px, at least 320, with a
-// divider on its left edge to resize it (components/PanelDivider.tsx, THREAD_PANEL: one remembered width for both); the
-// whole screen on phones. Without a divider its size and place are the caller's.
+// SideChatPanel.tsx), each drawn with frame={false} inside it. Two places use it:
+// - the room page (pages/Room.tsx): beside the room on computers, 400 px (440 from 1280 px) unless resized, never so wide
+//   the room keeps under 420 px, at least 320, with a divider on its left edge to resize it (components/PanelDivider.tsx,
+//   THREAD_PANEL: one remembered width for both); the whole screen on phones;
+// - the file viewer (components/rooms/ViewerColumn.tsx): a 400 px column at the viewer's right on computers, placed by
+//   the viewer (no divider: the stage beside it is not a column the divider could share the width with).
 import clsx from 'clsx'
 import type { ReactNode } from 'react'
 import { THREAD_PANEL } from '../../lib/panelWidth'

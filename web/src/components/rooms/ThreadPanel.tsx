@@ -1,19 +1,22 @@
 // A thread (docs/DECISIONS.md "스레드와 반응"), at /rooms/:roomId/t/:messageId: on computers a plain column beside the
 // room (a hairline on its left, a divider there to resize it: components/PanelDivider.tsx; the room keeps 420 px), on
 // phones the whole screen (the room's header gives way to the thread's, with a back arrow; the bottom tabs stay away
-// as in the room). The column is components/rooms/RoomSideColumn.tsx: drawn here (`frame`), or by the room page around
-// this (frame={false}). The root on top with its reactions, a hairline with how many replies, the replies (the room's list:
-// runs, reactions, my AI questions asked here), and the reply box with "대화방에도 보내기". What I see is marked read in the thread (POST …/thread/read) while the window has the focus and
-// the end of the thread is in sight. A thread I cannot see (I joined after its root, it is gone) says so.
+// as in the room). The column is components/rooms/RoomSideColumn.tsx: drawn here (`frame`), or by the room page or the
+// file viewer (components/rooms/ViewerColumn.tsx) around this (frame={false}). The root on top with its reactions, a
+// hairline with how many replies, the replies (the room's list: runs, reactions, my AI questions asked here), and the
+// reply box with "대화방에도 보내기". What I see is marked read in the thread (POST …/thread/read) while the window has
+// the focus and the end of the thread is in sight. A thread I cannot see (I joined after its root, it is gone) says so.
+// `alone`: a message that cannot have a thread (an AI answer only its asker sees), shown by itself from what this window
+// has, with no reply count and no box.
 import { ChevronLeft, Loader2, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import type { RoomMessage, UserRef } from '@mycel/shared/api'
-import { errorText, isApiError } from '../../lib/api'
+import { ApiError, errorText, isApiError } from '../../lib/api'
 import { lookingAt } from '../../lib/attention'
 import { newestSeq, TARGET_PAGES } from '../../lib/rooms'
 import { followsAfterScroll, jumpToBottom, stickToBottom } from '../../lib/stickToBottom'
 import { useLocale, useT } from '../../i18n'
-import { placeKey, useRooms, type PendingSend } from '../../store/rooms'
+import { findMessage, placeKey, useRooms, type PendingSend } from '../../store/rooms'
 import { ErrorNote, IconButton, Skeleton } from '../ui'
 import { RoomAiStatus } from './RoomAiStatus'
 import { RoomComposer } from './RoomComposer'
@@ -23,14 +26,20 @@ import { ImageGroup } from '../ImageViewer'
 
 const NO_PENDING: PendingSend[] = []
 const NO_REPLIES: RoomMessage[] = []
+/** a message shown alone that this window no longer has: as a thread that cannot be seen */
+const ALONE_GONE = new ApiError(404, { code: 'not_found', message: '' })
 
 /** `highlight`: a message a link points at (an Inbox row), the root or a reply, scrolled to and marked once. `frame`
- * false: the column around it is the caller's (RoomSideColumn). */
-export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose, onAskTrina, focusBox = false, highlight = null, frame = true }: { roomId: string; rootId: string; roomTitle: string; members: UserRef[]; meId: string | null; onClose: () => void; onAskTrina?: (m: RoomMessage) => void; focusBox?: boolean; highlight?: string | null; frame?: boolean }) {
+ * false: the column around it is the caller's (RoomSideColumn). `alone`: `rootId` is a message without a thread, shown
+ * by itself. */
+export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose, onAskTrina, focusBox = false, highlight = null, frame = true, alone = false }: { roomId: string; rootId: string; roomTitle: string; members: UserRef[]; meId: string | null; onClose: () => void; onAskTrina?: (m: RoomMessage) => void; focusBox?: boolean; highlight?: string | null; frame?: boolean; alone?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const key = placeKey(roomId, rootId)
-  const view = useRooms((s) => s.threadViews[key] ?? null)
+  const threaded = useRooms((s) => (alone ? null : s.threadViews[key] ?? null))
+  // alone: the message as this window has it (the timeline), never asked for as a thread (the server has none for it)
+  const single = useRooms((s) => (alone ? findMessage(s, roomId, rootId) ?? null : null))
+  const view = alone ? { root: single, replies: NO_REPLIES, loading: false, error: single ? null : ALONE_GONE, nextCursor: null } : threaded
   const allPending = useRooms((s) => s.pending[roomId]) ?? NO_PENDING
   const pending = useMemo(() => allPending.filter((p) => p.threadRootId === rootId), [allPending, rootId])
   const replies = view?.replies ?? NO_REPLIES
@@ -45,9 +54,10 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
 
   useEffect(() => {
     stick.current = true
+    if (alone) return
     useRooms.getState().openThread(roomId, rootId)
     return () => useRooms.getState().closeThread(roomId, rootId)
-  }, [roomId, rootId])
+  }, [roomId, rootId, alone])
   useLayoutEffect(() => {
     const el = scroller.current
     if (el && stick.current) jumpToBottom(el, lastTop)
@@ -60,7 +70,7 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
 
   const tryRead = useCallback(() => {
     const el = scroller.current
-    const tv = useRooms.getState().threadViews[placeKey(roomId, rootId)]
+    const tv = alone ? undefined : useRooms.getState().threadViews[placeKey(roomId, rootId)]
     if (!el || !tv || tv.loading || !tv.root) return
     // on screen and looked at (the phone app: on screen; lib/attention.ts)
     if (!lookingAt()) return
@@ -68,7 +78,7 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
     // my position in a thread I follow (the server leaves it alone when I do not follow it)
     const seq = newestSeq(tv.replies)
     if (seq > 0) void useRooms.getState().markThreadRead(roomId, rootId, seq)
-  }, [roomId, rootId])
+  }, [roomId, rootId, alone])
   useEffect(() => {
     tryRead()
   }, [tryRead, last?.seq, root?.thread?.newReplies, view?.loading])
@@ -140,7 +150,7 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
               {!root && view?.loading && <Skeleton lines={3} className="pt-2" />}
               {!!view?.error && !notFound && <ErrorNote onRetry={() => void useRooms.getState().loadThread(roomId, rootId)}>{errorText(view.error, locale, t('error.network'))}</ErrorNote>}
               {root && <RoomMessages roomId={roomId} messages={[root]} pending={NO_PENDING} meId={meId} members={members} variant="root" onAskTrina={onAskTrina} highlight={highlight} />}
-              {root && (
+              {root && !alone && (
                 <div role="separator" className="flex items-center gap-3 pt-3 pb-1 text-xs text-faint" data-testid="thread-count">
                   {count > 0 ? t('rooms.threadReplies', { n: count }) : t('rooms.threadNone')}
                   <span className="h-px flex-1 bg-line" aria-hidden />
@@ -153,7 +163,7 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
           )}
         </div>
       </div>
-      {!notFound && root && !root.deletedAt && (
+      {!notFound && root && !root.deletedAt && !alone && (
         <RoomComposer roomId={roomId} threadRootId={rootId} members={members} meId={meId} autoFocus={focusBox} onSent={() => { stick.current = true }} />
       )}
     </>
