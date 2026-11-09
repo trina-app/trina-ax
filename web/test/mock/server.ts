@@ -978,6 +978,8 @@ export class MockServer {
         ...(this.allConfidential ? { allChatsConfidential: true as const } : {}),
         ...(this.devEnv ? { devEnv: true as const } : {}),
         ...(this.htmlPdf ? { htmlPdf: true as const } : {}),
+        // the HWP preview, as hwpPreview below answers it: on unless the HWP Preview plugin is installed and turned off
+        ...(this.plugins.installed.some((p) => p.id === 'app.trina.hwp-preview' && !p.enabled) ? {} : { hwpPreview: true as const }),
         features: this.cloud
           ? { connectionChange: false, selfUpdate: false, officeUpdate: false, connectedFolders: false, apiEngineAnyUrl: false, hostDiagnostics: false, pluginFileInstall: false }
           : { connectionChange: true, selfUpdate: true, officeUpdate: false, connectedFolders: true, apiEngineAnyUrl: true, hostDiagnostics: true, pluginFileInstall: true },

@@ -16508,3 +16508,58 @@ pins wherever a room allows it.
   back); pins an older build leaves behind never show or count (above); the same-instant order test now sets the last
   pin ahead of the clock.
 - Version impact: **minor** (new endpoints, an additive field and an additive migration).
+
+## 대화방의 한글 파일 미리보기 — a Hangul file sent in a room gets the HWP preview (feat/room-hwp-preview, 2026-11-09, product owner)
+
+Step (f) of the room file viewer plan (`docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, question 5). The owner:
+"플러그인 기능이면 해". A team file in Hangul (HWP, HWPX) opens as pages in the side panel while the HWP Preview plugin is
+on ("Plugins, stage 1"); the same file sent in a room only downloaded, because the preview took a team path only.
+
+- **Decision:** a room's Hangul file gets the same preview from the same plugin, at
+  `GET /api/rooms/:id/files/:fileId/hwp-preview?page=&cacheId=` (`roomFileHwpPreview`), next to the room file's own
+  address and with the team route's answer (`HwpPreviewPage`). Not `/api/files/hwp-preview` with a room reference: that
+  route's checks are the team folder's, and one route with two kinds of check is easier to get wrong.
+- **The checks are the inline read's**, on every request, before any cache lookup or render, and again after the render
+  (`RoomFiles.hwpSource`, called by `HwpPreviews.pageOf` both times): `RoomFiles.open` (in the room now and not archived;
+  the message visible to me from my join on, never an old answer hidden from me nor someone else's private preview, not
+  deleted; or my own upload not sent yet; else 404, an admin outside the room too) and the download-only list, which is
+  the quarantine list (503 `quarantined`, the inline read's answer: no inline read, no preview). A cached page is served
+  only after these pass, so a page made before someone left, a message was deleted or its bytes went on the list is not
+  served after. The bytes are read through the request's `SearchAdmission` (no link, no hard link, no swap between the
+  check and the read, a quarantined hash refused) and must be the bytes the file was sent with (the row's sha256; else
+  `changed`). Not a Hangul name: `unsupported`, before the renderer.
+- **One renderer, cache and set of limits.** `HwpPreviews` takes a source (`OpenHwpSource`); the team path is one, a
+  room file the other. The engine is resolved per request from the plugin (off, removed, revoked, not usable here: the
+  disabled engine, 503 `unavailable` with reason `disabled`, word for word the team file's answer). The 20 MB input,
+  200 pages, isolation, one render per person and per server (shared with team previews), the 128 MB cache and its
+  invalidation are the team preview's. The cache keys a room file by its room, its id and its sha256 (`room:<room>/<id>`;
+  team paths are `team:<path>` now, so the two never meet); a cache id is still never a capability.
+- **How the web knows: `Me.server.hwpPreview`** (the plugin's package is usable here, `PluginManager.hwpPreviewOn`), as
+  `htmlPdf` tells whether the HTML print can run. The brief asked to reuse the signal the web has for team files; it has
+  none before a click: the team panel always asks and shows the server's "off" notice. Asking first that way for a room
+  file would change what a click does while the plugin is off, which the owner ruled out. With the flag on, a room's
+  Hangul chip opens the panel (within the 20 MB the preview reads; a larger one downloads as before); off or absent, the
+  chip downloads and the panel shows its "cannot preview" card, as before. `Me` is read at sign-in, so a plugin turned
+  on shows after a reload; one turned off while the page is open shows the team file's "off" notice with the download.
+- **Download-only in the viewer:** `HwpView` shows the server's download-only words with the download (no retry), for a
+  room file and for a team file (a team file showed "cannot be used on this server" before).
+- **Not here:** the new file viewer (plan steps b–e) uses this route when it lands; HEIC previews of room files.
+- **Words:** no new strings.
+- **Independent review (security, tried to break it):** no must-fix; no page, page count, hash, cache hit or telling
+  answer for someone who cannot read the file inline. The cases it asked to guard are now tests (a late joiner, leaving
+  after a cached page, an archived room, links, the shared per-person render, over 20 MB, outsiders and held files with
+  the plugin off). Left as is: with the plugin off the file is still read before "disabled" (as the team route; the web
+  asks only while the flag is on), and the flag does not run the renderer's own isolation and binary checks, so on a
+  server where the plugin is on but cannot run the chip opens the panel's notice with the download.
+- Tests: `tests/unit/b-rooms-hwp-preview.test.ts` (a member's pages with no browser cache, one render for two people, a
+  cache id reused and a guessed one refused, pages out of range; not a member, an admin outside, another room's
+  address, no session, a cached page's id for an outsider; my unsent upload mine only; a hidden old answer's file,
+  another person's private preview's file, a deleted message's file; a late joiner, leaving after a cached page, an
+  archived room; a download-only file refused before the renderer and after a page of it was cached; a message deleted
+  during the render; changed bytes, a hard link, a symbolic link; one render per person across team and room; over
+  20 MB; not Hangul; the plugin off for a room and a team file alike, outsiders and held files answered first, and
+  `Me.server.hwpPreview` following it; a team file's preview), the permission matrix
+  (`roomFileHwpPreview`: the DM's two people pass the room checks, everyone else 404), `hwp-preview.test.ts`,
+  `web/test/unit/room-files-open.test.tsx` (the chip opens only with the flag and within the limit), e2e
+  `room-files-open.spec.ts` (the room's HWP in the panel, a page step; the chip downloads with the plugin off).
+- Version impact: **minor** (a new endpoint and `Me.server.hwpPreview`; no data change).

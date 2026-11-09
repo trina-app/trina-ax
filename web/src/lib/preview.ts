@@ -1,4 +1,6 @@
 // Which in-app viewer can show a file (side panel). Everything else can only be downloaded.
+import type { Me } from '@mycel/shared/api'
+import { HWP_LIMITS } from '@mycel/shared/hwp'
 import { cp949Text } from '@mycel/shared/text-encoding'
 import { extOf } from './paths'
 
@@ -48,6 +50,17 @@ export function opensWithoutServer(f: { name: string; size: number }): boolean {
   if (!kind || serverPreview(f.name)) return false
   const limit = previewLimit(kind)
   return limit.truncate || f.size <= limit.max
+}
+
+/** A Hangul file (HWP, HWPX) sent in a room has the server's page preview while the HWP Preview plugin is on here
+ * (Me.server.hwpPreview; GET /api/rooms/:id/files/:fileId/hwp-preview). Off or absent: none, so it downloads as before. */
+export const roomHwpPreview = (name: string, me: Pick<Me, 'server'> | null | undefined): boolean => previewKind(name) === 'hwp' && !!me?.server.hwpPreview
+
+/** Whether a room file's name opens it in the preview panel: a kind the app draws itself (opensWithoutServer), or a
+ * Hangul file while the HWP preview is on (roomHwpPreview) and within what the preview reads (HWP_LIMITS.inputBytes:
+ * a larger one would only say so). Otherwise it is downloaded. */
+export function roomFileOpens(f: { name: string; size: number }, me: Pick<Me, 'server'> | null | undefined): boolean {
+  return opensWithoutServer(f) || (roomHwpPreview(f.name, me) && f.size <= HWP_LIMITS.inputBytes)
 }
 
 /** Photos that browsers (other than Safari) cannot draw: the panel shows the server's JPEG (GET /api/files/preview)
