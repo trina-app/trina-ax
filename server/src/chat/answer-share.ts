@@ -549,9 +549,10 @@ export async function shareChoice(ctx: AppContext, userId: string, p: PreparedSh
 /**
  * The rest of "대화방에 보내기" once prepared: when something applies, the key the person said yes to (and the files they
  * chose) or an older client's number; nothing applies now: it goes at once (also after a "confirm"). Anything changed
- * since the key was made answers "confirm" again. `via`: 'ai' when the AI's post_to_room sent it (the audit row says so).
+ * since the key was made answers "confirm" again. `via`: 'ai' when the AI's post_to_room sent it (the audit row says so);
+ * `confirmed`: the person said yes on a card that showed it (post_to_room's), confirmed even when nothing applied.
  */
-export async function sendShare(ctx: AppContext, userId: string, p: PreparedShare, b: Pick<ShareAnswerInput, 'confirm' | 'confirmKey' | 'attach' | 'threadRootId' | 'clientMessageId'>, locale: Locale, o: { via?: 'ai' } = {}): Promise<ShareAnswerToRoomResult> {
+export async function sendShare(ctx: AppContext, userId: string, p: PreparedShare, b: Pick<ShareAnswerInput, 'confirm' | 'confirmKey' | 'attach' | 'threadRootId' | 'clientMessageId'>, locale: Locale, o: { via?: 'ai'; confirmed?: boolean } = {}): Promise<ShareAnswerToRoomResult> {
   const rooms = roomsOf(ctx)
   const { room, check: c, shown, key, body, at, cut } = p
   let attach: string[] = []
@@ -596,7 +597,7 @@ export async function sendShare(ctx: AppContext, userId: string, p: PreparedShar
     }
     // audited with the message (Rooms.send: room.answer_share); the copies and the links they stand for are kept with it
     const kept: AnswerScopeKept = { ...(await c.provenance(new Set(attach))).kept, ...(copies.length ? { attached: copies } : {}) }
-    const m = rooms.send(userId, room.id, { body, mentions: [], fileIds, clientMessageId: b.clientMessageId, threadRootId: b.threadRootId ?? null }, {}, { at, cut, people, confirmed, scope: JSON.stringify(kept), ...(o.via ? { via: o.via } : {}) })
+    const m = rooms.send(userId, room.id, { body, mentions: [], fileIds, clientMessageId: b.clientMessageId, threadRootId: b.threadRootId ?? null }, {}, { at, cut, people, confirmed: confirmed || o.confirmed === true, scope: JSON.stringify(kept), ...(o.via ? { via: o.via } : {}) })
     return { status: 'sent', message: m, cut }
   } finally {
     // copies that did not go (a failure, or the same request sent twice at once): not left behind

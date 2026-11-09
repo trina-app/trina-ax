@@ -475,6 +475,8 @@ export const ko = {
   'steps.earlier': '앞선 단계 {n}개',
   'steps.running': '진행 중',
   'steps.done': '완료',
+  'steps.postView': '보기',
+  'steps.postViewLabel': '대화방에서 보기',
   'devEnvQueue.waiting': '개발 환경을 기다리는 중… 대기 {n}번째',
   'devEnvQueue.waitingNoPlace': '개발 환경을 기다리는 중…',
   'devEnvQueue.cancel': '취소',
