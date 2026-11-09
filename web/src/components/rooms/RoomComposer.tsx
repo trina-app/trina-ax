@@ -1,8 +1,8 @@
 // The message box of a room: text that grows with what is typed (Enter sends, Shift+Enter makes a new line, nothing
 // happens while a Korean or Japanese word is still being composed; on touch screens Enter makes a new line and the
 // button sends, like the AI chat's box), files (the clip, paste or drop; each is uploaded at once with POST
-// /api/rooms/:id/files and sent by id; a picture shows as one in its chip at once, while it uploads), and "@" for the
-// room's members: a picked name (or "@트리나") stands out in the
+// /api/rooms/:id/files and sent by id; a picture shows as itself at once, a 64 px square, while it uploads), and "@"
+// for the room's members: a picked name (or "@트리나") stands out in the
 // box at once and is sent as a mention (useMentionMenu, components/TokenTextarea.tsx). "@전체" notifies everyone in the
 // room (not in a DM; in the everyone room only for owners and admins); in a room of MENTION_ALL_CONFIRM people or more the
 // send asks first, in one line inside the box ("N명에게 알림이 가요. 보낼까요?"). In a thread (threadRootId) it
@@ -28,7 +28,7 @@ import { toast } from '../../store/ui'
 import { TokenTextarea } from '../TokenTextarea'
 import { Button, IconButton } from '../ui'
 import { Tooltip } from '../Tooltip'
-import { ChipThumb, isLocalImage } from '../ChipThumb'
+import { isLocalImage, PictureTile } from '../ChipThumb'
 import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { useEveryone, useMentionMenu } from './useMentionMenu'
 import { useTextSize } from '../../lib/textSize'
@@ -44,7 +44,7 @@ interface Upload {
 
 let uploadKey = 0
 
-/** The chip shows a picture: one from this computer, or a photo of a send the server gave back (its room thumbnail). */
+/** It shows as a picture (a square, not a file chip): one from this computer, or a photo of a send the server gave back (its room thumbnail). */
 const picture = (u: Upload) => isLocalImage(u.file) || (u.roomFile?.kind === 'image' && !!u.roomFile.thumb)
 
 /** From this many members (me included) a message with "@전체" asks before it goes. */
@@ -227,29 +227,39 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
           </div>
         )}
         {files.length > 0 && (
-          <ul className="flex flex-wrap gap-2 px-3 pt-2" aria-label={t('composer.attachments')}>
-            {files.map((f) => (
-              <li key={f.key} className={clsx('inline-flex max-w-full items-center gap-2 rounded-xl border py-1 pr-1 pl-2.5 text-xs', f.status === 'failed' ? 'border-danger/40 bg-danger-soft' : 'border-line bg-subtle')} data-testid="room-file-chip" data-status={f.status}>
-                {/* a picture as itself, at once (close to the chip's edge; the spinner then sits after its name); another
-                    file its icon */}
-                {picture(f) ? (
-                  // from this computer, or a photo of a send the server gave back (its room thumbnail)
-                  <ChipThumb file={isLocalImage(f.file) ? f.file : undefined} src={isLocalImage(f.file) ? undefined : roomFileUrl(roomId, f.roomFile!.id, { thumb: '1' })} fallback={<FileText size={14} className="text-muted" aria-hidden />} className="-ml-1.5" />
-                ) : f.status === 'uploading' ? (
-                  <Loader2 size={14} className="animate-spin text-faint" aria-hidden />
-                ) : (
-                  <FileText size={14} className="text-muted" aria-hidden />
-                )}
-                <span className="max-w-[180px] truncate font-medium">{f.file.name}</span>
-                {f.status === 'uploading' && picture(f) && <Loader2 size={14} className="shrink-0 animate-spin text-faint" aria-hidden />}
-                <span role="status" className={f.status === 'failed' ? 'max-w-[160px] truncate text-danger' : 'text-faint'} title={f.error}>
-                  {f.status === 'uploading' ? <span className="sr-only">{t('rooms.uploading', { name: f.file.name })}</span> : f.status === 'failed' ? f.error : formatSize(f.file.size, locale)}
-                </span>
-                <IconButton tip label={t('rooms.removeFile', { name: f.file.name })} onClick={() => removeFile(f)} className="p-1">
-                  <X size={13} />
-                </IconButton>
-              </li>
-            ))}
+          // centred on the row: a file's compact chip beside a picture's 64 px square keeps its own height
+          <ul className="flex flex-wrap items-center gap-2 px-3 pt-2" aria-label={t('composer.attachments')}>
+            {files.map((f) =>
+              picture(f) ? (
+                // a picture as itself, at once: from this computer, or a photo of a send the server gave back (its room
+                // thumbnail); its words for screen readers, a failure's reason beside it
+                <li key={f.key} className="flex max-w-full items-center gap-2 pt-1.5 pr-1.5 text-xs" data-testid="room-file-chip" data-status={f.status}>
+                  <PictureTile
+                    name={f.file.name}
+                    file={isLocalImage(f.file) ? f.file : undefined}
+                    src={isLocalImage(f.file) ? undefined : roomFileUrl(roomId, f.roomFile!.id, { thumb: '1' })}
+                    busy={f.status === 'uploading'}
+                    failed={f.status === 'failed'}
+                    removeLabel={t('rooms.removeFile', { name: f.file.name })}
+                    onRemove={() => removeFile(f)}
+                  />
+                  <span role="status" className={f.status === 'failed' ? 'max-w-[160px] truncate text-danger' : 'sr-only'} title={f.error}>
+                    {f.status === 'uploading' ? t('rooms.uploading', { name: f.file.name }) : f.status === 'failed' ? f.error : formatSize(f.file.size, locale)}
+                  </span>
+                </li>
+              ) : (
+                <li key={f.key} className={clsx('inline-flex max-w-full items-center gap-2 rounded-xl border py-1 pr-1 pl-2.5 text-xs', f.status === 'failed' ? 'border-danger/40 bg-danger-soft' : 'border-line bg-subtle')} data-testid="room-file-chip" data-status={f.status}>
+                  {f.status === 'uploading' ? <Loader2 size={14} className="animate-spin text-faint" aria-hidden /> : <FileText size={14} className="text-muted" aria-hidden />}
+                  <span className="max-w-[180px] truncate font-medium">{f.file.name}</span>
+                  <span role="status" className={f.status === 'failed' ? 'max-w-[160px] truncate text-danger' : 'text-faint'} title={f.error}>
+                    {f.status === 'uploading' ? <span className="sr-only">{t('rooms.uploading', { name: f.file.name })}</span> : f.status === 'failed' ? f.error : formatSize(f.file.size, locale)}
+                  </span>
+                  <IconButton tip label={t('rooms.removeFile', { name: f.file.name })} onClick={() => removeFile(f)} className="p-1">
+                    <X size={13} />
+                  </IconButton>
+                </li>
+              ),
+            )}
           </ul>
         )}
         {voice.recording ? (

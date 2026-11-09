@@ -16056,3 +16056,37 @@ copy it (`write` saves text), so it asked for the PDF again. A room's own @트�
   keeps the answer private), `b-chat-rooms`, `b-codex-rooms`, `b-chat`, `b-browser`, `i-wiring` (the tool in the own
   chat's list).
 - Version impact: **minor** (a new tool in the AI chat; no API, setting or data change).
+## A picture in a message box shows as a 64 px square (fix/bigger-paste-preview, 2026-11-09)
+
+Since #234 a pasted or picked picture showed as itself in its chip above the box, in a room and in the AI chat, but at
+32 px: too small to tell one screenshot from another. The owner: at least 64. Placement: Team AX core
+(`web/src/components/ChipThumb.tsx`, the two message boxes); no contract, setting or data change.
+
+- **A square, not a bigger chip.** Slack and iMessage show a picture waiting to be sent as the picture itself, a
+  rounded square with no name, its ✕ on the corner; files get a card. Here: a 64 × 64 square (`object-cover`, 8 px
+  corners, a hairline edge so a white screenshot keeps its outline on the white box), one `PictureTile` for both boxes.
+  Not chosen: the chip with a 64 px picture and the name and size beside it. On a 390 px phone such a chip is about
+  180 px wide, so three pictures took three rows (about 230 px above the box, with the keyboard open); three squares
+  take one row of 70 px.
+- **What the chip said moves.** The name is the picture's alt text and its tip on hover (no tip on touch); the status
+  (uploading, attached, the size) stays in the same live regions, now for screen readers only, so a screen reader still
+  hears each change. While it uploads the picture is a shade darker with the spinner on a dark pill (readable on a light
+  or a dark picture), with the AI chat's percent when it is known; "준비 중" / "마무리 중" are not shown there (too
+  wide for 64 px in Indonesian and Spanish). A failed one gets a red edge and its reason beside it, as words.
+- **The ✕** is a 20 px dark dot (light in dark mode) standing 6 px out of the top-right corner, on a ring of the box's
+  colour; it takes a 36 px tap, 44 px on phones (an `::after`, not `touch-hit`, which would make the absolutely placed
+  dot `relative` on phones). The tap area reaches further out to the right than over the picture, so a tap on the
+  picture's corner stays the picture's (in the AI chat it opens it), and not above the box's top edge. The row item
+  keeps the 6 px the dot stands out (`pt-1.5 pr-1.5`), so the dot touches neither the box's top edge nor the next
+  picture, and the next picture, painted after it, keeps its own clicks.
+- In the AI chat a click on the picture opens it (the side panel's preview), as a click on its name did; the room's
+  chip had no such click and still has none.
+- A file that is not a picture keeps its compact chip; the row centres its items, so a chip beside a square keeps its
+  own height (before, the row's items stretched, which only mattered once one was taller). A chip restored after a
+  reload (no file in the tab, only the attachment) stays a file chip, as before. A picture the browser cannot draw (a
+  HEIC photo in Chrome) shows a square with a picture icon, named for screen readers as the picture was.
+- Tests: e2e `composer-paste-preview.spec.ts` (the square is 64 × 64 and `cover` in both boxes, the spinner while it
+  uploads, the name as alt text; on a 390 px phone three pasted pictures in one row inside the box, each ✕ taking a tap
+  20 px above and below its dot's centre, inside the box, and 16 px to its left; a ✕ takes out that picture only; a
+  text file on a picture's row a compact chip under 40 px tall, centred on the picture).
+- Version impact: **patch** (a fix; no API or data change).
