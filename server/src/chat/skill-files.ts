@@ -46,6 +46,8 @@ export function skillFilesRefusal(exec: TurnExec, args: unknown, files?: TurnFil
   if (exec.templateRun) return r('this run is limited to its scheduled task', own, 'template run')
   if (exec.restricted) return r('this is a draft with no tools for team files', own, 'draft')
   if (confidentialChat(exec.rt.db, exec.spec.chatId)) return r('this is a confidential chat, which keeps to local tools', 'the user can ask in another chat, or do it on the Files screen', 'confidential chat')
+  // a chat of a Slack thread: its answers may be posted to a channel, whose people may not see who gets a skill
+  if (exec.spec.clientKind === 'slack' || exec.rt.db.query('SELECT 1 FROM slack_threads WHERE chat_id = ? LIMIT 1').get(exec.spec.chatId)) return r('this chat answers in Slack, where a channel may read the answer', 'the user can ask in the app, or do it on the Files screen', 'slack')
   // someone else wrote in this chat (it was shared): their words are in it
   if (exec.rt.db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1").get(exec.spec.chatId, exec.spec.userId)) return r('other people wrote in this chat; skill folders are changed only in a chat of the user\'s own', 'the user can ask in a new chat of their own, or do it on the Files screen', 'others wrote here')
   // a chat that read a team chat room: nothing goes into a skill folder from here (S7)

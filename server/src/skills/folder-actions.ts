@@ -44,8 +44,9 @@ import { skillEntriesIn } from './switch-on'
 export type FolderAction = 'move' | 'copy' | 'rename'
 export interface FolderActionInput { action: FolderAction; path: string; to_folder?: string; new_name?: string }
 
-/** A file the card is bound to: its path, size, hash and the bytes hashed ("I" places these). */
-interface FileHash { path: string; size: number; sha: string; bytes: Buffer }
+/** A file the card is bound to: its path, size, hash and the bytes hashed ("I" places these); `exec`: its mode lets it
+ * run (a skill's script keeps that when it is placed anew). */
+interface FileHash { path: string; size: number; sha: string; bytes: Buffer; exec: boolean }
 
 /** A skill or team rule the action changes: stops being followed (O), new (I), changed (a file of it moves), renamed or
  * kept (N, R). `followers`: who follows it (ids; before for O, after for the rest). */
@@ -127,6 +128,61 @@ function rootFolder(rel: string): string | null {
   const r = skillRootOf(rel)
   return r ? (r.kind === 'team' ? segsOf(rel)[0]! : segsOf(rel).slice(0, 3).join('/')) : null
 }
+// Characters a person cannot see on the card or that turn the text around them (review MUST 1): format characters
+// (zero-width ones, bidi marks, overrides and isolates, the tag block), other default-ignorable ones, private-use
+// characters, lone surrogates, noncharacters, C1 controls, and the C0 controls other than tab and line breaks. The same
+// test as a connection's name and notes (integrations/connections/service.ts hiddenText): an emoji's presentation
+// selector and a zero-width joiner between two emoji are allowed; one byte-order mark at the start is too.
+const HIDDEN = /[\p{Cf}\p{DI}\p{Co}\p{Cs}\p{Noncharacter_Code_Point}\u0080-\u009f\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u
+const EMOJI = /\p{Emoji}/u
+const PICTOGRAPH = /\p{Extended_Pictographic}/u
+export function hiddenChars(text: string): boolean {
+  const cps = [...text.replace(/^\ufeff/, '')]
+  for (let i = 0; i < cps.length; i++) {
+    const c = cps[i]!
+    if (!HIDDEN.test(c)) continue
+    if ((c === '\ufe0f' || c === '\ufe0e') && i > 0 && EMOJI.test(cps[i - 1]!)) continue
+    if (c === '\u200d') {
+      let j = i - 1
+      if (cps[j] === '\ufe0f') j--
+      if (j >= 0 && /\p{Emoji_Modifier}/u.test(cps[j]!)) j--
+      if (j >= 0 && PICTOGRAPH.test(cps[j]!) && PICTOGRAPH.test(cps[i + 1] ?? '')) continue
+    }
+    return true
+  }
+  return false
+}
+
+/** The bytes a media file of extension `x` starts with (review S2: a ".png" holding text, in UTF-16 or Latin-1, is no
+ * picture). */
+export function mediaBytes(x: string, b: Buffer): boolean {
+  const at = (off: number, sig: string | number[]) => { const want = typeof sig === 'string' ? Buffer.from(sig, 'latin1') : Buffer.from(sig); return b.length >= off + want.length && b.subarray(off, off + want.length).equals(want) }
+  const riff = (kind: string) => at(0, 'RIFF') && at(8, kind)
+  const ftyp = at(4, 'ftyp')
+  switch (x) {
+    case 'png': return at(0, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    case 'jpg': case 'jpeg': return at(0, [0xff, 0xd8, 0xff])
+    case 'gif': return at(0, 'GIF87a') || at(0, 'GIF89a')
+    case 'webp': return riff('WEBP')
+    case 'bmp': return at(0, 'BM')
+    case 'tif': case 'tiff': return at(0, [0x49, 0x49, 0x2a, 0x00]) || at(0, [0x4d, 0x4d, 0x00, 0x2a])
+    case 'ico': return at(0, [0x00, 0x00, 0x01, 0x00])
+    case 'heic': case 'heif': case 'avif': case 'mp4': case 'm4v': case 'mov': case 'm4a': return ftyp
+    case 'mp3': return at(0, 'ID3') || (b.length > 1 && b[0] === 0xff && (b[1]! & 0xe0) === 0xe0)
+    case 'aac': return b.length > 1 && b[0] === 0xff && (b[1]! & 0xf6) === 0xf0
+    case 'wav': return riff('WAVE')
+    case 'avi': return riff('AVI ')
+    case 'ogg': case 'oga': case 'opus': return at(0, 'OggS')
+    case 'flac': return at(0, 'fLaC')
+    case 'webm': case 'mkv': return at(0, [0x1a, 0x45, 0xdf, 0xa3])
+    case 'woff': return at(0, 'wOFF')
+    case 'woff2': return at(0, 'wOF2')
+    case 'ttf': return at(0, [0x00, 0x01, 0x00, 0x00]) || at(0, 'true')
+    case 'otf': return at(0, 'OTTO')
+    default: return false
+  }
+}
+
 /** text the AI could follow: no NUL byte at the start and valid UTF-8 */
 function looksText(b: Buffer): boolean {
   if (b.subarray(0, 8000).includes(0)) return false
@@ -187,13 +243,21 @@ function walk(ctx: AppContext, user: Principal, rules: RuleSet, rel: string): Fi
     const abs = path.join(root, ...relp.split('/'))
     const st = fs.lstatSync(abs)
     if (st.isSymbolicLink()) refuse(`'${relp}' is a link; links are not moved into or out of skill folders`)
-    if (st.isDirectory()) { for (const n of fs.readdirSync(abs).sort()) visit(`${relp}/${n}`); return }
+    if (st.isDirectory()) {
+      for (const n of fs.readdirSync(abs).sort()) {
+        // a name the card cannot show as it is (control, invisible or direction characters): refused, never shown
+        const bad = badSegment(n.normalize('NFC'))
+        if (bad || hiddenChars(n)) refuse(`a name in '${relp}' cannot be shown as it is on the card (${bad ?? 'invisible or direction-changing characters'})`)
+        visit(`${relp}/${n}`)
+      }
+      return
+    }
     if (!st.isFile()) refuse(`'${relp}' is not a regular file`)
     if (st.nlink > 1) refuse(`'${relp}' is hard-linked to another file; replace it with a copy first`)
     if (!atLeast(rules.access(user, relp.split('/')), 'read')) refuse('something inside it is hidden from the user', ADMIN)
     if (out.length >= FOLDER_MAX_FILES || (total += st.size) > FOLDER_MAX_BYTES) refuse(`it is too large to show on one card (more than ${FOLDER_MAX_FILES} files or ${FOLDER_MAX_BYTES / 1024 / 1024} MB)`)
     const bytes = readRegular(abs, FOLDER_MAX_BYTES).bytes
-    out.push({ path: relp, size: bytes.length, sha: sha256(bytes), bytes })
+    out.push({ path: relp, size: bytes.length, sha: sha256(bytes), bytes, exec: (st.mode & 0o111) !== 0 })
   }
   visit(r.rel)
   return out
@@ -241,8 +305,11 @@ function nameCheck(ctx: AppContext, user: Principal, rules: RuleSet, l: Level, n
   }
   if (l.level === 'project') {
     if (widerSkillsNamed(ctx.files, user, name, except).length) refuse(`the user has a skill called "${name}" at a wider level (their own, a group's or the team's), which runs ahead of a project skill of that name, so this one would never run for them`, 'give it another name first (a SKILL.md folder\'s name and its name: line)')
+    // for how many who get it a wider one runs instead, counting only skills the asker can read too: never someone's
+    // own skills, nor a group's or the team's the asker cannot see (review S5: a count must not tell names)
+    const seen = (s: Skill) => !personalSkills(s.path) && atLeast(rules.access(user, segsOf(s.path)), 'read') && (!s.group || user.groups.includes(s.group.id) || user.role === 'owner' || user.role === 'admin')
     let hiddenFor = 0
-    for (const id of who) { if (id === user.id) continue; try { if (widerSkillsNamed(ctx.files, ctx.files.principal(id), name, except).length) hiddenFor++ } catch { /* not loadable: not counted */ } }
+    for (const id of who) { if (id === user.id) continue; try { if (widerSkillsNamed(ctx.files, ctx.files.principal(id), name, except).some(seen)) hiddenFor++ } catch { /* not loadable: not counted */ } }
     return { shadow: null, hiddenFor }
   }
   // the live projects with a skill of this name (read from disk), and who of `who` sees them
@@ -252,7 +319,8 @@ function nameCheck(ctx: AppContext, user: Principal, rules: RuleSet, l: Level, n
       const entry = `${p.root}/${e}`
       let n = skillAlias(entry)
       try { n = parseSkill(readRegular(path.join(ctx.files.fx.root, ...entry.split('/')), 128 * 1024).bytes.toString('utf8'), entry)?.name ?? n } catch { /* the folder's name */ }
-      if (entry !== except && sameSkillName(n, name)) hits.push({ project: p.name, folder: p.folder, entry })
+      // only projects and skills the asker reads (review S5: a count must not tell that a name exists elsewhere)
+      if (entry !== except && sameSkillName(n, name) && atLeast(rules.access(user, segsOf(p.folder)), 'read') && atLeast(rules.access(user, segsOf(entry)), 'read')) hits.push({ project: p.name, folder: p.folder, entry })
     }
   }
   if (!hits.length) return { shadow: null, hiddenFor: 0 }
@@ -262,7 +330,7 @@ function nameCheck(ctx: AppContext, user: Principal, rules: RuleSet, l: Level, n
     const p = people.get(id)
     if (p && hits.some((h) => atLeast(rules.access(p, segsOf(h.folder)), 'read') && atLeast(rules.access(p, segsOf(h.entry)), 'read'))) count++
   }
-  const named = [...new Set(hits.filter((h) => atLeast(rules.access(user, segsOf(h.folder)), 'read') && atLeast(rules.access(user, segsOf(h.entry)), 'read')).map((h) => h.project))]
+  const named = [...new Set(hits.map((h) => h.project))]
   return { shadow: count ? { people: count, projects: named } : null, hiddenFor: 0 }
 }
 
@@ -400,6 +468,7 @@ function renameSkill(ctx: AppContext, user: Principal, rules: RuleSet, a: Folder
   const text = withName(oldText, name)
   if (text === null) refuse('its SKILL.md has no name: line in its header to change with the folder', 'add the name line with write / edit first (the user confirms on a card)')
   const entry = `${to}/SKILL.md`
+  if (hiddenChars(text!)) refuse('its SKILL.md holds characters a person cannot see on the card (zero-width, direction or tag characters), so it cannot be shown in full', 'take them out with edit first (the user confirms on a card)')
   const problem = skillFileProblem(ctx.files.fx.root, entry, text!)
   if (problem) refuse(`with the new name its SKILL.md would not load (${problem})`, 'fix the SKILL.md header first with edit, or pick another name')
   const after = rulesAfterMove(ctx, from, to)
@@ -456,7 +525,7 @@ function into(ctx: AppContext, user: Principal, rules: RuleSet, a: FolderActionI
     if (INSTRUCTION.test(nameOf(to)) || nameOf(to) === 'SKILL.md') refuse(`'${nameOf(to)}' is the name of a file the AI follows as instructions`, 'write it with write / edit, where the user sees every word on the card')
     if (x === 'md' || x === 'markdown') refuse('a .md file on its own in a skill folder is a team rule or a skill the AI follows; file actions never make one', 'write it with write (the user sees every word on the card), or put it in a SKILL.md folder and bring the folder in')
     if (!MEDIA.has(x)) refuse(`only images, audio, video and fonts go into a skill folder on their own, and this is a .${x || '(no extension)'} file${looksText(f.bytes) ? ' of text the AI would read' : ''}`, looksText(f.bytes) ? 'write text with write / edit (the user confirms every word on a card)' : FILES)
-    if (looksText(f.bytes)) refuse(`it is named like a .${x} file but holds text the AI would read`, 'write text with write / edit (the user confirms every word on a card)')
+    if (looksText(f.bytes) || !mediaBytes(x, f.bytes)) refuse(`it is named like a .${x} file but is not one (it may hold text the AI would read)`, 'write text with write / edit (the user confirms every word on a card)')
     const pkg = packageOf(ctx, join(parentOf(to), 'x'))
     if (pkg) {
       const entry = `${pkg}/SKILL.md`
@@ -473,8 +542,13 @@ function into(ctx: AppContext, user: Principal, rules: RuleSet, a: FolderActionI
     for (const f of files) {
       const n = nameOf(f.path)
       if (INSTRUCTION.test(n)) refuse(`'${f.path}' is an instruction file (CLAUDE.md, AGENTS.md, GEMINI.md); it is not put into a skill folder`, 'take it out of the folder first, or the user can do it on the Files screen')
-      if (looksText(f.bytes)) { const t = f.bytes.toString('utf8'); chars += t.length; texts.push({ path: rel(f), text: t }); continue }
-      if (!MEDIA.has(ext(n))) refuse(`'${f.path}' is a .${ext(n) || '(no extension)'} file; a skill folder takes text files (shown in full on the card), images, audio, video and fonts`, FILES)
+      if (looksText(f.bytes)) {
+        const t = f.bytes.toString('utf8')
+        // every word on the card: no character a person cannot see there (review MUST 1)
+        if (hiddenChars(t)) refuse(`'${f.path}' holds characters a person cannot see on the card (zero-width, direction or tag characters), so it cannot be shown in full`, 'take them out with edit first (the file is the user\'s), or the user can do it on the Files screen')
+        chars += t.length; texts.push({ path: rel(f), text: t }); continue
+      }
+      if (!MEDIA.has(ext(n)) || !mediaBytes(ext(n), f.bytes)) refuse(`'${f.path}' is ${MEDIA.has(ext(n)) ? `named like a .${ext(n)} file but is not one` : `a .${ext(n) || '(no extension)'} file`}; a skill folder takes text files (shown in full on the card), images, audio, video and fonts`, FILES)
     }
     if (chars > FOLDER_TEXT_MAX) refuse(`its text files are too long to show in full on one card (${chars} characters, at most ${FOLDER_TEXT_MAX})`, FILES)
     const entry = `${to}/SKILL.md`
@@ -508,7 +582,8 @@ function finish(p: Omit<FolderPlan, 'token'>): FolderPlan {
 /**
  * Do it, as planned and shown (`plan`, its token): the file service takes a grant for exactly this operation and plans
  * it again right before the rename or the copy; anything that differs from the card refuses it (Denied). "I" places
- * the card's bytes as new files; R then writes the SKILL.md with its new name line (a version of the old one kept).
+ * the card's bytes as new files, and R its files with SKILL.md's new name line (the old text kept as a version), in the
+ * same step as the move.
  * Audited as `skills.files`; each skill change also as `skills.change` (file events, skills/changes.ts).
  */
 export async function runFolderAction(ctx: AppContext, userId: string, a: FolderActionInput, plan: FolderPlan, o: { turnId: string; tool: string }): Promise<{ path: string }> {
@@ -518,15 +593,20 @@ export async function runFolderAction(ctx: AppContext, userId: string, a: Folder
     if ('refused' in now) throw new Denied(`what the card showed changed: ${now.refused.why}`)
     if (now.token !== plan.token) throw new Denied('what the card showed changed (the files, who gets them or who may change them)')
   }
-  const fresh = plan.kind === 'in' && plan.action === 'move' ? plan.files.map((f) => ({ segs: plan.isDir ? f.path.slice(plan.from.length + 1).split('/') : [], bytes: f.bytes })) : undefined
+  // "I" by a move, and R: what the card showed, placed as new files in the same step as the move (R: SKILL.md with its
+  // new name line, the old text kept as a version), so it never lands half done
+  const segsIn = (f: FileHash) => (plan.isDir ? f.path.slice(plan.from.length + 1).split('/') : [])
+  const placed = (f: FileHash) => ({ segs: segsIn(f), bytes: plan.rename && f.path === `${plan.from}/SKILL.md` ? Buffer.from(plan.rename.text, 'utf8') : f.bytes, exec: f.exec })
+  const fresh = (plan.kind === 'in' && plan.action === 'move') || plan.kind === 'rename_skill' ? plan.files.map(placed) : undefined
   const action: SkillActionGrant['action'] = plan.kind === 'in' && plan.action === 'copy' ? 'place' : plan.action === 'copy' ? 'copy' : 'move'
   const ids: string[] = []
   const grant = (g: Omit<SkillActionGrant, 'userId' | 'turnId'>) => { const id = allowSkillAction(ctx.files, { userId, turnId: o.turnId, ...g }); ids.push(id); return id }
+  if (plan.rename && fresh && !fresh.some((f) => f.segs.join('/') === 'SKILL.md')) throw new Denied('what the card showed changed (no SKILL.md)')
   try {
     let done = plan.to
     const id = grant({ action, from: plan.from, to: plan.to, recheck, ...(fresh ? { fresh } : {}) })
     if (action === 'place') {
-      done = svc.placeSkillTree(userId, plan.from, plan.to, plan.files.map((f) => ({ segs: plan.isDir ? f.path.slice(plan.from.length + 1).split('/') : [], bytes: f.bytes })), { folder: plan.isDir, turnId: o.turnId, tool: o.tool, skillGrant: id }).path
+      done = svc.placeSkillTree(userId, plan.from, plan.to, plan.files.map(placed), { folder: plan.isDir, turnId: o.turnId, tool: o.tool, skillGrant: id }).path
     } else if (action === 'copy') {
       const r = await svc.copy(userId, plan.from, plan.to, { onExists: 'fail', turnId: o.turnId, tool: o.tool, skillGrant: id })
       if ('path' in r) done = r.path
@@ -536,10 +616,6 @@ export async function runFolderAction(ctx: AppContext, userId: string, a: Folder
       const made = plan.kind === 'in' && parentOf(plan.to) === rootFolder(plan.to) ? svc.ensureSkillsFolder(userId, parentOf(plan.to)) : false
       try { done = svc.move(userId, plan.from, plan.to, 'fail', { confirm: true, turnId: o.turnId, tool: o.tool, skillGrant: id }).entry.path }
       catch (e) { if (made) svc.dropEmptySkillsFolder(parentOf(plan.to)); throw e }
-      if (plan.rename) {
-        const g = grant({ action: 'write', from: `${plan.from}/SKILL.md`, to: plan.rename.entry, recheck: () => {} })
-        svc.writeSkillManifest(userId, plan.rename.entry, Buffer.from(plan.rename.text, 'utf8'), plan.rename.oldSha, { turnId: o.turnId, tool: o.tool, skillGrant: g, from: `${plan.from}/SKILL.md` })
-      }
     }
     audit(ctx.db, {
       actor: userId, action: 'skills.files', target: done,

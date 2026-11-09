@@ -409,15 +409,22 @@ export class TeamFiles {
     const readers = this.readersOf(rules, fr.segs)
     // the skills below a moved folder whose place as a skill changes with it: each recorded once moved, on or off
     const carried = isDir ? this.carriedSkills(fr, target) : []
-    // "I" (skill_files into a skill root): the bytes its card showed, made ready as new files beside the target first
+    // "I" and a skill's folder renamed (skill_files): the bytes its card showed, made ready as new files beside the
+    // target first; they go into place in the move's own step (relocate), so a process that kept the moved files open
+    // cannot change the skill, and nothing lands half done. A file whose bytes change (a renamed skill's SKILL.md)
+    // keeps its old ones as a version, and is recorded as changed once moved
     const fresh = grant?.fresh ? this.freshTree(target, isDir, grant.fresh) : null
+    const changed = grant?.fresh ? this.freshChanges(fr, isDir, grant.fresh) : []
     try {
       // the card's plan again, right before the rename: files, hashes, target, readers and editors as shown
       grant?.recheck()
-      this.relocate(userId, fr, target, isDir, { ...o, narrowed })
+      for (const c of changed) saveVersion(this.ctx.db, this.root, c.from, c.old, { userId, turnId: o.turnId ?? null })
+      this.relocate(userId, fr, target, isDir, { ...o, narrowed, ...(fresh ? { fresh } : {}) })
     } catch (e) { if (fresh) fs.rmSync(fresh, { recursive: true, force: true }); throw e }
-    // what was moved is replaced by those new files: a process that kept the old ones open cannot change the skill
-    if (fresh) this.swapIn(target, fresh)
+    for (const c of changed) {
+      const rel = [...target, ...c.segs].join('/')
+      fileEvent(this.ctx.db, { turnId: o.turnId ?? null, userId, path: rel, action: 'update', size: c.bytes.length, sha256: sha256(c.bytes), detail: { tool: o.tool ?? 'file-screen' } })
+    }
     if (carried.length) recordCarriedSkills(this.ctx, userId, carried, { turnId: o.turnId ?? null, tool: o.tool ?? null })
     const after = this.rules()
     this.dropSessionsOf(readers.filter((p) => !atLeast(after.access(p, target), 'read')), { path: fr.rel, to: toRel })
@@ -431,12 +438,22 @@ export class TeamFiles {
    * the AI's file actions", M5): every SKILL.md folder, and in a group's skills folder every .md, of a skills/ folder in
    * the moved folder or one level below it, by its path before and after. `off`: it leaves the skill roots (a project's
    * folder moved out of projects/, a group's out of groups/), `on`: it comes into one, `moved`: it stays one somewhere
-   * else (a group's or project's folder renamed). A moved folder that is itself in a skill root is recorded by its own
-   * file event (skills/changes.ts skillChangeOf).
+   * else (a group's or project's folder renamed). A skills folder itself, or a folder in one, that leaves the skill
+   * roots: each skill in it, as stopped (its own file event records the folder: skills/changes.ts skillChangeOf).
    */
   private carriedSkills(fr: { rel: string; abs: string }, target: string[]): CarriedSkill[] {
-    if (inSkills(fr.rel)) return []
     const toRel = target.join('/')
+    if (inSkills(fr.rel)) {
+      // a skills folder itself, or a folder in one, moved out of the skill roots: each skill in it stops (its folder
+      // event says that the folder moved); within the skill roots its folder event says it all
+      if (inSkills(toRel)) return []
+      const root = skillRootOf(fr.rel)!
+      const segs = fr.rel.split('/')
+      const atRoot = segs.length === (root.kind === 'team' ? 1 : 3)
+      const entries = atRoot ? skillEntriesIn(fr.abs, root.kind !== 'project') : fs.existsSync(path.join(fr.abs, 'SKILL.md')) ? ['SKILL.md'] : skillEntriesIn(fr.abs, false)
+      const owner = skillOwner(this.ctx, `${fr.rel}/x`)
+      return [...new Set(entries)].map((e) => ({ from: `${fr.rel}/${e}`, to: `${toRel}/${e}`, state: 'off' as const, owner }))
+    }
     const dir = (abs: string) => { try { return fs.lstatSync(abs).isDirectory() } catch { return false } }
     const roots: string[] = []
     if (dir(path.join(fr.abs, SKILLS_DIR))) roots.push(SKILLS_DIR)
@@ -458,7 +475,7 @@ export class TeamFiles {
 
   /** "I": the bytes skill_files' card showed (`files`, segments below the moved folder; [] for a single file), written as
    * new files under a server temp name beside where the move goes (the parent folder exists: the move needs it). */
-  private freshTree(target: string[], isDir: boolean, files: { segs: string[]; bytes: Uint8Array }[]): string {
+  private freshTree(target: string[], isDir: boolean, files: { segs: string[]; bytes: Uint8Array; exec?: boolean }[]): string {
     const tmp = path.join(this.root, ...target.slice(0, -1), PRODUCT.tmpPrefix + crypto.randomUUID())
     try {
       if (isDir) {
@@ -466,31 +483,27 @@ export class TeamFiles {
         for (const f of files) {
           if (!f.segs.length || f.segs.some((x) => !x || x === '.' || x === '..' || x.includes('/') || x.includes('\\'))) throw new Denied('bad path in a skill folder')
           fs.mkdirSync(path.join(tmp, ...f.segs.slice(0, -1)), { recursive: true, mode: 0o700 })
-          fs.writeFileSync(path.join(tmp, ...f.segs), f.bytes, { mode: 0o600, flag: 'wx' })
+          fs.writeFileSync(path.join(tmp, ...f.segs), f.bytes, { mode: f.exec ? 0o700 : 0o600, flag: 'wx' })
         }
       } else {
         if (files.length !== 1 || files[0]!.segs.length) throw new Denied('bad file in a skill folder')
-        fs.writeFileSync(tmp, files[0]!.bytes, { mode: 0o600, flag: 'wx' })
+        fs.writeFileSync(tmp, files[0]!.bytes, { mode: files[0]!.exec ? 0o700 : 0o600, flag: 'wx' })
       }
     } catch (e) { fs.rmSync(tmp, { recursive: true, force: true }); throw e }
     return tmp
   }
 
-  /** Put the new files of freshTree where the move went (same names, same bytes as checked a moment ago), and remove
-   * what was moved: nothing that held the moved files or folders open reaches the skill any more. */
-  private swapIn(target: string[], fresh: string) {
-    const abs = path.join(this.root, ...target)
-    const old = path.join(path.dirname(abs), PRODUCT.tmpPrefix + crypto.randomUUID())
-    try {
-      verifyChain(this.root, target)
-      fs.renameSync(abs, old)
-      try { fs.renameSync(fresh, abs) } catch (e) { fs.renameSync(old, abs); throw e }
-      fs.rmSync(old, { recursive: true, force: true })
-    } catch (err) {
-      // the moved files stay (their bytes were checked against the card right before the move)
-      fs.rmSync(fresh, { recursive: true, force: true })
-      this.ctx.log.warn('skill files not replaced after a move', { err, path: target.join('/') })
+  /** The fresh files whose bytes differ from the file they replace (a renamed skill's SKILL.md with its new name line),
+   * with the bytes there now (kept as a version). */
+  private freshChanges(fr: { rel: string; abs: string }, isDir: boolean, files: { segs: string[]; bytes: Uint8Array }[]): { from: string; segs: string[]; old: Buffer; bytes: Uint8Array }[] {
+    const out: { from: string; segs: string[]; old: Buffer; bytes: Uint8Array }[] = []
+    for (const f of files) {
+      const abs = isDir ? path.join(fr.abs, ...f.segs) : fr.abs
+      let old: Buffer
+      try { old = readRegular(abs).bytes } catch { continue }
+      if (sha256(old) !== sha256(f.bytes)) out.push({ from: isDir ? [fr.rel, ...f.segs].join('/') : fr.rel, segs: f.segs, old, bytes: f.bytes })
     }
+    return out
   }
 
   /**
@@ -540,7 +553,7 @@ export class TeamFiles {
    * trash items of the moved path follow it, two file events record it, then the rename and the text cache. move()
    * checks the caller's access first; archiveFolder() is the server's own move of a deleted member's folder.
    */
-  private relocate(userId: string, fr: { rel: string; segs: string[]; abs: string }, target: string[], isDir: boolean, o: By & { narrowed?: number }) {
+  private relocate(userId: string, fr: { rel: string; segs: string[]; abs: string }, target: string[], isDir: boolean, o: By & { narrowed?: number; fresh?: string }) {
     const toRel = target.join('/')
     const narrowed = o.narrowed ?? 0
     const db = this.ctx.db
@@ -550,6 +563,7 @@ export class TeamFiles {
     }
     verifyChain(this.root, fr.segs)
     verifyChain(this.root, target, true)
+    const aside = path.join(path.dirname(fr.abs), PRODUCT.tmpPrefix + crypto.randomUUID())
     // DB first, the rename last inside the same transaction: if anything fails nothing has moved
     db.transaction(() => {
       const under = (col: string) => `(${col} = ? OR substr(${col}, 1, length(?) + 1) = ? || '/')`
@@ -601,8 +615,16 @@ export class TeamFiles {
       }
       fileEvent(db, { turnId: o.turnId ?? null, userId, path: fr.rel, action: 'delete', detail: { movedTo: toRel, folder: isDir, tool: o.tool ?? 'file-screen' } })
       fileEvent(db, { turnId: o.turnId ?? null, userId, path: toRel, action: 'create', detail: { movedFrom: fr.rel, folder: isDir, tool: o.tool ?? 'file-screen', ...(narrowed ? { audienceNarrowed: narrowed } : {}) } })
-      fs.renameSync(fr.abs, path.join(this.root, ...target))
+      const toAbs = path.join(this.root, ...target)
+      if (!o.fresh) fs.renameSync(fr.abs, toAbs)
+      else {
+        // skill_files: the new files (the card's bytes) go where the move goes, and what moved is put aside to be
+        // removed: either both happen or neither (the database part rolls back with them)
+        fs.renameSync(o.fresh, toAbs)
+        try { fs.renameSync(fr.abs, aside) } catch (e) { fs.renameSync(toAbs, o.fresh); throw e }
+      }
     })()
+    if (o.fresh) fs.rmSync(aside, { recursive: true, force: true })
     this.moveTextCache(fr.rel, toRel, isDir)
   }
 
@@ -739,7 +761,7 @@ export class TeamFiles {
    * skills folder is not there yet. One event for it, with where it was copied from (`from`: skills/changes.ts lists it
    * as the change's `from`).
    */
-  placeSkillTree(userId: string, from: string, to: string, files: { segs: string[]; bytes: Uint8Array }[], o: { folder: boolean; turnId: string; tool: string; skillGrant: string }): { path: string } {
+  placeSkillTree(userId: string, from: string, to: string, files: { segs: string[]; bytes: Uint8Array; exec?: boolean }[], o: { folder: boolean; turnId: string; tool: string; skillGrant: string }): { path: string } {
     const user = this.principal(userId)
     const rules = this.rules()
     const tr = authorize(this.fx, rules, user, to, 'write', { mustExist: false, createDirs: true })
@@ -747,11 +769,14 @@ export class TeamFiles {
     const grant = takeSkillAction(this.ctx.files, o.skillGrant, { userId, turnId: o.turnId, action: 'place', from, to: tr.rel })
     const size = files.reduce((n, f) => n + f.bytes.length, 0)
     if (currentPlan()) assertStorageRoomForAI(size)
-    // a project's first skill: its skills folder is made (it has no rules of its own, so its folder's rules apply)
+    // a project's first skill: its skills folder is made (it has no rules of its own, so its folder's rules apply), and
+    // taken away again when nothing is placed (never an empty skills folder left behind)
     const parent = tr.segs.slice(0, -1)
+    const parentAbs = path.join(this.root, ...parent)
     verifyChain(this.root, parent, true)
-    fs.mkdirSync(path.join(this.root, ...parent), { recursive: true, mode: 0o700 })
-    this.placeTree(tr, files, o.folder, () => grant.recheck())
+    const made = !fs.existsSync(parentAbs)
+    if (made) fs.mkdirSync(parentAbs, { mode: 0o700 })
+    try { this.placeTree(tr, files, o.folder, () => grant.recheck()) } catch (e) { if (made) this.dropEmptySkillsFolder(parent.join('/')); throw e }
     fileEvent(this.ctx.db, { turnId: o.turnId, userId, path: tr.rel, action: 'create', size, detail: { folder: o.folder, copiedFrom: from, sourcePaths: [from], ...(o.folder ? { files: files.length } : {}), tool: o.tool } })
     for (const f of files) this.extractText(o.folder ? [...tr.segs, ...f.segs].join('/') : tr.rel)
     this.publish([{ path: tr.rel, action: o.folder ? 'mkdir' : 'create', by: this.by(userId), turnId: o.turnId }])
@@ -761,7 +786,7 @@ export class TeamFiles {
   /** Files built under a server temp name beside `tr`, then renamed into place (`folder`: each at its segments inside
    * it; else the one file). `last`: run right before the rename (a card's plan checked again). Nothing is left when
    * anything fails. */
-  private placeTree(tr: Authorized, files: { segs: string[]; bytes: Uint8Array }[], folder: boolean, last?: () => void) {
+  private placeTree(tr: Authorized, files: { segs: string[]; bytes: Uint8Array; exec?: boolean }[], folder: boolean, last?: () => void) {
     const dir = path.join(this.root, ...tr.segs.slice(0, -1))
     const tmp = path.join(dir, PRODUCT.tmpPrefix + crypto.randomUUID())
     try {
@@ -770,9 +795,9 @@ export class TeamFiles {
         for (const f of files) {
           if (!f.segs.length || f.segs.some((s) => !s || s === '.' || s === '..' || s.includes('/') || s.includes('\\'))) throw new Denied('bad path in a skill copy')
           fs.mkdirSync(path.join(tmp, ...f.segs.slice(0, -1)), { recursive: true, mode: 0o700 })
-          fs.writeFileSync(path.join(tmp, ...f.segs), f.bytes, { mode: 0o600, flag: 'wx' })
+          fs.writeFileSync(path.join(tmp, ...f.segs), f.bytes, { mode: f.exec ? 0o700 : 0o600, flag: 'wx' })
         }
-      } else fs.writeFileSync(tmp, files[0]?.bytes ?? new Uint8Array(), { mode: 0o600, flag: 'wx' })
+      } else fs.writeFileSync(tmp, files[0]?.bytes ?? new Uint8Array(), { mode: files[0]?.exec ? 0o700 : 0o600, flag: 'wx' })
       verifyChain(this.root, tr.segs, true)
       if (fs.existsSync(tr.abs)) fileError('conflict', 'exists', { to: tr.rel })
       last?.()
@@ -798,23 +823,6 @@ export class TeamFiles {
   /** The skills folder ensureSkillsFolder made, taken away again while it is still empty. */
   dropEmptySkillsFolder(rel: string) {
     try { fs.rmdirSync(path.join(this.root, ...rel.split('/'))) } catch { /* not empty, or gone: left */ }
-  }
-
-  /**
-   * skill_files' rename of a skill's folder (skills/folder-actions.ts, R): its SKILL.md with the name line of the new
-   * folder name, written right after the folder moved, only with the grant for exactly this file and only over the
-   * bytes the card was bound to (`expectSha`). The old text is kept as a version (the file's history restores it).
-   */
-  writeSkillManifest(userId: string, rel: string, bytes: Buffer, expectSha: string, o: { turnId: string; tool: string; skillGrant: string; from: string }): void {
-    const user = this.principal(userId)
-    const r = authorize(this.fx, this.rules(), user, rel, 'write', { mustExist: true })
-    takeSkillAction(this.ctx.files, o.skillGrant, { userId, turnId: o.turnId, action: 'write', from: o.from, to: r.rel })
-    const cur = readRegular(r.abs).bytes
-    if (sha256(cur) !== expectSha) throw new Denied(`'${r.rel}' changed after the card was shown, so its name line was not changed`)
-    saveVersion(this.ctx.db, this.root, r.rel, cur, { userId, turnId: o.turnId })
-    atomicWrite(this.root, r.segs, bytes)
-    fileEvent(this.ctx.db, { turnId: o.turnId, userId, path: r.rel, action: 'update', size: bytes.length, sha256: sha256(bytes), detail: { tool: o.tool } })
-    this.publish([{ path: r.rel, action: 'update', by: this.by(userId), turnId: o.turnId }])
   }
 
   /**

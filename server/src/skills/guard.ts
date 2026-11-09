@@ -103,15 +103,15 @@ export function consumeSkillApproval(ctx: ToolCtx, approvalPath: string): void {
 export interface SkillActionGrant {
   userId: string
   turnId: string
-  /** move: TeamFiles.move; copy: copy (a file out); place: placeSkillTree (a copy in); write: writeSkillManifest */
-  action: 'move' | 'copy' | 'place' | 'write'
+  /** move: TeamFiles.move; copy: copy (a file out); place: placeSkillTree (a copy in) */
+  action: 'move' | 'copy' | 'place'
   /** the resolved paths, as the service resolves them (`from` null: a placement made from the card's bytes) */
   from: string | null
   to: string
   recheck: () => void
-  /** "I" (into a skill root): the bytes the card showed, placed as new files over what was moved (segments below the
-   * moved folder; [] for a single file) */
-  fresh?: { segs: string[]; bytes: Uint8Array }[]
+  /** "I" (into a skill root) and a skill's folder renamed: the bytes the card showed, placed as new files where the
+   * move goes, in the same step (segments below the moved folder; [] for a single file; `exec`: it may run) */
+  fresh?: { segs: string[]; bytes: Uint8Array; exec?: boolean }[]
 }
 const grants = new WeakMap<object, Map<string, SkillActionGrant>>()
 
