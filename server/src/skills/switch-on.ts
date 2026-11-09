@@ -26,6 +26,23 @@ export function skillsUnder(teamRoot: string, folder: string): { names: string[]
   return { names: order.map((x) => x[0]), paths: order.map((x) => x[1]) }
 }
 
+/** The skill entries of the skills folder at `abs` (on disk; never through a link), relative to it: every SKILL.md
+ * folder (at most three levels down, no dot folders), and with `files` every .md directly in it (a group's single-file
+ * skills). Sorted. */
+export function skillEntriesIn(abs: string, files: boolean): string[] {
+  const out: string[] = []
+  const walk = (dir: string, rel: string, depth: number) => {
+    let ents: fs.Dirent[]
+    try { ents = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
+    if (depth > 0 && ents.some((e) => e.name === 'SKILL.md' && e.isFile())) { out.push(`${rel}/SKILL.md`); return }
+    if (depth === 0 && files) for (const e of ents) if (e.isFile() && e.name.endsWith('.md') && !e.name.startsWith('.')) out.push(e.name)
+    if (depth >= 3) return
+    for (const e of ents) if (e.isDirectory() && !e.name.startsWith('.')) walk(path.join(dir, e.name), rel ? `${rel}/${e.name}` : e.name, depth + 1)
+  }
+  walk(abs, '', 0)
+  return out.sort()
+}
+
 /** Refuse (409 project_skills_on) unless the person said yes to these skills switching on. */
 export function askSkillsOn(names: readonly string[], ok: boolean | undefined, locale: Locale): void {
   if (!names.length || ok) return

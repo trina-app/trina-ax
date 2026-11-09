@@ -17352,3 +17352,66 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
   `integrations.spec.ts` "your own app"; `safe-ops-policy-epoch.test.ts` and every `c-integration*`, `c-drive*`,
   `c-slack*` test file pass.
 - Version impact: **minor** (optional API fields, one add-only migration).
+
+## Skill folders: the AI's file actions (feat/ai-skill-folder-actions, 2026-11-10)
+
+The refusal audit (2026-11-10, A6, A7 and bug 3) found every AI move, copy or rename into or out of a skill folder
+refused with one text about moving skills, even an admin renaming a project folder that only holds skills. People do
+all of it on the Files screen. The plan ("B1") was narrowed by the security review; this is the narrowed design.
+
+- **A tool of its own, `skill_files`**: one item per call, move, copy or rename. `move_files`, `copy_files` and
+  `rename_file` keep refusing skill folders, with a text that says what to use for each case (skill_files, `move_skill`
+  for a whole skill to another level, write / edit for text, the Files screen for the rest).
+- **Three kinds, everything else refused before any card** (skills/folder-actions.ts):
+  - **N**: a group's or project's folder (`groups/<g>`, `projects/<p>`) that holds skills renamed in place, only when
+    nothing changes for anyone: the same skills, followed by the same people, changed by the same people, the same
+    readers of every file, before and after, judged by the folder rules as they will be (a moved folder's rules go
+    with it; the group or project follows its folder). A plain card. Admin-only rules for managed folders stay. A
+    skill's own folder renamed in its skills folder is the same kind of card with its SKILL.md `name:` line changed
+    with it (else the skill stops loading), the new SKILL.md in full, the name checked at its level.
+  - **O**: files, skills or rules leaving a skill root: moved out, a file copied out, the skills folder itself renamed,
+    or a group's or project's folder moved out of its place (its skills stop). The card names the skills (only those
+    the asker can read; the rest counted) and how many people stop getting them; who stops is named only to the owner,
+    admins and a project's creator for its project (`seesWho`, as `move_skill`), counts for everyone else; who gains or
+    loses the files is counted.
+  - **I**: images, audio, video and fonts (by extension and by bytes: a "picture" that is text is refused), and SKILL.md
+    folders, going into a skill root at an exact target that is not there. A SKILL.md folder goes right into the
+    skills folder and must load there. The card shows the full text of every text file in it (refused above 60,000
+    characters, never cut), who newly gets it, who may change it and who of them is new, and the same name elsewhere:
+    for how many of the people who get it a project skill of that name would be hidden, or (into a project) a wider
+    skill of that name runs instead, naming only projects the asker reads. A single `.md` (a team rule or a single-file
+    skill), any other text file on its own, an instruction file name (CLAUDE.md, AGENTS.md, GEMINI.md), Office files
+    and PDFs are refused: no team rule is ever made by a file action.
+  - **Refused**: moves within or between skill folders (`skills/hr/x` to `skills/x` is "team to team" but reaches the
+    whole team; a whole skill goes with `move_skill`), the person's own skills folder (`move_skill`), `groups/` and
+    `projects/` themselves, folders that would switch a group's or project's skills on (cut by the review: switching on
+    goes through `move_skill` per skill), deletes, and producers (save_url, generate_video, room files) writing into
+    skill folders.
+- **Who may call it**: only the main AI of the person's own chat. Rooms and shared chats do not offer it; a chat others
+  wrote in, a scheduled run, a template run, a confidential chat, a draft and a sub-agent (`PARENT_ONLY_TOOLS`, and
+  refused on the server too: a call whose agent is not the main AI's) get the reason before any card, never a card that
+  answers itself. A chat that read a team chat room puts nothing into a skill folder.
+- **The card is what runs**: the server's card (origin `server`) for every call, never covered by an earlier answer, a
+  room grant or "always". Full resolved paths, every file. Its yes is bound to a token over every file's path and hash,
+  the target, who follows each skill and who may change it, who can see the files. The file service takes a grant for
+  exactly that operation (person, turn, action, both paths; `onExists: 'fail'`, never a " (2)"), once, and plans the
+  action again right before the rename or copy: a file added or changed after the card refuses it. "I" places the bytes
+  the card showed as new files, so a dev-environment job that kept the old file open cannot change the skill after the
+  yes. Without such a grant the service refuses every AI turn's move or copy into or out of a skill folder (a copy out
+  too, now), as before.
+- **Audit**: `skills.files` (kind, paths, the skills and counts), `skills.files_refused` for a no or no answer; each
+  skill change as `skills.change` with the usual notices. A folder move that carries skills (an AI's or a person's on
+  the Files screen) records each skill whose place changes, `switchedOff` when it leaves the skill roots (with the
+  group or project it was in), `switchedOn` when it comes into one; before, only a project's switch-on was recorded,
+  without a notice.
+- **Approvals for skill saves are one-shot** (review M1): the save's check uses its approval up, the chat turn drops
+  it when the call ends either way, and the "already confirmed" shortcut is gone. `make_file`'s card and approval are
+  for the path it saves (`skills/x.md` as docx is `skills/x.md.docx`); before, the approval stayed at `skills/x.md`
+  for the rest of the turn.
+- **Dev-environment runs** (review S8): the person's own skills folder and the skills folder of the group's or
+  project's folder a run starts in are on the run's no-write list; a start folder in a skill folder, or `groups/` or
+  `projects/` themselves, writes no team folder. An absent skills folder is made as an srt mount point for the run's
+  life and removed after if still empty (a command could otherwise make it and write a skill).
+- Tests: `tests/unit/skill-files.test.ts` (an attack for each MUST), `dev-env-srt.test.ts` (the no-write list and the
+  mount points), `c-file-moves`, `move-skill`, `project-skills`.
+- Version impact: patch (a new AI tool behind a card, stricter checks; no HTTP API change, no migration).

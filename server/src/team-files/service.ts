@@ -15,10 +15,10 @@ import { HttpError } from '../http/errors'
 import { atLeast, RuleSet, type Principal } from '../policy/access'
 import { authorize, siblingVisible, type Authorized } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
-import { inSkills, SKILL_FILES_REFUSAL } from '../skills/guard'
-import { audit } from '../admin/audit'
+import { inSkills, SKILL_FILES_REFUSAL, SKILLS_DIR, skillRootOf, takeSkillAction, type SkillActionGrant } from '../skills/guard'
+import { recordCarriedSkills, skillOwner, type CarriedSkill } from '../skills/changes'
 import { badSegment, foldKey, hiddenEntry, volumeKey } from '../policy/names'
-import { skillsUnder } from '../skills/switch-on'
+import { skillEntriesIn, skillsUnder } from '../skills/switch-on'
 import { currentPlan } from '../system/limits'
 import { assertStorageRoom, assertStorageRoomForAI } from '../system/storage'
 import { parseInput, verifyChain } from '../policy/resolve'
@@ -308,24 +308,22 @@ export class TeamFiles {
   }
 
   // ---------------- move / rename ----------------
-  /** `skillMove`: skills/move.ts runMove, which checked write on both places and has the person's yes for exactly these
-   * files (the AI's move_skill card or the Skills page): the AI's refusal for skill roots does not apply. */
-  move(userId: string, from: string, to: string, onExists: 'fail' | 'rename', o: { confirm?: boolean; skillMove?: boolean; skillsOk?: boolean } & By = {}): { entry: FileEntry } {
-    const user = this.principal(userId)
-    const rules = this.rules()
+  /** The checks of a move that come before anything else (move() runs them first): the source and the target, who may
+   * move a managed folder, a folder into itself, what never moves. `same`: a case-only rename that changes nothing. */
+  private moveChecks(user: Principal, rules: RuleSet, from: string, to: string, onExists: 'fail' | 'rename', createDirs = false) {
     const fr = authorize(this.fx, rules, user, from, 'write', { mustExist: true })
     this.assertMovable(fr.segs)
     // a group / project / rule folder (or one holding such a folder): admins and the owner only, renames included
     const managed = this.assertMayChangeManaged(user, rules, fr.rel)
     const isDir = fr.st!.isDirectory()
     if (!isDir) checkRegular(fr.abs)
-    let tr = authorize(this.fx, rules, user, to, 'write', { mustExist: false })
+    let tr = authorize(this.fx, rules, user, to, 'write', { mustExist: false, createDirs })
     const typed = segsOf(to.normalize('NFC'))
     let target: string[]
     if (tr.exists && tr.rel === fr.rel) {
       // same entry: case-only / Unicode-form rename on a case-insensitive volume
       target = [...fr.segs.slice(0, -1), typed[typed.length - 1]!]
-      if (target.join('/') === fr.rel) return { entry: this.entry(user, rules, fr.segs) }
+      if (target.join('/') === fr.rel) return { fr, target, isDir, managed, same: true }
     } else {
       if (tr.exists) {
         if (onExists === 'fail') fileError('conflict', 'exists', { to: tr.rel })
@@ -338,22 +336,60 @@ export class TeamFiles {
     if (isDir && (target.join('/') === fr.rel || isUnder(fr.rel, target.join('/')))) fileError('validation', 'intoItself', { to })
     this.assertMovable(target)
     if (isDir) this.assertSubtreeWritable(user, rules, fr.segs)
+    return { fr, target, isDir, managed, same: false }
+  }
+
+  /**
+   * Would this move go through, and where to (skill_files' card, skills/folder-actions.ts): every check of move() but
+   * the AI's skill-root guard, and nothing changes. `narrowed`: how many others could no longer read it (a move into
+   * the caller's own folder asks first); `switchOn`: the skills a move into projects/ would switch on. `createDirs`: the
+   * target's folders may be missing (a project's skills folder made right before the move: ensureSkillsFolder).
+   */
+  checkMove(userId: string, from: string, to: string, onExists: 'fail' | 'rename', o: { createDirs?: boolean } = {}): { from: string; to: string; isDir: boolean; managed: boolean; narrowed: number; switchOn: string[] } {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    const c = this.moveChecks(user, rules, from, to, onExists, !!o.createDirs)
+    if (c.same) fileError('conflict', 'exists', { to: c.fr.rel })
+    if (c.managed && c.target[0] === 'users') fileError('validation', 'ruleFolderToUsers', { to: 'invalid_path: a group, project or rule folder cannot move under users/' })
+    const narrowed = c.target[0] === 'users' && !(c.fr.segs[0] === 'users' && c.fr.segs[1] === c.target[1]) ? this.lostViewers(rules, user.id, c.fr.segs, c.target) : 0
+    const switchOn = c.isDir ? this.skillsSwitchingOn(c.fr, c.target)?.names ?? [] : []
+    return { from: c.fr.rel, to: c.target.join('/'), isDir: c.isDir, managed: c.managed, narrowed, switchOn }
+  }
+
+  /** Does a move of `fr` to `target` touch a skill root (skills/guard.ts): into or out of one, a folder holding a
+   * skills/ folder into groups/<g>/ or projects/<name> (it would make that group's or project's skills folder), or
+   * groups/, projects/, a groups/<g>/ or a projects/<name>/ that holds one anywhere (their skills would leave with it;
+   * docs/DECISIONS.md "Project skills"). */
+  private touchesSkills(fr: { rel: string; segs: string[]; abs: string }, target: string[], isDir: boolean): boolean {
+    const fold = (n: string) => n.normalize('NFC').toLowerCase()
+    const hasSkills = (abs: string) => { try { return fs.readdirSync(abs).some((n) => fold(n) === 'skills') } catch { return true } }
+    const children = (abs: string) => { try { return fs.readdirSync(abs, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => path.join(abs, d.name)) } catch { return null } }
+    // groups/<g>/skills and projects/<name>/skills are both skill roots by their path (skills/guard.ts)
+    const holder = (n: string | undefined) => fold(n ?? '') === 'groups' || fold(n ?? '') === 'projects'
+    const intoGroup = isDir && target.length === 2 && holder(target[0]) && hasSkills(fr.abs)
+    const groupOut = isDir && holder(fr.segs[0]) && (
+      fr.segs.length === 2 ? hasSkills(fr.abs) : fr.segs.length === 1 ? (children(fr.abs)?.some(hasSkills) ?? true) : false)
+    return inSkills(fr.rel) || inSkills(target.join('/')) || intoGroup || groupOut
+  }
+
+  /** `skillMove`: skills/move.ts runMove, which checked write on both places and has the person's yes for exactly these
+   * files (the AI's move_skill card or the Skills page): the AI's refusal for skill roots does not apply. `skillGrant`:
+   * skill_files' grant for exactly this move (skills/guard.ts takeSkillAction), planned again right before the rename. */
+  move(userId: string, from: string, to: string, onExists: 'fail' | 'rename', o: { confirm?: boolean; skillMove?: boolean; skillsOk?: boolean; skillGrant?: string } & By = {}): { entry: FileEntry } {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    const { fr, target, isDir, managed, same } = this.moveChecks(user, rules, from, to, onExists)
+    if (same) return { entry: this.entry(user, rules, fr.segs) }
     // the AI never moves anything into or out of a skill root (skills/, a group's groups/<g>/skills/, a project's
-    // projects/<name>/skills/; skills/guard.ts): not a folder holding a skills/ folder into groups/<g>/ or projects/<name>
-    // (it would make that group's or project's skills folder), nor groups/, projects/, a groups/<g>/ or a
-    // projects/<name>/ that holds one anywhere (their skills would leave with it; docs/DECISIONS.md "Project skills"). What everyone's AI follows
-    // changes only through write / edit and their card (docs/DECISIONS.md "Group skills"); people on the Files screen
-    // (no turn) move as before
-    if (o.turnId != null && !o.skillMove) {
-      const fold = (n: string) => n.normalize('NFC').toLowerCase()
-      const hasSkills = (abs: string) => { try { return fs.readdirSync(abs).some((n) => fold(n) === 'skills') } catch { return true } }
-      const children = (abs: string) => { try { return fs.readdirSync(abs, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => path.join(abs, d.name)) } catch { return null } }
-      // groups/<g>/skills and projects/<name>/skills are both skill roots by their path (skills/guard.ts)
-      const holder = (n: string | undefined) => fold(n ?? '') === 'groups' || fold(n ?? '') === 'projects'
-      const intoGroup = isDir && target.length === 2 && holder(target[0]) && hasSkills(fr.abs)
-      const groupOut = isDir && holder(fr.segs[0]) && (
-        fr.segs.length === 2 ? hasSkills(fr.abs) : fr.segs.length === 1 ? (children(fr.abs)?.some(hasSkills) ?? true) : false)
-      if (inSkills(fr.rel) || inSkills(target.join('/')) || intoGroup || groupOut) throw new Denied(SKILL_FILES_REFUSAL)
+    // projects/<name>/skills/; skills/guard.ts), nor a folder that holds one (touchesSkills), unless the person allowed
+    // exactly this move on skill_files' card (a grant for this call, with its card's token checked again right before
+    // the rename) or it is move_skill's. What everyone's AI follows changes only through those cards and write / edit's
+    // (docs/DECISIONS.md "Group skills", "Skill folders: the AI's file actions"); people on the Files screen (no turn)
+    // move as before. A grant names the exact target: never a " (2)" next to a name that is taken
+    let grant: SkillActionGrant | null = null
+    if (o.turnId != null && !o.skillMove && (o.skillGrant !== undefined || this.touchesSkills(fr, target, isDir))) {
+      if (onExists !== 'fail') throw new Denied(SKILL_FILES_REFUSAL)
+      grant = takeSkillAction(this.ctx.files, o.skillGrant, { userId, turnId: o.turnId, action: 'move', from: fr.rel, to: target.join('/') })
     }
     // under users/ folder rules are not read: the folder would become private to one person and the rest of the team,
     // admins included, could not see it to move it back. Nobody may do that, owner included (design tab 2 rule 3).
@@ -371,15 +407,90 @@ export class TeamFiles {
     if (switchOn?.names.length && !o.skillsOk) fileError('conflict', 'projectSkillsOn', undefined, { reason: 'project_skills_on', skills: switchOn.names.slice(0, 20).join('\n'), count: switchOn.names.length })
     const toRel = target.join('/')
     const readers = this.readersOf(rules, fr.segs)
-    this.relocate(userId, fr, target, isDir, { ...o, narrowed })
-    if (switchOn?.names.length) {
-      for (const p of switchOn.paths) audit(this.ctx.db, { actor: userId, action: 'skills.change', target: `${toRel}/${p}`, detail: { change: 'move', from: `${fr.rel}/${p}`, byAi: o.turnId != null, turnId: o.turnId ?? null, kind: 'skill', tool: o.tool ?? null, project: switchOn.project } })
-    }
+    // the skills below a moved folder whose place as a skill changes with it: each recorded once moved, on or off
+    const carried = isDir ? this.carriedSkills(fr, target) : []
+    // "I" (skill_files into a skill root): the bytes its card showed, made ready as new files beside the target first
+    const fresh = grant?.fresh ? this.freshTree(target, isDir, grant.fresh) : null
+    try {
+      // the card's plan again, right before the rename: files, hashes, target, readers and editors as shown
+      grant?.recheck()
+      this.relocate(userId, fr, target, isDir, { ...o, narrowed })
+    } catch (e) { if (fresh) fs.rmSync(fresh, { recursive: true, force: true }); throw e }
+    // what was moved is replaced by those new files: a process that kept the old ones open cannot change the skill
+    if (fresh) this.swapIn(target, fresh)
+    if (carried.length) recordCarriedSkills(this.ctx, userId, carried, { turnId: o.turnId ?? null, tool: o.tool ?? null })
     const after = this.rules()
     this.dropSessionsOf(readers.filter((p) => !atLeast(after.access(p, target), 'read')), { path: fr.rel, to: toRel })
     // the folder's rules moved with it: who could see where it was is judged by the rules loaded before the move
     this.publish([{ path: toRel, from: fr.rel, action: 'move', by: this.by(userId), turnId: o.turnId ?? null }], rules)
     return { entry: this.entry(user, rules, target) }
+  }
+
+  /**
+   * The skill entries below a moved folder whose place as a skill changes with it (docs/DECISIONS.md "Skill folders:
+   * the AI's file actions", M5): every SKILL.md folder, and in a group's skills folder every .md, of a skills/ folder in
+   * the moved folder or one level below it, by its path before and after. `off`: it leaves the skill roots (a project's
+   * folder moved out of projects/, a group's out of groups/), `on`: it comes into one, `moved`: it stays one somewhere
+   * else (a group's or project's folder renamed). A moved folder that is itself in a skill root is recorded by its own
+   * file event (skills/changes.ts skillChangeOf).
+   */
+  private carriedSkills(fr: { rel: string; abs: string }, target: string[]): CarriedSkill[] {
+    if (inSkills(fr.rel)) return []
+    const toRel = target.join('/')
+    const dir = (abs: string) => { try { return fs.lstatSync(abs).isDirectory() } catch { return false } }
+    const roots: string[] = []
+    if (dir(path.join(fr.abs, SKILLS_DIR))) roots.push(SKILLS_DIR)
+    let kids: fs.Dirent[] = []
+    try { kids = fs.readdirSync(fr.abs, { withFileTypes: true }) } catch { kids = [] }
+    for (const k of kids) if (k.isDirectory() && !k.name.startsWith('.') && dir(path.join(fr.abs, k.name, SKILLS_DIR))) roots.push(`${k.name}/${SKILLS_DIR}`)
+    const out: CarriedSkill[] = []
+    for (const r of roots) {
+      const before = `${fr.rel}/${r}`, after = `${toRel}/${r}`
+      const a = inSkills(before), b = inSkills(after)
+      if (!a && !b) continue
+      const groupRoot = skillRootOf(before)?.kind === 'group' || skillRootOf(after)?.kind === 'group'
+      // whose skills they were, read now: the group or project follows the folder when it moves
+      const owner = a && !b ? skillOwner(this.ctx, `${before}/x`) : undefined
+      for (const e of skillEntriesIn(path.join(fr.abs, ...r.split('/')), groupRoot)) out.push({ from: `${before}/${e}`, to: `${after}/${e}`, state: a && b ? 'moved' : a ? 'off' : 'on', ...(owner ? { owner } : {}) })
+    }
+    return out
+  }
+
+  /** "I": the bytes skill_files' card showed (`files`, segments below the moved folder; [] for a single file), written as
+   * new files under a server temp name beside where the move goes (the parent folder exists: the move needs it). */
+  private freshTree(target: string[], isDir: boolean, files: { segs: string[]; bytes: Uint8Array }[]): string {
+    const tmp = path.join(this.root, ...target.slice(0, -1), PRODUCT.tmpPrefix + crypto.randomUUID())
+    try {
+      if (isDir) {
+        fs.mkdirSync(tmp, { mode: 0o700 })
+        for (const f of files) {
+          if (!f.segs.length || f.segs.some((x) => !x || x === '.' || x === '..' || x.includes('/') || x.includes('\\'))) throw new Denied('bad path in a skill folder')
+          fs.mkdirSync(path.join(tmp, ...f.segs.slice(0, -1)), { recursive: true, mode: 0o700 })
+          fs.writeFileSync(path.join(tmp, ...f.segs), f.bytes, { mode: 0o600, flag: 'wx' })
+        }
+      } else {
+        if (files.length !== 1 || files[0]!.segs.length) throw new Denied('bad file in a skill folder')
+        fs.writeFileSync(tmp, files[0]!.bytes, { mode: 0o600, flag: 'wx' })
+      }
+    } catch (e) { fs.rmSync(tmp, { recursive: true, force: true }); throw e }
+    return tmp
+  }
+
+  /** Put the new files of freshTree where the move went (same names, same bytes as checked a moment ago), and remove
+   * what was moved: nothing that held the moved files or folders open reaches the skill any more. */
+  private swapIn(target: string[], fresh: string) {
+    const abs = path.join(this.root, ...target)
+    const old = path.join(path.dirname(abs), PRODUCT.tmpPrefix + crypto.randomUUID())
+    try {
+      verifyChain(this.root, target)
+      fs.renameSync(abs, old)
+      try { fs.renameSync(fresh, abs) } catch (e) { fs.renameSync(old, abs); throw e }
+      fs.rmSync(old, { recursive: true, force: true })
+    } catch (err) {
+      // the moved files stay (their bytes were checked against the card right before the move)
+      fs.rmSync(fresh, { recursive: true, force: true })
+      this.ctx.log.warn('skill files not replaced after a move', { err, path: target.join('/') })
+    }
   }
 
   /**
@@ -539,7 +650,7 @@ export class TeamFiles {
    * dryRun: nothing is copied; how many more people would see the copy than see the original.
    * A source the caller cannot read answers exactly like a missing one (not_found).
    */
-  async copy(userId: string, from: string, to: string, o: { baseSha256?: string | null; dryRun?: boolean; onExists?: 'fail' | 'replace' | 'rename' } & By = {}): Promise<{ path: string; sha256: string } | { viewersAdded: number }> {
+  async copy(userId: string, from: string, to: string, o: { baseSha256?: string | null; dryRun?: boolean; onExists?: 'fail' | 'replace' | 'rename'; skillGrant?: string } & By = {}): Promise<{ path: string; sha256: string } | { viewersAdded: number }> {
     const user = this.principal(userId)
     const rules = this.rules()
     const fr = authorize(this.fx, rules, user, from, 'read', { mustExist: true })
@@ -553,9 +664,14 @@ export class TeamFiles {
     const pr = authorize(this.fx, rules, user, typed.slice(0, -1).join('/'), 'write', { mustExist: true })
     if (!pr.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
     let r = authorize(this.fx, rules, user, [...pr.segs, name].join('/'), 'write', { mustExist: false })
-    // the AI never copies into a skill root (skills/, a group's skills; as move above): only write / edit and their card
-    // put a file there. People on the Files screen (no turn) copy as before
-    if (o.turnId != null && inSkills(r.rel)) throw new Denied(SKILL_FILES_REFUSAL)
+    // the AI never copies into or out of a skill root (skills/, a group's or a project's skills; as move above) without
+    // the person's yes for exactly this copy on skill_files' card (a grant for this call, its card's plan checked again
+    // right before the copy, never next to a name that is taken). People on the Files screen (no turn) copy as before
+    let grant: SkillActionGrant | null = null
+    if (o.turnId != null && (o.skillGrant !== undefined || inSkills(r.rel) || inSkills(fr.rel))) {
+      if ((o.onExists ?? 'rename') !== 'fail' || o.dryRun) throw new Denied(SKILL_FILES_REFUSAL)
+      grant = takeSkillAction(this.ctx.files, o.skillGrant, { userId, turnId: o.turnId, action: 'copy', from: fr.rel, to: r.rel })
+    }
     const added = this.viewersAdded(rules, user.id, fr.segs, r.segs)
     if (o.dryRun) return { viewersAdded: added }
     // with a plan, the team disk near full or over the plan's limit (system/storage.ts): a tool gets a tool error, the
@@ -582,6 +698,8 @@ export class TeamFiles {
         }
       }
     }
+    // the card's plan again, right before the copy
+    grant?.recheck()
     const out = copyTeamFile(this.root, fr.abs, r.segs)
     const sha = await this.sha(path.join(this.root, ...r.segs), fs.lstatSync(path.join(this.root, ...r.segs)))
     // a conflict copy is told to both people and listed in the original's history, like a conflicting save
@@ -607,10 +725,47 @@ export class TeamFiles {
     if (tr.exists) fileError('conflict', 'exists', { to: tr.rel })
     const size = files.reduce((n, f) => n + f.bytes.length, 0)
     if (currentPlan()) { if (o.turnId != null) assertStorageRoomForAI(size); else assertStorageRoom(size) }
+    this.placeTree(tr, files, o.folder)
+    const turnId = o.turnId ?? null
+    fileEvent(this.ctx.db, { turnId, userId, path: tr.rel, action: 'create', size, detail: { folder: o.folder, copiedFrom: from, ...(from ? { sourcePaths: [from] } : {}), ...(o.folder ? { files: files.length } : {}), tool: o.tool ?? 'skill_copy' } })
+    for (const f of files) this.extractText(o.folder ? [...tr.segs, ...f.segs].join('/') : tr.rel)
+    this.publish([{ path: tr.rel, action: o.folder ? 'mkdir' : 'create', by: this.by(userId), turnId }])
+  }
+
+  /**
+   * skill_files' "I" for a copy (skills/folder-actions.ts): `files`, the bytes its card showed (a SKILL.md folder's
+   * files, or one media file), placed at `to` in a skill root as new files, only with the grant for exactly this
+   * placement (its card's plan checked again right before the rename into place). The folders above it are made when a
+   * skills folder is not there yet. One event for it, with where it was copied from (`from`: skills/changes.ts lists it
+   * as the change's `from`).
+   */
+  placeSkillTree(userId: string, from: string, to: string, files: { segs: string[]; bytes: Uint8Array }[], o: { folder: boolean; turnId: string; tool: string; skillGrant: string }): { path: string } {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    const tr = authorize(this.fx, rules, user, to, 'write', { mustExist: false, createDirs: true })
+    if (tr.exists) fileError('conflict', 'exists', { to: tr.rel })
+    const grant = takeSkillAction(this.ctx.files, o.skillGrant, { userId, turnId: o.turnId, action: 'place', from, to: tr.rel })
+    const size = files.reduce((n, f) => n + f.bytes.length, 0)
+    if (currentPlan()) assertStorageRoomForAI(size)
+    // a project's first skill: its skills folder is made (it has no rules of its own, so its folder's rules apply)
+    const parent = tr.segs.slice(0, -1)
+    verifyChain(this.root, parent, true)
+    fs.mkdirSync(path.join(this.root, ...parent), { recursive: true, mode: 0o700 })
+    this.placeTree(tr, files, o.folder, () => grant.recheck())
+    fileEvent(this.ctx.db, { turnId: o.turnId, userId, path: tr.rel, action: 'create', size, detail: { folder: o.folder, copiedFrom: from, sourcePaths: [from], ...(o.folder ? { files: files.length } : {}), tool: o.tool } })
+    for (const f of files) this.extractText(o.folder ? [...tr.segs, ...f.segs].join('/') : tr.rel)
+    this.publish([{ path: tr.rel, action: o.folder ? 'mkdir' : 'create', by: this.by(userId), turnId: o.turnId }])
+    return { path: tr.rel }
+  }
+
+  /** Files built under a server temp name beside `tr`, then renamed into place (`folder`: each at its segments inside
+   * it; else the one file). `last`: run right before the rename (a card's plan checked again). Nothing is left when
+   * anything fails. */
+  private placeTree(tr: Authorized, files: { segs: string[]; bytes: Uint8Array }[], folder: boolean, last?: () => void) {
     const dir = path.join(this.root, ...tr.segs.slice(0, -1))
     const tmp = path.join(dir, PRODUCT.tmpPrefix + crypto.randomUUID())
     try {
-      if (o.folder) {
+      if (folder) {
         fs.mkdirSync(tmp, { mode: 0o700 })
         for (const f of files) {
           if (!f.segs.length || f.segs.some((s) => !s || s === '.' || s === '..' || s.includes('/') || s.includes('\\'))) throw new Denied('bad path in a skill copy')
@@ -620,12 +775,46 @@ export class TeamFiles {
       } else fs.writeFileSync(tmp, files[0]?.bytes ?? new Uint8Array(), { mode: 0o600, flag: 'wx' })
       verifyChain(this.root, tr.segs, true)
       if (fs.existsSync(tr.abs)) fileError('conflict', 'exists', { to: tr.rel })
+      last?.()
       fs.renameSync(tmp, tr.abs)
     } catch (e) { fs.rmSync(tmp, { recursive: true, force: true }); throw e }
-    const turnId = o.turnId ?? null
-    fileEvent(this.ctx.db, { turnId, userId, path: tr.rel, action: 'create', size, detail: { folder: o.folder, copiedFrom: from, ...(from ? { sourcePaths: [from] } : {}), ...(o.folder ? { files: files.length } : {}), tool: o.tool ?? 'skill_copy' } })
-    for (const f of files) this.extractText(o.folder ? [...tr.segs, ...f.segs].join('/') : tr.rel)
-    this.publish([{ path: tr.rel, action: o.folder ? 'mkdir' : 'create', by: this.by(userId), turnId }])
+  }
+
+  /** skill_files' "I" into a skills folder that is not there yet (a project's first skill): made now, right before the
+   * move, under the same write check as any new folder; true when it was made (dropEmptySkillsFolder takes it away
+   * again when the move then fails: never an empty skills folder left behind). */
+  ensureSkillsFolder(userId: string, rel: string): boolean {
+    const user = this.principal(userId)
+    const r = authorize(this.fx, this.rules(), user, rel, 'write', { mustExist: false })
+    if (r.exists) return false
+    const k = (n: string | undefined) => (n ?? '').normalize('NFC').toLowerCase()
+    const rootFolder = (r.segs.length === 1 && k(r.segs[0]) === SKILLS_DIR) || (r.segs.length === 3 && (k(r.segs[0]) === 'groups' || k(r.segs[0]) === 'projects') && k(r.segs[2]) === SKILLS_DIR)
+    if (!rootFolder) throw new Denied(SKILL_FILES_REFUSAL)
+    verifyChain(this.root, r.segs, true)
+    fs.mkdirSync(r.abs, { mode: 0o700 })
+    verifyChain(this.root, r.segs)
+    return true
+  }
+  /** The skills folder ensureSkillsFolder made, taken away again while it is still empty. */
+  dropEmptySkillsFolder(rel: string) {
+    try { fs.rmdirSync(path.join(this.root, ...rel.split('/'))) } catch { /* not empty, or gone: left */ }
+  }
+
+  /**
+   * skill_files' rename of a skill's folder (skills/folder-actions.ts, R): its SKILL.md with the name line of the new
+   * folder name, written right after the folder moved, only with the grant for exactly this file and only over the
+   * bytes the card was bound to (`expectSha`). The old text is kept as a version (the file's history restores it).
+   */
+  writeSkillManifest(userId: string, rel: string, bytes: Buffer, expectSha: string, o: { turnId: string; tool: string; skillGrant: string; from: string }): void {
+    const user = this.principal(userId)
+    const r = authorize(this.fx, this.rules(), user, rel, 'write', { mustExist: true })
+    takeSkillAction(this.ctx.files, o.skillGrant, { userId, turnId: o.turnId, action: 'write', from: o.from, to: r.rel })
+    const cur = readRegular(r.abs).bytes
+    if (sha256(cur) !== expectSha) throw new Denied(`'${r.rel}' changed after the card was shown, so its name line was not changed`)
+    saveVersion(this.ctx.db, this.root, r.rel, cur, { userId, turnId: o.turnId })
+    atomicWrite(this.root, r.segs, bytes)
+    fileEvent(this.ctx.db, { turnId: o.turnId, userId, path: r.rel, action: 'update', size: bytes.length, sha256: sha256(bytes), detail: { tool: o.tool } })
+    this.publish([{ path: r.rel, action: 'update', by: this.by(userId), turnId: o.turnId }])
   }
 
   /**

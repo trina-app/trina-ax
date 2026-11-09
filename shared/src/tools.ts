@@ -180,6 +180,15 @@ export const MoveSkillInput = z.strictObject({
   name: z.string().min(1).max(64).optional().describe('Only with keep: the copy\'s new name (lowercase a-z, 0-9 and hyphens, at most 64). Needed for a project copy of a skill the user keeps at a wider level under the same name.'),
 })
 
+/** skill_files (server/src/chat/skill-files.ts): one move, copy or rename of a file or folder that touches a skill folder,
+ * behind one card the user answers (docs/DECISIONS.md "Skill folders: the AI's file actions"). */
+export const SkillFilesInput = z.strictObject({
+  action: z.enum(['move', 'copy', 'rename']).describe('move: to another folder; copy: a copy there, the original stays; rename: a new name in the same folder.'),
+  path: relPath.describe('The one file or folder, e.g. "projects/견적", "skills/report.pdf" or "users/<you>/drafts/brand-guide".'),
+  to_folder: optRelPath.describe('For move and copy: the folder it goes into. It must be there; the name is kept and must be free there.'),
+  new_name: z.string().min(1).max(255).optional().describe('For rename: the new name only (it stays in its folder).'),
+})
+
 export const AskUserInput = z.strictObject({
   question: z.string().min(1).max(2000),
   options: z.array(z.strictObject({ label: z.string(), value: z.string() })).max(20).optional(),

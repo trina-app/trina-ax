@@ -57,6 +57,7 @@ import { readRegular, sha256 } from '../files/store'
 import { hwpOutputPath } from '../files/hwpx-check'
 import { audit as auditLog } from '../admin/audit'
 import { ANY_CONTENT, editedText, inSkills, skillRootOf } from '../skills/guard'
+import { makeFileOutputPath } from '../tools/make-file-path'
 import { lineDiff } from '../skills/diff'
 import { st } from '../skills/text'
 import { groupOfFolder, parseSkill as parseSkillHeader, skillFileKind, skillFileProblem } from './skills'
@@ -2141,7 +2142,9 @@ export class TurnExec {
     // a file a tool produces (make_file, edit_hwp): the card shows the file, not a text diff
     const produced = tool === 'make_file' || tool === 'edit_hwp'
     const out = tool === 'edit_hwp' && typeof a.output === 'string' ? hwpOutputPath(a.output, typeof a.file_path === 'string' ? a.file_path : '') : undefined
-    const target = tool === 'make_file' ? a.output : tool === 'edit_hwp' ? out ?? a.file_path : a.file_path
+    // make_file saves where its output gets the format's extension ("x.md" as docx is "x.md.docx"): the card and its
+    // approval are for that path, never for the one typed (review M1/S8: a `*` approval was left at "x.md")
+    const target = tool === 'make_file' ? (typeof a.output === 'string' && typeof a.format === 'string' ? makeFileOutputPath(a.output, a.format) : a.output) : tool === 'edit_hwp' ? out ?? a.file_path : a.file_path
     if (typeof target !== 'string') return null
     const fs_ = this.rt.files
     const me = this.livePrincipal()
@@ -2149,6 +2152,9 @@ export class TurnExec {
     try { r = authorize(fs_.fx, fs_.rules(), me, target, 'write', { createDirs: true, mustExist: tool === 'edit' }) } catch { return null }
     const root = skillRootOf(r.rel)
     if (!root) return null
+    // an approval is for one call (chat/tools.ts drops it when the call ends): one left by an earlier call never stands
+    // in for this card
+    this.files.skillApprovals.delete(r.rel)
     // a group's skills folder (docs/DECISIONS.md "Group skills"): the card names the group, by its current name (the
     // folder's own name when no group has that folder any more)
     const group = root.kind === 'group' ? groupOfFolder(this.rt.db, root.folder) ?? { id: null, name: root.folder.split('/')[1]! } : null
@@ -2176,7 +2182,6 @@ export class TurnExec {
       after = editedText(before, a.old_string, a.new_string, a.replace_all === true)
     }
     const approval = after === null ? ANY_CONTENT : sha256(Buffer.from(after, 'utf8'))
-    if (this.files.skillApprovals.get(r.rel) === approval) return null // already confirmed (a retried call)
     const kind = after !== null ? skillFileKind(fs_.fx.root, r.rel, after) : 'other'
     const skill = after !== null && kind === 'skill' ? parseSkillHeader(after, r.rel) : null
     const d = after === null ? null : before === null ? null : lineDiff(r.exists ? before : '', after)
@@ -2236,6 +2241,17 @@ export class TurnExec {
       refusal: `The user did not allow saving '${r.rel}' under skills/ (team skills and team rules every teammate's AI follows), so nothing was saved. Do not save it there or anywhere else in skills/ unless the user asks again; you may offer to save it in their personal folder instead.`,
       summary: `${tool} -> not allowed by the user (team skills)`,
     }
+  }
+
+  /** A skill save's approval (confirmSkillWrite) is for one call: dropped when the call ends, saved or not (the save's
+   * check uses it up too: skills/guard.ts). A call that failed before its save never leaves one for later. */
+  dropSkillApproval(tool: string, args: unknown): void {
+    if (tool !== 'write' && tool !== 'edit' && tool !== 'make_file' && tool !== 'edit_hwp') return
+    const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
+    const out = tool === 'edit_hwp' && typeof a.output === 'string' ? hwpOutputPath(a.output, typeof a.file_path === 'string' ? a.file_path : '') : undefined
+    const target = tool === 'make_file' ? (typeof a.output === 'string' && typeof a.format === 'string' ? makeFileOutputPath(a.output, a.format) : a.output) : tool === 'edit_hwp' ? out ?? a.file_path : a.file_path
+    if (typeof target !== 'string') return
+    try { this.files.skillApprovals.delete(authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), target, 'write', { createDirs: true }).rel) } catch { /* no such path: nothing was approved for it */ }
   }
 
   /**

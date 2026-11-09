@@ -23,10 +23,17 @@
 // command writes no file outside the change window of the project folder (other than the person's own folder), it
 // cannot copy a file into a folder that more people can see (except the project folder), and it cannot plant code
 // (.git/hooks, package.json scripts, a Makefile, .envrc) in a shared folder for another person's run (G-SRT-11).
+// Skill folders (review S8, docs/DECISIONS.md "Skill folders: the AI's file actions"): a run never writes the person's
+// own skills (users/<id>/skills) or the skills folder of the group's or project's folder it starts in, nor anything in a
+// skill folder at all. What people's AI follows changes only behind a card; before, a command could write or delete a
+// project's skills with none. A start folder that is a skill folder, in one, or groups/ or projects/ themselves writes
+// no team folder (fail closed). An absent skills folder is made as an srt mount point while the run lives
+// (placeholders.ts holdSkillFolders), so the deny holds for a folder the command would make.
 // folderView with no run gives the person's access (what the person may open); with a run, the access of that run.
 import crypto from 'node:crypto'
 import { PRODUCT } from '@mycel/shared'
 import { atLeast, type Access, type Principal, type RuleSet } from '../../policy/access'
+import { skillRootOf } from '../../skills/guard'
 
 /** Team-relative folder paths ('' = the team root), each list shallowest first. */
 export interface FolderView { read: string[]; write: string[]; denyRead: string[]; denyWrite: string[] }
@@ -47,9 +54,20 @@ function accessOf(rules: Pick<RuleSet, 'access'>, p: Principal, folder: string):
  * starts in the chat's work folder (outside the team folder), so only the person's own folder is writable. */
 export interface RunWrites { start: string | null }
 
-/** May a run with this starting folder write in `folder` (when the rules let the person write there)? */
+const holderWord = (s: string | undefined) => { const f = (s ?? '').normalize('NFC').toLowerCase(); return f === 'groups' || f === 'projects' }
+/** The skill folders a run must not write though they are inside what it writes: the person's own skills, and the
+ * skills folder of the group's or project's folder it starts in (team-relative). */
+export function runSkillFolders(run: RunWrites, personId: string): string[] {
+  const s = run.start ? run.start.split('/') : []
+  return [`users/${personId}/skills`, ...(s.length === 2 && holderWord(s[0]) && s[1] ? [`${run.start}/skills`] : [])]
+}
+/** A start folder that is a skill folder or in one, or groups/ or projects/ themselves: no team folder is written. */
+const skillStart = (start: string) => skillRootOf(start) !== null || (!start.includes('/') && holderWord(start))
+
+/** May a run with this starting folder write in `folder` (when the rules let the person write there)? Never in a skill
+ * folder (runSkillFolders). */
 export const runMayWrite = (run: RunWrites, personId: string, folder: string) =>
-  (run.start !== null && isUnder(folder, run.start)) || isUnder(folder, `users/${personId}`)
+  ((run.start !== null && !skillStart(run.start) && isUnder(folder, run.start)) || isUnder(folder, `users/${personId}`)) && !runSkillFolders(run, personId).some((f) => isUnder(folder, f))
 
 export function folderView(rules: Pick<RuleSet, 'access' | 'ruleFolders'>, p: Principal, run?: RunWrites): FolderView {
   // the team root as a starting folder would make every folder writable again: fail closed
@@ -57,6 +75,8 @@ export function folderView(rules: Pick<RuleSet, 'access' | 'ruleFolders'>, p: Pr
   const cands = new Set<string>(['', 'users', `users/${p.id}`, PRODUCT.systemDir])
   // access can change at the starting folder too (write in it, read above it), also when it has no rules of its own
   if (run?.start) cands.add(run.start)
+  // and at the skill folders inside what the run writes: read-only there (runMayWrite)
+  if (run) for (const f of runSkillFolders(run, p.id)) cands.add(f)
   for (const f of rules.ruleFolders()) {
     const s = segsOf(f)
     // rules under users/ are ignored by the rules themselves; a temp name never has rules that matter

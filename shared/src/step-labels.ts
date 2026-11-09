@@ -47,6 +47,7 @@ export const FILE_STEP_VERB: Record<string, T> = {
   skill: t('스킬 사용', 'Use skill', 'Pakai skill', "スキルを使用", "Usar habilidad"),
   find_skills: t('스킬 찾기', 'Find skills', 'Cari skill', "スキルを探す", "Buscar habilidades"),
   move_skill: t('스킬 옮기기', 'Move skill', 'Pindahkan skill', "スキルを移動", "Mover habilidad"),
+  skill_files: t('스킬 폴더 파일', 'Skill folder files', 'Berkas folder skill', "スキルフォルダーのファイル", "Archivos de carpeta de habilidades"),
   find_tools: t('도구 찾기', 'Find tools', 'Cari alat', "ツールを探す", "Buscar herramientas"),
   remember: t('기억하기', 'Remember', 'Ingat', "記憶", "Recordar"),
   forget: t('기억 지우기', 'Forget', 'Lupakan', "忘れる", "Olvidar"),
@@ -213,6 +214,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'share_file': return `${verb} · ${clip(a.path, 90)}`
     case 'move_files': case 'copy_files': return `${verb} · ${clip(a.to_folder, 90)}`
     case 'rename_file': return `${verb} · ${clip(a.path, 90)}`
+    case 'skill_files': return `${verb} · ${clip(a.path, 60)}${a.to_folder ? ` → ${clip(a.to_folder, 40)}` : a.new_name ? ` → ${clip(a.new_name, 40)}` : ''}`
     case 'artifact': return `${verb} · ${clip(a.title ?? a.key, 80)}`
     case 'web_fetch': return `${verb} · ${clip(a.url, 80)}`
     case 'save_url': return `${verb} · ${clip(a.save_as || a.url, 80)}`
