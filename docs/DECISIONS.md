@@ -17366,7 +17366,10 @@ some of them into cards.
   delete, says so, and points to the Files screen's trash (30 days). A delete tool is a later PR, after a security
   review.
 - **Wording:** a read-only refusal in a chat turn gets a note with who can give write access (B2; the tool's own text is
-  unchanged for every other caller, so the remote connector and the security tests see what they saw); the per-answer
+  unchanged for every other caller, so the remote connector and the security tests see what they saw). A team
+  project's creator is named only when the person may read that exact project folder: a hidden project answers
+  "read-only folder" like a missing one (`hiddenWrite`), and naming its creator would tell them apart (independent
+  review); otherwise it is the admins, whatever the path; the per-answer
   write limits give their numbers and "continue" in the next message (B7); an admin-only folder move names the admins
   (B14); a connection set to refuse changes or a tool turned off names who manages it and where (E6, E11), team
   connections and personal connections name the admins and the screen (E1-E3), a template run names its folders (F4), a
@@ -17392,5 +17395,7 @@ some of them into cards.
   new folder. Its readers are those of its nearest existing folder (a new folder has no rules), so the audience card is
   the same card as before; when it shows, it says the folder is new ("AI가 2개 항목을 새로 만들 shared/계약서/2026
   폴더로 옮기려고 해요.", all five languages). A no makes no folder. With nobody to change (the same people see it) no
-  card, as before. The skills boundary is unchanged (a skill root is refused before anything).
+  card, as before. A folder made for a call where nothing went in (a folder given to copy_files, a group folder moved by
+  a member) is taken away again and never recorded. The skills boundary is unchanged (a skill root is refused before
+  anything).
 - The README instruction is gone; the tools' descriptions say a missing folder is made.

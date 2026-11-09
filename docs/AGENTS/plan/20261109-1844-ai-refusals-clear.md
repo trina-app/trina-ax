@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-09 18:44
 - Branch: `fix/ai-refusals-clear`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/policy/refusal.ts` new; `chat/turn.ts`, `chat/prompt.ts`, `chat/schedules.ts`,
   `tools/file-moves.ts`, `tools/higgsfield.ts`, `team-files/service.ts`, a few connection, schedule and web texts).
   Why: chat, permissions and files are core (see docs/REPOSITORY-RULES.md)
@@ -76,4 +76,20 @@ compared with dev; web unit tests in Docker; e2e specs for the cards whose text 
 
 ## Result
 
-Filled in at the end.
+Built as planned (DECISIONS "Refusals say why, who and what next" and "move_files and copy_files make the target
+folder"). Differences and additions:
+
+- `waitForPerson` stays the primitive; `askPerson` reads why a card got no answer from a per-request record, so its
+  other callers and test stand-ins are unchanged.
+- The neutral next step for "not found or no access" lives in the instructions, not in the tool text, which stays byte
+  for byte the same for a missing and a hidden path.
+- Read-only notes are added in the chat turn only (after a policy "Access denied: read-only" text), so the remote
+  connector and the security tests see the same tool text as before.
+- Independent review: a read-only note named a hidden project's creator (a hidden project answers "read-only folder"
+  like a missing one); now the creator is named only when the person may read that exact project folder. A new folder
+  where nothing went in is taken away again; a failed shared-chat check no longer says a yes was needed.
+- Audit summaries say `nobody to ask (scheduled run)` / `no answer in time` where that happened (cards of rooms,
+  shared chats, the wider audience, skills, connections).
+- Also removed a leftover merge marker in DECISIONS.md (from merge 8c1df78a).
+
+PR: see the PR link commit.
