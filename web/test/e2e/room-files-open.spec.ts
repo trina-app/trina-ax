@@ -260,7 +260,7 @@ test('a Hangul file opens as pages in the panel while the HWP preview is on; off
   await expect(view).toContainText('1 / 2쪽')
   await audit(page, 'panel with a room HWP')
   const shots = process.env.SHOTS_DIR
-  if (shots) await page.screenshot({ path: `${shots}/room-hwp-1440-light.png` })
+  if (shots) { await page.mouse.move(1100, 600); await page.screenshot({ path: `${shots}/room-hwp-1440-light.png` }) }
   const first = await img.getAttribute('src')
   await panel(page).getByTestId('hwp-next').click()
   await expect(view).toContainText('2 / 2쪽')
@@ -278,6 +278,7 @@ test('a Hangul file opens as pages in the panel while the HWP preview is on; off
     await page.setViewportSize({ width: 1440, height: 900 })
   }
   // the plugin off (Me without hwpPreview): the chip is one download button again, and no page is asked for
+  const pagesAsked = asked.length
   await page.route('**/api/me', async (route) => {
     const r = await route.fetch()
     const me = await r.json()
@@ -291,7 +292,7 @@ test('a Hangul file opens as pages in the panel while the HWP preview is on; off
   const [off] = await Promise.all([page.waitForEvent('download'), hwpChip.click()])
   expect(isRoomDownload(off, 601)).toBe(true)
   await expect(panel(page)).toHaveCount(0)
-  expect(asked).toHaveLength(2)
+  expect(asked).toHaveLength(pagesAsked)
 })
 
 test.describe('a phone (390 px)', () => {

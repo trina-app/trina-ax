@@ -5,11 +5,13 @@
 // tests/unit/hwp-preview.test.ts); without it the plugin is off here, as on a server that has not added it.
 // Covered: a member gets pages (no browser cache, a cache hit by its id, a guessed id refused); not a member, an admin
 // outside the room, another room's address and no session are refused; my own upload before it is sent is mine only; a
-// hidden old answer's file, another person's private preview's file and a deleted message's file are refused; a file on
-// the download-only list is refused before the renderer, also after a page of it was cached; a message deleted during
-// the render gives no page; bytes changed on disk are refused; not a Hangul file is "unsupported"; the plugin off
-// answers "disabled" for a room file and a team file alike, and Me.server.hwpPreview follows the plugin; a team file's
-// preview still works.
+// hidden old answer's file, another person's private preview's file and a deleted message's file are refused; someone
+// who joined after the message, someone who left after a page was cached and an archived room are refused, a cached
+// page's id too; a file on the download-only list is refused before the renderer, also after a page of it was cached; a
+// message deleted during the render gives no page; bytes changed on disk, a hard link and a symbolic link are refused;
+// one render per person across team and room previews; over 20 MB is "limit" before any read; not a Hangul file is
+// "unsupported"; the plugin off answers "disabled" for a room file and a team file alike, outsiders still 404 and a
+// held file still "quarantined", and Me.server.hwpPreview follows the plugin; a team file's preview still works.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -162,6 +164,29 @@ test("a hidden old answer's file, another person's private preview's file and a 
   for (const c of [nora.client, mia.client]) expect((await preview(c, dm.id, file.id)).status).toBe(404)
 })
 
+test('someone who joined after the message, someone who left after a page was cached and an archived room are refused', async () => {
+  const engine = fake()
+  useEngine(engine)
+  const group = await mia.client.call('POST', '/api/rooms', { kind: 'group', userIds: [nora.id, ada.id] })
+  const { file } = await sentHwp('group-form.hwp', Buffer.concat([fixture('agreement.hwp'), Buffer.from('group')]), group.id)
+  const first = await (await preview(nora.client, group.id, file.id)).json()
+  expect(first.id).toBeTruthy()
+  // otto joins after it was sent: he does not see the message, so not its file (inline or as pages, cache id or not)
+  await mia.client.call('POST', `/api/rooms/${group.id}/members`, { userIds: [otto.id] })
+  expect((await h.fetch(`/api/rooms/${group.id}/files/${file.id}`, { headers: { cookie: otto.client.cookie! } })).status).toBe(404)
+  expect((await preview(otto.client, group.id, file.id)).status).toBe(404)
+  expect((await preview(otto.client, group.id, file.id, `page=1&cacheId=${first.id}`)).status).toBe(404)
+  // nora leaves: the page cached for her is not hers any more
+  await nora.client.call('POST', `/api/rooms/${group.id}/leave`)
+  expect((await preview(nora.client, group.id, file.id, `page=1&cacheId=${first.id}`)).status).toBe(404)
+  expect((await preview(ada.client, group.id, file.id, `page=1&cacheId=${first.id}`)).status).toBe(200)
+  // a room that is gone (archived): nobody
+  h.ctx.db.query('UPDATE rooms SET archived_at = ? WHERE id = ?').run(new Date().toISOString(), group.id)
+  try { expect((await preview(ada.client, group.id, file.id, `page=1&cacheId=${first.id}`)).status).toBe(404) }
+  finally { h.ctx.db.query('UPDATE rooms SET archived_at = NULL WHERE id = ?').run(group.id) }
+  expect(engine.calls).toBe(1)
+})
+
 test('a file on the download-only list is refused before the renderer, also after a page of it was cached', async () => {
   const engine = fake()
   useEngine(engine)
@@ -206,6 +231,42 @@ test('access is checked again after the render: a message deleted meanwhile give
   expect((await r.json()).error.params.reason).toBe('changed')
 })
 
+test('a hard link or a symbolic link in place of the stored file is refused', async () => {
+  useEngine(fake())
+  const { file } = await sentHwp('linked.hwp', Buffer.concat([fixture('agreement.hwp'), Buffer.from('linked')]))
+  const stored = path.join(h.ctx.config.teamRoot, '.system', 'rooms', dm.id, file.id)
+  fs.linkSync(stored, stored + '.hl')
+  try { expect((await preview(nora.client, dm.id, file.id)).status).toBe(404) } finally { fs.rmSync(stored + '.hl') }
+  const copy = stored + '.copy'
+  fs.copyFileSync(stored, copy); fs.rmSync(stored); fs.symlinkSync(copy, stored)
+  try { expect((await preview(nora.client, dm.id, file.id)).status).toBe(404) } finally { fs.rmSync(stored); fs.renameSync(copy, stored) }
+  expect((await preview(nora.client, dm.id, file.id)).status).toBe(200)
+})
+
+test('one render per person across team and room previews; over 20 MB is "limit" before any read', async () => {
+  let finish!: () => void
+  const gate = new Promise<void>((resolve) => { finish = resolve })
+  const engine = fake(() => gate)
+  useEngine(engine)
+  const home = path.join(h.ctx.config.teamRoot, 'users', mia.id)
+  fs.mkdirSync(home, { recursive: true })
+  fs.writeFileSync(path.join(home, 'busy.hwp'), Buffer.concat([fixture('agreement.hwp'), Buffer.from('team busy')]))
+  const team = h.fetch(`/api/files/hwp-preview?path=${encodeURIComponent(`users/${mia.id}/busy.hwp`)}&page=1`, { headers: { cookie: mia.client.cookie! } })
+  while (engine.calls === 0) await Bun.sleep(5)
+  const { file } = await sentHwp('busy-room.hwp', Buffer.concat([fixture('agreement.hwp'), Buffer.from('room busy')]))
+  const busy = await preview(mia.client, dm.id, file.id)
+  expect(busy.status).toBe(503)
+  expect((await busy.json()).error.params.reason).toBe('busy')
+  finish()
+  expect((await team).status).toBe(200)
+  // a file larger than the preview reads (HWP_LIMITS.inputBytes)
+  useEngine(fake())
+  const { file: big } = await sentHwp('big.hwp', Buffer.alloc(20 * 1024 * 1024 + 1, 1))
+  const r = await preview(nora.client, dm.id, big.id)
+  expect(r.status).toBe(503)
+  expect((await r.json()).error.params.reason).toBe('limit')
+})
+
 test('a file that is not Hangul is "unsupported" and never reaches the renderer', async () => {
   const engine = fake()
   useEngine(engine)
@@ -225,6 +286,14 @@ test('the plugin off: "disabled" for a room file and a team file alike; Me.serve
   const body = await r.json()
   expect(body.error.code).toBe('unavailable')
   expect(body.error.params.reason).toBe('disabled')
+  // the room's checks come first: an outsider is not told the plugin's state, a held file is still download-only
+  for (const c of [otto.client, owner]) expect((await preview(c, dm.id, file.id)).status).toBe(404)
+  const held = Buffer.concat([fixture('agreement.hwp'), Buffer.from('held while off')])
+  h.ctx.files.quarantine.add(held, 'pptx')
+  const { file: heldFile } = await sentHwp('held-off.hwp', held)
+  const q = await preview(nora.client, dm.id, heldFile.id)
+  expect(q.status).toBe(503)
+  expect((await q.json()).error.params.reason).toBe('quarantined')
   // the team file preview's own answer, word for word
   const home = path.join(h.ctx.config.teamRoot, 'users', mia.id)
   fs.mkdirSync(home, { recursive: true })

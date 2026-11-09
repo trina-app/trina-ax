@@ -16545,12 +16545,20 @@ on ("Plugins, stage 1"); the same file sent in a room only downloaded, because t
   room file and for a team file (a team file showed "cannot be used on this server" before).
 - **Not here:** the new file viewer (plan steps b–e) uses this route when it lands; HEIC previews of room files.
 - **Words:** no new strings.
+- **Independent review (security, tried to break it):** no must-fix; no page, page count, hash, cache hit or telling
+  answer for someone who cannot read the file inline. The cases it asked to guard are now tests (a late joiner, leaving
+  after a cached page, an archived room, links, the shared per-person render, over 20 MB, outsiders and held files with
+  the plugin off). Left as is: with the plugin off the file is still read before "disabled" (as the team route; the web
+  asks only while the flag is on), and the flag does not run the renderer's own isolation and binary checks, so on a
+  server where the plugin is on but cannot run the chip opens the panel's notice with the download.
 - Tests: `tests/unit/b-rooms-hwp-preview.test.ts` (a member's pages with no browser cache, one render for two people, a
   cache id reused and a guessed one refused, pages out of range; not a member, an admin outside, another room's
   address, no session, a cached page's id for an outsider; my unsent upload mine only; a hidden old answer's file,
-  another person's private preview's file, a deleted message's file; a download-only file refused before the renderer
-  and after a page of it was cached; a message deleted during the render; changed bytes; not Hangul; the plugin off for
-  a room and a team file alike and `Me.server.hwpPreview` following it; a team file's preview), the permission matrix
+  another person's private preview's file, a deleted message's file; a late joiner, leaving after a cached page, an
+  archived room; a download-only file refused before the renderer and after a page of it was cached; a message deleted
+  during the render; changed bytes, a hard link, a symbolic link; one render per person across team and room; over
+  20 MB; not Hangul; the plugin off for a room and a team file alike, outsiders and held files answered first, and
+  `Me.server.hwpPreview` following it; a team file's preview), the permission matrix
   (`roomFileHwpPreview`: the DM's two people pass the room checks, everyone else 404), `hwp-preview.test.ts`,
   `web/test/unit/room-files-open.test.tsx` (the chip opens only with the flag and within the limit), e2e
   `room-files-open.spec.ts` (the room's HWP in the panel, a page step; the chip downloads with the plugin off).
