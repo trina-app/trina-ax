@@ -293,7 +293,8 @@ test('at a short window: a sidebar row\'s menu opens above the row where it woul
   await row.getByTestId('sidebar-room').click({ button: 'right' })
   const rowBox = (await row.boundingBox())!
   const menu = row.getByRole('menu')
-  await expect(menu.getByRole('menuitem')).toHaveCount(3)
+  // 상단에 고정, 알림 설정, 링크 복사, 대화 숨기기
+  await expect(menu.getByRole('menuitem')).toHaveCount(4)
   await inWindow(page, menu)
   const box = (await menu.boundingBox())!
   expect(box.y + box.height).toBeLessThanOrEqual(rowBox.y)
