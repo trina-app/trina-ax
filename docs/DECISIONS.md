@@ -794,7 +794,6 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 - **사진**(png·jpg·heic·tiff·webp 등): read에서만 인식한다. grep 글자 캐시에는 넣지 않는다(사진 폴더 하나에 몇 분). 투명 배경 이미지는 흰 바탕에 그려서 인식(아니면 빈 결과).
 - **격리**: 다른 변환기와 같은 sandbox-exec 프로필. 단 변환기 자기 폴더의 **목록**(literal, 안의 파일 내용 아님)은 읽게 했다: Vision은 실행 파일 옆을 보며, 도우미가 거부된 폴더(홈 아래 저장소 등)에 있으면 오류 없이 빈 결과를 낸다(직접 확인).
 
-
 ## 쉬운 비밀번호: 8자 규칙, 외우기 쉬운 임시 비밀번호, 첫 로그인 한 번 입력 (feat/easy-passwords, 2026-10-21)
 
 소유자 요청(첫 시범 고객의 윈도우 데스크 준비 중): "비밀번호 8자리 이상, 임시 비밀번호는 외울 수 있는 단어로 8자리 정도, 첫 로그인 뒤 바꿀 때 비밀번호를 또 입력하는 게 불편, 직접 추가할 때 임시 비밀번호를 정할 수 있게 기본값 하나 넣어 두고."
@@ -966,7 +965,6 @@ owner가 LinkedIn 글쓰기 화면에서 시험하다가 페이지 위에 노란
 - **색인**: `<data>/semantic.db`(app.db와 따로). 일반 글 파일과 grep 글자 캐시의 문서(office·PDF·한글, OCR 포함)를 약 800자 조각으로, 파일 mtime·크기로 새 것만 다시. 점 폴더(.system: 휴지통·기록·백업)는 넣지 않는다. 질의 직전 3초, 그 밖에는 5분마다 뒤에서(최대 1분) 따라잡는다. 질의는 메모리에 올린 벡터를 전부 비교(작은 팀 기준).
 - **끄기·없는 곳**: `MYCEL_SEMANTIC=off`(2026-11-01부터 기본 꺼짐, 켜려면 `on`: 맨 아래 "Search by meaning off by default"). onnxruntime-node는 macOS arm64만 있어 인텔 맥은 모델을 못 불러 도구가 "쓸 수 없음"을 말하고 grep만 쓴다.
 - **번들**: 서버 빌드에서 `@huggingface/transformers`는 external(Bun.build가 네이티브 모듈 경로를 이 저장소 절대 경로로 박았다), `scripts/vendor-semantic.ts`가 서버 옆 `node_modules`에 darwin-arm64만 남겨 복사(약 76 MB, onnxruntime-web 제외). 사무실 모드 zip +25 MB. 사무실 모드 갱신 설치에서 Claude로 끝까지 확인.
-
 
 ## 사무실 모드 자동 업데이트 (feat/auto-update, 2026-10-21)
 
@@ -1653,7 +1651,6 @@ file tools only had `write` (text) for putting bytes anywhere.
   `tests/unit/i-wiring.test.ts` (an attached image moved from a real turn after the server's card).
 - Needed in the core too (potenlab/team-ax): the same files; nothing here is Trina-specific.
 
-
 ## External-service connections: MCP servers and HTTP APIs (feat/integrations-server, 2026-10-28)
 
 The founder gave the AI an API key for AI PM (a REST API with a Bearer token) and asked it to keep using it; it could
@@ -1679,7 +1676,6 @@ not: there was nowhere to keep a person's key and no tool that sends an authenti
 - Tests: `tests/unit/c-integrations-{api,tools,oauth}.test.ts`, `tests/lib/fake-services.ts`, the real turn in
   `tests/unit/i-wiring.test.ts`.
 - Needed in the core too (potenlab/team-ax): everything here; nothing is Trina-specific.
-
 
 ## Chat titles: a safe placeholder, then the answering AI names the chat (feat/chat-titles, 2026-10-28)
 
@@ -1831,7 +1827,6 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
   not copy; `tests/unit/d-web.test.ts` covers how the server sends them.
 - A server picks this up with an ordinary app update (the files are part of `web/`); no reinstall or root step.
 - Needed in the core too (potenlab/team-ax): the same files; nothing here is Trina-specific.
-
 
 ## 2026-10-29 — Scheduled task dates and one-time task resumption (QA B-W12-1, B-W12-2)
 
@@ -1994,7 +1989,6 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
   H.264/AAC MP4 and AAC M4A) and removed after the tests.
 - Needed in the core too (potenlab/team-ax): the same classification change; nothing here is Trina-specific.
 
-
 ## Refresh members after account deletion (QA R2 integration, 2026-10-29)
 
 - A successful DELETE returns 204/undefined, which the old result guard confused with an action failure.
@@ -2033,17 +2027,14 @@ blank or without their text, and pdf.js only logged warnings (the e2e test only 
 - A connection version change while a write approval is pending invalidates that approval for both MCP and HTTP. This includes a new deny policy, changed credentials and access rules, even when the URL stays the same. The user must start a new call against the current configuration.
 - Regression tests reproduce both failures before the fixes and assert that refused calls send no request.
 
-
 ## PowerPoint distribution notices (2026-10-29)
 
 The package notice collector now includes subject-prefixed copyright/notice files under `licenses/`, so `@aiden0z/pptx-renderer`'s `licenses/ECMA-text-copyright-notice.txt` is included unchanged in built distribution inventories. Path, symlink and content checks still apply. A fixture verifies byte preservation and inventory validation; the built web artifact verifies the actual dependency notice.
-
 
 ## Immediate identity and audience rechecks (2026-10-29)
 
 - Desktop browser calls require a fresh successful identity check. A five-second cached check let a newly signed-in person use the previous person's cookies and allowed sites; the regression now switches immediately, without its former six-second wait. Offline/invalid identity checks or failed storage clearing refuse the AI browser call, and the owner marker advances only after clearing succeeds. Normal desktop data remains per team; changing people clears that team's embedded browser sessions.
 - AI file moves/copies retain a fingerprint of each item's source and destination reader sets and recheck before each mutation. A change during a confirmation (including account activation with permissions unchanged) refuses that item and requires a new call. Actual source/destination permissions and filesystem chains are still checked per item. New regressions verify both operations and refuse symlink sources/destinations for move/copy/rename.
-
 
 ## File-tool skills aliases (2026-10-29)
 
@@ -3063,7 +3054,6 @@ off, third independent READY decision, real CLI/host qualification and lifetime 
   snapshots, then delete only search lease rows offline. Never erase artifact identities.
   The default remains off; real CLI/host qualification and customer notice still gate enablement.
 
-
 ## Skills: folder permissions and personal skills (issue #10, 2026-10-30)
 
 Before this change, the skill list already used the folder rules of the reader, but nobody could keep a skill for
@@ -3903,7 +3893,6 @@ asks once per domain ("Yes, and don't ask again for this domain").
   confidential chat; DNS stub: no lookup before the decision, office answer refused after it, private literal before
   any card; a sub-agent opening the site without a card), `p0-exfil-server.test.ts` (adjusted to the choice card),
   `web/test/e2e/exfil-followups.spec.ts`.
-
 
 ## Exit address on every install (fix/pre-0212, 2026-10-30)
 
@@ -4755,7 +4744,6 @@ path with the real ffmpeg and OpenRouter, and the rule was also applied to every
   redirects) about 8 s after the row is written, up to three tries, and fills `served` in that row (not when the chat
   was locked confidential during the read: nothing more goes to OpenRouter from it). No transcript words. Voice input
   has no audit row and none was added.
-
 
 ## Anthropic-compatible gateway (feat/anthropic-gateway, 2026-11-01)
 
@@ -8193,7 +8181,6 @@ every week. Placement: Team AX core (skills, files and permissions, the team lin
   `onboarding_notices`. It would skip main's 222 (dev environment run state) and stop on 231 ("table already exists"),
   so its data folder is deleted and made again (the demos keep their data folder between runs; deleting it starts over).
   No released server ever had our 222.
-
 
 ## 대화방 v1 — team chat rooms, people to people (feat/team-rooms, 2026-11-05)
 
@@ -11867,7 +11854,6 @@ An independent review found one hole and several gaps. What changed, and why:
   saving its token (409) is neither recorded nor told.
 - **No notice for a save that changes nothing** (the same address, model, name, and no new key).
 
-
 ## Push: say why, the desktop app's own row, and the web ask (fix/push-errors, 2026-11-07)
 
 The owner clicked "이 기기에서 알림 받기" and got "푸시 설정을 저장하지 못했어요. 연결 상태를 확인하고 다시 시도해
@@ -12704,7 +12690,6 @@ asked for the mic on the right, as in ChatGPT ("마이크 버튼은 오른쪽에
   the box; on a phone "+" stays inside the box on the left.
 - Only the place changed: the same VoiceMic (size, a 44 px tap area on phones, the admin's hint while voice input is
   off), the same recording bar (VoiceBar) and keys (Space held to talk, Esc to cancel).
-
 
 ## AI 앱에서 대화 읽고 쓰기 — AI apps read and write my conversations (feat/mcp-rooms, 2026-11-07, product owner)
 
@@ -15927,3 +15912,62 @@ square. Placement: Team AX core (`server/src/uploads/image.ts`, `server/src/room
 - **Not yet:** Windows (toast XML), the iPhone app (a notification category in the extension) and Android (no FCM
   yet). A failure (signed out, room left) changes nothing; the notice stays unread in the Inbox.
 
+## Desktop: a right-click menu; a pasted picture shows as one above the box (fix/image-copy-paste-preview, 2026-11-09)
+
+Two things the owner met in team rooms: in the Mac app a right-click on a photo to copy it did nothing, and a picture
+pasted into a room's box showed no picture above the text. Placement: Team AX core (`desktop/src/`, the two message
+boxes); no contract, setting or data change.
+
+- **Why nothing happened on a right-click.** Electron shows no context menu of its own: without a `context-menu`
+  handler a right-click on a photo, a link or selected text does nothing in the app. The web app takes none of them
+  (checked: a message's long press blocks the menu only right after a finger touched it, the voice mic only while held;
+  the thumbnail is an `<img>` under the pointer, not a background or a covered button), so a browser's own menu
+  (Copy Image) works on the message's thumbnail and on the preview panel's picture. An e2e now guards that. Phones are
+  left as they are: a long press on a message opens its own menu (reactions, copy), and the message keeps the phone's
+  image callout away.
+- **The menu** (`desktop/src/common/context-menu.ts` picks the items, pure and unit-tested; `desktop/src/main/
+  context-menu.ts` runs them), on the team page: a photo **이미지 복사** / **이미지 저장…**, a link **링크 복사**,
+  selected text **복사**, a text field **잘라내기 / 복사 / 붙여넣기 / 모두 선택** (greyed out when they cannot apply).
+  Only what applies shows; empty space gets no menu. The app's own screens (the first-run box for the invite link, the
+  browser pane's address) get the text and link items too, never the photo items. Words in the five languages, in the app's language like its other
+  menus; the Korean ones are the browser's context-menu words (the menu bar keeps macOS's 오려두기 / 복사하기).
+  - **The photo items only where the team page itself was right-clicked**: its top frame, at the team or office
+    address (`isTeamPage`, checked again at the click). A frame inside it (an artifact, an HTML preview) gets the link
+    and text items only. An artifact's script can make an `<img>` that points at any team address; it cannot load it
+    (the frame's CSP, its opaque origin), but it still reports that address, and 이미지 저장… would fetch it from the
+    app with the person's session: any signed-in GET, saved. Also, `copyImageAt` hit-tests from the top frame.
+  - 이미지 복사 is Electron's `copyImageAt` at the click: the picture as drawn. The preview panel draws the original
+    from its bytes (a `blob:` address), so copying there copies the original; a message copies its thumbnail, as a
+    browser does.
+  - 이미지 저장… is `downloadURL`, so the app's usual save dialog asks where (Electron's default; the web's own
+    downloads go the same way). Only for the team page's own images: the team or office address, or a `blob:` picture
+    of those origins; another site's picture is copied, not saved through the app (the save would fetch it with the
+    team's session). What it saves is what a browser's Save Image As saves: on a message, the thumbnail (named
+    `<name>.jpg` or `.png` by the server); in the preview panel, the original under a name the browser makes up for a
+    `blob:` picture, which the dialog lets the person change. The panel's own download button keeps the file's name. Not
+    chosen: saving the original from a thumbnail (the app would have to know the web's file addresses).
+  - 링크 복사 writes the address as text; no item opens a link or navigates (the page's own rules for links stay as
+    they are, `security.ts`). No Inspect, also not in a development build.
+  - The text items call the right-clicked page's own `cut / copy / paste / selectAll`, not Electron's edit roles: a
+    role goes to whichever view has the focus (on a Mac the first responder), which can be another view of the window.
+  - Not on the in-app browser pane's tabs (the AI's browser, with rules of its own). The menu opens at the pointer,
+    also from the keyboard's menu key.
+- **A pasted picture shows as one.** Both boxes put a pasted file in their row at once and upload it in the background
+  (nothing waited for the upload). The AI chat's chip already drew a picture; the room's chip showed a file icon and
+  the name "image.png", which read as "no preview". The room's chip now draws the picture from the file itself (one
+  `ChipThumb` for both boxes, 32 px), with the spinner after the name while it uploads and its ✕; a photo of a send the
+  server gave back shows its room thumbnail. A picture that cannot be drawn (a HEIC photo in Chrome, a thumbnail that
+  did not load) falls back to the file icon. A paste whose `clipboardData.files` is empty takes the file items (`web/src/lib/paste.ts`); in
+  Chromium a screenshot and a picture copied from a page (its HTML with the picture) both come as files, and the HTML is
+  not pasted as text. Not chosen: a larger picture tile above the box (a new look for one case; the chip is the
+  pattern both boxes have).
+- Tests: `tests/unit/e-desktop-common.test.ts` (the items for a photo, a linked photo, a link, text, a field, empty
+  space; which images may be saved; photo items only on the team page's top frame, not in a frame or the own screens;
+  wired to both, nothing that opens), `desktop/e2e/context-menu.spec.ts` (a right-click in the app: the menu caught
+  where it would pop up; the first-run box's edit items; a photo in a button and a `blob:` original copy and save, the
+  save reaching will-download; a picture from elsewhere copy only; link, text, field, empty space; pictures in an
+  artifact frame nothing, its link 링크 복사; nothing on the computer's clipboard), `web/test/unit/paste.test.ts`, e2e
+  `composer-paste-preview.spec.ts` (both boxes: a screenshot and a page's picture show as pictures before the upload
+  ends, ✕, then attached / sent; a refused room send comes back with the photo's thumbnail) and
+  `room-files-open.spec.ts` (the right-click reaches the browser's menu on the thumbnail and the panel's original).
+- Version impact: **patch** (a fix; no API or data change).

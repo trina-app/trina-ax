@@ -162,6 +162,13 @@ const ko = {
   'menu.zoom': '확대/축소',
   'menu.front': '모두 앞으로 가져오기',
   'menu.close': '닫기',
+  'ctx.copyImage': '이미지 복사',
+  'ctx.saveImage': '이미지 저장…',
+  'ctx.copyLink': '링크 복사',
+  'ctx.copy': '복사',
+  'ctx.cut': '잘라내기',
+  'ctx.paste': '붙여넣기',
+  'ctx.selectAll': '모두 선택',
 } as const
 
 export type UiKey = keyof typeof ko
@@ -319,6 +326,13 @@ const en: Strings = {
   'menu.zoom': 'Zoom',
   'menu.front': 'Bring All to Front',
   'menu.close': 'Close',
+  'ctx.copyImage': 'Copy Image',
+  'ctx.saveImage': 'Save Image As…',
+  'ctx.copyLink': 'Copy Link',
+  'ctx.copy': 'Copy',
+  'ctx.cut': 'Cut',
+  'ctx.paste': 'Paste',
+  'ctx.selectAll': 'Select All',
 }
 
 const id: Strings = {
@@ -473,6 +487,13 @@ const id: Strings = {
   'menu.zoom': 'Zoom',
   'menu.front': 'Bawa Semua ke Depan',
   'menu.close': 'Tutup',
+  'ctx.copyImage': 'Salin Gambar',
+  'ctx.saveImage': 'Simpan Gambar…',
+  'ctx.copyLink': 'Salin Tautan',
+  'ctx.copy': 'Salin',
+  'ctx.cut': 'Potong',
+  'ctx.paste': 'Tempel',
+  'ctx.selectAll': 'Pilih Semua',
 }
 
 const ja: Strings = {
@@ -627,6 +648,13 @@ const ja: Strings = {
   'menu.zoom': "ズーム",
   'menu.front': "すべてを手前に表示",
   'menu.close': "閉じる",
+  'ctx.copyImage': "画像をコピー",
+  'ctx.saveImage': "画像を保存…",
+  'ctx.copyLink': "リンクをコピー",
+  'ctx.copy': "コピー",
+  'ctx.cut': "切り取り",
+  'ctx.paste': "貼り付け",
+  'ctx.selectAll': "すべて選択",
 }
 
 const es: Strings = {
@@ -781,6 +809,13 @@ const es: Strings = {
   'menu.zoom': "Zoom",
   'menu.front': "Traer todo al frente",
   'menu.close': "Cerrar",
+  'ctx.copyImage': "Copiar imagen",
+  'ctx.saveImage': "Guardar imagen como…",
+  'ctx.copyLink': "Copiar enlace",
+  'ctx.copy': "Copiar",
+  'ctx.cut': "Cortar",
+  'ctx.paste': "Pegar",
+  'ctx.selectAll': "Seleccionar todo",
 }
 
 export const STRINGS: Record<UiLocale, Strings> = { ko, en, id, ja, es }

@@ -10,6 +10,7 @@ import path from 'node:path'
 import type { RealtimeConn } from '../../server/src/services'
 import { Hub } from '../../server/src/realtime/hub'
 import { notificationsOf } from '../../server/src/notifications/service'
+import { savePreferences } from '../../server/src/notifications/preferences'
 import { newId } from '../../server/src/db'
 import { addMember, harness, RecordingHub, withOwner, type Client, type Harness } from './a-lib'
 
@@ -305,6 +306,10 @@ test('notices: a DM or an @mention, one unread notice of each per room (pushed; 
   const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
   await send(mia.client, dm.id, 'TOP SECRET ONE')
   await send(mia.client, dm.id, 'TOP SECRET TWO')
+  // the message preview on (the default): the notice a push opens has the first line ("알림 미리보기")
+  expect(notices(nora.id).items[0]!.room?.preview).toBe('TOP SECRET ONE')
+  // off: no text
+  savePreferences(h.ctx.db, nora.id, { messagePreview: false })
   let inbox = notices(nora.id)
   expect(inbox.items).toHaveLength(1)
   expect(inbox.items[0]).toMatchObject({ code: 'room.dm', link: 'room', room: { id: dm.id, from: 'MIA' }, chatId: null })
