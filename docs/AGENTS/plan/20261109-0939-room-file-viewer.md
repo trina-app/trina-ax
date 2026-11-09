@@ -279,5 +279,5 @@ Built on step b (docs/DECISIONS.md "Lazy PDF pages and the viewer's page thumbna
   first, then the column narrows.
 - **Found on the way:** links inside a PDF to its own pages now go through the lazy layout (react-pdf only scrolled to
   mounted pages); the browser's find and select-all reach only the drawn pages.
-- **Measured** (60-page fixture, viewer, 1440 × 900 at 2×, median of 5): first page 1,023 → 671 ms, canvases 60 → 2,
-  canvas pixels 292 → 15.5 MP.
+- **Measured** (60-page fixture, viewer, 1440 × 900 at 2×, median of 5): first page 1,023 → 666 ms, canvases 60 → 2,
+  canvas pixels 292 → 15.4 MP.

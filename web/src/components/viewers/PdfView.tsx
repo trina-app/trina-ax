@@ -123,7 +123,9 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
     const u = URL.createObjectURL(blob)
     setUrl(u)
     setPdf(null)
-    return () => URL.revokeObjectURL(u)
+    // revoked a moment later: closed while it loads, pdf.js may still start reading it as its loading task is dropped,
+    // and the browser reports that read as an error
+    return () => void setTimeout(() => URL.revokeObjectURL(u), 1000)
   }, [blob])
   const target = startPage && startPage >= 1 && (!pages || startPage <= pages) ? startPage : null
   const [error, setError] = useState(false)

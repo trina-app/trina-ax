@@ -17127,11 +17127,14 @@ previews are core. Step (b) of the plan `docs/AGENTS/plan/20261109-0939-room-fil
 - **Names:** each thumbnail is named by the number it shows (WCAG 2.5.3, label in name; "1쪽으로 이동" failed axe's
   `label-content-name-mismatch`), inside the list named 페이지 목록. New words: `pdfView.pageOf`, `pdfView.pages`, in 5
   languages.
+- **The file's blob URL is revoked a second after the preview closes**, not at once: a panel closed while the PDF
+  loads let pdf.js start reading a URL already revoked, which the browser logs as an error (`side-panel-expand.spec.ts`
+  failed 4 of 10 runs on dev for it; 12 of 12 pass now).
 - **Not drawn, not found:** the browser's find (⌘F) and select-all reach only the text of the pages drawn, a few around
   the view. The app has no search inside a PDF; one would go through pdf.js's text, not the page.
 - **Measured** (the 60-page fixture opened from a room at 1440 × 900, device pixel ratio 2, headless Chromium, median
-  of 5): first page drawn 1,023 ms → 671 ms after the click; canvases 60 → 2 (3 mid-document); canvas pixels 292 MP →
-  15.5 MP (thumbnails included). The rest of the 671 ms is reading the file and starting pdf.js.
+  of 5): first page drawn 1,023 ms → 666 ms after the click; canvases 60 → 2 (3 mid-document); canvas pixels 292 MP →
+  15.4 MP (thumbnails included). The rest of the 666 ms is reading the file and starting pdf.js.
 - **Independent review** (must-fix, fixed): a link inside the file did nothing anywhere (react-pdf's kept first
   `onItemClick` saw no layout); the e2e now clicks one. Also taken: `page.cleanup()` on leaving, FilePanel's restore
   skipping a PDF, the 16.7-megapixel limit, a page that cannot be read not stopping the size reads, no sub-pixel scroll
