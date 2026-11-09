@@ -171,7 +171,8 @@ export class ConnectionTemplates {
     // a key is never sent to another address or in another way than the member connected it for; a sign-in made through
     // one app is never used with another
     const moved = next.url !== t.url || next.auth !== t.auth || next.auth_header !== t.auth_header || app.changed
-    const changed = [...(['name', 'url', 'auth', 'auth_header', 'notes'] as const).filter((k) => next[k] !== t[k]), ...(app.changed ? ['oauthClient'] : [])]
+    // the same app with its found token address forgotten (the secret entered again) is audited, and drops nothing
+    const changed = [...(['name', 'url', 'auth', 'auth_header', 'notes'] as const).filter((k) => next[k] !== t[k]), ...(app.changed ? ['oauthClient'] : app.forgot ? ['tokenAddress'] : [])]
     const before = templateAccess(this.db, id)
     const at = this.now()
     this.db.transaction(() => {

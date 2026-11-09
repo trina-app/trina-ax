@@ -406,8 +406,9 @@ cannot start: Google's MCP servers (`https://gmailmcp.googleapis.com/mcp/v1`, `c
   app: each member it is for signs in through it with their own account). Members never see a template's secret, and
   the API shows them nothing of the app (`MyIntegrationTemplate` has no field for it, their connection's `oauthClient` is
   null, they cannot set one on it); the client ID and scopes are in the sign-in address they open, as with any app.
-  A member signs in through a template's app only while the template is for them: checked when the sign-in starts and
-  again when the browser comes back (a group change takes effect before the next list removes the connection).
+  A member signs in through a template's app only while the template is for them: checked when the sign-in starts,
+  when the browser comes back and on "check again" (a group change takes effect before the next list removes the
+  connection).
   A request to one member cannot carry an app (a template does that).
 - **MCP server:** the client ID and secret are enough. The addresses are found from the server's address as for any MCP
   sign-in; `scope` replaces the scopes the server lists (Google's servers list every scope they know, full mail access
@@ -416,8 +417,10 @@ cannot start: Google's MCP servers (`https://gmailmcp.googleapis.com/mcp/v1`, `c
   (`foundTokenUrl` in `oauth_client`, never shown; `service.ts pinFound`, once the code was exchanged: a sign-in started
   and never finished remembers nothing); a later sign-in whose server names another one is refused before anything is
   sent ("enter the client secret again"), so a server cannot move where the secret goes. Entering the secret again (the
-  same one too) or another app forgets it, and the next sign-in that works remembers the new address. Of two sign-ins
-  started before either finished, the first that works decides; the other is refused before its code is exchanged.
+  same one too, audited as `changed: ["tokenAddress"]`) or another app forgets it, and the next sign-in that works
+  remembers the new address. Of two sign-ins started before either finished, the first that works decides; the other is
+  refused, before its code is exchanged or, when the exchanges overlapped, by keeping none of its tokens. A sign-in
+  through a template's app finishes only on the template as it was when the sign-in started.
 - **HTTP API:** sign-in is a choice next to a key and needs the app with both addresses. No resource indicator is sent
   (an API has none). `api_request` and the check send `Authorization: Bearer <token>`; a 401 refreshes the token once
   and sends the request again (a refused request did nothing).

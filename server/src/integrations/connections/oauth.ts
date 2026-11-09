@@ -20,8 +20,9 @@ export interface OAuthSecret { type: 'oauth'; server: OAuthServer; client: OAuth
  * also when the stored one was entered for another address of the connection (store.ts secretHere) */
 export interface OwnClient {
   clientId: string; clientSecret: string | null; authorizationUrl: string | null; tokenUrl: string | null; scope: string | null; foundTokenUrl: string | null
-  /** the stored values it was read from (pinFound writes only onto these) */
-  stored: { json: string; enc: string | null }
+  /** the stored values it was read from (pinFound writes only onto these), and the version of the row that holds them
+   * (a template's: a sign-in through it finishes only on the template as it was when it started) */
+  stored: { json: string; enc: string | null; version: number }
 }
 
 export class GrantError extends Error { name = 'GrantError' }

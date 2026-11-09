@@ -17343,9 +17343,16 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
     that app stays (the app did not change).
   - **The token address is remembered once a sign-in worked**, in the callback after the code was exchanged, not when
     a sign-in starts: one never finished decided where the secret could go. The callback refuses a sign-in whose app
-    remembers another address meanwhile (two sign-ins started before either finished), before the code is exchanged.
-  - **A template's member signs in only while it is for them**, checked at the start and in the callback: until the
-    next list swept the connection, someone moved out of the template's group could still sign in through the app.
+    remembers another address meanwhile (two sign-ins started before either finished): before the code is exchanged
+    when the other finished first, else (the exchanges overlapped) its tokens are not kept, so no refresh sends the
+    secret to the address that lost; they are not revoked either, which would send it there once more. A sign-in
+    through a template's app finishes only on the template's version it started with (the same secret entered again
+    can bring the app's stored text back to what it was before an address was remembered).
+  - **Forgetting the found token address is audited** (`changed: ["tokenAddress"]`): the same secret entered again
+    changes nothing else, but it is a choice to trust the next address the server names.
+  - **A template's member signs in only while it is for them**, checked at the start, in the callback and on "check
+    again" (which may refresh a token with the team's app): until the next list swept the connection, someone moved out
+    of the template's group could still use the app.
   - **`iss` with given addresses** must be on the sign-in address's server (origin; an issuer may have a path).
   - **The secret is bound to its service address** (`boundUrl` in `oauth_client`): migration 338 keeps reader level 1,
     so an older build can change a connection's or template's address without dropping the secret; a secret entered
@@ -17358,7 +17365,8 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
 - **Small service rules, in one place each:** Google gets `access_type=offline&prompt=consent` (`oauth.ts extraParams`;
   without it no refresh token, a new sign-in every hour). The secret goes in the body unless the metadata lists only
   basic (NAVER WORKS documents body parameters only). `expires_in` as text is read (NAVER WORKS sends `"86400"`). An HTTP
-  API sends no resource indicator. An `iss` is checked only against addresses that were found. `api_request` refreshes
+  API sends no resource indicator. An `iss` is checked against the issuer found or, with given addresses, the sign-in
+  address's origin (review 3). `api_request` refreshes
   once after a 401 (an MCP call already did, `withMcp`).
 - **The redirect address** shown in the dialog is the page's own address plus `/api/integrations/oauth/callback`, which
   is what the server builds from the request's origin (`linkBase`). Office mode on the server Mac's localhost maps to the

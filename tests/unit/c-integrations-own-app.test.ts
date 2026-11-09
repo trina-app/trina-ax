@@ -242,6 +242,9 @@ test('security review: a stored client secret never goes to another address than
   expect((await olga.call('PATCH', `/api/integrations/${api2.id}`, { url: `${fake.base}/oauth-api/v1/team` })).oauthClient.hasSecret).toBe(false)
   const typedAgain = await olga.call('PATCH', `/api/integrations/${api2.id}`, { url: `${fake.base}/oauth-api/v1`, oauthClient: { ...ownApi().oauthClient } })
   expect(typedAgain.oauthClient.hasSecret).toBe(true)
+  // a team connection: another admin moves its address; the next sign-in (any admin's) would send the tokens there
+  const team = await olga.call('POST', '/api/admin/integrations', { ...ownApi({ name: 'Works team' }), access })
+  expect((await ann.call('PATCH', `/api/integrations/${team.id}`, { url: `${fake.base}/echo/v1` })).oauthClient).toMatchObject({ clientId: APP, hasSecret: false })
   // an MCP server's app finds its addresses from the server: another server address drops the secret
   const mcp = await olga.call('POST', '/api/integrations', ownMcp({ oauthClient: { clientId: APP, clientSecret: SECRET } }))
   expect((await olga.call('PATCH', `/api/integrations/${mcp.id}`, { url: `${fake.base}/mcp-own?tenant=2` })).oauthClient).toMatchObject({ clientId: APP, hasSecret: false })
@@ -283,6 +286,9 @@ test('security review: the token address a sign-in that worked found is remember
     const again = await olga.call('PATCH', `/api/integrations/${c.id}`, { oauthClient: { clientId: APP, clientSecret: SECRET } })
     expect(again).toMatchObject({ hasSecret: true, status: 'connected', oauthClient: { hasSecret: true } })
     expect(found()).toBeUndefined()
+    const audited = (h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'integration.update' AND target = ?").all(c.id) as { detail: string }[]).map((d) => JSON.parse(d.detail))
+    expect(audited.at(-1)).toMatchObject({ changed: ['tokenAddress'], secret: 'kept' })
+    expect(JSON.stringify(audited)).not.toContain('moved-token')
     const moved = await olga.call('POST', `/api/integrations/${c.id}/authorize`, {})
     expect(found()).toBeUndefined()
     expect((await olga.raw('GET', callback(fake.authorize(moved.authorizationUrl, `${fake.base}/as-own`)))).status).toBe(200)
@@ -294,7 +300,7 @@ test('security review: the token address a sign-in that worked found is remember
   } finally { fake.ownTokenEndpoint = null }
 })
 
-test('review 3: of two sign-ins through a template\'s app, the first that works decides the token address; the other is refused before its secret goes', async () => {
+test('review 3: of two sign-ins through a template\'s app, the first that works decides the token address; the other keeps no tokens, and one started before the template changed does not finish', async () => {
   const carl = await addMember(h, olga, { username: 'carl', role: 'member' })
   const t = await olga.call('POST', '/api/admin/integration-templates', { ...ownMcp({ oauthClient: { clientId: APP, clientSecret: SECRET } }), access: { everyone: false, groups: [], users: [bobId, carl.id] } })
   const version = (await bob.call('GET', '/api/integration-templates')).items[0].version
@@ -313,6 +319,41 @@ test('review 3: of two sign-ins through a template\'s app, the first that works 
   expect((await bob.raw('GET', callback(fake.authorize(fb.authorizationUrl, `${fake.base}/as-own`)))).status).toBe(400)
   expect(movedCalls()).toBe(movedBefore)
   expect(pinned()).toBe(`${fake.base}/as/token`)
+
+  // the exchanges overlap: bob's waits at the other token address while carl's finishes and is remembered; bob keeps no
+  // tokens, so no refresh of his sends the secret there
+  await olga.call('PATCH', `/api/admin/integration-templates/${t.id}`, { oauthClient: { clientId: APP, clientSecret: SECRET } })
+  expect(pinned()).toBeUndefined()
+  fake.ownTokenEndpoint = `${fake.base}/as/moved-token`
+  let fb2
+  try { fb2 = await bob.call('POST', `/api/integrations/${bobs.id}/authorize`, {}) } finally { fake.ownTokenEndpoint = null }
+  const fc2 = await carl.client.call('POST', `/api/integrations/${carls.id}/authorize`, {})
+  let release = () => {}
+  fake.hold = { path: '/as/moved-token', until: new Promise<void>((r) => { release = r }) }
+  try {
+    const bobBack = bob.raw('GET', callback(fake.authorize(fb2.authorizationUrl, `${fake.base}/as-own`)))
+    expect(await until(() => movedCalls() > movedBefore)).toBe(true)
+    expect((await carl.client.raw('GET', callback(fake.authorize(fc2.authorizationUrl, `${fake.base}/as-own`)))).status).toBe(200)
+    expect(pinned()).toBe(`${fake.base}/as/token`)
+    release()
+    expect((await bobBack).status).toBe(400)
+  } finally { fake.hold = null; release() }
+  expect(getRow(h.ctx.db, bobs.id)!.secret_enc).toBeNull()
+  expect(pinned()).toBe(`${fake.base}/as/token`)
+
+  // a sign-in started before the admin changed the template does not finish: here the same secret entered again after
+  // carl's sign-in, which brings the app's stored text back to what bob's sign-in read
+  await olga.call('PATCH', `/api/admin/integration-templates/${t.id}`, { oauthClient: { clientId: APP, clientSecret: SECRET } })
+  fake.ownTokenEndpoint = `${fake.base}/as/moved-token`
+  let fb3
+  try { fb3 = await bob.call('POST', `/api/integrations/${bobs.id}/authorize`, {}) } finally { fake.ownTokenEndpoint = null }
+  const fc3 = await carl.client.call('POST', `/api/integrations/${carls.id}/authorize`, {})
+  expect((await carl.client.raw('GET', callback(fake.authorize(fc3.authorizationUrl, `${fake.base}/as-own`)))).status).toBe(200)
+  await olga.call('PATCH', `/api/admin/integration-templates/${t.id}`, { oauthClient: { clientId: APP, clientSecret: SECRET } })
+  const exchanged = movedCalls()
+  expect((await bob.raw('GET', callback(fake.authorize(fb3.authorizationUrl, `${fake.base}/as-own`)))).status).toBe(400)
+  expect(movedCalls()).toBe(exchanged)
+  expect(pinned()).toBeUndefined()
 })
 
 test('review 3: a new service address on a template drops the team app\'s secret, also with given addresses, so members\' tokens never reach it', async () => {
@@ -341,7 +382,7 @@ test('review 3: a new service address on a template drops the team app\'s secret
   expect(everything()).not.toContain(SECRET)
 })
 
-test('review 3: a member the template no longer covers can neither start nor finish a sign-in through the team\'s app', async () => {
+test('review 3: a member the template no longer covers can neither start nor finish a sign-in through the team\'s app, nor check the connection again', async () => {
   const t = await olga.call('POST', '/api/admin/integration-templates', { ...ownMcp({ oauthClient: { clientId: APP, clientSecret: SECRET } }), access: { everyone: false, groups: [], users: [bobId] } })
   const mine = (await bob.try('POST', `/api/integration-templates/${t.id}/connect`, { version: (await bob.call('GET', '/api/integration-templates')).items[0].version })).body
   const f = await bob.call('POST', `/api/integrations/${mine.id}/authorize`, {})
@@ -353,6 +394,21 @@ test('review 3: a member the template no longer covers can neither start nor fin
   expect(getRow(h.ctx.db, mine.id)!.secret_enc).toBeNull()
   const no = await bob.try('POST', `/api/integrations/${mine.id}/authorize`, {})
   expect(no.status).toBe(404)
+  // nor check it again (that may refresh a token with the team's app)
+  expect((await bob.try('POST', `/api/integrations/${mine.id}/refresh`, {})).status).toBe(404)
+  // the rule changes while the code is being exchanged: the tokens are not kept
+  h.ctx.db.query("UPDATE integration_template_access SET subject_id = ? WHERE template_id = ? AND subject_type = 'user'").run(bobId, t.id)
+  const f2 = await bob.call('POST', `/api/integrations/${mine.id}/authorize`, {})
+  let release = () => {}
+  fake.hold = { path: '/as/token', until: new Promise<void>((r) => { release = r }) }
+  try {
+    const back = bob.raw('GET', callback(fake.authorize(f2.authorizationUrl, `${fake.base}/as-own`)))
+    expect(await until(() => tokenCalls().length > tokensBefore)).toBe(true)
+    h.ctx.db.query("UPDATE integration_template_access SET subject_id = ? WHERE template_id = ? AND subject_type = 'user'").run('someone-else', t.id)
+    release()
+    expect((await back).status).toBe(400)
+  } finally { fake.hold = null; release() }
+  expect(getRow(h.ctx.db, mine.id)!.secret_enc).toBeNull()
 })
 
 test('review 3: an older build that moved a connection or template without dropping the client secret: it is not sent there', async () => {
@@ -409,11 +465,24 @@ test('security review 2: a change that leaves the app alone never opens its secr
   expect(JSON.parse((h.ctx.db.query('SELECT oauth_client FROM integration_templates WHERE id = ?').get(t.id) as { oauth_client: string }).oauth_client).foundTokenUrl).toBe(pinned)
   // a member whose server moved its token address is told to ask the admin (they cannot enter the secret)
   const again = (await bob.try('POST', `/api/integration-templates/${t.id}/connect`, { version: (await bob.call('GET', '/api/integration-templates')).items[0].version })).body
-  fake.ownTokenEndpoint = `${fake.base}/elsewhere/token`
+  fake.ownTokenEndpoint = `${fake.base}/as/moved-token`
   try {
     const no = await bob.try('POST', `/api/integrations/${again.id}/authorize`, {})
     expect(no.status).toBe(400)
     expect(no.body.error.message).toContain('관리자')
+    // review 3: the admin enters the same secret again: the members' connections stay, the address is forgotten (and
+    // audited), and the member's next sign-in that works remembers the new one
+    const kept = await olga.call('PATCH', `/api/admin/integration-templates/${t.id}`, { oauthClient: { clientId: APP, clientSecret: SECRET, scope: 'own.read' } })
+    expect(getRow(h.ctx.db, again.id)).not.toBeNull()
+    expect(kept.oauthClient).toMatchObject({ hasSecret: true })
+    const tpl = () => JSON.parse((h.ctx.db.query('SELECT oauth_client FROM integration_templates WHERE id = ?').get(t.id) as { oauth_client: string }).oauth_client)
+    expect(tpl().foundTokenUrl).toBeUndefined()
+    const tplAudit = (h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'integration_template.update' AND target = ?").all(t.id) as { detail: string }[]).map((d) => JSON.parse(d.detail))
+    expect(tplAudit.at(-1)).toMatchObject({ changed: ['tokenAddress'] })
+    expect(tplAudit.at(-1).keysDropped).toBeUndefined()
+    const f2 = await bob.call('POST', `/api/integrations/${again.id}/authorize`, {})
+    expect((await bob.raw('GET', callback(fake.authorize(f2.authorizationUrl, `${fake.base}/as-own`)))).status).toBe(200)
+    expect(tpl().foundTokenUrl).toBe(`${fake.base}/as/moved-token`)
   } finally { fake.ownTokenEndpoint = null }
 })
 

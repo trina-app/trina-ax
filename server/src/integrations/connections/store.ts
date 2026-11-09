@@ -37,7 +37,7 @@ export interface Row {
 }
 
 /** what is not secret about an own app (integrations.oauth_client, integration_templates.oauth_client). foundTokenUrl:
- * the token address its first sign-in found from the server (service.ts pinFound), never shown. boundUrl: the
+ * the token address its first sign-in that worked found from the server (service.ts pinFound), never shown. boundUrl: the
  * connection's or template's address its client secret was entered for (service.ts appAfter; secretHere) */
 export interface ClientInfo { clientId: string; authorizationUrl: string | null; tokenUrl: string | null; scope: string | null; foundTokenUrl?: string | null; boundUrl?: string | null }
 /** The stored app, or null (none, or a value that is not one: the column is ours alone). */

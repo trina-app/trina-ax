@@ -356,7 +356,7 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
 function AppSection({ f, stored, storedUrl, change, errorOf, blur, template }: {
   f: IntegrationForm
   stored?: OAuthClientView | null
-  /** the saved address: a found app's secret does not follow a new one */
+  /** the saved address: a stored secret does not follow a new one */
   storedUrl?: string
   change: (patch: Partial<IntegrationForm>, ...fields: FormField[]) => void
   errorOf: (k: FormField) => string | null
