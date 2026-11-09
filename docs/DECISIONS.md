@@ -16343,14 +16343,17 @@ of a web page could not be read. Pictures should open like Slack, across the app
   brings its own DOM, styles and item model to bend to the app's bar, words, focus trap and the one-picture rule below.
 - **Next / previous: the pane that was clicked** (`ImageGroup`): the room's timeline (replies also sent to the room
   included), the thread panel (its root and replies), the AI chat (this branch: attachments and answers' pictures), a
-  message box's row. Each picture registers itself and the list is the pane's pictures in page order, which is message
+  room's side chat with the AI (its own pane, like the AI chat), a message box's row. Each picture registers itself and the list is the pane's pictures in page order, which is message
   order; only pictures drawn on the page are in it, so a file someone may not open (a lock), a withheld answer or an
   unavailable attachment never is. It never crosses into another thread or loads older messages. A picture outside any
   pane opens alone. The list follows the pane while open ("3 / 8" when a photo arrives).
 - **The bar**: the sender's picture (the AI's mark for an answer), the file's name, who and when (where known: not for a
   picture not sent yet), "3 / 7", − % + (computers), download, the original in a new tab, ✕. Always shown on a computer;
   on a phone it overlays the picture and a tap shows or hides it with the arrows. The new tab is for a plain browser only:
-  the desktop app and the phone app would open the system browser, which is not signed in.
+  the desktop app and the phone app would open the system browser, which is not signed in. The download is the one the
+  panel uses (`startDownload`): in the phone app (iOS and Android) the page fetches the file with its own session and
+  hands the bytes to the app over the bridge, which opens the system share sheet (`downloadToApp`, up to 50 MB; a
+  larger one says so); a WebView swallows a plain link download, so that path is never used there.
 - **Phones**: pinch about the fingers, double tap to toggle, one finger pans when zoomed; when not zoomed a swipe down
   (past a fifth of the height, or a flick) closes and a swipe sideways steps (added to the brief: the arrows hide with
   the bar). `touch-action: none` on the stage.
