@@ -1,9 +1,12 @@
 // The room side chat (✦ Trina, docs/DECISIONS.md "Trina side chat"): a private AI chat of mine beside a room, opened from
 // the room's header. Where a thread opens (a column beside the room on computers, the whole screen on phones), and one
 // of the two at a time. It is an ordinary chat of mine (chats.side_room_id): the AI is told the room and reads it with
-// its room tools as I see it (chat/room-tools.ts); nothing goes to the room until I press "Share to room" under an
-// answer (the "send to a chat room" dialog, components/chat/ShareToRoom.tsx, with this room picked: the files and
-// material some members cannot see are checked there). The newest side chat of the room opens again; "New chat"
+// its room tools as I see it (chat/room-tools.ts); nothing goes to the room until I press the one button under an
+// answer (components/rooms/SendHere.tsx): "스레드에 보내기" for an answer about a message of the room (that message's
+// thread, named in the question's quote: lib/sideChatSend.ts; ▾ for the room), else "대화방에 보내기". It goes at once;
+// the server's checks of files and material some members cannot see ask first with the confirm step of
+// components/chat/ShareToRoom.tsx. Sent, its 보기 opens the thread at the reply (in this column; ✦ brings this chat back)
+// or the room at the message (a phone: this panel closes). The newest side chat of the room opens again; "New chat"
 // starts another one with the next question; 🕘 lists the room's side chats (newest first) and opens one. Cards the AI
 // raises (a yes before a change, a question) show under its answer as in the full chat; while it waits for the answer
 // to its question, what I type in the box answers it (lib/askAnswer.ts), as the full chat's box does.
@@ -20,16 +23,19 @@
 // (the file viewer's sheet on a phone, which closes back to the file).
 import { ArrowUp, ChevronLeft, ExternalLink, Eye, History, Loader2, Paperclip, SquarePen, X } from 'lucide-react'
 import clsx from 'clsx'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { Chat, EngineId } from '@mycel/shared/api'
+import { SIDE_CHAT_QUICK, SIDE_QUICK_FILE, SIDE_QUICK_MESSAGE, threadRefToken, type Chat, type EngineId } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { composerAnswer, composerQuestion, picksOf } from '../../lib/askAnswer'
 import { formatDate, formatDateTime } from '../../lib/format'
+import { closeImageViewer } from '../../lib/imageViewer'
+import { quotes, sendTargets } from '../../lib/sideChatSend'
 import { aiName } from '../../lib/tabs'
 import { followsAfterScroll, jumpToBottom, stickToBottom } from '../../lib/stickToBottom'
 import { useLocale, useT } from '../../i18n'
 import { useChats } from '../../store/chats'
+import { useRooms } from '../../store/rooms'
 import { useMeStrict } from '../../store/session'
 import { SEED_KEYS_MAX, sideChatOf, useSideChats, type SideChatState } from '../../store/sideChats'
 import { emptyThread, runningMessage, type ViewMessage } from '../../store/thread'
@@ -41,6 +47,7 @@ import { Tooltip } from '../Tooltip'
 import { ErrorNote, IconButton } from '../ui'
 import { AiFace } from './AiFace'
 import { RoomSideColumn } from './RoomSideColumn'
+import type { SentHere } from './SendHere'
 
 /** the newest side chat of mine for this room (not deleted), or null: one asks the server, as the panel opens */
 export async function newestSideChat(roomId: string): Promise<string | null> {
@@ -95,29 +102,37 @@ function chatToWrite(roomId: string): Promise<string> {
  * changes with every ask, so asking about the same message again quotes it again. */
 export interface SideSeed { key: string; author: string; at: string; text: string
   /** a file sent in this room ("Ask Trina about this file" in its preview): the AI reads it with room_file */
-  file?: { id: string; name: string } }
+  file?: { id: string; name: string }
+  /** the thread an answer about the message goes to with one click (lib/sideChatAsk.ts messageSeed): its first message */
+  thread?: string }
 /** the longest quote that goes with a question (the AI can read the whole room with room_read) */
 export const SEED_QUOTE_MAX = 4000
 
-/** The question as it is sent: the message quoted (who, when, its lines as a Markdown quote), then what I ask. */
+/** The question as it is sent: the message quoted (who, when, its lines as a Markdown quote), then what I ask. The
+ * header line ends with the message's thread when it can have one (shared rooms.ts threadRefToken: the app hides it, the
+ * answers below send there with one click, lib/sideChatSend.ts). */
 export function withQuote(seed: SideSeed | null, question: string, time: (iso: string) => string): string {
   if (!seed) return question
   // a file: its name and id in this room (the AI opens it with room_file), not its text
   if (seed.file) return `> 📎 ${seed.file.name} (file_id ${seed.file.id} in this room)\n\n${question}`
   const text = seed.text.length > SEED_QUOTE_MAX ? `${seed.text.slice(0, SEED_QUOTE_MAX).trimEnd()}…` : seed.text
-  const quote = [`${seed.author} · ${time(seed.at)}`, ...text.split('\n')].map((l) => `> ${l}`.trimEnd()).join('\n')
+  const head = `> ${seed.author} · ${time(seed.at)}`.trimEnd() + (seed.thread ? threadRefToken(seed.thread) : '')
+  const quote = [head, ...text.split('\n').map((l) => `> ${l}`.trimEnd())].join('\n')
   return `${quote}\n\n${question}`
 }
 
 /** the questions an empty side chat offers (like Slackbot's): what I missed, what is for me, the latest discussion */
 export const STARTERS = ['catchUp', 'forMe', 'summarize'] as const
 /** the quick questions under a quoted message, and under a quoted file (팀 폴더에 저장: the AI saves it with
- * save_room_file, whose card says where and who will see it) */
-export const QUICK_MESSAGE = ['translate', 'summarize', 'explain'] as const
-export const QUICK_FILE = ['fileSummarize', 'fileKeyPoints', 'fileCheck', 'fileSave'] as const
+ * save_room_file, whose card says where and who will see it); their words and questions are shared (rooms.ts
+ * SIDE_CHAT_QUICK): the server names a new side chat "<word>: <the quote's first words>" from them */
+export const QUICK_MESSAGE = SIDE_QUICK_MESSAGE
+export const QUICK_FILE = SIDE_QUICK_FILE
 
 /** how many of the room's side chats 🕘 lists */
 export const SIDE_HISTORY_MAX = 30
+/** at most this many older pages are read to find where an answer goes (its question further up than the page read) */
+export const OLDER_PAGES_MAX = 10
 
 /** `frame` false: the column around it is the caller's (RoomSideColumn). `autoFocus` false: the box does not take the
  * focus as the panel opens (a new `seed` still does: it was asked for). `closeX`: ✕ instead of a phone's ‹. */
@@ -145,6 +160,19 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   const running = runningMessage(messages)
   const busy = !!running || messages.some((m) => m.local?.state === 'sending')
   const shareable = !chat?.confidential && !me.server.allChatsConfidential
+  // where each answer goes with one click: the thread its question (or the one it follows up) asked about, or the room
+  const targets = useMemo(() => sendTargets(messages), [messages])
+  // an answer above the first question that quotes something depends on older messages than the page read (a long chat
+  // after a reload): those pages too, so it goes where it did before
+  const firstQuote = messages.findIndex((m) => m.role === 'user' && quotes(m.content))
+  const needOlder = !!chatId && !!thread.nextCursor && messages.slice(0, firstQuote < 0 ? undefined : firstQuote).some((m) => m.role === 'assistant')
+  const olderRead = useRef<{ chatId: string | null | undefined; pages: number }>({ chatId, pages: 0 })
+  useEffect(() => {
+    if (olderRead.current.chatId !== chatId) olderRead.current = { chatId, pages: 0 }
+    if (!needOlder || !chatId || olderRead.current.pages >= OLDER_PAGES_MAX) return
+    olderRead.current.pages++
+    void useChats.getState().loadOlder(chatId).catch(() => {})
+  }, [needOlder, chatId, thread.nextCursor])
   const scroller = useRef<HTMLDivElement>(null)
   const content = useRef<HTMLDivElement>(null)
   const box = useRef<HTMLTextAreaElement>(null)
@@ -306,6 +334,14 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
     void useChats.getState().edit(chatId, m.id, text, m.attachments).catch(fail)
   }
   const onSelectBranch = (id: string) => { if (chatId) void useChats.getState().selectBranch(chatId, id).catch(fail) }
+  // 보기 under a sent answer: the thread at the reply (it takes this column, or the whole screen on a phone; ✦ brings this
+  // chat back), or the room at the message (a phone: this panel closes so the room shows). From the file viewer's column
+  // the viewer closes first.
+  const view = (s: SentHere) => closeImageViewer(true, () => {
+    if (s.to === 'thread' && s.rootId) return navigate(`/rooms/${s.roomId}/t/${s.rootId}?m=${s.messageId}`, { state: { fromRoom: true } })
+    if (!window.matchMedia?.('(min-width: 48rem)').matches) useRooms.getState().setSide(s.roomId, null)
+    navigate(`/rooms/${s.roomId}?m=${s.messageId}`, { replace: window.location.pathname === `/rooms/${s.roomId}` })
+  })
   const name = aiName(t)
   // what the box asks: the answer to the AI's question, or about the file or message quoted, or about the room
   const boxLabel = question ? t('sideChat.answerPlaceholder', { name }) : quoted?.file ? t('sideChat.placeholderQuotedFile', { name }) : quoted ? t('sideChat.placeholderQuoted', { name }) : t('sideChat.placeholder', { name })
@@ -391,11 +427,11 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
             {!history && chatId && messages.map((m, i) =>
               m.role === 'user' ? (
                 <ViewerMeta key={m.id} sender={{ kind: 'user', user: m.author ?? me.user }} at={m.createdAt}>
-                  <UserMessage m={m} chatId={chatId} busy={busy} onEdit={onEdit} onSelectBranch={onSelectBranch} />
+                  <UserMessage m={m} chatId={chatId} busy={busy} onEdit={onEdit} onSelectBranch={onSelectBranch} sideChat />
                 </ViewerMeta>
               ) : (
                 <ViewerMeta key={m.id} sender={{ kind: 'ai' }} at={m.createdAt}>
-                  <AssistantMessage m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy} switchedFrom={null as EngineId | null} onRegenerate={onRegenerate} onSelectBranch={onSelectBranch} onAskOwnFolder={() => {}} shareable={shareable} shareRoomId={roomId} canSuggest={false} />
+                  <AssistantMessage m={m} chatId={chatId} isLast={i === messages.length - 1} busy={busy} switchedFrom={null as EngineId | null} onRegenerate={onRegenerate} onSelectBranch={onSelectBranch} onAskOwnFolder={() => {}} shareable={shareable} sendHere={{ roomId, target: targets.get(m.id) ?? null, onView: view }} canSuggest={false} />
                 </ViewerMeta>
               ),
             )}
@@ -421,9 +457,9 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
             {!question && (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {(quoted.file ? QUICK_FILE : QUICK_MESSAGE).map((k) => (
-                  <button key={k} type="button" disabled={busy || chatId === undefined} onClick={() => void send(t(`sideChat.ask.${k}`))}
+                  <button key={k} type="button" disabled={busy || chatId === undefined} onClick={() => void send(SIDE_CHAT_QUICK[k].ask[locale])}
                     className="rounded-full border border-line px-2.5 py-0.5 text-xs text-muted hover:bg-hover hover:text-ink disabled:opacity-40" data-testid={`side-chat-quick-${k}`}>
-                    {t(`sideChat.quick.${k}`)}
+                    {SIDE_CHAT_QUICK[k].label[locale]}
                   </button>
                 ))}
               </div>

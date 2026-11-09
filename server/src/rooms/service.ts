@@ -528,7 +528,9 @@ export class Rooms {
    * With threadRootId it is a reply in that message's thread (see the top of this file).
    * `answer` (chat/answer-share.ts only, never a request's body): the message carries an answer of my own AI chat. It
    * mentions nobody (nor "@전체") and never calls the room's AI, whatever its text says ("@트리나", "@Name" in the answer
-   * are the AI's words, not a call), and is neither a reply nor in a thread; its files are linked files attached.
+   * are the AI's words, not a call), and never quotes a message (replyToId); it may be a reply in a thread (a side
+   * chat's answer to a question about a message: threadRootId, never "also to the room"); its files are linked files
+   * attached.
    * `carried` (connectors/remote-mcp/rooms.ts only): what an AI app's connection had read, kept for later members. */
   send(userId: string, roomId: string, b: SendInput, o: AskOptions = {}, answer?: SharedAnswerMark, carried?: string | null): RoomMessage {
     const { room, me } = this.mine(userId, roomId)
@@ -546,11 +548,10 @@ export class Rooms {
     }
     let root: MessageRow | null = null
     if (b.threadRootId) {
-      root = messageRow(this.db, roomId, b.threadRootId)
-      // the same answer whatever is wrong (not there, not one I see, an event line, a reply itself, deleted, private)
-      if (!root || !canSee(this.db, root, me) || !threadable(root) || root.deleted_at) fail('validation', undefined, { fields: { 'body.threadRootId': 'not a message of this room to answer in a thread' } })
+      root = this.threadRootOf(roomId, b.threadRootId, me)
+      if (!root) fail('validation', undefined, { fields: { 'body.threadRootId': 'not a message of this room to answer in a thread' } })
     }
-    if (answer && (b.threadRootId || b.replyToId || answer.at < 0 || answer.at > b.body.length)) fail('validation')
+    if (answer && (b.replyToId || b.alsoInRoom || answer.at < 0 || answer.at > b.body.length)) fail('validation')
     const mentions = answer ? [] : this.validMentions(roomId, userId, b.mentions)
     const fileIds = [...new Set(b.fileIds)]
     if (fileIds.length) {
@@ -592,6 +593,15 @@ export class Rooms {
     if (root) this.afterReply(root)
     if (ask) roomAiOf(this.ctx).ask(userId, roomId, row, ask, people)
     return messagesOut(this.db, [row], memberRow(this.db, roomId, userId)!)[0]!
+  }
+
+  /** The message `rootId` of the room as the first message of a thread `me` may reply in: there, one I see, one that can
+   * have a thread (store.ts threadable: in the timeline, not a reply, an event line or a private AI preview) and not
+   * deleted. null whatever is wrong (the same answer for each: not there, another room's, not mine to see). Also the
+   * check of a shared answer's thread before anything else (chat/answer-share.ts). */
+  threadRootOf(roomId: string, rootId: string, me: MemberRow): MessageRow | null {
+    const root = messageRow(this.db, roomId, rootId)
+    return root && canSee(this.db, root, me) && threadable(root) && !root.deleted_at ? root : null
   }
 
   /** Inside the reply's transaction: its author follows the thread and has read it up to the reply; the root's author

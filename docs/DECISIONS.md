@@ -16012,7 +16012,8 @@ boxes); no contract, setting or data change.
   "Open as a full chat" goes to /c/<id>; 🕘 lists the room's side chats (newest 30) and opens one. Cards the AI
   raises show under its answer as in the full chat, and while it waits for the answer to its question the panel's box
   answers it (lib/askAnswer.ts), never a new message. Under a finished answer "Share to room" is a labelled button and
-  the dialog starts with this room picked. In the chat history a side chat shows its room ("# design") after its
+  the dialog starts with this room picked (since replaced by one click: "Trina side chat: send here" below). In the chat
+  history a side chat shows its room ("# design") after its
   title, while I am in that room.
 - **Defaults for the doc's open questions (to confirm):** old private previews stay inline (PR 2); the room context is
   what the person can see, read by the AI with room_read; sharing uses the existing dialog; on a phone the panel takes
@@ -17075,6 +17076,12 @@ previews are core. Step (b) of the plan `docs/AGENTS/plan/20261109-0939-room-fil
     others who have that one). It is refused with that reason in the AI's text, which suggests a `name` or moving
     instead. The owner's leads → quotation copy needs a name.
   - A skill folder with folder rules inside it is not copied (the copy would land without them).
+  - Code review follow-ups (fix/skill-copy-followups): a hard-linked file in the skill folder refuses a move or a copy,
+    as every other walker skips one (a copy would make it an ordinary file at a level more people read); a copy's
+    `name` follows the skill parser's own rule (`SKILL_NAME_RE`: no `a--b`), the name line rewrite also takes a name
+    written as a block (`name: >-`), and the SKILL.md as it would be must load under the new name (`checkSkill`) or
+    nothing is copied; a folder of the target's name in other letter case counts as taken; the card lists where each
+    file lands and says the text is cut at 65,536 characters.
   - Audited as `skills.copy` (both levels, a person's own folder never named; the files; the SKILL.md written and the
     original's hashes; by the AI or not; the turn); its file event carries `copiedFrom`, which Admin › 팀 스킬 shows as
     the change's `from`. Nothing is written into the skill's files.
@@ -17314,9 +17321,10 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
   see the secret, and the API shows them nothing of the app (no field in `MyIntegrationTemplate`, null on their
   connection, refused on their patch; the client ID and scopes are in the sign-in address, as with any OAuth app). Requests to one
   member stay without an app (a third place for a secret, for a case a template covers).
-- **A sign-in belongs to its app:** another client ID, secret, address or scope drops the sign-in and revokes it, like
-  a new address; on a template it deletes the members' connections (they are told to connect again). The same app sent
-  again (no secret, or the same secret retyped) changes nothing.
+- **A sign-in belongs to its app:** another client ID, secret, address or scope drops the sign-in, like a new address,
+  and revokes it where the sign-in has a revocation address (found addresses may name one; given addresses have none,
+  so there the tokens are only dropped here); on a template it deletes the members' connections (they are told to
+  connect again). The same app sent again (no secret, or the same secret retyped) keeps the sign-in.
 - **A stored secret only goes where it went before** (review 1, must-fix): a change without the secret keeps it only
   with the same client ID, the same sign-in and token addresses and, for an app whose addresses are found, the same
   server address (`service.ts appAfter`, shared by connections and templates); else it goes. Before the fix, a second
@@ -17331,13 +17339,41 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
   revocation address only on the token address's own server. The found address is written only onto the app as it was
   read for that sign-in (compare-and-set on `oauth_client` and `oauth_client_enc`). A template's member whose server
   moved its token address is told to ask the admin.
+- **Review 3** (after the merge, fixed forward in `fix/oauth-own-client-secret-rules`):
+  - A stored secret also stays only with the **same service address**, for given addresses too (should-fix): before, a
+    second admin who never saw the secret could point a template whose app has given addresses at another host; the
+    members signed in at the real consent screen for the team's app and their tokens then went to that host. One rule
+    for templates, team connections (the same two-admin case) and personal ones (one rule, and the dialog's
+    `storedSecretStays` follows it): moving a member's own connection asks for its secret again.
+  - **The same secret entered again forgets the found token address** (should-fix), as the refusal `appTokenMoved`
+    tells the admin to do; before, it kept the address and the next sign-in was refused again. The sign-in made with
+    that app stays (the app did not change).
+  - **The token address is remembered once a sign-in worked**, in the callback after the code was exchanged, not when
+    a sign-in starts: one never finished decided where the secret could go. The callback refuses a sign-in whose app
+    remembers another address meanwhile (two sign-ins started before either finished): before the code is exchanged
+    when the other finished first, else (the exchanges overlapped) its tokens are not kept, so no refresh sends the
+    secret to the address that lost; they are not revoked either, which would send it there once more. A sign-in
+    through a template's app finishes only on the template's version it started with (the same secret entered again
+    can bring the app's stored text back to what it was before an address was remembered).
+  - **Forgetting the found token address is audited** (`changed: ["tokenAddress"]`): the same secret entered again
+    changes nothing else, but it is a choice to trust the next address the server names.
+  - **A template's member signs in only while it is for them**, checked at the start, in the callback and on "check
+    again" (which may refresh a token with the team's app): until the next list swept the connection, someone moved out
+    of the template's group could still use the app.
+  - **`iss` with given addresses** must be on the sign-in address's server (origin; an issuer may have a path).
+  - **The secret is bound to its service address** (`boundUrl` in `oauth_client`): migration 338 keeps reader level 1,
+    so an older build can change a connection's or template's address without dropping the secret; a secret entered
+    for another address is then not used and the next save drops it (`store.ts secretHere`). A column or a higher
+    reader level would cost a migration or block rolling back for this one case.
+  - The scope hint for an MCP server with both addresses given says an empty scope asks for none.
 - **Members of a template see "ask your admin"** when the service registers no apps (`oauth_no_registration_member`);
   people who can set an app see the own-app hint (`oauth_no_registration`); `oauth_unsupported` keeps its old words for
   a server with no usable sign-in at all.
 - **Small service rules, in one place each:** Google gets `access_type=offline&prompt=consent` (`oauth.ts extraParams`;
   without it no refresh token, a new sign-in every hour). The secret goes in the body unless the metadata lists only
   basic (NAVER WORKS documents body parameters only). `expires_in` as text is read (NAVER WORKS sends `"86400"`). An HTTP
-  API sends no resource indicator. An `iss` is checked only against addresses that were found. `api_request` refreshes
+  API sends no resource indicator. An `iss` is checked against the issuer found or, with given addresses, the sign-in
+  address's origin (review 3). `api_request` refreshes
   once after a 401 (an MCP call already did, `withMcp`).
 - **The redirect address** shown in the dialog is the page's own address plus `/api/integrations/oauth/callback`, which
   is what the server builds from the request's origin (`linkBase`). Office mode on the server Mac's localhost maps to the
@@ -17423,6 +17459,74 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
   photo's 💬; the two icons at 1440; screenshots), `pdf-lazy-pages.spec.ts` (no rail at 1,280 px beside the column, back with the
   column hidden, there at 1,600 px; a screenshot at 1,280).
 - Version impact: **minor** (a visible UX change; no API or data change).
+
+## Trina side chat: send here — one click to this room or the asked message's thread (feat/side-chat-send-here, 2026-11-09, product owner)
+
+The owner found it odd that "Share to room" under a side chat's answer opened the general "대화방에 보내기" dialog (a
+room list, a search, a note) when the side chat belongs to one room. Approved design (a draft plus an independent UX
+review). Amends "대화방에 보내기" and "Trina side chat".
+
+- **Decision: a side chat's answer goes to the asked message's thread by default, or to the room via ▾.** Under each
+  finished answer one quiet text button (no accent), between copy and regenerate: an answer to a question about a room
+  message has **스레드에 보내기 ▾** (▾: one item, **대화방에 보내기**); any other answer has **대화방에 보내기**. Not "스레드에
+  답글" or "답장": the hover bar's "스레드에서 답장" only opens a reply box. Until now a shared answer was never a reply nor
+  in a thread (Rooms.send refused it); it may now be a reply in a thread, never "also to the room" and never a quote
+  (replyToId).
+- **One click, no dialog.** It goes at once: no picker, search or note, no toast. Then the button is a line for this
+  page's session (store/sideChats.ts `sends`, by the answer's id, so the panel opened again still says it):
+  "✓ 스레드에 보냈어요 · 보기" / "✓ 대화방에 보냈어요 · 보기", "앞부분만" when the server cut the answer (there is no warning
+  before sending any more). The focus goes to 보기 and a status region says it. 보기 opens the thread at the reply (in the
+  room's right column in place of the side chat, the whole screen on a phone; ✦ brings the same side chat back) or the
+  room at the message (a phone: the side chat closes so the room shows); from the file viewer's column the viewer closes
+  first.
+- **The safety step stays, alone.** When the server answers "confirm" (linked files with 첨부 switches, material some
+  members cannot see) only the confirm step of the dialog opens (`ShareConfirm`, factored out of
+  components/chat/ShareToRoom.tsx with its state, `useConfirmStep`), with the target on top: the room, and for a thread
+  the asked message as the question quoted it. 취소, ✕ and Esc close it and give the focus back to the button: there is
+  no room list to go back to. The full chat's dialog is unchanged.
+- **The target travels in the question, not in a column.** "Ask Trina about this" quotes the message with
+  ` (thread_id <root> in this room)` at the end of the quote's header line (shared/src/api/rooms.ts threadRefToken,
+  modelled on the file quote's `file_id`): the message's thread root (`threadRootId ?? id`), only when it can have one
+  (seen by the whole room, not an event line, not a private AI preview). The app hides it wherever it shows the question
+  (its bubble, copy, the edit box; an edit puts it back while the quote's header line stays), and a new chat's
+  placeholder title leaves it out; the AI reads it as is (room_read's `thread`). Which answer goes where
+  (web/src/lib/sideChatSend.ts): the nearest earlier question on its branch that quotes something decides, its token's
+  thread or else the room; a follow-up without a quote ("더 짧게") keeps the thread. One refinement of the approved rule
+  ("the nearest question with the token"): a later question that quotes a file or a message without a thread sends to the
+  room, so a file ask (room only in this version) never lands in an earlier message's thread. Read from the messages, so
+  it holds after a reload, from 🕘, as a full chat (↗) and after regenerate. Older side chats (no token) send to the room
+  only: nothing is guessed from a quote's text.
+- **Server (minimal).** `ShareAnswerToRoomBody.threadRootId` (optional) goes to `Rooms.send`, whose own checks of a root
+  apply (`Rooms.threadRootOf`: this room's message, one I see, one that can have a thread, not deleted). The share checks
+  it first, before the sending budget and the file checks: anything wrong is 409 `reason: 'thread_root'`, one answer for
+  every case; the app says "이 메시지의 스레드에 보낼 수 없어요" under the answer and offers the room from then on. Followers
+  of the thread (the root's author too) are notified as for any reply; the audit row is the same. The check's audience
+  stays the whole room (a reply is seen by those who see its root, never more). A later member gets a shared answer in a
+  thread judged with its thread's first message, as any reply (rooms/history.ts `COALESCE(thread_root_seq, seq)`).
+  Never in a confidential chat (the refusal and the hidden button stay).
+- **Double sends.** A guard while one is on its way, and one `clientMessageId` per click, reused only for that click's
+  confirm and for trying the same target again after a failure that may have sent it (no answer, 5xx). Never across
+  clicks: the server's lookup of a known id returns the first message even when it was deleted since; it stays so (a
+  unique index on room, author and client id stands behind it, and a retry must find what it sent).
+- **↗.** The side chat opened as a full chat keeps the dialog, with the side chat's room picked (`chat.sideRoomId`).
+- **The question as people read it (found on dev, fixed here).** A question about a message showed its quote as raw
+  Markdown ("> Leo · Nov 9, 2026, 7:14 PM"); in a side chat (also opened as a full chat) the bubble now shows it as a
+  quote, as the side chat's box showed it before it went: who and when, its lines, then the question below (a file by its
+  name). A long message is folded as any long question is: the quote's first 3 lines, and 전체 보기 opens all of it. One
+  parser for the app and the server: shared rooms.ts `sideQuoteOf` (the header, its lines, then a blank line and the
+  question). Only side chats: in any other chat a quote of that shape typed by hand shows, and names the chat, as typed.
+- **Its title (found on dev, fixed at the source).** A new chat's placeholder title (server chat/title.ts, written with
+  the first message; the AI may still rename it with set_title) took the quote's header ("Sam · Nov 9, 2026, 7:0…").
+  In a side chat it is now the question after the quote; a quick question (번역, 요약, 설명; a file's 요약, 핵심 정리, 검토, 팀 폴더에 저장)
+  is "<its word>: <the message's first words, or the file's name>" ("요약: 로고 시안 언제까지 받을 수 있을까요?"), in the
+  language it was asked in. The quick questions' words and texts moved from the app's strings to one shared table
+  (rooms.ts `SIDE_CHAT_QUICK`), which the server reads to recognize them. The button's words are shared the same way
+  (rooms.ts `SIDE_CHAT_SEND`): the AI's side panel instructions name it as the person sees it, in their language, and say
+  what the quote's thread_id is. Chats already named after a quote keep their title.
+- **A thread found gone** (a send answered `thread_root`) is gone for every answer about that message on this page
+  (store/sideChats.ts `goneRoots`, by the root's id): each offers the room; answers about other messages keep theirs.
+- **Not in this version:** "대화방에도 보내기" on a thread send; a file's thread (a file ask goes to the room); the note; a
+  toast; a server column for the asked message.
 
 ## AI가 휴지통으로 옮기기 — delete_files behind a server card (feat/ai-delete-files, 2026-11-09, product owner)
 

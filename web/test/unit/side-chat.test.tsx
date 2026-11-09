@@ -1,12 +1,13 @@
 // The room side chat (✦ Trina, components/rooms/SideChatPanel.tsx, docs/DECISIONS.md "트리나 사이드 채팅"): the panel
 // opens the room's newest side chat or none; the first question makes a side chat of the room (POST /api/chats with
-// sideRoomId) and sends the question there; an answer's "Share to room" is a labelled button and the dialog starts with
-// the room picked. Files go with a question as in the full chat's box (components/chat/ComposerFiles.tsx): 📎, paste and
-// drop, uploaded into the side chat (made by the first file when there is none), shown above the box with ✕, their ids
-// in the send body; a failed upload says why and is not sent.
+// sideRoomId) and sends the question there; an answer has one labelled button that sends it to the room or a thread
+// (side-chat-send.test.tsx), and the same chat opened in full has the dialog with the room picked. Files go with a
+// question as in the full chat's box (components/chat/ComposerFiles.tsx): 📎, paste and drop, uploaded into the side
+// chat (made by the first file when there is none), shown above the box with ✕, their ids in the send body; a failed
+// upload says why and is not sent.
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
-import { MESSAGE_ATTACHMENTS_MAX, PRODUCT_NAMED_AFTER_AI, uuidv7, type Attachment, type Me } from '@mycel/shared/api'
+import { MESSAGE_ATTACHMENTS_MAX, PRODUCT_NAMED_AFTER_AI, SIDE_CHAT_QUICK, SIDE_CHAT_SEND, uuidv7, type Attachment, type Me } from '@mycel/shared/api'
 import { AssistantMessage } from '../../src/components/chat/Messages'
 import ShareToRoom from '../../src/components/chat/ShareToRoom'
 import { SideChatPanel, withQuote } from '../../src/components/rooms/SideChatPanel'
@@ -170,13 +171,22 @@ test('the room\'s newest side chat opens again, with "open as a full chat"', asy
   }
 })
 
-test('a side chat\'s answer: "Share to room" in words; the dialog starts with the room picked', async () => {
+test('a side chat\'s answer: one click in words (side-chat-send.test.tsx); as a full chat (↗) the dialog starts with its room picked', async () => {
   signIn()
-  const a = await mount(<MemoryRouter><AssistantMessage m={msg({ role: 'assistant', content: 'the plan', status: 'done' })} chatId={CHAT} isLast busy={false} switchedFrom={null} onRegenerate={() => {}} onSelectBranch={() => {}} onAskOwnFolder={() => {}} shareable shareRoomId={team.id} /></MemoryRouter>)
+  const a = await mount(<MemoryRouter><AssistantMessage m={msg({ role: 'assistant', content: 'the plan', status: 'done' })} chatId={CHAT} isLast busy={false} switchedFrom={null} onRegenerate={() => {}} onSelectBranch={() => {}} onAskOwnFolder={() => {}} shareable sendHere={{ roomId: team.id, target: null, onView: () => {} }} /></MemoryRouter>)
   try {
-    expect(a.get('share-to-room').textContent).toBe(en('sideChat.share'))
+    expect(a.get('send-here-room').textContent).toBe(SIDE_CHAT_SEND.room.en)
+    expect(a.find('share-to-room')).toBeNull()
   } finally {
     await a.unmount()
+  }
+  // the full chat: the dialog's button, its room picked when the dialog opens (pages/Chat.tsx: chat.sideRoomId)
+  const full = await mount(<MemoryRouter><AssistantMessage m={msg({ role: 'assistant', content: 'the plan', status: 'done' })} chatId={CHAT} isLast busy={false} switchedFrom={null} onRegenerate={() => {}} onSelectBranch={() => {}} onAskOwnFolder={() => {}} shareable shareRoomId={team.id} /></MemoryRouter>)
+  try {
+    expect(full.get('share-to-room').getAttribute('aria-label')).toBe(en('chat.shareToRoom'))
+    expect(full.find('send-here-room')).toBeNull()
+  } finally {
+    await full.unmount()
   }
   useRooms.setState({ rooms: [team, room({ name: 'Other', activityAt: at(4) })], loaded: true })
   const m = await mount(<ShareToRoom chatId={CHAT} messageId={uuidv7()} answer="short" roomId={team.id} onClose={() => {}} />)
@@ -345,7 +355,7 @@ test('"Ask Trina about this": the panel opens with the message quoted; a quick b
     const body = calls.find((c) => c.path === `/api/chats/${made}/messages`)!.body as { content: string }
     expect(body.content.startsWith('> acme · ')).toBe(true)
     expect(body.content).toContain('> 5. cloud side: owner-recovery-claimed')
-    expect(body.content.endsWith(en('sideChat.ask.translate'))).toBe(true)
+    expect(body.content.endsWith(SIDE_CHAT_QUICK.translate.ask.en)).toBe(true)
     // (this fake server refuses the send: the quote comes back with the failure, for a second try)
     await m.until(() => !!m.find('side-chat-quote'), 'the quote back after the failed send')
   } finally {
@@ -422,10 +432,10 @@ test('a file of the room: quoted by name and id (the AI opens it with room_file)
     for (const k of ['fileSummarize', 'fileKeyPoints', 'fileCheck', 'fileSave']) expect(m.find(`side-chat-quick-${k}`)).not.toBeNull()
     expect(m.find('side-chat-quick-translate')).toBeNull()
     // 팀 폴더에 저장: through the AI (save_room_file and its card), as a question with the file quoted
-    expect(m.get('side-chat-quick-fileSave').textContent).toBe(en('sideChat.quick.fileSave'))
+    expect(m.get('side-chat-quick-fileSave').textContent).toBe(SIDE_CHAT_QUICK.fileSave.label.en)
     await m.click('side-chat-quick-fileSave')
     await m.until(() => calls.some((c) => c.method === 'POST' && /^\/api\/chats\/[^/]+\/messages$/.test(c.path)), 'the question sent')
-    expect((calls.find((c) => c.method === 'POST' && /^\/api\/chats\/[^/]+\/messages$/.test(c.path))!.body as { content: string }).content).toBe(`> 📎 quote.pdf (file_id f-1 in this room)\n\n${en('sideChat.ask.fileSave')}`)
+    expect((calls.find((c) => c.method === 'POST' && /^\/api\/chats\/[^/]+\/messages$/.test(c.path))!.body as { content: string }).content).toBe(`> 📎 quote.pdf (file_id f-1 in this room)\n\n${SIDE_CHAT_QUICK.fileSave.ask.en}`)
   } finally {
     await m.unmount()
   }

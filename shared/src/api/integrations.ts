@@ -61,8 +61,9 @@ const ServiceUrl = z.string().url().max(2000)
 /** Your own app at the service, for signing in where the service does not let apps register themselves (Google's MCP
  * servers, NAVER WORKS ...): the client ID and secret made in its console. An MCP server's sign-in and token addresses
  * are found from its address unless given here; an HTTP API needs both. scope: the scopes to ask for, separated by
- * spaces (an MCP server: left out = what the server lists). The secret is write-only: a change without it keeps the
- * stored one while the client ID stays. docs/INTEGRATIONS.md "Your own app". */
+ * spaces (an MCP server: left out = what the server lists, or none when both addresses are given). The secret is
+ * write-only: a change without it keeps the stored one only with the same client ID, the same sign-in and token
+ * addresses and the same service address. docs/INTEGRATIONS.md "Your own app". */
 export const OAuthClientInput = z.object({
   clientId: z.string().trim().min(1).max(1000).regex(/^[^\s]+$/, 'no spaces'),
   clientSecret: z.string().min(1).max(4000).regex(/^[^\r\n\0]+$/, 'one line').optional(),
