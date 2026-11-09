@@ -1,8 +1,10 @@
 // The image viewer's document stage (components/ImageViewer.tsx; docs/DECISIONS.md "The room file viewer"): a file sent
 // in a room, DM, group chat or thread, opened from its chip, drawn by FileBody (the side panel's body: the same
 // renderers, limits and reads through the room) in a reading column up to 960 px wide that scrolls by itself. A PDF
-// keeps its own toolbar (zoom, fit to width) and, on a computer, gets its page thumbnails in a rail left of the column
-// (viewers/PdfView `thumbnails`), a sheet keeps its tabs; the keys ↑ ↓ PageUp PageDown Space scroll it (it is in
+// keeps its own toolbar (zoom, fit to width) and gets its page thumbnails in a rail left of the column (viewers/PdfView
+// `thumbnails`) where the stage (the space left of the viewer's right column) has room for the rail and a readable
+// document (lib/imageViewer.ts pdfRailFits: 1,024 px, so the right column takes the rail away before the document
+// narrows under 896 px; never on a phone), a sheet keeps its tabs; the keys ↑ ↓ PageUp PageDown Space scroll it (it is in
 // the Tab order, named by the file); the wheel over the dark sides scrolls it too. A link in it that opens the side
 // panel (a team file named in a Markdown file) closes the viewer, which would cover the panel.
 // A file with no preview here (no viewer for its kind, a Hangul file while the HWP preview is off, past the preview
@@ -14,7 +16,7 @@
 // bar's ‹ › step there.
 import { Download, File as FileIcon, FileArchive, FileAudio, FileCode, FileImage, FileSpreadsheet, FileText, FileVideo, Folder, Presentation } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { closeImageViewer, documentSwipe, type ViewerItem } from '../lib/imageViewer'
+import { closeImageViewer, documentSwipe, pdfRailFits, type ViewerItem } from '../lib/imageViewer'
 import { formatSize } from '../lib/format'
 import { extOf } from '../lib/paths'
 import { iconKind, type FileIconKind } from '../lib/preview'
@@ -53,8 +55,9 @@ function useSwipe(onSwipe: Swipe) {
 }
 
 /** `onMissing`: the read found no such file (the bar then drops its download too). `onHeld`: a download-only file (the
- * bar then drops 트리나에게 묻기: the AI is refused its bytes too). */
-export function ViewerDocument({ item, gone, onSwipe, onMissing, onHeld }: { item: ViewerItem; gone: boolean; onSwipe: Swipe; onMissing: () => void; onHeld?: () => void }) {
+ * bar then drops 트리나에게 묻기: the AI is refused its bytes too). `stageWidth`: the stage's width (the viewer measures
+ * it), which a PDF's thumbnails need room in. */
+export function ViewerDocument({ item, gone, stageWidth, onSwipe, onMissing, onHeld }: { item: ViewerItem; gone: boolean; stageWidth: number; onSwipe: Swipe; onMissing: () => void; onHeld?: () => void }) {
   const t = useT()
   const locale = useLocale()
   const swipe = useSwipe(onSwipe)
@@ -70,10 +73,10 @@ export function ViewerDocument({ item, gone, onSwipe, onMissing, onHeld }: { ite
         <FileCard item={item} note={item.card === 'large' && item.size !== undefined ? t('preview.tooLarge', { size: formatSize(item.size, locale) }) : t('preview.unsupported')} download={item.download} />
       </div>
     )
-  return <DocumentBody key={item.key} item={item} file={item.file} onSwipe={onSwipe} onMissing={onMissing} onHeld={onHeld} />
+  return <DocumentBody key={item.key} item={item} file={item.file} railFits={pdfRailFits(stageWidth)} onSwipe={onSwipe} onMissing={onMissing} onHeld={onHeld} />
 }
 
-function DocumentBody({ item, file: given, onSwipe, onMissing, onHeld }: { item: ViewerItem; file: PreviewFile; onSwipe: Swipe; onMissing: () => void; onHeld?: () => void }) {
+function DocumentBody({ item, file: given, railFits, onSwipe, onMissing, onHeld }: { item: ViewerItem; file: PreviewFile; railFits: boolean; onSwipe: Swipe; onMissing: () => void; onHeld?: () => void }) {
   const t = useT()
   // the file as first given: the chip builds its item anew on each render, and a new object would read it again (the
   // body is drawn anew, keyed, for another file)
@@ -91,7 +94,8 @@ function DocumentBody({ item, file: given, onSwipe, onMissing, onHeld }: { item:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded.downloadOnly])
   const [box, setBox] = useState<HTMLDivElement | null>(null)
-  // a PDF's page thumbnails, left of the column (viewers/PdfView draws them in it on computers; empty otherwise)
+  // a PDF's page thumbnails, left of the column (viewers/PdfView draws them in it where the stage has room; empty
+  // otherwise)
   const [rail, setRail] = useState<HTMLDivElement | null>(null)
   const [width, setWidth] = useState(0)
   // the viewers fit the column's width (a PDF's pages, a deck's slides)
@@ -155,7 +159,7 @@ function DocumentBody({ item, file: given, onSwipe, onMissing, onHeld }: { item:
           {card ? (
             <FileCard item={item} note={loaded.error?.text ?? t('preview.unsupported')} download={missing ? undefined : item.download} />
           ) : (
-            <FileBody file={file} loaded={loaded} width={width} download={item.download ?? stay} onRetry={() => setRev((v) => v + 1)} openPicture={stay} thumbnails={rail} />
+            <FileBody file={file} loaded={loaded} width={width} download={item.download ?? stay} onRetry={() => setRev((v) => v + 1)} openPicture={stay} thumbnails={railFits ? rail : null} />
           )}
         </div>
       </div>

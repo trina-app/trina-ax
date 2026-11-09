@@ -1,6 +1,7 @@
 // "옮기기…" in a skill row's menu on the Skills page (docs/DECISIONS.md "Project skills"): one skill to another level
-// (팀 전체 · a group · a project's chats · 나만). GET /api/skills/move lists the levels with how many people get it there,
-// who gains and who loses it, or why it cannot go; a level that reaches more people shows the skill's whole text first.
+// (팀 전체 · a group · a project's chats · 나만). GET /api/skills/move lists the levels with who gains and who loses it
+// ("2명이 새로 쓰고 2명은 못 쓰게 돼요 (3명 → 3명)"), or why it cannot go; a level that reaches more people shows the
+// skill's whole text first.
 // POST /api/skills/move moves it as seen (`token`: every file's hash and the target; a change since answers 409).
 import clsx from 'clsx'
 import { useEffect, useState } from 'react'
@@ -12,6 +13,16 @@ import { toast } from '../../store/ui'
 import { Button, ErrorNote, Modal, Skeleton } from '../ui'
 
 const key = (x: SkillMoveTarget) => (x.to.level === 'group' ? `group:${x.to.groupId}` : x.to.level === 'project' ? `project:${x.to.projectId}` : x.to.level)
+
+/** Who gains and who loses it, with the counts before and after: "2명이 새로 쓰고 2명은 못 쓰게 돼요 (3명 → 3명)" (never
+ * "2 more (3 → 3)": two gain it and two lose it). The server's card says it the same way (skills/move.ts changeLine). */
+function changeText(t: ReturnType<typeof useT>, x: Pick<SkillMoveTarget, 'gained' | 'lost' | 'people'>, from: number): string {
+  const vars = { gained: x.gained, lost: x.lost, from, to: x.people }
+  if (x.gained && x.lost) return t('skills.moveBoth', vars)
+  if (x.gained) return t('skills.moveGainedOnly', vars)
+  if (x.lost) return t('skills.moveLostOnly', vars)
+  return t('skills.moveSamePeople', { n: x.people })
+}
 
 export function MoveSkillDialog({ path, name, onClose }: { path: string; name: string; onClose: () => void }) {
   const t = useT()
@@ -73,13 +84,14 @@ export function MoveSkillDialog({ path, name, onClose }: { path: string; name: s
                     <span className="min-w-0 flex-1">
                       <span className="flex flex-wrap items-baseline gap-x-2">
                         <span className="font-medium">{x.label}</span>
-                        <span className="text-xs text-muted tabular-nums">{t('skills.movePeople', { n: x.people })}</span>
+                        {/* a level it can go to says the count in its line: "(3명 → 3명)" */}
+                        {x.blocked && <span className="text-xs text-muted tabular-nums">{t('skills.movePeople', { n: x.people })}</span>}
                       </span>
                       {x.blocked ? (
                         <span className="mt-0.5 block text-xs text-faint">{x.blocked}</span>
                       ) : (
-                        <span className="mt-0.5 block text-xs text-muted" data-testid="skill-move-effect">
-                          {[x.gained ? t('skills.moveGained', { n: x.gained }) : '', x.lost ? t('skills.moveLost', { n: x.lost }) : '', t('skills.moveEditors', { n: x.editors })].filter(Boolean).join(' · ')}
+                        <span className="mt-0.5 block text-xs text-muted tabular-nums" data-testid="skill-move-effect">
+                          {[changeText(t, x, opts.from.people), t('skills.moveEditors', { n: x.editors })].join(' · ')}
                         </span>
                       )}
                     </span>
