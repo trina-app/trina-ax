@@ -88,30 +88,67 @@ export function recordSkillChange(ctx: AppContext, e: FileEventInput): void {
   const c = skillChangeOf(e)
   if (!c) return
   const kind = c.kind ?? (c.change === 'delete' ? null : kindOf(ctx, c.path))
+  record(ctx, e.userId, c.path, { change: c.change, from: c.from, byAi: c.byAi, turnId: c.turnId, kind, tool: c.tool })
+}
+
+/** One skill change: the audit row (with the group or project of its skills folder) and a notice to the owner, the
+ * admins and a project's creator. `extra`: more for the row (a carried skill's on / off). */
+function record(ctx: AppContext, actor: string, at: string, d: Omit<ChangeDetail, 'group' | 'project'>, extra: Record<string, unknown> = {}, owner?: SkillOwner): void {
   // a group's skills folder: the group by its name now (docs/DECISIONS.md "Group skills"); a folder no group has any
   // more is still recorded, by its folder
   // a moved file is recorded where it went, unless it left the skill roots (then where it was)
-  const root = skillRootOf(c.path)
-  const group = root?.kind === 'group' ? groupOfFolder(ctx.db, root.folder) ?? { id: null, name: root.folder.split('/')[1]! } : null
-  // a project's skills folder: the project by its name now; a folder no live project has is still recorded, by its name
-  const live = root?.kind === 'project' ? projectOfFolder(ctx.db, root.folder) : null
-  const project = root?.kind === 'project' ? { id: live?.id ?? null, name: live?.name ?? root.folder.split('/')[1]! } : null
-  const detail: ChangeDetail = { change: c.change, from: c.from, byAi: c.byAi, turnId: c.turnId, kind, tool: c.tool, ...(group ? { group } : {}), ...(project ? { project } : {}) }
-  audit(ctx.db, { actor: e.userId, action: SKILL_CHANGE_ACTION, target: c.path, detail: detail as unknown as Record<string, unknown> })
-  const who = (ctx.db.query('SELECT name FROM users WHERE id = ?').get(e.userId) as { name: string } | null)?.name ?? e.userId
-  const link = historyLink(c.path, c.change, kind)
-  const people = watchers(ctx, e.userId, live ? { createdBy: live.createdBy, folder: live.folder } : undefined)
+  const o = owner ?? skillOwner(ctx, at)
+  const group = o.group ?? null
+  const live = o.live ?? null
+  const project = o.project ?? null
+  const detail: ChangeDetail = { ...d, ...(group ? { group } : {}), ...(project ? { project } : {}) }
+  audit(ctx.db, { actor, action: SKILL_CHANGE_ACTION, target: at, detail: { ...detail, ...extra } as unknown as Record<string, unknown> })
+  const who = (ctx.db.query('SELECT name FROM users WHERE id = ?').get(actor) as { name: string } | null)?.name ?? actor
+  const link = historyLink(at, d.change, d.kind)
+  const people = watchers(ctx, actor, live ? { createdBy: live.createdBy, folder: live.folder } : undefined)
   // after the change is committed (fileEvent can run inside a transaction)
   queueMicrotask(() => {
     for (const u of people) {
-      const p = redactPersonal(c.path, u.id)
-      const vars = { path: p, who, ai: c.byAi ? st('viaAi', u.locale) : '' }
+      const p = redactPersonal(at, u.id)
+      const vars = { path: p, who, ai: d.byAi ? st('viaAi', u.locale) : '' }
       try {
         const message = group ? st('changedGroup', u.locale, { ...vars, group: group.name }) : project ? st('changedProject', u.locale, { ...vars, project: project.name }) : st('changed', u.locale, vars)
         ctx.services.realtime.publish(u.id, { type: 'notice', data: { level: 'info', code: 'skill_changed', message, link } })
       } catch (err) { ctx.log.warn('skill change notice failed', { err }) }
     }
   })
+}
+
+/** The group or project whose skills folder `rel` is in, as it is now (a folder no group or live project has is still
+ * named, by its folder); `live`: the live project, for its creator's notice. */
+export interface SkillOwner { group?: { id: string | null; name: string }; project?: { id: string | null; name: string }; live?: { createdBy: string | null; folder: string } }
+export function skillOwner(ctx: AppContext, rel: string): SkillOwner {
+  const root = skillRootOf(rel)
+  if (root?.kind === 'group') return { group: groupOfFolder(ctx.db, root.folder) ?? { id: null, name: root.folder.split('/')[1]! } }
+  if (root?.kind !== 'project') return {}
+  const live = projectOfFolder(ctx.db, root.folder)
+  return { project: { id: live?.id ?? null, name: live?.name ?? root.folder.split('/')[1]! }, ...(live ? { live: { createdBy: live.createdBy, folder: live.folder } } : {}) }
+}
+
+/** A skill below a moved folder whose place as a skill changed with it (team-files/service.ts carriedSkills): `off` it
+ * left the skill roots (a project's folder moved out of projects/, a group's out of groups/), `on` it came into one,
+ * `moved` it stays one at another path (a group's or project's folder renamed). `owner`: for `off`, whose skills folder
+ * it was, read before the move (the project or group follows its folder). */
+export interface CarriedSkill { from: string; to: string; state: 'on' | 'off' | 'moved'; owner?: SkillOwner }
+
+/**
+ * Each skill a folder move carried (docs/DECISIONS.md "Skill folders: the AI's file actions"): a skill change, recorded
+ * where it went (where it was when it left the skill roots), with where it came from and whether it stopped or started
+ * applying, and the same notice as any other skill change. The Files screen's moves and the AI's alike: before, only a
+ * project's skills switching on were recorded, without a notice, and skills switched off by a move left no trace.
+ */
+export function recordCarriedSkills(ctx: AppContext, actor: string, items: readonly CarriedSkill[], o: { turnId: string | null; tool: string | null }): void {
+  for (const i of items) {
+    try {
+      record(ctx, actor, i.state === 'off' ? i.from : i.to, { change: 'move', from: i.from, byAi: o.turnId !== null, turnId: o.turnId, kind: i.to.endsWith('/SKILL.md') ? 'skill' : null, tool: o.tool },
+        i.state === 'off' ? { switchedOff: 'folder_move', to: i.to } : i.state === 'on' ? { switchedOn: 'folder_move' } : {}, i.owner)
+    } catch (err) { ctx.log.error('recording a carried skill failed', { err, path: i.to }) }
+  }
 }
 
 /** Start tracking skills/ changes for this server instance (called once from createContext). */

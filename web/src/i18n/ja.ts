@@ -2023,6 +2023,8 @@ export const ja: Record<MessageKey, string> = {
   'audit.act.skills.move_refused': 'スキルの移動を拒否',
   'audit.act.files.ai_trash': 'AIによるゴミ箱への移動',
   'audit.act.skills.copy': 'スキルをコピー',
+  'audit.act.skills.files': 'AIがスキルフォルダーのファイルを変更',
+  'audit.act.skills.files_refused': 'スキルフォルダーの変更を拒否',
   'audit.act.schedule.project_gone': '定期タスクをスキップ（所有者がプロジェクトを閲覧できない）',
   'audit.act.skills.ai_write_refused': "AIによるチームスキルへの保存を拒否",
   'audit.act.skills.suggest': "スキルを提案",

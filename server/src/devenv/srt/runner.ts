@@ -32,11 +32,11 @@ import { newId } from '../../db'
 import { storageRoom } from '../../system/storage'
 import { resolveLayout } from '../../system/layout'
 import { mayUseDevEnv, teamSetting } from '../setting'
-import { folderView, viewAccess, viewHash, type FolderView, type RunWrites } from './access'
+import { folderView, runSkillFolders, viewAccess, viewHash, type FolderView, type RunWrites } from './access'
 import { RUN_ID_RE, SRT_PATHS, chatWork, devenvPaths, isFull, personHome, personLogs, resolveRunCwd, runEnv, settingsProblems, srtSettings, unitName, UNIT_RE } from './config'
 import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personNet, type NetSnapshot } from '../sites'
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
-import { holdPlaceholders } from './placeholders'
+import { holdPlaceholders, holdSkillFolders } from './placeholders'
 import { _resetQueue, cancelTicket, endOrphanTickets, grantTicket, heldCommands, noteServed, pickNext, servedNow, startOrder, ticketIds, withoutTickets } from './queue'
 import { directSystem, systemdSystem, type SrtSystem } from './system'
 
@@ -285,24 +285,29 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, network:
 
 async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pid: number; exited: Promise<{ code: number | null; signal: string | null }>; hash: string; net: NetSnapshot }> {
   const p = prepare(c, s.space.userId)
-  const { settings, work, hash, net } = await settingsFor(ctx, c, s.space, s.network, s.once)
-  // a cwd through a link out of the root folder is refused before the run (attack A10)
-  const cwd = resolveRunCwd(s.space.root, s.cwd)
-  if (!cwd) throw new Error('cwd must be a folder inside the folder of this chat')
-  const settingsFile = path.join(p.run, `${s.runId}.json`)
-  fs.writeFileSync(settingsFile, JSON.stringify(settings), { mode: 0o600, flag: 'wx' })
-  const exitFile = path.join(p.personLogs, `${s.runId}.exit`)
-  // srt's write denies in the cwd stay in force while other runs share it (placeholders.ts)
-  const release = holdPlaceholders(cwd)
-  let sp: Awaited<ReturnType<SrtSystem['spawn']>>
+  // the skill folders a run never writes are there while it lives, so srt mounts them read-only (placeholders.ts),
+  // before the folder access is read
+  let skills: string[] = []
+  try { skills = runSkillFolders(runWrites(ctx, c, s.space), s.space.userId) } catch { /* settingsFor says why it cannot run */ }
+  const releaseSkills = holdSkillFolders(ctx.files.fx.root, skills)
+  let release = () => {}
   try {
-    sp = await c.system.spawn({
+    const { settings, work, hash, net } = await settingsFor(ctx, c, s.space, s.network, s.once)
+    // a cwd through a link out of the root folder is refused before the run (attack A10)
+    const cwd = resolveRunCwd(s.space.root, s.cwd)
+    if (!cwd) throw new Error('cwd must be a folder inside the folder of this chat')
+    const settingsFile = path.join(p.run, `${s.runId}.json`)
+    fs.writeFileSync(settingsFile, JSON.stringify(settings), { mode: 0o600, flag: 'wx' })
+    const exitFile = path.join(p.personLogs, `${s.runId}.exit`)
+    // srt's write denies in the cwd stay in force while other runs share it (placeholders.ts)
+    release = holdPlaceholders(cwd)
+    const sp = await c.system.spawn({
     runId: s.runId, id: c.id, cwd, env: runEnv({ base: c.base, userId: s.space.userId, teamRoot: ctx.files.fx.root, work }),
     limits: { cpus: s.limits.cpus, memoryMiB: s.limits.memoryMiB, pids: s.limits.pids, runtimeMaxSec: s.runtimeMaxSec }, exitFile, settingsFile, command: s.command,
     stdoutFile: s.stdoutFile, stderrFile: s.stderrFile, full: isFull(settings),
     })
-  } catch (e) { release(); throw e }
-  return { ...sp, exited: sp.exited.finally(release), hash, net }
+    return { ...sp, exited: sp.exited.finally(() => { release(); releaseSkills() }), hash, net }
+  } catch (e) { release(); releaseSkills(); throw e }
 }
 
 function readHead(file: string, max: number): { text: string; cut: boolean } {
