@@ -184,7 +184,7 @@ export const MoveSkillInput = z.strictObject({
  * behind one card the user answers (docs/DECISIONS.md "Skill folders: the AI's file actions"). */
 export const SkillFilesInput = z.strictObject({
   action: z.enum(['move', 'copy', 'rename']).describe('move: to another folder; copy: a copy there, the original stays; rename: a new name in the same folder.'),
-  path: relPath.describe('The one file or folder, e.g. "projects/견적", "skills/report.pdf" or "users/<you>/drafts/brand-guide".'),
+  path: relPath.describe('The one file or folder, e.g. "projects/quotes", "skills/report.pdf" or "users/<you>/drafts/brand-guide".'),
   to_folder: optRelPath.describe('For move and copy: the folder it goes into. It must be there; the name is kept and must be free there.'),
   new_name: z.string().min(1).max(255).optional().describe('For rename: the new name only (it stays in its folder).'),
 })
