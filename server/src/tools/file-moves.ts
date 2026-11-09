@@ -59,14 +59,14 @@ type Mode = 'move' | 'copy'
 
 export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
   const svc = componentC(ctx).files
-  /** The reason for one path, as the checks wrote it (a hidden path answers "not found or no access", like a missing
-   * one, and nothing is added to it); an admin-only folder names the admins (B14), a read-only one who can give write
-   * access (B2). */
-  // who can give write access, the project's creator only when the person may read that project (policy/refusal.ts)
+  /** Who can give write access, the project's creator only when the person may read that project (policy/refusal.ts). */
   const readOnly = (msg: string, L: Locale, tc: ToolCtx) => {
     const rules = ctx.files.rules()
     return readOnlyNote(ctx.db, msg, L, { userId: tc.user.id, sees: (segs) => atLeast(rules.access(tc.user, segs), 'read'), button: false })
   }
+  /** The reason for one path, as the checks wrote it (a hidden path answers "not found or no access", like a missing
+   * one, and nothing is added to it); an admin-only folder names the admins (B14), a read-only one who can give write
+   * access (B2). */
   const why = (e: unknown, tc: ToolCtx): string => {
     const L = tc.person?.locale ?? teamDefaultLocale(ctx.db)
     if (e instanceof FileError && e.key === 'ruleFolder') {

@@ -131,7 +131,7 @@ export interface TurnSpec extends QueueTiming {
  * that failed (chat/turn.ts sharedReadText). */
 type SharedNo = CardEnd | 'failed'
 type SharedDecision = 'shared' | SharedNo
-interface OpenRequest { request: TurnRequest; resolve(v: CardAnswer): void; timer: ReturnType<typeof setTimeout>; window: string | null }
+interface OpenRequest { request: TurnRequest; resolve(v: unknown): void; timer: ReturnType<typeof setTimeout>; window: string | null }
 /** A card's answer and, with none, why there was none (policy/refusal.ts CardEnd): a refusal then says the real reason. */
 export interface CardAnswer { value: unknown; missing: Exclude<CardEnd, 'declined'> | null }
 
@@ -2358,21 +2358,28 @@ export class TurnExec {
   }
 
   // ---------------- people answering (ask_user, browser site) ----------------
-  /** Show a card and wait for the answer; null = skipped / timed out / turn ended. The time limit pauses meanwhile. */
-  async waitForPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number }): Promise<unknown> {
-    return (await this.askPerson(request, o)).value
-  }
-
   /**
    * waitForPerson with why there was no answer (`missing`): 'unattended' (a scheduled run: no card is raised),
-   * 'timeout' (nobody answered in time) or 'ended' (the answer stopped first). A refusal must not say "the user did not
-   * allow this" for a card nobody saw (docs/DECISIONS.md "Refusals say why, who and what next").
+   * 'timeout' (nobody answered in time) or 'ended' (the answer stopped first); null with an answer, or when the person
+   * closed the card without one (a no). A refusal must not say "the user did not allow this" for a card nobody saw
+   * (docs/DECISIONS.md "Refusals say why, who and what next").
    */
-  askPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number }): Promise<CardAnswer> {
+  async askPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number }): Promise<CardAnswer> {
+    const value = await this.waitForPerson(request, o)
+    // (a test's stand-in turn made with Object.create has no fields: no reason recorded, a plain answer)
+    const missing = this.cardMissing?.get(request.requestId) ?? null
+    this.cardMissing?.delete(request.requestId)
+    return { value, missing: value === null || value === undefined ? missing : null }
+  }
+  /** why a card got no answer, by request id, for askPerson (waitForPerson's answer stays what it was) */
+  private cardMissing = new Map<string, CardAnswer['missing']>()
+
+  /** Show a card and wait for the answer; null = skipped / timed out / turn ended. The time limit pauses meanwhile. */
+  waitForPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number }): Promise<unknown> {
     if (this.remainingWallMs() <= 0) this.expireWall()
-    if (this.stopReason || this.abort.signal.aborted) return Promise.resolve({ value: null, missing: 'ended' })
+    if (this.stopReason || this.abort.signal.aborted) { this.cardMissing.set(request.requestId, 'ended'); return Promise.resolve(null) }
     // a scheduled task runs with nobody watching: no card, every question and confirmation is "no answer"
-    if (this.spec.clientKind === 'schedule') return Promise.resolve({ value: null, missing: 'unattended' })
+    if (this.spec.clientKind === 'schedule') { this.cardMissing.set(request.requestId, 'unattended'); return Promise.resolve(null) }
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         if (this.remainingWallMs() <= 0) this.expireWall()
@@ -2444,7 +2451,8 @@ export class TurnExec {
     if (r.window) this.rt.hub.publishTo(this.spec.userId, r.window, ev)
     else this.rt.hub.publish(this.spec.userId, ev)
     this.cardsChanged(r.window, false)
-    r.resolve({ value, missing: reason === 'answered' ? null : reason === 'timeout' ? 'timeout' : 'ended' })
+    if (reason !== 'answered') this.cardMissing.set(requestId, reason === 'timeout' ? 'timeout' : 'ended')
+    r.resolve(value)
   }
 
   // ---------------- files ----------------
