@@ -1,8 +1,8 @@
 // Project skills (docs/DECISIONS.md "Project skills"): projects/<name>/skills/<skill>/SKILL.md of a team project, used
 // only in that project's chats. The Team skills page has a section per project with skills ("{project} 프로젝트 스킬",
 // "이 프로젝트 채팅에서만"), a small "같은 이름" chip where a wider skill of the name runs instead; the "/" menu marks them
-// inside that project only; asking a project chat to move a group's skills shows the move card (who loses it, every
-// file), and after yes the skill is under the project; "옮기기…" shows who gains and loses at each level and the whole
+// inside that project only; asking a project chat to move a group's skills shows the move card (who loses it, by name
+// for the owner, SKILL.md, every file), and after yes the skill is under the project; "옮기기…" shows who gains and loses at each level and the whole
 // text when more people would get it; the save card offers another name when the name is taken; sharing a personal
 // project whose skills/ holds skills names them first.
 import { expect, test, type Page } from '@playwright/test'
@@ -70,11 +70,17 @@ test('a project chat asked to move the files and the skills: the move card, then
   const card = page.getByTestId('ask-card').last()
   await expect(card).toBeVisible()
   await expect(card).toContainText('"quote-check" 스킬을 옮길까요?')
-  await expect(card).toContainText('리드 부서 3명 → 견적 프로젝트 채팅 2명')
-  await expect(card).toContainText('1명은 이 스킬을 더 쓰지 않아요.')
+  // who gains and who loses it in one line, with the counts before and after
+  await expect(card).toContainText('리드 부서 → 견적 프로젝트 채팅')
+  await expect(card).toContainText('1명은 못 쓰게 돼요 (3명 → 2명).')
   // and who may change it there
   await expect(card).toContainText('옮기면 2명이 고칠 수 있어요.')
-  // every file it holds
+  // by name for the owner
+  await expect(card.getByTestId('ask-detail-fields')).toContainText('더 못 쓰게 돼요')
+  await expect(card.getByTestId('ask-detail-fields')).toContainText('Dana')
+  // SKILL.md always, folded after its start when nobody new gets it; every file it holds
+  await expect(card.getByTestId('ask-details')).toContainText('SKILL.md 전체 내용')
+  await expect(card.getByTestId('ask-details')).toContainText('name: quote-check')
   await expect(card.getByTestId('ask-details')).toContainText('groups/리드/skills/quote-check/SKILL.md')
   await card.getByTestId('ask-yes').click()
   await expect(page.getByTestId('ask-card')).toHaveCount(0)

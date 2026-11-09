@@ -30,6 +30,8 @@ export function skillChangeOf(e: FileEventInput): (ChangeDetail & { path: string
   const d = parse(e.detail)
   const movedFrom = typeof d.movedFrom === 'string' ? d.movedFrom : null
   const movedTo = typeof d.movedTo === 'string' ? d.movedTo : null
+  // a skill copied from another level (skills/move.ts runCopy): a new skill, its `from` the original
+  const copiedFrom = typeof d.copiedFrom === 'string' ? d.copiedFrom : null
   const folder = d.folder === true
   const tool = typeof d.tool === 'string' ? d.tool : null
   const base = { byAi: e.turnId !== null, turnId: e.turnId, tool }
@@ -42,7 +44,7 @@ export function skillChangeOf(e: FileEventInput): (ChangeDetail & { path: string
   switch (e.action) {
     case 'create': case 'upload':
       if (movedFrom) return { ...base, path: e.path, change: 'move', from: movedFrom, kind: folder ? 'folder' : null }
-      return { ...base, path: e.path, change: 'create', from: null, kind: folder ? 'folder' : null }
+      return { ...base, path: e.path, change: 'create', from: copiedFrom, kind: folder ? 'folder' : null }
     case 'update': return { ...base, path: e.path, change: 'update', from: null, kind: null }
     case 'delete': return { ...base, path: e.path, change: 'delete', from: null, kind: folder ? 'folder' : null }
     case 'restore': return { ...base, path: e.path, change: 'restore', from: null, kind: folder ? 'folder' : null }
