@@ -4285,4 +4285,12 @@ export const es: Record<MessageKey, string> = {
   "viewer.thumbOnly": "Se muestra una copia pequeña. Descarga el original para verlo completo.",
   "viewer.failed": "El original no se cargó. Se muestra una copia pequeña.",
   "viewer.noPicture": "Esta imagen no se puede mostrar aquí.",
+  "viewer.copied": "Imagen copiada",
+  "viewer.copiedThumb": "Se copió la imagen pequeña de la pantalla en lugar del original.",
+  "viewer.copiedScaled": "La imagen es muy grande, así que se copió más pequeña.",
+  "viewer.copyFailed": "No se pudo copiar la imagen",
+  "viewer.copyDenied": "El navegador no permitió escribir en el portapapeles. Haz clic o toca una vez en la ventana y vuelve a intentarlo.",
+  "viewer.copyTooBig": "La imagen es demasiado grande para copiarla. Descárgala.",
+  "viewer.copyNotLoaded": "La imagen no se cargó.",
+  "viewer.copyError": "Vuelve a intentarlo. Si sigue fallando, descárgala.",
 }
