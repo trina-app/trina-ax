@@ -65,20 +65,36 @@ export function narrowedBy(err: unknown): number | null {
   return Number(err.body.params.lostViewers ?? 0)
 }
 
-type MoveBody = { from: string; to: string; onExists: 'rename'; confirm?: boolean }
+/** the skills a move would turn on (a project's folder moved to projects/<name>: docs/DECISIONS.md "Project skills"),
+ * when the server refused it for that, else null */
+export function projectSkillsOn(err: unknown): string[] | null {
+  if (!(err instanceof ApiError) || err.code !== 'conflict' || err.body.params?.reason !== 'project_skills_on') return null
+  return String(err.body.params.skills ?? '').split('\n').filter(Boolean)
+}
+
+type MoveBody = { from: string; to: string; onExists: 'rename'; confirm?: boolean; skillsOk?: boolean }
 
 /**
  * POST /api/files/move for each item into `folder` (a name taken there gets "name (2)"). Items the server answers
  * audience_narrowed for are not moved yet; once all others are done the person is asked once for all of them (how many
  * items, and the most people any one of them would be hidden from), then those are moved with confirm.
  */
-export async function moveMany(items: readonly FileEntry[], folder: string, o: { move: (body: MoveBody) => Promise<unknown>; confirmNarrow: (count: number, lostViewers: number) => Promise<boolean> }): Promise<Outcome> {
+export async function moveMany(items: readonly FileEntry[], folder: string, o: { move: (body: MoveBody) => Promise<unknown>; confirmNarrow: (count: number, lostViewers: number) => Promise<boolean>; confirmSkills?: (skills: string[]) => Promise<boolean> }): Promise<Outcome> {
   const out: Outcome = { done: [], failed: [], declined: [] }
   const narrowed: { entry: FileEntry; body: MoveBody; lost: number }[] = []
   for (const entry of items) {
-    const body: MoveBody = { from: entry.path, to: joinPath(folder, entry.name), onExists: 'rename' }
+    let body: MoveBody = { from: entry.path, to: joinPath(folder, entry.name), onExists: 'rename' }
     try {
-      await o.move(body)
+      try {
+        await o.move(body)
+      } catch (error) {
+        // a project's folder into projects/<name>: its skills turn on, asked for this one item
+        const skills = projectSkillsOn(error)
+        if (!skills || !o.confirmSkills) throw error
+        if (!(await o.confirmSkills(skills))) { out.declined.push(entry); continue }
+        body = { ...body, skillsOk: true }
+        await o.move(body)
+      }
       out.done.push(entry)
     } catch (error) {
       const lost = narrowedBy(error)

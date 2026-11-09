@@ -159,6 +159,8 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
         <p id={`${name}-q`} className="mt-1 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">
           {r.question}
         </p>
+        {/* a project skill whose name is taken elsewhere: another name, or the one that runs (docs/DECISIONS.md "Project skills") */}
+        {r.preview && <div className="mt-2.5"><SkillPreview p={r.preview} /></div>}
         {r.details?.length ? <Details items={r.details} plain /> : null}
         <ChoiceRow
           className="mt-3"
@@ -312,6 +314,8 @@ function SkillPreview({ p }: { p: SkillWritePreview }) {
       )}
       {p.truncated && <p className="border-t border-line px-3 py-1 text-micro text-faint">{t('ask.skillTruncated')}</p>}
       {p.problem && <p className="border-t border-line bg-warn-soft px-3 py-1.5 text-xs text-warn" data-testid="skill-preview-problem">{issueText(t, { path: p.path, problem: p.problem })}</p>}
+      {/* a skill of the same name at another level the person sees: which one runs (the server's words) */}
+      {p.sameName && <p className="border-t border-line bg-warn-soft px-3 py-1.5 text-xs text-warn" data-testid="skill-preview-same-name" data-hidden={p.sameName.hidden || undefined}>{p.sameName.text}</p>}
     </div>
   )
 }

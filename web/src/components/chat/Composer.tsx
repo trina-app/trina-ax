@@ -97,6 +97,7 @@ export default function Composer({
   hold,
   queueing = true,
   teamFilesOnly,
+  projectId,
 }: {
   ref?: Ref<ComposerHandle>
   /** chat id, or "new" / "project:<id>" for a chat not created yet */
@@ -136,6 +137,8 @@ export default function Composer({
   queueing?: boolean
   /** files of the team folder only (a shared chat): no upload from this computer, and this says why */
   teamFilesOnly?: string
+  /** the chat's project: its own skills are in the "/" menu (docs/DECISIONS.md "Project skills") */
+  projectId?: string | null
 }) {
   const t = useT()
   const locale = useLocale()
@@ -152,7 +155,7 @@ export default function Composer({
   const [text, setText] = useState(initial.text)
   // the chosen skill's chip (taken out with its X: the question then goes without the skill)
   const [chosen, setChosen] = useState(skill ?? null)
-  const skillMenu = useSkillMenu(text, setText)
+  const skillMenu = useSkillMenu(text, setText, projectId)
   const taRef = useRef<HTMLTextAreaElement>(null)
   // a confidential chat keeps to its local tools: no room is read there, so "#" lists none (closed while not known);
   // nor while the box answers the AI's question (that answer is plain text, it carries no room)

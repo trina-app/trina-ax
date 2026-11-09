@@ -406,6 +406,7 @@ function ChatView({ chatId }: { chatId: string }) {
             hold={othersTurn ? t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }) : undefined}
             queueing={!shared}
             teamFilesOnly={shared ? t('chat.sharedTeamFiles') : undefined}
+            projectId={chat?.projectId ?? null}
             autoFocus
           />
           </>

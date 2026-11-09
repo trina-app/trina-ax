@@ -11,7 +11,7 @@ export type Tone = 'muted' | 'warn' | 'danger'
 /** How a last-run result reads: a clean success stays quiet, problems and failures stand out. */
 export function outcomeTone(o: Schedule['lastOutcome']): Tone {
   if (o === 'problems') return 'warn'
-  if (o === 'error' || o === 'stopped' || o === 'interrupted' || o === 'budget_exceeded' || o === 'user_unavailable' || o === 'needs_key') return 'danger'
+  if (o === 'error' || o === 'stopped' || o === 'interrupted' || o === 'budget_exceeded' || o === 'user_unavailable' || o === 'needs_key' || o === 'project_gone') return 'danger'
   return 'muted'
 }
 

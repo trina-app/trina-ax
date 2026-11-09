@@ -3,9 +3,9 @@ import type { SkillIssue } from '@mycel/shared/api'
 import type { useT } from '../i18n'
 import { isInside, parentPath } from './paths'
 
-/** skills/ (team skills), a groups/<folder>/skills/ folder (a group's skills) or a users/<id>/skills/ folder (personal
- * skills; the server lists only the caller's own). */
-export const isSkillsPath = (p: string) => p === 'skills' || p.startsWith('skills/') || /^(?:users|groups)\/[^/]+\/skills(?:\/|$)/.test(p)
+/** skills/ (team skills), a groups/<folder>/skills/ folder (a group's skills), a projects/<name>/skills/ folder (a
+ * project's skills) or a users/<id>/skills/ folder (personal skills; the server lists only the caller's own). */
+export const isSkillsPath = (p: string) => p === 'skills' || p.startsWith('skills/') || /^(?:users|groups|projects)\/[^/]+\/skills(?:\/|$)/.test(p)
 /** The issues for a folder of the Files screen: its own entries and the entries below it. No folder: all of them. */
 export const issuesIn = (items: SkillIssue[], folder?: string) => (folder === undefined ? items : items.filter((i) => i.path !== folder && isInside(i.path, folder)))
 /** The text of an issue. `name` has one rule for a SKILL.md and another for a legacy file: only a SKILL.md has the
