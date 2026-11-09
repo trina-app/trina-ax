@@ -52,6 +52,14 @@ Opening a chat clears its dot, and the **?** of a failed or paused answer, on ev
 
 While the browser tab is in the background, its title counts the chats and rooms that want you, for example "(2) Trina". The desktop app shows the same number on the Dock on a Mac, and a notification when a card opens or an answer that ran over a minute ends while you look elsewhere; clicking it opens that chat. Scheduled tasks get the mark only; a question asked from Slack is answered there, so its chat gets no dot. On a phone, the ☰ button gets a dot when a chat in it wants you, the **대화** tab shows **?** while the AI waits for your answer in a room, and a short message with **Open** appears in the app.
 
+## Pin a chat
+
+In **Trina history**, a chat's **···** (or a right-click on its row, or a long press on a phone) has **Pin to top**
+(상단에 고정). Pinned chats come first, the most recently pinned first, with a small pin before the title: on a computer
+up to ten above the five latest chats, and all of them first in **Show all** and on a phone. A project's page lists your
+pinned chats there first too. **Unpin** (고정 해제) puts a chat back. A pin is yours only, also on a shared project chat,
+and it goes when the chat is deleted or you can no longer see it. You can pin up to 50 chats.
+
 ## Projects
 
 A project is a folder of the team folder, plus instructions. Use it for work that keeps coming back to the same files: a launch, a client, a quarter's report.

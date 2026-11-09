@@ -190,6 +190,9 @@ export const Chat = z.object({
   /** the room whose side panel (✦ Trina) this chat was opened from (docs/DECISIONS.md "트리나 사이드 채팅"): the AI is
    * told the room, and an answer goes there only with "Share to room". Absent: an ordinary chat. */
   sideRoomId: z.string().optional(),
+  /** when I pinned it to the top of my chat list ("상단에 고정", POST /api/chats/:id/pin; migration 277). Mine only: on
+   * a shared project chat nobody else sees my pin. Absent = not pinned. */
+  pinnedAt: IsoTime.optional(),
   /** a shared project chat (docs/DECISIONS.md "Shared project chats"): the people who can see its project see it and may
    * continue it, each turn as the person who sent it. Absent: a chat of one person. */
   shared: z.object({

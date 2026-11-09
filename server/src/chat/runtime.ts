@@ -735,7 +735,7 @@ export class ChatRuntime {
       o = {}
     }
     // a chat that stopped being shared after others wrote in it: its marker and last outcome are its creator's answers'
-    const chat = r ? this.store.toChat(r, this.runState(chatId), this.waitsForPerson(chatId), severalAuthors(this.db, chatId) ? { answersOf: r.user_id } : {}) : null
+    const chat = r ? this.store.toChat(r, this.runState(chatId), this.waitsForPerson(chatId), { ...(severalAuthors(this.db, chatId) ? { answersOf: r.user_id } : {}), viewer: r.user_id }) : null
     // never a stored connection secret of the person in the title (QA B-W5-1)
     if (chat) chat.title = redactorFor(this.ctx, r!.user_id).hide(chat.title)
     const ev = { type: 'chat.updated' as const, data: { chatId, change, chat, ...(o.notify ? { notify: o.notify } : {}) } }

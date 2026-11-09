@@ -247,17 +247,17 @@ export function sharedOf(rt: ChatRuntime, viewer: string, r: ChatRow, aud: Audie
  * A chat as `viewer` sees it in the API and in chat.updated: a stored connection secret of its creator never shows in
  * the title (QA B-W5-1). A shared chat: the AI's wait and the unseen marker are only for its runner and creator (no
  * marker for anyone else in phase 1), plus Chat.shared. `people`: a project's chat list (chatPeople for its page) adds
- * who wrote in it.
+ * who wrote in it. Chat.pinnedAt is the viewer's own pin (chat/pins.ts).
  */
 export function chatView(rt: ChatRuntime, viewer: string, r: ChatRow, o: { aud?: Audiences; hide?: (s: string) => string; people?: Map<string, ChatPeople> } = {}): Chat {
   const hide = o.hide ?? redactorFor(rt.ctx, r.user_id).hide
   if (!isSharedRow(r)) {
     // a chat that stopped being shared after others wrote in it: its marker and last outcome are its creator's answers'
-    const c = rt.store.toChat(r, rt.runState(r.id), rt.waitsForPerson(r.id), severalAuthors(rt.db, r.id) ? { answersOf: r.user_id } : {})
+    const c = rt.store.toChat(r, rt.runState(r.id), rt.waitsForPerson(r.id), { ...(severalAuthors(rt.db, r.id) ? { answersOf: r.user_id } : {}), viewer })
     return { ...c, title: hide(c.title) }
   }
   const runner = rt.activeTurnUser(r.id)
-  const c = rt.store.toChat(r, rt.runState(r.id), runner === viewer && rt.waitsForPerson(r.id), { answersOf: r.user_id === viewer ? viewer : null })
+  const c = rt.store.toChat(r, rt.runState(r.id), runner === viewer && rt.waitsForPerson(r.id), { answersOf: r.user_id === viewer ? viewer : null, viewer })
   const shared = sharedOf(rt, viewer, r, o.aud ?? new Audiences(rt.db, rt.files))
   if (o.people) {
     const p = o.people.get(r.id)
