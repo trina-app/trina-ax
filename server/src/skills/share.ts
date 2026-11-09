@@ -156,17 +156,17 @@ const TEXT = {
   },
   // a share to a group (docs/DECISIONS.md "Group skills")
   proposedGroup: {
-    ko: "{who}님이 '{group}' 그룹에 스킬 {n}개를 공유하자고 했어요 · 확인", en: "{who} proposed sharing {n} skills with the group '{group}' · Review",
+    ko: "{who}님이 '{group}' 부서에 스킬 {n}개를 공유하자고 했어요 · 확인", en: "{who} proposed sharing {n} skills with the group '{group}' · Review",
     id: "{who} mengusulkan berbagi {n} skill dengan grup '{group}' · Periksa", ja: "{who}さんがグループ「{group}」にスキル {n} 件の共有を提案しました · 確認",
     es: "{who} propuso compartir {n} habilidades con el grupo '{group}' · Revisar",
   },
   notGroupWriter: {
-    ko: '이 그룹의 스킬 폴더에 넣을 수 있는 그룹 멤버만 할 수 있어요.', en: 'Only a member of this group who may write its skills folder can do this.',
+    ko: '이 부서의 스킬 폴더에 넣을 수 있는 부서 멤버만 할 수 있어요.', en: 'Only a member of this group who may write its skills folder can do this.',
     id: 'Hanya anggota grup ini yang boleh menulis folder skill-nya yang bisa melakukan ini.', ja: 'このグループのスキルフォルダーに書き込めるメンバーだけができます。',
     es: 'Solo un miembro de este grupo que pueda escribir en su carpeta de habilidades puede hacerlo.',
   },
   targetGone: {
-    ko: '이 공유 제안의 그룹이 없어졌어요. 스킬을 다시 찾아 주세요.', en: 'The group of this share proposal is gone. Look for the skills again.',
+    ko: '이 공유 제안의 부서가 없어졌어요. 스킬을 다시 찾아 주세요.', en: 'The group of this share proposal is gone. Look for the skills again.',
     id: 'Grup usulan berbagi ini sudah tidak ada. Cari skill-nya lagi.', ja: 'この共有の提案のグループがなくなりました。もう一度スキルを探してください。',
     es: 'El grupo de esta propuesta ya no existe. Vuelva a buscar las habilidades.',
   },
