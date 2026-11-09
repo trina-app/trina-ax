@@ -21,6 +21,7 @@ import { useLocale, useT } from '../i18n'
 import { toast } from '../store/ui'
 import { useMe } from '../store/session'
 import { Button, confirmDialog, IconButton } from './ui'
+import { askTrinaInRoom } from '../lib/sideChatAsk'
 import { MenuButton, type MenuItem } from './rooms/MenuButton'
 import { Tooltip } from './Tooltip'
 import { PanelExpandButton } from './SidePanelFrame'
@@ -209,6 +210,14 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
               <button type="button" onClick={() => chatAttach.askAi([file.path])} className="touch-hit mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-accent-soft max-md:p-1.5 max-sm:p-2" data-testid="file-ask-ai">
                 {/* phones: the icon alone, as large as the header's other icons, in an IconButton's padding */}
                 <Sparkles size={14} className="max-md:size-4" aria-hidden /> <span className="max-md:sr-only @max-md:sr-only">{t('files.askAiShort')}</span>
+              </button>
+            </Tooltip>
+          )}
+          {file.source === 'room' && (
+            <Tooltip label={t('sideChat.askAboutFile')}>
+              <button type="button" onClick={() => askTrinaInRoom(file.roomId, { key: `${file.fileId}:${Date.now()}`, author: '', at: new Date().toISOString(), text: '', file: { id: file.fileId, name: file.name } })}
+                className="touch-hit mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-accent-soft max-md:p-1.5 max-sm:p-2" data-testid="file-ask-trina">
+                <Sparkles size={14} className="max-md:size-4" aria-hidden /> <span className="max-md:sr-only">{t('sideChat.askAboutFileShort')}</span>
               </button>
             </Tooltip>
           )}

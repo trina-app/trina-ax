@@ -8,6 +8,7 @@ import { uuidv7, type Me } from '@mycel/shared/api'
 import { AssistantMessage } from '../../src/components/chat/Messages'
 import ShareToRoom from '../../src/components/chat/ShareToRoom'
 import { SideChatPanel, withQuote } from '../../src/components/rooms/SideChatPanel'
+import { askTrinaInRoom, onAskTrinaInRoom } from '../../src/lib/sideChatAsk'
 import { RoomMessages } from '../../src/components/rooms/RoomMessages'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { aiName } from '../../src/lib/tabs'
@@ -210,4 +211,47 @@ test('a message offers "Ask Trina about this" only where the room gives it (not 
   } finally {
     await none.unmount()
   }
+})
+
+test('an empty side chat says what it looks at, offers Catch up / Anything for me? / Summarize, and that the AI can be wrong', async () => {
+  signIn()
+  const { made } = serve(null)
+  const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
+  try {
+    await m.until(() => !!m.find('side-chat-empty'), 'the panel')
+    expect(m.get('side-chat-context').textContent).toBe(en('sideChat.context', { room: 'Marketing' }))
+    expect(m.get('side-chat-disclaimer').textContent).toBe(en('sideChat.disclaimer', { name: aiName((k) => en(k)) }))
+    expect(['catchUp', 'forMe', 'summarize'].map((k) => m.get(`side-chat-starter-${k}`).textContent)).toEqual([en('sideChat.starterLabel.catchUp'), en('sideChat.starterLabel.forMe'), en('sideChat.starterLabel.summarize')])
+    await m.click('side-chat-starter-forMe')
+    await m.until(() => calls.some((c) => c.path === `/api/chats/${made}/messages`), 'the question sent')
+    expect((calls.find((c) => c.path === `/api/chats/${made}/messages`)!.body as { content: string }).content).toBe(en('sideChat.starter.forMe'))
+  } finally {
+    await m.unmount()
+  }
+})
+
+test('a file of the room: quoted by name and id (the AI opens it with room_file), with the file questions', async () => {
+  expect(withQuote({ key: 'k', author: '', at: at(1), text: '', file: { id: 'f-1', name: 'quote.pdf' } }, 'Summarize this file.', () => 't'))
+    .toBe('> 📎 quote.pdf (file_id f-1 in this room)\n\nSummarize this file.')
+  signIn()
+  serve(null)
+  const seed = { key: 'kf', author: '', at: at(1), text: '', file: { id: 'f-1', name: 'quote.pdf' } }
+  const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" seed={seed} onClose={() => {}} /></MemoryRouter>)
+  try {
+    await m.until(() => !!m.find('side-chat-quote-file'), 'the file quoted')
+    expect(m.get('side-chat-quote-file').textContent).toContain('quote.pdf')
+    for (const k of ['fileSummarize', 'fileKeyPoints', 'fileCheck']) expect(m.find(`side-chat-quick-${k}`)).not.toBeNull()
+    expect(m.find('side-chat-quick-translate')).toBeNull()
+  } finally {
+    await m.unmount()
+  }
+})
+
+test('"Ask Trina about this file" reaches the room page that listens, only for its room', () => {
+  const heard: string[] = []
+  const off = onAskTrinaInRoom((a) => heard.push(`${a.roomId}:${a.seed.file?.name}`))
+  expect(askTrinaInRoom('r1', { key: 'k', author: '', at: at(1), text: '', file: { id: 'f', name: 'a.pdf' } })).toBe(true)
+  off()
+  expect(askTrinaInRoom('r1', { key: 'k2', author: '', at: at(1), text: '' })).toBe(false)
+  expect(heard).toEqual(['r1:a.pdf'])
 })
