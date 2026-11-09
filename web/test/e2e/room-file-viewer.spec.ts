@@ -280,7 +280,7 @@ test("a thread's files are its own list: its root's and its replies', not the ti
   await expect(chip(thread, 'acme-reply.md').getByTestId('room-file-open')).toBeFocused()
 })
 
-test('a sheet keeps its tabs in view below its rows, as in the panel; ← → in a wide sheet are the sheet\'s', async ({ page }) => {
+test('a sheet keeps its tabs in view below its rows, as in the side panel', async ({ page }) => {
   await openRoom(page, { sheet: true })
   await openChip(timeline(page), 'acme-budget.xlsx')
   await expect(fileDialog(page, 'acme-budget.xlsx')).toBeVisible()
