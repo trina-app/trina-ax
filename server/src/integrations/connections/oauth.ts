@@ -16,7 +16,11 @@ export interface OAuthTokens { accessToken: string; refreshToken: string | null;
 export interface OAuthSecret { type: 'oauth'; server: OAuthServer; client: OAuthClient; resource: string | null; scope: string | null; tokens: OAuthTokens }
 /** your own app at the service, as stored (docs/INTEGRATIONS.md "Your own app"). foundTokenUrl: the token address the
  * first sign-in found from the server, where its secret may go (service.ts pinFound) */
-export interface OwnClient { clientId: string; clientSecret: string | null; authorizationUrl: string | null; tokenUrl: string | null; scope: string | null; foundTokenUrl: string | null }
+export interface OwnClient {
+  clientId: string; clientSecret: string | null; authorizationUrl: string | null; tokenUrl: string | null; scope: string | null; foundTokenUrl: string | null
+  /** the stored values it was read from (pinFound writes only onto these) */
+  stored: { json: string; enc: string | null }
+}
 
 export class GrantError extends Error { name = 'GrantError' }
 
@@ -161,9 +165,11 @@ export async function tokenRequest(s: { server: OAuthServer; client: OAuthClient
   return { accessToken: access, refreshToken: refresh, expiresAt: exp ? now + exp * 1000 : null }
 }
 
-/** RFC 7009, best effort: true when the server said 200. */
+/** RFC 7009, best effort: true when the server said 200. A client secret goes only to the token address's own server:
+ * a revocation address elsewhere (metadata can name any) is not told, so the secret never goes where sign-in did not. */
 export async function revoke(s: { server: OAuthServer; client: OAuthClient }, token: string, hint: 'refresh_token' | 'access_token', net: NetOptions): Promise<boolean> {
   if (!s.server.revocationEndpoint) return false
+  if (s.client.clientSecret && new URL(s.server.revocationEndpoint).origin !== new URL(s.server.tokenEndpoint).origin) return false
   try {
     const r = await jsonRequest(s.server.revocationEndpoint, { method: 'POST', ...withClient(s.client, { token, token_type_hint: hint }) }, net)
     return r.status === 200

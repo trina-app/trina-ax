@@ -275,3 +275,40 @@ test('a member of a template for a service that registers no apps is told to ask
   expect(no.body.error.message).toContain('관리자')
   expect(no.body.error.message).not.toContain('내 앱으로 로그인')
 })
+
+test('security review 2: a change that leaves the app alone never opens its secret; a scope change keeps the found address', async () => {
+  const t = await olga.call('POST', '/api/admin/integration-templates', { ...ownMcp({ oauthClient: { clientId: APP, clientSecret: SECRET } }), access: { everyone: false, groups: [], users: [bobId] } })
+  const shared = (await bob.call('GET', '/api/integration-templates')).items
+  const mine = (await bob.try('POST', `/api/integration-templates/${t.id}/connect`, { version: shared[0].version })).body
+  const f = await bob.call('POST', `/api/integrations/${mine.id}/authorize`, {})
+  expect((await bob.raw('GET', callback(fake.authorize(f.authorizationUrl, `${fake.base}/as-own`)))).status).toBe(200)
+  // the key folder cannot be read for a moment: a rename keeps the secret and the member's connection
+  const open = svc.box.open.bind(svc.box)
+  svc.box.open = () => { throw new Error('unreadable') }
+  try {
+    const renamed = await olga.call('PATCH', `/api/admin/integration-templates/${t.id}`, { name: 'Mail renamed' })
+    expect(renamed).toMatchObject({ connected: 1, oauthClient: { hasSecret: true } })
+    expect(getRow(h.ctx.db, mine.id)).not.toBeNull()
+  } finally { svc.box.open = open }
+  // only the scope changes: the members sign in again, and the token address found before still holds
+  const pinned = JSON.parse((h.ctx.db.query('SELECT oauth_client FROM integration_templates WHERE id = ?').get(t.id) as { oauth_client: string }).oauth_client).foundTokenUrl
+  expect(pinned).toBe(`${fake.base}/as/token`)
+  await olga.call('PATCH', `/api/admin/integration-templates/${t.id}`, { oauthClient: { clientId: APP, scope: 'own.read' } })
+  expect(JSON.parse((h.ctx.db.query('SELECT oauth_client FROM integration_templates WHERE id = ?').get(t.id) as { oauth_client: string }).oauth_client).foundTokenUrl).toBe(pinned)
+  // a member whose server moved its token address is told to ask the admin (they cannot enter the secret)
+  const again = (await bob.try('POST', `/api/integration-templates/${t.id}/connect`, { version: (await bob.call('GET', '/api/integration-templates')).items[0].version })).body
+  fake.ownTokenEndpoint = `${fake.base}/elsewhere/token`
+  try {
+    const no = await bob.try('POST', `/api/integrations/${again.id}/authorize`, {})
+    expect(no.status).toBe(400)
+    expect(no.body.error.message).toContain('관리자')
+  } finally { fake.ownTokenEndpoint = null }
+})
+
+test('security review 2: a client secret is never sent to a revocation address on another server than the token address', async () => {
+  const { revoke } = await import('../../server/src/integrations/connections/oauth')
+  const server = { issuer: null, authorizationEndpoint: 'https://as.example/authorize', tokenEndpoint: 'https://as.example/token', registrationEndpoint: null, revocationEndpoint: 'https://elsewhere.example/revoke' }
+  const client = { clientId: APP, clientSecret: SECRET, authMethod: 'client_secret_post' as const, redirectUri: REDIRECT }
+  // refused before any request (the network options would fail any lookup)
+  expect(await revoke({ server, client }, 'token', 'refresh_token', { lookup: async () => { throw new Error('no lookup expected') } })).toBe(false)
+})

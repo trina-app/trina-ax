@@ -17295,6 +17295,12 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
 - **A found token address is remembered** (review 1): the first sign-in of an app with a secret and no given addresses
   stores the token address it found; a later one that finds another is refused before anything is sent. Without it the
   MCP server's metadata decided where the secret went at every sign-in. A new secret or another app forgets it.
+- **Review 2:** a change that leaves the app where it was keeps the sealed secret without opening it (must-fix: an
+  unreadable key folder made a rename drop the secret and, on a template, every member's connection); it is opened
+  only to compare a secret typed again. A scope change alone keeps the found token address. A client secret goes to a
+  revocation address only on the token address's own server. The found address is written only onto the app as it was
+  read for that sign-in (compare-and-set on `oauth_client` and `oauth_client_enc`). A template's member whose server
+  moved its token address is told to ask the admin.
 - **Members of a template see "ask your admin"** when the service registers no apps (`oauth_no_registration_member`);
   people who can set an app see the own-app hint (`oauth_no_registration`); `oauth_unsupported` keeps its old words for
   a server with no usable sign-in at all.

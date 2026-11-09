@@ -80,7 +80,8 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
   const groups = useLoad(async () => (team ? (await api.call(API.listGroups)).items : []), [team])
   const users = useLoad(async () => (team ? (await api.call(API.listUsers)).items : []), [team])
   // a template takes no key: what is wrong with one is not this form's
-  const errors: FormErrors = asTemplate ? (({ secret: _secret, ...rest }: FormErrors) => rest)(validate(f, existing)) : validate(f, existing)
+  const checked = validate(f, existing, template ? { app: template.oauthClient, url: template.url } : undefined)
+  const errors: FormErrors = asTemplate ? (({ secret: _secret, ...rest }: FormErrors) => rest)(checked) : checked
   const phone = !!mobileApp()
   const dropped = dropsSecret(f, existing)
   const signInNext = !asTemplate && f.method === 'oauth' && !phone && (!existing || existing.auth !== 'oauth' || dropped)

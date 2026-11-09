@@ -406,8 +406,10 @@ export class Integrations {
    * The secret is write-only, and a stored one only ever goes where it went before (docs/INTEGRATIONS.md "Secrets": a key
    * is never sent anywhere else): it stays only with the same client ID and the same addresses and, for an app whose
    * addresses are found from the server, the same server address (`moved`); otherwise it goes unless a new one comes.
-   * `changed`: another ID, secret, address or scope (a sign-in made with the old app is dropped). Unchanged, the stored
-   * value stays as it is, with the token address a sign-in found (pinFound). */
+   * `changed`: another ID, secret, address or scope (a sign-in made with the old app is dropped). A change that leaves
+   * the secret where it was never opens it (a key folder that cannot be read must not cost the secret, or a template's
+   * members their connections, on a rename); it is opened only to compare a secret typed again. The token address a
+   * sign-in found (pinFound) stays while the place and the secret do, also when only the scope changes. */
   appAfter(aad: string, prev: { json: string | null; enc: string | null; keyVersion: number }, kind: IntegrationKind, auth: Row['auth'], input: OAuthClientInput | null | undefined, moved: boolean, L: Locale) {
     const was = clientInfo(prev.json)
     if (input && auth !== 'oauth') fieldError(L, 'oauthClient', 'appNeedsOauth')
@@ -415,13 +417,17 @@ export class Integrations {
     let out = { json: null as string | null, enc: null as string | null, keyVersion: 1, changed: !!was || !!prev.enc }
     if (app) {
       const samePlace = !!was && was.clientId === app.clientId && was.authorizationUrl === app.authorizationUrl && was.tokenUrl === app.tokenUrl && (!!app.tokenUrl || !moved)
-      const old = prev.enc ? this.tryOpenClient(aad, prev.enc, prev.keyVersion) : null
-      const secret = input?.clientSecret !== undefined ? input.clientSecret : samePlace ? old : null
-      // the same secret typed again keeps its sealed value; another one is sealed anew
-      const sealed = !secret ? null : samePlace && secret === old && prev.enc ? { enc: prev.enc, keyVersion: prev.keyVersion } : this.sealClient(aad, secret, L)
-      const same = samePlace && was!.scope === app.scope && (sealed?.enc ?? null) === prev.enc
+      let sealed: { enc: string; keyVersion: number } | null = null
+      if (input?.clientSecret !== undefined) {
+        // the same secret typed again keeps its sealed value (when it can be read to compare); another one is sealed anew
+        const old = samePlace && prev.enc ? this.tryOpenClient(aad, prev.enc, prev.keyVersion) : null
+        sealed = old !== null && old === input.clientSecret && prev.enc ? { enc: prev.enc, keyVersion: prev.keyVersion } : this.sealClient(aad, input.clientSecret, L)
+      } else if (samePlace && prev.enc) sealed = { enc: prev.enc, keyVersion: prev.keyVersion }
+      const secretSame = (sealed?.enc ?? null) === prev.enc
+      const same = samePlace && was!.scope === app.scope && secretSame
       const { foundTokenUrl: _found, ...plain } = app
-      out = { json: same ? prev.json : JSON.stringify(plain), enc: sealed?.enc ?? null, keyVersion: sealed?.keyVersion ?? 1, changed: !same }
+      const pin = samePlace && secretSame && was!.foundTokenUrl ? { foundTokenUrl: was!.foundTokenUrl } : {}
+      out = { json: same ? prev.json : JSON.stringify({ ...plain, ...pin }), enc: sealed?.enc ?? null, keyVersion: sealed?.keyVersion ?? 1, changed: !same }
     }
     if (auth === 'oauth' && kind === 'http' && !clientInfo(out.json)?.tokenUrl) fieldError(L, 'oauthClient', 'oauthHttpNeedsApp')
     return out
@@ -433,14 +439,16 @@ export class Integrations {
   private pinFound(row: Row, app: OwnClient, tokenUrl: string, L: Locale): void {
     if (!app.clientSecret || app.tokenUrl) return
     if (app.foundTokenUrl) {
-      if (app.foundTokenUrl !== tokenUrl) fail('validation', say('appTokenMoved', L, { host: new URL(tokenUrl).host }))
+      // a template's member cannot enter the secret again: their admin can
+      if (app.foundTokenUrl !== tokenUrl) fail('validation', say(row.template_id ? 'appTokenMovedMember' : 'appTokenMoved', L, { host: new URL(tokenUrl).host }))
       return
     }
+    // only onto the app as it was read for this sign-in: an admin's change meanwhile (another address or secret) wins
     const table = row.template_id ? 'integration_templates' : 'integrations', id = row.template_id ?? row.id
-    const cur = (this.db.query(`SELECT oauth_client FROM ${table} WHERE id = ?`).get(id) as { oauth_client: string | null } | null)?.oauth_client ?? null
-    const info = clientInfo(cur)
-    if (!cur || !info || info.foundTokenUrl || info.clientId !== app.clientId) return
-    this.db.query(`UPDATE ${table} SET oauth_client = ? WHERE id = ? AND oauth_client = ?`).run(JSON.stringify({ ...info, foundTokenUrl: tokenUrl }), id, cur)
+    const info = clientInfo(app.stored.json)
+    if (!info) return
+    this.db.query(`UPDATE ${table} SET oauth_client = ? WHERE id = ? AND oauth_client = ? AND oauth_client_enc IS ?`)
+      .run(JSON.stringify({ ...info, foundTokenUrl: tokenUrl }), id, app.stored.json, app.stored.enc)
   }
   /** an own app's client secret sealed (also a template's, templates.ts) */
   sealClient(aad: string, secret: string, L: Locale) {
@@ -460,7 +468,7 @@ export class Integrations {
     if (!src || !info) return null
     const aad = row.template_id ? templateClientAad(row.template_id) : clientAad(row)
     const clientSecret = src.oauth_client_enc ? this.box.open<SealedClientSecret>(aad, src.oauth_client_enc, src.oauth_client_key_version ?? 1).clientSecret : null
-    return { ...info, foundTokenUrl: info.foundTokenUrl ?? null, clientSecret }
+    return { ...info, foundTokenUrl: info.foundTokenUrl ?? null, clientSecret, stored: { json: src.oauth_client!, enc: src.oauth_client_enc ?? null } }
   }
 
   /** the header a key is sent in, or a refusal of the field (also for what an admin asks a member to connect, requests.ts) */

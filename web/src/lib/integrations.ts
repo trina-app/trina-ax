@@ -182,7 +182,8 @@ export function needsKey(f: IntegrationForm, original?: Integration): boolean {
   return !original || !original.hasSecret || dropsSecret(f, original) || f.keyAction === 'replace'
 }
 
-export function validate(f: IntegrationForm, original?: Integration): FormErrors {
+/** `storedApp`: a template's app and address being edited (a connection's come with `original`) */
+export function validate(f: IntegrationForm, original?: Integration, storedApp?: { app: OAuthClientView | null | undefined; url: string }): FormErrors {
   const e: FormErrors = {}
   const name = f.name.trim()
   if (!name) e.name = 'integrations.error.name'
@@ -200,6 +201,9 @@ export function validate(f: IntegrationForm, original?: Integration): FormErrors
     if (!id || /\s/.test(id) || id.length > CLIENT_ID_MAX) e.clientId = 'integrations.error.clientId'
     if (f.clientSecret.length > CLIENT_SECRET_MAX) e.clientSecret = 'integrations.error.keyLong'
     else if (/[\r\n]/.test(f.clientSecret)) e.clientSecret = 'integrations.error.field'
+    // the same app at another address: its stored secret does not follow (storedSecretStays), so it is asked for again
+    const stored = original ? original.oauthClient : storedApp?.app
+    if (stored?.hasSecret && stored.clientId === id && !f.clientSecret.trim() && !storedSecretStays(f, stored, original?.url ?? storedApp?.url)) e.clientSecret = 'integrations.error.clientSecretAgain'
     if (f.scope.length > SCOPE_MAX || /[\r\n]/.test(f.scope)) e.scope = 'integrations.error.scope'
     // an API has nothing to find its sign-in from; an MCP server's addresses are both given or both found
     if (f.kind === 'http' || f.authUrl.trim() || f.tokenUrl.trim()) {

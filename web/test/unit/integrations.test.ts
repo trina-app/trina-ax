@@ -181,6 +181,10 @@ describe('your own app at the service (sign-in where apps do not register themse
     expect(storedSecretStays({ ...g, tokenUrl: 'https://evil.example/t' }, given, google().url)).toBe(false)
     // there, a secret typed in the empty field goes with the change
     expect(toPatch({ ...g, tokenUrl: 'https://evil.example/t', clientSecret: 's2' }, google({ oauthClient: given })).oauthClient).toMatchObject({ clientSecret: 's2' })
+    // moved where the stored secret does not follow: it is asked for again
+    expect(validate({ ...f, url: 'https://other.example/mcp' }, google()).clientSecret).toBe('integrations.error.clientSecretAgain')
+    expect(validate({ ...f, url: 'https://other.example/mcp', clientSecret: 'again' }, google())).toEqual({})
+    expect(validate({ ...f, name: 'Gmail 2' }, google())).toEqual({})
     // MCP -> API -> MCP: the own app is not left chosen with nothing filled in
     expect(withKind(withKind(emptyForm('mcp'), 'http'), 'mcp').ownApp).toBe(false)
   })
