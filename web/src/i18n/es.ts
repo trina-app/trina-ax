@@ -875,7 +875,7 @@ export const es: Record<MessageKey, string> = {
   "projects.widenFiles": "{n, plural, one {# archivo} other {# archivos}}",
   "projects.widenFilesOthers": "{n, plural, one {# archivo} other {# archivos}} ({m} de otras personas)",
   "projects.widenChats": "todo el historial de {n, plural, one {# chat compartido} other {# chats compartidos}}",
-  "projects.widenSkills": "{n, plural, one {# habilidad del proyecto} other {# habilidades del proyecto}}",
+  "projects.widenSkills": "{n, plural, one {# habilidad del proyecto} other {# habilidades del proyecto}} ({names}), que también usarán {m, plural, one {# persona más} other {# personas más}}",
   "projects.widenNotice": "Se avisa a quienes lo ven ahora.",
   "projects.widenConfirm": "Permitir",
   "projects.deleteTrashFolder": "Mover también la carpeta {folder} a la papelera (un administrador puede restaurarla)",

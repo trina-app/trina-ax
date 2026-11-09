@@ -16273,7 +16273,7 @@ edit screen. A review before building asked for eight changes, all built:
   kept. Participants are changed only for a project in `projects/<name>` whose folder is in place.
 - **Only a folder the server made is the creator's** (independent review, must-fix). Older builds let a member make a
   project on an existing `projects/<name>` an admin had made with rules; that member is its creator. `projects.folder_made`
-  (migration 278, add-only, existing rows 0) is 1 only when create or share made the folder, and 0 again after an admin
+  (migration 280, add-only, existing rows 0) is 1 only when create or share made the folder, and 0 again after an admin
   points the project at an existing folder. A member changes participants, or trashes the folder with the project, only
   when it is 1; admins change any `projects/<name>` project. For a project a member may not change, the access answer
   gives them the count only (no names of an admin's rules, and no rules hash: an unsalted hash would let them confirm a
@@ -16285,7 +16285,8 @@ edit screen. A review before building asked for eight changes, all built:
   who gain it the files they could read there (skills/ left out), those someone other than the caller put there (the
   last write recorded for the file, else for the nearest folder above it inside the project; nothing recorded counts as
   someone else's), its shared chats (each with its whole history) and its project skills (`skills/<name>/SKILL.md`,
-  counted by path, no dependency on the project-skills code). The web asks once when someone gains it; narrowing saves
+  counted and named by path, no dependency on the project-skills code: widening the folder also widens who uses those
+  skills, with no other card, so the confirm names them: "프로젝트 스킬 2개(견적서, 견적-현장)도 3명이 더 쓰게 돼요"). The web asks once when someone gains it; narrowing saves
   at once. The people who saw the project before get a notice (`project_access_widened`) when it widens. The folder walk
   stops at 20,000 entries.
 - **Who may be chosen.** Members choose from the people directory (`/api/people`) and their own groups (`Me.groups`);

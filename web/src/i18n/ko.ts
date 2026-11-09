@@ -895,7 +895,7 @@ export const ko = {
   "projects.widenFiles": "파일 {n}개",
   "projects.widenFilesOthers": "파일 {n}개 (다른 사람이 올린 {m}개 포함)",
   "projects.widenChats": "공유 채팅 {n}개의 지난 대화 전체",
-  "projects.widenSkills": "프로젝트 스킬 {n}개",
+  "projects.widenSkills": "프로젝트 스킬 {n}개({names})도 {m}명이 더 쓰게 돼요",
   "projects.widenNotice": "지금 이 프로젝트를 보는 사람들에게도 알려요.",
   "projects.widenConfirm": "늘리기",
   "projects.deleteTrashFolder": "폴더 {folder}도 휴지통으로 옮기기 (관리자가 되살릴 수 있어요)",

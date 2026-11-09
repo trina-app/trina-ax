@@ -187,7 +187,7 @@ const WRITES = "('create','update','upload','restore')"
  * folder above it inside the project: a copied folder; nothing recorded counts as someone else's), and its project
  * skills (skills/<name>/SKILL.md, counted by path).
  */
-function whatTheySee(ctx: AppContext, folder: string, caller: string, readable: (segs: string[]) => boolean): { files: number; othersFiles: number; skills: number } {
+function whatTheySee(ctx: AppContext, folder: string, caller: string, readable: (segs: string[]) => boolean): { files: number; othersFiles: number; skills: number; skillNames: string[] } {
   const root = ctx.files.fx.root
   const base = segsOf(folder)
   const writer = new Map<string, string>()
@@ -212,15 +212,16 @@ function whatTheySee(ctx: AppContext, folder: string, caller: string, readable: 
     }
   }
   walk(base)
-  let skills = 0
+  const names: string[] = []
   const dir = path.join(root, ...base, 'skills')
   try {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       if (!e.isDirectory() || e.isSymbolicLink() || hiddenEntry(e.name, base.length + 1) || badSegment(e.name)) continue
-      try { if (fs.lstatSync(path.join(dir, e.name, 'SKILL.md')).isFile() && readable([...base, 'skills', e.name, 'SKILL.md'])) skills++ } catch {}
+      try { if (fs.lstatSync(path.join(dir, e.name, 'SKILL.md')).isFile() && readable([...base, 'skills', e.name, 'SKILL.md'])) names.push(e.name.normalize('NFC')) } catch {}
     }
   } catch {}
-  return { files, othersFiles, skills }
+  names.sort((a, b) => a.localeCompare(b))
+  return { files, othersFiles, skills: names.length, skillNames: names.slice(0, 10) }
 }
 
 /**
@@ -236,7 +237,7 @@ export function previewAccess(ctx: AppContext, p: Principal, body: { participant
     const users = new Set(list.filter((x) => x.subjectType === 'user').map((x) => x.subjectId))
     const groups = new Set(list.filter((x) => x.subjectType === 'group').map((x) => x.subjectId))
     const n = people.filter((x) => isAdminRole(x) || x.id === p.id || users.has(x.id) || x.groups.some((g) => groups.has(g))).length
-    return { people: n, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0 }
+    return { people: n, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [] }
   }
   const { next, rules } = proposed(ctx, r, p, body.participants, locale)
   const after = withRules(rules, r.folder_path, next)
@@ -244,7 +245,7 @@ export function previewAccess(ctx: AppContext, p: Principal, body: { participant
   const added = people.filter((x) => !atLeast(rules.access(x, segs), 'read') && atLeast(after.access(x, segs), 'read'))
   const removed = people.filter((x) => atLeast(rules.access(x, segs), 'read') && !atLeast(after.access(x, segs), 'read'))
   const n = people.filter((x) => atLeast(after.access(x, segs), 'read')).length
-  if (!added.length) return { people: n, added: 0, removed: removed.length, files: 0, othersFiles: 0, sharedChats: 0, skills: 0 }
+  if (!added.length) return { people: n, added: 0, removed: removed.length, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [] }
   // what the caller can read themselves: a member is never told about a folder inside it they cannot see
   const seen = whatTheySee(ctx, r.folder_path, p.id, (s) => atLeast(rules.access(p, s), 'read') && added.some((x) => atLeast(after.access(x, s), 'read')))
   const sharedChats = (db.query('SELECT COUNT(*) AS n FROM chats WHERE project_id = ? AND shared_at IS NOT NULL AND deleted_at IS NULL').get(r.id) as { n: number }).n

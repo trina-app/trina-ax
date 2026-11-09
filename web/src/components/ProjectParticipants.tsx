@@ -133,6 +133,13 @@ export function widenLines(t: ReturnType<typeof useT>, p: ProjectAccessPreview):
   return [
     ...(p.files ? [p.othersFiles ? t('projects.widenFilesOthers', { n: p.files, m: p.othersFiles }) : t('projects.widenFiles', { n: p.files })] : []),
     ...(p.sharedChats ? [t('projects.widenChats', { n: p.sharedChats })] : []),
-    ...(p.skills ? [t('projects.widenSkills', { n: p.skills })] : []),
+    // the project skills by name (the people who gain it use them in its chats): three, then "외 N"
+    ...(p.skills ? [t('projects.widenSkills', { n: p.skills, m: p.added, names: skillList(t, p) })] : []),
   ]
+}
+
+const skillList = (t: ReturnType<typeof useT>, p: ProjectAccessPreview) => {
+  const names = p.skillNames ?? []
+  const more = p.skills - Math.min(names.length, 3)
+  return [...names.slice(0, 3), ...(more > 0 ? [t('projects.whoMore', { n: more })] : [])].join(', ')
 }

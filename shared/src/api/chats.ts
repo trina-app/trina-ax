@@ -361,6 +361,9 @@ export const ProjectAccessPreview = z.object({
   othersFiles: z.number().int().nonnegative(),
   sharedChats: z.number().int().nonnegative(),
   skills: z.number().int().nonnegative(),
+  /** those project skills by name (their folder's name, at most 10, sorted): the confirm names them, since the people
+   * who gain the project start using them in its chats */
+  skillNames: z.array(z.string()).max(10).optional(),
 })
 export type ProjectAccessPreview = z.infer<typeof ProjectAccessPreview>
 export const PutProjectParticipantsBody = z.object({ participants: z.array(ProjectParticipant).max(200), expectedHash: z.string().min(1).max(64) })

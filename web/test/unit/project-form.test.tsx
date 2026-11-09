@@ -114,7 +114,7 @@ describe('the creator changes who sees it', () => {
       [`GET /api/projects/${P1}/access`]: () => json(200, access({ otherRules: [{ path: 'projects/acme', subjectType: 'group', subjectId: 'g-fin', name: 'Finance', access: 'read' }, { path: 'projects/acme/hr', subjectType: 'everyone', subjectId: null, name: null, access: 'none' }] })),
       'POST /api/projects/access-preview': (init) => {
         const b = JSON.parse(String(init?.body)) as { participants: unknown[] }
-        return json(200, b.participants.length > 1 ? { people: 5, added: 1, removed: 0, files: 12, othersFiles: 5, sharedChats: 3, skills: 2 } : { people: 4, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0 })
+        return json(200, b.participants.length > 1 ? { people: 5, added: 1, removed: 0, files: 12, othersFiles: 5, sharedChats: 3, skills: 2, skillNames: ['견적-현장', '견적서'] } : { people: 4, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0 })
       },
       [`PUT /api/projects/${P1}/participants`]: () => json(200, access({ rulesHash: 'h2' })),
       [`PATCH /api/projects/${P1}`]: () => json(200, project('projects/acme')),
@@ -134,7 +134,8 @@ describe('the creator changes who sees it', () => {
     expect(box.textContent).toContain(en('projects.widenBody', { n: 1 }))
     expect(box.textContent).toContain(en('projects.widenFilesOthers', { n: 12, m: 5 }))
     expect(box.textContent).toContain(en('projects.widenChats', { n: 3 }))
-    expect(box.textContent).toContain(en('projects.widenSkills', { n: 2 }))
+    expect(box.textContent).toContain(en('projects.widenSkills', { n: 2, m: 1, names: '견적-현장, 견적서' }))
+    expect(box.textContent).toContain('견적-현장, 견적서')
     expect(calls(`PUT /api/projects/${P1}/participants`)).toEqual([])
     await m.click('dialog-confirm')
     await m.until(() => calls(`PATCH /api/projects/${P1}`).length, 'the save', 2000)

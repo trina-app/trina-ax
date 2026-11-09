@@ -875,7 +875,7 @@ export const ja: Record<MessageKey, string> = {
   "projects.widenFiles": "ファイル{n, plural, one {#件} other {#件}}",
   "projects.widenFilesOthers": "ファイル{n, plural, one {#件} other {#件}}（ほかの人が置いた{m}件を含む）",
   "projects.widenChats": "共有チャット{n, plural, one {#件} other {#件}}のこれまでの会話すべて",
-  "projects.widenSkills": "プロジェクトスキル{n, plural, one {#件} other {#件}}",
+  "projects.widenSkills": "プロジェクトスキル{n, plural, one {#件} other {#件}}（{names}）も{m, plural, one {#人} other {#人}}多く使うようになります",
   "projects.widenNotice": "今見ている人にもお知らせします。",
   "projects.widenConfirm": "増やす",
   "projects.deleteTrashFolder": "フォルダー {folder} もゴミ箱へ移す（管理者が元に戻せます）",

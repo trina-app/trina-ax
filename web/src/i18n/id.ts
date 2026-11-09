@@ -896,7 +896,7 @@ export const id: Record<MessageKey, string> = {
   "projects.widenFiles": "{n} berkas",
   "projects.widenFilesOthers": "{n} berkas ({m} ditaruh orang lain)",
   "projects.widenChats": "seluruh riwayat {n} obrolan bersama",
-  "projects.widenSkills": "{n} skill proyek",
+  "projects.widenSkills": "{n} skill proyek ({names}) juga akan dipakai {m} orang lagi",
   "projects.widenNotice": "Orang yang melihatnya sekarang akan diberi tahu.",
   "projects.widenConfirm": "Izinkan",
   "projects.deleteTrashFolder": "Pindahkan juga folder {folder} ke Sampah (admin bisa memulihkannya)",

@@ -49,6 +49,7 @@ test('a member makes a team project with a person, then adds one more: the confi
 
   // someone else put a file there; Bob adds Jiwoo: the confirm first
   expect((await page.request.post('/__test/file', { data: { path: 'projects/주간 보고/notes.md', text: '# notes\n' } })).ok()).toBeTruthy()
+  expect((await page.request.post('/__test/file', { data: { path: 'projects/주간 보고/skills/견적서/SKILL.md', text: '---\nname: 견적서\ndescription: 견적서 초안\n---\n' } })).ok()).toBeTruthy()
   await b.getByTestId('project-menu').click()
   await b.getByTestId('project-edit').click()
   await expect(b.getByTestId('participant-user-sora')).toBeChecked()
@@ -57,6 +58,8 @@ test('a member makes a team project with a person, then adds one more: the confi
   const confirm = b.getByTestId('project-widen-confirm')
   await expect(confirm).toContainText('1명이 새로 이 프로젝트를 보게 돼요.')
   await expect(confirm).toContainText('파일 1개 (다른 사람이 올린 1개 포함)')
+  // the project's skills by name: the people added use them in its chats
+  await expect(confirm).toContainText('프로젝트 스킬 1개(견적서)도 1명이 더 쓰게 돼요')
   await b.getByTestId('dialog-confirm').click()
   await expect(b.getByRole('dialog')).toHaveCount(0)
   const access = await (await b.request.get(`/api/projects/${id}/access`)).json() as { participants: { subjectId: string }[] }

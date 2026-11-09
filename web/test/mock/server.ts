@@ -1882,9 +1882,10 @@ export class MockServer {
       if (!added) return { people: after.length, added, removed, files: 0, othersFiles: 0, sharedChats: 0, skills: 0 }
       const under = [...this.files.entries()].filter(([k, v]) => v.type === 'file' && k.startsWith(p.folderPath + '/'))
       const files = under.filter(([k]) => !k.startsWith(`${p.folderPath}/skills/`)).length
-      const skills = under.filter(([k]) => k.startsWith(`${p.folderPath}/skills/`) && /^[^/]+\/SKILL\.md$/.test(k.slice(p.folderPath.length + 8))).length
+      const skillNames = under.filter(([k]) => k.startsWith(`${p.folderPath}/skills/`) && /^[^/]+\/SKILL\.md$/.test(k.slice(p.folderPath.length + 8))).map(([k]) => k.slice(p.folderPath.length + 8).split('/')[0]!).sort()
+      const skills = skillNames.length
       const sharedChats = this.chats.filter((x) => x.projectId === p.id && !x.deletedAt && this.sharedChats.has(x.id)).length
-      return { people: after.length, added, removed, files, othersFiles: files, sharedChats, skills }
+      return { people: after.length, added, removed, files, othersFiles: files, sharedChats, skills, skillNames: skillNames.slice(0, 10) }
     },
     putProjectParticipants: (c) => {
       const p = this.projectToEdit(c)

@@ -194,7 +194,7 @@ describe('what a member may not reach through a project (review)', () => {
 
 describe('the dry run', () => {
   test('a new project: who would see it', async () => {
-    expect((await preview('alice', { participants: [] })).body).toEqual({ people: 3, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0 })
+    expect((await preview('alice', { participants: [] })).body).toEqual({ people: 3, added: 0, removed: 0, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [] })
     expect((await preview('alice', { participants: [group('marketing'), user('bob')] })).body.people).toBe(5)
     expect((await preview('alice', { participants: [group('finance')] })).status).toBe(400)
   })
@@ -204,18 +204,20 @@ describe('the dry run', () => {
     expect((await A.json('/api/files/content', { as: 'alice', ...jsonBody({ path: `${p.folderPath}/mine.md`, content: 'a', baseSha256: null }, 'PUT') })).status).toBe(200)
     expect((await A.json('/api/files/content', { as: 'erin', ...jsonBody({ path: `${p.folderPath}/erins.md`, content: 'e', baseSha256: null }, 'PUT') })).status).toBe(200)
     write(`${p.folderPath}/dropped-in.md`, 'no event') // put there outside the app: counted as someone else's
-    write(`${p.folderPath}/skills/quote/SKILL.md`, '---\nname: quote\ndescription: x\n---\n')
-    write(`${p.folderPath}/skills/quote/table.md`, 'x')
+    write(`${p.folderPath}/skills/견적서/SKILL.md`, '---\nname: 견적서\ndescription: x\n---\n')
+    write(`${p.folderPath}/skills/견적서/table.md`, 'x')
+    write(`${p.folderPath}/skills/견적-현장/SKILL.md`, '---\nname: 견적-현장\ndescription: x\n---\n')
     write(`${p.folderPath}/skills/readme.md`, 'not a skill')
     write(`${p.folderPath}/skills/empty/notes.md`, 'not a skill either')
     sharedChat(p.id, 'erin')
     sharedChat(p.id, 'alice')
     const r = await preview('alice', { projectId: p.id, participants: [user('erin'), user('bob')] })
-    expect(r.body).toEqual({ people: 5, added: 1, removed: 0, files: 3, othersFiles: 2, sharedChats: 2, skills: 1 })
+    // the project skills are counted and named: the people who gain the project use them in its chats
+    expect(r.body).toEqual({ people: 5, added: 1, removed: 0, files: 3, othersFiles: 2, sharedChats: 2, skills: 2, skillNames: ['견적-현장', '견적서'].sort((a, b) => a.localeCompare(b)) })
     // the admin asking: alice's file is someone else's too
     expect((await preview('carol', { projectId: p.id, participants: [user('erin'), group('finance')] })).body).toMatchObject({ added: 1, files: 3, othersFiles: 3 })
     // narrowing: nothing to confirm
-    expect((await preview('alice', { projectId: p.id, participants: [] })).body).toEqual({ people: 3, added: 0, removed: 1, files: 0, othersFiles: 0, sharedChats: 0, skills: 0 })
+    expect((await preview('alice', { projectId: p.id, participants: [] })).body).toEqual({ people: 3, added: 0, removed: 1, files: 0, othersFiles: 0, sharedChats: 0, skills: 0, skillNames: [] })
     // a sub-folder nobody added may read is not counted
     const sub = ensureFolderRow(A.ctx.db, `${p.folderPath}/private`)
     A.ctx.db.transaction(() => replaceRules(A.ctx.db, sub.id, [{ subjectType: 'everyone', subjectId: null, access: 'none' }], 'carol'))()
