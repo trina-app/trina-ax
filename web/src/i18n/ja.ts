@@ -3343,6 +3343,8 @@ export const ja: Record<MessageKey, string> = {
   "pdfView.zoomIn": "拡大",
   "pdfView.zoomLevel": "{n}%",
   "pdfView.fitWidth": "幅に合わせる",
+  "pdfView.pageOf": "{n} / {total}",
+  "pdfView.pages": "ページ一覧",
   "pdfView.cantOpen": "このPDFはプレビューできません。ファイルが壊れている可能性があります。ダウンロードして開いてください。",
   "drive.loadFailed": "Google ドライブの接続状態を読み込めませんでした。",
   "auth.required": "この項目を入力してください。",

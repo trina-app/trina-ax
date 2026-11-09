@@ -11,18 +11,31 @@ export function makePdf(lines: string[]): Uint8Array {
   ])
 }
 
-/** A text PDF of several pages (Helvetica, ASCII), one list of lines per page. */
-export function makePagedPdf(pages: string[][]): Uint8Array {
+/** A text PDF of several pages (Helvetica, ASCII), one list of lines per page. `links`: a link inside the file over a
+ * line of a page (both 1-based, the line 0-based) to another page, as a table of contents has. */
+export function makePagedPdf(pages: string[][], o: { links?: { page: number; line: number; to: number }[] } = {}): Uint8Array {
   const esc = (s: string) => s.replace(/[\\()]/g, (c) => '\\' + c).replace(/[^\x20-\x7e]/g, '?')
   const objs = ['<< /Type /Catalog /Pages 2 0 R >>', '', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>']
   const kids: string[] = []
+  const pageObj: number[] = []
   for (const lines of pages) {
     const stream = 'BT /F1 12 Tf 72 780 Td 16 TL\n' + lines.map((l) => `(${esc(l)}) Tj T*`).join('\n') + '\nET'
+    pageObj.push(objs.length + 1)
     kids.push(`${objs.length + 1} 0 R`)
     objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents ${objs.length + 2} 0 R /Resources << /Font << /F1 3 0 R >> >> >>`)
     objs.push(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`)
   }
   objs[1] = `<< /Type /Pages /Kids [${kids.join(' ')}] /Count ${pages.length} >>`
+  const annots = new Map<number, string[]>()
+  for (const l of o.links ?? []) {
+    const y = 780 - 16 * l.line
+    objs.push(`<< /Type /Annot /Subtype /Link /Rect [72 ${y - 4} 360 ${y + 12}] /Border [0 0 0] /Dest [${pageObj[l.to - 1]} 0 R /XYZ null null null] >>`)
+    annots.set(l.page, [...(annots.get(l.page) ?? []), `${objs.length} 0 R`])
+  }
+  for (const [page, refs] of annots) {
+    const at = pageObj[page - 1] - 1
+    objs[at] = objs[at].replace(/ >>$/, ` /Annots [${refs.join(' ')}] >>`)
+  }
   return writePdf(objs)
 }
 

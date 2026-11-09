@@ -1,7 +1,8 @@
 // The image viewer's document stage (components/ImageViewer.tsx; docs/DECISIONS.md "The room file viewer"): a file sent
 // in a room, DM, group chat or thread, opened from its chip, drawn by FileBody (the side panel's body: the same
 // renderers, limits and reads through the room) in a reading column up to 960 px wide that scrolls by itself. A PDF
-// keeps its own toolbar (zoom, fit to width), a sheet its tabs; the keys ↑ ↓ PageUp PageDown Space scroll it (it is in
+// keeps its own toolbar (zoom, fit to width) and, on a computer, gets its page thumbnails in a rail left of the column
+// (viewers/PdfView `thumbnails`), a sheet keeps its tabs; the keys ↑ ↓ PageUp PageDown Space scroll it (it is in
 // the Tab order, named by the file); the wheel over the dark sides scrolls it too. A link in it that opens the side
 // panel (a team file named in a Markdown file) closes the viewer, which would cover the panel.
 // A file with no preview here (no viewer for its kind, a Hangul file while the HWP preview is off, past the preview
@@ -85,6 +86,8 @@ function DocumentBody({ item, file: given, onSwipe, onMissing }: { item: ViewerI
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [missing])
   const [box, setBox] = useState<HTMLDivElement | null>(null)
+  // a PDF's page thumbnails, left of the column (viewers/PdfView draws them in it on computers; empty otherwise)
+  const [rail, setRail] = useState<HTMLDivElement | null>(null)
   const [width, setWidth] = useState(0)
   // the viewers fit the column's width (a PDF's pages, a deck's slides)
   useLayoutEffect(() => {
@@ -99,18 +102,19 @@ function DocumentBody({ item, file: given, onSwipe, onMissing }: { item: ViewerI
     const a = document.activeElement
     if (box && (!a || a === document.body || a === stageOf(box))) box.focus({ preventScroll: true })
   }, [box])
-  // the wheel over the dark sides scrolls the column, as Slack's does (a pinch or ⌘/Ctrl + wheel is left to the page)
+  // the wheel over the dark sides scrolls the column, as Slack's does (a pinch or ⌘/Ctrl + wheel is left to the page);
+  // the thumbnails scroll themselves
   useEffect(() => {
     const stage = box && stageOf(box)
     if (!box || !stage) return
     const onWheel = (e: WheelEvent) => {
-      if (e.ctrlKey || e.metaKey || box.contains(e.target as Node)) return
+      if (e.ctrlKey || e.metaKey || box.contains(e.target as Node) || rail?.contains(e.target as Node)) return
       const k = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? box.clientHeight : 1
       box.scrollBy({ left: e.deltaX * k, top: e.deltaY * k })
     }
     stage.addEventListener('wheel', onWheel, { passive: true })
     return () => stage.removeEventListener('wheel', onWheel)
-  }, [box])
+  }, [box, rail])
   // a link in the document that opens the side panel (a team file named in a Markdown file): the panel is under the
   // viewer, so the viewer closes and leaves it in view, as 패널에서 열기 does
   const onClickCapture = () => {
@@ -125,26 +129,32 @@ function DocumentBody({ item, file: given, onSwipe, onMissing }: { item: ViewerI
   // the read's own words (a file not found has nothing to download), in the same scroll box, so the focus stays
   const card = renderer === 'card' || renderer === 'error'
 
-  // the side panel's shape: a surface, and in it the scroll box FileBody fills (a sheet keeps its tabs in view)
+  // the side panel's shape: a surface, and in it the scroll box FileBody fills (a sheet keeps its tabs in view). A PDF's
+  // thumbnails go on its left, with a space as wide on its right, so the column stays centred where it was; where the
+  // stage is too narrow the space gives way first, then the column narrows
   return (
-    <div className={card ? 'h-full w-full' : 'mx-auto h-full w-full max-w-[960px] bg-surface text-ink'}>
-      <div
-        ref={setBox}
-        tabIndex={0}
-        role="region"
-        aria-label={item.name}
-        className={card ? 'h-full overflow-auto outline-none' : 'h-full overflow-auto bg-subtle/50 outline-none select-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset'}
-        onClickCapture={onClickCapture}
-        {...swipe}
-        data-testid="file-viewer-body"
-        data-renderer={renderer}
-      >
-        {card ? (
-          <FileCard item={item} note={loaded.error?.text ?? t('preview.unsupported')} download={missing ? undefined : item.download} />
-        ) : (
-          <FileBody file={file} loaded={loaded} width={width} download={item.download ?? stay} onRetry={() => setRev((v) => v + 1)} openPicture={stay} />
-        )}
+    <div className="flex h-full w-full justify-center">
+      <div ref={setRail} className="peer h-full shrink-0 empty:hidden" data-testid="file-viewer-rail" />
+      <div className={card ? 'h-full w-full' : 'h-full max-w-[960px] min-w-0 basis-[960px] bg-surface text-ink'}>
+        <div
+          ref={setBox}
+          tabIndex={0}
+          role="region"
+          aria-label={item.name}
+          className={card ? 'h-full overflow-auto outline-none' : 'h-full overflow-auto bg-subtle/50 outline-none select-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset'}
+          onClickCapture={onClickCapture}
+          {...swipe}
+          data-testid="file-viewer-body"
+          data-renderer={renderer}
+        >
+          {card ? (
+            <FileCard item={item} note={loaded.error?.text ?? t('preview.unsupported')} download={missing ? undefined : item.download} />
+          ) : (
+            <FileBody file={file} loaded={loaded} width={width} download={item.download ?? stay} onRetry={() => setRev((v) => v + 1)} openPicture={stay} thumbnails={rail} />
+          )}
+        </div>
       </div>
+      <div aria-hidden className="w-32 min-w-0 shrink-[1000] peer-empty:hidden" />
     </div>
   )
 }

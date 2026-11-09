@@ -159,9 +159,12 @@ export interface FileBodyProps {
   onRetry: () => void
   /** a click on a picture; by default it opens alone in the image viewer, with `download` (PanelPicture) */
   openPicture?: () => void
+  /** where a PDF's page thumbnails go, beside the body's scroll box (the room file viewer, on computers); none in the
+   * side panel (viewers/PdfView) */
+  thumbnails?: HTMLElement | null
 }
 
-export default function FileBody({ file, loaded, width, download, onRetry, openPicture }: FileBodyProps) {
+export default function FileBody({ file, loaded, width, download, onRetry, openPicture, thumbnails }: FileBodyProps) {
   const t = useT()
   const { kind, blob, error, downloadOnly } = loaded
   const renderer = bodyRenderer(loaded)
@@ -204,18 +207,18 @@ export default function FileBody({ file, loaded, width, download, onRetry, openP
     )
   return (
     <Suspense fallback={<p className="p-6 text-sm text-faint">{t('common.loading')}</p>}>
-      <Viewer renderer={renderer} kind={kind} blob={blob} width={width} name={file.name} at={file.source === 'team' ? file.at : undefined} path={file.source === 'team' ? file.path : null} download={download} file={file} openPicture={openPicture} />
+      <Viewer renderer={renderer} kind={kind} blob={blob} width={width} name={file.name} at={file.source === 'team' ? file.at : undefined} path={file.source === 'team' ? file.path : null} download={download} file={file} openPicture={openPicture} thumbnails={thumbnails} />
     </Suspense>
   )
 }
 
 /** `at`: the place to open the file at (an answer's source, a link): a PDF page, a slide, a sheet and its range. Word
  * and Hangul previews have no such place and open at the top. */
-function Viewer({ renderer, kind, blob, width, name, at, path, download, file, openPicture }: { renderer: ViewerRenderer; kind: PreviewKind; blob: Blob; width: number; name: string; at?: SourceLoc; path: string | null; download: () => void; file: PreviewFile; openPicture?: () => void }) {
+function Viewer({ renderer, kind, blob, width, name, at, path, download, file, openPicture, thumbnails }: { renderer: ViewerRenderer; kind: PreviewKind; blob: Blob; width: number; name: string; at?: SourceLoc; path: string | null; download: () => void; file: PreviewFile; openPicture?: () => void; thumbnails?: HTMLElement | null }) {
   switch (renderer) {
     case 'pdf':
       // `download`: a PDF that pdf.js cannot read shows a Download button in place of the pages
-      return <PdfView blob={blob} width={width} startPage={at?.kind === 'page' ? at.page : undefined} download={download} />
+      return <PdfView blob={blob} width={width} startPage={at?.kind === 'page' ? at.page : undefined} download={download} thumbnails={thumbnails} />
     case 'docx':
       return <DocxView blob={blob} />
     case 'pptx':
