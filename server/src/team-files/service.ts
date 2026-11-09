@@ -826,7 +826,12 @@ export class TeamFiles {
         // folder trashed first. Personal projects are their person's in the trash too.
         if (isDir && r.segs[0] !== 'users') db.query("UPDATE projects SET trashed_with = ? WHERE trashed_with IS NULL AND substr(folder_path, 1, 6) <> 'users/' AND (folder_path = ? OR substr(folder_path, 1, length(?) + 1) = ? || '/')").run(id, r.rel, r.rel, r.rel)
         fileEvent(db, { turnId, userId, path: r.rel, action: 'delete', size, detail: { folder: isDir, trashId: id, ...(ai ? { tool: 'delete_files' } : {}), ...(changed ? { changedWhileMoving: true } : {}) } })
-      } catch (e) { fs.renameSync(storageAbs, r.abs); throw e }
+      } catch (e) {
+        // back where it was; when something took that place meanwhile, never over it
+        if (changed) this.putBack(storageAbs, r.segs)
+        else fs.renameSync(storageAbs, r.abs)
+        throw e
+      }
     })()
     this.dropTextCache(r.rel, isDir)
     // whoever could read it and cannot see it in the trash either (they could restore it from there) lost it
