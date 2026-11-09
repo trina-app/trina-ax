@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-09 09:39
 - Branch: `plan/room-file-viewer` (the work: one `feat/room-file-viewer-*` branch per PR below)
-- Status: in progress (a #249, b0 #259, f #254 on dev; b on `feat/room-file-viewer`; c0, c, d, e to come)
+- Status: in progress (a #249, b0 #259, f #254 on dev; b #261; c0, c, d, e to come; #247 is on dev now)
 - Where: trina-ax core (`web/src/`; if question 2 is a yes, one optional field on the chat send body in `shared/` and
   `server/src/chat/`). Why: rooms, chat and file previews are core (see docs/REPOSITORY-RULES.md)
 - Version impact: minor. A visible UX change; no migration, no new endpoint.
@@ -235,7 +235,8 @@ Filled in step by step; the plan is done when c–e are.
 
 ### Step b: the viewer's document mode (`feat/room-file-viewer`)
 
-Built as planned without the right column (docs/DECISIONS.md "The room file viewer"). What differs or was found:
+Built as planned without the right column (docs/DECISIONS.md "The room file viewer"); PR
+https://github.com/trina-app/trina-ax/pull/261. What differs or was found:
 - **Item kinds:** `ViewerItem` gained `kind: 'file'`, its source `file` (the side panel's `PreviewFile`), `size`, `card`
   and `room: { roomId, fileId, messageId }`; not yet `rootId` or `threadable`, which step c adds with the column
   (`ViewerMeta` per message is where they come from). The room's name comes through `ViewerMeta` too (`where`).
