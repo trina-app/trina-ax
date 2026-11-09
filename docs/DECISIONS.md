@@ -16054,7 +16054,8 @@ copy it (`write` saves text), so it asked for the PDF again. A room's own @트�
   it. The owner's request is exactly that card and one yes. Only one of them: that one. The own chat's call marks the
   chat (`markRoomsSeen`) before it looks anything up, a refused call too, so every save there asks one card, also first
   thing in a new chat (a file id planted in a team file or a page copies nothing unasked). The room session's save had
-  two cards until now.
+  two cards until now. *Reversed for the person's own folder on 2026-11-10* ("대화방을 읽은 뒤 카드 줄이기"): a new file
+  there goes without a card; a save anywhere else still asks as here.
 - **No silent overwrite:** as save_url and make_file, a file already at the target that was not read in this turn is
   kept and the copy goes next to it (a conflict copy, told to the AI); one read in this turn is updated with a version.
 - **Room sessions:** no "이 방에서는 항상 허용" for a copy. "대화방에서 새 파일은 미리 허용" left save_room_file out of grants
@@ -17322,3 +17323,123 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
   `integrations.spec.ts` "your own app"; `safe-ops-policy-epoch.test.ts` and every `c-integration*`, `c-drive*`,
   `c-slack*` test file pass.
 - Version impact: **minor** (optional API fields, one add-only migration).
+## 대화방을 읽은 뒤 카드 줄이기 — fewer cards after a room read (feat/fewer-cards-after-room-read, 2026-11-10, product owner)
+
+Amends "내 AI 채팅에서 대화방 읽기", "대화방에서 새 파일은 미리 허용" and "Trina side chat", and **reverses** one line of
+"내 AI 채팅에서 대화방 파일 저장" (2026-11-09: "a room file saved into one's own folder always asks"). The owner
+(2026-11-10), on the room-read change card: "허용 계속 눌러주는게 지치겠다". After a chat reads a room (the ✦ side chat
+nearly always does), every change raised a card, one per file and for good, because the card remembered only the
+identical call. An audit of every card the AI can cause and six common flows ranked the changes; the owner approved the
+first two as recommended. One principle stays: **what nobody else sees, or what every member of the room could do
+themselves, may go on without a card; what cannot be undone, reaches more people or comes from outside the team still
+asks.**
+
+- **New files in my own folder go without a card** (`TurnExec.ownFolderTarget`). In the person's own chat with
+  `chats.rooms_seen` (the side chat too), a call goes on without the rooms-seen card when all of these hold:
+  - write, make_file or edit_hwp making a **new** file, or save_room_file making a new file (where its `widen` hook says
+    it goes); or edit, write or edit_hwp of a file **this same answer made** (`roomMadeHere`: a create of this turn, not a
+    move into place, that nobody else changed since);
+  - the path as the file layer resolves it (`authorize(…, 'write')`: letter case, NFC/NFD, ".." and links refused) is
+    inside `users/<me>/`, never in a hidden folder (`.attachments`), a plugin's folder or `users/<me>/skills/`, never an
+    instruction-named file (`instructionLike`: CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md and the existing list);
+  - not a confidential chat.
+  A file that existed before this answer always asks (an overwrite, an edit), and so do edit_files, moves, copies,
+  renames and every other tool. **save_url keeps its card:** the name it saves under comes from the download (its
+  extension follows the bytes), so "new" cannot be known before it runs. Considered and left for later: cover it when
+  nothing in its target folder was read or written in this turn but files the answer made (`placeProduced` overwrites
+  only a file read in this turn; any other goes beside it as a copy).
+  The step line ends **"내 폴더라 묻지 않고 저장"** (five languages; a save_room_file step says it after the file's name,
+  `TurnExec.takeStepSuffix`, as that tool labels its own step once per call); the file is in the answer's file list.
+  **Why:** nobody else reads `users/<me>/`, not the owner or admins either, so nothing reaches anyone new; the risk left
+  is junk files from planted room text, which the steps show and versions and the trash undo. The 2026-11-09 line
+  ("a file id planted in a team file or a page copies nothing unasked") is reversed for the own folder only: the copy
+  lands where only the person sees it, of a file they can already open, still behind the download-only list.
+- **Scheduled runs** that read a room now save new files in the person's own folder ("매일 저녁 방 대화 요약해서 내 폴더에
+  저장" used to save nothing: the card had nobody to answer it). Intended (plan C item 1). A scheduled run never gets a
+  team folder's cover (below).
+- **Outside content saved into my folder counts when it is read again** (the memory gap, closed with the change above).
+  Reading one's own folder is no outside content in itself (`noteTaint`), so web text, a room's words or a connection's
+  answer saved there came back in a later chat as the person's own, and `remember` went on without its card (true before
+  this change for web text too). Now:
+  - **The turn keeps what its chat had seen** (`turns.outside_content`, migration 281): 2 a room's messages (the own
+    chat after a room read, a room's session) or something from outside the team (`chats.room_outside`), 1 content
+    someone else wrote (`chats.session_tainted`: other people's files, attachments, project instructions), else 0. Only
+    ever raised: at the start, on every mark (`taint`, `markRoomsSeen`, `markOutside`) and after every tool call, so it is
+    on the turn before anything it writes next. Backfill: a turn of a chat that read rooms or of a room's session 2, of a
+    tainted chat 1, of a chat that is gone 2.
+  - **Read side, where read sources are recorded already** (`TurnFiles.readPaths`, drained by `noteReads`: read, grep's
+    lines, search passages, make_file's sources, sub-agents' reads). For each file under `users/<me>/` the newest content
+    (`files/timeline.ts`, which follows moves, renames and restores) decides: written by an AI turn, that turn's mark; a
+    copy also carries its source's (up to four copies back, then 2); a turn row that is gone 2; a person's own save or a
+    file with no known history 0. A turn of this same chat on the branch this answer continues adds nothing (its marks
+    are the chat's already; otherwise a side chat that read back its own summary would lose its cover). 1 taints the
+    chat (`remember` asks); 2 also marks it as having used outside content (`markOutside`: no room card is skipped). The
+    reading chat's own writes then carry the mark on (`syncOutsideMark`). Server tools' reads are now drained right
+    after the call (`chat/tools.ts`), as the file tools' were, so the next card or memory sees them.
+  - Team files are unchanged: reading them taints as before, and for room cards they stay the team's own words (#198).
+- **One yes covers a team folder for the rest of the answer** (the room's #198 rule in the own chat). In the own chat
+  after a room read, a new file (or one this answer made) in a team folder gets the room card's words after the
+  rooms-seen line ("여기에 대화방 메시지(다른 사람이 쓴 글)가 들어와서, 무언가를 바꾸기 전에 먼저 물어봐요. 트리나가
+  영업/견적서에 새 파일을 저장하려고 해요: 견적서_A사.hwpx. 바뀐 파일은 기록에서 되돌릴 수 있어요."), and its [이번만 허용]
+  covers new files in that folder (and subfolders with the same readers and writers, `answerCovers`) for the rest of
+  the answer, when (`roomGrantTarget`, now given the rooms):
+  - **every member of every room the chat's read scope holds may write the target** (none in the scope: no cover);
+  - the folder is below the top folders and there, not skills, not instruction-like, not hidden, not a plugin's; the
+    team's switch (`roomAlwaysAllow`) is on; not a scheduled run or a confidential chat;
+  - the chat used nothing from outside the team (`chats.room_outside`).
+  Not covered: files that existed before the answer, other folders, skills and instruction files, and the
+  wider-audience card, which asks as before (once per answer and folder; its yes is that call's room yes, never a cover:
+  a folder wider than the rooms read takes that card for the first file and the room card for the next). Each call let
+  through says "이번만 허용으로 진행" and is audited `room.ai_grant_use` with `once` and `chat` (several rooms under
+  `rooms`, each named as `roomAuditRef` names it). Checked again right before the write (`recheckRoomCover`, now for own
+  chats too).
+- **The own chat's mark of outside content** (`chats.room_outside`, until then a room question's only). Every tool
+  outside the team's own words marks it (`OWN_CHAT_TEAM_TOOLS`: a room session's `ROOM_FILE_TOOLS`, reading the person's
+  rooms, `set_title`, `remember`; anything else fails closed: the web and its search, a connection's tools and
+  `call_tool`, Google Drive, the browser, box_shell, video, tools added later), and so does reading an own-folder file
+  marked 2. **It lasts until a new session**, not one answer as the brief said: an own chat's session carries its
+  earlier answers (a room question's does not), so web text read three answers ago can still steer. A new chat (the side
+  chat's "새 대화") starts clean.
+- **"이 방에서는 항상 허용" in the side chat** (`TurnExec.sideGrantRoom`). A ✦ side chat whose read scope holds its own
+  room and no other offers the room card's third button with its line ("내가 부를 때, 이 폴더에 새 파일을 만들 때만
+  적용돼요."). It makes and uses **the same grant** (`room_ai_grants`, migration 266: asker × room × folder, new files, 30
+  days), so a grant made in the room covers its side chat and one made in the side chat covers the room. Every #198
+  check holds there: `grantFor` at use (30 days, still in the room, nobody joined since the card was raised
+  (`members_since`), the same readers and writers, the same folder on disk (`folder_id`), write access, the switch) and
+  every member writing the target (`roomGrantTarget`). A member who cannot write the folder means two buttons and no
+  folder cover. A chat that read two or more rooms or DMs gets [이번만] only (merging grants would let any of them
+  steer). Settings › 트리나에게 허용한 것 lists it as the room's row (no new row type; its line now says "대화방이나 그 방의
+  사이드 채팅에서"), and deleting it there revokes it for both.
+- **One name for the AI on a card.** The wider-audience card said "AI가" while the rooms-seen line before it, merged on
+  one card, said "트리나가". `widenConfirm` now names the AI as the room cards do (`aiCalled`: 트리나 where the product is
+  named after its AI, `PRODUCT_NAMED_AFTER_AI`, the plain word elsewhere), on every wider-audience card.
+- **Words for the AI.** `ROOMS_RULE` and `room_read`'s description say that a new file in the user's own folder is the
+  one change after a room read that needs no card.
+- **What remains.** Planted room text can add new files in the person's own folder, and, after one [이번만] or a grant,
+  new files in a folder every member of the room may write; the steps and the file list show them. It cannot overwrite
+  anything that was there before the answer, write skills or instruction files, reach more people, or ride on web or
+  connection text. Laundering through the own folder is closed by the mark above.
+- **Cards in the audit's six flows** (dev ee1cd907 → this change; c is changed by `feat/room-read-connection-cards`):
+
+  | Flow | Before | After |
+  |---|---|---|
+  | a. Side chat: sum up the room into my folder (1 file, + a fix-up) | 1 (+1 each) | 0 |
+  | b. Side chat: save to a team folder wider than the room | 1 per file | 1 for one file; 2 for several (the wider-audience card, then [이번만]) |
+  | c. "노션에 회의록 정리해줘" after a room read | 4 | 4 |
+  | d. Edit 3 existing files in `shared/기획` after a room read | 3 | 3 |
+  | e. Web page to a document in the side chat, my folder + 2 pictures (save_url) | 3 | 2 |
+  | f. My own chat that read a room, 5 new files in one team folder | 5 | 1 (2 if the folder is wider than the rooms read; 0 on later answers with a side chat's grant) |
+
+- **Not here:** change 3 (connection reads, and one card where a tool has its own: `feat/room-read-connection-cards`)
+  and change 4 (a grouped "모두 허용").
+- Tests: `tests/unit/b-chat-rooms-fewer-cards.test.ts` (the side chat sums up the room into my folder and fixes the
+  file, no card; a planted room message cannot overwrite my file, write my skills, CLAUDE.md, `.attachments` or a team
+  folder without a card; a file saved after a room read, after the web or as a copy of one makes `remember` ask in a
+  later chat, also through grep's lines, while one I or a clean chat wrote does not and one this chat wrote adds
+  nothing; 5 new files in one folder one card, a second folder another, an existing file its own; the web or a
+  connection a card per file, in later answers too; two rooms [이번만] only; the side chat's [항상] makes the room's
+  grant, listed in Settings, used by the next answer, lapsed by a member joining; a room's grant in the side chat and
+  its 30 days; a member who cannot write: no "always" and no cover; a scheduled run saves in my folder, never in a team
+  folder), `b-chat-rooms-save.test.ts` (into my own folder no card, an existing file a card), `b-chat-rooms.test.ts`
+  (a scheduled run saves a new file of my own), `b-room-ai-grants.test.ts`.
+- Version impact: **minor** (fewer cards and a reversed decision; one add-only migration; no API change).
