@@ -92,4 +92,4 @@ folder"). Differences and additions:
   shared chats, the wider audience, skills, connections).
 - Also removed a leftover merge marker in DECISIONS.md (from merge 8c1df78a).
 
-PR: see the PR link commit.
+PR: https://github.com/trina-app/trina-ax/pull/273
