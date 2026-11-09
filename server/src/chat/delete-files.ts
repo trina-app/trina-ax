@@ -229,17 +229,22 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
       return result(`${NONE}: ${e instanceof ToolError ? e.message : 'internal error'}.`, 'failed')
     }
     const trashIds = done.trashed.map((x) => x.trashId)
-    auditCall({ ...base, outcome: done.trashed.length === plan.items.length ? 'trashed' : done.trashed.length ? 'partial' : 'changed', trashIds, changed: done.changed, failed: done.failed.map((f) => f.path), keptChanged: done.trashed.filter((x) => x.changed).map((x) => x.path) }, target)
-    if (!done.trashed.length) {
+    const moved = done.trashed.length + done.stranded.length
+    // nothing moved: `changed` only when an item changed after the card; when every item failed otherwise, `failed`
+    const outcome = moved === plan.items.length && !done.stranded.length ? 'trashed' : moved ? 'partial' : done.changed.length ? 'changed' : 'failed'
+    auditCall({ ...base, outcome, trashIds, changed: done.changed, failed: done.failed.map((f) => f.path), keptChanged: done.trashed.filter((x) => x.changed).map((x) => x.path), stranded: done.stranded }, target)
+    if (!moved) {
       return result(`${NONE}: ${done.changed.length ? `${done.changed.map(neutralizeTags).join(', ')} changed after the card was shown (a file or folder was added, removed or changed, or who can see it or the trash setting changed). Ask again with one call; the user confirms the current state on a new card` : done.failed.map((f) => `${neutralizeTags(f.path)}: ${neutralizeTags(f.error)}`).join('; ')}.`, done.changed.length ? 'changed after the card' : 'failed')
     }
-    const until = done.trashed[0]!.purgeAt.slice(0, 10)
+    const until = done.trashed[0]?.purgeAt.slice(0, 10)
     const text = [
-      `Moved to the team trash (${done.trashed.length}):\n${done.trashed.map((x) => `- ${neutralizeTags(x.path)}${x.changed ? ' (it changed while it moved and could not go back: everything in it went to the trash; tell the user to check it there)' : ''}`).join('\n')}`,
-      `The user can restore each item until ${until} on the Files screen › Trash (in their app: ${DELETE_TEXT.where[L]}); an admin can empty the trash before then. Tell the user what went and how to restore it.`,
+      done.trashed.length ? `Moved to the team trash (${done.trashed.length}):\n${done.trashed.map((x) => `- ${neutralizeTags(x.path)}${x.changed ? ' (it changed while it moved and could not go back: everything in it went to the trash; tell the user to check it there)' : ''}`).join('\n')}` : '',
+      until ? `The user can restore each item until ${until} on the Files screen › Trash (in their app: ${DELETE_TEXT.where[L]}); an admin can empty the trash before then. Tell the user what went and how to restore it.` : '',
+      // a double fault (TeamFiles.remove): moved, but the trash list could not record it; the server log says where it is
+      done.stranded.length ? `Moved out of its place but not listed in the trash (the server could not record it; it is kept in the server's trash storage, and the server log says where): ${done.stranded.map((x) => neutralizeTags(x.path)).join(', ')}. Tell the user it was removed from its folder and that an admin can recover it; it is not in Files › Trash.` : '',
       done.changed.length ? `Not moved, changed after the card was shown (left where it was): ${done.changed.map(neutralizeTags).join(', ')}.` : '',
       done.failed.length ? `Not moved:\n${done.failed.map((f) => `- ${neutralizeTags(f.path)}: ${neutralizeTags(f.error)}`).join('\n')}` : '',
     ].filter(Boolean).join('\n\n')
-    return { content: [{ type: 'text' as const, text }], summary: `${DELETE_FILES_TOOL} -> ${done.trashed.length}/${plan.items.length} to the trash (confirmed by the user, ${plan.entries} entries)` }
+    return { content: [{ type: 'text' as const, text }], summary: `${DELETE_FILES_TOOL} -> ${done.trashed.length}/${plan.items.length} to the trash${done.stranded.length ? `, ${done.stranded.length} out of place without a trash row` : ''} (confirmed by the user, ${plan.entries} entries)` }
   }
 }

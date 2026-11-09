@@ -19,7 +19,7 @@ import { waitFor } from '../lib/wait'
 import { CONFIRMED } from '../lib/schedule-card'
 import { componentC } from '../../server/src/team-files/component'
 import { AI_SKILL_TRASH_REFUSAL, type AiTrashPlan } from '../../server/src/team-files/service'
-import { AI_TRASH_MAX_ENTRIES, stampTree } from '../../server/src/team-files/ai-trash'
+import { AI_TRASH_MAX_ENTRIES, stampTree, TrashStranded } from '../../server/src/team-files/ai-trash'
 import { DELETE_REFUSAL, DELETE_TEXT, deleteCard, deleteFilesRefusal, deleteFilesTool, MAX_DELETE_CARDS, type DeleteExec } from '../../server/src/chat/delete-files'
 import { ROOM_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
 import { buildAgentDefinitions, PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
@@ -232,7 +232,7 @@ describe('the yes is bound to the manifest', () => {
     // move_files of the same answer, within the same audience: no card of its own
     svc().move('alice', 'users/alice/other.md', 'users/alice/tmp/other.md', 'rename', { turnId: TURN, tool: 'move_files' })
     const r = svc().trashAiPlan('alice', plan, TURN)
-    expect(r).toEqual({ trashed: [], changed: ['users/alice/tmp'], failed: [] })
+    expect(r).toEqual({ trashed: [], changed: ['users/alice/tmp'], failed: [], stranded: [] })
     expect(fs.readdirSync(abs('users/alice/tmp')).sort()).toEqual(['a.md', 'b.md', 'c.md', 'other.md'])
     expect(trashRows('original_path = ?', 'users/alice/tmp')).toEqual([])
   })
@@ -275,7 +275,7 @@ describe('the yes is bound to the manifest', () => {
       if (at.includes(`${path.sep}${PRODUCT.systemDir}${path.sep}trash${path.sep}`)) fs.writeFileSync(path.join(at, 'late.txt'), 'late\n')
       return orig.call(this, at, item)
     }
-    try { expect(svc().trashAiPlan('alice', plan, TURN)).toEqual({ trashed: [], changed: ['users/alice/race'], failed: [] }) }
+    try { expect(svc().trashAiPlan('alice', plan, TURN)).toEqual({ trashed: [], changed: ['users/alice/race'], failed: [], stranded: [] }) }
     finally { files.aiSameOnDisk = orig }
     expect(fs.readdirSync(abs('users/alice/race')).sort()).toEqual(['a.md', 'late.txt'])
     expect(trashRows('original_path = ?', 'users/alice/race')).toEqual([])
@@ -302,6 +302,169 @@ describe('the yes is bound to the manifest', () => {
     const back = svc().restoreTrash('alice', row!.id)
     expect(back.entry.path).not.toBe('users/alice/race2')
     expect(fs.readdirSync(abs(back.entry.path)).sort()).toEqual(['a.md', 'late.txt'])
+  })
+})
+
+/** The trash row insert fails `n` times (a full disk, a locked database): `onFail` runs first (what happens meanwhile).
+ * The service's own connection is wrapped, so only its writes of trash rows fail; put back in `finally`. */
+function failTrashRows(n: number, onFail: () => void = () => {}) {
+  const db = h.ctx.db as unknown as { query: (sql: string) => unknown }
+  const orig = db.query.bind(db)
+  let left = n
+  db.query = (sql: string) => (sql.startsWith('INSERT INTO trash_items') && left > 0
+    ? { run: () => { left--; onFail(); throw new Error('injected: disk I/O error') } }
+    : orig(sql))
+  return () => { delete (db as { query?: unknown }).query }
+}
+/** The check where an item went (the trash storage): a writer outside this process adds a file to it on the way, and
+ * makes something new at its old place (so it cannot go back). */
+function racingWriter(oldPlace: string) {
+  const files = svc() as unknown as { aiSameOnDisk(abs: string, item: unknown): boolean }
+  const orig = files.aiSameOnDisk
+  files.aiSameOnDisk = function (at: string, item: unknown) {
+    if (at.includes(`${path.sep}${PRODUCT.systemDir}${path.sep}trash${path.sep}`)) {
+      fs.writeFileSync(path.join(at, 'late.txt'), 'late\n')
+      put(`${oldPlace}/new.md`, 'made at the old place\n')
+    }
+    return orig.call(this, at, item)
+  }
+  return () => { files.aiSameOnDisk = orig }
+}
+const errorsLogged = () => {
+  const log = h.ctx.log as unknown as { error: (...a: unknown[]) => void }
+  const orig = log.error
+  const seen: { msg: string; storage?: string }[] = []
+  log.error = (msg: unknown, meta?: unknown) => { seen.push({ msg: String(msg), storage: (meta as { storage?: string } | undefined)?.storage }) }
+  return { seen, restore: () => { log.error = orig } }
+}
+
+describe('a double fault never strands an item without a trash row (review of #277)', () => {
+  test('changed on the way, its old place taken, and its trash rows failing once: written again, in the trash, restorable, logged with where it is', () => {
+    put('users/alice/df1/a.md')
+    const plan = planOf('alice', ['users/alice/df1'])
+    const logged = errorsLogged()
+    const undo = [racingWriter('users/alice/df1'), failTrashRows(1)]
+    let r
+    try { r = svc().trashAiPlan('alice', plan, TURN) } finally { for (const u of undo) u(); logged.restore() }
+    expect(r.trashed.map((x) => [x.path, x.changed])).toEqual([['users/alice/df1', true]])
+    expect(r.stranded).toEqual([])
+    expect(fs.readFileSync(abs('users/alice/df1/new.md'), 'utf8')).toBe('made at the old place\n')
+    const [row] = trashRows('original_path = ?', 'users/alice/df1')
+    expect(row?.turn_id).toBe(TURN)
+    // the error log says where it was, before it was written again
+    expect(logged.seen[0]?.storage).toMatch(new RegExp(`^${PRODUCT.systemDir.replace('.', '\\.')}/trash/`))
+    const ev = h.ctx.db.query("SELECT detail FROM file_events WHERE path = 'users/alice/df1' AND action = 'delete' ORDER BY id DESC LIMIT 1").get() as { detail: string }
+    expect(JSON.parse(ev.detail)).toMatchObject({ trashId: row!.id, changedWhileMoving: true, rescued: true, tool: 'delete_files' })
+    const back = svc().restoreTrash('alice', row!.id)
+    expect(fs.readdirSync(abs(back.entry.path)).sort()).toEqual(['a.md', 'late.txt'])
+  })
+
+  test('…and when no trash row can be written at all: reported as moved out of place (not "nothing moved"), the storage path logged, the tool says an admin can recover it', async () => {
+    put('users/alice/df2/a.md')
+    const logged = errorsLogged()
+    const undo = [racingWriter('users/alice/df2'), failTrashRows(100)]
+    let release!: (v: unknown) => void
+    const main = new TurnFiles()
+    const turnId = uuidv7()
+    const exec = {
+      spec: { userId: 'alice', chatId: 'own-chat-df2', turnId, locale: 'en', clientKind: 'web' },
+      room: null, shared: null, restricted: false, templateRun: false, roomsSeen: false, otherAuthors: false, fromSlack: false,
+      files: main, rt: h.rt(), livePrincipal: () => h.ctx.files.principal('alice'), openRequests: () => [],
+      waitForPerson: () => new Promise((r) => { release = r; r('trash') }),
+    } as unknown as DeleteExec
+    let out
+    try { out = await deleteFilesTool(exec).call({ paths: ['users/alice/df2'] }, main) } finally { for (const u of undo) u(); logged.restore() }
+    expect(release).toBeDefined()
+    const text = (out.content[0] as { text: string }).text
+    expect(out.isError).toBeUndefined()
+    expect(text).not.toContain('Nothing was moved')
+    expect(text).toContain('Moved out of its place but not listed in the trash')
+    expect(text).toContain('users/alice/df2')
+    expect(trashRows('original_path = ?', 'users/alice/df2')).toEqual([])
+    // logged at error level with where it is, and it is there, whole
+    const storage = logged.seen.find((x) => x.msg.startsWith('no trash row could be written'))?.storage
+    expect(storage).toBeTruthy()
+    expect(fs.readdirSync(path.join(h.team, ...storage!.split('/'))).sort()).toEqual(['a.md', 'late.txt'])
+    expect(fs.readFileSync(abs('users/alice/df2/new.md'), 'utf8')).toBe('made at the old place\n')
+    const [a] = audits(turnId)
+    expect(a!.detail).toMatchObject({ outcome: 'partial', trashIds: [], stranded: [{ path: 'users/alice/df2', storage }] })
+  })
+
+  test('the rows fail and a writer made a file at the old place in that instant: it is never overwritten; the item gets its row and is restorable', () => {
+    put('users/alice/df3.md', 'the original\n')
+    const plan = planOf('alice', ['users/alice/df3.md'])
+    const undo = failTrashRows(1, () => put('users/alice/df3.md', 'made in that instant\n'))
+    let r
+    try { r = svc().trashAiPlan('alice', plan, TURN) } finally { undo() }
+    expect(r.trashed.map((x) => x.path)).toEqual(['users/alice/df3.md'])
+    expect(fs.readFileSync(abs('users/alice/df3.md'), 'utf8')).toBe('made in that instant\n')
+    const [row] = trashRows('original_path = ?', 'users/alice/df3.md')
+    const back = svc().restoreTrash('alice', row!.id)
+    expect(back.entry.path).not.toBe('users/alice/df3.md')
+    expect(fs.readFileSync(abs(back.entry.path), 'utf8')).toBe('the original\n')
+  })
+
+  test('the rows fail and the item goes back: nothing moved, and a call where every item failed is audited "failed", not "changed"', async () => {
+    put('users/alice/df4.md', 'stays\n')
+    const undo = failTrashRows(100)
+    const main = new TurnFiles()
+    const turnId = uuidv7()
+    const exec = {
+      spec: { userId: 'alice', chatId: 'own-chat-df4', turnId, locale: 'en', clientKind: 'web' },
+      room: null, shared: null, restricted: false, templateRun: false, roomsSeen: false, otherAuthors: false, fromSlack: false,
+      files: main, rt: h.rt(), livePrincipal: () => h.ctx.files.principal('alice'), openRequests: () => [],
+      waitForPerson: () => Promise.resolve('trash'),
+    } as unknown as DeleteExec
+    let out
+    try { out = await deleteFilesTool(exec).call({ paths: ['users/alice/df4.md'] }, main) } finally { undo() }
+    expect(out.isError).toBe(true)
+    expect((out.content[0] as { text: string }).text).toStartWith('Nothing was moved to the trash: users/alice/df4.md: internal error')
+    expect(fs.readFileSync(abs('users/alice/df4.md'), 'utf8')).toBe('stays\n')
+    expect(trashRows('original_path = ?', 'users/alice/df4.md')).toEqual([])
+    expect(audits(turnId).map((a) => a.detail.outcome)).toEqual(['failed'])
+  })
+
+  test('a closed folder whose rows fail twice, its old place taken: no bare row (its rules would stay behind), so its files never become readable to members', async () => {
+    // the review's probe: an admin deletes a folder only she may see; the full rows fail twice and something appears at
+    // the old place. A row alone would leave the rules on the old path (the new folder there gets them) and bring the
+    // folder back from the trash with none: every member could read "shared/h4 (restored)/secret.md"
+    const db = h.ctx.db
+    put('shared/h4/secret.md', 'CLOSED-FOLDER-CANARY\n')
+    db.query("INSERT INTO folders (id, path) VALUES ('f_del_h4', 'shared/h4')").run()
+    db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_del_h4_all', 'f_del_h4', 'everyone', NULL, 'none'), ('r_del_h4_carol', 'f_del_h4', 'user', 'carol', 'write')").run()
+    const readable = async (user: string, rel: string) => { try { return (await svc().content(user, rel)).content } catch { return null } }
+    expect(await readable('alice', 'shared/h4/secret.md')).toBeNull()
+    const logged = errorsLogged()
+    const undo = failTrashRows(2, () => { if (!has('shared/h4')) put('shared/h4/other.md', 'appeared at the old place\n') })
+    let thrown: unknown = null
+    try { svc().remove('carol', 'shared/h4') } catch (e) { thrown = e } finally { undo(); logged.restore() }
+    // whatever row there may be: restored, its files stay closed to members
+    for (const row of trashRows('original_path = ?', 'shared/h4')) {
+      const back = svc().restoreTrash('carol', row.id)
+      expect(await readable('alice', `${back.entry.path}/secret.md`)).toBeNull()
+    }
+    expect(thrown).toBeInstanceOf(TrashStranded)
+    expect(trashRows('original_path = ?', 'shared/h4')).toEqual([])
+    // the rules stay where they were: the folder at the old place keeps them, and the member sees neither
+    expect(db.query("SELECT path FROM folders WHERE id = 'f_del_h4'").get()).toEqual({ path: 'shared/h4' })
+    expect(await readable('alice', 'shared/h4/other.md')).toBeNull()
+    for (const u of ['alice', 'carol']) expect((await h.api(u).call(API.trash, { query: {} })).items.some((x) => x.originalPath.startsWith('shared/h4'))).toBe(false)
+    // not lost: logged at error level with where it is, and there whole, for an admin to recover
+    const storage = (thrown as TrashStranded).storage
+    expect(logged.seen.some((x) => x.storage === storage && x.msg.includes('carries folder rules or a project'))).toBe(true)
+    expect(fs.readFileSync(path.join(h.team, ...storage.split('/'), 'secret.md'), 'utf8')).toBe('CLOSED-FOLDER-CANARY\n')
+  })
+
+  test('…while a folder with no folder rows and no project still gets its trash row alone, and comes back from the trash', () => {
+    put('users/alice/df5/a.md', 'mine\n')
+    const undo = failTrashRows(2, () => { if (!has('users/alice/df5')) put('users/alice/df5/new.md', 'appeared\n') })
+    let r
+    try { r = svc().remove('alice', 'users/alice/df5') } finally { undo() }
+    const [row] = trashRows('original_path = ?', 'users/alice/df5')
+    expect(row?.id).toBe(r.trashId)
+    const back = svc().restoreTrash('alice', row!.id)
+    expect(fs.readFileSync(abs(`${back.entry.path}/a.md`), 'utf8')).toBe('mine\n')
+    expect(fs.readFileSync(abs('users/alice/df5/new.md'), 'utf8')).toBe('appeared\n')
   })
 })
 
