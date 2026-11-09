@@ -10,8 +10,10 @@
 // through page.route as the team server sends it (rooms-mock.ts), its files as streamFile does. Every view passes axe.
 // On computers the file's conversation is beside it (components/rooms/ViewerColumn.tsx, step c): its message's thread,
 // where a reply goes to the room's thread; ✦ switches to my Trina side chat with the file quoted, "스레드로 돌아가기"
-// back; the side chat stays across ← →; the bar's toggle hides the column. On a phone ✦ opens the room page's side chat.
-// The side chat there takes a pasted picture, and the room page's side chat shows the same one.
+// back; the side chat stays across ← →; the bar's toggle hides the column. The side chat there takes a pasted picture,
+// and the room page's side chat shows the same one. On a phone the column is a sheet over the viewer: 💬 (with the reply
+// count) opens the thread there, ✦ Trina with the file quoted; its handle drags it, Back closes the sheet, then the
+// viewer; a finger still steps through the files (CDP touch).
 // SHOTS_DIR=<folder>: the screenshots (a PDF with its thread at 1440 light, the Trina side chat at 1440 dark, the column
 // hidden at 1440 light, a PDF at 390 light, a Hangul file at 1440 dark) go there.
 import fs from 'node:fs'
@@ -163,6 +165,12 @@ test('a PDF from a room message opens in the viewer: its pages, who, when and wh
   await expect(page.getByTestId('image-viewer-download')).toBeVisible()
   await expect(page.getByTestId('image-viewer-panel')).toHaveAccessibleName('패널에서 열기')
   for (const t of ['image-viewer-zoom', 'image-viewer-copy', 'image-viewer-open']) await expect(page.getByTestId(t)).toHaveCount(0)
+  // 패널에서 열기 (⤡, as the side panel's own way back beside the chat) is not a second panel icon beside the column's
+  // toggle; a computer's bar has no 💬 (the column is there)
+  const icon = (id: string) => page.getByTestId(id).locator('svg').first().getAttribute('class')
+  expect(await icon('image-viewer-panel')).toMatch(/minimize/)
+  expect(await icon('image-viewer-column')).toMatch(/panel-right/)
+  await expect(page.getByTestId('image-viewer-thread')).toHaveCount(0)
   await expect(page.getByTestId('image-viewer-next')).toHaveAccessibleName('다음 이미지')
   await audit(page, 'viewer with a PDF')
   // the bytes were read through the room, inline
@@ -378,6 +386,25 @@ test('a Hangul file shows its pages while the HWP preview is on; off, its card, 
 
 const column = (page: Page) => viewer(page).getByTestId('viewer-column')
 const stageBox = async (page: Page) => (await viewer(page).getByTestId('image-viewer-stage').boundingBox())!
+const sheet = (page: Page) => viewer(page).getByTestId('viewer-sheet')
+/** a finger on the screen (CDP touch events, as a phone sends them): pressed on `on`'s middle, moved by `dx`, `dy` in
+ * four moves (`gap` ms apart: a slow drag), held still `hold` ms, lifted */
+async function touchMove(page: Page, on: Locator, dx: number, dy: number, o: { gap?: number; hold?: number } = {}) {
+  const b = (await on.boundingBox())!
+  const x = b.x + b.width / 2
+  const y = b.y + b.height / 2
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+  for (let i = 1; i <= 4; i++) {
+    if (o.gap) await page.waitForTimeout(o.gap)
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + (dx * i) / 4, y: y + (dy * i) / 4 }] })
+  }
+  if (o.hold) await page.waitForTimeout(o.hold)
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  await cdp.detach()
+}
+const touchDrag = (page: Page, on: Locator, dy: number) => touchMove(page, on, 0, dy)
+const touchSwipe = (page: Page, on: Locator, dx: number) => touchMove(page, on, dx, 0)
 /** the POST of a question to a side chat (the mock team server's /api/chats/:id/messages) */
 const sideQuestion = (page: Page) => page.waitForRequest((r) => r.method() === 'POST' && /^\/api\/chats\/[^/]+\/messages$/.test(new URL(r.url()).pathname))
 
@@ -611,30 +638,197 @@ test.describe('a phone (390 px)', () => {
 test.describe('a phone (390 px), the conversation', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
 
-  test("no column; ✦ closes the viewer and opens the room page's side chat with the file quoted", async ({ page }) => {
-    await openRoom(page)
+  test("💬 opens the file's thread in a sheet over it; a reply from it is in the room's thread; the handle drags it; Back closes the sheet, then the viewer", async ({ page }) => {
+    const { room } = await openRoom(page)
     await openChip(timeline(page), 'acme-handbook.pdf')
     await expect(fileDialog(page, 'acme-handbook.pdf')).toBeVisible()
+    // no column beside it, no toggle: the bar's 💬, with the reply count
     await expect(column(page)).toHaveCount(0)
     await expect(page.getByTestId('image-viewer-column')).toHaveCount(0)
     expect((await stageBox(page)).width).toBe(390)
-    await page.getByTestId('image-viewer-ask-trina').click()
+    const talk = page.getByTestId('image-viewer-thread')
+    await expect(talk).toHaveAccessibleName('스레드 보기, 답글 1')
+    await expect(page.getByTestId('image-viewer-thread-count')).toHaveText('1')
+    // the bar keeps the name in view beside ‹ › and the buttons
+    expect((await page.getByTestId('image-viewer-name').boundingBox())!.width).toBeGreaterThan(60)
+    await talk.tap()
+    // the sheet: about 70 % of the screen, the file dimmed above it; the thread with its ✕ (no ‹ in a sheet)
+    await expect(sheet(page)).toHaveAttribute('data-size', 'part')
+    await expect(column(page)).toHaveAttribute('data-show', 'thread')
+    await expect(column(page).getByTestId('room-message')).toHaveCount(2)
+    await expect(column(page).getByTestId('thread-count')).toHaveText('답글 1개')
+    await expect(column(page).getByTestId('thread-close')).toBeVisible()
+    await expect(column(page).getByTestId('thread-back')).toHaveCount(0)
+    await expect.poll(async () => Math.round((await sheet(page).boundingBox())!.height)).toBe(Math.round(844 * 0.7))
+    // at the bottom, once it has slid up
+    await expect.poll(async () => { const b = (await sheet(page).boundingBox())!; return Math.round(b.y + b.height) }).toBe(844)
+    // the file behind is out of reach while it is open
+    await expect(page.getByTestId('image-viewer-stage')).toHaveAttribute('inert', '')
+    await audit(page, 'viewer with the thread sheet on a phone')
+    // a reply from the sheet: in the room's thread
+    const box = column(page).getByTestId('room-input')
+    await box.tap()
+    await box.fill('acme 폰에서 답글')
+    await column(page).getByTestId('room-send').tap()
+    await expect.poll(() => room.sent.length).toBe(1)
+    expect(room.sent[0]).toMatchObject({ body: 'acme 폰에서 답글', threadRootId: id(1) })
+    await expect(column(page).getByTestId('room-message')).toHaveCount(3)
+    // the keyboard up (the window shrinks above it, interactive-widget=resizes-content): the sheet takes the whole height
+    // above it, its box in view
+    await page.setViewportSize({ width: 390, height: 500 })
+    await expect.poll(async () => Math.round((await sheet(page).boundingBox())!.height)).toBe(500)
+    const input = (await column(page).getByTestId('room-input').boundingBox())!
+    expect(input.y + input.height).toBeLessThanOrEqual(500)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect.poll(async () => Math.round((await sheet(page).boundingBox())!.height)).toBe(Math.round(844 * 0.7))
+    // the handle: up to the whole height, down to 70 %, down again to close
+    const handle = page.getByTestId('viewer-sheet-handle')
+    const sheetHeight = async () => Math.round((await sheet(page).boundingBox())!.height)
+    await expect(handle).toHaveAccessibleName('위로 펼치기')
+    await touchDrag(page, handle, -300)
+    await expect(sheet(page)).toHaveAttribute('data-size', 'full')
+    await expect(handle).toHaveAccessibleName('아래로 줄이기')
+    await expect.poll(sheetHeight).toBe(844)
+    await touchDrag(page, handle, 150)
+    await expect(sheet(page)).toHaveAttribute('data-size', 'part')
+    await expect.poll(sheetHeight).toBe(Math.round(844 * 0.7))
+    await touchDrag(page, handle, 300)
+    await expect(sheet(page)).toHaveCount(0)
+    await expect(fileDialog(page, 'acme-handbook.pdf')).toBeVisible()
+    await expect(page.getByTestId('image-viewer-stage')).not.toHaveAttribute('inert', '')
+    // a tap beside it closes it too
+    await talk.tap()
+    await expect(sheet(page)).toBeVisible()
+    await page.touchscreen.tap(195, 100)
+    await expect(sheet(page)).toHaveCount(0)
+    // Back (the browser's, Android's): the sheet first, then the viewer, then the page stays
+    await talk.tap()
+    await expect(sheet(page)).toBeVisible()
+    await page.goBack()
+    await expect(sheet(page)).toHaveCount(0)
+    await expect(fileDialog(page, 'acme-handbook.pdf')).toBeVisible()
+    await page.goBack()
     await expect(viewer(page)).toHaveCount(0)
-    const side = page.getByTestId('room-side-chat')
-    await expect(side).toBeVisible()
-    await expect(side.getByTestId('side-chat-quote-file')).toHaveText('acme-handbook.pdf')
     expect(new URL(page.url()).pathname).toBe(`/rooms/${ROOM_ID}`)
+    await expect(timeline(page).getByTestId('room-message')).toHaveCount(3)
+    // the room's thread has the reply
+    await timeline(page).getByTestId('room-thread-line').first().tap()
+    await expect(page.getByTestId('room-thread').getByTestId('room-message')).toHaveCount(3)
+    await expect(page.getByTestId('room-thread').getByTestId('room-message').last()).toContainText('acme 폰에서 답글')
   })
 
-  test("from a thread over the room: ✦ closes the viewer and the thread, and the room's side chat opens with the file", async ({ page }) => {
+  test('✦ opens Trina in the same sheet with the file quoted; "스레드로 돌아가기" brings the thread; ✕ and Back close it back to the file', async ({ page }) => {
     await openRoom(page, { at: `/rooms/${ROOM_ID}/t/${id(1)}` })
+    // from the thread page over the room: the reply's notes
     await openChip(page.getByTestId('thread-scroller'), 'acme-reply.md')
     await expect(fileDialog(page, 'acme-reply.md')).toBeVisible()
-    await page.getByTestId('image-viewer-ask-trina').click()
+    await page.getByTestId('image-viewer-ask-trina').tap()
+    // the viewer stays: Trina in the sheet over it, the file quoted with its quick questions
+    await expect(sheet(page)).toBeVisible()
+    await expect(column(page)).toHaveAttribute('data-show', 'trina')
+    await expect(column(page).getByTestId('side-chat-quote-file')).toHaveText('acme-reply.md')
+    await expect(column(page).getByTestId('side-chat-quick-fileSave')).toBeVisible()
+    // the box asks about the file, not "this message"
+    await expect(column(page).getByTestId('side-chat-input')).toHaveAttribute('placeholder', '이 파일에 대해 트리나에게 묻기…')
+    await expect(column(page).getByTestId('side-chat-close')).toBeVisible()
+    await expect(column(page).getByTestId('side-chat-back')).toHaveCount(0)
+    await audit(page, 'viewer with Trina in the sheet on a phone')
+    // the room page under it did not open its own side chat, and the thread is still in the address
+    await expect(page.getByTestId('room-side-chat')).toHaveCount(0)
+    expect(new URL(page.url()).pathname).toBe(`/rooms/${ROOM_ID}/t/${id(1)}`)
+    // back to the file's thread, in the same sheet
+    await column(page).getByTestId('viewer-column-back').tap()
+    await expect(column(page)).toHaveAttribute('data-show', 'thread')
+    await expect(column(page).locator('[data-highlight]')).toContainText('메모 하나 더')
+    // its ✕: back to the file
+    await column(page).getByTestId('thread-close').tap()
+    await expect(sheet(page)).toHaveCount(0)
+    await expect(fileDialog(page, 'acme-reply.md')).toBeVisible()
+    // ✦ again, then Back: the sheet, then the viewer; the thread page is still there
+    await page.getByTestId('image-viewer-ask-trina').tap()
+    await expect(column(page)).toHaveAttribute('data-show', 'trina')
+    await page.goBack()
+    await expect(sheet(page)).toHaveCount(0)
+    await expect(fileDialog(page, 'acme-reply.md')).toBeVisible()
+    await page.goBack()
     await expect(viewer(page)).toHaveCount(0)
-    await expect(page.getByTestId('room-thread')).toHaveCount(0)
-    await expect(page.getByTestId('room-side-chat').getByTestId('side-chat-quote-file')).toHaveText('acme-reply.md')
-    await expect.poll(() => new URL(page.url()).pathname).toBe(`/rooms/${ROOM_ID}`)
+    expect(new URL(page.url()).pathname).toBe(`/rooms/${ROOM_ID}/t/${id(1)}`)
+    await expect(page.getByTestId('room-thread')).toBeVisible()
+  })
+
+  test('the sheet keeps the keys and the focus: Tab stays in it, its handle never steps, Esc closes it before the viewer and the focus goes back to 💬; a slow drag and one held before it lifts settle', async ({ page }) => {
+    await openRoom(page)
+    await openChip(timeline(page), 'acme-handbook.pdf')
+    const talk = page.getByTestId('image-viewer-thread')
+    await talk.tap()
+    await expect(column(page).getByTestId('room-message')).toHaveCount(2)
+    const inSheet = () => page.evaluate(() => !!document.activeElement?.closest('[data-viewer-sheet]'))
+    expect(await inSheet()).toBe(true)
+    // Tab and Shift+Tab go round the sheet, never to the file or the bar under it, nor the room behind
+    const handle = page.getByTestId('viewer-sheet-handle')
+    await handle.focus()
+    // from its first control (the handle) Shift+Tab wraps to its last, and Tab from there back to the handle
+    await page.keyboard.press('Shift+Tab')
+    expect(await inSheet()).toBe(true)
+    await expect(handle).not.toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(handle).toBeFocused()
+    for (let i = 0; i < 14; i++) {
+      await page.keyboard.press('Tab')
+      expect(await inSheet()).toBe(true)
+    }
+    // the handle's keys are the sheet's: → does not step to the next file under it
+    await handle.focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(page.getByTestId('image-viewer-count')).toHaveText('1 / 5')
+    // Enter on the handle: the whole height, and back
+    await page.keyboard.press('Enter')
+    await expect(sheet(page)).toHaveAttribute('data-size', 'full')
+    await page.keyboard.press('Enter')
+    await expect(sheet(page)).toHaveAttribute('data-size', 'part')
+    const sheetHeight = async () => Math.round((await sheet(page).boundingBox())!.height)
+    await expect.poll(sheetHeight).toBe(Math.round(844 * 0.7))
+    // a slow drag up 100 px: nearer 70 % than the whole height, so back there
+    await touchMove(page, handle, 0, -100, { gap: 120 })
+    await expect(sheet(page)).toHaveAttribute('data-size', 'part')
+    await expect.poll(sheetHeight).toBe(Math.round(844 * 0.7))
+    // a quick drag down 150 px, held before the finger lifts: no flick, it stays
+    await touchMove(page, handle, 0, 150, { hold: 250 })
+    await expect.poll(sheetHeight).toBe(Math.round(844 * 0.7))
+    await expect(sheet(page)).toBeVisible()
+    // Esc: the sheet first, the focus back on 💬; Esc again: the viewer
+    await handle.focus()
+    await page.keyboard.press('Escape')
+    await expect(sheet(page)).toHaveCount(0)
+    await expect(talk).toBeFocused()
+    await expect(fileDialog(page, 'acme-handbook.pdf')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(viewer(page)).toHaveCount(0)
+    expect(new URL(page.url()).pathname).toBe(`/rooms/${ROOM_ID}`)
+    // no entry of the viewer's left: Back leaves the room's page as before (it is the first page here: nothing to go to)
+    expect(await page.evaluate(() => !!(window.history.state as Record<string, unknown> | null)?.__imageViewer)).toBe(false)
+  })
+
+  test('with the sheet closed a finger still steps through the files (CDP touch); the photo keeps its own gestures', async ({ page }) => {
+    await openRoom(page)
+    await openChip(timeline(page), 'acme-handbook.pdf')
+    await expect(pdfPages(page).first()).toBeVisible({ timeout: 15_000 })
+    await page.getByTestId('image-viewer-thread').tap()
+    await expect(sheet(page)).toBeVisible()
+    await page.goBack()
+    await expect(sheet(page)).toHaveCount(0)
+    // a swipe left on the PDF: the photo
+    const body = viewer(page).getByTestId('file-viewer-body')
+    await touchSwipe(page, body, -160)
+    await expect(page.getByRole('dialog', { name: '이미지 보기: acme-logo.png' })).toBeVisible()
+    // the photo's 💬 opens the same message's thread
+    await page.getByTestId('image-viewer-thread').tap()
+    await expect(column(page).getByTestId('room-message').first()).toContainText('자료 올려요')
+    await page.goBack()
+    await expect(sheet(page)).toHaveCount(0)
+    // a swipe right on the photo: back to the PDF
+    await touchSwipe(page, page.getByTestId('image-viewer-stage'), 160)
+    await expect(fileDialog(page, 'acme-handbook.pdf')).toBeVisible()
   })
 })
 
@@ -650,6 +844,8 @@ test('screenshots of the room file viewer (SHOTS_DIR)', async ({ page }) => {
   await page.mouse.move(520, 500)
   await page.waitForTimeout(500)
   await page.screenshot({ path: `${dir}/room-file-viewer-pdf-thread-1440-light.png` })
+  // the bar's right end: download, 패널에서 열기 (⤡), ✦, the column's toggle, ✕
+  await page.screenshot({ path: `${dir}/room-file-viewer-bar-icons-1440-light.png`, clip: { x: 1080, y: 0, width: 360, height: 56 } })
   // the ZIP's card at 1440 light
   await page.keyboard.press('ArrowRight')
   await page.keyboard.press('ArrowRight')
@@ -689,4 +885,46 @@ test('screenshots of the room file viewer (SHOTS_DIR)', async ({ page }) => {
   await expect(pdfPages(page).first()).toBeVisible({ timeout: 15_000 })
   await page.waitForTimeout(500)
   await page.screenshot({ path: `${dir}/room-file-viewer-pdf-390-light.png` })
+})
+
+test.describe('screenshots on a phone (SHOTS_DIR)', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+
+  test('the thread sheet at 390 light, Trina in the sheet at 390 dark, a reply with the keyboard up at 390 light', async ({ page }) => {
+    const dir = process.env.SHOTS_DIR
+    test.skip(!dir, 'only with SHOTS_DIR')
+    await page.emulateMedia({ colorScheme: 'light' })
+    await openRoom(page)
+    await openChip(timeline(page), 'acme-handbook.pdf')
+    await expect(pdfPages(page).first()).toBeVisible({ timeout: 15_000 })
+    await page.screenshot({ path: `${dir}/room-viewer-phone-bar-390-light.png` })
+    await page.getByTestId('image-viewer-thread').tap()
+    await expect(column(page).getByTestId('thread-count')).toBeVisible()
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: `${dir}/room-viewer-thread-sheet-390-light.png` })
+    // the keyboard up: the window shrinks above it (interactive-widget=resizes-content)
+    await column(page).getByTestId('room-input').tap()
+    await column(page).getByTestId('room-input').fill('acme 확인했어요. 3쪽 일정만 바꿔 주세요')
+    await page.setViewportSize({ width: 390, height: 480 })
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: `${dir}/room-viewer-thread-keyboard-390-light.png` })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goBack()
+    await expect(sheet(page)).toHaveCount(0)
+    // Trina in the sheet with the file quoted, dark
+    await page.emulateMedia({ colorScheme: 'dark' })
+    await page.getByTestId('image-viewer-ask-trina').tap()
+    await expect(column(page).getByTestId('side-chat-quote-file')).toBeVisible()
+    await page.locator(':focus').blur()
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: `${dir}/room-viewer-trina-sheet-390-dark.png` })
+    // the bar on a file in the middle of the list (‹ › both there), light
+    await page.goBack()
+    await page.emulateMedia({ colorScheme: 'light' })
+    await page.getByTestId('image-viewer-close').tap()
+    await openChip(timeline(page), 'acme-notes.md')
+    await expect(page.getByTestId('image-viewer-bar-prev')).toBeVisible()
+    expect((await page.getByTestId('image-viewer-name').boundingBox())!.width).toBeGreaterThan(55)
+    await page.screenshot({ path: `${dir}/room-viewer-phone-bar-middle-390-light.png`, clip: { x: 0, y: 0, width: 390, height: 120 } })
+  })
 })

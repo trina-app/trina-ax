@@ -2,10 +2,11 @@
 // page; each kind of picture with the app's own addresses (no new ones); a room's file chips in the same list as its
 // pictures (a document read through the room, or its card at once), stepped through together in message order, a file
 // whose message went keeping its place; a swipe on a document; Back closes the viewer through one history entry, and
-// closing it otherwise goes back off that entry.
+// closing it otherwise goes back off that entry; a phone's sheet over it has one more entry, which Back leaves first;
+// where the sheet settles after a drag; when a PDF's thumbnails fit beside the document.
 import { afterEach, describe, expect, test } from 'bun:test'
 import { uuidv7, type Attachment, type Me, type RoomFile } from '@mycel/shared/api'
-import { attachmentItem, closeImageViewer, documentSwipe, getImageViewer, localItem, notePage, openImageViewer, orderEntries, roomFileItem, roomItem, showEntry, skipLeftEntry, stepTargets, teamImageItem, ViewerGroup, type ViewerEntry } from '../../src/lib/imageViewer'
+import { attachmentItem, closeImageViewer, closeViewerSheet, documentSwipe, getImageViewer, getViewerSheet, localItem, notePage, openImageViewer, openViewerSheet, orderEntries, pdfRailFits, roomFileItem, roomItem, sheetSnap, showEntry, skipLeftEntry, stepTargets, teamImageItem, ViewerGroup, type ViewerEntry } from '../../src/lib/imageViewer'
 import { FakeEvent, installDom, removeDom } from './dom-host'
 
 /** an element at a place on the page (document order is `pos`) */
@@ -288,23 +289,233 @@ describe('Back closes the viewer', () => {
   })
   test('Back past a viewer\'s entry that a page change left behind: on to the page before it', () => {
     start()
-    notePage()
+    // ImageViewerHost's listener, which sees every landing
+    globalThis.addEventListener('popstate', skipLeftEntry)
+    try {
+      notePage()
+      open()
+      // a notice opened another page on top while the viewer was open
+      stack.push({ idx: 4, key: 'k2' })
+      at = 2
+      closeImageViewer(false)
+      notePage()
+      // Back: lands on the left-behind entry (the same page again), which goes on back
+      at = 1
+      skipLeftEntry()
+      expect(backs).toBe(1)
+      expect(at).toBe(0)
+      // Forward from the page below onto it goes on forward
+      notePage()
+      at = 1
+      skipLeftEntry()
+      expect(forwards).toBe(1)
+      expect(at).toBe(2)
+    } finally {
+      globalThis.removeEventListener('popstate', skipLeftEntry)
+    }
+  })
+
+  // ---- a phone's sheet over the viewer (the file's thread or Trina) ----
+  test("a phone's sheet adds one entry on top; Back closes the sheet, then the viewer, then leaves the page", () => {
+    start()
     open()
-    // a notice opened another page on top while the viewer was open
-    stack.push({ idx: 4, key: 'k2' })
+    openViewerSheet()
+    expect(getViewerSheet()).toBe(true)
+    expect(stack).toHaveLength(3)
+    // a copy of the viewer's entry: the router and lib/back.ts still see the page under it
+    expect(stack[2]).toMatchObject({ idx: 3, key: 'k1' })
+    // opened twice: still one entry
+    openViewerSheet()
+    expect(stack).toHaveLength(3)
+    // Back (the browser's, Android's through the phone app): the sheet goes, the viewer stays
+    at = 1
+    pop()
+    expect(getViewerSheet()).toBe(false)
+    expect(getImageViewer()).not.toBeNull()
+    // Forward onto it: the sheet again
     at = 2
-    closeImageViewer(false)
-    notePage()
-    // Back: lands on the left-behind entry (the same page again), which goes on back
+    pop()
+    expect(getViewerSheet()).toBe(true)
+    // Back twice: the sheet, then the viewer; nothing of ours went back by itself
     at = 1
-    skipLeftEntry()
+    pop()
+    at = 0
+    pop()
+    expect(getViewerSheet()).toBe(false)
+    expect(getImageViewer()).toBeNull()
+    expect(backs).toBe(0)
+  })
+  test("the sheet's ✕ (a drag down, a tap beside it, Esc) goes back off its entry only", () => {
+    start()
+    open()
+    openViewerSheet()
+    closeViewerSheet()
+    expect(getViewerSheet()).toBe(false)
     expect(backs).toBe(1)
+    expect(at).toBe(1)
+    expect(getImageViewer()).not.toBeNull()
+    // closed already: nothing more
+    closeViewerSheet()
+    expect(backs).toBe(1)
+    // ✕ on the viewer then: off its own entry, back on the page
+    closeImageViewer()
     expect(at).toBe(0)
-    // Forward from the page below onto it goes on forward
-    notePage()
-    at = 1
-    skipLeftEntry()
-    expect(forwards).toBe(1)
-    expect(at).toBe(2)
+  })
+  test('the viewer closed with its sheet open goes back off both, one at a time, then runs what waits', () => {
+    start()
+    holdBack = true
+    open()
+    openViewerSheet()
+    const ran: number[] = []
+    closeImageViewer(true, () => ran.push(at))
+    expect(getImageViewer()).toBeNull()
+    expect(getViewerSheet()).toBe(false)
+    // the second back waits for the first to land
+    expect(backs).toBe(1)
+    late!()
+    expect(at).toBe(1)
+    expect(backs).toBe(2)
+    expect(ran).toEqual([])
+    late!()
+    expect(at).toBe(0)
+    expect(ran).toEqual([0])
+  })
+  test('the sheet closed and the viewer right after, before the first back has landed: two backs, never three', () => {
+    start()
+    holdBack = true
+    open()
+    openViewerSheet()
+    closeViewerSheet()
+    closeImageViewer()
+    expect(backs).toBe(1)
+    late!()
+    expect(backs).toBe(2)
+    late!()
+    expect(at).toBe(0)
+    expect(backs).toBe(2)
+  })
+  test("a picture or file opened from the sheet's thread is shown whole: the sheet gives way, the viewer stays", () => {
+    start()
+    open()
+    openViewerSheet()
+    openImageViewer({ group: null, entry: entry('b', el(2)), opener: null, openerKey: 'b' })
+    expect(getViewerSheet()).toBe(false)
+    expect(at).toBe(1)
+    expect(getImageViewer()?.entry.item.key).toBe('b')
+    closeImageViewer()
+    expect(at).toBe(0)
+  })
+  test("Back past the viewer's and its sheet's entries a page change left behind: on past both, either way", () => {
+    start()
+    globalThis.addEventListener('popstate', skipLeftEntry)
+    try {
+      notePage()
+      open()
+      openViewerSheet()
+      // a link in the sheet opened another page on top
+      stack.push({ idx: 4, key: 'k2' })
+      at = 3
+      closeImageViewer(false)
+      notePage()
+      holdBack = true
+      // Back lands on the sheet's entry: on back
+      at = 2
+      pop()
+      expect(backs).toBe(1)
+      // the router shows the page under it meanwhile (the entries have its idx): the way is kept all the same
+      notePage()
+      late!()
+      expect(at).toBe(1)
+      expect(backs).toBe(2)
+      late!()
+      expect(at).toBe(0)
+      // Forward from the page below crosses both onto the page on top
+      holdBack = false
+      notePage()
+      at = 1
+      pop()
+      expect(at).toBe(3)
+      expect(forwards).toBe(2)
+    } finally {
+      globalThis.removeEventListener('popstate', skipLeftEntry)
+    }
+  })
+  test("closed with its sheet open, then Forward and Back: Forward stops on the sheet's entry, Back goes past both to the page, and leaves no way of going back stuck", () => {
+    start()
+    globalThis.addEventListener('popstate', skipLeftEntry)
+    try {
+      notePage()
+      open()
+      openViewerSheet()
+      closeImageViewer()
+      expect(at).toBe(0)
+      // the two entries stay ahead as Forward entries: Forward crosses the viewer's onto the sheet's, with nothing after
+      globalThis.history.forward()
+      expect(at).toBe(2)
+      // Back: past both, on the page (before, every Back bounced from the viewer's entry to the sheet's)
+      globalThis.history.back()
+      expect(at).toBe(0)
+      // and again: the same, nothing bounces
+      globalThis.history.forward()
+      expect(at).toBe(2)
+      globalThis.history.back()
+      expect(at).toBe(0)
+      // a page pushed from the sheet's entry after a Forward: Back from it goes past both
+      globalThis.history.forward()
+      expect(at).toBe(2)
+      stack = [...stack.slice(0, 3), { idx: 4, key: 'k2' }]
+      at = 3
+      notePage()
+      globalThis.history.back()
+      expect(at).toBe(0)
+    } finally {
+      globalThis.removeEventListener('popstate', skipLeftEntry)
+    }
+  })
+  test('without a sheet: Forward onto a closed viewer\'s entry stays there; a page pushed from it, then Back, goes past it once', () => {
+    start()
+    globalThis.addEventListener('popstate', skipLeftEntry)
+    try {
+      notePage()
+      open()
+      closeImageViewer()
+      globalThis.history.forward()
+      expect(at).toBe(1)
+      stack = [...stack.slice(0, 2), { idx: 4, key: 'k2' }]
+      at = 2
+      notePage()
+      globalThis.history.back()
+      expect(at).toBe(0)
+      // nothing left over: Forward from the page goes on past it to the page on top
+      notePage()
+      globalThis.history.forward()
+      expect(at).toBe(2)
+    } finally {
+      globalThis.removeEventListener('popstate', skipLeftEntry)
+    }
+  })
+})
+
+describe("a phone's sheet and a PDF's thumbnails", () => {
+  test('the sheet settles at the nearer height, closes well below its usual one, and a flick goes its way', () => {
+    const part = 590
+    const full = 800
+    expect(sheetSnap(600, part, full, 0)).toBe('part')
+    expect(sheetSnap(720, part, full, 0)).toBe('full')
+    expect(sheetSnap(400, part, full, 0)).toBe('part')
+    expect(sheetSnap(300, part, full, 0)).toBe('closed')
+    // a flick up: the whole height; down: from above the usual height to it, from below it closed
+    expect(sheetSnap(560, part, full, -0.8)).toBe('full')
+    expect(sheetSnap(760, part, full, 0.8)).toBe('part')
+    expect(sheetSnap(560, part, full, 0.8)).toBe('closed')
+  })
+  test("the rail goes by the stage left of the column: a 1,024 px stage has it, the 880 px a 1,280 px window leaves beside the column does not", () => {
+    expect(pdfRailFits(1024)).toBe(true)
+    expect(pdfRailFits(1200)).toBe(true)
+    // 1,280 − 400 and 1,423 − 400: the column takes the rail away before the document narrows under 896 px
+    expect(pdfRailFits(880)).toBe(false)
+    expect(pdfRailFits(1023)).toBe(false)
+    // a phone
+    expect(pdfRailFits(390)).toBe(false)
   })
 })

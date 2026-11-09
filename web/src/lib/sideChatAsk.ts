@@ -1,7 +1,7 @@
-// "Ask Trina about this file" in the file preview (components/FilePanel.tsx) and in the file viewer on a phone, for a
-// file sent in a room: the room's page (pages/Room.tsx) opens its side chat with the file quoted
-// (components/rooms/SideChatPanel.tsx SideSeed.file). The preview panel and the viewer are the app's, the side chat the
-// room page's: this is the one line between them. The asks themselves (a message, a file) are made here too.
+// "Ask Trina about this file" in the file preview (components/FilePanel.tsx), for a file sent in a room: the room's page
+// (pages/Room.tsx) opens its side chat with the file quoted (components/rooms/SideChatPanel.tsx SideSeed.file). The
+// preview panel is the app's, the side chat the room page's: this is the one line between them. The file viewer asks in
+// its own column (a phone: its sheet). The asks themselves (a message, a file) are made here too.
 import type { RoomMessage } from '@mycel/shared/api'
 import type { SideSeed } from '../components/rooms/SideChatPanel'
 

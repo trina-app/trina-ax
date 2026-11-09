@@ -17036,21 +17036,51 @@ previews are core. Step (b) of the plan `docs/AGENTS/plan/20261109-0939-room-fil
 - **Moving between levels:** one action, `skills/move.ts`, for the AI's `move_skill` and the Skills page's
   **옮기기…**. Write on both places, no skill of that name at the target, a SKILL.md folder for a project, and for a
   project no wider skill of the name. A skills folder that is not there yet (a project's first skill, a person's first
-  own skill) is made, with no rules of its own. The card says who gains and who loses it with counts ("리드 부서 6명 →
-  견적 프로젝트 채팅 4명"), who may change it there ("옮기면 9명이 고칠 수 있어요") and lists every file; its yes is bound to
-  a hash of every file, the target, who gets it and who may change it there, checked again as it moves (anything
-  different: refused, look again).
-- **The AI only narrows, by level and by people** (review): `move_skill` moves only the team's skill to a group or a
-  project, or a group's to a project (`AI_MOVES`), and only where nobody new reads it and nobody new may change it. A
-  skill never leaves a project by the AI and nothing goes into one person's own skills: a planted project skill telling
-  the AI to move it to "personal" would otherwise run in all of that person's chats, above their team and group skills,
-  no longer counted as outside content, with a card saying "4 → 1". Everything else is the Skills page's 옮기기…, which
-  shows the whole text first. Refused in scheduled runs; not offered in rooms, shared chats or sub-agents. A folder that
-  is not a project yet: "먼저 폴더를 프로젝트로 만들어 주세요". Audited as `skills.move` (both levels, the gained and lost
-  counts, the editors; a person's own folder never named) and each file as `skills.change`. For a team skill the card
-  also says that a rule on `skills/<name>/` can narrow it instead.
-- **The file tools' refusal** for skill folders now says "Skills do not move with files; ask with move_skill; never
-  make a skills folder, README or copy as a stand-in" instead of pointing at the Files screen.
+  own skill) is made, with no rules of its own. The card says who gains and who loses it in one line ("2명이 새로 쓰고
+  2명은 못 쓰게 돼요 (3명 → 3명)": never "2 more (3 → 3)"), who may change it there ("옮기면 3명이 고칠 수 있어요. 그중
+  1명은 새로 고칠 수 있게 돼요") and lists every file; its yes is bound to a hash of every file, the name, the target, who
+  gets it and who may change it there, checked again as it moves (anything different: refused, look again; the AI is
+  told what changed and to call `move_skill` again for a new card).
+- **The AI moves like the Skills page, behind the server card** (owner, 2026-11-10; this replaces "the AI only narrows"
+  of the #248 review). The owner asked the AI to move two leads skills into the project "견적서 제작"; `move_skill`
+  refused ("2 more people would get this skill (3 → 3)"), could not say who, and sent the owner to the Skills page. The
+  owner found the narrowing-only rule too restrictive ("왜케 제약이 많아?? … 이유도 모르고?"), and it was not the design
+  they had approved: the card says who gains and loses, and the person decides on a card the AI cannot forge. Now:
+  - `move_skill` may propose any move the person could make with 옮기기…, with the same checks; `AI_MOVES` and the
+    "more people / more editors" refusals are gone. Still refused in scheduled runs; not offered in rooms, shared chats
+    or sub-agents.
+  - **Names only where the person can already see them:** the owner and admins see who gains, loses and newly may
+    change it by name (Admin › People and folder permissions show it), a project's creator for that project's side (its
+    access screen shows it); everyone else gets the counts in the line above. Members do not see group membership or a
+    project's participants anywhere (`/api/people` has no groups; `GET /api/projects/:id/access` is its creator's and
+    admins'). The AI gets the same names or counts, so it can answer "who?" without guessing.
+  - **SKILL.md is always on the card**, from the bytes the token binds: in full when anyone new gets it or it would be
+    followed ahead of where it is now (out of a project's chats, where it was marked `[project: …]`; into a group or the
+    person's own), folded after its start (one click) otherwise. A planted project skill asking to be moved into the
+    person's own skills now reaches a card with every word of it, instead of a refusal.
+  - A move to a wider level over a project skill's name says that project skill is hidden for the people who get this
+    one (personal > group > team > project).
+  - **Every refusal says why and what to do**, in the tool result: whose folder cannot be written and who can (by the
+    same name rule), which name is taken where, the user's groups or projects when the one named is not theirs.
+  - Moving into a person's own skills needs no more than before: the AI already writes `users/<me>/skills/` without a
+    card. A card for that is a follow-up.
+- **Copies** (owner, 2026-11-10: "복사도 안 되면 새 스킬은 추가할 수 있어? 그거나 복사나 같은 거 아냐?"). The AI could
+  write a new project skill behind the save card, which is a copy in effect, but every text told it never to copy, so
+  it refused when asked. `move_skill` with `keep: true` copies (the original stays), with an optional `name`:
+  - One card, like a move's, for the whole skill: read on the original is enough, write on the target; nobody loses it
+    ("2명이 새로 쓰게 돼요 (3명 → 5명)": the after count holds either one). The copy is every file byte for byte, the
+    bytes the token binds (binary files too); with `name` only the folder (or file) name and SKILL.md's `name:` line
+    change, and the card shows the SKILL.md the copy will have.
+  - **Same name at a narrower level:** one name runs personal > group > team > project, and the person keeps the
+    original, so a project copy under the name of their group's or team's skill would never run for them (nor for the
+    others who have that one). It is refused with that reason in the AI's text, which suggests a `name` or moving
+    instead. The owner's leads → quotation copy needs a name.
+  - A skill folder with folder rules inside it is not copied (the copy would land without them).
+  - Audited as `skills.copy` (both levels, a person's own folder never named; the files; the SKILL.md written and the
+    original's hashes; by the AI or not; the turn); its file event carries `copiedFrom`, which Admin › 팀 스킬 shows as
+    the change's `from`. Nothing is written into the skill's files.
+  - The file tools still never move or copy a skill folder; their refusal points at `move_skill` for both and says
+    never to leave a README or an empty skills folder as a stand-in.
 - **Switching on:** three ways turn skills on in a project's chats, after "Projects live only in projects/": a person
   moving a project's folder into `projects/<name>` from elsewhere on the Files screen, an admin pointing a project whose
   folder is in the trash or gone at an existing `projects/<name>` that holds skills (that folder had no project, so its
@@ -17066,7 +17096,7 @@ previews are core. Step (b) of the plan `docs/AGENTS/plan/20261109-0939-room-fil
   missing number, so 279 applies on a database that already has 280).
 - **Out:** sharing a skill to a project from the share flow, project skill usage in Admin › Usage (not recorded, as
   personal skills), the project-folder word bonus in `find_skills` (removed).
-- Tests: `tests/unit/project-skills.test.ts`, `tests/unit/move-skill.test.ts`, cases in `c-file-moves`, `b-rooms-ai`,
+- Tests: `tests/unit/project-skills.test.ts`, `tests/unit/move-skill.test.ts` (the owner's case, names and counts, copies, refusals, stale cards), cases in `c-file-moves`, `b-rooms-ai`,
   `b-shared-chats`, `skill-permissions` and `remote-mcp-share`; web e2e `project-skills.spec.ts`.
 - Version impact: **minor** (a new level, a tool, two endpoints, optional API fields, one add-only migration).
 
@@ -17285,9 +17315,10 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
   see the secret, and the API shows them nothing of the app (no field in `MyIntegrationTemplate`, null on their
   connection, refused on their patch; the client ID and scopes are in the sign-in address, as with any OAuth app). Requests to one
   member stay without an app (a third place for a secret, for a case a template covers).
-- **A sign-in belongs to its app:** another client ID, secret, address or scope drops the sign-in and revokes it, like
-  a new address; on a template it deletes the members' connections (they are told to connect again). The same app sent
-  again (no secret, or the same secret retyped) changes nothing.
+- **A sign-in belongs to its app:** another client ID, secret, address or scope drops the sign-in, like a new address,
+  and revokes it where the sign-in has a revocation address (found addresses may name one; given addresses have none,
+  so there the tokens are only dropped here); on a template it deletes the members' connections (they are told to
+  connect again). The same app sent again (no secret, or the same secret retyped) keeps the sign-in.
 - **A stored secret only goes where it went before** (review 1, must-fix): a change without the secret keeps it only
   with the same client ID, the same sign-in and token addresses and, for an app whose addresses are found, the same
   server address (`service.ts appAfter`, shared by connections and templates); else it goes. Before the fix, a second
@@ -17302,13 +17333,41 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
   revocation address only on the token address's own server. The found address is written only onto the app as it was
   read for that sign-in (compare-and-set on `oauth_client` and `oauth_client_enc`). A template's member whose server
   moved its token address is told to ask the admin.
+- **Review 3** (after the merge, fixed forward in `fix/oauth-own-client-secret-rules`):
+  - A stored secret also stays only with the **same service address**, for given addresses too (should-fix): before, a
+    second admin who never saw the secret could point a template whose app has given addresses at another host; the
+    members signed in at the real consent screen for the team's app and their tokens then went to that host. One rule
+    for templates, team connections (the same two-admin case) and personal ones (one rule, and the dialog's
+    `storedSecretStays` follows it): moving a member's own connection asks for its secret again.
+  - **The same secret entered again forgets the found token address** (should-fix), as the refusal `appTokenMoved`
+    tells the admin to do; before, it kept the address and the next sign-in was refused again. The sign-in made with
+    that app stays (the app did not change).
+  - **The token address is remembered once a sign-in worked**, in the callback after the code was exchanged, not when
+    a sign-in starts: one never finished decided where the secret could go. The callback refuses a sign-in whose app
+    remembers another address meanwhile (two sign-ins started before either finished): before the code is exchanged
+    when the other finished first, else (the exchanges overlapped) its tokens are not kept, so no refresh sends the
+    secret to the address that lost; they are not revoked either, which would send it there once more. A sign-in
+    through a template's app finishes only on the template's version it started with (the same secret entered again
+    can bring the app's stored text back to what it was before an address was remembered).
+  - **Forgetting the found token address is audited** (`changed: ["tokenAddress"]`): the same secret entered again
+    changes nothing else, but it is a choice to trust the next address the server names.
+  - **A template's member signs in only while it is for them**, checked at the start, in the callback and on "check
+    again" (which may refresh a token with the team's app): until the next list swept the connection, someone moved out
+    of the template's group could still use the app.
+  - **`iss` with given addresses** must be on the sign-in address's server (origin; an issuer may have a path).
+  - **The secret is bound to its service address** (`boundUrl` in `oauth_client`): migration 338 keeps reader level 1,
+    so an older build can change a connection's or template's address without dropping the secret; a secret entered
+    for another address is then not used and the next save drops it (`store.ts secretHere`). A column or a higher
+    reader level would cost a migration or block rolling back for this one case.
+  - The scope hint for an MCP server with both addresses given says an empty scope asks for none.
 - **Members of a template see "ask your admin"** when the service registers no apps (`oauth_no_registration_member`);
   people who can set an app see the own-app hint (`oauth_no_registration`); `oauth_unsupported` keeps its old words for
   a server with no usable sign-in at all.
 - **Small service rules, in one place each:** Google gets `access_type=offline&prompt=consent` (`oauth.ts extraParams`;
   without it no refresh token, a new sign-in every hour). The secret goes in the body unless the metadata lists only
   basic (NAVER WORKS documents body parameters only). `expires_in` as text is read (NAVER WORKS sends `"86400"`). An HTTP
-  API sends no resource indicator. An `iss` is checked only against addresses that were found. `api_request` refreshes
+  API sends no resource indicator. An `iss` is checked against the issuer found or, with given addresses, the sign-in
+  address's origin (review 3). `api_request` refreshes
   once after a 401 (an MCP call already did, `withMcp`).
 - **The redirect address** shown in the dialog is the page's own address plus `/api/integrations/oauth/callback`, which
   is what the server builds from the request's origin (`linkBase`). Office mode on the server Mac's localhost maps to the
@@ -17323,6 +17382,77 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
   `integrations.spec.ts` "your own app"; `safe-ops-policy-epoch.test.ts` and every `c-integration*`, `c-drive*`,
   `c-slack*` test file pass.
 - Version impact: **minor** (optional API fields, one add-only migration).
+
+## The room file viewer on phones — the file's thread and Trina in a sheet over it (feat/room-viewer-phones, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/components/ImageViewer.tsx`, `web/src/components/rooms/ViewerColumn.tsx`,
+`web/src/lib/imageViewer.ts` (with small props on `ThreadPanel` and `SideChatPanel`, and the PDF rail in
+`ViewerDocument.tsx` / `viewers/PdfView.tsx`), 이유: rooms and file previews are core. Step (e) of the plan
+`docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room's right column" (#263) and "Lazy PDF pages" (#262).
+
+- **The column is a sheet on a phone (< 768 px, the phone app):** 💬 in the bar opens the file's thread in it, with the
+  reply count beside the icon when there are replies ("스레드 보기, 답글 3"); ✦ opens my Trina side chat in it with the
+  file quoted, and no longer closes the viewer for the room page's side chat (step c's way, `askTrinaInRoom`, stays the
+  side panel's). The sheet is `ViewerColumn` with `sheet`: the same `ThreadPanel` and `SideChatPanel` as on computers and
+  on the room page, not a copy, one thing at a time, "스레드로 돌아가기" at the side chat's top. Their new `closeX` prop
+  shows the ✕ at every width instead of a phone's ‹, which in a sheet over the file would read as "back a page".
+- **Size:** 70 % of the part of the screen above the keyboard (`--app-h`, lib/viewport.ts; the WebView and Chromium
+  shrink it themselves with `interactive-widget=resizes-content`), so the file shows above it. The handle drags it to
+  the whole height (under the status bar, `--safe-top`) or down to close (`sheetSnap`: a flick goes its way, a slow drag
+  settles at the nearer height and closes once well below 70 %; a finger held still 80 ms before it lifts is no flick);
+  a tap or Enter on the handle switches the two heights, and the handle takes taps from a 44 px box (`touch-hit`).
+  With the keyboard up (`.keyboard-open`) it takes the whole height above the keyboard, so the thread stays readable
+  over the reply box. The reply box keeps its own bottom inset (`--safe-bottom`, 0 with the keyboard up).
+- **Back order:** the sheet adds a history entry of its own on top of the viewer's, a copy of it marked as the sheet's,
+  so React Router and `lib/back.ts` still see the room page. Back (the browser's, Android's through the phone app's
+  WebView, iOS's edge swipe) closes the sheet, the next one the viewer, the next leaves the page; Forward onto the sheet's
+  entry opens it again. ✕, a drag down, a tap on the dimmed file and Esc close the sheet by going back off its entry.
+  Closing the viewer with the sheet open goes back off both entries one at a time, each once the last has landed (two
+  backs queued at once could land as one or three); a viewer opened meanwhile adds its entry after the last back. A page
+  change while both are open (a link in the sheet) leaves both behind, and a close leaves them ahead as Forward entries:
+  landing on one with no viewer open goes on. From the other entry of the same viewer the way is plain (the sheet's to
+  the viewer's is back, the other way forward); from any other entry React Router's idx tells it. A Forward with nothing
+  after the sheet's entry stays there, and the next Back goes past both: no direction is kept between popstates, which
+  once made every Back bounce back onto the sheet's entry.
+- **Under the sheet** the stage, the bar and the edge arrows are inert and dimmed; the focus goes into the sheet and
+  back to the button that opened it (once: a later step's focus goes to the stage). Keys typed in the sheet, its handle
+  included, are its own: never a step, a zoom or a copy of the file under it. `useFocusTrap` (components/ui.tsx) leaves
+  out controls inside an inert part of the dialog, so Tab wraps inside the sheet and a focus that strays behind the
+  dialog comes back to its first control still in reach. A sheet open but not drawn (the window grew past a phone's
+  width, a Forward onto its entry on a computer) closes, so Back and Esc are not spent on it. A picture or file tapped in the sheet's thread opens whole (the sheet gives way).
+  Picture gestures (pinch, double tap, swipes) and document stepping (a swipe where nothing scrolls sideways, ‹ › in
+  the bar) are unchanged. The stage isolates what is in it: a PDF's sticky toolbar painted over the sheet and its dim.
+- **The phone's bar** leaves out the sender's picture for a room's file or photo (the line under the name says who) and
+  its buttons are 40 px wide with a 44 px target (`touch-hit`), so the name keeps about 65 px beside ‹ 3 / 7 ›,
+  download, ✦, 💬 and ✕.
+- **Computers, the PDF rail goes by the stage:** the thumbnails show where the stage left of the right column is at
+  least 1,024 px (`pdfRailFits`: the 128 px rail and an 896 px document, what a 1,024 px window gave it in step d), not
+  from a 1,024 px window: beside the column they show from 1,424 px, and at 1,280 px the document takes the 880 px. The
+  viewer measures the stage already (its ResizeObserver) and passes the width down; `PdfView` no longer reads the window.
+  Without the column nothing changes.
+- **Computers, two icons:** 패널에서 열기 shows ⤡ (`Minimize2`, the side panel's own "나란히 보기" after 크게 보기)
+  instead of a panel icon, which looked like the column's toggle beside it. No new button.
+- **The side chat's box with a file quoted** says "이 파일에 대해 트리나에게 묻기…" (`sideChat.placeholderQuotedFile`), not
+  "이 메시지에 대해…": ✦ in the viewer and "Ask Trina about this file" in the preview quote a file, not a message.
+- Text in all five languages: 스레드 보기 (with the reply count, "스레드 보기, 답글 3": the number a word of its own, so
+  a voice user can say what they see; axe's label-in-name check reads "1개" as one word), and the handle's 위로 펼치기 /
+  아래로 줄이기.
+- **Independent review** (must-fix, fixed): after a close with the sheet used, Forward then Back bounced between the
+  two left entries for good (a kept skip direction); now the way comes from the entry the popstate came from. Also
+  taken: Tab stuck on, or Shift+Tab leaving through, the inert bar (`useFocusTrap`); ← → and + − 0 on the handle acting
+  on the file under it; a held finger read as a flick; the handle's 44 px target; a sheet open but not drawn; the focus
+  sent back to 💬 on a later step.
+- Tests: `web/test/unit/image-viewer.test.ts` (the sheet's entry: Back closes the sheet, then the viewer; Forward opens
+  it again; its ✕ backs off one entry; the viewer closed with it open backs off both, one at a time, never three; a
+  picture from the sheet's thread; left-behind entries skipped both ways; Forward then Back after a close, with and
+  without the sheet; `sheetSnap`; `pdfRailFits`); e2e
+  `room-file-viewer.spec.ts` at 390 px with CDP touch (💬 with the count opens the thread sheet at 70 %, a reply from it
+  is in the room's thread, the keyboard up, the handle up, down and closed, a tap beside it, Back twice; ✦ opens Trina
+  in the sheet with the file quoted, 스레드로 돌아가기, ✕, Back twice from a thread page; Tab wrapping in the sheet, →
+  and Enter on the handle, a slow drag and a held one, Esc twice with the focus back on 💬; a swipe still steps, a
+  photo's 💬; the two icons at 1440; screenshots), `pdf-lazy-pages.spec.ts` (no rail at 1,280 px beside the column, back with the
+  column hidden, there at 1,600 px; a screenshot at 1,280).
+- Version impact: **minor** (a visible UX change; no API or data change).
 
 ## Trina side chat: send here — one click to this room or the asked message's thread (feat/side-chat-send-here, 2026-11-09, product owner)
 

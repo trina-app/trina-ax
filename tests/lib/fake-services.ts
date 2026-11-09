@@ -72,7 +72,8 @@ export class FakeServices {
   lastClientAuth: 'post' | 'basic' | 'none' = 'none'
   /** the token answer's expires_in as text ("3600"), as NAVER WORKS sends it */
   expiresAsText = false
-  /** /as-own's metadata names this token address instead of its own (a server that moved its sign-in) */
+  /** /as-own's metadata names this token address instead of its own (a server that moved its sign-in; /as/moved-token
+   * answers like /as/token) */
   ownTokenEndpoint: string | null = null
   codes = new Map<string, { clientId: string; redirectUri: string; challenge: string; resource: string }>()
   access = new Map<string, number>()
@@ -288,7 +289,7 @@ export class FakeServices {
       this.clients.set(id, { redirectUris: j.redirect_uris })
       return Response.json({ client_id: id, redirect_uris: j.redirect_uris, token_endpoint_auth_method: 'none' }, { status: 201 })
     }
-    if (p === '/as/token' && req.method === 'POST') {
+    if ((p === '/as/token' || p === '/as/moved-token') && req.method === 'POST') {
       const f = Object.fromEntries(new URLSearchParams(body))
       // the client: in the body (client_id, client_secret) or HTTP basic; an own app's secret must match
       const basic = /^Basic (.+)$/.exec(auth)?.[1]

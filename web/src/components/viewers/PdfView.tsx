@@ -10,7 +10,8 @@
 // A toolbar above the pages zooms in and out (small text on a phone) and goes back to the panel width; the place being
 // read stays at the top when the pages change size (zoom, a wider panel).
 // `thumbnails` (the room file viewer, components/ViewerDocument.tsx): an element beside the scroll box for a rail of
-// small page pictures, on computers (≥ 1024 px) and for more than one page. They are drawn as they come into the rail's
+// small page pictures, for more than one page; the viewer gives it only where its stage has room for the rail and a
+// readable document (lib/imageViewer.ts pdfRailFits), never on a phone. They are drawn as they come into the rail's
 // view, the current page is marked and kept in view as the pages scroll, and a click (or ↑ ↓ Home End on one) goes to
 // that page; the toolbar then says where the reader is ("3 / 60").
 // A file that pdf.js cannot read shows a plain notice and a Download button, never the parser's own message.
@@ -25,7 +26,7 @@ import 'react-pdf/dist/Page/AnnotationLayer.css'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { Download, MoveHorizontal, ZoomIn, ZoomOut } from 'lucide-react'
 import { useT } from '../../i18n'
-import { Button, IconButton, useMediaQuery } from '../ui'
+import { Button, IconButton } from '../ui'
 import { pdfjsDataOptions } from '../../lib/pdfjs-assets'
 import { anchorAt, anchorTop, currentPage, pageHeight, pageLayout, pageStart, pageWindow, type PageAnchor, type PageSize, type PageView } from '../../lib/pdfPages'
 
@@ -226,8 +227,7 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
     }
   }, [box, update])
 
-  const wide = useMediaQuery('(min-width: 1024px)')
-  const rail = thumbnails && wide && pages > 1 ? thumbnails : null
+  const rail = thumbnails && pages > 1 ? thumbnails : null
   // a page's canvas, in device pixels per CSS pixel: the screen's (2 at most), within the width and area limits
   const ratioFor = (height: number) => Math.min(window.devicePixelRatio || 1, 2, MAX_CANVAS / pageWidth, Math.sqrt(MAX_PIXELS / (pageWidth * height)))
 

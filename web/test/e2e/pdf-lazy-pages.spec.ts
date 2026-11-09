@@ -7,8 +7,9 @@
 // a drawn page can be selected and copied; a link inside the file goes to its page even when that page is not drawn.
 // The room is answered through page.route (rooms-mock.ts). These tests measure the document's own layout, so on a
 // computer they hide the viewer's right column (the file's thread, room-file-viewer.spec.ts) first; one test keeps it
-// and checks the rail, the document and the column share the stage.
-// SHOTS_DIR=<folder>: the viewer mid-document at 1440 light and dark, and at 390 light.
+// and checks the rail, the document and the column share the stage, and one that the rail goes by the stage left of the
+// column (none at 1,280 px beside it, there at 1,600 px).
+// SHOTS_DIR=<folder>: the viewer mid-document at 1440 light and dark, at 390 light, and beside its column at 1280 light.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { makePagedPdf, makePdf } from '../../../tests/lib/pdf'
@@ -231,6 +232,31 @@ test("beside the file's thread: the rail, the document and the column share the 
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1440)
 })
 
+test('the rail goes by the stage left of the column: none at 1,280 px beside it, back with the column hidden, and at 1,600 px beside it', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openRoom(page)
+  await openChip(page, 'acme-60.pdf', { column: true })
+  await expect(drawn(body(page)).first()).toBeVisible({ timeout: 15_000 })
+  await expect(viewer(page).getByTestId('viewer-column')).toBeVisible()
+  // 880 px left of the column: no room for the rail and a readable document, so the document has it all
+  await expect(rail(page)).toHaveCount(0)
+  await expect(pageInfo(page)).toHaveCount(0)
+  expect((await body(page).boundingBox())!.width).toBe(880)
+  // the column hidden: the stage is the window, and the rail is back
+  await page.getByTestId('image-viewer-column').click()
+  await expect(rail(page)).toBeVisible()
+  await page.getByTestId('image-viewer-column').click()
+  await expect(rail(page)).toHaveCount(0)
+  // a wider window: room for both beside the column, the document at its full 960 px
+  await page.setViewportSize({ width: 1600, height: 900 })
+  await expect(rail(page)).toBeVisible()
+  const [r, b, c] = await Promise.all([rail(page).boundingBox(), body(page).boundingBox(), viewer(page).getByTestId('viewer-column').boundingBox()])
+  expect(c).toMatchObject({ x: 1200, width: 400 })
+  expect(Math.round(b!.width)).toBe(960)
+  expect(r!.x + r!.width).toBeLessThanOrEqual(b!.x + 1)
+  expect(b!.x + b!.width).toBeLessThanOrEqual(c!.x + 1)
+})
+
 test('the side panel (패널에서 열기): a few canvases for the 60 pages, no thumbnails, zoom keeps the page', async ({ page }) => {
   await openRoom(page)
   await openChip(page, 'acme-60.pdf')
@@ -313,4 +339,19 @@ test('screenshots of the PDF thumbnails (SHOTS_DIR)', async ({ page }) => {
   await expect(body(page).locator('[data-page="30"] canvas')).toBeVisible()
   await page.waitForTimeout(800)
   await page.screenshot({ path: `${dir}/pdf-viewer-390-light.png` })
+})
+
+test('screenshot of the viewer beside its column at 1,280 px: no rail (SHOTS_DIR)', async ({ page }) => {
+  const dir = process.env.SHOTS_DIR
+  test.skip(!dir, 'only with SHOTS_DIR')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await openRoom(page)
+  await openChip(page, 'acme-60.pdf', { column: true })
+  await expect(drawn(body(page)).first()).toBeVisible({ timeout: 15_000 })
+  await expect(viewer(page).getByTestId('viewer-column')).toBeVisible()
+  await expect(rail(page)).toHaveCount(0)
+  await page.mouse.move(440, 500)
+  await page.waitForTimeout(800)
+  await page.screenshot({ path: `${dir}/pdf-viewer-column-no-rail-1280-light.png` })
 })
