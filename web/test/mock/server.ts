@@ -984,6 +984,8 @@ export class MockServer {
       server: {
         version: this.serverVersion, dev: !this.cloud, deployment: this.cloud ? 'hosted' : 'self', timeZone: this.settings.timeZone,
         ...(this.allConfidential ? { allChatsConfidential: true as const } : {}),
+        // the e2e specs still cover "@트리나" in rooms (the real server's default is off: AppConfig.roomAiMentions)
+        roomAiMentions: true as const,
         ...(this.devEnv ? { devEnv: true as const } : {}),
         ...(this.htmlPdf ? { htmlPdf: true as const } : {}),
         // the HWP preview, as hwpPreview below answers it: on unless the HWP Preview plugin is installed and turned off

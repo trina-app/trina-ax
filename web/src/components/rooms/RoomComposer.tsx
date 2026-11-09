@@ -72,9 +72,12 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   // "@전체": everyone else in the room, where it is offered (useEveryone)
   const everyone = useEveryone(roomId, members, meId)
   const others = members.filter((m) => m.id !== meId).length
-  const mention = useMentionMenu({ text, setText, input, members, meId, ai: true, initial: roomDraftMentions.get(key), everyone })
-  const [asking, setAsking] = useState(false)
   const me = useMe()
+  // "@트리나" in the "@" list only while the server still takes it (Me.server.roomAiMentions; off by default: the
+  // side chat, ✦ in the room's header, asks the AI beside the room)
+  const aiMentions = !!me?.server?.roomAiMentions
+  const mention = useMentionMenu({ text, setText, input, members, meId, ai: aiMentions, initial: roomDraftMentions.get(key), everyone })
+  const [asking, setAsking] = useState(false)
   // voice input off (Admin > Team settings): no mic for members, a hint to the setting for admins
   const mic = micState(me)
   const [voiceError, setVoiceError] = useState<string | null>(null)
@@ -120,7 +123,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   // 0: it keeps its height, and is measured again when the room shows
   const textSize = useTextSize()
   const behindPanel = usePanelExpanded()
-  const placeholder = voice.transcribing ? voice.transcribingText : threadRootId ? t('rooms.threadPlaceholder') : empty ? t('rooms.placeholderEmpty') : t('rooms.placeholder')
+  const placeholder = voice.transcribing ? voice.transcribingText : threadRootId ? t('rooms.threadPlaceholder') : empty ? t(aiMentions ? 'rooms.placeholderEmpty' : 'rooms.placeholderEmptySide') : t('rooms.placeholder')
   useLayoutEffect(() => {
     const ta = input.current
     if (!ta) return
