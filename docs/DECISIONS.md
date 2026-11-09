@@ -17068,3 +17068,63 @@ previews are core. Step (b) of the plan `docs/AGENTS/plan/20261109-0939-room-fil
 - Tests: `tests/unit/project-skills.test.ts`, `tests/unit/move-skill.test.ts`, cases in `c-file-moves`, `b-rooms-ai`,
   `b-shared-chats`, `skill-permissions` and `remote-mcp-share`; web e2e `project-skills.spec.ts`.
 - Version impact: **minor** (a new level, a tool, two endpoints, optional API fields, one add-only migration).
+
+## Lazy PDF pages and the viewer's page thumbnails — a big PDF opens fast (feat/pdf-lazy-pages, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/components/viewers/PdfView.tsx`, `web/src/lib/pdfPages.ts`, and a slot in
+`web/src/components/ViewerDocument.tsx`, 이유: file previews are core. Step (d) of the plan
+`docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file viewer" (#261).
+
+- **Every page has its place, a few are drawn.** `PdfView` (the side panel, 크게 보기 and the room file viewer alike)
+  lays out a placeholder per page, as tall as that page at the column's width (the pdf.js viewport at scale 1, floored as
+  react-pdf floors its canvas). Only the pages within 1.5 screens above and below the visible part of the scroll box
+  (`MARGIN_SCREENS`) get a canvas, a text layer and a link layer; the rest are blank white pages and a page that leaves
+  the window is unmounted, which releases its canvas. A 60-page A4 file in the viewer holds 2 or 3 canvases.
+- **The window is computed, not observed per page.** A scroll listener (one frame at a time) and a ResizeObserver on the
+  scroll box run `pageWindow` and `currentPage` (`lib/pdfPages.ts`, unit-tested) on the page sizes, instead of an
+  IntersectionObserver on each placeholder. The same numbers then give the window, the current page and the reading
+  position kept on zoom; the window stays one run of pages; and the math is testable without a browser. The scroll box
+  is the nearest ancestor that scrolls (the panel's body, the viewer's column). The thumbnails, a plain list with no
+  current-page or anchor needs, do use an IntersectionObserver (rows within one rail height of its view).
+- **Sizes:** page 1's for every page at first, then each page's own, read from pdf.js 16 at a time in the background
+  (pdf.js's own viewer does the same); a drawn page that turns out other than assumed reports its size too. A file
+  whose first page cannot be read shows the "cannot open" notice, as before.
+- **The place being read stays put** when the pages change size (zoom, fit to width, a wider panel, 크게 보기, a page's
+  real size known): an anchor (a page and how far down it the view's top is) is kept from the scroll and restored after
+  each layout; the browser's scroll anchoring is off for the PDF (`overflow-anchor: none`) so it does not fight it, in
+  Chrome and Safari alike. Zoomed past the column, the middle stays in the middle sideways.
+- **A page gone to** (the start page of an answer's source, a thumbnail, a link inside the file to one of its pages) is
+  put just under the toolbar and stays the current page, kept at the top while sizes come in, until the person scrolls
+  (the box is no longer where it was put). This replaces the old "follow the start page while the pages above are
+  drawn". A link inside the file now goes through `onItemClick`, since the target page may not be drawn.
+- **Pages are not read through Suspense** (`suspense={false}` on each `Page`): a page suspending showed the whole
+  file's "loading" before, and React holds back a Suspense reveal for about 300 ms, which cost the first page that much.
+  Read in an effect, a page shows its blank placeholder until drawn. A page that cannot be read or drawn still turns the
+  preview into the "cannot open" notice; a text or link layer that fails no longer does (the page stays).
+- **Canvas size:** at most twice the screen's pixels, and at most 4,096 px wide (beyond, the canvas is scaled by CSS),
+  so 300 % on a wide 크게 보기 does not make 100-megapixel canvases.
+- **Thumbnails, in the room file viewer only, on computers (≥ 1024 px), for more than one page.** `ViewerDocument` keeps
+  an empty slot left of the reading column (`empty:hidden`, the two centred together; a one-page PDF and every other
+  kind leave the column where it was) and passes it as FileBody's `thumbnails`; PdfView portals its rail into it, so the
+  rail uses the one loaded document (no second parse) and `ImageViewer.tsx` is not touched (step c's right column is
+  being built there at the same time). The rail is 128 px: 96 px pictures without text or link layers, not registered
+  as link targets, each with its number under it; the current page has a light box behind it, follows the scroll and is
+  centred in the rail when it would leave its view; a click goes to the page. One Tab stop (the current page's), ↑ ↓
+  Home End go to the page before, after, the first and the last; ← → still step through the room's files. The wheel
+  over the rail scrolls the rail, not the document. The toolbar then shows "3 / 60" before the zoom; the side panel and
+  a phone show neither. Differences from the plan, as the task set them: 1,024 px instead of 1,100, no toggle to hide
+  the rail, and the PDF's zoom stays in its own toolbar (not the viewer's bar).
+- **Names:** each thumbnail is named by the number it shows (WCAG 2.5.3, label in name; "1쪽으로 이동" failed axe's
+  `label-content-name-mismatch`), inside the list named 페이지 목록. New words: `pdfView.pageOf`, `pdfView.pages`, in 5
+  languages.
+- **Measured** (the 60-page fixture opened from a room at 1440 × 900, device pixel ratio 2, headless Chromium, median
+  of 5): first page drawn 1,023 ms → 671 ms after the click; canvases 60 → 2 (3 mid-document); canvas pixels 292 MP →
+  15.5 MP (thumbnails included). The rest of the 671 ms is reading the file and starting pdf.js.
+- Tests: `web/test/unit/pdf-pages.test.ts` (the layout, the window at the top, middle and end of 60 pages, at the
+  margin's edge, zoomed in and out, in a gap; the current page; the anchor across zoom and a late page size), e2e
+  `pdf-lazy-pages.spec.ts` (60 placeholders of the page's size, a few canvases, the rail and its lazy pictures, a click
+  to page 40, the current page following the scroll and kept in the rail's view, zoom and fit keeping page 20, the text
+  selected and copied, the rail's keys, a one-page PDF with no rail, the side panel with no rail and few canvases, 390 px;
+  screenshots), and the PDF specs that were there (`previews`, `side-panel-expand`, `answer-sources`,
+  `room-file-viewer`, `room-files-open`) unchanged.
+- Version impact: **minor** (a visible addition, the rail; faster previews; no API or data change).

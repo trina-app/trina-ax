@@ -3382,6 +3382,8 @@ export const ko = {
   "pdfView.zoomIn": "확대",
   "pdfView.zoomLevel": "{n}%",
   "pdfView.fitWidth": "너비에 맞추기",
+  "pdfView.pageOf": "{n} / {total}",
+  "pdfView.pages": "페이지 목록",
   "pdfView.cantOpen": "이 PDF를 미리 볼 수 없어요. 파일이 손상되었을 수 있어요. 다운로드해서 열어 보세요.",
   "drive.loadFailed": "Google Drive 연결 상태를 불러오지 못했어요.",
   "auth.required": "이 항목을 입력해 주세요.",

@@ -3383,6 +3383,8 @@ export const en: Record<MessageKey, string> = {
   "pdfView.zoomIn": "Zoom in",
   "pdfView.zoomLevel": "{n}%",
   "pdfView.fitWidth": "Fit to width",
+  "pdfView.pageOf": "{n} / {total}",
+  "pdfView.pages": "Pages",
   "pdfView.cantOpen": "This PDF can't be shown. The file may be damaged. Download it to open it.",
   "drive.loadFailed": "Could not load your Google Drive status.",
   "auth.required": "Fill in this field.",

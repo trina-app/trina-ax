@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-09 09:39
 - Branch: `plan/room-file-viewer` (the work: one `feat/room-file-viewer-*` branch per PR below)
-- Status: in progress (a #249, b0 #259, f #254 on dev; b #261; c0, c, d, e to come; #247 is on dev now)
+- Status: in progress (a #249, b0 #259, f #254 on dev; b #261; d (feat/pdf-lazy-pages); c0, c, e to come; #247 is on dev now)
 - Where: trina-ax core (`web/src/`; if question 2 is a yes, one optional field on the chat send body in `shared/` and
   `server/src/chat/`). Why: rooms, chat and file previews are core (see docs/REPOSITORY-RULES.md)
 - Version impact: minor. A visible UX change; no migration, no new endpoint.
@@ -256,3 +256,24 @@ https://github.com/trina-app/trina-ax/pull/261. What differs or was found:
 - **How step c slots in:** the stage spans the window under the bar and the column is centred in it, so the right column
   (`RoomSideColumn`, 400 px) narrows the stage from the right (`right-[var(--viewer-col)]`, the edge arrow moving with
   it), its toggle goes in the bar before ✕, and the thread follows `room.messageId` / `rootId` on each step.
+
+### Step d: lazy PDF pages and the viewer's thumbnails (`feat/pdf-lazy-pages`)
+
+Built on step b (docs/DECISIONS.md "Lazy PDF pages and the viewer's page thumbnails"). What differs or was found:
+- **Lazy pages everywhere the PDF is drawn** (side panel, 크게 보기, viewer): a placeholder per page from its viewport
+  (page 1's at first, the others' read in the background), and only the pages within 1.5 screens of the view get a
+  canvas and a text layer; far ones are unmounted. The window comes from the scroll position and the page sizes
+  (`lib/pdfPages.ts`, unit-tested), not an IntersectionObserver per page, so the same numbers give the current page and
+  the reading position kept on zoom; the thumbnails use an IntersectionObserver.
+- **Canvas cap** as planned: device pixel ratio ≤ 2 and ≤ 4,096 px wide.
+- **Pages are read without Suspense:** React's ~300 ms hold on a Suspense reveal was most of what lazy pages gained, so
+  each page loads in an effect behind its blank placeholder.
+- **Thumbnails** as planned (96 px, no text or link layer, the one loaded document, drawn in view, current page marked
+  and following, click to go), with what the step's task changed: shown from 1,024 px (not 1,100), no toggle, hidden for
+  a one-page PDF, and **the zoom stays in the PDF's own toolbar** (not moved to the bar), which also shows "3 / 60" when
+  the rail is there. Not a virtualised list: 60 (or 600) small buttons are cheap; only their canvases are lazy.
+- **ImageViewer.tsx is untouched:** `ViewerDocument` has an empty slot left of the column and PdfView portals the rail
+  into it (FileBody's `thumbnails`), so step c's right column, built at the same time, merges cleanly. The column and
+  the rail are centred together; with the right column open the column narrows.
+- **Measured** (60-page fixture, viewer, 1440 × 900 at 2×, median of 5): first page 1,023 → 671 ms, canvases 60 → 2,
+  canvas pixels 292 → 15.5 MP.
