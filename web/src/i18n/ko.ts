@@ -2056,6 +2056,8 @@ export const ko = {
   'audit.act.skills.move_refused': '스킬 옮기기 거절',
   'audit.act.files.ai_trash': 'AI의 휴지통 이동',
   'audit.act.skills.copy': '스킬 복사',
+  'audit.act.skills.files': 'AI가 스킬 폴더 파일 정리',
+  'audit.act.skills.files_refused': '스킬 폴더 정리 거절',
   'audit.act.schedule.project_gone': '예약 작업 건너뜀(프로젝트를 더 볼 수 없음)',
   'audit.act.skills.ai_write_refused': 'AI의 팀 스킬 저장 거절',
   'audit.act.skills.suggest': '스킬 제안',

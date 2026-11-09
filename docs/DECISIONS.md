@@ -17392,6 +17392,94 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
   `c-slack*` test file pass.
 - Version impact: **minor** (optional API fields, one add-only migration).
 
+## Skill folders: the AI's file actions (feat/ai-skill-folder-actions, 2026-11-10)
+
+The refusal audit (2026-11-10, A6, A7 and bug 3) found every AI move, copy or rename into or out of a skill folder
+refused with one text about moving skills, even an admin renaming a project folder that only holds skills. People do
+all of it on the Files screen. The plan ("B1") was narrowed by the security review; this is the narrowed design.
+
+- **A tool of its own, `skill_files`**: one item per call, move, copy or rename. `move_files`, `copy_files` and
+  `rename_file` keep refusing skill folders, with a text that says what to use for each case (skill_files, `move_skill`
+  for a whole skill to another level, write / edit for text, the Files screen for the rest).
+- **Three kinds, everything else refused before any card** (skills/folder-actions.ts):
+  - **N**: a group's or project's folder (`groups/<g>`, `projects/<p>`) that holds skills renamed in place, only when
+    nothing changes for anyone: the same skills, followed by the same people, changed by the same people, the same
+    readers of every file, before and after, judged by the folder rules as they will be (a moved folder's rules go
+    with it; the group or project follows its folder). A plain card. Admin-only rules for managed folders stay. A
+    skill's own folder renamed in its skills folder is the same kind of card with its SKILL.md `name:` line changed
+    with it (else the skill stops loading), the new SKILL.md in full, the name checked at its level.
+  - **O**: files, skills or rules leaving a skill root: moved out, a file copied out, the skills folder itself renamed,
+    or a group's or project's folder moved out of its place (its skills stop). The card names the skills (only those
+    the asker can read; the rest counted) and how many people stop getting them; who stops is named only to the owner,
+    admins and a project's creator for its project (`seesWho`, as `move_skill`), counts for everyone else; who gains or
+    loses the files is counted.
+  - **I**: a SKILL.md folder of text files going into a skill root at an exact target that is not there. It goes
+    right into the skills folder and must load there. The card shows the full text of every file in it (refused above
+    60,000 characters, never cut; a text or a file name with a character a person cannot see there, zero-width,
+    direction or tag characters, is refused: the card shows every word), who newly gets it, who may change it and who
+    of them is new, and the same name elsewhere: for how many of the people who get it a project skill of that name
+    would be hidden, or (into a project) a wider skill of that name runs instead. Those counts look only at skills and
+    projects the asker can read themselves (never someone's own skills), so a count tells no name.
+  - **Cut: nothing that is not text goes in** (product owner, 2026-11-10, after the review). No picture, sound,
+    video, font, Office file, PDF or any other file that is not text goes into a skill folder through the AI, on its
+    own or inside a SKILL.md folder: its content could not be shown on the card, and words drawn into a picture reach
+    the AI when it reads it (vision, OCR). The refusal says why and gives the user the next step in their language
+    ("스킬 폴더에 그림을 넣으려면 파일 화면에서 직접 올려 주세요."): a person uploads it on the Files screen. A thumbnail on the card
+    could bring pictures back later, as a change of its own. Nor does a single file go in: a .md on its own is a team
+    rule or a single-file skill (no team rule is ever made by a file action), and any other text is written with write /
+    edit, where the card shows it. Instruction file names (CLAUDE.md, AGENTS.md, GEMINI.md) are refused anywhere in
+    the folder.
+  - **Refused**: moves within or between skill folders (`skills/hr/x` to `skills/x` is "team to team" but reaches the
+    whole team; a whole skill goes with `move_skill`), the person's own skills folder (`move_skill`), `groups/` and
+    `projects/` themselves, folders that would switch a group's or project's skills on (cut by the review: switching on
+    goes through `move_skill` per skill), deletes, and producers (save_url, generate_video, room files) writing into
+    skill folders.
+- **Which skills a change touches** is listed as the loader finds them (chat/skills.ts `skillEntriesOnDisk`, next to
+  `walkSkillRoot`): SKILL.md folders below the root, single-file skills in any subfolder up to three levels (a team's
+  or a group's), the team's rules right in `skills/`. The card, its token, the rename check and the on/off records all
+  use that one list (the second review found a single-file skill in `skills/sales/` left off the card while it stopped
+  for everyone).
+- **A skill's SKILL.md is not moved out on its own**: the rest of its folder would stay, and a SKILL.md folder or a
+  `.md` skill inside it, hidden while the SKILL.md was there, would start to apply without having been on the card. The
+  refusal says to move the whole skill folder. A copy of it out is fine (nothing changes in place).
+- **One name, several levels**: a skill put into a group's folder says for how many of the people who get it it takes
+  the place of the team's skill of that name; a team skill says for how many a group's skill of that name runs
+  instead. Counted only over skills the asker can read.
+- **The team's `skills/` folder itself** is never moved or renamed by skill_files (it would stop every team skill and
+  rule at once), like `groups/` and `projects/`.
+- **Who may call it**: only the main AI of the person's own chat. Rooms and shared chats do not offer it; a chat others
+  wrote in, a Slack thread's chat (a channel may read its answer), a scheduled run, a template run, a confidential
+  chat, a draft and a sub-agent (`PARENT_ONLY_TOOLS`, and
+  refused on the server too: a call whose agent is not the main AI's) get the reason before any card, never a card that
+  answers itself. A chat that read a team chat room puts nothing into a skill folder.
+- **The card is what runs**: the server's card (origin `server`) for every call, never covered by an earlier answer, a
+  room grant or "always". Full resolved paths, every file. Its yes is bound to a token over every file's path and hash,
+  the target, who follows each skill and who may change it, who can see the files. The file service takes a grant for
+  exactly that operation (person, turn, action, both paths; `onExists: 'fail'`, never a " (2)"), once, and plans the
+  action again right before the rename or copy: a file added or changed after the card refuses it. "I" places the bytes
+  the card showed as new files, so a dev-environment job that kept the old file open cannot change the skill after the
+  yes (for "I", text only); they go into place in the move's own step (the database part and both renames happen together or not at all),
+  and a skill's folder renamed gets its SKILL.md with the new name line the same way, the old text kept as a version.
+  What was moved is then removed only where it is what the card showed; anything else (written after the last check,
+  by a dev-environment job, say) goes to the trash at its old path, never away for good.
+  A script keeps its execute bit. Without such a grant the service refuses every AI turn's move or copy into or out of
+  a skill folder (a copy out too, now), as before.
+- **Audit**: `skills.files` (kind, paths, the skills and counts), `skills.files_refused` for a no or no answer; each
+  skill change as `skills.change` with the usual notices. A folder move that carries skills (an AI's or a person's on
+  the Files screen) records each skill whose place changes, `switchedOff` when it leaves the skill roots (with the
+  group or project it was in), `switchedOn` when it comes into one; a skills folder moved or renamed out of the skill
+  roots records each skill in it too. Before, only a project's switch-on was recorded, without a notice.
+- **Independent review (2026-11-10)** before the PR: hidden characters on the card (fixed), a text named like a picture,
+  a placement that could fail open, a rename that could stop halfway, counts that told names, per-skill records for a
+  skills folder moved out, Slack chats, a cleanup or an undo that could fail open after the move (all fixed). It also
+  found that a picture's own content was not on the card; rather than accept that, pictures and every other non-text
+  file going in were cut (above). Left: an empty skills folder made as a dev-environment mount point counts as a folder
+  holding skills while a run lives, and a person's move into a skill folder on the Files screen is recorded per folder,
+  not per skill.
+- Tests: `tests/unit/skill-files.test.ts` (an attack for each MUST), `dev-env-srt.test.ts` (the no-write list and the
+  mount points), `c-file-moves`, `move-skill`, `project-skills`.
+- Version impact: patch (a new AI tool behind a card, stricter checks; no HTTP API change, no migration).
+
 ## The room file viewer on phones — the file's thread and Trina in a sheet over it (feat/room-viewer-phones, 2026-11-09)
 
 넣을 곳: trina-ax `web/src/components/ImageViewer.tsx`, `web/src/components/rooms/ViewerColumn.tsx`,

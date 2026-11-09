@@ -50,6 +50,7 @@ import { checkRegular, freeName, hashFile, installFile, snapshotVersion } from '
 import type { TeamFiles } from '../team-files/service'
 import { makeWorkDir, readOutput, runIsolated } from './isolate'
 import { consumeSkillApproval, requireSkillApproval } from '../skills/guard'
+import { makeFileOutputPath } from './make-file-path'
 import { PRODUCT } from '@mycel/shared'
 import { typstJobs } from '../system/limits'
 import { assertStorageRoomForAI } from '../system/storage'
@@ -239,8 +240,7 @@ export class MakeFile {
       kind = a.format === 'xlsx' && !hasPipeRow(text) ? (text.includes('\t') && !text.includes(',') ? 'tsv' : 'csv') : 'markdown'
     }
     // ---- output path (extension follows the format)
-    let outRel = a.output.replace(/\/+$/, '')
-    if (ext(outRel) !== a.format) outRel += '.' + a.format
+    const outRel = makeFileOutputPath(a.output, a.format)
     const out = authorize(fx, rules, c.user, outRel, 'write', { mustExist: false, createDirs: true })
     if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder`)
 
@@ -323,8 +323,7 @@ export class MakeFile {
     if (a.format !== 'pdf') throw new ToolError(`an .html source can only be printed to PDF: give format "pdf" (for ${a.format}, write the document as Markdown)`)
     if (a.template) throw new ToolError('a PDF printed from HTML takes no template: the page\'s own CSS is its design')
     const fx = this.files.fx
-    let outRel = a.output.replace(/\/+$/, '')
-    if (ext(outRel) !== 'pdf') outRel += '.pdf'
+    const outRel = makeFileOutputPath(a.output, 'pdf')
     const out = authorize(fx, this.files.rules(), c.user, outRel, 'write', { mustExist: false, createDirs: true })
     if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder`)
     const printed = await printTeamHtml(this.ctx, this.files, c.user, a.source!, { signal: c.signal })
