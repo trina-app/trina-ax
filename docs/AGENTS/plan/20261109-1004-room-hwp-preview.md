@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-09 10:04
 - Branch: `feat/room-hwp-preview`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/files/hwp-preview.ts`, `server/src/rooms/files.ts`, `server/src/routes/rooms.ts`,
   `shared/src/api/`, `web/src/components/`). Why: rooms, files and previews are core (see docs/REPOSITORY-RULES.md)
 - Version impact: minor. A new endpoint and a visible change while the HWP Preview plugin is on; none while it is off.
@@ -62,4 +62,9 @@ route coverage and permission matrix; `test:web`, `build:web`, e2e `room-files-o
 
 ## Result
 
-Filled in at the end.
+Built as planned. `GET /api/rooms/:id/files/:fileId/hwp-preview` (`roomFileHwpPreview`) runs `RoomFiles.hwpSource`
+(the inline read's checks, the admission read and the sha256 match) before the cache and the render and again after;
+`HwpPreviews.pageOf` is the one path for team and room files. `Me.server.hwpPreview` gates the room chip; `HwpView`
+takes a team path or a room file and shows the download-only notice. The routes' shared schemas moved to
+`shared/src/hwp.ts` (`HwpPreviewQuery`, `HwpPreviewPage`). An independent security review found no must-fix; the cases
+it asked to guard are tests. Rebased on dev after `feat/image-viewer` (#246).
