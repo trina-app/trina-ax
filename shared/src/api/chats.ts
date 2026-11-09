@@ -299,8 +299,12 @@ export const CreateProjectBody = z.object({
 })
 /** Share a personal project with the team: its folder is copied under toParent (a folder the caller can write; at most
  * 1,000 files / 500 MB) and the project points at the copy; the personal folder stays. dryRun: {viewersAdded} only. */
-export const ShareProjectBody = z.object({ toParent: RelPath, dryRun: z.boolean().default(false) })
-export const ShareProjectResult = z.union([Project, z.object({ viewersAdded: z.number().int().nonnegative() })])
+export const ShareProjectBody = z.object({ toParent: RelPath, dryRun: z.boolean().default(false),
+  /** shared into projects/, the skills in its skills/ folder switch on in the project's chats: 409 project_skills_on
+   * unless true (docs/DECISIONS.md "Project skills") */
+  skillsOk: z.boolean().optional() })
+/** dryRun: who more sees it, and the skills that would switch on (shared into projects/) */
+export const ShareProjectResult = z.union([Project, z.object({ viewersAdded: z.number().int().nonnegative(), skills: z.array(z.string()).optional() })])
 /** Creator or admin+ only. folderPath: admin or owner only, never under users/ (a personal project is shared by copy). */
 export const UpdateProjectBody = z.object({
   name: z.string().trim().min(1).max(100).optional(),
@@ -310,6 +314,9 @@ export const UpdateProjectBody = z.object({
    * project_personal (a personal project), safe_ops (safe operations are on) or project_in_trash. Off keeps the chats
    * already shared. */
   shareChats: z.boolean().optional(),
+  /** pointed at a projects/<name> folder that holds skills: they switch on in the project's chats: 409
+   * project_skills_on unless true (docs/DECISIONS.md "Project skills") */
+  skillsOk: z.boolean().optional(),
 })
 
 export const CHATS = {

@@ -273,8 +273,11 @@ export function ProjectHome() {
     try {
       const dry = await api.call(API.shareProject, { params: { id: p.id }, body: { toParent, dryRun: true } })
       const n = 'viewersAdded' in dry ? dry.viewersAdded : 0
-      if (!(await confirmDialog({ title: t('projects.shareTitle'), body: t('projects.shareBody', { n }), confirm: t('files.shareCopy') }))) return
-      const r = await api.call(API.shareProject, { params: { id: p.id }, body: { toParent } })
+      // shared into projects/: the skills in its skills/ folder switch on there, named in the same question
+      const skills = 'viewersAdded' in dry ? dry.skills ?? [] : []
+      const body = skills.length ? `${t('projects.shareBody', { n })}\n\n${t('files.skillsOnBody', { n: skills.length, names: skills.join(', ') })}` : t('projects.shareBody', { n })
+      if (!(await confirmDialog({ title: t('projects.shareTitle'), body, confirm: t('files.shareCopy') }))) return
+      const r = await api.call(API.shareProject, { params: { id: p.id }, body: { toParent, ...(skills.length ? { skillsOk: true } : {}) } })
       if ('id' in r) {
         setP(r)
         useProjects.getState().put(r)

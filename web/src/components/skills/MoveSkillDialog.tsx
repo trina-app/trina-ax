@@ -77,11 +77,11 @@ export function MoveSkillDialog({ path, name, onClose }: { path: string; name: s
                       </span>
                       {x.blocked ? (
                         <span className="mt-0.5 block text-xs text-faint">{x.blocked}</span>
-                      ) : (x.gained || x.lost) ? (
-                        <span className="mt-0.5 block text-xs text-muted">
-                          {[x.gained ? t('skills.moveGained', { n: x.gained }) : '', x.lost ? t('skills.moveLost', { n: x.lost }) : ''].filter(Boolean).join(' · ')}
+                      ) : (
+                        <span className="mt-0.5 block text-xs text-muted" data-testid="skill-move-effect">
+                          {[x.gained ? t('skills.moveGained', { n: x.gained }) : '', x.lost ? t('skills.moveLost', { n: x.lost }) : '', t('skills.moveEditors', { n: x.editors })].filter(Boolean).join(' · ')}
                         </span>
-                      ) : null}
+                      )}
                     </span>
                   </label>
                 </li>

@@ -18,7 +18,8 @@ import { useProjects } from '../store/projects'
 import { isAdmin, useMe } from '../store/session'
 import FolderPicker from './FolderPicker'
 import { refusalKey } from '../lib/sharedChat'
-import { Button, Field, Modal, Switch, inputCls } from './ui'
+import { projectSkillsOn } from '../lib/bulkFiles'
+import { Button, Field, Modal, Switch, confirmDialog, inputCls } from './ui'
 
 export function ProjectForm({ project, initialFolder, initialName, onClose, onSaved }: {
   project?: Project
@@ -96,7 +97,7 @@ export function ProjectForm({ project, initialFolder, initialName, onClose, onSa
   const onFolder = !project && mode === 'existing'
   const noFolder = onFolder && folder === ''
   const finalName = onFolder ? projectName(name, folder) : name.trim()
-  const save = async () => {
+  const save = async (skillsOk = false) => {
     setBusy(true)
     setError(null)
     setTakenBy(null)
@@ -108,7 +109,7 @@ export function ProjectForm({ project, initialFolder, initialName, onClose, onSa
         // instructions to everyone reading the folder above)
         ? await api.call(API.updateProject, { params: { id: project.id }, body: { name: finalName, instructions, ...(folder !== project.folderPath || (project.inTrash && folderPicked) ? { folderPath: folder } : {}),
             // the setting goes only when it changed (and never while safe operations hold it)
-            ...(canShare && !safeOps && shareChats !== !!project.shareChats ? { shareChats } : {}) } })
+            ...(canShare && !safeOps && shareChats !== !!project.shareChats ? { shareChats } : {}), ...(skillsOk ? { skillsOk } : {}) } })
         : await api.call(API.createProject, {
             body:
               mode === 'personal' ? { name: finalName, scope: 'personal', instructions, participants: [] }
@@ -119,6 +120,13 @@ export function ProjectForm({ project, initialFolder, initialName, onClose, onSa
       onSaved(p)
       onClose()
     } catch (e) {
+      // the chosen projects/<name> holds skills: they switch on in this project's chats once the person says yes
+      const skills = projectSkillsOn(e)
+      if (skills && !skillsOk) {
+        setBusy(false)
+        if (await confirmDialog({ title: t('files.skillsOnTitle'), body: t('files.skillsOnBody', { n: skills.length, names: skills.join(', ') }), confirm: t('common.save') })) return save(true)
+        return
+      }
       const refused = refusalKey(e, 'project')
       setError(refused ? t(refused) : errorText(e, locale, t('error.network')))
       const id = e instanceof ApiError && e.code === 'conflict' ? e.body.params?.projectId : undefined
@@ -138,7 +146,7 @@ export function ProjectForm({ project, initialFolder, initialName, onClose, onSa
           <Button variant="ghost" onClick={onClose}>
             {t('common.cancel')}
           </Button>
-          <Button variant="primary" busy={busy} disabled={!finalName || noFolder} onClick={save} data-testid="project-save">
+          <Button variant="primary" busy={busy} disabled={!finalName || noFolder} onClick={() => void save()} data-testid="project-save">
             {t('common.save')}
           </Button>
         </>

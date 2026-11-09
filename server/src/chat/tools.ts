@@ -13,7 +13,7 @@ import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
 import { cleanMemoryText, MEMORY_ITEM_MAX, neutralizeTags, skillBlock } from './prompt'
 import { isPersonalSkill, listSkills, readSkill, skillFolder, type Skill } from './skills'
-import { levelLabel, levelRef, levelsOf, planMove, runMove, skillAt, type Level } from '../skills/move'
+import { AI_MOVES, levelLabel, levelRef, levelsOf, planMove, runMove, skillAt, type Level } from '../skills/move'
 import { st as skillText } from '../skills/text'
 import { audit as auditLog } from '../admin/audit'
 import { HttpError } from '../http/errors'
@@ -73,7 +73,7 @@ export const B_TOOL_DESCRIPTIONS = {
   set_title: 'Name this new chat: a short title in the user\'s language that says what the person wants (2-60 characters). Call it once, early in your answer. Never put keys, tokens, passwords, personal data or quotes of the message in it.',
   skill: 'Load one of the user\'s skills (a saved team or personal workflow) by its name as listed under Team skills in your instructions, and get its full steps. Call it when a request matches a skill, before you follow it; then follow the steps and say which skill you used. A folder skill\'s other files are read with read, relative to the folder the result names.',
   find_skills: 'Search the skills the user can use by words (their names, descriptions and folders), best first, at most 10; with no word in common it lists the skills the user uses most. Use it when no skill in your instructions\' list clearly fits but the request looks like a saved workflow (the list may be cut). Then load the one that fits with skill.',
-  move_skill: 'Move one of the user\'s skills to another level: the whole team, one of the user\'s groups, a project (only that project\'s chats use it) or the user\'s own skills. The user confirms on a card that says who gains and who loses it and lists every file. You may only move a skill where fewer people get it (nobody new); when the user wants more people to get a skill, tell them to use the Move item in the skill\'s menu on the Skills page (shown in their screen language). Skills never move with move_files; never make a skills folder, a README or a copy as a stand-in. A folder that is not a project yet must be made a project first.',
+  move_skill: 'Move one of the user\'s skills to a narrower level: a team skill to one of the user\'s groups or to a project (only that project\'s chats use it), or a group\'s skill to a project; only where nobody new gets it or may change it. The user confirms on a card that says who gains and who loses it and lists every file. Any other move (out of a project, into the user\'s own skills, to more people) is the user\'s: tell them to use the Move item in the skill\'s menu on the Skills page (shown in their screen language), which shows the whole text first. Skills never move with move_files; never make a skills folder, a README or a copy as a stand-in. A folder that is not a project yet must be made a project first.',
 } as const
 
 /** A turn's tool set, plus what per-person tools add: a section for the instructions and their own step labels. */
@@ -537,14 +537,23 @@ function moveSkillTool(exec: TurnExec): Tool {
       const said = (e: unknown, other: string) => (e instanceof HttpError && e.message ? e.message : other).replace(/\.+$/, '')
       let plan
       try { plan = planMove(ctx, user, have, to, L) } catch (e) { return bad(`Not moved: ${said(e, 'the skill\'s files could not be read')}.`, 'refused: files') }
-      if (plan.blocked) return bad(`Not moved: ${skillText(plan.blocked.key, 'en', plan.blocked.vars)}`, `refused: ${plan.blocked.key}`)
       const from = levelLabel(plan.from, L), dest = levelLabel(plan.to, L)
-      // the AI only narrows (a planted message must not widen a skill's reach)
+      const en = (l: Level) => neutralizeTags(levelLabel(l, 'en'))
+      const toPage = 'Tell the user they can move it themselves with the Move item in the skill\'s menu on the Skills page (shown in their screen language), where they see its whole text first.'
+      // the AI only narrows (a planted message must not widen a skill's reach, its chats or who trusts its text): the
+      // team's to a group or a project, a group's to a project, never out of a project or into one person's own
+      if (!AI_MOVES.has(`${plan.from.level}>${plan.to.level}`)) {
+        return bad(`Not moved: you may only move a team skill to a group or a project, or a group's skill to a project (from ${en(plan.from)} to ${en(plan.to)} the skill would run in more chats or be trusted more). ${toPage}`, `refused: ${plan.from.level} to ${plan.to.level}`)
+      }
+      if (plan.blocked) return bad(`Not moved: ${neutralizeTags(skillText(plan.blocked.key, 'en', plan.blocked.vars))}`, `refused: ${plan.blocked.key}`)
       if (plan.gained > 0) {
-        return bad(`Not moved: at ${levelLabel(plan.to, 'en')} ${plan.gained} more ${plan.gained === 1 ? 'person' : 'people'} would get this skill (${plan.fromPeople} → ${plan.toPeople}). You can only move a skill where fewer people get it. Tell the user they can move it themselves with the Move item in the skill's menu on the Skills page (shown in their screen language), where they see its whole text first.`, `refused: widens (+${plan.gained})`)
+        return bad(`Not moved: at ${en(plan.to)} ${plan.gained} more ${plan.gained === 1 ? 'person' : 'people'} would get this skill (${plan.fromPeople} → ${plan.toPeople}). You can only move a skill where fewer people get it. ${toPage}`, `refused: widens (+${plan.gained})`)
+      }
+      if (plan.editorsGained > 0) {
+        return bad(`Not moved: at ${en(plan.to)} ${plan.editorsGained} more ${plan.editorsGained === 1 ? 'person' : 'people'} could change this skill (${plan.editors} could). You can only move a skill where nobody new may change it. ${toPage}`, `refused: more editors (+${plan.editorsGained})`)
       }
       const size = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
-      const question = [skillText('moveConfirm', L, { name: plan.skill.name, from, fromN: String(plan.fromPeople), to: dest, toN: String(plan.toPeople) }), plan.lost ? skillText('moveLost', L, { n: String(plan.lost) }) : ''].filter(Boolean).join('\n\n')
+      const question = [skillText('moveConfirm', L, { name: plan.skill.name, from, fromN: String(plan.fromPeople), to: dest, toN: String(plan.toPeople) }), plan.lost ? skillText('moveLost', L, { n: String(plan.lost) }) : '', skillText('moveEditors', L, { n: String(plan.editors) })].filter(Boolean).join('\n\n')
       const base = plan.source.split('/').pop()!
       const answer = await exec.waitForPerson({
         kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, multiple: false, allowText: false,
@@ -561,7 +570,7 @@ function moveSkillTool(exec: TurnExec): Tool {
       try {
         // checked again as it moves (the files, the target, the rights); its answer is for the AI: in English
         const done = runMove(ctx, user.id, plan.skill.path, levelRef(plan.to), plan.token, 'en', { turnId: spec.turnId, tool: 'move_skill' })
-        return { ...text(`Moved the skill "${neutralizeTags(done.skill.name)}" from ${levelLabel(done.from, 'en')} (${done.fromPeople} people) to ${levelLabel(done.to, 'en')} (${done.toPeople} people): ${done.entry}.${done.to.level === 'project' ? ' The AI now follows it only in that project\'s chats.' : ''}`), summary: `move_skill -> moved to ${done.to.level}` }
+        return { ...text(`Moved the skill "${neutralizeTags(done.skill.name)}" from ${en(done.from)} (${done.fromPeople} people) to ${en(done.to)} (${done.toPeople} people): ${done.entry}.${done.to.level === 'project' ? ' The AI now follows it only in that project\'s chats.' : ''}`), summary: `move_skill -> moved to ${done.to.level}` }
       } catch (e) {
         return bad(`Not moved: ${said(e, 'the move failed')}.`, 'failed')
       }

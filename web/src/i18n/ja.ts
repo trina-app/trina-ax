@@ -2266,6 +2266,7 @@ export const ja: Record<MessageKey, string> = {
   'skills.movePeople': '{n, plural, one {#人} other {#人}}',
   'skills.moveGained': '{n, plural, one {#人が新たに使えます} other {#人が新たに使えます}}',
   'skills.moveLost': '{n, plural, one {#人は使えなくなります} other {#人は使えなくなります}}',
+  'skills.moveEditors': '{n, plural, one {#人} other {#人}}が変更できます',
   'skills.moveWiden': 'より多くの人のAIがこのスキルに従います。下の内容をすべて確認してください。',
   'skills.moveFiles': '移動するファイル：{n}個',
   'skills.moveDo': '移動',

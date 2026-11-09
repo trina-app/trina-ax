@@ -587,18 +587,22 @@ const REPLACED_RANK: Record<Replaced, number> = { team: 0, group: 1, project: 2 
 /** Of `all` (one person's skills, every tier), the ones that run and the ones that lost, each with the skills it lost
  * to. One name: personal > group > team > project, and a project skill also gives way to a wider skill whose file or
  * folder name is its name ("/<alias>" runs that one: docs/DECISIONS.md "Project skills": a project only adds names). */
-function pickWinners(all: readonly Skill[]): { skills: Skill[]; lost: { skill: Skill; to: Skill[] }[] } {
+function pickWinners(all: readonly Skill[], wider: readonly Skill[] = all): { skills: Skill[]; lost: { skill: Skill; to: Skill[] }[] } {
   const best = new Map<string, number>()
   for (const s of all) best.set(nameKey(s.name), Math.min(best.get(nameKey(s.name)) ?? 4, skillTier(s)))
-  const aliases = new Map<string, Skill[]>()
-  for (const s of all) if (skillTier(s) < 3) { const k = nameKey(skillAlias(s.path)); aliases.set(k, [...(aliases.get(k) ?? []), s]) }
+  // what a project skill gives way to: a wider skill whose name or file / folder name is its name, among `wider` (the
+  // person's own skills of every tier; in a shared chat also those its audience may not use: a project skill never takes
+  // a name the sender has at a higher tier)
+  const byName = new Map<string, Skill[]>(), byAlias = new Map<string, Skill[]>()
+  const add = (m: Map<string, Skill[]>, k: string, s: Skill) => m.set(k, [...(m.get(k) ?? []), s])
+  for (const s of wider) if (skillTier(s) < 3) { add(byName, nameKey(s.name), s); add(byAlias, nameKey(skillAlias(s.path)), s) }
   const byPath = (a: Skill, b: Skill) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path)
   const named = (s: Skill) => skillTier(s) !== best.get(nameKey(s.name))
-  const aliased = (s: Skill) => skillTier(s) === 3 && aliases.has(nameKey(s.name))
-  const skills = all.filter((s) => !named(s) && !aliased(s)).sort(byPath)
-  const lost = all.filter((s) => named(s) || aliased(s)).sort(byPath).map((s) => {
+  const givesWay = (s: Skill) => skillTier(s) === 3 && (byName.has(nameKey(s.name)) || byAlias.has(nameKey(s.name)))
+  const skills = all.filter((s) => !named(s) && !givesWay(s)).sort(byPath)
+  const lost = all.filter((s) => named(s) || givesWay(s)).sort(byPath).map((s) => {
     const to = named(s) ? skills.filter((w) => sameSkillName(w.name, s.name)) : []
-    return { skill: s, to: to.length ? to : [...(aliases.get(nameKey(s.name)) ?? [])].sort((a, b) => skillTier(a) - skillTier(b) || byPath(a, b)) }
+    return { skill: s, to: to.length ? to : [...(byName.get(nameKey(s.name)) ?? []), ...(byAlias.get(nameKey(s.name)) ?? [])].sort((a, b) => skillTier(a) - skillTier(b) || byPath(a, b)) }
   })
   return { skills, lost }
 }
@@ -616,11 +620,12 @@ export function scanSkillsWithShadowed(files: FileService, user: Principal, scop
   const out: Skill[] = []
   const capped = walkSkillEntries(files, user, (rel, scan) => {
     const skill = readSkillIn(files, user, rel, scan)
-    // a shared chat: skills some of the people who see it may not use are out before a name's winner is picked, so
-    // one usable by all of them is not hidden by one that is not (and every sender gets the same one)
-    if (skill && (!scope.usable || scope.usable(skill.path))) out.push(skill)
+    if (skill) out.push(skill)
   }, projectRootsFor(scope.project))
-  const { skills, lost } = pickWinners(out)
+  // a shared chat: skills some of the people who see it may not use are out before a name's winner is picked, so a team
+  // skill usable by all of them is not hidden by a group's that is not; a project skill still gives way to every skill
+  // of the sender's own of its name (docs/DECISIONS.md "Project skills")
+  const { skills, lost } = pickWinners(scope.usable ? out.filter((s) => scope.usable!(s.path)) : out, out)
   const shadowed: ShadowedSkill[] = []
   const replaces = new Map<string, Replaced>()
   for (const { skill: s, to } of lost) {

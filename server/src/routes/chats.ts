@@ -42,6 +42,8 @@ import { AnswerSight, sharedHits, type ChatHit } from '../chat/shared-answers'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { forgetPurgedChats } from '../chat/forget'
 import { dropChatPins, dropUnseenPins, pin, pinsOf, unpin } from '../chat/pins'
+import { projectLevelPossible } from '../skills/guard'
+import { askSkillsOn, recordSkillsOn, skillsUnder } from '../skills/switch-on'
 
 const WINDOW_RE = /^[A-Za-z0-9_-]{8,64}$/
 export const windowOf = (c: Context<AppEnv>) => { const w = c.req.header(WINDOW_HEADER); return w && WINDOW_RE.test(w) ? w : null }
@@ -704,6 +706,9 @@ export const chatsRoutes: RouteModule = {
         made = f.createdTop
         if (isPersonalPath(folder)) { removeMade(made); fail('validation', tr('projectFolderPersonal', locale), { fields: { 'body.folderPath': 'invalid_path: a team project cannot move under users/' } }) }
       }
+      // pointed at a projects/<name> that holds skills: they switch on in this project's chats (asked first: skills/switch-on.ts)
+      const skillsOn = repoint && projectLevelPossible(folder) ? skillsUnder(ctx.files.fx.root, folder) : null
+      if (skillsOn?.names.length && !body.skillsOk) { removeMade(made); askSkillsOn(skillsOn.names, false, locale) }
       const next = { name: body.name ?? r!.name, instructions: body.instructions ?? r!.instructions }
       // who wrote the instructions: one person only while every saved version is theirs (and the text is still what
       // they saved: a build without these columns may have changed it); otherwise nobody (chat/runtime.ts projectTaints)
@@ -738,6 +743,7 @@ export const chatsRoutes: RouteModule = {
         }
       })
       try { save() } catch (e) { removeMade(made); throw e }
+      if (skillsOn?.names.length) recordSkillsOn(ctx.db, auth.user.id, folder, skillsOn.paths, { id: r!.id, name: body.name ?? r!.name }, 'project_folder')
       const after = rt.store.projectRow(r!.id)!
       if (after.instructions !== r!.instructions) notifyInstructionsChanged(ctx, after, auth.user)
       return projectOut(after, mayEdit(ctx, p, after))
@@ -752,8 +758,11 @@ export const chatsRoutes: RouteModule = {
       const segs = r!.folder_path.split('/')
       // only a personal project is shared this way; a team project's audience is its folder rules (admin screen)
       if (segs[0] !== 'users' || segs[1] !== p.id || segs.length < 3) fail('validation', tr('projectShareNotPersonal', locale), { fields: { 'params.id': 'not a personal project' } })
+      // shared into projects/: the skills in its skills/ folder switch on there (asked first: skills/switch-on.ts)
+      const skillsOn = projectLevelPossible(`${body.toParent.replace(/\/+$/, '')}/x`) ? skillsUnder(ctx.files.fx.root, r!.folder_path) : null
+      if (!body.dryRun) askSkillsOn(skillsOn?.names ?? [], body.skillsOk, locale)
       const out = await mapErrors(locale, () => componentC(ctx).files.copyFolderTree(p.id, r!.folder_path, body.toParent, { dryRun: body.dryRun }), 'toParent')
-      if ('viewersAdded' in out) return out
+      if ('viewersAdded' in out) return { ...out, ...(skillsOn?.names.length ? { skills: skillsOn.names } : {}) }
       const save = ctx.db.transaction(() => {
         // one project per folder: the copy's name already steps around the folders projects name (copyFolderTree);
         // a project made on that path in the moment since is refused here, and the copy goes again
@@ -765,6 +774,7 @@ export const chatsRoutes: RouteModule = {
         audit(ctx.db, { actor: auth.user.id, action: 'project.share', target: r!.id, detail: isPersonalPath(out.path) ? null : { name: r!.name, folderPath: out.path, files: out.files, bytes: out.bytes } })
       })
       try { save() } catch (e) { componentC(ctx).files.discardCopy(p.id, out.path); throw e }
+      if (skillsOn?.names.length && projectLevelPossible(out.path)) recordSkillsOn(ctx.db, auth.user.id, out.path, skillsOn.paths, { id: r!.id, name: r!.name }, 'project_share')
       const after = rt.store.projectRow(r!.id)!
       return projectOut(after, mayEdit(ctx, p, after))
     })

@@ -2302,6 +2302,7 @@ export const ko = {
   'skills.movePeople': '{n}명',
   'skills.moveGained': '{n}명이 새로 받아요',
   'skills.moveLost': '{n}명은 더 쓰지 않아요',
+  'skills.moveEditors': '{n}명이 고칠 수 있어요',
   'skills.moveWiden': '더 많은 사람의 AI가 이 스킬을 따르게 돼요. 아래 전체 내용을 확인해 주세요.',
   'skills.moveFiles': '옮길 파일 {n}개',
   'skills.moveDo': '옮기기',

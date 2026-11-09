@@ -2303,6 +2303,7 @@ export const id: Record<MessageKey, string> = {
   'skills.movePeople': '{n} orang',
   'skills.moveGained': '{n} orang lagi mendapatkannya',
   'skills.moveLost': '{n} orang tidak lagi memakainya',
+  'skills.moveEditors': '{n} orang dapat mengubahnya',
   'skills.moveWiden': 'AI lebih banyak orang akan mengikuti skill ini. Periksa seluruh isinya di bawah.',
   'skills.moveFiles': 'Berkas yang dipindah: {n}',
   'skills.moveDo': 'Pindahkan',

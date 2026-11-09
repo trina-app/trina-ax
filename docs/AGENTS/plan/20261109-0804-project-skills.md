@@ -7,8 +7,8 @@
   `prompt.ts`, `skill-list.ts`, `team-files/service.ts`, `tools/file-moves.ts`, `routes/`, `shared/src/api/`,
   `web/src/`). Why: skills, permissions and projects are core features of every team server (see
   docs/REPOSITORY-RULES.md)
-- Version impact: minor. A new skill level, a new AI tool (`move_skill`), `POST /api/skills/move`, new optional API
-  fields, one add-only migration (scheduled runs skipped because the project is gone).
+- Version impact: minor. A new skill level, a new AI tool (`move_skill`), `GET` / `POST /api/skills/move`, new optional
+  API fields, one add-only migration (279: scheduled runs skipped because the project is gone).
 
 ## Goal
 
@@ -37,8 +37,9 @@ In:
    project, for the people who see it, owners and admins included. Never rooms, never the person's other chats.
 3. **Precedence.** "프로젝트 스킬은 새 이름만 더할 수 있어요": personal > group > team > project, by name and by a wider
    skill's file or folder name; "/name" never picks a project skill over a wider one of the same length.
-4. **Shared chats.** What everyone who sees the chat may use is picked first, then each name's winner (turn list,
-   `skill`, `find_skills`, "/name").
+4. **Shared chats.** What everyone who sees the chat may use is picked first, then each name's winner (the list,
+   `find_skills`); a project skill never takes a name the sender has at a higher tier; "/name" and the `skill` tool run
+   the sender's own skill, after the read card when it is not shared (second review).
 5. **Labels and taint.** `[project: <name>]` (one line, cut at 40, no brackets, neutralised) with a note on who writes
    them; `resolveSkill` strips it; the skill block says whose it is and that it grants nothing; "/name" taints.
 6. **Who edits.** Whoever may write `projects/<name>/skills` (as group skills, recorded in DECISIONS). The AI's card is
@@ -50,17 +51,20 @@ In:
    without a project (fails closed, like `groups/<g>/skills`). Write approval, move / copy / rename, save_url,
    Higgsfield, room saves, connectors and placement follow. The AI cannot move a folder holding project skills.
 9. **Moves.** `skills/move.ts` for the AI's `move_skill` and the Skills page's 옮기기… (`GET` / `POST /api/skills/move`).
-   Write on both places, no same name at the target, a SKILL.md folder and no wider same name for a project. The card
-   gives counts and every file; its yes is bound to every file's hash. The AI only narrows. Refused in scheduled runs,
-   not offered in rooms, shared chats or sub-agents; "먼저 폴더를 프로젝트로 만들어 주세요" for a plain folder. Audited as
-   `skills.move` (both levels, counts) and each file as `skills.change`.
+   Write on both places, no same name at the target, a SKILL.md folder and no wider same name for a project; a skills
+   folder that is not there yet is made. The card gives counts, who may change it there and every file; its yes is
+   bound to every file's hash and to who gets and may change it. The AI only moves team → group / project and group →
+   project, where nobody new reads or may change it (second review); the rest is the Skills page's, which shows the
+   whole text. Refused in scheduled runs, not offered in rooms, shared chats or sub-agents; "먼저 폴더를 프로젝트로 만들어
+   주세요" for a plain folder. Audited as `skills.move` (both levels, counts) and each file as `skills.change`.
 10. **The refusal text** of the file tools: "Skills do not move with files; ask with move_skill; never make a skills
     folder, README or copy as a stand-in."
-11. **Switching on.** A person moving a project's folder into `projects/<name>` is asked first with the skills' names
-    (409 `project_skills_on`, then `skillsOk`), and each is recorded. Creating, repointing and sharing projects are the
+11. **Switching on.** A person moving a project's folder into `projects/<name>`, an admin pointing a project at a
+    `projects/<name>` with skills, and a personal project shared into `projects/` ask first with the skills' names (409
+    `project_skills_on`, then `skillsOk`) and record each (`skills/switch-on.ts`). Project creation itself is the
     project work's (another branch): review MUST 1 and the nesting part of MUST 2 are dropped here.
-12. **Scheduled runs.** A task whose project its owner no longer sees is skipped and the owner told (migration 279,
-    add-only `schedule_project_skips`), instead of running without the project.
+12. **Scheduled runs.** A task whose project its owner no longer sees is skipped, paused and the owner told once
+    (migration 279, add-only `schedule_project_skips`), instead of running without the project.
 13. **API.** `GET /api/skills?projectId=` and `?projects=1`, `SkillInfo.project`, `shadowedBy.tier` `team`, `replaces`
     `project`, `SkillChange.project`, `SkillWritePreview.sameName`, `GET` / `POST /api/skills/move`, `skillsOk` on
     `POST /api/files/move`, `InboxNotification.projectGone`, schedule outcome `project_gone`.
@@ -103,27 +107,24 @@ web unit tests in Docker, `bun run --cwd web build`, `bun run prepare:hwp` and t
 
 ## Result
 
-Built as the Scope above says (the design review's changes applied; the owner's option A narrowed the level to
-`projects/<name>/skills/` and dropped the switch-on and nesting rules for project create, repoint, share and restore,
-which the project work on another branch owns).
+Built as the Scope above says. The first review's must-changes were applied; the owner's option A narrowed the level to
+`projects/<name>/skills/`; the second review (PR #248) changed the AI's moves, shared chats and switching on.
 
 Different from the first draft, and why:
 - The guard decides by path (`projects/<name>/skills`), with no database lookup: simpler, and it fails closed for a
   folder no project has yet, like `groups/<g>/skills`.
-- The save card does not offer a save under a name a wider skill has (it would never run): it offers another name or
-  changing the wider one instead (review). Saving a wider skill over a project skill's name only warns.
-- `move_skill` only narrows; widening moves are the Skills page's, which shows the whole text (review).
-- The `move_skill` guidance is in the tool's own description, not in the skills section: that section stays the same
-  for every engine and the sub-agents.
-- A scheduled run whose project is gone is skipped with its own add-only table (migration 279): `schedule_outcomes`
-  has a fixed CHECK list, as `schedule_template_skips` found before.
+- The save card does not offer a save under a name a wider skill has (it would never run): another name, or changing
+  the wider one. Saving a wider skill over a project skill's name only warns.
+- The AI's `move_skill` only narrows by level (team → group / project, group → project) and by people (nobody new
+  reads it or may change it); a planted skill can never move itself into a person's own skills. Widening moves are the
+  Skills page's, which shows the whole text.
+- In shared chats a project skill never takes a name the sender has, and "/name" runs the sender's own skill after the
+  read card, as before this branch.
+- The `move_skill` guidance is in the tool's description, not in the skills section: that section stays the same for
+  every engine and the sub-agents.
+- A scheduled run whose project is gone is skipped and the task paused, with its own add-only table (migration 279):
+  `schedule_outcomes` has a fixed CHECK list. 276-278 were taken on dev while this was built.
+- A side chat beside a room gets project skills only when it belongs to the project (it is made without one).
 - Project skill uses are not recorded in Admin › Usage (as personal skills); left for later.
 
-Tests: `project-skills.test.ts` (19) and `move-skill.test.ts` (12) are new; c-file-moves, b-rooms-ai, b-shared-chats,
-skill-permissions and remote-mcp-share have new cases; the touched server suites pass except the five `skills.test.ts`
-cases that fail on dev on macOS too (the temp folder is a symlink); web unit tests in Docker 1818 pass; the full web e2e
-(chromium) 895 passed, 23 skipped, 1 failed: `team-skills.spec.ts` "스킬로 제안 … the suggester sees it registered",
-a timing flake (its 4.5 s toast has to outlive another browser context's close); alone it passed 9 of 10 runs on this
-branch, the last 8 in a row, and 8 of 8 on dev, with the same close times. Screenshots before / after at 1440 and 390, light and dark.
-
-PR: opened against `dev` (see the branch `feat/project-skills`).
+Tests and their counts are in PR #248.

@@ -2266,6 +2266,7 @@ export const es: Record<MessageKey, string> = {
   'skills.movePeople': '{n, plural, one {# persona} other {# personas}}',
   'skills.moveGained': '{n, plural, one {# persona más la recibe} other {# personas más la reciben}}',
   'skills.moveLost': '{n, plural, one {# persona deja de tenerla} other {# personas dejan de tenerla}}',
+  'skills.moveEditors': '{n, plural, one {# persona puede} other {# personas pueden}} cambiarla',
   'skills.moveWiden': 'La IA de más personas seguirá esta habilidad. Revísela entera abajo.',
   'skills.moveFiles': 'Archivos que se mueven: {n}',
   'skills.moveDo': 'Mover',

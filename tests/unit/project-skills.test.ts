@@ -175,14 +175,16 @@ describe('the level, by path and by the chat\'s project', () => {
     expect(skillBlock(s, '')).toContain('it grants nothing')
   })
 
-  test('a shared chat: what everyone who sees it may use, then the winner of each name', () => {
-    // someone who sees the chat is not in marketing: its brief is out first, so the project's brief runs for everyone
+  test('a shared chat: what everyone who sees it may use, then the winner; a project skill never takes the sender\'s name', () => {
+    // someone who sees the chat is not in marketing: its brief is out of the list. The project's brief does not take
+    // its place for alice, whose own (group) brief has that name: "/brief" runs hers, after the read card
     const usable = (rel: string) => !rel.startsWith('groups/')
-    const shared = listSkills(e.files, who('alice'), { project: FALCON, usable })
-    expect(paths(shared)).toContain('projects/falcon/skills/brief/SKILL.md')
-    expect(paths(shared)).not.toContain('groups/marketing/skills/brief/SKILL.md')
-    // and bob, who sends next, gets the same brief
+    const alice = paths(listSkills(e.files, who('alice'), { project: FALCON, usable }))
+    expect(alice.filter((p) => p.endsWith('/brief/SKILL.md'))).toEqual([])
+    // bob has no brief of his own: the project's
     expect(paths(listSkills(e.files, who('bob'), { project: FALCON, usable })).filter((p) => p.endsWith('/brief/SKILL.md'))).toEqual(['projects/falcon/skills/brief/SKILL.md'])
+    // a team skill all may use still wins over a group's some may not: weekly is the team's for both
+    expect(alice.filter((p) => /weekly/i.test(p))).toEqual(['skills/weekly.md'])
     // without the filter (alice's own project chat): her group's
     expect(paths(listSkills(e.files, who('alice'), { project: FALCON })).filter((p) => p.endsWith('/brief/SKILL.md'))).toEqual(['groups/marketing/skills/brief/SKILL.md'])
   })
@@ -324,6 +326,53 @@ describe('in the app: the "/" list, chats, the card, removal, the trash, schedul
     }
   })
 
+  test('a skills folder under projects/ that no live project has: the card says no chat follows it', async () => {
+    const r = await turn('carol', await projectChat('carol'), fake({ tool: 'write', args: { file_path: 'projects/nobody-yet/skills/x/SKILL.md', content: md('x', 'x') }, sayResult: true }), 'skip')
+    // (carol reads Korean)
+    expect(r.card!.question).toContain('projects/nobody-yet의 스킬 폴더에 저장할까요? 아직 이 폴더를 쓰는 프로젝트가 없어서 어떤 채팅도 따르지 않아요.')
+  })
+
+  test('a side chat beside a room is like a room: no project skills; moved into the project, like any of its chats', async () => {
+    const room = await h.api('bob').call(API.createRoom, { body: { kind: 'dm', userId: 'dana' } })
+    const side = await h.api('bob').call(API.createChat, { body: { sideRoomId: room.id } })
+    expect((await turn('bob', side.id, fake({ echo: 'system' }))).content).not.toContain(LAUNCH)
+    await h.api('bob').call(API.updateChat, { params: { id: side.id }, body: { projectId: '01900000-0000-7000-8000-00000000f001' } })
+    expect((await turn('bob', side.id, fake({ echo: 'system' }))).content).toContain(`- launch [project: Falcon]: ${LAUNCH}`)
+  })
+
+  test('skills that switch on ask first: a project pointed at projects/<name> with skills, a personal project shared there', async () => {
+    const status = async (p: Promise<unknown>) => { try { await p; return 0 } catch (e) { return (e as { body: { params?: { reason?: string } } }).body.params?.reason } }
+    // an older project on a plain folder, pointed by an admin at projects/kite, which holds a skill
+    const id = '01900000-0000-7000-8000-0000000c1001'
+    h.ctx.db.query('INSERT INTO projects (id, name, folder_path, created_by, created_at) VALUES (?,?,?,?,?)').run(id, 'Kite', 'shared/kite-old', 'dana', new Date().toISOString())
+    fs.mkdirSync(path.join(h.team, 'shared/kite-old'), { recursive: true })
+    fs.mkdirSync(path.join(h.team, 'projects/kite/skills/fly'), { recursive: true })
+    fs.writeFileSync(path.join(h.team, 'projects/kite/skills/fly/SKILL.md'), md('fly', 'kite fly'))
+    expect(await status(h.api('dana').call(API.updateProject, { params: { id }, body: { folderPath: 'projects/kite' } }))).toBe('project_skills_on')
+    expect((await h.api('dana').call(API.getProject, { params: { id } })).folderPath).toBe('shared/kite-old')
+    await h.api('dana').call(API.updateProject, { params: { id }, body: { folderPath: 'projects/kite', skillsOk: true } })
+    const a = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'skills.change' AND target = 'projects/kite/skills/fly/SKILL.md'").get() as { detail: string }
+    expect(JSON.parse(a.detail)).toMatchObject({ change: 'create', kind: 'skill', project: { id, name: 'Kite' }, switchedOn: 'project_folder' })
+    // a personal project with a skill, shared into projects/: the dry run names it, the share asks for it
+    const mine = await h.api('bob').call(API.createProject, { body: { name: 'notes', scope: 'personal', participants: [], instructions: '' } })
+    fs.mkdirSync(path.join(h.team, mine.folderPath, 'skills/jot'), { recursive: true })
+    fs.writeFileSync(path.join(h.team, mine.folderPath, 'skills/jot/SKILL.md'), md('jot', 'jot it'))
+    const dry = await h.api('carol').call(API.shareProject, { params: { id: mine.id }, body: { toParent: 'projects', dryRun: true } }).catch(() => null)
+    // (only its creator shares it: carol may not; bob may only when he may write projects/)
+    expect(dry).toBeNull()
+    h.ctx.db.query("INSERT INTO folders (id, path) VALUES ('f_projects_root', 'projects') ON CONFLICT DO NOTHING").run()
+    h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_projects_bob', (SELECT id FROM folders WHERE path = 'projects'), 'user', 'bob', 'write')").run()
+    const dry2 = await h.api('bob').call(API.shareProject, { params: { id: mine.id }, body: { toParent: 'projects', dryRun: true } })
+    expect('viewersAdded' in dry2 && dry2.skills).toEqual(['jot'])
+    expect(await status(h.api('bob').call(API.shareProject, { params: { id: mine.id }, body: { toParent: 'projects' } }))).toBe('project_skills_on')
+    try {
+      const shared = await h.api('bob').call(API.shareProject, { params: { id: mine.id }, body: { toParent: 'projects', skillsOk: true } })
+      expect('id' in shared && shared.folderPath).toMatch(/^projects\//)
+      const target = 'id' in shared ? shared.folderPath : ''
+      expect(h.ctx.db.query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'skills.change' AND target = ?").get(`${target}/skills/jot/SKILL.md`)).toEqual({ n: 1 })
+    } finally { h.ctx.db.query("DELETE FROM folder_rules WHERE id = 'r_projects_bob'").run() }
+  })
+
   test('the creator is told only while they read the folder', async () => {
     h.ctx.db.query("UPDATE projects SET created_by = 'erin' WHERE id = '01900000-0000-7000-8000-00000000f001'").run()
     try {
@@ -355,6 +404,8 @@ describe('in the app: the "/" list, chats, the card, removal, the trash, schedul
     try {
       expect(rt.schedules.runDue(now)).toEqual([])
       expect(h.ctx.db.query('SELECT project_id FROM schedule_project_skips WHERE schedule_id = ?').get(made.id)).toEqual({ project_id: '01900000-0000-7000-8000-00000000f001' })
+      // paused after this one notice, not one at every run while the project stays gone
+      expect(h.ctx.db.query('SELECT enabled FROM schedules WHERE id = ?').get(made.id)).toEqual({ enabled: 0 })
       expect(rt.schedules.lastOutcome('bob', made.id)).toBe('project_gone')
       // no chat ran outside the project
       expect(h.ctx.db.query("SELECT COUNT(*) AS n FROM turns WHERE schedule_id = ?").get(made.id)).toEqual({ n: 0 })

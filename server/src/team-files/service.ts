@@ -17,7 +17,8 @@ import { authorize, siblingVisible, type Authorized } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { inSkills, SKILL_FILES_REFUSAL } from '../skills/guard'
 import { audit } from '../admin/audit'
-import { badSegment, hiddenEntry, volumeKey } from '../policy/names'
+import { badSegment, foldKey, hiddenEntry, volumeKey } from '../policy/names'
+import { skillsUnder } from '../skills/switch-on'
 import { currentPlan } from '../system/limits'
 import { assertStorageRoom, assertStorageRoomForAI } from '../system/storage'
 import { parseInput, verifyChain } from '../policy/resolve'
@@ -385,20 +386,15 @@ export class TeamFiles {
     const fold = (n: string) => n.normalize('NFC').toLowerCase()
     if (target.length !== 2 || fold(target[0]!) !== 'projects') return null
     if (fr.segs.length === 2 && fold(fr.segs[0]!) === 'projects') return null
-    const project = this.ctx.db.query('SELECT id, name FROM projects WHERE trashed_with IS NULL AND folder_path = ? ORDER BY created_at, id LIMIT 1').get(fr.rel) as { id: string; name: string } | null
+    // the live project on that folder, letter case and Unicode form folded (as the guard compares names)
+    const k = foldKey(fr.rel)
+    const project = (this.ctx.db.query('SELECT id, name, folder_path FROM projects WHERE trashed_with IS NULL ORDER BY created_at, id').all() as { id: string; name: string; folder_path: string }[])
+      .find((p) => foldKey(p.folder_path) === k)
     if (!project) return null
-    const names: string[] = [], paths: string[] = []
-    const walk = (abs: string, rel: string, depth: number) => {
-      let ents: fs.Dirent[]
-      try { ents = fs.readdirSync(abs, { withFileTypes: true }) } catch { return }
-      if (depth > 1 && ents.some((e) => e.name === 'SKILL.md' && e.isFile())) { names.push(rel.split('/').pop()!); paths.push(`${rel}/SKILL.md`); return }
-      if (depth >= 3) return
-      for (const e of ents) if (e.isDirectory() && !e.name.startsWith('.')) walk(path.join(abs, e.name), `${rel}/${e.name}`, depth + 1)
-    }
-    const skills = fs.existsSync(path.join(fr.abs, 'skills')) ? 'skills' : null
-    if (skills) walk(path.join(fr.abs, skills), skills, 1)
-    return names.length ? { names: names.sort(), paths, project } : null
+    const found = skillsUnder(this.root, fr.rel)
+    return found.names.length ? { ...found, project: { id: project.id, name: project.name } } : null
   }
+
 
   /**
    * A deleted member's personal folder `fromRel` (users/<id>) goes to `toRel` in the owner's personal folder (the

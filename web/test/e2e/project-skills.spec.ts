@@ -71,6 +71,8 @@ test('a project chat asked to move the files and the skills: the move card, then
   await expect(card).toContainText('"quote-check" 스킬을 옮길까요?')
   await expect(card).toContainText('리드 그룹 3명 → 견적 프로젝트 채팅 2명')
   await expect(card).toContainText('1명은 이 스킬을 더 쓰지 않아요.')
+  // and who may change it there
+  await expect(card).toContainText('옮기면 2명이 고칠 수 있어요.')
   // every file it holds
   await expect(card.getByTestId('ask-details')).toContainText('groups/리드/skills/quote-check/SKILL.md')
   await card.getByTestId('ask-yes').click()
@@ -96,6 +98,8 @@ test('옮기기… on the Skills page: each level with who gains and loses; more
   await dialog.locator('[data-testid="skill-move-target"][data-level="team"]').click()
   await expect(dialog.getByTestId('skill-move-widen')).toBeVisible()
   await expect(dialog.getByTestId('skill-move-text')).toContainText('name: estimate')
+  // each level says who may change it there
+  await expect(dialog.locator('[data-testid="skill-move-target"][data-level="personal"]').getByTestId('skill-move-effect')).toContainText('1명이 고칠 수 있어요')
   // only me: nobody new, no text
   await dialog.locator('[data-testid="skill-move-target"][data-level="personal"]').click()
   await expect(dialog.getByTestId('skill-move-widen')).toHaveCount(0)

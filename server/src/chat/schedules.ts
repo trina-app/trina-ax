@@ -292,7 +292,9 @@ export class Schedules {
           if (gone) {
             this.db.query('INSERT INTO schedule_project_skips(id,user_id,schedule_id,scheduled_for,project_id,created_at) VALUES(?,?,?,?,?,?) ON CONFLICT(schedule_id,scheduled_for) DO NOTHING')
               .run(newId(), s.user_id, s.id, originalDue, gone, now.toISOString())
-            this.db.query("INSERT INTO audit_log(actor_id,action,target,detail) VALUES(NULL,'schedule.project_gone',?,?)").run(s.id, JSON.stringify({ originalDue, project: gone }))
+            // paused after this one notice (not one at every run while the project stays gone); its owner turns it on again
+            this.db.query('UPDATE schedules SET enabled=0,next_run_at=NULL WHERE id=?').run(s.id)
+            this.db.query("INSERT INTO audit_log(actor_id,action,target,detail) VALUES(NULL,'schedule.project_gone',?,?)").run(s.id, JSON.stringify({ originalDue, project: gone, paused: true }))
           } else if (need) {
             this.db.query('INSERT INTO schedule_template_skips(id,user_id,schedule_id,scheduled_for,template_id,template_name,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(schedule_id,scheduled_for) DO NOTHING')
               .run(newId(), s.user_id, s.id, originalDue, need.templateId, need.name, now.toISOString())

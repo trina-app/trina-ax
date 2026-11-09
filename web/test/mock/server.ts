@@ -920,6 +920,7 @@ export class MockServer {
     const fromTo = s.project ? { level: 'project', projectId: s.project.id } : s.group ? { level: 'group', groupId: s.group.id } : s.personal ? { level: 'personal' } : { level: 'team' }
     const fromPeople = new Set(this.levelPeople(u, fromTo))
     const fromLabel = levels.find((l) => JSON.stringify(l.to) === JSON.stringify(fromTo))?.label ?? ''
+    const fromEditors = new Set(fromTo.level === 'personal' ? [u.id] : this.users.filter((x) => this.access(folder, x) === 'write').map((x) => x.id))
     const files = [...this.files].filter(([p, n]) => n.type === 'file' && (p === folder || p.startsWith(folder + '/'))).map(([p, n]) => ({ path: p, size: n.data!.length }))
     const token = 'tok-' + Bun.hash(files.map((f) => `${f.path}:${dec.decode(this.files.get(f.path)!.data!)}`).join('|')).toString(36)
     const targets = levels.filter((l) => JSON.stringify(l.to) !== JSON.stringify(fromTo)).map((l) => {
@@ -927,7 +928,10 @@ export class MockServer {
       const root = this.levelRoot(u, l.to)!
       const taken = [...this.files.keys()].some((p) => p.startsWith(`${root}/${s.name}/`) || p === `${root}/${s.name}.md`)
       const blocked = l.to.level === 'project' && !s.path.endsWith('/SKILL.md') ? '프로젝트 스킬은 SKILL.md 폴더여야 해요.' : taken ? `${l.label}에 이미 "${s.name}" 스킬이 있어요.` : undefined
-      const t: SkillMoveTarget = { to: l.to, label: l.label, people: people.size, gained: [...people].filter((x) => !fromPeople.has(x)).length, lost: [...fromPeople].filter((x) => !people.has(x)).length, ...(blocked ? { blocked } : { token }) }
+      // who may change it there: who may write the target (a person's own folder: that person)
+      const editors = l.to.level === 'personal' ? [u.id] : this.users.filter((x) => this.access(`${root}/${s.name}`, x) === 'write').map((x) => x.id)
+      const t: SkillMoveTarget = { to: l.to, label: l.label, people: people.size, gained: [...people].filter((x) => !fromPeople.has(x)).length, lost: [...fromPeople].filter((x) => !people.has(x)).length,
+        editors: editors.length, editorsGained: editors.filter((x) => !fromEditors.has(x)).length, ...(blocked ? { blocked } : { token }) }
       return t
     })
     return { path: s.path, name: s.name, from: { label: fromLabel, people: fromPeople.size, level: fromTo.level as 'team' }, files, text: dec.decode(this.files.get(s.path)!.data!), targets }
@@ -1356,12 +1360,13 @@ export class MockServer {
       const o = skill ? this.skillMoveOptions(user, skill.path) : null
       const t = project && o ? o.targets.find((x) => x.to.level === 'project' && x.to.projectId === project.id) : undefined
       if (!skill || !o || !t || t.blocked) { finish(t?.blocked ?? '옮길 스킬이나 프로젝트를 찾지 못했어요.'); return }
-      // the AI only narrows: a move that gives the skill to anyone new is the Skills page's
-      if (t.gained > 0) { finish(`이 스킬은 ${t.gained}명이 새로 받게 되어 제가 옮길 수 없어요. 팀 스킬 화면의 옮기기…에서 옮겨 주세요.`); return }
+      // the AI only narrows (server/src/skills/move.ts AI_MOVES): the team's or a group's to a project, nobody new gets
+      // it or may change it; everything else is the Skills page's
+      if (t.gained > 0 || t.editorsGained > 0) { finish('이 스킬은 더 많은 사람이 받거나 고칠 수 있게 되어 제가 옮길 수 없어요. 팀 스킬 화면의 옮기기…에서 옮겨 주세요.'); return }
       const kb = (n: number) => `${Math.max(1, Math.round(n / 1024))} KB`
       const answer = await ask({
         kind: 'ask_user', origin: 'server', requestId: 'mv1', allowText: false, multiple: false,
-        question: [`"${skill.name}" 스킬을 옮길까요?\n\n${o.from.label} ${o.from.people}명 → ${t.label} ${t.people}명`, t.lost ? `${t.lost}명은 이 스킬을 더 쓰지 않아요.` : ''].filter(Boolean).join('\n\n'),
+        question: [`"${skill.name}" 스킬을 옮길까요?\n\n${o.from.label} ${o.from.people}명 → ${t.label} ${t.people}명`, t.lost ? `${t.lost}명은 이 스킬을 더 쓰지 않아요.` : '', `옮기면 ${t.editors}명이 고칠 수 있어요.`].filter(Boolean).join('\n\n'),
         options: [{ label: '옮기기', value: 'move' }, { label: '옮기지 않기', value: 'skip' }],
         details: [{ label: '옮길 파일', text: o.files.map((f) => `${f.path} (${kb(f.size)})`).join('\n') }],
       })

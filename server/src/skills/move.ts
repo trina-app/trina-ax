@@ -93,6 +93,22 @@ export function reachOf(ctx: AppContext, owner: Principal, l: Level, entry: stri
   return out
 }
 
+/** The active people who may change a skill at `rel` once it is there: who may write that path (the folder rules; a
+ * person's own folder is theirs alone). */
+export function editorsOf(ctx: AppContext, owner: Principal, l: Level, rel: string): Set<string> {
+  if (l.level === 'personal') return new Set([owner.id])
+  const rules = ctx.files.rules()
+  const segs = rel.split('/')
+  return new Set(activePeople(ctx.db).filter((p) => rules.access(p, segs) === 'write').map((p) => p.id))
+}
+
+/** The levels the AI's move_skill may move a skill between (docs/DECISIONS.md "Project skills"): only to a level whose
+ * chats are fewer and whose text is trusted no less: the team's to a group or a project, a group's to a project. A
+ * skill never leaves a project by the AI (its text would run in more chats and stop counting as outside content), and
+ * nothing goes into one person's own skills (it would outrank their team and group skills). The rest is the Skills
+ * page's, which shows the whole text first. */
+export const AI_MOVES: ReadonlySet<string> = new Set(['team>group', 'team>project', 'group>project'])
+
 /** The skill `user` has at `rel` (readSkill with its project when it is a project's, which they must see). */
 export function skillAt(ctx: AppContext, user: Principal, rel: string): { skill: Skill; level: Level } | null {
   const level = levelOfPath(ctx, user, rel)
@@ -136,6 +152,9 @@ export interface MovePlan {
   toPeople: number
   gained: number
   lost: number
+  /** who may change it there, and how many of them may not change it now */
+  editors: number
+  editorsGained: number
   blocked: { key: keyof typeof SKILL_TEXT; vars: Record<string, string> } | null
   token: string
 }
@@ -172,8 +191,9 @@ export function planMove(ctx: AppContext, user: Principal, have: { skill: Skill;
   if (rules.access(user, source.split('/')) !== 'write') block('moveNoWrite', { where: fromWords })
   if (to.level === 'project' && !manifest) block('moveNotFolder')
   if (to.level !== 'personal' && rules.access(user, target.split('/')) !== 'write') block('moveNoWrite', { where: toWords })
+  // a skills folder that is not there yet (a project's first skill, a person's first own skill) is free: runMove makes it
   let exists = false
-  try { exists = authorize(ctx.files.fx, rules, user, target, 'write', { mustExist: false }).exists } catch { exists = true }
+  try { exists = authorize(ctx.files.fx, rules, user, target, 'write', { mustExist: false, createDirs: true }).exists } catch { exists = false }
   if (exists || skillsAtLevel(ctx, user, to).some((s) => sameSkillName(s.name, skill.name))) block('moveTaken', { to: toWords, name: skill.name })
   if (to.level === 'project') {
     const where = widerSameName(ctx, user, skill.name, skill.path, L)
@@ -181,8 +201,12 @@ export function planMove(ctx: AppContext, user: Principal, have: { skill: Skill;
   }
   const a = reachOf(ctx, user, from, skill.path), b = reachOf(ctx, user, to, entry)
   const gained = [...b].filter((x) => !a.has(x)).length, lost = [...a].filter((x) => !b.has(x)).length
-  const token = crypto.createHash('sha256').update(JSON.stringify({ source, target, files: files.map((f) => [f.path, f.sha]) })).digest('hex').slice(0, 64)
-  return { skill, from, to, source, target, entry, files, fromPeople: a.size, toPeople: b.size, gained, lost, blocked, token }
+  const ea = editorsOf(ctx, user, from, source), eb = editorsOf(ctx, user, to, target)
+  const editorsGained = [...eb].filter((x) => !ea.has(x)).length
+  // what the person saw, bound together: every file, and who gets it and who may change it there (a change of any of
+  // these between the card and the move refuses it: runMove)
+  const token = crypto.createHash('sha256').update(JSON.stringify({ source, target, files: files.map((f) => [f.path, f.sha]), readers: [...b].sort(), editors: [...eb].sort() })).digest('hex').slice(0, 64)
+  return { skill, from, to, source, target, entry, files, fromPeople: a.size, toPeople: b.size, gained, lost, editors: eb.size, editorsGained, blocked, token }
 }
 
 /** GET /api/skills/move: where one skill of the caller's can go. */
@@ -196,7 +220,7 @@ export function moveOptions(ctx: AppContext, userId: string, rel: string, L: Loc
     if (sameLevel(have.level, to)) continue
     const p = planMove(ctx, user, have, to, L)
     first ??= p
-    targets.push({ to: levelRef(to), label: levelLabel(to, L), people: p.toPeople, gained: p.gained, lost: p.lost, ...(p.blocked ? { blocked: st(p.blocked.key, L, p.blocked.vars) } : { token: p.token }) })
+    targets.push({ to: levelRef(to), label: levelLabel(to, L), people: p.toPeople, gained: p.gained, lost: p.lost, editors: p.editors, editorsGained: p.editorsGained, ...(p.blocked ? { blocked: st(p.blocked.key, L, p.blocked.vars) } : { token: p.token }) })
   }
   const files = first?.files ?? skillFiles(ctx, user, isSkillManifest(have.skill.path) ? skillFolder(have.skill.path) : have.skill.path)
   const text = (() => { try { return fs.readFileSync(path.join(ctx.files.fx.root, ...have.skill.path.split('/')), 'utf8').slice(0, 64 * 1024) } catch { return '' } })()
@@ -217,13 +241,18 @@ export function runMove(ctx: AppContext, userId: string, rel: string, to: SkillL
   if (!level) throw new HttpError('not_found', st('moveNotFound', L))
   const plan = planMove(ctx, user, have, level, L)
   if (plan.blocked) throw new HttpError('conflict', st(plan.blocked.key, L, plan.blocked.vars), { params: { reason: 'skill_move_blocked' } })
+  // the files, who gets it or who may change it differ from what was shown: nothing moves, the person looks again
   if (plan.token !== token) throw new HttpError('conflict', st('moveChanged', L), { params: { reason: 'skill_move_changed' } })
+  // the target's skills folder may not be there yet: made now (it has no rules of its own, so its folder's rules apply)
+  const parent = plan.target.split('/').slice(0, -1)
+  authorize(ctx.files.fx, ctx.files.rules(), user, parent.join('/'), 'write', { mustExist: false, createDirs: true })
+  fs.mkdirSync(path.join(ctx.files.fx.root, ...parent), { recursive: true, mode: 0o700 })
   componentC(ctx).files.move(userId, plan.source, plan.target, 'fail', { confirm: true, turnId: o.turnId ?? null, tool: o.tool ?? 'skill_move', skillMove: true })
   // a person's own folder is never named in the audit log (admins read it; they cannot read users/<id>/)
   const side = (l: Level, people: number, p: string) => ({ level: l.level, ...(l.level === 'group' ? { group: l.group } : l.level === 'project' ? { project: l.project } : {}), people, path: l.level === 'personal' ? null : p })
   audit(ctx.db, {
     actor: userId, action: 'skills.move', target: plan.to.level === 'personal' ? plan.skill.path : plan.entry,
-    detail: { name: plan.skill.name, from: side(plan.from, plan.fromPeople, plan.skill.path), to: side(plan.to, plan.toPeople, plan.entry), gained: plan.gained, lost: plan.lost, files: plan.files.length, byAi: !!o.turnId, turnId: o.turnId ?? null },
+    detail: { name: plan.skill.name, from: side(plan.from, plan.fromPeople, plan.skill.path), to: side(plan.to, plan.toPeople, plan.entry), gained: plan.gained, lost: plan.lost, editors: plan.editors, editorsGained: plan.editorsGained, files: plan.files.length, byAi: !!o.turnId, turnId: o.turnId ?? null },
   })
   return plan
 }

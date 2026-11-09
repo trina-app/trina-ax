@@ -618,25 +618,30 @@ describe('reusable pieces (a room\'s AI may use a shared chat later only when ev
 
 // ---------------- project skills (docs/DECISIONS.md "Project skills") ----------------
 describe('project skills in a shared chat', () => {
-  test('what everyone who sees it may use comes first, then each name\'s winner: the project\'s brief, not a group\'s', async () => {
+  test('what everyone who sees it may use comes first; a project skill never takes a name the sender has: theirs, after the card', async () => {
     // alice's group (marketing) has a "brief" bob is not in; the project has one everyone who sees the chat may read
     for (const g of ['marketing', 'finance']) db().query('UPDATE groups SET folder_id = (SELECT id FROM folders WHERE path = ?) WHERE id = ?').run(`groups/${g}`, g)
     const put = (rel: string, text: string) => { fs.mkdirSync(path.dirname(path.join(h.team, rel)), { recursive: true }); fs.writeFileSync(path.join(h.team, rel), text) }
-    put('groups/marketing/skills/brief/SKILL.md', '---\nname: brief\ndescription: MARKETING-BRIEF\n---\nmarketing steps\n')
+    put('groups/marketing/skills/brief/SKILL.md', '---\nname: brief\ndescription: MARKETING-BRIEF\n---\nMARKETING-BRIEF-STEPS\n')
     put('projects/falcon/skills/brief/SKILL.md', '---\nname: brief\ndescription: FALCON-BRIEF\n---\nFALCON-BRIEF-STEPS\n')
     try {
       const chat = await newShared('alice')
+      // alice: her group's brief is not on the list (bob may not use it), and the project's does not take its name
       const one = await ask('alice', chat.id, fake({ echo: 'system' }))
-      expect(one.done.content).toContain('- brief [project: Falcon]: FALCON-BRIEF')
       expect(one.done.content).not.toContain('MARKETING-BRIEF')
-      // "/brief": the same one, for whoever sends it (no card: everyone who sees the chat may read it)
-      const two = await ask('alice', chat.id, '/brief go\n' + fake({ echo: 'message' }))
-      expect(two.done.content).toContain('path="projects/falcon/skills/brief/SKILL.md"')
+      expect(one.done.content).not.toContain('FALCON-BRIEF')
+      // bob has no brief of his own: the project's, on his list
+      const bobList = await ask('bob', chat.id, fake({ echo: 'system' }))
+      expect(bobList.done.content).toContain('- brief [project: Falcon]: FALCON-BRIEF')
+      // "/brief" by alice: her own (the group's), after the read card; never the project's in its place
+      const mine = await askWithCard('alice', chat.id, '/brief go\n' + fake({ echo: 'message' }), 'share')
+      expect(mine.done.content).toContain('path="groups/marketing/skills/brief/SKILL.md"')
+      // "/brief" by bob: the project's (everyone who sees the chat may read it: no card)
       const three = await ask('bob', chat.id, '/brief go\n' + fake({ echo: 'message' }))
       expect(three.done.content).toContain('path="projects/falcon/skills/brief/SKILL.md"')
-      // the skill tool too
-      const four = await ask('alice', chat.id, fake({ tool: 'skill', args: { name: 'brief' }, sayResult: true }))
-      expect(four.done.content).toContain('FALCON-BRIEF-STEPS')
+      // the skill tool for alice: hers too, after the card
+      const four = await askWithCard('alice', chat.id, fake({ tool: 'skill', args: { name: 'brief' }, sayResult: true }), 'share')
+      expect(four.done.content).toContain('MARKETING-BRIEF-STEPS')
       // and move_skill is not offered in a shared chat
       const five = await ask('alice', chat.id, fake({ echo: 'tools' }))
       expect(five.done.content.split(',')).not.toContain('move_skill')

@@ -348,6 +348,9 @@ export const SkillMoveTarget = z.object({
   people: z.number().int().nonnegative(),
   gained: z.number().int().nonnegative(),
   lost: z.number().int().nonnegative(),
+  /** who may change it there (the folder rules), and how many of them may not change it now */
+  editors: z.number().int().nonnegative(),
+  editorsGained: z.number().int().nonnegative(),
   blocked: z.string().optional(),
   token: z.string().optional(),
 })

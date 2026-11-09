@@ -566,8 +566,8 @@ export class TurnExec {
     // a room session lists only the skills everyone in the room may read: their names and descriptions may reach the
     // room in an answer. "/name" still runs any skill of the person's (its folder then joins the read scope)
     // a shared project chat: the skills everyone who sees it may use are picked first, then the winner of each name, so a
-    // skill only some may use never hides one all may use, and every sender gets the same one (docs/DECISIONS.md
-    // "Project skills")
+    // team skill all may use is not hidden by a group's only some may; a project skill never takes a name the sender has
+    // at a higher tier (docs/DECISIONS.md "Project skills")
     const allSkills = listSkills(rt.files, this.principal, this.skillScope(false))
     const usableSkills = this.shared && this.roomReadable ? listSkills(rt.files, this.principal, this.skillScope(true)) : null
     const skills = usableSkills ?? (this.roomReadable ? allSkills.filter((s) => this.roomReadable!(s.path)) : allSkills)
@@ -617,7 +617,8 @@ export class TurnExec {
     // "/<skill name> …": that skill goes in front of the message for this turn (skills.ts); its folder joins the read
     // scope like a file the AI read. The list is that of the person who runs the turn (the sender; for a scheduled run
     // the schedule owner): team skills they can read and their own personal skills
-    let invoked = this.restricted ? null : (usableSkills ? invokedSkill(usableSkills, userMsg.content) : null) ?? invokedSkill(allSkills, userMsg.content)
+    // the sender's own skill of that name (in a shared chat, one some of its people cannot read asks first, below)
+    let invoked = this.restricted ? null : invokedSkill(allSkills, userMsg.content)
     // a shared project chat: a skill some of its people cannot read goes in only after the person's yes
     let skillNotShared = ''
     if (invoked && this.shared && await this.confirmSharedRead('skill', { path: skillFolder(invoked.skill.path) }, { step: false })) {
@@ -2153,7 +2154,7 @@ export class TurnExec {
     const group = root.kind === 'group' ? groupOfFolder(this.rt.db, root.folder) ?? { id: null, name: root.folder.split('/')[1]! } : null
     // a project's skills folder (docs/DECISIONS.md "Project skills"): the card names the project by its current name (the
     // folder's own name when no live project has that folder)
-    const project = root.kind === 'project' ? (() => { const p = projectOfFolder(this.rt.db, root.folder); return { project: { id: p?.id ?? null, name: p?.name ?? root.folder.split('/')[1]! } } })() : null
+    const project = root.kind === 'project' ? (() => { const p = projectOfFolder(this.rt.db, root.folder); return { live: !!p, folder: root.folder, project: { id: p?.id ?? null, name: p?.name ?? root.folder.split('/')[1]! } } })() : null
     const L = this.spec.locale
     let before: string | null = ''
     let after: string | null = null
@@ -2196,7 +2197,8 @@ export class TurnExec {
       : [{ label: st('save', L), value: 'save' }, { label: st('dont', L), value: 'skip' }]
     const answer = await this.waitForPerson({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
-      question: project ? st('confirmProject', L, { project: project.project.name, path: r.rel, what }) : group ? st('confirmGroup', L, { group: group.name, path: r.rel, what }) : st('confirm', L, { path: r.rel, what }),
+      // a project's skills folder no live project has (yet): saved there, no chat follows it
+      question: project ? (project.live ? st('confirmProject', L, { project: project.project.name, path: r.rel, what }) : st('confirmProjectNone', L, { folder: project.folder, path: r.rel, what })) : group ? st('confirmGroup', L, { group: group.name, path: r.rel, what }) : st('confirm', L, { path: r.rel, what }),
       options, multiple: false, allowText: false, preview, ...(options.length === 3 ? { buttons: true as const } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
