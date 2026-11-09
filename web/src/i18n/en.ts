@@ -3449,7 +3449,6 @@ export const en: Record<MessageKey, string> = {
   "sideChat.openFull": "Open as a full chat",
   "sideChat.empty": "Ask {name} about this room. Only you see this chat. Share an answer with the room when you want.",
   "sideChat.placeholder": "Ask {name} about this room…",
-  "sideChat.private": "Only you see this",
   "sideChat.send": "Send",
   "sideChat.sendThread": "Send to thread",
   "sideChat.sendRoom": "Send to room",

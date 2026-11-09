@@ -1,9 +1,10 @@
 // @트리나 as someone in a room: beside its answers, on its status line, in the "@" menu, in the head of an answer
 // shared into a room, on the Inbox row of its answer, on the AI chat's pinned row of the rooms list. Where the product
 // is named after its AI (PRODUCT_NAMED_AFTER_AI, as the name 트리나 is shown) it is Trina's star (TrinaStar) on the
-// neutral circle of a person without a photo; elsewhere the sparkle on the accent circle as before. The other AI
-// sparkles (the phone's AI tab, Files' "AI에게 묻기", skills) are things to do, not someone in the room, and stay.
-// Decorative (aria-hidden): the name is next to it.
+// neutral circle of a person without a photo; elsewhere the sparkle on the accent circle as before. A button that asks
+// it (the room header's ✦, a message's hover bar and menu, the image viewer's bar) has its mark without a circle
+// (AiMark). The other AI sparkles (the phone's AI tab, Files' "AI에게 묻기", skills) are things to do, not someone in
+// the room, and stay. Decorative (aria-hidden): the name is next to it.
 import clsx from 'clsx'
 import { Sparkles } from 'lucide-react'
 import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
@@ -31,8 +32,24 @@ export function AiFaceInline({ className, named = PRODUCT_NAMED_AFTER_AI }: { cl
   return named ? <TrinaStar size={14} className={className} /> : <Sparkles size={12} className={clsx('shrink-0 text-accent-text', className)} aria-hidden />
 }
 
-/** A toolbar button's mark (the room header's ✦ that opens the side chat): no circle, the size of the icons beside it
- * (16 px lucide strokes; the star is thin, so its box is 20). */
-export function AiMark({ named = PRODUCT_NAMED_AFTER_AI }: { named?: boolean }) {
-  return named ? <TrinaStar size={20} className="shrink-0" /> : <Sparkles size={16} aria-hidden className="shrink-0" />
+/** A button's mark (no circle) that asks the AI: `toolbar` in the room header (✦ opens the side chat) and the image
+ * viewer's bar, `bar` in a message's hover bar, `menu` in a menu row (the long-press sheet on a phone). The star is thin
+ * (it fills about 4/5 of its box and a seventh of its area), so it is drawn larger than the stroked icons beside it to
+ * read as big as they do (the owner, 2026-11-10: "좀더 크게 시원시원하게"). Where its button has no fixed size it
+ * overhangs its slot by a negative margin, so the button, the header and a menu row keep their size: `star` / `sparkle`
+ * is the drawn size, the slot that size less twice the margin. */
+const MARK = {
+  /** beside the 16 px bell and ⋯ (18 px icons in the viewer): drawn 24, in the 20 px slot the star had (the sparkle 18
+   * in 16) */
+  toolbar: { star: 24, starFit: '-m-0.5', sparkle: 18, sparkleFit: '-m-px' },
+  /** a 28 px button beside the 16 px emoji and icons of the hover bar */
+  bar: { star: 22, starFit: undefined, sparkle: 18, sparkleFit: undefined },
+  /** the 14 px icon slot of a menu item: drawn 18 (the sparkle 16) */
+  menu: { star: 18, starFit: '-m-0.5', sparkle: 16, sparkleFit: '-m-px' },
+} as const
+export type AiMarkPlace = keyof typeof MARK
+
+export function AiMark({ place = 'toolbar', named = PRODUCT_NAMED_AFTER_AI }: { place?: AiMarkPlace; named?: boolean }) {
+  const m = MARK[place]
+  return named ? <TrinaStar size={m.star} className={m.starFit} /> : <Sparkles size={m.sparkle} aria-hidden className={clsx('shrink-0', m.sparkleFit)} />
 }

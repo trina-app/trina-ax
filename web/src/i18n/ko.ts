@@ -3448,7 +3448,6 @@ export const ko = {
   "sideChat.openFull": "전체 화면으로 열기",
   "sideChat.empty": "이 대화방에 대해 {name}에게 물어보세요. 이 대화는 나만 봐요. 원할 때 답을 대화방에 올릴 수 있어요.",
   "sideChat.placeholder": "이 대화방에 대해 {name}에게 묻기…",
-  "sideChat.private": "나만 볼 수 있어요",
   "sideChat.send": "보내기",
   "sideChat.sendThread": "스레드에 보내기",
   "sideChat.sendRoom": "대화방에 보내기",

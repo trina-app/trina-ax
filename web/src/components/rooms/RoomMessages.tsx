@@ -47,7 +47,7 @@ import { toast } from '../../store/ui'
 import { Avatar } from '../Avatar'
 import { TokenTextarea } from '../TokenTextarea'
 import { Button, confirmDialog, inputCls, useCopy } from '../ui'
-import { AiFace, AiFaceInline } from './AiFace'
+import { AiFace, AiFaceInline, AiMark } from './AiFace'
 import { MenuButton, useLongPress, type MenuItem } from './MenuButton'
 import { MessageHoverBar } from './MessageHoverBar'
 import { reactable, ReactionChips, ReactionStrip } from './Reactions'
@@ -434,7 +434,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, flash, hig
                 }}
               />
             ) : undefined}
-            items={[...(threadOn ? [{ label: t('rooms.replyInThread'), icon: <MessageSquareText size={14} aria-hidden />, onSelect: () => onThread!(m.id, true), testId: 'message-reply-thread' }] : []), ...(askOn ? [{ label: t('sideChat.askAbout'), icon: <AiFace size={22} className="size-3.5!" />, onSelect: () => onAskTrina!(m), testId: 'message-ask-trina-menu' }] : []), ...moreItems]}
+            items={[...(threadOn ? [{ label: t('rooms.replyInThread'), icon: <MessageSquareText size={14} aria-hidden />, onSelect: () => onThread!(m.id, true), testId: 'message-reply-thread' }] : []), ...(askOn ? [{ label: t('sideChat.askAbout'), icon: <AiMark place="menu" />, onSelect: () => onAskTrina!(m), testId: 'message-ask-trina-menu' }] : []), ...moreItems]}
           />
         </>
       )}

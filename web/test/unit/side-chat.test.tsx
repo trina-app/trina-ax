@@ -7,7 +7,7 @@
 // upload says why and is not sent.
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
-import { MESSAGE_ATTACHMENTS_MAX, uuidv7, type Attachment, type Me } from '@mycel/shared/api'
+import { MESSAGE_ATTACHMENTS_MAX, PRODUCT_NAMED_AFTER_AI, uuidv7, type Attachment, type Me } from '@mycel/shared/api'
 import { AssistantMessage } from '../../src/components/chat/Messages'
 import ShareToRoom from '../../src/components/chat/ShareToRoom'
 import { SideChatPanel, withQuote } from '../../src/components/rooms/SideChatPanel'
@@ -135,11 +135,19 @@ test('no side chat yet: the empty line; the first question makes a side chat of 
     expect(calls[0]).toMatchObject({ method: 'GET', path: '/api/chats' })
     expect(calls[0]!.search).toContain(`sideRoomId=${team.id}`)
     expect(m.get('side-chat-room').textContent).toBe('Marketing')
-    expect(m.get('side-chat-private').textContent).toBe(en('sideChat.private'))
+    // no "only you see this" under the box (the empty line says it), and send is the room box's round ↑, named
+    expect(m.find('side-chat-private')).toBeNull()
+    expect(m.get('side-chat-send').getAttribute('aria-label')).toBe(en('sideChat.send'))
+    expect(m.get('side-chat-send').textContent).toBe('')
+    expect(m.get('side-chat-send').querySelector('svg')!.getAttribute('class')).toContain('lucide-arrow-up')
+    expect(m.get('side-chat-send').hasAttribute('disabled')).toBe(true)
+    expect(m.get('side-chat-send').getAttribute('class')).toContain('bg-subtle text-faint')
     // no chat yet: no "new chat" and no "open as a full chat"
     expect(m.get('side-chat-new').hasAttribute('disabled')).toBe(true)
     expect(m.find('side-chat-open-full')).toBeNull()
     await m.type('side-chat-input', 'summarize this room')
+    expect(m.get('side-chat-send').hasAttribute('disabled')).toBe(false)
+    expect(m.get('side-chat-send').getAttribute('class')).toContain('bg-accent text-accent-ink')
     await m.click('side-chat-send')
     await m.until(() => calls.some((c) => c.method === 'POST' && c.path === `/api/chats/${made}/messages`), 'the question sent')
     expect(calls.find((c) => c.method === 'POST' && c.path === '/api/chats')!.body).toMatchObject({ sideRoomId: team.id })
@@ -315,7 +323,7 @@ test('while the AI waits for the answer to its question, the box answers it (not
   try {
     await m.until(() => !!m.find('side-chat-open-full'), 'the chat found')
     useChats.setState({ requests: { q1: { turnId: 'turn-1', chatId: id, messageId: 'a1', request: { kind: 'ask_user', requestId: 'q1', question: 'Which meeting?', allowText: true } } } } as never)
-    await m.until(() => m.get('side-chat-send').textContent === en('sideChat.answer'), 'the answer button')
+    await m.until(() => m.get('side-chat-send').getAttribute('aria-label') === en('sideChat.answer'), 'the answer button')
     await m.type('side-chat-input', 'the client meeting')
     await m.click('side-chat-send')
     await m.until(() => calls.some((c) => c.path === '/api/turns/turn-1/answer'), 'the answer sent')
@@ -371,6 +379,11 @@ test('a message offers "Ask Trina about this" only where the room gives it (not 
   try {
     const buttons = m.container.ownerDocument!.body.querySelectorAll('[data-testid="message-ask-trina"]')
     expect(buttons).toHaveLength(1)
+    // the mark without a circle (AiMark), as in the room header: no grey circle of a person without a photo
+    expect(buttons[0]!.querySelector('[data-testid="ai-face"]')).toBeNull()
+    const mark = buttons[0]!.querySelector('svg')!
+    expect(mark.getAttribute('width')).toBe(PRODUCT_NAMED_AFTER_AI ? '22' : '18')
+    expect(mark.hasAttribute('data-trina-star')).toBe(PRODUCT_NAMED_AFTER_AI)
     await m.click(buttons[0]!)
     expect(asked).toEqual([msgs[0]!.id])
   } finally {
@@ -627,7 +640,7 @@ test('while the AI waits for the answer to its question, the box answers with it
     await pick(m, [pdf()])
     await m.until(() => chips(m)[0]?.getAttribute('data-status') === 'done', 'the file attached')
     useChats.setState({ requests: { q1: { turnId: 'turn-1', chatId: id, messageId: 'a1', request: { kind: 'ask_user', requestId: 'q1', question: 'Which meeting?', allowText: true } } } } as never)
-    await m.until(() => m.get('side-chat-send').textContent === en('sideChat.answer'), 'the answer button')
+    await m.until(() => m.get('side-chat-send').getAttribute('aria-label') === en('sideChat.answer'), 'the answer button')
     // files alone do not answer it
     expect(m.get('side-chat-send').hasAttribute('disabled')).toBe(true)
     await m.type('side-chat-input', 'the client meeting')
