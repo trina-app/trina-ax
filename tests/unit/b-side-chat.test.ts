@@ -1,4 +1,4 @@
-// The room side chat (✦ Trina, docs/DECISIONS.md "트리나 사이드 채팅"): a person's own AI chat opened from a room's side
+// The room side chat (✦ Trina, docs/DECISIONS.md "Trina side chat"): a person's own AI chat opened from a room's side
 // panel (chats.side_room_id). Made only for a room the person is in, never with a project; listed by its room for its
 // person only; the AI is told the room while the person is still in it (chat/side-room.ts, chat/prompt.ts), and never in
 // a room session or a shared project chat (their allowlists).

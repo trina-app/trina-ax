@@ -1,4 +1,4 @@
-// The room side chat (✦ Trina, docs/DECISIONS.md "트리나 사이드 채팅"): a person's own chat opened from a room's side
+// The room side chat (✦ Trina, docs/DECISIONS.md "Trina side chat"): a person's own chat opened from a room's side
 // panel (chats.side_room_id, migration 276). The turn tells the AI the room (chat/prompt.ts sideRoomSection) while the
 // person is still in it and it is not archived; after that the chat is an ordinary chat of theirs.
 import type { Database } from 'bun:sqlite'

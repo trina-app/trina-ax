@@ -187,7 +187,7 @@ export const Chat = z.object({
    * person; the chat page starts it when it is on screen (POST /api/skill-shares/merge-chats/:id/start), so the save
    * cards it raises are there while they look. Absent = no. */
   mergeWaiting: z.literal(true).optional(),
-  /** the room whose side panel (✦ Trina) this chat was opened from (docs/DECISIONS.md "트리나 사이드 채팅"): the AI is
+  /** the room whose side panel (✦ Trina) this chat was opened from (docs/DECISIONS.md "Trina side chat"): the AI is
    * told the room, and an answer goes there only with "Share to room". Absent: an ordinary chat. */
   sideRoomId: z.string().optional(),
   /** when I pinned it to the top of my chat list ("상단에 고정", POST /api/chats/:id/pin; migration 277). Mine only: on

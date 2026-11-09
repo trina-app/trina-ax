@@ -123,7 +123,7 @@ const roomLine = (s: string) => oneLine(s).replace(/[<>]/g, ' ').slice(0, 120)
  * without a name of its own). */
 export interface SideRoomPrompt { id: string; kind: 'team' | 'all' | 'dm' | 'group'; name: string | null }
 
-/** A chat opened from a room's side panel (docs/DECISIONS.md "트리나 사이드 채팅"): a private chat of the person, next
+/** A chat opened from a room's side panel (docs/DECISIONS.md "Trina side chat"): a private chat of the person, next
  * to the room. The AI reads the room with its room tools (chat/room-tools.ts) as the person sees it; nothing goes to the
  * room unless the person shares an answer. In the instructions and in a resumed session's turn context. */
 export function sideRoomSection(r: SideRoomPrompt): string {

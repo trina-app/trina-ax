@@ -1,4 +1,4 @@
-// The room side chat (✦ Trina, docs/DECISIONS.md "트리나 사이드 채팅"): a private AI chat of mine beside a room, opened from
+// The room side chat (✦ Trina, docs/DECISIONS.md "Trina side chat"): a private AI chat of mine beside a room, opened from
 // the room's header. Where a thread opens (a column beside the room on computers, the whole screen on phones), and one
 // of the two at a time. It is an ordinary chat of mine (chats.side_room_id): the AI is told the room and reads it with
 // its room tools as I see it (chat/room-tools.ts); nothing goes to the room until I press "Share to room" under an

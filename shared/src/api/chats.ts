@@ -127,7 +127,7 @@ export const ListChatsQuery = PageQuery.extend({
 })
 export const CreateChatBody = z.object({
   projectId: Uuid7.nullable().optional(),
-  /** a side chat of this room (✦ Trina, docs/DECISIONS.md "트리나 사이드 채팅"): I must be in the room; never with a
+  /** a side chat of this room (✦ Trina, docs/DECISIONS.md "Trina side chat"): I must be in the room; never with a
    * project (a side chat is mine alone) */
   sideRoomId: Uuid7.optional(),
   title: z.string().max(200).optional(),

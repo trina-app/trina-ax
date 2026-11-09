@@ -15987,7 +15987,7 @@ boxes); no contract, setting or data change.
 - **Not yet:** Windows (toast XML), the iPhone app (a notification category in the extension) and Android (no FCM
   yet). A failure (signed out, room left) changes nothing; the notice stays unread in the Inbox.
 
-## 트리나 사이드 채팅 — a private side chat beside a room (feat/trina-side-chat, 2026-11-09, product owner)
+## Trina side chat (트리나 사이드 채팅) — a private side chat beside a room (feat/trina-side-chat, 2026-11-09, product owner)
 
 - **Decision (option A of the "Trina side chat: decision" doc, 2026-11-09):** people ask @트리나 about a room in a
   private side chat beside it, and share an answer to the room on purpose. PR 1 (this one) adds the side chat; @트리나
