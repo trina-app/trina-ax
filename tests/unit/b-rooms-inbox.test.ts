@@ -83,6 +83,8 @@ test('a row says who, where and why with the first line; the notice a push opens
   // the single notice (GET /api/notifications/:id, what a push opens): who and where as the title, and the first line
   // as the body while the message preview is on (the default)
   expect(n.get(nora.id, row!.id).room!.preview).toBe('내일 회의 자료')
+  // and its place, for a notification's "Mark as read"
+  expect(n.get(nora.id, row!.id).room!.seq).toBe(m.seq)
   // off: no text
   savePreferences(h.ctx.db, nora.id, { messagePreview: false })
   const one = n.get(nora.id, row!.id)

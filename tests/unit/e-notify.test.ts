@@ -7,24 +7,25 @@
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { badgeCountOf, makeNotifier, NOTIFY_PER_MINUTE, openPathOf, platformNotifyDeps, tagOf, TEST_PER_MINUTE, TEST_WAIT_MS, type NoteLike } from '../../desktop/src/common/notify'
+import { badgeCountOf, makeNotifier, NOTIFY_PER_MINUTE, openPathOf, platformNotifyDeps, readTokenOf, tagOf, TEST_PER_MINUTE, TEST_WAIT_MS, type NoteLike } from '../../desktop/src/common/notify'
 import { STRINGS } from '../../desktop/src/common/i18n'
 
 class FakeNote implements NoteLike {
   shown = false
   closed = false
   private handlers = new Map<string, (() => void)[]>()
-  constructor(readonly n: { title: string; body: string }) {}
-  on(e: 'click' | 'close' | 'show' | 'failed', f: () => void) { this.handlers.set(e, [...(this.handlers.get(e) ?? []), f]) }
-  emit(e: 'click' | 'close' | 'show' | 'failed') { for (const f of this.handlers.get(e) ?? []) f() }
+  constructor(readonly n: { title: string; body: string; actions?: { type: 'button'; text: string }[] }) {}
+  on(e: 'click' | 'close' | 'show' | 'failed' | 'action', f: () => void) { this.handlers.set(e, [...(this.handlers.get(e) ?? []), f]) }
+  emit(e: 'click' | 'close' | 'show' | 'failed' | 'action') { for (const f of this.handlers.get(e) ?? []) f() }
   show() { this.shown = true }
   close() { this.closed = true; this.emit('close') }
   click() { this.emit('click') }
 }
 
-function setup(o: { focused?: boolean; supported?: boolean; testWaitMs?: number; ask?: boolean | 'throws'; showIsSeen?: boolean } = {}) {
+function setup(o: { focused?: boolean; supported?: boolean; testWaitMs?: number; ask?: boolean | 'throws'; showIsSeen?: boolean; markRead?: string | null } = {}) {
   const notes: FakeNote[] = []
   const opened: string[] = []
+  const reads: string[] = []
   let revealed = 0
   let asked = 0
   let focused = o.focused ?? false
@@ -39,8 +40,9 @@ function setup(o: { focused?: boolean; supported?: boolean; testWaitMs?: number;
     testWaitMs: o.testWaitMs,
     ask: o.ask ? () => { asked++; if (o.ask === 'throws') throw new Error('no notifications') } : undefined,
     showIsSeen: o.showIsSeen,
+    ...(o.markRead !== undefined ? { markReadLabel: () => o.markRead!, read: (t: string) => { reads.push(t) } } : {}),
   })
-  return { notify: notifier.notify, test: notifier.test, closeAll: notifier.closeAll, ask: notifier.ask, asked: () => asked, notes, opened, revealed: () => revealed, focus: (v: boolean) => { focused = v }, tick: (ms: number) => { clock += ms } }
+  return { reads, notify: notifier.notify, test: notifier.test, closeAll: notifier.closeAll, ask: notifier.ask, asked: () => asked, notes, opened, revealed: () => revealed, focus: (v: boolean) => { focused = v }, tick: (ms: number) => { clock += ms } }
 }
 
 const CHAT = '01a1b10f-4c39-7478-a2d8-f2d048b335df'
@@ -104,6 +106,45 @@ describe('when it shows', () => {
   })
 })
 
+const ROOM = '01a1b10f-4c39-7478-a2d8-f2d048b335aa', ROOT = '01a1b10f-4c39-7478-a2d8-f2d048b335bb'
+
+describe('"Mark as read" (macOS)', () => {
+  test('a room notification with a place gets the button; pressing it marks that place read and opens nothing', () => {
+    const s = setup({ markRead: 'Mark as read' })
+    s.notify({ title: 'Ben', body: 'hi', tag: `room-${ROOM}`, open: `/rooms/${ROOM}`, read: `${ROOM}@42` })
+    expect(s.notes[0]!.n.actions).toEqual([{ type: 'button', text: 'Mark as read' }])
+    s.notes[0]!.emit('action')
+    expect(s.reads).toEqual([`${ROOM}@42`])
+    expect(s.opened).toEqual([])
+    expect(s.revealed()).toBe(0)
+    // a reply in a thread: the thread's place
+    s.notify({ title: 'Ben', body: 'reply', tag: `room-${ROOM}`, read: `${ROOM}/${ROOT}@43` })
+    s.notes[1]!.emit('action')
+    expect(s.reads).toEqual([`${ROOM}@42`, `${ROOM}/${ROOT}@43`])
+  })
+
+  test('no button: no place, an odd place, a system without buttons (Windows, Linux), an older app; none after a team switch', () => {
+    const none = (o: Parameters<typeof setup>[0], read?: unknown) => { const s = setup(o); s.notify({ title: 'x', body: 'y', read }); return s.notes[0]!.n.actions }
+    expect(none({ markRead: 'Mark as read' })).toBeUndefined()
+    expect(none({ markRead: 'Mark as read' }, 'javascript:alert(1)')).toBeUndefined()
+    expect(none({ markRead: 'Mark as read' }, `${ROOM}@-1`)).toBeUndefined()
+    expect(none({ markRead: null }, `${ROOM}@1`)).toBeUndefined()
+    expect(none({}, `${ROOM}@1`)).toBeUndefined()
+    const s = setup({ markRead: 'Mark as read' })
+    s.notify({ title: 'x', body: 'y', read: `${ROOM}@1` })
+    s.closeAll()
+    s.notes[0]!.emit('action')
+    expect(s.reads).toEqual([])
+    expect(readTokenOf(`${ROOM}@7`)).toBe(`${ROOM}@7`)
+    expect(readTokenOf(`${ROOM}/${ROOT}@7`)).toBe(`${ROOM}/${ROOT}@7`)
+    expect(readTokenOf(`${ROOM}@7x`)).toBeNull()
+  })
+
+  test('the words are the app\'s own, in every language', () => {
+    for (const s of Object.values(STRINGS)) expect(s['notify.markRead']).toBeTruthy()
+  })
+})
+
 describe('checks', () => {
   test('addresses, tags and badge counts', () => {
     expect(openPathOf(`/c/${CHAT}`)).toBe(`/c/${CHAT}`)
@@ -126,11 +167,14 @@ describe('checks', () => {
     const main = fs.readFileSync(path.join(dir, 'main/main.ts'), 'utf8')
     const win = fs.readFileSync(path.join(dir, 'main/app-window.ts'), 'utf8')
     const preload = fs.readFileSync(path.join(dir, 'preload/app.ts'), 'utf8')
-    expect(main).toContain("win!.notify({ title: String(n?.title ?? ''), body: String(n?.body ?? ''), tag: n?.tag, open: n?.open })")
+    expect(main).toContain("win!.notify({ title: String(n?.title ?? ''), body: String(n?.body ?? ''), tag: n?.tag, open: n?.open, read: n?.read })")
     expect(main).toMatch(/bridge:badge[\s\S]{0,120}process\.platform === 'darwin'[\s\S]{0,40}app\.setBadgeCount\(badgeCountOf\(n\)\)/)
     expect(win).toContain("open: (path) => this.send(this.app, 'bridge:open', path)")
     expect(win).toContain("this.send(this.app, 'bridge:focus', false)")
     expect(preload).toContain("onOpen: on('bridge:open')")
+    expect(preload).toContain("onRead: on('bridge:read')")
+    expect(win).toContain("read: (token) => this.send(this.app, 'bridge:read', token)")
+    expect(win).toMatch(/markReadLabel: \(\) => process\.platform === 'darwin'/)
     expect(preload).toContain("open: n?.open === undefined ? undefined : String(n.open)")
   })
 })

@@ -15911,3 +15911,19 @@ square. Placement: Team AX core (`server/src/uploads/image.ts`, `server/src/room
   `web/test/unit/attachment-thumb.test.tsx` (the soft box only while loading), e2e `room-transparent-image.spec.ts`
   (a seal stamp in a room, light and dark: nothing painted behind it).
 - Version impact: **patch** (a fix; no API or data change).
+
+## 읽음으로 표시 — "Mark as read" on a room notification (feat/notification-mark-read, 2026-11-09)
+
+- **Decision:** a room notification gets one button, **Mark as read**, where the system shows buttons: Web Push
+  (Chrome, Edge, Android) and the Mac desktop app (Electron's notification actions are macOS only). It moves my read
+  position to that message (`markRoomRead`, or `markRoomThreadRead` for a reply in a thread), as opening the room
+  would, so the room's notices count as read too; nothing opens. The AI-waits notice has no button (a question to
+  answer).
+- **Where the place comes from:** Web Push: the `seq` (new) and the thread of the single signed-in notice
+  (`GET /api/notifications/:id`), stored with the notification at show time, never from the payload. Desktop: the
+  `room.message` event; the page gives `read: "<room>[/<thread root>]@<seq>"`, the main process checks its shape
+  (`readTokenOf`) and gives it back through `bridge:read`, and the page calls the API as itself.
+- **Words:** the server's (`/api/push` `messages.markRead`) for Web Push, the desktop app's own i18n for the Mac.
+- **Not yet:** Windows (toast XML), the iPhone app (a notification category in the extension) and Android (no FCM
+  yet). A failure (signed out, room left) changes nothing; the notice stays unread in the Inbox.
+

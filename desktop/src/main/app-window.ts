@@ -122,6 +122,9 @@ export class AppWindow {
       this.win.focus()
     },
     open: (path) => this.send(this.app, 'bridge:open', path),
+    // "Mark as read" on a room notification: macOS only (Electron's buttons); the page calls the read API
+    markReadLabel: () => process.platform === 'darwin' ? t(this.o.locale(), 'notify.markRead') : null,
+    read: (token) => this.send(this.app, 'bridge:read', token),
     // macOS asks about notifications once, when Electron first touches them: touching them is the question, while the
     // window is in front (common/notify.ts ask); and it takes a notification it will not show (off, or not answered yet)
     ...platformNotifyDeps(process.platform, () => Notification.isSupported()),

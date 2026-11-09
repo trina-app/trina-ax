@@ -128,6 +128,9 @@ export const InboxNotification = z.object({
     people: z.number().int().positive().optional(),
     at: z.string().optional(),
     label: z.string().optional(),
+    /** the message's place in its room (the single notice a push opens only): a notification's "Mark as read" moves my
+     * read position there (markRoomRead, or markRoomThreadRead for a reply in a thread). Older servers omit it. */
+    seq: z.number().int().nonnegative().optional(),
   }).optional(),
   /** The handover's notices (docs/DECISIONS.md "W6"); older servers omit it.
    * lead_joined ('owner.lead_joined', the owner who flagged the invite): the owner's own words for whom the link was
