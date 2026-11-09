@@ -7,7 +7,7 @@
 // starts another one with the next question; 🕘 lists the room's side chats (newest first) and opens one. Cards the AI
 // raises (a yes before a change, a question) show under its answer as in the full chat; while it waits for the answer
 // to its question, what I type in the box answers it (lib/askAnswer.ts), as the full chat's box does.
-import { ChevronLeft, ExternalLink, History, Loader2, SquarePen, X } from 'lucide-react'
+import { ChevronLeft, ExternalLink, Eye, History, Loader2, Paperclip, SquarePen, X } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -36,17 +36,27 @@ export async function newestSideChat(roomId: string): Promise<string | null> {
 }
 /** A message of the room asked about ("Ask Trina about this" on it): quoted in front of the next question. `key`
  * changes with every ask, so asking about the same message again quotes it again. */
-export interface SideSeed { key: string; author: string; at: string; text: string }
+export interface SideSeed { key: string; author: string; at: string; text: string
+  /** a file sent in this room ("Ask Trina about this file" in its preview): the AI reads it with room_file */
+  file?: { id: string; name: string } }
 /** the longest quote that goes with a question (the AI can read the whole room with room_read) */
 export const SEED_QUOTE_MAX = 4000
 
 /** The question as it is sent: the message quoted (who, when, its lines as a Markdown quote), then what I ask. */
 export function withQuote(seed: SideSeed | null, question: string, time: (iso: string) => string): string {
   if (!seed) return question
+  // a file: its name and id in this room (the AI opens it with room_file), not its text
+  if (seed.file) return `> 📎 ${seed.file.name} (file_id ${seed.file.id} in this room)\n\n${question}`
   const text = seed.text.length > SEED_QUOTE_MAX ? `${seed.text.slice(0, SEED_QUOTE_MAX).trimEnd()}…` : seed.text
   const quote = [`${seed.author} · ${time(seed.at)}`, ...text.split('\n')].map((l) => `> ${l}`.trimEnd()).join('\n')
   return `${quote}\n\n${question}`
 }
+
+/** the questions an empty side chat offers (like Slackbot's): what I missed, what is for me, the latest discussion */
+export const STARTERS = ['catchUp', 'forMe', 'summarize'] as const
+/** the quick questions under a quoted message, and under a quoted file */
+export const QUICK_MESSAGE = ['translate', 'summarize', 'explain'] as const
+export const QUICK_FILE = ['fileSummarize', 'fileKeyPoints', 'fileCheck'] as const
 
 /** how many of the room's side chats 🕘 lists */
 export const SIDE_HISTORY_MAX = 30
@@ -246,7 +256,21 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null }: { roo
           {!history && chatId !== undefined && !messages.length && (
             <div className="flex flex-col items-center gap-3 py-10 text-center" data-testid="side-chat-empty">
               <AiFace size={40} />
+              {/* what Trina reads here: this room, as I see it (Slackbot's "함께 확인하는 중") */}
+              <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-line px-2.5 py-0.5 text-xs text-muted" data-testid="side-chat-context">
+                <Eye size={12} aria-hidden className="shrink-0" /><span className="truncate">{t('sideChat.context', { room: roomTitle })}</span>
+              </span>
               <p className="max-w-[280px] text-sm text-muted">{t('sideChat.empty', { name })}</p>
+              {!quoted && (
+                <div className="flex flex-wrap justify-center gap-1.5" data-testid="side-chat-starters">
+                  {STARTERS.map((k) => (
+                    <button key={k} type="button" disabled={busy || chatId === undefined} onClick={() => void send(t(`sideChat.starter.${k}`))}
+                      className="rounded-full border border-line px-3 py-1 text-xs text-ink hover:bg-hover disabled:opacity-40" data-testid={`side-chat-starter-${k}`}>
+                      {t(`sideChat.starterLabel.${k}`)}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           {/* its pictures are one pane of the image viewer (← →), each with who sent it and when, like the AI chat's */}
@@ -270,8 +294,12 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null }: { roo
           <div className="mb-2 rounded-lg border border-line bg-canvas p-2" data-testid="side-chat-quote">
             <div className="flex items-start gap-2">
               <div className="min-w-0 flex-1 border-l-2 border-line-strong pl-2 text-xs">
-                <p className="font-medium text-ink">{quoted.author} <span className="font-normal text-faint">{formatDateTime(quoted.at, locale)}</span></p>
-                <p className="line-clamp-3 break-words whitespace-pre-wrap text-muted">{quoted.text}</p>
+                {!quoted.file && <p className="font-medium text-ink">{quoted.author} <span className="font-normal text-faint">{formatDateTime(quoted.at, locale)}</span></p>}
+                {quoted.file ? (
+                  <p className="flex min-w-0 items-center gap-1 text-muted" data-testid="side-chat-quote-file"><Paperclip size={12} aria-hidden className="shrink-0" /><span className="truncate">{quoted.file.name}</span></p>
+                ) : (
+                  <p className="line-clamp-3 break-words whitespace-pre-wrap text-muted">{quoted.text}</p>
+                )}
               </div>
               <IconButton label={t('sideChat.quoteRemove')} onClick={() => setQuoted(null)} className="touch-hit -mt-0.5 shrink-0" data-testid="side-chat-quote-remove">
                 <X size={13} aria-hidden />
@@ -279,7 +307,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null }: { roo
             </div>
             {!question && (
               <div className="mt-2 flex flex-wrap gap-1.5">
-                {(['translate', 'summarize', 'explain'] as const).map((k) => (
+                {(quoted.file ? QUICK_FILE : QUICK_MESSAGE).map((k) => (
                   <button key={k} type="button" disabled={busy || chatId === undefined} onClick={() => void send(t(`sideChat.ask.${k}`))}
                     className="rounded-full border border-line px-2.5 py-0.5 text-xs text-muted hover:bg-hover hover:text-ink disabled:opacity-40" data-testid={`side-chat-quick-${k}`}>
                     {t(`sideChat.quick.${k}`)}
@@ -314,6 +342,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null }: { roo
             </button>
           </div>
         </div>
+        <p className="pt-1.5 text-center text-[11px] text-faint" data-testid="side-chat-disclaimer">{t('sideChat.disclaimer', { name })}</p>
       </div>
       <PanelDivider sizing={THREAD_PANEL} label={t('rooms.threadResize')} testId="side-chat-divider" overlayTestId="side-chat-drag-overlay" />
     </section>

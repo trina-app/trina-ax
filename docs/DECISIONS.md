@@ -16408,3 +16408,15 @@ of a web page could not be read. Pictures should open like Slack, across the app
   the old way while it exists; tests/unit/b-room-ai-mentions-off.test.ts covers the default.
 - **Later:** remove the room AI ask and its switch once no team needs it (a decision of its own).
 
+## Side chat starters and files (feat/side-chat-starters, 2026-11-09, product owner)
+
+- **From Slackbot** (screenshots of the owner's Slack, 2026-11-09): an empty side chat shows what it looks at ("Looking at
+  #design with you"), three starters (Catch up: what I have not read; Anything for me?: mentions, questions, tasks;
+  Summarize: the latest discussion), and one line that the AI can make mistakes. Not taken: a toggle to stop it reading
+  the room (the room is the side chat's point), a global Slackbot button outside rooms (later, a decision of its own).
+- **A file sent in a room:** its preview (components/FilePanel.tsx, the app's right panel) has "Ask Trina". The room
+  page opens its side chat with the file quoted by name and file_id (lib/sideChatAsk.ts carries it from the panel to
+  the page); the AI opens it with room_file, as the person. File questions: Summarize, Key points, Check it.
+- **Later:** a large file viewer with page thumbnails on the left and the side chat (or the message's thread) on the
+  right, as Slack's file view.
+

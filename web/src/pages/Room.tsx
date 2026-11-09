@@ -39,6 +39,7 @@ import { ThreadPanel } from '../components/rooms/ThreadPanel'
 import { SideChatPanel, type SideSeed } from '../components/rooms/SideChatPanel'
 import { AiMark } from '../components/rooms/AiFace'
 import { aiName } from '../lib/tabs'
+import { onAskTrinaInRoom } from '../lib/sideChatAsk'
 import { EmptyState, ErrorNote, IconButton, Skeleton } from '../components/ui'
 import { Tooltip } from '../components/Tooltip'
 import { PresenceDot, PresenceText } from '../components/Presence'
@@ -131,6 +132,13 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     if (to === -1) navigate(-1)
     else navigate(to.path, { replace: to.replace })
   }, [navigate, roomId, fromRoom])
+  // "Ask Trina about this file" in the file preview of a file of this room (lib/sideChatAsk.ts)
+  useEffect(() => onAskTrinaInRoom((a) => {
+    if (a.roomId !== roomId) return
+    if (threadId) closeThread()
+    setSideSeed(a.seed)
+    setSideOpen(true)
+  }), [roomId, threadId, closeThread])
   // 초대하기: into this group chat, or from a DM a new group chat with the other person ticked (the DM stays)
   const [picker, setPicker] = useState<PickerMode | null>(null)
   // the "⋯"'s 알림 설정 opens the bell's own menu
