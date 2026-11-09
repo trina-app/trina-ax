@@ -92,7 +92,7 @@ specs. `bun run typecheck`, `bun run check:i18n`, `bun run check:docs`, `bun run
 
 ## Result
 
-Built as planned. Server: `Rooms.threadRootOf` is the one root check (send and the share's first check); the share's
+Built as planned, in #271. Server: `Rooms.threadRootOf` is the one root check (send and the share's first check); the share's
 refusal is 409 `thread_root`, before the budget (a test exhausts the budget with refusals and still sends). Web:
 `components/rooms/SendHere.tsx` (the control, the sent line, the line under the answer, the confirm step),
 `lib/sideChatSend.ts` (the target of each answer, the edit's token), `ShareConfirm` / `useConfirmStep` out of
