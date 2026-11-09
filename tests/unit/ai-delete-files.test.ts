@@ -542,7 +542,8 @@ describe('the prompt', () => {
 
 describe('room grants', () => {
   test('a path the AI just put in the trash is never "new" for a room\'s "always allow"', async () => {
-    const g = await h.api('dana').call(API.createGroup, { body: { name: 'del-grant-room', memberIds: ['alice', 'carol', 'dana'] } })
+    // the people who may read groups/marketing, so no wider-audience card stands in for the room's own (b-room-ai-grants)
+    const g = await h.api('dana').call(API.createGroup, { body: { name: 'del-grant-room', memberIds: ['alice', 'erin', 'carol', 'dana'] } })
     const roomId = (await h.api('alice').call(API.listRooms)).items.find((x) => x.kind === 'team' && x.groupId === g.id)!.id
     const dir = 'groups/marketing/del-grant'
     put(`${dir}/old.md`, 'agreed to remove\n')
@@ -575,9 +576,9 @@ describe('room grants', () => {
     // a new name in the folder: the grant covers it, no card
     expect(await ask([{ tool: 'write', args: { file_path: `${dir}/fresh.md`, content: 'new\n' } }])).toEqual([])
     expect(has(`${dir}/fresh.md`)).toBe(true)
-    // the trashed path: the room card again, and "no" leaves it in the trash
+    // the trashed path: the room card again (no grant covers it, so no "always" either), and "no" leaves it in the trash
     const cards = await ask([{ tool: 'write', args: { file_path: `${dir}/old.md`, content: 'replaced without a card\n' } }])
-    expect(cards).toHaveLength(1)
+    expect(cards.map((c) => c.options?.map((o) => o.value))).toEqual([['allow', 'skip']])
     expect(has(`${dir}/old.md`)).toBe(false)
     await h.api('dana').call(API.deleteGroup, { params: { id: g.id } })
   })
