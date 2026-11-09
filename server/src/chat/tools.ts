@@ -5,7 +5,7 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 import path from 'node:path'
 import { z } from 'zod'
 import { AskUserInput, ConnectServiceInput, EDIT_FILES_DESCRIPTION, EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS, FindSkillsInput, ForgetInput, MoveSkillInput, RememberInput, SetTitleInput, SkillInput, uuidv7 } from '@mycel/shared'
-import type { BrowserToolName, Locale, Step, TurnRequest } from '@mycel/shared/api'
+import type { BrowserToolName, ConfirmDetail, Locale, Step, TurnRequest } from '@mycel/shared/api'
 import type { McpContent, TurnToolSet } from '../turns'
 import type { TurnTool, TurnToolContext } from '../services'
 import { newId } from '../db'
@@ -13,7 +13,7 @@ import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
 import { cleanMemoryText, MEMORY_ITEM_MAX, neutralizeTags, skillBlock } from './prompt'
 import { isPersonalSkill, listSkills, readSkill, skillFolder, type Skill } from './skills'
-import { AI_MOVES, levelLabel, levelRef, levelsOf, planMove, runMove, skillAt, type Level } from '../skills/move'
+import { changeLine, editorsLine, levelFor, levelLabel, levelRef, levelsOf, MOVE_MAX_BYTES, MOVE_MAX_FILES, MOVE_TEXT_MAX, peopleNames, peopleText, planMove, raisesTrust, runCopy, runMove, seesWho, skillAt, type Level, type MovePlan } from '../skills/move'
 import { st as skillText } from '../skills/text'
 import { audit as auditLog } from '../admin/audit'
 import { HttpError } from '../http/errors'
@@ -74,7 +74,7 @@ export const B_TOOL_DESCRIPTIONS = {
   set_title: 'Name this new chat: a short title in the user\'s language that says what the person wants (2-60 characters). Call it once, early in your answer. Never put keys, tokens, passwords, personal data or quotes of the message in it.',
   skill: 'Load one of the user\'s skills (a saved team or personal workflow) by its name as listed under Team skills in your instructions, and get its full steps. Call it when a request matches a skill, before you follow it; then follow the steps and say which skill you used. A folder skill\'s other files are read with read, relative to the folder the result names.',
   find_skills: 'Search the skills the user can use by words (their names, descriptions and folders), best first, at most 10; with no word in common it lists the skills the user uses most. Use it when no skill in your instructions\' list clearly fits but the request looks like a saved workflow (the list may be cut). Then load the one that fits with skill.',
-  move_skill: 'Move one of the user\'s skills to a narrower level: a team skill to one of the user\'s groups or to a project (only that project\'s chats use it), or a group\'s skill to a project; only where nobody new gets it or may change it. The user confirms on a card that says who gains and who loses it and lists every file. Any other move (out of a project, into the user\'s own skills, to more people) is the user\'s: tell them to use the Move item in the skill\'s menu on the Skills page (shown in their screen language), which shows the whole text first. Skills never move with move_files; never make a skills folder, a README or a copy as a stand-in. A folder that is not a project yet must be made a project first.',
+  move_skill: 'Move one of the user\'s skills to another level, or copy it there when the user asks for a copy (keep: true; the original stays): the whole team, one of the user\'s groups, a project (only that project\'s chats use it) or the user\'s own skills, any move the user could make with the Move item on the Skills page. Nothing moves or is copied until the user says yes on the server\'s card, which says who newly gets the skill, who stops getting it and who newly may change it, lists every file and shows SKILL.md; you do not need to ask first. A copy is every file of the skill, byte for byte, in one card. The same checks as the Skills page: the user can write the target (and, for a move, the skill\'s place), no skill of that name is at the target, a project takes SKILL.md folders and no name a wider skill has. One name runs personal > group > team > project, so a project copy under the name of a skill the user keeps at a wider level would not run for its people, the user included: give the copy another name (name) or move it instead. A refusal says why and what to do: tell the user that in their words. The result says who gains and loses it (by name when the user may see that), so you can answer who. Skills never move or copy with move_files or copy_files, and never write a copy file by file; never leave a README or an empty skills folder as a stand-in. A folder that is not a project yet must be made a project first.',
 } as const
 
 /** A turn's tool set, plus what per-person tools add: a section for the instructions and their own step labels. */
@@ -488,95 +488,176 @@ function skillTools(exec: TurnExec): Tool[] {
 }
 
 // ---------------- move_skill ----------------
-// One skill to another level (skills/move.ts, docs/DECISIONS.md "Project skills"), after the person's yes on the
-// server's card, which says who gains and who loses it and lists every file. The AI only narrows: a move that gives the
-// skill to anyone new is refused here (the Skills page's Move dialog shows the whole text for that), so a message planted
-// in a file cannot widen a skill's reach. The card's yes is bound to every file's hash, checked again as it moves.
+// One skill to another level (skills/move.ts, docs/DECISIONS.md "Project skills"), as the Skills page's 옮기기… moves it,
+// or a copy of it (`keep`, with `name` for a new name) when the person asks for one: the same checks, then the person's
+// yes on the server's card, which the AI cannot write. The card says who newly gets the skill, who stops getting it and
+// who newly may change it (by name only to the owner, admins and a project's creator for its side: seesWho; counts for
+// everyone else), lists every file and always shows SKILL.md (in full when anyone new gets it or it would be followed
+// ahead of where it is now). Its yes is bound to every file's hash, the name and who gets it and may change it
+// (`token`), checked again as it moves or is copied. Every refusal tells the AI why and what to do.
 // Not offered in rooms or shared chats (rooms/ai-tools.ts); refused in a scheduled run (nobody to ask).
 function moveSkillTool(exec: TurnExec): Tool {
   const { rt, spec } = exec
   const ctx = rt.ctx
   const bad = (t: string, summary: string) => ({ ...text(t, true), summary: `move_skill -> ${summary}` })
+  const toPage = 'They can also move it with the Move item in the skill\'s menu on the Skills page (shown in their screen language).'
+  const list = (xs: string[], max = 10) => (xs.length ? xs.slice(0, max).map((x) => `"${neutralizeTags(clipName(x, 60))}"`).join(', ') + (xs.length > max ? ` and ${xs.length - max} more` : '') : 'none')
   return {
     name: 'move_skill', description: B_TOOL_DESCRIPTIONS.move_skill, inputSchema: schema(MoveSkillInput),
     async call(args) {
       const a = MoveSkillInput.safeParse(args)
       if (!a.success) return text(zodText(a.error), true)
-      if (spec.clientKind === 'schedule') return bad('Not moved: a scheduled run has nobody to confirm the card. Tell the user to move the skill in a chat or with the Move item in the skill\'s menu on the Skills page (shown in their screen language).', 'refused: scheduled run')
-      if (exec.room || exec.shared || exec.restricted || exec.templateRun) return bad('Not moved: skills are not moved from here.', 'refused: not here')
+      const copy = a.data.keep === true
+      const verb = copy ? 'copied' : 'moved'
+      if (a.data.name !== undefined && !copy) return bad('Not moved: name is only for a copy (keep: true). A moved skill keeps its name; to rename one, edit its SKILL.md and folder (the user confirms on a card).', 'refused: name without keep')
+      if (spec.clientKind === 'schedule') return bad(`Not ${verb}: a scheduled run has nobody to confirm the card. Tell the user to ${copy ? 'ask for the copy' : 'move the skill'} in a chat${copy ? '' : ' or with the Move item in the skill\'s menu on the Skills page (shown in their screen language)'}.`, 'refused: scheduled run')
+      if (exec.room || exec.shared || exec.restricted || exec.templateRun) return bad(`Not ${verb}: a skill is moved or copied only from the user's own chat, where they answer the card (not from a room, a shared chat or a run limited to one task). Tell the user to ask in one of their own chats.${copy ? '' : ' ' + toPage}`, 'refused: not here')
       let user: Principal
       try { user = exec.livePrincipal() } catch { return bad('Access denied: this account is disabled.', 'denied: account disabled') }
       const L = spec.locale
       // the skill: by its name in this chat's list, else by its path (a project's skill from another project too)
-      const list = listSkills(rt.files, user, exec.skillScope(false))
-      const hit = resolveSkill(list, a.data.skill)
+      const skills = listSkills(rt.files, user, exec.skillScope(false))
+      const hit = resolveSkill(skills, a.data.skill)
       if (hit && 'ambiguous' in hit) return bad(`Several skills this user can use are called "${neutralizeTags(clipName(a.data.skill))}": ${hit.ambiguous.map((s) => s.path).join(', ')}. Call move_skill again with the path of the one you mean.`, `ambiguous (${hit.ambiguous.length})`)
       const have = hit ? skillAt(ctx, user, hit.skill.path) : skillAt(ctx, user, a.data.skill.trim().replace(/^\/+/, ''))
       if (!have) return bad(`No skill called "${neutralizeTags(clipName(a.data.skill))}" that this user can use. Use a name from the skill list in your instructions, or find it with find_skills.`, 'not found')
       // the target level
       const levels = levelsOf(ctx, user)
+      const groups = levels.flatMap((l) => (l.level === 'group' ? [l.group.name] : []))
+      const projects = levels.flatMap((l) => (l.level === 'project' ? [l.project.name] : []))
       let to: Level | undefined
       const fold = (x: string) => foldKey(x.trim().replace(/^\/+|\/+$/g, ''))
       if (a.data.to === 'team' || a.data.to === 'personal') to = levels.find((l) => l.level === a.data.to)
       else if (a.data.to === 'group') {
-        if (!a.data.group) return bad('Name the group (group) to move the skill to.', 'no group named')
+        if (!a.data.group) return bad(`Name the group (group) to ${copy ? 'copy' : 'move'} the skill to. The user's groups: ${list(groups)}.`, 'no group named')
         to = levels.find((l) => l.level === 'group' && fold(l.group.name) === fold(a.data.group!))
-        if (!to) return bad(`"${neutralizeTags(clipName(a.data.group, 60))}" is not one of the user's groups. A skill moves only into a group the user belongs to.`, 'group not found')
+        if (!to) return bad(`Not ${verb}: "${neutralizeTags(clipName(a.data.group, 60))}" is not one of the user's groups, and a skill goes only into a group the user is in (its members use it). The user's groups: ${list(groups)}. Ask the user which one they mean; an admin can add them to another group in Admin › Groups.`, 'group not found')
       } else {
         const want = a.data.project ?? exec.skillProject?.name
-        if (!want) return bad('This chat has no project: name the project (project) to move the skill to.', 'no project named')
+        if (!want) return bad(`This chat has no project: name the project (project) to ${copy ? 'copy' : 'move'} the skill to. Projects the user sees: ${list(projects)}.`, 'no project named')
         to = levels.find((l) => l.level === 'project' && (fold(l.project.name) === fold(want) || fold(l.folder) === fold(want)))
         if (!to) {
           // a folder that is not a project (yet), a project without skills of its own, or nothing the person sees
           const row = rt.db.query('SELECT id, folder_path FROM projects WHERE trashed_with IS NULL').all() as { id: string; folder_path: string }[]
           const named = row.find((r) => fold(r.folder_path) === fold(want))
-          if (named) return bad(`${skillText('moveNoLevel', 'en')} Tell the user.`, 'project has no skills level')
+          if (named) return bad(`Not ${verb}: ${skillText('moveNoLevel', 'en')} Tell the user; a team project made with Projects › New project lives in projects/<name>/ and can have skills.`, 'project has no skills level')
           let folder = false
           try { folder = !!authorize(rt.files.fx, rt.files.rules(), user, want.trim(), 'list').st?.isDirectory() } catch { folder = false }
-          if (folder) return bad(`'${neutralizeTags(clipName(want, 120))}' is not a project yet, so it has no project skills. Tell the user: ${skillText('moveNotProject', L, { folder: neutralizeTags(clipName(want, 120)) })} (Projects › New project, on that folder). Then ask again. Do not make a skills folder, a README or a copy there instead.`, 'refused: not a project')
-          return bad(`No project called "${neutralizeTags(clipName(want, 80))}" that the user sees.`, 'project not found')
+          if (folder) return bad(`'${neutralizeTags(clipName(want, 120))}' is not a project yet, so it has no project skills. Tell the user: ${skillText('moveNotProject', L, { folder: neutralizeTags(clipName(want, 120)) })} (Projects › New project, on that folder). Then ask again. Never leave a README or an empty skills folder there as a stand-in.`, 'refused: not a project')
+          return bad(`Not ${verb}: no project called "${neutralizeTags(clipName(want, 80))}" that the user sees. Projects they see: ${list(projects)}. Ask the user which one they mean.`, 'project not found')
         }
       }
-      if (!to) return bad('That level cannot be used.', 'no level')
+      if (!to) return bad(`Not ${verb}: that level cannot be used.`, 'no level')
       const said = (e: unknown, other: string) => (e instanceof HttpError && e.message ? e.message : other).replace(/\.+$/, '')
-      let plan
-      try { plan = planMove(ctx, user, have, to, L) } catch (e) { return bad(`Not moved: ${said(e, 'the skill\'s files could not be read')}.`, 'refused: files') }
-      const from = levelLabel(plan.from, L), dest = levelLabel(plan.to, L)
+      let plan: MovePlan
+      try { plan = planMove(ctx, user, have, to, L, { copy, name: a.data.name }) } catch (e) {
+        if (e instanceof HttpError && e.extra.params?.reason === 'skill_too_large') return bad(`Not ${verb}: the skill folder is too large here (more than ${MOVE_MAX_FILES} files or ${MOVE_MAX_BYTES / 1024 / 1024} MB). Tell the user to ${copy ? 'copy' : 'move'} it on the Files screen.`, 'refused: too large')
+        return bad(`Not ${verb}: ${said(e, 'the skill\'s files could not be read')}. Tell the user what is in the way.`, 'refused: files')
+      }
       const en = (l: Level) => neutralizeTags(levelLabel(l, 'en'))
-      const toPage = 'Tell the user they can move it themselves with the Move item in the skill\'s menu on the Skills page (shown in their screen language), where they see its whole text first.'
-      // the AI only narrows (a planted message must not widen a skill's reach, its chats or who trusts its text): the
-      // team's to a group or a project, a group's to a project, never out of a project or into one person's own
-      if (!AI_MOVES.has(`${plan.from.level}>${plan.to.level}`)) {
-        return bad(`Not moved: you may only move a team skill to a group or a project, or a group's skill to a project (from ${en(plan.from)} to ${en(plan.to)} the skill would run in more chats or be trusted more). ${toPage}`, `refused: ${plan.from.level} to ${plan.to.level}`)
+      // people for the AI, by the card's rule: names (up to 20) where the user may see who is at that level, else a count
+      const who = (ids: readonly string[], at: Level) => {
+        if (!seesWho(ctx, user, at)) return `${ids.length} ${ids.length === 1 ? 'person' : 'people'} (names are shown only to the owner, admins and a project's creator, so do not guess who)`
+        const p = peopleNames(ctx, ids, 'en', 20)
+        return [...p.names.map((n) => neutralizeTags(n)), ...(p.more ? [`${p.more} more`] : [])].join(', ')
       }
-      if (plan.blocked) return bad(`Not moved: ${neutralizeTags(skillText(plan.blocked.key, 'en', plan.blocked.vars))}`, `refused: ${plan.blocked.key}`)
-      if (plan.gained > 0) {
-        return bad(`Not moved: at ${en(plan.to)} ${plan.gained} more ${plan.gained === 1 ? 'person' : 'people'} would get this skill (${plan.fromPeople} → ${plan.toPeople}). You can only move a skill where fewer people get it. ${toPage}`, `refused: widens (+${plan.gained})`)
+      const people = (p: MovePlan) => [
+        changeLine(p, 'en'),
+        p.gained ? `Newly get it: ${who(p.gainedIds, p.to)}.` : '',
+        p.lost ? `Lose it: ${who(p.lostIds, p.from)}.` : '',
+        p.editorsGained ? `Newly may change it: ${who(p.editorsGainedIds, p.to)}.` : '',
+        p.shadows ? `A project skill of the same name in ${neutralizeTags(p.shadows)} is hidden for the people who get this one (one name runs personal > group > team > project).` : '',
+      ].filter(Boolean).join(' ')
+      if (plan.blocked) {
+        // why, and what to do about it (who may write there, when it is the user's rights)
+        let help = ''
+        const k = plan.blocked.key
+        if (k === 'moveNoWrite') {
+          const fromSide = !copy && rt.files.rules().access(user, plan.source.split('/')) !== 'write'
+          const ids = fromSide ? plan.fromEditorIds : plan.editorIds
+          help = ` ${ids.length ? `Who can write there: ${who(ids, fromSide ? plan.from : plan.to)}.` : 'Nobody but an admin can write there.'} Tell the user: someone who can write there or an admin can do it, or an admin can give the user write access to that folder (Admin › Folder permissions).`
+        } else if (k === 'moveTaken') help = ' Tell the user which skill has that name there; they decide which of the two to rename or remove first' + (copy ? ', or give the copy another name (name).' : '.')
+        else if (k === 'moveHidden') help = ' In a project a wider skill of the same name always wins. Tell the user to rename this skill first if they want it in the project.'
+        else if (k === 'copyHidden') help = ' Tell the user this plainly, then suggest a name for the copy and call move_skill again with keep and that name once they agree, or move the skill instead (move_skill without keep).'
+        else if (k === 'copyRuled') help = ` It is ${neutralizeTags(plan.source)}. Tell the user; an admin can see that folder's permissions in Admin › Folder permissions.`
+        else if (k === 'moveNotFolder') help = ` It is ${neutralizeTags(plan.skill.path)}. Tell the user.`
+        else if (k === 'folderName') help = ' Call move_skill again with a name like "estimate-docs-quotation".'
+        return bad(`Not ${verb}: ${neutralizeTags(skillText(k, 'en', plan.blocked.vars))}${help}`, `refused: ${k}`)
       }
-      if (plan.editorsGained > 0) {
-        return bad(`Not moved: at ${en(plan.to)} ${plan.editorsGained} more ${plan.editorsGained === 1 ? 'person' : 'people'} could change this skill (${plan.editors} could). You can only move a skill where nobody new may change it. ${toPage}`, `refused: more editors (+${plan.editorsGained})`)
-      }
+      const from = levelLabel(plan.from, L), dest = levelLabel(plan.to, L)
+      // SKILL.md is always on the card, from the bytes the token binds; in full when anyone new gets it or it would be
+      // followed ahead of where it is now (out of a project's chats, into a group or the user's own)
+      const full = plan.gained > 0 || raisesTrust(plan)
+      const why = plan.gained > 0 ? skillText('moveGained', L) : plan.from.level === 'project' && plan.to.level !== 'project' ? skillText('moveLeavesProject', L, { project: plan.from.project.name }) : raisesTrust(plan) ? skillText('moveTrust', L, { to: dest }) : ''
+      const head = copy
+        ? plan.name !== plan.skill.name ? skillText('copyConfirmNamed', L, { name: plan.skill.name, as: plan.name, from, to: dest }) : skillText('copyConfirm', L, { name: plan.skill.name, from, to: dest })
+        : skillText('moveConfirm', L, { name: plan.skill.name, from, to: dest })
+      const question = [
+        `${head}\n${changeLine(plan, L)}\n${editorsLine(plan, L)}`,
+        plan.shadows ? skillText('moveShadows', L, { name: plan.name, where: plan.shadows }) : '',
+        why,
+      ].filter(Boolean).join('\n\n')
+      // names only where the person may see who is there; the counts are in the line above
+      const card = (ids: readonly string[]) => peopleText(peopleNames(ctx, ids, L, 5), L)
+      const fields = [
+        plan.gained && seesWho(ctx, user, plan.to) ? { name: skillText('moveWhoGains', L), value: card(plan.gainedIds) } : null,
+        plan.lost && seesWho(ctx, user, plan.from) ? { name: skillText('moveWhoLoses', L), value: card(plan.lostIds) } : null,
+        plan.editorsGained && seesWho(ctx, user, plan.to) ? { name: skillText('moveWhoEdits', L), value: card(plan.editorsGainedIds) } : null,
+      ].filter((x): x is { name: string; value: string } => !!x)
       const size = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
-      const question = [skillText('moveConfirm', L, { name: plan.skill.name, from, fromN: String(plan.fromPeople), to: dest, toN: String(plan.toPeople) }), plan.lost ? skillText('moveLost', L, { n: String(plan.lost) }) : '', skillText('moveEditors', L, { n: String(plan.editors) })].filter(Boolean).join('\n\n')
+      const cut = plan.text.length > MOVE_TEXT_MAX
+      const details: ConfirmDetail[] = [
+        ...(fields.length ? [{ label: skillText('moveWho', L), text: '', fields }] : []),
+        { label: `${skillText('moveText', L, { file: plan.entry.split('/').pop()! })}${cut ? ' ' + skillText('moveTextCut', L) : ''}`, text: plan.text.slice(0, MOVE_TEXT_MAX), ...(full ? {} : { collapsedAt: 600 }) },
+        { label: skillText('moveFiles', L), text: plan.files.map((f) => `${f.path} (${size(f.size)})`).join('\n') },
+      ]
       const base = plan.source.split('/').pop()!
       const answer = await exec.waitForPerson({
         kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, multiple: false, allowText: false,
-        options: [{ label: skillText('moveYes', L), value: 'move' }, { label: skillText('moveNo', L), value: 'skip' }],
-        details: [{ label: skillText('moveFiles', L), text: plan.files.map((f) => `${f.path} (${size(f.size)})`).join('\n') }],
-        ...(plan.from.level === 'team' && plan.to.level !== 'personal' ? { note: skillText('moveNarrowHint', L, { name: base }).slice(0, 300) } : {}),
+        options: copy ? [{ label: skillText('copyYes', L), value: 'copy' }, { label: skillText('copyNo', L), value: 'skip' }] : [{ label: skillText('moveYes', L), value: 'move' }, { label: skillText('moveNo', L), value: 'skip' }],
+        details,
+        ...(!copy && plan.from.level === 'team' && plan.to.level !== 'personal' ? { note: skillText('moveNarrowHint', L, { name: base }).slice(0, 300) } : {}),
         expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
       } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })
-      const yes = answer === 'move' || (Array.isArray(answer) && answer.length === 1 && answer[0] === 'move')
+      const yesValue = copy ? 'copy' : 'move'
+      const yes = answer === yesValue || (Array.isArray(answer) && answer.length === 1 && answer[0] === yesValue)
       if (!yes) {
-        auditLog(rt.db, { actor: spec.userId, action: 'skills.move_refused', target: plan.skill.path.startsWith('users/') ? plan.entry : plan.skill.path, detail: { name: plan.skill.name, to: levelRef(plan.to), turnId: spec.turnId, answer: answer === null || answer === undefined ? 'none' : 'declined' } })
-        return bad(`The user did not allow moving the skill "${neutralizeTags(plan.skill.name)}", so nothing was moved. Do not move it another way (no copy, folder or README elsewhere) unless the user asks again.`, 'not allowed by the user')
+        auditLog(rt.db, { actor: spec.userId, action: 'skills.move_refused', target: plan.skill.path.startsWith('users/') ? plan.entry : plan.skill.path, detail: { name: plan.skill.name, to: levelRef(plan.to), copy, turnId: spec.turnId, answer: answer === null || answer === undefined ? 'none' : 'declined' } })
+        return bad(`The user did not allow ${copy ? 'copying' : 'moving'} the skill "${neutralizeTags(plan.skill.name)}" from ${en(plan.from)} to ${en(plan.to)}, so nothing was ${verb}. The card said: ${people(plan)} Do not do it another way unless the user asks again, and never leave a README or an empty skills folder as a stand-in.`, 'not allowed by the user')
       }
       try {
-        // checked again as it moves (the files, the target, the rights); its answer is for the AI: in English
-        const done = runMove(ctx, user.id, plan.skill.path, levelRef(plan.to), plan.token, 'en', { turnId: spec.turnId, tool: 'move_skill' })
-        return { ...text(`Moved the skill "${neutralizeTags(done.skill.name)}" from ${en(done.from)} (${done.fromPeople} people) to ${en(done.to)} (${done.toPeople} people): ${done.entry}.${done.to.level === 'project' ? ' The AI now follows it only in that project\'s chats.' : ''}`), summary: `move_skill -> moved to ${done.to.level}` }
+        // checked again as it moves or is copied (the files, the name, the target, the rights, who gets it); its answer is
+        // for the AI: in English
+        const done = copy
+          ? runCopy(ctx, user.id, plan.skill.path, levelRef(plan.to), plan.token, 'en', { name: a.data.name, turnId: spec.turnId, tool: 'move_skill' })
+          : runMove(ctx, user.id, plan.skill.path, levelRef(plan.to), plan.token, 'en', { turnId: spec.turnId, tool: 'move_skill' })
+        const what = copy ? `Copied the skill "${neutralizeTags(done.skill.name)}"${done.name !== done.skill.name ? ` as "${neutralizeTags(done.name)}"` : ''} from ${en(done.from)} to ${en(done.to)} (${done.toPeople} people): ${done.entry}. The original stays.` : `Moved the skill "${neutralizeTags(done.skill.name)}" from ${en(done.from)} (${done.fromPeople} people) to ${en(done.to)} (${done.toPeople} people): ${done.entry}.`
+        return { ...text(`${what}${done.to.level === 'project' ? ' The AI follows it there only in that project\'s chats.' : ''} ${people(done)}`), summary: `move_skill -> ${verb} to ${done.to.level}` }
       } catch (e) {
-        return bad(`Not moved: ${said(e, 'the move failed')}.`, 'failed')
+        if (e instanceof HttpError && e.extra.params?.reason === 'skill_move_changed') return bad(`Not ${verb}: since the card was shown, ${changedSince(plan)}. Tell the user what changed; if they still want it, call move_skill again so they see a new card.`, 'refused: changed after the card')
+        return bad(`Not ${verb}: ${said(e, 'it failed')}. Tell the user what is in the way.`, 'failed')
+      }
+
+      /** What differs from the card the person answered: files, who would get it, who could change it. */
+      function changedSince(old: MovePlan): string {
+        const now = skillAt(ctx, user, old.skill.path)
+        if (!now) return 'the skill is no longer there'
+        const lv = levelFor(ctx, user, levelRef(old.to))
+        if (!lv) return `the user can no longer put skills at ${en(old.to)}`
+        let p: MovePlan
+        try { p = planMove(ctx, user, now, lv, 'en', { copy: old.copy, name: old.copy ? old.name : undefined }) } catch { return 'the skill\'s files changed' }
+        const parts: string[] = []
+        const fa = new Map(old.files.map((f) => [f.path, f.sha])), fb = new Map(p.files.map((f) => [f.path, f.sha]))
+        const files = [...new Set([...fa.keys(), ...fb.keys()])].filter((k) => fa.get(k) !== fb.get(k))
+        if (files.length) parts.push(`${files.length === 1 ? 'a file changed' : 'files changed'}: ${files.slice(0, 10).map((f) => neutralizeTags(f)).join(', ')}${files.length > 10 ? ` and ${files.length - 10} more` : ''}`)
+        const added = (x: string[], y: string[]) => y.filter((id) => !x.includes(id))
+        const reach = added(old.readerIds, p.readerIds), leave = added(p.readerIds, old.readerIds)
+        const edit = added(old.editorIds, p.editorIds), stop = added(p.editorIds, old.editorIds)
+        if (reach.length) parts.push(`it would now also reach ${who(reach, old.to)}`)
+        if (leave.length) parts.push(`it would no longer reach ${who(leave, old.to)}`)
+        if (edit.length) parts.push(`${who(edit, old.to)} could now also change it there`)
+        if (stop.length) parts.push(`${who(stop, old.to)} could no longer change it there`)
+        return parts.join('; ') || 'what the card showed changed'
       }
     },
   }

@@ -332,10 +332,11 @@ function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) 
           <div key={i} className="space-y-1.5 text-sm" data-testid="ask-detail">
             {d.fields?.length ? (
               <div role="group" aria-label={d.label} data-testid="ask-detail-fields">
-                <dl className="space-y-1">
+                {/* the names' column as wide as the longest one ("파일", "고칠 수 있게 돼요"), at least 3.5rem */}
+                <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
                   {d.fields.map((f, j) => (
-                    <div key={j} className="flex gap-3">
-                      <dt className="w-14 shrink-0 text-faint">{f.name}</dt>
+                    <div key={j} className="contents">
+                      <dt className="min-w-14 text-faint">{f.name}</dt>
                       <dd className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{f.value}</dd>
                     </div>
                   ))}

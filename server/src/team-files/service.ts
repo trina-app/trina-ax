@@ -625,6 +625,41 @@ export class TeamFiles {
   }
 
   /**
+   * A skill copied to another level (skills/move.ts runCopy, after the person's yes on its card or the Skills page):
+   * `files` are the bytes the card was bound to (by their hashes), placed at `to`, a folder (`folder`: a SKILL.md folder,
+   * each file at `segs` inside it) or a single file that is not there yet, where the caller may write. Built under a
+   * server temp name beside it, then renamed into place. One event for it, with where it was copied from (`copiedFrom`:
+   * skills/changes.ts lists it as the change's `from`; null for a person's own skill, never named to others).
+   */
+  writeSkillCopy(userId: string, from: string | null, to: string, files: { segs: string[]; bytes: Uint8Array }[], o: { folder: boolean; turnId?: string | null; tool?: string }): void {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    const tr = authorize(this.fx, rules, user, to, 'write', { mustExist: false })
+    if (tr.exists) fileError('conflict', 'exists', { to: tr.rel })
+    const size = files.reduce((n, f) => n + f.bytes.length, 0)
+    if (currentPlan()) { if (o.turnId != null) assertStorageRoomForAI(size); else assertStorageRoom(size) }
+    const dir = path.join(this.root, ...tr.segs.slice(0, -1))
+    const tmp = path.join(dir, PRODUCT.tmpPrefix + crypto.randomUUID())
+    try {
+      if (o.folder) {
+        fs.mkdirSync(tmp, { mode: 0o700 })
+        for (const f of files) {
+          if (!f.segs.length || f.segs.some((s) => !s || s === '.' || s === '..' || s.includes('/') || s.includes('\\'))) throw new Denied('bad path in a skill copy')
+          fs.mkdirSync(path.join(tmp, ...f.segs.slice(0, -1)), { recursive: true, mode: 0o700 })
+          fs.writeFileSync(path.join(tmp, ...f.segs), f.bytes, { mode: 0o600, flag: 'wx' })
+        }
+      } else fs.writeFileSync(tmp, files[0]?.bytes ?? new Uint8Array(), { mode: 0o600, flag: 'wx' })
+      verifyChain(this.root, tr.segs, true)
+      if (fs.existsSync(tr.abs)) fileError('conflict', 'exists', { to: tr.rel })
+      fs.renameSync(tmp, tr.abs)
+    } catch (e) { fs.rmSync(tmp, { recursive: true, force: true }); throw e }
+    const turnId = o.turnId ?? null
+    fileEvent(this.ctx.db, { turnId, userId, path: tr.rel, action: 'create', size, detail: { folder: o.folder, copiedFrom: from, ...(from ? { sourcePaths: [from] } : {}), ...(o.folder ? { files: files.length } : {}), tool: o.tool ?? 'skill_copy' } })
+    for (const f of files) this.extractText(o.folder ? [...tr.segs, ...f.segs].join('/') : tr.rel)
+    this.publish([{ path: tr.rel, action: o.folder ? 'mkdir' : 'create', by: this.by(userId), turnId }])
+  }
+
+  /**
    * Copy a whole folder the caller can read into `toParent` (a folder the caller can write), under the same name
    * (" (2)" when taken). Only what the caller can read is copied (links, hard links, odd names and hidden entries are
    * left out); at most `limits` files / bytes (413 beyond). Built under a hidden temp name, then renamed into place.
