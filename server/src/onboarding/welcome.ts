@@ -14,11 +14,12 @@
 // setupWelcomeTeam): the team's own group named after the team (the invite link puts joiners in it; its team room), made
 // once with the owner in it, and the meeting notes and brand folders in shared/ (everyone in the team sees the company's
 // own material), recorded in the row with `home: 'shared'`, so the steps never make them again by themselves. A row
-// from before keeps them in the group's folder groups/<name>/ (its members read and write it): nothing is moved. No skill is installed (docs/DECISIONS.md "W6": a skill
-// goes in only on a press that names it); the general pack's record is written with no paths for older builds.
+// from before keeps them in the group's folder groups/<name>/ (its members read and write it): nothing is moved. No
+// skill is installed (docs/DECISIONS.md "W6": a skill goes in only on a press that names it); the general pack's record
+// is written with no paths for older builds.
 import { z } from 'zod'
 import {
-  BRAND_FOLDER, BRAND_IMAGES_FOLDER, GENERAL_CARDNEWS_SKILL, SHARED_HOME, GENERAL_DECK_SKILL, GENERAL_PROMO_SKILL, NOTES_FOLDER, TeamGroupRef, TeamType, WELCOME_STEPS, WelcomeProgress, WelcomeStepState, normalizeWebsite,
+  BRAND_FOLDER, BRAND_IMAGES_FOLDER, GENERAL_CARDNEWS_SKILL, GENERAL_DECK_SKILL, GENERAL_PROMO_SKILL, NOTES_FOLDER, SHARED_HOME, TeamGroupRef, TeamType, WELCOME_STEPS, WelcomeProgress, WelcomeStepState, normalizeWebsite,
   type Locale, type WelcomeTeamResult, type WelcomeUpdate,
 } from '@mycel/shared/api'
 import type { AppContext } from '../context'

@@ -290,7 +290,7 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
         const f = folders.items.find((x) => x.groupId === g.id && x.exists)
         return f ? [{ id: g.id, groupId: g.id, name: g.name, who: g.name, folder: f.path }] : []
       })
-      setPlaces((p) => [...p.filter((x) => x.id === home?.id), ...other])
+      setPlaces([...(home ? [home] : []), ...other])
     }, () => {})
     return () => { live = false }
   }, [team?.id, home?.id])

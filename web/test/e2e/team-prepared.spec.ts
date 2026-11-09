@@ -3,8 +3,8 @@
 // - a member whose team has the four kept skills and files: "팀에 준비된 것" with three skill rows, "팀 스킬 1개 더" and the
 //   files row (the brand folder not counted); one filled button; 자연스러운 글 fills the box with "/humanizer …:"; another
 //   skill's form over Home and back; 예시; 물어보기 fills the box; on a phone the row's tap and 예시 its own target;
-// - a member on a team with nothing, and one outside the team group (a single-use invite): "이렇게 시작해 보세요" and one
-//   filled question (the profile's when one is saved);
+// - a member on a team with nothing: "이렇게 시작해 보세요" and one filled question; one outside the team group (a
+//   single-use invite) sees the team's files too, which are in 전사 공유 (shared/, docs/DECISIONS.md "Team folder basics");
 // - a member who chatted before: the skills still show (the files row does not) until they run a team skill;
 // - the owner's own first Home: the block without a filled button; an empty team: "스킬 넣기 · 팀 파일 넣기";
 // - the invite step (5/5) of an empty team: "지금 초대하면 팀원이 볼 게 없어요 · 스킬 넣기 · 팀 파일 넣기", the way to 내
@@ -16,7 +16,8 @@ import { realErrors, reset, signIn, watchConsole } from './helpers'
 const BOB = { username: 'bob', password: 'bob password 1' }
 const H = { [CSRF_HEADER]: '1' }
 const PROFILE = { website: 'https://acme.example/', oneLine: 'Acme는 조용한 책상 선풍기를 만들어요', products: '책상 선풍기', audience: '작은 사무실', tone: [], avoid: '', sources: [] }
-const FOLDER = 'groups/Acme'
+/** the team's files: shared/ since docs/DECISIONS.md "Team folder basics" (the team group keeps groups/Acme) */
+const FOLDER = 'shared'
 
 async function call(page: Page, method: 'POST' | 'PATCH' | 'PUT', path: string, data: unknown = {}) {
   const r = await page.request.fetch(path, { method, headers: H, data })
@@ -30,8 +31,9 @@ async function prepare(page: Page, o: { skills?: boolean; files?: boolean; outsi
   await signIn(page)
   const team = await call(page, 'POST', '/api/onboarding/welcome/team')
   await call(page, 'PATCH', '/api/onboarding/welcome', { finish: true })
-  const group = team.progress.teamGroup as { id: string; folder: string; brandFolder: string }
-  expect(group.folder).toBe(FOLDER)
+  const group = team.progress.teamGroup as { id: string; folder: string; brandFolder: string; home?: string }
+  expect(group.folder).toBe('groups/Acme')
+  expect(group.home).toBe(FOLDER)
   if (!o.outside) await call(page, 'PATCH', `/api/admin/groups/${group.id}`, { memberIds: ['olga', 'bob'] })
   if (o.skills) {
     await call(page, 'POST', '/api/onboarding/packs/general/install', { skills: ['intro-deck', 'card-news', 'promo-video'] })
@@ -76,7 +78,7 @@ for (const width of [1440, 390] as const) {
       } else {
         await expect(filled(page)).toHaveCount(1)
         await expect(rows.first().getByTestId('team-prepared-try')).toHaveClass(/(^|\s)bg-accent(\s|$)/)
-        await expect(block(page).getByTestId('team-prepared-files')).toContainText('Acme')
+        await expect(block(page).getByTestId('team-prepared-files')).toContainText('전사 공유')
       }
       // 자연스러운 글: the box, no form
       await rows.first().getByTestId('team-prepared-try').click()
@@ -99,7 +101,7 @@ for (const width of [1440, 390] as const) {
       await expect(page.getByTestId('skill-example')).toHaveCount(0)
       // 물어보기: the question in the box, not sent
       await block(page).getByTestId('team-prepared-ask').click()
-      await expect(page.getByTestId('composer-input')).toHaveValue(`${FOLDER} 폴더의 파일 이름과 종류만 보고(브랜드, skills 폴더는 빼고), 내가 먼저 보면 좋을 것 3개를 골라 줘`)
+      await expect(page.getByTestId('composer-input')).toHaveValue(`${FOLDER} 폴더의 파일 이름과 종류만 보고(브랜드 폴더는 빼고), 내가 먼저 보면 좋을 것 3개를 골라 줘`)
       await expect(page).toHaveURL(/\/$/)
       // 팀 스킬 1개 더 › 팀 스킬
       await block(page).getByTestId('team-prepared-more').click()
@@ -107,7 +109,7 @@ for (const width of [1440, 390] as const) {
       expect(realErrors(errors)).toEqual([])
     })
 
-    test('a member on a team with nothing, and one outside the team group: "이렇게 시작해 보세요" and one filled question', async ({ page }) => {
+    test('a member on a team with nothing: "이렇게 시작해 보세요" and one filled question; one outside the team group sees the files in 전사 공유', async ({ page }) => {
       await reset(page)
       await signIn(page, BOB)
       await expect(block(page)).toHaveAttribute('data-state', 'ready')
@@ -117,12 +119,17 @@ for (const width of [1440, 390] as const) {
       await expect(filled(page)).toHaveCount(1)
       await ready.click()
       await expect(page.getByTestId('composer-input')).toHaveValue('users/bob 폴더에 어떤 파일이 있는지 정리해 줘')
-      // a single-use invite: outside the team group, whose files exist; a saved profile
+      // a single-use invite: outside the team group; the team's files are in shared/, which everyone sees
       await reset(page)
       await prepare(page, { files: true, outside: true, profile: true })
       await signIn(page, BOB)
+      await expect(block(page).getByTestId('team-prepared-files')).toContainText('파일 2개')
+      await expect(block(page).getByTestId('team-prepared-ready')).toHaveCount(0)
+      // nothing prepared but the profile: the profile's question
+      await reset(page)
+      await prepare(page, { outside: true, profile: true })
+      await signIn(page, BOB)
       await expect(block(page)).toHaveAttribute('data-state', 'ready')
-      await expect(block(page).getByTestId('team-prepared-files')).toHaveCount(0)
       await expect(block(page).getByTestId('team-prepared-ready')).toHaveText('우리 회사가 하는 일을 3줄로 정리해 줘')
     })
 
