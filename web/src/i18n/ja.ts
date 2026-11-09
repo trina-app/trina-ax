@@ -4268,8 +4268,8 @@ export const ja: Record<MessageKey, string> = {
   "viewer.copiedThumb": "元の画像の代わりに、画面の小さな画像をコピーしました。",
   "viewer.copiedScaled": "画像が大きすぎるため、縮小してコピーしました。",
   "viewer.copyFailed": "画像をコピーできませんでした",
-  "viewer.copyDenied": "ブラウザーがクリップボードへの書き込みを許可しませんでした。ウィンドウを一度クリックしてから、もう一度お試しください。",
+  "viewer.copyDenied": "ブラウザーがクリップボードへの書き込みを許可しませんでした。ウィンドウを一度クリックまたはタップしてから、もう一度お試しください。",
   "viewer.copyTooBig": "画像が大きすぎてコピーできません。ダウンロードしてお使いください。",
   "viewer.copyNotLoaded": "画像を読み込めませんでした。",
-  "viewer.copyError": "もう一度お試しください。だめな場合はダウンロードしてお使いください。",
+  "viewer.copyError": "もう一度お試しください。うまくいかない場合はダウンロードしてお使いください。",
 }

@@ -62,7 +62,8 @@ type Msg = NonNullable<Parameters<typeof routeRoom>[1]['messages']>[number]
 
 /** The room: Ben's screenshot and his icon, or `messages`; its photos as the team server sends them (any other id is
  * the icon). */
-async function openRoom(page: Page, o: { messages?: Msg[]; at?: string; bodies?: Record<string, { body: Buffer; type: string }> } = {}) {
+type Served = { body: Buffer; type: string }
+async function openRoom(page: Page, o: { messages?: Msg[]; at?: string; bodies?: Record<string, Served & { thumb?: Served }> } = {}) {
   await reset(page)
   const messages = o.messages ?? [
     { id: id(1), author: BEN, body: '이 페이지 좀 봐 주세요', extra: { files: [shotFile] } },
@@ -76,7 +77,7 @@ async function openRoom(page: Page, o: { messages?: Msg[]; at?: string; bodies?:
     const thumb = u.searchParams.get('thumb') === '1'
     const download = u.searchParams.get('download') === '1'
     served.push(`${fid === SHOT_ID ? 'page' : 'icon'}${u.search}`)
-    const own = o.bodies?.[fid]
+    const own = o.bodies?.[fid] ? (thumb ? (o.bodies[fid]!.thumb ?? o.bodies[fid]!) : o.bodies[fid]!) : undefined
     const body = own ? own.body : fid === SHOT_ID ? (thumb ? SHOT_THUMB : SHOT) : ICON
     // the original comes a moment after the thumbnail, as a large file over a network does
     if (!thumb && !download) await new Promise((r) => setTimeout(r, 300))
@@ -279,12 +280,14 @@ test('복사 puts the original on the clipboard as a PNG, with no new request; �
   await emptyClipboard(page)
   await copy.click()
   await expect(toastText(page)).toHaveText('이미지를 복사했어요')
+  // said inside the dialog too (a screen reader may not read the toast outside it)
+  await expect(page.getByTestId('image-viewer-said')).toHaveText(/^이미지를 복사했어요/)
   // the original at its own size (the thumbnail is 640 × 400)
   expect(await clipboardPng(page, [{ x: 10, y: 10 }])).toEqual({ type: 'image/png', width: 2880, height: 1800, px: [[30, 30, 34, 255]] })
-  // the key, with the focus on the picture as it opened and on a button of the bar
+  // the keys, ⌘C with the focus on the picture as it opened and Ctrl+C on a button of the bar
   await emptyClipboard(page)
   await page.getByTestId('image-viewer-stage').focus()
-  await page.keyboard.press('ControlOrMeta+c')
+  await page.keyboard.press('Meta+c')
   await expect.poll(async () => (await clipboardPng(page))?.width).toBe(2880)
   await emptyClipboard(page)
   await page.getByTestId('image-viewer-download').focus()
@@ -299,27 +302,32 @@ test('복사 puts the original on the clipboard as a PNG, with no new request; �
 })
 
 test('a JPEG and a WebP are copied as PNGs, the WebP\'s transparency kept; a copy while the original loads waits for it', async ({ page }) => {
-  // made by the browser itself: a 200 × 100 picture, its left half transparent and its right half red
+  // made by the browser itself: a 200 × 100 picture, its left half transparent and its right half red; its thumbnail
+  // is 100 × 50, so the size on the clipboard tells which was copied
   const made = await page.evaluate(async () => {
-    const c = new OffscreenCanvas(200, 100)
-    const g = c.getContext('2d')!
-    g.fillStyle = 'rgb(220, 20, 30)'
-    g.fillRect(100, 0, 100, 100)
-    const b64 = async (type: string) => {
+    const draw = (w: number, h: number) => {
+      const c = new OffscreenCanvas(w, h)
+      const g = c.getContext('2d')!
+      g.fillStyle = 'rgb(220, 20, 30)'
+      g.fillRect(w / 2, 0, w / 2, h)
+      return c
+    }
+    const b64 = async (c: OffscreenCanvas, type: string) => {
       const bytes = new Uint8Array(await (await c.convertToBlob({ type, quality: 1 })).arrayBuffer())
       return btoa(Array.from(bytes, (x) => String.fromCharCode(x)).join(''))
     }
-    return { webp: await b64('image/webp'), jpeg: await b64('image/jpeg') }
+    return { webp: await b64(draw(200, 100), 'image/webp'), jpeg: await b64(draw(200, 100), 'image/jpeg'), thumb: await b64(draw(100, 50), 'image/png') }
   })
   const webp = Buffer.from(made.webp, 'base64')
   const jpeg = Buffer.from(made.jpeg, 'base64')
+  const small = { body: Buffer.from(made.thumb, 'base64'), type: 'image/png' }
   const pic = (n: number, name: string, mime: string, body: Buffer) => ({ id: id(n), name, size: body.length, mime, kind: 'image', width: 200, height: 100, thumb: true })
   await openRoom(page, {
     messages: [
       { id: id(1), author: BEN, body: '도장', extra: { files: [pic(811, 'acme-stamp.webp', 'image/webp', webp)] } },
       { id: id(2), author: BEN, body: '사진', extra: { files: [pic(812, 'acme-photo.jpg', 'image/jpeg', jpeg)] } },
     ],
-    bodies: { [id(811)]: { body: webp, type: 'image/webp' }, [id(812)]: { body: jpeg, type: 'image/jpeg' } },
+    bodies: { [id(811)]: { body: webp, type: 'image/webp', thumb: small }, [id(812)]: { body: jpeg, type: 'image/jpeg', thumb: small } },
   })
   // the stamp's original is held on its way: the thumbnail shows meanwhile
   let release = () => {}
@@ -347,11 +355,37 @@ test('a JPEG and a WebP are copied as PNGs, the WebP\'s transparency kept; a cop
   await expect(page.getByTestId('image-viewer-name')).toHaveText('acme-photo.jpg')
   await shown(page)
   await emptyClipboard(page)
+  const said = page.getByTestId('image-viewer-said')
+  const before = await said.textContent()
   await page.keyboard.press('ControlOrMeta+c')
-  await expect.poll(async () => (await clipboardPng(page))?.type).toBe('image/png')
+  // a second result, said again (the toast of the first may still be on screen)
+  await expect.poll(() => said.textContent()).not.toBe(before)
+  await expect(said).toHaveText(/^이미지를 복사했어요\s*$/)
   const photo = await clipboardPng(page, [{ x: 180, y: 50 }])
   expect(photo).toMatchObject({ width: 200, height: 100 })
   expect(photo!.px[0]![0]).toBeGreaterThan(180)
+})
+
+test('a copy still waiting for its original is given up when the viewer closes: what was copied since stays', async ({ page }) => {
+  await openRoom(page)
+  let release = () => {}
+  const held = new Promise<void>((r) => (release = r))
+  await page.route((u) => u.pathname === `/api/rooms/${ROOM_ID}/files/${SHOT_ID}` && !u.search, async (route) => {
+    await held
+    await route.fallback()
+  })
+  await page.getByTestId('room-image').first().click()
+  await expect(original(page)).toHaveAttribute('data-state', 'loading')
+  await page.getByTestId('image-viewer-copy').click()
+  await page.keyboard.press('Escape')
+  await expect(viewer(page)).toHaveCount(0)
+  // something else copied meanwhile, then the original arrives
+  await page.evaluate(() => navigator.clipboard.writeText('acme note'))
+  release()
+  await page.waitForTimeout(800)
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('acme note')
+  expect(await clipboardPng(page)).toBeNull()
+  await expect(page.getByTestId('toast')).toHaveCount(0)
 })
 
 test('a picture over the 20 MB preview limit copies its thumbnail, and the toast says so', async ({ page }) => {

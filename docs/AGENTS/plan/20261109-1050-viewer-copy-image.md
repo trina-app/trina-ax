@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-09 10:50
 - Branch: `feat/viewer-copy-image`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`web/src/lib/copyImage.ts`, `web/src/components/ImageViewer.tsx`). Why: the image viewer is
   core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. One button and one shortcut in the viewer; no API, setting or data change.
@@ -24,9 +24,9 @@ In:
 - A picture over the 20 MB preview limit (or whose original failed to load) shows its thumbnail: that picture is copied,
   and the toast says it is the small one.
 - `navigator.clipboard.write([new ClipboardItem({ 'image/png': … })])`, the item made inside the click (Safari).
-- The button shows only where it works: a secure page with ClipboardItem and image/png. Not in the Android phone app:
-  its WebView puts no picture on the clipboard (Chromium's image clipboard needs Chrome's file provider), so the button
-  would do nothing. The iPhone app's WebView and iOS Safari have it.
+- The button shows only where it works: a secure page with ClipboardItem and image/png. Not in an Android WebView (the
+  phone app's, an in-app browser's): it puts no picture on the clipboard (Chromium's image clipboard needs Chrome's file
+  provider), so the button would do nothing. The iPhone app's WebView and iOS Safari have it.
 - A short toast: 이미지를 복사했어요, or 이미지를 복사하지 못했어요 with the reason.
 
 Out:
@@ -58,4 +58,15 @@ image-viewer e2e spec, the desktop clipboard e2e spec and the desktop unit tests
 
 ## Result
 
-Filled in at the end.
+Built as planned: `web/src/lib/copyImage.ts` (the support check, the copy, the ⌘C key) and the viewer's 복사, ⌘C /
+Ctrl+C and toast, in five languages. The desktop e2e was run on a Mac: a PNG with a transparent half written from the
+team page came back from the system clipboard with its transparency, so the desktop app needs no bridge.
+
+Added after the review: a copy still waiting for its original is given up by the next copy and when the viewer closes
+(it writes nothing, so it never lands over something copied since); the wait is 15 s at most, then the thumbnail; every
+Android WebView is left out (in-app browsers too), not only the phone app's; the result is also said inside the dialog
+for screen readers; an SVG without a size of its own is drawn at its size on screen; the retry for a picture too big for
+a canvas keeps within a 16384 px side as well.
+
+Not done: a Safari (WebKit) e2e, since Playwright's WebKit may write the computer's own clipboard; ⌘C through the real
+viewer in the desktop app (its e2e team page is a fake one). Details: docs/DECISIONS.md "The image viewer's 복사".

@@ -4268,7 +4268,7 @@ export const es: Record<MessageKey, string> = {
   "viewer.copiedThumb": "Se copió la imagen pequeña de la pantalla en lugar del original.",
   "viewer.copiedScaled": "La imagen es muy grande, así que se copió más pequeña.",
   "viewer.copyFailed": "No se pudo copiar la imagen",
-  "viewer.copyDenied": "El navegador no permitió escribir en el portapapeles. Haz clic una vez en la ventana y vuelve a intentarlo.",
+  "viewer.copyDenied": "El navegador no permitió escribir en el portapapeles. Haz clic o toca una vez en la ventana y vuelve a intentarlo.",
   "viewer.copyTooBig": "La imagen es demasiado grande para copiarla. Descárgala.",
   "viewer.copyNotLoaded": "La imagen no se cargó.",
   "viewer.copyError": "Vuelve a intentarlo. Si sigue fallando, descárgala.",

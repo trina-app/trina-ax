@@ -11,8 +11,9 @@
 //   browser only: the desktop and phone apps would open the system browser, which is not signed in) and ✕. Always shown
 //   on a computer; a tap shows or hides it on a phone.
 // - 복사 and ⌘C / Ctrl+C put the picture drawn here on the clipboard as a PNG (lib/copyImage.ts): the original, waited
-//   for while it loads, else the thumbnail shown in its place (the toast says so). Only where the clipboard takes a
-//   picture: never a button that does nothing.
+//   for while it loads (up to 15 s), else the thumbnail shown in its place (the toast says so). Only where the clipboard
+//   takes a picture: never a button that does nothing. A copy still waiting is given up by the next one and when the
+//   viewer closes. The result is a toast, and is said inside the dialog too (a screen reader may not read outside it).
 // - Esc, ✕, a click on the backdrop, a swipe down and Back close it; focus goes back to the picture that opened it.
 // - It is on the team page itself (a portal on <body>, never a frame): the desktop app's 이미지 복사 copies the original,
 //   which is then the only picture under the pointer.
@@ -133,14 +134,34 @@ function useObjectUrl(blob: Blob | undefined): string | null {
   return blob && made?.blob === blob ? made.url : null
 }
 
-/** The picture has loaded (waiting while it loads); false: it did not. */
-const loaded = (img: HTMLImageElement): Promise<boolean> =>
-  img.complete
-    ? Promise.resolve(img.naturalWidth > 0)
-    : new Promise((resolve) => {
-        img.addEventListener('load', () => resolve(img.naturalWidth > 0), { once: true })
-        img.addEventListener('error', () => resolve(false), { once: true })
-      })
+/** How long a copy waits for an original still loading before it takes the thumbnail (or says it did not load). */
+const COPY_WAIT_MS = 15_000
+
+/** The picture has loaded and can be drawn (waiting while it loads, up to COPY_WAIT_MS); false: it did not. */
+function loaded(img: HTMLImageElement): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => resolve(false), COPY_WAIT_MS)
+  })
+  const ready = typeof img.decode === 'function'
+    ? img.decode().then(() => true, () => false)
+    : img.complete
+      ? Promise.resolve(img.naturalWidth > 0)
+      : new Promise<boolean>((resolve) => {
+          img.addEventListener('load', () => resolve(true), { once: true })
+          img.addEventListener('error', () => resolve(false), { once: true })
+        })
+  return Promise.race([ready, late]).finally(() => clearTimeout(timer))
+}
+
+/** The size to draw a loaded picture at: its own, or for an SVG with none (an answer's drawing) the size it is drawn
+ * on screen, in device pixels. */
+function drawnSize(img: HTMLImageElement): { width: number; height: number } {
+  if (img.naturalWidth && img.naturalHeight) return { width: img.naturalWidth, height: img.naturalHeight }
+  const r = img.getBoundingClientRect()
+  const k = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1
+  return { width: Math.round(r.width * k), height: Math.round(r.height * k) }
+}
 
 /** a text selected in the viewer (none can be: it copies as text, as a page does) */
 function textSelectedIn(root: HTMLElement | null): boolean {
@@ -148,7 +169,7 @@ function textSelectedIn(root: HTMLElement | null): boolean {
   return !!root && !!sel && !sel.isCollapsed && !!sel.toString().trim() && !!sel.anchorNode && root.contains(sel.anchorNode)
 }
 
-const COPY_FAILED: Record<CopyFailure, MessageKey> = { denied: 'viewer.copyDenied', tooBig: 'viewer.copyTooBig', notLoaded: 'viewer.copyNotLoaded', failed: 'viewer.copyError' }
+const COPY_FAILED: Record<Exclude<CopyFailure, 'cancelled'>, MessageKey> = { denied: 'viewer.copyDenied', tooBig: 'viewer.copyTooBig', notLoaded: 'viewer.copyNotLoaded', failed: 'viewer.copyError' }
 
 type Gesture =
   | { kind: 'press'; touch: boolean; start: Point; view: View | null; zoomed: boolean; last: Point; lastT: number; vx: number; vy: number }
@@ -221,15 +242,28 @@ function Viewer({ open }: { open: ViewerOpen }) {
     // this picture's, as the copy was asked (a step to the next one meanwhile draws others)
     const o = origEl.current
     const s = thumbEl.current
-    if (o && (await loaded(o))) return { drawn: { img: o, width: o.naturalWidth, height: o.naturalHeight }, thumb: false }
-    // no original drawn (over the preview limit, or it failed): the thumbnail on screen
-    if (s && (await loaded(s))) return { drawn: { img: s, width: s.naturalWidth, height: s.naturalHeight }, thumb: true }
+    if (o && (await loaded(o))) return { drawn: { img: o, ...drawnSize(o) }, thumb: false }
+    // no original drawn (over the preview limit, it failed, or it is still not here): the thumbnail on screen
+    if (s && (await loaded(s))) return { drawn: { img: s, ...drawnSize(s) }, thumb: true }
     return null
   }
+  // the copy still under way: the next one gives it up, and so does closing the viewer (it then writes nothing)
+  const copying = useRef<AbortController | null>(null)
+  useEffect(() => () => copying.current?.abort(), [])
+  // the result said inside the dialog as well (the toast is outside it); the trailing space alternates so a repeat is
+  // said again
+  const [said, setSaid] = useState('')
   const copy = () => {
-    void copyImage({ blob: item.blob, pick }).then((r) => {
-      if (r.ok) toast({ level: 'success', text: t('viewer.copied'), detail: r.smaller === 'thumb' ? t('viewer.copiedThumb') : r.smaller === 'scaled' ? t('viewer.copiedScaled') : undefined })
-      else toast({ level: 'error', text: t('viewer.copyFailed'), detail: t(COPY_FAILED[r.reason]) })
+    copying.current?.abort()
+    const run = new AbortController()
+    copying.current = run
+    void copyImage({ blob: item.blob, pick, signal: run.signal }).then((r) => {
+      if (copying.current === run) copying.current = null
+      if (!r.ok && r.reason === 'cancelled') return
+      const text = r.ok ? t('viewer.copied') : t('viewer.copyFailed')
+      const detail = r.ok ? (r.smaller === 'thumb' ? t('viewer.copiedThumb') : r.smaller === 'scaled' ? t('viewer.copiedScaled') : undefined) : t(COPY_FAILED[r.reason as Exclude<CopyFailure, 'cancelled'>])
+      toast({ level: r.ok ? 'success' : 'error', text, detail })
+      setSaid((was) => `${text}${detail ? `. ${detail}` : ''}${was.endsWith('\u00a0') ? '' : '\u00a0'}`)
     })
   }
 
@@ -615,6 +649,7 @@ function Viewer({ open }: { open: ViewerOpen }) {
         </EdgeButton>
       )}
       <p className="sr-only" aria-live="polite">{count ? `${item.name}, ${count}` : item.name}</p>
+      <p className="sr-only" role="status" data-testid="image-viewer-said">{said}</p>
     </div>
   )
 }

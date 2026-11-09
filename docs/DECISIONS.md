@@ -16731,17 +16731,25 @@ only by a right-click (the browser's Copy Image, the desktop app's 이미지 복
   (a picture in a message box) goes as it is. Everything else (a JPEG, WebP or GIF; the server's JPEG of a HEIC; a PNG
   the page has only by its address) is drawn on a canvas from the viewer's own `<img>` and goes as a PNG: browsers take
   `image/png` reliably and other types not at all. Nothing is painted first, so transparency stays. A copy pressed while
-  the original loads waits for it. A picture with no original drawn (over the 20 MB preview limit, a HEIC sent in a
+  the original loads waits for it (up to 15 s, then the thumbnail, said so). An SVG with no size of its own (an answer's
+  drawing) is drawn at its size on screen, in device pixels. A picture with no original drawn (over the 20 MB preview limit, a HEIC sent in a
   room, an original that failed) copies the thumbnail on screen, and the toast's second line says so ("원본 대신 화면에
-  보이는 작은 사진을 복사했어요."); one that cannot be shown at all has no 복사. A canvas too big to make (iOS Safari's
-  4096 × 4096) is tried once more at that size, and the toast says it was made smaller; a moving GIF copies the frame on screen.
+  보이는 작은 사진을 복사했어요."); one that cannot be shown at all has no 복사. A canvas too big to make is tried once
+  more within iOS Safari's 4096 × 4096 and a 16384 px side, and the toast says it was made smaller; a moving GIF copies
+  the frame on screen.
 - **How**: `navigator.clipboard.write([new ClipboardItem({ 'image/png': promise })])`, the item made and written inside
   the click or the key press (Safari takes the write only there), with the PNG a promise that may come later.
+- **A copy given up writes nothing.** A copy still waiting (its original loading) is given up by the next press and when
+  the viewer closes: its PNG promise is rejected, so the browser writes nothing and no toast shows. Otherwise a picture
+  could land on the clipboard over text copied since, with a toast out of nowhere (Chromium runs each write on its
+  own), or Safari could cancel the first write itself and report a refusal.
 - **Only where it works; never a button that does nothing.** Shown with `navigator.clipboard.write`, `ClipboardItem`
   and, where the browser has it, `ClipboardItem.supports('image/png')`. So not on a plain http page (no async
-  clipboard) or in an older Firefox. Not in the Android phone app: Android's WebView puts no picture on the clipboard
-  (Chromium writes pictures there through a file provider that only Chrome has), so its write would succeed and leave
-  nothing. The iPhone app's WebView and iOS Safari take it. Not chosen: a bridge for the phone apps (no change to them).
+  clipboard) or in an older Firefox. Not in an Android WebView: it puts no picture on the clipboard (Chromium writes
+  pictures there through a file provider that only Chrome has), so its write would succeed and leave nothing. That is
+  the Android phone app and every in-app browser on Android (a chat app opening a shared team link), told by the user
+  agent's "; wv)". Chrome on Android, the iPhone app's WebView and iOS Safari take it. Not chosen: a bridge for the
+  phone apps (no change to them).
 - **The desktop app needs nothing new**: its team page may already write the clipboard (`clipboard-sanitized-write` for
   the team origin, `desktop/src/main/security.ts`; image/png is a sanitized write like text/html), and its team address
   is always https or this machine, a secure page. `desktop/e2e/clipboard.spec.ts` now writes a PNG with a transparent
@@ -16749,15 +16757,20 @@ only by a right-click (the browser's Copy Image, the desktop app's 이미지 복
   `copyImage(url)` with the main process fetching the original, a second way to the same bytes with its own address
   checks.
 - **Feedback**: a toast, which sits above the viewer: 이미지를 복사했어요, or 이미지를 복사하지 못했어요 with one line of
-  why (the browser refused the clipboard: click the window and try again; too big even made smaller: download it; the
-  picture did not load; anything else: try again, else download it).
+  why (the browser refused the clipboard: click or tap the window and try again; too big even made smaller: download
+  it; the picture did not load; anything else: try again, else download it). The same words go to a status line inside
+  the dialog: the toast is outside the `aria-modal` dialog, where a screen reader (VoiceOver) may not read it.
 - **Not in the room message's ⋮ menu or long-press sheet**: they act on the message (copy its text, edit, delete) and
   have no item per attachment. A picture opens the viewer, where 복사 is.
-- Tests: `web/test/unit/copy-image.test.ts` (where it is offered, a PNG as it is, other types drawn at their size, the
-  thumbnail and a smaller drawing said so, the item written inside the click, each reason, the key with a Korean input
-  source and another layout), e2e `image-viewer.spec.ts` (복사 beside the download, the original read back from
-  Chromium's clipboard as a 2880 × 1800 PNG with no new request, ⌘C and Ctrl+C, a WebP's transparency and a JPEG as PNGs,
-  a copy that waits for the original, the thumbnail of a picture over 20 MB, no button without ClipboardItem;
+- Tests: `web/test/unit/copy-image.test.ts` (where it is offered, an Android WebView by its user agent, a PNG as it is,
+  other types drawn at their size, the thumbnail and a smaller drawing said so, a long strip within the side limit, the
+  item written inside the click, a copy given up writing nothing, each reason, the key with a Korean input source and
+  another layout), e2e `image-viewer.spec.ts` (복사 beside the download, the original read back from Chromium's clipboard
+  as a 2880 × 1800 PNG with no new request, ⌘C and Ctrl+C, the status line in the dialog, a WebP's transparency and a
+  JPEG as PNGs, a copy that waits for the original (its thumbnail a different size), a copy given up by closing the
+  viewer leaving the text copied since, the thumbnail of a picture over 20 MB, no button without ClipboardItem;
   screenshots), desktop e2e `clipboard.spec.ts` (a PNG from the team page). The browser tests use Chromium's own
-  clipboard (granted in `playwright.config.ts`); the desktop test puts back what was on the computer's clipboard.
+  clipboard (granted in `playwright.config.ts`); the desktop test puts back what was on the computer's clipboard. Not
+  tested: Safari (Playwright's WebKit may write the computer's own clipboard), and ⌘C through the real viewer in the
+  desktop app next to its Edit menu's Copy (the page gets the key first; the desktop e2e's team page is a fake one).
 - Version impact: **patch** (one button and one key in the viewer; no API, setting or data change).

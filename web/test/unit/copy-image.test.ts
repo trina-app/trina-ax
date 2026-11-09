@@ -1,9 +1,9 @@
 // The image viewer's 복사 (web/src/lib/copyImage.ts): where it is offered (never a button that does nothing), what goes
 // on the clipboard (a PNG as it is, anything else drawn as a PNG; the thumbnail or a smaller drawing said so), why a copy
-// failed, and the ⌘C / Ctrl+C key. The real drawing and the clipboard read back as image/png are in
+// failed, a copy given up writing nothing, and the ⌘C / Ctrl+C key. The real drawing and the clipboard read back as image/png are in
 // test/e2e/image-viewer.spec.ts (Chromium).
-import { describe, expect, test } from 'bun:test'
-import { canCopyImage, copyImage, isCopyKey, SAFE_CANVAS_AREA, type CopyImageEnv, type Drawn, type EncodePng } from '../../src/lib/copyImage'
+import { afterEach, describe, expect, test } from 'bun:test'
+import { canCopyImage, copyImage, isAndroidWebView, isCopyKey, SAFE_CANVAS_AREA, SAFE_CANVAS_SIDE, type CopyImageEnv, type Drawn, type EncodePng } from '../../src/lib/copyImage'
 
 /** A ClipboardItem as the browser has it: the types and their (promised) values. */
 class FakeItem {
@@ -37,10 +37,13 @@ function encoder(maxArea = Infinity) {
   return { asked, encode }
 }
 
+afterEach(() => {
+  FakeItem.supports = undefined
+})
+
 describe('where 복사 is offered', () => {
   const clip = fakeClipboard()
   test('a page with the async clipboard and ClipboardItem', () => {
-    FakeItem.supports = undefined
     expect(canCopyImage(env(clip))).toBe(true)
   })
   test('ClipboardItem.supports asked where the browser has it', () => {
@@ -48,15 +51,21 @@ describe('where 복사 is offered', () => {
     expect(canCopyImage(env(clip))).toBe(true)
     FakeItem.supports = () => false
     expect(canCopyImage(env(clip))).toBe(false)
-    FakeItem.supports = undefined
   })
   test('not without ClipboardItem (older Firefox), without the async clipboard (a plain http page), or without write', () => {
     expect(canCopyImage(env(clip, { ClipboardItem: null }))).toBe(false)
     expect(canCopyImage(env(clip, { clipboard: null }))).toBe(false)
     expect(canCopyImage({ clipboard: {} as Pick<Clipboard, 'write'>, ClipboardItem: FakeItem as unknown as CopyImageEnv['ClipboardItem'] })).toBe(false)
   })
-  test('not in the Android phone app: its WebView writes no picture', () => {
-    expect(canCopyImage(env(clip, { androidApp: true }))).toBe(false)
+  test('not in an Android WebView (the phone app\'s, an in-app browser\'s): it writes no picture', () => {
+    expect(canCopyImage(env(clip, { androidWebView: true }))).toBe(false)
+  })
+  test('an Android WebView by its user agent; Chrome on Android, iOS and computers are none', () => {
+    expect(isAndroidWebView('Mozilla/5.0 (Linux; Android 14; Pixel 8 Build/AP2A; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/130.0.0.0 Mobile Safari/537.36')).toBe(true)
+    expect(isAndroidWebView('Mozilla/5.0 (Linux; Android 14; Pixel 8; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/130.0.0.0 Mobile Safari/537.36 KAKAOTALK 10.8.0')).toBe(true)
+    expect(isAndroidWebView('Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36')).toBe(false)
+    expect(isAndroidWebView('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148')).toBe(false)
+    expect(isAndroidWebView('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36')).toBe(false)
   })
 })
 
@@ -100,6 +109,14 @@ describe('what goes on the clipboard', () => {
     expect(w * h).toBeLessThanOrEqual(SAFE_CANVAS_AREA)
     expect(w / h).toBeCloseTo(8000 / 6000, 2)
   })
+  test('a long strip too long for a canvas is drawn again within the longest side', async () => {
+    const clip = fakeClipboard()
+    const asked: [number, number][] = []
+    const enc: EncodePng = async (_d, w, h) => (asked.push([w, h]), Math.max(w, h) > SAFE_CANVAS_SIDE ? null : new Blob(['x'], { type: 'image/png' }))
+    const r = await copyImage({ pick: async () => ({ drawn: drawn(40000, 300), thumb: false }) }, env(clip), enc)
+    expect(r).toEqual({ ok: true, smaller: 'scaled' })
+    expect(asked[1]![0]).toBeLessThanOrEqual(SAFE_CANVAS_SIDE)
+  })
   test('the item is made and written at once, inside the click: the PNG may come later', async () => {
     const clip = fakeClipboard()
     let release: (v: { drawn: Drawn; thumb: boolean }) => void = () => {}
@@ -110,6 +127,28 @@ describe('what goes on the clipboard', () => {
     expect(writes).toBe(1)
     release({ drawn: drawn(4, 4), thumb: false })
     expect(await done).toEqual({ ok: true, smaller: null })
+  })
+})
+
+describe('a copy given up', () => {
+  test('while its picture loads: nothing is written, and it is no failure to tell', async () => {
+    const clip = fakeClipboard()
+    const run = new AbortController()
+    let release: (v: { drawn: Drawn; thumb: boolean }) => void = () => {}
+    const done = copyImage({ pick: () => new Promise((r) => (release = r)), signal: run.signal }, env(clip), encoder().encode)
+    run.abort()
+    expect(await done).toEqual({ ok: false, reason: 'cancelled' })
+    // the picture that comes later goes nowhere
+    release({ drawn: drawn(4, 4), thumb: false })
+    await new Promise((r) => setTimeout(r, 10))
+    expect(clip.written).toEqual([])
+  })
+  test('one already on the clipboard stays copied', async () => {
+    const clip = fakeClipboard()
+    const run = new AbortController()
+    expect(await copyImage({ pick: async () => ({ drawn: drawn(4, 4), thumb: false }), signal: run.signal }, env(clip), encoder().encode)).toEqual({ ok: true, smaller: null })
+    run.abort()
+    expect(clip.written).toHaveLength(1)
   })
 })
 
