@@ -130,17 +130,30 @@ function subjectName(db: Database, t: string, id: string | null): string | null 
   return null
 }
 
-/** The project's participants can be changed from its screen: a team project in projects/<name> in place. */
-export const accessEditable = (r: Pick<ProjectRow, 'folder_path' | 'trashed_with'>, files: AppContext['files']): boolean => {
+/**
+ * The project's participants can be changed from its screen (and its folder trashed with it), by `p`: a team project
+ * in projects/<name> in place. A member (its creator) only when the server made that folder for it (folder_made):
+ * a project older builds made on an existing projects/<name> folder carries rules an admin set, which stay the
+ * admins' (review: a member's older project on an admin's folder would otherwise hand them its rules).
+ */
+export const accessEditable = (r: Pick<ProjectRow, 'folder_path' | 'trashed_with' | 'folder_made'>, files: AppContext['files'], p: Principal): boolean => {
   if (!isProjectsFolder(r.folder_path) || r.trashed_with !== null) return false
+  if (!isAdminRole(p) && r.folder_made !== 1) return false
   try { return fs.lstatSync(path.join(files.fx.root, ...r.folder_path.split('/'))).isDirectory() } catch { return false }
 }
 
-/** GET /api/projects/:id/access: who sees a team project, as its edit screen shows it. */
-export function projectAccess(ctx: AppContext, r: ProjectRow): ProjectAccess {
+/**
+ * GET /api/projects/:id/access: who sees a team project, as its edit screen shows it to `p` (its creator or an admin).
+ * A member gets only the count for a project they may not change (its folder's rules are an admin's), and of the rules
+ * on folders inside it only those of folders they can list (an admin's restricted folder inside is not named).
+ */
+export function projectAccess(ctx: AppContext, r: ProjectRow, p: Principal): ProjectAccess {
   const db = ctx.db
+  const editable = accessEditable(r, ctx.files, p)
+  const people = new Audiences(db, ctx.files).of(r).length
   const row = getFolderByPath(db, r.folder_path)
   const rules = row ? rulesOf(db, row.id) : []
+  if (!editable && !isAdminRole(p)) return { editable, participants: [], otherRules: [], rulesHash: rulesHash(rules), people }
   const participants = rules.filter(isParticipantRule).map((x) => ({
     subjectType: x.subjectType as 'group' | 'user', subjectId: x.subjectId!, name: subjectName(db, x.subjectType, x.subjectId) ?? '',
     ...(x.subjectType === 'user' && x.subjectId === r.created_by ? { creator: true } : {}),
@@ -152,9 +165,13 @@ export function projectAccess(ctx: AppContext, r: ProjectRow): ProjectAccess {
   if (r.folder_path !== '') {
     const below = db.query("SELECT f.path, r.subject_type, r.subject_id, r.access FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE substr(f.path, 1, length(?) + 1) = ? || '/' ORDER BY f.path, r.subject_type, r.subject_id")
       .all(r.folder_path, r.folder_path) as { path: string; subject_type: ProjectOtherRule['subjectType']; subject_id: string | null; access: ProjectOtherRule['access'] }[]
-    for (const x of below) otherRules.push({ path: x.path, subjectType: x.subject_type, subjectId: x.subject_id, name: subjectName(db, x.subject_type, x.subject_id), access: x.access })
+    const set = ctx.files.rules()
+    for (const x of below) {
+      if (!isAdminRole(p) && !set.canList(p, segsOf(x.path))) continue
+      otherRules.push({ path: x.path, subjectType: x.subject_type, subjectId: x.subject_id, name: subjectName(db, x.subject_type, x.subject_id), access: x.access })
+    }
   }
-  return { editable: accessEditable(r, ctx.files), participants, otherRules, rulesHash: rulesHash(rules), people: new Audiences(db, ctx.files).of(r).length }
+  return { editable, participants, otherRules, rulesHash: rulesHash(rules), people }
 }
 
 /** At most this many entries are looked at when the widening confirm counts a project's files. */
@@ -185,7 +202,9 @@ function whatTheySee(ctx: AppContext, folder: string, caller: string, readable: 
       if (hiddenEntry(e.name, segs.length) || badSegment(e.name) || e.isSymbolicLink()) continue
       const s = [...segs, e.name]
       if (segs.length === base.length && e.name === 'skills' && e.isDirectory()) continue
-      if (e.isDirectory()) { if (readable(s)) walk(s) }
+      // every folder is walked (one nobody added may read can hold one they may), each file counted once someone added
+      // and the caller can both read it
+      if (e.isDirectory()) walk(s)
       else if (e.isFile() && readable(s)) { files++; if (lastWriter(s) !== caller) othersFiles++ }
     }
   }
@@ -195,7 +214,7 @@ function whatTheySee(ctx: AppContext, folder: string, caller: string, readable: 
   try {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       if (!e.isDirectory() || e.isSymbolicLink() || hiddenEntry(e.name, base.length + 1) || badSegment(e.name)) continue
-      try { if (fs.lstatSync(path.join(dir, e.name, 'SKILL.md')).isFile()) skills++ } catch {}
+      try { if (fs.lstatSync(path.join(dir, e.name, 'SKILL.md')).isFile() && readable([...base, 'skills', e.name, 'SKILL.md'])) skills++ } catch {}
     }
   } catch {}
   return { files, othersFiles, skills }
@@ -223,14 +242,15 @@ export function previewAccess(ctx: AppContext, p: Principal, body: { participant
   const removed = people.filter((x) => atLeast(rules.access(x, segs), 'read') && !atLeast(after.access(x, segs), 'read'))
   const n = people.filter((x) => atLeast(after.access(x, segs), 'read')).length
   if (!added.length) return { people: n, added: 0, removed: removed.length, files: 0, othersFiles: 0, sharedChats: 0, skills: 0 }
-  const seen = whatTheySee(ctx, r.folder_path, p.id, (s) => added.some((x) => atLeast(after.access(x, s), 'read')))
+  // what the caller can read themselves: a member is never told about a folder inside it they cannot see
+  const seen = whatTheySee(ctx, r.folder_path, p.id, (s) => atLeast(rules.access(p, s), 'read') && added.some((x) => atLeast(after.access(x, s), 'read')))
   const sharedChats = (db.query('SELECT COUNT(*) AS n FROM chats WHERE project_id = ? AND shared_at IS NOT NULL AND deleted_at IS NULL').get(r.id) as { n: number }).n
   return { people: n, added: added.length, removed: removed.length, ...seen, sharedChats }
 }
 
 /** The folder's rules now and after the change (checked: editable, the participants). */
 function proposed(ctx: AppContext, r: ProjectRow, p: Principal, participants: readonly ProjectParticipant[], locale: Locale) {
-  if (!accessEditable(r, ctx.files)) fail('conflict', tr('projectAccessNotEditable', locale), { params: { reason: 'project_not_editable' } })
+  if (!accessEditable(r, ctx.files, p)) fail('conflict', tr('projectAccessNotEditable', locale), { params: { reason: 'project_not_editable' } })
   const row = getFolderByPath(ctx.db, r.folder_path)
   const current = row ? rulesOf(ctx.db, row.id) : []
   const keep = new Set(current.filter(isParticipantRule).map(key))
@@ -273,5 +293,5 @@ export function saveParticipants(ctx: AppContext, r: ProjectRow, p: Principal, a
       try { ctx.services.realtime.publish(id, { type: 'notice', data: { level: 'info', code: 'project_access_widened', message: tr('projectAccessWidened', loc, { by: actor.name, name: r.name, n: String(gained) }) } }) } catch (e) { ctx.log.warn('project notice failed', { err: e }) }
     }
   }
-  return projectAccess(ctx, r)
+  return projectAccess(ctx, r, p)
 }

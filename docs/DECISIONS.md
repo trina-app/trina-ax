@@ -16241,6 +16241,14 @@ edit screen. A review before building asked for eight changes, all built:
   rule other than the floor, rules on folders inside it) are kept as they are and listed read-only, with a link to Admin
   for admins; naming such a person or group as a participant is 400 `participant_fixed`. The creator's rule is always
   kept. Participants are changed only for a project in `projects/<name>` whose folder is in place.
+- **Only a folder the server made is the creator's** (independent review, must-fix). Older builds let a member make a
+  project on an existing `projects/<name>` an admin had made with rules; that member is its creator. `projects.folder_made`
+  (migration 277, add-only, existing rows 0) is 1 only when create or share made the folder, and 0 again after an admin
+  points the project at an existing folder. A member changes participants, or trashes the folder with the project, only
+  when it is 1; admins change any `projects/<name>` project. For a project a member may not change, the access answer
+  gives them the count only (no names of an admin's rules), and admins alone see that summary in the dialog. Rules on
+  folders inside a member's project are listed to them only for folders they can list, and the dry run counts only files
+  the caller can read (an admin's restricted folder inside is neither named nor counted).
 - **The widening confirm is the server's.** `POST /api/projects/access-preview` (the creator or an admin for a project;
   whoever may make team projects for a new one): how many people would see it, who gains and loses it, and for the people
   who gain it the files they could read there (skills/ left out), those someone other than the caller put there (the
@@ -16254,10 +16262,12 @@ edit screen. A review before building asked for eight changes, all built:
   names only their own groups (a group already on the folder may stay) and active people.
 - **Delete.** `DELETE /api/projects/:id?trashFolder=1` also puts a `projects/<name>` folder in the files trash, by the
   creator or an admin (a member's project folder carries rules, so only admins could trash it otherwise). The trash item
-  is a project folder there: admins restore it. A folder inside it the caller cannot write still stops it (and the
-  project stays). Off unless ticked in the confirm.
+  is a project folder there: admins restore it. Only the project's own folder is let through: for a member, anything
+  managed inside it (a rule folder, a group's folder, another project's folder) still refuses it, as does a folder
+  inside they cannot write, and then the project and its chats stay as they are (the folder goes before anything else
+  of the delete). Off unless ticked in the confirm.
 - **Files.** "프로젝트로 만들기" is gone; "프로젝트 열기" stays. Projects older builds made on other folders keep working
-  unchanged, with no migration and no label for members; admins read one line in the edit dialog that it is outside
+  unchanged, with no data migration and no label for members; admins read one line in the edit dialog that it is outside
   `projects/` and is changed in Admin › Folder permissions.
 - **The switch.** `TeamSettings.projectCreators` (`members` | `admins`, a settings key), enforced in create and share
   (403 `projects_admins_only`) and in the new-project dry run; `Me.team.projectCreators` tells the web.

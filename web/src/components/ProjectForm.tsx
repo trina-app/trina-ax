@@ -202,8 +202,9 @@ export function ProjectForm({ project, onClose, onSaved }: {
             </div>
           </Field>
         )}
-        {/* a team project whose participants are not changed here: who sees it, and (admins) where to change it */}
-        {teamProject && !picking && access && <AccessSummary names={access.participants.map((x) => (x.subjectType === 'group' ? t('projects.whoGroup', { name: x.name }) : x.name))} count={access.people} />}
+        {/* a team project whose participants are not changed here: who sees it, for admins (a member gets no details of
+            an admin's folder rules, and no label for a project made before) */}
+        {teamProject && !picking && access && admin && <AccessSummary names={access.participants.map((x) => (x.subjectType === 'group' ? t('projects.whoGroup', { name: x.name }) : x.name))} count={access.people} />}
         {editsAccess && otherRules.length > 0 && (
           <div className="rounded-lg border border-line px-3 py-2 text-sm" data-testid="project-other-rules">
             <p className="font-medium">{t('projects.otherRules')}</p>

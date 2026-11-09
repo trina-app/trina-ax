@@ -265,6 +265,14 @@ export class TeamFiles {
     return !!db.query(`SELECT 1 FROM projects WHERE trashed_with IS NULL AND substr(folder_path, 1, 6) <> 'users/' AND (${livePrefix === '' ? "folder_path <> ''" : "folder_path = ?1 OR substr(folder_path, 1, length(?1) + 1) = ?1 || '/'"}) LIMIT 1`)
       .get(...(livePrefix === '' ? [] : [livePrefix]))
   }
+  /** managedInside() for what is strictly below `base` (base itself left out). */
+  private managedBelow(rules: RuleSet, base: string): boolean {
+    if (rules.ruleFolders().some((f) => f !== base && isUnder(base, f))) return true
+    const db = this.ctx.db
+    const rows = db.query("SELECT path FROM folders WHERE substr(path, 1, length(?) + 1) = ? || '/'").all(base, base) as { path: string }[]
+    for (const f of rows) if (this.managedRows(f.path, f.path)) return true
+    return !!db.query("SELECT 1 FROM projects WHERE trashed_with IS NULL AND substr(folder_path, 1, length(?) + 1) = ? || '/' LIMIT 1").get(base, base)
+  }
   private assertMayChangeManaged(user: Principal, rules: RuleSet, base: string): boolean {
     const managed = this.managedInside(rules, base)
     if (managed && user.role !== 'owner' && user.role !== 'admin') fileError('forbidden', 'ruleFolder')
@@ -702,6 +710,9 @@ export class TeamFiles {
     // project's creator or an admin, a projects/<name> folder they write; a folder inside it they cannot write still
     // stops it, below)
     if (!o.projectFolder) this.assertMayChangeManaged(user, rules, r.rel)
+    // the project's own folder is its editor's to trash; anything managed inside it (a rule folder, a group's folder,
+    // another project's folder) stays admin-only, as for any other trash (review: another project went to the trash)
+    else if (user.role !== 'owner' && user.role !== 'admin' && this.managedBelow(rules, r.rel)) fileError('forbidden', 'ruleFolder')
     const isDir = r.st!.isDirectory()
     let size: number
     if (isDir) { this.assertSubtreeWritable(user, rules, r.segs); size = treeSize(r.abs).bytes }

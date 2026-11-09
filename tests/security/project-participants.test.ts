@@ -100,11 +100,80 @@ describe('who may see and change participants', () => {
     const legacy = uuidv7()
     A.ctx.db.query("INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at) VALUES (?, 'Old', 'groups/marketing', '', 'alice', '2026-01-01T00:00:00Z')").run(legacy)
     const a = await access('alice', legacy)
-    expect([a.status, a.body.editable]).toEqual([200, false])
+    // a member gets the count only: the folder's rules are an admin's
+    expect(a.status).toBe(200)
+    expect(a.body).toMatchObject({ editable: false, participants: [], otherRules: [] })
     const r = await put('alice', legacy, [user('bob')], a.body.rulesHash)
     expect([r.status, r.body.error.params.reason]).toEqual([409, 'project_not_editable'])
     expect(rulesAt('groups/marketing')).toEqual([{ t: 'group', s: 'marketing', a: 'write' }])
     expect((await preview('alice', { projectId: legacy, participants: [] })).status).toBe(409)
+  })
+})
+
+describe('what a member may not reach through a project (review)', () => {
+  test('an older project of hers on an admin\'s projects/<name> folder: its rules stay the admins\'', async () => {
+    // an admin made projects/hr for marketing; alice, a member who could write it, made a project on it in an older build
+    fs.mkdirSync(path.join(A.team, 'projects/hr'), { recursive: true })
+    const row = ensureFolderRow(A.ctx.db, 'projects/hr')
+    A.ctx.db.transaction(() => replaceRules(A.ctx.db, row.id, [{ subjectType: 'group', subjectId: 'marketing', access: 'write' }], 'carol'))()
+    const id = uuidv7()
+    A.ctx.db.query("INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at) VALUES (?, 'HR', 'projects/hr', '', 'alice', '2026-01-01T00:00:00Z')").run(id)
+    const a = await access('alice', id)
+    expect(a.body).toMatchObject({ editable: false, participants: [], otherRules: [] })
+    const r = await put('alice', id, [user('bob')], a.body.rulesHash)
+    expect([r.status, r.body.error.params.reason]).toEqual([409, 'project_not_editable'])
+    expect((await preview('alice', { projectId: id, participants: [user('bob')] })).status).toBe(409)
+    const del = await A.json(`/api/projects/${id}?trashFolder=1`, { as: 'alice', method: 'DELETE' })
+    expect([del.status, del.body.error.params.reason]).toEqual([409, 'project_folder_stays'])
+    expect(rulesAt('projects/hr')).toEqual([{ t: 'group', s: 'marketing', a: 'write' }])
+    expect(fs.existsSync(path.join(A.team, 'projects/hr'))).toBe(true)
+    // an admin sees and changes it
+    const c = await access('carol', id)
+    expect(c.body.editable).toBe(true)
+    expect(c.body.participants).toEqual([{ subjectType: 'group', subjectId: 'marketing', name: 'Marketing' }])
+  })
+
+  test('a folder inside her project that she cannot see is neither named nor counted', async () => {
+    const p = await create('alice', { name: 'Hidden inside', participants: [user('erin')] })
+    write(`${p.folderPath}/brief.md`, 'b')
+    // an admin's restricted folder inside: finance only
+    const sub = ensureFolderRow(A.ctx.db, `${p.folderPath}/payroll-2027`)
+    A.ctx.db.transaction(() => replaceRules(A.ctx.db, sub.id, [{ subjectType: 'everyone', subjectId: null, access: 'none' }, { subjectType: 'group', subjectId: 'finance', access: 'write' }], 'carol'))()
+    write(`${p.folderPath}/payroll-2027/a.md`, 'x')
+    write(`${p.folderPath}/payroll-2027/b.md`, 'x')
+    const mine = await access('alice', p.id)
+    expect(JSON.stringify(mine.body)).not.toContain('payroll-2027')
+    expect(JSON.stringify(mine.body)).not.toContain('Finance')
+    expect((await access('carol', p.id)).body.otherRules.map((r: { path: string }) => r.path)).toContain(`${p.folderPath}/payroll-2027`)
+    // bob (finance) would read the payroll files once added: alice is told of the brief only
+    expect((await preview('alice', { projectId: p.id, participants: [user('erin'), user('bob')] })).body).toMatchObject({ added: 1, files: 1 })
+    expect((await preview('carol', { projectId: p.id, participants: [user('erin'), user('bob')] })).body).toMatchObject({ added: 1, files: 3 })
+  })
+
+  test('trashing her project\'s folder never takes what is managed inside it: another project, a rule folder', async () => {
+    const p = await create('alice', { name: 'Outer', participants: [user('erin')] })
+    // erin's older project on a folder inside it
+    write(`${p.folderPath}/sub/x.md`, 'x')
+    const inner = uuidv7()
+    A.ctx.db.query("INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at) VALUES (?, 'Inner', ?, '', 'erin', '2026-01-01T00:00:00Z')").run(inner, `${p.folderPath}/sub`)
+    const r = await A.json(`/api/projects/${p.id}?trashFolder=1`, { as: 'alice', method: 'DELETE' })
+    expect(r.status).toBe(403)
+    expect(fs.existsSync(path.join(A.team, p.folderPath))).toBe(true)
+    expect(A.ctx.db.query('SELECT trashed_with FROM projects WHERE id = ?').get(inner)).toEqual({ trashed_with: null })
+    expect(A.ctx.db.query('SELECT 1 AS x FROM projects WHERE id = ?').get(p.id)).toEqual({ x: 1 })
+    A.ctx.db.query('DELETE FROM projects WHERE id = ?').run(inner)
+    // a rule folder inside it alice cannot write stops it too, and nothing changes
+    const q = await create('alice', { name: 'Ruled inside', participants: [user('erin')] })
+    const sub = ensureFolderRow(A.ctx.db, `${q.folderPath}/legal`)
+    A.ctx.db.transaction(() => replaceRules(A.ctx.db, sub.id, [{ subjectType: 'user', subjectId: 'alice', access: 'read' }], 'carol'))()
+    const chat = sharedChat(q.id, 'erin')
+    const s2 = await A.json(`/api/projects/${q.id}?trashFolder=1`, { as: 'alice', method: 'DELETE' })
+    expect(s2.status).toBe(403)
+    expect(A.ctx.db.query('SELECT shared_at IS NOT NULL AS s, deleted_at FROM chats WHERE id = ?').get(chat)).toEqual({ s: 1, deleted_at: null })
+    expect(fs.existsSync(path.join(A.team, q.folderPath))).toBe(true)
+    // an admin may
+    expect((await A.json(`/api/projects/${q.id}?trashFolder=1`, { as: 'carol', method: 'DELETE' })).status).toBe(204)
+    expect(fs.existsSync(path.join(A.team, q.folderPath))).toBe(false)
   })
 })
 

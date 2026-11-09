@@ -514,10 +514,11 @@ export const chatsRoutes: RouteModule = {
       // with instructions"). The creator wrote this first version of the instructions: the turns of anyone else count
       // them as outside content (chat/runtime.ts projectTaints).
       const seen = (f: string) => canRead(ctx.files, p, f)
-      const insert = (folder: string) => {
+      // folder_made: the server made this team project's folder (its creator's to change who sees it; migration 277)
+      const insert = (folder: string, made = false) => {
         assertFolderFree(db, ctx.files.fx.caseInsensitive, folder, locale, { mayName: seen })
-        db.query('INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored) VALUES (?,?,?,?,?,?,?,?)')
-          .run(id, body.name, folder, body.instructions, auth.user.id, new Date().toISOString(), auth.user.id, body.instructions)
+        db.query('INSERT INTO projects (id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, folder_made) VALUES (?,?,?,?,?,?,?,?,?)')
+          .run(id, body.name, folder, body.instructions, auth.user.id, new Date().toISOString(), auth.user.id, body.instructions, made ? 1 : 0)
       }
       let slug = body.slug?.normalize('NFC')
       if (slug !== undefined && (slug.includes('/') || badSegment(slug))) fail('validation', undefined, { fields: { 'body.slug': 'not a valid folder name' } })
@@ -553,7 +554,7 @@ export const chatsRoutes: RouteModule = {
         db.transaction(() => {
           const row = ensureFolderRow(db, made.path)
           replaceRules(db, row.id, rules, auth.user.id)
-          insert(made.path)
+          insert(made.path, true)
           audit(db, { actor: auth.user.id, action: 'project.create', target: id, detail: { name: body.name, folderPath: made.path, rules } })
         })()
       } catch (e) { unmakeProjectFolder(ctx, made); throw e }
@@ -583,7 +584,7 @@ export const chatsRoutes: RouteModule = {
       if (!r || !canSeeProject(ctx.files, p, r)) fail('not_found')
       if (!mayEdit(ctx, p, r!)) fail('forbidden', tr('projectCreatorOnly', c.get('locale')))
       if (isPersonalPath(r!.folder_path)) fail('conflict', tr('sharedProjectPersonal', c.get('locale')), { params: { reason: 'project_personal' } })
-      return projectAccess(ctx, r!)
+      return projectAccess(ctx, r!, p)
     })
 
     // change who sees it: the project folder's rules, saved as Admin › Folder permissions saves them
@@ -641,8 +642,10 @@ export const chatsRoutes: RouteModule = {
       const save = ctx.db.transaction(() => {
         // one project per folder (the folder was checked for write above; an admin can read every team folder)
         if (repoint) assertFolderFree(ctx.db, ctx.files.fx.caseInsensitive, folder, locale, { except: r!.id, mayName: (f) => canRead(ctx.files, p, f) })
-        ctx.db.query('UPDATE projects SET name = ?, folder_path = ?, instructions = ?, instructions_author = ?, instructions_authored = ?, trashed_with = ? WHERE id = ?')
-          .run(next.name, folder, next.instructions, author.by, author.text, repoint ? null : r!.trashed_with, r!.id)
+        // pointed at an existing folder, the project's folder is no longer one the server made for it (its rules are
+        // whatever that folder has: the admins' to change)
+        ctx.db.query('UPDATE projects SET name = ?, folder_path = ?, instructions = ?, instructions_author = ?, instructions_authored = ?, trashed_with = ?, folder_made = ? WHERE id = ?')
+          .run(next.name, folder, next.instructions, author.by, author.text, repoint ? null : r!.trashed_with, repoint ? 0 : r!.folder_made ?? 0, r!.id)
         if (shareTo !== null) {
           ctx.db.query('UPDATE projects SET share_chats = ? WHERE id = ?').run(shareTo ? 1 : 0, r!.id)
           audit(ctx.db, { actor: auth.user.id, action: 'project.share_chats', target: r!.id, detail: { on: shareTo } })
@@ -699,7 +702,7 @@ export const chatsRoutes: RouteModule = {
           // one project per folder: the new folder's name steps around the folders projects name; a project made on
           // that path in the moment since is refused here, and the folder goes again
           assertFolderFree(ctx.db, ctx.files.fx.caseInsensitive, made.path, locale, { except: r!.id, mayName: (f) => canRead(ctx.files, p, f) })
-          ctx.db.query('UPDATE projects SET folder_path = ? WHERE id = ?').run(made.path, r!.id)
+          ctx.db.query('UPDATE projects SET folder_path = ?, folder_made = 1 WHERE id = ?').run(made.path, r!.id)
           audit(ctx.db, { actor: auth.user.id, action: 'project.share', target: r!.id, detail: { name: r!.name, folderPath: made.path, files: out.files, bytes: out.bytes, rules } })
         })()
       } catch (e) { unmakeProjectFolder(ctx, made); throw e }
@@ -718,7 +721,7 @@ export const chatsRoutes: RouteModule = {
       // its folder to the files trash too (asked): a team project's own projects/<name> in place only. A member's project
       // folder carries rules, so without this only an admin could trash it (team-files/service.ts remove)
       const trashFolder = !!query.trashFolder
-      if (trashFolder && !accessEditable(r!, ctx.files)) fail('conflict', tr('projectTrashFolderNot', c.get('locale')), { params: { reason: 'project_folder_stays' } })
+      if (trashFolder && !accessEditable(r!, ctx.files, p)) fail('conflict', tr('projectTrashFolderNot', c.get('locale')), { params: { reason: 'project_folder_stays' } })
       // the private chats stay, without project. Its shared chats (those in the trash too) go to their creators' trash,
       // as a single delete does (docs/DECISIONS.md "Shared project chats: the trash and live lists"): each stops being
       // shared and, restored, is its creator's chat without project, keeping the several-authors rules (chat/turn.ts
@@ -731,9 +734,10 @@ export const chatsRoutes: RouteModule = {
       const rules = rulesInPlace(ctx.db, ctx.files, r!)
       const kept = shared.filter((x) => accountSeesProject(ctx.db, rules, r!, x.user_id))
       const purged = shared.filter((x) => !kept.includes(x))
-      for (const x of shared) rt.stopChat(x.id)
-      // the folder first: when it cannot go (a folder inside it the caller cannot write), the project stays too
+      // the folder first: when it cannot go (a folder inside it the caller cannot write or may not trash), the project
+      // and its chats stay as they are
       if (trashFolder) await mapErrors(c.get('locale'), () => componentC(ctx).files.remove(auth.user.id, r!.folder_path, null, { projectFolder: true }), 'params.id')
+      for (const x of shared) rt.stopChat(x.id)
       const now = new Date().toISOString()
       ctx.db.transaction(() => {
         for (const x of purged) rt.purgeChat(x.id)

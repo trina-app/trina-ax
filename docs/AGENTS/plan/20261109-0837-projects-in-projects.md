@@ -7,8 +7,8 @@
   `server/src/chat/project-access.ts`, `server/src/admin/` (settings, users, groups), `server/src/team-files/service.ts`,
   `shared/src/api/`, `web/src/components/ProjectForm.tsx`, `web/src/pages/Projects.tsx`, `web/src/pages/Files.tsx`,
   Admin › Team settings). Why: projects, folder permissions and files are core (see docs/REPOSITORY-RULES.md)
-- Version impact: minor. New endpoints and a team setting; creating a project on an existing folder and the old share
-  copy are refused (older clients get a 400 that says where projects go).
+- Version impact: minor. New endpoints, a team setting and an add-only migration (277); creating a project on an
+  existing folder and the old share copy are refused (older clients get a 400 that says where projects go).
 
 ## Goal
 
@@ -79,7 +79,8 @@ project skills themselves (feat/project-skills).
 - Two writers (Admin › Folder permissions and the project screen): both go through `replaceRules` + `rulesHash` +
   `afterAccessChange`, so neither undoes the other unseen.
 - Coordination: feat/project-skills changes skills files; this branch does not touch them (skills are counted by path).
-- No migration. Five app languages, phone and desktop, light and dark.
+- One add-only migration, 277 (`projects.folder_made`), added after the review; feat/project-skills takes 276. No data
+  migration of older projects. Five app languages, phone and desktop, light and dark.
 
 ## Tests
 
