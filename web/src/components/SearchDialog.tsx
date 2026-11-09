@@ -323,7 +323,8 @@ function SearchBox({ onClose }: { onClose: () => void }) {
         push('attention', t('search.attention'), attention)
         const busy = new Set(attention.map((r) => r.key))
         const mixed = [
-          ...chats.slice(0, 8).map((c) => ({ at: c.updatedAt, row: chatRow(c) })),
+          // the newest by date: the list's first page starts with my pinned chats (docs/DECISIONS.md "Pinned chats")
+          ...[...chats].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 8).map((c) => ({ at: c.updatedAt, row: chatRow(c) })),
           ...[...allProjects].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 2).map((p) => ({ at: p.createdAt, row: projectRow(p) })),
         ]
           .filter((x) => !busy.has(x.row.key))

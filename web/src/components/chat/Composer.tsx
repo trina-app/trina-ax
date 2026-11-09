@@ -34,12 +34,14 @@ import { previewKind, serverPreview } from '../../lib/preview'
 import { useVoiceInput } from '../../lib/useVoiceInput'
 import { micState, voiceBlockedHere } from '../../lib/voice'
 import { useConfidentialChat } from '../../lib/confidential'
-import { openFilePreview, openTeamFile } from '../../lib/sidePanel'
+import { openFilePreview, openTeamFile, usePanelExpanded } from '../../lib/sidePanel'
 import { loadChips, patchStash, readStash, registerComposer, saveChips, subscribeStash, TEAM_FILE_DRAG_TYPE, writeStash, type AttachResult } from '../../lib/teamAttach'
 import { cancelUpload, uploadFile, uploadPercent, type UploadProgress } from '../../lib/upload'
 import { pastedFiles } from '../../lib/paste'
 import { UploadLabel } from '../UploadLabel'
 import { isLocalImage, PictureTile } from '../ChipThumb'
+import { ImageGroup } from '../ImageViewer'
+import { attachmentItem, localItem } from '../../lib/imageViewer'
 import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { useLocale, useT } from '../../i18n'
 import { useFolderWords } from '../../lib/folderLabels'
@@ -242,15 +244,18 @@ export default function Composer({
   const hint = transcribing ? voice.transcribingText : answering ? t('composer.answerPlaceholder') : running && queueing ? t(choiceWaiting ? 'outbox.placeholderChoice' : 'outbox.placeholder') : (placeholder ?? t('composer.placeholder'))
   // the box grows with its text, and also with a long placeholder (an empty box measures its placeholder), so a hint
   // that needs 2 lines on a phone is not cut in half when it changes while the text stays the same; and again when the
-  // person's text size changes (Settings > Profile, over this page)
+  // person's text size changes (Settings > Profile, over this page). Behind a big side panel (lib/sidePanel.ts) the box
+  // is not drawn and measures 0: it keeps its height, and is measured again when the page shows
   const textSize = useTextSize()
+  const behindPanel = usePanelExpanded()
   useEffect(() => {
     const ta = taRef.current
     if (!ta) return
+    const was = ta.style.height
     ta.style.height = 'auto'
-    ta.style.height = Math.min(ta.scrollHeight, 240) + 'px'
+    ta.style.height = ta.scrollHeight ? Math.min(ta.scrollHeight, 240) + 'px' : was
     // (and again when the box comes back after a recording: the bar stood in its place)
-  }, [text, hint, textSize, voice.recording])
+  }, [text, hint, textSize, voice.recording, behindPanel])
 
   useEffect(() => {
     if (autoFocus && window.matchMedia?.('(pointer: fine)').matches && !document.querySelector('[role="dialog"]')) taRef.current?.focus()
@@ -606,6 +611,8 @@ export default function Composer({
       >
         {files.length > 0 && (
           // centred on the row: a file's compact chip beside a picture's 64 px square keeps its own height
+          // the box's pictures: ← → in the image viewer walks through these
+          <ImageGroup>
           <ul className="flex flex-wrap items-center gap-2 px-4 pt-3" aria-label={t('composer.attachments')}>
             {files.map((f) => {
               const canOpen = !!previewKind(f.name) && (f.source === 'upload' || f.status === 'done')
@@ -623,7 +630,8 @@ export default function Composer({
                       failed={f.status === 'failed'}
                       removeLabel={t('composer.removeAttachment', { name: f.name })}
                       onRemove={() => removeFile(f)}
-                      onOpen={canOpen ? open : undefined}
+                      // its own bytes in the image viewer; a HEIC photo, once uploaded, as the server's JPEG
+                      item={!canOpen ? null : serverPreview(f.name) && f.attachment ? attachmentItem(f.attachment) : localItem(f.id, f.file, f.name)}
                     />
                     <span className="sr-only" role="status">
                       {f.status === 'uploading' && t('composer.attaching', { name: f.name })}
@@ -700,6 +708,7 @@ export default function Composer({
               )
             })}
           </ul>
+          </ImageGroup>
         )}
 
         {voice.recording ? (

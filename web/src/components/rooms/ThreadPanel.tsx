@@ -20,6 +20,7 @@ import { ErrorNote, IconButton, Skeleton } from '../ui'
 import { RoomAiStatus } from './RoomAiStatus'
 import { RoomComposer } from './RoomComposer'
 import { RoomMessages } from './RoomMessages'
+import { ImageGroup } from '../ImageViewer'
 
 const NO_PENDING: PendingSend[] = []
 const NO_REPLIES: RoomMessage[] = []
@@ -141,7 +142,8 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
               <p className="text-sm text-muted">{t('rooms.threadNotFound')}</p>
             </div>
           ) : (
-            <>
+            // the thread's pictures, root and replies: ← → in the image viewer walks through these
+            <ImageGroup>
               {!root && view?.loading && <Skeleton lines={3} className="pt-2" />}
               {!!view?.error && !notFound && <ErrorNote onRetry={() => void useRooms.getState().loadThread(roomId, rootId)}>{errorText(view.error, locale, t('error.network'))}</ErrorNote>}
               {root && <RoomMessages roomId={roomId} messages={[root]} pending={NO_PENDING} meId={meId} members={members} variant="root" highlight={highlight} />}
@@ -154,7 +156,7 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
               {view?.loading && root && !replies.length && <Loader2 size={16} className="mx-auto my-2 animate-spin text-faint" aria-label={t('common.loading')} />}
               <RoomMessages roomId={roomId} messages={replies} pending={pending} meId={meId} members={members} variant="reply" threadRootId={rootId} dayBefore={root?.createdAt ?? null} highlight={highlight} />
               <RoomAiStatus roomId={roomId} threadRootId={rootId} />
-            </>
+            </ImageGroup>
           )}
         </div>
       </div>

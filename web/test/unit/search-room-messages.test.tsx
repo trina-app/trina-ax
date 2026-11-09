@@ -3,9 +3,11 @@
 // page), each row with the sender, the room, "스레드" for a reply, the time and the text around the match marked;
 // choosing one opens the room at it (a reply: its thread). And the timeline as a window around an older message
 // (store/rooms.ts loadAround / loadNewer): new messages wait until it reaches the newest, sending goes back there.
+// Also the 최근 section with pinned chats: the newest by date, though the list's first page starts with the pins
+// (docs/DECISIONS.md "Pinned chats").
 import { afterAll, afterEach, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
-import { RoomSearchPage, uuidv7, type Me, type RoomSearchHit } from '@mycel/shared/api'
+import { RoomSearchPage, uuidv7, type Chat, type Me, type RoomSearchHit } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import SearchDialog, { hitHref, hitText, MESSAGES_FEW } from '../../src/components/SearchDialog'
 import { useRooms, withMessage, type RoomsData } from '../../src/store/rooms'
@@ -35,6 +37,8 @@ const MORE = [hit({ snippet: '견적 다음 페이지' })]
 const ROOMS = [{ id: TEAM, kind: 'team', name: 'acme-design', peers: [BEN], memberCount: 3 }, { id: DM, kind: 'dm', name: null, peers: [BEN], memberCount: 2 }]
 
 const asked: string[] = []
+/** GET /api/chats's first page (the 최근 test sets it) */
+let chatList: Chat[] = []
 const realFetch = globalThis.fetch
 const locale = useLocaleStore.getState().locale
 const status = useSession.getState().status
@@ -47,7 +51,7 @@ beforeAll(() => {
     const url = new URL(String(input), 'http://x')
     asked.push(`${url.pathname}${url.search}`)
     switch (url.pathname) {
-      case '/api/chats': return json({ items: [], nextCursor: null })
+      case '/api/chats': return json({ items: chatList, nextCursor: null })
       case '/api/projects': case '/api/skills': case '/api/schedules': return json({ items: [] })
       case '/api/integrations': return json({ items: [], personalAllowed: false })
       case '/api/notifications': return json({ items: [], unreadCount: 0, nextCursor: null })
@@ -67,7 +71,7 @@ afterAll(() => {
   useSession.setState({ status })
   removeDom()
 })
-afterEach(() => { asked.length = 0; useUi.setState({ searchOpen: false }) })
+afterEach(() => { asked.length = 0; chatList = []; useUi.setState({ searchOpen: false }) })
 
 function Where() {
   const l = useLocation()
@@ -157,6 +161,19 @@ describe('the palette', () => {
     await v.click('search-tab-projects')
     await v.settle(300)
     expect(asked.filter((x) => x.startsWith('/api/room-messages'))).toEqual([])
+    await v.unmount()
+  })
+})
+
+describe('최근 with pinned chats', () => {
+  test('the newest chats by date, not the pins the first page starts with', async () => {
+    const chat = (title: string, updatedAt: string, pinnedAt?: string): Chat => ({ id: uuidv7(), projectId: null, title, engine: 'claude-code', model: null, createdAt: at(-9000), updatedAt, deletedAt: null, runState: 'idle', ...(pinnedAt ? { pinnedAt } : {}) })
+    // nine old pins first, as the server sends them, then the three newest chats
+    chatList = [...Array.from({ length: 9 }, (_, i) => chat(`고정 ${i + 1}`, at(-5000 - i), at(-10 - i))), chat('새 기록 1', at(-3)), chat('새 기록 2', at(-4)), chat('새 기록 3', at(-5))]
+    const { v } = await openPalette()
+    const section = await v.until(() => v.find('search-section-recents'), 'the recents section')
+    const rows = rowsIn(section).map((r) => r.textContent ?? '')
+    expect(rows.slice(0, 3).map((x) => x.match(/새 기록 \d/)?.[0])).toEqual(['새 기록 1', '새 기록 2', '새 기록 3'])
     await v.unmount()
   })
 })

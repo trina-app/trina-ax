@@ -30,6 +30,7 @@ import ExternalImagesNote from './ExternalImagesNote'
 import { useFrameFiles } from '../lib/useFrameFiles'
 import type { FrameFiles } from '../lib/frame-files'
 import { Button, CopyButton, IconButton, Spinner } from './ui'
+import { PanelExpandButton } from './SidePanelFrame'
 
 let compiler: Promise<CompileFn> | null = null
 
@@ -150,6 +151,7 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
             <Button size="sm" variant="secondary" className="mr-1" disabled aria-label={t('deck.menu')} data-testid="deck-get">
               <Download size={14} aria-hidden /> {t('deck.get')} <ChevronDown size={14} className="text-faint" aria-hidden />
             </Button>
+            <PanelExpandButton />
             <IconButton label={t('common.close')} onClick={onClose}>
               <X size={16} />
             </IconButton>
@@ -200,6 +202,7 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
               </IconButton>
             </>
           )}
+          <PanelExpandButton />
           <IconButton label={t('common.close')} onClick={onClose}>
             <X size={16} />
           </IconButton>

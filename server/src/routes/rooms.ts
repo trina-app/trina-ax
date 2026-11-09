@@ -79,6 +79,9 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.leaveRoom, ({ auth, params }) => rooms.leave(auth.user.id, params.id))
     // hiding a DM, a team room or the everyone room from my own lists (docs/DECISIONS.md "대화 숨기기"): mine only
     kit.handle(API.setRoomHidden, ({ auth, params, body }) => rooms.setHidden(auth.user.id, params.id, body.hidden))
+    // "상단에 고정" / "고정 해제" (docs/DECISIONS.md "Pinned conversations"): mine only; only my own windows hear it
+    kit.handle(API.pinRoom, ({ c, auth, params }) => rooms.pin(auth.user.id, params.id, c.get('locale')))
+    kit.handle(API.unpinRoom, ({ auth, params }) => rooms.unpin(auth.user.id, params.id))
     // "이 방에서는 항상 허용" (rooms/ai-grants.ts): my own only; another person's id answers like one that is not there
     kit.handle(API.listAiAllowances, ({ c, auth }) => { c.header('Cache-Control', 'no-store'); return { items: listGrants(ctx.db, auth.user.id) } })
     kit.handle(API.deleteAiAllowance, ({ auth, params }) => { if (!deleteGrant(ctx.db, auth.user.id, params.id)) fail('not_found') })

@@ -29,9 +29,12 @@ import { TokenTextarea } from '../TokenTextarea'
 import { Button, IconButton } from '../ui'
 import { Tooltip } from '../Tooltip'
 import { isLocalImage, PictureTile } from '../ChipThumb'
+import { ImageGroup } from '../ImageViewer'
+import { localItem, roomItem } from '../../lib/imageViewer'
 import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { useEveryone, useMentionMenu } from './useMentionMenu'
 import { useTextSize } from '../../lib/textSize'
+import { usePanelExpanded } from '../../lib/sidePanel'
 
 interface Upload {
   key: number
@@ -113,15 +116,18 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   }, [back])
 
   // the box grows with its text (an empty box with its placeholder: a transcription job's long label), and is measured
-  // again when the person's text size changes
+  // again when the person's text size changes. Behind a big side panel (lib/sidePanel.ts) it is not drawn and measures
+  // 0: it keeps its height, and is measured again when the room shows
   const textSize = useTextSize()
+  const behindPanel = usePanelExpanded()
   const placeholder = voice.transcribing ? voice.transcribingText : threadRootId ? t('rooms.threadPlaceholder') : empty ? t('rooms.placeholderEmpty') : t('rooms.placeholder')
   useLayoutEffect(() => {
     const ta = input.current
     if (!ta) return
+    const was = ta.style.height
     ta.style.height = 'auto'
-    ta.style.height = Math.min(ta.scrollHeight, 200) + 'px'
-  }, [text, textSize, placeholder, voice.recording])
+    ta.style.height = ta.scrollHeight ? Math.min(ta.scrollHeight, 200) + 'px' : was
+  }, [text, textSize, placeholder, voice.recording, behindPanel])
   // a thread just opened (from "reply in thread"): the box is where the person types next
   useEffect(() => {
     if (autoFocus) input.current?.focus({ preventScroll: true })
@@ -227,7 +233,9 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
           </div>
         )}
         {files.length > 0 && (
-          // centred on the row: a file's compact chip beside a picture's 64 px square keeps its own height
+          // centred on the row: a file's compact chip beside a picture's 64 px square keeps its own height; the box's
+          // pictures are one pane of the image viewer (← →)
+          <ImageGroup>
           <ul className="flex flex-wrap items-center gap-2 px-3 pt-2" aria-label={t('composer.attachments')}>
             {files.map((f) =>
               picture(f) ? (
@@ -242,6 +250,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
                     failed={f.status === 'failed'}
                     removeLabel={t('rooms.removeFile', { name: f.file.name })}
                     onRemove={() => removeFile(f)}
+                    // its own bytes in the image viewer, or the room's copy the server gave back
+                    item={isLocalImage(f.file) ? localItem(String(f.key), f.file, f.file.name) : roomItem(roomId, f.roomFile!)}
                   />
                   <span role="status" className={f.status === 'failed' ? 'max-w-[160px] truncate text-danger' : 'sr-only'} title={f.error}>
                     {f.status === 'uploading' ? t('rooms.uploading', { name: f.file.name }) : f.status === 'failed' ? f.error : formatSize(f.file.size, locale)}
@@ -261,6 +271,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
               ),
             )}
           </ul>
+          </ImageGroup>
         )}
         {voice.recording ? (
           // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where the clip and send were: nothing moves

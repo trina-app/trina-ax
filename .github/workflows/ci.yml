@@ -1,4 +1,5 @@
-# CI: typecheck (incl. web + desktop; the phone app in its own job), native build, unit tests, fast fuzz, web tests + build, relay suite, and the Linux job with unprivileged accounts in Docker.
+# CI: typecheck (incl. web + desktop; the phone app in its own job), native build, unit tests (in 5 shards at once:
+# scripts/ci/unit-shard.ts), fast fuzz, web tests + build, relay suite, and the Linux job with unprivileged accounts in Docker.
 # Real-engine tests (Claude Code / Codex logins, model calls) never run here: they need the owner's accounts and
 # run locally with `bun run test:stage1`.
 # The release workflow (release.yml) calls this one with the tagged commit (`ref`) and publishes only when every job
@@ -34,10 +35,14 @@ env:
   PANDOC_VERSION: 3.9.0.2
 
 jobs:
-  check:
-    name: typecheck, native, unit, fast fuzz, web, relay
+  # The unit tests took ~30 of the ~35 minutes of one job. They now run as 5 jobs at once
+  # (scripts/ci/unit-shard.ts spreads the files by their earlier times), beside the static checks and the
+  # fuzz / web / relay job. Each job sets up the same tools as before. The last job keeps the old job's name, the
+  # check the default branch's ruleset requires: it passes only when every job above it passed.
+  static:
+    name: typecheck, docs, native
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -51,12 +56,27 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: native/go.sum
+      # downloads kept between runs: pandoc's package (by version) and bun's package store (by bun.lock). A run with a
+      # cache does not reach GitHub releases or the npm registry for them; a miss downloads as before.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/ci-pandoc
+          key: pandoc-${{ runner.os }}-${{ env.PANDOC_VERSION }}
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-
       - name: Tools (ripgrep, poppler, pandoc ${{ env.PANDOC_VERSION }})
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ripgrep poppler-utils bubblewrap libfontconfig1
-          curl -fsSL -o /tmp/pandoc.deb "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-1-amd64.deb"
-          sudo dpkg -i /tmp/pandoc.deb
+          deb="$HOME/.cache/ci-pandoc/pandoc-${PANDOC_VERSION}-1-amd64.deb"
+          if [ ! -s "$deb" ]; then
+            mkdir -p "$(dirname "$deb")"
+            curl -fsSL --retry 5 --retry-all-errors -o "$deb" "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-1-amd64.deb"
+          fi
+          sudo dpkg -i "$deb"
           rg --version | head -1; pandoc --version | head -1; pdftotext -v 2>&1 | head -1
       - name: Enable and smoke-test converter isolation
         run: |
@@ -80,13 +100,148 @@ jobs:
           # go test covers the seccomp filter (errnos on a child), the Landlock probe, the bwrap argv golden, the
           # nft rule golden, plan / firewall-status parsing, the bundle verifier and the launcher symlink fix
           cd native && go vet ./... && go test ./...
-      - name: Pinned Hangul renderer
-        run: bun run prepare:hwp
-      - name: Unit tests
-        run: bun run test:unit
       - name: Pinned browser against Chrome for Testing Stable
         timeout-minutes: 2
         run: bun scripts/system/browser-staleness.ts
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-bin
+          # The uncleared HWP runtime is for local CI execution only, not redistribution.
+          path: |
+            native/bin/
+            !native/bin/hwp/**
+          retention-days: 7
+
+  unit:
+    name: unit tests (${{ matrix.shard }}/5)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      # every shard runs to the end: one failing shard does not hide another's failures
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # empty for push / pull_request (the default commit); the tagged commit when release.yml calls
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: native/go.sum
+      # downloads kept between runs: pandoc's package (by version) and bun's package store (by bun.lock). A run with a
+      # cache does not reach GitHub releases or the npm registry for them; a miss downloads as before.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/ci-pandoc
+          key: pandoc-${{ runner.os }}-${{ env.PANDOC_VERSION }}
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-
+      - name: Tools (ripgrep, poppler, pandoc ${{ env.PANDOC_VERSION }})
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ripgrep poppler-utils bubblewrap libfontconfig1
+          deb="$HOME/.cache/ci-pandoc/pandoc-${PANDOC_VERSION}-1-amd64.deb"
+          if [ ! -s "$deb" ]; then
+            mkdir -p "$(dirname "$deb")"
+            curl -fsSL --retry 5 --retry-all-errors -o "$deb" "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-1-amd64.deb"
+          fi
+          sudo dpkg -i "$deb"
+          rg --version | head -1; pandoc --version | head -1; pdftotext -v 2>&1 | head -1
+      - name: Enable and smoke-test converter isolation
+        run: |
+          # Ubuntu 24.04 restricts unprivileged user namespaces. Use the installer's
+          # bwrap-only AppArmor allowance; keep the global restriction enabled.
+          # Probe network isolation too: --unshare-user alone can miss loopback failures.
+          if ! bwrap --unshare-all --ro-bind / / true &&
+             [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = 1 ]; then
+            sudo apt-get install -y --no-install-recommends apparmor
+            sed 's/@ID@/mycel-ci/g' scripts/linux/apparmor-bwrap.in | sudo tee /etc/apparmor.d/mycel-ci-bwrap > /dev/null
+            sudo apparmor_parser -r /etc/apparmor.d/mycel-ci-bwrap
+          fi
+          bwrap --unshare-all --ro-bind / / true
+      - run: bun install --frozen-lockfile
+      - name: Native build (darwin + linux, amd64 + arm64)
+        run: ARCHS="amd64 arm64" bash native/build.sh
+      # the pinned rhwp CLI (prepare:hwp checks its sha256 and downloads it only when missing or different)
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: native/bin/hwp
+          key: rhwp-${{ runner.os }}-${{ hashFiles('resources/hwp/manifest.json') }}
+      - name: Pinned Hangul renderer
+        run: bun run prepare:hwp
+      - name: Unit tests, shard ${{ matrix.shard }} of 5
+        run: bun scripts/ci/unit-shard.ts ${{ matrix.shard }} 5
+
+  other:
+    name: fast fuzz, web, relay
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # empty for push / pull_request (the default commit); the tagged commit when release.yml calls
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: native/go.sum
+      # downloads kept between runs: pandoc's package (by version) and bun's package store (by bun.lock). A run with a
+      # cache does not reach GitHub releases or the npm registry for them; a miss downloads as before.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/ci-pandoc
+          key: pandoc-${{ runner.os }}-${{ env.PANDOC_VERSION }}
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-
+      - name: Tools (ripgrep, poppler, pandoc ${{ env.PANDOC_VERSION }})
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ripgrep poppler-utils bubblewrap libfontconfig1
+          deb="$HOME/.cache/ci-pandoc/pandoc-${PANDOC_VERSION}-1-amd64.deb"
+          if [ ! -s "$deb" ]; then
+            mkdir -p "$(dirname "$deb")"
+            curl -fsSL --retry 5 --retry-all-errors -o "$deb" "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-1-amd64.deb"
+          fi
+          sudo dpkg -i "$deb"
+          rg --version | head -1; pandoc --version | head -1; pdftotext -v 2>&1 | head -1
+      - name: Enable and smoke-test converter isolation
+        run: |
+          # Ubuntu 24.04 restricts unprivileged user namespaces. Use the installer's
+          # bwrap-only AppArmor allowance; keep the global restriction enabled.
+          # Probe network isolation too: --unshare-user alone can miss loopback failures.
+          if ! bwrap --unshare-all --ro-bind / / true &&
+             [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = 1 ]; then
+            sudo apt-get install -y --no-install-recommends apparmor
+            sed 's/@ID@/mycel-ci/g' scripts/linux/apparmor-bwrap.in | sudo tee /etc/apparmor.d/mycel-ci-bwrap > /dev/null
+            sudo apparmor_parser -r /etc/apparmor.d/mycel-ci-bwrap
+          fi
+          bwrap --unshare-all --ro-bind / / true
+      - run: bun install --frozen-lockfile
+      - name: Native build (darwin + linux, amd64 + arm64)
+        run: ARCHS="amd64 arm64" bash native/build.sh
+      # the pinned rhwp CLI (prepare:hwp checks its sha256 and downloads it only when missing or different)
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: native/bin/hwp
+          key: rhwp-${{ runner.os }}-${{ hashFiles('resources/hwp/manifest.json') }}
+      - name: Pinned Hangul renderer
+        run: bun run prepare:hwp
       - name: Fast fuzz (path fuzzer in-process and over the socket, ReDoS)
         run: bun run test:fuzz:fast
       - name: Web unit tests and build
@@ -99,14 +254,21 @@ jobs:
           node-version: 26.12.1
       - name: Relay conformance and hardening (real Node 26 relay)
         run: bun run test:relay
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: native-bin
-          # The uncleared HWP runtime is for local CI execution only, not redistribution.
-          path: |
-            native/bin/
-            !native/bin/hwp/**
-          retention-days: 7
+
+  check:
+    # the name the default branch's ruleset requires (and release.yml's test needs): every job above passed
+    name: typecheck, native, unit, fast fuzz, web, relay
+    needs: [static, unit, other]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Every job passed
+        env:
+          RESULTS: ${{ needs.static.result }} ${{ needs.unit.result }} ${{ needs.other.result }}
+        run: |
+          echo "static, unit, other: $RESULTS"
+          for r in $RESULTS; do [ "$r" = success ] || exit 1; done
 
   mobile:
     # The phone app (mobile/) has its own npm lockfile, and the root typecheck leaves it out. Its own job, so it never

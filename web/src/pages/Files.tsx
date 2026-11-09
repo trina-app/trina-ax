@@ -26,7 +26,7 @@ import { droppedEntries, planFromEntries, planFromInput, type FolderPlan } from 
 import { baseName, crumbs, isConflictCopy, isInside, joinPath, nameProblem, parentPath } from '../lib/paths'
 import { iconKind, previewKind, type FileIconKind } from '../lib/preview'
 import { folderProjectAction, projectsByFolder, type FolderProjectAction } from '../lib/projectFolders'
-import { openTeamFile, useSidePanel } from '../lib/sidePanel'
+import { openTeamFile, panelExpandedNow, useSidePanel } from '../lib/sidePanel'
 import { useTeamAttach } from '../lib/useTeamAttach'
 import { cancelUpload, uploadFile } from '../lib/upload'
 import { addFileUpload, dropFileUpload, patchFileUpload } from '../lib/fileUploads'
@@ -280,12 +280,13 @@ export default function Files() {
     setChecked(new Set())
     anchor.current = null
   }
-  // Esc clears the selection (before the side panel: the next Esc closes that); a dialog or a text field keeps its Esc
+  // Esc clears the selection (before the side panel: the next Esc closes that); a dialog or a text field keeps its Esc,
+  // and a big side panel goes back side by side first (the list is hidden behind it: components/Layout.tsx)
   const anyChecked = chosen.length > 0
   useEffect(() => {
     if (!anyChecked) return
     const h = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('[role="dialog"]')) return
+      if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('[role="dialog"]') || panelExpandedNow()) return
       if (e.target instanceof Element && e.target.closest('textarea, select, [contenteditable="true"], input:not([type="checkbox"])')) return
       e.stopPropagation()
       clearChecked()
