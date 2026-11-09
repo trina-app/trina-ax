@@ -88,16 +88,16 @@ export default function Skills() {
     return skillsChanged.on(() => void load())
   }, [load])
   // a link chose the tab: "my suggestions" (its ?mine= is gone from the address by then) or 스킬 넣기's open catalog
-  const linkedMine = useRef(!!params.get('mine') || params.get('catalog') === 'open')
+  const linkedTab = useRef(!!params.get('mine') || params.get('catalog') === 'open')
   // first visit: managers land on what waits for them
   useEffect(() => {
-    if (overview && !linkedMine.current && overview.pendingReview + (overview.sharesToReview ?? 0) > 0) setTab('review')
+    if (overview && !linkedTab.current && overview.pendingReview + (overview.sharesToReview ?? 0) > 0) setTab('review')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overview === null])
   // a banner's link while already on this page; ?mine= goes once applied, like ?review=, so the same link works again
   useEffect(() => {
     if (params.get('mine')) {
-      linkedMine.current = true
+      linkedTab.current = true
       setTab('mine')
       const next = new URLSearchParams(params)
       next.delete('mine')

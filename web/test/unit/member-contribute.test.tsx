@@ -425,7 +425,7 @@ describe('Skills › 검토', () => {
   test('suggestions waiting: /skills lands on 검토, but 스킬 넣기\'s /skills?catalog=open stays on the skills', async () => {
     signIn('owner')
     review = [folderSuggestion('weekly-report')]
-    const selected = async (url: string) => {
+    const selected = async (url: string, landsOn?: string) => {
       const m = await mount(
         <MemoryRouter initialEntries={[url]}>
           <Routes><Route path="/skills" element={<Skills />} /></Routes>
@@ -433,13 +433,17 @@ describe('Skills › 검토', () => {
       )
       try {
         const body = m.container.ownerDocument!.body
-        await m.until(() => body.querySelector('[role="tab"]'), 'the tabs')
-        // the overview's landing runs once the overview is in; give it its turn
-        await act(async () => { await new Promise((r) => setTimeout(r, 20)) })
-        return body.querySelector('[role="tab"][aria-selected="true"]')!.id
+        const tab = () => body.querySelector('[role="tab"][aria-selected="true"]')?.id ?? ''
+        if (landsOn) await m.until(() => tab().endsWith(landsOn), landsOn)
+        else {
+          await m.until(() => body.querySelector('[role="tab"]'), 'the tabs')
+          // the landing runs once the overview is in; give it its turn, so a switch would show
+          await act(async () => { await new Promise((r) => setTimeout(r, 20)) })
+        }
+        return tab()
       } finally { await m.unmount() }
     }
-    expect(await selected('/skills')).toEndWith('-tab-review')
+    expect(await selected('/skills', '-tab-review')).toEndWith('-tab-review')
     expect(await selected('/skills?catalog=open')).toEndWith('-tab-skills')
   })
 })
