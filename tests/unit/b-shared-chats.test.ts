@@ -651,4 +651,32 @@ describe('project skills in a shared chat', () => {
       fs.rmSync(path.join(h.team, 'projects/falcon/skills'), { recursive: true, force: true })
     }
   })
+
+  test('a name the sender has a personal skill of stays theirs: not the team\'s on the list, and "/name" and the skill tool load the same one', async () => {
+    const put = (rel: string, text: string) => { fs.mkdirSync(path.dirname(path.join(h.team, rel)), { recursive: true }); fs.writeFileSync(path.join(h.team, rel), text) }
+    put('skills/report/SKILL.md', '---\nname: report\ndescription: TEAM-REPORT\n---\nTEAM-REPORT-STEPS\n')
+    put('users/alice/skills/report.md', '---\nname: report\ndescription: ALICE-REPORT\n---\nALICE-REPORT-STEPS\n')
+    try {
+      const chat = await newShared('alice')
+      // alice's list: neither (hers is not for the others, and it hides the team's for her, as before)
+      const list = await ask('alice', chat.id, fake({ echo: 'system' }))
+      expect(list.done.content).not.toContain('TEAM-REPORT')
+      expect(list.done.content).not.toContain('ALICE-REPORT')
+      // bob has none of his own: the team's
+      const bobList = await ask('bob', chat.id, fake({ echo: 'system' }))
+      expect(bobList.done.content).toContain('TEAM-REPORT')
+      // "/report" and skill("report") by alice: both hers, after the read card
+      const slash = await askWithCard('alice', chat.id, '/report go\n' + fake({ echo: 'message' }), 'share')
+      expect(slash.done.content).toContain('ALICE-REPORT-STEPS')
+      const tool = await askWithCard('alice', chat.id, fake({ tool: 'skill', args: { name: 'report' }, sayResult: true }), 'share')
+      expect(tool.done.content).toContain('ALICE-REPORT-STEPS')
+      expect(tool.done.content).not.toContain('TEAM-REPORT-STEPS')
+      // bob's skill("report"): the team's, no card (everyone who sees the chat may read it)
+      const bobTool = await ask('bob', chat.id, fake({ tool: 'skill', args: { name: 'report' }, sayResult: true }))
+      expect(bobTool.done.content).toContain('TEAM-REPORT-STEPS')
+    } finally {
+      fs.rmSync(path.join(h.team, 'skills/report'), { recursive: true, force: true })
+      fs.rmSync(path.join(h.team, 'users/alice/skills/report.md'), { force: true })
+    }
+  })
 })

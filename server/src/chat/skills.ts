@@ -623,9 +623,12 @@ export function scanSkillsWithShadowed(files: FileService, user: Principal, scop
     if (skill) out.push(skill)
   }, projectRootsFor(scope.project))
   // a shared chat: skills some of the people who see it may not use are out before a name's winner is picked, so a team
-  // skill usable by all of them is not hidden by a group's that is not; a project skill still gives way to every skill
-  // of the sender's own of its name (docs/DECISIONS.md "Project skills")
-  const { skills, lost } = pickWinners(scope.usable ? out.filter((s) => scope.usable!(s.path)) : out, out)
+  // skill usable by all of them is not hidden by a group's that is not. A name the sender has a personal skill of stays
+  // theirs, as before: no wider skill of it is listed, and the skill tool and "/name" load the personal one after the
+  // read card. A project skill still gives way to every skill of the sender's own of its name (docs/DECISIONS.md
+  // "Project skills")
+  const personal = scope.usable ? new Set(out.filter((s) => skillTier(s) === 0).map((s) => nameKey(s.name))) : null
+  const { skills, lost } = pickWinners(scope.usable ? out.filter((s) => scope.usable!(s.path) && !personal!.has(nameKey(s.name))) : out, out)
   const shadowed: ShadowedSkill[] = []
   const replaces = new Map<string, Replaced>()
   for (const { skill: s, to } of lost) {

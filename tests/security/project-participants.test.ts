@@ -209,11 +209,14 @@ describe('the dry run', () => {
     write(`${p.folderPath}/skills/견적-현장/SKILL.md`, '---\nname: 견적-현장\ndescription: x\n---\n')
     write(`${p.folderPath}/skills/readme.md`, 'not a skill')
     write(`${p.folderPath}/skills/empty/notes.md`, 'not a skill either')
+    // a SKILL.md folder one level further down loads too (chat/skills.ts); one more level down does not
+    write(`${p.folderPath}/skills/현장/점검/SKILL.md`, '---\nname: 점검\ndescription: x\n---\n')
+    write(`${p.folderPath}/skills/현장/깊이/너무/SKILL.md`, '---\nname: 너무\ndescription: x\n---\n')
     sharedChat(p.id, 'erin')
     sharedChat(p.id, 'alice')
     const r = await preview('alice', { projectId: p.id, participants: [user('erin'), user('bob')] })
     // the project skills are counted and named: the people who gain the project use them in its chats
-    expect(r.body).toEqual({ people: 5, added: 1, removed: 0, files: 3, othersFiles: 2, sharedChats: 2, skills: 2, skillNames: ['견적-현장', '견적서'].sort((a, b) => a.localeCompare(b)) })
+    expect(r.body).toEqual({ people: 5, added: 1, removed: 0, files: 3, othersFiles: 2, sharedChats: 2, skills: 3, skillNames: ['견적-현장', '견적서', '점검'].sort((a, b) => a.localeCompare(b)) })
     // the admin asking: alice's file is someone else's too
     expect((await preview('carol', { projectId: p.id, participants: [user('erin'), group('finance')] })).body).toMatchObject({ added: 1, files: 3, othersFiles: 3 })
     // narrowing: nothing to confirm

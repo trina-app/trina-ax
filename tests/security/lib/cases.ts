@@ -274,6 +274,13 @@ export const SPECS: Record<string, Spec> = {
       if (who === 'memberIn' && !r.text.includes(C.aliceSkill)) throw new Error('alice does not see her personal skill')
     } },
   listSkillIssues: { build: (c) => c.get('/api/skills/issues'), scope: 'self' },
+  // moving a skill between levels (docs/DECISIONS.md "Project skills"): alice's personal skill is hers alone. The options
+  // carry its whole text, so nobody else gets them (not the owner or an admin either: they do not read users/alice/);
+  // the move carries a token nobody has, so alice passes the permission check and is refused after it (nothing moves)
+  skillMoveOptions: { build: (c) => c.get('/api/skills/move?path=users/alice/skills/mine.md'), scope: 'users-alice',
+    check: (r, _w, who) => { if (who === 'memberIn' && r.status === 200 && !r.text.includes(C.aliceSkill)) throw new Error('alice does not get her own skill\'s text') } },
+  moveSkill: { build: (c) => c.post('/api/skills/move', { path: 'users/alice/skills/mine.md', to: { level: 'team' }, token: 'matrix-token' }), scope: 'users-alice',
+    check: (r, _w, who) => { if (r.status < 300) throw new Error(`${who} moved alice's personal skill with a made-up token`) } },
   // Home's "팀에 준비된 것" (docs/DECISIONS.md "W6.3"): the caller's own skills and a document count of the team folder as
   // the caller; the canary check covers the finance skill and alice's personal skill (never in anyone else's answer)
   skillExamples: { build: (c) => c.get('/api/skills/examples'), scope: 'self',

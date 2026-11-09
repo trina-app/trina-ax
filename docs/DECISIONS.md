@@ -16941,8 +16941,11 @@ draw the same bodies, and file previews are core. Step (b0) of the plan
 - **Shared chats:** the skills everyone who sees the chat may use are picked first, then each name's winner, so a team
   skill everyone may use is not hidden by a group's only some may (before, a lead's group "quote" won and was then
   filtered out of the list). A project skill never takes a name the sender has at a higher tier, whatever the audience
-  may use: someone outside finance must not be able to put an "approve" in front of a finance member. "/name" and the
-  `skill` tool run the sender's own skill as before, after the read card when some who see the chat cannot read it.
+  may use: someone outside finance must not be able to put an "approve" in front of a finance member. A name the sender
+  has a personal skill of stays theirs, as before: no wider skill of that name is listed, and "/name" and the `skill`
+  tool both load the personal one after the read card (the re-review found the tool loading the team's). "/name" runs
+  the sender's own skill (a group's too) as before, after the read card when some who see the chat cannot read it; the
+  `skill` tool loads what the list names, so for a group's name that is the team skill everyone may use.
 - **Prompt injection:** project members write instructions everyone in the project follows. Limits: no name can be
   replaced, the AI's card and the audit apply, the AI's list marks them `[project: <name>]` (the name one line, cut at
   40, no brackets, neutralised) with a note that anyone who writes the folder may have written them, nothing is
