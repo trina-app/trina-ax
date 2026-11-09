@@ -58,7 +58,7 @@ beforeAll(async () => {
 })
 afterAll(async () => { for (const s of Object.values(socks)) s.close(); await h?.close() })
 
-type Card = { question: string; origin?: string; options?: { label: string; value: string }[]; details?: { label: string; text: string; collapsedAt?: number }[]; buttons?: boolean }
+type Card = { question: string; origin?: string; options?: { label: string; value: string }[]; details?: { label: string; text: string; collapsedAt?: number; marks?: string[] }[]; buttons?: boolean }
 /** One turn of `user` in `chatId` (a new chat when absent): the card it raised (answered with `answer`; null: left to time
  * out), what the AI said, and the answer's steps. */
 async function turn(user: string, content: string, o: { chat?: string; side?: string; answer?: string | null; meanwhile?: () => void | Promise<void> } = {}) {
@@ -112,7 +112,7 @@ describe('the card, and the post', () => {
 
   test('where a post went (Step.posted) is the runner\'s alone: another viewer of a shared chat gets the step without it', () => {
     const posted = { roomId: rooms.all, messageId: uuidv7() }
-    const steps = [{ id: 'p1', kind: 'tool' as const, tool: 'post_to_room', label: '대화방에 보내기 · #전체', status: 'ok' as const, startedAt: new Date().toISOString(), posted }]
+    const steps = [{ id: 'p1', kind: 'tool' as const, tool: 'post_to_room', label: '대화방에 보내기 · #전체', status: 'ok' as const, startedAt: new Date().toISOString(), endedAt: new Date().toISOString(), posted }]
     const store = h.rt().store
     const chat = { chat_id: uuidv7(), turn_id: null }
     expect(store.viewSteps(chat, steps)[0]!.posted).toEqual(posted)
