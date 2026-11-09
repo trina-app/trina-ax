@@ -94,12 +94,21 @@ export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'out
  * "내 AI 채팅에서 대화방 읽기"): the tools that go on without the room card there. The room session's read-only tools, the
  * room tools themselves, and the own chat's other tools that only read or look (the scheduled tasks' list, Google
  * Drive's search, list and read, finding a connection's tools, the in-app browser's reading tools). set_title names the
- * chat for the person alone; remember raises its own card with the text it would keep (chat/tools.ts). Every other
- * tool (writes, moves, schedules, connections' tools and call_tool, the browser's clicks and pages, box_shell, forget,
- * connect_service, tools added later) waits for the person's yes on a card for the rest of that chat (fails closed).
+ * chat for the person alone; remember raises its own card with the text it would keep (chat/tools.ts). A connection's
+ * read whose arguments carry no address or random-looking part goes on too (chat/turn.ts confirmRoomChange), and the
+ * tools with a card of their own ask there alone (ROOMS_SEEN_OWN_CARD_TOOLS, a connection's write). Every other tool
+ * (writes, the browser's clicks and pages, box_shell, forget, tools added later) waits for the person's yes on the room
+ * card for the rest of that chat (fails closed).
  */
 export const ROOMS_SEEN_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   ...ROOM_READ_ONLY_TOOLS, 'rooms', 'room_read', 'room_file', 'set_title', 'remember', 'find_tools', 'schedule_list', 'drive_search', 'drive_list', 'drive_read',
 ])
 /** ...and the in-app browser's reading tools, only in a turn that has the browser (by name otherwise: no exemption) */
 export const ROOMS_SEEN_BROWSER_READ_TOOLS: ReadonlySet<string> = new Set(['read_page', 'get_page_text', 'find', 'tabs_context', 'read_console_messages', 'read_network_requests'])
+/**
+ * Tools whose own card shows everything the call does: after a room read in the person's own chat the room card is
+ * not raised for them; their card is the call's only one, carries the room card's line and asks every time
+ * (TurnPerson.roomsSeen; chat/turn.ts ownCard). A connection's tools join them by provider (chat/tools.ts connection).
+ * A tool listed here must never act without asking when TurnPerson.roomsSeen is set.
+ */
+export const ROOMS_SEEN_OWN_CARD_TOOLS: ReadonlySet<string> = new Set(['schedule_create', 'generate_video', 'move_files', 'copy_files', 'move_skill', 'connect_service'])

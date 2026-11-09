@@ -210,6 +210,8 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
     exec.patchToolStep(CONNECT_TOOL, () => ({ detail: tr('connectNotConnected', L) }))
     return { content: json({ skipped: true, reason: 'a scheduled run: nobody is there to finish a card. Say in the result that the person can ask you to connect it in a chat.' }), summary: `${CONNECT_TOOL} -> skipped (scheduled run)` }
   }
+  // after a room read this card is the call's only one (chat/turn.ts ownCard): the room card's line goes on top
+  if (exec.ownCard(CONNECT_TOOL)) card = { ...card, lead: tr('roomsSeenWhy', L) }
   const kept: ConnectCard = { integrationId: null, running: null, changed: false, version: null, created: false }
   exec.connectCards.set(card.requestId, kept)
   let answer: unknown

@@ -115,6 +115,10 @@ export interface TurnPerson {
   turnUrls(): Iterable<string>
   /** a scheduled run: nobody is watching, so no card is raised (it could only go unanswered) */
   unattended?: boolean
+  /** the person's own chat holds messages from their team chat rooms and the room card was left to this call's own
+   * card (chat/turn.ts ownCard): the tool asks on its card every time, also where it would not ask otherwise (a
+   * connection set to send without asking, a move that changes nobody's access); its cards lead with the room line */
+  roomsSeen?: boolean
   /** how a refusal names an unattended run that is not a scheduled task (a company profile draft's answer) */
   unattendedLabel?: string
   /** a narrower set of addresses this turn may open at all (a company profile draft: the typed site, onboarding/
@@ -359,6 +363,52 @@ function entropy(s: string): number {
   for (const k of n.values()) { const p = k / s.length; e -= p * Math.log2(p) }
   return e
 }
+
+/**
+ * Does a tool input carry a web address or a long random-looking part? A call that only reads can still take data out
+ * in them (a search term, an id or an address the AI made up from what it read). After a room read, a connection's read
+ * asks first when it does (chat/turn.ts confirmRoomChange). In the input's JSON: an http(s) address, as written or
+ * %-decoded (extractUrls); an address without http(s):// (after "//" or "www.", or a host name before a path, a query or
+ * a port; not an e-mail address); a random-looking part (opaqueParts); or any text under an argument named for an
+ * address (url, link, host, domain, site, …: "data.attacker.example" alone). An input that is no JSON counts.
+ */
+export function carriesAddress(input: unknown): boolean {
+  let json: string
+  try { json = JSON.stringify(input ?? null) } catch { return true }
+  if (typeof json !== 'string') return true
+  const plain = json.includes('%') ? json.replace(/(?:%[0-9A-Fa-f]{2})+/g, (m) => { try { return decodeURIComponent(m) } catch { return m } }) : json
+  return [json, plain].some((t) => extractUrls(t, 1).length > 0 || bareAddress(t)) || opaqueParts(json, 1).length > 0 || addressArg(input, 0)
+}
+/** a run of letters, digits, dots and hyphens (one class: no backtracking on a long text): a host name when it has a
+ * dot and its last label is a name, or it is an IPv4 address. The ideographic and full-width dots are dots in a host */
+const HOST_RUN = /[\p{L}\p{N}.\u3002\uFF0E\uFF61-]+/gu
+function bareAddress(text: string): boolean {
+  for (const m of text.matchAll(HOST_RUN)) {
+    const at = m.index!, host = m[0].replace(/[\u3002\uFF0E\uFF61]/g, '.').replace(/\.+$/, '')
+    const labels = host.split('.')
+    if (labels.length < 2 || labels.some((l) => !l)) continue
+    if (!/^\p{L}[\p{L}\p{N}-]+$/u.test(labels.at(-1)!) && !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) continue
+    if (text.slice(Math.max(0, at - 2), at) === '//' || /^www\./i.test(host)) return true
+    // an e-mail address's domain, or a file in a path (docs/README.md#setup)
+    if (at > 0 && (text[at - 1] === '@' || text[at - 1] === '/')) continue
+    if (/^(?:[/?#]|:\d)/.test(text.slice(at + m[0].length, at + m[0].length + 2))) return true
+  }
+  return false
+}
+/** argument names that say the value is an address (the last word of the name: pageUrl, webhook_url, site) */
+const ADDRESS_ARG = /^(?:urls?|uris?|links?|hrefs?|endpoints?|hosts?|hostnames?|domains?|sites?|websites?|webhooks?)$/
+function addressArg(v: unknown, depth: number): boolean {
+  if (!v || typeof v !== 'object') return false
+  if (depth > 32) return true
+  for (const [k, x] of Object.entries(v)) {
+    const last = k.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).at(-1) ?? ''
+    if (ADDRESS_ARG.test(last) && hasText(x, depth + 1)) return true
+    if (addressArg(x, depth + 1)) return true
+  }
+  return false
+}
+const hasText = (v: unknown, depth: number): boolean =>
+  typeof v === 'string' ? v.trim() !== '' : !!v && typeof v === 'object' && (depth > 32 || Object.values(v).some((x) => hasText(x, depth + 1)))
 
 export const TEXT = {
   unseen: {

@@ -84,6 +84,10 @@ export interface ChatToolSet extends TurnToolSet {
   context: string[]
   /** the step label a per-person tool gives its call, or null for the shared labels */
   stepLabel(name: string, input: unknown, locale: Locale): string | null
+  /** a connection's tool (the integrations provider's, saying whether a call reads: TurnTool.readOnly); any other is not */
+  connection(name: string): boolean
+  /** a connection tool's call that only reads; false for a write and for any tool that is not a connection's */
+  readsOnly(name: string, input: unknown): boolean
 }
 
 /** box_shell's waiting state on its step (Step.devEnvRun). The first write of a call finds the call's step through
@@ -173,12 +177,20 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // per-person tools (external-service connections), built from saved data at the start of the turn
   const prompt: string[] = []
   const context: string[] = []
+  // the connections' tools by name, with whether a call only reads (integrations/connections/tools.ts): after a room
+  // read their reads skip the room card and their writes ask on their own card (chat/turn.ts confirmRoomChange). Only
+  // the integrations provider's, and only those that say: any other tool keeps the room card (fails closed)
+  const connections = new Map<string, NonNullable<TurnTool['readOnly']>>()
   // no connection's tools in a room (rooms/ai-tools.ts ROOM_TOOLS), and so no "Connected services" section either
   for (const p of confidential || exec.restricted || exec.room || exec.shared ? [] : exec.rt.ctx.services.turnToolProviders ?? []) {
     let built: ReturnType<typeof p.build>
     try { built = p.build({ userId: exec.spec.userId, chatId: exec.spec.chatId, turnId: exec.spec.turnId, browser: exec.browser, scheduled: exec.spec.clientKind === 'schedule' }) }
     catch (e) { exec.rt.log.warn('turn tool provider failed', { provider: p.name, err: e }); continue }
-    for (const t of built.tools) if (add(wrapRegistered(exec, t)) && t.label) labels.set(t.name, t.label.bind(t))
+    for (const t of built.tools) {
+      if (!add(wrapRegistered(exec, t))) continue
+      if (t.label) labels.set(t.name, t.label.bind(t))
+      if (p.name === 'integrations' && t.readOnly !== undefined) connections.set(t.name, t.readOnly)
+    }
     if (built.prompt) prompt.push(built.prompt)
     const ctxText = built.context === undefined ? built.prompt : built.context
     if (ctxText) context.push(ctxText)
@@ -187,6 +199,11 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     prompt,
     context,
     stepLabel(name, input, locale) { try { return labels.get(name)?.(input, locale) ?? null } catch { return null } },
+    connection: (name) => connections.has(name),
+    readsOnly(name, input) {
+      const ro = connections.get(name)
+      try { return typeof ro === 'function' ? ro(input) === true : ro === true } catch { return false }
+    },
     list: () => [...tools.values()].map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
     has: (n) => tools.has(n),
     async call(name, args, caller) {
@@ -369,6 +386,20 @@ export function turnPerson(exec: TurnExec): TurnPerson {
   }
 }
 
+/** The person for a call whose own card stands in for the room card after a room read (chat/turn.ts ownCard): the
+ * tool asks every time (roomsSeen), each of its cards leads with the room card's line, and a card that shows no details
+ * of its own shows what the room card would have (the folder and every file of a move, a video's file), so its one yes
+ * is given seeing all of it. */
+function roomLinePerson(exec: TurnExec, p: TurnPerson, call: { tool: string; args: unknown }): TurnPerson {
+  const lead = `${tr('roomsSeenWhy', p.locale)}\n\n`
+  const extra = (e?: ConfirmExtra): ConfirmExtra => (e?.details?.length ? e : { ...e, details: exec.roomCardDetails(call.tool, call.args) })
+  return {
+    ...p, roomsSeen: true,
+    confirm: (question, allow, deny, e) => p.confirm(lead + question, allow, deny, extra(e)),
+    ...(p.choose ? { choose: (question: string, options: { label: string; value: string }[], e?: ConfirmExtra) => p.choose!(lead + question, options, extra(e)) } : {}),
+  }
+}
+
 /** `call`: the tool call this context is for: a room call a grant or [이번만] let through is checked again after the
  * tool's own wider-audience card (it may have waited: make_file's pictures and template) */
 function toolContext(exec: TurnExec, files: TurnFiles, call?: { tool: string; args: unknown }): TurnToolContext {
@@ -377,7 +408,8 @@ function toolContext(exec: TurnExec, files: TurnFiles, call?: { tool: string; ar
     signal: exec.abort.signal,
     files: {
       signal: exec.abort.signal,
-      user: exec.livePrincipal(), turnId: exec.spec.turnId, files, person: turnPerson(exec),
+      // after a room read, a tool with its own card asks there alone, with the room card's line (chat/turn.ts ownCard)
+      user: exec.livePrincipal(), turnId: exec.spec.turnId, files, person: call && exec.ownCard(call.tool) ? roomLinePerson(exec, turnPerson(exec), call) : turnPerson(exec),
       // files a tool copies bytes from (make_file's embedded images and template), checked before the new file is placed
       confirmWidening: async (target, sources, binding) => {
         const no = await exec.confirmWidening(target, sources, binding)
@@ -553,7 +585,8 @@ function moveSkillTool(exec: TurnExec): Tool {
         return bad(`Not moved: at ${en(plan.to)} ${plan.editorsGained} more ${plan.editorsGained === 1 ? 'person' : 'people'} could change this skill (${plan.editors} could). You can only move a skill where nobody new may change it. ${toPage}`, `refused: more editors (+${plan.editorsGained})`)
       }
       const size = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
-      const question = [skillText('moveConfirm', L, { name: plan.skill.name, from, fromN: String(plan.fromPeople), to: dest, toN: String(plan.toPeople) }), plan.lost ? skillText('moveLost', L, { n: String(plan.lost) }) : '', skillText('moveEditors', L, { n: String(plan.editors) })].filter(Boolean).join('\n\n')
+      // after a room read this card is the call's only one (chat/turn.ts ownCard): it leads with the room card's line
+      const question = [exec.ownCard('move_skill') ? tr('roomsSeenWhy', L) : '', skillText('moveConfirm', L, { name: plan.skill.name, from, fromN: String(plan.fromPeople), to: dest, toN: String(plan.toPeople) }), plan.lost ? skillText('moveLost', L, { n: String(plan.lost) }) : '', skillText('moveEditors', L, { n: String(plan.editors) })].filter(Boolean).join('\n\n')
       const base = plan.source.split('/').pop()!
       const answer = await exec.waitForPerson({
         kind: 'ask_user', origin: 'server', requestId: uuidv7(), question, multiple: false, allowText: false,

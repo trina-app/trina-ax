@@ -10969,7 +10969,42 @@ saw that room. Now a person's own AI chat reads their rooms, with their view and
   details (what it does, the file, all of what it writes one click away) and the same rule for skill and instruction
   files. No answer or "하지 않기" changes nothing. `remember` raises its own card with the text it would keep
   (`tainted || roomsSeen`), so room content never becomes a memory without a yes. A planted "@fake" instruction in a
-  room message that the stand-in AI follows is the test (`b-chat-rooms.test.ts`).
+  room message that the stand-in AI follows is the test (`b-chat-rooms.test.ts`). Connected services and the tools with
+  a card of their own follow the next point.
+- **Fewer cards after a room read (2026-11-10, feat/room-read-connection-cards).** The owner, on the ✦ side chat: "허용
+  계속 눌러주는게 지치겠다". In the person's own chat after a room read, with the person there to answer (not a
+  scheduled run):
+  - **A connected service's read goes on with no card**, as Drive's reads do: an MCP tool the service marks read-only
+    (the saved `readOnly`, from `readOnlyHint`), `api_request` with GET or HEAD, `call_tool` whose tool is read-only, and
+    `find_tools`. Only the integrations provider's tools count, and only when they say so (`TurnTool.readOnly`); a tool
+    of any other provider keeps the room card (fails closed).
+  - **Its arguments go to the service the person or the team connected.** A search term made of room words reaches
+    Notion or Gmail, and a team connection's managers may see it in that service's logs. Accepted, like the engine's web
+    search and Drive search after a room read: the place is the one the person or the team chose, never an address the
+    AI picks. What could pick an address asks: a read whose arguments carry an address or a random-looking part raises
+    the room card as before (`tools/url-gate.ts carriesAddress`: an http(s) address as written or %-decoded; one
+    without `https://`, after `//` or `www.` or a host name before a path, a query or a port; a long random-looking part,
+    `opaqueParts`; any text under an argument named for an address: url, link, host, domain, site, …).
+  - **A tool with its own card asks there alone**: a connection's write, `schedule_create`, `generate_video`,
+    `move_files`, `copy_files`, `move_skill` and `connect_service` (`ROOMS_SEEN_OWN_CARD_TOOLS`; chat/turn.ts
+    `ownCard`). No room card; the tool's card leads with the room card's line ("여기에 대화방 메시지(다른 사람이 쓴 글)가
+    들어와서, 무언가를 바꾸기 전에 먼저 물어봐요.") and, where it shows no details of its own (a move, a video), the room
+    card's (the folder and every file; every argument of the video), so the one yes is given seeing all of it
+    (chat/tools.ts `roomLinePerson`). There the tool asks every time (`TurnPerson.roomsSeen`): a team connection set to
+    send without asking asks, a move or copy that changes nobody's access asks, and an MCP tool that was a write when
+    the turn began asks even if the service calls it read-only by then. A connection set to refuse still refuses, with
+    no card. `connect_service`'s form carries the line in its new optional `lead`.
+  - Unchanged: a room's own session, shared and confidential chats (no connection tools), scheduled runs (nobody
+    answers, so nothing is read from a connection or changed after a room read), and every other tool.
+  - Cards, before → after: a Notion read 1 → 0; a Notion write 2 → 1; a read whose arguments hold an address 1 → 1 (the
+    room card); a schedule, a video, a move, a skill move or connecting a service 2 → 1.
+  - Not done: an address or an id that the service itself returned in this chat (a Notion page's link, its 32-character
+    id) still asks as a read's argument; exempting those is for later, if the cards are still too many.
+  - Tests: `b-chat-rooms.test.ts` (a read without a card, with an address or a random-looking part a card, a write one
+    card with the line, a team "allow" connection and an API's POST one card, a planted "@fake" instruction, "deny", a
+    scheduled run, a move and a copy, connect_service, a schedule; another provider's tool that says it reads keeps the
+    room card), `c-integrations-tools.test.ts`, `c-integration-deferred-tools.test.ts`, `move-skill.test.ts`, the web
+    `connect-card.test.tsx`.
 - **Read scope.** What a read or search showed joins the chat's read scope as `{type:'room', id, fromSeq}` (the oldest
   message given, by who sees it), so saving it where people outside the room can read also asks with the wider-audience
   card. A plain list of rooms adds nothing (names only; every change asks anyway, and a scope of a hundred rooms would

@@ -5,7 +5,8 @@
 - Status: in progress
 - Where: trina-ax core (`server/src/chat/`, `server/src/integrations/connections/tools.ts`, `server/src/services.ts`,
   `server/src/tools/url-gate.ts`). Why: the chat's tool gate and the connections are core (see docs/REPOSITORY-RULES.md)
-- Version impact: minor. Fewer confirmation cards in one kind of chat; no API, setting or data change.
+- Version impact: minor. Fewer confirmation cards in one kind of chat; one optional field on the connect_service card
+  (`lead`), no setting or data change.
 
 ## Goal
 
@@ -21,6 +22,9 @@ After this change, in the person's own chat (the ✦ side chat included) after a
 - a connection's **write** is one card: the connection's card (everything it sends, where it goes first), with the room
   line on top ("여기에 대화방 메시지(다른 사람이 쓴 글)가 들어와서, 무언가를 바꾸기 전에 먼저 물어봐요."). A team connection
   set to send without asking asks here too. A connection set to refuse still refuses.
+- Added during the work (the card-fatigue audit, change 3): the other tools with a card of their own do the same, one
+  card instead of the room card and then theirs: `schedule_create`, `generate_video`, `move_files` and `copy_files`
+  (asking also when nobody's access changes), `move_skill`, `connect_service`.
 
 ## Scope
 
@@ -30,12 +34,15 @@ In:
   target is read-only, `find_tools` always.
 - chat/tools.ts keeps it for the integrations provider's tools only (a tool of any other provider, or one that does not
   say, is no connection tool: it keeps the room card) and exposes `readsOnly(name, args)`; `exec.readsOnly`.
-- chat/turn.ts `confirmRoomChange`, own chat after a room read, a person there to answer: a connection's read whose
-  arguments carry no address (`extractUrls`, also %-decoded, or an address without `https://`) and no random-looking part
-  (`opaqueParts`) goes on; a connection's write raises no room card. The tool's context says the chat holds room
-  messages (`TurnToolContext.roomsSeen`), so the connection's `gate()` treats "send without asking" as "ask" and puts the
-  room line first.
-- Tests: b-chat-rooms.test.ts with a real connection (fake service), c-integrations-tools.test.ts for the gate.
+- chat/turn.ts `confirmRoomChange`, own chat after a room read, a person there to answer (`ownCard`): a connection's
+  read whose arguments carry no address (`extractUrls`, also %-decoded, or an address without `https://`) and no
+  random-looking part (`opaqueParts`) goes on; a connection's write and the tools in `ROOMS_SEEN_OWN_CARD_TOOLS` raise no
+  room card. Their person (chat/tools.ts `roomLinePerson`) puts the room line on every card, adds the room card's details
+  to a card that has none, and says `TurnPerson.roomsSeen`, so the tool asks every time: the connection's `gate()` treats
+  "send without asking" as "ask", a move asks without an audience change. `move_skill` and `connect_service` (not
+  registered tools) add the line themselves; the connect card shows it in a new optional `lead`.
+- Tests: b-chat-rooms.test.ts with a real connection (fake service), c-integrations-tools.test.ts for the gate,
+  move-skill.test.ts, the web connect-card test.
 - DECISIONS ("내 AI 채팅에서 대화방 읽기"), INTEGRATIONS.md, CHANGELOG.
 
 Out:
@@ -50,9 +57,10 @@ Out:
 1. `readOnly` on `TurnTool` and the four kinds of connection tools; kept for the integrations provider in chat/tools.ts.
 2. The address and random-part check for a read's arguments (tools/url-gate.ts).
 3. `confirmRoomChange`: the read without a card, the write without the room card; `roomsSeen` on the tool context.
-4. `gate()`: no "send without asking" and the room line when `roomsSeen`; an MCP tool that was a write when the turn
-   began still asks when `roomsSeen`.
-5. Tests, docs, changelog.
+4. `gate()`: no "send without asking" when `roomsSeen`; an MCP tool that was a write when the turn began still asks.
+5. The other tools with their own card: the person with the room line, a move without an audience change asks,
+   `move_skill`'s question and `connect_service`'s `lead`.
+6. Tests, docs, changelog.
 
 ## Risks
 
@@ -62,7 +70,10 @@ Out:
 - **A service marks a write read-only.** The mark is the service's own (connections/mcp.ts); a clean chat trusts it
   already, and whoever manages the connection can turn the tool off.
 - **Fail closed.** Only the integrations provider's tools count; a tool there that does not say keeps the room card.
-- No migration. No new words (the room line is `roomsSeenWhy`, in five languages).
+- **A tool on the own-card list acts without asking.** Each listed tool asks before any effect whenever
+  `TurnPerson.roomsSeen` is set (checked for each: the schedule, video, move and skill cards are unconditional or made
+  so, the connect form is the only way to connect); a tool added to the list must do the same.
+- No migration. No new words (the room line is `roomsSeenWhy`, in five languages); old web apps ignore `lead`.
 
 ## Tests
 

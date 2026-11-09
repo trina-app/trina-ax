@@ -156,11 +156,13 @@ function scheduleMayWrite(ctx: AppContext, turnId: string, connectionId: string)
  * Anything that changes something at the service: refused ('deny'), asked on the server's card ('ask'), or sent
  * ('allow', team connections only: a personal one asks). The card shows everything that is sent, in full, with the
  * recipient-like fields first; a write too large for that is refused. In a scheduled run nobody is asked: an "allow"
- * connection sends only when the schedule's card allowed it (tools/schedules.ts), everything else is refused.
+ * connection sends only when the schedule's card allowed it (tools/schedules.ts), everything else is refused. In the
+ * person's own chat after it read their team chat rooms (TurnPerson.roomsSeen) this card is the call's only one:
+ * 'allow' asks too, and the person's card leads with the room line (docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기").
  */
 async function gate(ctx: AppContext, row: Row, what: string, sent: Sent, b: BuildCtx, tc: TurnToolContext): Promise<boolean> {
   if (row.write_policy === 'deny') throw new CallError(`${row.name} is set to refuse changes from the AI, so nothing was sent. Tell the user; whoever manages the connection can change that in its settings.`, 'refused (write policy deny)')
-  if (row.write_policy === 'allow' && row.scope === 'team') {
+  if (row.write_policy === 'allow' && row.scope === 'team' && !tc.files.person?.roomsSeen) {
     if (!b.scheduled || scheduleMayWrite(ctx, b.turnId, row.id)) return false
     throw new CallError(`this is a scheduled run and this scheduled task may not send to ${row.name} (its card offers sending only to the connections the task names, and only when the user allows it there), so nothing was sent. Say so in the summary; the user can do it in a chat, or edit the task in Scheduled tasks (or create it again) naming ${row.name} and allow sending to it.`, 'refused (scheduled run not allowed)')
   }
@@ -326,6 +328,7 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
     description: toolDescription(row, tool),
     inputSchema: tool.inputSchema,
     label: (args) => stepOf(ctx, b, row, tool.name, args),
+    readOnly: tool.readOnly,
     call: hiding(ctx, [row], async (args, tc, h) => {
       const svc = integrationsOf(ctx)
       let confirmed = false
@@ -339,7 +342,9 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         if (!t) throw new CallError(`${current.name} no longer offers ${tool.name}`, 'tool gone')
         // turned off since the turn began: the person who manages the connection said no to this tool
         if (disabledTools(current).has(t.name)) throw new CallError(`${tool.name} of ${current.name} was turned off for the AI, so it did not run. Do not try it another way; tell the user (whoever manages the connection can turn it on in its settings).`, 'tool off')
-        if (!t.readOnly) {
+        // after a room read, a tool that was a write when the turn began raised no room card: it asks even if the
+        // service calls it read-only now
+        if (!t.readOnly || (tc.files.person?.roomsSeen && !tool.readOnly)) {
           confirmed = await gate(ctx, current, t.name, { text: JSON.stringify(args ?? {}, null, 2), fields: recipientFields(args) }, b, tc)
           // the card may have waited for minutes: rules, settings and the connection are read again
           const asked = current.version
@@ -479,6 +484,8 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
       const path = typeof a.path === 'string' ? a.path.split('?')[0]! : ''
       return `${r?.name ?? 'API'} · ${String(a.method ?? '').toUpperCase()} ${clip(path, 80)}`.trim()
     },
+    // GET and HEAD only read (the method as call() takes it); every other method asks on the card (gate)
+    readOnly: (args) => { const m = (args as { method?: unknown } | null)?.method; return typeof m === 'string' && ['GET', 'HEAD'].includes(m.toUpperCase()) },
     call: hiding(ctx, [], async (raw, tc, h) => {
       const svc = integrationsOf(ctx)
       const input = raw && typeof raw === 'object' && typeof (raw as { method?: unknown }).method === 'string' ? { ...(raw as object), method: (raw as { method: string }).method.toUpperCase() } : raw
@@ -575,6 +582,7 @@ function findToolsTool(ctx: AppContext, entries: TurnEntry[]): TurnTool {
       required: ['query'],
       additionalProperties: false,
     },
+    readOnly: true,
     call: hiding(ctx, [], async (raw, tc, h) => {
       const parsed = findInput.safeParse(raw ?? {})
       if (!parsed.success) return invalid(FIND_TOOLS, parsed.error)
@@ -636,6 +644,13 @@ function callToolTool(ctx: AppContext, b: BuildCtx, index: ReadonlyMap<string, T
       const hit = typeof a.name === 'string' ? resolve(a.name) : []
       const given = callInput.shape.arguments.safeParse(a.arguments)
       return hit.length === 1 ? stepOf(ctx, b, hit[0]!.row, hit[0]!.tool.name, given.success ? given.data : undefined) : `${CALL_TOOL} · ${clip(String(a.name ?? ''), 80)}`
+    },
+    // the tool it names, as it was when the turn began (mcpTool asks for a write either way); an unknown or ambiguous
+    // name is no read
+    readOnly(args) {
+      const n = (args as { name?: unknown } | null)?.name
+      const hit = typeof n === 'string' ? resolve(n) : []
+      return hit.length === 1 && hit[0]!.tool.readOnly
     },
     async call(raw, tc) {
       const parsed = callInput.safeParse(raw ?? {})

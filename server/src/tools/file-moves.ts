@@ -69,10 +69,11 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
     const lines = (rows: { path: string; error: string }[]) => rows.map((f) => `- ${f.path}: ${f.error}`).join('\n')
     if (!ok.length) throw new ToolError(`nothing was ${verb}:\n${lines(failed)}`)
 
-    // who can see them: one question for the whole call, on the server's card
+    // who can see them: one question for the whole call, on the server's card; after a room read this card stands in
+    // for the room card, so it asks even when nobody's access changes (TurnPerson.roomsSeen)
     const { added, lost } = svc.audienceChange(tc.user.id, ok, folder, mode)
     let confirmed = false
-    if (added > 0 || lost > 0) {
+    if (added > 0 || lost > 0 || tc.person?.roomsSeen) {
       if (!tc.person) throw new ToolError(`this would change who can see these files (${added} more, ${lost} fewer people) and nobody can confirm it here, so nothing was ${verb}. Ask the user to do it in a chat or on the Files screen.`)
       const L = tc.person.locale
       const names = ok.slice(0, 10).map(nameOf).join('\n') + (ok.length > 10 ? `\n${fill(TEXT.more[L], { n: ok.length - 10 }, L)}` : '')

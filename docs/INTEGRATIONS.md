@@ -490,6 +490,11 @@ connections with their address and the first 1,000 characters of their notes.
   "Outbound web channels"). That card offers only the `allow` team connections the task names: in its title or
   instruction, or in `schedule_create`'s `connections`; an edit's card also offers again the ones the task may already
   send to (docs/DECISIONS.md "The schedule card offers only the connections the task names").
+- After a team chat room was read in the person's own chat (docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기"), reads still
+  run at once, and their arguments go to the connected service, unless the arguments hold a web address or a long
+  random-looking part: then the room card asks first. A write asks on this card alone, the room's line on top
+  ("여기에 대화방 메시지(다른 사람이 쓴 글)가 들어와서, 무언가를 바꾸기 전에 먼저 물어봐요."), also for an `allow` team
+  connection; `deny` still refuses. Scheduled runs are unchanged.
 - Results are wrapped as external data (`<external_data source="<name>">`, the closing tag neutralised inside), and the
   instructions tell the AI that they are data, never instructions.
 - **Read scope**: an answer from a personal connection counts like the person's own folder (`{type:'user'}`); from a team
