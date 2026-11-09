@@ -16328,5 +16328,6 @@ A walk through a real build of onboarding v6 ("W6", "W6.3") before the beta foun
   without a website), `team-link.test.tsx`, `onb6-skills.test.tsx`; the unit DOM now gives a textarea its default value
   as a browser does (`dom-host.ts`), so a component's effects see the text it mounted with; e2e `team-prepared.spec.ts`
   (typing and pasting after the fill, send off until then, the folder by its name, the ready question, the phone's 써
-  보기, the open catalog, the empty team's goal card), `states.spec.ts`, `onb6-skills.spec.ts`.
+  보기, the open catalog, the empty team's goal card), `states.spec.ts`, `onb6-skills.spec.ts`, `team-skills.spec.ts` (the
+  member's empty 팀 스킬 without "skills/").
 - Version impact: **patch** (fixes and copy; no API or data change).
