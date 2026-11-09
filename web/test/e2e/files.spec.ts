@@ -633,7 +633,7 @@ test('move several files: one question for all that would become private, one to
   const ask = page.getByRole('dialog', { name: '나만 보게 옮길까요?' })
   await expect(ask).toContainText('3개를 개인 폴더로 옮기면 1명이 더 이상 볼 수 없어요.')
   await ask.getByTestId('dialog-confirm').click()
-  await expect(page.getByText('3개를 내 폴더(으)로 옮겼어요.')).toBeVisible()
+  await expect(page.getByText('3개를 내 폴더로 옮겼어요.')).toBeVisible()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   // three tries answered audience_narrowed, then the same three with confirm
   expect((await moves(page)) - before).toBe(6)
