@@ -2196,13 +2196,13 @@ export class TurnExec {
     auditLog(this.rt.db, { actor: this.spec.userId, action: 'skills.ai_write_refused', target: r.rel, detail: { tool, turnId: this.id, chatId: this.spec.chatId, answer: answer === null || answer === undefined ? 'none' : picked === 'rename' || picked === 'fix' ? picked : 'declined', ...(group ? { group: { id: group.id, name: group.name } } : {}), ...(project ? { project: { id: project.project.id, name: project.project.name } } : {}) } })
     if (dead && picked === 'rename') {
       return {
-        refusal: `Nothing was saved to '${r.rel}': a skill called "${neutralizeTags(skill!.name)}" is already in ${same!.where}, and that one runs in this project's chats (a project skill only adds new names). The user wants it saved under another name: pick a new name (lowercase a-z, 0-9 and hyphens; the folder takes the same name), or ask the user for one, and save it again (the user confirms on a new card).`,
+        refusal: `Nothing was saved to '${r.rel}': a skill called "${neutralizeTags(skill!.name)}" is already in ${neutralizeTags(same!.whereEn)}, and that one runs in this project's chats (a project skill only adds new names). The user wants it saved under another name: pick a new name (lowercase a-z, 0-9 and hyphens; the folder takes the same name), or ask the user for one, and save it again (the user confirms on a new card).`,
         summary: `${tool} -> not saved: the name is taken (rename)`,
       }
     }
     if (dead && picked === 'fix' && same?.fix) {
       return {
-        refusal: `Nothing was saved to '${r.rel}': the user wants to change the existing "${neutralizeTags(skill!.name)}" skill in ${same.where} (${same.fix.path}) instead. Read it, then edit it there; the user confirms that change on its own card.`,
+        refusal: `Nothing was saved to '${r.rel}': the user wants to change the existing "${neutralizeTags(skill!.name)}" skill in ${neutralizeTags(same.whereEn)} (${same.fix.path}) instead. Read it, then edit it there; the user confirms that change on its own card.`,
         summary: `${tool} -> not saved: change the existing skill instead`,
       }
     }
@@ -2230,20 +2230,21 @@ export class TurnExec {
    * there (`hidden`), with how to change that one when the person may write it. `wider`: saving a team or group skill:
    * a project skill of that name in a project the person sees would be hidden by it. null: none.
    */
-  sameNameElsewhere(me: Principal, name: string, except: string, target: 'project' | 'wider', L: Locale): { text: string; hidden: boolean; where: string; fix: { label: 'fixTeam' | 'fixGroup' | 'fixMine'; path: string } | null } | null {
+  sameNameElsewhere(me: Principal, name: string, except: string, target: 'project' | 'wider', L: Locale): { text: string; hidden: boolean; where: string; whereEn: string; fix: { label: 'fixTeam' | 'fixGroup' | 'fixMine'; path: string } | null } | null {
     try {
       if (target === 'project') {
         const hit = widerSkillsNamed(this.rt.files, me, name, except)[0]
         if (!hit) return null
         const t = skillTier(hit)
-        const where = t === 0 ? st('wherePersonal', L) : hit.group ? st('whereGroup', L, { group: hit.group.name }) : st('whereTeam', L)
+        const whereIn = (l: Locale) => (t === 0 ? st('wherePersonal', l) : hit.group ? st('whereGroup', l, { group: hit.group.name }) : st('whereTeam', l))
+        const where = whereIn(L)
         const writes = this.rt.files.rules().access(me, skillFolder(hit.path).split('/')) === 'write'
-        return { text: st('sameNameWider', L, { name, where }), hidden: true, where, fix: writes ? { label: t === 0 ? 'fixMine' : t === 1 ? 'fixGroup' : 'fixTeam', path: hit.path } : null }
+        return { text: st('sameNameWider', L, { name, where }), hidden: true, where, whereEn: whereIn('en'), fix: writes ? { label: t === 0 ? 'fixMine' : t === 1 ? 'fixGroup' : 'fixTeam', path: hit.path } : null }
       }
       const hit = projectSkillSections(this.rt.files, me).find((x) => x.skill.path !== except && sameSkillName(x.skill.name, name))
       if (!hit?.skill.project) return null
       const where = st('whereProject', L, { project: hit.skill.project.name })
-      return { text: st('sameNameNarrower', L, { name, where }), hidden: false, where, fix: null }
+      return { text: st('sameNameNarrower', L, { name, where }), hidden: false, where, whereEn: st('whereProject', 'en', { project: hit.skill.project.name }), fix: null }
     } catch { return null }
   }
 

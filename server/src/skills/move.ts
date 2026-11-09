@@ -1,6 +1,6 @@
 // Moving a skill from one level to another (docs/DECISIONS.md "Project skills"): the team (skills/), one of the
 // person's groups (groups/<g>/skills/), a live team project (<folder>/skills/: its chats only) or the person's own
-// (users/<me>/skills/). One action for the Skills page's "옮기기…" (GET / POST /api/skills/move) and the AI's move_skill
+// (users/<me>/skills/). One action for the Skills page's Move dialog (GET / POST /api/skills/move) and the AI's move_skill
 // (chat/tools.ts), whose card the person answers. A move needs write on both places, no skill of that name at the target,
 // a SKILL.md folder for a project, and for a project no wider skill of the same name the person sees (a project only adds
 // names). What the person saw is bound to a hash of every file of the skill and the target (`token`), checked again when

@@ -70,7 +70,7 @@ export const B_TOOL_DESCRIPTIONS = {
   set_title: 'Name this new chat: a short title in the user\'s language that says what the person wants (2-60 characters). Call it once, early in your answer. Never put keys, tokens, passwords, personal data or quotes of the message in it.',
   skill: 'Load one of the user\'s skills (a saved team or personal workflow) by its name as listed under Team skills in your instructions, and get its full steps. Call it when a request matches a skill, before you follow it; then follow the steps and say which skill you used. A folder skill\'s other files are read with read, relative to the folder the result names.',
   find_skills: 'Search the skills the user can use by words (their names, descriptions and folders), best first, at most 10; with no word in common it lists the skills the user uses most. Use it when no skill in your instructions\' list clearly fits but the request looks like a saved workflow (the list may be cut). Then load the one that fits with skill.',
-  move_skill: 'Move one of the user\'s skills to another level: the whole team, one of the user\'s groups, a project (only that project\'s chats use it) or the user\'s own skills. The user confirms on a card that says who gains and who loses it and lists every file. You may only move a skill where fewer people get it (nobody new); when the user wants more people to get a skill, tell them to move it with 옮기기… on the Skills page. Skills never move with move_files; never make a skills folder, a README or a copy as a stand-in. A folder that is not a project yet must be made a project first.',
+  move_skill: 'Move one of the user\'s skills to another level: the whole team, one of the user\'s groups, a project (only that project\'s chats use it) or the user\'s own skills. The user confirms on a card that says who gains and who loses it and lists every file. You may only move a skill where fewer people get it (nobody new); when the user wants more people to get a skill, tell them to use the Move item in the skill\'s menu on the Skills page (shown in their screen language). Skills never move with move_files; never make a skills folder, a README or a copy as a stand-in. A folder that is not a project yet must be made a project first.',
 } as const
 
 /** A turn's tool set, plus what per-person tools add: a section for the instructions and their own step labels. */
@@ -482,7 +482,7 @@ function skillTools(exec: TurnExec): Tool[] {
 // ---------------- move_skill ----------------
 // One skill to another level (skills/move.ts, docs/DECISIONS.md "Project skills"), after the person's yes on the
 // server's card, which says who gains and who loses it and lists every file. The AI only narrows: a move that gives the
-// skill to anyone new is refused here (the Skills page's 옮기기… shows the whole text for that), so a message planted
+// skill to anyone new is refused here (the Skills page's Move dialog shows the whole text for that), so a message planted
 // in a file cannot widen a skill's reach. The card's yes is bound to every file's hash, checked again as it moves.
 // Not offered in rooms or shared chats (rooms/ai-tools.ts); refused in a scheduled run (nobody to ask).
 function moveSkillTool(exec: TurnExec): Tool {
@@ -494,7 +494,7 @@ function moveSkillTool(exec: TurnExec): Tool {
     async call(args) {
       const a = MoveSkillInput.safeParse(args)
       if (!a.success) return text(zodText(a.error), true)
-      if (spec.clientKind === 'schedule') return bad('Not moved: a scheduled run has nobody to confirm the card. Tell the user to move the skill in a chat or with 옮기기… on the Skills page.', 'refused: scheduled run')
+      if (spec.clientKind === 'schedule') return bad('Not moved: a scheduled run has nobody to confirm the card. Tell the user to move the skill in a chat or with the Move item in the skill\'s menu on the Skills page (shown in their screen language).', 'refused: scheduled run')
       if (exec.room || exec.shared || exec.restricted || exec.templateRun) return bad('Not moved: skills are not moved from here.', 'refused: not here')
       let user: Principal
       try { user = exec.livePrincipal() } catch { return bad('Access denied: this account is disabled.', 'denied: account disabled') }
@@ -537,7 +537,7 @@ function moveSkillTool(exec: TurnExec): Tool {
       const from = levelLabel(plan.from, L), dest = levelLabel(plan.to, L)
       // the AI only narrows (a planted message must not widen a skill's reach)
       if (plan.gained > 0) {
-        return bad(`Not moved: at ${levelLabel(plan.to, 'en')} ${plan.gained} more ${plan.gained === 1 ? 'person' : 'people'} would get this skill (${plan.fromPeople} → ${plan.toPeople}). You can only move a skill where fewer people get it. Tell the user they can move it themselves with 옮기기… on the Skills page, where they see its whole text first.`, `refused: widens (+${plan.gained})`)
+        return bad(`Not moved: at ${levelLabel(plan.to, 'en')} ${plan.gained} more ${plan.gained === 1 ? 'person' : 'people'} would get this skill (${plan.fromPeople} → ${plan.toPeople}). You can only move a skill where fewer people get it. Tell the user they can move it themselves with the Move item in the skill's menu on the Skills page (shown in their screen language), where they see its whole text first.`, `refused: widens (+${plan.gained})`)
       }
       const size = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
       const question = [skillText('moveConfirm', L, { name: plan.skill.name, from, fromN: String(plan.fromPeople), to: dest, toN: String(plan.toPeople) }), plan.lost ? skillText('moveLost', L, { n: String(plan.lost) }) : ''].filter(Boolean).join('\n\n')
