@@ -95,7 +95,8 @@ export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'out
  * room tools themselves, and the own chat's other tools that only read or look (the scheduled tasks' list, Google
  * Drive's search, list and read, finding a connection's tools, the in-app browser's reading tools). set_title names the
  * chat for the person alone; remember raises its own card with the text it would keep (chat/tools.ts). A connection's
- * read whose arguments carry no address or random-looking part goes on too (chat/turn.ts confirmRoomChange), and the
+ * read that the service marks read-only, whose arguments carry no address or random-looking part, goes on too
+ * (chat/turn.ts confirmRoomChange; not api_request's GET), and the
  * tools with a card of their own ask there alone (ROOMS_SEEN_OWN_CARD_TOOLS, a connection's write). Every other tool
  * (writes, the browser's clicks and pages, box_shell, forget, tools added later) waits for the person's yes on the room
  * card for the rest of that chat (fails closed).

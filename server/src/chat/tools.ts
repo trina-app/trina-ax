@@ -88,6 +88,8 @@ export interface ChatToolSet extends TurnToolSet {
   connection(name: string): boolean
   /** a connection tool's call that only reads; false for a write and for any tool that is not a connection's */
   readsOnly(name: string, input: unknown): boolean
+  /** ...and that may go without the room card after a room read (the service's own mark, not api_request's method) */
+  readsFree(name: string, input: unknown): boolean
 }
 
 /** box_shell's waiting state on its step (Step.devEnvRun). The first write of a call finds the call's step through
@@ -180,7 +182,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // the connections' tools by name, with whether a call only reads (integrations/connections/tools.ts): after a room
   // read their reads skip the room card and their writes ask on their own card (chat/turn.ts confirmRoomChange). Only
   // the integrations provider's, and only those that say: any other tool keeps the room card (fails closed)
-  const connections = new Map<string, NonNullable<TurnTool['readOnly']>>()
+  const connections = new Map<string, { readOnly: NonNullable<TurnTool['readOnly']>; card: boolean }>()
   // no connection's tools in a room (rooms/ai-tools.ts ROOM_TOOLS), and so no "Connected services" section either
   for (const p of confidential || exec.restricted || exec.room || exec.shared ? [] : exec.rt.ctx.services.turnToolProviders ?? []) {
     let built: ReturnType<typeof p.build>
@@ -189,7 +191,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     for (const t of built.tools) {
       if (!add(wrapRegistered(exec, t))) continue
       if (t.label) labels.set(t.name, t.label.bind(t))
-      if (p.name === 'integrations' && t.readOnly !== undefined) connections.set(t.name, t.readOnly)
+      if (p.name === 'integrations' && t.readOnly !== undefined) connections.set(t.name, { readOnly: t.readOnly, card: t.readsNeedCard === true })
     }
     if (built.prompt) prompt.push(built.prompt)
     const ctxText = built.context === undefined ? built.prompt : built.context
@@ -201,9 +203,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     stepLabel(name, input, locale) { try { return labels.get(name)?.(input, locale) ?? null } catch { return null } },
     connection: (name) => connections.has(name),
     readsOnly(name, input) {
-      const ro = connections.get(name)
+      const ro = connections.get(name)?.readOnly
       try { return typeof ro === 'function' ? ro(input) === true : ro === true } catch { return false }
     },
+    readsFree(name, input) { return connections.get(name)?.card === false && this.readsOnly(name, input) },
     list: () => [...tools.values()].map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
     has: (n) => tools.has(n),
     async call(name, args, caller) {

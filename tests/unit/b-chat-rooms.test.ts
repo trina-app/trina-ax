@@ -704,12 +704,18 @@ describe('connected services after a room read: reads without a card, one card f
   }
   const created = () => svc.calls.filter((c) => c.name === 'create_task').map((c) => c.args.title as string)
 
-  test('a read of a connected service goes on with no card, as Drive\'s reads do (an MCP tool marked read-only, an API\'s GET)', async () => {
+  test('a read the service marks read-only goes on with no card, as Drive\'s reads do; an API\'s GET keeps the room card', async () => {
     const chat = await afterRoomRead()
-    const r = await turn('alice', chat, fake({ tool: 'my_tasks__search_tasks', args: { q: 'plan' }, sayResult: true }, { tool: 'api_request', args: { connection: 'my_aipm', method: 'GET', path: '/tasks' }, sayResult: true }))
+    const r = await turn('alice', chat, fake({ tool: 'my_tasks__search_tasks', args: { q: 'plan' }, sayResult: true }))
     expect(r.done.content).toContain('search_tasks: {"q":"plan"}')
-    expect(r.done.content).toContain('Write the plan')
     expect(cards(r.started.turnId)).toHaveLength(0)
+    // api_request: GET is the AI's choice of method and some APIs act on a GET, so the room card asks; yes, it runs
+    const requests = svc.seen.length
+    const get = await answered(chat, fake({ tool: 'api_request', args: { connection: 'my_aipm', method: 'GET', path: '/tasks' }, sayResult: true }), 'allow')
+    expect(get.cards).toHaveLength(1)
+    expect(get.cards[0]!.question).toStartWith(LEAD)
+    expect(get.cards[0]!.question).toContain('AI PM · GET /tasks')
+    expect(svc.seen.length).toBe(requests + 1)
   })
 
   test('what counts as an address or a random-looking part in a read\'s arguments (tools/url-gate.ts carriesAddress)', () => {

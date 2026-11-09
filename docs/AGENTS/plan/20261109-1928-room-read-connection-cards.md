@@ -31,7 +31,8 @@ After this change, in the person's own chat (the ✦ side chat included) after a
 In:
 - `TurnTool.readOnly?: boolean | ((args) => boolean)` (server/src/services.ts), set by the connections' tools: an MCP
   tool the service marks read-only (the saved `readOnly`), `api_request` with GET or HEAD, `call_tool` whose indexed
-  target is read-only, `find_tools` always.
+  target is read-only, `find_tools` always. Changed after review: `api_request`'s GET and HEAD keep the room card
+  (`TurnTool.readsNeedCard`), see Risks.
 - chat/tools.ts keeps it for the integrations provider's tools only (a tool of any other provider, or one that does not
   say, is no connection tool: it keeps the room card) and exposes `readsOnly(name, args)`; `exec.readsOnly`.
 - chat/turn.ts `confirmRoomChange`, own chat after a room read, a person there to answer (`ownCard`): a connection's
@@ -67,10 +68,12 @@ Out:
 - **A room message makes the AI read and send data out through a read.** A read whose arguments hold an address or a
   long random-looking part asks first. Plain words in a search go to the connected service, which the team or the
   person connected (the same as the engine's web search and Drive search after a room read; accepted in the plan).
-- **A service marks a write read-only, or an HTTP API changes something on a GET.** The mark is the service's own
-  (connections/mcp.ts), the method the AI's; a clean chat trusts both already, and whoever manages the connection can
-  turn the tool off. Accepted in the plan (GET and HEAD are reads); a card for a GET whose query names a recipient was
-  tried in review and dropped (exact names only, and cards on plain reads such as `?channel=`).
+- **A service marks a write read-only.** The mark is the service's own (connections/mcp.ts); a clean chat trusts it
+  already, and whoever manages the connection can turn the tool off.
+- **An HTTP API changes something on a GET.** Decided after review (the coordinator, 2026-11-10): `api_request` keeps
+  the room card after a room read, GET and HEAD included, since the method is the AI's choice. One card for an HTTP
+  API's read (NAVER WORKS, for one) is the cost. A card only when the query names a recipient was tried and dropped
+  (exact names only, and cards on plain reads such as `?channel=`).
 - **Fail closed.** Only the integrations provider's tools count; a tool there that does not say keeps the room card.
 - **A tool on the own-card list acts without asking.** Each listed tool asks before any effect whenever
   `TurnPerson.roomsSeen` is set (checked for each: the schedule, video, move and skill cards are unconditional or made
@@ -88,4 +91,4 @@ Built as planned, plus the card-fatigue audit's change 3 (the other tools with t
 independent review before the PR: `carriesAddress` reads `call_tool`'s JSON-text arguments as the tool takes them and
 catches `https:/…`, `https:host`, full-width hosts and a whole host value; the own-card skip runs after the
 instruction-file rule, so a copy of a planted `CLAUDE.md` is still refused. Cards after a room read: a Notion read 1 → 0,
-a Notion write 2 → 1, a read with an address 1 → 1. PR: https://github.com/trina-app/trina-ax/pull/274
+a Notion write 2 → 1, an HTTP API's GET 1 → 1, a read with an address 1 → 1. PR: https://github.com/trina-app/trina-ax/pull/274

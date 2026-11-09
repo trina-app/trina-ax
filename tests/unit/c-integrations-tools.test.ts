@@ -278,6 +278,9 @@ describe('calls', () => {
     for (const method of ['GET', 'get', 'HEAD']) expect(reads('api_request', { connection: 'my_aipm', method, path: '/tasks' })).toBe(true)
     for (const method of ['POST', 'PUT', 'PATCH', 'DELETE', undefined]) expect(reads('api_request', { connection: 'my_aipm', method, path: '/tasks' })).toBe(false)
     expect(reads('api_request', null)).toBe(false)
+    // ...but the method is the AI's choice: after a room read its GET still raises the room card (chat/turn.ts)
+    expect(a.tools.get('api_request')!.readsNeedCard).toBe(true)
+    expect(a.tools.get('my_tasks__search_tasks')!.readsNeedCard).toBeUndefined()
   })
 
   test('after a room read (roomsSeen) the connection\'s card is the call\'s only one: "run without asking" asks too, "deny" still refuses', async () => {

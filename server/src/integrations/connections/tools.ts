@@ -484,8 +484,10 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
       const path = typeof a.path === 'string' ? a.path.split('?')[0]! : ''
       return `${r?.name ?? 'API'} · ${String(a.method ?? '').toUpperCase()} ${clip(path, 80)}`.trim()
     },
-    // GET and HEAD only read (the method as call() takes it); every other method asks on the card (gate)
+    // GET and HEAD only read (the method as call() takes it); every other method asks on the card (gate). The method is
+    // the AI's choice and some APIs act on a GET, so after a room read a GET still raises the room card
     readOnly: (args) => { const m = (args as { method?: unknown } | null)?.method; return typeof m === 'string' && ['GET', 'HEAD'].includes(m.toUpperCase()) },
+    readsNeedCard: true,
     call: hiding(ctx, [], async (raw, tc, h) => {
       const svc = integrationsOf(ctx)
       const input = raw && typeof raw === 'object' && typeof (raw as { method?: unknown }).method === 'string' ? { ...(raw as object), method: (raw as { method: string }).method.toUpperCase() } : raw

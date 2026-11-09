@@ -151,6 +151,9 @@ export interface TurnTool {
    * and a write asks on the connection's card alone (chat/turn.ts confirmRoomChange, TurnPerson.roomsSeen). Only the
    * integrations provider's tools are taken at their word; any other tool keeps the room card */
   readOnly?: boolean | ((args: unknown) => boolean)
+  /** its reads still raise the room card after a room read: a read only by the AI's choice of method (api_request's GET
+   * or HEAD; some APIs change something on a GET), not by the service's own mark */
+  readsNeedCard?: boolean
 }
 
 /**

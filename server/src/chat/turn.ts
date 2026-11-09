@@ -1389,6 +1389,8 @@ export class TurnExec {
   }
   /** a connection tool's call that only reads (chat/tools.ts ChatToolSet.readsOnly); false for anything else */
   readsOnly(name: string, args: unknown): boolean { return this.toolSet?.readsOnly(name, args) ?? false }
+  /** ...that may go without the room card: a read by the service's own mark, not api_request's GET (ChatToolSet.readsFree) */
+  readsFree(name: string, args: unknown): boolean { return this.toolSet?.readsFree(name, args) ?? false }
   /** what the room card shows of a call, in words (roomChangeDetails), with stored secrets hidden */
   roomCardDetails(tool: string, input: unknown): ConfirmDetailT[] {
     return roomChangeDetails(tool, input, this.spec.locale, (ref, room) => this.roomFileName(ref, room)).map((d) => ({ ...d, text: this.redact(d.text), ...(d.fields ? { fields: d.fields.map((f) => ({ name: f.name, value: this.redact(f.value) })) } : {}) }))
@@ -1537,10 +1539,11 @@ export class TurnExec {
     // the rest of the chat (docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기")
     const own = !this.room
     if (own ? !this.roomsSeen || ROOMS_SEEN_READ_ONLY_TOOLS.has(tool) || (this.browser && ROOMS_SEEN_BROWSER_READ_TOOLS.has(tool)) : ROOM_READ_ONLY_TOOLS.has(tool)) return null
-    // a connection's read goes on without a card (ownCard: the person there to answer) unless its arguments carry an
-    // address or a random-looking part (tools/url-gate.ts carriesAddress: then this card). Its arguments go to the
-    // service the person or the team connected
-    if (own && this.ownCard(tool) && this.readsOnly(tool, input) && !carriesAddress(input)) return null
+    // a connection's read the service marks read-only goes on without a card (ownCard: the person there to answer)
+    // unless its arguments carry an address or a random-looking part (tools/url-gate.ts carriesAddress: then this card);
+    // its arguments go to the service the person or the team connected. api_request's GET or HEAD asks here (the method
+    // is the AI's choice; some APIs act on a GET)
+    if (own && this.ownCard(tool) && this.readsFree(tool, input) && !carriesAddress(input)) return null
     // a skill, team rule or instruction file changes from a room only with all of its new content on the card
     const w = roomChangeWrites(tool, input, (p) => this.visibleTree(p), this.spec.userId)
     if (!w.shown && w.targets.some(instructionLike)) {
