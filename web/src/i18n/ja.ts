@@ -586,6 +586,8 @@ export const ja: Record<MessageKey, string> = {
   'artifact.needsScripts': "このアーティファクトは表示にスクリプトの実行が必要ですが、機密のチャットではデスクトップアプリでのみ実行されます。内容は「コード」タブで確認できます。",
   'preview.panel': "ファイルのプレビュー",
   'preview.resize': "プレビューの幅を調整",
+  'preview.expand': "大きく表示",
+  'preview.sideBySide': "並べて表示",
   'preview.notFound': "ファイルが見つからないか、アクセス権がありません。",
   'preview.tooLarge': "このファイルは大きすぎてプレビューできません（{size}）。ダウンロードして開いてください。",
   'preview.unsupported': "この形式はプレビューできません。ダウンロードして開いてください。",

@@ -604,6 +604,8 @@ export const id: Record<MessageKey, string> = {
 
   'preview.panel': 'Pratinjau file',
   'preview.resize': 'Atur lebar pratinjau',
+  'preview.expand': 'Perbesar',
+  'preview.sideBySide': 'Tampilkan berdampingan',
   'preview.notFound': 'File tidak ditemukan atau kamu tidak punya akses.',
   'preview.tooLarge': 'File terlalu besar untuk dipratinjau ({size}). Unduh untuk membukanya.',
   'hwp.disabled': "Pratinjau Hangul belum diaktifkan untuk tim ini. Anda tetap dapat mengunduh berkas asli dan meminta AI membaca teksnya.",

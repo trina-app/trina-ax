@@ -34,7 +34,7 @@ import { previewKind, serverPreview } from '../../lib/preview'
 import { useVoiceInput } from '../../lib/useVoiceInput'
 import { micState, voiceBlockedHere } from '../../lib/voice'
 import { useConfidentialChat } from '../../lib/confidential'
-import { openFilePreview, openTeamFile } from '../../lib/sidePanel'
+import { openFilePreview, openTeamFile, usePanelExpanded } from '../../lib/sidePanel'
 import { loadChips, patchStash, readStash, registerComposer, saveChips, subscribeStash, TEAM_FILE_DRAG_TYPE, writeStash, type AttachResult } from '../../lib/teamAttach'
 import { cancelUpload, uploadFile, uploadPercent, type UploadProgress } from '../../lib/upload'
 import { pastedFiles } from '../../lib/paste'
@@ -242,15 +242,18 @@ export default function Composer({
   const hint = transcribing ? voice.transcribingText : answering ? t('composer.answerPlaceholder') : running && queueing ? t(choiceWaiting ? 'outbox.placeholderChoice' : 'outbox.placeholder') : (placeholder ?? t('composer.placeholder'))
   // the box grows with its text, and also with a long placeholder (an empty box measures its placeholder), so a hint
   // that needs 2 lines on a phone is not cut in half when it changes while the text stays the same; and again when the
-  // person's text size changes (Settings > Profile, over this page)
+  // person's text size changes (Settings > Profile, over this page). Behind a big side panel (lib/sidePanel.ts) the box
+  // is not drawn and measures 0: it keeps its height, and is measured again when the page shows
   const textSize = useTextSize()
+  const behindPanel = usePanelExpanded()
   useEffect(() => {
     const ta = taRef.current
     if (!ta) return
+    const was = ta.style.height
     ta.style.height = 'auto'
-    ta.style.height = Math.min(ta.scrollHeight, 240) + 'px'
+    ta.style.height = ta.scrollHeight ? Math.min(ta.scrollHeight, 240) + 'px' : was
     // (and again when the box comes back after a recording: the bar stood in its place)
-  }, [text, hint, textSize, voice.recording])
+  }, [text, hint, textSize, voice.recording, behindPanel])
 
   useEffect(() => {
     if (autoFocus && window.matchMedia?.('(pointer: fine)').matches && !document.querySelector('[role="dialog"]')) taRef.current?.focus()

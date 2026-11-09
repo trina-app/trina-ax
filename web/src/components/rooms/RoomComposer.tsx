@@ -34,6 +34,7 @@ import { localItem, roomItem } from '../../lib/imageViewer'
 import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { useEveryone, useMentionMenu } from './useMentionMenu'
 import { useTextSize } from '../../lib/textSize'
+import { usePanelExpanded } from '../../lib/sidePanel'
 
 interface Upload {
   key: number
@@ -115,15 +116,18 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   }, [back])
 
   // the box grows with its text (an empty box with its placeholder: a transcription job's long label), and is measured
-  // again when the person's text size changes
+  // again when the person's text size changes. Behind a big side panel (lib/sidePanel.ts) it is not drawn and measures
+  // 0: it keeps its height, and is measured again when the room shows
   const textSize = useTextSize()
+  const behindPanel = usePanelExpanded()
   const placeholder = voice.transcribing ? voice.transcribingText : threadRootId ? t('rooms.threadPlaceholder') : empty ? t('rooms.placeholderEmpty') : t('rooms.placeholder')
   useLayoutEffect(() => {
     const ta = input.current
     if (!ta) return
+    const was = ta.style.height
     ta.style.height = 'auto'
-    ta.style.height = Math.min(ta.scrollHeight, 200) + 'px'
-  }, [text, textSize, placeholder, voice.recording])
+    ta.style.height = ta.scrollHeight ? Math.min(ta.scrollHeight, 200) + 'px' : was
+  }, [text, textSize, placeholder, voice.recording, behindPanel])
   // a thread just opened (from "reply in thread"): the box is where the person types next
   useEffect(() => {
     if (autoFocus) input.current?.focus({ preventScroll: true })

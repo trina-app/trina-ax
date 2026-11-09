@@ -24,7 +24,7 @@ import { formatSize } from '../lib/format'
 import { splitFrontMatter } from '../lib/markdown'
 import { parentPath } from '../lib/paths'
 import { decodePreviewText, languageOf, numberColumns, previewKind, previewLimit, PREVIEW_TEXT_MAX, serverPreview, type PreviewKind } from '../lib/preview'
-import { openTeamFile, type PreviewFile } from '../lib/sidePanel'
+import { openTeamFile, setPanelExpanded, type PreviewFile } from '../lib/sidePanel'
 import type { SourceLoc } from '@mycel/shared/api'
 import { TEAM_FILE_DRAG_TYPE } from '../lib/teamAttach'
 import { useTeamAttach } from '../lib/useTeamAttach'
@@ -39,6 +39,7 @@ import { Button, confirmDialog, IconButton } from './ui'
 import { MenuButton, type MenuItem } from './rooms/MenuButton'
 import { Tooltip } from './Tooltip'
 import { useViewerItem } from './ImageViewer'
+import { PanelExpandButton } from './SidePanelFrame'
 
 const HwpView = lazy(() => import('./viewers/HwpView'))
 const PdfView = lazy(() => import('./viewers/PdfView'))
@@ -176,13 +177,49 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file, rev])
 
+  // the viewers fit the panel's width. When it changes (크게 보기, the divider, the window) the pages grow or shrink: the
+  // place being read, as a share of the scroll height, is brought back while they settle (until the person scrolls)
   useLayoutEffect(() => {
     const el = body.current
     if (!el) return
-    const ro = new ResizeObserver(() => setWidth(el.clientWidth))
+    let share = 0
+    let last = el.clientWidth
+    let until = 0
+    let frame = 0
+    const settling = () => until > performance.now()
+    const settle = () => {
+      frame = 0
+      if (!settling()) return
+      el.scrollTop = share * el.scrollHeight
+      frame = requestAnimationFrame(settle)
+    }
+    const onScroll = () => {
+      if (!settling()) share = el.scrollHeight > 0 ? el.scrollTop / el.scrollHeight : 0
+    }
+    // the person scrolls: theirs from now on
+    const stop = () => {
+      until = 0
+      cancelAnimationFrame(frame)
+    }
+    const ro = new ResizeObserver(() => {
+      setWidth(el.clientWidth)
+      if (el.clientWidth === last) return
+      last = el.clientWidth
+      if (share <= 0) return
+      until = performance.now() + 800
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(settle)
+    })
     ro.observe(el)
     setWidth(el.clientWidth)
-    return () => ro.disconnect()
+    el.addEventListener('scroll', onScroll, { passive: true })
+    for (const e of ['wheel', 'touchmove', 'keydown', 'pointerdown'] as const) el.addEventListener(e, stop, { passive: true })
+    return () => {
+      ro.disconnect()
+      cancelAnimationFrame(frame)
+      el.removeEventListener('scroll', onScroll)
+      for (const e of ['wheel', 'touchmove', 'keydown', 'pointerdown'] as const) el.removeEventListener(e, stop)
+    }
   }, [])
 
   const download = () =>
@@ -192,7 +229,12 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   // phones: "add to chat", "open in Files" and "download" sit behind one ⋯ (a computer keeps them as icons)
   const teamPath = file.source === 'team' ? file.path : null
   const addToChat = teamPath && chatActionsFor(file, error, downloadOnly) && chatAttach.target ? { title: chatAttach.target.title, add: () => chatAttach.addToChat([teamPath]) } : null
-  const openInFiles = () => teamPath && navigate(`/files?path=${encodeURIComponent(parentPath(teamPath))}&select=${encodeURIComponent(file.name)}`)
+  // the folder shows beside the panel: a big panel goes back side by side
+  const openInFiles = () => {
+    if (!teamPath) return
+    setPanelExpanded(false)
+    navigate(`/files?path=${encodeURIComponent(parentPath(teamPath))}&select=${encodeURIComponent(file.name)}`)
+  }
   const canDownload = error?.kind !== 'missing'
   // an .html team file the server can print (never a button that cannot work), not while editing or after an error
   const canPdf = file.source === 'team' && kind === 'html' && !!me?.server.htmlPdf && !error && !editing
@@ -206,7 +248,8 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
 
   return (
     <aside aria-label={t('preview.panel')} className="flex h-full min-w-0 flex-col bg-surface" data-testid="file-panel">
-      <header className="flex items-center gap-2 border-b border-line px-3 py-2">
+      {/* @container: a narrow panel (the divider at its least) shows "AI에게 묻기" as its icon, so the name keeps room */}
+      <header className="@container flex items-center gap-2 border-b border-line px-3 py-2">
         <FileText size={16} className="shrink-0 text-muted" aria-hidden />
         <h2
           className={clsx('min-w-0 truncate text-sm font-semibold', file.source === 'team' && 'cursor-grab')}
@@ -227,7 +270,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
             <Tooltip label={t('files.askAi')}>
               <button type="button" onClick={() => chatAttach.askAi([file.path])} className="touch-hit mr-1 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-accent-text hover:bg-accent-soft max-md:p-1.5 max-sm:p-2" data-testid="file-ask-ai">
                 {/* phones: the icon alone, as large as the header's other icons, in an IconButton's padding */}
-                <Sparkles size={14} className="max-md:size-4" aria-hidden /> <span className="max-md:sr-only">{t('files.askAiShort')}</span>
+                <Sparkles size={14} className="max-md:size-4" aria-hidden /> <span className="max-md:sr-only @max-md:sr-only">{t('files.askAiShort')}</span>
               </button>
             </Tooltip>
           )}
@@ -257,6 +300,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
             </IconButton>
           )}
           {more.length > 0 && <MenuButton label={t('files.actionsFor', { name: file.name })} items={more} className="md:hidden" muted testId="file-panel-more" />}
+          <PanelExpandButton />
           <IconButton label={t('common.close')} onClick={onClose}>
             <X size={16} />
           </IconButton>
