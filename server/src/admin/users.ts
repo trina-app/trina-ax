@@ -289,6 +289,8 @@ export async function deleteUser(c: Context<AppEnv>, ctx: AppContext, id: string
     pruned = pruneAssignments(ctx.db, auth.user.id, now)
     // their photo, title and status: the users row stays as a tombstone, so the profile's cascade never runs
     ctx.db.query('DELETE FROM user_profiles WHERE user_id = ?').run(id)
+    // their pinned chats (chat/pins.ts), for the same reason
+    ctx.db.query('DELETE FROM chat_pins WHERE user_id = ?').run(id)
     // the person had asked for this (Settings › Profile › 계정 삭제 요청): the request is handled
     requested = closeDeletionRequest(ctx, id, auth.user.id, now)
   })()
