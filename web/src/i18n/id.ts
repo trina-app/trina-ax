@@ -2056,6 +2056,8 @@ export const id: Record<MessageKey, string> = {
   'audit.act.skills.move': 'Skill dipindahkan',
   'audit.act.skills.move_refused': 'Pemindahan skill ditolak',
   'audit.act.skills.copy': 'Skill disalin',
+  'audit.act.skills.files': 'Berkas folder skill diubah oleh AI',
+  'audit.act.skills.files_refused': 'Perubahan folder skill ditolak',
   'audit.act.schedule.project_gone': 'Tugas terjadwal dilewati (proyeknya tidak lagi terlihat oleh pemiliknya)',
   'audit.act.skills.ai_write_refused': 'Penyimpanan AI ke skill tim ditolak',
   'audit.act.skills.suggest': 'Skill diusulkan',

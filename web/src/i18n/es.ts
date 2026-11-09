@@ -2022,6 +2022,8 @@ export const es: Record<MessageKey, string> = {
   'audit.act.skills.move': 'Movió una habilidad',
   'audit.act.skills.move_refused': 'Rechazó mover una habilidad',
   'audit.act.skills.copy': 'Copió una habilidad',
+  'audit.act.skills.files': 'La IA cambió archivos de una carpeta de habilidades',
+  'audit.act.skills.files_refused': 'Rechazó un cambio en una carpeta de habilidades',
   'audit.act.schedule.project_gone': 'Tarea programada omitida (su propietario ya no ve el proyecto)',
   'audit.act.skills.ai_write_refused': "Se rechazó el guardado de la IA en habilidades del equipo",
   'audit.act.skills.suggest': "Sugirió una habilidad",
