@@ -1,0 +1,70 @@
+# CI notify: posts to Discord every time CI on main finishes (passed, failed, or green again after a failure).
+# It runs after CI (workflow_run), so ci.yml keeps using no secret. The only secret is DISCORD_WEBHOOK_URL
+# (Settings → Secrets and variables → Actions); without it this workflow does nothing and passes.
+# The Mac's CI autofix watcher (outside this repo) posts its own progress to the same channel.
+name: CI notify
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  actions: read
+
+jobs:
+  discord:
+    # pushes to main only: a PR whose branch is named main must not post
+    if: github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Post to Discord
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          TITLE: ${{ github.event.workflow_run.display_title }}
+          AUTHOR: ${{ github.event.workflow_run.head_commit.author.name }}
+          STARTED: ${{ github.event.workflow_run.run_started_at }}
+          UPDATED: ${{ github.event.workflow_run.updated_at }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then echo "DISCORD_WEBHOOK_URL is not set; nothing to post"; exit 0; fi
+
+          # the main CI run before this one (cancelled runs are skipped: they say nothing about main)
+          previous=$(gh run list -R "$REPO" --workflow ci.yml --branch main --event push --status completed --limit 10 \
+            --json databaseId,conclusion --jq "[.[] | select(.databaseId < $RUN_ID and .conclusion != \"cancelled\")][0].conclusion // \"\"")
+
+          case "$CONCLUSION" in
+            failure|timed_out|startup_failure) ;;
+            success) ;;
+            *) echo "conclusion $CONCLUSION; nothing to post"; exit 0 ;;
+          esac
+
+          minutes=$(( ( $(date -d "$UPDATED" +%s) - $(date -d "$STARTED" +%s) ) / 60 ))
+          if [ "$CONCLUSION" = success ]; then
+            color=3600234; head="✅ CI on main passed"
+            case "$previous" in failure|timed_out|startup_failure) head="✅ CI on main is green again" ;; esac
+            failed=""
+          else
+            color=16736095; head="❌ CI on main failed"
+            failed=$(gh run view "$RUN_ID" -R "$REPO" --json jobs \
+              --jq '[.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | "• " + .name] | join("\n")' || true)
+          fi
+
+          payload=$(jq -n \
+            --arg head "$head" --arg url "$RUN_URL" --arg title "$TITLE" --arg author "$AUTHOR" \
+            --arg sha "${SHA:0:8}" --arg mins "$minutes" --arg failed "$failed" --argjson color "$color" \
+            '{username: "Trina AX CI", allowed_mentions: {parse: []}, embeds: [{
+               title: $head, url: $url, color: $color,
+               description: ("`" + $sha + "` " + ($title | .[0:200]) + "\nby " + $author + " · " + $mins + " min"
+                             + (if $failed == "" then "" else "\n\n**Failed jobs**\n" + $failed end)),
+               footer: {text: (if $failed == "" then "trina-app/trina-ax" else "Claude on the Mac is picking this up" end)}
+             }]}')
+          curl -fsS -X POST -H 'Content-Type: application/json' --data "$payload" "$WEBHOOK" -o /dev/null
+          echo "posted: $head"
