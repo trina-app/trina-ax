@@ -16148,3 +16148,32 @@ is unread in the sidebar but not in n, so the Dock stayed empty.
   web change.
 - Tests: `tests/unit/schedule-connections.test.ts`.
 - Version impact: **patch** (fewer connections on a card; one optional tool input).
+## Menus stay inside the window (fix/menu-viewport-clip, 2026-11-09)
+
+A bug the owner saw in the English UI: a sidebar room row's "…" › Notification settings opened under the row with its
+right edge at the "…" and ran off the window's left edge, cutting the first words of each choice ("…ult (from
+settings)"). Placement: Team AX core (`web/src/components/rooms/MenuButton.tsx`); no contract, data or text change. Plan:
+`docs/AGENTS/plan/20261109-0720-menu-viewport-clip.md`.
+
+- **Why.** Since chore/web-tidy (#221) the shared menu is as wide as its longest item (`w-max`). Right-aligned to a
+  button about 270 px from the window's left, a 300 px English menu started at -30 px. It was also `absolute` inside
+  the sidebar's list, which scrolls, so the list cut whatever lay outside its box.
+- **On a computer the menu is fixed to the window and placed by measuring it** (`menuSpot`, in a layout effect, before
+  it is drawn): under the button with right edges in line, 4 px apart, as before; above it where it would run off the
+  bottom (the real height, not the old guess of 40 px an item); moved in to stay 8 px clear of each side, so the
+  sidebar's menu slides right over the main column's edge. Wider than the window less 16 px: capped, the words wrap.
+  Taller: capped, it scrolls. It is measured at 0,0 first, so a parent with a transform (which holds fixed boxes) does
+  not move it; it has no transition (with reduced motion index.css gives every property a 0.01 ms one, which held it
+  at 0,0 in a test and would spoil that measure). It follows the button on any scroll outside it and on resize, and
+  closes once the button is scrolled out of its list's sight (the list used to cut it off with the button). Not
+  followed: a layout shift without a scroll or resize (a banner appearing), rare while a menu is open.
+- **Kept:** the menu stays in the DOM where it was (clicks in it are not "outside", tests find it in its row or card);
+  phones (below 768 px) keep the bottom sheet; the anchor is the box the old `absolute` menu hung from (MenuButton's
+  wrapper: the button's own box, a row's full height, or the 0×0 point at a row's bottom right for the row's level menu,
+  which has no button of its own), so each menu opens where it did.
+- **Not changed:** menus with their own code and fixed widths (Files rows, admin rows, the account menu, the recents
+  filter, which was already fixed and kept inside).
+- Tests: `web/test/unit/menu-spot.test.ts` (the rule), e2e `room-leave-hide.spec.ts` (English, 1440 and 900 px: a
+  sidebar row's and the room header's notification menus inside the window, the longest item on one line, under the
+  row, its right end over the main column; 900 px with reduced motion; a short window opens a row's menu above it).
+- Version impact: **patch** (a fix; no API or data change).
