@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-09 23:36
 - Branch: `fix/post-to-room-followups`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/chat/post-to-room.ts`, `server/src/chat/answer-share.ts`, `shared/src/`,
   `web/src/components/chat/`). Why: chat, rooms and permissions are core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. Wording, a stricter dedupe after a deletion, an audit flag and a link on a step; no API break
@@ -47,4 +47,16 @@ unit tests in Docker.
 
 ## Result
 
-Filled in at the end.
+Built as planned (PR link added after it opens).
+- The note's label is "내 이름으로 보일 한마디" (five languages); the tool's description and `note`'s say to write one
+  only when the user asked for one or gave its words. `room`'s says it posts to the timeline in a side chat.
+- A first post the person deleted is not found again: the same text gets a new `n` and its own card (the room keeps the
+  deleted message's client id, unique per author, so the lookup of the id itself stays as it is).
+- `sendShare(..., { confirmed: true })` after the card's yes. `marks` (url-gate `opaqueParts`) on the text block.
+- `Step.posted` (optional) on a post's step; the web's step row shows 보기 (`steps.postView`), through a side chat's own
+  `onView` (`StepPostView`) or the room / thread route. One addition found on the way: a chat shared later gives other
+  viewers the step without `posted` (it names a room), as it drops `detail` (chat/store.ts viewSteps).
+- Tests: b-post-to-room +6 (the off-case table, a sub-agent's call, a post again after a deletion, marks, posted for the
+  runner only); web `steps-post-view.test.tsx`; e2e `post-to-room-card.spec.ts` with the mock's card (SHOTS_DIR shots).
+- `fix/ai-refusals-clear` (#273) had not landed: its `refusal()` is not used here.
+- Left (optional NIT): hiding the answer's own send button after the AI posted from a side chat.
