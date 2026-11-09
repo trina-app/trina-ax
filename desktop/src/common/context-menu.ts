@@ -1,8 +1,10 @@
-// The team page's right-click menu (main/context-menu.ts). Electron shows no menu of its own, so a right-click on a
-// photo, a link or selected text did nothing in the app. What is under the pointer (Electron's context-menu facts)
-// decides the items, in the app's language: a photo 이미지 복사 / 이미지 저장…, a link 링크 복사, selected text 복사, a
-// text field 잘라내기 / 복사 / 붙여넣기 / 모두 선택. Nothing else: no Inspect, nothing that opens a link (docs/DECISIONS.md
-// "Desktop: a right-click menu"). Pure: unit-tested in tests/unit/e-desktop-common.test.ts.
+// The right-click menu of the team page and of the app's own screens (main/context-menu.ts). Electron shows no menu of
+// its own, so a right-click on a photo, a link or selected text did nothing in the app. What is under the pointer
+// (Electron's context-menu facts) decides the items, in the app's language: a photo 이미지 복사 / 이미지 저장…, a link
+// 링크 복사, selected text 복사, a text field 잘라내기 / 복사 / 붙여넣기 / 모두 선택. Nothing else: no Inspect, nothing
+// that opens a link (docs/DECISIONS.md "Desktop: a right-click menu"). Pure: unit-tested in
+// tests/unit/e-desktop-common.test.ts.
+import { originOf } from './address'
 import { t, type UiLocale } from './i18n'
 
 /** The parts of Electron's ContextMenuParams the menu reads. */
@@ -16,15 +18,25 @@ export interface ContextFacts {
   editFlags: { canCut: boolean; canCopy: boolean; canPaste: boolean; canSelectAll: boolean }
 }
 
+/** The frame that was right-clicked: its address, and whether it is the page itself (`top`) rather than a frame in it
+ * (an artifact, an HTML preview). null: it is gone. */
+export interface ClickedFrame {
+  url: string
+  top: boolean
+}
+
 /** What an item does (main/context-menu.ts). The text items are the page's own edit commands, run on the page that
  * was right-clicked (not an edit role, which goes to whichever view has the focus). */
 export type ContextAction = 'copyImage' | 'saveImage' | 'copyLink' | 'cut' | 'copy' | 'paste' | 'selectAll'
 
 export type ContextItem = { id: ContextAction; label: string; enabled: boolean } | { type: 'separator' }
 
-/** The items for what was right-clicked, in groups with a line between; none: no menu at all. `canSave`: whether the
- * image's address may be saved through the app (saveableImage). */
-export function contextMenuItems(p: ContextFacts, locale: UiLocale, o: { canSave: (src: string) => boolean }): ContextItem[] {
+/**
+ * The items for what was right-clicked, in groups with a line between; none: no menu at all. The photo items only on
+ * the team page itself (its top frame at the team or office address, `teamPage`): a frame in it (an artifact, an HTML
+ * preview) gets the link and text items. `allowedOrigins`: the team's addresses, whose images may be saved.
+ */
+export function contextMenuItems(p: ContextFacts, locale: UiLocale, o: { teamPage: boolean; allowedOrigins: readonly string[] }): ContextItem[] {
   const groups: ContextItem[][] = []
   if (p.isEditable) {
     // a text field: the four edit items, each greyed out when it cannot apply (nothing selected, nothing to paste)
@@ -38,10 +50,10 @@ export function contextMenuItems(p: ContextFacts, locale: UiLocale, o: { canSave
     )
   } else {
     if (p.linkURL) groups.push([{ id: 'copyLink', label: t(locale, 'ctx.copyLink'), enabled: true }])
-    if (p.mediaType === 'image') {
+    if (p.mediaType === 'image' && o.teamPage) {
       const image: ContextItem[] = []
       if (p.hasImageContents) image.push({ id: 'copyImage', label: t(locale, 'ctx.copyImage'), enabled: true })
-      if (p.srcURL && o.canSave(p.srcURL)) image.push({ id: 'saveImage', label: t(locale, 'ctx.saveImage'), enabled: true })
+      if (saveableImage(p.srcURL, o.allowedOrigins)) image.push({ id: 'saveImage', label: t(locale, 'ctx.saveImage'), enabled: true })
       if (image.length) groups.push(image)
     }
     if (p.selectionText.trim() && p.editFlags.canCopy) groups.push([{ id: 'copy', label: t(locale, 'ctx.copy'), enabled: true }])
@@ -49,11 +61,18 @@ export function contextMenuItems(p: ContextFacts, locale: UiLocale, o: { canSave
   return groups.flatMap((g, i) => (i ? [{ type: 'separator' as const }, ...g] : g))
 }
 
+/** The right-click was on the team page itself: its top frame, at the team or office address. */
+export function isTeamPage(frame: ClickedFrame | null, allowedOrigins: readonly string[]): boolean {
+  if (!frame?.top) return false
+  const origin = originOf(frame.url)
+  return origin !== '' && allowedOrigins.includes(origin)
+}
+
 /**
  * Whether 이미지 저장… may save this image: one the team page itself serves (the team address or its office address)
  * or a picture the page made of its own bytes (a `blob:` address of those origins: the preview panel's original).
- * Anything else (an image from another site, a `data:` picture in an artifact) can be copied, not saved through the
- * app: the save would fetch it with the team's session.
+ * Anything else (another site's image, a `data:` picture) is not saved through the app: the save fetches it with the
+ * team's session.
  */
 export function saveableImage(src: string, allowedOrigins: readonly string[]): boolean {
   let u: URL

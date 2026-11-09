@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-09 02:40
 - Branch: `fix/image-copy-paste-preview`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`desktop/src/`, `web/src/components/rooms/RoomComposer.tsx`, `web/src/components/chat/Composer.tsx`).
   Why: the desktop shell and the message boxes are core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. A context menu where there was none and a picture in the room box's file chip; no API, setting
@@ -40,7 +40,7 @@ saves the thumbnail (what it shows, as a browser does); the original is in the p
 1. Reproduce the paste in Chromium (real clipboard: a screenshot, an image with HTML) in both boxes.
 2. `desktop/src/common/context-menu.ts` (pure template) + `desktop/src/main/context-menu.ts` (wires it to the team view).
 3. Strings in `desktop/src/common/i18n.ts` (ko, en, id, ja, es).
-4. Shared `LocalThumb`; the room chip uses it; paste helper.
+4. Shared `ChipThumb`; the room chip uses it; paste helper.
 5. Unit tests (desktop template, paste helper), e2e: pasting shows the picture before the upload ends (both boxes).
 6. CHANGELOG, DECISIONS, screenshots.
 
@@ -57,4 +57,12 @@ saves the thumbnail (what it shows, as a browser does); the original is in the p
 
 ## Result
 
-(filled in at the end)
+Built as planned. What differs or was found:
+- The text items call the right-clicked page's own `cut / copy / paste / selectAll` instead of Electron's edit roles: a
+  role goes to whichever view of the window has the focus.
+- Reproduced in Chromium: both boxes put a pasted picture in the row at once (nothing waited for the upload); the room's
+  chip only showed a file icon and "image.png". The fix is that chip drawing the picture, as the AI chat's already did.
+- Nothing in the web app blocked the browser's own menu on a photo; an e2e now guards it.
+- Desktop e2e `context-menu.spec.ts` checks the menu in the real app (Electron 44), including the save of a `blob:` original.
+- After review: the photo items only where the team page's top frame was right-clicked (an artifact frame could
+  otherwise get a signed-in team address saved through the app); the app's own screens get the text and link items.

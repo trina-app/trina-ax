@@ -39,7 +39,7 @@ import { loadChips, patchStash, readStash, registerComposer, saveChips, subscrib
 import { cancelUpload, uploadFile, type UploadProgress } from '../../lib/upload'
 import { pastedFiles } from '../../lib/paste'
 import { UploadLabel } from '../UploadLabel'
-import { isLocalImage, LocalThumb } from '../LocalThumb'
+import { ChipThumb, isLocalImage } from '../ChipThumb'
 import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { useLocale, useT } from '../../i18n'
 import { useMe } from '../../store/session'
@@ -617,7 +617,7 @@ export default function Composer({
                   <FolderOpen size={15} className="text-accent-text" aria-label={t('composer.teamFile', { path: f.attachment?.path ?? f.path ?? '' })} />
                 ) : f.file && isLocalImage(f.file) ? (
                   // a picture shows at once, while it uploads (a pasted screenshot too)
-                  <LocalThumb file={f.file} fallback={<FileText size={15} className="text-muted" aria-hidden />} />
+                  <ChipThumb file={f.file} fallback={<FileText size={15} className="text-muted" aria-hidden />} />
                 ) : (f.file?.type ?? f.attachment?.mime ?? '').startsWith('audio/') ? (
                   <FileAudio size={15} className="text-accent-text" aria-hidden />
                 ) : (

@@ -1,9 +1,10 @@
 // A picture pasted into a message box shows as a small picture above the text at once, while it uploads in the
-// background, with its ✕ (components/LocalThumb.tsx, lib/paste.ts): a room's box and the AI chat's box. Pasted as the
+// background, with its ✕ (components/ChipThumb.tsx, lib/paste.ts): a room's box and the AI chat's box. Pasted as the
 // browser does it (the page's clipboard and ⌘V / Ctrl+V; Chromium only, WebKit grants these tests no clipboard): a
 // screenshot (a picture alone) and a picture copied from a web page (its HTML with the picture: the picture goes in, the
 // HTML is not pasted as text). Each upload is held until the picture was seen, then let go: the chip finishes and keeps
-// its picture. The room is answered through page.route (rooms-mock.ts).
+// its picture; a room send the server refuses comes back with the photo's room thumbnail. The room is answered through
+// page.route (rooms-mock.ts).
 // SHOTS_DIR=<folder>: both boxes with a pasted picture, 1440 light.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -32,7 +33,7 @@ async function paste(page: Page, o: { html?: string } = {}) {
 
 /** The chip shows the pasted picture itself, drawn (not a file icon). */
 async function showsPicture(chip: Locator) {
-  const pic = chip.getByTestId('local-thumb')
+  const pic = chip.getByTestId('chip-thumb')
   await expect(pic).toBeVisible()
   await expect.poll(() => pic.evaluate((i: HTMLImageElement) => (i.complete ? i.naturalWidth : 0))).toBe(192)
 }
@@ -84,6 +85,23 @@ test("a room's box: a pasted picture shows at once while it uploads, can be take
   await expect(chips.first()).toHaveAttribute('data-status', 'done')
   await showsPicture(chips.first())
   await expect(chips.first().getByRole('status')).toHaveText(/KB$/)
+
+  // the server refuses the send once: the message comes back to the box, its photo shown by its room thumbnail
+  await page.route(/\/api\/rooms\/[^/]+\/files\/[^/?]+\?thumb=1$/, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }))
+  let refused = false
+  await page.route(new RegExp(`/api/rooms/${ROOM_ID}/messages$`), (route) => {
+    if (route.request().method() !== 'POST' || refused) return route.fallback()
+    refused = true
+    return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: { code: 'conflict', message: 'not now' } }) })
+  })
+  await page.getByTestId('room-send').click()
+  await expect.poll(() => refused).toBe(true)
+  await expect(chips).toHaveCount(1)
+  await expect(chips.first()).toHaveAttribute('data-status', 'done')
+  await showsPicture(chips.first())
+  expect(await chips.first().getByTestId('chip-thumb').getAttribute('src')).toBe(`/api/rooms/${ROOM_ID}/files/${FILE_ID}?thumb=1`)
+
+  // sent again, with the file
   await page.getByTestId('room-send').click()
   await expect.poll(() => room.sent.length).toBe(1)
   expect((room.sent[0] as unknown as { fileIds: string[] }).fileIds).toEqual([FILE_ID])

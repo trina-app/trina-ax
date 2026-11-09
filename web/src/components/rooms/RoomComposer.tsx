@@ -28,7 +28,7 @@ import { toast } from '../../store/ui'
 import { TokenTextarea } from '../TokenTextarea'
 import { Button, IconButton } from '../ui'
 import { Tooltip } from '../Tooltip'
-import { isLocalImage, LocalThumb } from '../LocalThumb'
+import { ChipThumb, isLocalImage } from '../ChipThumb'
 import { VoiceBar, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { useEveryone, useMentionMenu } from './useMentionMenu'
 import { useTextSize } from '../../lib/textSize'
@@ -229,21 +229,20 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
         {files.length > 0 && (
           <ul className="flex flex-wrap gap-2 px-3 pt-2" aria-label={t('composer.attachments')}>
             {files.map((f) => (
-              <li key={f.key} className={clsx('inline-flex max-w-full items-center gap-2 rounded-xl border py-1 pr-1 text-xs', picture(f) ? 'pl-1' : 'pl-2.5', f.status === 'failed' ? 'border-danger/40 bg-danger-soft' : 'border-line bg-subtle')} data-testid="room-file-chip" data-status={f.status}>
-                {/* a picture as itself, at once (the spinner then sits after its name); another file its icon */}
-                {isLocalImage(f.file) ? (
-                  <LocalThumb file={f.file} fallback={<FileText size={14} className="text-muted" aria-hidden />} />
-                ) : picture(f) ? (
-                  // a photo of a send the server gave back: its thumbnail from the room
-                  <img src={roomFileUrl(roomId, f.roomFile!.id, { thumb: '1' })} alt="" className="size-8 shrink-0 rounded object-cover" data-testid="room-file-thumb" />
+              <li key={f.key} className={clsx('inline-flex max-w-full items-center gap-2 rounded-xl border py-1 pr-1 pl-2.5 text-xs', f.status === 'failed' ? 'border-danger/40 bg-danger-soft' : 'border-line bg-subtle')} data-testid="room-file-chip" data-status={f.status}>
+                {/* a picture as itself, at once (close to the chip's edge; the spinner then sits after its name); another
+                    file its icon */}
+                {picture(f) ? (
+                  // from this computer, or a photo of a send the server gave back (its room thumbnail)
+                  <ChipThumb file={isLocalImage(f.file) ? f.file : undefined} src={isLocalImage(f.file) ? undefined : roomFileUrl(roomId, f.roomFile!.id, { thumb: '1' })} fallback={<FileText size={14} className="text-muted" aria-hidden />} className="-ml-1.5" />
                 ) : f.status === 'uploading' ? (
                   <Loader2 size={14} className="animate-spin text-faint" aria-hidden />
                 ) : (
                   <FileText size={14} className="text-muted" aria-hidden />
                 )}
                 <span className="max-w-[180px] truncate font-medium">{f.file.name}</span>
-                <span role="status" className={clsx('flex items-center', f.status === 'failed' ? 'max-w-[160px] truncate text-danger' : 'text-faint')} title={f.error}>
-                  {f.status === 'uploading' && picture(f) && <Loader2 size={14} className="animate-spin" aria-hidden />}
+                {f.status === 'uploading' && picture(f) && <Loader2 size={14} className="shrink-0 animate-spin text-faint" aria-hidden />}
+                <span role="status" className={f.status === 'failed' ? 'max-w-[160px] truncate text-danger' : 'text-faint'} title={f.error}>
                   {f.status === 'uploading' ? <span className="sr-only">{t('rooms.uploading', { name: f.file.name })}</span> : f.status === 'failed' ? f.error : formatSize(f.file.size, locale)}
                 </span>
                 <IconButton tip label={t('rooms.removeFile', { name: f.file.name })} onClick={() => removeFile(f)} className="p-1">

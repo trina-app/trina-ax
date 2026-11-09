@@ -1,7 +1,7 @@
 // Pure parts of the desktop app: team addresses, the team list, site permissions (with site access "all", the team's
 // policy over it and the repeated-question hint), result shaping, key input, bridge sender checks, the bridge's store
-// flag, the Settings > Browser channels, the team page's file chooser in the store build, the team page's right-click
-// menu, quitting and the UI strings (desktop/src/common/*).
+// flag, the Settings > Browser channels, the team page's file chooser in the store build, the right-click menu,
+// quitting and the UI strings (desktop/src/common/*).
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -23,7 +23,7 @@ import { PRODUCT } from '@mycel/shared'
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import { PLURAL_PATTERN, pluralNames } from '@mycel/shared/plural'
 import { browserAction } from '../../desktop/src/common/browser-action'
-import { contextMenuItems, saveableImage, type ContextFacts, type ContextItem } from '../../desktop/src/common/context-menu'
+import { contextMenuItems, isTeamPage, saveableImage, type ContextFacts, type ContextItem } from '../../desktop/src/common/context-menu'
 
 describe('team addresses', () => {
   test('a bare team name becomes <name>.treesoop.com over https', () => {
@@ -696,11 +696,12 @@ describe("the team page's file chooser (Mac App Store build)", () => {
   })
 })
 
-describe("the team page's right-click menu", () => {
+describe('the right-click menu (team page and own screens)', () => {
   const TEAM = 'https://acme.example.com'
   const none = { canCut: false, canCopy: false, canPaste: false, canSelectAll: false }
   const at = (o: Partial<ContextFacts> = {}): ContextFacts => ({ mediaType: 'none', srcURL: '', hasImageContents: false, linkURL: '', selectionText: '', isEditable: false, editFlags: none, ...o })
-  const items = (o: Partial<ContextFacts>, locale: UiLocale = 'ko', canSave = (src: string) => saveableImage(src, [TEAM])) => contextMenuItems(at(o), locale, { canSave })
+  /** on the team page itself, unless `where` says otherwise */
+  const items = (o: Partial<ContextFacts>, locale: UiLocale = 'ko', where: { teamPage: boolean; allowedOrigins: string[] } = { teamPage: true, allowedOrigins: [TEAM] }) => contextMenuItems(at(o), locale, where)
   /** each item as one word: its action (with "-" when greyed out) or "|" for a line */
   const shape = (list: ContextItem[]) => list.map((it) => ('id' in it ? `${it.id}${it.enabled ? '' : '-'}` : '|'))
   const labels = (list: ContextItem[]) => list.map((it) => ('label' in it ? it.label : '|'))
@@ -751,19 +752,44 @@ describe("the team page's right-click menu", () => {
       expect({ src, ok: saveableImage(src, [TEAM]) }).toEqual({ src, ok: false })
     // no team open: nothing is saved
     expect(saveableImage(`${TEAM}/a.png`, [])).toBe(false)
-    // an image from elsewhere is still copied
+    // an image from elsewhere on the team page is still copied
     expect(shape(items({ mediaType: 'image', hasImageContents: true, srcURL: 'https://example.org/a.png' }))).toEqual(['copyImage'])
   })
 
-  test('wired to the team page only, with no item that opens or navigates', () => {
+  test('the photo items only on the team page itself: not in a frame inside it (an artifact), not on the own screens', () => {
+    const LAN = 'https://192.168.0.10:8443'
+    expect(isTeamPage({ url: `${TEAM}/rooms/r1`, top: true }, [TEAM])).toBe(true)
+    expect(isTeamPage({ url: `${LAN}/rooms/r1`, top: true }, [TEAM, LAN])).toBe(true)
+    // an artifact's or a preview's frame, even one at the team address (/sandbox/frame) or about:srcdoc
+    for (const url of [`${TEAM}/sandbox/frame?x=1`, 'about:srcdoc', 'about:blank', `${TEAM}/rooms/r1`]) expect(isTeamPage({ url, top: false }, [TEAM])).toBe(false)
+    // another address in the top frame (a page still loading, the app's own screens), a frame that is gone, no team
+    for (const url of ['https://example.org/', 'about:blank', 'mycel-ui://app/welcome.html', 'not a url']) expect(isTeamPage({ url, top: true }, [TEAM])).toBe(false)
+    expect(isTeamPage(null, [TEAM])).toBe(false)
+    expect(isTeamPage({ url: `${TEAM}/`, top: true }, [])).toBe(false)
+    // an artifact's picture pointing at a team address it could not load: no 이미지 저장… (it would fetch it with the
+    // team's session), no 이미지 복사; its link and text items stay
+    const frame = { teamPage: false, allowedOrigins: [TEAM] }
+    expect(items({ mediaType: 'image', hasImageContents: false, srcURL: `${TEAM}/api/files/download?path=users%2Folga%2Fpay.pdf` }, 'ko', frame)).toEqual([])
+    expect(items({ mediaType: 'image', hasImageContents: true, srcURL: `blob:${TEAM}/1b0e5c1e-8f0a-4c43-9d55-2b8f3f1d2a10` }, 'ko', frame)).toEqual([])
+    expect(shape(items({ mediaType: 'image', hasImageContents: true, srcURL: `${TEAM}/a.png`, linkURL: 'https://example.org/x', selectionText: 'caption', editFlags: { ...none, canCopy: true } }, 'ko', frame))).toEqual(['copyLink', '|', 'copy'])
+    // the app's own screens (no team address): their text fields and links
+    const own = { teamPage: false, allowedOrigins: [] }
+    expect(shape(items({ isEditable: true, editFlags: { ...none, canPaste: true } }, 'ko', own))).toEqual(['cut-', 'copy-', 'paste', '|', 'selectAll-'])
+    expect(shape(items({ linkURL: 'https://acme.example.com/join' }, 'ko', own))).toEqual(['copyLink'])
+  })
+
+  test('wired to the team page (its addresses) and the own screens (none), with no item that opens or navigates', () => {
     const win = readFileSync(join(import.meta.dir, '../../desktop/src/main/app-window.ts'), 'utf8')
     const open = win.slice(win.indexOf('async openTeam('), win.indexOf('async reload()'))
     expect(open).toContain('attachContextMenu(app.webContents, { window: this.win, locale: this.o.locale, allowedOrigins: () => this.allowedOrigins() })')
-    expect(win.match(/attachContextMenu\(/g)).toHaveLength(1)
+    expect(win).toContain('attachContextMenu(v.webContents, { window: this.win, locale: o.locale, allowedOrigins: () => [] })')
+    expect(win.match(/attachContextMenu\(/g)).toHaveLength(2)
     const menu = readFileSync(join(import.meta.dir, '../../desktop/src/main/context-menu.ts'), 'utf8')
     for (const word of [/openExternal/, /\.loadURL\(/, /inspectElement/, /DevTools/, /\bshell\b/, /\bnavigate/]) expect(menu).not.toMatch(word)
-    // saving is checked again at the click
-    expect(menu).toContain('saveImage: () => saveableImage(p.srcURL, o.allowedOrigins()) && wc.downloadURL(p.srcURL)')
+    // the frame that was right-clicked decides, checked again at the click
+    expect(menu).toContain('const teamPage = () => isTeamPage(clickedFrame(p.frame), o.allowedOrigins())')
+    expect(menu).toContain('copyImage: () => teamPage() && wc.copyImageAt(p.x, p.y)')
+    expect(menu).toContain('saveImage: () => teamPage() && saveableImage(p.srcURL, o.allowedOrigins()) && wc.downloadURL(p.srcURL)')
     expect(readFileSync(join(import.meta.dir, '../../desktop/src/main/pane/pane.ts'), 'utf8')).not.toContain('context-menu')
   })
 })

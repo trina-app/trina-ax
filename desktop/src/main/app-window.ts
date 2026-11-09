@@ -168,7 +168,11 @@ export class AppWindow {
     this.shell = new WebContentsView({ webPreferences: uiPrefs })
     this.chrome = new WebContentsView({ webPreferences: uiPrefs })
     this.hostbar = new WebContentsView({ webPreferences: uiPrefs })
-    for (const v of [this.shell, this.chrome, this.hostbar]) guardUiView(v.webContents)
+    for (const v of [this.shell, this.chrome, this.hostbar]) {
+      guardUiView(v.webContents)
+      // a right-click in the app's own text fields (the invite link box, the browser's address): the edit items
+      attachContextMenu(v.webContents, { window: this.win, locale: o.locale, allowedOrigins: () => [] })
+    }
     this.chrome.setBackgroundColor('#ECEAE4')
     void this.shell.webContents.loadURL(`${UI_ORIGIN}/welcome.html`)
     void this.chrome.webContents.loadURL(`${UI_ORIGIN}/pane.html`)
