@@ -340,37 +340,33 @@ describe('in the app: the "/" list, chats, the card, removal, the trash, schedul
     expect((await turn('bob', side.id, fake({ echo: 'system' }))).content).toContain(`- launch [project: Falcon]: ${LAUNCH}`)
   })
 
-  test('skills that switch on ask first: a project pointed at projects/<name> with skills, a personal project shared there', async () => {
+  test('skills that switch on ask first: an admin pointing a project whose folder is gone at projects/<name> with skills, a personal project shared', async () => {
     const status = async (p: Promise<unknown>) => { try { await p; return 0 } catch (e) { return (e as { body: { params?: { reason?: string } } }).body.params?.reason } }
-    // an older project on a plain folder, pointed by an admin at projects/kite, which holds a skill
+    // a project whose folder is gone, pointed by an admin at projects/kite: a folder no project uses, with a skill
     const id = '01900000-0000-7000-8000-0000000c1001'
-    h.ctx.db.query('INSERT INTO projects (id, name, folder_path, created_by, created_at) VALUES (?,?,?,?,?)').run(id, 'Kite', 'shared/kite-old', 'dana', new Date().toISOString())
-    fs.mkdirSync(path.join(h.team, 'shared/kite-old'), { recursive: true })
+    h.ctx.db.query('INSERT INTO projects (id, name, folder_path, created_by, created_at) VALUES (?,?,?,?,?)').run(id, 'Kite', 'projects/kite-old', 'dana', new Date().toISOString())
     fs.mkdirSync(path.join(h.team, 'projects/kite/skills/fly'), { recursive: true })
     fs.writeFileSync(path.join(h.team, 'projects/kite/skills/fly/SKILL.md'), md('fly', 'kite fly'))
     expect(await status(h.api('dana').call(API.updateProject, { params: { id }, body: { folderPath: 'projects/kite' } }))).toBe('project_skills_on')
-    expect((await h.api('dana').call(API.getProject, { params: { id } })).folderPath).toBe('shared/kite-old')
+    expect((h.ctx.db.query('SELECT folder_path FROM projects WHERE id = ?').get(id) as { folder_path: string }).folder_path).toBe('projects/kite-old')
     await h.api('dana').call(API.updateProject, { params: { id }, body: { folderPath: 'projects/kite', skillsOk: true } })
     const a = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'skills.change' AND target = 'projects/kite/skills/fly/SKILL.md'").get() as { detail: string }
     expect(JSON.parse(a.detail)).toMatchObject({ change: 'create', kind: 'skill', project: { id, name: 'Kite' }, switchedOn: 'project_folder' })
-    // a personal project with a skill, shared into projects/: the dry run names it, the share asks for it
+    // a personal project with a skill, shared: its skills/ is copied into the new projects/<name>, so the share asks
+    // first and nothing is made until the person says yes
     const mine = await h.api('bob').call(API.createProject, { body: { name: 'notes', scope: 'personal', participants: [], instructions: '' } })
     fs.mkdirSync(path.join(h.team, mine.folderPath, 'skills/jot'), { recursive: true })
     fs.writeFileSync(path.join(h.team, mine.folderPath, 'skills/jot/SKILL.md'), md('jot', 'jot it'))
-    const dry = await h.api('carol').call(API.shareProject, { params: { id: mine.id }, body: { toParent: 'projects', dryRun: true } }).catch(() => null)
-    // (only its creator shares it: carol may not; bob may only when he may write projects/)
-    expect(dry).toBeNull()
-    h.ctx.db.query("INSERT INTO folders (id, path) VALUES ('f_projects_root', 'projects') ON CONFLICT DO NOTHING").run()
-    h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_projects_bob', (SELECT id FROM folders WHERE path = 'projects'), 'user', 'bob', 'write')").run()
-    const dry2 = await h.api('bob').call(API.shareProject, { params: { id: mine.id }, body: { toParent: 'projects', dryRun: true } })
-    expect('viewersAdded' in dry2 && dry2.skills).toEqual(['jot'])
-    expect(await status(h.api('bob').call(API.shareProject, { params: { id: mine.id }, body: { toParent: 'projects' } }))).toBe('project_skills_on')
-    try {
-      const shared = await h.api('bob').call(API.shareProject, { params: { id: mine.id }, body: { toParent: 'projects', skillsOk: true } })
-      expect('id' in shared && shared.folderPath).toMatch(/^projects\//)
-      const target = 'id' in shared ? shared.folderPath : ''
-      expect(h.ctx.db.query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'skills.change' AND target = ?").get(`${target}/skills/jot/SKILL.md`)).toEqual({ n: 1 })
-    } finally { h.ctx.db.query("DELETE FROM folder_rules WHERE id = 'r_projects_bob'").run() }
+    expect(await status(h.api('bob').call(API.shareProject, { params: { id: mine.id }, body: {} }))).toBe('project_skills_on')
+    expect((await h.api('bob').call(API.getProject, { params: { id: mine.id } })).folderPath).toBe(mine.folderPath)
+    const shared = await h.api('bob').call(API.shareProject, { params: { id: mine.id }, body: { skillsOk: true } })
+    expect('id' in shared && shared.folderPath).toMatch(/^projects\//)
+    const target = 'id' in shared ? shared.folderPath : ''
+    expect(fs.existsSync(path.join(h.team, target, 'skills/jot/SKILL.md'))).toBe(true)
+    expect(h.ctx.db.query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'skills.change' AND target = ?").get(`${target}/skills/jot/SKILL.md`)).toEqual({ n: 1 })
+    // a personal project without skills shares as before, without a question
+    const plain = await h.api('bob').call(API.createProject, { body: { name: 'plain', scope: 'personal', participants: [], instructions: '' } })
+    expect(await status(h.api('bob').call(API.shareProject, { params: { id: plain.id }, body: {} }))).toBe(0)
   })
 
   test('the creator is told only while they read the folder', async () => {

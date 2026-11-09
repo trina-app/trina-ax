@@ -3,7 +3,8 @@
 // "이 프로젝트 채팅에서만"), a small "같은 이름" chip where a wider skill of the name runs instead; the "/" menu marks them
 // inside that project only; asking a project chat to move a group's skills shows the move card (who loses it, every
 // file), and after yes the skill is under the project; "옮기기…" shows who gains and loses at each level and the whole
-// text when more people would get it; the save card offers another name when the name is taken.
+// text when more people would get it; the save card offers another name when the name is taken; sharing a personal
+// project whose skills/ holds skills names them first.
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
@@ -122,4 +123,27 @@ test('the save card: a project skill under a name the team has is offered anothe
   await expect(card.getByTestId('ask-choice')).toHaveText(['이름 바꿔 저장', '팀 것 고치기', '저장하지 않기'])
   await card.getByTestId('ask-choice').first().click()
   await expect(page.getByTestId('ask-card')).toHaveCount(0)
+})
+
+test('sharing a personal project whose skills/ holds a skill: asked first by name, then shared with it', async ({ page }) => {
+  await reset(page, { withAdmin: true })
+  const errors = watchConsole(page)
+  await signIn(page)
+  const pr = await page.request.post('/api/projects', { headers: H, data: { name: '메모', scope: 'personal', instructions: '', participants: [] } })
+  expect(pr.ok()).toBeTruthy()
+  const mine = (await pr.json()) as { id: string; folderPath: string }
+  expect((await page.request.post('/__test/file', { data: { path: `${mine.folderPath}/skills/jot/SKILL.md`, text: md('jot', '메모를 정리해요') } })).ok()).toBeTruthy()
+  await page.goto(`/projects/${mine.id}`)
+  await page.getByTestId('project-menu').click()
+  await page.getByTestId('project-share').click()
+  await page.getByTestId('project-share-confirm').click()
+  // the skills that would switch on, by name, before anything is made
+  const ask = page.getByRole('dialog').filter({ hasText: '프로젝트 스킬이 켜져요' })
+  await expect(ask).toContainText('이 폴더의 스킬 1개가 이 프로젝트 채팅에서 AI가 따르는 스킬이 돼요: jot')
+  await ask.getByTestId('dialog-confirm').click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  const after = await (await page.request.get(`/api/projects/${mine.id}`)).json() as { folderPath: string }
+  expect(after.folderPath).toMatch(/^projects\//)
+  // the first try is the 409 that asks
+  expect(realErrors(errors).filter((e) => !/status of 409/.test(e))).toEqual([])
 })

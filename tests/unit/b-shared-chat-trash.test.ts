@@ -8,6 +8,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, ApiError, uuidv7, type Chat, type Message, type ServerFrame } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
 import { waitFor } from '../lib/wait'
 import { updateGroupAs } from '../../server/src/admin/groups'
 import { WITHHELD_ANSWER } from '../../server/src/chat/shared'
@@ -28,7 +29,7 @@ let projectId: string
 beforeAll(async () => {
   h = await startHarness({ name: 'b-shared-chat-trash', askUserTimeoutMs: 2500, turnTimeoutMs: 60_000 })
   for (const u of ['alice', 'bob', 'carol', 'dana', 'erin']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
-  const p = await h.api('alice').call(API.createProject, { body: { name: 'Falcon', folderPath: 'projects/falcon', scope: 'team', participants: [], instructions: 'Falcon project notes.' } })
+  const p = await oldProject(h, 'alice', { name: 'Falcon', folderPath: 'projects/falcon', instructions: 'Falcon project notes.' })
   projectId = p.id
   await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
 })
@@ -152,7 +153,7 @@ describe('deleting a project', () => {
 
     // the same under shared/ (everyone reads it), the folder's own rule keeping erin out, and the folder purged from the
     // files trash before the project is deleted: its rules are gone, so nobody but admins counts (not erin by shared/'s)
-    const q = await h.api('dana').call(API.createProject, { body: { name: 'Purged', folderPath: 'shared/acme-purged', scope: 'team', participants: [], instructions: '' } })
+    const q = await oldProject(h, 'dana', { name: 'Purged', folderPath: 'shared/acme-purged', instructions: '' })
     await h.api('dana').call(API.updateProject, { params: { id: q.id }, body: { shareChats: true } })
     const erins = await h.api('erin').call(API.createChat, { body: { projectId: q.id } })
     await ask('erin', erins.id, 'erin asks\n' + fake({ say: 'ok' }))
@@ -308,7 +309,7 @@ describe('access changes', () => {
   })
 
   test('the end of a turn that outlived its chat\'s project tells only the chat\'s creator', async () => {
-    const p = await h.api('dana').call(API.createProject, { body: { name: 'Short', folderPath: 'shared/short-lived', scope: 'team', participants: [], instructions: '' } })
+    const p = await oldProject(h, 'dana', { name: 'Short', folderPath: 'shared/short-lived', instructions: '' })
     await h.api('dana').call(API.updateProject, { params: { id: p.id }, body: { shareChats: true } })
     const chat = await h.api('dana').call(API.createChat, { body: { projectId: p.id } })
     await ask('dana', chat.id, 'dana asks\n' + fake({ say: 'ok' }))

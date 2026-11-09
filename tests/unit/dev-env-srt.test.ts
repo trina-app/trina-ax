@@ -10,6 +10,7 @@ import path from 'node:path'
 import { API, DEV_ENV_DEFAULT_LIMITS, DEV_ENV_SRT_WARNING_VERSION, DEV_ENV_WARNING_VERSION } from '@mycel/shared/api'
 import { DEV_ENV_DEFAULT_DOMAINS, LOCAL_SUFFIXES, extraDomainProblem } from '@mycel/shared'
 import { startHarness, type Harness } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
 import { CANARIES, EXPECTED } from '../lib/fixtures'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, runMayWrite, viewAccess, type FolderView } from '../../server/src/devenv/srt/access'
@@ -533,7 +534,7 @@ beforeAll(async () => {
   h = await startHarness({ name: 'dev-env-srt' })
   devBase = fs.mkdtempSync(path.join(os.tmpdir(), 'srt-base-'))
   setSrtSystem(fake, { base: devBase, id: 'mycel', plan: STARTER })
-  falconId = (await h.api('alice').call(API.createProject, { body: { name: 'Falcon', folderPath: FALCON, instructions: '' } })).id
+  falconId = (await oldProject(h, 'alice', { name: 'Falcon', folderPath: FALCON, instructions: '' })).id
   chatFalcon = (await h.api('alice').call(API.createChat, { body: { projectId: falconId } })).id
   chatPlain = (await h.api('alice').call(API.createChat, { body: {} })).id
   chatPlain2 = (await h.api('alice').call(API.createChat, { body: {} })).id

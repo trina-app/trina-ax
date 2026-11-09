@@ -13,9 +13,9 @@
 // Each card on the list has a "…" (the rooms lists' row menu): 이름 바꾸기 and 삭제 for people who may edit the project
 // (the same rename prompt as a chat's, the same delete confirm as on the project page), 링크 복사 for everyone.
 import { FileText, FolderKanban, Folder, Link2, Pencil, Pin, Plus, ScrollText, Share2, Trash2 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import type { Chat, FileEntry, Project } from '@mycel/shared/api'
+import type { Chat, FileEntry, Project, ProjectParticipant } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatRelative } from '../lib/format'
 import { firstParagraph } from '../lib/markdown'
@@ -23,12 +23,12 @@ import { openTeamFile } from '../lib/sidePanel'
 import { aiName } from '../lib/tabs'
 import { useLocale, useT } from '../i18n'
 import { toast } from '../store/ui'
+import { projectSkillsOn } from '../lib/bulkFiles'
 import { useChats } from '../store/chats'
 import { chatChanged } from '../store/live'
 import { chatTrashDays } from '../lib/chat-trash'
 import { useProjects } from '../store/projects'
-import { useMe } from '../store/session'
-import FolderPicker from '../components/FolderPicker'
+import { isAdmin, useMe } from '../store/session'
 import { Markdown } from '../components/Markdown'
 import { DisclosureRow } from '../components/DisclosureRow'
 import { TitleMenu } from '../components/TitleMenu'
@@ -36,9 +36,11 @@ import { NewChatComposer } from '../components/chat/NewChatComposer'
 import { ChatFaces, SharedIcon } from '../components/chat/SharedChat'
 import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
 import { ProjectForm } from '../components/ProjectForm'
+import { AccessSummary, ParticipantPicker, participantKey, summaryNames, useAccessCount, useParticipantOptions } from '../components/ProjectParticipants'
 import { ProjectTrashNote } from '../components/ProjectTrashNote'
-import { Button, EmptyState, ErrorNote, PageHeader, Skeleton, StickyHeader, confirmDialog, menuOpener, pageColumn, promptDialog, useCopy } from '../components/ui'
+import { Button, EmptyState, ErrorNote, Field, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, menuOpener, pageColumn, promptDialog, useCopy } from '../components/ui'
 import { useFocusAfterRemove } from './admin/common'
+import { useFolderWords } from '../lib/folderLabels'
 
 /** A project's chats as its page lists them: my pinned ones first (the most recently pinned first, as the server's first
  * page has them), then the newest. */
@@ -57,6 +59,7 @@ function useDeleteProject() {
   const t = useT()
   const locale = useLocale()
   const days = chatTrashDays(useMe())
+  const words = useFolderWords()
   const deleted = (id: string) => {
     useProjects.getState().drop(id)
     // the server took the project off its private chats (its shared chats go to the trash with their own event): the
@@ -83,10 +86,23 @@ function useDeleteProject() {
     // the person left the page while it was asked: no confirm on another page
     if (opener && !opener.isConnected) return false
     opener?.focus()
-    const body = now.sharedChats ? t('projects.deleteBodyShared', { days, trash: t('sidebar.trash') }) : t('projects.deleteBody')
+    const text = now.sharedChats ? t('projects.deleteBodyShared', { days, trash: t('sidebar.trash') }) : t('projects.deleteBody')
+    // a team project's own folder in projects/ may go to the files trash with it (its creator could not trash a folder
+    // that carries rules otherwise); off unless ticked
+    let trashFolder = false
+    const offerTrash = /^projects\/[^/]+$/.test(now.folderPath) && !now.inTrash
+    const body = offerTrash ? (
+      <div className="space-y-3">
+        <p>{text}</p>
+        <label className="flex items-start gap-2 text-ink">
+          <input type="checkbox" className="mt-1" onChange={(e) => { trashFolder = e.target.checked }} data-testid="project-delete-trash-folder" />
+          <span className="break-keep">{t('projects.deleteTrashFolder', { folder: words.path(now.folderPath) })}</span>
+        </label>
+      </div>
+    ) : text
     if (!(await confirmDialog({ title: t('projects.deleteTitle', { name: now.name }), body, confirm: t('common.delete'), danger: true }))) return false
     try {
-      await api.call(API.deleteProject, { params: { id: p.id } })
+      await api.call(API.deleteProject, { params: { id: p.id }, query: trashFolder ? { trashFolder: '1' } : {} })
       deleted(p.id)
       return true
     } catch (e) {
@@ -265,28 +281,9 @@ export function ProjectHome() {
   const [editing, setEditing] = useState(false)
   const [sharing, setSharing] = useState(false)
   const me = useMe()
-  // a personal project (users/<me>/...) is shared by copying its folder into a team folder (design tab 5)
-  const personal = !!p && !!me && p.folderPath.startsWith(`users/${me.user.id}/`)
-  const shareTo = async (toParent: string) => {
-    setSharing(false)
-    if (!p) return
-    try {
-      const dry = await api.call(API.shareProject, { params: { id: p.id }, body: { toParent, dryRun: true } })
-      const n = 'viewersAdded' in dry ? dry.viewersAdded : 0
-      // shared into projects/: the skills in its skills/ folder switch on there, named in the same question
-      const skills = 'viewersAdded' in dry ? dry.skills ?? [] : []
-      const body = skills.length ? `${t('projects.shareBody', { n })}\n\n${t('files.skillsOnBody', { n: skills.length, names: skills.join(', ') })}` : t('projects.shareBody', { n })
-      if (!(await confirmDialog({ title: t('projects.shareTitle'), body, confirm: t('files.shareCopy') }))) return
-      const r = await api.call(API.shareProject, { params: { id: p.id }, body: { toParent, ...(skills.length ? { skillsOk: true } : {}) } })
-      if ('id' in r) {
-        setP(r)
-        useProjects.getState().put(r)
-        toast({ level: 'success', text: t('files.shared', { path: r.folderPath }) })
-      }
-    } catch (e) {
-      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
-    }
-  }
+  // a personal project (users/<me>/...) becomes a team project: a new projects/<name> with the people chosen, its files
+  // copied there (docs/DECISIONS.md "Projects live only in projects/"); not when the team lets only admins make them
+  const personal = !!p && !!me && p.folderPath.startsWith(`users/${me.user.id}/`) && (isAdmin(me) || me.team.projectCreators === 'members')
 
   useEffect(() => {
     let live = true
@@ -445,7 +442,62 @@ export function ProjectHome() {
         </div>
       </div>
       {editing && <ProjectForm project={p} onClose={() => setEditing(false)} onSaved={setP} />}
-      <FolderPicker open={sharing} title={t('projects.share')} confirmLabel={t('files.shareHere')} initial="shared" onPick={(x) => void shareTo(x)} onClose={() => setSharing(false)} />
+      {sharing && <ShareProjectDialog project={p} onClose={() => setSharing(false)} onShared={(r) => { setP(r); useProjects.getState().put(r); toast({ level: 'success', text: t('files.shared', { path: r.folderPath }) }) }} />}
     </div>
+  )
+}
+
+/** "팀 프로젝트로 공유": a personal project becomes a team project in a new projects/<name>, seen by the people chosen
+ * here (and me, the owner and admins); its files are copied there and my personal folder stays. */
+function ShareProjectDialog({ project, onClose, onShared }: { project: Project; onClose: () => void; onShared: (p: Project) => void }) {
+  const t = useT()
+  const locale = useLocale()
+  const me = useMe()
+  const [participants, setParticipants] = useState<ProjectParticipant[]>([])
+  const options = useParticipantOptions()
+  const fixed = useMemo(() => new Map(me ? [[participantKey({ subjectType: 'user', subjectId: me.user.id }), t('projects.whoMe')]] : []), [me, t])
+  const count = useAccessCount(participants, { enabled: true })
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const share = async (skillsOk = false) => {
+    setBusy(true)
+    setError(null)
+    try {
+      const r = await api.call(API.shareProject, { params: { id: project.id }, body: { participants, ...(skillsOk ? { skillsOk } : {}) } })
+      if ('id' in r) onShared(r)
+      onClose()
+    } catch (e) {
+      // its skills/ holds skills: copied into projects/<name> they switch on in this project's chats once the person says yes
+      const skills = projectSkillsOn(e)
+      if (skills && !skillsOk) {
+        setBusy(false)
+        if (await confirmDialog({ title: t('files.skillsOnTitle'), body: t('projects.skillsOnBody', { n: skills.length, names: skills.join(', ') }), confirm: t('projects.shareConfirm') })) await share(true)
+        return
+      }
+      setError(errorText(e, locale, t('error.network')))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Modal open onClose={onClose} title={t('projects.shareTitle')} width={560}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="primary" busy={busy} onClick={() => void share()} data-testid="project-share-confirm">{t('projects.shareConfirm')}</Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <p className="text-sm break-keep text-muted">{t('projects.shareBody')}</p>
+        <Field label={t('projects.participants')}>
+          <div className="space-y-2">
+            <ParticipantPicker options={options} value={participants} onChange={setParticipants} fixed={fixed} />
+            <AccessSummary names={summaryNames(t, participants, options, [t('projects.whoMe')])} count={count} />
+          </div>
+        </Field>
+        {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+      </div>
+    </Modal>
   )
 }

@@ -13,6 +13,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API, ApiError, uuidv7, type Message, type ShareChatResult } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
 import { roomsOf, SEND_BURST } from '../../server/src/rooms/service'
 import { addSources, type ReadSource } from '../../server/src/chat/read-scope'
 import { unshareUncheckedChats } from '../../server/src/chat/shared'
@@ -33,7 +34,7 @@ let clock = Date.now()
 beforeAll(async () => {
   h = await startHarness({ name: 'b-share-existing-chat', askUserTimeoutMs: 2500, turnTimeoutMs: 60_000 })
   for (const u of ['alice', 'bob']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
-  const p = await h.api('alice').call(API.createProject, { body: { name: 'Falcon', folderPath: 'projects/falcon', scope: 'team', participants: [], instructions: '' } })
+  const p = await oldProject(h, 'alice', { name: 'Falcon', folderPath: 'projects/falcon', instructions: '' })
   projectId = p.id
   await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
   // the room-send budget refills between requests (its own test freezes it)
@@ -117,7 +118,7 @@ describe('who may share it', () => {
   test('every refusal says why, and changes nothing', async () => {
     // not in a project; the setting off; a personal project
     expect(await reason(share('alice', dbChat('alice', { project: null })))).toEqual([409, 'project_not_sharing'])
-    const quiet = await h.api('alice').call(API.createProject, { body: { name: 'Quiet', folderPath: 'groups/marketing', scope: 'team', participants: [], instructions: '' } })
+    const quiet = await oldProject(h, 'alice', { name: 'Quiet', folderPath: 'groups/marketing', instructions: '' })
     expect(await reason(share('alice', dbChat('alice', { project: quiet.id })))).toEqual([409, 'project_not_sharing'])
     const mine = await h.api('alice').call(API.createProject, { body: { name: 'Mine', scope: 'personal', participants: [], instructions: '' } })
     expect(await reason(share('alice', dbChat('alice', { project: mine.id })))).toEqual([409, 'project_personal'])

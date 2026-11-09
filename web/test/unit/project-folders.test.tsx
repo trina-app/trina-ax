@@ -1,8 +1,9 @@
-// A project is a folder with instructions (docs/DECISIONS.md "Projects: a folder with instructions"):
-// - Files: a folder that is a project the person can see offers "Open project"; a folder they can write offers "Make it
-//   a project", which opens the project dialog with that folder chosen and its name filled in (lib/projectFolders.ts,
-//   components/ProjectForm.tsx);
-// - the project dialog: an empty name on a chosen folder is the folder's own name;
+// A project is a folder with instructions (docs/DECISIONS.md "Projects: a folder with instructions", "Projects live only
+// in projects/"):
+// - Files: a folder that is a project the person can see offers "Open project"; nothing makes a project there any more
+//   (new ones are made on the Projects page, in a new projects/<name>; lib/projectFolders.ts);
+// - the project dialog: no folder to choose for a new project (components/ProjectForm.tsx; the clicks are in
+//   project-form.test.tsx);
 // - a dialog moves a chat into a project or out of it (components/chat/ChatProject.tsx; the chat header's name of the
 //   project is in project-folders-dom.test.tsx).
 import { describe, expect, test } from 'bun:test'
@@ -10,7 +11,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import type { FileEntry, Project } from '@mycel/shared/api'
 import { translate } from '../../src/i18n'
-import { folderName, folderProjectAction, projectName, projectsByFolder } from '../../src/lib/projectFolders'
+import { folderName, folderProjectAction, projectsByFolder } from '../../src/lib/projectFolders'
 import { ProjectForm } from '../../src/components/ProjectForm'
 import { ProjectChoices } from '../../src/components/chat/ChatProject'
 import { ProjectTrashNote } from '../../src/components/ProjectTrashNote'
@@ -36,62 +37,29 @@ describe('a folder and its project', () => {
     expect(folderProjectAction(entry('shared/café', 'write'), projectsByFolder([nfd]))?.kind).toBe('open')
   })
 
-  test('a folder the person can write becomes a project; a read-only folder, a file or a navigation-only folder offers nothing', () => {
-    expect(folderProjectAction(entry('shared/acme-plans', 'write'), byFolder)).toEqual({ kind: 'make' })
+  test('any other folder offers nothing, one the person can write too; a file neither', () => {
+    expect(folderProjectAction(entry('shared/acme-plans', 'write'), byFolder)).toBeNull()
     expect(folderProjectAction(entry('shared/acme-plans', 'read'), byFolder)).toBeNull()
     expect(folderProjectAction(entry('shared/acme-plans', 'none'), byFolder)).toBeNull()
     expect(folderProjectAction(entry('shared/acme-launch/plan.md', 'write', 'file'), byFolder)).toBeNull()
-  })
-
-  test('the project\'s name: what was typed, else the folder\'s own name, at most 100 units as the server counts them', () => {
     expect(folderName('shared/acme-launch')).toBe('acme-launch')
     expect(folderName('')).toBe('')
-    expect(projectName('  Launch  ', 'shared/acme-launch')).toBe('Launch')
-    expect(projectName('   ', 'shared/acme-launch')).toBe('acme-launch')
-    expect(projectName('', '')).toBe('')
-    expect(projectName('', `shared/${'가'.repeat(120)}`).length).toBe(100)
-    // the server's max(100) counts UTF-16 units: an emoji is two, and is never cut in half
-    expect(projectName('😀'.repeat(60), '')).toBe('😀'.repeat(50))
-    expect(projectName('a' + '😀'.repeat(60), '')).toBe('a' + '😀'.repeat(49))
   })
 })
 
-describe('the project dialog opened from a folder', () => {
-  test('the folder is chosen and its name filled in; Save is ready', () => {
-    const html = inRouter(<ProjectForm initialFolder="shared/acme-launch" initialName="acme-launch" onClose={() => {}} onSaved={() => {}} />)
-    expect(input(html, 'project-name')).toContain('value="acme-launch"')
-    expect(input(html, 'project-folder')).toContain('value="shared/acme-launch"')
-    expect(input(html, 'project-kind-existing')).toContain('checked=""')
-    expect(saveButton(html)).not.toContain('disabled=""')
+describe('the project dialog', () => {
+  test('a new project: no folder to choose, Save waits for a name', () => {
+    const html = inRouter(<ProjectForm onClose={() => {}} onSaved={() => {}} />)
+    expect(input(html, 'project-folder')).toBe('')
+    expect(saveButton(html)).toContain('disabled=""')
+    expect(html).not.toContain('project-kind-existing')
   })
 
-  test('an empty name on a chosen folder is the folder\'s name: shown as the placeholder, said in the hint, and Save works', () => {
-    const html = inRouter(<ProjectForm initialFolder="shared/acme-launch" onClose={() => {}} onSaved={() => {}} />)
-    expect(input(html, 'project-name')).toContain('placeholder="acme-launch"')
-    expect(html).toContain(translate('en', 'projects.nameHint'))
-    expect(saveButton(html)).not.toContain('disabled=""')
-  })
-
-  test('no folder chosen yet: Save stays off, even with a name, and the dialog asks for a folder (never the team root)', () => {
-    for (const html of [inRouter(<ProjectForm onClose={() => {}} onSaved={() => {}} />), inRouter(<ProjectForm initialName="Acme launch" onClose={() => {}} onSaved={() => {}} />)]) {
-      expect(saveButton(html)).toContain('disabled=""')
-      expect(input(html, 'project-folder')).toContain(`placeholder="${translate('en', 'projects.folderNone')}"`)
-      expect(input(html, 'project-folder')).toContain('value=""')
-      expect(html).toContain(translate('en', 'projects.folderPick'))
-      expect(html).not.toContain(translate('en', 'projects.nameHint'))
-    }
-  })
-
-  test('editing a project on the team root (made before) still saves; its folder reads "Team folder"', () => {
-    const html = inRouter(<ProjectForm project={project('p0', 'Acme all', '')} onClose={() => {}} onSaved={() => {}} />)
-    expect(saveButton(html)).not.toContain('disabled=""')
-    expect(input(html, 'project-folder')).toContain(`value="${translate('en', 'files.root')}"`)
-  })
-
-  test('editing a project keeps its own name rule', () => {
-    const html = inRouter(<ProjectForm project={project('p1', 'Acme launch', 'shared/acme-launch')} onClose={() => {}} onSaved={() => {}} />)
+  test('editing a project keeps its name; a project in place has no folder to choose', () => {
+    const html = inRouter(<ProjectForm project={project('p1', 'Acme launch', 'projects/acme-launch')} onClose={() => {}} onSaved={() => {}} />)
     expect(input(html, 'project-name')).toContain('value="Acme launch"')
-    expect(input(html, 'project-name')).not.toContain('placeholder="')
+    expect(saveButton(html)).not.toContain('disabled=""')
+    expect(input(html, 'project-folder')).toBe('')
   })
 })
 
@@ -117,7 +85,7 @@ describe('the chat and its project', () => {
   })
 
   test('the new texts exist in every language', () => {
-    const keys = ['files.makeProject', 'files.openProject', 'files.isProject', 'projects.nameHint', 'projects.folderNone', 'projects.folderPick', 'projects.inTrash', 'projects.inTrashEdit', 'chat.project.inTrash', 'chat.project.hidden', 'chat.project.open', 'chat.project.add', 'chat.project.change', 'chat.project.title', 'chat.project.none', 'chat.project.hint', 'chat.project.empty', 'chat.project.moved', 'chat.project.removed'] as const
+    const keys = ['files.openProject', 'files.isProject', 'projects.who', 'projects.whoLine', 'projects.whoGroup', 'projects.widenBody', 'projects.legacyNote', 'projects.inTrash', 'projects.inTrashEdit', 'chat.project.inTrash', 'chat.project.hidden', 'chat.project.open', 'chat.project.add', 'chat.project.change', 'chat.project.title', 'chat.project.none', 'chat.project.hint', 'chat.project.empty', 'chat.project.moved', 'chat.project.removed'] as const
     for (const locale of ['en', 'ko', 'ja', 'es', 'id'] as const)
       for (const key of keys) expect(translate(locale, key)).not.toBe(key)
   })
@@ -131,9 +99,9 @@ describe('the chat and its project', () => {
     expect(html).not.toContain('shared/acme-old')
   })
 
-  test('who can see a new team project folder: the owner and admins too, in every language', () => {
-    expect(translate('ko', 'projects.participantsHint')).not.toContain('관리자 제외')
-    expect(translate('ko', 'projects.participantsHint')).toContain('관리자')
-    expect(translate('en', 'projects.participantsHint')).toContain('admins')
+  test('who can see a team project: the owner and admins too, and groups are 부서 in Korean', () => {
+    expect(translate('ko', 'projects.whoAdmins')).toContain('관리자')
+    expect(translate('en', 'projects.whoAdmins')).toContain('admins')
+    expect(translate('ko', 'projects.whoGroup', { name: '영업' })).toBe('영업 부서')
   })
 })

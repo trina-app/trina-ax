@@ -16240,6 +16240,78 @@ message rows ("알림함의 대화 알림") it was not clickable, its date sat o
   still covers a row with no link and its 읽음 표시.
 - Version impact: **patch** (additive API field; no data change).
 
+## Projects live only in projects/ — 프로젝트는 projects 폴더 안에만 (feat/projects-in-projects, 2026-11-09, product owner)
+
+The owner decided on 2026-11-09: a team project lives only in `projects/<name>/`, a personal one only in
+`users/<me>/projects/<name>/`. Any member can make a team project, like a chat channel, and chooses who sees it; an admin
+switch can keep that to admins (default: members). The creator and admins see and change who sees it from the project's
+edit screen. A review before building asked for eight changes, all built:
+
+- **No other place.** `POST /api/projects` with a folder anywhere else (an existing team folder, `shared/`, `groups/`,
+  the root, a deeper path, `users/<me>/` outside `projects/`) is 400 `project_location`; the "기존 폴더" kind is gone.
+  A `folderPath` of `projects/<name>` only names the new folder. Sharing a personal project
+  (`POST /api/projects/:id/share`) makes a new `projects/<name>` with the participants chosen and copies the files into it
+  (`TeamFiles.copyFolderInto`, the same walk and limits as `copyFolderTree`); `toParent` is accepted only as `projects` from
+  older clients. Pointing a project at another folder stays for admins only, only for a project whose folder is in the
+  trash or gone from disk, only to an existing `projects/<name>` no other project uses (nothing is made for it).
+- **Private by rule.** A new project folder gets each participant and the creator `write` and `everyone: none`
+  (`chat/project-access.ts newProjectRules`), so an admin's root `everyone: read` does not open it. Deleting a person or a
+  group never leaves a `projects/<name>` folder that a project uses with no rules: `keepProjectFloors` (admin/folders.ts)
+  writes `everyone: none` there, also for folders older builds made without the floor.
+- **Made as the system.** Members have no write on `projects/`. The server checks the switch, then makes the folder with
+  `resolveFolderPath` (the system principal, the same name checks), never as the caller. The name steps around folders on
+  disk, folders rows and the paths projects name ("-2"). **This tells a member that a folder of that name exists in
+  `projects/` even when they cannot see it.** Accepted: the name says nothing of its contents, and refusing instead would
+  tell the same.
+- **One writer.** The edit screen's participants are the folder's rules (`write` for groups and people). It saves exactly
+  like Admin › Folder permissions: the rules hash it read (`ProjectAccess.rulesHash`, the same hash as `Folder.rulesHash`)
+  is checked inside the transaction (409 `rules_changed` either way round), `replaceRules`, then `afterAccessChange`
+  (fresh sessions, notices, the project's shared chats dropped from whoever lost it), audit `folder.rules` with
+  `via: 'project'` and the project id. Rules the screen does not change (read-only people or groups, roles, an everyone
+  rule other than the floor, rules on folders inside it) are kept as they are and listed read-only, with a link to Admin
+  for admins; naming such a person or group as a participant is 400 `participant_fixed`. The creator's rule is always
+  kept. Participants are changed only for a project in `projects/<name>` whose folder is in place.
+- **Only a folder the server made is the creator's** (independent review, must-fix). Older builds let a member make a
+  project on an existing `projects/<name>` an admin had made with rules; that member is its creator. `projects.folder_made`
+  (migration 280, add-only, existing rows 0) is 1 only when create or share made the folder, and 0 again after an admin
+  points the project at an existing folder. A member changes participants, or trashes the folder with the project, only
+  when it is 1; admins change any `projects/<name>` project. For a project a member may not change, the access answer
+  gives them the count only (no names of an admin's rules, and no rules hash: an unsalted hash would let them confirm a
+  guess), and admins alone see that summary in the dialog. Rules on folders inside a member's project are listed to them
+  only for folders they can read (not one they can only list because something below it is readable), and the dry run
+  counts only files the caller can read (an admin's restricted folder inside is neither named nor counted).
+- **The widening confirm is the server's.** `POST /api/projects/access-preview` (the creator or an admin for a project;
+  whoever may make team projects for a new one): how many people would see it, who gains and loses it, and for the people
+  who gain it the files they could read there (skills/ left out), those someone other than the caller put there (the
+  last write recorded for the file, else for the nearest folder above it inside the project; nothing recorded counts as
+  someone else's), its shared chats (each with its whole history) and its project skills (`skills/<name>/SKILL.md`,
+  counted and named by path, no dependency on the project-skills code: widening the folder also widens who uses those
+  skills, with no other card, so the confirm names them: "프로젝트 스킬 2개(견적서, 견적-현장)도 3명이 더 쓰게 돼요"). The web asks once when someone gains it; narrowing saves
+  at once. The people who saw the project before get a notice (`project_access_widened`) when it widens. The folder walk
+  stops at 20,000 entries.
+- **Who may be chosen.** Members choose from the people directory (`/api/people`) and their own groups (`Me.groups`);
+  admins any group. `GET /api/admin/groups` and `/api/admin/users` stay admin-only. The server enforces the same: a member
+  names only their own groups (a group already on the folder may stay) and active people.
+- **Delete.** `DELETE /api/projects/:id?trashFolder=1` also puts a `projects/<name>` folder in the files trash, by the
+  creator or an admin (a member's project folder carries rules, so only admins could trash it otherwise). The trash item
+  is a project folder there: admins restore it. Only the project's own folder is let through: for a member, anything
+  managed inside it (a rule folder, a group's folder, another project's folder) still refuses it, as does a folder
+  inside they cannot write, and then the project and its chats stay as they are (the folder goes before anything else
+  of the delete). Off unless ticked in the confirm.
+- **Files.** "프로젝트로 만들기" is gone; "프로젝트 열기" stays. Projects older builds made on other folders keep working
+  unchanged, with no data migration and no label for members; admins read one line in the edit dialog that it is outside
+  `projects/` and is changed in Admin › Folder permissions.
+- **The switch.** `TeamSettings.projectCreators` (`members` | `admins`, a settings key), enforced in create and share
+  (403 `projects_admins_only`) and in the new-project dry run; `Me.team.projectCreators` tells the web.
+- **The creator gone.** Disabled: their rule stays (they see it again when enabled) and admins manage it. Deleted: their
+  rule goes with the account; with nobody else on it the floor leaves it to the owner and admins.
+- **Groups are called 부서** in the Korean copy of these screens ("영업 부서"), as the rest of the UI is moving to.
+- Tests: `tests/security/r1-project-create.test.ts` (members, the switch, the refused places, the floor),
+  `tests/security/project-participants.test.ts` (who may see and change it, the dry run's counts, narrowing and shared
+  chats, the rules-hash race with Admin, the deleted creator, share and delete), the permission matrix's new rows,
+  `web/test/unit/project-form.test.tsx`, `web/test/e2e/project-participants.spec.ts`. Suites about what a project does
+  make older projects the way older builds did (`tests/lib/legacy-project.ts`).
+
 ## CI unit tests in shards (ci/shard-unit-tests, 2026-11-09)
 
 - **Why:** of the ~35 minutes of the one CI job, ~30 were the unit tests (about 440 files, one after another). Every
@@ -16714,6 +16786,98 @@ what each one is for.
 - Version impact: **minor** (new teams get another layout and folder, the AI places files differently, new words on
   screen; no API path, no migration).
 
+## The image viewer's 복사 — copy the picture from the viewer's bar or with ⌘C (feat/viewer-copy-image, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/lib/copyImage.ts` and `web/src/components/ImageViewer.tsx`, 이유: the image viewer is core.
+Plan: `docs/AGENTS/plan/20261109-1050-viewer-copy-image.md`.
+
+The owner: "이미지 copy 기능도 있어야해". The viewer ("One image viewer") had download, a new tab and ✕; a picture copied
+only by a right-click (the browser's Copy Image, the desktop app's 이미지 복사).
+
+- **복사 in the bar, left of the download** (the copy icon, the tooltip and name 복사 like the download's 내려받기), and
+  **⌘C / Ctrl+C** anywhere in the viewer, unless a text in the viewer is selected (none can be today: the viewer is
+  `select-none`; a selection left on the page behind is not what is on screen, so the key copies the picture). With a
+  Korean input source the key reads ㅊ: the key's place (`KeyC`) says it is C, but only when the key is no Latin letter,
+  so another layout's C stays its own letter. A held key copies once.
+- **What goes: the picture the viewer drew, as a PNG, with no new request or address.** A PNG whose bytes the page has
+  (a picture in a message box) goes as it is. Everything else (a JPEG, WebP or GIF; the server's JPEG of a HEIC; a PNG
+  the page has only by its address) is drawn on a canvas from the viewer's own `<img>` and goes as a PNG: browsers take
+  `image/png` reliably and other types not at all. Nothing is painted first, so transparency stays. A copy pressed while
+  the original loads waits for it (up to 15 s, then the thumbnail, said so). An SVG with no size of its own (an answer's
+  drawing) is drawn at its size on screen, in device pixels. A picture with no original drawn (over the 20 MB preview limit, a HEIC sent in a
+  room, an original that failed) copies the thumbnail on screen, and the toast's second line says so ("원본 대신 화면에
+  보이는 작은 사진을 복사했어요."); one that cannot be shown at all has no 복사. A canvas too big to make is tried once
+  more within iOS Safari's 4096 × 4096 and a 16384 px side, and the toast says it was made smaller; a moving GIF copies
+  the frame on screen.
+- **How**: `navigator.clipboard.write([new ClipboardItem({ 'image/png': promise })])`, the item made and written inside
+  the click or the key press (Safari takes the write only there), with the PNG a promise that may come later.
+- **A copy given up writes nothing.** A copy still waiting (its original loading) is given up by the next press and when
+  the viewer closes: its PNG promise is rejected, so the browser writes nothing and no toast shows. Otherwise a picture
+  could land on the clipboard over text copied since, with a toast out of nowhere (Chromium runs each write on its
+  own), or Safari could cancel the first write itself and report a refusal.
+- **Only where it works; never a button that does nothing.** Shown with `navigator.clipboard.write`, `ClipboardItem`
+  and, where the browser has it, `ClipboardItem.supports('image/png')`. So not on a plain http page (no async
+  clipboard) or in an older Firefox. Not in an Android WebView: it puts no picture on the clipboard (Chromium writes
+  pictures there through a file provider that only Chrome has), so its write would succeed and leave nothing. That is
+  the Android phone app and every in-app browser on Android (a chat app opening a shared team link), told by the user
+  agent's "; wv)". Chrome on Android, the iPhone app's WebView and iOS Safari take it. Not chosen: a bridge for the
+  phone apps (no change to them).
+- **The desktop app needs nothing new**: its team page may already write the clipboard (`clipboard-sanitized-write` for
+  the team origin, `desktop/src/main/security.ts`; image/png is a sanitized write like text/html), and its team address
+  is always https or this machine, a secure page. `desktop/e2e/clipboard.spec.ts` now writes a PNG with a transparent
+  half from the team page and reads it back from the system clipboard, transparency kept. Not chosen: a preload
+  `copyImage(url)` with the main process fetching the original, a second way to the same bytes with its own address
+  checks.
+- **Feedback**: a toast, which sits above the viewer: 이미지를 복사했어요, or 이미지를 복사하지 못했어요 with one line of
+  why (the browser refused the clipboard: click or tap the window and try again; too big even made smaller: download
+  it; the picture did not load; anything else: try again, else download it). The same words go to a status line inside
+  the dialog: the toast is outside the `aria-modal` dialog, where a screen reader (VoiceOver) may not read it.
+- **Not in the room message's ⋮ menu or long-press sheet**: they act on the message (copy its text, edit, delete) and
+  have no item per attachment. A picture opens the viewer, where 복사 is.
+- Tests: `web/test/unit/copy-image.test.ts` (where it is offered, an Android WebView by its user agent, a PNG as it is,
+  other types drawn at their size, the thumbnail and a smaller drawing said so, a long strip within the side limit, the
+  item written inside the click, a copy given up writing nothing, each reason, the key with a Korean input source and
+  another layout), e2e `image-viewer.spec.ts` (복사 beside the download, the original read back from Chromium's clipboard
+  as a 2880 × 1800 PNG with no new request, ⌘C and Ctrl+C, the status line in the dialog, a WebP's transparency and a
+  JPEG as PNGs, a copy that waits for the original (its thumbnail a different size), a copy given up by closing the
+  viewer leaving the text copied since, the thumbnail of a picture over 20 MB, no button without ClipboardItem;
+  screenshots), desktop e2e `clipboard.spec.ts` (a PNG from the team page). The browser tests use Chromium's own
+  clipboard (granted in `playwright.config.ts`); the desktop test puts back what was on the computer's clipboard. Not
+  tested: Safari (Playwright's WebKit may write the computer's own clipboard), and ⌘C through the real viewer in the
+  desktop app next to its Edit menu's Copy (the page gets the key first; the desktop e2e's team page is a fake one).
+- Version impact: **patch** (one button and one key in the viewer; no API, setting or data change).
+
+## FileBody — the side panel's file body as a component of its own (refactor/file-body, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/components/FileBody.tsx` (moved out of `FilePanel.tsx`), 이유: the room file viewer is to
+draw the same bodies, and file previews are core. Step (b0) of the plan
+`docs/AGENTS/plan/20261109-0939-room-file-viewer.md` (branch `plan/room-file-viewer`).
+
+- **Moved, not copied:** the panel's loader effect (now `useFileBlob(file, rev, limits)`: the bytes by source, the
+  limits, the download-only, busy, too large, missing and network errors), its body switch and its module-private
+  renderers (`Viewer`, `PanelPicture`, `MediaView`, `TextKinds`) are in `FileBody.tsx`; `FilePanel` keeps its header,
+  actions, edit mode, PDF로 저장, `chatActionsFor`, and its scroll box with the width it measures and the place it keeps
+  for 크게 보기, and draws `<FileBody>` there. The same components, props, classes and test ids: no visible change.
+- **What the next step's viewer gets:** `useFileBlob(file, rev, limits)` takes the source (`PreviewFile`: a team path
+  with its place `at`, a room's file `{ roomId, fileId }` as #179 reads it, or a file from this computer) and the
+  limits (default `previewLimit`); `<FileBody>` takes the same `file`, what was read, `width`, `download`, `onRetry`,
+  and `openPicture`: a picture's click is the caller's, and the picture is then not registered with the image viewer.
+  Only sources that exist: a room's Hangul file gets its pages as #254 made it (while the HWP preview is on); a room
+  HEIC photo stays the card.
+- **One order, one place:** `bodyRenderer(loaded)` says what the body draws (the card, busy, an error, a Hangul
+  file's pages, loading, then pdf, docx, pptx, sheet, picture, media or text); the body and its unit test use the same
+  function.
+- **Hangul kept thin:** #254 (a room's Hangul file through the room) landed while this was open; its kind line (now in
+  `useFileBlob`) and its team and room HWP branches (now in `FileBody`) moved as they were. `bodyRenderer` says 'hwp'
+  for any Hangul kind; which source draws it stays in those two branches.
+- **The one visible change:** the PDF toolbar's 너비에 맞추기 drew `Maximize2`, the ⤢ that #249 gave 크게 보기 in the
+  header right above it. It now draws ↔ (`MoveHorizontal`), with the same name and tooltip. `ArrowLeftRight` reads as
+  "swap", `Columns2` as a layout.
+- Tests: `web/test/unit/file-body.test.tsx` (each kind's renderer, the states before it, files from this computer drawn
+  by kind, no request for a file with no preview here, a room's Hangul file with the HWP preview on and off, the
+  download-only card, retry, a picture's click with and without `openPicture`); the panel's e2e specs unchanged.
+- Version impact: **patch** (an icon; no API or data change).
+
 ## Project skills — a fourth level only a project's chats use (feat/project-skills, 2026-11-09, product owner)
 
 - **Why:** a team asked the AI, in a project chat, to move a lead group's quoting skills into the project. Skills had
@@ -16772,14 +16936,19 @@ what each one is for.
   also says that a rule on `skills/<name>/` can narrow it instead.
 - **The file tools' refusal** for skill folders now says "Skills do not move with files; ask with move_skill; never
   make a skills folder, README or copy as a stand-in" instead of pointing at the Files screen.
-- **Switching on:** a person moving a project's folder into `projects/<name>` from elsewhere, an admin pointing a
-  project at a `projects/<name>` that holds skills, and a personal project shared into `projects/` all turn skills on in
-  that project's chats. Each asks first with their names (409 `project_skills_on` unless `skillsOk`; the share's dry
-  run names them) and records each skill as `skills.change` (`skills/switch-on.ts`). The AI writes a personal project's
-  `skills/` without a card (no chat follows it there); sharing it is where it asks.
+- **Switching on:** three ways turn skills on in a project's chats, after "Projects live only in projects/": a person
+  moving a project's folder into `projects/<name>` from elsewhere on the Files screen, an admin pointing a project whose
+  folder is in the trash or gone at an existing `projects/<name>` that holds skills (that folder had no project, so its
+  skills were off), and sharing a personal project, whose `skills/` is copied into the new `projects/<name>`. Each asks
+  first with their names (409 `project_skills_on` unless `skillsOk`; the project form and the share dialog ask and
+  send again) and records each skill as `skills.change` (`skills/switch-on.ts`). The AI writes a personal project's
+  `skills/` without a card (no chat follows it there); sharing it is where it asks. Making a project never switches any
+  on: it always makes a new, empty folder. Widening a team project's participants is the other branch's confirm, which
+  names its project skills (`ProjectAccessPreview.skillNames`).
 - **Scheduled tasks:** a task whose project its owner no longer sees is skipped, paused and the owner told once (inbox,
   the task's last result "프로젝트 없음"); before, the run's chat silently dropped the project. Migration 279 (add-only,
-  `schedule_project_skips`; 276–278 are taken on dev).
+  `schedule_project_skips`; 276–278 are taken on dev, and 280 by the project folder migration: the runner applies each
+  missing number, so 279 applies on a database that already has 280).
 - **Out:** sharing a skill to a project from the share flow, project skill usage in Admin › Usage (not recorded, as
   personal skills), the project-folder word bonus in `find_skills` (removed).
 - Tests: `tests/unit/project-skills.test.ts`, `tests/unit/move-skill.test.ts`, cases in `c-file-moves`, `b-rooms-ai`,

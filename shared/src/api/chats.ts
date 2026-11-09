@@ -1,10 +1,10 @@
 // Chats, messages, turn control, projects, ask_user answers. Owner: B (server/src/routes/chats.ts).
 import { z } from 'zod'
 import { Uuid7 } from '../ids'
-import { EngineId, IsoTime, PageQuery, QueryBool, RelPath, page } from './common'
+import { Access, EngineId, IsoTime, PageQuery, QueryBool, RelPath, page } from './common'
 import { endpoint, empty } from './endpoint'
 import { SealedSecret } from './credentials'
-import { Chat, Message, MessageSources, Project } from './entities'
+import { Chat, Message, MessageSources, Project, SubjectType } from './entities'
 import { ANSWER_NOTE_MAX, ROOM_FILES_MAX, RoomMessage } from './rooms'
 import { IntegrationStatus } from './integrations'
 import { TurnRequest } from './ws'
@@ -278,34 +278,44 @@ export const RoomTurnRequest = OpenTurnRequest.omit({ chatId: true })
 export type RoomTurnRequest = z.infer<typeof RoomTurnRequest>
 
 // ---------------- projects ----------------
-/** Who works in a new team project folder (each gets write; nobody else but admins). */
+/** Who works in a team project (each gets read and write; nobody else but the creator, the owner and admins). */
 export const ProjectParticipant = z.object({ subjectType: z.enum(['group', 'user']), subjectId: z.string().min(1).max(64) })
 export type ProjectParticipant = z.infer<typeof ProjectParticipant>
 /**
- * Three ways (design tab 5 "프로젝트"):
- * - scope 'personal' (folderPath omitted): users/<me>/projects/<slug>/, only the caller sees it;
- * - scope 'team' without folderPath, or with a projects/<slug> folder that does not exist yet: admins and the owner
- *   only; the folder, its folders row and rules (each participant and the creator write, nobody else) are made in one go;
- * - an existing folder the caller can write (anyone): its rules stay as they are (a rule-less folders row is added).
+ * Two kinds (docs/DECISIONS.md "Projects live only in projects/"):
+ * - scope 'team': a new folder projects/<name> (its name from slug, else folderPath's last name, else the project's name;
+ *   a taken name gets "-2"), made by the server with each participant and the creator write and everyone else none.
+ *   Members too, unless Admin › Team settings lets only admins (403, params.reason projects_admins_only). A member
+ *   names only their own groups and active people.
+ * - scope 'personal': users/<me>/projects/<name>, only the caller sees it.
+ * A folderPath anywhere else (an existing team folder, shared/, groups/, the root, users/<me>/other) is 400 with
+ * params.reason project_location.
  */
 export const CreateProjectBody = z.object({
   name: z.string().trim().min(1).max(100),
   scope: z.enum(['team', 'personal']).default('team'),
+  /** team: projects/<name>; personal: users/<me>/projects/<name> (default: from slug or the name) */
   folderPath: RelPath.optional(),
-  /** folder name for a new folder (default: from the name, like group folders) */
+  /** folder name for the new folder (default: from the name, like group folders) */
   slug: z.string().trim().min(1).max(100).optional(),
   participants: z.array(ProjectParticipant).max(200).default([]),
   instructions: z.string().max(50_000).default(''),
 })
-/** Share a personal project with the team: its folder is copied under toParent (a folder the caller can write; at most
- * 1,000 files / 500 MB) and the project points at the copy; the personal folder stays. dryRun: {viewersAdded} only. */
-export const ShareProjectBody = z.object({ toParent: RelPath, dryRun: z.boolean().default(false),
-  /** shared into projects/, the skills in its skills/ folder switch on in the project's chats: 409 project_skills_on
-   * unless true (docs/DECISIONS.md "Project skills") */
-  skillsOk: z.boolean().optional() })
-/** dryRun: who more sees it, and the skills that would switch on (shared into projects/) */
-export const ShareProjectResult = z.union([Project, z.object({ viewersAdded: z.number().int().nonnegative(), skills: z.array(z.string()).optional() })])
-/** Creator or admin+ only. folderPath: admin or owner only, never under users/ (a personal project is shared by copy). */
+/** Share a personal project with the team: a new team project folder projects/<name> with these participants (as
+ * createProject makes one), the personal folder's files copied into it (at most 1,000 files / 500 MB), and the project
+ * points at it; the personal folder stays. dryRun: {viewersAdded} only (the people who would see it, me left out). */
+export const ShareProjectBody = z.object({
+  participants: z.array(ProjectParticipant).max(200).default([]),
+  dryRun: z.boolean().default(false),
+  /** older clients: only 'projects' is accepted (anything else: 400 project_location) */
+  toParent: RelPath.optional(),
+  /** the personal folder's skills/ holds skills: copied into projects/<name>/skills they switch on in the project's
+   * chats: 409 project_skills_on unless true (docs/DECISIONS.md "Project skills") */
+  skillsOk: z.boolean().optional(),
+})
+export const ShareProjectResult = z.union([Project, z.object({ viewersAdded: z.number().int().nonnegative() })])
+/** Creator or admin+ only. folderPath (repoint): admins only, only for a project whose folder is in the trash or missing,
+ * only to an existing projects/<name> no other project uses (else 409 / 400 project_location). */
 export const UpdateProjectBody = z.object({
   name: z.string().trim().min(1).max(100).optional(),
   folderPath: RelPath.optional(),
@@ -314,10 +324,55 @@ export const UpdateProjectBody = z.object({
    * project_personal (a personal project), safe_ops (safe operations are on) or project_in_trash. Off keeps the chats
    * already shared. */
   shareChats: z.boolean().optional(),
-  /** pointed at a projects/<name> folder that holds skills: they switch on in the project's chats: 409
+  /** repointed at a projects/<name> folder that holds skills: they switch on in the project's chats: 409
    * project_skills_on unless true (docs/DECISIONS.md "Project skills") */
   skillsOk: z.boolean().optional(),
 })
+export const DeleteProjectQuery = z.object({
+  /** also put its folder in the files trash (a team project in projects/<name> whose folder is in place) */
+  trashFolder: QueryBool.optional(),
+})
+
+/** A participant as the project's edit screen shows it. `creator`: the project's creator, always kept. */
+export const ProjectMember = ProjectParticipant.extend({ name: z.string(), creator: z.boolean().optional() })
+export type ProjectMember = z.infer<typeof ProjectMember>
+/** A rule of the project folder (or a folder inside it) that the project screen shows but does not change: read-only
+ * people or groups, roles, an everyone rule other than "nobody else", rules inside it. Admin › Folder permissions does. */
+export const ProjectOtherRule = z.object({ path: RelPath, subjectType: SubjectType, subjectId: z.string().nullable(), name: z.string().nullable(), access: Access })
+export type ProjectOtherRule = z.infer<typeof ProjectOtherRule>
+/** Who sees a team project (GET /api/projects/:id/access; its creator and admins). */
+export const ProjectAccess = z.object({
+  /** participants can be changed here: a team project in projects/<name> whose folder is in place */
+  editable: z.boolean(),
+  participants: z.array(ProjectMember),
+  otherRules: z.array(ProjectOtherRule),
+  /** the folder's Folder.rulesHash now: PUT participants sends it back (409 rules_changed when someone changed them).
+   * Empty for a member's answer about a project they may not change. */
+  rulesHash: z.string(),
+  /** how many active people see the project now (owner and admins included) */
+  people: z.number().int().nonnegative(),
+})
+export type ProjectAccess = z.infer<typeof ProjectAccess>
+/** A dry run: who would see a new project with these participants, or an existing one (projectId) after this change. */
+export const ProjectAccessPreviewBody = z.object({ projectId: Uuid7.optional(), participants: z.array(ProjectParticipant).max(200) })
+export const ProjectAccessPreview = z.object({
+  /** active people who would see it (the creator, the owner and admins included) */
+  people: z.number().int().nonnegative(),
+  /** an existing project: people who would start or stop seeing it */
+  added: z.number().int().nonnegative(),
+  removed: z.number().int().nonnegative(),
+  /** what the added people would see (0 when nobody is added): its files, those that other people than the caller put
+   * there, its shared chats (each with its whole history) and its project skills (skills/<name>/SKILL.md in its folder) */
+  files: z.number().int().nonnegative(),
+  othersFiles: z.number().int().nonnegative(),
+  sharedChats: z.number().int().nonnegative(),
+  skills: z.number().int().nonnegative(),
+  /** those project skills by name (their folder's name, at most 10, sorted): the confirm names them, since the people
+   * who gain the project start using them in its chats */
+  skillNames: z.array(z.string()).max(10).optional(),
+})
+export type ProjectAccessPreview = z.infer<typeof ProjectAccessPreview>
+export const PutProjectParticipantsBody = z.object({ participants: z.array(ProjectParticipant).max(200), expectedHash: z.string().min(1).max(64) })
 
 export const CHATS = {
   frequentQuestions: endpoint({ method: 'GET', path: '/api/questions/frequent', auth: 'user', owner: 'B', response: FrequentQuestions, summary: 'Own repeated questions from current branches in the last 30 days; bounded sample, never other people’s prompts.' }),
@@ -348,9 +403,12 @@ export const CHATS = {
   answerTurn: endpoint({ method: 'POST', path: '/api/turns/:id/answer', auth: 'user', owner: 'B', body: TurnAnswerBody, response: empty, status: 204, summary: 'Answer an ask_user card or a browser site confirmation of an own running turn.' }),
 
   listProjects: endpoint({ method: 'GET', path: '/api/projects', auth: 'user', owner: 'B', response: z.object({ items: z.array(Project) }), summary: 'Projects whose folder the caller can read.' }),
-  createProject: endpoint({ method: 'POST', path: '/api/projects', auth: 'user', owner: 'B', status: 201, body: CreateProjectBody, response: Project, summary: 'New project: personal (users/<me>/projects/<slug>), on an existing folder the caller can write, or a new projects/<slug> with participants (admin or owner).' }),
+  createProject: endpoint({ method: 'POST', path: '/api/projects', auth: 'user', owner: 'B', status: 201, body: CreateProjectBody, response: Project, summary: 'New project: a new team project folder projects/<name> with participants (members too, unless the team lets only admins), or a personal one in users/<me>/projects/<name>. Nowhere else.' }),
+  previewProjectAccess: endpoint({ method: 'POST', path: '/api/projects/access-preview', auth: 'user', owner: 'B', body: ProjectAccessPreviewBody, response: ProjectAccessPreview, summary: 'Dry run: how many people would see a new team project with these participants, or (projectId: its creator or an admin) who gains and loses an existing one and what the people who gain it would see. Nothing is saved.' }),
   getProject: endpoint({ method: 'GET', path: '/api/projects/:id', auth: 'user', owner: 'B', response: Project, summary: 'One project.' }),
-  updateProject: endpoint({ method: 'PATCH', path: '/api/projects/:id', auth: 'user', owner: 'B', body: UpdateProjectBody, response: Project, summary: 'Edit name / instructions / shareChats (the creator or an admin, with write access to the folder; audited, readers notified). folderPath: admins only, never under users/.' }),
-  shareProject: endpoint({ method: 'POST', path: '/api/projects/:id/share', auth: 'user', owner: 'B', body: ShareProjectBody, response: ShareProjectResult, summary: 'Copy a personal project\'s folder into a team folder and point the project at it (the personal folder stays).' }),
-  deleteProject: endpoint({ method: 'DELETE', path: '/api/projects/:id', auth: 'user', owner: 'B', response: empty, status: 204, summary: 'Delete the project (the creator or an admin; private chats stay, without project; its shared chats go to their creators\' trash and stop being shared, or are deleted for good when the creator would not see the project; the folder stays).' }),
+  getProjectAccess: endpoint({ method: 'GET', path: '/api/projects/:id/access', auth: 'user', owner: 'B', response: ProjectAccess, summary: 'Who sees a team project: its participants, the rules the project screen does not change, the rules hash (its creator or an admin).' }),
+  putProjectParticipants: endpoint({ method: 'PUT', path: '/api/projects/:id/participants', auth: 'user', owner: 'B', body: PutProjectParticipantsBody, response: ProjectAccess, summary: 'Change who sees a team project in projects/<name> (its creator or an admin): the folder rules, as Admin › Folder permissions saves them (409 rules_changed when they changed since expectedHash; audited; people who lose it lose its shared chats).' }),
+  updateProject: endpoint({ method: 'PATCH', path: '/api/projects/:id', auth: 'user', owner: 'B', body: UpdateProjectBody, response: Project, summary: 'Edit name / instructions / shareChats (the creator or an admin, with write access to the folder; audited, readers notified). folderPath: admins only, for a project whose folder is in the trash or missing, to an existing projects/<name>.' }),
+  shareProject: endpoint({ method: 'POST', path: '/api/projects/:id/share', auth: 'user', owner: 'B', body: ShareProjectBody, response: ShareProjectResult, summary: 'Make a personal project a team project: a new projects/<name> with participants, the files copied into it, the project pointed at it (the personal folder stays).' }),
+  deleteProject: endpoint({ method: 'DELETE', path: '/api/projects/:id', auth: 'user', owner: 'B', query: DeleteProjectQuery, response: empty, status: 204, summary: 'Delete the project (the creator or an admin; private chats stay, without project; its shared chats go to their creators\' trash and stop being shared, or are deleted for good when the creator would not see the project). The folder stays, or with trashFolder=1 a projects/<name> folder goes to the files trash.' }),
 } as const

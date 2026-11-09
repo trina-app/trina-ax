@@ -18,7 +18,7 @@ beforeAll(async () => {
   alice = await h.ws('alice', { windowId: 'win-x-alice' })
   await alice.next('hello')
   const a = h.api('alice')
-  const proj = await a.call(API.createProject, { body: { name: 'Mine', folderPath: 'users/alice', instructions: 'SECRET-INSTRUCTION-11' } })
+  const proj = await a.call(API.createProject, { body: { name: 'Mine', scope: 'personal', participants: [], instructions: 'SECRET-INSTRUCTION-11' } })
   ids.project = proj.id
   const chat = await a.call(API.createChat, { body: { projectId: proj.id, title: 'SECRET-TITLE-22' } })
   ids.chat = chat.id

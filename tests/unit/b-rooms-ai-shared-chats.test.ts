@@ -10,6 +10,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, uuidv7, type RoomAiRun, type RoomMessage } from '@mycel/shared/api'
 import { addTestPerson, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
 import { waitFor } from '../lib/wait'
 import { readTranscript, recordOlderAnswers } from '../../server/src/chat/shared'
 import { withheldFrom } from '../../server/src/chat/shared-answers'
@@ -47,10 +48,10 @@ beforeAll(async () => {
   let t = Date.now()
   roomsOf(h.ctx).clock = () => (t += 60_000)
   for (const u of ['alice', 'bob', 'carol', 'dana', 'erin']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
-  falcon = (await h.api('alice').call(API.createProject, { body: { name: 'Falcon 견적', folderPath: 'projects/falcon', scope: 'team', participants: [], instructions: '' } })).id
+  falcon = (await oldProject(h, 'alice', { name: 'Falcon 견적', folderPath: 'projects/falcon', instructions: '' })).id
   unsharedChat = (await h.api('alice').call(API.createChat, { body: { projectId: falcon, title: 'UNSHARED-TITLE before sharing' } })).id
   await h.api('alice').call(API.updateProject, { params: { id: falcon }, body: { shareChats: true } })
-  atlas = (await h.api('bob').call(API.createProject, { body: { name: 'Atlas', folderPath: 'projects/atlas', scope: 'team', participants: [], instructions: '' } })).id
+  atlas = (await oldProject(h, 'bob', { name: 'Atlas', folderPath: 'projects/atlas', instructions: '' })).id
   await h.api('bob').call(API.updateProject, { params: { id: atlas }, body: { shareChats: true } })
   quoteChat = await sharedChat('alice', falcon, 'QUOTE-TITLE 견적 회의', [['alice', 'QUOTE-ALICE we need a price for 40 units'], ['bob', 'QUOTE-BOB decided: 1,200 a unit, delivery in March']])
   launchChat = await sharedChat('bob', falcon, 'LAUNCH-TITLE launch plan', [['bob', 'LAUNCH-BOB the launch is on the 9th']])
@@ -178,7 +179,7 @@ describe('what a listing counts', () => {
     expect(events(run.turnId).filter((e) => e.tool === 'project_chats').map((e) => e.summary)).toEqual(['project_chats -> search (all), 0 shown', 'project_chats -> search (all), 0 shown'])
     // a project alice sees with no shared chat at all counts too (else a member would learn which of her projects have
     // one): in a room with alice and bob, a project on groups/marketing (alice reads it, bob does not) keeps it private
-    const emptyProject = (await h.api('alice').call(API.createProject, { body: { name: 'Empty Mine', folderPath: 'groups/marketing', scope: 'team', participants: [], instructions: '' } })).id
+    const emptyProject = (await oldProject(h, 'alice', { name: 'Empty Mine', folderPath: 'groups/marketing', instructions: '' })).id
     try {
       const r1 = await room(['alice', 'bob'])
       const one = await ask('alice', r1, `@트리나 none\n${fake({ tool: 'project_chats', args: { project: 'NoSuchProjectName', include_all: true }, sayResult: true })}`)
