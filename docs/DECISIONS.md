@@ -16209,3 +16209,19 @@ message rows ("알림함의 대화 알림") it was not clickable, its date sat o
   `web/test/unit/push-worker.test.ts` (a notice with a title still pushes the generic line). `schedule-notifications.spec.ts`
   still covers a row with no link and its 읽음 표시.
 - Version impact: **patch** (additive API field; no data change).
+
+## CI unit tests in shards (ci/shard-unit-tests, 2026-11-09)
+
+- **Why:** of the ~35 minutes of the one CI job, ~30 were the unit tests (about 440 files, one after another). Every
+  PR waited for them.
+- **Decision:** the unit tests run as 5 jobs at once (`unit`, a matrix), beside `static` (typecheck, docs, native
+  build, go test, the pinned browser) and `other` (fast fuzz, web tests and build, relay). scripts/ci/unit-shard.ts
+  splits the files by their times in an earlier CI run (scripts/ci/unit-times.json): the longest first, each to the
+  shard with the least time so far, a new file counted as the median. Expected: about 6 minutes of tests per shard,
+  about 10 minutes per run.
+- **The required check stays:** the last job keeps the old name, "typecheck, native, unit, fast fuzz, web, relay",
+  which the default branch's ruleset requires and release.yml's test waits for; it passes only when every job passed.
+- **Cost:** public repository, standard runners: no charge. Each run now holds 8 jobs at a time (the organisation's
+  free plan allows about 20 at once); 5 shards, not more, for that.
+- **Refresh the times** when the split drifts: `bun scripts/ci/unit-shard.ts --times <the unit step's log>`.
+
