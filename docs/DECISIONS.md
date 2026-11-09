@@ -17601,7 +17601,10 @@ review). Amends "대화방에 보내기" and "Trina side chat".
   and the AI said "Nothing was moved".
 - **Never without a row if one can be written:** when the rows fail and the item cannot go back, the server logs it at
   error level with the storage path, writes the same rows once more (the file event says `rescued`), and failing that
-  the trash row alone (restore works from it). Only when no row can be written at all does `remove()` throw
+  the trash row alone (restore works from it), but only for an item with no folders row and no project at or below it
+  (`holdsFolderRows`, failing closed). A row alone skips `rebaseFolders` and the projects update: a closed folder's rules
+  stayed on the old path, the folder that took its place got them, and it came back from the trash with none, readable
+  by every member (review of #278). Such a folder stays in the trash storage only, logged, for an admin to recover. Only when no row can be written at all does `remove()` throw
   `TrashStranded` with the storage path; delete_files then reports the item as moved out of its place, not in Files ›
   Trash, for an admin to recover (audit `stranded`), never as "nothing moved". The Files screen's delete shares this.
 - **The rollback never writes over what took the old place:** both branches put the item back with `putBack` (only
@@ -17612,5 +17615,6 @@ review). Amends "대화방에 보내기" and "Trina side chat".
   AI's trash rows that are still in the trash: SQL cannot fold letter case and Unicode form the way the volume does, so
   narrowing it there would let a variant spelling of a trashed path count as new for a room grant.
 - Tests: `tests/unit/ai-delete-files.test.ts` "a double fault never strands an item without a trash row" (a rescued
-  row, no row possible, a file made at the old place in that instant, the `failed` audit), each failing without its fix.
+  row, no row possible, a file made at the old place in that instant, the `failed` audit, the review's closed folder
+  whose rows fail twice, and a plain folder that still gets its row alone), each failing without its fix.
 - Version impact: **patch** (bug fixes; nothing changes when nothing fails).
