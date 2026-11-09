@@ -40,11 +40,14 @@ export interface ProjectRow {
   trashed_with: string | null
   /** migration 265: new chats in this project are shared with its people (chat/shared.ts) */
   share_chats: number
+  /** migration 280: the server made its projects/<name> folder for it (chat/project-access.ts): only then is it its
+   * creator's to change who sees it or to trash its folder with it */
+  folder_made?: number
 }
 
 export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source, room_id, seen_at, shared_at, side_room_id'
 export const MESSAGE_COLS = 'id, chat_id, parent_id, role, author_id, content, attachments, steps, status, error, turn_id, engine, model, files, client_message_id, created_at, updated_at, stop_reason, history_trimmed'
-export const PROJECT_COLS = 'id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, trashed_with, share_chats'
+export const PROJECT_COLS = 'id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, trashed_with, share_chats, folder_made'
 
 /** SQLite timestamps ("2026-10-21T03:04:05.678Z" from strftime, or ISO from JS) -> ISO with offset. */
 export function iso(t: string | null | undefined): string {

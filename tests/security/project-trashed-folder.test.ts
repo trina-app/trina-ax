@@ -11,6 +11,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API, ApiError } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
 
 setDefaultTimeout(30_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -34,7 +35,7 @@ describe('a project whose restricted folder is in the trash', () => {
     fs.mkdirSync(path.join(h.team, 'shared/secret'), { recursive: true })
     h.ctx.db.query("INSERT INTO folders (id, path) VALUES ('f_shared_secret', 'shared/secret')").run()
     h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_secret_fin', 'f_shared_secret', 'group', 'finance', 'write'), ('r_secret_all', 'f_shared_secret', 'everyone', NULL, 'none')").run()
-    const p = await h.api('bob').call(API.createProject, { body: { name: 'Secret plan', folderPath: 'shared/secret', instructions: `${CANARY}: follow the finance plan.`, scope: 'team', participants: [] } })
+    const p = await oldProject(h, 'bob', { name: 'Secret plan', folderPath: 'shared/secret', instructions: `${CANARY}: follow the finance plan.` })
     // alice's chat names the project (attached while she could see it; here directly)
     const chat = await h.api('alice').call(API.createChat, { body: {} })
     h.ctx.db.query('UPDATE chats SET project_id = ? WHERE id = ?').run(p.id, chat.id)
@@ -60,7 +61,7 @@ describe('a project whose restricted folder is in the trash', () => {
     expect(h.rt().projectForChat(p.id, h.ctx.files.principal('carol'))).toBeNull()
 
     // it holds no path meanwhile: alice's own new project on a new shared/secret is hers, and names nothing of it
-    const mine = await h.api('alice').call(API.createProject, { body: { name: 'Mine', folderPath: 'shared/secret', instructions: '', scope: 'team', participants: [] } })
+    const mine = await oldProject(h, 'alice', { name: 'Mine', folderPath: 'shared/secret', instructions: '' })
     expect(mine.folderPath).toBe('shared/secret')
     expect(await listed('alice')).toEqual(expect.arrayContaining(['Mine']))
     expect(await listed('alice')).not.toContain('Secret plan')

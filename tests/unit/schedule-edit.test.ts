@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import { API, type ApiError, type ScheduleTaskEdit } from '@mycel/shared/api'
 import { uuidv7 } from '@mycel/shared'
 import { startHarness, type Harness } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
 import { CONFIRMED } from '../lib/schedule-card'
 import { waitFor } from '../lib/wait'
 import type { ScheduleRow } from '../../server/src/chat/schedules'
@@ -190,7 +191,7 @@ describe('edit', () => {
     const past = await card({ ...base, repeat: 'once', date: '2020-01-01' })
     expect([past.status, past.message]).toEqual([400, 'That time has already passed. Pick a date and time in the future.'])
     // a project: one the person can open, else refused
-    const p = await h.api('alice').call(API.createProject, { body: { name: 'Q4 plan', folderPath: 'groups/marketing/q4-sched', instructions: 'Use the brief.' } })
+    const p = await oldProject(h, 'alice', { name: 'Q4 plan', folderPath: 'groups/marketing/q4-sched', instructions: 'Use the brief.' })
     const bad = await card({ ...base, projectId: uuidv7() })
     expect([bad.status, Object.keys(bad.body.fields ?? {})]).toEqual([400, ['body.projectId']])
     const withProject = { ...base, projectId: p.id }
