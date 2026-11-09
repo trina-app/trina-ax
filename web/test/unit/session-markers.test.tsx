@@ -8,8 +8,8 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { uuidv7, type Chat, type Me, type Room, type ServerEvent, type TurnRequest } from '@mycel/shared/api'
 import { useLocaleStore } from '../../src/i18n'
-import { roomWantsMe } from '../../src/lib/rooms'
-import { attentionCount, markerOf, stillWorthTelling, waitingOrRunning } from '../../src/lib/sessionMarkers'
+import { roomLightsDot, roomWantsMe } from '../../src/lib/rooms'
+import { attentionCount, iconBadge, markerOf, stillWorthTelling, waitingOrRunning } from '../../src/lib/sessionMarkers'
 import { useChats } from '../../src/store/chats'
 import { dispatch } from '../../src/store/live'
 import { useRooms } from '../../src/store/rooms'
@@ -70,13 +70,38 @@ describe('the one count n', () => {
     const shown = chat({ unseen: true })
     const chats = [ask(), chat({ unseen: true }), chat({ runState: 'running' }), chat(), shown, chat({ unseen: true, lastOutcome: 'error' })]
     const rooms = [room({ kind: 'dm', unreadCount: 4 }), room({ kind: 'team', unreadCount: 12 }), room({ kind: 'all', unreadCount: 2, mentioned: true }), room({ kind: 'group', unreadCount: 3, muted: true })]
-    expect(attentionCount(chats, rooms)).toEqual({ n: 6, ask: true, chats: 4, chatAsk: true })
+    // the team room's 12 plain messages are not in n: they are the other unread rooms (the icon's dot at 0)
+    expect(attentionCount(chats, rooms)).toEqual({ n: 6, ask: true, chats: 4, chatAsk: true, unread: true })
     // the chat on screen here is seen
     expect(attentionCount(chats, rooms, { here: shown.id })).toMatchObject({ n: 5, chats: 3 })
-    expect(attentionCount([chat({ unseen: true })], [])).toEqual({ n: 1, ask: false, chats: 1, chatAsk: false })
+    expect(attentionCount([chat({ unseen: true })], [])).toEqual({ n: 1, ask: false, chats: 1, chatAsk: false, unread: false })
     // a room whose AI waits on me is a "?" (amber), counted once even with unread messages and a mention; not the ☰ part
-    expect(attentionCount([], [room({ kind: 'dm', unreadCount: 9, mentioned: true, aiWaits: true })])).toEqual({ n: 1, ask: true, chats: 0, chatAsk: false })
-    expect(attentionCount([], [])).toEqual({ n: 0, ask: false, chats: 0, chatAsk: false })
+    expect(attentionCount([], [room({ kind: 'dm', unreadCount: 9, mentioned: true, aiWaits: true })])).toEqual({ n: 1, ask: true, chats: 0, chatAsk: false, unread: false })
+    expect(attentionCount([], [])).toEqual({ n: 0, ask: false, chats: 0, chatAsk: false, unread: false })
+  })
+
+  test('unread rooms n does not count: a plain team-room message is n 0 with the dot; a room turned off or hidden never lights it', () => {
+    // a channel message without a mention, the room at its default (mentions only): unread in the sidebar, not in n
+    const plain = room({ kind: 'team', unreadCount: 2 })
+    expect(attentionCount([], [plain])).toEqual({ n: 0, ask: false, chats: 0, chatAsk: false, unread: true })
+    expect(iconBadge(attentionCount([], [plain]))).toBe('dot')
+    // the everyone room at its default, and a followed reply with "replies in threads I follow" off: the dot too
+    expect(attentionCount([], [room({ kind: 'all', unreadCount: 1 })])).toMatchObject({ n: 0, unread: true })
+    expect(attentionCount([], [room({ kind: 'team', threadsUnread: 1 })], { threadReplies: false })).toMatchObject({ n: 0, unread: true })
+    // a muted room (끄기, older servers: muted only), my default "nothing" (level off without a level of its own), a hidden room: no dot
+    expect(attentionCount([], [room({ kind: 'team', unreadCount: 2, muted: true })])).toMatchObject({ n: 0, unread: false })
+    expect(attentionCount([], [room({ kind: 'team', unreadCount: 2, muted: true, notify: { own: 'off', byDefault: 'mentions', level: 'off' } })])).toMatchObject({ n: 0, unread: false })
+    expect(attentionCount([], [room({ kind: 'dm', unreadCount: 2, notify: { own: null, byDefault: 'off', level: 'off' } })])).toMatchObject({ n: 0, unread: false })
+    expect(attentionCount([], [room({ kind: 'team', unreadCount: 2, hidden: true })])).toMatchObject({ n: 0, unread: false })
+    expect(iconBadge(attentionCount([], [room({ kind: 'team', unreadCount: 2, muted: true })]))).toBe(0)
+    // a mention: n 1, the number (never the dot)
+    const mention = room({ kind: 'team', unreadCount: 2, mentioned: true })
+    expect(attentionCount([], [mention])).toMatchObject({ n: 1, unread: false })
+    expect(iconBadge(attentionCount([], [mention, plain]))).toBe(1)
+    // the room read: nothing
+    expect(iconBadge(attentionCount([], [room({ kind: 'team' })]))).toBe(0)
+    expect(roomLightsDot(room({ kind: 'team', unreadCount: 1, notify: { own: 'mentions', byDefault: 'mentions', level: 'mentions' } }))).toBe(true)
+    expect(roomLightsDot(room({ kind: 'team' }))).toBe(false)
   })
 
   test('a room wants me by my level for it (the server\'s notice rule): DMs and group chats by default, mentions, followed replies', () => {
@@ -153,7 +178,7 @@ describe('this window: /seen, notifications and toasts', () => {
   /** how long the fake server takes to answer POST /seen */
   let seenDelayMs = 0
   let notified: { title: string; body: string; tag?: string; open?: string; read?: string }[] = []
-  let badges: number[] = []
+  let badges: (number | '•')[] = []
   let openCb: ((p: string) => void) | null = null
   let readCb: ((t: string) => void) | null = null
   let went: string[] = []
@@ -197,7 +222,7 @@ describe('this window: /seen, notifications and toasts', () => {
     stub('mycelDesktop', {
       bridgeVersion: 1,
       notify: (n: { title: string; body: string; tag?: string; open?: string; read?: string }) => notified.push(n),
-      setBadgeCount: (n: number) => badges.push(n),
+      setBadgeCount: (n: number, dot?: boolean) => badges.push(dot === true ? '•' : n),
       onOpen: (cb: (p: string) => void) => { openCb = cb; return () => { openCb = null } },
       onRead: (cb: (t: string) => void) => { readCb = cb; return () => { readCb = null } },
     })
@@ -414,6 +439,28 @@ describe('this window: /seen, notifications and toasts', () => {
     expect(badges.at(-1)).toBe(3)
     useSessionMarkers.getState().setOnScreen(c.id)
     expect(badges.at(-1)).toBe(2)
+    stopSessionMarkers()
+    expect(badges.at(-1)).toBe(0)
+  })
+
+  test('the dock\'s dot: n 0 with a plain team-room message unread; the number wins; read or muted clears it', () => {
+    const plain = room({ kind: 'team', unreadCount: 2 })
+    useRooms.setState({ rooms: [plain] })
+    expect(badges.at(-1)).toBe('•')
+    const before = badges.length
+    useRooms.setState({ rooms: [{ ...plain, unreadCount: 3 }] })
+    expect(badges.length).toBe(before) // still the dot: not sent again
+    useRooms.setState({ rooms: [{ ...plain, unreadCount: 3 }, room({ kind: 'dm', unreadCount: 1 })] })
+    expect(badges.at(-1)).toBe(1)
+    useRooms.setState({ rooms: [{ ...plain, unreadCount: 3 }] })
+    expect(badges.at(-1)).toBe('•')
+    useRooms.setState({ rooms: [{ ...plain, unreadCount: 3, muted: true, notify: { own: 'off', byDefault: 'mentions', level: 'off' } }] })
+    expect(badges.at(-1)).toBe(0)
+    useRooms.setState({ rooms: [{ ...plain, unreadCount: 3 }] })
+    expect(badges.at(-1)).toBe('•')
+    useRooms.setState({ rooms: [{ ...plain, unreadCount: 0 }] })
+    expect(badges.at(-1)).toBe(0)
+    useRooms.setState({ rooms: [{ ...plain, unreadCount: 1 }] })
     stopSessionMarkers()
     expect(badges.at(-1)).toBe(0)
   })

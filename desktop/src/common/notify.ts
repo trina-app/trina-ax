@@ -3,8 +3,8 @@
 // tag replaces the old one: one per chat), and a click brings the window up and opens the address the page named
 // ("/c/<chatId>": that chat; "/rooms/<id>": that room). Before, a click only focused the window. A team switch closes
 // every notification the team page made (closeAll): they name that team's chats, and a click must not open an address
-// in the next team's page. Also the dock badge's number, and Settings › Notifications' test notification (test): shown
-// even while the window is focused, and it says whether the system took it.
+// in the next team's page. Also the dock badge's number (or its dot), and Settings › Notifications' test notification
+// (test): shown even while the window is focused, and it says whether the system took it.
 // macOS asks the person about an app's notifications once, when the app first touches them, and an app that quits
 // before the answer is left with them off for good. The first notification only comes while the window is in the back,
 // so the question would come while nobody looks: ask() touches them while the window is in front (a team page has
@@ -37,6 +37,16 @@ export function readTokenOf(v: unknown): string | null {
 /** The dock badge: a whole number 0..9999 (anything else: 0, which clears it). */
 export function badgeCountOf(v: unknown): number {
   return typeof v === 'number' && Number.isInteger(v) && v > 0 ? Math.min(v, 9999) : 0
+}
+
+/** The dock's plain dot: rooms have unread messages the number does not count (docs/DECISIONS.md "The Dock's dot for
+ * unread rooms"), as Slack and Discord show. */
+export const DOCK_DOT = '•'
+/** What the dock shows from the page's bridge:badge: the number (badgeCountOf), else the dot when the page's flag is
+ * exactly true, else 0 (clears it). Nothing else reaches the Dock: the page never sends text. */
+export function dockBadgeOf(n: unknown, dot: unknown): number | typeof DOCK_DOT {
+  const count = badgeCountOf(n)
+  return count > 0 ? count : dot === true ? DOCK_DOT : 0
 }
 
 /** how long a test notification waits for the system's answer (show / failed) before it says 'unknown' */

@@ -16017,3 +16017,225 @@ boxes); no contract, setting or data change.
   what the person can see, read by the AI with room_read; sharing uses the existing dialog; on a phone the panel takes
   the whole screen like a thread. Side chats are also listed in the person's chat history.
 
+## 내 AI 채팅에서 대화방 파일 저장 — the AI chat saves a room's file into the team folder (feat/room-file-to-team, 2026-11-09, product owner)
+
+Amends "내 AI 채팅에서 대화방 읽기" and "Files sent in the room" ("대화방의 트리나"). The owner, in the AI chat: "leads 채널에 올린
+트리나 사업자 등록증, 다른 사람들도 다 볼 수 있게 저장해줘". The AI could read the PDF as text (`room_file`) but had no way to
+copy it (`write` saves text), so it asked for the PDF again. A room's own @트리나 session already had `save_room_file`
+("not offered in personal chats" until now).
+
+- **Decision:** the person's own AI chat gets `save_room_file` too, with the room session's name (as `room_file` has one
+  name in both): `room` (as room_read takes it), `file` (its file_id only: two files may share a name, and the card's
+  yes is for that one file) and `save_as` (a folder keeps the file's own name; the person's downloads by default).
+  `SaveRoomFileInput` is the own chat's input, `SaveRoomFileHereInput` the room session's.
+- **One path for both** (`chat/room-tools.ts` `saveTarget`, `saveRoomFile`). Reading: `findRoomFile` with the person's
+  member row, the check `room_file` uses (a room they are in now and not archived, a message they see from their join
+  on, a thread by its root, never an old answer hidden from them nor someone else's private preview, not deleted), then
+  `RoomFiles.open` again after the cards. A non-member gets the answer of a room that does not exist. Writing: the AI's
+  other byte saves' path (`placeProduced`: write access again right before the write, the skill approval it requires,
+  the storage check and per-turn file count, versions, file events, text extraction, files.changed), the placement
+  note (`chat/file-placement.ts`) and the audit line (`tool_events`).
+- **Refused before any card** (`Tool.refuse`): a name instead of a file id, a file the person cannot see, a held file,
+  skills/, an instruction file's name and, new for both, a place the person may not write (`authorize(…, 'write')`: a
+  read-only folder, one they cannot see). A call refused there counts as nothing read.
+- **The download-only list is the quarantine list.** The brief named two lists; in the code they are one
+  (`safe_ops_artifacts`, "download-only" in its messages). Such bytes are refused, as `room_file` refuses to read them
+  and as the AI cannot copy a team file with them (`authorize` refuses it without `download`). Not chosen: saving them
+  "as a file": it would hand the AI a way past the list for room files only.
+- **The room is the bytes' source.** The wider-audience check counts the room from the file's message on (a reply by its
+  root's seq), and the person alone when the message is their own private preview, as room_read records one. The owner
+  and admins rule for team rooms (`withoutTeamRoomsAdminsSee`) applies as for every save.
+- **One card per call** (as "대화방에서 새 파일은 미리 허용" for write and make_file). A tool may now say where it saves and
+  where its bytes come from (`Tool.widen`, `WidenOf.read`; `TurnExec.widenNeed` takes read sources), so the
+  wider-audience need is known before the rooms-seen card (own chat) or the room card (room session). Both needed: the
+  wider-audience card alone, with the rooms-seen line in front in the own chat and the call's details (the file by its
+  name, its room as the person sees it in the own chat ("#leads"), sender, time and size; where it goes); its yes saves
+  it. The owner's request is exactly that card and one yes. Only one of them: that one. The own chat's call marks the
+  chat (`markRoomsSeen`) before it looks anything up, a refused call too, so every save there asks one card, also first
+  thing in a new chat (a file id planted in a team file or a page copies nothing unasked). The room session's save had
+  two cards until now.
+- **No silent overwrite:** as save_url and make_file, a file already at the target that was not read in this turn is
+  kept and the copy goes next to it (a conflict copy, told to the AI); one read in this turn is updated with a version.
+- **Room sessions:** no "이 방에서는 항상 허용" for a copy. "대화방에서 새 파일은 미리 허용" left save_room_file out of grants
+  on purpose (copies, moves, save_url); the room card keeps its two buttons. Not widened here.
+- **Audit:** a save names the saved team path (it is a team file now); a refusal is audited without its words
+  ("refused: access denied", or the error's code), since they name the room file's place; no room, person or file id
+  anywhere. In a room session that was the refusal's text until now.
+- **Independent review (security, tried to break it):** two leaks fixed, both from the new refusal before the card.
+  In a room session, a refused place (read-only, hidden) told the AI what is there before `noteRoomTool` ran, so the
+  answer went to the whole room: a refusal about the place now counts save_as as a name read (`place`), and such an
+  answer stays private for a member who cannot see it. In the own chat, a refusal could show room names (several match
+  the name) or the file's name before the chat was marked as one that read rooms: the call now marks it first. Also: the
+  card's place is the place written (`plannedTargets`: a folder made where save_as named a file while the card waited
+  refuses the save). Left as is: a leading "/" in save_as is dropped (as before); a call whose input fails the schema
+  still gets the card before its error (as every tool).
+- **Words:** no new strings. The step and the card reuse "대화방 파일 저장" and the cards' strings in the five languages.
+  The instructions (`ROOMS_RULE`) and `room_file`'s description say a room file can be saved as it is, and not to ask for
+  it again; `room_file`'s notes for video, audio and scanned PDF pages point to save_room_file in a chat (the connector
+  keeps its own words).
+- **Not here:** the MCP connector. It has no card, so its read-scope guard (`checkUploadTarget`) would refuse a room
+  file into any folder wider than the room, the owner's case (shared/). Follow-up once the connector has a confirmation
+  path; until then it reads room files only.
+- Tests: `tests/unit/b-chat-rooms-save.test.ts` (offered and in the instructions; a member's PDF from a team room into a
+  new folder in shared/ with one card naming the room, the same bytes, the step, the audit line and the file event; the
+  same file again next to a changed one; a "no"; into one's own folder first thing in a new chat, the rooms-seen card
+  alone; a refusal marks the chat; a place changed while the card waited; a non-member like an unknown room; a hidden
+  answer's file, another's private preview and a name refused, the preview's owner may save; a read-only target, a
+  held file, skills/ and CLAUDE.md refused before any card; a planted request in a room needs the yes),
+  `b-rooms-ai-files.test.ts` (one card into shared/; the room card, two buttons, into one's own folder; a refused place
+  keeps the answer private), `b-chat-rooms`, `b-codex-rooms`, `b-chat`, `b-browser`, `i-wiring` (the tool in the own
+  chat's list).
+- Version impact: **minor** (a new tool in the AI chat; no API, setting or data change).
+## A picture in a message box shows as a 64 px square (fix/bigger-paste-preview, 2026-11-09)
+
+Since #234 a pasted or picked picture showed as itself in its chip above the box, in a room and in the AI chat, but at
+32 px: too small to tell one screenshot from another. The owner: at least 64. Placement: Team AX core
+(`web/src/components/ChipThumb.tsx`, the two message boxes); no contract, setting or data change.
+
+- **A square, not a bigger chip.** Slack and iMessage show a picture waiting to be sent as the picture itself, a
+  rounded square with no name, its ✕ on the corner; files get a card. Here: a 64 × 64 square (`object-cover`, 8 px
+  corners, a hairline edge so a white screenshot keeps its outline on the white box), one `PictureTile` for both boxes.
+  Not chosen: the chip with a 64 px picture and the name and size beside it. On a 390 px phone such a chip is about
+  180 px wide, so three pictures took three rows (about 230 px above the box, with the keyboard open); three squares
+  take one row of 70 px.
+- **What the chip said moves.** The name is the picture's alt text and its tip on hover (no tip on touch); the status
+  (uploading, attached, the size) stays in the same live regions, now for screen readers only, so a screen reader still
+  hears each change. While it uploads the picture is a shade darker with the spinner on a dark pill (readable on a light
+  or a dark picture), with the AI chat's percent when it is known; "준비 중" / "마무리 중" are not shown there (too
+  wide for 64 px in Indonesian and Spanish). A failed one gets a red edge and its reason beside it, as words.
+- **The ✕** is a 20 px dark dot (light in dark mode) standing 6 px out of the top-right corner, on a ring of the box's
+  colour; it takes a 36 px tap, 44 px on phones (an `::after`, not `touch-hit`, which would make the absolutely placed
+  dot `relative` on phones). The tap area reaches further out to the right than over the picture, so a tap on the
+  picture's corner stays the picture's (in the AI chat it opens it), and not above the box's top edge. The row item
+  keeps the 6 px the dot stands out (`pt-1.5 pr-1.5`), so the dot touches neither the box's top edge nor the next
+  picture, and the next picture, painted after it, keeps its own clicks.
+- In the AI chat a click on the picture opens it (the side panel's preview), as a click on its name did; the room's
+  chip had no such click and still has none.
+- A file that is not a picture keeps its compact chip; the row centres its items, so a chip beside a square keeps its
+  own height (before, the row's items stretched, which only mattered once one was taller). A chip restored after a
+  reload (no file in the tab, only the attachment) stays a file chip, as before. A picture the browser cannot draw (a
+  HEIC photo in Chrome) shows a square with a picture icon, named for screen readers as the picture was.
+- Tests: e2e `composer-paste-preview.spec.ts` (the square is 64 × 64 and `cover` in both boxes, the spinner while it
+  uploads, the name as alt text; on a 390 px phone three pasted pictures in one row inside the box, each ✕ taking a tap
+  20 px above and below its dot's centre, inside the box, and 16 px to its left; a ✕ takes out that picture only; a
+  text file on a picture's row a compact chip under 40 px tall, centred on the picture).
+- Version impact: **patch** (a fix; no API or data change).
+## The Dock's dot for unread rooms (fix/dock-unread-dot, 2026-11-09)
+
+The owner saw a red "2" on a team room in the Mac desktop app's sidebar and nothing on the Dock icon, while Discord in
+the same Dock showed a red dot. The Dock number is the one count n ("Session markers"): AI chats that need me and rooms
+that want me by my level for them. A plain message in a team room or the everyone room at its default (mentions only)
+is unread in the sidebar but not in n, so the Dock stayed empty.
+
+- **Decision (as Slack and Discord):** n stays as it is. When n is 0 and some room has unread messages n does not
+  count, the Dock shows a plain dot "•"; when they are read, it clears. A number always wins over the dot.
+- **Which rooms light it** (web/src/lib/rooms.ts `roomLightsDot`): unread messages or followed replies (`roomUnread`,
+  the sidebar's count), in a room I did not hide and did not turn off: level 끄기, its own or by my default "nothing"
+  (an older server without levels: `muted`). A followed reply while "내가 참여한 스레드의 답글" is off lights it too: the
+  sidebar shows it.
+- **The bridge:** `setBadgeCount(n, dot?)`; the page sends `dot` only with n 0 (lib/sessionMarkers.ts `iconBadge`). The
+  main process accepts a whole number or the dot, nothing else (`dockBadgeOf`: the dot only for a flag that is exactly
+  `true`), and shows it with `app.dock.setBadge('•')`. `app.setBadgeCount(0)` sets the same Dock label, so a team
+  switch still clears it (checked on Electron 44). Desktop apps before this ignore the flag: nothing at 0, as before.
+- **The installed web app follows:** `navigator.setAppBadge()` with no number is the browser's dot (as the service
+  worker's for a push with no window open), so an installed web app on Windows (Chrome, Edge) now shows a dot on its
+  taskbar icon too. What an iPhone Home Screen web app shows for it is not checked (the worker's push already made the
+  same call). Windows has no Dock: the desktop app is unchanged there.
+- **Unchanged:** the tab title "(n)", the phone ☰ dot and the 대화 tab's count. No new setting.
+## The schedule card offers only the connections the task names (fix/schedule-card-connections, 2026-11-09, product owner)
+
+- **Why.** Every schedule card (the AI's `schedule_create`, "수정" in Settings, "다시 확인") named every "allow" team
+  connection the person could use ("이 연결 서비스는 AI가 묻지 않고 보내도록 설정돼 있어요: …") with three answers, and
+  the answer with sends allowed them all. A one-time news briefing asked about an image service the team had once added
+  as an example.
+- **The rule** (`tools/schedules.ts taskConnections`). The card names, and offers sending to, only the "allow" team
+  connections the task names: the connection's whole name in the title or the instruction (the rule for a template
+  named in an instruction, `schedule-needs.ts namesTemplate`: any case, not part of a longer Latin word, a Korean
+  particle after it is fine, too short or everyday a name never matches), or listed in `schedule_create`'s new optional
+  `connections` (by name, slug or `team_<slug>` key, ignoring case). With none, the card has no connections line, the
+  plain answers (만들기 / 만들지 않기, 바꾸기 / 바꾸지 않기, 다시 켜기 / 계속 멈춰 두기), and runs send to no connection.
+  Only what the card offered is stored (`write_connections`), so a task sends to the same or fewer connections than
+  before; the run-side gate is unchanged.
+- **`connections`.** A listed name that is not an "allow" team connection the person can use (a connection that asks,
+  a personal one, a misspelling) is refused before the card and nothing is created: the AI is told the names a run can
+  send to and, when the task needs none of them, to tell the user that runs cannot send there. The tool description
+  says to list a connection only when runs must call its tools that change something there. A "send" is any tool not
+  marked read-only (the run-side gate), so a task that only searches a service whose search tool is not marked so must
+  list it too.
+- **Edit and "다시 확인".** An edit offers the connections the edited title or instruction names plus the ones the task
+  may already send to (a task the AI listed a connection for has it on offer again when only its time changes; plain
+  "바꾸기" drops the sends, as before). A task nobody confirmed
+  never had any allowed: its card offers only the names in its title or instruction. Both cards' `requestId` binds the
+  offered connections (id and version) instead of every "allow" one, so a change to an unrelated connection no longer
+  invalidates the card.
+- **Accepted.** A task that needs a service it does not name cannot send there in a run; the run's refusal now tells
+  the AI that the card offers only named connections and that the user can edit the task (or create it again) naming
+  it. A connection the task names only as a topic ("GitHub 소식 요약") is still offered; the person chooses on the card.
+  Tasks made before this keep their record (no migration): one that was allowed every "allow" connection on the old
+  card keeps those sends, and its edit card offers them again until the person saves with plain "바꾸기". Pruning them
+  would change what existing runs do, so it is left to the person.
+- **Not changed.** The card's wording, the address checks, `allowed_urls`, the unattended rules. No API, migration or
+  web change.
+- Tests: `tests/unit/schedule-connections.test.ts`.
+- Version impact: **patch** (fewer connections on a card; one optional tool input).
+## Menus stay inside the window (fix/menu-viewport-clip, 2026-11-09)
+
+A bug the owner saw in the English UI: a sidebar room row's "…" › Notification settings opened under the row with its
+right edge at the "…" and ran off the window's left edge, cutting the first words of each choice ("…ult (from
+settings)"). Placement: Team AX core (`web/src/components/rooms/MenuButton.tsx`); no contract, data or text change. Plan:
+`docs/AGENTS/plan/20261109-0720-menu-viewport-clip.md`.
+
+- **Why.** Since chore/web-tidy (#221) the shared menu is as wide as its longest item (`w-max`). Right-aligned to a
+  button about 270 px from the window's left, a 300 px English menu started at -30 px. It was also `absolute` inside
+  the sidebar's list, which scrolls, so the list cut whatever lay outside its box.
+- **On a computer the menu is fixed to the window and placed by measuring it** (`menuSpot`, in a layout effect, before
+  it is drawn): under the button with right edges in line, 4 px apart, as before; above it where it would run off the
+  bottom (the real height, not the old guess of 40 px an item); moved in to stay 8 px clear of each side, so the
+  sidebar's menu slides right over the main column's edge. Wider than the window less 16 px: capped, the words wrap.
+  Taller: capped, it scrolls. It is measured at 0,0 first, so a parent with a transform (which holds fixed boxes) does
+  not move it; it has no transition (with reduced motion index.css gives every property a 0.01 ms one, which held it
+  at 0,0 in a test and would spoil that measure). It follows the button on any scroll outside it and on resize, and
+  closes once the button is scrolled out of its list's sight (the list used to cut it off with the button). Not
+  followed: a layout shift without a scroll or resize (a banner appearing), rare while a menu is open.
+- **Kept:** the menu stays in the DOM where it was (clicks in it are not "outside", tests find it in its row or card);
+  phones (below 768 px) keep the bottom sheet; the anchor is the box the old `absolute` menu hung from (MenuButton's
+  wrapper: the button's own box, a row's full height, or the 0×0 point at a row's bottom right for the row's level menu,
+  which has no button of its own), so each menu opens where it did.
+- **Not changed:** menus with their own code and fixed widths (Files rows, admin rows, the account menu, the recents
+  filter, which was already fixed and kept inside).
+- Tests: `web/test/unit/menu-spot.test.ts` (the rule), e2e `room-leave-hide.spec.ts` (English, 1440 and 900 px: a
+  sidebar row's and the room header's notification menus inside the window, the longest item on one line, under the
+  row, its right end over the main column; 900 px with reduced motion; a short window opens a row's menu above it).
+- Version impact: **patch** (a fix; no API or data change).
+## 알림함의 앱 알림 — the app's own notices read like conversation rows (fix/inbox-notice-rows, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/components/settings/Notifications.tsx` (`NoticeRow`, `noticeText`, `noticeLink`),
+`server/src/notifications/service.ts` and `shared/src/api/notifications.ts`, 이유: the Inbox is core.
+
+The owner, on a screenshot of the Inbox: the scheduled task's row with its small "결과 열기" link looks bad. Beside the
+message rows ("알림함의 대화 알림") it was not clickable, its date sat on a line of its own, and it did not say which task.
+
+- **A row is a row.** The bell where a message row has the photo, the words, the time on the right in the 대화 list's
+  format (`listTime`). With a place to open (`link`, or the review notice's 예약 작업), the whole row is one link to it, with
+  the hover and focus ring of a message row, and opening it reads the notice; while unread a dot sits where a message row
+  has its count. The separate links under the words (결과 열기, 대화 열기, 대화방 열기, 확인하기, the page names) are gone; their
+  test ids are on the row. A notice with nowhere to go is not a link, has no hover and keeps **읽음 표시** (the only way to
+  read it). A job's log and the handover's lines and buttons stay under the link, not in it (no button inside a link; the
+  log is there to be selected). A dev job's project, which the old link named, is a quiet line under the words.
+- **Not kept: 읽음 표시 on a row that opens something.** It sat beside the time and would be a button inside the link;
+  the message rows have none either. Opening the row reads it.
+- **Which task.** `InboxNotification.schedule.title` for one task's run (a run, an admission skip, a run that needed my own
+  key), read from `schedules` when the notice is read, while the task is mine (`user_id`) and there; one plain line
+  (`plainLabel`). Not stored with the notice ("Inbox stores only generic event metadata", migration 207), so no
+  migration, and a deleted task, an older server and the review notice (several tasks) keep the generic line. Read now,
+  so a renamed task shows its new name on older notices too, and notices from before this change get it. A push's
+  text stays generic (`notifications/text.ts`: never a task name on a lock screen). Words: `"{title}" 예약 작업이
+  끝났어요` and the same for 마치지 못했어요, 일부 단계가 안 됐어요 and 내 키가 필요해요: the title comes first, so no 이(가)
+  after it; the title in `<bdi>` (`isolate`).
+- Tests: `web/test/unit/inbox-notice-rows.test.tsx` (the words with and without a title, where each row goes, the row as
+  one link with its time and dot that reads, no link with 읽음 표시, the log outside the link), `tests/unit/notifications.test.ts`
+  (the title for a run, a skip and a needed key; never another person's task; none once deleted), e2e
+  `inbox-rooms.spec.ts` (the run's row among message rows: its words, its time where theirs is, one link);
+  `web/test/unit/push-worker.test.ts` (a notice with a title still pushes the generic line). `schedule-notifications.spec.ts`
+  still covers a row with no link and its 읽음 표시.
+- Version impact: **patch** (additive API field; no data change).

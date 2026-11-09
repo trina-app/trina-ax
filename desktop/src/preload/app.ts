@@ -42,7 +42,7 @@ const bridge: DesktopBridge = {
   testNotify: () => ipcRenderer.invoke('bridge:notify-test'),
   onOpen: on('bridge:open'),
   onRead: on('bridge:read'),
-  setBadgeCount: (n) => ipcRenderer.send('bridge:badge', Number(n)),
+  setBadgeCount: (n, dot) => ipcRenderer.send('bridge:badge', Number(n), dot === true),
   focus: {
     get: () => ipcRenderer.invoke('bridge:focus'),
     onChange: on('bridge:focus'),
