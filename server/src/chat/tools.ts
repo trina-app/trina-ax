@@ -21,7 +21,7 @@ import { foldKey } from '../policy/names'
 import { frequentSkills, matchSkills, resolveSkill, shortDescription, skillTag, usageScores } from './skill-list'
 import { addSources, sourceOf } from './read-scope'
 import { authorize } from '../policy/authorize'
-import type { Principal } from '../policy/access'
+import { atLeast, type Principal } from '../policy/access'
 import { tr } from './i18n'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
 import { cardEndShort, endOfText, readOnlyNote, type CardOutcome } from '../policy/refusal'
@@ -256,7 +256,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       const out = await t.call(args, files)
       // a read-only refusal of a registered tool (make_file, edit_hwp, save_url…): who can give write access (B2)
       const roText = out.isError ? out.content.map((c) => (c.type === 'text' ? c.text : '')).join('\n') : ''
-      const ro = roText ? readOnlyNote(exec.rt.db, roText, exec.spec.locale, exec.spec.userId) : null
+      const ro = readOnlyFor(exec, roText)
       if (ro) out.content = [...out.content, { type: 'text', text: ro }]
       // a room session: a link share_file made says the path exists; the path as the server resolved it (actual case and
       // Unicode form) counts like a name read (turn.ts noteReads), besides the path as given (noteRoomTool)
@@ -279,7 +279,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
         recordSkillRead(exec.rt.db, exec.rt.files, exec.livePrincipal(), exec.id, filePath)
       // a read-only refusal: who can give write access, and the person's own folder (B2, policy/refusal.ts); the
       // tool's own text stays as it is (the same for every caller)
-      if (isError && text) { const ro = readOnlyNote(exec.rt.db, text, exec.spec.locale, exec.spec.userId); if (ro) return ro }
+      if (isError && text) { const ro = readOnlyFor(exec, text); if (ro) return ro }
       return exec.placementNote(tools.has('move_files'))
     },
     // edit_files (mcp/protocol.ts): in a room one card for the whole batch, before its first file
@@ -349,6 +349,14 @@ function mergeAllows(exec: TurnExec, name: string, args: unknown): boolean {
   let rel: string
   try { rel = authorize(exec.rt.files.fx, exec.rt.files.rules(), exec.livePrincipal(), p, name === 'read' ? 'read' : 'write', { mustExist: name !== 'write' }).rel } catch { return false }
   return targets.has(rel.normalize('NFC'))
+}
+
+/** B2's note after a policy refusal "Access denied: read-only…" (only that: never another tool's or a connection's
+ * text that happens to say so), with the project's creator named only when the person may read that project folder. */
+function readOnlyFor(exec: TurnExec, text: string): string | null {
+  if (!text.startsWith('Access denied: read-only')) return null
+  const rules = exec.rt.files.rules(), me = exec.livePrincipal()
+  return readOnlyNote(exec.rt.db, text, exec.spec.locale, { userId: exec.spec.userId, sees: (segs) => atLeast(rules.access(me, segs), 'read'), button: !exec.room && !exec.shared })
 }
 
 /** The audit line's words for a room card's refusal and a shared chat's read refusal: what happened (a scheduled run

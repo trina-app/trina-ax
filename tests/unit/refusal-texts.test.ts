@@ -61,7 +61,7 @@ describe('refusal()', () => {
     }
     expect(SCREEN.adminFolders('ko')).toBe('Admin › Folder permissions ("관리자 › 폴더 권한")')
     expect(SCREEN.settingsMcp('ja')).toBe('Settings › MCP ("設定 › MCP")')
-    expect(SCREEN.shareToRoom('ko')).toBe('the "대화방에 보내기" button under an answer')
+    expect(SCREEN.sideChat('ko')).toMatch(/^the room's side panel \("✦ .+에게 따로 묻기"\)$/)
   })
 
   test('the write limits give their numbers and "continue" in the next message (B7)', () => {
@@ -72,7 +72,7 @@ describe('refusal()', () => {
     expect(writeLimitText('files', 200, 'a.md')).toContain('at most 200 files written in one answer')
   })
 
-  test('"not found or no access" gets a next step that names nothing about the path', () => {
+  test('"not found or no access" gets a next step that names nothing about the path (in the instructions, not the tool text)', () => {
     expect(notFoundNext()).not.toMatch(/'|exists|permission is/)
   })
 })
@@ -93,19 +93,35 @@ describe('who can give access', () => {
     expect(adminNames(db)).toEqual(['Owner Oh', 'Admin Ahn'])
   })
 
-  test('a project folder: its creator and the admins; any other folder: the admins, with the screen', () => {
-    expect(writeGranters(db, 'projects/atlas/plan.md', 'ko')).toEqual({ names: ['Pat Creator', 'Owner Oh', 'Admin Ahn'], how: 'the project\'s creator adds people to the project, an admin in Admin › Folder permissions ("관리자 › 폴더 권한")' })
-    expect(writeGranters(db, 'groups/finance/q.xlsx', 'en').how).toContain('Admin › Groups ("Admin › Groups")')
-    expect(writeGranters(db, 'shared/회계/2026 예산.xlsx', 'ko')).toEqual({ names: ['Owner Oh', 'Admin Ahn'], how: 'an admin in Admin › Folder permissions ("관리자 › 폴더 권한")' })
+  const all = () => true
+  const none = () => false
+  test('a project folder the person sees: its creator and the admins; any other folder: the admins, with the screen', () => {
+    expect(writeGranters(db, 'projects/atlas/plan.md', 'ko', all)).toEqual({ names: ['Pat Creator', 'Owner Oh', 'Admin Ahn'], how: 'the project\'s creator adds people to the project, an admin in Admin › Folder permissions ("관리자 › 폴더 권한")' })
+    expect(writeGranters(db, 'groups/finance/q.xlsx', 'en', all).how).toContain('Admin › Groups ("Admin › Groups")')
+    expect(writeGranters(db, 'shared/회계/2026 예산.xlsx', 'ko', all)).toEqual({ names: ['Owner Oh', 'Admin Ahn'], how: 'an admin in Admin › Folder permissions ("관리자 › 폴더 권한")' })
+  })
+
+  // independent review: "read-only folder: you cannot create files in 'projects/<x>'" is also what a hidden project
+  // answers (policy/authorize.ts hiddenWrite); naming its creator told a hidden project from a missing one
+  test('a project the person cannot see, or a name in another case: the same answer as no project at all', () => {
+    const missing = writeGranters(db, 'projects/nothing/x.md', 'ko', none)
+    expect(writeGranters(db, 'projects/atlas/x.md', 'ko', none)).toEqual(missing)
+    expect(writeGranters(db, 'projects/ATLAS/x.md', 'ko', all)).toEqual(writeGranters(db, 'projects/nothing/x.md', 'ko', all))
+    const seen: string[][] = []
+    writeGranters(db, 'projects/atlas/a/b.md', 'ko', (segs) => { seen.push(segs); return false })
+    expect(seen).toEqual([['projects', 'atlas']])
   })
 
   test('readOnlyNote: only after a read-only refusal, once', () => {
     const t = "Access denied: read-only: you cannot change 'shared/회계/2026 예산.xlsx'"
-    const note = readOnlyNote(db, t, 'ko', 'm')!
+    const note = readOnlyNote(db, t, 'ko', { userId: 'm', sees: all, button: true })!
     expect(note).toBe('Write access to \'shared/회계/2026 예산.xlsx\': Owner Oh and Admin Ahn can give it (an admin in Admin › Folder permissions ("관리자 › 폴더 권한")). Next step: tell the user so; they also get a button under your answer to save it in their own folder (users/m), and you may save it there if they ask.')
-    expect(readOnlyNote(db, "read-only folder: you cannot create files in 'projects/atlas'", 'en', 'm')).toContain('Pat Creator, Owner Oh and Admin Ahn can give it')
-    expect(readOnlyNote(db, `${t}. ${note}`, 'ko', 'm')).toBeNull()
-    expect(readOnlyNote(db, "Access denied: not found or no access: 'groups/finance'", 'ko', 'm')).toBeNull()
+    expect(readOnlyNote(db, "read-only folder: you cannot create files in 'projects/atlas'", 'en', { userId: 'm', sees: all, button: true })).toContain('Pat Creator, Owner Oh and Admin Ahn can give it')
+    expect(readOnlyNote(db, "read-only folder: you cannot create files in 'projects/atlas'", 'en', { userId: 'm', sees: none, button: true })).toContain(': Owner Oh and Admin Ahn can give it')
+    // a room or a shared chat has no "save in my folder" button under the answer
+    expect(readOnlyNote(db, t, 'ko', { userId: 'm', sees: all, button: false })).toContain('Next step: tell the user so; you may save it in their own folder (users/m) if they ask.')
+    expect(readOnlyNote(db, `${t}. ${note}`, 'ko', { userId: 'm', sees: all, button: true })).toBeNull()
+    expect(readOnlyNote(db, "Access denied: not found or no access: 'groups/finance'", 'ko', { userId: 'm', sees: all, button: true })).toBeNull()
   })
 })
 

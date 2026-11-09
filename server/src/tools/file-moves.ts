@@ -17,6 +17,7 @@ import { fillPlurals } from '@mycel/shared/plural'
 import type { AppContext } from '../context'
 import type { ToolCtx } from '../files/service'
 import { teamDefaultLocale } from '../admin/settings'
+import { atLeast } from '../policy/access'
 import { Denied, ToolError } from '../policy/errors'
 import { badSegment } from '../policy/names'
 import { adminNames, cardNext, cardReason, nameList, readOnlyNote, refusal, SCREEN } from '../policy/refusal'
@@ -61,13 +62,18 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
   /** The reason for one path, as the checks wrote it (a hidden path answers "not found or no access", like a missing
    * one, and nothing is added to it); an admin-only folder names the admins (B14), a read-only one who can give write
    * access (B2). */
+  // who can give write access, the project's creator only when the person may read that project (policy/refusal.ts)
+  const readOnly = (msg: string, L: Locale, tc: ToolCtx) => {
+    const rules = ctx.files.rules()
+    return readOnlyNote(ctx.db, msg, L, { userId: tc.user.id, sees: (segs) => atLeast(rules.access(tc.user, segs), 'read'), button: false })
+  }
   const why = (e: unknown, tc: ToolCtx): string => {
     const L = tc.person?.locale ?? teamDefaultLocale(ctx.db)
     if (e instanceof FileError && e.key === 'ruleFolder') {
       const admins = adminNames(ctx.db)
       return `${e.message} The user is not an admin${admins.length ? `; ${nameList(admins)} can do it on ${SCREEN.files(L)}` : ''}.`
     }
-    if (e instanceof Denied) return [e.message, readOnlyNote(ctx.db, e.message, L, tc.user.id)].filter(Boolean).join('. ')
+    if (e instanceof Denied) return [e.message, readOnly(e.message, L, tc)].filter(Boolean).join('. ')
     return e instanceof ToolError || e instanceof FileError ? e.message : 'internal error'
   }
 
@@ -118,10 +124,11 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
       }
       confirmed = true
     }
-    // a new target folder: made now (after the yes), then filled
+    // a new target folder: made now (after the yes), then filled; recorded once something went in, else taken away
+    // again (a folder, a group folder for a member, a folder into itself: refused per item below)
     let made: string[] = []
-    if (isNew) {
-      try { made = svc.ensureFolder(tc.user.id, folder, { turnId: tc.turnId, tool }).created } catch (e) { throw new ToolError(`the folder ${folder} could not be made, so nothing was ${verb}: ${why(e, tc)}`) }
+    if (isNew && !tc.signal?.aborted) {
+      try { made = svc.ensureFolder(tc.user.id, folder).created } catch (e) { throw new ToolError(`the folder ${folder} could not be made, so nothing was ${verb}: ${why(e, tc)}`) }
     }
 
     const done: { from: string; to: string }[] = []
@@ -142,6 +149,10 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
       } catch (e) {
         failed.push({ path: p, error: e instanceof ToolError && e.code === 'is_folder' ? 'this is a folder: copy_files copies files only (move_files moves folders)' : why(e, tc) })
       }
+    }
+    if (made.length) {
+      if (done.length) svc.recordFolders(tc.user.id, made, { turnId: tc.turnId, tool })
+      else { svc.dropFolders(made); made = [] }
     }
     const text = [
       made.length ? `Made the new folder ${made.at(-1)}.` : '',
@@ -192,7 +203,7 @@ export function registerFileMoveTools(ctx: AppContext, reg: ToolRegistry) {
       } catch (e) {
         // an admin-only folder names the admins (B14); a read-only place says who can give write access (B2)
         if (e instanceof FileError) throw new ToolError(why(e, tc))
-        if (e instanceof Denied) { const note = readOnlyNote(ctx.db, e.message, tc.person?.locale ?? teamDefaultLocale(ctx.db), tc.user.id); if (note) throw new Denied(`${e.message}. ${note}`) }
+        if (e instanceof Denied) { const note = readOnly(e.message, tc.person?.locale ?? teamDefaultLocale(ctx.db), tc); if (note) throw new Denied(`${e.message}. ${note}`) }
         throw e
       }
     },

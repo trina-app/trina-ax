@@ -190,6 +190,20 @@ describe('move_files', () => {
     expect(bytes('shared/new-copies/2026/note.md').toString()).toBe('n')
   })
 
+  // independent review: a folder made for a call where nothing went in stayed behind, empty, as a "new folder"
+  test('a new folder where nothing went in (a folder copied, a group folder for a member) is taken away again', async () => {
+    put('shared/inbox-f/sub/a.md', 'a')
+    const c = await call('alice', 'copy_files', { paths: ['shared/inbox-f/sub'], to_folder: 'shared/never-made' }, { person: ask(true), turn: true })
+    expect(c.isError).toBe(true)
+    expect(c.text).not.toContain('Made the new folder')
+    expect(has('shared/never-made')).toBe(false)
+    const m = await call('alice', 'move_files', { paths: ['groups/marketing'], to_folder: 'shared/never-made-2/x' }, { person: ask(true), turn: true })
+    expect(m.isError).toBe(true)
+    expect(has('shared/never-made-2')).toBe(false)
+    const ev = A.ctx.db.query("SELECT COUNT(*) AS n FROM file_events WHERE path LIKE 'shared/never-made%'").get() as { n: number }
+    expect(ev.n).toBe(0)
+  })
+
   test('a new folder where the person may not write is refused like any save there', async () => {
     put('users/alice/x.md', 'x')
     const r = await call('alice', 'move_files', { paths: ['users/alice/x.md'], to_folder: 'groups/finance/new' }, { person: ask(true) })

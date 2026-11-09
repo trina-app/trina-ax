@@ -660,6 +660,15 @@ describe('second review round', () => {
     expect(said).not.toContain('did not allow')
     expect(said).toContain('Next step: a scheduled run that read a room changes nothing (nobody is there to answer the card): the user can do it in a chat')
     fs.rmSync(abs(), { force: true })
+    // the room card alone (a save to the person's own folder needs no wider-audience card): the same reason
+    const again = h.rt().createTurn({ chat: h.rt().store.chatRow(chat)!, userId: 'alice', locale: 'en', windowId: null, clientKind: 'schedule', engine: row.engine as 'claude-code', model: null,
+      user: { parentId: h.rt().store.chatRow(chat)!.active_leaf_id, content: fake({ tool: 'write', args: { file_path: 'users/alice/run-note.md', content: 'x' }, sayResult: true }, { say: 'done' }), attachments: [], clientMessageId: cm() } })
+    const own = (await ws.alice!.next('message.done', (f) => f.data.message.turnId === again.turnId, 30_000)).data.message.content as string
+    expect(fs.existsSync(path.join(h.team, 'users/alice/run-note.md'))).toBe(false)
+    expect(own).toContain('Not done (write): nothing was changed. Why: nobody could be asked: this is a scheduled run')
+    expect(own).toContain("This chat holds messages from the user's team chat rooms")
+    expect(own).not.toContain('did not allow')
+    expect(events(again.turnId).find((e) => e.tool === 'write')!.summary).toBe('write -> nobody to ask (scheduled run) (after a room read)')
   })
 
   // bug 1 at the other cards a run reaches: the wider-audience card and the skill-write card

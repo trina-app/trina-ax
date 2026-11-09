@@ -128,23 +128,16 @@ export function cardNext(end: CardEnd, where = 'in a chat'): string {
 // ---------------- screen names, as the person's app shows them ----------------
 type L5 = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string): L5 => ({ ko, en, id, ja, es })
-// the web app's own labels (web/src/i18n: sidebar.files, files.trash, sidebar.skills, sidebar.scheduled,
-// sidebar.settings, admin.title, admin.folders, admin.groups, admin.members, admin.plugins, rooms.title,
-// chat.shareToRoom, sideChat.open)
+// the web app's own labels (web/src/i18n: sidebar.files, files.trash, sidebar.settings, admin.title, admin.folders,
+// admin.groups, rooms.title, sideChat.open)
 const LABEL = {
   files: t('파일', 'Files', 'File', 'ファイル', 'Archivos'),
   trash: t('휴지통', 'Trash', 'Sampah', 'ゴミ箱', 'Papelera'),
-  skills: t('팀 스킬', 'Team skills', 'Skill tim', 'チームスキル', 'Habilidades del equipo'),
-  scheduled: t('예약 작업', 'Scheduled', 'Terjadwal', '定期タスク', 'Programadas'),
   settings: t('설정', 'Settings', 'Pengaturan', '設定', 'Configuración'),
   admin: t('관리자', 'Admin', 'Admin', '管理', 'Administración'),
   folders: t('폴더 권한', 'Folder permissions', 'Izin folder', 'フォルダーの権限', 'Permisos de carpetas'),
   groups: t('부서', 'Groups', 'Grup', 'グループ', 'Grupos'),
-  members: t('멤버·초대', 'Members & invites', 'Anggota & undangan', 'メンバーと招待', 'Miembros e invitaciones'),
-  plugins: t('플러그인', 'Plugins', 'Plugin', 'プラグイン', 'Complementos'),
-  projects: t('프로젝트', 'Projects', 'Proyek', 'プロジェクト', 'Proyectos'),
   rooms: t('대화', 'Conversations', 'Percakapan', 'トーク', 'Conversaciones'),
-  shareToRoom: t('대화방에 보내기', 'Send to a chat room', 'Kirim ke ruang obrolan', 'トークルームに送る', 'Enviar a una sala de chat'),
   sideChat: t('✦ {name}에게 따로 묻기', '✦ Ask {name} privately', '✦ Tanya {name} secara pribadi', '✦ {name}に個別に質問', '✦ Preguntar a {name} en privado'),
 } satisfies Record<string, L5>
 // the AI's name in the side panel's button (web sideChat.open {name}; chat/i18n.ts aiCalled)
@@ -154,18 +147,12 @@ const AI_NAME = PRODUCT_NAMED_AFTER_AI ? t('트리나', 'Trina', 'Trina', 'ト�
 export const SCREEN = {
   files: (L: Locale) => `the Files screen ("${LABEL.files[L]}")`,
   trash: (L: Locale) => `the Files screen's trash ("${LABEL.files[L]} › ${LABEL.trash[L]}")`,
-  newFolder: (L: Locale) => `the Files screen ("${LABEL.files[L]}")`,
-  skills: (L: Locale) => `the Team skills page ("${LABEL.skills[L]}")`,
-  scheduled: (L: Locale) => `the Scheduled page ("${LABEL.scheduled[L]}")`,
   settingsMcp: (L: Locale) => `Settings › MCP ("${LABEL.settings[L]} › MCP")`,
   adminMcp: (L: Locale) => `Admin › MCP ("${LABEL.admin[L]} › MCP")`,
   adminFolders: (L: Locale) => `Admin › Folder permissions ("${LABEL.admin[L]} › ${LABEL.folders[L]}")`,
   adminGroups: (L: Locale) => `Admin › Groups ("${LABEL.admin[L]} › ${LABEL.groups[L]}")`,
-  adminPlugins: (L: Locale) => `Admin › Plugins ("${LABEL.admin[L]} › ${LABEL.plugins[L]}")`,
   adminSettings: (L: Locale) => `Admin ("${LABEL.admin[L]}")`,
-  projects: (L: Locale) => `the project's settings ("${LABEL.projects[L]}")`,
   rooms: (L: Locale) => `Conversations ("${LABEL.rooms[L]}")`,
-  shareToRoom: (L: Locale) => `the "${LABEL.shareToRoom[L]}" button under an answer`,
   sideChat: (L: Locale) => `the room's side panel ("${LABEL.sideChat[L].replace('{name}', AI_NAME[L])}")`,
   ownChat: (_L: Locale) => 'a chat of their own (a new AI chat)',
 } as const satisfies Record<string, (L: Locale) => string>
@@ -178,18 +165,21 @@ export function adminNames(db: Database): string[] {
 }
 
 /**
- * Who can give write access at `rel` (a path the person can already see, read-only for them): a team project's folder
- * by its creator (who chooses the project's people) and the admins; any other folder by the admins (Admin › Folder
- * permissions, or Admin › Groups for a group's folder). Never asked for a path the person cannot see.
+ * Who can give write access at `rel` (the path as a read-only refusal named it): a team project's folder by its creator
+ * (who chooses the project's people) and the admins, any other folder by the admins (Admin › Folder permissions, or
+ * Admin › Groups for a group's folder). `sees`: may the person read this folder (exact names, as the rules match them)?
+ * The creator is named only when they may: "read-only folder: you cannot create files in 'projects/<x>'" is also what
+ * a hidden project answers (policy/authorize.ts hiddenWrite), so a lookup by that name alone would tell a hidden project
+ * from a missing one and name its creator (independent review). Otherwise the answer is the admins, whatever the path.
  */
-export function writeGranters(db: Database, rel: string, L: Locale): { names: string[]; how: string } {
+export function writeGranters(db: Database, rel: string, L: Locale, sees: (segs: string[]) => boolean): { names: string[]; how: string } {
   const admins = adminNames(db)
   const segs = rel.split('/').filter(Boolean)
-  const top = segs[0]?.normalize('NFC').toLowerCase()
-  if (top === 'projects' && segs.length >= 2) {
-    const folder = segs.slice(0, 2).join('/')
-    const p = db.query("SELECT p.name, u.name AS creator FROM projects p LEFT JOIN users u ON u.id = p.created_by AND u.status = 'active' AND u.deleted_at IS NULL WHERE p.trashed_with IS NULL AND p.folder_path = ? COLLATE NOCASE LIMIT 1").get(folder) as { name: string; creator: string | null } | null
-    if (p) return { names: [...(p.creator ? [oneLine(p.creator)] : []), ...admins], how: `${p.creator ? 'the project\'s creator adds people to the project, ' : ''}an admin in ${SCREEN.adminFolders(L)}` }
+  const top = segs[0]
+  if (top === 'projects' && segs.length >= 2 && sees(segs.slice(0, 2))) {
+    // the exact folder name (no case folding: a name typed in another case is not the folder the rules were read for)
+    const p = db.query("SELECT p.name, u.name AS creator FROM projects p LEFT JOIN users u ON u.id = p.created_by AND u.status = 'active' AND u.deleted_at IS NULL WHERE p.trashed_with IS NULL AND p.folder_path = ? LIMIT 1").get(segs.slice(0, 2).join('/')) as { name: string; creator: string | null } | null
+    if (p?.creator) return { names: [oneLine(p.creator), ...admins], how: `the project's creator adds people to the project, an admin in ${SCREEN.adminFolders(L)}` }
   }
   if (top === 'groups' && segs.length >= 2) return { names: admins, how: `an admin adds them to the group in ${SCREEN.adminGroups(L)} or changes ${SCREEN.adminFolders(L)}` }
   return { names: admins, how: `an admin in ${SCREEN.adminFolders(L)}` }
@@ -205,14 +195,15 @@ const oneLine = (s: string) => s.replace(/\s+/g, ' ').replace(/[<>]/g, ' ').trim
 
 /**
  * B2: after a "read-only" refusal (policy/authorize.ts), who can give write access there and what the person can do
- * now. Only for a read-only path (the person can see it, so naming its project's creator says nothing new); null for
- * any other text (never for "not found or no access").
+ * now; null for any other text (never for "not found or no access"). `sees` as for writeGranters. `button`: the answer
+ * gets the "save in my folder" button (a person's own chat; not a room or a shared chat).
  */
-export function readOnlyNote(db: Database, text: string, L: Locale, userId: string): string | null {
+export function readOnlyNote(db: Database, text: string, L: Locale, o: { userId: string; sees: (segs: string[]) => boolean; button: boolean }): string | null {
   const m = /read-only(?: folder)?: you cannot (?:change|create files in) '([^']*)'/.exec(text)
   if (!m || text.includes(`Write access to '${m[1]}'`)) return null
-  const g = writeGranters(db, m[1]!, L)
-  return `Write access to '${m[1]}': ${g.names.length ? `${nameList(g.names)} can give it (${g.how})` : g.how}. Next step: tell the user so; they also get a button under your answer to save it in their own folder (users/${userId}), and you may save it there if they ask.`
+  const g = writeGranters(db, m[1]!, L, o.sees)
+  const own = o.button ? `they also get a button under your answer to save it in their own folder (users/${o.userId}), and you may save it there if they ask` : `you may save it in their own folder (users/${o.userId}) if they ask`
+  return `Write access to '${m[1]}': ${g.names.length ? `${nameList(g.names)} can give it (${g.how})` : g.how}. Next step: tell the user so; ${own}.`
 }
 
 /** B7: the per-answer write limits (files/service.ts limits, tools/make-file.ts), with their numbers and what to do. */
@@ -229,7 +220,7 @@ export function writeLimitText(kind: 'bytes' | 'files', max: number, path: strin
  * reason line refusal() wrote, else the person's no. 'failed': a check that could not be completed. */
 export function endOfText(text: string): CardEnd | 'failed' {
   if (text.includes('Why: nobody could be asked')) return 'unattended'
-  if (/Why: .{0,120}did not answer the confirmation card in time/.test(text)) return 'timeout'
+  if (/Why: [^\n]*?did not answer the confirmation card in time/.test(text)) return 'timeout'
   if (text.includes('Why: the answer stopped before')) return 'ended'
   if (text.includes('Why: the server could not complete its check')) return 'failed'
   return 'declined'

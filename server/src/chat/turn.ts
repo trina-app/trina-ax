@@ -1916,12 +1916,15 @@ export class TurnExec {
     const project = this.shared ? `the people of the project "${neutralizeTags(this.shared.project.name)}" who see this shared chat` : 'the people who see this shared chat'
     const why = no === 'failed' ? { kind: 'failed' as const, what: 'who in this shared chat can open that place' } : no === 'declined'
       ? { kind: 'declined' as const, who: name } : cardReason(no, { who: name })
+    const dont = 'Do not try other paths, searches or tools to get it, and do not mention the place or guess what is there'
+    // a check that failed showed no card, and may have been about a place everyone can open: no "needed a yes" then
     return refusal({
       done,
       why,
-      also: `It needed a yes because some of ${project} cannot open that place. Do not try other paths, searches or tools to get it, and do not mention the place or guess what is there`,
+      also: no === 'failed' ? dont : `It needed a yes because some of ${project} cannot open that place. ${dont}`,
       next: no === 'declined' ? 'answer without it; if the user needs it, they can ask in a chat of their own (only they see that answer)'
         : no === 'unattended' ? 'answer without it; the user can ask for it in a chat of their own'
+        : no === 'failed' ? 'answer without it; the user can ask again, or ask in a chat of their own (only they see that answer)'
         : 'answer without it; the user can ask again and answer the card, or ask in a chat of their own (only they see that answer)',
     })
   }
