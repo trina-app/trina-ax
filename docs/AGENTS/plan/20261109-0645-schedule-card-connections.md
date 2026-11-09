@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-09 06:45
 - Branch: `fix/schedule-card-connections`
-- Status: in progress
+- Status: done
 - Where: trina-ax `server/src/tools/schedules.ts`, `server/src/chat/schedule-edit.ts`, `server/src/chat/schedule-review.ts`. Why: the scheduled-task card is core chat and permission code (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a scheduled task may send to fewer connections; no API, setting or data format change
 
@@ -44,4 +44,5 @@ it cannot send there in a run (it says so in the run). No migration.
 
 ## Result
 
-Filled in at the end.
+Built as planned (B with A: `connections` plus names in the title or instruction). Also: the scheduled run's refusal
+tells the AI the card offers only named connections; docs/INTEGRATIONS.md says so. PR: opened by the manager.
