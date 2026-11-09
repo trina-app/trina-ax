@@ -16223,5 +16223,8 @@ message rows ("알림함의 대화 알림") it was not clickable, its date sat o
   which the default branch's ruleset requires and release.yml's test waits for; it passes only when every job passed.
 - **Cost:** public repository, standard runners: no charge. Each run now holds 8 jobs at a time (the organisation's
   free plan allows about 20 at once); 5 shards, not more, for that.
+- **Caches** (actions/cache): pandoc's package by version, bun's package store by bun.lock, and the pinned rhwp CLI
+  by resources/hwp/manifest.json (prepare:hwp still checks its sha256). A cached run does not reach GitHub releases or
+  the npm registry for them (GitHub's anonymous downloads gave HTTP 504 on 2026-11-09); a miss downloads as before.
 - **Refresh the times** when the split drifts: `bun scripts/ci/unit-shard.ts --times <the unit step's log>`.
 

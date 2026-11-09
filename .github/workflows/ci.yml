@@ -56,12 +56,27 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: native/go.sum
+      # downloads kept between runs: pandoc's package (by version) and bun's package store (by bun.lock). A run with a
+      # cache does not reach GitHub releases or the npm registry for them; a miss downloads as before.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/ci-pandoc
+          key: pandoc-${{ runner.os }}-${{ env.PANDOC_VERSION }}
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-
       - name: Tools (ripgrep, poppler, pandoc ${{ env.PANDOC_VERSION }})
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ripgrep poppler-utils bubblewrap libfontconfig1
-          curl -fsSL -o /tmp/pandoc.deb "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-1-amd64.deb"
-          sudo dpkg -i /tmp/pandoc.deb
+          deb="$HOME/.cache/ci-pandoc/pandoc-${PANDOC_VERSION}-1-amd64.deb"
+          if [ ! -s "$deb" ]; then
+            mkdir -p "$(dirname "$deb")"
+            curl -fsSL --retry 5 --retry-all-errors -o "$deb" "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-1-amd64.deb"
+          fi
+          sudo dpkg -i "$deb"
           rg --version | head -1; pandoc --version | head -1; pdftotext -v 2>&1 | head -1
       - name: Enable and smoke-test converter isolation
         run: |
@@ -119,12 +134,27 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: native/go.sum
+      # downloads kept between runs: pandoc's package (by version) and bun's package store (by bun.lock). A run with a
+      # cache does not reach GitHub releases or the npm registry for them; a miss downloads as before.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/ci-pandoc
+          key: pandoc-${{ runner.os }}-${{ env.PANDOC_VERSION }}
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-
       - name: Tools (ripgrep, poppler, pandoc ${{ env.PANDOC_VERSION }})
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ripgrep poppler-utils bubblewrap libfontconfig1
-          curl -fsSL -o /tmp/pandoc.deb "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-1-amd64.deb"
-          sudo dpkg -i /tmp/pandoc.deb
+          deb="$HOME/.cache/ci-pandoc/pandoc-${PANDOC_VERSION}-1-amd64.deb"
+          if [ ! -s "$deb" ]; then
+            mkdir -p "$(dirname "$deb")"
+            curl -fsSL --retry 5 --retry-all-errors -o "$deb" "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-1-amd64.deb"
+          fi
+          sudo dpkg -i "$deb"
           rg --version | head -1; pandoc --version | head -1; pdftotext -v 2>&1 | head -1
       - name: Enable and smoke-test converter isolation
         run: |
@@ -141,6 +171,11 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Native build (darwin + linux, amd64 + arm64)
         run: ARCHS="amd64 arm64" bash native/build.sh
+      # the pinned rhwp CLI (prepare:hwp checks its sha256 and downloads it only when missing or different)
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: native/bin/hwp
+          key: rhwp-${{ runner.os }}-${{ hashFiles('resources/hwp/manifest.json') }}
       - name: Pinned Hangul renderer
         run: bun run prepare:hwp
       - name: Unit tests, shard ${{ matrix.shard }} of 5
@@ -163,12 +198,27 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: native/go.sum
+      # downloads kept between runs: pandoc's package (by version) and bun's package store (by bun.lock). A run with a
+      # cache does not reach GitHub releases or the npm registry for them; a miss downloads as before.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/ci-pandoc
+          key: pandoc-${{ runner.os }}-${{ env.PANDOC_VERSION }}
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-
       - name: Tools (ripgrep, poppler, pandoc ${{ env.PANDOC_VERSION }})
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ripgrep poppler-utils bubblewrap libfontconfig1
-          curl -fsSL -o /tmp/pandoc.deb "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-1-amd64.deb"
-          sudo dpkg -i /tmp/pandoc.deb
+          deb="$HOME/.cache/ci-pandoc/pandoc-${PANDOC_VERSION}-1-amd64.deb"
+          if [ ! -s "$deb" ]; then
+            mkdir -p "$(dirname "$deb")"
+            curl -fsSL --retry 5 --retry-all-errors -o "$deb" "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-1-amd64.deb"
+          fi
+          sudo dpkg -i "$deb"
           rg --version | head -1; pandoc --version | head -1; pdftotext -v 2>&1 | head -1
       - name: Enable and smoke-test converter isolation
         run: |
@@ -185,6 +235,11 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Native build (darwin + linux, amd64 + arm64)
         run: ARCHS="amd64 arm64" bash native/build.sh
+      # the pinned rhwp CLI (prepare:hwp checks its sha256 and downloads it only when missing or different)
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: native/bin/hwp
+          key: rhwp-${{ runner.os }}-${{ hashFiles('resources/hwp/manifest.json') }}
       - name: Pinned Hangul renderer
         run: bun run prepare:hwp
       - name: Fast fuzz (path fuzzer in-process and over the socket, ReDoS)
