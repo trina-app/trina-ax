@@ -244,9 +244,6 @@ export class TeamFiles {
     if (rules.ruleFolders().some((f) => f === base || isUnder(base, f))) return true
     return this.managedRows(base, base)
   }
-  /** managedInside() for a path (actual names) under the current rules: a new project on a folder that is not managed
-   * yet makes it admin-only to move, and only someone who can write the folder it is in may add that (routes/chats.ts). */
-  managedFolder(rel: string): boolean { return this.managedInside(this.rules(), rel) }
   /** Is one of the folders rows at or below `rowPrefix` managed? `livePrefix`: the path `rowPrefix` stands for
    * (differs for rows parked with a trashed folder, whose projects still name the path it had). */
   private managedRows(rowPrefix: string, livePrefix: string, trashId?: string): boolean {
@@ -267,6 +264,14 @@ export class TeamFiles {
     // otherwise a project whose folder is in the trash does not use the folder now at its old path
     return !!db.query(`SELECT 1 FROM projects WHERE trashed_with IS NULL AND substr(folder_path, 1, 6) <> 'users/' AND (${livePrefix === '' ? "folder_path <> ''" : "folder_path = ?1 OR substr(folder_path, 1, length(?1) + 1) = ?1 || '/'"}) LIMIT 1`)
       .get(...(livePrefix === '' ? [] : [livePrefix]))
+  }
+  /** managedInside() for what is strictly below `base` (base itself left out). */
+  private managedBelow(rules: RuleSet, base: string): boolean {
+    if (rules.ruleFolders().some((f) => f !== base && isUnder(base, f))) return true
+    const db = this.ctx.db
+    const rows = db.query("SELECT path FROM folders WHERE substr(path, 1, length(?) + 1) = ? || '/'").all(base, base) as { path: string }[]
+    for (const f of rows) if (this.managedRows(f.path, f.path)) return true
+    return !!db.query("SELECT 1 FROM projects WHERE trashed_with IS NULL AND substr(folder_path, 1, length(?) + 1) = ? || '/' LIMIT 1").get(base, base)
   }
   private assertMayChangeManaged(user: Principal, rules: RuleSet, base: string): boolean {
     const managed = this.managedInside(rules, base)
@@ -578,6 +583,19 @@ export class TeamFiles {
     const tr = authorize(this.fx, rules, user, [...pr.segs, name].join('/'), 'write', { mustExist: false })
     const added = this.viewersAdded(rules, user.id, fr.segs, tr.segs)
     if (o.dryRun) return { viewersAdded: added }
+    const { files, bytes } = this.copyTree(user, rules, fr, pr.abs, (tmp) => { verifyChain(this.root, tr.segs, true); fs.renameSync(tmp, tr.abs) }, o)
+    fileEvent(this.ctx.db, { turnId: null, userId, path: tr.rel, action: 'create', size: bytes, detail: { folder: true, sourcePaths: [fr.rel], widened: added > 0, files: files.length, tool: 'file-screen' } })
+    for (const f of files) this.extractText([...tr.segs, ...f.segs].join('/'))
+    this.publish([{ path: tr.rel, action: 'mkdir', by: this.by(userId), turnId: null }])
+    return { path: tr.rel, files: files.length, bytes }
+  }
+
+  /**
+   * The readable files and listable folders of `fr`, copied into a temporary folder made in `intoAbs` (a server temp
+   * name: nobody sees it), which `place` then puts where it goes. Walked without following anything; refused past
+   * `maxFiles` / `maxBytes`; the temporary folder goes again when anything fails.
+   */
+  private copyTree(user: Principal, rules: RuleSet, fr: Authorized, intoAbs: string, place: (tmp: string) => void, o: { maxFiles?: number; maxBytes?: number }): { files: { segs: string[]; size: number }[]; bytes: number } {
     const maxFiles = o.maxFiles ?? SHARE_MAX_FILES, maxBytes = o.maxBytes ?? SHARE_MAX_BYTES
     // what to copy: readable regular files and listable folders, walked without following anything
     const dirs: string[][] = [], files: { segs: string[]; size: number }[] = []
@@ -602,7 +620,7 @@ export class TeamFiles {
     }
     walk([])
     if (currentPlan()) assertStorageRoom(bytes)
-    const tmp = path.join(pr.abs, PRODUCT.tmpPrefix + crypto.randomUUID())
+    const tmp = path.join(intoAbs, PRODUCT.tmpPrefix + crypto.randomUUID())
     fs.mkdirSync(tmp, { mode: 0o700 })
     try {
       for (const d of dirs) fs.mkdirSync(path.join(tmp, ...d), { mode: 0o700 })
@@ -615,13 +633,34 @@ export class TeamFiles {
         if (after.ino !== before.ino || after.dev !== before.dev || fs.lstatSync(dst).size !== after.size) throw new Denied('path changed while copying')
         fs.chmodSync(dst, 0o600)
       }
-      verifyChain(this.root, tr.segs, true)
-      fs.renameSync(tmp, tr.abs)
+      place(tmp)
     } catch (e) { fs.rmSync(tmp, { recursive: true, force: true }); throw e }
-    fileEvent(this.ctx.db, { turnId: null, userId, path: tr.rel, action: 'create', size: bytes, detail: { folder: true, sourcePaths: [fr.rel], widened: added > 0, files: files.length, tool: 'file-screen' } })
+    return { files, bytes }
+  }
+
+  /**
+   * Copy what is inside the caller's folder `from` into the empty folder `to` (a team project folder the server just
+   * made for sharing a personal project, routes/chats.ts shareProject): read as the caller, written where the caller may
+   * write (the new folder's rules let its creator write). Same limits as copyFolderTree. The caller takes `to` away
+   * when this fails.
+   */
+  copyFolderInto(userId: string, from: string, to: string, o: { maxFiles?: number; maxBytes?: number } = {}): { files: number; bytes: number } {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    const fr = authorize(this.fx, rules, user, from, 'read', { mustExist: true })
+    if (!fr.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
+    const tr = authorize(this.fx, rules, user, to, 'write', { mustExist: true })
+    if (!tr.st!.isDirectory()) throw new ToolError('not a folder', 'not_folder')
+    if (tr.rel === fr.rel || isUnder(fr.rel, tr.rel) || isUnder(tr.rel, fr.rel)) fileError('validation', 'intoItself', { to })
+    if (fs.readdirSync(tr.abs).length) fileError('conflict', 'exists', { to })
+    const { files, bytes } = this.copyTree(user, rules, fr, tr.abs, (tmp) => {
+      for (const name of fs.readdirSync(tmp)) fs.renameSync(path.join(tmp, name), path.join(tr.abs, name))
+      fs.rmdirSync(tmp)
+    }, o)
+    fileEvent(this.ctx.db, { turnId: null, userId, path: tr.rel, action: 'create', size: bytes, detail: { folder: true, sourcePaths: [fr.rel], files: files.length, tool: 'file-screen' } })
     for (const f of files) this.extractText([...tr.segs, ...f.segs].join('/'))
     this.publish([{ path: tr.rel, action: 'mkdir', by: this.by(userId), turnId: null }])
-    return { path: tr.rel, files: files.length, bytes }
+    return { files: files.length, bytes }
   }
 
   /**
@@ -661,13 +700,19 @@ export class TeamFiles {
   }
 
   // ---------------- delete -> trash ----------------
-  remove(userId: string, rel: string, turnId: string | null = null): { trashId: string; purgeAt: string } {
+  remove(userId: string, rel: string, turnId: string | null = null, o: { projectFolder?: boolean } = {}): { trashId: string; purgeAt: string } {
     const user = this.principal(userId)
     const rules = this.rules()
     const r = authorize(this.fx, rules, user, rel, 'write', { mustExist: true })
     this.assertMovable(r.segs)
-    // trashing a group / project / rule folder takes it from everyone who works there: admins and the owner only
-    this.assertMayChangeManaged(user, rules, r.rel)
+    // trashing a group / project / rule folder takes it from everyone who works there: admins and the owner only. Not
+    // asked for the folder of a team project its editor deletes along with it (routes/chats.ts deleteProject: the
+    // project's creator or an admin, a projects/<name> folder they write; a folder inside it they cannot write still
+    // stops it, below)
+    if (!o.projectFolder) this.assertMayChangeManaged(user, rules, r.rel)
+    // the project's own folder is its editor's to trash; anything managed inside it (a rule folder, a group's folder,
+    // another project's folder) stays admin-only, as for any other trash (review: another project went to the trash)
+    else if (user.role !== 'owner' && user.role !== 'admin' && this.managedBelow(rules, r.rel)) fileError('forbidden', 'ruleFolder')
     const isDir = r.st!.isDirectory()
     let size: number
     if (isDir) { this.assertSubtreeWritable(user, rules, r.segs); size = treeSize(r.abs).bytes }

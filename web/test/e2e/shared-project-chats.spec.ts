@@ -557,16 +557,12 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(page.getByRole('dialog')).toContainText('프로젝트만 지워지고 폴더와 내 기록은 그대로 남아요. 공유 채팅은 7일 동안 만든 사람의 "삭제한 기록"에 있어요.')
       await expect(page.getByTestId('project-delete-shared')).toHaveCount(0)
       await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
-      // pointing it at another folder (admins) says who will see its shared chat there
+      // a project in place keeps its folder (docs/DECISIONS.md "Projects live only in projects/"): no folder to choose;
+      // an admin reads one line that this older project is outside projects/
       await page.getByTestId('project-menu').click()
       await page.getByTestId('project-edit').click()
-      await page.getByTestId('project-folder-choose').click()
-      const picker = page.getByRole('dialog').filter({ has: page.getByTestId('folder-pick') })
-      await picker.getByRole('button', { name: '팀 폴더' }).click()
-      await picker.getByRole('button', { name: 'docs', exact: true }).click()
-      await picker.getByTestId('folder-pick').click()
-      await expect(page.getByTestId('project-form-repoint-shared')).toHaveText(/^공유 채팅 1개를 이 폴더를 볼 수 있는 \d+명이 보게 돼요\.$/)
-      await audit(page, 'repoint')
+      await expect(page.getByTestId('project-folder-choose')).toHaveCount(0)
+      await expect(page.getByTestId('project-form-legacy')).toBeVisible()
       await page.getByRole('dialog').getByRole('button', { name: '취소' }).click()
 
       // safe operations (1A): a shared chat is read-only, and says where to ask instead

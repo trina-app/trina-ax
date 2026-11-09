@@ -2,10 +2,15 @@
 // taking the project, its instructions and its files away from the whole team, once it had no folders row: after an
 // admin re-pointed the project (PATCH folderPath) or removed the folder's empty entry in Admin > Folders. Fixed by
 // r2 (a folder a team project uses is managed through the projects table itself, not only a folders row); this locks
-// the audit's two paths in. Fixture: alice, erin = marketing; bob = finance; carol = admin; dana = owner;
-// shared/ everyone write.
+// the audit's two paths in. Since "Projects live only in projects/" (docs/DECISIONS.md) an admin points only a project
+// whose folder is in the trash or missing, only at an existing projects/<name>: the first path is that now. Older
+// projects on shared/ are made as older builds made them (tests/lib/legacy-project.ts).
+// Fixture: alice, erin = marketing; bob = finance; carol = admin; dana = owner; shared/ everyone write.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import fs from 'node:fs'
+import path from 'node:path'
 import { jsonBody, makeCApp, type CApp } from '../lib/c-app'
+import { legacyProject } from '../lib/legacy-project'
 
 let A: CApp
 beforeAll(async () => { A = await makeCApp('sec-r3-project-repoint') })
@@ -14,7 +19,8 @@ type Who = 'alice' | 'bob' | 'carol' | 'dana' | 'erin'
 const save = (who: Who, p: string, content: string) => A.json('/api/files/content', { as: who, ...jsonBody({ path: p, content, baseSha256: null }, 'PUT') })
 const move = (who: Who, from: string, to: string) => A.json('/api/files/move', { as: who, ...jsonBody({ from, to, onExists: 'fail', confirm: true }) })
 const sees = async (who: Who, id: string) => ((await A.json('/api/projects', { as: who })).body.items as { id: string }[]).some((p) => p.id === id)
-const create = async (folderPath: string) => { const r = await A.json('/api/projects', { as: 'carol', ...jsonBody({ name: 'P ' + folderPath, folderPath, instructions: 'team instructions' }) }); expect(r.status).toBe(201); return r.body.id as string }
+const create = async (folderPath: string) => legacyProject(A.ctx.db, A.team, 'carol', { name: 'P ' + folderPath, folderPath, instructions: 'team instructions' })
+const repoint = (who: Who, id: string, folderPath: string) => A.json(`/api/projects/${id}`, { as: who, ...jsonBody({ folderPath }, 'PATCH') })
 const folderPathOf = (id: string) => (A.ctx.db.query('SELECT folder_path FROM projects WHERE id = ?').get(id) as { folder_path: string }).folder_path
 
 async function stillTheTeams(id: string, folder: string, file: string) {
@@ -24,15 +30,29 @@ async function stillTheTeams(id: string, folder: string, file: string) {
 }
 
 describe('a team project\'s folder never moves into a member\'s personal folder', () => {
-  test('after an admin re-points the project (the new folder has no folders row)', async () => {
+  test('an admin points a project whose folder is gone, only at an existing projects/<name>', async () => {
     const id = await create('shared/launch-v1')
-    expect((await A.json(`/api/projects/${id}`, { as: 'carol', ...jsonBody({ folderPath: 'shared/launch-v2' }, 'PATCH') })).status).toBe(200)
-    expect((await save('alice', 'shared/launch-v2/plan.md', 'plan\n')).status).toBe(200)
-    for (const [from, to] of [['shared/launch-v2', 'users/bob/launch-v2'], ['shared', 'users/bob/all']] as const) {
-      const r = await move('bob', from, to)
-      expect(r.status).toBe(403)
+    expect((await save('alice', 'shared/launch-v1/plan.md', 'plan\n')).status).toBe(200)
+    // in place: never pointed elsewhere, not even by an admin
+    const inPlace = await repoint('carol', id, 'projects/falcon')
+    expect([inPlace.status, inPlace.body.error.params.reason]).toEqual([409, 'project_location'])
+    // its folder goes to the trash (an admin: it is a project folder)
+    expect((await A.json('/api/files?path=' + encodeURIComponent('shared/launch-v1'), { as: 'carol', method: 'DELETE' })).status).toBe(200)
+    for (const folderPath of ['shared/launch-v2', 'shared', 'users/carol', 'projects', 'projects/falcon/public']) {
+      const r = await repoint('carol', id, folderPath)
+      expect([folderPath, r.status, r.body.error.params.reason]).toEqual([folderPath, 400, 'project_location'])
     }
-    await stillTheTeams(id, 'shared/launch-v2', 'plan.md')
+    expect((await repoint('carol', id, 'projects/launch')).body.error.params.reason).toBe('project_folder_missing')
+    expect((await repoint('alice', id, 'projects/falcon')).status).toBe(404) // only admins see it now
+    fs.mkdirSync(path.join(A.team, 'projects/launch'), { recursive: true })
+    expect((await repoint('carol', id, 'projects/launch')).status).toBe(200)
+    expect(folderPathOf(id)).toBe('projects/launch')
+    // members cannot move a project folder anywhere, their personal folder included
+    expect((await move('bob', 'projects/launch', 'users/bob/launch')).status).not.toBe(200)
+    // a folder gone from disk another way (not the trash) counts as gone too
+    fs.rmSync(path.join(A.team, 'projects/launch'), { recursive: true })
+    expect((await repoint('carol', id, 'projects/falcon')).status).toBe(200)
+    expect(folderPathOf(id)).toBe('projects/falcon')
   })
 
   test('after an admin removes the folder\'s empty entry in Admin > Folders', async () => {

@@ -32,6 +32,7 @@ type Scope =
   | 'finance'         // finance folder resource: bob + owner + admin (read or write as noted)
   | 'finance-write'   // finance folder write: bob + owner + admin
   | 'falcon-read'     // projects/falcon: alice(write) + bob(finance read) + owner + admin
+  | 'alice-project'   // who sees and changes the participants of alice's team project: alice (its creator) + owner + admin
   | 'shared'          // shared/: every signed-in person
   | 'suggestion-alice' // a skill alice suggested into skills/: alice + the managers of skills/ (owner, admin)
   | 'skills-manager'  // acting on a suggestion for skills/: only its managers (owner, admin), not even alice
@@ -78,7 +79,7 @@ function scopeAllows(scope: Scope, who: Who): boolean {
     case 'own-alice': case 'own-alice-chat': case 'users-alice': return who === 'memberIn'
     case 'finance': case 'finance-write': return who === 'memberOut' || who === 'owner' || who === 'admin'
     case 'falcon-read': return who === 'memberIn' || who === 'memberOut' || who === 'owner' || who === 'admin'
-    case 'suggestion-alice': return who === 'memberIn' || who === 'owner' || who === 'admin'
+    case 'suggestion-alice': case 'alice-project': return who === 'memberIn' || who === 'owner' || who === 'admin'
     case 'skills-manager': return who === 'owner' || who === 'admin'
     case 'members': return who === 'memberIn' || who === 'memberOut' || who === 'other'
     case 'room-dm': case 'room-group': return who === 'memberIn' || who === 'other'
@@ -215,14 +216,30 @@ export const SPECS: Record<string, Spec> = {
     } },
   listProjects: { build: (c) => c.get('/api/projects'), scope: 'self',
     check: (r, w, who) => { if (who !== 'memberIn' && r.text.includes(C.aliceProjInstr)) throw new Error(`${who} sees alice's private-folder project`) } },
-  createProject: { build: (c) => c.post('/api/projects', { name: 'p', folderPath: 'shared', instructions: '' }), scope: 'shared' },
+  // a team project: any member makes one (a new projects/<name>; the team setting may keep it to admins), never on an
+  // existing folder such as shared/ (400 project_location for everyone)
+  createProject: { build: (c) => c.post('/api/projects', { name: 'p', participants: [], instructions: '' }), scope: 'self',
+    check: async (r, w, who) => {
+      const there = await w.as[who].post('/api/projects', { name: 'p', folderPath: 'shared', instructions: '' })
+      if (who !== 'anon' && who !== 'pwchange' && there.status !== 400) throw new Error(`${who}: a project on shared/ was not refused (${there.status})`)
+    } },
+  // who sees alice's team project: alice (its creator), the owner and admins see and change it; erin is a participant
+  // but did not make it (403), bob does not see it (404)
+  previewProjectAccess: { build: (c, w) => c.post('/api/projects/access-preview', { projectId: w.ids.projTeam, participants: [] }), scope: 'alice-project' },
+  getProjectAccess: { build: (c, w) => c.get(`/api/projects/${w.ids.projTeam}/access`), scope: 'alice-project' },
+  putProjectParticipants: { build: (c, w) => c.put(`/api/projects/${w.ids.projTeam}/participants`, { participants: [{ subjectType: 'user', subjectId: 'bob' }], expectedHash: 'not-the-hash' }), scope: 'alice-project',
+    check: (r, w, who) => {
+      if (r.status < 300) throw new Error(`${who}: participants changed with a stale rules hash`)
+      const bob = w.inst.ctx.db.query("SELECT 1 FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE f.path = 'projects/Team plan' AND r.subject_id = 'bob'").get()
+      if (bob) throw new Error(`${who}: bob was added to alice's team project`)
+    } },
   getProject: { build: (c, w) => c.get(`/api/projects/${w.ids.projAlice}`), scope: 'users-alice' },
   updateProject: { build: (c, w) => c.patch(`/api/projects/${w.ids.projAlice}`, { instructions: 'pwned' }), scope: 'users-alice',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} edited alice's project`) } },
   deleteProject: { build: (c, w) => c.del(`/api/projects/${w.ids.projAlice}`), scope: 'users-alice',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} deleted alice's project`) } },
   // sharing by copy (sec/r1-sharing-works): reading the source is alice's alone; dryRun so the allowed pass copies nothing
-  shareProject: { build: (c, w) => c.post(`/api/projects/${w.ids.projAlice}/share`, { toParent: 'shared', dryRun: true }), scope: 'users-alice',
+  shareProject: { build: (c, w) => c.post(`/api/projects/${w.ids.projAlice}/share`, { participants: [], dryRun: true }), scope: 'users-alice',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} shared alice's private project`) } },
 
   // ---- memories (own only) ----

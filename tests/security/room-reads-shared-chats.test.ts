@@ -11,6 +11,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API, ApiError, uuidv7, type RoomAiRun, type RoomMessage } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
 import { waitFor } from '../lib/wait'
 import { roomsOf } from '../../server/src/rooms/service'
 
@@ -41,7 +42,7 @@ beforeAll(async () => {
   let t = Date.now()
   roomsOf(h.ctx).clock = () => (t += 60_000)
   for (const u of PEOPLE) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
-  projectId = (await h.api('alice').call(API.createProject, { body: { name: 'Falcon', folderPath: 'projects/falcon', scope: 'team', participants: [], instructions: '' } })).id
+  projectId = (await oldProject(h, 'alice', { name: 'Falcon', folderPath: 'projects/falcon', instructions: '' })).id
   await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
   chatId = (await h.api('alice').call(API.createChat, { body: { projectId, title: TITLE } })).id
   const r = await h.api('alice').call(API.sendMessage, { params: { id: chatId }, body: { content: `${CANARY} decided\n${fake({ say: `ok ${CANARY}` })}`, clientMessageId: cm(), attachmentIds: [] } })
