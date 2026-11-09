@@ -29,7 +29,7 @@ import { api, API, errorText } from '../../lib/api'
 import { composerAnswer, composerQuestion, picksOf } from '../../lib/askAnswer'
 import { formatDate, formatDateTime } from '../../lib/format'
 import { closeImageViewer } from '../../lib/imageViewer'
-import { sendTargets } from '../../lib/sideChatSend'
+import { quotes, sendTargets } from '../../lib/sideChatSend'
 import { aiName } from '../../lib/tabs'
 import { followsAfterScroll, jumpToBottom, stickToBottom } from '../../lib/stickToBottom'
 import { useLocale, useT } from '../../i18n'
@@ -129,6 +129,8 @@ export const QUICK_FILE = ['fileSummarize', 'fileKeyPoints', 'fileCheck', 'fileS
 
 /** how many of the room's side chats 🕘 lists */
 export const SIDE_HISTORY_MAX = 30
+/** at most this many older pages are read to find where an answer goes (its question further up than the page read) */
+export const OLDER_PAGES_MAX = 10
 
 /** `frame` false: the column around it is the caller's (RoomSideColumn). `autoFocus` false: the box does not take the
  * focus as the panel opens (a new `seed` still does: it was asked for). */
@@ -158,6 +160,17 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   const shareable = !chat?.confidential && !me.server.allChatsConfidential
   // where each answer goes with one click: the thread its question (or the one it follows up) asked about, or the room
   const targets = useMemo(() => sendTargets(messages), [messages])
+  // an answer above the first question that quotes something depends on older messages than the page read (a long chat
+  // after a reload): those pages too, so it goes where it did before
+  const firstQuote = messages.findIndex((m) => m.role === 'user' && quotes(m.content))
+  const needOlder = !!chatId && !!thread.nextCursor && messages.slice(0, firstQuote < 0 ? undefined : firstQuote).some((m) => m.role === 'assistant')
+  const olderRead = useRef<{ chatId: string | null | undefined; pages: number }>({ chatId, pages: 0 })
+  useEffect(() => {
+    if (olderRead.current.chatId !== chatId) olderRead.current = { chatId, pages: 0 }
+    if (!needOlder || !chatId || olderRead.current.pages >= OLDER_PAGES_MAX) return
+    olderRead.current.pages++
+    void useChats.getState().loadOlder(chatId).catch(() => {})
+  }, [needOlder, chatId, thread.nextCursor])
   const scroller = useRef<HTMLDivElement>(null)
   const content = useRef<HTMLDivElement>(null)
   const box = useRef<HTMLTextAreaElement>(null)

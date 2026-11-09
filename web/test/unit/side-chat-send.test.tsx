@@ -13,11 +13,12 @@ import { act } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { hideThreadRef, threadRefOf, threadRefToken, uuidv7, type Me } from '@mycel/shared/api'
 import { AssistantMessage, UserMessage } from '../../src/components/chat/Messages'
-import { withQuote } from '../../src/components/rooms/SideChatPanel'
+import { SideChatPanel, withQuote } from '../../src/components/rooms/SideChatPanel'
 import type { SentHere } from '../../src/components/rooms/SendHere'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { messageSeed } from '../../src/lib/sideChatAsk'
 import { keepThreadRef, quotedOf, sendTargets, type SendTarget } from '../../src/lib/sideChatSend'
+import { useChats } from '../../src/store/chats'
 import { useRooms } from '../../src/store/rooms'
 import { useSession } from '../../src/store/session'
 import { useSideChats } from '../../src/store/sideChats'
@@ -134,8 +135,9 @@ test('a question shows without the token, in its bubble, its copy and its edit b
 const team = room({ name: 'Design review', memberCount: 4, activityAt: at(5) })
 const signIn = () => useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name }, server: { allChatsConfidential: false } } as unknown as Me } })
 let calls: { body: Record<string, unknown> }[] = []
-/** answers to POST …/share-to-room, in order (the last one repeats); 'network': no answer; 'hold': waits for release() */
-let answers: ({ status?: number; body: unknown } | 'network' | 'hold')[] = []
+/** answers to POST …/share-to-room, in order (the last one repeats); 'network': no answer; 'hold': waits for release(),
+ * then sent; 'hold-network': waits for release(), then no answer */
+let answers: ({ status?: number; body: unknown } | 'network' | 'hold' | 'hold-network')[] = []
 let release: () => void = () => {}
 const sent = (o: { threadRootId?: string; cut?: boolean } = {}) => ({ status: 'sent', cut: !!o.cut, message: message({ roomId: team.id, seq: 20, author: ME, body: 'answer', sharedAnswer: { at: 0, cut: !!o.cut }, ...(o.threadRootId ? { threadRootId: o.threadRootId } : {}) }) })
 const confirmAnswer = { status: 'confirm', people: 3, places: [], otherPlaces: false, files: [{ name: 'logo-v2.png', path: 'users/ada/logo-v2.png', missing: false, attach: 'yes', unable: 3 }], provenance: null, confirmKey: 'k1' }
@@ -149,20 +151,25 @@ function serve() {
       calls.push({ body: JSON.parse(String(init.body)) })
       const x = answers[Math.min(n++, answers.length - 1)]!
       if (x === 'network') throw new TypeError('Failed to fetch')
-      if (x === 'hold') { await new Promise<void>((r) => { release = r }); return json(sent()) }
+      if (x === 'hold' || x === 'hold-network') {
+        await new Promise<void>((r) => { release = r })
+        if (x === 'hold-network') throw new TypeError('Failed to fetch')
+        return json(sent())
+      }
       return json(x.body, x.status ?? 200)
     }
     return json({ error: { code: 'not_found', message: 'not here' } }, 404)
   }) as typeof fetch
 }
 
-/** a side chat's finished answer with the control; `views`: what 보기 was asked to open */
+/** a side chat's finished answer with the control (and a text box beside it: `other`); `views`: what 보기 was asked to open */
 async function answerWith(target: SendTarget | null, o: { shareable?: boolean; id?: string } = {}) {
   signIn()
   useRooms.setState({ rooms: [team], loaded: true })
   const views: SentHere[] = []
   const m = await mount(
     <MemoryRouter>
+      <input data-testid="other" />
       <AssistantMessage m={msg({ id: o.id ?? uuidv7(), role: 'assistant', content: 'Wednesday, two drafts.', status: 'done' })} chatId={CHAT} isLast busy={false} switchedFrom={null} onRegenerate={() => {}} onSelectBranch={() => {}} onAskOwnFolder={() => {}} shareable={o.shareable ?? true} canSuggest={false}
         sendHere={{ roomId: team.id, target, onView: (s) => views.push(s) }} />
     </MemoryRouter>,
@@ -367,5 +374,100 @@ test('the keyboard: ▾ opens its menu, Enter on its item sends to the room', as
     expect(calls[0]!.body.threadRootId).toBeUndefined()
   } finally {
     await m.unmount()
+  }
+})
+
+test('the confirm step stays while its yes is on its way (Esc does nothing then): one message, one id', async () => {
+  serve()
+  answers = [{ body: confirmAnswer }, 'hold']
+  const { m } = await answerWith(thread)
+  try {
+    await m.click('send-here-thread')
+    await m.until(() => body(m).querySelector('[data-testid="share-room-confirm"]'), 'the confirm step')
+    await m.click('share-room-confirm-send')
+    await m.settle()
+    await act(async () => { active(m)!.dispatchEvent(new FakeEvent('keydown', { bubbles: true, cancelable: true, key: 'Escape' })) })
+    expect(body(m).querySelector('[data-testid="share-room-confirm"]')).not.toBeNull()
+    release()
+    await m.until(() => m.find('send-here-sent'), 'sent')
+    expect(calls).toHaveLength(2)
+    expect(calls[1]!.body.clientMessageId).toBe(calls[0]!.body.clientMessageId)
+  } finally {
+    await m.unmount()
+  }
+})
+
+test('a panel closed while it goes and opened again: the button busy, then a try again keeps the click\'s id', async () => {
+  serve()
+  answers = ['hold-network', { body: sent() }]
+  const id = uuidv7()
+  const first = await answerWith(null, { id })
+  await first.m.click('send-here-room')
+  await first.m.settle()
+  await first.m.unmount()
+  const again = await answerWith(null, { id })
+  try {
+    expect(again.m.get('send-here-room').hasAttribute('disabled')).toBe(true)
+    release()
+    await again.m.until(() => again.m.find('send-here-error'), 'the line')
+    expect(again.m.get('send-here-room').hasAttribute('disabled')).toBe(false)
+    await again.m.click('send-here-room')
+    await again.m.until(() => again.m.find('send-here-sent'), 'sent')
+    expect(calls).toHaveLength(2)
+    expect(calls[1]!.body.clientMessageId).toBe(calls[0]!.body.clientMessageId)
+  } finally {
+    await again.m.unmount()
+    useSideChats.getState().reset()
+  }
+})
+
+test('the focus stays where the person went meanwhile (the next question\'s box): not pulled to View', async () => {
+  serve()
+  answers = ['hold']
+  const { m } = await answerWith(null)
+  try {
+    await m.click('send-here-room')
+    m.get('other').focus()
+    release()
+    await m.until(() => m.find('send-here-sent'), 'sent')
+    await m.settle()
+    expect(active(m)).toBe(m.get('other'))
+  } finally {
+    await m.unmount()
+  }
+})
+
+test('a long side chat after a reload: older pages are read until the question an answer follows up, so it still goes to the thread', async () => {
+  signIn()
+  useRooms.setState({ rooms: [team], loaded: true })
+  const chatId = uuidv7()
+  const [q1, a1, q2, a2] = [uuidv7(), uuidv7(), uuidv7(), uuidv7()]
+  const m1 = (o: Parameters<typeof msg>[0]) => ({ ...msg(o), chatId })
+  const pages: Record<string, { items: unknown[]; nextCursor: string | null }> = {
+    '': { items: [m1({ id: q2, parentId: a1, role: 'user', content: 'shorter' }), m1({ id: a2, parentId: q2, role: 'assistant', content: 'Wednesday.', status: 'done' })], nextCursor: 'c1' },
+    c1: { items: [m1({ id: q1, role: 'user', content: quoteOf(ROOT, 'logo drafts?') }), m1({ id: a1, parentId: q1, role: 'assistant', content: 'Wednesday, two drafts.', status: 'done' })], nextCursor: null },
+  }
+  const read: string[] = []
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const u = new URL(String(input), 'http://team.localhost')
+    const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { 'content-type': 'application/json' } })
+    if ((init?.method ?? 'GET') === 'GET' && u.pathname === '/api/chats') return json({ items: [{ id: chatId, projectId: null, title: '', engine: 'claude-code', model: null, createdAt: at(1), updatedAt: at(1), deletedAt: null, runState: 'idle', sideRoomId: team.id }], nextCursor: null })
+    if (u.pathname === `/api/chats/${chatId}/messages`) {
+      const cursor = u.searchParams.get('cursor') ?? ''
+      read.push(cursor)
+      return json({ ...pages[cursor]!, activeLeafId: a2 })
+    }
+    return new Response(JSON.stringify({ error: { code: 'not_found', message: 'x' } }), { status: 404, headers: { 'content-type': 'application/json' } })
+  }) as typeof fetch
+  const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Design review" onClose={() => {}} /></MemoryRouter>)
+  try {
+    await m.until(() => body(m).querySelectorAll('[data-testid="assistant-message"]').length === 2, 'both pages')
+    expect(read).toEqual(['', 'c1'])
+    const answers = body(m).querySelectorAll('[data-testid="assistant-message"]')
+    for (const a of answers) expect(a.querySelector('[data-testid="send-here-thread"]')).not.toBeNull()
+  } finally {
+    await m.unmount()
+    useChats.getState().reset()
+    useSideChats.getState().reset()
   }
 })

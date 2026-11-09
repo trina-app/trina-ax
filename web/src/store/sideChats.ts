@@ -27,6 +27,11 @@ export interface SendHereState {
   noThread?: boolean
   /** the last failure, one short line under the answer (null: none) */
   error?: string | null
+  /** a request of it is on its way (a panel drawn again meanwhile shows the button busy and sends nothing more) */
+  sending?: boolean
+  /** the click's id by where it goes: its confirm, and trying the same again after a failure that may have sent it, reuse
+   * it; null: the next click is a new one */
+  attempt?: { to: string; id: string } | null
 }
 
 const EMPTY: SideChatState = { chatId: undefined, draft: '', quoted: null, seedKeys: [] }

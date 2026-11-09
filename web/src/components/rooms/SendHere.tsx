@@ -10,7 +10,10 @@
 // room offered instead; any other failure is that line too, never a toast.
 // Double sends: a guard while one is on its way, and one clientMessageId per click, reused only for that click's confirm
 // and for trying the same again after a failure that may have sent it (no answer, 5xx). Never across clicks: the server
-// gives the first message back for a known id, a deleted one too.
+// gives the first message back for a known id, a deleted one too. Both are kept with the answer (store/sideChats.ts), so
+// a panel closed and opened again meanwhile (🕘, a phone's back, 보기) keeps them. The confirm step does not close while
+// its yes is on its way. The focus moves (to 보기, or back to the button) only while it is still here: not out of the
+// box the person went on typing in.
 import clsx from 'clsx'
 import { Check, ChevronDown, MessageSquareShare } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -40,13 +43,12 @@ export function SendHere({ chatId, answerId, roomId, target, onView }: { chatId:
   const state = useSideChats((s) => s.sends[answerId]) ?? NONE
   const patch = (p: Partial<SendHereState>) => useSideChats.getState().patchSend(answerId, p)
   const room = useRooms((s) => s.rooms.find((r) => r.id === roomId) ?? null)
+  const roomsLoaded = useRooms((s) => s.loaded)
   // the thread, unless it turned out to be gone
   const thread = state.noThread ? null : target
-  const [busy, setBusy] = useState(false)
-  const sending = useRef(false)
-  /** this click's id (by where it goes): its confirm and a try again after a failure that may have sent it reuse it */
-  const attempt = useRef<{ to: string; id: string } | null>(null)
+  const busy = !!state.sending
   const confirm = useConfirmStep<ConfirmAsk & { to: To }>()
+  const box = useRef<HTMLSpanElement>(null)
   const control = useRef<HTMLButtonElement>(null)
   const view = useRef<HTMLButtonElement>(null)
   /** sent from here just now: the focus goes to 보기 (not when a panel opens on an answer sent before) */
@@ -57,37 +59,44 @@ export function SendHere({ chatId, answerId, roomId, target, onView }: { chatId:
     justSent.current = false
     view.current?.focus()
   }, [state.sent])
+  // the confirm step's rows count the room's other people: the room list, read once if this page has none yet
+  useEffect(() => { if (confirm.ask && !roomsLoaded) void useRooms.getState().loadRooms() }, [confirm.ask, roomsLoaded])
+  /** is the focus still here (this button, its ▾ and menu, the confirm step, or nowhere), so moving it takes nothing away */
+  const focusHere = () => {
+    const a = document.activeElement as HTMLElement | null
+    if (!a || a === document.body || !document.body.contains(a) || box.current?.contains(a)) return true
+    return !!a.closest?.('[role="dialog"]') || !!a.closest?.('[role="menu"]')
+  }
 
   const send = async (to: To, yes?: { confirmKey: string; attach: string[] }) => {
-    if (sending.current) return
+    const sends = () => useSideChats.getState().sends[answerId] ?? NONE
+    if (sends().sending) return
     const rootId = to === 'thread' ? thread?.rootId : undefined
     if (to === 'thread' && !rootId) return
     const key = rootId ? `thread:${rootId}` : 'room'
-    if (attempt.current?.to !== key) attempt.current = { to: key, id: uuidv7() }
-    sending.current = true
-    setBusy(true)
-    patch({ error: null })
+    const attempt = sends().attempt?.to === key ? sends().attempt! : { to: key, id: uuidv7() }
+    patch({ sending: true, attempt, error: null })
     try {
-      const r = await useRooms.getState().shareAnswer(chatId, answerId, { roomId, ...(rootId ? { threadRootId: rootId } : {}), ...(yes ?? {}), clientMessageId: attempt.current.id })
-      if (r.status === 'confirm') return confirm.asked(r, !!yes, { to })
-      attempt.current = null
-      confirm.close()
+      const r = await useRooms.getState().shareAnswer(chatId, answerId, { roomId, ...(rootId ? { threadRootId: rootId } : {}), ...(yes ?? {}), clientMessageId: attempt.id })
+      if (r.status === 'confirm') {
+        patch({ sending: false })
+        return confirm.asked(r, !!yes, { to })
+      }
       const sent: SentHere = { to, roomId, rootId: rootId ?? null, messageId: r.message.id, cut: r.cut }
-      justSent.current = true
+      justSent.current = focusHere()
+      confirm.close()
       setSaid(t(sentKey(sent)))
-      patch({ sent })
+      patch({ sent, sending: false, attempt: null })
     } catch (e) {
       // refused (4xx): nothing went, the next click is a new one; no answer or a server failure: it may have gone, so
       // trying the same again keeps the id (the server then gives the first message back)
-      if (isApiError(e) && e.status < 500) attempt.current = null
+      const refused = isApiError(e) && e.status < 500
+      const back = focusHere()
       confirm.close()
       // the asked message's thread is gone (deleted, or no longer one I see): the room instead
       const gone = !!rootId && isApiError(e) && (e.body.params?.reason === 'thread_root' || !!e.body.fields?.['body.threadRootId'])
-      patch(gone ? { noThread: true, error: t('sideChat.noThread') } : { error: errorText(e, locale, t('error.network')) })
-      requestAnimationFrame(() => control.current?.focus())
-    } finally {
-      sending.current = false
-      setBusy(false)
+      patch({ sending: false, ...(refused ? { attempt: null } : {}), ...(gone ? { noThread: true, error: t('sideChat.noThread') } : { error: errorText(e, locale, t('error.network')) }) })
+      if (back) requestAnimationFrame(() => control.current?.focus())
     }
   }
 
@@ -105,7 +114,7 @@ export function SendHere({ chatId, answerId, roomId, target, onView }: { chatId:
         </span>
       ) : thread ? (
         // the thread, with the room one choice away (▾)
-        <span className="flex items-center" data-testid="send-here">
+        <span ref={box} className="flex items-center" data-testid="send-here">
           <button ref={control} type="button" disabled={busy} aria-busy={busy} onClick={() => void send('thread')} className={clsx(BTN, 'pr-1')} data-testid="send-here-thread">
             <MessageSquareShare size={13} aria-hidden />
             {t('sideChat.sendThread')}
@@ -120,10 +129,12 @@ export function SendHere({ chatId, answerId, roomId, target, onView }: { chatId:
           />
         </span>
       ) : (
-        <button ref={control} type="button" disabled={busy} aria-busy={busy} onClick={() => void send('room')} className={BTN} data-testid="send-here-room">
-          <MessageSquareShare size={13} aria-hidden />
-          {t('sideChat.sendRoom')}
-        </button>
+        <span ref={box} className="flex items-center" data-testid="send-here">
+          <button ref={control} type="button" disabled={busy} aria-busy={busy} onClick={() => void send('room')} className={BTN} data-testid="send-here-room">
+            <MessageSquareShare size={13} aria-hidden />
+            {t('sideChat.sendRoom')}
+          </button>
+        </span>
       )}
       {/* always here, so what it says is read out when it changes */}
       <span role="status" className="sr-only" data-testid="send-here-status">{said}</span>
@@ -138,7 +149,9 @@ export function SendHere({ chatId, answerId, roomId, target, onView }: { chatId:
           busy={busy}
           onSend={(yes) => void send(confirm.ask!.to, yes)}
           onCancel={() => {
-            attempt.current = null
+            // (its yes is on its way: it stays until the answer comes)
+            if (useSideChats.getState().sends[answerId]?.sending) return
+            patch({ attempt: null })
             confirm.close()
           }}
           returnTo={control.current}
