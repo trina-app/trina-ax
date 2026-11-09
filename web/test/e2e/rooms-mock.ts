@@ -13,6 +13,9 @@ export interface MockRoom {
   sent: { body: string; mentions: string[]; mentionsAll?: boolean; threadRootId?: string | null; alsoInRoom?: boolean }[]
   /** the reactions put on or taken off (PUT …/reactions), in order */
   reacted: { messageId: string; emoji: string; on: boolean }[]
+  /** a message put into the room as the server would have it (an answer shared from the side chat): in its thread or
+   * in the timeline, read back by later GETs; the contract-shaped message */
+  add: (m: { author: { id: string; name: string }; body: string; threadRootId?: string; extra?: Record<string, unknown> }) => Record<string, unknown> & { id: string }
 }
 
 /** A message of the room; `threadRootId`: a reply in that message's thread (in the thread, not the timeline); `extra`:
@@ -26,7 +29,7 @@ export interface MockRoomAi { answering: number; mine: unknown[]; requests: unkn
 /** `kind`: the room's kind ('group' by default; 'all' for the everyone room, 'dm' for a 1:1 chat); `ai`: the AI's state
  * (none by default) */
 export async function routeRoom(page: Page, o: { members: { id: string; name: string }[]; messages?: MockMessage[]; kind?: 'group' | 'team' | 'all' | 'dm'; ai?: MockRoomAi }): Promise<MockRoom> {
-  const state: MockRoom = { sent: [], reacted: [] }
+  const state: MockRoom = { sent: [], reacted: [], add: () => { throw new Error('not yet') } }
   // the reactions each message has now (mine only: olga is the only one reacting here)
   const mine = new Map<string, string[]>()
   const members = [{ id: 'olga', name: 'Olga' }, ...o.members]
@@ -45,6 +48,13 @@ export async function routeRoom(page: Page, o: { members: { id: string; name: st
     lastReadSeq: last, lastMessage: null, muted: false, createdAt: at(-60), activityAt: at(messages.length),
   }
   const json = (body: unknown, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) })
+  state.add = (m) => {
+    const n = ++seq
+    const made = message({ id: `019a5f00-0000-7000-8000-${String(n).padStart(12, '0')}`, ...m }, n)
+    all.push(made)
+    if (!m.threadRootId) messages.push(made)
+    return made
+  }
   await page.route(/\/api\/rooms(\/|\?|$)/, async (route) => {
     const req = route.request()
     const path = new URL(req.url()).pathname

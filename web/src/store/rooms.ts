@@ -346,7 +346,7 @@ interface RoomsState extends RoomsData {
   /** "대화방에 보내기": a finished answer of my own AI chat to a room I am in, as my message (shared/src/api/chats.ts
    * shareAnswerToRoom); sent, the message takes its place in the room once (the server's room.message to my windows
    * finds it there) */
-  shareAnswer: (chatId: string, messageId: string, body: { roomId: string; note?: string; confirmKey?: string; attach?: string[]; clientMessageId: string }) => Promise<ShareAnswerToRoomResult>
+  shareAnswer: (chatId: string, messageId: string, body: { roomId: string; note?: string; confirmKey?: string; attach?: string[]; threadRootId?: string; clientMessageId: string }) => Promise<ShareAnswerToRoomResult>
   resync: () => Promise<void>
   handleEvent: (ev: RoomEvent) => void
   reset: () => void
