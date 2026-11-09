@@ -16713,3 +16713,51 @@ what each one is for.
   Kept: the rollback effect above.
 - Version impact: **minor** (new teams get another layout and folder, the AI places files differently, new words on
   screen; no API path, no migration).
+
+## The image viewer's 복사 — copy the picture from the viewer's bar or with ⌘C (feat/viewer-copy-image, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/lib/copyImage.ts` and `web/src/components/ImageViewer.tsx`, 이유: the image viewer is core.
+Plan: `docs/AGENTS/plan/20261109-1050-viewer-copy-image.md`.
+
+The owner: "이미지 copy 기능도 있어야해". The viewer ("One image viewer") had download, a new tab and ✕; a picture copied
+only by a right-click (the browser's Copy Image, the desktop app's 이미지 복사).
+
+- **복사 in the bar, left of the download** (the copy icon, the tooltip and name 복사 like the download's 내려받기), and
+  **⌘C / Ctrl+C** anywhere in the viewer, unless a text in the viewer is selected (none can be today: the viewer is
+  `select-none`; a selection left on the page behind is not what is on screen, so the key copies the picture). With a
+  Korean input source the key reads ㅊ: the key's place (`KeyC`) says it is C, but only when the key is no Latin letter,
+  so another layout's C stays its own letter. A held key copies once.
+- **What goes: the picture the viewer drew, as a PNG, with no new request or address.** A PNG whose bytes the page has
+  (a picture in a message box) goes as it is. Everything else (a JPEG, WebP or GIF; the server's JPEG of a HEIC; a PNG
+  the page has only by its address) is drawn on a canvas from the viewer's own `<img>` and goes as a PNG: browsers take
+  `image/png` reliably and other types not at all. Nothing is painted first, so transparency stays. A copy pressed while
+  the original loads waits for it. A picture with no original drawn (over the 20 MB preview limit, a HEIC sent in a
+  room, an original that failed) copies the thumbnail on screen, and the toast's second line says so ("원본 대신 화면에
+  보이는 작은 사진을 복사했어요."); one that cannot be shown at all has no 복사. A canvas too big to make (iOS Safari's
+  4096 × 4096) is tried once more at that size, and the toast says it was made smaller; a moving GIF copies the frame on screen.
+- **How**: `navigator.clipboard.write([new ClipboardItem({ 'image/png': promise })])`, the item made and written inside
+  the click or the key press (Safari takes the write only there), with the PNG a promise that may come later.
+- **Only where it works; never a button that does nothing.** Shown with `navigator.clipboard.write`, `ClipboardItem`
+  and, where the browser has it, `ClipboardItem.supports('image/png')`. So not on a plain http page (no async
+  clipboard) or in an older Firefox. Not in the Android phone app: Android's WebView puts no picture on the clipboard
+  (Chromium writes pictures there through a file provider that only Chrome has), so its write would succeed and leave
+  nothing. The iPhone app's WebView and iOS Safari take it. Not chosen: a bridge for the phone apps (no change to them).
+- **The desktop app needs nothing new**: its team page may already write the clipboard (`clipboard-sanitized-write` for
+  the team origin, `desktop/src/main/security.ts`; image/png is a sanitized write like text/html), and its team address
+  is always https or this machine, a secure page. `desktop/e2e/clipboard.spec.ts` now writes a PNG with a transparent
+  half from the team page and reads it back from the system clipboard, transparency kept. Not chosen: a preload
+  `copyImage(url)` with the main process fetching the original, a second way to the same bytes with its own address
+  checks.
+- **Feedback**: a toast, which sits above the viewer: 이미지를 복사했어요, or 이미지를 복사하지 못했어요 with one line of
+  why (the browser refused the clipboard: click the window and try again; too big even made smaller: download it; the
+  picture did not load; anything else: try again, else download it).
+- **Not in the room message's ⋮ menu or long-press sheet**: they act on the message (copy its text, edit, delete) and
+  have no item per attachment. A picture opens the viewer, where 복사 is.
+- Tests: `web/test/unit/copy-image.test.ts` (where it is offered, a PNG as it is, other types drawn at their size, the
+  thumbnail and a smaller drawing said so, the item written inside the click, each reason, the key with a Korean input
+  source and another layout), e2e `image-viewer.spec.ts` (복사 beside the download, the original read back from
+  Chromium's clipboard as a 2880 × 1800 PNG with no new request, ⌘C and Ctrl+C, a WebP's transparency and a JPEG as PNGs,
+  a copy that waits for the original, the thumbnail of a picture over 20 MB, no button without ClipboardItem;
+  screenshots), desktop e2e `clipboard.spec.ts` (a PNG from the team page). The browser tests use Chromium's own
+  clipboard (granted in `playwright.config.ts`); the desktop test puts back what was on the computer's clipboard.
+- Version impact: **patch** (one button and one key in the viewer; no API, setting or data change).

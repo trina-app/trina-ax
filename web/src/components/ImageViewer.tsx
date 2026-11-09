@@ -7,24 +7,29 @@
 //   double tap, one finger pans when zoomed; when not zoomed a swipe down closes and a swipe sideways steps.
 // - ← → and the edge arrows step through the pictures of the pane it was opened from (ImageGroup below; its list is
 //   lib/imageViewer.ts ViewerGroup).
-// - The bar: the file's name, who sent it and when, "3 / 7", the zoom, download, the original in a new tab (a plain
+// - The bar: the file's name, who sent it and when, "3 / 7", the zoom, 복사, download, the original in a new tab (a plain
 //   browser only: the desktop and phone apps would open the system browser, which is not signed in) and ✕. Always shown
 //   on a computer; a tap shows or hides it on a phone.
+// - 복사 and ⌘C / Ctrl+C put the picture drawn here on the clipboard as a PNG (lib/copyImage.ts): the original, waited
+//   for while it loads, else the thumbnail shown in its place (the toast says so). Only where the clipboard takes a
+//   picture: never a button that does nothing.
 // - Esc, ✕, a click on the backdrop, a swipe down and Back close it; focus goes back to the picture that opened it.
 // - It is on the team page itself (a portal on <body>, never a frame): the desktop app's 이미지 복사 copies the original,
 //   which is then the only picture under the pointer.
 import clsx from 'clsx'
-import { ChevronLeft, ChevronRight, Download, ExternalLink, Loader2, Minus, Plus, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Copy, Download, ExternalLink, Loader2, Minus, Plus, X } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation } from 'react-router-dom'
 import { closeImageViewer, notePage, openImageViewer, showEntry, skipLeftEntry, useImageViewer, ViewerGroup, type ViewerEntry, type ViewerItem, type ViewerMetaValue, type ViewerOpen, type ViewerSender } from '../lib/imageViewer'
 import { clampView, fitView, isZoomed, layoutSize, onPicture, pinchView, stepScale, swipeResult, toggleAt, wheelScale, zoomAt, type Point, type Size, type View } from '../lib/zoom'
+import { canCopyImage, copyImage, isCopyKey, type CopyFailure, type PickPicture } from '../lib/copyImage'
 import { clientKind } from '../lib/desktop'
 import { formatDateTime } from '../lib/format'
 import { aiName } from '../lib/tabs'
-import { useLocale, useT } from '../i18n'
+import { useLocale, useT, type MessageKey } from '../i18n'
 import { useAvatarOf, useNameOf } from '../store/people'
+import { toast } from '../store/ui'
 import { Avatar } from './Avatar'
 import { AiFace } from './rooms/AiFace'
 import { Tooltip } from './Tooltip'
@@ -128,6 +133,23 @@ function useObjectUrl(blob: Blob | undefined): string | null {
   return blob && made?.blob === blob ? made.url : null
 }
 
+/** The picture has loaded (waiting while it loads); false: it did not. */
+const loaded = (img: HTMLImageElement): Promise<boolean> =>
+  img.complete
+    ? Promise.resolve(img.naturalWidth > 0)
+    : new Promise((resolve) => {
+        img.addEventListener('load', () => resolve(img.naturalWidth > 0), { once: true })
+        img.addEventListener('error', () => resolve(false), { once: true })
+      })
+
+/** a text selected in the viewer (none can be: it copies as text, as a page does) */
+function textSelectedIn(root: HTMLElement | null): boolean {
+  const sel = typeof window === 'undefined' ? null : window.getSelection()
+  return !!root && !!sel && !sel.isCollapsed && !!sel.toString().trim() && !!sel.anchorNode && root.contains(sel.anchorNode)
+}
+
+const COPY_FAILED: Record<CopyFailure, MessageKey> = { denied: 'viewer.copyDenied', tooBig: 'viewer.copyTooBig', notLoaded: 'viewer.copyNotLoaded', failed: 'viewer.copyError' }
+
 type Gesture =
   | { kind: 'press'; touch: boolean; start: Point; view: View | null; zoomed: boolean; last: Point; lastT: number; vx: number; vy: number }
   | { kind: 'pan'; start: Point; view: View }
@@ -191,6 +213,25 @@ function Viewer({ open }: { open: ViewerOpen }) {
   const v = ready ? (p.view ? clampView(p.view, natural, stage) : fitView(natural, stage)) : null
   const zoomed = !!v && !!natural && isZoomed(v, natural, stage)
   const showThumb = !!thumb && p.state !== 'shown'
+  // something to copy: the original (drawn, or loading), or the thumbnail shown in its place
+  const copyOn = ((!!original && p.state !== 'failed') || !!thumb) && canCopyImage()
+  const origEl = useRef<HTMLImageElement | null>(null)
+  const thumbEl = useRef<HTMLImageElement | null>(null)
+  const pick: PickPicture = async () => {
+    // this picture's, as the copy was asked (a step to the next one meanwhile draws others)
+    const o = origEl.current
+    const s = thumbEl.current
+    if (o && (await loaded(o))) return { drawn: { img: o, width: o.naturalWidth, height: o.naturalHeight }, thumb: false }
+    // no original drawn (over the preview limit, or it failed): the thumbnail on screen
+    if (s && (await loaded(s))) return { drawn: { img: s, width: s.naturalWidth, height: s.naturalHeight }, thumb: true }
+    return null
+  }
+  const copy = () => {
+    void copyImage({ blob: item.blob, pick }).then((r) => {
+      if (r.ok) toast({ level: 'success', text: t('viewer.copied'), detail: r.smaller === 'thumb' ? t('viewer.copiedThumb') : r.smaller === 'scaled' ? t('viewer.copiedScaled') : undefined })
+      else toast({ level: 'error', text: t('viewer.copyFailed'), detail: t(COPY_FAILED[r.reason]) })
+    })
+  }
 
   const [bars, setBars] = useState(true)
   const [swipe, setSwipe] = useState<{ dx: number; dy: number } | null>(null)
@@ -407,6 +448,12 @@ function Viewer({ open }: { open: ViewerOpen }) {
       }
       return
     }
+    // ⌘C / Ctrl+C: the picture, unless a text in the viewer is selected
+    if (!e.defaultPrevented && copyOn && isCopyKey(e) && !textSelectedIn(root.current)) {
+      e.preventDefault()
+      copy()
+      return
+    }
     if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return
     const k = e.key
     if (k === 'ArrowLeft' || k === 'ArrowRight') go(k === 'ArrowLeft' ? prev : next)
@@ -476,6 +523,7 @@ function Viewer({ open }: { open: ViewerOpen }) {
           {showThumb && (
             <img
               key={`t:${p.id}`}
+              ref={thumbEl}
               src={thumb!}
               alt=""
               aria-hidden
@@ -488,6 +536,7 @@ function Viewer({ open }: { open: ViewerOpen }) {
           {original && p.state !== 'failed' && (
             <img
               key={`o:${p.id}:${original}`}
+              ref={origEl}
               src={original}
               alt={item.name}
               draggable={false}
@@ -533,6 +582,11 @@ function Viewer({ open }: { open: ViewerOpen }) {
             <Plus size={16} />
           </BarButton>
         </div>
+        {copyOn && (
+          <BarButton label={t('common.copy')} onClick={copy} testId="image-viewer-copy">
+            <Copy size={18} />
+          </BarButton>
+        )}
         {item.download && (
           <BarButton label={t('common.download')} onClick={item.download} testId="image-viewer-download">
             <Download size={18} />

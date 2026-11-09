@@ -4304,4 +4304,12 @@ export const id: Record<MessageKey, string> = {
   "viewer.thumbOnly": "Ditampilkan versi kecil. Unduh aslinya untuk melihat ukuran penuh.",
   "viewer.failed": "Gambar asli gagal dimuat. Ditampilkan versi kecil.",
   "viewer.noPicture": "Gambar ini tidak bisa ditampilkan di sini.",
+  "viewer.copied": "Gambar disalin",
+  "viewer.copiedThumb": "Yang disalin gambar kecil di layar, bukan aslinya.",
+  "viewer.copiedScaled": "Gambarnya terlalu besar, jadi disalin dalam ukuran lebih kecil.",
+  "viewer.copyFailed": "Gambar tidak bisa disalin",
+  "viewer.copyDenied": "Browser tidak mengizinkan menulis ke papan klip. Klik jendela sekali, lalu coba lagi.",
+  "viewer.copyTooBig": "Gambarnya terlalu besar untuk disalin. Unduh saja.",
+  "viewer.copyNotLoaded": "Gambar tidak termuat.",
+  "viewer.copyError": "Coba lagi. Kalau masih gagal, unduh saja.",
 }

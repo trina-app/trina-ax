@@ -4304,4 +4304,12 @@ export const en: Record<MessageKey, string> = {
   "viewer.thumbOnly": "Showing a small copy. Download the original to see it in full.",
   "viewer.failed": "The original did not load. Showing a small copy.",
   "viewer.noPicture": "This picture cannot be shown here.",
+  "viewer.copied": "Image copied",
+  "viewer.copiedThumb": "Copied the small copy on screen instead of the original.",
+  "viewer.copiedScaled": "The picture is very large, so a smaller copy was copied.",
+  "viewer.copyFailed": "Could not copy the image",
+  "viewer.copyDenied": "The browser did not allow writing to the clipboard. Click the window once and try again.",
+  "viewer.copyTooBig": "The picture is too large to copy. Download it instead.",
+  "viewer.copyNotLoaded": "The picture did not load.",
+  "viewer.copyError": "Try again. If it still fails, download it instead.",
 }
