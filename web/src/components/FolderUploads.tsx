@@ -7,6 +7,7 @@ import { api, API, errorText } from '../lib/api'
 import { FolderUpload, type FolderFailure, type FolderPlan, type FolderUploadCalls } from '../lib/folderUpload'
 import { useRuns, type Run } from '../lib/folderRuns'
 import { formatSize } from '../lib/format'
+import { useFolderWords } from '../lib/folderLabels'
 import { baseName } from '../lib/paths'
 import { cancelUpload, uploadFile, uploadLabel } from '../lib/upload'
 import { useLocale, useT } from '../i18n'
@@ -106,6 +107,7 @@ export default function FolderUploads({ here }: { here: string }) {
 
 function FolderRow({ item, here }: { item: Run; here: string }) {
   const t = useT()
+  const words = useFolderWords()
   const locale = useLocale()
   const { run, view: v } = item
   const running = v.status === 'running'
@@ -132,7 +134,7 @@ function FolderRow({ item, here }: { item: Run; here: string }) {
       <div className="flex items-center gap-2">
         {running ? <Loader2 size={13} className="shrink-0 animate-spin text-accent-text" aria-hidden /> : v.status === 'done' ? <span className="text-ok">✓</span> : <FolderUp size={13} className="shrink-0 text-danger" aria-hidden />}
         <span className="min-w-0 flex-1 truncate font-medium">
-          {v.base !== here && <span className="font-normal text-faint">{baseName(v.base) || t('files.root')}/</span>}
+          {v.base !== here && <span className="font-normal text-faint">{words.name(v.base, baseName(v.base)) || t('files.root')}/</span>}
           {title}
         </span>
         <span className="shrink-0 text-faint" data-testid="folder-upload-counts">

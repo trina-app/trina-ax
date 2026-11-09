@@ -19,11 +19,12 @@ import clsx from 'clsx'
 import { ArrowUpLeft, ChevronRight } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { WORK_HUMANIZER_SKILL, type FileChange, type PackCatalogSkill, type PreparedSkill, type TeamPrepared as TeamPreparedData } from '@mycel/shared/api'
+import { labeledPath } from '@mycel/shared'
+import { WORK_HUMANIZER_SKILL, type FileChange, type Locale, type PackCatalogSkill, type PreparedSkill, type TeamPrepared as TeamPreparedData } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { isSkillsPath } from '../../lib/skillIssues'
 import { visibleFolders } from '../../lib/visibleFolders'
-import { useT } from '../../i18n'
+import { useLocale, useT } from '../../i18n'
 import { accessChanged, filesChanged, reloadAsked, skillsChanged } from '../../store/live'
 import { isAdmin, useMeStrict } from '../../store/session'
 import { quietLink } from './SkillShareReview'
@@ -35,8 +36,9 @@ import { Button, useMediaQuery } from '../ui'
 export const PREPARED_SKILL_ROWS = 3
 const PHONE = '(max-width: 767.98px)'
 
-/** A file change the block cares about: a skill, the team's group folders, the company profile. */
-const touches = (changes: FileChange[]) => changes.some((c) => [c.path, c.from].some((p) => !!p && (isSkillsPath(p) || p.startsWith('groups/'))))
+/** A file change the block cares about: a skill, the team's group folders, shared/ (the company start of a team that
+ * began after docs/DECISIONS.md "Team folder basics"), the company profile. */
+const touches = (changes: FileChange[]) => changes.some((c) => [c.path, c.from].some((p) => !!p && (isSkillsPath(p) || p.startsWith('groups/') || p.startsWith('shared/'))))
 
 /** How long the block waits after a change it hears of before it reads again: a team folder where many files change at
  * once (a folder upload, a sync) is one read, not one per file. */
@@ -70,8 +72,9 @@ export function useTeamPrepared(enabled = true, again: unknown = null): { data: 
   return { data, failed, reload: () => { setFailed(false); setAttempt((n) => n + 1) } }
 }
 
-/** The team folder as people read it: "groups/Acme/회사 자료" → "Acme › 회사 자료". */
-export const folderLabel = (path: string) => path.replace(/^groups\//, '').split('/').join(' › ')
+/** The team folder as people read it: "groups/Acme/회사 자료" → "Acme › 회사 자료", "shared" → "전사 공유" (the top
+ * folders' words, shared/src/folder-labels.ts). */
+export const folderLabel = (path: string, locale: Locale = 'ko') => (path.startsWith('groups/') ? path.slice('groups/'.length).split('/').join(' › ') : labeledPath(path, locale, null, ' › '))
 
 /** What the block shows for this person (the rules above), apart from the data load. Exported for its test. */
 export function preparedView(d: TeamPreparedData, o: { firstTime: boolean; admin: boolean; readOnly: boolean }) {
@@ -102,6 +105,7 @@ export interface TeamPreparedProps {
 
 export function TeamPrepared({ firstTime, onCompose, readOnly = false, onSkillRows }: TeamPreparedProps) {
   const t = useT()
+  const locale = useLocale()
   const me = useMeStrict()
   const admin = isAdmin(me)
   const phone = useMediaQuery(PHONE)
@@ -207,7 +211,7 @@ export function TeamPrepared({ firstTime, onCompose, readOnly = false, onSkillRo
           ) : (
             <li className="flex min-h-11 items-center gap-3 py-1.5" data-testid="team-prepared-files" data-primary={v.primary === 'files' || undefined}>
               <span className="w-32 shrink-0 text-sm font-medium text-ink">{t('home.prepared.files')}</span>
-              <span className="min-w-0 flex-1 truncate text-label text-muted" title={v.files.path}>{folderLabel(v.files.path)} · {count(v.files)}</span>
+              <span className="min-w-0 flex-1 truncate text-label text-muted" title={v.files.path}>{folderLabel(v.files.path, locale)} · {count(v.files)}</span>
               {!readOnly && (
                 <Button size="sm" variant={v.primary === 'files' ? 'primary' : 'secondary'} onClick={() => askFiles(v.files!)} aria-label={t('home.prepared.askNamed')} data-testid="team-prepared-ask">
                   {t('home.prepared.ask')}
