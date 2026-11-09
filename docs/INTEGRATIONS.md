@@ -414,7 +414,9 @@ connections with their address and the first 1,000 characters of their notes.
   first; a write over 100,000 characters is refused, never shown cut); `allow` sends. `allow` is for team connections
   only (an admin's choice): a personal connection is refused it and asks. With nobody to ask (a scheduled run, no chat)
   a write is refused, except to an `allow` team connection that the schedule's own card allowed (docs/DECISIONS.md
-  "Outbound web channels").
+  "Outbound web channels"). That card offers only the `allow` team connections the task names: in its title or
+  instruction, or in `schedule_create`'s `connections`; an edit's card also offers again the ones the task may already
+  send to (docs/DECISIONS.md "The schedule card offers only the connections the task names").
 - Results are wrapped as external data (`<external_data source="<name>">`, the closing tag neutralised inside), and the
   instructions tell the AI that they are data, never instructions.
 - **Read scope**: an answer from a personal connection counts like the person's own folder (`{type:'user'}`); from a team

@@ -63,3 +63,29 @@ test('a real context restart reconciles a persisted missed terminal event withou
   expect(n.list('olga', {}).items).toMatchObject([{ sourceId: 'missed-during-crash' }])
   n.reconcile(); expect(n.list('olga', {}).items).toHaveLength(1)
 })
+
+test('a scheduled run names its task while the task is mine and there', async () => {
+  const n = await setup(), at = new Date().toISOString()
+  // a task title is the person's own words: one plain line in the Inbox
+  h.ctx.db.query("INSERT INTO schedules (id, user_id, title, prompt, repeat, time) VALUES ('schedule-1', 'olga', ?, 'p', 'daily', '09:00')").run('Weekly\nreport‮')
+  terminal('turn-1', 'done')
+  terminal('turn-2', 'error')
+  // an admission skip and a run that needed my own key name the task too
+  h.ctx.db.query('INSERT INTO schedule_outcomes VALUES(?,?,?,?,?,?)').run('skip-id', 'olga', 'schedule-1', 'due', 'budget_exceeded', at)
+  h.ctx.db.query('INSERT INTO schedule_template_skips (id, user_id, schedule_id, scheduled_for, template_id, template_name, created_at) VALUES (?,?,?,?,?,?,?)').run('needs-id', 'olga', 'schedule-1', 'due-2', 'tpl', 'Tasks', at)
+  n.reconcile()
+  const titled = () => Object.fromEntries(n.list('olga', {}).items.map((x) => [x.sourceId, x.schedule?.title ?? null]))
+  expect(titled()).toEqual({ 'turn-1': 'Weekly report', 'turn-2': 'Weekly report', 'skip-id': 'Weekly report', 'needs-id': 'Weekly report' })
+  const one = n.list('olga', {}).items.find((x) => x.sourceId === 'turn-1')!
+  expect(n.get('olga', one.id).schedule).toEqual({ title: 'Weekly report' })
+  // someone else's task of the same id never names mine; a deleted task: no title, the generic line
+  h.ctx.db.query("INSERT INTO users (id, username, name, role) VALUES ('gina', 'gina', 'Gina Han', 'member')").run()
+  h.ctx.db.query("UPDATE schedules SET user_id='gina' WHERE id='schedule-1'").run()
+  expect(Object.values(titled())).toEqual([null, null, null, null])
+  h.ctx.db.query("UPDATE schedules SET user_id='olga' WHERE id='schedule-1'").run()
+  h.ctx.db.query("DELETE FROM schedules WHERE id='schedule-1'").run()
+  expect(Object.values(titled())).toEqual([null, null, null, null])
+  // a notice that is not a scheduled run has none (a reconnect)
+  n.connectionReconnect('olga', 'opaque-episode-1')
+  expect(n.list('olga', {}).items.filter((x) => x.schedule)).toHaveLength(0)
+})

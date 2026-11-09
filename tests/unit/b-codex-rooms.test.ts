@@ -2,8 +2,8 @@
 // Codex gets our tools through its MCP server entry, limited to the names in mcp_servers.team.enabled_tools
 // (engine/codex.ts): every room tool must be in that list, or real Codex never sees it (the fake engine calls any tool
 // the bridge lists, so the list itself is checked here). Covered with the fake engine in Codex mode: a person's own
-// chat (rooms, room_read, room_file offered; a "#" room token; the change card after a room read), and a room's
-// session (room_file and save_room_file offered; the asking message's files; the asker's own words; a thread).
+// chat (rooms, room_read, room_file, save_room_file offered; a "#" room token; the change card after a room read), and
+// a room's session (room_file and save_room_file offered; the asking message's files; the asker's own words; a thread).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
@@ -58,21 +58,20 @@ const answerTo = async (user: string, roomId: string, q: RoomMessage) => {
 }
 
 describe("a person's own Codex chat", () => {
-  test('rooms, room_read and room_file are in Codex\'s enabled tools and its tool list; a read works and marks the chat', async () => {
+  test('rooms, room_read, room_file and save_room_file are in Codex\'s enabled tools and its tool list; a read works and marks the chat', async () => {
     const roomId = await groupChat('alice', ['erin', 'carol'], 'codex 확인방')
     await send('erin', roomId, 'codex can read this')
     const chat = await codexChat('alice')
     expect((h.ctx.db.query('SELECT engine FROM chats WHERE id = ?').get(chat) as { engine: string }).engine).toBe('codex')
     const args = await turn('alice', chat, fake({ echo: 'args' }))
     const enabled = enabledTools(args.done.content)
-    for (const t of ['rooms', 'room_read', 'room_file']) expect(enabled).toContain(t)
-    // a personal chat never gets the room session's own tools
-    expect(enabled).not.toContain('save_room_file')
+    for (const t of ['rooms', 'room_read', 'room_file', 'save_room_file']) expect(enabled).toContain(t)
+    // a personal chat never gets the room session's own reading tools (it saves a room file with its own save_room_file)
     expect(enabled).not.toContain('room_thread')
     expect(enabled).not.toContain('project_chats')
     expect(enabled).not.toContain('project_chat')
     const listed = await turn('alice', chat, fake({ echo: 'tools' }))
-    for (const t of ['rooms', 'room_read', 'room_file']) expect(listed.done.content.split(',')).toContain(t)
+    for (const t of ['rooms', 'room_read', 'room_file', 'save_room_file']) expect(listed.done.content.split(',')).toContain(t)
     const read = await turn('alice', chat, fake({ tool: 'room_read', args: { room: roomId }, sayResult: true }))
     expect(read.done.content).toContain('codex can read this')
     expect(read.done.steps!.find((s) => s.tool === 'room_read')!.label).toBe('Read conversation · codex 확인방')

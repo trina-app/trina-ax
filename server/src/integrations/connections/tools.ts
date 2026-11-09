@@ -145,7 +145,8 @@ export function recipientFields(args: unknown): { name: string; value: string }[
   return out
 }
 
-/** A scheduled run may send to an "allow" connection only when the person allowed that on the schedule's card. */
+/** A scheduled run may send to an "allow" connection only when the person allowed that on the schedule's card, which
+ * offers only the connections the task names (tools/schedules.ts taskConnections). */
 function scheduleMayWrite(ctx: AppContext, turnId: string, connectionId: string): boolean {
   const r = ctx.db.query('SELECT s.write_connections AS w FROM turns t JOIN schedules s ON s.id = t.schedule_id WHERE t.id = ?').get(turnId) as { w: string | null } | null
   try { const ids = JSON.parse(r?.w ?? '[]'); return Array.isArray(ids) && ids.includes(connectionId) } catch { return false }
@@ -161,7 +162,7 @@ async function gate(ctx: AppContext, row: Row, what: string, sent: Sent, b: Buil
   if (row.write_policy === 'deny') throw new CallError(`${row.name} is set to refuse changes from the AI, so nothing was sent. Tell the user; whoever manages the connection can change that in its settings.`, 'refused (write policy deny)')
   if (row.write_policy === 'allow' && row.scope === 'team') {
     if (!b.scheduled || scheduleMayWrite(ctx, b.turnId, row.id)) return false
-    throw new CallError(`this is a scheduled run and the user did not allow this scheduled task to send to ${row.name} when it was created, so nothing was sent. Say so in the summary; the user can do it in a chat or create the task again.`, 'refused (scheduled run not allowed)')
+    throw new CallError(`this is a scheduled run and this scheduled task may not send to ${row.name} (its card offers sending only to the connections the task names, and only when the user allows it there), so nothing was sent. Say so in the summary; the user can do it in a chat, or edit the task in Scheduled tasks (or create it again) naming ${row.name} and allow sending to it.`, 'refused (scheduled run not allowed)')
   }
   const person = b.scheduled ? null : tc.files.person
   if (!person) throw new CallError(`this would change something at ${row.name} and nobody can confirm it here (a scheduled run), so nothing was sent. Ask the user to do it in a chat.`, 'refused (nobody to ask)')
