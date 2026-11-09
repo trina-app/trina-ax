@@ -25,8 +25,9 @@ import { parseInput, verifyChain } from '../policy/resolve'
 import { getTeamSettings } from '../admin/settings'
 import { PRODUCT } from '@mycel/shared'
 import { publishChanges } from './changes'
-import { fileError } from './errors'
+import { FileError, fileError } from './errors'
 import { checkRegular, copyTeamFile, freeName, hashFile, installFile, moveIntoTrash, restoredName, snapshotVersion, splitExt, treeSize } from './place'
+import { AI_TRASH_MAX_ENTRIES, AiTrashChanged, TrashStranded, aiSkillPath, holdsSkillRoot, instructionFile, sameStamps, stampTree, type Stamp } from './ai-trash'
 import crypto from 'node:crypto'
 
 /** Files the file screen treats as binary (rendered by the client from /download, never edited as text). */
@@ -57,6 +58,36 @@ export interface Actor { userId: string; turnId?: string | null }
 
 /** Who changes files: a person on the Files screen (default), or the AI in a chat turn (tools/file-moves.ts). */
 type By = { turnId?: string | null; tool?: string }
+
+/** One item the AI's delete_files card showed (chat/delete-files.ts): what the person's yes is bound to. */
+export interface AiTrashItem {
+  /** the path as the file layer resolved it for the person (the actual letter case and Unicode form) */
+  rel: string
+  kind: 'file' | 'folder'
+  /** files and folders inside it (a folder; 0 for a file) */
+  files: number
+  folders: number
+  /** every entry on disk, the item first (team-files/ai-trash.ts) */
+  entries: Stamp[]
+  /** who of the other active people can read it, who can write it, and their roles now (a hash) */
+  audience: string
+}
+/** What one delete_files call would put in the trash, as its card says it (TeamFiles.planAiTrash). */
+export interface AiTrashPlan {
+  items: AiTrashItem[]
+  /** entries in all, the items and everything inside them (at most AI_TRASH_MAX_ENTRIES) */
+  entries: number
+  /** the team's trash setting when the card was made; purged that many days after it goes */
+  retentionDays: number
+  /** other active people who can read at least one item now: they no longer can */
+  lost: number
+  /** of those, the people who cannot write it: they cannot see it in the trash, so cannot restore it */
+  noRestore: number
+  /** other people who made or changed these files, as the file history shows them to this person */
+  others: UserRef[]
+}
+/** delete_files' refusal for a skill root (also TeamFiles.remove's for every AI turn). */
+export const AI_SKILL_TRASH_REFUSAL = 'a skill folder (skills/, a group\'s, a project\'s or a person\'s own skills: what people\'s AI follows), something in one, or a folder that holds one: skills are not deleted from a chat. The user deletes it on the Files screen or the Skills page'
 
 export class TeamFiles {
   /** sha256 by (path, inode, size, mtime) so repeated previews of big files don't re-hash */
@@ -769,11 +800,24 @@ export class TeamFiles {
   }
 
   // ---------------- delete -> trash ----------------
-  remove(userId: string, rel: string, turnId: string | null = null, o: { projectFolder?: boolean } = {}): { trashId: string; purgeAt: string } {
+  /**
+   * `turnId`: an AI turn's delete (chat/delete-files.ts, the only one): it never takes a skill root, something in one
+   * or a folder that holds one, whatever the role (fail closed here, not only in the tool), and nothing without `ai`,
+   * the item its card showed. With `ai` the item must still be exactly that: the same entry, still one the AI may put
+   * in the trash, the same people reading and writing it, the same entries on disk (checked right before the move and
+   * again where it went, in the same synchronous block as moveIntoTrash), and the same trash setting. A folder that
+   * changed between the two checks goes back where it was (`AiTrashChanged`); one that cannot go back (something took
+   * its place meanwhile) stays in the trash with its row, nothing lost, and `changed` says so.
+   */
+  remove(userId: string, rel: string, turnId: string | null = null, o: { projectFolder?: boolean; ai?: { item: AiTrashItem; retentionDays: number } } = {}): { trashId: string; purgeAt: string; changed?: true } {
     const user = this.principal(userId)
     const rules = this.rules()
     const r = authorize(this.fx, rules, user, rel, 'write', { mustExist: true })
     this.assertMovable(r.segs)
+    if (turnId !== null) {
+      if (aiSkillPath(r.rel) || (r.st!.isDirectory() && holdsSkillRoot(r.segs))) throw new Denied(AI_SKILL_TRASH_REFUSAL)
+      if (!o.ai) throw new Denied('an AI turn puts things in the trash only with delete_files, after the user\'s yes on its card')
+    }
     // trashing a group / project / rule folder takes it from everyone who works there: admins and the owner only. Not
     // asked for the folder of a team project its editor deletes along with it (routes/chats.ts deleteProject: the
     // project's creator or an admin, a projects/<name> folder they write; a folder inside it they cannot write still
@@ -786,33 +830,311 @@ export class TeamFiles {
     let size: number
     if (isDir) { this.assertSubtreeWritable(user, rules, r.segs); size = treeSize(r.abs).bytes }
     else size = checkRegular(r.abs).size
+    const ai = o.ai
+    if (ai) this.aiItemStill(user, rules, ai.item, r)
+    const days = getTeamSettings(this.ctx.db).trashRetentionDays
+    if (ai && days !== ai.retentionDays) throw new AiTrashChanged(r.rel)
     const id = newId()
-    const purgeAt = iso(Date.now() + getTeamSettings(this.ctx.db).trashRetentionDays * DAY)
+    const purgeAt = iso(Date.now() + days * DAY)
     const db = this.ctx.db
     const readers = this.readersOf(rules, r.segs)
-    db.transaction(() => {
-      const storage = moveIntoTrash(this.root, r.segs)
+    let changed = false
+    /** the item's rows in the trash list, as one set of writes (inside the move's transaction, or again in a rescue) */
+    const record = (storage: string, rescued: boolean) => {
+      db.query('INSERT INTO trash_items (id, original_path, storage_path, size, deleted_by, turn_id, purge_at, kind) VALUES (?,?,?,?,?,?,?,?)')
+        .run(id, r.rel, storage, size, userId, turnId, purgeAt, isDir ? 'folder' : 'file')
+      // the folder's rules go with it (parked under its trash path): a new folder made at the same path does not
+      // inherit them, and the deleted one gets them back wherever it is restored
+      if (isDir) rebaseFolders(db, r.rel, storage)
+      // the team projects of this folder and below go with it: admins and the owner only until it comes back
+      // (chat/projects.ts canSeeProject), and they follow it when it is restored. A project already marked keeps the
+      // folder trashed first. Personal projects are their person's in the trash too.
+      if (isDir && r.segs[0] !== 'users') db.query("UPDATE projects SET trashed_with = ? WHERE trashed_with IS NULL AND substr(folder_path, 1, 6) <> 'users/' AND (folder_path = ? OR substr(folder_path, 1, length(?) + 1) = ? || '/')").run(id, r.rel, r.rel, r.rel)
+      fileEvent(db, { turnId, userId, path: r.rel, action: 'delete', size, detail: { folder: isDir, trashId: id, ...(ai ? { tool: 'delete_files' } : {}), ...(changed ? { changedWhileMoving: true } : {}), ...(rescued ? { rescued: true } : {}) } })
+    }
+    // an item that went to the trash storage, whose rows then failed and which could not go back (something took its place)
+    const out: { stranded: { storage: string; cause: unknown } | null } = { stranded: null }
+    try {
+      db.transaction(() => {
+        if (ai && !this.aiSameOnDisk(r.abs, ai.item)) throw new AiTrashChanged(r.rel)
+        const storage = moveIntoTrash(this.root, r.segs)
+        const storageAbs = path.join(this.root, ...storage.split('/'))
+        // a folder can still change between that check and the move: a dev-environment job writes project folders from
+        // outside this process (devenv/srt/access.ts). Checked again where it is now; put back when it differs
+        if (ai && !this.aiSameOnDisk(storageAbs, ai.item)) {
+          if (this.putBack(storageAbs, r.segs)) throw new AiTrashChanged(r.rel)
+          changed = true
+          this.ctx.log.warn('an item the AI put in the trash changed while it moved and could not go back; it stays in the trash', { path: r.rel, turn: turnId })
+        }
+        try { record(storage, false) } catch (e) {
+          // back where it was, and never over what took that place meanwhile (a writer outside this process); when it
+          // cannot go back it must not stay without a row (below)
+          if (!this.putBack(storageAbs, r.segs)) out.stranded = { storage, cause: e }
+          throw e
+        }
+      })()
+    } catch (e) {
+      const s = out.stranded
+      if (!s) throw e
+      // the rows were rolled back and the item could not go back: it sits in the trash storage. Logged at error level with
+      // where it is, then its rows are written once more, and failing that the trash row alone, so it can be restored
+      this.ctx.log.error('an item in the trash storage could not go back and its trash rows failed; writing them again', { path: r.rel, storage: s.storage, err: s.cause })
+      let rescued = false
+      try { db.transaction(() => record(s.storage, true))(); rescued = true } catch (again) {
+        // the row alone only for an item that carries no folders rows and no project: a folder's rules (and a project's
+        // place) stay at the old path without rebaseFolders, so whatever took that place would get them, and the item
+        // would come back from the trash with none (review of #278: a closed folder's files readable by every member
+        // after a restore). Such an item stays only in the trash storage, logged above, for an admin to recover
+        if (isDir && this.holdsFolderRows(r.rel)) {
+          this.ctx.log.error('the trash rows failed again and the folder carries folder rules or a project: it stays only in the trash storage', { path: r.rel, storage: s.storage, err: again })
+        } else {
+          this.ctx.log.error('the trash rows failed again; writing the trash row alone', { path: r.rel, storage: s.storage, err: again })
+          try {
+            db.query('INSERT INTO trash_items (id, original_path, storage_path, size, deleted_by, turn_id, purge_at, kind) VALUES (?,?,?,?,?,?,?,?)')
+              .run(id, r.rel, s.storage, size, userId, turnId, purgeAt, isDir ? 'folder' : 'file')
+            rescued = true
+          } catch (last) { this.ctx.log.error('no trash row could be written: the item is only in the trash storage', { path: r.rel, storage: s.storage, err: last }) }
+        }
+      }
+      if (!rescued) throw new TrashStranded(r.rel, s.storage)
+    }
+    const followUp = () => {
+      this.dropTextCache(r.rel, isDir)
+      // whoever could read it and cannot see it in the trash either (they could restore it from there) lost it
+      const t = this.trashRow(id)
+      const after = this.rules()
+      this.dropSessionsOf(readers.filter((p) => !t || !this.trashVisible(p, after, t)), { path: r.rel })
+      // a trashed folder's rules were parked with it: judge the deleted path by the rules as they were before
+      this.publish([{ path: r.rel, action: 'delete', by: this.by(userId), turnId }], rules)
+    }
+    // the AI's delete: it is in the trash now, with its row, whatever a listener does next; the call says so (its trash
+    // id goes into the audit row)
+    if (ai) { try { followUp() } catch (e) { this.ctx.log.warn('after the AI put an item in the trash, a follow-up failed', { err: e, path: r.rel }) } }
+    else followUp()
+    return { trashId: id, purgeAt, ...(changed ? { changed: true as const } : {}) }
+  }
+
+  /** Any folders row (rules, a group's folder, a stamp versions are judged by) or any project at `rel` or below it. Fails
+   * closed: a table that cannot be read counts as rows. */
+  private holdsFolderRows(rel: string): boolean {
+    const db = this.ctx.db
+    // exact, and on a case-insensitive volume also without letter case (SQLite folds ASCII only; the exact form covers
+    // the names as the file layer resolved them)
+    const one = (c: string) => `(${c} = ?1 OR substr(${c}, 1, length(?1) + 1) = ?1 || '/')`
+    const under = (col: string) => this.fx.caseInsensitive ? `(${one(col)} OR ${one(`lower(${col})`).replaceAll('?1', 'lower(?1)')})` : one(col)
+    try {
+      return !!db.query(`SELECT 1 FROM folders WHERE ${under('path')} LIMIT 1`).get(rel) || !!db.query(`SELECT 1 FROM projects WHERE ${under('folder_path')} LIMIT 1`).get(rel)
+    } catch { return true }
+  }
+
+  /** Put an item the AI was moving into the trash back at `segs` (it changed on the way). Only where nothing took its
+   * place meanwhile and the folders above are still folders: a rename would replace a file or an empty folder made
+   * there. false: it could not go back. */
+  private putBack(fromAbs: string, segs: string[]): boolean {
+    try {
+      verifyChain(this.root, segs, true)
+      const to = path.join(this.root, ...segs)
+      try { fs.lstatSync(to); return false } catch (e: any) { if (e?.code !== 'ENOENT') return false }
+      fs.renameSync(fromAbs, to)
+      return true
+    } catch { return false }
+  }
+
+  // ---------------- the AI's delete_files (chat/delete-files.ts) ----------------
+  /**
+   * Why the AI may not put `segs` in the trash, for every role (admins and the owner included), or null. Never the
+   * team root, a top-level folder, .system, chat attachments, someone else's personal folder, a hidden item, a skill
+   * root, something in one or a folder that holds one, an instruction file, a group / project / rule folder or a
+   * folder that holds one (managedInside), a plugin's folder or one that holds it, or the target of an open upload
+   * link. The Files screen keeps its own rules (assertMovable, assertMayChangeManaged): this is on top of them.
+   */
+  private aiTrashRefusal(user: Principal, rules: RuleSet, segs: string[], isDir: boolean): string | null {
+    const rel = segs.join('/')
+    const fold = (x: string) => x.normalize('NFC').toLowerCase()
+    if (segs.length === 0 || fold(segs[0]!) === fold(PRODUCT.systemDir)) return 'the team root and the system folder never go to the trash'
+    if (segs.some((x) => fold(x) === '.attachments')) return 'chat attachments (.attachments) go with their chats, not to the trash'
+    if (fold(segs[0]!) === 'users' && segs.length >= 2 && segs[1] !== user.id) return 'another person\'s folder'
+    if (isDir && segs.length === 1) return 'a top-level folder never goes to the trash from a chat; an admin deletes it on the Files screen'
+    if (aiSkillPath(rel) || (isDir && holdsSkillRoot(segs))) return AI_SKILL_TRASH_REFUSAL
+    if (segs.some((x) => x.startsWith('.'))) return 'a hidden item; the user deletes it on the Files screen'
+    if (instructionFile(rel)) return 'an instruction file (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md: what an AI follows); the user deletes it on the Files screen'
+    if (this.managedInside(rules, rel)) return 'a group, project or rule folder, or a folder that holds one: an admin deletes it on the Files screen'
+    // a personal project's folder too (managedInside leaves users/ out): the project would lose its folder
+    if (isDir && this.projectAtOrBelow(rel)) return 'a project\'s folder, or a folder that holds one: the user deletes the project on the Projects screen'
+    if (this.fx.managed?.managerOf(segs) || this.fx.managed?.heldBelow(segs)) return 'a plugin\'s folder, or one that holds it: an admin turns the plugin off in Admin > Plugins'
+    if (this.linkTarget(rel, isDir)) return 'an open upload link points here; it can go to the trash once the link is used or expires'
+    return null
+  }
+
+  /** A live project (not in the trash) uses `rel` or a folder below it, personal projects included. */
+  private projectAtOrBelow(rel: string): boolean {
+    const k = (p: string) => volumeKey(p, this.fx.caseInsensitive)
+    const me = k(rel)
+    const rows = this.ctx.db.query('SELECT folder_path FROM projects WHERE trashed_with IS NULL').all() as { folder_path: string }[]
+    return rows.some((x) => { const p = k(x.folder_path); return p === me || p.startsWith(me + '/') })
+  }
+
+  /** An unused, unexpired upload link of the app connector (connectors/remote-mcp/upload-link.ts) points at `rel` (or,
+   * for a folder, somewhere inside it). Fails closed: a link table that cannot be read counts as a link. */
+  private linkTarget(rel: string, isDir: boolean): boolean {
+    const k = (p: string) => volumeKey(p.split('/').filter((x) => x !== '' && x !== '.').join('/'), this.fx.caseInsensitive)
+    const me = k(rel)
+    let rows: { path: string }[]
+    try { rows = this.ctx.db.query('SELECT path FROM remote_mcp_upload_links WHERE used_at IS NULL AND expires_at > ?').all(Date.now()) as { path: string }[] } catch { return true }
+    return rows.some((x) => { const p = k(x.path); return p === me || (isDir && p.startsWith(me + '/')) })
+  }
+
+  /** The other active people who can read `segs` now and who can write it (they see it in the trash and may restore
+   * it), with a hash of who they are, what they may do and their role. */
+  private aiAudience(rules: RuleSet, self: string, segs: string[]): { fingerprint: string; readers: string[]; writers: string[] } {
+    const rows: string[] = [], readers: string[] = [], writers: string[] = []
+    for (const p of activePeople(this.ctx.db)) {
+      if (p.id === self) continue
+      const a = rules.access(p, segs)
+      const read = atLeast(a, 'read'), write = a === 'write'
+      rows.push(JSON.stringify([p.id, p.role, read, write]))
+      if (read) readers.push(p.id)
+      if (write) writers.push(p.id)
+    }
+    return { fingerprint: crypto.createHash('sha256').update(JSON.stringify(rows.sort())).digest('hex'), readers, writers }
+  }
+
+  /** The people (not `user`) who made or changed the file `rel`, as its history shows it to `user` (history(): only
+   * where they may read the place it happened, judged where that place is now). */
+  private historyPeople(user: Principal, rules: RuleSet, rel: string, into: Set<string>) {
+    const db = this.ctx.db
+    const readable = (p: string) => atLeast(rules.access(user, segsOf(p)), 'read')
+    for (const e of fileTimeline(db, rel, { limit: 50 })) {
+      if (!CONTENT_KINDS.has(e.kind) || !e.userId || e.userId === user.id || into.has(e.userId) || !readable(e.path)) continue
+      const now = placeNow(db, e.path, e.id)
+      if ('at' in now ? now.at === e.path || readable(now.at) : user.role === 'owner' || user.role === 'admin') into.add(e.userId)
+    }
+  }
+
+  /**
+   * Is `item` still exactly what the card showed: the same entry for this person (`r`, resolved again), still one the
+   * AI may put in the trash, the same audience, the same entries on disk? Throws AiTrashChanged (or the access error).
+   */
+  private aiItemStill(user: Principal, rules: RuleSet, item: AiTrashItem, r?: Authorized) {
+    const now = r ?? authorize(this.fx, rules, user, item.rel, 'write', { mustExist: true })
+    if (now.rel !== item.rel) throw new AiTrashChanged(item.rel)
+    const isDir = now.st!.isDirectory()
+    if ((item.kind === 'folder') !== isDir) throw new AiTrashChanged(item.rel)
+    const no = this.aiTrashRefusal(user, rules, now.segs, isDir)
+    if (no) throw new Denied(no)
+    if (this.aiAudience(rules, user.id, now.segs).fingerprint !== item.audience) throw new AiTrashChanged(item.rel)
+    if (!this.aiSameOnDisk(now.abs, item)) throw new AiTrashChanged(item.rel)
+  }
+  /** The entries at `abs` (the item where it is, or where it went in the trash) are exactly the card's. */
+  private aiSameOnDisk(abs: string, item: AiTrashItem): boolean {
+    try { return sameStamps(stampTree(abs, item.entries.length), item.entries) } catch { return false }
+  }
+
+  /**
+   * What one delete_files call would put in the trash, before its card: each path resolved for the person like the
+   * Files screen's delete (write access, the same normalization as every file tool: no absolute paths, no '..', the
+   * actual letter case and Unicode form), then the AI's own refusals (aiTrashRefusal). Any refused path refuses the
+   * whole call (`refused`, each with its reason): the card shows only a call that runs as asked. Duplicates (another
+   * spelling of the same entry) and items inside a listed folder go once. Every entry is walked and counted, inside
+   * folders too, and the walk stops past AI_TRASH_MAX_ENTRIES (a ToolError). Nothing changes.
+   */
+  planAiTrash(userId: string, paths: readonly string[]): { plan: AiTrashPlan } | { refused: { path: string; error: string }[] } {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    const refused: { path: string; error: string }[] = []
+    const found: { r: Authorized; isDir: boolean }[] = []
+    for (const p of paths) {
       try {
-        db.query('INSERT INTO trash_items (id, original_path, storage_path, size, deleted_by, turn_id, purge_at, kind) VALUES (?,?,?,?,?,?,?,?)')
-          .run(id, r.rel, storage, size, userId, turnId, purgeAt, isDir ? 'folder' : 'file')
-        // the folder's rules go with it (parked under its trash path): a new folder made at the same path does not
-        // inherit them, and the deleted one gets them back wherever it is restored
-        if (isDir) rebaseFolders(db, r.rel, storage)
-        // the team projects of this folder and below go with it: admins and the owner only until it comes back
-        // (chat/projects.ts canSeeProject), and they follow it when it is restored. A project already marked keeps the
-        // folder trashed first. Personal projects are their person's in the trash too.
-        if (isDir && r.segs[0] !== 'users') db.query("UPDATE projects SET trashed_with = ? WHERE trashed_with IS NULL AND substr(folder_path, 1, 6) <> 'users/' AND (folder_path = ? OR substr(folder_path, 1, length(?) + 1) = ? || '/')").run(id, r.rel, r.rel, r.rel)
-        fileEvent(db, { turnId, userId, path: r.rel, action: 'delete', size, detail: { folder: isDir, trashId: id } })
-      } catch (e) { fs.renameSync(path.join(this.root, ...storage.split('/')), r.abs); throw e }
-    })()
-    this.dropTextCache(r.rel, isDir)
-    // whoever could read it and cannot see it in the trash either (they could restore it from there) lost it
-    const t = this.trashRow(id)
-    const after = this.rules()
-    this.dropSessionsOf(readers.filter((p) => !t || !this.trashVisible(p, after, t)), { path: r.rel })
-    // a trashed folder's rules were parked with it: judge the deleted path by the rules as they were before
-    this.publish([{ path: r.rel, action: 'delete', by: this.by(userId), turnId }], rules)
-    return { trashId: id, purgeAt }
+        const r = authorize(this.fx, rules, user, p, 'write', { mustExist: true })
+        const isDir = r.st!.isDirectory()
+        if (!isDir) checkRegular(r.abs)
+        const no = this.aiTrashRefusal(user, rules, r.segs, isDir)
+        if (no) refused.push({ path: r.rel, error: no })
+        else found.push({ r, isDir })
+      } catch (e) { refused.push({ path: p, error: aiReason(e) }) }
+    }
+    if (refused.length) return { refused }
+    const key = (p: string) => volumeKey(p, this.fx.caseInsensitive)
+    const uniq = new Map<string, { r: Authorized; isDir: boolean }>()
+    for (const f of found) if (!uniq.has(key(f.r.rel))) uniq.set(key(f.r.rel), f)
+    const all = [...uniq.values()]
+    const listed = all.filter((f) => !all.some((g) => g !== f && g.isDir && key(f.r.rel).startsWith(key(g.r.rel) + '/')))
+    const tooMany = `more than ${AI_TRASH_MAX_ENTRIES} files and folders (everything inside a folder counts), so nothing was moved to the trash. Ask the user to delete fewer at once, or to delete it on the Files screen`
+    let total = 0
+    const items: AiTrashItem[] = []
+    const lost = new Set<string>(), noRestore = new Set<string>(), others = new Set<string>()
+    for (const f of listed) {
+      let entries: Stamp[] | null
+      try { entries = stampTree(f.r.abs, AI_TRASH_MAX_ENTRIES - total) } catch { return { refused: [{ path: f.r.rel, error: 'it could not be read through' }] } }
+      if (!entries) throw new ToolError(tooMany, 'too_many')
+      total += entries.length
+      // inside a folder too: no skill root, no chat attachments, no instruction file, nothing a plugin manages
+      for (const e of entries) {
+        if (!e.rel) continue
+        const full = `${f.r.rel}/${e.rel}`
+        const segs = segsOf(full)
+        const no = aiSkillPath(full) ? AI_SKILL_TRASH_REFUSAL : segs.at(-1)!.normalize('NFC').toLowerCase() === '.attachments' ? 'it holds chat attachments (.attachments)'
+          : instructionFile(full) ? `it holds an instruction file (${full}); the user deletes it on the Files screen` : this.fx.managed?.managerOf(segs) ? 'it holds a plugin\'s folder' : null
+        if (no) return { refused: [{ path: f.r.rel, error: no }] }
+      }
+      const aud = this.aiAudience(rules, user.id, f.r.segs)
+      for (const id of aud.readers) { lost.add(id); if (!aud.writers.includes(id)) noRestore.add(id) }
+      for (const e of entries) if (e.kind === 'file') this.historyPeople(user, rules, e.rel ? `${f.r.rel}/${e.rel}` : f.r.rel, others)
+      items.push({
+        rel: f.r.rel, kind: f.isDir ? 'folder' : 'file',
+        files: f.isDir ? entries.filter((e) => e.kind !== 'dir').length : 0, folders: entries.filter((e) => e.rel && e.kind === 'dir').length,
+        entries, audience: aud.fingerprint,
+      })
+    }
+    const refs = this.userRefs([...others])
+    const coll = new Intl.Collator(undefined, { sensitivity: 'base' })
+    return {
+      plan: {
+        items, entries: total, retentionDays: getTeamSettings(this.ctx.db).trashRetentionDays, lost: lost.size, noRestore: noRestore.size,
+        others: [...others].map((id) => refs.get(id) ?? { id, name: id }).sort((a, b) => coll.compare(a.name, b.name)),
+      },
+    }
+  }
+
+  /**
+   * After the person's yes on delete_files' card: every item checked again first (aiItemStill, the trash setting), in
+   * this one synchronous block, so no other call of this server (a move_files of the same turn, a save) runs between
+   * the checks and the moves; any item that changed since the card stops the whole call before anything moves
+   * (`changed`, nothing trashed). Then each item goes with remove(), which checks it once more around the move itself
+   * (a writer outside this process, devenv/srt/access.ts). What went, what changed on the way (put back, or kept in
+   * the trash when it could not go back) and what failed.
+   */
+  trashAiPlan(userId: string, plan: AiTrashPlan, turnId: string): { trashed: { path: string; trashId: string; purgeAt: string; changed?: true }[]; changed: string[]; failed: { path: string; error: string }[]; stranded: { path: string; storage: string }[] } {
+    const user = this.principal(userId)
+    const rules = this.rules()
+    if (getTeamSettings(this.ctx.db).trashRetentionDays !== plan.retentionDays) return { trashed: [], changed: plan.items.map((i) => i.rel), failed: [], stranded: [] }
+    for (const item of plan.items) {
+      try { this.aiItemStill(user, rules, item) }
+      catch (e) {
+        if (e instanceof AiTrashChanged || (e instanceof ToolError && e.code === 'not_found') || e instanceof Denied) return { trashed: [], changed: [item.rel], failed: [], stranded: [] }
+        throw e
+      }
+    }
+    const out: ReturnType<TeamFiles['trashAiPlan']> = { trashed: [], changed: [], failed: [], stranded: [] }
+    for (const item of plan.items) {
+      try { out.trashed.push({ path: item.rel, ...this.remove(userId, item.rel, turnId, { ai: { item, retentionDays: plan.retentionDays } }) }) }
+      catch (e) {
+        if (e instanceof AiTrashChanged) out.changed.push(item.rel)
+        // moved out of its place, but no trash row could be written: not "not moved" (remove(); the log says where)
+        else if (e instanceof TrashStranded) out.stranded.push({ path: item.rel, storage: e.storage })
+        else out.failed.push({ path: item.rel, error: aiReason(e) })
+      }
+    }
+    return out
+  }
+
+  /** A path an AI turn put in the trash (still there), or one inside such a folder: never a "new" file for a room's
+   * grant (chat/turn.ts roomGrantTarget). Rooms do not get delete_files; this keeps it so if that ever changes. */
+  aiTrashed(rel: string): boolean {
+    const k = (p: string) => volumeKey(p, this.fx.caseInsensitive)
+    const me = k(rel)
+    const rows = this.ctx.db.query('SELECT original_path FROM trash_items WHERE restored_at IS NULL AND turn_id IS NOT NULL').all() as { original_path: string }[]
+    return rows.some((t) => { const p = k(t.original_path); return p === me || me.startsWith(p + '/') })
   }
 
   // ---------------- history ----------------
@@ -1256,6 +1578,9 @@ export class TeamFiles {
     return { trash, versions }
   }
 }
+
+/** The reason a delete_files path failed, for the AI: the checks' own words; anything else is not shown. */
+const aiReason = (e: unknown) => (e instanceof Denied || e instanceof ToolError || e instanceof HttpError || e instanceof FileError ? e.message : 'internal error')
 
 /** Every active person with their groups (who could be affected by an audience change). */
 export function activePeople(db: AppContext['db']): Principal[] {
