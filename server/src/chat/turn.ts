@@ -1537,10 +1537,10 @@ export class TurnExec {
     // the rest of the chat (docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기")
     const own = !this.room
     if (own ? !this.roomsSeen || ROOMS_SEEN_READ_ONLY_TOOLS.has(tool) || (this.browser && ROOMS_SEEN_BROWSER_READ_TOOLS.has(tool)) : ROOM_READ_ONLY_TOOLS.has(tool)) return null
-    // a tool with its own card asks there alone, every time, with this card's line (ownCard); a connection's read goes on
-    // without a card unless its arguments carry an address or a random-looking part (tools/url-gate.ts carriesAddress:
-    // then this card). Its arguments go to the service the person or the team connected
-    if (own && this.ownCard(tool) && !(this.readsOnly(tool, input) && carriesAddress(input))) return null
+    // a connection's read goes on without a card (ownCard: the person there to answer) unless its arguments carry an
+    // address or a random-looking part (tools/url-gate.ts carriesAddress: then this card). Its arguments go to the
+    // service the person or the team connected
+    if (own && this.ownCard(tool) && this.readsOnly(tool, input) && !carriesAddress(input)) return null
     // a skill, team rule or instruction file changes from a room only with all of its new content on the card
     const w = roomChangeWrites(tool, input, (p) => this.visibleTree(p), this.spec.userId)
     if (!w.shown && w.targets.some(instructionLike)) {
@@ -1548,6 +1548,9 @@ export class TurnExec {
         ? `Not done (${tool}): this chat holds messages from the user's team chat rooms (other people's words), so a skill, team rule or instruction file (skills/, a person's skills, CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md) is changed here only when the user can see all of its new content on the confirmation card, and this call's content cannot be shown there (it comes from a file, a template or the web, or files are moved, copied or renamed into place). Nothing was changed. Tell the user so: they can do it in a new chat, or you can write the content out with write or edit.`
         : `Not done (${tool}): in a team chat room, a skill, team rule or instruction file (skills/, a person's skills, CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md) is changed only when the user can see all of its new content on the confirmation card, and this call's content cannot be shown there (it comes from a file, a template or the web, or files are moved, copied or renamed into place). Nothing was changed. Tell the user so: they can do it in their own chat, or you can write the content out with write or edit.`
     }
+    // a tool with its own card asks there alone, every time, with this card's line (ownCard); after the rule above, so a
+    // move or copy of a skill or instruction file is still refused
+    if (own && this.ownCard(tool) && !this.readsOnly(tool, input)) return null
     let args = ''
     try { args = JSON.stringify(input ?? null) } catch { args = String(input) }
     const key = `${tool}\u0000${args}`

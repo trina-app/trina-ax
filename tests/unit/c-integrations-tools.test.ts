@@ -278,6 +278,10 @@ describe('calls', () => {
     for (const method of ['GET', 'get', 'HEAD']) expect(reads('api_request', { connection: 'my_aipm', method, path: '/tasks' })).toBe(true)
     for (const method of ['POST', 'PUT', 'PATCH', 'DELETE', undefined]) expect(reads('api_request', { connection: 'my_aipm', method, path: '/tasks' })).toBe(false)
     expect(reads('api_request', null)).toBe(false)
+    // a GET whose query names where something goes (some APIs send on a GET: chat.postMessage?channel=…) is no read
+    expect(reads('api_request', { connection: 'my_aipm', method: 'GET', path: '/chat.postMessage?channel=C1&text=hi' })).toBe(false)
+    expect(reads('api_request', { connection: 'my_aipm', method: 'GET', path: '/send', query: { to: 'x@example.com' } })).toBe(false)
+    expect(reads('api_request', { connection: 'my_aipm', method: 'GET', path: '/tasks', query: { q: 'plan', limit: 5 } })).toBe(true)
   })
 
   test('after a room read (roomsSeen) the connection\'s card is the call\'s only one: "run without asking" asks too, "deny" still refuses', async () => {
@@ -308,6 +312,13 @@ describe('calls', () => {
       expect((await turn('alice', { person: quiet }).call('team_teamtasks__create_task', { title: 'not asked' })).isError).toBe(false)
       expect(quiet.questions).toHaveLength(0)
     } finally { A.ctx.db.query('DELETE FROM integrations WHERE id = ?').run(t.id) }
+    // a GET naming a recipient asks here (only here: in a chat that read no room it runs, as before)
+    const get = ask(false)
+    const before = fake.seen.length
+    expect((await turn('alice', { person: get, roomsSeen: true }).call('api_request', { connection: 'my_aipm', method: 'GET', path: '/tasks?channel=C1' })).isError).toBe(true)
+    expect(get.questions[0]).toStartWith('The AI wants to do this at AI PM: GET /api/v1/tasks')
+    expect(fake.seen.length).toBe(before)
+    expect((await turn('alice', { person: ask(false) }).call('api_request', { connection: 'my_aipm', method: 'GET', path: '/tasks?channel=C1' })).isError).toBe(false)
     const api = ask(false)
     const requests = fake.seen.length
     expect((await turn('alice', { person: api, roomsSeen: true }).call('api_request', { connection: 'my_aipm', method: 'POST', path: '/tasks', body: { title: 'x' } })).isError).toBe(true)
