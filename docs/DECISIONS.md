@@ -15986,3 +15986,73 @@ boxes); no contract, setting or data change.
 - **Words:** the server's (`/api/push` `messages.markRead`) for Web Push, the desktop app's own i18n for the Mac.
 - **Not yet:** Windows (toast XML), the iPhone app (a notification category in the extension) and Android (no FCM
   yet). A failure (signed out, room left) changes nothing; the notice stays unread in the Inbox.
+
+## 내 AI 채팅에서 대화방 파일 저장 — the AI chat saves a room's file into the team folder (feat/room-file-to-team, 2026-11-09, product owner)
+
+Amends "내 AI 채팅에서 대화방 읽기" and "Files sent in the room" ("대화방의 트리나"). The owner, in the AI chat: "leads 채널에 올린
+트리나 사업자 등록증, 다른 사람들도 다 볼 수 있게 저장해줘". The AI could read the PDF as text (`room_file`) but had no way to
+copy it (`write` saves text), so it asked for the PDF again. A room's own @트리나 session already had `save_room_file`
+("not offered in personal chats" until now).
+
+- **Decision:** the person's own AI chat gets `save_room_file` too, with the room session's name (as `room_file` has one
+  name in both): `room` (as room_read takes it), `file` (its file_id only: two files may share a name, and the card's
+  yes is for that one file) and `save_as` (a folder keeps the file's own name; the person's downloads by default).
+  `SaveRoomFileInput` is the own chat's input, `SaveRoomFileHereInput` the room session's.
+- **One path for both** (`chat/room-tools.ts` `saveTarget`, `saveRoomFile`). Reading: `findRoomFile` with the person's
+  member row, the check `room_file` uses (a room they are in now and not archived, a message they see from their join
+  on, a thread by its root, never an old answer hidden from them nor someone else's private preview, not deleted), then
+  `RoomFiles.open` again after the cards. A non-member gets the answer of a room that does not exist. Writing: the AI's
+  other byte saves' path (`placeProduced`: write access again right before the write, the skill approval it requires,
+  the storage check and per-turn file count, versions, file events, text extraction, files.changed), the placement
+  note (`chat/file-placement.ts`) and the audit line (`tool_events`).
+- **Refused before any card** (`Tool.refuse`): a name instead of a file id, a file the person cannot see, a held file,
+  skills/, an instruction file's name and, new for both, a place the person may not write (`authorize(…, 'write')`: a
+  read-only folder, one they cannot see). A call refused there counts as nothing read.
+- **The download-only list is the quarantine list.** The brief named two lists; in the code they are one
+  (`safe_ops_artifacts`, "download-only" in its messages). Such bytes are refused, as `room_file` refuses to read them
+  and as the AI cannot copy a team file with them (`authorize` refuses it without `download`). Not chosen: saving them
+  "as a file": it would hand the AI a way past the list for room files only.
+- **The room is the bytes' source.** The wider-audience check counts the room from the file's message on (a reply by its
+  root's seq), and the person alone when the message is their own private preview, as room_read records one. The owner
+  and admins rule for team rooms (`withoutTeamRoomsAdminsSee`) applies as for every save.
+- **One card per call** (as "대화방에서 새 파일은 미리 허용" for write and make_file). A tool may now say where it saves and
+  where its bytes come from (`Tool.widen`, `WidenOf.read`; `TurnExec.widenNeed` takes read sources), so the
+  wider-audience need is known before the rooms-seen card (own chat) or the room card (room session). Both needed: the
+  wider-audience card alone, with the rooms-seen line in front in the own chat and the call's details (the file by its
+  name, its room as the person sees it in the own chat ("#leads"), sender, time and size; where it goes); its yes saves
+  it. The owner's request is exactly that card and one yes. Only one of them: that one. The own chat's call marks the
+  chat (`markRoomsSeen`) before it looks anything up, a refused call too, so every save there asks one card, also first
+  thing in a new chat (a file id planted in a team file or a page copies nothing unasked). The room session's save had
+  two cards until now.
+- **No silent overwrite:** as save_url and make_file, a file already at the target that was not read in this turn is
+  kept and the copy goes next to it (a conflict copy, told to the AI); one read in this turn is updated with a version.
+- **Room sessions:** no "이 방에서는 항상 허용" for a copy. "대화방에서 새 파일은 미리 허용" left save_room_file out of grants
+  on purpose (copies, moves, save_url); the room card keeps its two buttons. Not widened here.
+- **Audit:** a save names the saved team path (it is a team file now); a refusal is audited without its words
+  ("refused: access denied", or the error's code), since they name the room file's place; no room, person or file id
+  anywhere. In a room session that was the refusal's text until now.
+- **Independent review (security, tried to break it):** two leaks fixed, both from the new refusal before the card.
+  In a room session, a refused place (read-only, hidden) told the AI what is there before `noteRoomTool` ran, so the
+  answer went to the whole room: a refusal about the place now counts save_as as a name read (`place`), and such an
+  answer stays private for a member who cannot see it. In the own chat, a refusal could show room names (several match
+  the name) or the file's name before the chat was marked as one that read rooms: the call now marks it first. Also: the
+  card's place is the place written (`plannedTargets`: a folder made where save_as named a file while the card waited
+  refuses the save). Left as is: a leading "/" in save_as is dropped (as before); a call whose input fails the schema
+  still gets the card before its error (as every tool).
+- **Words:** no new strings. The step and the card reuse "대화방 파일 저장" and the cards' strings in the five languages.
+  The instructions (`ROOMS_RULE`) and `room_file`'s description say a room file can be saved as it is, and not to ask for
+  it again; `room_file`'s notes for video, audio and scanned PDF pages point to save_room_file in a chat (the connector
+  keeps its own words).
+- **Not here:** the MCP connector. It has no card, so its read-scope guard (`checkUploadTarget`) would refuse a room
+  file into any folder wider than the room, the owner's case (shared/). Follow-up once the connector has a confirmation
+  path; until then it reads room files only.
+- Tests: `tests/unit/b-chat-rooms-save.test.ts` (offered and in the instructions; a member's PDF from a team room into a
+  new folder in shared/ with one card naming the room, the same bytes, the step, the audit line and the file event; the
+  same file again next to a changed one; a "no"; into one's own folder first thing in a new chat, the rooms-seen card
+  alone; a refusal marks the chat; a place changed while the card waited; a non-member like an unknown room; a hidden
+  answer's file, another's private preview and a name refused, the preview's owner may save; a read-only target, a
+  held file, skills/ and CLAUDE.md refused before any card; a planted request in a room needs the yes),
+  `b-rooms-ai-files.test.ts` (one card into shared/; the room card, two buttons, into one's own folder; a refused place
+  keeps the answer private), `b-chat-rooms`, `b-codex-rooms`, `b-chat`, `b-browser`, `i-wiring` (the tool in the own
+  chat's list).
+- Version impact: **minor** (a new tool in the AI chat; no API, setting or data change).
