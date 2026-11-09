@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-09 19:05
 - Branch: `feat/ai-delete-files`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/team-files/`, `server/src/chat/`, `shared/src/`). Why: files, permissions and the
   chat's tools are core (see docs/REPOSITORY-RULES.md)
 - Version impact: minor. A new AI tool and a new card; no API, setting or data change.
@@ -60,4 +60,13 @@ the security permission matrix, the whole `tests/unit` suite (failures compared 
 
 ## Result
 
-Filled in at the end.
+Built as planned (docs/DECISIONS.md "AI가 휴지통으로 옮기기"). Differences, each the safer option:
+- One refused path refuses the whole call before any card; hidden items, instruction files and project folders
+  (personal ones too) are refused as well; a chat holding room messages or asked from Slack is refused up front; no
+  answer counts as no; not offered in approved template runs.
+- After an independent review: while a delete card is open, any other card of the answer waits behind it
+  (`waitForPerson` `exclusive`); the list on the card is never folded; every call writes its audit row; once an item
+  is in the trash, a failing follow-up does not turn it into "not moved".
+- `fix/ai-skill-move-like-page` landed meanwhile and was merged in (no overlap in behaviour); `fix/ai-refusals-clear`
+  had not, so the refusals carry their own reason and next step.
+- No web component change (the card uses `details`): only the audit screen's label, in five languages.

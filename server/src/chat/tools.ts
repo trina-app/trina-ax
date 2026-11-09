@@ -135,8 +135,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   for (const t of bTools(exec)) add(t)
   for (const t of skillTools(exec)) add(t)
   // the team trash behind the server's card (chat/delete-files.ts): not offered in rooms, shared, confidential or draft
-  // chats (add() above), refused up front everywhere else but the person's own chat with the person there
-  add(deleteFilesTool(exec))
+  // chats (add() above) nor in an approved template run (its scope is fixed), refused up front everywhere else but the
+  // person's own chat with the person there
+  if (!exec.templateRun) add(deleteFilesTool(exec))
   // the person's own team chat rooms (chat/room-tools.ts): not in a room's session (ROOM_TOOLS does not list them), nor
   // in a confidential or draft chat (add() above keeps those to their own tools)
   // nor in an approved scheduled template's run (its scope is fixed; it would refuse them anyway). A room's own session

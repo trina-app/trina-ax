@@ -115,6 +115,11 @@ describe('what the AI may never put in the trash, admins and the owner included'
     put('shared/plugin-pack/x.md')
     put('shared/upload-here/old.pdf')
     put('shared/upload-done/old.pdf')
+    // a personal project's folder (managedInside leaves users/ out)
+    for (const u of ['carol', 'dana']) {
+      put(`users/${u}/projects/p1/notes.md`)
+      db.query('INSERT INTO projects (id, name, folder_path, created_by, created_at) VALUES (?,?,?,?,?)').run(uuidv7(), `P1 ${u}`, `users/${u}/projects/p1`, u, new Date().toISOString())
+    }
     // an open upload link of the app connector points into shared/upload-here; an expired one into upload-done
     db.exec('PRAGMA foreign_keys = OFF')
     db.query('INSERT INTO remote_mcp_upload_links (hash, grant_id, user_id, path, overwrite, max_bytes, created_at, expires_at) VALUES (?,?,?,?,?,?,?,?)').run('h-open', 'g-x', 'carol', 'shared/upload-here/report.pdf', 0, 1000, Date.now(), Date.now() + 600_000)
@@ -136,6 +141,7 @@ describe('what the AI may never put in the trash, admins and the owner included'
           [`users/${who}/.attachments/c1/pic.png`, /chat attachments/], ['shared/.hidden-notes.md', /hidden item/],
           ['CLAUDE.md', /instruction file|not found or no access/], ['shared/with-agents', /instruction file/],
           ['shared/plugin-pack', /plugin/], ['shared/plugin-pack/x.md', /plugin|managed by the plugin/], ['shared/upload-here', /upload link/],
+          [`users/${who}/projects/p1`, /project's folder/], [`users/${who}/projects`, /project's folder/],
           ['users/bob/notes.md', /not found or no access/], ['.system/history/old.bin', /not found or no access/],
         ]
         for (const [p, why] of cases) {
@@ -441,6 +447,11 @@ describe('the card, the answer, the audit and the restore', () => {
       expect({ L, leftover: /[{}#]/.test(c.question + c.details.map((d) => d.label + d.text).join('')) }).toEqual({ L, leftover: false })
       for (const k of Object.keys(DELETE_TEXT) as (keyof typeof DELETE_TEXT)[]) expect({ L, k, empty: !DELETE_TEXT[k][L].trim() }).toEqual({ L, k, empty: false })
     }
+    // never folded behind "전체 보기", however long: the AI picks the order of the list
+    const long = { ...plan, items: Array.from({ length: 200 }, (_, i) => ({ ...plan.items[0]!, rel: `users/alice/${'long-name-'.repeat(8)}${i}.md` })) }
+    const listed = deleteCard(long, 'en', 'UTC').details[0]!
+    expect(listed.collapsedAt).toBeUndefined()
+    expect(listed.text.split('\n')).toHaveLength(200)
     expect(deleteCard(plan, 'en', 'UTC').question).toContain('The AI wants to move 1 item to the trash. 3 other people who can see it now will no longer be able to. 1 of them has no write access, so cannot see it in the trash or restore it.')
     const r = await turn('alice', fake(del('projects/falcon/old-draft.md')), () => 'trash')
     expect(r.cards).toHaveLength(1)
@@ -463,6 +474,10 @@ describe('the card, the answer, the audit and the restore', () => {
     expect(quiet.cards).toHaveLength(1)
     expect(audits(quiet.turnId).map((a) => a.detail.outcome)).toEqual(['no_answer', 'refused'])
     expect(has('users/alice/keep1.md')).toBe(true)
+    // a call it cannot even read still writes its one audit row
+    const invalid = await turn('alice', fake({ tool: 'delete_files', args: { paths: [] }, sayResult: true }))
+    expect(invalid.cards).toEqual([])
+    expect(audits(invalid.turnId).map((a) => [a.detail.outcome, a.detail.reason])).toEqual([['refused', 'invalid_input']])
     // a path refused before the card: nobody is asked, nothing moves, the reason per path
     const bad = await turn('alice', fake(del('users/alice/keep1.md', 'groups/marketing')), () => 'trash')
     expect(bad.cards).toEqual([])
@@ -508,6 +523,29 @@ describe('the card, the answer, the audit and the restore', () => {
     expect((await other.call(args, new TurnFiles())).content[0]).toEqual({ type: 'text', text: DELETE_REFUSAL.subagent })
     expect(asked).toHaveLength(1)
     expect(has('users/alice/one-at-a-time.md')).toBe(true)
+  })
+
+  test('while a delete card waits, no other card of the answer opens beside it; that one opens after, with its full time', async () => {
+    put('users/alice/excl.md')
+    const chatId = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const r = await h.api('alice').call(API.sendMessage, { params: { id: chatId }, body: { content: fake(del('users/alice/excl.md'), { sleep: 4000 }), clientMessageId: cm(), attachmentIds: [] } })
+    const card = await socks.alice!.next('turn.request', (f) => f.data.turnId === r.turnId, 20_000)
+    const exec = h.rt().execFor(r.turnId)!
+    // what a parallel ask_user, move card or skill card of the same answer does
+    const otherId = uuidv7()
+    const other = exec.waitForPerson({ kind: 'ask_user', origin: 'server', requestId: otherId, question: 'another card', options: [{ label: 'OK', value: 'ok' }], multiple: false, allowText: false, expiresAt: new Date(Date.now() + 4000).toISOString() } as TurnRequest, { timeoutMs: 4000 })
+    await Bun.sleep(300)
+    expect(exec.openRequests().map((x) => x.request.requestId)).toEqual([card.data.request.requestId])
+    expect(socks.alice!.frames.some((f) => f.type === 'turn.request' && f.data.request.requestId === otherId)).toBe(false)
+    await Bun.sleep(1500)
+    await h.api('alice').call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'skip' } })
+    const shown = await socks.alice!.next('turn.request', (f) => f.data.request.requestId === otherId)
+    // its time starts when it opens, not when it was asked
+    expect(Date.parse((shown.data.request as Ask).expiresAt!) - Date.now()).toBeGreaterThan(3000)
+    await h.api('alice').call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: otherId, answer: 'ok' } })
+    expect(await other).toBe('ok')
+    await socks.alice!.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 30_000)
+    expect(has('users/alice/excl.md')).toBe(true)
   })
 
   test('a parallel move into the listed folder while the card waits: the yes trashes nothing', async () => {

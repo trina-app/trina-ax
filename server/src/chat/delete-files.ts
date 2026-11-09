@@ -117,7 +117,8 @@ export function deleteCard(plan: AiTrashPlan, L: Locale, timeZone: string, now =
   return {
     question,
     details: [
-      { label: DELETE_TEXT.items[L], text: list, ...(list.length > 1500 ? { collapsedAt: 1500 } : {}) },
+      // never folded: the AI picks the order, so nothing it lists may sit behind "전체 보기"
+      { label: DELETE_TEXT.items[L], text: list },
       ...(plan.others.length ? [{ label: DELETE_TEXT.othersLabel[L], text: plan.others.map((o) => o.name).join('\n') }] : []),
     ],
   }
@@ -126,11 +127,18 @@ export function deleteCard(plan: AiTrashPlan, L: Locale, timeZone: string, now =
 export function deleteFilesTool(exec: DeleteExec): Tool {
   const { rt, spec } = exec
   const state = (): CardState => { let s = cardStates.get(exec); if (!s) cardStates.set(exec, s = { shown: 0, declined: false, open: false }); return s }
-  const auditCall = (detail: Record<string, unknown>, target: string | null) => {
-    try { audit(rt.db, { actor: spec.userId, action: 'files.ai_trash', target, detail: { turnId: spec.turnId, chatId: spec.chatId, ...detail } }) }
-    catch (e) { rt.log.warn('delete_files audit row failed', { err: e, turn: spec.turnId }) }
+  // one audit row per call, whatever ends it
+  type Audit = (detail: Record<string, unknown>, target: string | null) => void
+  const auditor = (): Audit => {
+    let written = false
+    return (detail, target) => {
+      if (written) return
+      written = true
+      try { audit(rt.db, { actor: spec.userId, action: 'files.ai_trash', target, detail: { turnId: spec.turnId, chatId: spec.chatId, ...detail } }) }
+      catch (e) { rt.log.warn('delete_files audit row failed', { err: e, turn: spec.turnId }) }
+    }
   }
-  const refused = (why: DeleteRefusal, paths: string[]) => {
+  const refusedBy = (auditCall: Audit, why: DeleteRefusal, paths: string[]) => {
     auditCall({ outcome: 'refused', reason: why, paths: paths.slice(0, 50), requestId: null, trashIds: [] }, paths[0] ?? null)
     return result(DELETE_REFUSAL[why], `refused: ${why}`)
   }
@@ -143,79 +151,95 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
       const why = deleteFilesRefusal(exec)
       if (!why) return null
       const a = DeleteFilesInput.safeParse(args)
-      const r = refused(why, a.success ? a.data.paths : [])
+      const r = refusedBy(auditor(), why, a.success ? a.data.paths : [])
       return { text: r.content[0]!.text, summary: r.summary }
     },
     async call(args, files) {
-      const a = DeleteFilesInput.safeParse(args)
-      if (!a.success) return result('Invalid input: ' + a.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '), 'invalid input')
-      const paths = a.data.paths
-      // the main AI only (subagents.ts PARENT_ONLY_TOOLS): a sub-agent's call comes with its own turn state
-      if (files !== exec.files) return refused('subagent', paths)
-      const mode = deleteFilesRefusal(exec)
-      if (mode) return refused(mode, paths)
-      const s = state()
-      if (s.declined) return refused('declined', paths)
-      if (s.shown >= MAX_DELETE_CARDS) return refused('tooMany', paths)
-      if (s.open || exec.openRequests().length) return refused('busy', paths)
-      let user
-      try { user = exec.livePrincipal() } catch { return result('Access denied: this account is disabled.', 'denied: account disabled') }
-      const svc = componentC(rt.ctx).files
-      let planned
-      try { planned = svc.planAiTrash(user.id, paths) } catch (e) {
-        const text = e instanceof ToolError ? e.message : 'internal error'
-        auditCall({ outcome: 'refused', reason: e instanceof ToolError && e.code === 'too_many' ? 'too_many' : 'error', paths: paths.slice(0, 50), requestId: null, trashIds: [] }, paths[0] ?? null)
-        return result(`${NONE}: ${text}.`, e instanceof ToolError && e.code === 'too_many' ? 'refused: more than 200 entries' : 'failed')
+      const auditCall = auditor()
+      try { return await run(args, files, auditCall) } catch (e) {
+        rt.log.warn('delete_files failed', { err: e, turn: spec.turnId })
+        auditCall({ outcome: 'failed', reason: 'error', requestId: null, trashIds: [] }, null)
+        return result(`${NONE}: internal error.`, 'failed')
       }
-      if ('refused' in planned) {
-        auditCall({ outcome: 'refused', reason: 'paths', paths: paths.slice(0, 50), refused: planned.refused.slice(0, 50), requestId: null, trashIds: [] }, paths[0] ?? null)
-        const lines = planned.refused.map((r) => `- ${neutralizeTags(r.path)}: ${r.error}`).join('\n')
-        return result(`${NONE}, and nobody was asked: a delete runs only exactly as asked, and these paths cannot go to the trash from a chat:\n${lines}\nCall delete_files again without them if the user still wants the rest deleted.`, `refused: ${planned.refused.length} path(s)`)
-      }
-      const plan = planned.plan
-      const L = spec.locale
-      const card = deleteCard(plan, L, teamTimeZone(rt.db))
-      const requestId = uuidv7()
-      // counted and marked open before the card goes out: a second call while it waits is refused (busy), not queued
-      s.shown++
-      s.open = true
-      let answer: unknown
-      try {
-        answer = await exec.waitForPerson({
-          kind: 'ask_user', origin: 'server', requestId, question: card.question, multiple: false, allowText: false,
-          options: [{ label: DELETE_TEXT.yes[L], value: 'trash' }, { label: DELETE_TEXT.no[L], value: 'skip' }],
-          details: card.details,
-          expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
-        } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs() })
-      } finally { s.open = false }
-      const picked = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
-      const base = { paths: plan.items.map((i) => i.rel), entries: plan.entries, lost: plan.lost, noRestore: plan.noRestore, retentionDays: plan.retentionDays, others: plan.others.length, requestId }
-      const target = plan.items[0]!.rel
-      if (picked !== 'trash') {
-        // "no", or no answer (closed, timed out, the answer stopped): no more delete cards in this answer
-        s.declined = true
-        auditCall({ ...base, outcome: picked === null || picked === undefined ? 'no_answer' : 'declined', trashIds: [] }, target)
-        return result(`The user did not allow this, so ${NONE.charAt(0).toLowerCase()}${NONE.slice(1)}. Do not delete or hide these another way (no move into another folder, no overwrite with empty content), and ask no other delete in this answer; ask the user what they want.`, 'not allowed by the user')
-      }
-      // everything again, then the moves, in one synchronous block (TeamFiles.trashAiPlan)
-      let done
-      try { done = svc.trashAiPlan(user.id, plan, spec.turnId) } catch (e) {
-        auditCall({ ...base, outcome: 'failed', trashIds: [] }, target)
-        return result(`${NONE}: ${e instanceof ToolError ? e.message : 'internal error'}.`, 'failed')
-      }
-      const trashIds = done.trashed.map((x) => x.trashId)
-      auditCall({ ...base, outcome: done.trashed.length === plan.items.length ? 'trashed' : done.trashed.length ? 'partial' : 'changed', trashIds, changed: done.changed, failed: done.failed.map((f) => f.path), keptChanged: done.trashed.filter((x) => x.changed).map((x) => x.path) }, target)
-      if (!done.trashed.length) {
-        return result(`${NONE}: ${done.changed.length ? `${done.changed.map(neutralizeTags).join(', ')} changed after the card was shown (a file or folder was added, removed or changed, or who can see it or the trash setting changed). Ask again with one call; the user confirms the current state on a new card` : done.failed.map((f) => `${neutralizeTags(f.path)}: ${f.error}`).join('; ')}.`, done.changed.length ? 'changed after the card' : 'failed')
-      }
-      const until = done.trashed[0]!.purgeAt.slice(0, 10)
-      const text = [
-        `Moved to the team trash (${done.trashed.length}):\n${done.trashed.map((x) => `- ${neutralizeTags(x.path)}${x.changed ? ' (it changed while it moved and could not go back: everything in it went to the trash; tell the user to check it there)' : ''}`).join('\n')}`,
-        `The user can restore each item until ${until} on the Files screen › Trash (in their app: ${DELETE_TEXT.where[L]}); an admin can empty the trash before then. Tell the user what went and how to restore it.`,
-        done.changed.length ? `Not moved, changed after the card was shown (left where it was): ${done.changed.map(neutralizeTags).join(', ')}.` : '',
-        done.failed.length ? `Not moved:\n${done.failed.map((f) => `- ${neutralizeTags(f.path)}: ${f.error}`).join('\n')}` : '',
-      ].filter(Boolean).join('\n\n')
-      return { content: [{ type: 'text' as const, text }], summary: `${DELETE_FILES_TOOL} -> ${done.trashed.length}/${plan.items.length} to the trash (confirmed by the user, ${plan.entries} entries)` }
     },
+  }
+
+  async function run(args: unknown, files: unknown, auditCall: Audit) {
+    const refused = (why: DeleteRefusal, paths: string[]) => refusedBy(auditCall, why, paths)
+    const a = DeleteFilesInput.safeParse(args)
+    if (!a.success) {
+      auditCall({ outcome: 'refused', reason: 'invalid_input', paths: [], requestId: null, trashIds: [] }, null)
+      return result('Invalid input: ' + a.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '), 'invalid input')
+    }
+    const paths = a.data.paths
+    // the main AI only (subagents.ts PARENT_ONLY_TOOLS): a sub-agent's call comes with its own turn state
+    if (files !== exec.files) return refused('subagent', paths)
+    const mode = deleteFilesRefusal(exec)
+    if (mode) return refused(mode, paths)
+    const s = state()
+    if (s.declined) return refused('declined', paths)
+    if (s.shown >= MAX_DELETE_CARDS) return refused('tooMany', paths)
+    if (s.open || exec.openRequests().length) return refused('busy', paths)
+    let user
+    try { user = exec.livePrincipal() } catch {
+      auditCall({ outcome: 'refused', reason: 'account_disabled', paths: paths.slice(0, 50), requestId: null, trashIds: [] }, paths[0] ?? null)
+      return result('Access denied: this account is disabled.', 'denied: account disabled')
+    }
+    const svc = componentC(rt.ctx).files
+    let planned
+    try { planned = svc.planAiTrash(user.id, paths) } catch (e) {
+      const text = e instanceof ToolError ? e.message : 'internal error'
+      auditCall({ outcome: 'refused', reason: e instanceof ToolError && e.code === 'too_many' ? 'too_many' : 'error', paths: paths.slice(0, 50), requestId: null, trashIds: [] }, paths[0] ?? null)
+      return result(`${NONE}: ${text}.`, e instanceof ToolError && e.code === 'too_many' ? 'refused: more than 200 entries' : 'failed')
+    }
+    if ('refused' in planned) {
+      auditCall({ outcome: 'refused', reason: 'paths', paths: paths.slice(0, 50), refused: planned.refused.slice(0, 50), requestId: null, trashIds: [] }, paths[0] ?? null)
+      const lines = planned.refused.map((r) => `- ${neutralizeTags(r.path)}: ${neutralizeTags(r.error)}`).join('\n')
+      return result(`${NONE}, and nobody was asked: a delete runs only exactly as asked, and these paths cannot go to the trash from a chat:\n${lines}\nCall delete_files again without them if the user still wants the rest deleted.`, `refused: ${planned.refused.length} path(s)`)
+    }
+    const plan = planned.plan
+    const L = spec.locale
+    const card = deleteCard(plan, L, teamTimeZone(rt.db))
+    const requestId = uuidv7()
+    // counted and marked open before the card goes out: a second call while it waits is refused (busy), not queued
+    s.shown++
+    s.open = true
+    let answer: unknown
+    try {
+      answer = await exec.waitForPerson({
+        kind: 'ask_user', origin: 'server', requestId, question: card.question, multiple: false, allowText: false,
+        options: [{ label: DELETE_TEXT.yes[L], value: 'trash' }, { label: DELETE_TEXT.no[L], value: 'skip' }],
+        details: card.details,
+        expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
+      } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs(), exclusive: true })
+    } finally { s.open = false }
+    const picked = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
+    const base = { paths: plan.items.map((i) => i.rel), entries: plan.entries, lost: plan.lost, noRestore: plan.noRestore, retentionDays: plan.retentionDays, others: plan.others.length, requestId }
+    const target = plan.items[0]!.rel
+    if (picked !== 'trash') {
+      // "no", or no answer (closed, timed out, the answer stopped): no more delete cards in this answer
+      s.declined = true
+      auditCall({ ...base, outcome: picked === null || picked === undefined ? 'no_answer' : 'declined', trashIds: [] }, target)
+      return result(`The user did not allow this, so ${NONE.charAt(0).toLowerCase()}${NONE.slice(1)}. Do not delete or hide these another way (no move into another folder, no overwrite with empty content), and ask no other delete in this answer; ask the user what they want.`, 'not allowed by the user')
+    }
+    // everything again, then the moves, in one synchronous block (TeamFiles.trashAiPlan)
+    let done
+    try { done = svc.trashAiPlan(user.id, plan, spec.turnId) } catch (e) {
+      auditCall({ ...base, outcome: 'failed', trashIds: [] }, target)
+      return result(`${NONE}: ${e instanceof ToolError ? e.message : 'internal error'}.`, 'failed')
+    }
+    const trashIds = done.trashed.map((x) => x.trashId)
+    auditCall({ ...base, outcome: done.trashed.length === plan.items.length ? 'trashed' : done.trashed.length ? 'partial' : 'changed', trashIds, changed: done.changed, failed: done.failed.map((f) => f.path), keptChanged: done.trashed.filter((x) => x.changed).map((x) => x.path) }, target)
+    if (!done.trashed.length) {
+      return result(`${NONE}: ${done.changed.length ? `${done.changed.map(neutralizeTags).join(', ')} changed after the card was shown (a file or folder was added, removed or changed, or who can see it or the trash setting changed). Ask again with one call; the user confirms the current state on a new card` : done.failed.map((f) => `${neutralizeTags(f.path)}: ${neutralizeTags(f.error)}`).join('; ')}.`, done.changed.length ? 'changed after the card' : 'failed')
+    }
+    const until = done.trashed[0]!.purgeAt.slice(0, 10)
+    const text = [
+      `Moved to the team trash (${done.trashed.length}):\n${done.trashed.map((x) => `- ${neutralizeTags(x.path)}${x.changed ? ' (it changed while it moved and could not go back: everything in it went to the trash; tell the user to check it there)' : ''}`).join('\n')}`,
+      `The user can restore each item until ${until} on the Files screen › Trash (in their app: ${DELETE_TEXT.where[L]}); an admin can empty the trash before then. Tell the user what went and how to restore it.`,
+      done.changed.length ? `Not moved, changed after the card was shown (left where it was): ${done.changed.map(neutralizeTags).join(', ')}.` : '',
+      done.failed.length ? `Not moved:\n${done.failed.map((f) => `- ${neutralizeTags(f.path)}: ${neutralizeTags(f.error)}`).join('\n')}` : '',
+    ].filter(Boolean).join('\n\n')
+    return { content: [{ type: 'text' as const, text }], summary: `${DELETE_FILES_TOOL} -> ${done.trashed.length}/${plan.items.length} to the trash (confirmed by the user, ${plan.entries} entries)` }
   }
 }

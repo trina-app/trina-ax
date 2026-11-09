@@ -17439,7 +17439,8 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
   (`groups/<g>`, `projects/<p>`, `users/<id>`) and anything in them; `users/<someone else>`; `.system`; `.attachments`;
   a plugin's folder or one holding it; the target of an open connector upload link (the only stored link bound to a
   team path: `share_file` links are checked per viewer and grant nothing). **Stricter than the review asked:** hidden
-  items and instruction files (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md, also inside a listed folder) are refused too.
+  items, instruction files (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md, also inside a listed folder) and a live project's
+  folder or one holding it, personal projects included (`managedInside` leaves `users/` out) are refused too.
 - **The skill guard sits in `remove()` itself, fail-closed:** an AI turn (`turnId` set) never trashes a skill root, a
   folder that holds one or anything in one, whatever the role, and `remove()` takes nothing from an AI turn without the
   card's manifest. People on the Files screen are unchanged. Skill deletes come later, with the skill cards.
@@ -17470,9 +17471,15 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
   and how many of those cannot restore it (readers without write do not see it in the trash), the purge date from the
   setting in the team's time zone. No earlier answer, room grant, "always allow" or approval cache covers it.
 - **Card fatigue:** at most 2 delete cards per answer; after a "no" (or no answer) no more deletes in that answer; a
-  delete card opens only when no other card of the turn is open (refused, not queued).
-- **Audit:** one `files.ai_trash` row per call (refused, declined, no answer, trashed, changed, partial) with the card's
-  request id, the turn id, the paths and the trash ids. The file event of each item says `tool: delete_files`.
+  delete card opens only when no other card of the turn is open (refused, not queued), and while it is open any other
+  card of the turn (a parallel ask_user, move or skill card) waits and opens after it with its full time
+  (`TurnExec.waitForPerson` `exclusive`). The list on the card is never folded: the AI picks its order.
+- **Audit:** one `files.ai_trash` row per call (refused, invalid input, declined, no answer, trashed, changed, partial,
+  failed) with the card's request id, the turn id, the paths and the trash ids. Once an item is in the trash with its
+  row, a failing follow-up (a listener, the session reset) is logged and the call still reports it as trashed.
+- **Independent review** (before the PR): no bypass found; its should-fix (other cards could open beside a delete card)
+  and nits (post-commit errors, audit rows for every call, the folded list, on-disk names in refusals, personal project
+  folders) are fixed as above. Not offered in an approved template run at all. The file event of each item says `tool: delete_files`.
 - **Room grants:** a path an AI turn put in the trash (still there) is never a "new" file for a room's grant
   (`roomGrantTarget`); rooms do not get the tool, this keeps it so.
 - **Prompt:** the tidy-up rule says deletes happen only when asked, with `delete_files` where the turn has it and "you

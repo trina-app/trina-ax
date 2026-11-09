@@ -2272,12 +2272,29 @@ export class TurnExec {
   }
 
   // ---------------- people answering (ask_user, browser site) ----------------
+  /** An open card no other card of this turn may join (`exclusive`: delete_files, chat/delete-files.ts, one destructive
+   * card at a time): settles when it closes. A card asked meanwhile (a parallel ask_user, move card, skill card) waits
+   * for it, then opens with its full time; the delete tool itself refuses while any card is open. */
+  private exclusiveCard: Promise<void> | null = null
+
   /** Show a card and wait for the answer; null = skipped / timed out / turn ended. The time limit pauses meanwhile. */
-  waitForPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number }): Promise<unknown> {
+  waitForPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number; exclusive?: boolean }): Promise<unknown> {
     if (this.remainingWallMs() <= 0) this.expireWall()
     if (this.stopReason || this.abort.signal.aborted) return Promise.resolve(null)
     // a scheduled task runs with nobody watching: no card, every question and confirmation is "no answer"
     if (this.spec.clientKind === 'schedule') return Promise.resolve(null)
+    const held = this.exclusiveCard
+    if (held) {
+      return held.then(() => this.waitForPerson('expiresAt' in request && request.expiresAt ? { ...request, expiresAt: new Date(Date.now() + o.timeoutMs).toISOString() } as TurnRequest : request, o))
+    }
+    const shown = this.showCard(request, o)
+    if (o.exclusive) {
+      const closed: Promise<void> = shown.then(() => undefined, () => undefined).then(() => { if (this.exclusiveCard === closed) this.exclusiveCard = null })
+      this.exclusiveCard = closed
+    }
+    return shown
+  }
+  private showCard(request: TurnRequest, o: { window?: string | null; timeoutMs: number }): Promise<unknown> {
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         if (this.remainingWallMs() <= 0) this.expireWall()

@@ -868,13 +868,19 @@ export class TeamFiles {
         throw e
       }
     })()
-    this.dropTextCache(r.rel, isDir)
-    // whoever could read it and cannot see it in the trash either (they could restore it from there) lost it
-    const t = this.trashRow(id)
-    const after = this.rules()
-    this.dropSessionsOf(readers.filter((p) => !t || !this.trashVisible(p, after, t)), { path: r.rel })
-    // a trashed folder's rules were parked with it: judge the deleted path by the rules as they were before
-    this.publish([{ path: r.rel, action: 'delete', by: this.by(userId), turnId }], rules)
+    const followUp = () => {
+      this.dropTextCache(r.rel, isDir)
+      // whoever could read it and cannot see it in the trash either (they could restore it from there) lost it
+      const t = this.trashRow(id)
+      const after = this.rules()
+      this.dropSessionsOf(readers.filter((p) => !t || !this.trashVisible(p, after, t)), { path: r.rel })
+      // a trashed folder's rules were parked with it: judge the deleted path by the rules as they were before
+      this.publish([{ path: r.rel, action: 'delete', by: this.by(userId), turnId }], rules)
+    }
+    // the AI's delete: it is in the trash now, with its row, whatever a listener does next; the call says so (its trash
+    // id goes into the audit row)
+    if (ai) { try { followUp() } catch (e) { this.ctx.log.warn('after the AI put an item in the trash, a follow-up failed', { err: e, path: r.rel }) } }
+    else followUp()
     return { trashId: id, purgeAt, ...(changed ? { changed: true as const } : {}) }
   }
 
@@ -910,9 +916,19 @@ export class TeamFiles {
     if (segs.some((x) => x.startsWith('.'))) return 'a hidden item; the user deletes it on the Files screen'
     if (instructionFile(rel)) return 'an instruction file (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md: what an AI follows); the user deletes it on the Files screen'
     if (this.managedInside(rules, rel)) return 'a group, project or rule folder, or a folder that holds one: an admin deletes it on the Files screen'
+    // a personal project's folder too (managedInside leaves users/ out): the project would lose its folder
+    if (isDir && this.projectAtOrBelow(rel)) return 'a project\'s folder, or a folder that holds one: the user deletes the project on the Projects screen'
     if (this.fx.managed?.managerOf(segs) || this.fx.managed?.heldBelow(segs)) return 'a plugin\'s folder, or one that holds it: an admin turns the plugin off in Admin > Plugins'
     if (this.linkTarget(rel, isDir)) return 'an open upload link points here; it can go to the trash once the link is used or expires'
     return null
+  }
+
+  /** A live project (not in the trash) uses `rel` or a folder below it, personal projects included. */
+  private projectAtOrBelow(rel: string): boolean {
+    const k = (p: string) => volumeKey(p, this.fx.caseInsensitive)
+    const me = k(rel)
+    const rows = this.ctx.db.query('SELECT folder_path FROM projects WHERE trashed_with IS NULL').all() as { folder_path: string }[]
+    return rows.some((x) => { const p = k(x.folder_path); return p === me || p.startsWith(me + '/') })
   }
 
   /** An unused, unexpired upload link of the app connector (connectors/remote-mcp/upload-link.ts) points at `rel` (or,
