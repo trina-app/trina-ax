@@ -52,8 +52,9 @@ function useSwipe(onSwipe: Swipe) {
   }
 }
 
-/** `onMissing`: the read found no such file (the bar then drops its download too). */
-export function ViewerDocument({ item, gone, onSwipe, onMissing }: { item: ViewerItem; gone: boolean; onSwipe: Swipe; onMissing: () => void }) {
+/** `onMissing`: the read found no such file (the bar then drops its download too). `onHeld`: a download-only file (the
+ * bar then drops 트리나에게 묻기: the AI is refused its bytes too). */
+export function ViewerDocument({ item, gone, onSwipe, onMissing, onHeld }: { item: ViewerItem; gone: boolean; onSwipe: Swipe; onMissing: () => void; onHeld?: () => void }) {
   const t = useT()
   const locale = useLocale()
   const swipe = useSwipe(onSwipe)
@@ -69,10 +70,10 @@ export function ViewerDocument({ item, gone, onSwipe, onMissing }: { item: Viewe
         <FileCard item={item} note={item.card === 'large' && item.size !== undefined ? t('preview.tooLarge', { size: formatSize(item.size, locale) }) : t('preview.unsupported')} download={item.download} />
       </div>
     )
-  return <DocumentBody key={item.key} item={item} file={item.file} onSwipe={onSwipe} onMissing={onMissing} />
+  return <DocumentBody key={item.key} item={item} file={item.file} onSwipe={onSwipe} onMissing={onMissing} onHeld={onHeld} />
 }
 
-function DocumentBody({ item, file: given, onSwipe, onMissing }: { item: ViewerItem; file: PreviewFile; onSwipe: Swipe; onMissing: () => void }) {
+function DocumentBody({ item, file: given, onSwipe, onMissing, onHeld }: { item: ViewerItem; file: PreviewFile; onSwipe: Swipe; onMissing: () => void; onHeld?: () => void }) {
   const t = useT()
   // the file as first given: the chip builds its item anew on each render, and a new object would read it again (the
   // body is drawn anew, keyed, for another file)
@@ -85,6 +86,10 @@ function DocumentBody({ item, file: given, onSwipe, onMissing }: { item: ViewerI
     if (missing) onMissing()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [missing])
+  useEffect(() => {
+    if (loaded.downloadOnly) onHeld?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded.downloadOnly])
   const [box, setBox] = useState<HTMLDivElement | null>(null)
   // a PDF's page thumbnails, left of the column (viewers/PdfView draws them in it on computers; empty otherwise)
   const [rail, setRail] = useState<HTMLDivElement | null>(null)

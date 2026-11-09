@@ -8,7 +8,7 @@ import { uuidv7, type Me } from '@mycel/shared/api'
 import { AssistantMessage } from '../../src/components/chat/Messages'
 import ShareToRoom from '../../src/components/chat/ShareToRoom'
 import { SideChatPanel, withQuote } from '../../src/components/rooms/SideChatPanel'
-import { askTrinaInRoom, onAskTrinaInRoom } from '../../src/lib/sideChatAsk'
+import { askTrinaInRoom, fileSeed, messageSeed, onAskTrinaInRoom } from '../../src/lib/sideChatAsk'
 import { RoomMessages } from '../../src/components/rooms/RoomMessages'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { aiName } from '../../src/lib/tabs'
@@ -113,6 +113,98 @@ test('a side chat\'s answer: "Share to room" in words; the dialog starts with th
   expect(en('sideChat.open', { name: aiName((k) => en(k)) })).toContain('privately')
 })
 
+test("two panels of a room (the page's and the file viewer's) are one chat: the same chat, draft and quote; an ask is quoted once", async () => {
+  signIn()
+  const id = uuidv7()
+  serve(id)
+  const seed = { key: 'kq', author: 'acme', at: at(1), text: 'the launch date' }
+  const m = await mount(
+    <MemoryRouter>
+      <div data-testid="page"><SideChatPanel roomId={team.id} roomTitle="Marketing" seed={seed} onClose={() => {}} /></div>
+      <div data-testid="viewer"><SideChatPanel roomId={team.id} roomTitle="Marketing" frame={false} autoFocus={false} onClose={() => {}} /></div>
+    </MemoryRouter>,
+  )
+  const inEach = (testId: string) => [...m.container.ownerDocument!.body.querySelectorAll(`[data-testid="${testId}"]`)]
+  try {
+    await m.until(() => inEach('side-chat-open-full').length === 2, 'the chat found in both')
+    // looked for once: the second panel takes the chat the room has on this page
+    expect(calls.filter((c) => c.method === 'GET' && c.path === '/api/chats')).toHaveLength(1)
+    // frame={false}: no column of its own (the caller's RoomSideColumn draws it)
+    expect(m.get('viewer').querySelector('section')).toBeNull()
+    expect(m.get('viewer').querySelector('[data-testid="side-chat-divider"]')).toBeNull()
+    expect(m.get('page').querySelector('[data-testid="room-side-chat"]')).not.toBeNull()
+    // the ask is quoted in both, and what is typed in one is in the other
+    expect(inEach('side-chat-quote')).toHaveLength(2)
+    await m.type(m.get('viewer').querySelector('[data-testid="side-chat-input"]')! as never, 'when is it?')
+    expect(inEach('side-chat-input').map((x) => (x as unknown as { value: string }).value)).toEqual(['when is it?', 'when is it?'])
+    // the quote taken off in one goes from both
+    await m.click(m.get('viewer').querySelector('[data-testid="side-chat-quote-remove"]')! as never)
+    expect(inEach('side-chat-quote')).toHaveLength(0)
+  } finally {
+    await m.unmount()
+  }
+  // drawn again with the same ask (the room page keeps its last one): not quoted again; the draft is still there
+  const again = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" seed={seed} onClose={() => {}} /></MemoryRouter>)
+  try {
+    await again.until(() => !!again.find('side-chat-open-full'), 'the chat')
+    expect(again.find('side-chat-quote')).toBeNull()
+    expect((again.get('side-chat-input') as unknown as { value: string }).value).toBe('when is it?')
+    // the chat it had, read again (not looked for anew)
+    expect(calls.filter((c) => c.method === 'GET' && c.path === '/api/chats')).toHaveLength(1)
+  } finally {
+    await again.unmount()
+  }
+})
+
+test("an ask is quoted once, also after a newer one: the room page's last ask does not come back over the viewer's file", async () => {
+  signIn()
+  serve(null)
+  const message = { key: 'km', author: 'acme', at: at(1), text: 'the launch date' }
+  const fileAsk = { key: 'kf2', author: '', at: at(2), text: '', file: { id: 'f-2', name: 'acme.pdf' } }
+  const page = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" seed={message} onClose={() => {}} /></MemoryRouter>)
+  try {
+    await page.until(() => !!page.find('side-chat-quote'), 'the message quoted')
+    await page.click('side-chat-quote-remove')
+  } finally {
+    await page.unmount()
+  }
+  // ✦ in the viewer asks about a file
+  const viewer = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" seed={fileAsk} frame={false} onClose={() => {}} /></MemoryRouter>)
+  try {
+    await viewer.until(() => !!viewer.find('side-chat-quote-file'), 'the file quoted')
+  } finally {
+    await viewer.unmount()
+  }
+  // the room page's side chat again, with its last ask still in hand: the file stays quoted
+  const again = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" seed={message} onClose={() => {}} /></MemoryRouter>)
+  try {
+    await again.until(() => !!again.find('side-chat-quote'), 'the quote')
+    expect(again.find('side-chat-quote-file')).not.toBeNull()
+  } finally {
+    await again.unmount()
+  }
+})
+
+test('autoFocus false: the box leaves the focus where it is as the panel opens; an ask still takes it', async () => {
+  signIn()
+  serve(null)
+  const doc = () => m.container.ownerDocument as unknown as { activeElement: unknown }
+  const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" frame={false} autoFocus={false} onClose={() => {}} /></MemoryRouter>)
+  try {
+    await m.until(() => !!m.find('side-chat-empty'), 'the panel')
+    expect(doc().activeElement).not.toBe(m.get('side-chat-input'))
+  } finally {
+    await m.unmount()
+  }
+  const f = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
+  try {
+    await f.until(() => !!f.find('side-chat-empty'), 'the panel')
+    expect((f.container.ownerDocument as unknown as { activeElement: unknown }).activeElement).toBe(f.get('side-chat-input'))
+  } finally {
+    await f.unmount()
+  }
+})
+
 test('🕘 lists the room\'s side chats and opens one; "New chat" leaves the list', async () => {
   signIn()
   const id = uuidv7(), old = uuidv7()
@@ -156,8 +248,8 @@ test('while the AI waits for the answer to its question, the box answers it (not
 })
 
 test('a quoted message goes in front of the question: who and when, then its lines, as a Markdown quote', () => {
-  const seed = { key: 'k', author: 'dion', at: at(1), text: 'line one\nline two' }
-  expect(withQuote(seed, 'Translate this.', () => '4:31 PM')).toBe('> dion · 4:31 PM\n> line one\n> line two\n\nTranslate this.')
+  const seed = { key: 'k', author: 'acme', at: at(1), text: 'line one\nline two' }
+  expect(withQuote(seed, 'Translate this.', () => '4:31 PM')).toBe('> acme · 4:31 PM\n> line one\n> line two\n\nTranslate this.')
   expect(withQuote(null, 'hi', () => '')).toBe('hi')
   expect(withQuote({ ...seed, text: 'x'.repeat(5000) }, 'q', () => 't').length).toBeLessThan(4100)
 })
@@ -165,7 +257,7 @@ test('a quoted message goes in front of the question: who and when, then its lin
 test('"Ask Trina about this": the panel opens with the message quoted; a quick button sends it with its question (a failed send keeps the quote); ✕ takes the quote off', async () => {
   signIn()
   const { made } = serve(null)
-  const seed = { key: 'k1', author: 'dion', at: at(1), text: '5. cloud side: owner-recovery-claimed' }
+  const seed = { key: 'k1', author: 'acme', at: at(1), text: '5. cloud side: owner-recovery-claimed' }
   const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" seed={seed} onClose={() => {}} /></MemoryRouter>)
   try {
     await m.until(() => !!m.find('side-chat-empty'), 'the panel')
@@ -174,7 +266,7 @@ test('"Ask Trina about this": the panel opens with the message quoted; a quick b
     await m.click('side-chat-quick-translate')
     await m.until(() => calls.some((c) => c.path === `/api/chats/${made}/messages`), 'the question sent')
     const body = calls.find((c) => c.path === `/api/chats/${made}/messages`)!.body as { content: string }
-    expect(body.content.startsWith('> dion · ')).toBe(true)
+    expect(body.content.startsWith('> acme · ')).toBe(true)
     expect(body.content).toContain('> 5. cloud side: owner-recovery-claimed')
     expect(body.content.endsWith(en('sideChat.ask.translate'))).toBe(true)
     // (this fake server refuses the send: the quote comes back with the failure, for a second try)
@@ -240,11 +332,26 @@ test('a file of the room: quoted by name and id (the AI opens it with room_file)
   try {
     await m.until(() => !!m.find('side-chat-quote-file'), 'the file quoted')
     expect(m.get('side-chat-quote-file').textContent).toContain('quote.pdf')
-    for (const k of ['fileSummarize', 'fileKeyPoints', 'fileCheck']) expect(m.find(`side-chat-quick-${k}`)).not.toBeNull()
+    for (const k of ['fileSummarize', 'fileKeyPoints', 'fileCheck', 'fileSave']) expect(m.find(`side-chat-quick-${k}`)).not.toBeNull()
     expect(m.find('side-chat-quick-translate')).toBeNull()
+    // 팀 폴더에 저장: through the AI (save_room_file and its card), as a question with the file quoted
+    expect(m.get('side-chat-quick-fileSave').textContent).toBe(en('sideChat.quick.fileSave'))
+    await m.click('side-chat-quick-fileSave')
+    await m.until(() => calls.some((c) => c.method === 'POST' && /^\/api\/chats\/[^/]+\/messages$/.test(c.path)), 'the question sent')
+    expect((calls.find((c) => c.method === 'POST' && /^\/api\/chats\/[^/]+\/messages$/.test(c.path))!.body as { content: string }).content).toBe(`> 📎 quote.pdf (file_id f-1 in this room)\n\n${en('sideChat.ask.fileSave')}`)
   } finally {
     await m.unmount()
   }
+})
+
+test('the asks: a message by who wrote it (the AI by its name), a file by its id and name', () => {
+  const m = message({ roomId: team.id, seq: 1, author: BEN, body: 'the plan' })
+  expect(messageSeed(m, 'Trina')).toMatchObject({ author: BEN.name, at: m.createdAt, text: 'the plan' })
+  expect(messageSeed({ ...m, authorKind: 'ai', author: null }, 'Trina').author).toBe('Trina')
+  const a = fileSeed('f-1', 'acme.pdf')
+  expect(a).toMatchObject({ author: '', text: '', file: { id: 'f-1', name: 'acme.pdf' } })
+  // each ask its own key: the same file asked about again is quoted again
+  expect(a.key.startsWith('f-1:')).toBe(true)
 })
 
 test('"Ask Trina about this file" reaches the room page that listens, only for its room', () => {

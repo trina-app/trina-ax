@@ -7,6 +7,9 @@
 // starts another one with the next question; 🕘 lists the room's side chats (newest first) and opens one. Cards the AI
 // raises (a yes before a change, a question) show under its answer as in the full chat; while it waits for the answer
 // to its question, what I type in the box answers it (lib/askAnswer.ts), as the full chat's box does.
+// Which chat it shows, its draft and its quote are kept per room on this page (store/sideChats.ts): every panel of the
+// room is the same chat. The column around it is components/rooms/RoomSideColumn.tsx: drawn here (`frame`), or by the
+// room page around this (frame={false}).
 import { ChevronLeft, ExternalLink, Eye, History, Loader2, Paperclip, SquarePen, X } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -17,23 +20,38 @@ import { composerAnswer, composerQuestion, picksOf } from '../../lib/askAnswer'
 import { formatDate, formatDateTime } from '../../lib/format'
 import { aiName } from '../../lib/tabs'
 import { followsAfterScroll, jumpToBottom, stickToBottom } from '../../lib/stickToBottom'
-import { THREAD_PANEL } from '../../lib/panelWidth'
 import { useLocale, useT } from '../../i18n'
 import { useChats } from '../../store/chats'
 import { useMeStrict } from '../../store/session'
+import { SEED_KEYS_MAX, sideChatOf, useSideChats, type SideChatState } from '../../store/sideChats'
 import { emptyThread, runningMessage, type ViewMessage } from '../../store/thread'
 import { toast } from '../../store/ui'
 import { AssistantMessage, UserMessage } from '../chat/Messages'
 import { ImageGroup, ViewerMeta } from '../ImageViewer'
-import { PanelDivider } from '../PanelDivider'
 import { ErrorNote, IconButton } from '../ui'
 import { AiFace } from './AiFace'
+import { RoomSideColumn } from './RoomSideColumn'
 
 /** the newest side chat of mine for this room (not deleted), or null: one asks the server, as the panel opens */
 export async function newestSideChat(roomId: string): Promise<string | null> {
   const r = await api.call(API.listChats, { query: { sideRoomId: roomId, limit: 1 } })
   return r.items[0]?.id ?? null
 }
+/** the room's newest side chat with its messages read, asked once however many panels of the room open together */
+const looking = new Map<string, Promise<string | null>>()
+function findSideChat(roomId: string): Promise<string | null> {
+  let p = looking.get(roomId)
+  if (!p) {
+    p = (async () => {
+      const id = await newestSideChat(roomId)
+      if (id) await useChats.getState().loadThread(id)
+      return id
+    })().finally(() => looking.delete(roomId))
+    looking.set(roomId, p)
+  }
+  return p
+}
+
 /** A message of the room asked about ("Ask Trina about this" on it): quoted in front of the next question. `key`
  * changes with every ask, so asking about the same message again quotes it again. */
 export interface SideSeed { key: string; author: string; at: string; text: string
@@ -54,22 +72,29 @@ export function withQuote(seed: SideSeed | null, question: string, time: (iso: s
 
 /** the questions an empty side chat offers (like Slackbot's): what I missed, what is for me, the latest discussion */
 export const STARTERS = ['catchUp', 'forMe', 'summarize'] as const
-/** the quick questions under a quoted message, and under a quoted file */
+/** the quick questions under a quoted message, and under a quoted file (팀 폴더에 저장: the AI saves it with
+ * save_room_file, whose card says where and who will see it) */
 export const QUICK_MESSAGE = ['translate', 'summarize', 'explain'] as const
-export const QUICK_FILE = ['fileSummarize', 'fileKeyPoints', 'fileCheck'] as const
+export const QUICK_FILE = ['fileSummarize', 'fileKeyPoints', 'fileCheck', 'fileSave'] as const
 
 /** how many of the room's side chats 🕘 lists */
 export const SIDE_HISTORY_MAX = 30
 
-export function SideChatPanel({ roomId, roomTitle, onClose, seed = null }: { roomId: string; roomTitle: string; onClose: () => void; seed?: SideSeed | null }) {
+/** `frame` false: the column around it is the caller's (RoomSideColumn). `autoFocus` false: the box does not take the
+ * focus as the panel opens (a new `seed` still does: it was asked for). */
+export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame = true, autoFocus = true }: { roomId: string; roomTitle: string; onClose: () => void; seed?: SideSeed | null; frame?: boolean; autoFocus?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const me = useMeStrict()
   const navigate = useNavigate()
-  /** undefined: still looking for the room's side chat; null: none yet (the first question makes one) */
-  const [chatId, setChatId] = useState<string | null | undefined>(undefined)
+  // the room's side chat as every panel of it shows it: undefined chat: still looking for it; null: none yet (the first
+  // question makes one)
+  const { chatId, draft, quoted } = useSideChats((s) => sideChatOf(s, roomId))
+  const patch = useCallback((p: Partial<SideChatState>) => useSideChats.getState().patch(roomId, p), [roomId])
+  const setChatId = (id: string | null) => patch({ chatId: id })
+  const setDraft = (f: string | ((d: string) => string)) => patch({ draft: typeof f === 'function' ? f(sideChatOf(useSideChats.getState(), roomId).draft) : f })
+  const setQuoted = (f: SideSeed | null | ((q: SideSeed | null) => SideSeed | null)) => patch({ quoted: typeof f === 'function' ? f(sideChatOf(useSideChats.getState(), roomId).quoted) : f })
   const [loadError, setLoadError] = useState<unknown>(null)
-  const [draft, setDraft] = useState('')
   /** 🕘: the room's side chats, newest first (null: the list is not open) */
   const [history, setHistory] = useState<Chat[] | null>(null)
   const [historyBusy, setHistoryBusy] = useState(false)
@@ -90,20 +115,25 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null }: { roo
   const load = useCallback(async () => {
     setLoadError(null)
     try {
-      const id = await newestSideChat(roomId)
-      if (id) await useChats.getState().loadThread(id)
-      setChatId(id)
+      patch({ chatId: await findSideChat(roomId) })
     } catch (e) {
       setLoadError(e)
     }
-  }, [roomId])
-  useEffect(() => { void load() }, [load])
-  useEffect(() => { box.current?.focus() }, [])
-  // a message asked about: quoted in front of the next question, until it is sent or taken off
-  const [quoted, setQuoted] = useState<SideSeed | null>(seed)
+  }, [roomId, patch])
+  // the chat this page shows for the room already (another panel of it, or before this one was closed): read again;
+  // gone meanwhile (deleted in the full chat), the room's newest; none known yet: the room's newest
   useEffect(() => {
-    if (!seed) return
-    setQuoted(seed)
+    const known = sideChatOf(useSideChats.getState(), roomId).chatId
+    if (known === undefined) return void load()
+    if (known) void useChats.getState().loadThread(known).catch(() => { if (sideChatOf(useSideChats.getState(), roomId).chatId === known) void load() })
+  }, [roomId, load])
+  useEffect(() => { if (autoFocus) box.current?.focus() }, [])
+  // a message asked about: quoted in front of the next question, until it is sent or taken off (once per ask: a panel
+  // drawn again, or a second panel of the room, does not quote it again)
+  useEffect(() => {
+    const taken = sideChatOf(useSideChats.getState(), roomId).seedKeys
+    if (!seed || taken.includes(seed.key)) return
+    patch({ quoted: seed, seedKeys: [...taken, seed.key].slice(-SEED_KEYS_MAX) })
     setHistory(null)
     box.current?.focus()
   }, [seed?.key])
@@ -200,15 +230,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null }: { roo
   const onSelectBranch = (id: string) => { if (chatId) void useChats.getState().selectBranch(chatId, id).catch(fail) }
   const name = aiName(t)
 
-  return (
-    <section
-      className={clsx(
-        'flex min-h-0 min-w-0 flex-1 flex-col bg-surface md:relative md:flex-none md:border-l md:border-line',
-        'md:w-[var(--panel-w,clamp(320px,calc(100%-420px),400px))] md:min-w-[320px] xl:w-[var(--panel-w,clamp(320px,calc(100%-420px),440px))]',
-      )}
-      aria-label={t('sideChat.title', { name })}
-      data-testid="room-side-chat"
-    >
+  const body = (
+    <>
       <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-2 max-md:pl-0.5 md:px-4">
         <IconButton tip label={t('sideChat.close')} onClick={onClose} className="touch-hit p-3 md:hidden" data-testid="side-chat-back">
           <ChevronLeft size={20} aria-hidden />
@@ -344,7 +367,12 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null }: { roo
         </div>
         <p className="pt-1.5 text-center text-[11px] text-faint" data-testid="side-chat-disclaimer">{t('sideChat.disclaimer', { name })}</p>
       </div>
-      <PanelDivider sizing={THREAD_PANEL} label={t('rooms.threadResize')} testId="side-chat-divider" overlayTestId="side-chat-drag-overlay" />
-    </section>
+    </>
+  )
+  if (!frame) return body
+  return (
+    <RoomSideColumn label={t('sideChat.title', { name })} testId="room-side-chat" divider="side-chat">
+      {body}
+    </RoomSideColumn>
   )
 }

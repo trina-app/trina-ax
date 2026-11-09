@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-09 09:39
 - Branch: `plan/room-file-viewer` (the work: one `feat/room-file-viewer-*` branch per PR below)
-- Status: in progress (a #249, b0 #259, f #254, b #261 on dev; d #262; c0, c, e to come; #247 is on dev now)
+- Status: in progress (a #249, b0 #259, f #254, b #261, d #262 on dev; c0 and c #263; e to come; #247 is on dev now)
 - Where: trina-ax core (`web/src/`; if question 2 is a yes, one optional field on the chat send body in `shared/` and
   `server/src/chat/`). Why: rooms, chat and file previews are core (see docs/REPOSITORY-RULES.md)
 - Version impact: minor. A visible UX change; no migration, no new endpoint.
@@ -281,3 +281,26 @@ Built on step b (docs/DECISIONS.md "Lazy PDF pages and the viewer's page thumbna
   mounted pages); the browser's find and select-all reach only the drawn pages.
 - **Measured** (60-page fixture, viewer, 1440 × 900 at 2×, median of 5): first page 1,023 → 666 ms, canvases 60 → 2,
   canvas pixels 292 → 15.4 MP.
+
+### Step c: the right column (c0 and c, `feat/room-viewer-column`)
+
+Built with the owner's change to "The right column" (docs/DECISIONS.md "The room's right column"); PR
+https://github.com/trina-app/trina-ax/pull/263. What differs from the plan or was found:
+- **One thing at a time, no 스레드 · 트리나 switch** (owner): the file's thread by default, ✦ 트리나에게 묻기 in the bar
+  switches to the side chat with the file quoted, "스레드로 돌아가기" at the side chat's top switches back. The column
+  starts on the side chat when the room page had it open (`side[roomId]` in the rooms store).
+- **Question 2 needs no server change:** #247's file quote (`SideSeed.file`, its `file_id` read with `room_file`) is the
+  context. No `viewing` field, no "보는 중" line, no `docs:api`, no `b-side-chat` server tests.
+- **Question 3 via Trina, as recommended:** "팀 폴더에 저장" is a quick question under a quoted file (the page's side
+  chat too), answered through `save_room_file` and its card. No ⋯ menu (step b has none yet).
+- **The column is a fixed 400 px, without a divider:** the viewer's stage is not a sibling column the divider can
+  share the width with, so no `VIEWER_COLUMN` sizing; the toggle before ✕ hides it.
+- **`threadable` false** shows the message alone from what the window has (`ThreadPanel alone`); today no such message
+  draws a file chip (an AI answer's files are links), so it is covered by unit tests only.
+- **The side chat's chat id, draft and quote** are a small store per room (`store/sideChats.ts`), not a module map:
+  two panels of a room on screen at once (the page's under the viewer, the viewer's) must both follow a keystroke.
+- **Found on the way:** `Modal` sat under the viewer (z-50 against z-[55]), so a confirm or Share to room from the column
+  would have been hidden behind it with the viewer inert; dialogs now share the viewer's level and the later one is on
+  top. A phone's ✦ closes the viewer first and waits for its Back to land (`closeImageViewer`'s `then`) before the room
+  page opens its side chat, or a thread's own close could be undone by that Back.
+- **Phones:** ✦ stays and goes through `askTrinaInRoom` (the room page's side chat); the sheet is step e.

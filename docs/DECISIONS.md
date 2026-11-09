@@ -17147,3 +17147,79 @@ previews are core. Step (b) of the plan `docs/AGENTS/plan/20261109-0939-room-fil
   screenshots), and the PDF specs that were there (`previews`, `side-panel-expand`, `answer-sources`,
   `room-file-viewer`, `room-files-open`) unchanged.
 - Version impact: **minor** (a visible addition, the rail; faster previews; no API or data change).
+
+## The room's right column — the file's thread or the Trina side chat beside a file in the viewer (feat/room-viewer-column, 2026-11-09, product owner)
+
+넣을 곳: trina-ax `web/src/components/rooms/` (`RoomSideColumn.tsx`, `ViewerColumn.tsx`, `ThreadPanel.tsx`,
+`SideChatPanel.tsx`), `web/src/store/rooms.ts`, `web/src/store/sideChats.ts` and the viewer
+(`web/src/components/ImageViewer.tsx`), 이유: rooms, the side chat and file previews are core. Steps (c0) and (c) of the
+plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file viewer" (#261) and "Trina side chat"
+(#236, #247).
+
+- **One thing at a time (owner, replacing the plan's 스레드 · 트리나 switch):** like Slack's file viewer and the room page
+  since #247, the column shows the file's thread or my Trina side chat, never a tab bar over both. On computers it is a
+  400 px column at the viewer's right; the stage narrows from the right (`--viewer-col`) and its right arrow moves with
+  it. A toggle in the bar before ✕ (스레드·채팅 숨기기 / 보기: "대화 숨기기" is already a DM's "hide from my list") hides
+  and shows it; a panel's own ✕ hides it too. The column takes the focus of a click on its text (tabIndex -1), and a
+  swap or a hide gives it back to the stage, so the keys stay the viewer's and the page's shortcuts stay away. A link in
+  it that opens the side panel closes the viewer, as a link in the document does.
+- **The thread** is `ThreadPanel` itself (frame={false}), not a copy: the message's root (a reply's `threadRootId`, the
+  reply marked), with its reply box; a message without replies alone with the box (the first reply starts the thread);
+  a message that cannot be a root (`threadable` false: an AI answer only its asker sees) alone without a box, from what
+  the window has (`ThreadPanel alone`: no thread is asked for, the server has none). A step to another message's file
+  moves the thread with it. Items get `room.rootId` and `room.threadable` from the message (`ViewerMeta`).
+- **Trina:** ✦ 트리나에게 묻기 in the bar switches the column to the side chat with the file quoted, through #247's
+  `SideSeed.file` (`file_id` in the quote, read with `room_file`): **no new field or endpoint**; the plan's question 2 is
+  answered by that quote. While the side chat shows, a step keeps it and quotes nothing new. "스레드로 돌아가기" at its top
+  brings the file's thread back. ✦ on a message in the column's thread asks about that message there. The column starts
+  on the side chat when the room page had it open. No ✦ for a download-only file or one whose message was deleted (the AI
+  is refused those bytes).
+- **팀 폴더에 저장 through Trina (plan question 3):** one more quick question under a quoted file, "이 파일을 팀 폴더에
+  저장해 줘.", which goes through `save_room_file` and its card (#237); no direct button. In the room page's side chat
+  too. Five languages.
+- **Phones (< 768 px):** no column in this step (step e adds a sheet). ✦ stays: it closes the viewer and, once the
+  viewer's history entry is gone (`closeImageViewer(back, then)`, so a thread the room page closes is not undone by that
+  Back), opens the room page's side chat with the file quoted (`askTrinaInRoom`).
+- **c0, no visible change on the room page:** `RoomSideColumn` is the frame (section, sizing, divider) around either
+  panel; both panels draw it themselves by default and leave it to the caller with `frame={false}`. What the room page
+  shows besides the thread in the address moves into the rooms store (`side[roomId]: 'trina'`), so the viewer, a portal
+  outside the page, can start the same way; it goes when the page leaves the room, as the page's own state did.
+  `threadView` (one slot, wiped by any close) becomes `threadViews` by `placeKey` with a count of the panels that show
+  each: the page's thread and the viewer's (even the same one) no longer wipe each other. Every live change (a reply, an
+  edit, a delete, a reaction, a summary) reaches every view; a reconnect and a member change read every view again; each
+  view's reads have their own generation, so a read that comes back after its view closed fills nothing.
+- **One side chat per room on this page** (`store/sideChats.ts`, like `roomDrafts`): the chat shown, the draft and the
+  quote, so the page's and the viewer's are one chat. Kept for the page's life (gone at sign-out): closing and opening ✦
+  shows the chat and draft last shown, read again (one deleted meanwhile: the room's newest). An ask (`SideSeed.key`) is
+  quoted once (the room keeps its last 20 asks): a panel drawn again with the room page's last ask does not quote it
+  again, also after the viewer asked about a file meanwhile. Leaving a room drops its side state. The newest
+  side chat is looked for once however many panels open together. `SideChatPanel autoFocus` (default true): the viewer
+  opening on the side chat leaves the focus on the file; ✦ gives the box the focus.
+- **Keys:** keys typed in the column are its own (← → in a box, ⌘C on selected text); Esc still closes the viewer unless
+  something in the column took it (the mention list, a menu); drafts stay (`roomDrafts`, the side chat's store).
+- **The same thread in two boxes** (the room page's and the viewer's): each `RoomComposer` keeps its own text, so the
+  one that stays takes the other's draft (and mentions) when it goes; a refused send comes back into one of them only.
+- **Dialogs over the viewer:** `Modal` (confirms, Share to room) moved from z-50 to the viewer's z-[55]; of the two, the
+  one opened last is on top (each portal goes to the end of `<body>`), so a delete's confirm or Share to room from the
+  column is over the viewer, and a picture opened from a dialog is over that.
+- **Independent review** (must-fix, fixed): a click on the column's text left the focus on the page behind, so ⌘K
+  opened search under the viewer and ← → stopped. Also taken: an older ask quoted again over the viewer's file, the two
+  boxes of one thread drifting apart, the toggle's words, no ✦ for a file the read did not find, a phone's second tap,
+  tests for a confirm over the viewer, a phone's ✦ from a thread and no ✦ for a download-only file.
+- **With step d's page thumbnails (#262, rebased on):** the rail, the document and the column share the stage left of
+  the column (the space on the document's right gives way first); `pdf-lazy-pages.spec.ts` hides the column where it
+  measures the document's own layout and checks the three together once. The rail still shows from a 1,024 px window,
+  so between 1,024 and about 1,430 px with the column open the document is narrower than 960 px: a later tweak could
+  key the rail to the stage's width.
+- **Left out:** a divider for the viewer's column (the stage is not a column the divider can share the width with: the
+  column is a fixed 400 px); the plan's "보는 중: {name}" line (the quote names the file); 링크 복사 and ⋯ (step b).
+- Tests: `web/test/unit/rooms-store.test.ts` (every thread on screen gets replies, edits, deletes, reactions and
+  summaries; one thread in two panels; a read after the last close; reconnect and member change; the side state),
+  `room-thread.test.tsx` (two panels of a thread, one closing; alone), `side-chat.test.tsx` (two panels are one chat
+  and draft, an ask quoted once, `autoFocus`, 팀 폴더에 저장, the asks), `image-viewer.test.ts` (an item's thread;
+  `closeImageViewer`'s `then`); e2e `room-file-viewer.spec.ts` (a reply from the viewer in the room's thread, which the
+  viewer leaves whole; the thread follows a step; ✦ with the file quoted, 팀 폴더에 저장, 스레드로 돌아가기; the side
+  chat across ← →; the toggle; starting on Trina with the page's draft; a phone's ✦; screenshots),
+  `image-viewer.spec.ts` (a room photo fits the stage left of the column), `room-hover-bar.spec.ts` (the bar walked as
+  it is since #247, ✦ included).
+- Version impact: **minor** (a visible UX change; no API or data change).

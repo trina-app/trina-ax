@@ -22,13 +22,18 @@
 //   file viewer"): a document on the document stage (components/ViewerDocument.tsx: FileBody, the side panel's body, in
 //   a reading column that scrolls; or the file's card), in the same list as the pictures. The bar then also says where
 //   it was sent, and has 패널에서 열기 (the side panel, beside the conversation) instead of the zoom, 복사 and the new tab.
-//   The right side of the stage is left free for the thread and Trina column that comes next.
+// - A room's picture or file has its conversation beside it on computers (components/rooms/ViewerColumn.tsx, Slack's
+//   right column): its message's thread, or my Trina side chat of the room. The bar's ✦ (트리나에게 묻기) switches the
+//   column to the side chat with the file quoted (on a phone it closes the viewer and opens the room page's side chat
+//   with it); the toggle before ✕ hides and shows the column, and the stage narrows from the right while it shows.
+//   Keys typed in the column are its own (← → stay in its box).
 import clsx from 'clsx'
-import { ChevronLeft, ChevronRight, Copy, Download, ExternalLink, Loader2, Minus, PanelRight, Plus, X } from 'lucide-react'
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { ChevronLeft, ChevronRight, Copy, Download, ExternalLink, Loader2, Minus, PanelRight, PanelRightClose, PanelRightOpen, Plus, X } from 'lucide-react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation } from 'react-router-dom'
-import { closeImageViewer, notePage, openImageViewer, showEntry, skipLeftEntry, stepTargets, useImageViewer, ViewerGroup, type ViewerEntry, type ViewerItem, type ViewerMetaValue, type ViewerOpen, type ViewerSender } from '../lib/imageViewer'
+import { closeImageViewer, getImageViewer, notePage, openImageViewer, showEntry, skipLeftEntry, stepTargets, useImageViewer, ViewerGroup, type RoomPlace, type ViewerEntry, type ViewerItem, type ViewerMetaValue, type ViewerOpen, type ViewerSender } from '../lib/imageViewer'
+import { askTrinaInRoom, fileSeed } from '../lib/sideChatAsk'
 import { openFilePreview } from '../lib/sidePanel'
 import { clampView, fitView, isZoomed, layoutSize, onPicture, pinchView, stepScale, swipeResult, toggleAt, wheelScale, zoomAt, type Point, type Size, type View } from '../lib/zoom'
 import { canCopyImage, copyImage, isCopyKey, type CopyFailure, type PickPicture } from '../lib/copyImage'
@@ -40,9 +45,10 @@ import { useAvatarOf, useNameOf } from '../store/people'
 import { roomFileGone, useRooms } from '../store/rooms'
 import { toast } from '../store/ui'
 import { Avatar } from './Avatar'
-import { AiFace } from './rooms/AiFace'
+import { AiFace, AiMark } from './rooms/AiFace'
+import { useViewerColumn, VIEWER_COLUMN_PX, ViewerColumn } from './rooms/ViewerColumn'
 import { Tooltip } from './Tooltip'
-import { useFocusTrap } from './ui'
+import { useFocusTrap, useMediaQuery } from './ui'
 import { scrollsSideways, ViewerDocument } from './ViewerDocument'
 
 // ---------------- panes and pictures ----------------
@@ -56,16 +62,19 @@ export function ImageGroup({ children }: { children: ReactNode }) {
   return <GroupContext.Provider value={group}>{children}</GroupContext.Provider>
 }
 
-/** Who sent the pictures and files inside and when (a message, and its id), and where (a room's list), for the viewer's
- * bar. What is not given here comes from the ViewerMeta around it (a message's who and when inside its room's where). */
-export function ViewerMeta({ sender, at, where, messageId, children }: ViewerMetaValue & { children: ReactNode }) {
+/** Who sent the pictures and files inside and when (a message, its id and its thread), and where (a room's list), for the
+ * viewer's bar and its column. What is not given here comes from the ViewerMeta around it (a message's who and when
+ * inside its room's where). */
+export function ViewerMeta({ sender, at, where, messageId, rootId, threadable, children }: ViewerMetaValue & { children: ReactNode }) {
   const outer = useContext(MetaContext)
   const kind = sender?.kind ?? outer.sender?.kind
   const user = sender?.kind === 'user' ? sender.user : !sender && outer.sender?.kind === 'user' ? outer.sender.user : null
   const when = at === undefined ? outer.at : at
   const place = where === undefined ? outer.where : where
   const message = messageId ?? outer.messageId
-  const value = useMemo<ViewerMetaValue>(() => ({ sender: kind === 'ai' ? { kind: 'ai' } : kind === 'user' ? { kind: 'user', user } : undefined, at: when, where: place, ...(message ? { messageId: message } : {}) }), [kind, user, when, place, message])
+  const root = messageId ? rootId : outer.rootId
+  const canThread = messageId ? threadable : outer.threadable
+  const value = useMemo<ViewerMetaValue>(() => ({ sender: kind === 'ai' ? { kind: 'ai' } : kind === 'user' ? { kind: 'user', user } : undefined, at: when, where: place, ...(message ? { messageId: message } : {}), ...(root ? { rootId: root } : {}), ...(canThread !== undefined ? { threadable: canThread } : {}) }), [kind, user, when, place, message, root, canThread])
   return <MetaContext.Provider value={value}>{children}</MetaContext.Provider>
 }
 
@@ -222,18 +231,35 @@ function Viewer({ open }: { open: ViewerOpen }) {
   const gone = useRooms((s) => !!room?.messageId && roomFileGone(s, room.roomId, room.messageId, room.fileId))
   // a document the read did not find: no download in the bar either (the card has none)
   const [missing, setMissing] = useState<string | null>(null)
+  // a download-only document: no 트리나에게 묻기 (the AI is refused its bytes too)
+  const [held, setHeld] = useState<string | null>(null)
+  // the conversation beside a room's picture or file (computers): its thread, or my Trina side chat of the room
+  const wide = useMediaQuery('(min-width: 768px)')
+  const place = room?.messageId ? (room as RoomPlace & { messageId: string }) : null
+  const column = useViewerColumn(entry.item.room?.roomId ?? null)
+  const columnOn = wide && !!place && column.state.open
+  // 트리나에게 묻기 about this one: the column's side chat with it quoted; a phone's room page's side chat
+  const askable = !!place && !gone && held !== item.key && missing !== item.key
+  const askTrina = () => {
+    if (!place) return
+    const seed = fileSeed(place.fileId, item.name)
+    if (wide) column.ask(seed)
+    // the room page under the viewer opens it, once the viewer's history entry is gone (its thread may close too); a
+    // second tap meanwhile asks nothing again
+    else if (getImageViewer()) closeImageViewer(true, () => askTrinaInRoom(place.roomId, seed))
+  }
   // a document (or a card in place of the picture): no zoom, no gestures of the picture stage; the page scrolls
   const docMode = item.kind === 'file' || gone
 
   const close = useCallback(() => closeImageViewer(), [])
   const back = opener?.isConnected ? opener : (list.find((e) => e.item.key === openerKey)?.el ?? null)
   useFocusTrap(root, true, close, back)
-  // a step drew other controls (the last one's arrow, a document's body): focus left on nothing goes back to the stage,
-  // so the keys keep working
+  // a step drew other controls (the last one's arrow, a document's body), or the column changed or went (its link back,
+  // its ✕): focus left on nothing goes back to the stage, so the keys keep working and the page's shortcuts stay away
   useLayoutEffect(() => {
     const a = document.activeElement
     if (root.current && (!a || a === document.body || !root.current.contains(a))) stageRef.current?.focus({ preventScroll: true })
-  }, [cur, docMode, gone])
+  }, [cur, docMode, gone, column.state.show, column.state.open, columnOn])
 
   const [pic, setPic] = useState<Pic>(() => freshPic(cur))
   let p = pic
@@ -501,6 +527,9 @@ function Viewer({ open }: { open: ViewerOpen }) {
   const onKeyDown = (e: React.KeyboardEvent) => {
     // the page's own shortcuts (⌘K search, ⌘⇧O new chat) wait until it is closed; Esc goes on to the focus trap
     if (e.key !== 'Escape') e.stopPropagation()
+    // the column's own keys: its boxes, its menus, its list (Esc still goes on to close the viewer when nothing in it took
+    // it)
+    if (e.target instanceof Element && e.target.closest('[data-viewer-column]')) return
     // Tab from the picture's area (where the focus starts, outside the Tab order) goes to the bar's first or last button
     if (e.key === 'Tab' && e.target === stageRef.current) {
       const items = [...root.current!.querySelectorAll<HTMLElement>('button:not([disabled]), a[href]')].filter((x) => x.offsetParent !== null)
@@ -575,6 +604,8 @@ function Viewer({ open }: { open: ViewerOpen }) {
       aria-label={t(item.kind === 'file' ? 'viewer.fileLabel' : 'viewer.label', { name: item.name })}
       onKeyDown={onKeyDown}
       className={clsx('fixed inset-0 z-[55] overflow-hidden text-white', !docMode && 'select-none')}
+      // the column's width, which the stage and its right arrow keep clear of
+      style={columnOn ? ({ '--viewer-col': `${VIEWER_COLUMN_PX}px` } as CSSProperties) : undefined}
       data-testid="image-viewer"
       data-mode={docMode ? 'file' : 'image'}
       data-zoomed={zoomed ? '' : undefined}
@@ -586,7 +617,7 @@ function Viewer({ open }: { open: ViewerOpen }) {
         tabIndex={-1}
         data-autofocus
         className={clsx(
-          'absolute inset-x-0 bottom-0 outline-none',
+          'absolute inset-x-0 bottom-0 outline-none md:right-[var(--viewer-col,0px)]',
           // a document sits under the bar on a phone too (the bar does not hide there), and scrolls as a page does
           docMode ? 'top-[calc(var(--safe-top)+3.75rem)] md:top-14' : 'top-0 touch-none overflow-hidden md:top-14',
         )}
@@ -601,7 +632,7 @@ function Viewer({ open }: { open: ViewerOpen }) {
         data-viewer-stage=""
       >
         {docMode ? (
-          <ViewerDocument item={item} gone={gone} onSwipe={(dir) => go(dir === 'next' ? next : prev)} onMissing={() => setMissing(item.key)} />
+          <ViewerDocument item={item} gone={gone} onSwipe={(dir) => go(dir === 'next' ? next : prev)} onMissing={() => setMissing(item.key)} onHeld={() => setHeld(item.key)} />
         ) : (
           <>
             <div
@@ -710,6 +741,16 @@ function Viewer({ open }: { open: ViewerOpen }) {
             </a>
           </Tooltip>
         )}
+        {askable && (
+          <BarButton label={t('sideChat.askAboutFile')} onClick={askTrina} testId="image-viewer-ask-trina">
+            <AiMark />
+          </BarButton>
+        )}
+        {wide && place && (
+          <BarButton label={column.state.open ? t('viewer.columnHide') : t('viewer.columnShow')} onClick={column.toggle} testId="image-viewer-column">
+            {column.state.open ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
+          </BarButton>
+        )}
         <BarButton label={t('common.close')} onClick={close} testId="image-viewer-close">
           <X size={20} />
         </BarButton>
@@ -725,6 +766,7 @@ function Viewer({ open }: { open: ViewerOpen }) {
           <ChevronRight size={24} />
         </EdgeButton>
       )}
+      {columnOn && place && <ViewerColumn place={place} state={column.state} onAsk={column.ask} onThread={column.toThread} onHide={column.hide} />}
       <p className="sr-only" aria-live="polite">{count ? `${item.name}, ${count}` : item.name}</p>
       <p className="sr-only" role="status" data-testid="image-viewer-said">{said}</p>
     </div>
@@ -754,7 +796,8 @@ function EdgeButton({ side, label, onClick, hidden, phone = true, children }: { 
         onClick={onClick}
         className={clsx(
           'absolute top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white/90 transition hover:bg-black/80 hover:text-white md:mt-7',
-          side === 'left' ? 'left-3' : 'right-3',
+          // the right one keeps clear of the column beside the stage
+          side === 'left' ? 'left-3' : 'right-3 md:right-[calc(var(--viewer-col,0px)+0.75rem)]',
           hidden && 'max-md:invisible max-md:opacity-0',
           !phone && 'max-md:hidden',
         )}

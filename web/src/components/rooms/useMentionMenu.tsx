@@ -205,6 +205,11 @@ export function useMentionMenu({ text, setText, input, members, meId, initial = 
       setPicked([])
       setClosedFor(null)
     },
+    /** the box takes this text and these mentions as they are (another box of the same place left them: a draft) */
+    restore: (body: string, people: PickedMention[]) => {
+      setPicked(people)
+      setText(body)
+    },
     /** a send the server refused comes back: its text goes before what is in the box now (on a line of its own), with
      * the people it mentioned marked again (by the names the room shows and the member list has) */
     putBack: (body: string, ids: string[], all = false) => {

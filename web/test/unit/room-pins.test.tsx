@@ -91,7 +91,7 @@ describe('the order', () => {
 
   test('hiding a room takes its pin off at once (withHidden)', () => {
     const a = room({ pinnedAt: pinned(1) })
-    const d = { rooms: [a], openRoomId: null, timeline: null, threadView: null }
+    const d = { rooms: [a], openRoomId: null, timeline: null, threadViews: {} }
     const h = withHidden(d, a.id, true).rooms[0]!
     expect([h.hidden, 'pinnedAt' in h]).toEqual([true, false])
   })

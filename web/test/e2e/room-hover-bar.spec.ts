@@ -1,7 +1,8 @@
 // A message's hover bar in the browser (components/rooms/MessageHoverBar.tsx): it floats over the top-right edge of the
 // message under the mouse (under the first one), moves nothing, names each button in a tooltip
 // (components/Tooltip.tsx), toggles a quick reaction, opens the thread, and is reached with the keyboard too (Tab shows
-// it, Esc closes its menu). The room is answered through page.route (rooms-mock.ts).
+// it, Esc closes its menu). Its buttons in order: ✅ 👀 👍, 반응 추가, 스레드에서 답장, ✦ 트리나에게 이 메시지 묻기, ⋮ 더 보기.
+// The room is answered through page.route (rooms-mock.ts).
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
 import { ROOM_ID, routeRoom } from './rooms-mock'
@@ -103,7 +104,7 @@ test('keyboard: Tab reaches the bar and shows it, each button is named, Esc clos
   await expect(page.getByRole('menu')).toHaveCount(0)
   await expect(more).toBeFocused()
   // Shift+Tab walks the bar's buttons, each with a name
-  for (const name of ['스레드에서 답장', '반응 추가', '👍 반응 남기기', '👀 반응 남기기', '✅ 반응 남기기']) {
+  for (const name of ['트리나에게 이 메시지 묻기', '스레드에서 답장', '반응 추가', '👍 반응 남기기', '👀 반응 남기기', '✅ 반응 남기기']) {
     await page.keyboard.press('Shift+Tab')
     await expect(page.locator(':focus')).toHaveAttribute('aria-label', name)
   }

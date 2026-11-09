@@ -96,6 +96,20 @@ describe('a room\'s files beside its pictures', () => {
     expect(it.thumb).toBeUndefined()
     expect(it.download).toBeFunction()
   })
+  test("a file or photo in a message carries its thread for the viewer's column: a reply its root's, a root its own", () => {
+    const pdf = f('acme-q4.pdf', { mime: 'application/pdf', kind: 'pdf' })
+    const reply = roomFileItem(roomId, pdf, off, { messageId: 'm-2', rootId: 'm-1', threadable: true, where: '#acme에서' })
+    expect(reply.room).toEqual({ roomId, fileId: pdf.id, messageId: 'm-2', rootId: 'm-1', threadable: true })
+    // the thread goes into `room` only, not onto the item itself
+    expect(reply).not.toHaveProperty('rootId')
+    expect(reply).not.toHaveProperty('threadable')
+    // a message's own (no rootId given): itself; one that cannot have a thread says so
+    const png = f('acme.png', { kind: 'image', mime: 'image/png', thumb: true, width: 10, height: 10 })
+    expect(roomItem(roomId, png, { messageId: 'm-3' }).room).toEqual({ roomId, fileId: png.id, messageId: 'm-3', rootId: 'm-3', threadable: true })
+    expect(roomItem(roomId, png, { messageId: 'm-4', rootId: 'm-4', threadable: false }).room).toMatchObject({ threadable: false })
+    // not sent yet (a message box's picture): no message, no thread
+    expect(roomItem(roomId, png).room).toEqual({ roomId, fileId: png.id })
+  })
   test('a picture without a thumbnail that the browser draws is a picture all the same; one it cannot draw is a file', () => {
     const png = f('acme-chart.png', { kind: 'image', mime: 'image/png', width: 800, height: 600 })
     const it = roomFileItem(roomId, png, off)
@@ -226,6 +240,27 @@ describe('Back closes the viewer', () => {
     closeImageViewer(false)
     expect(getImageViewer()).toBeNull()
     expect(backs).toBe(0)
+  })
+  test("closed with something to do after: it runs once the back has landed (the room page's own change of address is not undone)", () => {
+    start()
+    holdBack = true
+    open()
+    const ran: number[] = []
+    closeImageViewer(true, () => ran.push(at))
+    expect(getImageViewer()).toBeNull()
+    expect(ran).toEqual([])
+    late!()
+    expect(ran).toEqual([0])
+    // nothing open: at once
+    closeImageViewer(true, () => ran.push(-1))
+    expect(ran).toEqual([0, -1])
+    // closed by a page change (no back): at once too
+    holdBack = false
+    open()
+    stack.push({ idx: 4, key: 'k2' })
+    at = 2
+    closeImageViewer(false, () => ran.push(at))
+    expect(ran).toEqual([0, -1, 2])
   })
   test('stepping to another picture adds no entry', () => {
     start()
