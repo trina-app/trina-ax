@@ -16228,3 +16228,51 @@ message rows ("알림함의 대화 알림") it was not clickable, its date sat o
   the npm registry for them (GitHub's anonymous downloads gave HTTP 504 on 2026-11-09); a miss downloads as before.
 - **Refresh the times** when the split drifts: `bun scripts/ci/unit-shard.ts --times <the unit step's log>`.
 
+## Pinned chats — 상단에 고정 in 트리나 기록 (feat/pin-chats, 2026-11-09, product owner)
+
+넣을 곳: trina-ax core (`server/src/chat/pins.ts`, `server/src/routes/chats.ts`, migration 277, `shared/src/api/chats.ts`,
+`web/src/components/Sidebar.tsx`, `web/src/pages/Projects.tsx`), 이유: chats and their list are core. Plan:
+`docs/AGENTS/plan/20261109-0825-pin-chats.md`.
+
+The owner: "trina history more 버튼에서 상단 고정 pin 기능 만들자." A chat row's "···" in the sidebar's 트리나 기록 has
+**상단에 고정** / **고정 해제**, and pinned chats stay at the top of the list.
+
+- **A pin is the person's own.** One row per person and chat, `chat_pins(user_id, chat_id, pinned_at)` (migration 277),
+  not a column on chats. A shared project chat someone else made can be pinned too, for the one who pinned it only:
+  `Chat.pinnedAt` is worked out per viewer (`ChatStore.toChat`'s `viewer`, from `chatView` and `publishChat`), so a
+  shared chat's `chat.updated` carries each person's own pin, and nobody else hears of a pin or an unpin.
+- **Who may pin.** Anyone who may view the chat (`chatFor` 'view', not in the trash; 404 otherwise, as every chat route;
+  also 404 for the server's own draft chats, which are in no list).
+  Pinning changes nothing about who sees it. Pinned again: kept as it was (its place does not move); unpinned when not
+  pinned: no change. At most 50 pins (409 `chat_pins_full`, "상단에 고정은 50개까지 할 수 있어요…"), so the first page
+  that carries them all stays bounded; pins of chats the person no longer sees do not count.
+- **What takes a pin away.** The trash: a delete drops everyone's pin of the chat (also a deleted project's shared chats
+  going to their creators' trash); restored, it comes back unpinned. A purge: the foreign key's cascade. A deleted
+  person: their pins go in the delete's transaction (the users row stays as a tombstone, so the cascade never runs). A
+  chat the person can no longer see (a shared chat whose project they lost, one that stopped being shared and is
+  someone else's now): not shown, and its pin is dropped when their chat list's first page is read (`dropUnseenPins`).
+  A pin is not dropped at the moment access goes; regaining access before the list is read keeps it.
+- **The order.** `GET /api/chats` without a search or the trash (my list, and a project's page with `projectId`): the
+  first page starts with my pinned chats of that list, the most recently pinned first, and every page leaves them out of
+  the rest, so paging still gives each chat once. A pinned shared chat shows in my list only when it would anyway (I
+  made it or wrote in it). A search and the trash keep their order and mark the pins. Older clients see the pinned
+  chats on the first page and sort them by date as before. ⌘K's 최근 reads the same first page: it now sorts by date
+  before it takes the newest eight, so old pins do not push the recent chats out.
+- **The sidebar (lean).** No header of their own: a 12 px pin before the title (named 고정됨 for screen readers, as the
+  shared chat's people icon is named) on pinned rows. On a computer the short list has at most ten pins, the most
+  recently pinned first, then the five latest of the others and the chat on screen; "모두 보기" and the phone's drawer
+  have every pin first, then the date groups (the filters apply to pins too; a pinned chat that does not pass them is not
+  shown). "답 필요 N" counts what neither part shows. The project page lists my pins there first with the same pin.
+  Not built: drag to reorder (no manual order), pinning from the chat's title menu or from the project page's rows.
+- **The row menu.** 상단에 고정 / 고정 해제 is the first item of every row's "···" (the shared row menu of #221/#241, so
+  right-click, long press and the phone's sheet work too), with the pin and pin-off icons. A shared chat I may neither
+  rename nor delete used to have no "···"; it now has one, with only the pin.
+- **Live.** A pin or unpin answers the chat and sends `chat.updated` ('updated') to the person's own windows only.
+- Tests: `tests/unit/b-chat-pins.test.ts` (pin, unpin, idempotent, my windows only; the order and its pages, a project's
+  page, a search, the trash; a shared chat's pin per viewer, also on a later turn's events; lost access hides and drops
+  it; delete, restore, purge, a deleted project, a deleted person; the cap), the security permission matrix (only the
+  chat's person), `web/test/unit/sidebar.test.tsx` (the menu items, the order and the cap, the drawer, pin and unpin from
+  the menu), `web/test/unit/search-room-messages.test.tsx` (⌘K's 최근 by date with nine pins), e2e `chat-pins.spec.ts`
+  (pin from the "···" moves the row to the top with the pin, after a reload too; unpin; a right-click; the phone's sheet;
+  a project's page), and the row-menu lists in `account-settings.spec.ts` and `project-list-menu.spec.ts`.
+- Version impact: **minor** (new endpoints, an additive field and an additive migration).

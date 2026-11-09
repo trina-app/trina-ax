@@ -187,6 +187,9 @@ export const Chat = z.object({
    * person; the chat page starts it when it is on screen (POST /api/skill-shares/merge-chats/:id/start), so the save
    * cards it raises are there while they look. Absent = no. */
   mergeWaiting: z.literal(true).optional(),
+  /** when I pinned it to the top of my chat list ("상단에 고정", POST /api/chats/:id/pin; migration 277). Mine only: on
+   * a shared project chat nobody else sees my pin. Absent = not pinned. */
+  pinnedAt: IsoTime.optional(),
   /** a shared project chat (docs/DECISIONS.md "Shared project chats"): the people who can see its project see it and may
    * continue it, each turn as the person who sent it. Absent: a chat of one person. */
   shared: z.object({

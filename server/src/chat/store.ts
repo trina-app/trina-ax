@@ -194,8 +194,10 @@ export class ChatStore {
   }
   /** `waiting`: the runtime's word that the AI waits for the person here (ChatRuntime.waitsForPerson) */
   /** `answersOf`: whose answers the unseen marker and the last outcome come from (a shared chat: its creator's own
-   * turns, for its creator; null for anyone else: no marker); absent: every answer (a chat of one person). */
-  toChat(r: ChatRow, runState: ChatRunState, waiting = false, o: { answersOf?: string | null } = {}): Chat {
+   * turns, for its creator; null for anyone else: no marker); absent: every answer (a chat of one person). `viewer`: whose
+   * pin it shows (Chat.pinnedAt, chat/pins.ts). */
+  toChat(r: ChatRow, runState: ChatRunState, waiting = false, o: { answersOf?: string | null; viewer?: string } = {}): Chat {
+    const pinned = o.viewer ? this.pinnedAt(o.viewer, r.id) : null
     return {
       id: r.id, projectId: r.project_id, title: r.title, engine: (r.engine === 'codex' || r.engine === 'api' ? r.engine : 'claude-code') as EngineId, model: r.model,
       createdAt: iso(r.created_at), updatedAt: iso(r.updated_at), deletedAt: r.deleted_at ? iso(r.deleted_at) : null, runState,
@@ -203,6 +205,7 @@ export class ChatStore {
       ...(waiting ? { waiting: true as const } : {}),
       ...(o.answersOf === null ? {} : this.answerState(r, o.answersOf)),
       ...(this.mergeWaiting(r.id) ? { mergeWaiting: true as const } : {}),
+      ...(pinned ? { pinnedAt: iso(pinned) } : {}),
     }
   }
   /** The newest finished answer (done, error or stopped), in one read: whether it finished after the person last had
@@ -220,6 +223,10 @@ export class ChatStore {
     const lastOutcome = row.status === 'error' ? 'error' as const : row.status === 'done' && stopReasonOf(row.stop_reason) ? 'paused' as const : null
     const unseen = row.status !== 'stopped' && iso(row.t) > iso(r.seen_at ?? r.created_at)
     return { ...(unseen ? { unseen: true as const } : {}), ...(lastOutcome ? { lastOutcome } : {}) }
+  }
+  /** When `userId` pinned the chat (chat/pins.ts), or null. */
+  pinnedAt(userId: string, chatId: string): string | null {
+    return (this.db.query('SELECT pinned_at FROM chat_pins WHERE user_id = ? AND chat_id = ?').get(userId, chatId) as { pinned_at: string } | null)?.pinned_at ?? null
   }
   /** An answer finished after the person last had the chat on screen (answerState). */
   unseen(r: Pick<ChatRow, 'id' | 'seen_at' | 'created_at'>): boolean { return !!this.answerState(r).unseen }
