@@ -5,7 +5,8 @@
 // download, 패널에서 열기 and ✕. A file with no preview here (a ZIP, a Hangul file while the HWP preview is off) is its
 // card at once, with nothing read; a download-only file is the card too, never drawn. A file whose message is deleted
 // while open says it is no longer available. Esc, ✕ and Back close it and focus goes back to the chip; the chip's own
-// icon still downloads. A thread's files are its own list. On a phone it is the whole screen. The room is answered
+// icon still downloads. A thread's files are its own list. A sheet keeps its tabs in view; a team file named in a
+// document opens the side panel and the viewer gives way. On a phone it is the whole screen. The room is answered
 // through page.route as the team server sends it (rooms-mock.ts), its files as streamFile does. Every view passes axe.
 // SHOTS_DIR=<folder>: the screenshots (a PDF at 1440 light and 390 light, a Hangul file at 1440 dark) go there.
 import fs from 'node:fs'
@@ -19,7 +20,8 @@ test.use({ serviceWorkers: 'block', viewport: { width: 1440, height: 900 } })
 
 const BEN = { id: 'ben', name: '벤' }
 const id = (n: number) => `019a5f00-0000-7000-8000-${String(n).padStart(12, '0')}`
-const MD = '# acme 회의 메모\n\n- 첫째\n- 둘째\n'
+// the notes name a team file: a link that opens the side panel
+const MD = '# acme 회의 메모\n\n- 첫째\n- 둘째\n\n[핸드북](/files/view?path=docs/handbook.pdf)\n'
 const REPLY_MD = '# acme 답장 메모\n\n스레드에 붙인 메모예요.\n'
 // a 192 x 192 picture (the app's own icon)
 const PNG = fs.readFileSync(path.resolve(import.meta.dirname, '../../public/icons/icon-192.png'))
@@ -31,12 +33,15 @@ const file = (n: number, name: string, kind: string, mime: string, size: number,
 const at = (n: number) => new Date(Date.parse('2026-11-05T09:00:00.000Z') + n * 60_000).toISOString()
 
 /** The room "디자인 리뷰" (a team room): Ben's PDF and photo, then a ZIP and notes, then a file held by the safety check
- * (download only), and a reply in the first message's thread with its own notes; with `hwp`, a Hangul form as well. */
-async function openRoom(page: Page, o: { at?: string; hwp?: boolean } = {}) {
+ * (download only), and a reply in the first message's thread with its own notes; with `hwp`, a Hangul form as well, and
+ * with `sheet` a workbook of two sheets, one of 80 rows. */
+async function openRoom(page: Page, o: { at?: string; hwp?: boolean; sheet?: boolean } = {}) {
   await reset(page)
   await signIn(page)
   // the mock's own PDF, served as a room file
   const pdf = Buffer.from(await (await page.request.get('/api/files/download?path=docs%2Fhandbook.pdf&disposition=attachment&preview=true')).body())
+  // the mock's own workbook (요약, and 매출 with 80 rows)
+  const xlsx = Buffer.from(await (await page.request.get('/api/files/download?path=docs%2Fsources%2Fbudget.xlsx&disposition=attachment&preview=true')).body())
   if (o.hwp) {
     // the mock draws a team file's pages with the repo's pinned renderer (prepare:hwp); the room's address answers with
     // those pages, as the team server answers it from the same renderer
@@ -51,6 +56,7 @@ async function openRoom(page: Page, o: { at?: string; hwp?: boolean } = {}) {
     [id(507), { name: 'acme-held.pdf', mime: 'application/pdf', body: pdf, held: true }],
     [id(508), { name: 'acme-reply.md', mime: 'text/markdown', body: Buffer.from(REPLY_MD) }],
     [id(601), { name: 'acme-신청서.hwp', mime: 'application/x-hwp', body: HWP }],
+    [id(701), { name: 'acme-budget.xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', body: xlsx }],
   ])
   await routeRoom(page, {
     members: [BEN],
@@ -66,6 +72,7 @@ async function openRoom(page: Page, o: { at?: string; hwp?: boolean } = {}) {
       ] } },
       { id: id(3), author: BEN, body: '검사 중인 파일', extra: { files: [file(507, 'acme-held.pdf', 'pdf', 'application/pdf', pdf.length)] } },
       ...(o.hwp ? [{ id: id(6), author: BEN, body: '신청서 양식이에요', extra: { files: [file(601, 'acme-신청서.hwp', 'other', 'application/x-hwp', HWP.length)] } }] : []),
+      ...(o.sheet ? [{ id: id(7), author: BEN, body: '예산표예요', extra: { files: [file(701, 'acme-budget.xlsx', 'sheet', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', xlsx.length)] } }] : []),
       { id: id(4), author: BEN, body: '메모 하나 더', threadRootId: id(1), extra: { files: [file(508, 'acme-reply.md', 'text', 'text/markdown', REPLY_MD.length)] } },
     ],
   })
@@ -100,7 +107,7 @@ async function openRoom(page: Page, o: { at?: string; hwp?: boolean } = {}) {
     })
   })
   await page.goto(o.at ?? `/rooms/${ROOM_ID}`)
-  await expect(page.getByTestId('room-scroller').getByTestId('room-message')).toHaveCount(o.hwp ? 4 : 3)
+  await expect(page.getByTestId('room-scroller').getByTestId('room-message')).toHaveCount(3 + (o.hwp ? 1 : 0) + (o.sheet ? 1 : 0))
   return { served, pages }
 }
 
@@ -271,6 +278,34 @@ test("a thread's files are its own list: its root's and its replies', not the ti
   await expect(fileDialog(page, 'acme-handbook.pdf')).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(chip(thread, 'acme-reply.md').getByTestId('room-file-open')).toBeFocused()
+})
+
+test('a sheet keeps its tabs in view below its rows, as in the panel; ← → in a wide sheet are the sheet\'s', async ({ page }) => {
+  await openRoom(page, { sheet: true })
+  await openChip(timeline(page), 'acme-budget.xlsx')
+  await expect(fileDialog(page, 'acme-budget.xlsx')).toBeVisible()
+  const tabs = viewer(page).getByRole('tablist')
+  await expect(tabs).toBeVisible()
+  await viewer(page).getByRole('tab', { name: '매출' }).click()
+  await expect(viewer(page).locator('[data-sheet="매출"]')).toContainText('m80')
+  // 80 rows: the rows scroll inside, the tabs stay at the column's foot, inside the window
+  const bar = (await tabs.boundingBox())!
+  const body = (await viewer(page).getByTestId('file-viewer-body').boundingBox())!
+  expect(bar.y + bar.height).toBeLessThanOrEqual(body.y + body.height + 1)
+  expect(bar.y + bar.height).toBeLessThanOrEqual(900)
+  await audit(page, 'viewer with a sheet')
+})
+
+test('a team file named in a room document opens in the side panel: the viewer gives way to it', async ({ page }) => {
+  await openRoom(page)
+  await openChip(timeline(page), 'acme-notes.md')
+  await expect(viewer(page).getByRole('heading', { name: 'acme 회의 메모' })).toBeVisible()
+  await viewer(page).getByTestId('team-file-chip').click()
+  await expect(viewer(page)).toHaveCount(0)
+  await expect(page.getByTestId('file-panel').getByTestId('file-panel-title')).toHaveText('handbook.pdf')
+  await page.waitForTimeout(300)
+  await expect(page.getByTestId('file-panel')).toBeVisible()
+  expect(new URL(page.url()).pathname).toBe(`/rooms/${ROOM_ID}`)
 })
 
 test('a file whose message is deleted while it is open says it is no longer available; ← → still step', async ({ page }) => {
