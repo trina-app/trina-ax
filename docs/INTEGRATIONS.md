@@ -406,37 +406,53 @@ cannot start: Google's MCP servers (`https://gmailmcp.googleapis.com/mcp/v1`, `c
   app: each member it is for signs in through it with their own account). Members never see a template's secret, and
   the API shows them nothing of the app (`MyIntegrationTemplate` has no field for it, their connection's `oauthClient` is
   null, they cannot set one on it); the client ID and scopes are in the sign-in address they open, as with any app.
+  A member signs in through a template's app only while the template is for them: checked when the sign-in starts,
+  when the browser comes back and on "check again" (a group change takes effect before the next list removes the
+  connection).
   A request to one member cannot carry an app (a template does that).
 - **MCP server:** the client ID and secret are enough. The addresses are found from the server's address as for any MCP
   sign-in; `scope` replaces the scopes the server lists (Google's servers list every scope they know, full mail access
-  included, so name the ones you want). With both addresses given nothing is looked up; the resource indicator stays.
-  The first sign-in with a secret remembers the token address it found (`foundTokenUrl` in `oauth_client`, never shown;
-  `service.ts pinFound`); a later sign-in whose server names another one is refused before anything is sent ("enter the
-  client secret again"), so a server cannot move where the secret goes. A new secret or another app forgets it.
+  included, so name the ones you want). With both addresses given nothing is looked up: the resource indicator stays,
+  and an empty scope asks for none. The first sign-in with a secret that works remembers the token address it used
+  (`foundTokenUrl` in `oauth_client`, never shown; `service.ts pinFound`, once the code was exchanged: a sign-in started
+  and never finished remembers nothing); a later sign-in whose server names another one is refused before anything is
+  sent ("enter the client secret again"), so a server cannot move where the secret goes. Entering the secret again (the
+  same one too, audited as `changed: ["tokenAddress"]`) or another app forgets it, and the next sign-in that works
+  remembers the new address. Of two sign-ins started before either finished, the first that works decides; the other is
+  refused, before its code is exchanged or, when the exchanges overlapped, by keeping none of its tokens. A sign-in
+  through a template's app finishes only on the template as it was when the sign-in started.
 - **HTTP API:** sign-in is a choice next to a key and needs the app with both addresses. No resource indicator is sent
   (an API has none). `api_request` and the check send `Authorization: Bearer <token>`; a 401 refreshes the token once
   and sends the request again (a refused request did nothing).
 - **The sign-in** is the authorization code with PKCE S256 and `state`, as above. The client secret goes only to the
   token address, in the form body (`client_secret_post`: what Google and NAVER WORKS take) unless the server's metadata
-  lists only `client_secret_basic`. An answer's `iss` is checked when the addresses were found (there is nothing to
-  check it against otherwise). Google (`https://accounts.google.com`) also gets `access_type=offline` and
-  `prompt=consent`: without them it hands out no refresh token and the person would sign in again every hour.
-  `expires_in` written as text (NAVER WORKS sends `"86400"`) is read as a number.
+  lists only `client_secret_basic`. An answer's `iss` (RFC 9207) must be the issuer found or, with given addresses, on
+  the sign-in address's server (the same origin: an issuer may have a path, such as a tenant's); another is refused
+  before the code is exchanged (`oauth.ts issuerMatches`). Google (`https://accounts.google.com`) also gets
+  `access_type=offline` and `prompt=consent`: without them it hands out no refresh token and the person would sign in
+  again every hour. `expires_in` written as text (NAVER WORKS sends `"86400"`) is read as a number.
 - **Secrets:** the client secret is sealed in the connections key directory with its own AAD (`<connection AAD>:client`,
   `template:<id>:client`; migration `338_c_integration_oauth_client.sql`, add-only); the client ID, addresses and scope
   are kept in clear (`oauth_client`) to show them to whoever manages it. The secret is never in a response (`hasSecret`
   only), a log line, an audit entry (`ownApp: true`, `changed: ["oauthClient"]`), a flow row or a tool result, and it is
   hidden in what services send back like the tokens.
 - **Changes:** the secret is write-only, and a stored one only goes where it went before (`service.ts appAfter`, for
-  connections and templates): a change without it keeps it only with the same client ID and the same sign-in and token
-  addresses and, for an app whose addresses are found, the same server address; otherwise it goes unless a new one
-  comes with the change (a second admin cannot point the token address elsewhere and have the first admin's secret sent
-  there). A change that leaves the app where it was never opens the secret (an unreadable key folder must not cost it on
-  a rename). Another client ID, secret, address or scope drops the sign-in (and revokes it), like a new address: tokens
-  are bound to the app. Revoking sends a client secret only to the token address's own server (`oauth.ts revoke`): a
-  revocation address elsewhere is not told. This holds for any client with a secret, also one a server registered and
-  gave a secret (best effort either way). On a template it deletes the members' connections; they are told to connect
-  again. Leaving sign-in removes the app; `oauthClient: null` goes back to the service's own registration.
+  personal and team connections and templates alike): a change without it keeps it only with the same client ID, the
+  same sign-in and token addresses and the same service address, also when the app's addresses are given; otherwise it
+  goes unless a new one comes with the change. A second admin can neither point the token address elsewhere and have the
+  first admin's secret sent there, nor point the service address elsewhere: the members of a template would sign in at
+  the real service's consent screen for the team's app, and their tokens would then go to the new address. The secret
+  is bound to the service address it was entered or kept with (`boundUrl` in `oauth_client`, never shown): an older
+  build does not know these columns and can change the address and leave the secret (migration 338 keeps reader level
+  1), so a secret entered for another address is not used, the view says `hasSecret: false`, and the next save drops it
+  (`store.ts secretHere`). A change that leaves the app where it was never opens the secret (an unreadable key folder
+  must not cost it on a rename). Another client ID, secret, address or scope drops the sign-in, like a new address:
+  tokens are bound to the app; it is also revoked where the sign-in has a revocation address (found addresses may name
+  one; given addresses have none). Revoking sends a client secret only to the token address's own server
+  (`oauth.ts revoke`): a revocation address elsewhere is not told. This holds for any client with a secret, also one a
+  server registered and gave a secret (best effort either way). On a template it deletes the members' connections; they
+  are told to connect again. Leaving sign-in removes the app; `oauthClient: null` goes back to the service's own
+  registration.
 - **Redirect address** to register in the app at the service: `https://<team address>/api/integrations/oauth/callback`,
   the address the app is open at (the server builds it from the page's own address; the dialog shows it with a copy
   button). Register every address people sign in from.
@@ -461,8 +477,9 @@ Setting up NAVER WORKS (API 2.0):
    `https://auth.worksmobile.com/oauth2/v2.0/token`, the same scopes, and notes with the endpoints the AI should call.
 
 Neither has been signed in at for real yet (no app existed when this was written); the tests use the fake services.
-Code: `oauth.ts` (`ownClient`, `manualServer`), `service.ts` (`appFrom`, `appOf`, `nextApp`, `send`), `templates.ts`
-(`nextApp`), `web/src/components/integrations/IntegrationDialog.tsx` (`AppSection`). Tests:
+Code: `oauth.ts` (`ownClient`, `manualServer`, `issuerMatches`), `service.ts` (`appFrom`, `appOf`, `appAfter`,
+`pinFound`, `send`), `store.ts` (`secretHere`), `templates.ts` (`appAfter`),
+`web/src/components/integrations/IntegrationDialog.tsx` (`AppSection`). Tests:
 `tests/unit/c-integrations-own-app.test.ts`, `web/test/unit/integrations.test.ts`.
 
 ## HTTP APIs: `api_request`

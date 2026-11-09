@@ -218,7 +218,8 @@ export function useFocusTrap(ref: React.RefObject<HTMLElement | null>, open: boo
     const onKey = (e: KeyboardEvent) => {
       if (!onTop()) return
       if (e.key !== 'Tab' || !el) return
-      const items = [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => x.offsetParent !== null || x === document.activeElement)
+      // not a part the dialog made inert meanwhile (the image viewer's file under a phone's sheet): focus cannot go there
+      const items = [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => (x.offsetParent !== null || x === document.activeElement) && !x.closest('[inert]'))
       if (!items.length) return
       const a = items[0]!
       const z = items[items.length - 1]!
@@ -230,9 +231,12 @@ export function useFocusTrap(ref: React.RefObject<HTMLElement | null>, open: boo
         a.focus()
       }
     }
-    // something behind the dialog grabbing focus (an autofocus effect) gets it sent back
+    // something behind the dialog grabbing focus (an autofocus effect) gets it sent back (to its first control still in
+    // reach when the first one went inert)
     const onFocusIn = (e: FocusEvent) => {
-      if (onTop() && el && e.target instanceof Node && !el.contains(e.target)) (first ?? el).focus()
+      if (!onTop() || !el || !(e.target instanceof Node) || el.contains(e.target)) return
+      const to = first && !first.closest('[inert]') ? first : [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].find((x) => x.offsetParent !== null && !x.closest('[inert]'))
+      ;(to ?? el).focus()
     }
     document.addEventListener('keydown', onKey, true)
     document.addEventListener('keydown', onEscape)
