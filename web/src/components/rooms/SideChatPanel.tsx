@@ -23,7 +23,7 @@ import { followsAfterScroll, jumpToBottom, stickToBottom } from '../../lib/stick
 import { useLocale, useT } from '../../i18n'
 import { useChats } from '../../store/chats'
 import { useMeStrict } from '../../store/session'
-import { sideChatOf, useSideChats, type SideChatState } from '../../store/sideChats'
+import { SEED_KEYS_MAX, sideChatOf, useSideChats, type SideChatState } from '../../store/sideChats'
 import { emptyThread, runningMessage, type ViewMessage } from '../../store/thread'
 import { toast } from '../../store/ui'
 import { AssistantMessage, UserMessage } from '../chat/Messages'
@@ -131,8 +131,9 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   // a message asked about: quoted in front of the next question, until it is sent or taken off (once per ask: a panel
   // drawn again, or a second panel of the room, does not quote it again)
   useEffect(() => {
-    if (!seed || sideChatOf(useSideChats.getState(), roomId).seedKey === seed.key) return
-    patch({ quoted: seed, seedKey: seed.key })
+    const taken = sideChatOf(useSideChats.getState(), roomId).seedKeys
+    if (!seed || taken.includes(seed.key)) return
+    patch({ quoted: seed, seedKeys: [...taken, seed.key].slice(-SEED_KEYS_MAX) })
     setHistory(null)
     box.current?.focus()
   }, [seed?.key])

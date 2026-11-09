@@ -17159,7 +17159,10 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
 - **One thing at a time (owner, replacing the plan's 스레드 · 트리나 switch):** like Slack's file viewer and the room page
   since #247, the column shows the file's thread or my Trina side chat, never a tab bar over both. On computers it is a
   400 px column at the viewer's right; the stage narrows from the right (`--viewer-col`) and its right arrow moves with
-  it. A toggle in the bar before ✕ (대화 숨기기 / 대화 보기) hides and shows it; a panel's own ✕ hides it too.
+  it. A toggle in the bar before ✕ (스레드·채팅 숨기기 / 보기: "대화 숨기기" is already a DM's "hide from my list") hides
+  and shows it; a panel's own ✕ hides it too. The column takes the focus of a click on its text (tabIndex -1), and a
+  swap or a hide gives it back to the stage, so the keys stay the viewer's and the page's shortcuts stay away. A link in
+  it that opens the side panel closes the viewer, as a link in the document does.
 - **The thread** is `ThreadPanel` itself (frame={false}), not a copy: the message's root (a reply's `threadRootId`, the
   reply marked), with its reply box; a message without replies alone with the box (the first reply starts the thread);
   a message that cannot be a root (`threadable` false: an AI answer only its asker sees) alone without a box, from what
@@ -17188,14 +17191,21 @@ plan `docs/AGENTS/plan/20261109-0939-room-file-viewer.md`, on "The room file vie
 - **One side chat per room on this page** (`store/sideChats.ts`, like `roomDrafts`): the chat shown, the draft and the
   quote, so the page's and the viewer's are one chat. Kept for the page's life (gone at sign-out): closing and opening ✦
   shows the chat and draft last shown, read again (one deleted meanwhile: the room's newest). An ask (`SideSeed.key`) is
-  quoted once: a panel drawn again with the room page's last ask does not quote it again after it was sent. The newest
+  quoted once (the room keeps its last 20 asks): a panel drawn again with the room page's last ask does not quote it
+  again, also after the viewer asked about a file meanwhile. Leaving a room drops its side state. The newest
   side chat is looked for once however many panels open together. `SideChatPanel autoFocus` (default true): the viewer
   opening on the side chat leaves the focus on the file; ✦ gives the box the focus.
 - **Keys:** keys typed in the column are its own (← → in a box, ⌘C on selected text); Esc still closes the viewer unless
   something in the column took it (the mention list, a menu); drafts stay (`roomDrafts`, the side chat's store).
+- **The same thread in two boxes** (the room page's and the viewer's): each `RoomComposer` keeps its own text, so the
+  one that stays takes the other's draft (and mentions) when it goes; a refused send comes back into one of them only.
 - **Dialogs over the viewer:** `Modal` (confirms, Share to room) moved from z-50 to the viewer's z-[55]; of the two, the
   one opened last is on top (each portal goes to the end of `<body>`), so a delete's confirm or Share to room from the
   column is over the viewer, and a picture opened from a dialog is over that.
+- **Independent review** (must-fix, fixed): a click on the column's text left the focus on the page behind, so ⌘K
+  opened search under the viewer and ← → stopped. Also taken: an older ask quoted again over the viewer's file, the two
+  boxes of one thread drifting apart, the toggle's words, no ✦ for a file the read did not find, a phone's second tap,
+  tests for a confirm over the viewer, a phone's ✦ from a thread and no ✦ for a download-only file.
 - **Left out:** a divider for the viewer's column (the stage is not a column the divider can share the width with: the
   column is a fixed 400 px); the plan's "보는 중: {name}" line (the quote names the file); 링크 복사 and ⋯ (step b).
 - Tests: `web/test/unit/rooms-store.test.ts` (every thread on screen gets replies, edits, deletes, reactions and

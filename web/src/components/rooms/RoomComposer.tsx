@@ -12,6 +12,8 @@
 // text (never a voice message, never sent by themselves). A room names no chat: while every chat is confidential and
 // voice input goes to an outside service, the mic says so instead (lib/voice.ts voiceBlockedInRoom).
 // The round send button is the screen's one primary action. Phones: a flat bar under a hairline, no frame.
+// Two boxes can write the same place at once (a thread on the room page and beside one of its files in the viewer): the
+// one that stays takes the other's draft when it goes, and a refused send comes back into one of them.
 import clsx from 'clsx'
 import { ArrowUp, FileText, Loader2, Paperclip, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -52,6 +54,9 @@ const picture = (u: Upload) => isLocalImage(u.file) || (u.roomFile?.kind === 'im
 
 /** From this many members (me included) a message with "@전체" asks before it goes. */
 export const MENTION_ALL_CONFIRM = 10
+
+/** the boxes on screen for each place (placeKey), each with how it reads the place's draft again */
+const boxesOf = new Map<string, Set<() => void>>()
 
 export function RoomComposer({ roomId, threadRootId = null, members, meId, onSent, empty = false, autoFocus = false }: { roomId: string; threadRootId?: string | null; members: UserRef[]; meId: string | null; onSent: () => void; empty?: boolean; autoFocus?: boolean }) {
   const t = useT()
@@ -106,10 +111,28 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
     if (mention.picked.length) roomDraftMentions.set(key, mention.picked)
     else roomDraftMentions.delete(key)
   }, [key, mention.picked])
+  // another box of this place (the same thread beside a file in the viewer) goes: what it left is this box's draft now
+  const mentionNow = useRef(mention)
+  mentionNow.current = mention
+  useEffect(() => {
+    const reread = () => {
+      const d = drafts.get(key) ?? ''
+      if (d !== latest.current) mentionNow.current.restore(d, roomDraftMentions.get(key) ?? [])
+    }
+    const set = boxesOf.get(key) ?? new Set<() => void>()
+    boxesOf.set(key, set)
+    set.add(reread)
+    return () => {
+      set.delete(reread)
+      if (!set.size) boxesOf.delete(key)
+      for (const f of set) f()
+    }
+  }, [key])
   // a send the server refused (the AI still answering my last question, …) comes back here, not as a failed bubble
+  // (into one box: the first to take it)
   const back = useRooms((s) => s.returned[key])
   useEffect(() => {
-    if (!back) return
+    if (!back || useRooms.getState().returned[key] !== back) return
     useRooms.getState().takeReturned(key)
     mention.putBack(back.body, back.mentions, !!back.mentionsAll)
     if (back.alsoInRoom) setAlsoInRoom(true)

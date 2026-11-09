@@ -132,7 +132,7 @@ test('in the phone app the thread on screen is read though its WebView reports n
   }
 })
 
-test("the same thread in two panels (the room page's and the file viewer's): one read; closing one leaves the other whole", async () => {
+test("the same thread in two panels (the room page's and the file viewer's): one read; closing one leaves the other whole, with its draft", async () => {
   useSession.setState({ status: { kind: 'signed-in', me: { user: { id: ME.id, name: ME.name } } as unknown as Me } })
   const r = room()
   const root = message({ roomId: r.id, seq: 1, author: BEN, body: 'THE ROOT', thread: { replyCount: 1, lastReplyAt: at(2), repliers: [CY], newReplies: false } })
@@ -148,8 +148,13 @@ test("the same thread in two panels (the room page's and the file viewer's): one
     // frame={false}: the caller's column; the page's own panel draws one, with its divider
     expect(viewer.container.querySelector('section')).toBeNull()
     expect(page.container.querySelector('[data-testid="room-thread"]')!.querySelector('[data-testid="thread-divider"]')).not.toBeNull()
+    // a draft typed in the viewer's box is the page's box's once the viewer closes
+    await viewer.type(viewer.container.querySelector('[data-testid="room-input"]')! as never, 'acme draft reply')
+    expect((page.container.querySelector('[data-testid="room-input"]') as unknown as { value: string }).value).toBe('')
     // the viewer closes: the page's thread is still there, and live replies still reach it
     await viewer.unmount()
+    await page.settle()
+    expect((page.container.querySelector('[data-testid="room-input"]') as unknown as { value: string }).value).toBe('acme draft reply')
     expect(page.container.querySelectorAll('[data-testid="room-message"]')).toHaveLength(2)
     const late = message({ roomId: r.id, seq: 3, author: BEN, body: 'late reply', threadRootId: root.id })
     useRooms.getState().handleEvent({ type: 'room.message', seq: 1, at: Date.now(), data: { roomId: r.id, message: late } })

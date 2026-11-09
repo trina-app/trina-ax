@@ -32,7 +32,7 @@ import { ChevronLeft, ChevronRight, Copy, Download, ExternalLink, Loader2, Minus
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation } from 'react-router-dom'
-import { closeImageViewer, notePage, openImageViewer, showEntry, skipLeftEntry, stepTargets, useImageViewer, ViewerGroup, type RoomPlace, type ViewerEntry, type ViewerItem, type ViewerMetaValue, type ViewerOpen, type ViewerSender } from '../lib/imageViewer'
+import { closeImageViewer, getImageViewer, notePage, openImageViewer, showEntry, skipLeftEntry, stepTargets, useImageViewer, ViewerGroup, type RoomPlace, type ViewerEntry, type ViewerItem, type ViewerMetaValue, type ViewerOpen, type ViewerSender } from '../lib/imageViewer'
 import { askTrinaInRoom, fileSeed } from '../lib/sideChatAsk'
 import { openFilePreview } from '../lib/sidePanel'
 import { clampView, fitView, isZoomed, layoutSize, onPicture, pinchView, stepScale, swipeResult, toggleAt, wheelScale, zoomAt, type Point, type Size, type View } from '../lib/zoom'
@@ -239,13 +239,14 @@ function Viewer({ open }: { open: ViewerOpen }) {
   const column = useViewerColumn(entry.item.room?.roomId ?? null)
   const columnOn = wide && !!place && column.state.open
   // 트리나에게 묻기 about this one: the column's side chat with it quoted; a phone's room page's side chat
-  const askable = !!place && !gone && held !== item.key
+  const askable = !!place && !gone && held !== item.key && missing !== item.key
   const askTrina = () => {
     if (!place) return
     const seed = fileSeed(place.fileId, item.name)
     if (wide) column.ask(seed)
-    // the room page under the viewer opens it, once the viewer's history entry is gone (its thread may close too)
-    else closeImageViewer(true, () => askTrinaInRoom(place.roomId, seed))
+    // the room page under the viewer opens it, once the viewer's history entry is gone (its thread may close too); a
+    // second tap meanwhile asks nothing again
+    else if (getImageViewer()) closeImageViewer(true, () => askTrinaInRoom(place.roomId, seed))
   }
   // a document (or a card in place of the picture): no zoom, no gestures of the picture stage; the page scrolls
   const docMode = item.kind === 'file' || gone
@@ -253,12 +254,12 @@ function Viewer({ open }: { open: ViewerOpen }) {
   const close = useCallback(() => closeImageViewer(), [])
   const back = opener?.isConnected ? opener : (list.find((e) => e.item.key === openerKey)?.el ?? null)
   useFocusTrap(root, true, close, back)
-  // a step drew other controls (the last one's arrow, a document's body): focus left on nothing goes back to the stage,
-  // so the keys keep working
+  // a step drew other controls (the last one's arrow, a document's body), or the column changed or went (its link back,
+  // its ✕): focus left on nothing goes back to the stage, so the keys keep working and the page's shortcuts stay away
   useLayoutEffect(() => {
     const a = document.activeElement
     if (root.current && (!a || a === document.body || !root.current.contains(a))) stageRef.current?.focus({ preventScroll: true })
-  }, [cur, docMode, gone])
+  }, [cur, docMode, gone, column.state.show, column.state.open, columnOn])
 
   const [pic, setPic] = useState<Pic>(() => freshPic(cur))
   let p = pic
@@ -746,7 +747,7 @@ function Viewer({ open }: { open: ViewerOpen }) {
           </BarButton>
         )}
         {wide && place && (
-          <BarButton label={column.state.open ? t('viewer.columnHide') : t('viewer.columnShow')} onClick={column.toggle} expanded={column.state.open} testId="image-viewer-column">
+          <BarButton label={column.state.open ? t('viewer.columnHide') : t('viewer.columnShow')} onClick={column.toggle} testId="image-viewer-column">
             {column.state.open ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
           </BarButton>
         )}
@@ -774,10 +775,10 @@ function Viewer({ open }: { open: ViewerOpen }) {
 
 const BAR_BUTTON = 'touch-hit inline-flex size-10 shrink-0 items-center justify-center rounded-md text-white/80 transition hover:bg-white/10 hover:text-white disabled:opacity-35 disabled:hover:bg-transparent max-md:size-11'
 
-function BarButton({ label, onClick, disabled, expanded, testId, className, children }: { label: string; onClick: () => void; disabled?: boolean; expanded?: boolean; testId: string; className?: string; children: ReactNode }) {
+function BarButton({ label, onClick, disabled, testId, className, children }: { label: string; onClick: () => void; disabled?: boolean; testId: string; className?: string; children: ReactNode }) {
   return (
     <Tooltip label={label}>
-      <button type="button" aria-label={label} onClick={onClick} disabled={disabled} aria-expanded={expanded} className={clsx(BAR_BUTTON, className)} data-testid={testId}>
+      <button type="button" aria-label={label} onClick={onClick} disabled={disabled} className={clsx(BAR_BUTTON, className)} data-testid={testId}>
         {children}
       </button>
     </Tooltip>

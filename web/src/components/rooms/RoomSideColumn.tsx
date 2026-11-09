@@ -7,14 +7,14 @@
 // - the file viewer (components/rooms/ViewerColumn.tsx): a 400 px column at the viewer's right on computers, placed by
 //   the viewer (no divider: the stage beside it is not a column the divider could share the width with).
 import clsx from 'clsx'
-import type { ReactNode } from 'react'
+import type { MouseEventHandler, ReactNode } from 'react'
 import { THREAD_PANEL } from '../../lib/panelWidth'
 import { useT } from '../../i18n'
 import { PanelDivider } from '../PanelDivider'
 
 /** `divider`: the room page's resizable column, its divider's test ids prefixed with this ('thread', 'side-chat');
  * absent: sized and placed by `className`. */
-export function RoomSideColumn({ label, testId, divider, className, children, ...rest }: { label: string; testId: string; divider?: 'thread' | 'side-chat'; className?: string; children: ReactNode } & Record<`data-${string}`, string | undefined>) {
+export function RoomSideColumn({ label, testId, divider, className, onClickCapture, tabIndex, children, ...rest }: { label: string; testId: string; divider?: 'thread' | 'side-chat'; className?: string; onClickCapture?: MouseEventHandler<HTMLElement>; tabIndex?: number; children: ReactNode } & Record<`data-${string}`, string | undefined>) {
   const t = useT()
   return (
     <section
@@ -31,6 +31,8 @@ export function RoomSideColumn({ label, testId, divider, className, children, ..
       )}
       aria-label={label}
       data-testid={testId}
+      onClickCapture={onClickCapture}
+      tabIndex={tabIndex}
       {...rest}
     >
       {children}

@@ -117,7 +117,7 @@ test("two panels of a room (the page's and the file viewer's) are one chat: the 
   signIn()
   const id = uuidv7()
   serve(id)
-  const seed = { key: 'kq', author: 'dion', at: at(1), text: 'the launch date' }
+  const seed = { key: 'kq', author: 'acme', at: at(1), text: 'the launch date' }
   const m = await mount(
     <MemoryRouter>
       <div data-testid="page"><SideChatPanel roomId={team.id} roomTitle="Marketing" seed={seed} onClose={() => {}} /></div>
@@ -151,6 +151,35 @@ test("two panels of a room (the page's and the file viewer's) are one chat: the 
     expect((again.get('side-chat-input') as unknown as { value: string }).value).toBe('when is it?')
     // the chat it had, read again (not looked for anew)
     expect(calls.filter((c) => c.method === 'GET' && c.path === '/api/chats')).toHaveLength(1)
+  } finally {
+    await again.unmount()
+  }
+})
+
+test("an ask is quoted once, also after a newer one: the room page's last ask does not come back over the viewer's file", async () => {
+  signIn()
+  serve(null)
+  const message = { key: 'km', author: 'acme', at: at(1), text: 'the launch date' }
+  const fileAsk = { key: 'kf2', author: '', at: at(2), text: '', file: { id: 'f-2', name: 'acme.pdf' } }
+  const page = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" seed={message} onClose={() => {}} /></MemoryRouter>)
+  try {
+    await page.until(() => !!page.find('side-chat-quote'), 'the message quoted')
+    await page.click('side-chat-quote-remove')
+  } finally {
+    await page.unmount()
+  }
+  // ✦ in the viewer asks about a file
+  const viewer = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" seed={fileAsk} frame={false} onClose={() => {}} /></MemoryRouter>)
+  try {
+    await viewer.until(() => !!viewer.find('side-chat-quote-file'), 'the file quoted')
+  } finally {
+    await viewer.unmount()
+  }
+  // the room page's side chat again, with its last ask still in hand: the file stays quoted
+  const again = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" seed={message} onClose={() => {}} /></MemoryRouter>)
+  try {
+    await again.until(() => !!again.find('side-chat-quote'), 'the quote')
+    expect(again.find('side-chat-quote-file')).not.toBeNull()
   } finally {
     await again.unmount()
   }
@@ -219,8 +248,8 @@ test('while the AI waits for the answer to its question, the box answers it (not
 })
 
 test('a quoted message goes in front of the question: who and when, then its lines, as a Markdown quote', () => {
-  const seed = { key: 'k', author: 'dion', at: at(1), text: 'line one\nline two' }
-  expect(withQuote(seed, 'Translate this.', () => '4:31 PM')).toBe('> dion · 4:31 PM\n> line one\n> line two\n\nTranslate this.')
+  const seed = { key: 'k', author: 'acme', at: at(1), text: 'line one\nline two' }
+  expect(withQuote(seed, 'Translate this.', () => '4:31 PM')).toBe('> acme · 4:31 PM\n> line one\n> line two\n\nTranslate this.')
   expect(withQuote(null, 'hi', () => '')).toBe('hi')
   expect(withQuote({ ...seed, text: 'x'.repeat(5000) }, 'q', () => 't').length).toBeLessThan(4100)
 })
@@ -228,7 +257,7 @@ test('a quoted message goes in front of the question: who and when, then its lin
 test('"Ask Trina about this": the panel opens with the message quoted; a quick button sends it with its question (a failed send keeps the quote); ✕ takes the quote off', async () => {
   signIn()
   const { made } = serve(null)
-  const seed = { key: 'k1', author: 'dion', at: at(1), text: '5. cloud side: owner-recovery-claimed' }
+  const seed = { key: 'k1', author: 'acme', at: at(1), text: '5. cloud side: owner-recovery-claimed' }
   const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" seed={seed} onClose={() => {}} /></MemoryRouter>)
   try {
     await m.until(() => !!m.find('side-chat-empty'), 'the panel')
@@ -237,7 +266,7 @@ test('"Ask Trina about this": the panel opens with the message quoted; a quick b
     await m.click('side-chat-quick-translate')
     await m.until(() => calls.some((c) => c.path === `/api/chats/${made}/messages`), 'the question sent')
     const body = calls.find((c) => c.path === `/api/chats/${made}/messages`)!.body as { content: string }
-    expect(body.content.startsWith('> dion · ')).toBe(true)
+    expect(body.content.startsWith('> acme · ')).toBe(true)
     expect(body.content).toContain('> 5. cloud side: owner-recovery-claimed')
     expect(body.content.endsWith(en('sideChat.ask.translate'))).toBe(true)
     // (this fake server refuses the send: the quote comes back with the failure, for a second try)

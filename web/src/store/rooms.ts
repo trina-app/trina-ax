@@ -368,10 +368,12 @@ const asked = new Map<string, number>()
 const leaving = new Set<string>()
 /** a newer read of the same room's messages wins over an older one still on its way */
 let timelineGen = 0
-/** the same for each thread on screen (by placeKey); a thread that went and came back reads anew */
+/** the same for each thread on screen (by placeKey; one counter for all, so a thread that went and came back never
+ * takes an answer meant for its earlier showing); a thread's goes with it */
+let threadGenSeq = 0
 const threadGens = new Map<string, number>()
 const nextThreadGen = (key: string) => {
-  const g = (threadGens.get(key) ?? 0) + 1
+  const g = ++threadGenSeq
   threadGens.set(key, g)
   return g
 }
@@ -553,7 +555,7 @@ export const useRooms = create<RoomsState>((set, get) => {
       if (!cur) return
       if (cur.holders > 1) return set((s) => ({ threadViews: { ...s.threadViews, [key]: { ...cur, holders: cur.holders - 1 } } }))
       // the last panel: a read still on its way is dropped
-      nextThreadGen(key)
+      threadGens.delete(key)
       set((s) => ({ threadViews: omit(s.threadViews, key) }))
     },
 
@@ -714,7 +716,8 @@ export const useRooms = create<RoomsState>((set, get) => {
         await api.call(API.leaveRoom, { params: { id: roomId } })
         // in place of the room I left: Back leads to where I was before it
         if (get().openRoomId === roomId) navigateTo('/rooms', { replace: true })
-        set((s) => ({ ...withoutRoom(s, roomId), members: omit(s.members, roomId), pending: omit(s.pending, roomId), ...(s.openRoomId === roomId ? { openRoomId: null } : {}) }))
+        set((s) => ({ ...withoutRoom(s, roomId), members: omit(s.members, roomId), pending: omit(s.pending, roomId), side: omit(s.side, roomId), ...(s.openRoomId === roomId ? { openRoomId: null } : {}) }))
+        useSideChats.getState().drop(roomId)
       } finally {
         setTimeout(() => leaving.delete(roomId), 5000)
       }
@@ -859,7 +862,8 @@ export const useRooms = create<RoomsState>((set, get) => {
           const { roomId, change, room } = ev.data
           if (change === 'removed' || !room) {
             const wasOpen = get().openRoomId === roomId
-            set((s) => ({ ...withoutRoom(s, roomId), members: omit(s.members, roomId), pending: omit(s.pending, roomId), ...(wasOpen ? { openRoomId: null } : {}) }))
+            set((s) => ({ ...withoutRoom(s, roomId), members: omit(s.members, roomId), pending: omit(s.pending, roomId), side: omit(s.side, roomId), ...(wasOpen ? { openRoomId: null } : {}) }))
+            useSideChats.getState().drop(roomId)
             if (wasOpen) {
               if (!leaving.has(roomId)) toast({ level: 'info', text: t('rooms.removed') })
               navigateTo('/rooms')
@@ -888,7 +892,7 @@ export const useRooms = create<RoomsState>((set, get) => {
       roomDraftMentions.clear()
       useSideChats.getState().reset()
       timelineGen++
-      for (const k of threadGens.keys()) nextThreadGen(k)
+      threadGens.clear()
       set({ ...EMPTY })
     },
   }
