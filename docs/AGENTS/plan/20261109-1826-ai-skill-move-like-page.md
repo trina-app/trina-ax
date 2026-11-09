@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-09 18:26
 - Branch: `fix/ai-skill-move-like-page`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/skills/move.ts`, `server/src/skills/text.ts`, `server/src/skills/guard.ts`,
   `server/src/skills/changes.ts`, `server/src/team-files/service.ts`, `server/src/chat/tools.ts`, `shared/src/tools.ts`,
   `web/src/components/chat/AskCard.tsx`, `web/src/components/skills/MoveSkillDialog.tsx`, `web/src/i18n/`). Why: skills
@@ -81,4 +81,19 @@ the whole `tests/unit`, the web unit tests in Docker, and the e2e skills specs.
 
 ## Result
 
-Filled in at the end.
+Built as planned after the design review (2026-11-10), which changed the first draft in three ways:
+
+- Copies are `move_skill` with `keep` (one card, the bytes the token binds, binary files too), not the save card for
+  each file; the first draft also let a same-name project copy be saved for the people outside the group, which was
+  dropped: such a copy never runs for the person, so it is refused and a `name` asked for.
+- Names only for the owner, admins and a project's creator for its side (the first draft named the people of the
+  asker's own groups to members too; members see no group membership in the app).
+- SKILL.md is on every card, folded when nobody new gets it and it is not followed ahead of where it is now.
+
+Also from the review: a wider move over a project skill's name says it hides that one; `skills.copy` audit and
+`copiedFrom` → the change's `from`; a copy refuses a folder with rules inside. Left out: a card for the AI's writes into
+the person's own skills (follow-up), `copy_files`'s reason when a skill folder is the source (another branch edits that
+file).
+
+Checks: typecheck, `check:i18n`, `check:docs`, `docs:api` clean; `tests/unit` 53 failures, the same 53 as on dev; the
+permission matrix's 3 failures are dev's (since #267); web unit in Docker and the skills e2e specs pass. PR: PR_LINK.
