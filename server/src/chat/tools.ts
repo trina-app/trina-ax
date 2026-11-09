@@ -41,11 +41,14 @@ import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboar
 import { ROOM_TOOLS, SEARCH_TOOLS, SHARED_TOOLS } from '../rooms/ai-tools'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
 import { roomReadTools, roomSessionTools } from './room-tools'
+import { skillFilesTool } from './skill-files'
 import { projectChatTools } from './room-project-chats'
+import { postToRoomOff, postToRoomTool } from './post-to-room'
 import { hideUrls } from '../tools/audit-url'
 import { SHARE_JUDGE_REFUSAL } from '../skills/share-judge'
 import { FILE_RANK_REFUSAL } from '../onboarding/file-rank'
 import { mergeTargets, SHARE_MERGE_REFUSAL } from '../skills/share-merge'
+import { deleteFilesTool } from './delete-files'
 
 export interface Tool {
   name: string
@@ -54,7 +57,7 @@ export interface Tool {
   /** the step label (and the room card's words) of a call, when the shared words do not say enough */
   label?(args: unknown, locale: Locale): string
   /** a call the tool will refuse whatever the person says, refused before any card is raised (null: go on) */
-  refuse?(args: unknown): { text: string; summary: string } | null
+  refuse?(args: unknown, files?: TurnFiles): { text: string; summary: string } | null
   /** where a call saves and where its bytes come from, so a room change and the wider-audience card are one card
    * (chat/turn.ts confirmRoomChange); for a tool that saves itself after asking confirmWidening (save_room_file) */
   widen?(args: unknown): WidenOf | undefined
@@ -134,6 +137,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   }
   for (const t of bTools(exec)) add(t)
   for (const t of skillTools(exec)) add(t)
+  // the team trash behind the server's card (chat/delete-files.ts): not offered in rooms, shared, confidential or draft
+  // chats (add() above) nor in an approved template run (its scope is fixed), refused up front everywhere else but the
+  // person's own chat with the person there
+  if (!exec.templateRun) add(deleteFilesTool(exec))
   // the person's own team chat rooms (chat/room-tools.ts): not in a room's session (ROOM_TOOLS does not list them), nor
   // in a confidential or draft chat (add() above keeps those to their own tools)
   // nor in an approved scheduled template's run (its scope is fixed; it would refuse them anyway). A room's own session
@@ -143,6 +150,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // a room's own session also finds and reads the shared project chats the asker may view (chat/room-project-chats.ts;
   // ROOM_TOOLS lists them, SHARED_TOOLS does not, and a person's own chat never gets them)
   if (!exec.templateRun && !exec.shared && exec.room) for (const t of projectChatTools(exec)) add(t)
+  // the AI posts to one of the person's rooms, or a thread there, after their yes on one server card
+  // (chat/post-to-room.ts): only in their own chat, never in a room's session, a shared, confidential, draft or template
+  // chat, a scheduled run or a question from Slack (postToRoomOff)
+  if (!postToRoomOff(exec)) add(postToRoomTool(exec))
   // edit_files is listed here so the engines and the model proxy allow it, but the MCP handler runs it
   // (mcp/protocol.ts editFiles): each file as its own edit call with the checks above. Never offered in confidential
   // chats (add() keeps to the local tools there). Reaching this call() means the handler did not: nothing is changed.
@@ -184,7 +195,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     const ctxText = built.context === undefined ? built.prompt : built.context
     if (ctxText) context.push(ctxText)
   }
-  return {
+  const set: ChatToolSet = {
     prompt,
     context,
     stepLabel(name, input, locale) { try { return labels.get(name)?.(input, locale) ?? null } catch { return null } },
@@ -209,7 +220,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       const t = tools.get(name)!
       // a call the tool refuses anyway asks nobody first and counts as nothing read (save_room_file without a file id,
       // into skills/, …)
-      const early = t.refuse?.(args)
+      const early = t.refuse?.(args, files)
       if (early) return { ...text(early.text, true), summary: early.summary }
       // a shared project chat: a search without a path looks in the project folder; then what the call would read that
       // some of the chat's people cannot read waits for the person's yes (chat/turn.ts confirmSharedRead)
@@ -273,6 +284,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       return { content: note ? [...out.content, { type: 'text', text: note }] : out.content, isError: out.isError, summary: !exec.room && exec.roomsSeen ? hideUrls(summary) : summary }
     },
     afterFileTool: (name, isError, args, text) => {
+      // a skill save's approval is for that call only, saved or not (skills/guard.ts)
+      exec.dropSkillApproval(name, args)
       exec.noteTaint(name, args); exec.noteRoomTool(name, args); exec.noteReads(); exec.afterTool()
       const filePath = (args as { file_path?: unknown } | null)?.file_path
       if (!isError && name === 'read' && typeof filePath === 'string')
@@ -316,12 +329,19 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (no) return no
       const p = (args as { file_path?: unknown } | null)?.file_path
       const widen = typeof p === 'string' ? await exec.confirmWidening(p) : null
-      if (widen) return widen
+      // refused after the skill card: its approval goes with the call (afterFileTool drops it after a save)
+      if (widen) { exec.dropSkillApproval(name, args); return widen }
       // a call a room grant or [이번만] let through: checked again now that any card above has waited (chat/turn.ts)
       const again = await exec.recheckRoomCover(name, args, { main: !caller || caller.files === exec.files })
+      if (again) exec.dropSkillApproval(name, args)
       return again ? { refusal: again, summary: `${name} -> ${roomShort(again)} (room)` } : null
     },
   }
+  // a skill save's approval (make_file, edit_hwp) is for its call only: dropped when the call ends, saved or not
+  // (skills/guard.ts; a failed call left one for the rest of the turn)
+  const run = set.call
+  set.call = async (name, args, caller) => { try { return await run(name, args, caller) } finally { exec.dropSkillApproval(name, args) } }
+  return set
 }
 
 /** Where a call's wider-audience check (below the room card) saves, and the files it copies bytes from: the same
@@ -507,6 +527,7 @@ function skillTools(exec: TurnExec): Tool[] {
       },
     },
     moveSkillTool(exec),
+    skillFilesTool(exec),
   ]
 }
 

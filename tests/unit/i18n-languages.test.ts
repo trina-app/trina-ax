@@ -26,6 +26,7 @@ import { MD_WORDS } from '../../server/src/system/export'
 import { RESTORED } from '../../server/src/team-files/place'
 import { TEXT as URL_GATE_TEXT } from '../../server/src/tools/url-gate'
 import { TEXT as FILE_MOVE_TEXT } from '../../server/src/tools/file-moves'
+import { DELETE_TEXT } from '../../server/src/chat/delete-files'
 import { TEXT as SAVE_URL_TEXT } from '../../server/src/tools/save-url'
 import { TEXT as SCHEDULE_CARD_TEXT } from '../../server/src/tools/schedules'
 import { TEXT as INTEGRATION_TEXT } from '../../server/src/integrations/connections/text'
@@ -69,6 +70,7 @@ describe('server and relay texts', () => {
     checkTable('engines', ENGINE_TEXT)
     checkTable('url gate', URL_GATE_TEXT, 2)
     checkTable('file moves', FILE_MOVE_TEXT)
+    checkTable('delete_files card', DELETE_TEXT)
     checkTable('save_url cards and refusals', SAVE_URL_TEXT, 6)
     checkTable('scheduled task card', SCHEDULE_CARD_TEXT, 10)
     checkTable('external-service connections', INTEGRATION_TEXT)
@@ -161,6 +163,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/tools/url-gate.ts': { why: 'confirmation texts (ko next to en/id/ja/es)' },
   'server/src/tools/file-moves.ts': { why: 'the move / copy confirmation texts (ko next to en/id/ja/es)' },
   'server/src/policy/refusal.ts': { why: 'the screen names a refusal points the person to, as the app shows them (ko next to en/id/ja/es)' },
+  'server/src/chat/delete-files.ts': { why: 'the delete_files card (ko next to en/id/ja/es)' },
   'server/src/tools/schedules.ts': { why: 'the scheduled task confirmation card (ko next to en/id/ja/es)' },
   'server/src/integrations/connections/text.ts': { why: 'external-service connection texts: the confirmation card, refusals, check results (ko next to en/id/ja/es)' },
   'server/src/integrations/slack/text.ts': { why: 'what the Slack connector says in Slack and its screens\' refusals (ko next to en/id/ja/es)' },

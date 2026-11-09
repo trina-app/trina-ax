@@ -32,6 +32,7 @@ import { TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, instructionFiles, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { sideRoomOf } from './side-room'
+import { componentC } from '../team-files/component'
 import { looseArea, placementNote } from './file-placement'
 import { buildAgentDefinitions, initProblem, LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS, PARENT_ONLY_TOOLS, SUBTASK_STEPS_KEPT, subtaskSummary } from './subagents'
 import { getTeamSettings } from '../admin/settings'
@@ -59,6 +60,7 @@ import { readRegular, sha256 } from '../files/store'
 import { hwpOutputPath } from '../files/hwpx-check'
 import { audit as auditLog } from '../admin/audit'
 import { ANY_CONTENT, editedText, inSkills, skillRootOf } from '../skills/guard'
+import { makeFileOutputPath } from '../tools/make-file-path'
 import { lineDiff } from '../skills/diff'
 import { st } from '../skills/text'
 import { groupOfFolder, parseSkill as parseSkillHeader, skillFileKind, skillFileProblem } from './skills'
@@ -233,6 +235,10 @@ export class TurnExec {
   /** someone other than this person wrote in this chat: a shared chat, or one that stopped being shared (a deleted
    * project's, the rollback guard) whose read scope still holds what their turns read */
   private othersWrote = false
+  /** other people's messages are in this chat (othersWrote, set when the turn starts): delete_files refuses there */
+  get otherAuthors(): boolean { return this.othersWrote }
+  /** a question asked from Slack or a chat of a Slack thread (slackChat): delete_files refuses there */
+  get fromSlack(): boolean { return this.slackChat }
 
   private resolveDone!: () => void
   private handle: LaunchHandle | null = null
@@ -1716,6 +1722,10 @@ export class TurnExec {
       if (folder.length < 2 || ((folder[0] === 'groups' || folder[0] === 'users') && folder.length < 3)) return null
       if (segs.some((x) => x.startsWith('.')) || inSkills(r.rel) || instructionLike(r.rel)) return null
       if (fx.managed?.managerOf(segs) || fx.managed?.managerOf(folder)) return null
+      // a path an AI turn just put in the trash (delete_files) is not a new file: writing it again without a card
+      // would replace what the person agreed to remove with something they never saw. Rooms do not get delete_files
+      // (rooms/ai-tools.ts ROOM_TOOLS); this keeps it so if that ever changes, and for a trash from the person's own chat
+      if (!r.exists && componentC(this.rt.ctx).files.aiTrashed(r.rel)) return null
       if (!everyoneWrites(this.rt.db, fx, rules, this.room.roomId, r.rel)) return null
       return { segs, isNew: !r.exists, exists: r.existing >= folder.length }
     } catch { return null }
@@ -2219,7 +2229,9 @@ export class TurnExec {
     // a file a tool produces (make_file, edit_hwp): the card shows the file, not a text diff
     const produced = tool === 'make_file' || tool === 'edit_hwp'
     const out = tool === 'edit_hwp' && typeof a.output === 'string' ? hwpOutputPath(a.output, typeof a.file_path === 'string' ? a.file_path : '') : undefined
-    const target = tool === 'make_file' ? a.output : tool === 'edit_hwp' ? out ?? a.file_path : a.file_path
+    // make_file saves where its output gets the format's extension ("x.md" as docx is "x.md.docx"): the card and its
+    // approval are for that path, never for the one typed (review M1/S8: a `*` approval was left at "x.md")
+    const target = tool === 'make_file' ? (typeof a.output === 'string' && typeof a.format === 'string' ? makeFileOutputPath(a.output, a.format) : a.output) : tool === 'edit_hwp' ? out ?? a.file_path : a.file_path
     if (typeof target !== 'string') return null
     const fs_ = this.rt.files
     const me = this.livePrincipal()
@@ -2227,6 +2239,9 @@ export class TurnExec {
     try { r = authorize(fs_.fx, fs_.rules(), me, target, 'write', { createDirs: true, mustExist: tool === 'edit' }) } catch { return null }
     const root = skillRootOf(r.rel)
     if (!root) return null
+    // an approval is for one call (chat/tools.ts drops it when the call ends): one left by an earlier call never stands
+    // in for this card
+    this.files.skillApprovals.delete(r.rel)
     // a group's skills folder (docs/DECISIONS.md "Group skills"): the card names the group, by its current name (the
     // folder's own name when no group has that folder any more)
     const group = root.kind === 'group' ? groupOfFolder(this.rt.db, root.folder) ?? { id: null, name: root.folder.split('/')[1]! } : null
@@ -2254,7 +2269,6 @@ export class TurnExec {
       after = editedText(before, a.old_string, a.new_string, a.replace_all === true)
     }
     const approval = after === null ? ANY_CONTENT : sha256(Buffer.from(after, 'utf8'))
-    if (this.files.skillApprovals.get(r.rel) === approval) return null // already confirmed (a retried call)
     const kind = after !== null ? skillFileKind(fs_.fx.root, r.rel, after) : 'other'
     const skill = after !== null && kind === 'skill' ? parseSkillHeader(after, r.rel) : null
     const d = after === null ? null : before === null ? null : lineDiff(r.exists ? before : '', after)
@@ -2333,6 +2347,17 @@ export class TurnExec {
     }
   }
 
+  /** A skill save's approval (confirmSkillWrite) is for one call: dropped when the call ends, saved or not (the save's
+   * check uses it up too: skills/guard.ts). A call that failed before its save never leaves one for later. */
+  dropSkillApproval(tool: string, args: unknown): void {
+    if (tool !== 'write' && tool !== 'edit' && tool !== 'make_file' && tool !== 'edit_hwp') return
+    const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
+    const out = tool === 'edit_hwp' && typeof a.output === 'string' ? hwpOutputPath(a.output, typeof a.file_path === 'string' ? a.file_path : '') : undefined
+    const target = tool === 'make_file' ? (typeof a.output === 'string' && typeof a.format === 'string' ? makeFileOutputPath(a.output, a.format) : a.output) : tool === 'edit_hwp' ? out ?? a.file_path : a.file_path
+    if (typeof target !== 'string') return
+    try { this.files.skillApprovals.delete(authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), target, 'write', { createDirs: true }).rel) } catch { /* no such path: nothing was approved for it */ }
+  }
+
   /**
    * A skill called `name` at another level the person sees (docs/DECISIONS.md "Project skills"). `project`: saving into
    * a project: a wider skill (personal, group, team) of that name, or whose file or folder name it is, runs instead
@@ -2364,7 +2389,7 @@ export class TurnExec {
    * closed the card without one (a no). A refusal must not say "the user did not allow this" for a card nobody saw
    * (docs/DECISIONS.md "Refusals say why, who and what next").
    */
-  async askPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number }): Promise<CardAnswer> {
+  async askPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number; exclusive?: boolean }): Promise<CardAnswer> {
     const value = await this.waitForPerson(request, o)
     // (a test's stand-in turn made with Object.create has no fields: no reason recorded, a plain answer)
     const missing = this.cardMissing?.get(request.requestId) ?? null
@@ -2373,13 +2398,29 @@ export class TurnExec {
   }
   /** why a card got no answer, by request id, for askPerson (waitForPerson's answer stays what it was) */
   private cardMissing = new Map<string, CardAnswer['missing']>()
+  /** An open card no other card of this turn may join (`exclusive`: delete_files, chat/delete-files.ts, one destructive
+   * card at a time): settles when it closes. A card asked meanwhile (a parallel ask_user, move card, skill card) waits
+   * for it, then opens with its full time; the delete tool itself refuses while any card is open. */
+  private exclusiveCard: Promise<void> | null = null
 
   /** Show a card and wait for the answer; null = skipped / timed out / turn ended. The time limit pauses meanwhile. */
-  waitForPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number }): Promise<unknown> {
+  waitForPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number; exclusive?: boolean }): Promise<unknown> {
     if (this.remainingWallMs() <= 0) this.expireWall()
     if (this.stopReason || this.abort.signal.aborted) { this.cardMissing.set(request.requestId, 'ended'); return Promise.resolve(null) }
     // a scheduled task runs with nobody watching: no card, every question and confirmation is "no answer"
     if (this.spec.clientKind === 'schedule') { this.cardMissing.set(request.requestId, 'unattended'); return Promise.resolve(null) }
+    const held = this.exclusiveCard
+    if (held) {
+      return held.then(() => this.waitForPerson('expiresAt' in request && request.expiresAt ? { ...request, expiresAt: new Date(Date.now() + o.timeoutMs).toISOString() } as TurnRequest : request, o))
+    }
+    const shown = this.showCard(request, o)
+    if (o.exclusive) {
+      const closed: Promise<void> = shown.then(() => undefined, () => undefined).then(() => { if (this.exclusiveCard === closed) this.exclusiveCard = null })
+      this.exclusiveCard = closed
+    }
+    return shown
+  }
+  private showCard(request: TurnRequest, o: { window?: string | null; timeoutMs: number }): Promise<unknown> {
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         if (this.remainingWallMs() <= 0) this.expireWall()
