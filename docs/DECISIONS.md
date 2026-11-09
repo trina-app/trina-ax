@@ -16806,3 +16806,34 @@ only by a right-click (the browser's Copy Image, the desktop app's 이미지 복
   tested: Safari (Playwright's WebKit may write the computer's own clipboard), and ⌘C through the real viewer in the
   desktop app next to its Edit menu's Copy (the page gets the key first; the desktop e2e's team page is a fake one).
 - Version impact: **patch** (one button and one key in the viewer; no API, setting or data change).
+
+## FileBody — the side panel's file body as a component of its own (refactor/file-body, 2026-11-09)
+
+넣을 곳: trina-ax `web/src/components/FileBody.tsx` (moved out of `FilePanel.tsx`), 이유: the room file viewer is to
+draw the same bodies, and file previews are core. Step (b0) of the plan
+`docs/AGENTS/plan/20261109-0939-room-file-viewer.md` (branch `plan/room-file-viewer`).
+
+- **Moved, not copied:** the panel's loader effect (now `useFileBlob(file, rev, limits)`: the bytes by source, the
+  limits, the download-only, busy, too large, missing and network errors), its body switch and its module-private
+  renderers (`Viewer`, `PanelPicture`, `MediaView`, `TextKinds`) are in `FileBody.tsx`; `FilePanel` keeps its header,
+  actions, edit mode, PDF로 저장, `chatActionsFor`, and its scroll box with the width it measures and the place it keeps
+  for 크게 보기, and draws `<FileBody>` there. The same components, props, classes and test ids: no visible change.
+- **What the next step's viewer gets:** `useFileBlob(file, rev, limits)` takes the source (`PreviewFile`: a team path
+  with its place `at`, a room's file `{ roomId, fileId }` as #179 reads it, or a file from this computer) and the
+  limits (default `previewLimit`); `<FileBody>` takes the same `file`, what was read, `width`, `download`, `onRetry`,
+  and `openPicture`: a picture's click is the caller's, and the picture is then not registered with the image viewer.
+  Only sources that exist: a room's Hangul file gets its pages as #254 made it (while the HWP preview is on); a room
+  HEIC photo stays the card.
+- **One order, one place:** `bodyRenderer(loaded)` says what the body draws (the card, busy, an error, a Hangul
+  file's pages, loading, then pdf, docx, pptx, sheet, picture, media or text); the body and its unit test use the same
+  function.
+- **Hangul kept thin:** #254 (a room's Hangul file through the room) landed while this was open; its kind line (now in
+  `useFileBlob`) and its team and room HWP branches (now in `FileBody`) moved as they were. `bodyRenderer` says 'hwp'
+  for any Hangul kind; which source draws it stays in those two branches.
+- **The one visible change:** the PDF toolbar's 너비에 맞추기 drew `Maximize2`, the ⤢ that #249 gave 크게 보기 in the
+  header right above it. It now draws ↔ (`MoveHorizontal`), with the same name and tooltip. `ArrowLeftRight` reads as
+  "swap", `Columns2` as a layout.
+- Tests: `web/test/unit/file-body.test.tsx` (each kind's renderer, the states before it, files from this computer drawn
+  by kind, no request for a file with no preview here, a room's Hangul file with the HWP preview on and off, the
+  download-only card, retry, a picture's click with and without `openPicture`); the panel's e2e specs unchanged.
+- Version impact: **patch** (an icon; no API or data change).

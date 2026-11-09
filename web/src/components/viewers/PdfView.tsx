@@ -10,7 +10,7 @@ import 'react-pdf/dist/Page/TextLayer.css'
 import 'react-pdf/dist/Page/AnnotationLayer.css'
 // the worker ships as its own hashed file from this server (worker-src 'self')
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-import { Download, Maximize2, ZoomIn, ZoomOut } from 'lucide-react'
+import { Download, MoveHorizontal, ZoomIn, ZoomOut } from 'lucide-react'
 import { useT } from '../../i18n'
 import { Button, IconButton } from '../ui'
 import { pdfjsDataOptions } from '../../lib/pdfjs-assets'
@@ -65,7 +65,7 @@ export default function PdfView({ blob, width, startPage, download }: { blob: Bl
   useEffect(() => setZoom(ZOOMS.indexOf(1)), [blob])
   const scale = ZOOMS[zoom]
 
-  // the same notice and button as a format with no preview (FilePanel "preview-unsupported")
+  // the same notice and button as a format with no preview (FileBody "preview-unsupported")
   if (error)
     return (
       <div className="flex flex-col items-start gap-3 p-6" data-testid="preview-unsupported">
@@ -100,8 +100,9 @@ export default function PdfView({ blob, width, startPage, download }: { blob: Bl
             <IconButton label={t('pdfView.zoomIn')} onClick={() => setZoom((z) => Math.min(ZOOMS.length - 1, z + 1))} disabled={zoom === ZOOMS.length - 1} data-testid="pdf-zoom-in">
               <ZoomIn size={16} />
             </IconButton>
+            {/* ↔, not the panel header's ⤢ 크게 보기 (SidePanelFrame PanelExpandButton) right above it */}
             <IconButton label={t('pdfView.fitWidth')} onClick={() => setZoom(ZOOMS.indexOf(1))} disabled={scale === 1} data-testid="pdf-fit-width">
-              <Maximize2 size={16} />
+              <MoveHorizontal size={16} />
             </IconButton>
           </div>
         )}

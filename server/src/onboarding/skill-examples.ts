@@ -22,7 +22,7 @@ export type RegisteredExample = { kind: 'image'; skillHash: string } | { kind: '
 /** The examples by the language of the skill text and the skill name. */
 export const PACK_EXAMPLES: Record<'ko' | 'en', Partial<Record<string, RegisteredExample>>> = {
   ko: {
-    'intro-deck': { kind: 'image', skillHash: '4662c49799a8' },
+    'intro-deck': { kind: 'image', skillHash: 'bdb11396144f' },
     'card-news': { kind: 'image', skillHash: '770cfeb3af9b' },
     'promo-video': { kind: 'image', skillHash: 'ce31de7f81c7' },
     humanizer: { kind: 'text', text: koHumanizerExample },
