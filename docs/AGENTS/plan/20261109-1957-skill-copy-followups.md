@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-09 19:57
 - Branch: `fix/skill-copy-followups`
-- Status: in progress
+- Status: done
 - Where: trina-ax core (`server/src/skills/move.ts`, `server/src/skills/text.ts`, `server/src/chat/tools.ts`,
   `tests/unit/move-skill.test.ts`). Why: skills and permissions are core features of every team server (see
   docs/REPOSITORY-RULES.md)
@@ -54,4 +54,11 @@ the whole `tests/unit` compared with dev.
 
 ## Result
 
-Filled in at the end.
+Built as planned. The name line rewrite now also takes a name written as a block (`name: >-` and its indented lines),
+so such a skill copies under a new name instead of being refused; `checkSkill` still guards every renamed copy. The
+card's file list shows where each file lands for moves too, and says "복사할 파일" for a copy. `copy_files`'s reason
+for a skill folder as the source is left out: `fix/ai-refusals-clear` had not landed on dev.
+
+Checks: typecheck, `check:i18n`, `check:docs` clean; `move-skill` 25 pass, `project-skills` and `c-file-moves` pass,
+the e2e `project-skills` spec passes; the permission matrix's 3 failures and the whole `tests/unit`'s 53 failures are
+the same as on dev. PR: PR_LINK.
