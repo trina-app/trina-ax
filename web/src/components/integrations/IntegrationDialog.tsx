@@ -29,6 +29,9 @@ import type { OAuthClientView } from '@mycel/shared/api'
 import { reserveSignInWindow } from './IntegrationRow'
 
 const POLICIES: WritePolicy[] = ['ask', 'allow', 'deny']
+/** the fields inside Advanced (it opens when one of them needs fixing): an MCP server's own app is there, an API's not */
+const advancedFields = (f: IntegrationForm): FormField[] =>
+  ['method', 'notes', 'writePolicy', 'access', ...(f.kind === 'mcp' ? ['clientId', 'clientSecret', 'scope', 'authUrl', 'tokenUrl'] as FormField[] : [])]
 /** Admin: a connection for the team with one key, or a template each member connects with their own */
 type Who = 'team' | 'template'
 
@@ -89,6 +92,7 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
     team && !existing && !template ? t(`integrations.who.${who}`) : null,
     t(f.kind === 'mcp' ? 'integrations.kind.mcp' : 'integrations.kind.http'),
     fromTeam ? null : t(`integrations.auth.${f.method}`),
+    !fromTeam && f.kind === 'mcp' && usesApp(f) ? t('integrations.app.use') : null,
     asTemplate ? null : t(`integrations.write.${f.writePolicy}`),
     team && f.access ? (f.access.everyone ? t('integrations.access.everyone') : t('integrations.access.pick')) : null,
   ].filter(Boolean).join(' · ')
@@ -109,7 +113,7 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
     if (busy) return
     setSubmitted(true)
     if (Object.keys(errors).length) {
-      if ((['method', 'notes', 'writePolicy', 'access'] as FormField[]).some((k) => k in errors)) setAdvanced(true)
+      if (advancedFields(f).some((k) => k in errors)) setAdvanced(true)
       requestAnimationFrame(() => body.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus())
       return
     }
@@ -130,7 +134,7 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
       win?.close()
       const fields = serverFieldErrors(e)
       setServer(fields)
-      if ((['method', 'notes', 'writePolicy', 'access'] as FormField[]).some((k) => k in fields)) setAdvanced(true)
+      if (advancedFields(f).some((k) => k in fields)) setAdvanced(true)
       // from Discover the name and address are not on screen, so an error about them has to say so here
       if (!Object.keys(fields).length || connector) setError(errorText(e, locale, t('error.network')))
       else requestAnimationFrame(() => body.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus())
@@ -232,7 +236,8 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
           {asTemplate && f.method === 'oauth' && (
             <p className="text-sm text-muted" data-testid="integration-template-oauth-note">{t('integrations.template.oauthNote')}</p>
           )}
-          {f.method === 'oauth' && !fromTeam && (
+          {/* an API signs in only with its own app: its fields are required, so they sit with the address (like a key) */}
+          {f.method === 'oauth' && f.kind === 'http' && !fromTeam && (
             <AppSection f={f} stored={template ? template.oauthClient : existing?.oauthClient} change={change} errorOf={errorOf} blur={blur} template={asTemplate} />
           )}
           {!asTemplate && f.method === 'oauth' && (
@@ -301,6 +306,10 @@ export function IntegrationDialog({ scope, existing, template, connector, startA
                   options={methods.map((m) => ({ value: m, label: t(`integrations.auth.${m}`), desc: t(`integrations.auth.${m}.desc`), testId: `integration-auth-${m}` }))}
                 />
               )}
+              {/* most MCP servers register an app by themselves: their own app is the exception, one click away */}
+              {f.method === 'oauth' && f.kind === 'mcp' && !connector && !fromTeam && (
+                <AppSection f={f} stored={template ? template.oauthClient : existing?.oauthClient} change={change} errorOf={errorOf} blur={blur} template={asTemplate} />
+              )}
               {(f.kind === 'http' || asTemplate) && !fromTeam && (
                 <Field label={t(asTemplate ? 'integrations.template.note' : 'integrations.field.notes')} hint={asTemplate ? t('integrations.template.noteHint') : t('integrations.field.notesHint', { n: NOTES_MAX.toLocaleString(locale) })} error={errorOf('notes')}>
                   <textarea className={clsx(inputCls, 'h-auto min-h-24 py-2')} rows={asTemplate ? 3 : 4} maxLength={NOTES_MAX} value={f.notes} placeholder={asTemplate ? t('integrations.template.notePlaceholder') : t('integrations.field.notesPlaceholder')} onChange={(e) => change({ notes: e.target.value }, 'notes')} onBlur={blur('notes')} data-testid="integration-notes" />
@@ -354,7 +363,8 @@ function AppSection({ f, stored, change, errorOf, blur, template }: {
   const t = useT()
   const { copied, copy } = useCopy()
   const api = f.kind === 'http'
-  const redirect = `${window.location.origin}/api/integrations/oauth/callback`
+  // what the server builds from this page's address (routes/integrations.ts linkBase)
+  const redirect = typeof window !== 'undefined' && window.location ? `${window.location.origin}/api/integrations/oauth/callback` : '/api/integrations/oauth/callback'
   const secretStored = !!stored?.hasSecret && stored.clientId === f.clientId.trim()
   const fields = (
     <div className={clsx('space-y-4', !api && 'pl-6')} data-testid="integration-app-fields">
