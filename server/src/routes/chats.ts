@@ -373,24 +373,22 @@ export const chatsRoutes: RouteModule = {
 
     // "상단에 고정" / "고정 해제" (chat/pins.ts): any chat I may view, mine only; only my own windows hear it (a shared
     // chat's other people never learn of my pin). Not the server's own drafts: they are in no list (chat/internal-chats.ts)
-    const pinnable = (c: Context<AppEnv>, auth: AuthInfo, id: string) => {
-      const a = chatOf(rt, c, auth, id, 'view')
-      if (isInternalChat(ctx.db, a.row.id)) fail('not_found')
-      return a
-    }
+    const notDraft = (a: ChatAccess) => { if (isInternalChat(ctx.db, a.row.id)) fail('not_found') }
     const pinned = (me: string, id: string) => {
       const chat = chatOut(rt, me, rt.store.chatRow(id)!)
       rt.hub.publish(me, { type: 'chat.updated', data: { chatId: id, change: 'updated', chat } })
       return chat
     }
     kit.handle(API.pinChat, ({ c, params, auth }) => {
-      const a = pinnable(c, auth, params.id)
+      const a = chatOf(rt, c, auth, params.id, 'view')
+      notDraft(a)
       if (rt.store.pinnedAt(auth.user.id, a.row.id)) return chatOut(rt, auth.user.id, a.row)
       pin(rt, auth.user.id, a.row.id, c.get('locale'))
       return pinned(auth.user.id, a.row.id)
     })
     kit.handle(API.unpinChat, ({ c, params, auth }) => {
-      const a = pinnable(c, auth, params.id)
+      const a = chatOf(rt, c, auth, params.id, 'view')
+      notDraft(a)
       return unpin(ctx.db, auth.user.id, a.row.id) ? pinned(auth.user.id, a.row.id) : chatOut(rt, auth.user.id, a.row)
     })
 

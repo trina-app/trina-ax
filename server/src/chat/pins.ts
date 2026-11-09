@@ -4,7 +4,7 @@
 // the chat (the trash, a purge) and with the person, and the list drops the pins of chats its person can no longer see.
 import type { Database } from 'bun:sqlite'
 import type { Locale } from '@mycel/shared/api'
-import { fail } from '../http/errors'
+import { fail, HttpError } from '../http/errors'
 import { tr } from './i18n'
 import type { ChatRuntime } from './runtime'
 import { chatFor } from './shared'
@@ -23,7 +23,8 @@ export function pinsOf(db: Database, userId: string): Map<string, string> {
 export function dropUnseenPins(rt: ChatRuntime, userId: string): number {
   const gone: string[] = []
   for (const chatId of pinsOf(rt.db, userId).keys()) {
-    try { chatFor(rt, userId, chatId, 'view') } catch { gone.push(chatId) }
+    // only the route's own answers (not found, forbidden, …) mean "cannot see"; anything else is no reason to drop a pin
+    try { chatFor(rt, userId, chatId, 'view') } catch (e) { if (e instanceof HttpError) gone.push(chatId); else throw e }
   }
   for (const chatId of gone) unpin(rt.db, userId, chatId)
   return gone.length
